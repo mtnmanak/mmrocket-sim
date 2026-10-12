@@ -1,3 +1,4 @@
+import { cautionNote, noteFlags } from './importNotes.js';
 import { captureStageMass } from './stageMassOverrides.js';
 import { filletExportNotes } from './filletExport.js';
 import { simulationExtensionLossNotes } from './orkExtensions.js';
@@ -338,6 +339,9 @@ export async function importCdx1Flown(data: ArrayBuffer | string, opts: Omit<Non
   return importCdx1(data, { ...rest, flownMotor: (row) => figures.get(row.motorId) ?? null });
 }
 
+/** Design-level elements RASAero writes as its own computed results, not as inputs (D7 I03). */
+const RASAERO_OUTPUT_TAGS: ReadonlySet<string> = new Set(['CP']);
+
 export function importCdx1(data: ArrayBuffer | string, opts?: {
   /** Subtracted motor mass and moment must agree with the later match (2026-10-01). */
   catalogue?: MotorDbEntry[];
@@ -378,7 +382,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // values must not be mistaken for switching the model off.
   if (text(design, ':scope > ModifiedBarrowman')?.toLowerCase() === 'false'
       && opts?.aeroChoice !== undefined && opts.aeroChoice !== 'eb') {
-    notes.push('The file’s author turned Modified Barrowman off. '
+    cautionNote(notes, 'I23.aero-model', 'The file’s author turned Modified Barrowman off. '
       + `When this import began, the app’s aerodynamics model was ${AERO_NAME[opts.aeroChoice]}. `
       + 'Choose Classic Extended Barrowman to match the author’s setting; importing changes no aerodynamics setting.');
   }
@@ -423,7 +427,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // regular paint (`RASAeroCommonConstants.java:361-363`); say the same thing
   // rather than silently flying a finish the file never asked for.
   if (surfaceStr !== null && SURFACE_TO_FINISH[surfaceStr] === undefined) {
-    notes.push(`Unknown RASAero surface finish “${surfaceStr}” — imported as regular paint (60 µm).`);
+    cautionNote(notes, 'I04.surface-finish', `Unknown RASAero surface finish “${surfaceStr}” — imported as regular paint (60 µm).`);
   }
 
   const readFin = (parentEl: XmlElement, parentNode: ComponentNode) => {
@@ -606,7 +610,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         const shapeName = text(el, ':scope > Shape') ?? 'Tangent Ogive';
         const mapped = NOSE_SHAPES[shapeName] ?? { shape: 'ogive' };
         // Unknown geometry changes CP and drag; name the fallback (audit 2026-10-11, S1c-6).
-        if (!NOSE_SHAPES[shapeName]) notes.push(`Unknown nose shape “${shapeName}” — imported as tangent ogive; check the nose shape.`);
+        if (!NOSE_SHAPES[shapeName]) cautionNote(notes, 'I21.nose-shape', `Unknown nose shape “${shapeName}” — imported as tangent ogive; check the nose shape.`);
         const nose: ComponentNode = {
           type: 'nosecone', id: freshId(), name: 'Nose cone',
           length: num(el, 'Length', 12) / IN,
@@ -620,7 +624,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         if (finish && finish !== 'normal') nose['finish'] = finish;
         const blunt = num(el, 'BluntRadius', 0);
         if (blunt > 0) {
-          notes.push(`Ignored RASAero nose <BluntRadius> ${blunt} in — tip blunting is not modeled.`);
+          cautionNote(notes, 'I21.blunt-radius', `Ignored RASAero nose <BluntRadius> ${blunt} in — tip blunting is not modeled.`);
         }
         sustainer.children!.push(nose);
         stationIn += num(el, 'Length', 12);
@@ -725,7 +729,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
           // No body tube ahead of it to slide over. Desktop THROWS here
           // (FinCanHandler.java:39-44); we keep the old flat behaviour rather
           // than refuse the file. No .CDX1 in the 54-design corpus does this.
-          notes.push('This file’s fin can has no body tube in front of it to slide over, so it is '
+          cautionNote(notes, 'I21.fin-can-flat', 'This file’s fin can has no body tube in front of it to slide over, so it is '
             + 'imported as a plain body tube — it adds its own length to the rocket.');
           sustainer.children!.push(canTube);
           lastTube = canTube;
@@ -830,7 +834,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
          */
         const boosterLocIn = num(el, 'Location', NaN);
         if (Number.isFinite(boosterLocIn) && Math.abs(boosterLocIn - stationIn) > 0.01) {
-          notes.push(`${stageName}: the file says it starts at ${boosterLocIn} in, but the parts above `
+          cautionNote(notes, 'I21.booster-location', `${stageName}: the file says it starts at ${boosterLocIn} in, but the parts above `
             + `it add up to ${stationIn.toFixed(3)} in. Built from the parts — a stale <Location> is the `
             + 'usual cause, but check this one against RASAero.');
         }
@@ -923,7 +927,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         const toF = (b: number) => Math.round(b * 9 / 5 + 32);
         const loF = toF(PAD_TEMP_C_RANGE[0]);
         const hiF = toF(PAD_TEMP_C_RANGE[1]);
-        notes.push(`Launch site: this file's temperature, ${Number(temp.toPrecision(6))} °F `
+        cautionNote(notes, 'I25.temperature', `Launch site: this file's temperature, ${Number(temp.toPrecision(6))} °F `
           + `(${Number(c.toPrecision(4))} °C), is outside the ${loF} to ${hiF} °F the Temperature field `
           + 'accepts, so it is not a launch site this app can fly. Flying the standard temperature for '
           + 'the site altitude instead — set it under Launch conditions if you know it.');
@@ -944,7 +948,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       const toInHg = (b: number) => (b / INHG).toFixed(2);
       const loIn = toInHg(PAD_PRESSURE_HPA_RANGE[0]);
       const hiIn = toInHg(PAD_PRESSURE_HPA_RANGE[1]);
-      notes.push(`Launch site: this file's pressure, ${Number(press.toPrecision(6))} in-Hg `
+      cautionNote(notes, 'I25.pressure', `Launch site: this file's pressure, ${Number(press.toPrecision(6))} in-Hg `
         + `(${Math.round(hPa)} mbar), is outside the ${loIn} to ${hiIn} in-Hg the Station pressure `
         + 'field accepts, so it is not a launch site this app can fly. (That field holds in-Hg: sea '
         + 'level is 29.92 in it, not 1013.25.) Flying the standard pressure for the site altitude '
@@ -1185,7 +1189,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   if (flyable && configs[0] && flyable !== configs[0]) {
     const n = simNumbers.get(flyable.id)!;
     const firstN = simNumbers.get(configs[0].id)!;
-    notes.push(
+    cautionNote(notes, 'I12.simulation-opened',
       `Simulation ${firstN} in this file puts no motor on the launch stage, so it would not `
       + `leave the pad. Simulation ${n} was opened instead — switch under Flight configurations.`);
   } else if (!flyable && chosen) {
@@ -1196,7 +1200,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     // extra stage reads as a bug when the numbers disagree with RASAero's.
     const n = simNumbers.get(chosen.id)!;
     const bottomName = bottomStage?.name ?? 'the bottom stage';
-    notes.push(
+    cautionNote(notes, 'I12.booster-unpowered',
       `No simulation in this file puts a motor on ${bottomName} — RASAero flies them without `
       + `it. Simulation ${n} was opened with its lowest motor igniting at launch, so ${bottomName} `
       + 'flies along unpowered. To match RASAero, delete that stage in the Design tab; to fly it '
@@ -1635,18 +1639,23 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // Leads the honesty block: a substituted dimension changes every number
   // downstream of it, so it outranks the 2 mm-wall caveat below.
   if (unreadable.size > 0) {
-    notes.push(`Could not read ${unreadable.size} number${unreadable.size === 1 ? '' : 's'} in this file, `
+    cautionNote(notes, 'I04.unreadable-numbers', `Could not read ${unreadable.size} number${unreadable.size === 1 ? '' : 's'} in this file, `
       + 'so the import used its own default instead — check these dimensions before trusting any '
       + `result: ${[...unreadable].map(([tag, raw]) => `<${tag}> “${raw}”`).join(', ')}. `
       + 'A comma decimal separator (“2,5” for 2.5) is the usual cause: RASAero II writes numbers in '
       + 'the format of the machine it ran on. Re-saving the file on a machine set to a period '
       + 'decimal separator fixes it.');
   }
-  notes.push(overrodeEveryStage
-    ? 'RASAero designs carry no material or wall data — walls default to 2 mm, but every stage’s '
+  // D7 I22: Caution while the 2 mm-wall default drives some stage's mass; the
+  // all-stage measured branch is Information (its override warning is I17's).
+  if (overrodeEveryStage) {
+    notes.push('RASAero designs carry no material or wall data — walls default to 2 mm, but every stage’s '
       + 'mass and CG come from the simulation’s measured launch weight below, so the wall default '
-      + 'does not drive the numbers.'
-    : 'RASAero designs carry no material or wall data — walls default to 2 mm; review masses before trusting the numbers.');
+      + 'does not drive the numbers.');
+  } else {
+    cautionNote(notes, 'I22.default-walls',
+      'RASAero designs carry no material or wall data — walls default to 2 mm; review masses before trusting the numbers.');
+  }
   // ---- the pad's own pressure (2026-09-08, narrowed 2026-09-08b) ----
   // Down from three branches to one, for the same reason PadPressureCaution
   // is: a file that states no pressure is no longer a problem to warn about.
@@ -1680,7 +1689,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       + 'file’s altitudes instead of sea level.');
   }
   if (unattached.size) {
-    notes.push(`Motors in the RASAero file with no stage tube to mount them on: ${[...unattached].join(', ')} — add a body tube and pick them from the database.`);
+    cautionNote(notes, 'I12.unattached-motors', `Motors in the RASAero file with no stage tube to mount them on: ${[...unattached].join(', ')} — add a body tube and pick them from the database.`);
   }
   // What the measured weight/CG actually did, per stage, in the file's own
   // units — and separately what it could not do. A number that changes has to
@@ -1692,7 +1701,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   });
   if (appliedParts.length > 0) {
     const simTxt = chosenSimNr !== undefined ? `simulation ${chosenSimNr}` : 'the RASAero simulation';
-    notes.push(`Applied from ${simTxt}, as stage overrides with the motor backed out (desktop OpenRocket `
+    cautionNote(notes, 'I17.stage-overrides', `Applied from ${simTxt}, as stage overrides with the motor backed out (desktop OpenRocket `
       + `does the same): ${appliedParts.join('; ')}. Each replaces the computed mass or CG for that whole `
       + 'stage — clear it under Overrides to go back to the 2 mm-wall geometry.');
   }
@@ -1701,12 +1710,12 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     // own header mass, which is what flies. Without the curve that number is
     // not to be had, and the catalogue's is the nearest the app has.
     const list = [...catalogueStandIns].map(([d, kg]) => `${d} (${lbTxt(kg)})`).join(', ');
-    notes.push(`The thrust curve for ${list} could not be loaded during the import, so the motor `
+    cautionNote(notes, 'I17.stand-in-mass', `The thrust curve for ${list} could not be loaded during the import, so the motor `
       + 'database’s loaded weight was backed out of the stated launch weight instead of the curve file’s '
       + 'own, which is what the flight carries; the two can differ by tens of grams on some motors. When '
       + 'that motor loads, the app backs it out again with its curve’s own weight.');
   }
-  notes.push(...overrideNotes(selected));
+  for (const t of overrideNotes(selected)) cautionNote(notes, 'I17.override-not-applied', t);
   // The nozzle, once: which stages got one, from which of RASAero's two
   // places, and that other simulations may carry their own. A number that
   // changes drag has to say where it came from — and this one comes from a
@@ -1745,7 +1754,12 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     }
   }
   if (ignored.size) {
-    notes.push(`Ignored RASAero elements: ${[...ignored].join(', ')}.`);
+    // D7 I03: Caution only when something left out could carry a part or a
+    // flight input. <CP> is RASAero's own computed centre of pressure — an
+    // output it stores, not an input — so a file ignoring only that is quiet.
+    const text = `Ignored RASAero elements: ${[...ignored].join(', ')}.`;
+    if ([...ignored].every(tag => RASAERO_OUTPUT_TAGS.has(tag))) notes.push(text);
+    else cautionNote(notes, 'I03.ignored-elements', text);
   }
 
   const name = (text(design, ':scope > Comments') ?? '').split('\n')[0]?.trim()
@@ -1763,6 +1777,10 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     name, tree,
     motors,
     ignored: [...ignored], notes,
+    // Every configuration's stage-mass lines are overrideNotes' (I17, Caution),
+    // swapped in by planImport when it opens another configuration.
+    noteTiers: [...noteFlags(notes), ...configs.flatMap(c => (c.stageMassNotes ?? [])
+      .map(text => ({ kind: 'I17.override-not-applied', tier: 'caution' as const, text })))],
     ...(launch ? { launch } : {}),
     ...(machAlt ? { machAlt } : {}),
     configs, chosenConfigId,

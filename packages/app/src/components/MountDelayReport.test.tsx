@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
-import { DELAY_POLICY, delayMountsOf, solveAutoDelays } from '../services/autoDelaySolver.js';
+import { DELAY_POLICY, delayMountsOf, LATE_BURNOUT_CAUTION, solveAutoDelays } from '../services/autoDelaySolver.js';
 import { probeFlight, testMotor } from '../services/autoDelay.testSupport.js';
 import { autoDelayCardText, MountDelayReport } from './MountDelayReport.js';
 
@@ -27,6 +27,17 @@ function manual(motorIdentity: string, flownDelay: number | 'plugged', mountName
 }
 const resolution = (...mounts: ReturnType<typeof manual>[]) => ({ policy: DELAY_POLICY, mounts, probes: 0, elapsedMs: 0 });
 const F52C = '5f5e57811e865c0004c955d8';
+
+it('fills a substituted Auto-delay caution, leaving a manual delay quiet', () => {
+  const fixed = manual(F52C, 5);
+  const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(fixed)} />);
+  expect(html).not.toContain('message-caution');
+  const changed = renderToStaticMarkup(<MountDelayReport resolution={resolution({ ...fixed,
+    ...{ caution: '0 s is used because the optimum precedes burnout.' },
+  })} />);
+  expect(changed).toContain('message-caution');
+  expect(changed).toContain('0 s is used because the optimum precedes burnout.');
+});
 
 it("shows AeroTech's published measured band beside a delay its certification tests fired, and says what it is", () => {
   const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(manual(F52C, 5))} />);
@@ -56,4 +67,23 @@ it('marks the mount with no band with a dash when another mount has one', () => 
   // The F52C at 8 s: 7.239, 6.558, 7.341 s.
   expect(html).toContain('6.5–7.4 s (3 motors)');
   expect(html).toContain('<td>6 s</td><td>—</td></tr>');
+});
+
+it('says "hypothetical charge" in the flown-delay cell of a plugged motor flown on Auto (D7 §5, L20/M16)', () => {
+  const auto = { ...manual(F52C, 7), mode: 'auto' as const, rawOptimum: 7.25, recommendedDelay: 7, status: 'resolved' as const,
+    burnoutTime: 1.5, apogeeTime: 8.75, branchId: 'b', branchName: 'Sustainer' };
+  const probed = (m: object) => ({ ...resolution(m as never), probes: 1 });
+  const plugged = renderToStaticMarkup(<MountDelayReport resolution={probed({ ...auto, exception: 'plugged-on-charge' })} />);
+  expect(plugged).toMatch(/<td>7 s<span class="simdet-delay-mark"> · hypothetical charge \(motor sold plugged\)<\/span><\/td>/);
+  const plain = renderToStaticMarkup(<MountDelayReport resolution={probed(auto)} />);
+  expect(plain).toContain('<td>7 s</td>');
+  expect(plain).not.toContain('hypothetical charge');
+});
+
+it('says "limited by burnout" in the flown-delay cell when Auto could only use 0 s (D7 §5, M17)', () => {
+  const late = { ...manual(F52C, 0), mode: 'auto' as const, rawOptimum: -0.5, recommendedDelay: 0, status: 'resolved' as const,
+    burnoutTime: 3, apogeeTime: 2.5, branchId: 'b', branchName: 'Sustainer', caution: LATE_BURNOUT_CAUTION };
+  const html = renderToStaticMarkup(<MountDelayReport resolution={{ ...resolution(late as never), probes: 1 }} />);
+  expect(html).toMatch(/<td>0 s<span class="simdet-delay-mark"> · limited by burnout<\/span>/);
+  expect(html).toContain(LATE_BURNOUT_CAUTION.replace("'", '&#x27;'));
 });

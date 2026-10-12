@@ -1,3 +1,5 @@
+import { highestTier, noteFlags } from '../services/importNotes.js';
+import { Note, type NoteTier } from './Note.js';
 import { importMotorFiles as readMotorFiles } from '../services/importMotorFiles.js';
 import {
   useEffect, useMemo, useRef, useState, type ReactNode,
@@ -254,11 +256,16 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   loadChoice.current = { picked, delay, customDelay };
   const [error, setError] = useState<string | null>(null);
   // Say which legacy imports were refused once per opening, through the
-  // existing import status region (audit 2026-10-11, S1c-5).
+  // existing import status region (audit 2026-10-11, S1c-5). Its tier is the
+  // loader's own (D7 I15: a stored motor that did not load is Caution).
   const [initialEx] = useState(() => {
     const notes: string[] = [];
-    return { motors: loadExMotors(notes), notice: notes.join(' ') || null };
+    const motors = loadExMotors(notes);
+    return { motors, notice: notes.join(' ') || null, tier: highestTier(noteFlags(notes)) };
   });
+  const [importTier, setImportTier] = useState<NoteTier>(initialEx.tier);
+  /** The tier the import notice alone carries — what remains once its error is replaced. */
+  const [noticeTier, setNoticeTier] = useState<NoteTier>(initialEx.tier);
   const [notice, setNotice] = useState<string | null>(initialEx.notice);
   const [exMotors, setExMotors] = useState(initialEx.motors);
 
@@ -374,7 +381,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const importMotorFiles = async (files: File[]) => {
     setError(null);
     setNotice(null);
-    const { parsed, write, error, notice } = await readMotorFiles(files);
+    const { parsed, write, error, notice, tier, noticeTier: noticeOnly } = await readMotorFiles(files);
+    setImportTier(tier);
+    setNoticeTier(noticeOnly);
     setError(error);
     setNotice(notice);
     if (write) {
@@ -458,6 +467,10 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     loadAbort.current = ctrl;
     setBusy(true);
     setError(null);
+    // The import's error is gone, so its amber goes with it: a catalogue load
+    // that fails is Information (D7 M01) and the block keeps only the tier
+    // the import notice still on screen carries (review of NOTES-1, finding 8).
+    setImportTier(noticeTier);
     // The controls stay live during a download; only the choice still shown
     // may reach the design (audit 2026-10-11, S3a-1).
     const superseded = () => ctrl.signal.aborted || loadChoice.current.picked !== picked
@@ -925,12 +938,14 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             region inserted with its text already in place is announced
             unreliably, so the containers exist before their first message.
             The import result and its notes are polite; a failure is an alert. */}
+        <Note tier={notice || error ? importTier : 'information'} className="motor-import-notes">
         <div role="status">
           {notice && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{notice}</p>}
         </div>
         <div role="alert">
-          {error && <p className="file-note file-note-error" style={{ marginBottom: 0 }}>{error}</p>}
+          {error && <p className="file-note" style={{ marginBottom: 0 }}>{error}</p>}
         </div>
+        </Note>
       </div>
     </div>
   );

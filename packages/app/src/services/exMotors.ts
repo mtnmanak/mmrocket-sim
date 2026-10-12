@@ -1,3 +1,4 @@
+import { cautionNote } from './importNotes.js';
 import type { MotorDbEntry } from './motorDb.js';
 import { clearCurveCache, flownCurve, repairSamples, samplesToMotorSpec, type RepairedMotorSpec } from './thrustcurve.js';
 import { parseDecimal } from './xmlUtil.js';
@@ -200,7 +201,7 @@ export function loadExMotors(notes?: string[]): ExMotor[] {
         const reason = record(value)
           ? massProblem(finite(value['propWeightG']) ? value['propWeightG'] : NaN,
             finite(value['totalWeightG']) ? value['totalWeightG'] : NaN) : null;
-        notes.push(`Stored EX motor ${name} was not loaded: ${reason ?? 'invalid dimensions, curve or motor fields'}. Re-import its original .eng/.rse file.`);
+        cautionNote(notes, 'I15.stored-ex-refused', `Stored EX motor ${name} was not loaded: ${reason ?? 'invalid dimensions, curve or motor fields'}. Re-import its original .eng/.rse file.`);
       }
     }
     return valid;
@@ -284,7 +285,7 @@ export function restoreExMotors(added: readonly ExMotor[], notes: string[]): Map
     changed = true;
   }
   if (changed && !persist(library).stored) {
-    notes.push('Embedded EX motors are available for this session but were not saved in browser storage. Keep the .ork file and reopen it after reloading.');
+    cautionNote(notes, 'I15.ex-session-only', 'Embedded EX motors are available for this session but were not saved in browser storage. Keep the .ork file and reopen it after reloading.');
   }
   return ids;
 }

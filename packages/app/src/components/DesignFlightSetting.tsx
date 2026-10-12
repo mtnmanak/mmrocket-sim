@@ -3,7 +3,8 @@ import type { DeploymentTuple, FlightOverrides, SeparationTuple } from '../model
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtFieldValue, siToUi } from '../prefs/units.js';
 import { deploymentTuple } from '../services/foreignConfigLayers.js';
-import { describeFlownDeployment, describeFlownSeparation } from '../services/flightOverrideSummary.js';
+import { describeFlownDeployment, describeFlownSeparation, overrideFliesDifferently } from '../services/flightOverrideSummary.js';
+import { Note } from './Note.js';
 import { overrideFor } from '../services/flightState.js';
 import { separationTuple } from '../services/flightOverrideText.js';
 import { stages } from '../tree/treeModel.js';
@@ -51,11 +52,13 @@ export function DesignFlightSetting({ tree, node, context }: {
       <p className="comp-stats">The top stage never separates, so it has no separation setting to fly.</p>
     </div>;
   }
-  const own = recovery ? describeFlownDeployment(deploymentTuple(node), unit) : describeFlownSeparation(separationTuple(node), unit);
+  const ownTuple = recovery ? deploymentTuple(node) : separationTuple(node);
+  const own = 'deployEvent' in ownTuple ? describeFlownDeployment(ownTuple, unit) : describeFlownSeparation(ownTuple, unit);
   const override: DeploymentTuple | SeparationTuple | undefined = !node.id ? undefined : recovery
     ? overrideFor(context?.overrides.deployments, node.id) : overrideFor(context?.overrides.separations, node.id);
   const flown = override === undefined ? null : 'deployEvent' in override
     ? describeFlownDeployment(override, unit) : describeFlownSeparation(override, unit);
+  const differs = override !== undefined && overrideFliesDifferently(ownTuple, override);
   const owner = context?.configLabel != null ? `In “${context.configLabel}”` : context?.detached ? 'In the working settings' : null;
   const open = context?.onOpenPart;
   return <div className="design-flight-setting" role="group" aria-label={heading}>
@@ -65,8 +68,13 @@ export function DesignFlightSetting({ tree, node, context }: {
         aria-label={`${heading}: set on Motors & Configuration`}
         onClick={() => open(node.id!)}>{CONFIG_TAB_LINK}</button>}
     </div>
-    <p className="comp-stats">Own setting: {own}</p>
-    {flown !== null && owner !== null && <p className="comp-stats">{owner}: <strong>overridden</strong> — {flown}</p>}
+    {/* D7 I10: the effective value beside each setting. An override that
+        flies differently is Caution and the own setting says it is not flown;
+        one that flies the same is explained quietly (the retired banner's rule). */}
+    <p className="comp-stats">Own setting: {own}{differs && owner !== null && ` — not flown ${owner.replace(/^In/, 'in')}`}</p>
+    {flown !== null && owner !== null && <Note as="p" tier={differs ? 'caution' : 'information'} className="comp-stats">
+      {owner}: <strong>overridden</strong> — {flown}{!differs && ' (flies the same as the own setting)'}
+    </Note>}
   </div>;
 }
 

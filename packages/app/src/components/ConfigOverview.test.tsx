@@ -53,7 +53,7 @@ describe('CFG-1 comparison and summary', () => {
       </>));
       const grids = host.querySelectorAll('table');
       expect(grids[0]!.querySelectorAll('td')[1]!.textContent).toBe(`${expected} — override`);
-      expect(host.querySelectorAll('#cfg-part-chute p')[1]!.textContent).toBe(`This configuration: overridden — ${expected}`);
+      expect(host.querySelectorAll('#cfg-part-chute p')[1]!.textContent).toBe(`⚠ Caution: This configuration: overridden — ${expected}`);
       expect(grids[1]!.querySelector('td')!.textContent).toBe(expected);
       expect(host.querySelectorAll('#cfg-part-own p')[0]!.textContent).toBe(`Own setting: ${expected}`);
       expect(host.querySelectorAll('#cfg-part-own p')[1]!.textContent).toBe('This configuration: uses own setting');

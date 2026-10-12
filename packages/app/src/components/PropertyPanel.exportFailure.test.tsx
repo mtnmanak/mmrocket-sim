@@ -96,7 +96,8 @@ describe('PropertyPanel — an export that throws says so', () => {
     };
     exportSvg();
     expect(host.querySelector('.print-note-warn[role="alert"]')?.textContent)
-      .toBe('Could not export this fin template. Check the outline in the fin editor before exporting.');
+      .toBe('⛔ Danger: Could not export this fin template. Check the outline in the fin editor before exporting.');
+    expect(host.querySelector('.message-danger[role="alert"]')).not.toBeNull();
     expect(downloadBlob).not.toHaveBeenCalled();
     fin['points'] = [[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]];
     render();
@@ -113,7 +114,8 @@ describe('PropertyPanel — an export that throws says so', () => {
     await act(async () => { print.click(); });
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
     const alert = host.querySelector('.print-note-warn[role="alert"]');
-    expect(alert?.textContent).toBe('Couldn\'t export this part: mesher gave up');
+    expect(alert?.textContent).toBe('⛔ Danger: Couldn\'t export this part: mesher gave up');
+    expect(alert?.classList.contains('message-danger')).toBe(true);
     expect(rejections).toEqual([]);
   });
 });

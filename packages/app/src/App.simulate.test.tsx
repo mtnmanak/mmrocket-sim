@@ -255,7 +255,7 @@ it.each(['Fly', 'Batch'])('RES-1b %s counts override entries rather than empty c
   } else {
     const sweep = vi.spyOn(batchSweep, 'runBatchSweep').mockResolvedValue({ rows: [], stopped: false });
     try {
-      await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Motors & Launch')!.click());
+      await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Motors & Configuration')!.click());
       await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Batch simulate motors'))!.click());
       await waitFor(() => !!host.querySelector('[aria-label="Batch simulate motors"] .launch-btn'), 'Batch dialog');
       const button = host.querySelector<HTMLButtonElement>('[aria-label="Batch simulate motors"] .launch-btn')!;
@@ -288,7 +288,7 @@ it('RES-1c Batch window exports Status against the same provenance key as Saved 
   const blobs: Blob[] = [];
   const objectUrl = vi.spyOn(URL, 'createObjectURL').mockImplementation(blob => { blobs.push(blob as Blob); return 'blob:res1c'; });
   try {
-    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Motors & Launch')!.click());
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Motors & Configuration')!.click());
     await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Batch simulate motors'))!.click());
     await waitFor(() => !!host.querySelector('[aria-label="Batch simulate motors"] .launch-btn'), 'Batch dialog');
     const button = host.querySelector<HTMLButtonElement>('[aria-label="Batch simulate motors"] .launch-btn')!;
@@ -1101,6 +1101,10 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-5 LEM bann
   expect(bar.textContent).toContain('Motor ejection charge');
   expect(bar.textContent).toContain('300 ft');
   expect(bar.textContent).toContain('The Recovery section on Motors & Configuration shows both');
+  // NOTES-2 (D7 §4): the override note is the open's first line, and Caution.
+  const firstLine = bar.querySelector('.notice-group .notice-line')!;
+  expect(firstLine.classList.contains('message-caution')).toBe(true);
+  expect(firstLine.textContent).toContain('Parachute (×2)');
   await click('Design');
   // CFG-3 (ruling D2a): Design shows both settings read-only; the row on
   // Motors & Configuration edits them.

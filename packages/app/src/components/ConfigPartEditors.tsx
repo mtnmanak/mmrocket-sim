@@ -4,7 +4,8 @@ import type { DeploymentTuple, FlightOverrides, FlightTree, SeparationTuple } fr
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { siToUi, uiToSi } from '../prefs/units.js';
 import { deploymentTuple } from '../services/foreignConfigLayers.js';
-import { describeFlownDeployment, describeFlownSeparation } from '../services/flightOverrideSummary.js';
+import { describeFlownDeployment, describeFlownSeparation, overrideFliesDifferently } from '../services/flightOverrideSummary.js';
+import { Note } from './Note.js';
 import { overrideFor } from '../services/flightState.js';
 import { separationTuple, type ComponentFlightTuple } from '../services/flightOverrideText.js';
 import { hasParallelStage, stages } from '../tree/treeModel.js';
@@ -145,11 +146,20 @@ function PartRow({ node, family, stageName, override, configLabel, overrideLabel
   };
   // "This configuration" only names one that exists (review of CFG-2).
   const owner = configLabel !== null ? 'This configuration' : 'The working settings';
+  const ownerIn = configLabel !== null ? 'in this configuration' : 'in the working settings';
+  const differs = !!override && overrideFliesDifferently(own, override);
   const verb = recovery ? 'deploy' : 'separation';
   return <div id={`cfg-part-${node.id!}`} tabIndex={-1} className="config-part-row" role="group" aria-labelledby={`${uid}-name`}>
     <strong id={`${uid}-name`}>{name}{stageName && ` (in ${stageName})`}</strong>
-    <p className="comp-stats">Own setting: {describe(own)}</p>
-    <p className="comp-stats">{owner}: {override ? <><strong>overridden</strong> — {describe(override)}</> : 'uses own setting'}</p>
+    {/* D7 I10: say beside each setting whether it is the one that flies. An
+        override that flies differently is Caution; one that flies the same as
+        the own setting is explained quietly (the retired banner's rule). */}
+    <p className="comp-stats">Own setting: {describe(own)}{differs && ` — not flown ${ownerIn}`}</p>
+    {override
+      ? <Note as="p" tier={differs ? 'caution' : 'information'} className="comp-stats">
+        {owner}: <strong>overridden</strong> — {describe(override)}{!differs && ' (flies the same as the own setting)'}
+      </Note>
+      : <p className="comp-stats">{owner}: uses own setting</p>}
     <div className="config-part-actions">
       <button ref={editButton} type="button" className="file-btn" aria-expanded={editing} aria-controls={`${uid}-editor`}
         aria-describedby={`${uid}-name`}

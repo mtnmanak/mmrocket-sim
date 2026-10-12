@@ -330,6 +330,7 @@ describe('the batch dialog', () => {
     // …but will not start it, and the reason is on screen, not in a tooltip.
     expect(primary().disabled).toBe(true);
     const said = host.querySelector('[role="alert"]')?.textContent ?? '';
+    expect(host.querySelector('.batch-refused')!.classList.contains('message-danger')).toBe(true);
     expect(said).toContain(`${en(total)} flights is more than one batch will fly: the most is ${en(BATCH_MAX_FLIGHTS)}`);
     expect(said).toContain('Untick mixed 4+2 / 2+2+2');
     expect(said).toContain(`down to ${batchMaxCandidates([3])} or fewer`);

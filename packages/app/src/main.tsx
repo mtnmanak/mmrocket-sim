@@ -37,8 +37,8 @@ offlineStatus.start(registerSW, (_url, reg) => {
 function showFatal(message: string) {
   const root = document.getElementById('root');
   if (root && !root.childElementCount) {
-    root.innerHTML = `<div style="font-family:system-ui;padding:24px;color:#b00">
-      <h2>Something went wrong</h2>
+    root.innerHTML = `<div style="font-family:system-ui;padding:24px;color:#ffffff;background:#970f21;border:2px solid currentColor">
+      <h2><span aria-hidden="true">⛔</span> Danger: Something went wrong</h2>
       <pre style="white-space:pre-wrap">${message
         .replace(/&/g, '&amp;')
         .replace(/</g, '&lt;')}</pre>

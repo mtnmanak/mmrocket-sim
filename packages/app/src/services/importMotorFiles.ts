@@ -1,3 +1,4 @@
+import type { NoteTier } from '../components/Note.js';
 import { addExMotors, parseMotorFile, type ExMotor } from './exMotors.js';
 
 // @atestani TRF #162, Eric 2026-10-06: both pickers share parsing, storage and notices.
@@ -5,7 +6,10 @@ export async function importMotorFiles(files: File[]) {
   let notice: string | null = null;
   const motorFiles = files.filter((f) => /\.(eng|rse|txt)$/i.test(f.name));
   if (motorFiles.length === 0) {
-    return { parsed: [], write: null, error: 'No .eng or .rse files found in that selection.', notice: null };
+    return {
+      parsed: [], write: null, error: 'No .eng or .rse files found in that selection.', notice: null,
+      tier: 'information' as NoteTier, noticeTier: 'information' as NoteTier,
+    };
   }
   const parsed: ExMotor[] = [];
   const failed: string[] = [];
@@ -23,6 +27,7 @@ export async function importMotorFiles(files: File[]) {
   // ONE library write for the whole selection, not one per file: a folder of
   // fifty files rewrote an ever-growing list fifty times, and one write means
   // one honest answer to "did it save?".
+  const repaired = said.length > 0;
   const imported = parsed.map((m) => m.designation);
   const write = parsed.length ? addExMotors(parsed) : null;
   const unsaved = write !== null && !write.stored;
@@ -55,5 +60,10 @@ export async function importMotorFiles(files: File[]) {
   if (failed.length) {
     problems.push(`Skipped ${failed.length} file${failed.length === 1 ? '' : 's'} — ${failed.join(' · ')}`);
   }
-  return { parsed, write, error: problems.length ? problems.join(' ') : null, notice };
+  const tier: NoteTier = parsed.length > 0 && (repaired || unsaved || failed.length > 0) ? 'caution' : 'information';
+  // The part of that tier the NOTICE carries on its own (a repair it names):
+  // what is left once something else replaces this import's error (review of
+  // NOTES-1, finding 8 — a later failed catalogue Load kept the import's amber).
+  const noticeTier: NoteTier = notice !== null && parsed.length > 0 && repaired ? 'caution' : 'information';
+  return { parsed, write, tier, noticeTier, error: problems.length ? problems.join(' ') : null, notice };
 }

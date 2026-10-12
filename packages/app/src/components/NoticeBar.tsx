@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { NoteLabel, noteClass, type NoteTier } from './Note.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { changesText, highestTier, orderedLines, tierRank, type NoteGroup } from '../services/importNotes.js';
 
 /**
  * The app's transient-message strip (issues-2026-08-23a.md, Big Dog via TRF).
@@ -39,11 +41,27 @@ export interface Notice {
   /** Stable within a kind; unchanged severity and text do not re-open the bar. */
   id: string;
   severity: NoticeSeverity;
+  tier?: NoteTier;
   text: string;
+  /**
+   * A file-open/restore note's lines, each with its producer's tier (D7 §4).
+   * `text` still holds the whole note, for the announcer key and the ×'s name;
+   * the bar draws the group instead: collapsed, its most important line and
+   * "N changes" under the highest line's tier; expanded, Danger → Caution →
+   * Information, each line in its own treatment.
+   */
+  group?: NoteGroup;
   /** Open this informational note once on arrival; later collapse still wins. */
   expand?: boolean;
   /** Present when the user is allowed to dismiss this one. */
   onDismiss?: () => void;
+  /**
+   * Said by the announcers but never drawn on the bar: a message whose one
+   * visible block lives beside the operation that failed (a failed save or
+   * export's Danger note in the header). Drawing it here as well showed the
+   * same words twice (review of NOTES-1, finding 7).
+   */
+  announceOnly?: boolean;
 }
 
 const RANK: Record<NoticeSeverity, number> = { info: 0, warn: 1, error: 2 };
@@ -62,6 +80,24 @@ const firstLine = (text: string): string => {
   return line.length > 160 ? `${line.slice(0, 157)}…` : line;
 };
 
+/** A group's lines, most important first; empty for a plain notice. */
+const groupLines = (n: Notice) => orderedLines(n.group?.lines ?? []);
+
+/** The notice's visual tier: its own, else (a group) its highest line's. */
+const tierOf = (n: Notice): NoteTier => n.tier ?? (n.group ? highestTier(n.group.lines) : 'information');
+
+/**
+ * The one line a collapsed group shows and the announcer says: its most
+ * important line and how many there are — not "Loaded …", which is the
+ * group's heading. A group with no lines is its heading alone.
+ */
+const groupSummary = (n: Notice): string | null => {
+  const lines = groupLines(n);
+  // A headless one-line group (a configuration switch's receipt) reads as itself.
+  if (!lines.length || (!n.group?.heading && lines.length === 1)) return null;
+  return `${firstLine(lines[0]!.text)} — ${changesText(lines.length)}`;
+};
+
 /**
  * What makes a notice NEW for expansion, the announcer and "newest first": its words
  * as well as its id. The file note is ONE id ('file-note') whose text is
@@ -75,11 +111,22 @@ const noticeKey = (n: Notice): string => `${n.id}\u0000${n.severity}\u0000${n.te
  * the collapsed bar shows, a problem in full, because a problem is what opens
  * the bar — the same text a sighted user is shown.
  */
-const spoken = (n: Notice): string =>
-  `${LABEL[n.severity]}: ${n.severity === 'info' && !n.expand ? firstLine(n.text) : n.text}`;
+const spoken = (n: Notice): string => {
+  // A group is announced once, as its summary (D7 §4): the lines stay on the
+  // bar to be read, rather than dozens of sentences said at once.
+  const summary = groupSummary(n);
+  if (summary !== null) {
+    const tier = tierOf(n);
+    const word = tier === 'danger' ? 'Danger: ' : tier === 'caution' ? 'Caution: ' : '';
+    return `${LABEL[n.severity]}: ${n.group?.heading ? `${n.group.heading} ` : ''}${word}${summary}.`;
+  }
+  return `${LABEL[n.severity]}: ${n.severity === 'info' && !n.expand ? firstLine(n.text) : n.text}`;
+};
 
-export function NoticeBar({ notices }: { notices: Notice[] }) {
+export function NoticeBar({ notices: all }: { notices: Notice[] }) {
   const [expanded, setExpanded] = useState(false);
+  /** What the bar draws; the announcers below still speak for every notice. */
+  const notices = useMemo(() => all.filter((n) => !n.announceOnly), [all]);
   // Track what the user has already been shown — every id, severity and text on the
   // bar — so a warning opens it the first time it appears and does NOT re-open
   // it every render, nor fight the user if they collapse it again.
@@ -121,10 +168,11 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
    */
   const onBar = useRef<ReadonlySet<string>>(new Set());
   const [said, setSaid] = useState({ seq: 0, polite: '', assertive: '' });
+  const spokenKey = all.map(noticeKey).join('\u0001');
   useEffect(() => {
     const before = onBar.current;
-    onBar.current = new Set(notices.map(noticeKey));
-    const fresh = notices.filter((n) => !before.has(noticeKey(n)));
+    onBar.current = new Set(all.map(noticeKey));
+    const fresh = all.filter((n) => !before.has(noticeKey(n)));
     if (fresh.length === 0) return;
     const say = (want: (n: Notice) => boolean) => fresh.filter(want).map(spoken).join(' ');
     setSaid((prev) => ({
@@ -132,7 +180,7 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
       polite: say((n) => n.severity === 'info'),
       assertive: say((n) => n.severity !== 'info'),
     }));
-  }, [textKey, notices]);
+  }, [spokenKey, all]);
 
   useEffect(() => {
     const seen = announced.current;
@@ -187,8 +235,10 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
   // React throws away for the setAge above); Array.sort is stable, so a tie
   // keeps the App's order. No notices → no lead → no bar.
   const newest = (n: Notice) => age.batch.get(noticeKey(n)) ?? age.next;
+  // Visual tier breaks a severity tie: an amber group leads a quiet receipt.
   const lead = [...notices].sort((a, b) =>
-    RANK[b.severity] - RANK[a.severity] || newest(b) - newest(a))[0];
+    RANK[b.severity] - RANK[a.severity] || tierRank(tierOf(b)) - tierRank(tierOf(a)) || newest(b) - newest(a))[0];
+  const leadSummary = lead ? groupSummary(lead) : null;
   const others = notices.length - 1;
 
   // ONE shape with and without a bar: [bar-or-nothing, polite, alert]. The
@@ -212,12 +262,30 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
           {expanded ? (
             <ul className="notice-list">
               {notices.map((n) => (
-                <li key={n.id} className={`notice-item notice-${n.severity}`}>
+                <li key={n.id} className={`notice-item notice-${n.severity} ${n.group ? 'notice-group' : noteClass(tierOf(n))}`}>
                   <span className="notice-glyph" aria-hidden="true">{GLYPH[n.severity]}</span>
-                  <span className="notice-text">
-                    <span className="sr-only">{`${LABEL[n.severity]}: `}</span>
-                    {n.text}
-                  </span>
+                  {n.group ? (
+                    // Each line its own tier, so a routine translation does not
+                    // inherit an amber slab from the one line that earned it.
+                    <span className="notice-text">
+                      <span className="sr-only">{`${LABEL[n.severity]}: `}</span>
+                      {n.group.heading && <span className="notice-group-heading">{n.group.heading}</span>}
+                      {n.group.lines.length > 0 && (
+                        <ul className="notice-lines" aria-label={changesText(n.group.lines.length)}>
+                          {groupLines(n).map((line, i) => (
+                            <li key={i} className={`notice-line ${noteClass(line.tier)}`}>
+                              <NoteLabel tier={line.tier} />{line.text}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </span>
+                  ) : (
+                    <span className="notice-text">
+                      <span className="sr-only">{`${LABEL[n.severity]}: `}</span>
+                      <NoteLabel tier={tierOf(n)} />{n.text}
+                    </span>
+                  )}
                   {n.onDismiss && (
                     <button
                       className="notice-dismiss"
@@ -229,11 +297,11 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
               ))}
             </ul>
           ) : (
-            <div className={`notice-item notice-${lead.severity}`}>
+            <div className={`notice-item notice-${lead.severity} ${noteClass(tierOf(lead))}`}>
               <span className="notice-glyph" aria-hidden="true">{GLYPH[lead.severity]}</span>
               <span className="notice-text notice-oneline">
                 <span className="sr-only">{`${LABEL[lead.severity]}: `}</span>
-                {firstLine(lead.text)}
+                <NoteLabel tier={tierOf(lead)} />{leadSummary ?? firstLine(lead.text)}
               </span>
               {others > 0 && <span className="notice-count">{`+${others}`}</span>}
             </div>

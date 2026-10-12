@@ -120,6 +120,25 @@ afterEach(async () => {
 });
 
 describe('App — accessibility, as rendered', () => {
+  it('keeps HIGH warning announcements even when an unknown event has Information styling', async () => {
+    const real = await vi.importActual<typeof import('./services/flightRunner.js')>('./services/flightRunner.js');
+    vi.mocked(flyLaunch).mockImplementationOnce(async (...args) => {
+      const out = await real.flyLaunch(...args);
+      return { ...out, result: { ...out.result, warnings: [
+        { key: 'UNMAPPED_EVENT', message: 'An unmapped recorded event', priority: 'HIGH' as const },
+      ] } };
+    });
+    const host = await mountApp();
+    const region = host.querySelector('.sr-only[role="alert"]:not(.notice-announce)')!;
+    expect(region.textContent).toBe('');
+    await launch(host);
+    expect(host.querySelector('.sr-only[role="alert"]:not(.notice-announce)')).toBe(region);
+    expect(region.textContent).toContain('An unmapped recorded event');
+    const visible = [...host.querySelectorAll('.flight-notes p')].find(p => p.textContent?.includes('An unmapped recorded event'))!;
+    expect(visible).toBeDefined();
+    expect(visible.closest('.message-tier')).toBeNull();
+  }, 30000);
+
   /**
    * Row 445: no tablist without the tab pattern. The workspace switch is a
    * <nav> of buttons marking the current one with aria-current="page", and
@@ -248,6 +267,8 @@ describe('App — accessibility, as rendered', () => {
     expect(why).toBe('Apogee of the most recent flight, which was flown on Rogers Modified Barrowman (Kbf)'
       + '. That is not the model now selected. Press Launch to re-fly it.');
     expect(apogee().querySelector('.vitals-stale')?.getAttribute('aria-hidden')).toBe('true');
+    // D7 §5, R04: the provenance is in words WITH the number, not only a glyph.
+    expect(apogee().querySelector('.vitals-value')?.textContent).toMatch(/⚠ previous flight/);
     expect(apogee().querySelector('.vitals-value .sr-only')?.textContent).toBe(` — warning: ${why}`);
   }, 30000);
 

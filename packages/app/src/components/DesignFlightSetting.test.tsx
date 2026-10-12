@@ -82,6 +82,13 @@ describe('Design shows separation read-only', () => {
     expect(block.querySelector('h3')!.textContent).toBe('Separation');
     expect(block.textContent).toContain("Own setting: This stage's motor burnout, delay 1 s");
     expect(block.textContent).toContain('In “Club field”: overridden — Never');
+    // D7 I10 (carried from the retired FlightOverrideBanner): beside each
+    // setting, whether it is the one that flies; the effective override is a
+    // Caution note that says so in words.
+    expect([...block.querySelectorAll('p')].map(p => p.textContent)).toEqual([
+      "Own setting: This stage's motor burnout, delay 1 s — not flown in “Club field”",
+      '⚠ Caution: In “Club field”: overridden — Never']);
+    expect(block.querySelector('p.message-caution')).not.toBeNull();
     act(() => block.querySelector<HTMLButtonElement>('button[aria-label="Separation: set on Motors & Configuration"]')!.click());
     expect(opened).toEqual(['part:booster']);
     expect(patches).toEqual([]);
@@ -100,6 +107,8 @@ describe('Design shows separation read-only', () => {
     const block = group('Deployment')!;
     expect(block.textContent).toContain('Own setting: Apogee');
     expect(block.textContent).not.toContain('overridden');
+    expect(block.textContent).not.toContain('not flown');
+    expect(block.querySelector('.message-tier')).toBeNull();
     expect(host.querySelector('select[aria-label="Deploy at"]')).toBeNull();
     act(() => block.querySelector('button')!.click());
     expect(opened).toEqual(['part:ribbon']);

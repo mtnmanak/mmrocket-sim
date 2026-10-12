@@ -27,6 +27,7 @@ import * as windProfile from './services/windProfile.js';
 import { MOTOR_DB, setCatalogueOverlay } from './services/motorDb.js';
 import type { SimRun } from './services/simReport.js';
 import { decodeShareFragment, encodeShareFragment } from './services/shareLink.js';
+import { downloadImage } from './services/schematicExport.js';
 import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
 
@@ -71,6 +72,10 @@ vi.mock('./services/orkFile.js', async (importOriginal) => {
 vi.mock('./services/motorMatch.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/motorMatch.js')>();
   return { ...real, loadCatalogueMotor: vi.fn(real.loadCatalogueMotor) };
+});
+vi.mock('./services/schematicExport.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./services/schematicExport.js')>();
+  return { ...real, downloadImage: vi.fn(real.downloadImage) };
 });
 vi.mock('./services/shareLink.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/shareLink.js')>();
@@ -840,8 +845,10 @@ describe('lane C2 save and share fidelity', () => {
     await openTab(host, 'Motors & Configuration');
     const importItem = [...host.querySelectorAll('.notice-item')].find(item => item.textContent?.includes('Launch refused'))!;
     expect(importItem).toBeDefined();
-    const retainedLines = importItem.querySelector('.notice-text')!.textContent!
-      .replace(/^Warning: /, '').split('\n').filter(line => !line.includes('Launch refused'));
+    // NOTES-2: the open's note is a group — a heading and one element per line.
+    const retainedLines = [importItem.querySelector('.notice-group-heading')?.textContent ?? '',
+      ...[...importItem.querySelectorAll('.notice-line')].map(li => li.textContent ?? '')]
+      .filter(line => line !== '' && !line.includes('Launch refused'));
     expect(retainedLines.length).toBeGreaterThan(0);
     if (format === 'ork') expect(importItem.textContent).toContain('unknown-model');
     await act(async () => { host.querySelector<HTMLButtonElement>('.notice-toggle')!.click(); });
@@ -1273,6 +1280,44 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
     await settle();
     expect(host.textContent).toContain('Save .ork failed');
     expect(await guarded(host)).toBe(true);
+  }, 30000);
+
+  it('shows a failed hero image export in the fixed notice strip, not only to a screen reader (review of NOTES-1b, finding 1)', async () => {
+    await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    const host = document.body;
+    // The hero's ⬇ SVG sits on the canvas, far below the non-sticky header:
+    // its failure must be drawn where a sighted user scrolled there can see it.
+    vi.mocked(downloadImage).mockImplementationOnce(() => { throw new Error('blob refused'); });
+    await act(async () => { button(host, '⬇ SVG').click(); });
+    await settle();
+    const bar = host.querySelector('.notice-bar')!;
+    expect(bar.textContent).toContain('SVG export failed: blob refused');
+    expect(bar.querySelector('.message-danger')?.textContent).toContain('Danger: ');
+    // Drawn once: the strip, not also the header block for header Save / Export.
+    expect(host.querySelector('.file-operation-note')).toBeNull();
+    expect(host.querySelector('.notice-announce[role="alert"]')!.textContent).toContain('SVG export failed');
+  }, 30000);
+
+  it('shows a failed save once, beside Save / Export, and still announces it (review of NOTES-1, finding 7)', async () => {
+    await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    const host = document.body;
+    vi.mocked(saveFile).mockRejectedValueOnce(new Error('disk unavailable'));
+    await saveAs(host, 'Save .ork');
+    await settle();
+    // Every visible element whose own text says it: the header's Danger note alone.
+    const shown = [...host.querySelectorAll('*')].filter((el) => !el.closest('.sr-only')
+      && [...el.childNodes].some((c) => c.nodeType === 3 && c.textContent!.includes('Save .ork failed')));
+    expect(shown.map((el) => el.className)).toEqual(['file-operation-note message-tier message-danger']);
+    expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('Save .ork failed');
+    expect(host.querySelector('.notice-announce[role="alert"]')!.textContent).toContain('Save .ork failed');
+    // Its × is the one dismissal.
+    await act(async () => {
+      (host.querySelector('[aria-label="Dismiss failed save or export"]') as HTMLButtonElement).click();
+    });
+    expect(host.querySelector('.file-operation-note')).toBeNull();
+    expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('Save .ork failed');
   }, 30000);
 
   it('every Save As / Export entry but Save .ork — the share link among them — leaves the design unsaved', async () => {

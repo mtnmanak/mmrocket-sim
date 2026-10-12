@@ -1,5 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import { parseXml, type XmlElement } from './xmlParse.js';
+import { cautionNote } from './importNotes.js';
 
 /** Separate from the inflated-file cap: retained opaque payload survives autosave.
  * Count UTF-8 bytes across ALL simulations, not characters or per-extension sizes. */
@@ -111,7 +112,7 @@ export function preserveSimulationExtensions(
         element = parseXml(slice, refusal).documentElement;
       } catch (error) {
         if (!(error instanceof Error) || error.message !== refusal) throw error;
-        notes.push('A simulation extension was not preserved because its XML cannot stand alone without the original document’s namespace declarations.');
+        cautionNote(notes, 'I02.not-standalone', 'A simulation extension was not preserved because its XML cannot stand alone without the original document’s namespace declarations.');
         return false;
       }
       if (element.tagName !== 'extension'
@@ -127,7 +128,7 @@ export function preserveSimulationExtensions(
   const ignored = sims.flatMap(s => Array.from(s.children))
     .filter(child => child.tagName !== 'extension')
     .reduce((count, child) => count + child.querySelectorAll('extension').length, 0);
-  if (ignored) notes.push(`${ignored} nested simulation extension${ignored === 1 ? '' : 's'} inside other elements `
+  if (ignored) cautionNote(notes, 'I02.nested-dropped', `${ignored} nested simulation extension${ignored === 1 ? '' : 's'} inside other elements `
     + `${ignored === 1 ? 'is' : 'are'} not preserved: those enclosing elements and their payloads are omitted when you save. `
     + 'Only direct simulation extensions are kept.');
   if (!extensions.length) return tree;
@@ -151,7 +152,7 @@ export function preserveSimulationExtensions(
     else if (Object.hasOwn(EXAMPLE_NAMES, normalized)) kinds.add(EXAMPLE_NAMES[normalized]!);
     else kinds.add(id ? id.slice(0, 160) : 'unknown extension');
   }
-  notes.push(`This file contains ${extensions.length} simulation extension${extensions.length === 1 ? '' : 's'} `
+  cautionNote(notes, 'I02.not-run', `This file contains ${extensions.length} simulation extension${extensions.length === 1 ? '' : 's'} `
     + `(${[...kinds].join(', ')}): the app keeps them when you save as .ork but does not run them; flights here run without them.`
     + (enabled ? ` ${enabled} script${enabled === 1 ? ' is' : 's are'} enabled in the file: desktop OpenRocket would run `
       + `them if trusted on that computer; the app's numbers may differ.` : ''));

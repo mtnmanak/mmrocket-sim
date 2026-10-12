@@ -599,6 +599,8 @@ describe('ScaleDialog', () => {
       expect(applyButton().textContent).toBe('Scale to 10200.0 %');
       expect(applyButton().disabled).toBe(true);
       expect(text()).toContain('between 0.01× and 100×');
+      // D7 §5, X03: "not applied" in words beside the refusal.
+      expect(text()).toContain('Nothing is scaled until then.');
     });
   });
 

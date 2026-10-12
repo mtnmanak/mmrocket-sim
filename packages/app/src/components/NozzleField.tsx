@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import { useEffect, useId, useState, useSyncExternalStore } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
@@ -221,6 +222,7 @@ export function NozzleField({
           </button>
         </p>
       )}
+      <Note tier={exitDiameterM === null && (clearedFor != null || unavailable) ? 'caution' : 'information'}>
       {clearedFor && exitDiameterM === null && (
         <p className="field-caution" style={{ margin: '3px 0 0' }} data-nozzle="cleared">
           <strong>Cleared — the {ui(clearedFor.previousM)} here was for {clearedFor.previousLabel}.</strong>
@@ -248,6 +250,7 @@ export function NozzleField({
           </button>
         </p>
       )}
+      </Note>
       {!mixed && entry?.note && published !== null && (
         <p className="comp-stats" style={{ margin: '3px 0 0' }} data-nozzle="alternatives">
           {entry.note}

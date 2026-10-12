@@ -432,6 +432,21 @@ describe('DragPanel — sweep conditions', () => {
     });
   });
 
+  it('puts the model limitation in the chart titles, under the footnotes’ own conditions (D7 §5, R27)', () => {
+    const titles = () => [...host.querySelectorAll('.chart-panel-head h3')].map((h) => h.textContent ?? '');
+    const render = (props: { supersonicModel?: boolean; hybridModel?: boolean }) => act(() => root.render(
+      <PrefsProvider><DragPanel rocket={stubRocket(calls)} {...props} /></PrefsProvider>));
+    render({ supersonicModel: true });
+    openPanel();
+    expect(titles().filter((t) => /Barrowman|Hybrid/.test(t))).toEqual([]);
+    render({ supersonicModel: false });
+    expect(titles()[0]).toContain('Drag coefficient vs Mach — Barrowman estimate above Mach 1.5, approximate');
+    expect(titles()[1]).toContain('— Barrowman: body CP frozen above Mach 1');
+    render({ supersonicModel: true, hybridModel: true });
+    expect(titles()[0]).toContain('— Hybrid (experimental): flight accuracy not established');
+    expect(titles()[1]).toContain('— Hybrid (experimental): flight accuracy not established');
+  });
+
   /**
    * Audit 2026-09-22, Performance: every keystroke NumField could read was a
    * new atmosphere and a whole synchronous sweep in render — typing "10000" at

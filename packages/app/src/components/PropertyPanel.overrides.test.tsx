@@ -128,6 +128,10 @@ describe('PropertyPanel — override "Use instead of everything inside" flags', 
     expect(note!.textContent).toContain('Use instead of everything inside');
     // Only the suppressed quantity says so — CG and Cd are unaffected.
     expect(host.querySelectorAll('.override-suppressed')).toHaveLength(1);
+    // D7 §5, P01: it states the figure that flies in this field's place,
+    // inside the field it qualifies.
+    expect(note!.textContent).toContain('flying: its mass 2000 g');
+    expect(note!.closest('.field')?.querySelector('input[aria-label="Mass override"]')).not.toBeNull();
   });
 
   it('a bare subcomponents flag with no value suppresses nothing', () => {
@@ -207,6 +211,9 @@ describe('PropertyPanel — a container CG override with nothing to position', (
     mount(stage({ overrideCGX: 0.2 }));
     expect(warning()).not.toBeNull();
     expect(warning()!.textContent).toMatch(/no mass of its own/i);
+    // D7 §5, P02: the note leads with whether the field applies, beside the CG field.
+    expect(warning()!.textContent).toMatch(/^CG not applied: no mass\./);
+    expect(warning()!.closest('.field')?.querySelector('input[aria-label="CG override, from component top"]')).not.toBeNull();
   });
 
   it('stops warning once a mass override gives it something to position', () => {
@@ -352,6 +359,11 @@ it('S3a-2 hides inert shroud overrides and points to the effective Mass field', 
   expect(host.querySelector('[aria-label="CG override, from component top"]')).toBeNull();
   expect(host.querySelector('[aria-label="Drag coefficient (Cd) override"]')).toBeNull();
   expect(host.textContent).toContain('Use the shroud’s Mass (as built) field');
+  // D7 §5, P05: the explanation links the control that does set the mass.
+  const go = [...host.querySelectorAll('button')].find(b => b.textContent === 'Go to Mass (as built)')!;
+  expect(go).toBeTruthy();
+  act(() => go.click());
+  expect(document.activeElement?.closest('.field')?.querySelector('label')?.textContent).toContain('Mass (as built)');
 });
 
 it('S3a-2 legacy shroud overrides do not replace its synthesized engine values', () => {

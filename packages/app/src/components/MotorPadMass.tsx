@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -189,7 +190,7 @@ function PadMassLine({
   describeIdentity: (identity: string) => string;
 }) {
   const plain = (text: string) => <p id={id} className="comp-stats" style={{ margin: '3px 0 0' }}>{text}</p>;
-  const warn = (text: string) => <p id={id} className="print-note print-note-warn" role="status">{text}</p>;
+  const warn = (text: string) => <Note as="p" tier="caution" id={id} className="print-note print-note-warn" role="status">{text}</Note>;
   // `motorMassKg` sums EVERY mount's catalogue motor, but `motorLabel` is the
   // primary's alone — so with two mounts the total must not sit beside one
   // motor's name ("catalogue J540R 1584 g" for a J540R plus a booster motor).
@@ -213,7 +214,7 @@ function PadMassLine({
   }
   switch (hardware.state) {
     case 'none':
-      return plain(hardware.why === 'no-motor'
+      return warn(hardware.why === 'no-motor'
         ? 'The simulation kernel refused this motor\'s curve, so there is nothing to subtract the pad mass from — nothing is carried.'
         : 'The catalogue motor carries no mass curve, so the hardware cannot be separated from it.');
 
@@ -235,7 +236,7 @@ function PadMassLine({
 
     case 'ok':
       return (
-        <p id={id} className="comp-stats" style={{ margin: '3px 0 0' }}>
+        <Note as="p" tier={hardware.large ? 'caution' : 'information'} id={id} className="comp-stats" style={{ margin: '3px 0 0' }}>
           <span className="measured-delta">{mass(hardware.deltaKg)}</span>
           {` carried as hardware — adapter, retainer, closure: ${mass(hardware.dryMassKg + hardware.motorMassKg + hardware.deltaKg)} weighed − dry ${mass(hardware.dryMassKg)} ${hardware.drySource === 'measured' ? 'as you measured it' : 'as computed'} − ${catalogue(hardware)} ${mass(hardware.motorMassKg)}.`}
           {hardware.mountCount > 1 && ` Carried on ${mountName}.`}
@@ -248,7 +249,7 @@ function PadMassLine({
           {hardware.mountCount > 1
             ? ` Weighed with ${motorLabel} and the rest of this motor set; re-weigh if any of them changes. The next Launch flies it.`
             : ` Weighed with ${motorLabel}; re-weigh if you change it. The next Launch flies it.`}
-        </p>
+        </Note>
       );
   }
 }

@@ -1,3 +1,4 @@
+import type { NoteTier } from '../components/Note.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { Notice, NoticeSeverity } from '../components/NoticeBar.js';
 import type { MountMotor } from '../model/design.js';
@@ -6,6 +7,7 @@ import { fmtStepS } from './orkFile.js';
 import { runCapNote } from './simStore.js';
 import { isImpulseNote } from './thrustcurve.js';
 import { isLegacyPositionNote, legacyPositionNote, pendingLegacyPositions } from './legacyPositionCheck.js';
+import type { NoteGroup } from './importNotes.js';
 
 /**
  * EVERYTHING TRANSIENT THE USER SHOULD SEE, in one channel with a severity —
@@ -30,7 +32,22 @@ import { isLegacyPositionNote, legacyPositionNote, pendingLegacyPositions } from
 export interface HeldNote {
   text: string;
   severity: NoticeSeverity;
+  tier?: NoteTier;
   expand?: boolean;
+  /**
+   * A file-open/restore note's lines with their producers' tiers (D7 §4,
+   * services/importNotes.ts). Absent on a note written as plain text, whose
+   * lines all read as Information.
+   */
+  group?: NoteGroup;
+  /**
+   * A Danger failure whose operation has no block of its own beside it — the
+   * hero's 2D/3D image export, whose buttons sit on the canvas far below the
+   * (non-sticky) header. The fixed strip shows it, not only announces it, so a
+   * sighted user scrolled past the header still sees the download failed
+   * (review of NOTES-1b, finding 1). The header block is not drawn for it.
+   */
+  inBar?: boolean;
 }
 
 /** What the list is made from — App's state, read as it stands. */
@@ -130,16 +147,17 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
     // who has read it should have to keep looking at it.
     out.push({
       id: 'build-error',
+      tier: 'danger',
       severity: 'error',
       text: input.error,
       ...(!input.buildFailed ? { onDismiss: dismiss.simError } : {}),
     });
   }
   for (const f of input.motorFailures) {
-    out.push({ id: `motor-failed:${f.mountId}`, severity: 'warn', text: f.text });
+    out.push({ id: `motor-failed:${f.mountId}`, severity: 'warn', tier: 'caution', text: f.text });
   }
   for (const { id, text } of curveNotes(input.assigned)) {
-    out.push({ id, severity: 'warn', text });
+    out.push({ id, severity: 'warn', tier: 'caution', text });
   }
   if (input.restoredByOlderBuild) {
     out.push({
@@ -166,6 +184,9 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
     out.push({
       id: 'timestep-migrated',
       severity: 'info',
+      // D7 G03: the migration replaced a saved flight input — Caution, though
+      // announced politely: a one-time restore note, not an action's result.
+      tier: 'caution',
       // The closing sentence names the replaced value when the session
       // carried it — the migration overwrites it in place, so this notice is
       // the last thing that can — and promises nothing when it did not:
@@ -189,6 +210,7 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
     out.push({
       id: 'pad-mass-moved',
       severity: input.padMassNote.severity,
+      ...(input.padMassNote.tier ? { tier: input.padMassNote.tier } : {}),
       text: input.padMassNote.text,
       onDismiss: dismiss.padMassNote,
     });
@@ -212,10 +234,20 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
   // its own live entry, so saves cannot overwrite it and edits cannot leave a
   // stale copy in the file banner. All other import/restore notes stay intact.
   const fileText = input.fileNote?.text.split('\n').filter(line => !isLegacyPositionNote(line)).join('\n');
+  const fileGroup = input.fileNote?.group;
   if (input.fileNote && fileText) {
     out.push({
       id: 'file-note',
       severity: input.fileNote.severity,
+      ...(fileGroup ? { group: { ...fileGroup, lines: fileGroup.lines.filter(l => !isLegacyPositionNote(l.text)) } } : {}),
+      // Save and export failures have their one visible block, the Danger
+      // note beside Save / Export, whose × dismisses them. This strip only
+      // announces them (review of NOTES-1, finding 7: drawn here too, the same
+      // words showed twice).
+      // A hero image export failure (`inBar`) has no block beside its buttons,
+      // so the strip draws it, in its Danger tier.
+      ...(input.fileNote.tier && (input.fileNote.tier !== 'danger' || input.fileNote.inBar) ? { tier: input.fileNote.tier } : {}),
+      ...(input.fileNote.tier === 'danger' && !input.fileNote.inBar ? { announceOnly: true } : {}),
       text: fileText,
       ...(input.fileNote.expand ? { expand: true } : {}),
       onDismiss: dismiss.fileNote,
@@ -226,6 +258,7 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
   if (input.runsCapped.evicted > 0 || input.runsCapped.unsaved > 0 || (input.runsCapped.undoEvicted ?? 0) > 0) {
     out.push({
       id: 'runs-evicted',
+      tier: 'caution',
       severity: 'warn',
       text: `${runCapNote(input.runsCapped.evicted, input.runsCapped.unsaved, input.runsCapped.undoEvicted)} Download the run table`
         + ' (Results) to keep a copy of the rest before more go.',

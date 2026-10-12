@@ -1,14 +1,15 @@
+import { Note } from './Note.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import type { FlightOverrideSummary } from '../services/flightOverrideSummary.js';
 import {
-  gradeBatchRun, batchTableRows, batchCapNote, batchSummary, BATCH_CONFIRM_ABOVE_FLIGHTS,
+  gradeBatchRun, batchTableRows, batchCapNote, batchSummary, BATCH_CONFIRM_ABOVE_FLIGHTS, BATCH_TABLE_ROWS,
   BATCH_RUN_ANYWAY_ABOVE_FLIGHTS, batchConfirmationArmed, batchCandidates, batchFlightCount,
   batchEstimate, batchRefusal, batchButtonLabel, batchConfirmWarning, batchProgressAnnouncement,
   type BatchPace, type Criteria,
 } from '../services/batchCriteria.js';
 // App retains this re-export until its owning lane updates the import (audit 2026-10-11, S3a-7).
 export { batchUnavailableReason } from '../services/batchCriteria.js';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { MountMotor } from '../model/design.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import type { IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
@@ -88,6 +89,21 @@ function loadCriteria(): Criteria {
 
 /** The pair-split box's words — on the box, and in the refusal that says to untick it. */
 const PAIRS_NAME = 'mixed 4+2 / 2+2+2';
+
+/**
+ * The Delay cell's own words for a plugged-only motor flown at its optimum
+ * (D7 §5, L20): the charge that delay fires is hypothetical — the motor as
+ * sold has none — so the cell says so beside the number, not only a paragraph
+ * above the table.
+ */
+export const PLUGGED_DELAY_MARK = ' · opt., hypothetical charge';
+
+export function batchDelayCell(run: Pick<SimRun, 'delayS'> | undefined, optimumForPlugged?: boolean): ReactNode {
+  return <>
+    {run ? (Number.isFinite(run.delayS) ? `${run.delayS}s` : 'P') : '—'}
+    {optimumForPlugged && <span className="motor-db-meta">{PLUGGED_DELAY_MARK}</span>}
+  </>;
+}
 
 export function BatchSimulate({ configurationForMount, overrideSummaryForMount, onShowOverride, provenance = null, info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
@@ -358,6 +374,10 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   /** The rows the table draws — every FLOWN row still reaches the CSV and XLSX. */
   const table = useMemo(() => batchTableRows(sorted), [sorted]);
   const capNote = batchCapNote(table);
+  // D7 G12: Caution only where the cap changes what is KEPT. Rows the table
+  // leaves out but both exports carry lose nothing (Information); failed rows
+  // past the cap are in neither export, so that branch is Caution.
+  const capLosesRows = table.failed > BATCH_TABLE_ROWS;
 
   const downloadAs = (blob: Blob, ext: string) => {
     downloadBlob(blob, `batch-${safeName(rocketName)}.${ext}`,
@@ -614,9 +634,9 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
         {/* On screen, not in a tooltip on the disabled button: a disabled
             button shows nothing when it is clicked (the 2026-09-01b report). */}
         {refusal && !running && (
-          <p className="field-caution batch-refused" role="alert" style={{ margin: '6px 0 0' }}>
+          <Note as="p" tier="danger" className="field-caution batch-refused" role="alert" style={{ margin: '6px 0 0' }}>
             <Icon name="zap" size={13} /> {refusal}
-          </p>
+          </Note>
         )}
 
         <div className="motor-load-row">
@@ -752,12 +772,22 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                 errors: sorted.filter((r) => r.error).length,
                 downloadable: sorted.some((r) => r.run),
               })}
-              {(finished.evicted > 0 || finished.unsaved > 0)
-                && ` ${runCapNote(finished.evicted, finished.unsaved)}`}
-              {finished.unsaved > 0 && ' The CSV and XLSX above still carry every accepted run: download one before closing.'}
             </p>
           )}
+          {/* D7 G12: saved runs evicted or never saved is the batch's
+              retention loss, so it is the Caution here — its own block, in
+              this status region so it is still announced, leading with the
+              loss rather than trailing the summary. */}
+          {finished && !running && (finished.evicted > 0 || finished.unsaved > 0) && (
+            <Note as="p" tier="caution" className="comp-stats batch-retention" style={{ margin: '6px 0 0' }}>
+              {runCapNote(finished.evicted, finished.unsaved)}
+              {finished.unsaved > 0 && ' The CSV and XLSX above still carry every accepted run: download one before closing.'}
+            </Note>
+          )}
         </div>
+        {(failure && !running || sorted.some(r => r.optimumForPlugged) || capNote) && <Note
+          tier={failure && !running ? 'danger' : sorted.some(r => r.optimumForPlugged) || capLosesRows ? 'caution' : 'information'}
+          className="batch-outcome-notes">
         {failure && !running && (
           <p className="comp-stats batch-failed stability-bad" role="alert" style={{ margin: '6px 0 0' }}>
             {`The batch stopped before it finished: ${failure}`}
@@ -771,15 +801,17 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             so, because that is a delay the motor is not sold with. */}
         {sorted.some((r) => r.optimumForPlugged) && (
           <p className="comp-stats batch-plugged" style={{ margin: '4px 0 0' }}>
-            {'Delay marked · opt.: that motor is sold plugged (no ejection charge), and this design '
-              + 'deploys its recovery on the motor’s charge, so the row flies it at its optimum delay '
-              + 'rather than with no deployment at all. To fly it plugged, set the recovery to deploy '
+            {`Delay marked${PLUGGED_DELAY_MARK}: that motor is sold plugged (no ejection charge), and this design `
+              + 'deploys its recovery on the motor’s charge, so the row flies it with a hypothetical charge at its '
+              + 'optimum delay rather than with no deployment at all. To fly it plugged, set the recovery to deploy '
               + 'at apogee or altitude.'}
           </p>
         )}
         {capNote && (
           <p className="comp-stats batch-cap" style={{ margin: '4px 0 0' }}>{capNote}</p>
         )}
+
+        </Note>}
 
         {sorted.length > 0 && (
           <div className="motor-table-wrap" style={{ maxHeight: 320 }}>
@@ -824,10 +856,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                       {run && !(run.aeroModel === 'classic' && !run.rogersKbf) && (run.nozzleStages?.length ?? 0) > 0
                         && <span className="motor-db-meta"> · nozzle</span>}
                     </td>
-                    <td>
-                      {run ? (Number.isFinite(run.delayS) ? `${run.delayS}s` : 'P') : '—'}
-                      {optimumForPlugged && <span className="motor-db-meta"> · opt.</span>}
-                    </td>
+                    <td>{batchDelayCell(run, optimumForPlugged)}</td>
                     <td>{run ? fmtSi('distance', dist, run.maxAltitude) : '—'}</td>
                     <td>{run?.rodExitVelocity != null ? fmtSi('velocity', vel, run.rodExitVelocity) : '—'}</td>
                     <td>{run && !run.importedSummary ? railNeededCell(run.railProfile, railThreshold, len, 'travel') : ''}</td>

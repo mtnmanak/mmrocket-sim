@@ -367,7 +367,10 @@ export function notePluggedAtOptimum(run: SimRun, legs: number): void {
     : `the optimum delay of ${run.delayS} s`;
   const note = `${legs > 1 ? 'Every motor in this combination is' : 'This motor is'} sold plugged `
     + `(no ejection charge), and this design deploys its recovery on the motor’s charge, so the `
-    + `batch flew ${them} at ${delays} rather than with no deployment at `
+    // "hypothetical charge" in the exported words too (D7 §5, L20): the run's
+    // comments reach history, CSV and XLSX, where "plugged" must never read as
+    // hardware that supplies the simulated charge.
+    + `batch flew ${them} with a hypothetical charge at ${delays} rather than with no deployment at `
     + `all. To fly ${them} as sold, set the recovery to deploy at apogee or altitude.`;
   run.comments = run.comments === '' ? note : `${run.comments} | ${note}`;
   if (run.commentLevels) run.commentLevels = [...run.commentLevels, 'info'];

@@ -1,3 +1,4 @@
+import { cautionNote, flagNote, noteFlags, tierLines } from './importNotes.js';
 import { KERNEL_DEFAULT_FIN_POINTS, KERNEL_DEFAULT_MATERIALS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
 import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
@@ -386,7 +387,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       .map((tag, i) => ({ stage: stageName(i), g: num(design, tag, 0) }))
       .filter((s) => s.g > 0);
     if (stated.length) {
-      notes.push(
+      cautionNote(notes, 'I18.stage-masses-not-applied',
         `This ${stageCount}-stage file states a measured mass per stage `
         + `(${stated.map((s) => `“${s.stage}” ${s.g} g`).join(', ')}). Measured mass & CG on the Design tab `
         + 'covers the whole rocket, so nothing was filled in — enter what you '
@@ -395,7 +396,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   } else if (stageMassFlag && statedMassG > 0) {
     const cgM = statedCgMm > 0 ? statedCgMm / LEN : null;
     measured = { massKg: statedMassG / MASS, cgM };
-    notes.push(
+    cautionNote(notes, 'I18.measured-not-applied',
       `This file states a measured mass of ${statedMassG} g`
       + (cgM !== null ? ` balancing ${statedCgMm} mm from the nose tip` : '')
       + '. It is filled into Measured mass & CG on the Design tab, which '
@@ -881,7 +882,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           const parsed = parsePointList(text(el, ':scope > PointList') ?? '');
           if (parsed.unreadable > 0) {
             const note = `Fin set "${n.name ?? 'freeform'}": ${unreadableFinPoints(parsed.unreadable)}`;
-            if (!notes.includes(note)) notes.push(note);
+            if (!notes.includes(note)) cautionNote(notes, 'I05.fin-points', note);
           }
           const outlineProblem = parsed.problem ?? finOutlineProblem(parsed.pts);
           if (!outlineProblem) {
@@ -896,7 +897,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
             // and makes this note's "keeps a default outline" true on screen.
             n['points'] = KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]);
             const note = `Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} The set keeps a default outline; redraw it in the fin editor.`;
-            if (!notes.includes(note)) notes.push(note);
+            if (!notes.includes(note)) cautionNote(notes, 'I05.fin-outline', note);
           }
         }
         const tabLen = num(el, 'TabLength', 0);
@@ -1631,7 +1632,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
             // made the same change for the one-click pass).
             const count = finCountOf(clash);
             me['rotation'] = rotOf(me) + Math.PI / count;
-            notes.push(`“${me.name ?? me.type}” sat at the same angle as “${clash.name ?? clash.type}” — rotated ${Math.round(180 / count)}° to interleave (fine-tune via the set's Rotation field).`);
+            cautionNote(notes, 'I21.fin-rotated', `“${me.name ?? me.type}” sat at the same angle as “${clash.name ?? clash.type}” — rotated ${Math.round(180 / count)}° to interleave (fine-tune via the set's Rotation field).`);
           }
         }
       }
@@ -1726,20 +1727,20 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   for (const stage of components) { insertBaseExtensions(stage.children); insertInPods(stage.children); }
 
   if (ignored.size) {
-    notes.push(`Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
+    cautionNote(notes, 'I03.ignored-components', `Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
   }
   const [onlyLeftOut] = leftOut;
   if (leftOut.length === 1 && onlyLeftOut) {
-    notes.push(`Left out ${onlyLeftOut}: the app, like desktop OR, cannot attach that kind of part there, so the `
+    cautionNote(notes, 'I03.left-out', `Left out ${onlyLeftOut}: the app, like desktop OR, cannot attach that kind of part there, so the `
       + 'design could not be built with it.');
   } else if (leftOut.length > 1) {
-    notes.push(`Left out ${leftOut.length} parts the file attaches where the app, like desktop OR, cannot attach `
+    cautionNote(notes, 'I03.left-out', `Left out ${leftOut.length} parts the file attaches where the app, like desktop OR, cannot attach `
       + `that kind of part, so the design could not be built with them: ${leftOut.join('; ')}.`);
   }
-  if (tooDeep) notes.push(TOO_DEEP_NESTING);
+  if (tooDeep) cautionNote(notes, 'I03.too-deep', TOO_DEEP_NESTING);
   if (keptWithoutCGFlag.size) {
     const n = keptWithoutCGFlag.size;
-    notes.push(`${n} part${n === 1 ? ' states' : 's state'} a measured mass or balance point that the `
+    cautionNote(notes, 'I18.cg-flag-ignored', `${n} part${n === 1 ? ' states' : 's state'} a measured mass or balance point that the `
       + `file's “known CG” flag says to ignore — applied ${n === 1 ? 'it' : 'them'}. Desktop `
       + 'OpenRocket discards a measured mass unless the CG is measured too.');
   }
@@ -1775,7 +1776,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   }
   if (airfoilPinned.size) {
     const n = airfoilPinned.size;
-    notes.push(`${n} airfoil fin set${n === 1 ? '' : 's'} took the mass and balance point RockSim `
+    cautionNote(notes, 'I18.airfoil-mass-pinned', `${n} airfoil fin set${n === 1 ? '' : 's'} took the mass and balance point RockSim `
       + `recorded for ${n === 1 ? 'it' : 'them'}. RockSim and OpenRocket weigh an airfoil fin `
       + "differently — on some files they disagree by a factor of two — so the file's own number "
       + 'is used, which is what desktop OpenRocket does. It sits in Override mass and Override CG '
@@ -1944,7 +1945,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       : `Launch refused for ${source}: the file names ${missing} motor${missing === 1 ? '' : 's'} for mounts that no longer exist in the design. `
         + 'The app will not guess which tube each motor belongs in. Assign motors on Motors & Configuration to real mounts, '
         + 'or add the missing mounts and assign their motors. No motors from this configuration were loaded.';
-    if (motorLoadoutRefusal) notes.push(motorLoadoutRefusal);
+    if (motorLoadoutRefusal) cautionNote(notes, 'I12.loadout-refused', motorLoadoutRefusal);
     const cfgMotors: Record<string, OrkMotorRef> = {};
     for (const es of motorLoadoutRefusal ? [] : g.sets) {
       const ref = readEngineSet(es);
@@ -1987,8 +1988,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       // simulation after them can fold into one already seen.
       const label = `Simulation ${g.number!}${g.name?.trim() ? ` (“${g.name.trim()}”)` : ''}`;
       foldedSources.get(same)!.push(label);
-      if (g.number !== null) foldedDiagnostics.get(same)!.push(
-        ...simulationRecoveryNotes[g.number - 1]!.map((note) => `${label}: ${note}`));
+      if (g.number !== null) {
+        // Prefixed with the simulation, keeping each line's own tier.
+        const own = simulationRecoveryNotes[g.number - 1]!;
+        for (const e of tierLines(own, noteFlags(own))) flagNote(foldedDiagnostics.get(same)!, { ...e, text: `${label}: ${e.text}` });
+      }
       continue;
     }
     const name = g.name?.trim() || null;
@@ -2239,7 +2243,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           : Number.isFinite(v) ? `${what} ${String(v)}°` : `${what} “${raw.trim().slice(0, 40)}”`;
         // One sentence for the whole of it: the open adds no "none was taken"
         // line of its own after this one (retainedLaunchNote).
-        notes.push(`${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
+        cautionNote(notes, 'I24.site-retained', `${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
           + `${said(latRaw, site.latitudeDeg, 'latitude')}, ${said(lonRaw, site.longitudeDeg, 'longitude')}`
           + `${Number.isFinite(alt) ? `, site altitude ${String(alt)} m` : ''}; `
           + (radianLatitude(site.latitudeDeg) || poleLatitude(site.latitudeDeg)
@@ -2259,7 +2263,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   // same map. No cause is claimed: none of the 843 readable corpus files carries
   // a non-decimal number, so there is no evidence of what writes one.
   if (unreadable.size > 0) {
-    notes.push(`Could not read ${unreadable.size} number${unreadable.size === 1 ? '' : 's'} in this file, `
+    cautionNote(notes, 'I04.unreadable-numbers', `Could not read ${unreadable.size} number${unreadable.size === 1 ? '' : 's'} in this file, `
       + 'so the import used its own default instead — check these before trusting any result: '
       + `${[...unreadable].map(([tag, raw]) => `<${tag}> “${raw}”`).join(', ')}. `
       + 'A number here must be a plain decimal with a period (2.5, not 2,5).');
@@ -2281,6 +2285,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     motors,
     ignored: [...ignored],
     notes,
+    // Every producer's record: the opened configuration's lines and every
+    // other configuration's (configNotes), which planImport may swap in.
+    noteTiers: [notes, designRecoveryNotes, ...simulationRecoveryNotes, ...foldedDiagnostics.values()].flatMap(noteFlags),
     ...(measured ? { measured } : {}),
     ...(launch ? { launch } : {}),
     ...(launchSiteRefused ? { launchSiteRefused: true as const } : {}),
@@ -2420,10 +2427,10 @@ const readDeploymentEvents = (
       notes.push(`${node.name ?? node.type} ${t.says}.`);
     }
   }
-  if (pro.size) notes.push('RockSim Pro conditions for ' + [...pro].join(', ') + ' are not supported; '
+  if (pro.size) cautionNote(notes, 'I11.pro-conditions', 'RockSim Pro conditions for ' + [...pro].join(', ') + ' are not supported; '
     + 'only the simple deployment trigger is read. Check the deployment settings before flying.');
   if (unknown.size) {
-    notes.push(
+    cautionNote(notes, 'I11.unknown-trigger',
       `${unknown.size === 1 ? 'One deployment trigger uses' : 'Some deployment triggers use'} a RockSim `
       + `code this app does not recognise (${[...unknown].sort((a, b) => a - b).join(', ')}); `
       + `${unknown.size === 1 ? 'that device keeps' : 'those devices keep'} the default trigger — `

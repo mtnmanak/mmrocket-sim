@@ -5,13 +5,25 @@ import { usePrefs } from '../prefs/PrefsContext.js';
 import { activeFlightOverrides, isWorkingSettings } from '../services/flightState.js';
 import { describeFlightOverrides } from '../services/flightOverrideSummary.js';
 import type { OrkMotorRef } from '../services/orkFile.js';
+import { Note } from './Note.js';
 
 const NO_OVERRIDES: FlightOverrides = {};
 
+/** What an unprotected Delete loses, said above the Delete button (D7 G21). */
+export const CONFIG_DELETE_LOSS = 'Its name, its entry in the list and any simulations the file stored for it are lost: '
+  + 'Ctrl+Z does not bring a deleted configuration back, and no saved .ork holds this design as it is now.';
+
 /** The active flight owns the controls below this bar. Native select is deliberate. */
 export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, unmatchedRefs, detachedOverrides = NO_OVERRIDES,
-  onApply, onClear, onCreate, onDuplicate, onRename, onDelete, onResetOverrides }: {
+  onApply, onClear, onCreate, onDuplicate, onRename, onDelete, onResetOverrides, deletionUnprotected = false }: {
   configs: SavedConfig[];
+  /**
+   * Whether a Delete would lose work no file holds: the design has unsaved
+   * changes, or it was last opened or saved in a format that drops some of it.
+   * Deleting a configuration is not on the undo stack, so then the prompt is
+   * Danger and names what goes (D7 G21).
+   */
+  deletionUnprotected?: boolean;
   tree?: FlightTree;
   motors?: Record<string, MountMotor>;
   unmatchedRefs?: Record<string, OrkMotorRef>;
@@ -100,7 +112,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
         onCommit={name => onRename(editingConfig.id, name)} onClose={restore => {
           setEditing(null); if (restore) (renameButton.current?.disabled ? chooser.current : renameButton.current)?.focus();
         }} />}
-      {deletingConfig && <ConfigDeleteConfirmation label={labelOf(deletingConfig)}
+      {deletingConfig && <ConfigDeleteConfirmation label={labelOf(deletingConfig)} unprotected={deletionUnprotected}
         onCancel={() => { setDeleting(null); deleteButton.current?.focus(); }}
         onDelete={() => { setDeleting(null); onDelete(deletingConfig); chooser.current?.focus(); }} />}
     </div>
@@ -153,8 +165,8 @@ function ConfigNameEditor({ config, label, onCommit, onClose }: {
     }} />;
 }
 
-function ConfigDeleteConfirmation({ label, onCancel, onDelete }: {
-  label: string; onCancel: () => void; onDelete: () => void;
+function ConfigDeleteConfirmation({ label, onCancel, onDelete, unprotected }: {
+  label: string; onCancel: () => void; onDelete: () => void; unprotected: boolean;
 }) {
   const cancel = useRef<HTMLButtonElement>(null);
   const descriptionId = useId();
@@ -163,7 +175,16 @@ function ConfigDeleteConfirmation({ label, onCancel, onDelete }: {
     style={{ flexBasis: '100%' }} onKeyDown={(e) => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel(); }
     }}>
-    <p id={descriptionId}>Delete this configuration? Its motors stay loaded if it is the one you are flying.</p>
+    {/* The shared Note, so the unprotected state says "Danger:" in words and
+        not by its fill alone — forced colours flatten the fill (review of
+        NOTES-1, finding 5). Deleting a configuration is not an undo step
+        (only design-tree and override edits are), so when no file holds the
+        design as it is now, the block names what is lost (D7 G21): colour on
+        a generic sentence would teach people to ignore it. */}
+    <Note as="p" id={descriptionId} tier={unprotected ? 'danger' : 'information'}>
+      Delete this configuration? Its motors stay loaded if it is the one you are flying.
+      {unprotected && <>{' '}{CONFIG_DELETE_LOSS}</>}
+    </Note>
     <button className="file-btn file-btn-danger" aria-label={`Confirm delete ${label}`} onClick={onDelete}>Delete</button>{' '}
     <button className="file-btn" aria-label={`Cancel deleting ${label}`} ref={cancel} onClick={onCancel}>Cancel</button>
   </div>;

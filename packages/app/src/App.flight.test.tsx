@@ -664,11 +664,11 @@ describe('what a Launch computed lands only on the design it flew', () => {
     ['a Measured mass typed on Design over a weighed pad mass: the same design, motors and conditions, other hardware',
       async (host) => {
         await openTab(host, 'Motors & Configuration');
-        expect(padMassLine(host), 'the hardware the held flight flies').toMatch(/^20\.0 g carried as hardware/);
+        expect(padMassLine(host), 'the hardware the held flight flies').toMatch(/^⚠ Caution: 20\.0 g carried as hardware/);
         await openTab(host, 'Design');
         await type(input(host, 'Measured mass of the airframe'), '90');
         await openTab(host, 'Motors & Configuration');
-        expect(padMassLine(host), 'the hardware the design flies now').toMatch(/^30\.0 g carried as hardware/);
+        expect(padMassLine(host), 'the hardware the design flies now').toMatch(/^⚠ Caution: 30\.0 g carried as hardware/);
       }, false, weighedStarter],
   ];
 

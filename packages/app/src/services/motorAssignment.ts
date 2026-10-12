@@ -1,3 +1,4 @@
+import { withoutLines } from './importNotes.js';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/design.js';
 import { motorMounts, primaryMountOf } from '../tree/treeModel.js';
@@ -74,5 +75,9 @@ export function assignMotorRecords(
 export function retireLoadoutNote(prev: HeldNote | null, repairedConfig: SavedConfig): HeldNote | null {
   if (!prev) return prev;
   const text = prev.text.split('\n').filter(line => line !== repairedConfig.motorLoadoutRefusal).join('\n');
-  return text ? { ...prev, text } : null;
+  if (!text) return null;
+  // The group loses the same line; every other line keeps its tier.
+  const group = prev.group && repairedConfig.motorLoadoutRefusal
+    ? withoutLines(prev.group, new Set([repairedConfig.motorLoadoutRefusal])) : prev.group;
+  return { ...prev, text, ...(group ? { group } : {}) };
 }

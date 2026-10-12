@@ -978,6 +978,10 @@ describe('applied weather in the Launch panel', () => {
     renderWeather({ ...APPLIED, launchAltitudeM: 1524 }, SNAP);
     const stale = host.querySelector('[data-weather="stale"]')!;
     expect(stale.textContent).toMatch(/^These came from the forecast for 1,202 m; Site altitude is now 1,524 m\./);
+    // D7 §5, L12: the affected fields say it beside their own numbers; the wind does not.
+    expect(provenance('temperatureC')).toBe('forecast for the previous altitude, 1,202 m');
+    expect(provenance('pressureHPa')).toBe('forecast for the previous altitude, 1,202 m');
+    expect(provenance('windAverage')).toBe('forecast');
     act(() => btn('Fetch again')!.click());
     expect(calls).toEqual(['get']);
     act(() => btn('Clear both — standard air for 1,524 m')!.click());

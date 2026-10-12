@@ -67,6 +67,29 @@ const one = (over: Partial<NoticeInput>, d = dismissers()) => {
 };
 
 describe('designNotices', () => {
+  it('assigns consequence tiers to failures, changed thrust and capped history only', () => {
+    expect(one({ error: 'Build unavailable', buildFailed: true }).tier).toBe('danger');
+    expect(one({ motorFailures: [{ mountId: 'm', text: 'Motor left off' }] }).tier).toBe('caution');
+    expect(one({ runsCapped: { evicted: 2, unsaved: 0 } }).tier).toBe('caution');
+    expect(one({ assigned: [['m', mm(spec('H100', 29, { curveRepairs: ['repaired time'] }))]] }).tier).toBe('caution');
+    expect(one({ fileNote: { text: 'Could not open', severity: 'error' } }).tier).toBeUndefined();
+    expect(one({ fileNote: { text: 'Saved elsewhere', severity: 'warn', tier: 'caution' } }).tier).toBe('caution');
+    expect(one({ fileNote: { text: 'Save failed', severity: 'error', tier: 'danger' } }).tier).toBeUndefined();
+  });
+  it('announces a failed save or export without drawing it twice (review of NOTES-1, finding 7)', () => {
+    // Its one visible block is the header's Danger note beside Save / Export.
+    expect(one({ fileNote: { text: 'Save failed', severity: 'error', tier: 'danger' } }).announceOnly).toBe(true);
+    expect(one({ fileNote: { text: 'Saved elsewhere', severity: 'warn', tier: 'caution' } }).announceOnly).toBeUndefined();
+    expect(one({ fileNote: { text: 'Could not open', severity: 'error' } }).announceOnly).toBeUndefined();
+  });
+  it('draws a failed hero image export in the strip, in Danger (review of NOTES-1b, finding 1)', () => {
+    // The hero's 2D/3D export buttons sit far below the non-sticky header, so
+    // an announce-only failure was invisible to a sighted user scrolled there.
+    const failed = one({ fileNote: { text: 'Image export failed', severity: 'error', tier: 'danger', inBar: true } });
+    expect(failed.announceOnly).toBeUndefined();
+    expect(failed.tier).toBe('danger');
+    expect(failed.text).toBe('Image export failed');
+  });
   it('carries a file note attention flag without raising its severity', () => {
     expect(one({ fileNote: { text: 'Configuration override', severity: 'info', expand: true } }))
       .toMatchObject({ id: 'file-note', severity: 'info', expand: true });

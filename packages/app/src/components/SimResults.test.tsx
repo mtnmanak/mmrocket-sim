@@ -94,6 +94,32 @@ const render = (node: React.ReactNode) => act(() => root.render(
   <PrefsProvider>{node}</PrefsProvider>,
 ));
 
+it('groups failed flight comments and consequential kernel events once, retaining quiet numeric bands', () => {
+  render(<SimRunDetails run={{ ...run(),
+    comments: 'Rod exit failed. | Landing failed. | Fast opening, caution band.',
+    commentLevels: ['warning', 'warning', 'caution'],
+    simWarnings: [{ key: 'SIM_ABORT', message: '[Warning.SIM_ABORT]', priority: 'LOW' }],
+  }} />);
+  const blocks = host.querySelectorAll('.message-danger');
+  expect(blocks).toHaveLength(1);
+  expect(blocks[0]!.textContent).toContain('Rod exit failed.');
+  expect(blocks[0]!.textContent).toContain('Landing failed.');
+  expect(blocks[0]!.textContent).toContain('stopped early');
+  expect(blocks[0]!.textContent).not.toContain('caution band');
+  expect(host.querySelectorAll('.message-caution')).toHaveLength(0);
+  expect(host.textContent).toContain('Fast opening, caution band.');
+});
+
+it('names the classic model’s Mach limit beside the report title, only past the threshold (D7 §5, R05)', () => {
+  const title = () => host.querySelector('.panel-head h2')!.textContent ?? '';
+  render(<SimRunDetails run={{ ...run(), aeroModel: 'classic', maxMach: 1.23 }} />);
+  expect(title()).toContain('— classic aero model, approximate past Mach 0.9 (flown to Mach 1.23)');
+  for (const quiet of [{ aeroModel: 'classic' as const, maxMach: 0.5 }, { aeroModel: 'supersonic' as const, maxMach: 1.23 }]) {
+    render(<SimRunDetails run={{ ...run(), ...quiet }} />);
+    expect(title()).not.toContain('approximate past Mach');
+  }
+});
+
 /** The run table starts collapsed — the rows (and their buttons) need it open.
  *  A no-op once it already is (re-rendering into the same root keeps state). */
 const openTable = () => act(() => {

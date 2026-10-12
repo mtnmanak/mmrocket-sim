@@ -1,3 +1,4 @@
+import { cautionNote } from './importNotes.js';
 import {
   DEFAULT_TIME_STEP_S, KERNEL_WIND_FROM_RAD, type GeodeticMethod, type SimulationOptions,
 } from '@online-openrocket/engine';
@@ -405,7 +406,7 @@ export function importLaunchValue(
   if (b !== v) {
     const { what, field, show } = say;
     const accepts = hi === Infinity ? `nothing below ${show(lo)}` : `${show(lo)} to ${show(hi)}`;
-    notes.push(`The file's ${what} is ${show(v)}, and the ${field} field under Launch conditions `
+    cautionNote(notes, 'I25.clamped', `The file's ${what} is ${show(v)}, and the ${field} field under Launch conditions `
       + `accepts ${accepts} — imported as ${show(b)}. Change it there if you meant something else.`);
   }
   return b;

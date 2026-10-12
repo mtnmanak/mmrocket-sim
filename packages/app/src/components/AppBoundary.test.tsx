@@ -65,6 +65,28 @@ afterEach(() => {
 });
 
 describe('AppBoundary', () => {
+  it('fills actual reset loss, then keeps a downloaded backup receipt and reset quiet', async () => {
+    renderCrashed();
+    expect(host.querySelectorAll('.message-danger')).toHaveLength(1);
+    act(() => { button('Start fresh').click(); });
+    expect(host.querySelectorAll('.message-danger')).toHaveLength(2);
+    await act(async () => { button('Download the autosaved design').click(); });
+    expect(host.querySelectorAll('.message-danger')).toHaveLength(1);
+    expect(host.querySelector('[role="status"]')!.closest('.message-danger')).toBeNull();
+  });
+  it('puts Download beside the destructive reset only while the reset would lose something (D7 §5, X09)', async () => {
+    renderCrashed();
+    act(() => { button('Start fresh').click(); });
+    const first = button('Download first');
+    expect(first).toBeTruthy();
+    // Adjacent to the destructive action, after the loss block.
+    expect(first.previousElementSibling?.classList.contains('message-danger')).toBe(true);
+    expect(first.nextElementSibling?.textContent).toContain('start fresh');
+    await act(async () => { first.click(); });
+    expect(vi.mocked(saveFile)).toHaveBeenCalled();
+    // Downloaded: nothing unprotected remains, so neither the fill nor the extra button.
+    expect(button('Download first')).toBeUndefined();
+  });
   it('keeps and downloads the latest design when storage refuses the write after a crash', async () => {
     const storage = localStorage;
     saveSessionDebounced({ tree: { ...defaultTree(), name: 'Latest B' }, mountMotors: {}, launch: DEFAULT_CONDITIONS });

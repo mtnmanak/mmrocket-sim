@@ -1,3 +1,4 @@
+import { cautionNote } from './importNotes.js';
 import { validExMotor as validArchivedExMotor, validFlightSnapshot, boundedExId, exMotorIdentity, exToMotorSpec, flightIdentity, loadExMotors, type ExMotor, type ExFlightSnapshot } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import type { OrkExportMotor } from './orkFile.js';
@@ -128,7 +129,7 @@ export function readArchivedExMotors(rocket: XmlElement, notes: string[]): Map<s
     if (new Set(value.map(m => m.motorId)).size !== value.length) throw new Error('duplicate library ids');
     return new Map(value.map(m => [m.motorId, m]));
   } catch (error) {
-    notes.push(`Embedded EX motors were refused: ${error instanceof Error ? error.message : String(error)}. Re-import the original .eng/.rse; these motors were not loaded.`);
+    cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motors were refused: ${error instanceof Error ? error.message : String(error)}. Re-import the original .eng/.rse; these motors were not loaded.`);
     return new Map();
   }
 }

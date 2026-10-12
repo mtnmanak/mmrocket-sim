@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import { editProfileSurface } from '../services/windProfile.js';
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -72,7 +73,7 @@ export function GustEstimate({ value, onChange, onEstimate, forecastWind }: {
   );
 
   return (
-    <div className={`gust-estimate${warn ? ' gust-estimate-warn' : ''}${!meanMatches ? ' gust-estimate-muted' : ''}`}
+    <Note tier={!meanMatches && applied ? 'caution' : 'information'} className={`gust-estimate${warn ? ' gust-estimate-warn' : ''}${!meanMatches ? ' gust-estimate-muted' : ''}`}
       {...(warn ? { 'data-caution': 'gust-convective' } : {})}>
       {meanMatches && !applied && (
         <button type="button" className="file-btn" aria-describedby={lineId}
@@ -104,7 +105,7 @@ export function GustEstimate({ value, onChange, onEstimate, forecastWind }: {
           </>
         )}
       </span>
-    </div>
+    </Note>
   );
 }
 

@@ -138,6 +138,7 @@ describe('PresetPicker — CSV import', () => {
     expect(text()).toContain('Imported 1 preset(s)');
     expect(text()).toContain('1 row(s) skipped');
     expect(text()).toContain('BAD-1'); // named, so the user can go fix that row
+    expect(host.querySelector('.message-caution')?.textContent).toContain('1 row(s) skipped');
 
     const stored = loadCustomPresets();
     expect(stored.map((p) => p.partNo)).toEqual(['GOOD-1']);
@@ -152,6 +153,7 @@ describe('PresetPicker — CSV import', () => {
     ].join('\n'));
 
     expect(text()).toContain('Nothing imported.');
+    expect(host.querySelector('.message-caution')).toBeNull();
     expect(loadCustomPresets()).toEqual([]);
   });
 
@@ -167,6 +169,7 @@ describe('PresetPicker — CSV import', () => {
     expect(text()).toContain('Could not store 1 of 1 preset(s)');
     expect(text()).not.toContain('Imported 1 preset(s)');
     expect(text()).toContain('1 row(s) skipped'); // the bad row is still reported
+    expect(host.querySelector('.message-caution')?.textContent).toContain('not saved');
   });
 
   /**

@@ -428,8 +428,13 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
   it('says so, rather than leaving two selects silently disagreeing', () => {
     mountBoth();
     pick(strip(), 'supersonic');
-    expect(host.textContent).toContain('overriding the setting above');
+    expect(host.textContent).toContain('overriding the setting below');
+    expect(host.querySelector('.message-caution')!.textContent).toContain('overriding the setting below');
     expect(host.textContent).toContain('Supersonic');
+    // D7 §5, X14: it leads with what flies, ABOVE the durable select.
+    const note = host.querySelector('.message-caution')!;
+    expect(note.textContent).toMatch(/^⚠ Caution: Flying this session: Supersonic/);
+    expect(note.nextElementSibling?.querySelector('select')).toBe(aeroSelect());
   });
 
   it('one click goes back to the stored preference', () => {
@@ -440,7 +445,7 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
     expect(revert.textContent).toBe('Go back to Rogers Modified Barrowman (Kbf)');
     act(() => { revert.click(); });
     expect(strip().value).toBe('kbf');
-    expect(host.textContent).not.toContain('overriding the setting above');
+    expect(host.textContent).not.toContain('overriding the setting below');
   });
 
   it('CHOOSING here outranks the strip — the newer, more deliberate act wins', () => {
@@ -451,7 +456,7 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
     expect(stored().rogersKbf).toBe(false);
     // The override is gone, so both controls agree again.
     expect(strip().value).toBe('eb');
-    expect(host.textContent).not.toContain('overriding the setting above');
+    expect(host.textContent).not.toContain('overriding the setting below');
   });
 
   it('an UNRELATED preference write must not clear the override', () => {
@@ -462,13 +467,13 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
     pick(strip(), 'supersonic');
     pick(byLabel('Daylight mode') as HTMLSelectElement, 'on');
     expect(strip().value).toBe('supersonic');
-    expect(host.textContent).toContain('overriding the setting above');
+    expect(host.textContent).toContain('overriding the setting below');
   });
 
   it('no hint at all when the strip agrees with the preference', () => {
     mountBoth();
     pick(strip(), 'kbf'); // the stored default
-    expect(host.textContent).not.toContain('overriding the setting above');
+    expect(host.textContent).not.toContain('overriding the setting below');
   });
 
   /**

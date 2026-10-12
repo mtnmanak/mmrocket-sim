@@ -46,6 +46,7 @@ describe('restoredPadMassNote — what the restore already knows', () => {
     expect(restoredPadMassNote({ outcome: 'dropped', kg: 1.25 }, null, { tree: TREE, motors: {}, text: TEXT }))
       .toEqual({
         severity: 'warn',
+        tier: 'caution', // NOTES-2 (D7 I16): dropped, inactive or moved hardware mass
         text: 'The weighed pad mass you entered before this version (1250 g) had no motor loaded to belong to'
           + ' and was not kept. Weigh the rocket with the motor in and type it under that motor on Motors & Configuration.',
       });
@@ -56,6 +57,7 @@ describe('restoredPadMassNote — what the restore already knows', () => {
     expect(restoredPadMassNote(null, { from: 'm-boo', to: 'm-sus', kg: 2.5 }, { tree: TREE, motors, text: TEXT }))
       .toEqual({
         severity: 'info',
+        tier: 'caution', // NOTES-2 (D7 I16): dropped, inactive or moved hardware mass
         text: 'The weighed pad mass (2500 g) now sits under H220 on Sustainer MMT, not under J350 on Booster MMT:'
           + ' the weighed hardware now rides with the core\'s motor ahead of a pod\'s or a strap-on\'s, where it'
           + ' used to ride with whichever was picked first. The value itself is unchanged.',
@@ -128,6 +130,7 @@ describe('reconcileLegacyPadMass — after the first build', () => {
       mountId: 'm-sus',
       note: {
         severity: 'warn',
+        tier: 'caution', // NOTES-2 (D7 I16): dropped, inactive or moved hardware mass
         text: 'The weighed pad mass entered before this version (2200 g) was not kept: it is lighter than the dry'
           + ' rocket plus the catalogue H220, so it was weighed with a different motor. Re-weigh with this motor'
           + ' in and type it under it on Motors & Configuration.',
@@ -142,6 +145,7 @@ describe('reconcileLegacyPadMass — after the first build', () => {
     expect(step?.kind).toBe('drop');
     expect(step?.note).toEqual({
       severity: 'warn',
+      tier: 'caution', // NOTES-2 (D7 I16): dropped, inactive or moved hardware mass
       text: 'The weighed pad mass entered before this version (2200 g) was not kept: against the catalogue H220 it'
         + ' would carry more hardware than the airframe itself. Re-weigh with this motor in and type it under it'
         + ' on Motors & Configuration.',
@@ -165,6 +169,7 @@ describe('reconcileLegacyPadMass — after the first build', () => {
       mountId: 'm-boo',
       note: {
         severity: 'warn',
+        tier: 'caution', // NOTES-2 (D7 I16): dropped, inactive or moved hardware mass
         text: 'The weighed pad mass you entered before this version (2200 g) could not be placed: the motor the file'
           + ' names on Sustainer MMT (K550W) is not loaded, so the app cannot tell which motors it was weighed with.'
           + ' Load that motor, or re-weigh with the motors you have in and type it under the top motor on Motors'

@@ -279,6 +279,12 @@ describe('planImport — one plan, applied and marked', () => {
         text: 'Flight configuration “A” applied — its motors and recovery settings are now live.\n'
           + 'Motor “F32” (2 mounts): the file names Quest, but it loaded as AeroTech F32T (24 mm, 64.4 Ns, Blue Thunder).',
         severity: 'warn',
+        // NOTES-2: the same lines, each with its tier — the substituted motor is Caution.
+        group: { lines: [
+          { kind: 'config-applied', tier: 'information', text: 'Flight configuration “A” applied — its motors and recovery settings are now live.' },
+          { kind: 'I12.motor-unconfirmed', tier: 'caution',
+            text: 'Motor “F32” (2 mounts): the file names Quest, but it loaded as AeroTech F32T (24 mm, 64.4 Ns, Blue Thunder).' },
+        ] },
       });
       // The user loads another motor on one mount: its sentence goes with it.
       const edited = { ...toA.mountMotors, m1: motor('F32T') };
@@ -419,6 +425,8 @@ describe('planConfigSwitch — one switch, applied and noted', () => {
     expect(plan.note).toEqual({
       text: 'Flight configuration “B” applied — its motors and recovery settings are now live.',
       severity: 'info',
+      group: { lines: [{ kind: 'config-applied', tier: 'information',
+        text: 'Flight configuration “B” applied — its motors and recovery settings are now live.' }] },
     });
   });
 

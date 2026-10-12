@@ -150,7 +150,7 @@ describe('📐 Fin template — one control, four files', () => {
     mount();
     await pick('PNG');
     expect(downloadBlob).not.toHaveBeenCalled();
-    expect(alertText()).toBe('Could not draw the fin template as an image: SVG rasterize failed — the SVG options still work.');
+    expect(alertText()).toBe('⛔ Danger: Could not draw the fin template as an image: SVG rasterize failed — the SVG options still work.');
   });
 });
 

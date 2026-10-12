@@ -1,3 +1,4 @@
+import { cautionNote } from './importNotes.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { csvCell } from './csvUtil.js';
 import { lookupTable, parseDecimal } from './xmlUtil.js';
@@ -1038,6 +1039,8 @@ export function applyPresetLinks(
   const lines: string[] = [];
   /** Tier (a) of the conflict marker: one line per part whose stated values disagree with its row. */
   const conflictLines: string[] = [];
+  /** D7 I19: the catalogue supplied a missing value, or could not apply a Cd/vent pair. */
+  let changedFlight = false;
   let linked = 0;
   for (const { node, manufacturer, partNo } of pending) {
     const kind = KIND_FOR_TYPE[node.type];
@@ -1162,14 +1165,18 @@ export function applyPresetLinks(
       ? ' — left the catalogue’s drag coefficient and spill hole out: this file already'
         + ' states one of the pair, and the two are one number together'
       : '';
+    // A stated half-pair keeps the catalogue's whole pair out of the flight;
+    // a canopy that states both halves is missing nothing.
+    if (filled.size || (declined && !PAIR.every((k) => node[k] !== undefined))) changedFlight = true;
     lines.push(`${node.name ?? node.type} → ${p.manufacturer} ${p.partNo}${took}${declined}`);
   }
   // One line per part matched in a foreign file; none from a file this app wrote.
   if (lines.length > 0) {
-    notes.push(
-      `${lines.length} part${lines.length === 1 ? '' : 's'} matched the parts catalogue by manufacturer and part number. `
-      + `The file's own values stand, including zero dimensions and thicknesses; the catalogue fills only missing values: ${lines.join('; ')}.`,
-    );
+    // Caution only when a value the flight uses came from the catalogue (or a
+    // stated pair kept it from applying); a link that filled nothing is a receipt.
+    const matched = `${lines.length} part${lines.length === 1 ? '' : 's'} matched the parts catalogue by manufacturer and part number. `
+      + `The file's own values stand, including zero dimensions and thicknesses; the catalogue fills only missing values: ${lines.join('; ')}.`;
+    if (changedFlight) cautionNote(notes, 'I19.catalogue-filled', matched); else notes.push(matched);
     // Said once, after the match sentence, and only when there is something to
     // say. It names the parts and the fields so a reader can go and look, and
     // it says what was kept — the file — so nobody reads it as a change.

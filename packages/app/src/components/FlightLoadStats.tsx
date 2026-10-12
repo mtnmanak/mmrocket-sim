@@ -15,6 +15,10 @@ export function FlightLoadStats({ run }: { run: SimRun }) {
   const unavailable = run.loads ? 'Unavailable in this flight window' : 'Unavailable — launch again';
   return <div>
     <h3>Flight loads</h3>
+    {/* What these numbers are NOT comes BEFORE them (D7 §5, R28): read
+        afterwards, a max Q could already have passed for structural clearance. */}
+    <p className="simdet-comments flight-loads-scope"><strong>Inputs to a structural check; no structural verdict.</strong>{' '}
+      This is an input to a structural loads check, not a loads check.</p>
     <p className="simdet-comments">Flown {formatRunWhenProse(run.when)}. {LOAD_WINDOW}.</p>
     <table className="fin-table"><tbody>
       <tr><td className="simdet-label">Max dynamic pressure (max Q)</td>
@@ -24,7 +28,6 @@ export function FlightLoadStats({ run }: { run: SimRun }) {
       {qa && <tr><td className="simdet-label">At max q·α</td>
         <td>Mach {digits(qa.mach, 3)}; α {digits(qa.aoa, 4)} rad ({qa.aoa == null ? '—' : digits(qa.aoa * 180 / Math.PI, 2)}°)</td></tr>}
     </tbody></table>
-    <p className="simdet-comments">Normal force on the airframe scales with q·α at small angles of attack.
-      This is an input to a structural loads check, not a loads check.</p>
+    <p className="simdet-comments">Normal force on the airframe scales with q·α at small angles of attack.</p>
   </div>;
 }

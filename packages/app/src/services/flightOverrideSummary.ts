@@ -25,14 +25,14 @@ interface Group {
 }
 
 /** Normalize only equivalence that holds on every flight path; preserve stored tuples. */
-function flownDeployment(tuple: DeploymentTuple): DeploymentTuple {
+export function flownDeployment(tuple: DeploymentTuple): DeploymentTuple {
   const deployEvent = flownDeployEvent(tuple.deployEvent);
   // DeploymentConfiguration.NEVER cannot activate, so no delay is scheduled.
   return { ...tuple, deployEvent, deployAltitude: deployEvent === 'altitude' ? tuple.deployAltitude : 0,
     deployDelay: deployEvent === 'never' ? 0 : tuple.deployDelay };
 }
 
-function flownSeparation(tuple: SeparationTuple): SeparationTuple {
+export function flownSeparation(tuple: SeparationTuple): SeparationTuple {
   // OrkEngine.separationEventOf folds case/underscores; only the two altitude
   // handlers in StageSeparationConfiguration read altitude. NEVER returns false.
   const separationEvent = tuple.separationEvent.toLowerCase().replaceAll('_', '');
@@ -41,7 +41,7 @@ function flownSeparation(tuple: SeparationTuple): SeparationTuple {
     separationDelay: separationEvent === 'never' ? 0 : tuple.separationDelay };
 }
 
-function flownIgnition(tuple: IgnitionTuple): IgnitionTuple {
+export function flownIgnition(tuple: IgnitionTuple): IgnitionTuple {
   // flightRunner.writeMountMotor uses this parser before calling OrkEngine.
   const event = knownIgnitionEvent(tuple.event) ?? tuple.event;
   // Keep AUTOMATIC distinct: IgnitionEvent checks isLaunchStage at each event,
@@ -56,6 +56,19 @@ export function describeFlownDeployment(tuple: DeploymentTuple, unit: string): s
   if (deployEvent === tuple.deployEvent.toLowerCase()) return description;
   const stored = tuple.deployEvent.toLowerCase() === 'lowerstageseparation' ? 'lower stage separation' : tuple.deployEvent;
   return `${description} (the file's '${stored}' is not supported here)`;
+}
+
+/**
+ * Whether an override flies differently from the part's own setting — the same
+ * test `describeFlightOverrides` counts by, so a row, the Design read-only block
+ * and the Launch warning agree. A stored override that flies the same is
+ * explained quietly; only an effective difference is Caution (D7 I10, carried
+ * from the retired FlightOverrideBanner).
+ */
+export function overrideFliesDifferently(own: DeploymentTuple | SeparationTuple, override: DeploymentTuple | SeparationTuple): boolean {
+  if ('deployEvent' in own && 'deployEvent' in override) return !!sparsify(flownDeployment(own), flownDeployment(override));
+  if ('separationEvent' in own && 'separationEvent' in override) return !!sparsify(flownSeparation(own), flownSeparation(override));
+  return true;
 }
 
 /** The Launch warning's wording for a separation tuple, as the kernel flies it. */

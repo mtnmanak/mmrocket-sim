@@ -50,9 +50,29 @@ describe('CFG-2 Recovery and Stages rows', () => {
       expect(row('drogue').querySelector('strong')!.textContent).toBe('Drogue (in Booster)');
       expect(row('lower').querySelector('strong')!.textContent).toBe('Booster');
       const lines = (id: string) => [...row(id).querySelectorAll('p')].map(p => p.textContent);
-      expect(lines('chute')).toEqual(['Own setting: Altitude (descending), 100 m', 'This configuration: overridden — Motor ejection charge, delay 1 s']);
+      // D7 I10 (carried from the retired FlightOverrideBanner): the own setting
+      // says when it is not the one that flies, and an override that flies
+      // differently is a Caution note, in words as well as colour.
+      expect(lines('chute')).toEqual(['Own setting: Altitude (descending), 100 m — not flown in this configuration',
+        '⚠ Caution: This configuration: overridden — Motor ejection charge, delay 1 s']);
       expect(lines('streamer')).toEqual(['Own setting: Apogee', 'This configuration: uses own setting']);
-      expect(lines('lower')).toEqual(["Own setting: This stage's ejection charge", 'This configuration: overridden — Launch, delay 2 s']);
+      expect(lines('lower')).toEqual(["Own setting: This stage's ejection charge — not flown in this configuration",
+        '⚠ Caution: This configuration: overridden — Launch, delay 2 s']);
+      expect(row('chute').querySelector('p.message-caution')).not.toBeNull();
+      expect(row('streamer').querySelector('.message-tier')).toBeNull();
+    } finally { cleanup(); }
+  });
+
+  it('keeps a stored override that flies the same as the own setting quiet, and says so (D7 I10)', () => {
+    // An ejection deployment never reads its altitude, so this override flies
+    // exactly what the drogue's own setting flies.
+    const same: FlightOverrides = { deployments: { drogue: { deployEvent: 'ejection', deployAltitude: 999, deployDelay: 0 } } };
+    const { row, cleanup } = setup({ overrides: same });
+    try {
+      const lines = [...row('drogue').querySelectorAll('p')].map(p => p.textContent);
+      expect(lines).toEqual(["Own setting: Motor ejection charge",
+        'This configuration: overridden — Motor ejection charge (flies the same as the own setting)']);
+      expect(row('drogue').querySelector('.message-tier')).toBeNull();
     } finally { cleanup(); }
   });
 

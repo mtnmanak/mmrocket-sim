@@ -209,6 +209,7 @@ describe('applied weather across a reload and an open', () => {
     const button = (text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
     const dateBox = () => host.querySelector<HTMLInputElement>('.weather-dialog input[type="date"]');
     await waitFor(() => button('Fetch again') !== undefined, 'the stale line’s Fetch again');
+    expect(host.querySelector('[data-weather="strip"]')!.classList.contains('message-caution')).toBe(true);
     await act(async () => { button('Fetch again')!.click(); });
     expect(dateBox()!.value).toBe('2026-09-26');
     expect(host.querySelector('.weather-chosen')!.textContent).toContain('Gerlach, Nevada, US');
