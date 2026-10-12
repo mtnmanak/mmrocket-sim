@@ -97,8 +97,6 @@ export function finTemplateSvg(
   const outline = finOutline(node);
   if (outline.length < 3) throw new Error('This fin set has no usable outline.');
   const mm = (m: number) => m * 1000;
-  const xs = outline.map((p) => mm(p.x));
-  const ys = outline.map((p) => mm(p.y));
   // ROOT CHORD, read by the SAME function solidMesh's finCutOutline uses
   // (tree/finTab.ts finRootChord) — this is the paper template for the part
   // that path cuts, and a template that disagrees with the cut file is worse
@@ -113,9 +111,15 @@ export function finTemplateSvg(
   if (!cutOutline) throw new Error('This fin set has no usable outline.');
   // The cut contour merges a tab only across root-line endpoints. Read its
   // normalized endpoints so closed freeform lists follow the same rule.
-  const tab = Math.abs(cutOutline[0]![1]) <= 1e-7 && Math.abs(cutOutline.at(-1)![1]) <= 1e-7
+  const mounted = node.type === 'freeformfinset' && ctx.finMount;
+  const tab = mounted || (Math.abs(cutOutline[0]![1]) <= 1e-7 && Math.abs(cutOutline.at(-1)![1]) <= 1e-7)
     ? tabOutline(node, rootLenM, ctx.tabMaxDepth) : null;
   const tabDepthMm = tab ? mm(tab.depth) : 0;
+  // A seated root can descend below its origin without being a tab. Size the
+  // page and clear its labels from the actual cut contour (audit 2026-10-11, S4b-1).
+  const xs = cutOutline.map(([x]) => mm(x));
+  const ys = cutOutline.map(([, y]) => mm(y));
+  const belowRootMm = Math.max(0, -Math.min(...ys));
 
   // The tab needs no share of the page width: it is clamped into [0, root
   // chord], and the outline always spans that — its first and last points
@@ -172,7 +176,7 @@ export function finTemplateSvg(
     ...labelLines.map((l) => l.length * GLYPH_MM),
   );
   const w = Math.max(maxX - minX, labelWidth) + 2 * M;
-  const h = maxY + tabDepthMm + labelBlock + 2 * M;
+  const h = maxY + belowRootMm + labelBlock + 2 * M;
   const X = (v: number) => v - minX + M;
   const Y = (v: number) => M + maxY - v; // flip: y up
 
@@ -192,7 +196,7 @@ export function finTemplateSvg(
   lines.push(`<line x1="${X(0).toFixed(3)}" y1="${Y(0).toFixed(3)}" x2="${X(mm(rootLenM)).toFixed(3)}" y2="${Y(0).toFixed(3)}" stroke="#888" stroke-width="0.15" stroke-dasharray="2 1.5"/>`);
 
   // Label block + 50 mm calibration ruler.
-  const ty = M + maxY + tabDepthMm + 8;
+  const ty = M + maxY + belowRootMm + 8;
   lines.push(`<g font-family="sans-serif" font-size="3.2" fill="#333">`);
   labelLines.forEach((l, i) => {
     lines.push(`<text x="${M}" y="${ty + i * 5}">${esc(l)}</text>`);

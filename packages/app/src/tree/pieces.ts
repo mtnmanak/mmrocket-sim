@@ -287,9 +287,25 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     const cant = Math.max(-Math.PI / 12, Math.min(Math.PI / 12, num(child, 'cant', 0)));
     if (cant !== 0) {
       const halfChord = axialLength(child) / 2;
+      // Extend root vertices to the tube before canting, as FinSet's
+      // getFinCantYOffset does (audit 2026-10-11, S4b-3). Tips stay put.
+      const vertices = geo.getAttribute('position');
+      const front = start - pStart;
+      for (let j = 0; j < vertices.count; j++) {
+        const x = vertices.getX(j);
+        const radius = mount.radiusAt(front + x);
+        if (Math.abs(vertices.getY(j) - (radius - r0)) > 1e-7) continue;
+        const dx = Math.max(0, Math.min(mount.length, front + x)) - (front + halfChord);
+        const rotatedRadius = mount.radiusAt(front + halfChord + dx * Math.cos(cant));
+        const dz = dx * Math.sin(cant);
+        if (Math.abs(dz) < rotatedRadius) {
+          vertices.setY(j, vertices.getY(j) - rotatedRadius + Math.sqrt(rotatedRadius ** 2 - dz ** 2));
+        }
+      }
       geo.translate(-halfChord, 0, 0);
       geo.rotateY(cant);
       geo.translate(halfChord, 0, 0);
+      geo.computeVertexNormals();
     }
 
     for (let i = 0; i < count; i++) {

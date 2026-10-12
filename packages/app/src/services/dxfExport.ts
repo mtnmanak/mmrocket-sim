@@ -6,6 +6,7 @@ import { asciiOnly } from './textFold.js';
 import { kernelNum } from '../tree/kernelDefaults.js';
 import { num } from '../tree/nodeNum.js';
 import { axialLength } from '../tree/position.js';
+import { finRootChord, finTabSpan } from '../tree/finTab.js';
 
 /**
  * DXF export — the 2D CNC/laser boundary. Everything offered here is a FLAT
@@ -301,8 +302,11 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string,
       // off the points rather than off rootChord keeps it correct for a
       // freeform fin and for a tab that reaches the leading or trailing end.
       const onRoot = pts.filter((p) => Math.abs(p.y) <= ON_ROOT);
-      const rootX0 = onRoot.length >= 2 ? Math.min(...onRoot.map((p) => p.x)) : 0;
-      const rootX1 = onRoot.length >= 2 ? Math.max(...onRoot.map((p) => p.x)) : 0;
+      // A seated root is not on y=0: the taper is neither a zero chord nor
+      // part of the TTW tab (audit 2026-10-11, S4b-1).
+      const mounted = node.type === 'freeformfinset' && ctx.finMount;
+      const rootX0 = mounted ? 0 : onRoot.length >= 2 ? Math.min(...onRoot.map((p) => p.x)) : 0;
+      const rootX1 = mounted ? finRootChord(node) : onRoot.length >= 2 ? Math.max(...onRoot.map((p) => p.x)) : 0;
       if (rootX1 - rootX0 > EPS) {
         geom.push({
           kind: 'line', layer: 'REFERENCE', dashed: true,
@@ -318,9 +322,10 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string,
       // operator to expect a tab that this drawing does not contain, and they
       // would find out when it failed to seat in the airframe slot.
       const below = pts.filter((p) => p.y < -EPS);
-      const tabDepth = below.length > 0 ? -Math.min(...below.map((p) => p.y)) : 0;
-      const tabX0 = below.length > 0 ? Math.min(...below.map((p) => p.x)) : 0;
-      const tabX1 = below.length > 0 ? Math.max(...below.map((p) => p.x)) : 0;
+      const tab = mounted ? finTabSpan(node, finRootChord(node), ctx.tabMaxDepth) : null;
+      const tabDepth = mounted ? tab?.depth ?? 0 : below.length > 0 ? -Math.min(...below.map((p) => p.y)) : 0;
+      const tabX0 = mounted ? tab?.x0 ?? 0 : below.length > 0 ? Math.min(...below.map((p) => p.x)) : 0;
+      const tabX1 = mounted ? tab?.x1 ?? 0 : below.length > 0 ? Math.max(...below.map((p) => p.x)) : 0;
       const thickness = kernelNum(node, 'thickness');
       const cross = typeof node['crossSection'] === 'string' ? (node['crossSection'] as string) : 'square';
       const label = node.type === 'trapezoidfinset' ? 'Trapezoidal fin'

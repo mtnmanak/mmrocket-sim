@@ -281,9 +281,10 @@ export function aftLayout(
             });
           }
           reach(cy + oy + off.y, cz + oz + off.z, r);
+          // Children inherit every cluster instance (audit 2026-10-11, S3b-1).
+          const len = axialLength(child);
+          walkChildren(child, r, cy + oy + off.y, cz + oz + off.z, axialStart(child, len, pStart, pLen), len);
         }
-        const len = axialLength(child);
-        walkChildren(child, r, cy + oy, cz + oz, axialStart(child, len, pStart, pLen), len);
       } else if (t === 'tubecoupler' || t === 'centeringring' || t === 'engineblock' || t === 'bulkhead') {
         const r = Math.min(pRadius * 0.98, num(child, 'outerRadius', pRadius * 0.95));
         inner.push({

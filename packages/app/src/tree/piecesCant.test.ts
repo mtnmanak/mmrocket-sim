@@ -39,7 +39,11 @@ function expectedFin(type: typeof types[number], cant: number, clock: number): P
   return outline.flatMap(([x, y]) => [-0.002, 0.002].map((z): Point => {
     // Root leading edge is 0.4 - 0.08 - 0.03 = 0.29 m; pivot is 0.33 m.
     const axial = 0.33 + (x! - 0.04) * Math.cos(cant) + z * Math.sin(cant);
-    const radial = 0.025 + y!;
+    // FinSet.getFinCantYOffset extends only the root to the parent surface
+    // (audit 2026-10-11, S4b-3); the old oracle pinned a floating rigid root.
+    const dz = (x! - 0.04) * Math.sin(cant);
+    const radial = Math.abs(y!) < 1e-9 && cant !== 0
+      ? Math.sqrt(0.025 ** 2 - dz ** 2) : 0.025 + y!;
     const tangent = -(x! - 0.04) * Math.sin(cant) + z * Math.cos(cant);
     return [axial, radial * Math.cos(clock) - tangent * Math.sin(clock),
       radial * Math.sin(clock) + tangent * Math.cos(clock)];

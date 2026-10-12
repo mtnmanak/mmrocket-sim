@@ -18,6 +18,7 @@ import { outerProfile } from './shapeProfile.js';
 import { tubeFinRadius, tubeFinWall } from './tubefins.js';
 import { finRootChord, finTabSpan } from './finTab.js';
 import { isTailCone, noseEnds } from './tailCone.js';
+import { finOnMount, type MountSurface } from './finRoot.js';
 
 export interface SolidMesh {
   /** xyz triples, meters */
@@ -27,6 +28,9 @@ export interface SolidMesh {
 }
 
 export interface SolidContext {
+  /** Fin mount surface and leading-edge station in its frame (m). */
+  finMount?: MountSurface;
+  finFront?: number;
   /**
    * the bore the part sits in (m), resolved by tree/solidContext.ts — the outer
    * radius of a bulkhead/centering ring/coupler/engine block that states none
@@ -488,6 +492,26 @@ export function finCutOutline(node: ComponentNode, ctx: SolidContext = {}): Arra
     else break;
   }
   if (pts.length < 3) return null;
+
+  // Seat printable and cuttable freeform roots too, including the tab's flat
+  // floor below its lower surface endpoint (audit 2026-10-11, S4b-1).
+  if (node.type === 'freeformfinset' && ctx.finMount) {
+    const front = ctx.finFront ?? 0;
+    const mounted = finOnMount(pts, front, ctx.finMount);
+    const tab = finTabSpan(node, finRootChord(node), ctx.tabMaxDepth);
+    if (!tab) return mounted.outline;
+    const { x0, x1, depth } = tab;
+    const bodyY = (x: number) => ctx.finMount!.radiusAt(front + x) - mounted.r0;
+    const floor = Math.min(bodyY(x0), bodyY(x1)) - depth;
+    // outline finishes by walking root samples aft-to-fore; insert the tab
+    // into that return edge, keeping curved-root samples outside its span.
+    const rootCount = mounted.root.length - 2;
+    const outer = mounted.outline.slice(0, mounted.outline.length - rootCount);
+    const root = mounted.root.slice(1, -1).reverse();
+    return outer.concat(root.filter(([x]) => x > x1),
+      [[x1, bodyY(x1)], [x1, floor], [x0, floor], [x0, bodyY(x0)]],
+      root.filter(([x]) => x < x0));
+  }
 
   // The root chord and the tab come from tree/finTab.ts — the SAME two readers
   // the paper template (services/finTemplate.ts) uses, so the printed prism,
