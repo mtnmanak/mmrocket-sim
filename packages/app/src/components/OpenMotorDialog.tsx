@@ -2,7 +2,7 @@ import { useId, useRef, useState } from 'react';
 import { Modal } from './Modal.js';
 import { describeRow, matchingExMotors } from '../services/motorMatch.js';
 import { importMotorFiles } from '../services/importMotorFiles.js';
-import { loadExMotors, type ExMotor } from '../services/exMotors.js';
+import { exToDbEntry, loadExMotors, type ExMotor } from '../services/exMotors.js';
 import type { OpenMotorChoice, OpenMotorIdentity } from '../services/openMotorChoices.js';
 
 export function OpenMotorDialog({ identities, onApply, onLater }: {
@@ -74,13 +74,18 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
                 {describeRow(motor, group.candidates)}
               </label>
             ))}
-            {exMatches.map(motor => (
-              <label key={motor.motorId}>
-                <input type="radio" name={`${id}-${index}`} checked={selected?.kind === 'ex' && selected.motor.motorId === motor.motorId}
-                  onChange={() => choose(group.key, { kind: 'ex', motor })} />
-                {motor.realManufacturer} {motor.designation} (EX, {motor.diameter} mm)
-              </label>
-            ))}
+            {exMatches.map(motor => {
+              // Choice labels describe the same snapshot used by matching and
+              // Launch (audit 2026-10-11, S1c-2 follow-up).
+              const db = exToDbEntry(motor);
+              return (
+                <label key={motor.motorId}>
+                  <input type="radio" name={`${id}-${index}`} checked={selected?.kind === 'ex' && selected.motor.motorId === motor.motorId}
+                    onChange={() => choose(group.key, { kind: 'ex', motor })} />
+                  {motor.realManufacturer} {db.designation} (EX, {db.diameter} mm)
+                </label>
+              );
+            })}
             <label>
               <input type="radio" name={`${id}-${index}`} checked={selected?.kind === 'empty'}
                 onChange={() => choose(group.key, { kind: 'empty' })} />

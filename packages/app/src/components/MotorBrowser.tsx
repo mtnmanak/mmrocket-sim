@@ -253,8 +253,14 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const loadChoice = useRef({ picked, delay, customDelay });
   loadChoice.current = { picked, delay, customDelay };
   const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [exMotors, setExMotors] = useState(() => loadExMotors());
+  // Say which legacy imports were refused once per opening, through the
+  // existing import status region (audit 2026-10-11, S1c-5).
+  const [initialEx] = useState(() => {
+    const notes: string[] = [];
+    return { motors: loadExMotors(notes), notice: notes.join(' ') || null };
+  });
+  const [notice, setNotice] = useState<string | null>(initialEx.notice);
+  const [exMotors, setExMotors] = useState(initialEx.motors);
 
   const setFilters = (next: StoredFilters) => {
     setFiltersRaw(next);

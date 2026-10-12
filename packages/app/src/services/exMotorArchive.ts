@@ -1,4 +1,4 @@
-import { EXIT_MIN_FRACTION_OF_CASE, EXIT_MAX_FRACTION_OF_CASE, boundedExId, exMotorIdentity, exToMotorSpec, flightIdentity, loadExMotors, MAX_EX_MOTOR_ID_LENGTH, type ExMotor, type ExFlightSnapshot } from './exMotors.js';
+import { validExMotor as validArchivedExMotor, validFlightSnapshot, boundedExId, exMotorIdentity, exToMotorSpec, flightIdentity, loadExMotors, type ExMotor, type ExFlightSnapshot } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import type { OrkExportMotor } from './orkFile.js';
 import { escapeXml } from './xmlUtil.js';
@@ -13,45 +13,7 @@ export const MAX_EMBEDDED_EX_MOTORS = 1024;
 export const MAX_EX_ARCHIVE_BYTES = 16 * 1024 * 1024;
 export const EX_MOTOR_NOTES_TAG = 'mmrexmotornotes';
 
-const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-const positive = (v: unknown): v is number => finite(v) && v > 0;
-const record = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object' && !Array.isArray(v);
-
-/** Validate without repairing: a damaged archive must never silently fly a changed curve. */
-export function validArchivedExMotor(v: unknown): v is ExMotor {
-  if (!record(v)) return false;
-  const totalG = v['totalWeightG'];
-  const propG = v['propWeightG'];
-  return typeof v['motorId'] === 'string' && v['motorId'].startsWith('ex:') && v['motorId'].length <= MAX_EX_MOTOR_ID_LENGTH
-    && (v['flightSnapshot'] === undefined || validFlightSnapshot(v['flightSnapshot']))
-    && typeof v['designation'] === 'string' && v['designation'].length > 0
-    && typeof v['realManufacturer'] === 'string' && typeof v['delays'] === 'string'
-    && positive(v['diameter']) && positive(v['length'])
-    && positive(totalG) && positive(propG) && propG <= totalG
-    && finite(v['addedAt']) && (v['source'] === 'eng' || v['source'] === 'rse'
-      || (v['source'] === 'snapshot' && v['flightSnapshot'] !== undefined))
-    && Array.isArray(v['samples']) && v['samples'].length >= 2 && v['samples'].length <= MAX_EX_MOTOR_SAMPLES
-    && v['samples'].every((s: unknown) => record(s) && finite(s['time']) && finite(s['thrust']))
-    && (v['sampleMassesKg'] === undefined || (Array.isArray(v['sampleMassesKg'])
-      && v['sampleMassesKg'].length === v['samples'].length
-      && v['sampleMassesKg'].every((m: unknown) => finite(m)
-        && m >= (totalG - propG) / 1000 * 0.99 && m <= totalG / 1000 * 1.01)))
-    && (v['exitDiameterM'] === undefined || (positive(v['exitDiameterM'])
-      && v['exitDiameterM'] >= v['diameter'] / 1000 * EXIT_MIN_FRACTION_OF_CASE && v['exitDiameterM'] <= v['diameter'] / 1000 * EXIT_MAX_FRACTION_OF_CASE));
-}
-
-/** Exact loaded data is accepted only when every array can fly unchanged. */
-export function validFlightSnapshot(v: unknown): v is ExFlightSnapshot {
-  if (!record(v) || typeof v['designation'] !== 'string' || !v['designation']
-    || !positive(v['diameter']) || !positive(v['length']) || !finite(v['cgX'])) return false;
-  const times = v['times'], thrusts = v['thrusts'], masses = v['masses'];
-  return Array.isArray(times) && times.length >= 2 && times.length <= MAX_EX_MOTOR_SAMPLES
-    && times.every((t: unknown, i: number) => finite(t) && t >= 0 && (i === 0 || t > times[i - 1]))
-    && Array.isArray(thrusts) && thrusts.length === times.length && thrusts.every((f: unknown) => finite(f) && f >= 0)
-    && Array.isArray(masses) && masses.length === times.length && positive(masses[0])
-    && masses.every((m: unknown) => finite(m) && m >= 0);
-}
+export { validExMotor as validArchivedExMotor, validFlightSnapshot } from './exMotors.js';
 
 /** Deterministic bounded name; full identity comparison handles hash collisions. */
 function snapshotId(identity: string): string {

@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type MutableRefObject } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
 import {
-  equivalentExitDiameterM, followNozzle, stageMotorKey, type StageMotors,
+  equivalentExitDiameterM, followNozzle, motorNozzleKey, stageMotorKey, type StageMotors,
 } from '../services/nozzleFollow.js';
 import { numOrNull } from '../tree/nodeNum.js';
 import { applyStageNozzles, findNode } from '../tree/treeModel.js';
+import { exMotorRevision, getExMotor, subscribeExMotors } from '../services/exMotors.js';
 
 /**
  * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR (Eric, 2026-09-13).
@@ -42,6 +43,9 @@ export interface NozzleCleared { previousLabel: string; previousM: number }
 /** One stage's loadout as the follow bookkeeping records it. */
 interface Seen { key: string; label: string }
 
+/** A resolved value belongs only to the source key it was read from. */
+interface ResolvedNozzle { key: string; entry: Pick<NozzleEntry, 'exitDiameterM'> | null }
+
 /** The published-exit lookup; injectable so a test can hold it open. */
 export type NozzleLookup = (motorId: string | undefined) => Promise<Pick<NozzleEntry, 'exitDiameterM'> | null>;
 
@@ -70,7 +74,14 @@ export function useNozzleFollow(opts: {
   restoring: (t: RocketTree) => void;
 } {
   const { loadout, treeRef, writeTree, lookup = nozzleForMotorId } = opts;
+  const libraryRevision = useSyncExternalStore(subscribeExMotors, exMotorRevision);
   const seen = useRef(new Map<string, Seen>());
+  // Remember resolved exits across library deletion, which leaves the motor
+  // mounted (audit 2026-10-11, S3c-2 follow-up). Re-imports still replace them.
+  const nozzleKeys = useRef(new Map<string, string>());
+  // Undo can need the VALUE again after deletion, not just its comparison key
+  // (audit 2026-10-11, S3c-2 follow-up 2). Null records a replacement with no exit.
+  const nozzleValues = useRef(new Map<string, ResolvedNozzle>());
   /**
    * Per stage, the loadout the nozzle IN THE TREE was decided for. The same as
    * `seen` except while a lookup is pending, when the tree still carries the
@@ -93,17 +104,24 @@ export function useNozzleFollow(opts: {
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => {
+    // Capture the exit-aware keys before awaiting: a later same-id import
+    // must supersede this lookup's old answer (audit 2026-10-11, S3c-2).
+    for (const s of loadout) for (const m of s.motors) {
+      nozzleKeys.current.set(m.motorId, motorNozzleKey(m.motorId, nozzleKeys.current.get(m.motorId)));
+    }
+    const motorKeys = new Map(nozzleKeys.current);
+    const keys = new Map(loadout.map(s => [s.stageId, stageMotorKey(s, motorKeys)]));
     void (async () => {
       const acted = loadout.filter((s) => {
         const was = seen.current.get(s.stageId);
-        return was !== undefined && was.key !== stageMotorKey(s);
+        return was !== undefined && was.key !== keys.get(s.stageId);
       });
       // Record what we have seen BEFORE any await, so a second render landing
       // mid-lookup cannot act on the same change twice.
       const previous = new Map(seen.current);
       for (const s of loadout) {
         seen.current.set(s.stageId, {
-          key: stageMotorKey(s),
+          key: keys.get(s.stageId)!,
           label: s.motors[0]?.label ?? '',
         });
       }
@@ -139,7 +157,13 @@ export function useNozzleFollow(opts: {
       // chunk for the life of the page (nozzleDb.ts).
       const looked: { s: StageMotors; entries: (Pick<NozzleEntry, 'exitDiameterM'> | null)[] }[] = [];
       for (const s of acted) {
-        looked.push({ s, entries: await Promise.all(s.motors.map((m) => lookup(m.motorId).catch(() => null))) });
+        looked.push({ s, entries: await Promise.all(s.motors.map((m) => {
+          if (m.motorId.startsWith('ex:') && !getExMotor(m.motorId)) {
+            const cached = nozzleValues.current.get(m.motorId);
+            return Promise.resolve(cached && cached.key === motorKeys.get(m.motorId) ? cached.entry : null);
+          }
+          return lookup(m.motorId).catch(() => null);
+        })) });
       }
       if (!mounted.current) return;
 
@@ -157,7 +181,11 @@ export function useNozzleFollow(opts: {
       const nowDecided = new Map(decided.current);
       for (const { s, entries } of looked) {
         const current = seen.current.get(s.stageId);
-        if (current?.key !== stageMotorKey(s)) continue;
+        if (!current || current.key !== keys.get(s.stageId)) continue;
+        // Only current answers may replace the cache, including an absent exit.
+        s.motors.forEach((m, i) => {
+          nozzleValues.current.set(m.motorId, { key: motorKeys.get(m.motorId)!, entry: entries[i] ?? null });
+        });
         // "The motors before" is what the nozzle IN THE TREE was decided for —
         // `decided`, NOT `previous` (audit 2026-09-30). While an earlier
         // look-up was pending, `previous` names a loadout that never got a
@@ -208,7 +236,7 @@ export function useNozzleFollow(opts: {
       refreshDecision((n) => n + 1);
     })();
     // `treeRef`, `writeTree` and `lookup` are stable; the loadout is the trigger.
-  }, [loadout, treeRef, writeTree, lookup]);
+  }, [loadout, treeRef, writeTree, lookup, libraryRevision]);
   /**
    * A CONFIGURATION SWITCH IS NOT A MOTOR CHANGE (audit 2026-09-22). A RASAero
    * simulation states the nozzle of the motor it flies, and the switch writes
@@ -223,7 +251,18 @@ export function useNozzleFollow(opts: {
   const seed = useCallback((stages: readonly StageMotors[]) => {
     const next = new Map(decided.current);
     for (const s of stages) {
-      const v = { key: stageMotorKey(s), label: s.motors[0]?.label ?? '' };
+      for (const m of s.motors) {
+        const key = motorNozzleKey(m.motorId, nozzleKeys.current.get(m.motorId));
+        nozzleKeys.current.set(m.motorId, key);
+        const ex = getExMotor(m.motorId);
+        // Seeding can follow an inactive re-import: refresh the source/value pair
+        // without writing the configuration's nozzle (audit 2026-10-11, S3c-2 follow-up 3).
+        if (ex) nozzleValues.current.set(m.motorId, {
+          key,
+          entry: ex.exitDiameterM === undefined ? null : { exitDiameterM: ex.exitDiameterM },
+        });
+      }
+      const v = { key: stageMotorKey(s, nozzleKeys.current), label: s.motors[0]?.label ?? '' };
       seen.current.set(s.stageId, v);
       next.set(s.stageId, v);
     }
@@ -261,7 +300,7 @@ export function useNozzleFollow(opts: {
   }, []);
   const pending = loadout.some((s) => {
     const was = decided.current.get(s.stageId);
-    return was !== undefined && was.key !== stageMotorKey(s);
+    return was !== undefined && was.key !== stageMotorKey(s, nozzleKeys.current);
   });
   return { cleared, pending, seed, restoring };
 }

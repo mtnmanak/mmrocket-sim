@@ -8,6 +8,8 @@ import { stageMotors, type StageMotors } from '../services/nozzleFollow.js';
 import { applyStageNozzles, motorMounts } from '../tree/treeModel.js';
 import { useNozzleFollow, type NozzleCleared, type NozzleLookup } from './useNozzleFollow.js';
 import { HISTORY_COALESCE_MS, useTreeHistory, type TreeHistory } from './useTreeHistory.js';
+import { addExMotors, deleteExMotor, parseEng, parseRse } from '../services/exMotors.js';
+import { nozzleForMotorId } from '../services/nozzleDb.js';
 
 /**
  * The nozzle-follow rule as App runs it (Eric, 2026-09-13): the stage's exit
@@ -73,6 +75,87 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
 const exitOf = (t: RocketTree) => t.components[0]!['nozzleExitDiameter'];
 
 describe('useNozzleFollow', () => {
+  it('S3c-2 refreshes the cached exit when seeding an inactive re-import before deletion and clustering', async () => {
+    const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
+    addExMotors([ex]);
+    const h = harness(tree(0.015), nozzleForMotorId);
+    await h.show(loadout(ex.motorId));
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
+    expect(exitOf(h.treeRef.current)).toBe(0.018);
+    await h.show(loadout());
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.020 }]); });
+
+    h.out.seed(loadout(ex.motorId));
+    h.treeRef.current = tree(0.025); // The configuration's own figure must survive seeding.
+    const writesBeforeSeed = h.writes.length;
+    await h.show(loadout(ex.motorId));
+    await act(async () => { deleteExMotor(ex.motorId); });
+    expect(exitOf(h.treeRef.current)).toBe(0.025);
+    expect(h.writes).toHaveLength(writesBeforeSeed);
+    expect(h.out.pending).toBe(false);
+
+    const four = loadout(ex.motorId);
+    four[0]!.motors[0]!.count = 4;
+    await h.show(four);
+    expect(exitOf(h.treeRef.current)).toBe(0.040); // Four 20 mm exits have one 40 mm equivalent.
+    expect(h.out.pending).toBe(false);
+    expect(h.out.cleared).toEqual({});
+  });
+
+  it('S3c-2 keeps the mounted nozzle after library deletion, then follows a corrected re-import', async () => {
+    const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
+    addExMotors([ex]);
+    const h = harness(tree(0.015), nozzleForMotorId);
+    await h.show(loadout(ex.motorId));
+    await act(async () => { deleteExMotor(ex.motorId); });
+    await h.show(loadout(ex.motorId)); // An unrelated render must not clear it either.
+    expect(exitOf(h.treeRef.current)).toBe(0.015);
+    expect(h.writes).toHaveLength(0);
+    expect(h.out.pending).toBe(false);
+    expect(h.out.cleared).toEqual({});
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
+    expect(exitOf(h.treeRef.current)).toBe(0.018);
+    await act(async () => { deleteExMotor(ex.motorId); });
+    expect(exitOf(h.treeRef.current)).toBe(0.018);
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: undefined }]); });
+    expect(exitOf(h.treeRef.current)).toBeUndefined();
+    expect(h.out.pending).toBe(false);
+  });
+
+  it('S3c-2 ignores a superseded lookup when two same-id re-imports overlap', async () => {
+    const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
+    addExMotors([ex]);
+    const releases: (() => void)[] = [];
+    const delayed: NozzleLookup = async id => {
+      const answer = await nozzleForMotorId(id);
+      await new Promise<void>(resolve => { releases.push(resolve); });
+      return answer;
+    };
+    const h = harness(tree(0.015), delayed);
+    await h.show(loadout(ex.motorId));
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.02 }]); });
+    await act(async () => { releases[0]!(); });
+    expect(exitOf(h.treeRef.current)).toBe(0.015);
+    expect(h.out.pending).toBe(true);
+    await act(async () => { releases[1]!(); });
+    expect(exitOf(h.treeRef.current)).toBe(0.02);
+    expect(h.out.pending).toBe(false);
+  });
+
+  it.each([0.015, 0])('S3c-2 follows a same-id re-import from %s m, preserving OFF', async initial => {
+    const ex = parseRse('<engine-database><engine code="G100" mfg="Home" dia="38" len="150" initWt="200" propWt="100" exitDia="15"><data><eng-data t="0" f="0"/><eng-data t="0.5" f="200"/><eng-data t="1" f="0"/></data></engine></engine-database>')[0]!;
+    addExMotors([ex]);
+    const h = harness(tree(initial), nozzleForMotorId);
+    await h.show(loadout(ex.motorId));
+    expect(h.writes).toHaveLength(0);
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
+    expect(exitOf(h.treeRef.current)).toBe(initial === 0 ? 0 : 0.018);
+    expect(h.out.pending).toBe(false);
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: undefined }]); });
+    expect(exitOf(h.treeRef.current)).toBe(initial === 0 ? 0 : undefined);
+  });
+
   it('keeps the current nozzle decision pending across edits and superseded lookups', async () => {
     const releases = new Map<string, () => void>();
     const slow: NozzleLookup = async (id) => {
@@ -336,6 +419,7 @@ describe('useNozzleFollow under the undo history', () => {
     h: TreeHistory;
     setMotor: (id: string) => void;
     cleared: Record<string, NozzleCleared>;
+    pending: boolean;
   }
   let miniRoot: Root | null = null;
   let miniHost: HTMLElement | null = null;
@@ -363,7 +447,7 @@ describe('useNozzleFollow under the undo history', () => {
       }, [h.tree, m]);
       const nf = useNozzleFollow({ loadout, treeRef: h.treeRef, writeTree: h.writeTree, lookup: opts.look ?? lookup });
       restoring.current = nf.restoring;
-      out.current = { h, setMotor, cleared: nf.cleared };
+      out.current = { h, setMotor, cleared: nf.cleared, pending: nf.pending };
       return null;
     }
     miniHost = document.createElement('div');
@@ -386,6 +470,35 @@ describe('useNozzleFollow under the undo history', () => {
   };
   const undo = async (m: { current: Mini }) => { await act(async () => { m.current.h.undo(); }); await settle(); };
   const redo = async (m: { current: Mini }) => { await act(async () => { m.current.h.redo(); }); await settle(); };
+
+  it('S3c-2 keeps the resolved EX nozzle through re-import, deletion and undo of an earlier rename', async () => {
+    const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
+    addExMotors([ex]);
+    const m = mountMini(withMount(0.015), ex.motorId, { look: nozzleForMotorId });
+    await settle();
+    await edit(m, (t) => ({ ...t, name: 'renamed' }));
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.018);
+    await act(async () => { deleteExMotor(ex.motorId); });
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.018);
+    await undo(m);
+    expect(m.current.h.treeRef.current.name).toBe('r');
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.018);
+    expect(m.current.pending).toBe(false);
+    expect(m.current.cleared).toEqual({});
+    await redo(m);
+    expect(m.current.h.treeRef.current.name).toBe('renamed');
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.018);
+
+    // A present replacement can remove the figure; deleting it must not revive 18 mm.
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: undefined }]); });
+    expect(exitOf(m.current.h.treeRef.current)).toBeUndefined();
+    await act(async () => { deleteExMotor(ex.motorId); });
+    await undo(m);
+    expect(m.current.h.treeRef.current.name).toBe('r');
+    expect(exitOf(m.current.h.treeRef.current)).toBeUndefined();
+    expect(m.current.pending).toBe(false);
+  });
 
   it('restores explicit OFF on undo and redo even after a motor swap', async () => {
     const m = mountMini(withMount(0), 'J1');

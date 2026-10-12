@@ -3,11 +3,12 @@ import {
   type StaticInfo,
 } from '@online-openrocket/engine';
 import {
-  applyStageNozzles, clearStageNozzles, engineTree, isOnLaunchStage, mountMotorCount, motorMounts, stageIdByNode, stagesWithNozzle,
+  applyStageNozzles, clearStageNozzles, engineTree, findNode, isOnLaunchStage, mountMotorCount, motorMounts, stageIdByNode,
   stagesWithRecoveryDevice,
   type ClusterSplit,
 } from '../tree/treeModel.js';
 import { equivalentExitDiameterM } from './nozzleFollow.js';
+import { numOrNull } from '../tree/nodeNum.js';
 import { nozzleForMotorId } from './nozzleDb.js';
 import { displayDesignation, displayMotorManufacturer, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
 import { motorLabelEntry } from './motorLabels.js';
@@ -565,8 +566,11 @@ export async function runBatchSweep(
    * The field is already the whole stage's equivalent, so it is used as-is.
    */
   const typedStageExitM = (() => {
-    const st = stagesWithNozzle(tree).find((s) => s.id === stageIdOfTarget);
-    return st && st.exitDiameterM > 0 ? st.exitDiameterM : null;
+    // Zero is explicit OFF for the loaded candidate, not missing data to
+    // replace with its published exit (audit 2026-10-11, S7a-1).
+    const st = findNode(tree, stageIdOfTarget);
+    const value = st ? numOrNull(st, 'nozzleExitDiameter') : null;
+    return value !== null && value >= 0 ? value : null;
   })();
   const loadedIdOnTarget = assignedMotorIds[target.id];
 
@@ -748,7 +752,8 @@ export async function runBatchSweep(
         // Stamped only when this row actually flew a nozzle, the same way the
         // design page stamps it — it is what the launch report keys its
         // pressure-thrust note off, and what marks the row in the table.
-        ...(exitM !== null ? { nozzleStages: [stageNameOfTarget] } : {}),
+        // OFF has no nozzle effects to stamp (audit 2026-10-11, S7a-1).
+        ...(exitM !== null && exitM > 0 ? { nozzleStages: [stageNameOfTarget] } : {}),
         recoveryStages,
         ...(comboActive ? { motorConfig: 'single' } : {}),
         designKey: provenance.designKey,
