@@ -1475,19 +1475,18 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
           } else {
             const launchKg = wt[i] - above;
             const dry = stageMassWithoutMotor(launchKg, m);
+            // Keep the inputs even when the catalogue fallback rejects them:
+            // the file's EX motor can yield valid overrides (audit 2026-10-11, S1c-1).
+            if (m) {
+              st[STATED_STAGE_FIGURES] = {
+                motor: m.row, fileMotor: m.label, ...recordedMount, launchKg,
+                ...(dry > 0 ? { massKg: dry } : {}),
+              } satisfies StatedStageFigures;
+            }
             if (dry > 0) {
               st['overrideMass'] = dry;
               st['overrideSubcomponentsMass'] = true;
               overrideMassKg[i] = dry;
-              // The file's figure behind it, so loading this motor later with
-              // other figures backs it out again (statedLaunchWeight.ts
-              // STATED_STAGE_FIGURES). Only for a motor actually backed out.
-              if (m) {
-                st[STATED_STAGE_FIGURES] = {
-                  // Preserve the file identity for an EX match (audit 2026-10-11, S1c-1).
-                  motor: m.row, fileMotor: m.label, ...recordedMount, launchKg, massKg: dry,
-                } satisfies StatedStageFigures;
-              }
               // The one case where the override that just landed is NOT a dry
               // airframe mass: no motor could be backed out of it, so it still
               // holds that motor's weight. Marked on the stage so that loading
@@ -1522,6 +1521,14 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         const launchCg = combined - (stageFrontX[i] ?? 0);
         const stageCg = stageCgWithoutMotor(stages[i]!, aftTube(stages[i]), m, overrideMassKg[i] ?? 0, launchCg);
         const len = stageLength(st);
+        // A rejected fallback CG must also survive for the actual loaded motor.
+        if (m) {
+          st[STATED_STAGE_FIGURES] = {
+            ...(st[STATED_STAGE_FIGURES] as StatedStageFigures | undefined ?? { motor: m.row, fileMotor: m.label, ...recordedMount }),
+            launchCgM: launchCg,
+            ...(stageCg >= 0 && stageCg <= len ? { cgM: stageCg } : {}),
+          } satisfies StatedStageFigures;
+        }
         if (!(stageCg >= 0) || stageCg > len) {
           // Outside the stage's own extent is not a CG the file can mean — a
           // stage's mass is inside the stage. Either the file's numbers
@@ -1540,14 +1547,6 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         }
         st['overrideCGX'] = stageCg;
         st['overrideSubcomponentsCG'] = true;
-        // A motor backed out of the CG has been backed out of the mass first
-        // (stageCgWithoutMotor refuses otherwise), so the record exists.
-        if (m) {
-          st[STATED_STAGE_FIGURES] = {
-            ...(st[STATED_STAGE_FIGURES] as StatedStageFigures | undefined ?? { motor: m.row, fileMotor: m.label, ...recordedMount }),
-            launchCgM: launchCg, cgM: stageCg,
-          } satisfies StatedStageFigures;
-        }
         // Same mark, same reason as the mass above: with no motor to back out,
         // this CG override is a LAUNCH CG and still holds that motor's moment.
         // Idempotent — the mass branch usually set it already.
