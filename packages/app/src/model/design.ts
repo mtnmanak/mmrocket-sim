@@ -76,6 +76,8 @@ export interface SavedConfig {
   motorLoadoutRefusal?: string;
   /** Per-stage mass/CG snapshots derived from each RASAero simulation. */
   stageMassOverrides?: Record<string, StageMassOverride>;
+  /** Import-time cautions shown again when applying the RASAero configuration. */
+  stageMassNotes?: string[];
   /** File stage activeness keyed by node id; kept through save and session restore. */
   stageActiveness?: Record<string, boolean>;
   /** The .ork configid — stable through save, so desktop round-trips keep it. */

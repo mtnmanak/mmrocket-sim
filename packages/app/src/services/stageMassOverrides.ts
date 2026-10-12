@@ -33,7 +33,9 @@ export function captureStageMass(node: Record<string, unknown>): StageMassOverri
   // Only while the overrides still hold what those figures produced: a typed,
   // cleared or scaled override is the user's, and the record goes with it.
   const stated = statedFiguresOf(node as ComponentNode);
-  if (stated && statedFiguresHold(stated, out.overrideMass, out.overrideCGX)) out.statedStageFigures = stated;
+  // Snapshotting must respect the same user-edit guard (audit 2026-10-11, S7b-2).
+  if (stated && statedFiguresHold(stated, out.overrideMass, out.overrideCGX,
+    out.overrideSubcomponentsMass, out.overrideSubcomponentsCG)) out.statedStageFigures = stated;
   return out;
 }
 

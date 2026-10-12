@@ -9,6 +9,7 @@ import type { SessionState } from './services/session.js';
 import { APP_VERSION } from './version.js';
 import { addExMotors, parseEng } from './services/exMotors.js';
 import { escapeXml } from './services/xmlUtil.js';
+import { num } from './tree/nodeNum.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const ctx2d = new Proxy({}, {
@@ -61,6 +62,54 @@ async function open(name = 'Ask motor', extra = '') {
   await waitFor(() => !!host.querySelector('[aria-label="Choose motors for this file"]'));
   act(() => { flush(); });
 }
+
+async function answerStatedMotor() {
+  const xml = `<RASAeroDocument><RocketDesign>
+    <NoseCone><Length>10</Length><Diameter>4</Diameter><Shape>Conical</Shape></NoseCone>
+    <BodyTube><Length>40</Length><Diameter>4</Diameter></BodyTube>
+    </RocketDesign><SimulationList><Simulation>
+    <SustainerEngine>J440  (AeroTech)</SustainerEngine><SustainerLaunchWt>12</SustainerLaunchWt>
+    <SustainerCG>25</SustainerCG></Simulation></SimulationList></RASAeroDocument>`;
+  const picker = host.querySelector<HTMLInputElement>('input[aria-label="Open a design file"]')!;
+  Object.defineProperty(picker, 'files', { configurable: true, value: [new File([xml], 'Stated.CDX1')] });
+  await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
+  const discard = button('Open without saving');
+  if (discard) await act(async () => discard.click());
+  await waitFor(() => !!host.querySelector('[aria-label="Choose motors for this file"]'));
+  act(() => { flush(); });
+  const before = stored();
+  const input = host.querySelector<HTMLInputElement>('input[aria-label="Import motor files for AeroTech J440"]')!;
+  Object.defineProperty(input, 'files', { configurable: true, value: [new File([
+    'J440 54 400 P 0.5 2 AeroTech\n0 0\n0.1 800\n2 0',
+  ], 'J440.eng')] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  await waitFor(() => !!host.querySelector('.open-motor-choices label')?.parentElement?.textContent?.includes('(EX,'));
+  await act(async () => button('Apply').click());
+  await waitFor(() => !host.querySelector('[aria-label="Choose motors for this file"]'));
+  act(() => { flush(); });
+  return before;
+}
+
+it('S2-2 Apply backs the chosen EX motor out in the same history step and reports it', async () => {
+  await answerStatedMotor();
+  const after = stored();
+  expect(Object.values(after.mountMotors!)[0]!.spec.masses[0]).toBe(2);
+  expect(num(after.tree.components[0]!, 'overrideMass', NaN)).toBeCloseTo(12 / 2.20462262 - 2, 9);
+  expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain('backed out again');
+}, 30_000);
+
+it('S2-3 undo and redo reconcile with the motors restored across the dialog answer', async () => {
+  const before = await answerStatedMotor();
+  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })));
+  act(() => { flush(); });
+  expect(stored().mountMotors).toEqual(before.mountMotors);
+  expect(num(stored().tree.components[0]!, 'overrideMass', NaN)).toBeCloseTo(num(before.tree.components[0]!, 'overrideMass', NaN), 9);
+  expect(num(stored().tree.components[0]!, 'overrideCGX', NaN)).toBeCloseTo(num(before.tree.components[0]!, 'overrideCGX', NaN), 9);
+  await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true })));
+  act(() => { flush(); });
+  expect(Object.values(stored().mountMotors!)[0]!.spec.masses[0]).toBe(2);
+  expect(num(stored().tree.components[0]!, 'overrideMass', NaN)).toBeCloseTo(12 / 2.20462262 - 2, 9);
+}, 30_000);
 
 it('O3 preserves embedded EX storage notices when accepting another-maker matches', async () => {
   const ex = parseEng('G42 29 127 6 0.043 0.112 Custom\n0 0\n0.1 80\n1 0')[0]!;

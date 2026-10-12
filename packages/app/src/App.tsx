@@ -322,6 +322,7 @@ export function App() {
   // tree undo (especially after Apply None) must not undo saved configuration edits.
   const scaleRevision = useRef<object>({});
   const motorAnswerRevision = useRef<object>({});
+  const restoringMotors = useRef<Record<string, MountMotor> | null>(null);
   const [openMotorQuestion, setOpenMotorQuestion] = useState<{ identities: OpenMotorIdentity[]; openId: number; acceptedLines: string[] } | null>(null);
   // The design tree and its undo/redo history (hooks/useTreeHistory.ts, audit
   // 2026-09-22 extraction #4). `onRestore` and `blocked` are read at call time,
@@ -342,6 +343,8 @@ export function App() {
       configs: withActiveConfigTreeSynced(savedConfigs, activeConfigId, treeRef.current),
     }),
     restoreCompanion: ({ revision, configs, motorRevision, motorState }) => {
+      // React has not installed these motors when onRestore runs (audit 2026-10-11, S2-3).
+      restoringMotors.current = motorRevision !== motorAnswerRevision.current ? motorState.mountMotors : null;
       // @atestani TRF #162, Eric 2026-10-06: only crossing an answer restores motors.
       if (motorRevision !== motorAnswerRevision.current) {
         motorAnswerRevision.current = motorRevision;
@@ -1006,7 +1009,9 @@ export function App() {
    */
   const spendSpentMarks = useRef<(t: RocketTree) => RocketTree>((t) => t);
   spendSpentMarks.current = (t) => {
-    const spent = reconcileAllIncludedMotors(t, attachedSet(mountMotors), statedWeightText);
+    const motors = restoringMotors.current ?? mountMotors;
+    restoringMotors.current = null;
+    const spent = reconcileAllIncludedMotors(t, attachedSet(motors), statedWeightText);
     if (spent.notes.length) setFileNote(spent.notes.join('\n'), spent.severity);
     return spent.tree;
   };
@@ -3413,9 +3418,11 @@ export function App() {
             const { identities, openId } = openMotorQuestion;
             const next = await applyOpenMotorChoices({ tree, mountMotors, savedConfigs, unmatchedRefs }, activeConfigId, identities, choices);
             if (!openSeq.isCurrent(openId)) return;
+            // The chosen motor and its back-out are one undo step (audit 2026-10-11, S2-2).
+            const spent = reconcileAllIncludedMotors(treeRef.current, attachedSet(next.mountMotors), statedWeightText);
             commitOpenMotorChoices(next, {
               commitStep: () => {
-                commitTreeStep(treeRef.current);
+                commitTreeStep(spent.tree);
                 motorAnswerRevision.current = {};
               },
               setMountMotors, setSavedConfigs, setUnmatchedRefs,
@@ -3424,7 +3431,9 @@ export function App() {
             setFileNoteState(prev => prev ? {
               // @atestani TRF #162, Eric 2026-10-06: edit the CURRENT notice,
               // preserving embedded-EX/storage lines and literal dollars in names.
-              ...prev, text: prev.text.split('\n').filter(line => !openMotorQuestion.acceptedLines.includes(line)).join('\n'),
+              ...prev, text: [...prev.text.split('\n').filter(line => !openMotorQuestion.acceptedLines.includes(line)),
+                ...spent.notes].join('\n'),
+              severity: spent.severity === 'warn' ? 'warn' : prev.severity,
             } : null);
           }} />
       )}
