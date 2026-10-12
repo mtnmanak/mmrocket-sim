@@ -134,6 +134,41 @@ describe('the review of one fetched hour', () => {
   });
 });
 
+describe('the winds-aloft Apply patch (audit 2026-10-11, S3b-5)', () => {
+  const levels = [{ altitude: 10, speed: 1.75, direction: 0, standardDeviation: 0.7 },
+    { altitude: 100, speed: 4, direction: 0.2, standardDeviation: 1.6 }];
+  const proposal = () => ({
+    ...buildProposal({ launch: DEFAULT_CONDITIONS, answer: TWO(), place: gerlach, unix: SAT_2PM, choice: 'site' }),
+    windLevels: levels,
+  });
+
+  it('applies the profile with the surface wind and its place provenance', () => {
+    const patch = patchOf(proposal(), new Set(['windAverage']), {
+      aloft: { ticked: true, place: gerlach, currentLevels: [] },
+    });
+    expect(patch).toEqual({ windAverage: 1.75, windLevels: levels,
+      windProfileSource: { kind: 'open-meteo', place: 'Gerlach, Nevada, US', validUnix: SAT_2PM,
+        surfaceFromDeg: 294, method: 'search' } });
+  });
+
+  it.each(['unchecked', 'refused'] as const)('leaves the old profile alone when surface wind is %s', (why) => {
+    const p = proposal();
+    if (why === 'refused') row(p.rows, 'windAverage').refusal = { why: 'missing' };
+    expect(patchOf(p, new Set(why === 'unchecked' ? [] : ['windAverage']), {
+      aloft: { ticked: true, place: gerlach, currentLevels: levels },
+    })).toEqual({});
+  });
+
+  it.each(['unticked', 'unavailable', 'no-place'] as const)('clears an old profile for surface-only Apply (%s)', (why) => {
+    const p = proposal();
+    if (why === 'unavailable') p.windLevels = [];
+    const aloft = { ticked: why !== 'unticked', place: why === 'no-place' ? null : gerlach, currentLevels: levels };
+    expect(patchOf(p, new Set(['windAverage']), { aloft })).toEqual({ windAverage: 1.75, windLevels: [] });
+    expect(patchOf(p, new Set(['windAverage']), { aloft: { ...aloft, currentLevels: [] } }))
+      .toEqual({ windAverage: 1.75 });
+  });
+});
+
 describe('the provenance an Apply stores', () => {
   it('keeps what was fetched, what was applied, and what each field held — and survives the session', () => {
     const launch: LaunchConditions = { ...DEFAULT_CONDITIONS, windStdDev: 0.7 };

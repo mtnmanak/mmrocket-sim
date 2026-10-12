@@ -9,7 +9,8 @@ import type { IgnitionEvent, MotorSpec, RocketTree } from '@online-openrocket/en
 import { AERO_NAME, PrefsProvider, type AeroChoice } from '../prefs/PrefsContext.js';
 import { MOTOR_DB, filterMotors, sortMotors } from '../services/motorDb.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
-import { BatchSimulate, batchSummary, batchUnavailableReason } from './BatchSimulate.js';
+import { BatchSimulate } from './BatchSimulate.js';
+import { batchSummary, batchUnavailableReason } from '../services/batchCriteria.js';
 import {
   batchFlownSpec, candidateIdentity, isWeighedCandidate, mixedComboCount,
   type BatchMountOption, type BatchWeighed, batchStageExit,

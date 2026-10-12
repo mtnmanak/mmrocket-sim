@@ -354,19 +354,10 @@ export function WeatherDialog({
   const proposal = useMemo(() => (answer && place && hourUnix !== null
     ? buildProposal({ launch, answer, place, unix: hourUnix, choice })
     : null), [launch, answer, place, hourUnix, choice]);
-  const patch: WeatherPatch = proposal ? patchOf(proposal, ticked) : {};
-  // An unchecked or refused wind row must leave the profile and its source alone.
-  // Only applying surface wind can replace it with aloft or clear it to surface-only.
+  const patch: WeatherPatch = proposal ? patchOf(proposal, ticked, {
+    aloft: { ticked: aloftTicked, place, currentLevels: launch.windLevels },
+  }) : {};
   const applyingWind = patch.windAverage !== undefined;
-  if (proposal && place && aloftTicked && applyingWind && proposal.windLevels.length) {
-    patch.windLevels = proposal.windLevels;
-    // `method` travels with the profile, which outlives this snapshot: only a
-    // searched place's name owes GeoNames a credit where the profile is shown.
-    patch.windProfileSource = { kind: 'open-meteo', place: place.label, validUnix: proposal.sample.unix,
-      surfaceFromDeg: proposal.sample.windFromDeg!, method: place.method };
-  } else if (applyingWind && launch.windLevels?.length) {
-    patch.windLevels = [];
-  }
   const canApply = proposal !== null && Object.keys(patch).length > 0;
   // The step-4 preview: what the panel's σ chip will offer from this hour.
   const gust = sigmaFromGust(proposal?.sample.windSpeedMs, proposal?.sample.windGustMs);
