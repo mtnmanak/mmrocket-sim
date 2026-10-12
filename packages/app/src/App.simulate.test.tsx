@@ -837,6 +837,134 @@ describe('the Launch button and simulateFile fly an opened file the same', () =>
 });
 
 const corpus = (name: string) => join(CORPUS, name);
+
+/** Native designs have no importer-seeded ignition defaults. Exercise the actual card and Launch. */
+async function nativeIgnitionCase(staged = false) {
+  prefs(CLASSIC);
+  const tree = staged ? addStage(defaultTree()).tree : defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  const mm = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: mm },
+    launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null }, configLayers: 1,
+    activeConfigId: 'a', detachedOverrides: {}, savedAt: 1, appVersion: APP_VERSION,
+    savedConfigs: [{ id: 'a', name: 'Native A', isDefault: true, motors: { [mount]: mm } }] }));
+  const host = await mountApp();
+  const click = async (text: string) => act(async () => {
+    [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();
+  });
+  await click('Motors & Launch');
+  const select = () => host.querySelector<HTMLSelectElement>(`#ignition-${mount}`)!;
+  const choose = async (event: string) => act(async () => {
+    select().value = event;
+    select().dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  const number = async (selector: string, value: string) => act(async () => {
+    const input = host.querySelector<HTMLInputElement>(selector)!;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+  });
+  const fly = async (event: string, delay: number) => {
+    const count = vi.mocked(flyBuiltDesign).mock.calls.length;
+    await launch(host);
+    await waitFor(() => vi.mocked(flyBuiltDesign).mock.calls.length === count + 1, 'Launch input');
+    await act(async () => { await vi.mocked(flyBuiltDesign).mock.results[count]!.value; });
+    expect(vi.mocked(flyBuiltDesign).mock.calls[count]![0].derived.assigned[0]![1].ignition)
+      .toEqual({ event, delay });
+    await click('Motors & Launch');
+  };
+  return { host, mount, click, select, choose, number, fly };
+}
+
+it('FC-4 fixup native staged ignition save and reopen retain default and override', async () => {
+  const { host, click, choose, number } = await nativeIgnitionCase(true);
+  await choose('launch');
+  await number('[aria-label^="Ignition delay for"]', '2');
+  await click('Save As / Export');
+  await click('Save .ork');
+  await settle(50);
+  const xml = await (vi.mocked(saveFile).mock.calls.at(-1)![0] as Blob).text();
+  expect(xml).toContain('<ignitionconfiguration');
+  const reader = await vi.importActual<typeof import('./services/orkFile.js')>('./services/orkFile.js');
+  const reopened = reader.importOrk(xml);
+  const id = Object.keys(reopened.tree.ignitionDefaults!)[0]!;
+  expect(reopened.tree.ignitionDefaults![id]).toEqual({ event: 'automatic', delay: 0 });
+  expect(reopened.configs.find(c => c.id === 'a')!.ignitions![id]).toEqual({ event: 'launch', delay: 2 });
+  parsed = null;
+  await pick(host, new File([xml], 'native.ork'));
+  await waitFor(() => parsed !== null && motorMounts(parsed.tree).map(m => m.id!).every(
+    openedId => peekSession()?.tree.ignitionDefaults?.[openedId] !== undefined), 'reopened defaults to be autosaved');
+  const openedId = Object.keys(peekSession()!.tree.ignitionDefaults!)[0]!;
+  expect(peekSession()!.tree.ignitionDefaults![openedId]).toEqual({ event: 'automatic', delay: 0 });
+  expect(peekSession()!.savedConfigs!.find(c => c.id === 'a')!.ignitions![openedId]).toEqual({ event: 'launch', delay: 2 });
+  expect(host.textContent).toContain('override for this configuration');
+}, 30000);
+
+it.each(['auto', 'plugged', 'delay'])('FC-4 fixup native ignition survives %s control and undo redo', async control => {
+  const { host, click, choose, number, select, fly } = await nativeIgnitionCase();
+  await choose('launch');
+  await number('[aria-label^="Ignition delay for"]', '2');
+  if (control === 'delay') await number('[aria-label^="Ejection delay for"]', '4');
+  else await act(async () => {
+    [...host.querySelectorAll('label')].find(l => l.textContent?.trim().startsWith(control))!
+      .querySelector<HTMLInputElement>('input')!.click();
+  });
+  await click('Undo');
+  await click('Undo');
+  expect(select().value).toBe('automatic');
+  await fly('automatic', 0);
+  await click('Redo');
+  await click('Redo');
+  expect(select().value).toBe('launch');
+  await fly('launch', 2);
+}, 30000);
+
+it('FC-4 fixup Delete keeps override history in the detached working layer', async () => {
+  const { host, click, choose, number, select, fly } = await nativeIgnitionCase();
+  await choose('launch');
+  await number('[aria-label^="Ignition delay for"]', '2');
+  await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Delete Native A"]')!.click(); });
+  await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Confirm delete Native A"]')!.click(); });
+  expect(host.textContent).toContain('override in the detached working settings');
+  await click('Undo');
+  await click('Undo');
+  expect(select().value).toBe('automatic');
+  await fly('automatic', 0);
+  await click('Redo');
+  await click('Redo');
+  expect(select().value).toBe('launch');
+  expect(host.textContent).toContain('override in the detached working settings');
+  await fly('launch', 2);
+  window.dispatchEvent(new Event('pagehide'));
+  expect(peekSession()!.activeConfigId).toBeNull();
+  expect(peekSession()!.savedConfigs).toEqual([]);
+}, 30000);
+
+it('FC-4 fixup None preserves history for the saved owner while keeping working overrides clear', async () => {
+  const { host, mount, click, choose, number } = await nativeIgnitionCase();
+  await choose('launch');
+  await number('[aria-label^="Ignition delay for"]', '2');
+  await click('Unload');
+  for (const action of ['Undo', 'Undo', 'Redo', 'Redo']) await click(action);
+  window.dispatchEvent(new Event('pagehide'));
+  const redone = peekSession()!;
+  expect(redone.activeConfigId).toBeNull();
+  expect(redone.mountMotors).toEqual({});
+  expect(redone.detachedOverrides).toEqual({});
+  expect(redone.savedConfigs![0]!.ignitions![mount]).toEqual({ event: 'launch', delay: 2 });
+  expect(host.querySelector(`#ignition-${mount}`)).toBeNull();
+  await click('Undo');
+  await click('Undo');
+  window.dispatchEvent(new Event('pagehide'));
+  const undone = peekSession()!;
+  expect(undone.savedConfigs![0]!.ignitions?.[mount]).toBeUndefined();
+  expect(undone.detachedOverrides).toEqual({});
+  expect(undone.mountMotors).toEqual({});
+  const loaded = undone.savedConfigs![0]!;
+  expect(resolveFlightState(undone.tree, undone.savedConfigs!, 'a', {}, loaded.motors).mountMotors[mount]!.ignition)
+    .toEqual({ event: 'automatic', delay: 0 });
+}, 30000);
+
 it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-5 LEM banners, expanded notice, Reset kernel input, Undo, Use everywhere and equal edit', async () => {
   prefs(CLASSIC);
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
@@ -855,7 +983,8 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-5 LEM bann
   expect(bar.classList.contains('expanded')).toBe(true);
   expect(bar.textContent).toContain('Parachute (×2)');
   for (const chute of chutes) expect(bar.textContent).toContain(chute.name);
-  expect(bar.textContent).toContain('[F67C]');
+  expect(bar.textContent).toContain(`Flight configuration “${configLabel}”`);
+  expect(bar.textContent).toContain(`Opened “${configLabel}”`);
   expect(bar.textContent).toContain('Motor ejection charge');
   expect(bar.textContent).toContain('300 ft');
   expect(bar.textContent).toContain('parachute panel');

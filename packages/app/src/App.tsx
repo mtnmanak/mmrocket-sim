@@ -354,6 +354,13 @@ export function App() {
       if (priorLayerRevision !== layerRevision.current) {
         layerRevision.current = priorLayerRevision;
         if (priorActiveId === activeConfigId) setDetachedOverrides(priorDetached);
+        // Delete is not a history boundary (audit 2026-10-11, FC-4 fixup).
+        // Its former owner's edits now belong to the detached working set.
+        // None keeps the saved owner: restore that entry below, leaving None clear.
+        else if (activeConfigId === null && priorActiveId !== null
+            && !savedConfigs.some(c => c.id === priorActiveId)) {
+          setDetachedOverrides(activeFlightOverrides(configs, priorActiveId, priorDetached));
+        }
         setSavedConfigs(prev => prev.map(c => {
           const old = configs.find(row => row.id === c.id);
           return old ? { ...c, deployments: old.deployments, separations: old.separations, ignitions: old.ignitions } : c;
@@ -2615,9 +2622,12 @@ export function App() {
       return;
     }
     const ignitions = setOverride(activeOverrides.ignitions, id, baseline, tuple);
+    // Freeze a native mount's true default before exporting resolved motors
+    // (audit 2026-10-11, FC-4 fixup). Undo restores both layers together.
+    const defaults = { ...tree, ignitionDefaults: { ...(tree as FlightTree).ignitionDefaults, [id]: baseline } } as FlightTree;
     if (activeConfigId && savedConfigs.some(c => c.id === activeConfigId)) {
-      commitFlightLayers({ configs: savedConfigs.map(c => c.id === activeConfigId ? { ...c, ignitions } : c) });
-    } else commitFlightLayers({ detached: { ...detachedOverrides, ignitions } });
+      commitFlightLayers({ tree: defaults, configs: savedConfigs.map(c => c.id === activeConfigId ? { ...c, ignitions } : c) });
+    } else commitFlightLayers({ tree: defaults, detached: { ...detachedOverrides, ignitions } });
   };
 
   const commitActiveOverrides = (patch: FlightOverrides) => {
@@ -4345,7 +4355,9 @@ export function App() {
                             onCommit={(v) => {
                               if (v === null) return;
                               // Typing a delay overrides auto (mountDelayEdits).
-                              setMountMotors((prev) => ({ ...prev, [m.id!]: withDelay(mm, v) }));
+                              // Edit the raw record, never bake a resolved ignition override
+                              // into its default (audit 2026-10-11, FC-4 fixup).
+                              setMountMotors((prev) => ({ ...prev, [m.id!]: withDelay(prev[m.id!]!, v) }));
                             }}
                           />
                         </div>
@@ -4359,7 +4371,7 @@ export function App() {
                               // Un-plugging restores the longest prescribed
                               // delay, or 6 s (mountDelayEdits).
                               const plugged = e.target.checked;
-                              setMountMotors((prev) => ({ ...prev, [m.id!]: withPlugged(mm, plugged) }));
+                              setMountMotors((prev) => ({ ...prev, [m.id!]: withPlugged(prev[m.id!]!, plugged) }));
                             }}
                           />
                           plugged
@@ -4373,7 +4385,7 @@ export function App() {
                               style={{ width: 'auto' }}
                               onChange={(e) => {
                                 const auto = e.target.checked;
-                                setMountMotors((prev) => ({ ...prev, [m.id!]: withAuto(mm, auto) }));
+                                setMountMotors((prev) => ({ ...prev, [m.id!]: withAuto(prev[m.id!]!, auto) }));
                               }}
                             />
                             auto (optimal)

@@ -61,7 +61,7 @@ import {
  * optional.
  */
 export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'expand' | 'launch' | 'launchSiteRefused' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
-  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'storedSimulations' | 'newerFormat'>>
+  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'configLabelNotes' | 'storedSimulations' | 'newerFormat'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
   & { machAlt?: [number, number][]; sourceFormat?: 'ork' | 'rkt' | 'cdx1' };
@@ -489,6 +489,16 @@ export function planImport(
       ...(cfg.nozzles && Object.keys(cfg.nozzles).length > 0
         ? { nozzles: cfg.nozzles } : {}),
     });
+  }
+  // Match ConfigPanel and the override banners after motor labels are known.
+  // Only explicitly identified notes are rewritten, by configuration id;
+  // arbitrary part names/file prose are untouched (audit 2026-10-11, FC-4 fixup).
+  for (const entry of imported.configLabelNotes ?? []) {
+    const config = nextConfigs.find(c => c.id === entry.configId);
+    const index = notes.indexOf(entry.text);
+    if (config && index !== -1) {
+      notes[index] = entry.text.replace(`“${entry.label}”`, () => `“${savedConfigLabel(config)}”`);
+    }
   }
   // A stage whose stated launch weight still holds an unidentified motor's
   // weight, opened from a .ork saved BEFORE that motor could be loaded and

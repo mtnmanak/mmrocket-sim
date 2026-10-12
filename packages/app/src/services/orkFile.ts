@@ -302,6 +302,8 @@ export interface OrkImportResult extends OrkTreeImportResult {
    * describes a simulation that is not on screen.
    */
   configNotes?: Record<string, string[]>;
+  /** Notes whose configuration label is finalized after motor matching. */
+  configLabelNotes?: { text: string; configId: string; label: string }[];
 }
 
 /**
@@ -1438,6 +1440,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   };
   noteParameters(components);
   notes.push(...overrideNotes);
+  // Keep identity beside the prose: a resolved motor label can include a delay
+  // or a disambiguated name (audit 2026-10-11, FC-4 fixup).
+  const configLabelNotes = noteConfig && noteName
+    ? overrideNotes.map(text => ({ text, configId: noteConfig.id, label: noteName })) : [];
 
   // Say when a dimension was INFERRED. The user opened an archived file and got
   // a number nobody typed; without this note the only clue that anything was
@@ -1588,10 +1594,11 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // checking for.
       // (This whole block is already inside `configs.length > 1`, so there is
       // no single-configuration case to branch on here.)
-      notes.push(
-        `Opened “${configLabel(chosen)}”${chosen.isDefault ? ', the file’s default' : ''} `
+      const openedNote = `Opened “${configLabel(chosen)}”${chosen.isDefault ? ', the file’s default' : ''} `
         + `flight configuration (${configs.length} in the file). Switch between them `
-        + `under Motors & Launch → Flight configurations.`);
+        + `under Motors & Launch → Flight configurations.`;
+      notes.push(openedNote);
+      configLabelNotes.push({ text: openedNote, configId: chosen.id, label: configLabel(chosen) });
     }
   } else if (configs.length === 0) {
     // Hand-rolled files may key <motor configid>s without declaring the
@@ -1681,6 +1688,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   return {
     name, tree, motors, newerFormat, configs: emptyDefault ? [] : configs,
     ...(overrideNotes.length ? { expand: true } : {}),
+    ...(configLabelNotes.length ? { configLabelNotes } : {}),
     chosenConfigId: emptyDefault ? null : chosenConfigId,
     ...(exIds.size ? { embeddedExMotors: [...exIds.values()] } : {}),
     ...(storedSimulations.length ? { storedSimulations } : {}),
