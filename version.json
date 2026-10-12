@@ -1,5 +1,5 @@
 {
-  "version": "0.184",
+  "version": "0.185",
   "released": "2026-10-12",
-  "note": "Internal tidy-up from the 11 October audit: no change to what you see or how a design flies."
+  "note": "A warning under every Launch button when the flight configuration you are about to fly overrides a part."
 }

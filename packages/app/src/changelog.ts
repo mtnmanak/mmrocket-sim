@@ -32,6 +32,21 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    "version": "0.185",
+    "date": "2026-10-12",
+    "title": "A warning under every Launch button when a flight configuration overrides a part",
+    "items": [
+      "WHEN THE FLIGHT CONFIGURATION YOU ARE ABOUT TO FLY OVERRIDES A PART'S OWN SETTING, AN AMBER WARNING NOW SITS DIRECTLY UNDER EVERY LAUNCH BUTTON. It covers a parachute or streamer's deployment, a lower stage's separation, and a loaded motor's ignition. It names the configuration, says which parts are overridden and what they deploy, separate or ignite at, and gives their own setting. On @atestani's LEM-1-2026_2.ork it reads: Flight configuration “[F67C-9]” overrides 2 parachutes: they deploy at Motor ejection charge, not at their own setting (Altitude (descending), 91.44 m). Until now an override showed in the part's own panel or motor card, in the Flight configurations list at the foot of Motors & Launch, and in the note on opening the file, but nowhere near the button you press. A design downloaded from somewhere else, or one set up long ago, could fly an override you never looked at.",
+      "Where it appears: under Launch in the strip at the top of the Design, Motors & Launch and Results tabs (a shorter form, as a full-width line under the strip), under Launch in Launch conditions, under Launch on the phone's Fly screen, under Batch's Simulate button and its Run anyway confirmation, and under Try Auto & re-fly on Results. Each of those buttons is linked to the warning's full text, so a screen reader can read it with the button.",
+      "Show, in the warning, takes you to where the override is edited today: the parachute, streamer or stage on the Design tab, whose banner edits or resets it, or the motor card on Motors & Launch for ignition.",
+      "It appears only when what the simulation flies differs from the parts' own settings. A setting that flies the same, such as an altitude stored beside an event that does not use altitude, gives no warning. The top stage's separation setting is never flown, so it is not warned about. An imported deployment event the app does not support is described as the Motor ejection charge it flies at.",
+      "Batch flies every candidate motor with Automatic ignition, so Batch's warning leaves out the swept mount's ignition and keeps the other overrides that change the flight.",
+      "The warning is a filled amber block with near-black text, the same in the Light and Dark themes and in Daylight mode, and it uses the system's own colours in Windows High Contrast. Other notes in the app are unchanged in this release.",
+      "Nothing about how a design flies changes in this release: the warning only describes what was already flying.",
+      "Known limit: overrides are still edited where they were: parachute, streamer and stage overrides in each part's panel on the Design tab, ignition on the motor card. Moving them onto the flight configuration, where desktop OR keeps them, is proposed but not built."
+    ]
+  },
+  {
     "version": "0.184",
     "date": "2026-10-12",
     "title": "Internal tidy-up only: nothing you see or fly changes",
