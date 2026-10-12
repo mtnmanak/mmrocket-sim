@@ -1119,13 +1119,18 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM i
       const description = document.getElementById(id!)!;
       expect(description).not.toBeNull();
       expect(launch.nextElementSibling).toBe(description.closest('.launch-override-warning'));
+      expect(description.parentElement?.classList.contains('launch-override-callout')).toBe(true);
       expect(description.textContent).toContain('[F67C-9]');
       expect(description.textContent).toContain('2 parachutes');
       expect(description.textContent).toContain('Motor ejection charge');
       expect(description.textContent).toContain('300 ft');
-      const flat = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...flat(n.children ?? [])]);
-      for (const chute of flat(peekSession()!.tree.components).filter(n => n.type === 'parachute')) {
-        expect(description.textContent).toContain(chute.name);
+      expect(description.textContent).not.toContain('(Parachute and Parachute)');
+      expect(description.textContent).not.toContain('stored altitude');
+      expect(description.textContent).not.toContain('delay 0 s');
+      if (launch.classList.contains('vitals-launch')) {
+        const warning = description.closest('.launch-override-warning')!;
+        expect(warning.parentElement?.classList.contains('vitals-strip')).toBe(true);
+        expect(warning.querySelector('.launch-override-short')?.textContent).toBe('Flight configuration “[F67C-9]” overrides 2 parachutes — they deploy at Motor ejection charge.');
       }
     }
   };

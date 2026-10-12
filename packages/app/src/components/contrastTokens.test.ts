@@ -190,6 +190,14 @@ describe('the Launch orange under its white label', () => {
   });
 });
 
+describe('launch override callout contrast', () => {
+  it('near-black text and Show outlines have at least 7:1 contrast on the caution fill in every theme', () => {
+    for (const [name, t] of Object.entries(THEMES)) {
+      expect(ratio(tok(t, '--callout-caution-fg'), tok(t, '--callout-caution-bg')), name).toBeGreaterThanOrEqual(7);
+    }
+  });
+});
+
 describe('small controls are at least 24 × 24 px (row 467)', () => {
   const px = (block: string, prop: string): number => {
     const m = new RegExp(`(^|[;\\s])${prop}:\\s*(\\d+)px`).exec(block);

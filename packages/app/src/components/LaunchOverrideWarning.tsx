@@ -11,7 +11,8 @@ export function LaunchOverrideWarning({ id, summary, onShow, compact = false }: 
   onShow: LaunchOverrideProps['onShowOverride']; compact?: boolean;
 }) {
   if (!summary) return null;
-  return <div className={`launch-override-warning vitals-stale${compact ? ' launch-override-compact' : ''}`}>
+  return <div className={`launch-override-warning launch-override-callout${compact ? ' launch-override-compact' : ''}`}>
+    <span className="launch-override-icon" aria-hidden="true">⚠</span>{' '}
     {compact && <span className="launch-override-short" aria-hidden="true">{summary.shortText}</span>}
     <span id={id} className={compact ? 'sr-only' : undefined}>{summary.text}</span>
     {' '}<button type="button" className="file-btn" onClick={() => onShow?.(summary.first)}

@@ -256,6 +256,7 @@ it('LW describes both batch run controls and removes descriptions without overri
     const description = document.getElementById(b.getAttribute('aria-describedby')!)!;
     expect(description?.textContent).toContain('Batch settings');
     expect(b.nextElementSibling).toBe(description.closest('.launch-override-warning'));
+    expect(description.parentElement?.classList.contains('launch-override-callout')).toBe(true);
   };
   check(primary());
   await click(primary());

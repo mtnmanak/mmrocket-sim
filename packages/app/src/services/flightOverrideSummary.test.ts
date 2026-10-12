@@ -20,9 +20,23 @@ describe('launch override summary', () => {
     const s = describeFlightOverrides(tree, { deployments: { a: flown, b: flown } }, {}, '[F67C-9]', 'ft')!;
     expect(s.text).toContain('Flight configuration “[F67C-9]” overrides 2 parachutes (Main and Backup)');
     expect(s.text).toContain('they deploy at Motor ejection charge');
-    expect(s.text).toContain('own setting (Altitude (descending) 300 ft');
-    expect(s.shortText).toBe('Overrides in “[F67C-9]”: 2 parachutes');
+    expect(s.text).toContain('own setting (Altitude (descending), 300 ft');
+    expect(s.shortText).toBe('Flight configuration “[F67C-9]” overrides 2 parachutes (Main and Backup) — they deploy at Motor ejection charge.');
     expect(s.first).toEqual({ id: 'a', family: 'recovery' });
+  });
+  it.each(['Parachute', 'Shared name'])('omits redundant grouped names (%s) and dormant values in the LEM warning', name => {
+    const defaults: FlightTree = { components: ['a', 'b'].map(id => ({ type: 'parachute', id, name, ...own })) };
+    const overrides = { deployments: { a: { ...flown, deployAltitude: 200 }, b: { ...flown, deployAltitude: 200 } } };
+    const summary = describeFlightOverrides(defaults, overrides, {}, '[F67C-9]', 'm')!;
+    expect(summary.text).toBe('Flight configuration “[F67C-9]” overrides 2 parachutes: they deploy at Motor ejection charge, not at their own setting (Altitude (descending), 91.44 m).');
+    expect(summary.shortText).toBe('Flight configuration “[F67C-9]” overrides 2 parachutes — they deploy at Motor ejection charge.');
+  });
+  it('omits generic single names and dormant default altitude while retaining nonzero delays on both sides', () => {
+    const defaults: FlightTree = { components: [{ type: 'parachute', id: 'a', name: 'Parachute',
+      deployEvent: 'ejection', deployAltitude: 200, deployDelay: 1.5 }] };
+    const summary = describeFlightOverrides(defaults, { deployments: { a: { ...own, deployDelay: 2 } } }, {}, 'Test', 'ft')!;
+    expect(summary.text).toBe('Flight configuration “Test” overrides parachute: it deploys at Altitude (descending), 300 ft, delay 2 s, not at its own setting (Motor ejection charge, delay 1.5 s).');
+    expect(summary.shortText).not.toContain('own setting');
   });
   it('counts larger groups and keeps different types and settings distinct within one family sentence', () => {
     const expanded: FlightTree = { ...tree, components: [...tree.components,
@@ -99,15 +113,16 @@ describe('launch override summary', () => {
     expect(summary.text).toContain('delay 2 s');
     expect(summary.text).toContain('own setting (Motor ejection charge');
     expect(summary.text).toContain("the file's 'lower stage separation' is not supported here");
-    expect(summary.text).toContain('delay 0 s');
+    expect(summary.text).not.toContain('delay 0 s');
   });
   it('describes ignition only for loaded, existing mounts that differ from their default', () => {
     const overrides = { ignitions: { mount: { event: 'never' as const, delay: 1 }, gone: { event: 'never' as const, delay: 0 } } };
     expect(describeFlightOverrides(tree, overrides, {}, 'Test', 'm')).toBeNull();
     const s = describeFlightOverrides(tree, overrides, { mount: motor, gone: motor }, 'Test', 'm')!;
-    expect(s.text).toContain('motor mount “Motor mount”');
+    expect(s.text).toContain('overrides motor mount:');
     expect(s.text).toContain('Never, delay 1 s');
     expect(s.text).toContain("Automatic (launch / lower stage's ejection)");
+    expect(s.text).not.toContain('delay 0 s');
     expect(s.first).toEqual({ id: 'mount', family: 'ignition' });
     expect(describeFlightOverrides(tree, { ignitions: { mount: motor.ignition } }, { mount: motor }, null, 'm')).toBeNull();
     expect(describeFlightOverrides({ components: tree.components }, { ignitions: { mount: motor.ignition } }, { mount: motor }, null, 'm')).toBeNull();
@@ -135,8 +150,9 @@ describe('launch override summary', () => {
     } }, separations: { stage: {
       separationEvent: 'altitudeascending', separationAltitude: 91.44, separationDelay: 2,
     } } }, {}, 'Future file', 'ft')!;
-    expect(s.text).toContain('Motor ejection charge (stored altitude 300 ft), delay 1.5 s');
+    expect(s.text).toContain('Motor ejection charge, delay 1.5 s');
+    expect(s.text).not.toContain('stored altitude');
     expect(s.text).toContain("the file's 'future-event' is not supported here");
-    expect(s.text).toContain('Altitude (ascending) 300 ft, delay 2 s');
+    expect(s.text).toContain('Altitude (ascending), 300 ft, delay 2 s');
   });
 });

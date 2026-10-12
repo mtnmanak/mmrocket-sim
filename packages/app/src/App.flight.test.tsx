@@ -1260,6 +1260,7 @@ it.each([true, false])('LW relaunch latch describes active overrides only when p
     expect(description.textContent).toContain('detached working settings');
     expect(description.textContent).toContain('delay 0.1 s');
     expect(relaunch.nextElementSibling).toBe(description.parentElement);
+    expect(description.parentElement?.classList.contains('launch-override-callout')).toBe(true);
     await act(async () => description.parentElement!.querySelector<HTMLButtonElement>('button')!.click());
     expect(host.querySelector<HTMLSelectElement>(`[id="ignition-${mount}"]`)?.value).toBe('launch');
   } else {

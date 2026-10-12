@@ -53,6 +53,8 @@ html {
      the same three values into exported SVGs. */
   --status-good: #007100;
   --status-warn: #845800;
+  --callout-caution-bg: #ffcf66;
+  --callout-caution-fg: #17130a;
   --status-serious: #bd1e1d;
   --border: #d9d6cf;
   --border-strong: #c6c2b8;
@@ -97,6 +99,8 @@ html {
   --series-1: #5a9be0; /* lifted for dark; see the light block's note — not chart-slot-synced */
   --status-good: #4dbd4d;
   --status-warn: #e0a53d;
+  --callout-caution-bg: #ffcf66;
+  --callout-caution-fg: #17130a;
   --status-serious: #f0716f;
   --border: #403c35;
   --border-strong: #57524a;
@@ -273,21 +277,60 @@ html {
   align-self: center;
 }
 
-/* The warning stays within the Launch cell's existing width, even for long names. */
-.vitals-launch-group {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
+.launch-override-callout {
+  box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
-  margin-left: auto;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px; /* Matches .file-btn. */
+  background: var(--callout-caution-bg);
+  color: var(--callout-caution-fg);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
-.vitals-strip .vitals-launch-group .vitals-launch { margin: 7px 10px 4px; }
-.launch-override-warning { font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
-.launch-override-warning .file-btn { color: inherit; font-size: inherit; }
-.launch-override-compact { display: flex; align-items: center; gap: 4px; margin: 0 6px 5px; contain: inline-size; }
-.launch-override-short { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.launch-override-compact .file-btn { flex-shrink: 0; padding: 2px 4px; }
+/* Outrank the generic file button, including Daylight's control borders/focus. */
+.viz-root .launch-override-callout button.file-btn {
+  border-color: currentColor;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+}
+.viz-root .launch-override-callout button.file-btn:hover {
+  background: var(--callout-caution-fg);
+  color: var(--callout-caution-bg);
+  border-color: var(--callout-caution-fg);
+}
+.viz-root .launch-override-callout button.file-btn:focus-visible {
+  outline: 3px solid var(--callout-caution-fg);
+  outline-offset: 2px;
+}
+@media (prefers-contrast: more) {
+  .launch-override-callout { border: 2px solid currentColor; font-weight: 600; }
+  .viz-root .launch-override-callout button.file-btn { border-width: 2px; }
+}
+@media (forced-colors: active) {
+  .launch-override-callout {
+    /* Preserve the system's caution pair instead of flattening it to Canvas. */
+    forced-color-adjust: none;
+    background: Mark;
+    color: MarkText;
+    border: 2px solid MarkText;
+  }
+  .viz-root .launch-override-callout button.file-btn { border-color: MarkText; }
+  .viz-root .launch-override-callout button.file-btn:hover { background: MarkText; color: Mark; }
+  .viz-root .launch-override-callout button.file-btn:focus-visible { outline-color: MarkText; }
+}
+/* A full row below the instruments, ending under Launch and wrapping at any width. */
+.vitals-strip .launch-override-compact {
+  flex: 0 0 calc(100% - 20px);
+  min-width: 0;
+  margin: 0 10px 7px;
+  text-align: right;
+}
+.launch-override-compact .file-btn { padding: 2px 4px; }
 .batch-launch-group { min-width: 0; max-width: 100%; }
 
 .workspace-tabs {
@@ -3972,6 +4015,8 @@ select.unit-chip:hover {
   --series-1: #0b4ea2;
   --status-good: #005c00;
   --status-warn: #6b4a00;
+  --callout-caution-bg: #ffcf66;
+  --callout-caution-fg: #17130a;
   --status-serious: #b00016;
   --border: #000000;
   --hover: #d8d8d8;

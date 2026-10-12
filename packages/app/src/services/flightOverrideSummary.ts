@@ -24,7 +24,7 @@ function flownDeployment(tuple: DeploymentTuple): DeploymentTuple {
 
 function describeFlownDeployment(tuple: DeploymentTuple, unit: string): string {
   const deployEvent = flownDeployEvent(tuple.deployEvent);
-  const description = describeComponentFlightTuple({ ...tuple, deployEvent }, unit);
+  const description = describeComponentFlightTuple({ ...tuple, deployEvent }, unit, 'warning');
   if (deployEvent === tuple.deployEvent.toLowerCase()) return description;
   const stored = tuple.deployEvent.toLowerCase() === 'lowerstageseparation' ? 'lower stage separation' : tuple.deployEvent;
   return `${description} (the file's '${stored}' is not supported here)`;
@@ -60,14 +60,14 @@ export function describeFlightOverrides(
         const tuple = overrideFor(overrides.separations, id);
         const own = separationTuple(node);
         if (tuple && sparsify(own, tuple)) add(node, 'separation', 'stage',
-          describeComponentFlightTuple(tuple, distanceUnit), describeComponentFlightTuple(own, distanceUnit));
+          describeComponentFlightTuple(tuple, distanceUnit, 'warning'), describeComponentFlightTuple(own, distanceUnit, 'warning'));
       }
       const motor = id ? overrideFor(motors, id) : undefined;
       if (id && motor && mountIds.has(id)) {
         const tuple = overrideFor(overrides.ignitions, id);
         const own = overrideFor(tree.ignitionDefaults, id) ?? motor.ignition;
         if (tuple && sparsify(own, tuple)) add(node, 'ignition', 'motor mount',
-          describeIgnitionTuple(tuple), describeIgnitionTuple(own));
+          describeIgnitionTuple(tuple, 'warning'), describeIgnitionTuple(own, 'warning'));
       }
       if (node.children) visit(node.children);
     }
@@ -76,14 +76,16 @@ export function describeFlightOverrides(
   if (!first) return null;
   const subject = configLabel ? `Flight configuration “${configLabel}”` : 'The detached working settings';
   const count = (g: Group) => g.names.length === 1 ? g.kind : `${g.names.length} ${g.kind}s`;
-  const name = (g: Group) => g.names.length === 1 ? `${g.kind} “${g.names[0]!}”`
-    : `${count(g)}${g.names.length === 2 ? ` (${g.names.join(' and ')})` : ''}`;
-  const sentences = (['recovery', 'separation', 'ignition'] as const).flatMap(family => {
+  const name = (g: Group) => {
+    const meaningful = g.names.some(n => n.trim().toLowerCase() !== g.kind);
+    if (g.names.length === 1) return meaningful ? `${g.kind} “${g.names[0]!}”` : g.kind;
+    return `${count(g)}${g.names.length === 2 && new Set(g.names).size === 2 && meaningful ? ` (${g.names.join(' and ')})` : ''}`;
+  };
+  const sentences = (short: boolean) => (['recovery', 'separation', 'ignition'] as const).flatMap(family => {
     const members = [...groups.values()].filter(g => g.family === family);
     if (!members.length) return [];
     const verb = family === 'recovery' ? 'deploy' : family === 'separation' ? 'separate' : 'ignite';
-    return [`${subject} ${configLabel ? 'overrides' : 'override'} ${members.map(g => `${name(g)}: ${g.names.length === 1 ? `it ${verb}s` : `they ${verb}`} at ${g.flown}, not at ${g.names.length === 1 ? 'its' : 'their'} own setting (${g.own})`).join('; ')}.`];
+    return [`${subject} ${configLabel ? 'overrides' : 'override'} ${members.map(g => `${name(g)}${short ? ' —' : ':'} ${g.names.length === 1 ? `it ${verb}s` : `they ${verb}`} at ${g.flown}${short ? '' : `, not at ${g.names.length === 1 ? 'its' : 'their'} own setting (${g.own})`}`).join('; ')}.`];
   });
-  return { text: sentences.join(' '), first,
-    shortText: `${configLabel ? `Overrides in “${configLabel}”` : 'Overrides in the detached working settings'}: ${[...groups.values()].map(count).join(', ')}` };
+  return { text: sentences(false).join(' '), shortText: sentences(true).join(' '), first };
 }

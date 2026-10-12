@@ -40,6 +40,9 @@ it.each(['panel', 'fly'] as const)('%s Launch has a full description immediately
       expect(description.textContent).toBe(summary.text);
       expect(description.classList.contains('sr-only')).toBe(false);
       expect(launch.nextElementSibling).toBe(description.parentElement);
+      expect(description.parentElement?.classList.contains('launch-override-callout')).toBe(true);
+      expect(description.parentElement?.querySelector('.launch-override-icon')?.getAttribute('aria-hidden')).toBe('true');
+      expect(description.parentElement?.querySelector('.launch-override-icon')?.textContent).toBe('⚠');
       act(() => description.parentElement!.querySelector<HTMLButtonElement>('button')!.click());
       expect(show).toHaveBeenCalledWith({ id: 'ribbon', family: 'recovery' });
     } else {
@@ -53,6 +56,9 @@ it('compact warnings retain the full accessible text and Show action without a t
   const show = vi.fn();
   act(() => root.render(<LaunchOverrideWarning id="compact-description" summary={summary} onShow={show} compact />));
   expect(host.querySelector('.launch-override-short')?.textContent).toBe(summary.shortText);
+  expect(host.querySelector('.launch-override-warning')?.classList.contains('launch-override-callout')).toBe(true);
+  expect(host.querySelector('.launch-override-icon')?.textContent).toBe('⚠');
+  expect(host.querySelector('.launch-override-icon')?.getAttribute('aria-hidden')).toBe('true');
   expect(host.querySelector('#compact-description')?.textContent).toBe(summary.text);
   expect(host.querySelector('[title]')).toBeNull();
   const button = host.querySelector<HTMLButtonElement>('button')!;

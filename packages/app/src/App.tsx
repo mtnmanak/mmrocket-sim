@@ -3627,7 +3627,6 @@ export function App() {
               </span>
             </span>
           )}
-          <div className="vitals-launch-group">
           <button
             aria-describedby={launchOverrideSummary ? 'launch-override-vitals' : undefined}
             className="launch-btn vitals-launch"
@@ -3641,7 +3640,6 @@ export function App() {
           </button>
           <LaunchOverrideWarning id="launch-override-vitals" summary={launchOverrideSummary}
             onShow={showFlightOverride} compact />
-          </div>
         </div>
         )}
 
