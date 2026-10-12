@@ -160,6 +160,8 @@ function recorded(over: { mach?: number; aeroMode?: AeroState['aeroMode']; super
     aero: { aeroMode: over.aeroMode ?? 'classic', effectiveKbf: false },
     activeConfigId: over.activeConfigId === undefined ? 'c1' : over.activeConfigId,
     savedConfigs: configs,
+    flightOverrides: [{ family: 'ignition', kind: 'motor mount', partName: 'Sustainer mount',
+      flies: { event: 'burnout', delay: 1 }, own: { event: 'automatic', delay: 0 } }],
     provenance: { designKey: 'design-key', motorSetKey: 'motor-set-key', motorDataKey: 'motor-data-key' },
     onSupersonicUpgrade: vi.fn(),
   };
@@ -252,8 +254,9 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
       boosterMotors: assigned.filter(([id]) => id !== primaryMountId).map(([, m]) => m.label),
       aeroModel: aeroModelFor(aero.aeroMode, flight.usedSupersonic),
       rogersKbf: rogersKbfFor(aero.effectiveKbf, flight.usedSupersonic),
-      ...(activeConfig ? { flightConfig: savedConfigLabel(activeConfig) } : {}),
+      flightConfig: activeConfig ? savedConfigLabel(activeConfig) : assigned.length ? 'working settings' : 'none',
       ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
+      flightOverrides: input.flightOverrides,
       designKey: input.provenance.designKey,
       motorSetKey: input.provenance.motorSetKey,
       motorDataKey: input.provenance.motorDataKey,
@@ -281,16 +284,28 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
       expect(runArg().flownRecovery).toBe(input.built.flownRecovery);
     });
 
-  it('no active configuration: neither configuration key', async () => {
+  it('no active configuration: working settings label without a configuration id', async () => {
     const input = recorded({ activeConfigId: null });
     await flyBuiltDesign(input);
-    expect('flightConfig' in runArg()).toBe(false);
+    expect(runArg().flightConfig).toBe('working settings');
     expect('flightConfigId' in runArg()).toBe(false);
   });
 
   it('a named configuration is named', async () => {
     const input = recorded({ activeConfigId: 'c2' });
     await flyBuiltDesign(input);
+    expect(runArg().flightConfig).toBe('Windy day');
+  });
+
+  it('RES-1 freezes identity and override tuples before the first flight await', async () => {
+    const input = recorded({ mach: 1.2, aeroMode: 'auto', activeConfigId: 'c2' });
+    const expected = structuredClone(input.flightOverrides);
+    input.onSupersonicUpgrade = () => {
+      input.savedConfigs[1]!.name = 'Renamed during flight';
+      input.flightOverrides![0]!.partName = 'Renamed mount';
+    };
+    await flyBuiltDesign(input);
+    expect(runArg().flightOverrides).toEqual(expected);
     expect(runArg().flightConfig).toBe('Windy day');
   });
 });
@@ -310,6 +325,7 @@ async function referenceLaunch(x: {
   assigned: [string, MountMotor][]; mountMotors: Record<string, MountMotor>; primaryMountId: string;
   refusedMountIds: string[]; launch: LaunchConditions; aeroMode: AeroState['aeroMode']; effectiveKbf: boolean;
   effectiveSupersonic: boolean; activeConfigId: string | null; savedConfigs: SavedConfig[];
+  flightOverrides: NonNullable<BuiltLaunchInput['flightOverrides']>;
   provenanceKey: DesignMatchKey; onUpgrade: () => void;
 }) {
   const {
@@ -350,8 +366,10 @@ async function referenceLaunch(x: {
       .map(([, mm]) => mm.label),
     aeroModel: aeroModelFor(aeroMode, usedSupersonic),
     rogersKbf: rogersKbfFor(effectiveKbf, usedSupersonic),
-    ...(activeConfig ? { flightConfig: savedConfigLabel(activeConfig) } : {}),
+    flightConfig: activeConfig ? savedConfigLabel(activeConfig) : assigned.length ? 'working settings' : 'none',
     ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
+    // RES-1 changes report metadata only; the flight oracle stays unchanged.
+    flightOverrides: x.flightOverrides,
     designKey: provenanceKey.designKey,
     motorSetKey: provenanceKey.motorSetKey,
     motorDataKey: provenanceKey.motorDataKey,
@@ -390,6 +408,7 @@ async function bothWays(state: DesignState, aero: AeroState) {
     mountMotors: state.mountMotors, primaryMountId: a.d.primaryMountId!,
     refusedMountIds: a.built.motorFailures.map((f) => f.mountId), launch: state.launch, aeroMode: aero.aeroMode,
     effectiveKbf: aero.effectiveKbf, effectiveSupersonic: a.d.effectiveSupersonic, activeConfigId: state.activeConfigId,
+    flightOverrides: [],
     savedConfigs: state.savedConfigs, provenanceKey: a.provenance, onUpgrade: () => { refUpgraded = true; },
   });
   const b = prepare(state, aero);
@@ -397,6 +416,7 @@ async function bothWays(state: DesignState, aero: AeroState) {
   const out = await flyBuiltDesign({
     built: b.built, tree: state.tree, derived: { ...b.d, primaryMountId: b.d.primaryMountId! },
     launch: state.launch, aero, activeConfigId: state.activeConfigId, savedConfigs: state.savedConfigs,
+    flightOverrides: [],
     provenance: b.provenance, onSupersonicUpgrade: () => { upgraded = true; },
   });
   expect(upgraded).toBe(refUpgraded);

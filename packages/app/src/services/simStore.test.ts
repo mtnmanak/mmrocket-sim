@@ -24,6 +24,43 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     ...over,
   }) as SimRun;
 
+it.each(['Hybrid', 'none'])('RES-1b exports no configuration attribution for stored imported simulation %s', flightConfig => {
+  for (const flightConfigId of [undefined, 'unmatched']) {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+      mkRun('old-import', { importedSummary: true, flightConfig, flightConfigId }),
+    ]));
+    const table = runsToTable(loadRuns());
+    expect(table.rows[0]![table.headers.indexOf('Flight config')]).toBe('');
+  }
+});
+
+it('RES-1 persists frozen tuples and exports Overrides and Status with viewer units', () => {
+  const flightOverrides: NonNullable<SimRun['flightOverrides']> = [{ family: 'recovery', kind: 'parachute', partName: 'Main',
+    flies: { deployEvent: 'altitude', deployAltitude: 91.44, deployDelay: 0 },
+    own: { deployEvent: 'apogee', deployAltitude: 0, deployDelay: 0 } }];
+  const r = mkRun('res1', { flightConfig: 'Club', flightOverrides, designKey: 'old' });
+  addRun(r);
+  expect(loadRuns()[0]!.flightOverrides).toEqual(flightOverrides);
+  const current = { designKey: 'new' } as import('./simReport.js').DesignMatchKey;
+  const table = runsToTable([r, mkRun('legacy')], IMPERIAL_UNITS, undefined, current);
+  expect(table.rows[0]![table.headers.indexOf('Flight config')]).toBe('Club');
+  expect(table.rows[0]![table.headers.indexOf('Overrides')]).toContain('300 ft');
+  expect(table.rows[0]![table.headers.indexOf('Status')]).toBe('Changed');
+  expect(table.rows[1]![table.headers.indexOf('Overrides')]).toBe('not recorded');
+  expect(runsToCsv([r], IMPERIAL_UNITS, undefined, current)).toContain('300 ft');
+  expect(runsToCsv([r], IMPERIAL_UNITS, undefined, current)).toContain('Changed');
+});
+
+it.each([{}, [null], [{ family: 'recovery', kind: 'parachute', partName: 'Main', flies: {}, own: {} }]])(
+  'RES-1 treats corrupt frozen evidence as not recorded: %j', flightOverrides => {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([mkRun('old'), { ...mkRun('bad'), flightOverrides }]));
+    const runs = loadRuns();
+    expect(runs).toHaveLength(2);
+    expect(runs[1]!.flightOverrides).toBeUndefined();
+    expect(runsToCsv(runs)).toContain('not recorded');
+  },
+);
+
 /**
  * Replace localStorage with one whose writes are refused, the way a full
  * origin refuses them — reads still hit the real store so loadRuns() keeps

@@ -1,3 +1,4 @@
+import type { RecordedFlightOverride } from './flightOverrideSummary.js';
 // Reports and live alerts share the Mach policy (audit 2026-10-11, S7a-7).
 import { MACH_AUTO_THRESHOLD } from './machProbe.js';
 import { storedWarnings } from './storedWarnings.js';
@@ -593,11 +594,17 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   motorConfig?: string;
   /**
    * Display name of the flight configuration the working motor set came from
-   * at launch (Stage B, v0.050+). Absent when none was active — a custom
-   * motor set, or a design without configurations. NOT motorConfig, which
-   * means cluster combination.
+   * at launch (Stage B, v0.050+). New runs explicitly record "working settings"
+   * or "none" without a saved owner; absent means identity was not recorded.
+   * NOT motorConfig, which means cluster combination.
    */
   flightConfig?: string;
+  /** Imported label matched a configuration ID in the source file. Older imports lack this evidence. */
+  importedConfigVerified?: true;
+  /** Frozen SI tuples; absent on old/imported runs. No component ids. */
+  flightOverrides?: RecordedFlightOverride[];
+  /** Candidate sweep based on the recorded configuration. */
+  batch?: boolean;
   /**
    * PROVENANCE KEYS — what a stored run has to prove before its numbers may
    * be written into an exported `.ork` as that configuration's simulation
@@ -1908,6 +1915,10 @@ export function buildSimRun(input: {
   rogersKbf?: boolean;
   motorConfig?: string;
   flightConfig?: string;
+  /** Frozen SI tuples; absent on old/imported runs. No component ids. */
+  flightOverrides?: RecordedFlightOverride[];
+  /** Candidate sweep based on the recorded configuration. */
+  batch?: boolean;
   flightConfigId?: string;
   designKey?: string;
   motorSetKey?: string;
@@ -2414,6 +2425,8 @@ export function buildSimRun(input: {
     ...(rogersKbf !== undefined ? { rogersKbf } : {}),
     ...(motorConfig !== undefined ? { motorConfig } : {}),
     ...(flightConfig !== undefined ? { flightConfig } : {}),
+    ...(input.flightOverrides !== undefined ? { flightOverrides: structuredClone(input.flightOverrides) } : {}),
+    ...(input.batch ? { batch: true } : {}),
     // Provenance for the .ork <flightdata> guard. Absent inputs stay absent
     // rather than storing empty strings — "unknown" and "known to be empty"
     // must not read the same on the way back out.

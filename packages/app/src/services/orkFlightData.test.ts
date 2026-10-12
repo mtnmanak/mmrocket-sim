@@ -5,10 +5,11 @@ import { flightDataForExport, flownAutoDelays, importedSummaryRuns, planSummaryI
 import { addRuns, appendImportedRuns, deleteRun, restoreRun, loadRuns, runCapNote, runsEvictedByLastWrite, runsUnsavedByLastWrite } from './simStore.js';
 import { designMatchKeyOf, motorDataKeyOf, motorSetKeyOf, runMatchesDesign, type SimRun } from './simReport.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
-import { exportOrk, importOrk } from './orkFile.js';
+import { exportOrk, importOrk, type OrkExportFlightData, type OrkImportResult } from './orkFile.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { createLoadedConfig, deleteConfig } from './configSync.js';
 import { orkMotorSet } from './orkExportMotors.js';
+import { runConfigurationHeading, runConfigurationLabel } from './runConfiguration.js';
 
 /**
  * SIX INDEPENDENT REFUSAL RULES, none of which had a test until this function
@@ -76,6 +77,159 @@ const base = (over: Partial<FlightDataForExportInput> = {}): FlightDataForExport
 
 const ids = (over: Partial<FlightDataForExportInput> = {}) =>
   Object.keys(flightDataForExport(base(over)));
+
+it.each(['Hybrid', 'none'])('RES-1b imports only matched configuration labels, never simulation name %s', name => {
+  for (const configId of [null, 'missing']) {
+    const [run] = importedSummaryRuns({ name: 'Imported', configs: [], storedSimulations: [
+      { name, configId, windAverage: 0, data: { maxAltitude: 123 } },
+    ] });
+    expect(run!.flightConfig).toBeUndefined();
+  }
+});
+
+it.each(['Club', 'none'])('RES-1b preserves verified imported configuration %s through storage', name => {
+  localStorage.clear();
+  try {
+    const [run] = importedSummaryRuns({ name: 'Imported', configs: [{ id: 'c1', name, isDefault: true, motors: {}, deployments: {}, separations: {} }],
+      storedSimulations: [{ name: 'Simulation title', configId: 'c1', windAverage: 0, data: { maxAltitude: 123 } }] });
+    addRuns([run!]);
+    const saved = loadRuns()[0]!;
+    expect(saved.importedConfigVerified).toBe(true);
+    expect(runConfigurationLabel(saved)).toBe(name);
+    expect(runConfigurationHeading(saved, 'm')).toBe(`Flown in “${name}” · overrides: not recorded`);
+  } finally {
+    localStorage.clear();
+  }
+});
+
+describe('RES-1c imported configuration identity', () => {
+  const ref = (designation: string) => ({ designation, manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5 });
+  const unnamed = (motors: Record<string, ReturnType<typeof ref>>) =>
+    ({ id: 'c1', name: null, isDefault: true, motors, deployments: {}, separations: {} });
+  const sim = (name: string, status?: string) => ({ name, configId: 'c1', windAverage: 0, data: { maxAltitude: 123 },
+    ...(status ? { status } : {}) });
+
+  it('records an unnamed matched configuration under its motor-derived label, never the simulation name', () => {
+    localStorage.clear();
+    try {
+      // From the file's own designations when App has no matched configuration to offer.
+      const [fromFile] = importedSummaryRuns({ name: 'Imported', configs: [unnamed({ m1: ref('C6-5'), m2: ref('B6-4') })],
+        storedSimulations: [sim('Hybrid', 'uptodate')] });
+      expect(fromFile).toMatchObject({ flightConfig: '[C6-5, B6-4]', flightConfigId: 'c1', importedConfigVerified: true });
+      // From App's matched configuration: the label the chooser shows for it.
+      const matched = { id: 'c1', name: null, isDefault: true, motors: { m1: { label: 'Estes C6-5' } as MountMotor },
+        unmatched: ['B6-4'] } as SavedConfig;
+      const [fromApp] = importedSummaryRuns({ name: 'Imported', configs: [unnamed({ m1: ref('C6-5'), m2: ref('B6-4') })],
+        storedSimulations: [sim('Hybrid', 'uptodate')] }, [], [matched]);
+      expect(fromApp!.flightConfig).toBe('[Estes C6-5, B6-4]');
+      const [empty] = importedSummaryRuns({ name: 'Imported', configs: [unnamed({})], storedSimulations: [sim('none', 'uptodate')] });
+      expect(empty!.flightConfig).toBe('No motors');
+      addRuns([fromFile!]);
+      const saved = loadRuns()[0]!;
+      expect(saved.importedConfigVerified).toBe(true);
+      expect(runConfigurationLabel(saved)).toBe('[C6-5, B6-4]');
+      expect(runConfigurationHeading(saved, 'm')).toBe('Flown in “[C6-5, B6-4]” · overrides: not recorded');
+    } finally {
+      localStorage.clear();
+    }
+  });
+
+  it('verifies an already-stored unverified row when a later open proves its configuration', () => {
+    localStorage.clear();
+    try {
+      // Stored before verification existed: the simulation title in flightConfig, the id kept, no evidence.
+      const [old] = importedSummaryRuns({ name: 'Imported', configs: [], storedSimulations: [sim('Simulation title')] });
+      addRuns([{ ...old!, flightConfig: 'Simulation title' }]);
+      expect(runConfigurationLabel(loadRuns()[0]!)).toBe('—');
+      // An open that proves nothing changes nothing.
+      expect(planSummaryImport({ name: 'Imported', configs: [], storedSimulations: [sim('Simulation title')] },
+        loadRuns()).updatedRuns).toEqual([]);
+      const reopened = { name: 'Imported', configs: [{ ...unnamed({}), name: 'Club' }], storedSimulations: [sim('Simulation title')] };
+      const plan = planSummaryImport(reopened, loadRuns());
+      expect(plan.runs).toEqual([]);
+      expect(plan.updatedRuns).toHaveLength(1);
+      expect(plan.updatedRuns[0]).toMatchObject({ id: old!.id, flightConfig: 'Club', importedConfigVerified: true });
+      const next = appendImportedRuns(plan.runs, plan.updatedRuns);
+      expect(next).toHaveLength(1);
+      expect(loadRuns()[0]).toMatchObject({ id: old!.id, flightConfig: 'Club', flightConfigId: 'c1', importedConfigVerified: true });
+      expect(runConfigurationLabel(loadRuns()[0]!)).toBe('Club');
+      expect(summaryImportCounts(plan, next)).toEqual({ added: 0, updated: 1, alreadySaved: 0, notKept: 0 });
+      // Verified evidence is never replaced by a later open's label.
+      const renamed = planSummaryImport({ ...reopened, configs: [{ ...unnamed({}), name: 'Renamed' }] }, loadRuns());
+      expect(renamed.updatedRuns).toEqual([]);
+      expect(appendImportedRuns(renamed.runs, [{ ...loadRuns()[0]!, flightConfig: 'Renamed' }])[0]!.flightConfig).toBe('Club');
+    } finally {
+      localStorage.clear();
+    }
+  });
+});
+
+describe('RES-1d an unnamed configuration is labelled only from an up-to-date simulation', () => {
+  const mount = (designation: string) => ({ designation, manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5 });
+  const tree = { name: 'Relabel', components: [{ type: 'stage' as const, children: [
+    { type: 'bodytube' as const, length: 0.3, outerRadius: 0.0125, thickness: 0.001, children: [
+      { type: 'innertube' as const, id: 'mm', motorMount: true, length: 0.08, outerRadius: 0.0095, thickness: 0.0005 },
+    ] },
+  ] }] };
+  /** Today's file: unnamed configuration c1 now carries a D12. */
+  const save = (flightData: Record<string, OrkExportFlightData>) => importOrk(exportOrk({ name: tree.name, tree,
+    launch: DEFAULT_CONDITIONS, motors: { mm: mount('D12') }, activeConfigId: 'c1', flightData,
+    configs: [{ id: 'c1', name: null, isDefault: true, motors: { mm: mount('D12') } }] }));
+  /** The same file's rows as a pre-RES-1c open stored them: unverified, same identity. */
+  const unverified = (reopened: OrkImportResult) => importedSummaryRuns({ ...reopened, configs: [] });
+
+  it('a preserved summary flown on a C6, resaved after c1 changed to a D12, carries no motor label', () => {
+    // File A's c1 flew a C6 (run r1); its summary is now preserved, not reflown.
+    const importedDocument = { name: tree.name, storedSimulations: [{ name: 'Simulation 1', configId: 'c1', windAverage: 0,
+      status: 'uptodate', data: { runId: 'r1', maxAltitude: 321, aeroModel: 'classic' as const } }] };
+    const changed = { id: 'c1', name: null, isDefault: true, motors: { mm: { label: 'Estes D12' } as MountMotor } } as SavedConfig;
+    const flightData = flightDataForExport(base({ runs: [], savedConfigs: [changed], importedDocument }));
+    expect(flightData['c1']).toMatchObject({ runId: 'r1', importedSummary: true });
+    const reopened = save(flightData);
+    expect(reopened.configs[0]).toMatchObject({ id: 'c1', name: null });
+    expect(reopened.storedSimulations).toHaveLength(1);
+    expect(reopened.storedSimulations![0]!.status).toBe('outdated');
+    // A new row: no motor-derived label, no verification, from the file or from App's matched configuration.
+    for (const saved of [[], [changed]]) {
+      const [row] = importedSummaryRuns(reopened, [], saved);
+      expect(row).toMatchObject({ id: 'r1', flightConfigId: 'c1', maxAltitude: 321 });
+      expect(row!.flightConfig).toBeUndefined();
+      expect(row!.importedConfigVerified).toBeUndefined();
+      expect(runConfigurationHeading(row!, 'm')).not.toContain('D12');
+    }
+    // An old unverified row of the same flight is not enriched with it either.
+    const old = unverified(reopened);
+    expect(old[0]!.importedConfigVerified).toBeUndefined();
+    for (const saved of [[], [changed]]) {
+      const plan = planSummaryImport(reopened, old, saved);
+      expect(plan.runs).toEqual([]);
+      expect(plan.updatedRuns).toEqual([]);
+    }
+    // A user-given name is not a claim about motors: still recorded from an outdated simulation.
+    const named = { ...reopened, configs: reopened.configs.map((c) => ({ ...c, name: 'Club' })) };
+    expect(importedSummaryRuns(named)[0]).toMatchObject({ flightConfig: 'Club', importedConfigVerified: true });
+    expect(planSummaryImport(named, old).updatedRuns[0]).toMatchObject({ flightConfig: 'Club', importedConfigVerified: true });
+  });
+
+  it('an app flight the exporter wrote as up to date keeps the motor label, new and enriched', () => {
+    const reopened = save({ c1: { runId: 'r2', maxAltitude: 456, aeroModel: 'classic' } });
+    expect(reopened.storedSimulations![0]!.status).toBe('uptodate');
+    const [row] = importedSummaryRuns(reopened);
+    expect(row).toMatchObject({ id: 'r2', flightConfig: '[D12]', flightConfigId: 'c1', importedConfigVerified: true });
+    const plan = planSummaryImport(reopened, unverified(reopened));
+    expect(plan.updatedRuns).toHaveLength(1);
+    expect(plan.updatedRuns[0]).toMatchObject({ id: 'r2', flightConfig: '[D12]', importedConfigVerified: true });
+  });
+
+  it('a simulation with no status attribute is not up to date', () => {
+    const xml = exportOrk({ name: tree.name, tree, launch: DEFAULT_CONDITIONS, motors: { mm: mount('D12') }, activeConfigId: 'c1',
+      configs: [{ id: 'c1', name: null, isDefault: true, motors: { mm: mount('D12') } }],
+      flightData: { c1: { runId: 'r3', maxAltitude: 789, aeroModel: 'classic' } } });
+    const bare = importOrk(xml.replace('<simulation status="uptodate">', '<simulation>'));
+    expect(bare.storedSimulations![0]!.status).toBeUndefined();
+    expect(importedSummaryRuns(bare)[0]!.importedConfigVerified).toBeUndefined();
+  });
+});
 
 describe('flightDataForExport — the baseline qualifies', () => {
   it('deleting the active default excludes both its app result and file summary from a reopened file', () => {
@@ -161,7 +315,8 @@ describe('flightDataForExport — the baseline qualifies', () => {
     const reopened = importOrk(exportOrk({ name: imported.name, tree: imported.tree,
       configs: imported.configs, activeConfigId: 'c1', launch: DEFAULT_CONDITIONS, flightData: selected }));
     expect(reopened.configs.map((c) => c.id)).toEqual([paddedId, 'c1']);
-    expect(reopened.storedSimulations).toEqual(imported.storedSimulations);
+    // Preserved summaries re-export OUTDATED (RES-1d); everything else round-trips.
+    expect(reopened.storedSimulations).toEqual(imported.storedSimulations!.map((s) => ({ ...s, status: 'outdated' })));
     expect(importedSummaryRuns(reopened, runs)).toEqual([]);
   });
 

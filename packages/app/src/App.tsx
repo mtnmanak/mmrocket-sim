@@ -1,5 +1,5 @@
 import { LaunchOverrideWarning } from './components/LaunchOverrideWarning.js';
-import { describeFlightOverrides, type FlightOverrideSummary } from './services/flightOverrideSummary.js';
+import { describeFlightOverrides, recordFlightOverrides, type FlightOverrideSummary } from './services/flightOverrideSummary.js';
 import { flightVitals } from './services/flightVitals.js';
 import { DesignConfirms } from './components/DesignConfirms.js';
 import { assignMotorRecords, planMotorAssignment, retireLoadoutNote } from './services/motorAssignment.js';
@@ -1169,6 +1169,18 @@ export function App() {
   useEffect(() => {
     if (tab !== 'motors') setNozzleHeld((prev) => (prev.size ? new Set() : prev));
   }, [tab]);
+  const [flyMountTarget, setFlyMountTarget] = useState<string | null>(null);
+  useEffect(() => {
+    if (tab !== 'motors' || flyMountTarget === null) return;
+    const card = document.getElementById(`cfg-mount-${flyMountTarget}`);
+    card?.scrollIntoView({ block: 'center',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    // The control that CHANGES the motor (RES-1c), never "the first control in
+    // the card": with a motor loaded that was the card's Remove button, one
+    // keypress from unloading the motor with no confirmation.
+    document.getElementById(`cfg-mount-${flyMountTarget}-motor`)?.focus({ preventScroll: true });
+    setFlyMountTarget(null);
+  }, [tab, flyMountTarget]);
   const [ignitionTarget, setIgnitionTarget] = useState<string | null>(null);
   useEffect(() => {
     if (tab !== 'motors' || ignitionTarget === null) return;
@@ -1898,6 +1910,7 @@ export function App() {
         const { flight: { result: res, execMs }, run } = await flyBuiltDesign({
           built,
           tree: flightTree,
+          flightOverrides: launchOverrideSummary?.records ?? [],
           derived: { mounts, stageList, assigned, effectiveSupersonic, primaryMountId },
           launch,
           aero: { aeroMode, effectiveKbf },
@@ -2547,7 +2560,8 @@ export function App() {
     setInspectedSummary(null);
     if (storedCount) {
       const current = loadRuns();
-      const summaryPlan = planSummaryImport(imported, current);
+      // The matched configurations, so an unnamed one's runs carry its shown label.
+      const summaryPlan = planSummaryImport(imported, current, plan.snapshot.savedConfigs);
       let next = current;
       if (summaryPlan.runs.length || summaryPlan.updatedRuns.length) {
         next = appendImportedRuns(summaryPlan.runs, summaryPlan.updatedRuns);
@@ -3527,10 +3541,17 @@ export function App() {
           Reported 2026-09-01b on two single-stage .ork files that carry no motor. */}
       {showBatch && built && mounts.length > 0 && !isStaged && (
         <BatchSimulate
+          configurationForMount={targetId => ({
+            flightConfig: overrideConfigLabel ?? (Object.keys(mountMotors).length || Object.values(activeOverrides).some(map => !!map && Object.keys(map).length > 0) ? 'working settings' : 'none'),
+            ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
+            flightOverrides: recordFlightOverrides(tree, activeOverrides, mountMotors, targetId),
+          })}
           overrideSummaryForMount={targetId => describeFlightOverrides(tree, activeOverrides,
             Object.fromEntries(Object.entries(mountMotors).filter(([id]) => id !== targetId)),
             overrideConfigLabel, prefs.units.distance)}
           onShowOverride={showFlightOverride}
+          // The Saved simulations export's key, so both exports agree on Status.
+          provenance={provenanceKey}
           info={built.info}
           tree={flightTree}
           // Every mount is batchable — a cluster ring around a central mount
@@ -3811,6 +3832,9 @@ export function App() {
 
         {tab === 'fly' && (
           <FlyScreen
+            configs={savedConfigs} activeConfigId={activeConfigId}
+            hasWorkingSettings={Object.keys(mountMotors).length > 0 || Object.values(activeOverrides).some(map => !!map && Object.keys(map).length > 0)}
+            onApplyConfig={applyConfig} onClearConfig={clearConfig}
             overrideSummary={launchOverrideSummary} onShowOverride={showFlightOverride}
             tree={tree}
             info={built?.info ?? null}
@@ -3824,7 +3848,7 @@ export function App() {
             simulating={simulating}
             recovery={recovery}
             canLaunch={!!built && !!primaryMountId && !nozzlePending}
-            onChangeMotor={() => setTab('motors')}
+            onChangeMotor={() => { setFlyMountTarget(primaryMountId ?? mounts[0]?.id ?? null); setTab('motors'); }}
             onCompare={() => setShowBatch(true)}
             canCompare={!!built && !!primaryMountId && !isStaged}
             staleModel={modelMatch === false && lastRun
@@ -4331,6 +4355,7 @@ export function App() {
                     onSelect={(label, spec, meta) => assignMotor(m.id!, label, spec, meta)}
                     loadedMotors={Object.values(mountMotors).map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer, motorId: x.meta.motorId }))}
                     showQuickPicks={quickPicksOffered}
+                    primaryControlId={`cfg-mount-${m.id!}-motor`}
                   />
                   {mm && (
                     <div className="field" style={{ marginTop: 6 }}>
@@ -4706,6 +4731,7 @@ export function App() {
           )}
           <PanelBoundary what="The run history" resetKey={runs}>
             <SimHistory
+              provenance={provenanceKey}
               runs={runs}
               onRunsChange={recordRuns}
               selectedId={reportRun?.id ?? null}

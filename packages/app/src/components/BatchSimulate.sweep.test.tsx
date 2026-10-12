@@ -5,7 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import type { SimRun } from '../services/simReport.js';
+import type { DesignMatchKey, SimRun } from '../services/simReport.js';
 import { MOTOR_DB, MOTOR_DB_DATE, isAvailable, setCatalogueOverlay } from '../services/motorDb.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { BatchSimulate } from './BatchSimulate.js';
@@ -105,9 +105,9 @@ const CLUSTER_TREE: RocketTree = {
 };
 const CLUSTER_MOUNTS: BatchMountOption[] = [{ ...MOUNTS[0]!, label: '24 mm cluster', motorCount: 4 }];
 
-function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mounts = MOUNTS, weighed, retainedHardware }: {
+function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mounts = MOUNTS, weighed, retainedHardware, provenance }: {
   strict?: boolean; launch?: LaunchConditions; tree?: RocketTree; mounts?: BatchMountOption[]; weighed?: BatchWeighed;
-  retainedHardware?: Pick<BatchWeighed, 'mountId' | 'deltaKg'>;
+  retainedHardware?: Pick<BatchWeighed, 'mountId' | 'deltaKg'>; provenance?: DesignMatchKey | null;
 } = {}) {
   const dialog = (
     <PrefsProvider>
@@ -116,6 +116,7 @@ function mount({ strict = false, launch = DEFAULT_CONDITIONS, tree = TREE, mount
         assignedMountMotors={{}} assignedMotors={{}} assignedMotorIds={{}} assignedIgnitions={{}}
         launch={launch} rocketName="Sweep bird" weighed={weighed}
         retainedHardware={retainedHardware}
+        {...(provenance !== undefined ? { provenance } : {})}
         onRunsChange={(runs) => { saved.push(runs); }}
         onClose={() => { closes++; }}
       />
@@ -502,6 +503,49 @@ describe('verdicts', () => {
 });
 
 describe('the table', () => {
+  /**
+   * RES-1c: the Batch window's ⬇ CSV / ⬇ XLSX were built with no comparison
+   * key, so every Status cell read Unknown while the Saved simulations export
+   * of the SAME runs said Changed / Current. App hands its provenance key in.
+   */
+  it.each([
+    { mixed: false, provenance: true }, { mixed: true, provenance: true }, { mixed: true, provenance: false },
+  ])('RES-1c exports Status against App’s provenance key in CSV and every XLSX sheet (mixed $mixed, key $provenance)', async ({ mixed, provenance }) => {
+    const single = row('a', 'Acme E20', 300);
+    single.run!.designKey = 'flown';
+    const rows = [single];
+    if (mixed) {
+      const combo = row('b', 'Acme E20 + Acme E22', 310);
+      combo.run!.designKey = 'flown';
+      combo.run!.motorConfig = 'mixed 2+2';
+      rows.push(combo);
+    }
+    sweep.mockResolvedValue({ rows, stopped: false });
+    mount({ provenance: provenance ? { designKey: 'edited' } as DesignMatchKey : undefined });
+    await start();
+    const want = provenance ? 'Changed' : 'Unknown';
+    act(() => { buttons().find((b) => b.textContent === '⬇ CSV')!.click(); });
+    const lines = (await vi.mocked(downloadBlob).mock.calls[0]![0].text()).trim().split('\n');
+    const statusAt = lines[0]!.split(',').indexOf('Status');
+    expect(statusAt).toBeGreaterThan(-1);
+    expect(lines.slice(1).map((l) => l.split(',')[statusAt]!.trim())).toEqual(rows.map(() => want));
+    act(() => { buttons().find((b) => b.textContent === '⬇ XLSX')!.click(); });
+    const files = unzipSync(new Uint8Array(await vi.mocked(downloadBlob).mock.calls[1]![0].arrayBuffer()));
+    const sheets = Object.keys(files).filter((f) => /^xl\/worksheets\/sheet\d+\.xml$/.test(f)).sort();
+    // Batch alone; or All results + Single motor + Mixed 2+2.
+    expect(sheets).toHaveLength(mixed ? 3 : 1);
+    for (const name of sheets) {
+      const sheet = new DOMParser().parseFromString(strFromU8(files[name]!), 'text/xml');
+      const xlsxRows = [...sheet.querySelectorAll('sheetData row')];
+      const ref = xlsxRows[0]!.querySelectorAll('c')[statusAt]!;
+      expect(ref.textContent).toBe('Status');
+      const col = ref.getAttribute('r')!.replace(/\d+$/, '');
+      const cells = xlsxRows.slice(1).map((r, i) => r.querySelector(`c[r="${col}${i + 2}"]`)?.textContent);
+      expect(cells.length).toBeGreaterThan(0);
+      expect(cells).toEqual(cells.map(() => want));
+    }
+  });
+
   it('shows travel and rail beside rod exit and exports both at the current threshold in CSV and XLSX', async () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'ft', velocity: 'm/s' } }));
     const reached = row('a', 'Acme E20', 300);

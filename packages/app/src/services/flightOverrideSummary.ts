@@ -8,7 +8,14 @@ import { overrideFor, sparsify } from './flightState.js';
 import { describeComponentFlightTuple, describeIgnitionTuple, separationTuple } from './flightOverrideText.js';
 
 export type OverrideFamily = 'recovery' | 'separation' | 'ignition';
+/** A historical record: SI tuples and names only, never session-local component ids. */
+export type RecordedFlightOverride = { partName: string } & (
+  | { family: 'recovery'; kind: 'parachute' | 'streamer'; flies: DeploymentTuple; own: DeploymentTuple }
+  | { family: 'separation'; kind: 'stage'; flies: SeparationTuple; own: SeparationTuple }
+  | { family: 'ignition'; kind: 'motor mount'; flies: IgnitionTuple; own: IgnitionTuple }
+);
 export interface FlightOverrideSummary {
+  records: RecordedFlightOverride[];
   text: string;
   shortText: string;
   first: { id: string; family: OverrideFamily };
@@ -66,6 +73,7 @@ export function describeFlightOverrides(
   tree: FlightTree, overrides: FlightOverrides, motors: Record<string, MountMotor>,
   configLabel: string | null, distanceUnit: string,
 ): FlightOverrideSummary | null {
+  const records: RecordedFlightOverride[] = [];
   const groups = new Map<string, Group>();
   const mountIds = new Set(motorMounts(tree).map(node => node.id));
   const topStage = stages(tree)[0];
@@ -83,22 +91,32 @@ export function describeFlightOverrides(
       if (id && (node.type === 'parachute' || node.type === 'streamer')) {
         const tuple = overrideFor(overrides.deployments, id);
         const own = deploymentTuple(node);
-        if (tuple && sparsify(flownDeployment(own), flownDeployment(tuple))) add(node, 'recovery', node.type,
-          describeFlownDeployment(tuple, distanceUnit), describeFlownDeployment(own, distanceUnit));
+        if (tuple && sparsify(flownDeployment(own), flownDeployment(tuple))) {
+          records.push({ family: 'recovery', kind: node.type, partName: node.name || node.type,
+            flies: { ...tuple }, own: { ...own } });
+          add(node, 'recovery', node.type, describeFlownDeployment(tuple, distanceUnit), describeFlownDeployment(own, distanceUnit));
+        }
       }
       // BasicEventSimulationEngine never separates axial stage 0 (the sustainer).
       if (id && node !== topStage && (node.type === 'stage' || node.type === 'parallelstage')) {
         const tuple = overrideFor(overrides.separations, id);
         const own = separationTuple(node);
-        if (tuple && sparsify(flownSeparation(own), flownSeparation(tuple))) add(node, 'separation', 'stage',
-          describeFlownSeparation(tuple, distanceUnit), describeFlownSeparation(own, distanceUnit));
+        if (tuple && sparsify(flownSeparation(own), flownSeparation(tuple))) {
+          records.push({ family: 'separation', kind: 'stage', partName: node.name || 'stage',
+            flies: { ...tuple }, own: { ...own } });
+          add(node, 'separation', 'stage',
+            describeFlownSeparation(tuple, distanceUnit), describeFlownSeparation(own, distanceUnit));
+        }
       }
       const motor = id ? overrideFor(motors, id) : undefined;
       if (id && motor && mountIds.has(id)) {
         const tuple = overrideFor(overrides.ignitions, id);
         const own = overrideFor(tree.ignitionDefaults, id) ?? motor.ignition;
-        if (tuple && sparsify(flownIgnition(own), flownIgnition(tuple))) add(node, 'ignition', 'motor mount',
-          describeFlownIgnition(tuple), describeFlownIgnition(own));
+        if (tuple && sparsify(flownIgnition(own), flownIgnition(tuple))) {
+          records.push({ family: 'ignition', kind: 'motor mount', partName: node.name || 'motor mount',
+            flies: { ...tuple }, own: { ...own } });
+          add(node, 'ignition', 'motor mount', describeFlownIgnition(tuple), describeFlownIgnition(own));
+        }
       }
       if (node.children) visit(node.children);
     }
@@ -118,5 +136,20 @@ export function describeFlightOverrides(
     const verb = family === 'recovery' ? 'deploy' : family === 'separation' ? 'separate' : 'ignite';
     return [`${subject} ${configLabel ? 'overrides' : 'override'} ${members.map(g => `${name(g)}${short ? ' —' : ':'} ${g.names.length === 1 ? `it ${verb}s` : `they ${verb}`} at ${g.flown}${short ? '' : `, not at ${g.names.length === 1 ? 'its' : 'their'} own setting (${g.own})`}`).join('; ')}.`];
   });
-  return { text: sentences(false).join(' '), shortText: sentences(true).join(' '), first };
+  return { text: sentences(false).join(' '), shortText: sentences(true).join(' '), first, records };
+}
+
+export function describeRecordedOverride(record: RecordedFlightOverride, side: 'flies' | 'own', unit: string): string {
+  if (record.family === 'recovery') return describeFlownDeployment(record[side], unit);
+  if (record.family === 'separation') return describeComponentFlightTuple(flownSeparation(record[side]), unit, 'warning');
+  return describeIgnitionTuple(flownIgnition(record[side]), 'warning');
+}
+
+/** Batch changes the swept mount's ignition; every other effective override stays. */
+export function recordFlightOverrides(tree: FlightTree, overrides: FlightOverrides,
+  motors: Record<string, MountMotor>, sweptMountId?: string): RecordedFlightOverride[] {
+  const selected = sweptMountId === undefined ? overrides : { ...overrides,
+    ignitions: Object.fromEntries(Object.entries(overrides.ignitions ?? {}).filter(([id]) => id !== sweptMountId)),
+  };
+  return describeFlightOverrides(tree, selected, motors, null, 'm')?.records ?? [];
 }

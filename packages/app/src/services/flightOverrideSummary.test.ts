@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { OrkRocket, type ComponentNode, type MotorSpec } from '@online-openrocket/engine';
 import type { DeploymentTuple, FlightTree, IgnitionTuple, MountMotor } from '../model/design.js';
-import { describeFlightOverrides } from './flightOverrideSummary.js';
+import { describeFlightOverrides, recordFlightOverrides } from './flightOverrideSummary.js';
 
 const own: DeploymentTuple = { deployEvent: 'altitude', deployAltitude: 91.44, deployDelay: 0 };
 const flown: DeploymentTuple = { ...own, deployEvent: 'ejection' };
@@ -13,6 +13,27 @@ const tree: FlightTree = { components: [{ type: 'stage', id: 'sustainer', name: 
 const motor = { ignition: { event: 'automatic', delay: 0 } } as MountMotor;
 
 describe('launch override summary', () => {
+  it('RES-1 batch drops only the swept mount ignition and preserves all other families', () => {
+    const expanded: FlightTree = { ...tree, components: [...tree.components,
+      { type: 'innertube', id: 'other', name: 'Other mount', motorMount: true }] };
+    const records = recordFlightOverrides(expanded, {
+      deployments: { a: flown },
+      separations: { stage: { separationEvent: 'never', separationDelay: 0, separationAltitude: 0 } },
+      ignitions: { mount: { event: 'never', delay: 0 }, other: { event: 'launch', delay: 2 } },
+    }, { mount: motor, other: motor }, 'mount');
+    expect(records.map(r => r.partName)).toEqual(['Booster', 'Main', 'Other mount']);
+    expect(records.map(r => r.family)).toEqual(['separation', 'recovery', 'ignition']);
+    expect(recordFlightOverrides(tree, {}, {})).toEqual([]);
+  });
+  it('RES-1 records detached SI tuples and names, never session component ids', () => {
+    const overrides = { deployments: { a: { ...flown } } };
+    const summary = describeFlightOverrides(tree, overrides, {}, 'Club flight', 'ft')!;
+    expect(summary.records).toEqual([{ family: 'recovery', kind: 'parachute', partName: 'Main',
+      flies: flown, own }]);
+    overrides.deployments.a.deployAltitude = 999;
+    expect(summary.records[0]!.flies).toEqual(flown);
+    expect(JSON.stringify(summary.records)).not.toContain('"id"');
+  });
   it.each(['launch', 'ignition', 'burnout', 'ejection', 'upperignition', 'apogee', 'never'])(
     'LW4 ignores dormant separation altitude for %s', separationEvent => {
       const defaults: FlightTree = { components: [{ type: 'stage', id: 'top' },

@@ -21,7 +21,7 @@ import {
   classLabel, classesFittingMount, manufacturersForMount,
 } from '../services/motorDb.js';
 import { exToDbEntry, loadExMotors } from '../services/exMotors.js';
-import { SAFETY, type SimRun } from '../services/simReport.js';
+import { SAFETY, type DesignMatchKey, type SimRun } from '../services/simReport.js';
 import { railNeededCell, railNeededHeader } from '../services/railNeeded.js';
 import {
   addRuns, runCapNote, runsEvictedByLastWrite, runsToCsv, runsToTable, runsUnsavedByLastWrite,
@@ -89,13 +89,18 @@ function loadCriteria(): Criteria {
 /** The pair-split box's words — on the box, and in the refusal that says to untick it. */
 const PAIRS_NAME = 'mixed 4+2 / 2+2+2';
 
-export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ configurationForMount, overrideSummaryForMount, onShowOverride, provenance = null, info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
    *  the design's shared handle is never touched (no restore, no stale
    *  motors left on unassigned mounts). */
   tree: RocketTree;
+  configurationForMount?: (candidateMountId: string) => Pick<SimRun, 'flightConfig' | 'flightConfigId' | 'flightOverrides'>;
   overrideSummaryForMount?: (candidateMountId: string) => FlightOverrideSummary | null;
   onShowOverride?: LaunchOverrideProps['onShowOverride'];
+  /** App's current comparison key (`provenanceKey`), so this window's CSV /
+   *  XLSX Status column says Current / Changed exactly as the Saved
+   *  simulations export does for the same rows. Absent = Unknown. */
+  provenance?: DesignMatchKey | null;
   info: StaticInfo;
   /** Every motor mount in the (single-stage) design — the user picks which
    *  one the batch targets (2026-08-05: a ring around a central mount needs
@@ -303,6 +308,7 @@ export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, t
     try {
       const { rows: out, stopped } = await runBatchSweep({
         tree, info, mounts, target: sel, candidates, splits,
+        configuration: configurationForMount?.(sel.id),
         assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware,
         model: batchModel, autoDelay: criteria.autoDelay, launch, rocketName,
       }, { signal: ctrl.signal, onProgress: setProgress, onRows: setRows });
@@ -372,20 +378,20 @@ export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, t
   };
   const downloadCsv = () => {
     // BOM: unit headers can carry non-ASCII; Excel needs it to decode UTF-8.
-    downloadAs(new Blob(['﻿', runsToCsv(exportRuns(), prefs.units, railThreshold)], { type: 'text/csv' }), 'csv');
+    downloadAs(new Blob(['﻿', runsToCsv(exportRuns(), prefs.units, railThreshold, provenance)], { type: 'text/csv' }), 'csv');
   };
   const downloadXlsx = () => {
     const all = exportRuns();
     const configs = [...new Set(all.map((r) => r.motorConfig ?? ''))].filter((c) => c.startsWith('mixed'));
     // Combination batches get one tab per config PLUS an everything tab.
     const sheets: Sheet[] = configs.length === 0
-      ? [{ name: 'Batch', ...runsToTable(all, prefs.units, railThreshold) }]
+      ? [{ name: 'Batch', ...runsToTable(all, prefs.units, railThreshold, provenance) }]
       : [
-        { name: 'All results', ...runsToTable(all, prefs.units, railThreshold) },
-        { name: 'Single motor', ...runsToTable(all.filter((r) => !r.motorConfig?.startsWith('mixed')), prefs.units, railThreshold) },
+        { name: 'All results', ...runsToTable(all, prefs.units, railThreshold, provenance) },
+        { name: 'Single motor', ...runsToTable(all.filter((r) => !r.motorConfig?.startsWith('mixed')), prefs.units, railThreshold, provenance) },
         ...configs.map((c) => ({
           name: `Mixed ${c.replace('mixed ', '')}`,
-          ...runsToTable(all.filter((r) => r.motorConfig === c), prefs.units, railThreshold),
+          ...runsToTable(all.filter((r) => r.motorConfig === c), prefs.units, railThreshold, provenance),
         })),
       ];
     downloadAs(new Blob([sheetsToXlsx(sheets) as BlobPart], { type: XLSX_MIME }), 'xlsx');

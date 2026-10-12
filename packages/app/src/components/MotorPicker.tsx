@@ -43,7 +43,7 @@ const QUICK_PICKS: ReadonlyArray<{ mfr: string; des: string; delay: number }> = 
 
 const pickLabel = (p: { mfr: string; des: string; delay: number }): string => `${p.mfr} ${p.des}-${p.delay}`;
 
-export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, onSelect, beginSelection, loadedMotors, showQuickPicks }: {
+export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, onSelect, beginSelection, loadedMotors, showQuickPicks, primaryControlId }: {
   mountDiameterMm: number;
   /** Mount max motor length (SI m); null = no limit. */
   maxMotorLengthM: number | null;
@@ -56,11 +56,16 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
   /** Offer the Quick Picks at all — false once the design is no longer the
    *  untouched starter rocket (App: `isPristineDefault`). */
   showQuickPicks: boolean;
+  /** Id for this picker's primary control — the Quick picks select when it is
+   *  offered, otherwise the Browse button — so a caller can focus the control
+   *  that CHANGES the motor (Fly's "Change", RES-1c) and never a neighbour
+   *  such as the card's Remove button. */
+  primaryControlId?: string;
 }) {
   const [browsing, setBrowsing] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
-  const picksId = useId();
+  const ownPicksId = useId();
 
   // The live catalogue, so a "check thrustcurve.org" overlay reaches the picks
   // the same way it reaches the browser.
@@ -76,6 +81,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
     return db !== null && fitsMount(mountDiameterMm, db, catalogue);
   }), [catalogue, mountDiameterMm]);
   const offerPicks = showQuickPicks && picks.length > 0;
+  const picksId = primaryControlId ?? ownPicksId;
 
   const current = picks.find((p) => pickLabel(p) === selectedLabel || `${p.des}-${p.delay}` === selectedLabel);
 
@@ -156,6 +162,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
         {problem && <p className="print-note print-note-warn" role="alert">{problem}</p>}
       </div>
       <button
+        id={offerPicks ? undefined : primaryControlId}
         className="file-btn"
         style={{ marginTop: 8, width: '100%' }}
         title="Full thrustcurve.org database, plus import of your own EX/research motors from RASP (.eng) or RockSim (.rse) files — single files or a whole folder"

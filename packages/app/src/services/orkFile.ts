@@ -2391,6 +2391,16 @@ const FLIGHTDATA_ATTRS: [string, Exclude<keyof OrkExportFlightData, keyof AeroPr
 export interface OrkStoredSimulation {
   name: string;
   configId: string | null;
+  /**
+   * The `<simulation status>` attribute as written, absent when the file has
+   * none. The exporter writes `uptodate` only for an app flight that
+   * flightDataForExport proved still describes that configuration's motors
+   * (describedMotors); a preserved imported summary, an inactive-stage
+   * configuration or a simulation with extensions is `outdated`. So only
+   * `uptodate` lets an unnamed configuration's motor-derived label name the
+   * motors this flight flew (RES-1d).
+   */
+  status?: string;
   data: OrkExportFlightData;
   windAverage: number;
 }
@@ -2431,8 +2441,9 @@ function readStoredSimulations(simEls: XmlElement[], notes: string[]): OrkStored
     const band = tag.getAttribute('band')?.trim().split(/\s+/).map((v) => parseDecimal(v));
     if (aeroModel === 'hybrid' && validHybridBand(band)) data.hybridBand = band;
     const cond = sim.querySelector(':scope > conditions');
+    const status = sim.getAttribute('status')?.trim();
     stored.push({ name: text(sim, ':scope > name') ?? '',
-      configId: simulationConfigId(sim), data,
+      configId: simulationConfigId(sim), ...(status ? { status } : {}), data,
       windAverage: cond ? num(cond, 'wind > speed', num(cond, 'windaverage', NaN, notes), notes) : NaN });
   }
   return stored;

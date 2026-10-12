@@ -1,8 +1,10 @@
+import { recordedConfiguration, runOverrideText, runStatus } from './runConfiguration.js';
+import type { DesignMatchKey } from './simReport.js';
 import { storedWarnings } from './storedWarnings.js';
 import { csvCell } from './csvUtil.js';
 import { deploymentVerdict, openingVerdict, SAFETY, type SimRun } from './simReport.js';
 import { railNeeded, railNeededResultCell, railNeededHeader } from './railNeeded.js';
-import { mergeStoredWarnings, sameStoredFlight } from './storedRunIdentity.js';
+import { mergeStoredWarnings, sameStoredFlight, verifiesStoredRow } from './storedRunIdentity.js';
 import { warningKeysCell } from './simWarnings.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 
@@ -54,6 +56,19 @@ export function loadRuns(): SimRun[] {
       typeof r === 'object' && r !== null && !Array.isArray(r)
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
+      // A malformed historical record means unknown, never "no overrides".
+      if (r.flightOverrides !== undefined && (!Array.isArray(r.flightOverrides) || !r.flightOverrides.every(record => {
+        if (!record || typeof record !== 'object' || typeof record.partName !== 'string') return false;
+        const fields = record.family === 'recovery' && ['parachute', 'streamer'].includes(record.kind)
+          ? ['deployEvent', 'deployAltitude', 'deployDelay']
+          : record.family === 'separation' && record.kind === 'stage' ? ['separationEvent', 'separationAltitude', 'separationDelay']
+          : record.family === 'ignition' && record.kind === 'motor mount' ? ['event', 'delay'] : null;
+        return fields !== null && [record.flies, record.own].every(tuple => {
+          if (!tuple || typeof tuple !== 'object' || Array.isArray(tuple)) return false;
+          const values = tuple as unknown as Record<string, unknown>;
+          return typeof values[fields[0]!] === 'string' && fields.slice(1).every(field => Number.isFinite(values[field]));
+        });
+      }))) delete r.flightOverrides;
       // Invalid per-mount fingerprints fall back to the whole-set fingerprint.
       if (r.motorDataKeys !== undefined && (typeof r.motorDataKeys !== 'object'
         || r.motorDataKeys === null || Array.isArray(r.motorDataKeys)
@@ -228,9 +243,12 @@ export function appendImportedRuns(newRuns: SimRun[], updatedRuns: SimRun[] = []
     const update = updates.get(run.id);
     if (!update || !sameStoredFlight(run, update)) return run;
     const simWarnings = mergeStoredWarnings(run.simWarnings, update.simWarnings);
-    if (simWarnings === run.simWarnings) return run;
+    // A configuration identity this open verified (RES-1c), for the same id only.
+    const verify = update.importedConfigVerified === true && update.flightConfigId === run.flightConfigId
+      ? verifiesStoredRow(run, update.flightConfig) : null;
+    if (simWarnings === run.simWarnings && !verify) return run;
     changed = true;
-    return { ...run, simWarnings };
+    return { ...run, simWarnings, ...verify };
   });
   const additions = newRuns.slice(0, Math.max(0, MAX_RUNS - existing.length));
   if (!additions.length && !changed) {
@@ -327,7 +345,7 @@ const G_MS2 = 9.80665;
  * user's selected units (with the unit in each header) when a UnitSelection
  * is passed; without one they stay SI (tests, back-compat).
  */
-function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodExitVelocity): [string, (r: SimRun) => string | number][] {
+function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodExitVelocity, provenance: DesignMatchKey | null = null): [string, (r: SimRun) => string | number][] {
   // Convert an SI value to the user's unit for `quantity` (SI when no prefs).
   const cv = (quantity: Quantity, si: number | null | undefined, digits = 2): string | number => {
     if (si == null || !Number.isFinite(si)) return '';
@@ -442,7 +460,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Comments', (r) => r.comments],
   // Trailing on purpose (Stage B): existing spreadsheet imports keep their
   // column positions; runs stored before the field export an empty cell.
-  ['Flight config', (r) => r.flightConfig ?? ''],
+  ['Flight config', (r) => recordedConfiguration(r) ?? ''],
   // Trailing for the same reason, after it (weather build, 2026-09-22): the
   // dry-air density altitude the run flew in, stored at launch. A run flown
   // before the field, or a stored value that is not a finite number, is an
@@ -468,6 +486,8 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Hybrid band upper (Mach)', (r) => round(r.hybridBand?.[1] ?? null, 3)],
   // Append travel too, keeping all previously exported column positions stable.
   [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm'), 'travel'), (r) => railExportCell(r, 'travel')],
+  ['Overrides', (r) => runOverrideText(r, u?.distance ?? 'm')],
+  ['Status', (r) => runStatus(r, provenance).label],
   ];
 }
 
@@ -496,8 +516,8 @@ function flag(v: boolean | null): string {
  * preferred units (headers carry the unit); omitted = SI detail columns.
  * The 14 flight-day lead columns are fixed ft/mph/Gs/g either way.
  */
-export function runsToCsv(runs: SimRun[], units?: UnitSelection, railThreshold: number = SAFETY.minRodExitVelocity): string {
-  const cols = buildColumns(units, railThreshold);
+export function runsToCsv(runs: SimRun[], units?: UnitSelection, railThreshold: number = SAFETY.minRodExitVelocity, provenance: DesignMatchKey | null = null): string {
+  const cols = buildColumns(units, railThreshold, provenance);
   const header = cols.map(([label]) => csvCell(label)).join(',');
   const rows = runs.map((r) => cols.map(([, f]) => csvCell(f(r))).join(','));
   return [header, ...rows].join('\n');
@@ -507,10 +527,10 @@ export function runsToCsv(runs: SimRun[], units?: UnitSelection, railThreshold: 
  * Same catalog as the CSV, but typed: numbers stay numbers so a spreadsheet
  * never reinterprets them (feeds the .xlsx export).
  */
-export function runsToTable(runs: SimRun[], units?: UnitSelection, railThreshold: number = SAFETY.minRodExitVelocity): {
+export function runsToTable(runs: SimRun[], units?: UnitSelection, railThreshold: number = SAFETY.minRodExitVelocity, provenance: DesignMatchKey | null = null): {
   headers: string[]; rows: (string | number)[][];
 } {
-  const cols = buildColumns(units, railThreshold);
+  const cols = buildColumns(units, railThreshold, provenance);
   return {
     headers: cols.map(([label]) => label),
     rows: runs.map((r) => cols.map(([, f]) => f(r))),

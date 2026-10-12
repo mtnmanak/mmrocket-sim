@@ -32,6 +32,7 @@ import { resolveFlightState } from './services/flightState.js';
 import { APP_VERSION } from './version.js';
 import { saveFile } from './services/saveFile.js';
 import { savedConfigLabel } from './model/design.js';
+import * as batchSweep from './services/batchSweep.js';
 
 /**
  * THE LAUNCH BUTTON AND THE HEADLESS LAUNCH FLY THE SAME BYTES (2026-10-01;
@@ -236,6 +237,77 @@ const AUTO: AeroState = { aeroMode: 'auto', effectiveKbf: true, autoSupersonic: 
 const SUPERSONIC: AeroState = { aeroMode: 'supersonic', effectiveKbf: true, autoSupersonic: false };
 /** Extended Barrowman: the classic model with Rogers Kbf off. */
 const KBF_OFF: AeroState = { aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false };
+
+it.each(['Fly', 'Batch'])('RES-1b %s counts override entries rather than empty categories', async surface => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree,
+    mountMotors: {}, launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null },
+    savedAt: 1, appVersion: APP_VERSION, configLayers: 1, activeConfigId: null, savedConfigs: [],
+    detachedOverrides: { deployments: {}, ignitions: {}, separations: {} } }));
+  const host = await mountApp();
+  await waitFor(() => shownName(host) === tree.name, 'restored design');
+  if (surface === 'Fly') {
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Fly')!.click());
+    const chooser = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+    expect(chooser.selectedOptions[0]!.textContent).toBe('None (no motors)');
+    expect(host.textContent).not.toContain('Working settings (not saved)');
+  } else {
+    const sweep = vi.spyOn(batchSweep, 'runBatchSweep').mockResolvedValue({ rows: [], stopped: false });
+    try {
+      await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Motors & Launch')!.click());
+      await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Batch simulate motors'))!.click());
+      await waitFor(() => !!host.querySelector('[aria-label="Batch simulate motors"] .launch-btn'), 'Batch dialog');
+      const button = host.querySelector<HTMLButtonElement>('[aria-label="Batch simulate motors"] .launch-btn')!;
+      await waitFor(() => !button.disabled, 'Batch candidates');
+      await act(async () => button.click());
+      expect(sweep).toHaveBeenCalledOnce();
+      expect(sweep.mock.calls[0]![0].configuration).toEqual({ flightConfig: 'none', flightOverrides: [] });
+    } finally {
+      sweep.mockRestore();
+    }
+  }
+}, 30000);
+
+it('RES-1c Batch window exports Status against the same provenance key as Saved simulations', async () => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree,
+    mountMotors: {}, launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null },
+    savedAt: 1, appVersion: APP_VERSION, configLayers: 1, activeConfigId: null, savedConfigs: [] }));
+  const host = await mountApp();
+  await waitFor(() => shownName(host) === tree.name, 'restored design');
+  // Flown against a design key this rocket no longer has: Changed, never Unknown.
+  const run = { id: 'stale', when: 0, rocket: tree.name, motor: 'Acme E20', manufacturer: 'Acme', motorDiameterMm: 18,
+    delayS: 5, maxAltitude: 300, maxVelocity: 60, maxMach: 0.2, maxAcceleration: 120, timeToApogee: 8,
+    timeToBurnout: 1.2, timeToRodDeparture: 0.3, rodExitVelocity: 15, thrustToWeightAtRod: 8, launchMass: 0.5,
+    rodExitAoa: null, launchCG: null, launchCP: null, launchStaticMarginCal: null, altitudeAtDeployment: null,
+    velocityAtDeployment: null, optimumDelayS: 5, designKey: 'a design this rocket is not' } as unknown as FreshSimRun;
+  const sweep = vi.spyOn(batchSweep, 'runBatchSweep').mockResolvedValue({ stopped: false, rows: [{ key: 'stale',
+    label: 'Acme E20', combo: false, run, entry: { motorId: 'stale', manufacturerAbbrev: 'Acme', designation: 'E20' } as never }] });
+  const blobs: Blob[] = [];
+  const objectUrl = vi.spyOn(URL, 'createObjectURL').mockImplementation(blob => { blobs.push(blob as Blob); return 'blob:res1c'; });
+  try {
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Motors & Launch')!.click());
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Batch simulate motors'))!.click());
+    await waitFor(() => !!host.querySelector('[aria-label="Batch simulate motors"] .launch-btn'), 'Batch dialog');
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="Batch simulate motors"] .launch-btn')!;
+    await waitFor(() => !button.disabled, 'Batch candidates');
+    await act(async () => button.click());
+    expect(sweep).toHaveBeenCalledOnce();
+    const csvButton = [...host.querySelectorAll<HTMLButtonElement>('[aria-label="Batch simulate motors"] button')]
+      .find(b => b.textContent === '⬇ CSV')!;
+    await act(async () => csvButton.click());
+    await waitFor(() => blobs.length > 0, 'CSV download');
+    const lines = (await blobs[0]!.text()).trim().split('\n');
+    const statusAt = lines[0]!.split(',').indexOf('Status');
+    expect(statusAt).toBeGreaterThan(-1);
+    expect(lines[1]!.split(',')[statusAt]!.trim()).toBe('Changed');
+  } finally {
+    objectUrl.mockRestore();
+    sweep.mockRestore();
+  }
+}, 30000);
 
 it('FC-4 Launch flies layered recovery and ignition while autosave keeps defaults', async () => {
   prefs(CLASSIC);
@@ -1270,6 +1342,59 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('CFG-2 LEM row
   // The reset was the only step since the file opened: one Undo took all of it back.
   expect(undo().disabled).toBe(true);
 }, 60000);
+
+it.each([
+  { reduced: false, loaded: true, pristine: true },
+  { reduced: true, loaded: true, pristine: true },
+  { reduced: false, loaded: false, pristine: true },
+  { reduced: false, loaded: true, pristine: false },
+  { reduced: true, loaded: false, pristine: false },
+])('RES-1 Fly Change scrolls the primary mount card and focuses its motor control (reduced motion $reduced, motor loaded $loaded, starter rocket $pristine)', async ({ reduced, loaded, pristine }) => {
+  prefs(CLASSIC);
+  const tree = pristine ? defaultTree() : { ...defaultTree(), name: 'Not the starter' };
+  const mount = motorMounts(tree)[0]!.id!;
+  const mm = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: loaded ? { [mount]: mm } : {},
+    launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null }, savedAt: 1,
+    appVersion: APP_VERSION, configLayers: 1, activeConfigId: null, savedConfigs: [] }));
+  const matchMedia = window.matchMedia.bind(window);
+  const media = vi.spyOn(window, 'matchMedia').mockImplementation(query => {
+    const result = matchMedia(query);
+    if (query === '(prefers-reduced-motion: reduce)') Object.defineProperty(result, 'matches', { value: reduced });
+    return result;
+  });
+  const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+  try {
+    const host = await mountApp();
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Fly')!.click());
+    const chooser = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+    expect(chooser.selectedOptions[0]!.textContent).toBe(loaded ? 'Working settings (not saved)' : 'None (no motors)');
+    scroll.mockClear();
+    await act(async () => host.querySelector<HTMLButtonElement>('.fly-motor')!.click());
+    const card = document.getElementById(`cfg-mount-${mount}`)!;
+    expect(card).not.toBeNull();
+    expect(scroll.mock.contexts.at(-1)).toBe(card);
+    expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: reduced ? 'instant' : 'smooth' });
+    // The EXACT control that changes the motor: Quick picks on the starter
+    // rocket, the Browse button otherwise — never Remove, never the length box.
+    const focused = document.activeElement as HTMLElement;
+    expect(focused.id).toBe(`cfg-mount-${mount}-motor`);
+    expect(card.contains(focused)).toBe(true);
+    if (pristine) {
+      expect(focused.tagName).toBe('SELECT');
+      expect(card.querySelector(`label[for="cfg-mount-${mount}-motor"]`)?.textContent).toBe('Quick picks');
+    } else {
+      expect(focused.tagName).toBe('BUTTON');
+      expect(focused.textContent).toContain('Browse motors');
+    }
+    const remove = card.querySelector('button[aria-label^="Remove "]');
+    expect(remove !== null).toBe(loaded);
+    expect(focused).not.toBe(remove);
+  } finally {
+    scroll.mockRestore();
+    media.mockRestore();
+  }
+}, 30_000);
 
 it.each([false, true])('LW4 ignition Show scrolls the affected card and focuses Ignition (reduced motion %s)', async reduced => {
   prefs(CLASSIC);
