@@ -118,3 +118,17 @@ export function sameStoredFlight(a: SimRun, b: SimRun): boolean {
   return (a.importedRunId ?? a.id) === (b.importedRunId ?? b.id)
     && summaryFingerprint(a.flightConfigId, summaryOf(a)) === summaryFingerprint(b.flightConfigId, summaryOf(b));
 }
+
+/**
+ * The configuration identity a later open of the same file proves for an
+ * already-stored imported summary (RES-1c): `flightConfig` is the verified
+ * label of THIS row's configuration id, or undefined when the open proves
+ * nothing. A row that is already verified, or carries no configuration id,
+ * is left alone.
+ */
+export function verifiesStoredRow(stored: SimRun, flightConfig: string | undefined):
+  Pick<SimRun, 'flightConfig' | 'importedConfigVerified'> | null {
+  if (flightConfig === undefined || !stored.importedSummary || stored.importedConfigVerified === true
+    || !stored.flightConfigId) return null;
+  return { flightConfig, importedConfigVerified: true };
+}

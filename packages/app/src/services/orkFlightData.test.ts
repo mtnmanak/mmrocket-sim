@@ -102,6 +102,67 @@ it.each(['Club', 'none'])('RES-1b preserves verified imported configuration %s t
   }
 });
 
+describe('RES-1c imported configuration identity', () => {
+  const ref = (designation: string) => ({ designation, manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5 });
+  const unnamed = (motors: Record<string, ReturnType<typeof ref>>) =>
+    ({ id: 'c1', name: null, isDefault: true, motors, deployments: {}, separations: {} });
+  const sim = (name: string) => ({ name, configId: 'c1', windAverage: 0, data: { maxAltitude: 123 } });
+
+  it('records an unnamed matched configuration under its motor-derived label, never the simulation name', () => {
+    localStorage.clear();
+    try {
+      // From the file's own designations when App has no matched configuration to offer.
+      const [fromFile] = importedSummaryRuns({ name: 'Imported', configs: [unnamed({ m1: ref('C6-5'), m2: ref('B6-4') })],
+        storedSimulations: [sim('Hybrid')] });
+      expect(fromFile).toMatchObject({ flightConfig: '[C6-5, B6-4]', flightConfigId: 'c1', importedConfigVerified: true });
+      // From App's matched configuration: the label the chooser shows for it.
+      const matched = { id: 'c1', name: null, isDefault: true, motors: { m1: { label: 'Estes C6-5' } as MountMotor },
+        unmatched: ['B6-4'] } as SavedConfig;
+      const [fromApp] = importedSummaryRuns({ name: 'Imported', configs: [unnamed({ m1: ref('C6-5'), m2: ref('B6-4') })],
+        storedSimulations: [sim('Hybrid')] }, [], [matched]);
+      expect(fromApp!.flightConfig).toBe('[Estes C6-5, B6-4]');
+      const [empty] = importedSummaryRuns({ name: 'Imported', configs: [unnamed({})], storedSimulations: [sim('none')] });
+      expect(empty!.flightConfig).toBe('No motors');
+      addRuns([fromFile!]);
+      const saved = loadRuns()[0]!;
+      expect(saved.importedConfigVerified).toBe(true);
+      expect(runConfigurationLabel(saved)).toBe('[C6-5, B6-4]');
+      expect(runConfigurationHeading(saved, 'm')).toBe('Flown in “[C6-5, B6-4]” · overrides: not recorded');
+    } finally {
+      localStorage.clear();
+    }
+  });
+
+  it('verifies an already-stored unverified row when a later open proves its configuration', () => {
+    localStorage.clear();
+    try {
+      // Stored before verification existed: the simulation title in flightConfig, the id kept, no evidence.
+      const [old] = importedSummaryRuns({ name: 'Imported', configs: [], storedSimulations: [sim('Simulation title')] });
+      addRuns([{ ...old!, flightConfig: 'Simulation title' }]);
+      expect(runConfigurationLabel(loadRuns()[0]!)).toBe('—');
+      // An open that proves nothing changes nothing.
+      expect(planSummaryImport({ name: 'Imported', configs: [], storedSimulations: [sim('Simulation title')] },
+        loadRuns()).updatedRuns).toEqual([]);
+      const reopened = { name: 'Imported', configs: [{ ...unnamed({}), name: 'Club' }], storedSimulations: [sim('Simulation title')] };
+      const plan = planSummaryImport(reopened, loadRuns());
+      expect(plan.runs).toEqual([]);
+      expect(plan.updatedRuns).toHaveLength(1);
+      expect(plan.updatedRuns[0]).toMatchObject({ id: old!.id, flightConfig: 'Club', importedConfigVerified: true });
+      const next = appendImportedRuns(plan.runs, plan.updatedRuns);
+      expect(next).toHaveLength(1);
+      expect(loadRuns()[0]).toMatchObject({ id: old!.id, flightConfig: 'Club', flightConfigId: 'c1', importedConfigVerified: true });
+      expect(runConfigurationLabel(loadRuns()[0]!)).toBe('Club');
+      expect(summaryImportCounts(plan, next)).toEqual({ added: 0, updated: 1, alreadySaved: 0, notKept: 0 });
+      // Verified evidence is never replaced by a later open's label.
+      const renamed = planSummaryImport({ ...reopened, configs: [{ ...unnamed({}), name: 'Renamed' }] }, loadRuns());
+      expect(renamed.updatedRuns).toEqual([]);
+      expect(appendImportedRuns(renamed.runs, [{ ...loadRuns()[0]!, flightConfig: 'Renamed' }])[0]!.flightConfig).toBe('Club');
+    } finally {
+      localStorage.clear();
+    }
+  });
+});
+
 describe('flightDataForExport — the baseline qualifies', () => {
   it('deleting the active default excludes both its app result and file summary from a reopened file', () => {
     const tree = { name: 'Delete result', components: [{ type: 'stage' as const, id: 'stage', children: [

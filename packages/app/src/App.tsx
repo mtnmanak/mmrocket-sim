@@ -1130,7 +1130,10 @@ export function App() {
     const card = document.getElementById(`cfg-mount-${flyMountTarget}`);
     card?.scrollIntoView({ block: 'center',
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
-    card?.querySelector<HTMLElement>('button, select, input')?.focus({ preventScroll: true });
+    // The control that CHANGES the motor (RES-1c), never "the first control in
+    // the card": with a motor loaded that was the card's Remove button, one
+    // keypress from unloading the motor with no confirmation.
+    document.getElementById(`cfg-mount-${flyMountTarget}-motor`)?.focus({ preventScroll: true });
     setFlyMountTarget(null);
   }, [tab, flyMountTarget]);
   const [ignitionTarget, setIgnitionTarget] = useState<string | null>(null);
@@ -2489,7 +2492,8 @@ export function App() {
     setInspectedSummary(null);
     if (storedCount) {
       const current = loadRuns();
-      const summaryPlan = planSummaryImport(imported, current);
+      // The matched configurations, so an unnamed one's runs carry its shown label.
+      const summaryPlan = planSummaryImport(imported, current, plan.snapshot.savedConfigs);
       let next = current;
       if (summaryPlan.runs.length || summaryPlan.updatedRuns.length) {
         next = appendImportedRuns(summaryPlan.runs, summaryPlan.updatedRuns);
@@ -3427,6 +3431,8 @@ export function App() {
             Object.fromEntries(Object.entries(mountMotors).filter(([id]) => id !== targetId)),
             overrideConfigLabel, prefs.units.distance)}
           onShowOverride={showFlightOverride}
+          // The Saved simulations export's key, so both exports agree on Status.
+          provenance={provenanceKey}
           info={built.info}
           tree={flightTree}
           // Every mount is batchable — a cluster ring around a central mount
@@ -4200,6 +4206,7 @@ export function App() {
                     onSelect={(label, spec, meta) => assignMotor(m.id!, label, spec, meta)}
                     loadedMotors={Object.values(mountMotors).map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer, motorId: x.meta.motorId }))}
                     showQuickPicks={quickPicksOffered}
+                    primaryControlId={`cfg-mount-${m.id!}-motor`}
                   />
                   {mm && (
                     <div className="field" style={{ marginTop: 6 }}>

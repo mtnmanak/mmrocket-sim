@@ -4,7 +4,7 @@ import { storedWarnings } from './storedWarnings.js';
 import { csvCell } from './csvUtil.js';
 import { deploymentVerdict, openingVerdict, SAFETY, type SimRun } from './simReport.js';
 import { railNeeded, railNeededResultCell, railNeededHeader } from './railNeeded.js';
-import { mergeStoredWarnings, sameStoredFlight } from './storedRunIdentity.js';
+import { mergeStoredWarnings, sameStoredFlight, verifiesStoredRow } from './storedRunIdentity.js';
 import { warningKeysCell } from './simWarnings.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 
@@ -243,9 +243,12 @@ export function appendImportedRuns(newRuns: SimRun[], updatedRuns: SimRun[] = []
     const update = updates.get(run.id);
     if (!update || !sameStoredFlight(run, update)) return run;
     const simWarnings = mergeStoredWarnings(run.simWarnings, update.simWarnings);
-    if (simWarnings === run.simWarnings) return run;
+    // A configuration identity this open verified (RES-1c), for the same id only.
+    const verify = update.importedConfigVerified === true && update.flightConfigId === run.flightConfigId
+      ? verifiesStoredRow(run, update.flightConfig) : null;
+    if (simWarnings === run.simWarnings && !verify) return run;
     changed = true;
-    return { ...run, simWarnings };
+    return { ...run, simWarnings, ...verify };
   });
   const additions = newRuns.slice(0, Math.max(0, MAX_RUNS - existing.length));
   if (!additions.length && !changed) {

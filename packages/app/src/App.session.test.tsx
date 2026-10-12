@@ -22,6 +22,7 @@ import { motorLengthLimit } from './tree/motorLength.js';
 import { MOTOR_DB, filterMotors } from './services/motorDb.js';
 import { importedSummaryRuns } from './services/orkFlightData.js';
 import { addRuns, loadRuns } from './services/simStore.js';
+import { savedConfigLabel } from './model/design.js';
 
 it('legacy position notice stays through Save and dismissal survives autosave reload', async () => {
   const tree = { name: 'Position review', components: [{ type: 'stage', id: 's', children: [
@@ -464,6 +465,33 @@ describe('a SOLID motor mount on Motors & Launch', () => {
     }
   }, 30000);
 
+  it('RES-1c records an unnamed configuration’s stored run under the label the app shows for it', async () => {
+    const c6 = { designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5 };
+    const xml = exportOrk({ name: 'Unnamed config',
+      tree: { name: 'Unnamed config', components: [{ type: 'stage', children: [
+        { type: 'bodytube', length: 0.3, outerRadius: 0.0125, thickness: 0.001, children: [
+          { type: 'innertube', id: 'mm', motorMount: true, length: 0.08, outerRadius: 0.0095, thickness: 0.0005 },
+        ] },
+      ] }] }, launch: DEFAULT_CONDITIONS, motors: { mm: c6 },
+      configs: [{ id: 'c1', name: null, isDefault: true, motors: { mm: c6 } }], activeConfigId: 'c1',
+      flightData: { c1: { runId: 'unnamed-flight', maxAltitude: 123, aeroModel: 'classic' } },
+    });
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    const picker = input(host, 'Open a design file');
+    Object.defineProperty(picker, 'files', { configurable: true, value: [new File([xml], 'unnamed.ork')] });
+    await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
+    const past = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Open without saving'));
+    if (past) await act(async () => { past.click(); });
+    await waitFor(() => loadRuns().some((r) => r.id === 'unnamed-flight'), 'imported report');
+    await waitFor(() => !!storedSession()?.savedConfigs?.some((c) => c.id === 'c1' && Object.keys(c.motors).length), 'matched configuration');
+    const shown = savedConfigLabel(storedSession()!.savedConfigs!.find((c) => c.id === 'c1')!);
+    // The matched motor's own label, not the file's bare designation.
+    expect(shown).not.toBe('[C6]');
+    expect(loadRuns().find((r) => r.id === 'unnamed-flight')).toMatchObject({
+      flightConfig: shown, flightConfigId: 'c1', importedConfigVerified: true });
+  }, 30000);
+
   it.each([1, 501])('opens %s stored summaries without changing the preference or session override', async (count) => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, aeroModel: 'classic', rogersKbf: false }));
     const host = await mountApp();
@@ -534,9 +562,12 @@ describe('a SOLID motor mount on Motors & Launch', () => {
       configs: [{ id: 'c1', name: 'Stored', isDefault: true, motors: {} }], activeConfigId: 'c1',
       flightData: { c1: { runId: 'old', maxAltitude: 123, aeroModel: 'classic' } },
     });
-    const run = importedSummaryRuns({ name: 'Cap regression', storedSimulations: [{
-      name: 'Stored', configId: 'c1', windAverage: 0, data: { runId: 'old', maxAltitude: 123, aeroModel: 'classic' },
-    }] })[0]!;
+    // Imported from this same file, so already verified: the re-open proves nothing new (RES-1c).
+    const run = importedSummaryRuns({ name: 'Cap regression',
+      configs: [{ id: 'c1', name: 'Stored', isDefault: true, motors: {}, deployments: {}, separations: {} }], storedSimulations: [{
+        name: 'Stored', configId: 'c1', windAverage: 0, data: { runId: 'old', maxAltitude: 123, aeroModel: 'classic' },
+      }] })[0]!;
+    expect(run.importedConfigVerified).toBe(true);
     addRuns([{ ...run, id: 'newest-unrelated', importedRunId: undefined, maxAltitude: 456 },
       ...Array.from({ length: 499 }, (_, i) => ({ ...run, id: `old-${i}`, importedRunId: `old-${i}` }))]);
     const before = localStorage.getItem('online-openrocket.sim-runs.v1');

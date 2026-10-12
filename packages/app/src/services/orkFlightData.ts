@@ -1,10 +1,10 @@
 import { storedWarnings } from './storedWarnings.js';
 import { delayMountsOf, readDelay, resolutionMatchesPolicy, type DelayResolution } from './autoDelaySolver.js';
-import type { MountMotor, SavedConfig } from '../model/design.js';
+import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/design.js';
 import type { OrkImportResult, OrkExportFlightData } from './orkFile.js';
 import { expectedDelayMountsOf, motorDataKeyOf, motorDataKeysMatch, runCarriesNozzleStamp, runCarriesPhysicsRevision, runMatchesModel, type SimRun } from './simReport.js';
 import { lookupTable } from './xmlUtil.js';
-import { mergeStoredWarnings, summaryOf, summaryFingerprint } from './storedRunIdentity.js';
+import { mergeStoredWarnings, summaryOf, summaryFingerprint, verifiesStoredRow } from './storedRunIdentity.js';
 export { summaryOf } from './storedRunIdentity.js';
 import { MAX_RUNS } from './simStore.js';
 
@@ -49,8 +49,28 @@ export function summaryDocument(imported: Pick<OrkImportResult, 'name'>
  */
 export function importedSummaryRuns(imported: Pick<OrkImportResult, 'name'>
   & Partial<Pick<OrkImportResult, 'storedSimulations' | 'configs'>>,
-existingRuns: readonly SimRun[] = []): SimRun[] {
-  return planSummaryImport(imported, existingRuns).runs;
+existingRuns: readonly SimRun[] = [], savedConfigs: readonly SavedConfig[] = []): SimRun[] {
+  return planSummaryImport(imported, existingRuns, savedConfigs).runs;
+}
+
+/**
+ * The configuration label a stored simulation was flown in, ONLY when its
+ * configuration id names a configuration this file declares (RES-1c). Desktop
+ * writes <name> only for a renamed configuration (OrkFlightConfig.name), so an
+ * unnamed one gets the label the app shows for it everywhere else —
+ * savedConfigLabel's motor-derived "[C6-5]" / "No motors" — from the matched
+ * configuration App built (`savedConfigs`), else from the file's own motor
+ * designations. Never the simulation's name: that names the flight, not the
+ * configuration, and the two were confused before RES-1b.
+ */
+function verifiedConfigLabel(configId: string | null | undefined,
+  configs: OrkImportResult['configs'] | undefined, savedConfigs: readonly SavedConfig[]): string | undefined {
+  if (!configId) return undefined;
+  const config = configs?.find((c) => c.id === configId);
+  if (!config) return undefined;
+  const saved = savedConfigs.find((c) => c.id === configId);
+  return saved ? savedConfigLabel(saved) : savedConfigLabel({ id: config.id, name: config.name,
+    isDefault: config.isDefault, motors: {}, unmatched: Object.values(config.motors).map((ref) => ref.designation) });
 }
 
 interface SummaryImportPlan {
@@ -73,7 +93,9 @@ export function summaryImportCounts(plan: SummaryImportPlan, saved: readonly Sim
 
 export function planSummaryImport(imported: Pick<OrkImportResult, 'name'>
   & Partial<Pick<OrkImportResult, 'storedSimulations' | 'configs'>>,
-existingRuns: readonly SimRun[] = []): SummaryImportPlan {
+existingRuns: readonly SimRun[] = [],
+/** The matched configurations App built from this same file, for unnamed configurations' labels. */
+savedConfigs: readonly SavedConfig[] = []): SummaryImportPlan {
   const ids = new Map<string, string>();
   const identities = new Map<string, string>();
   const fingerprints = new Map<string, string>();
@@ -93,6 +115,7 @@ existingRuns: readonly SimRun[] = []): SummaryImportPlan {
   const runs = simulations.flatMap((sim): SimRun[] => {
     const fd = sim.data;
     const fingerprint = summaryFingerprint(sim.configId, fd);
+    const flightConfig = verifiedConfigLabel(sim.configId, imported.configs, savedConfigs);
     const duplicate = fd.runId ? identities.get(identity(fd.runId, fingerprint))
       ?? (ids.get(fd.runId) === fingerprint ? fd.runId : undefined)
       : fingerprints.get(fingerprint);
@@ -100,8 +123,12 @@ existingRuns: readonly SimRun[] = []): SummaryImportPlan {
       summaryIds.push(duplicate);
       const previous = rows.get(duplicate)!;
       const simWarnings = mergeStoredWarnings(previous.simWarnings, fd.simWarnings);
-      if (simWarnings !== previous.simWarnings) {
-        const enriched = { ...previous, simWarnings };
+      // A row stored before its configuration could be verified (RES-1b and
+      // earlier, or an unnamed configuration before RES-1c) gains the identity
+      // this open proves. Same fingerprint, so the same configuration id.
+      const verify = verifiesStoredRow(previous, flightConfig);
+      if (simWarnings !== previous.simWarnings || verify) {
+        const enriched = { ...previous, simWarnings, ...verify };
         rows.set(duplicate, enriched);
         updatedRuns.set(duplicate, enriched);
       }
@@ -119,7 +146,6 @@ existingRuns: readonly SimRun[] = []): SummaryImportPlan {
     identities.set(identity(fd.runId ?? id, fingerprint), id);
     fingerprints.set(fingerprint, id);
     summaryIds.push(id);
-    const config = imported.configs?.find((c) => c.id === sim.configId);
     // A configuration and its conditions describe the design on disk, not
     // necessarily this historical flight. No per-run motor/conditions snapshot
     // is stored in the tag, so leave those fields unknown, including on resave.
@@ -129,7 +155,7 @@ existingRuns: readonly SimRun[] = []): SummaryImportPlan {
       ...(fd.runId ? { importedRunId: fd.runId } : {}),
       motor: '', manufacturer: '', motorDiameterMm: NaN,
       delayS: NaN,
-      ...(sim.configId && config?.name ? { flightConfig: config.name, importedConfigVerified: true as const } : {}),
+      ...(flightConfig !== undefined ? { flightConfig, importedConfigVerified: true as const } : {}),
       ...(sim.configId ? { flightConfigId: sim.configId } : {}),
       aeroModel: fd.aeroModel,
       ...(fd.simWarnings !== undefined ? { simWarnings: mergeStoredWarnings([], fd.simWarnings) } : {}),
