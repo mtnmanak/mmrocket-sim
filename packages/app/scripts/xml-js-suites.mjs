@@ -22,6 +22,10 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  // Per-line note tiers on file open, and the tier surfaces that render them (rows 93/94, 2026-10-12).
+  'src/services/importNotes.test.ts',
+  'src/components/NoticeBar.groups.test.tsx',
+  'src/components/NoteSurfaces.test.tsx',
   'src/services/configLayers.wiring.test.ts',
   'src/services/legacyPositionCheck.test.ts',
   'src/services/legacyPositionCheck.round2.test.ts',
