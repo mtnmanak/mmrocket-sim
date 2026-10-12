@@ -1,6 +1,6 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import {
-  centeringRingBore, collapseLoop, finCutOutline, ringOuterRadius, type SolidContext,
+  centeringRingBore, collapseLoop, finCutContours, ringOuterRadius, type SolidContext,
 } from '../tree/solidMesh.js';
 import { asciiOnly } from './textFold.js';
 import { kernelNum } from '../tree/kernelDefaults.js';
@@ -291,12 +291,14 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string,
       // 360 / LightBurn read the profile as an error or as unclosed. The
       // < 3 guard is re-checked AFTER the collapse, since collapsing is what
       // can drop a contour below three distinct corners.
-      const raw = finCutOutline(node, ctx);
-      if (!raw) return null;
-      const outline = collapseLoop(raw);
-      if (outline.length < 3) return null;
-      const pts = outline.map(([x, y]) => ({ x, y }));
-      const geom: Ent[] = [{ kind: 'poly', layer: 'CUT', pts }];
+      const raw = finCutContours(node, ctx);
+      if (!raw?.length) return null;
+      const contours = raw.map(collapseLoop);
+      if (contours.some(outline => outline.length < 3)) return null;
+      // Separate seated lobes need separate closed cuts (audit 2026-10-11, S4b-1).
+      const polygons = contours.map(outline => outline.map(([x, y]) => ({ x, y })));
+      const pts = polygons.flat();
+      const geom: Ent[] = polygons.map(pts => ({ kind: 'poly', layer: 'CUT', pts }));
 
       // Root chord = the run of the contour that lies on y = 0. Reading it
       // off the points rather than off rootChord keeps it correct for a

@@ -2,7 +2,7 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { finRootChord, finTabSpan } from '../tree/finTab.js';
 import { kernelNum, KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 import { num, numOpt } from '../tree/nodeNum.js';
-import { finCutOutline, type SolidContext } from '../tree/solidMesh.js';
+import { finCutContours, type SolidContext } from '../tree/solidMesh.js';
 import { escapeXml as esc } from './xmlUtil.js';
 
 /**
@@ -107,8 +107,9 @@ export function finTemplateSvg(
   // files put it, until the 2026-09-22 audit. It sets the tab station below,
   // the dashed root line, and the printed "root NN.N mm" caption.
   const rootLenM = finRootChord(node);
-  const cutOutline = finCutOutline(node, ctx);
-  if (!cutOutline) throw new Error('This fin set has no usable outline.');
+  const cutContours = finCutContours(node, ctx);
+  if (!cutContours?.length) throw new Error('This fin set has no usable outline.');
+  const cutOutline = cutContours.flat();
   // The cut contour merges a tab only across root-line endpoints. Read its
   // normalized endpoints so closed freeform lists follow the same rule.
   const mounted = node.type === 'freeformfinset' && ctx.finMount;
@@ -180,9 +181,10 @@ export function finTemplateSvg(
   const X = (v: number) => v - minX + M;
   const Y = (v: number) => M + maxY - v; // flip: y up
 
-  const outlinePath = cutOutline
+  // Match the DXF's separate seated lobes (audit 2026-10-11, S4b-1).
+  const outlinePath = cutContours.map(contour => contour
     .map(([x, y], i) => `${i === 0 ? 'M' : 'L'} ${X(mm(x)).toFixed(3)} ${Y(mm(y)).toFixed(3)}`)
-    .join(' ') + ' Z';
+    .join(' ') + ' Z').join(' ');
 
   const lines: string[] = [];
   const bg = background === 'white' ? ' style="background:#fff"' : '';

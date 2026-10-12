@@ -1,6 +1,6 @@
 /**
  * Watertight solid meshes for the 3D-printing export. Each printable
- * component maps to ONE closed, outward-wound triangle mesh in meters (pure
+ * component maps to a closed, outward-wound triangle mesh in meters (pure
  * SI — the STL writer alone converts to mm). Revolved parts reuse the
  * kernel-exact outerProfile() curves so the printed part is the geometry the
  * engine flies; fins are flat extruded prisms (cant and airfoil cross
@@ -18,7 +18,7 @@ import { outerProfile } from './shapeProfile.js';
 import { tubeFinRadius, tubeFinWall } from './tubefins.js';
 import { finRootChord, finTabSpan } from './finTab.js';
 import { isTailCone, noseEnds } from './tailCone.js';
-import { finOnMount, type MountSurface } from './finRoot.js';
+import { finOnMount, type MountedFin, type MountSurface } from './finRoot.js';
 
 export interface SolidMesh {
   /** xyz triples, meters */
@@ -420,20 +420,63 @@ function shoulderOf(node: ComponentNode, prefix: string, fallbackWall: number): 
 }
 
 /**
- * Fin planform in (x = chordwise aft+, y = span), root edge on y = 0. The
+ * Merge a tab with the seated lobes, never with the retraced full outline
+ * (audit 2026-10-11, S4b-1). Lobes outside the tab stay separate closed cuts;
+ * those sharing a root interval with it become one perimeter, with no cut
+ * through the tab or zero-width bridge along the discarded root run.
+ */
+function mountedCutContours(
+  mounted: MountedFin, bodyY: (x: number) => number,
+  tab: ReturnType<typeof finTabSpan>,
+): Array<Array<[number, number]>> {
+  if (!tab) return mounted.lobes;
+  const { x0, x1, depth } = tab;
+  const floor = Math.min(bodyY(x0), bodyY(x1)) - depth;
+  const onSurface = (x: number): [number, number] => [x, bodyY(x)];
+  const surface = (from: number, to: number): Array<[number, number]> => {
+    const middle = mounted.root.filter(([x]) => x > Math.min(from, to) + EPS && x < Math.max(from, to) - EPS);
+    if (from > to) middle.reverse();
+    return [...middle, onSurface(to)];
+  };
+  const separate: Array<Array<[number, number]>> = [];
+  const joined: Array<Array<[number, number]>> = [];
+  for (const lobe of mounted.lobes) {
+    // A lobe starts on the body, follows the exposed edge to its next touch,
+    // then returns along sampled root points. Keep only that exposed chain.
+    const end = lobe.findIndex(([x, y], i) => i > 0 && Math.abs(y - bodyY(x)) <= EPS);
+    const chain = lobe.slice(0, end + 1);
+    if (chain[0]![0] > chain.at(-1)![0]) chain.reverse();
+    if (chain.at(-1)![0] > x0 + EPS && chain[0]![0] < x1 - EPS) joined.push(chain);
+    else separate.push(lobe);
+  }
+  joined.sort((a, b) => a[0]![0] - b[0]![0]);
+  const start = Math.min(x0, joined[0]?.[0]?.[0] ?? x0);
+  const finish = Math.max(x1, joined.at(-1)?.at(-1)?.[0] ?? x1);
+  const outline: Array<[number, number]> = [onSurface(start)];
+  let at = start;
+  for (const chain of joined) {
+    outline.push(...surface(at, chain[0]![0]), ...chain.slice(1));
+    at = chain.at(-1)![0];
+  }
+  outline.push(...surface(at, finish), ...surface(finish, x1),
+    [x1, floor], [x0, floor], onSurface(x0), ...surface(x0, start));
+  return [...separate, collapseLoop(outline)];
+}
+
+/**
+ * Fin planforms in (x = chordwise aft+, y = span), root edge on y = 0. The
  * tab merges into the outline along the closing root edge; for freeform fins
  * that edge only exists when both endpoints sit on y = 0.
  *
- * Exported because the DXF cut profile (services/dxfExport.ts) needs the same
- * merged contour the extruded prism uses: CAM offsets ONE closed path
- * correctly, while an outline overlapping a separate tab box cuts a slot
- * through the root. finTemplate.ts's finOutline() is the unmerged variant —
- * the SVG draws the tab as its own stroke, which is fine on paper.
+ * Exported because the DXF cut profile and SVG template need the same merged
+ * contours the extruded prisms use: a separate overlapping tab box cuts a
+ * slot through the root. A seated fin split into lobes has one closed contour
+ * per disconnected region, unless its tab joins those regions.
  *
  * `ctx` carries the body radius at the tab (`tabMaxDepth`), which the tab's
  * depth is clamped to; both exporters pass solidContextFor's.
  */
-export function finCutOutline(node: ComponentNode, ctx: SolidContext = {}): Array<[number, number]> | null {
+export function finCutContours(node: ComponentNode, ctx: SolidContext = {}): Array<Array<[number, number]>> | null {
   let pts: Array<[number, number]>;
   // An absent dimension is the kernel's (tree/kernelDefaults.ts): the tip here
   // was 25 mm where the kernel, the 3D view and the paper template had 30
@@ -499,18 +542,8 @@ export function finCutOutline(node: ComponentNode, ctx: SolidContext = {}): Arra
     const front = ctx.finFront ?? 0;
     const mounted = finOnMount(pts, front, ctx.finMount);
     const tab = finTabSpan(node, finRootChord(node), ctx.tabMaxDepth);
-    if (!tab) return mounted.outline;
-    const { x0, x1, depth } = tab;
     const bodyY = (x: number) => ctx.finMount!.radiusAt(front + x) - mounted.r0;
-    const floor = Math.min(bodyY(x0), bodyY(x1)) - depth;
-    // outline finishes by walking root samples aft-to-fore; insert the tab
-    // into that return edge, keeping curved-root samples outside its span.
-    const rootCount = mounted.root.length - 2;
-    const outer = mounted.outline.slice(0, mounted.outline.length - rootCount);
-    const root = mounted.root.slice(1, -1).reverse();
-    return outer.concat(root.filter(([x]) => x > x1),
-      [[x1, bodyY(x1)], [x1, floor], [x0, floor], [x0, bodyY(x0)]],
-      root.filter(([x]) => x < x0));
+    return mountedCutContours(mounted, bodyY, tab);
   }
 
   // The root chord and the tab come from tree/finTab.ts — the SAME two readers
@@ -539,7 +572,13 @@ export function finCutOutline(node: ComponentNode, ctx: SolidContext = {}): Arra
       );
     }
   }
-  return pts;
+  return [pts];
+}
+
+/** Single-contour convenience reader; exporters use finCutContours for every lobe. */
+export function finCutOutline(node: ComponentNode, ctx: SolidContext = {}): Array<[number, number]> | null {
+  const contours = finCutContours(node, ctx);
+  return contours?.length === 1 ? contours[0]! : null;
 }
 
 /**
@@ -789,14 +828,25 @@ export async function componentSolid(
     case 'trapezoidfinset':
     case 'ellipticalfinset':
     case 'freeformfinset': {
-      const outline = finCutOutline(node, ctx);
-      if (!outline) return null;
-      const mesh = await extrudePolygon(outline, kernelNum(node, 'thickness'));
+      const contours = finCutContours(node, ctx);
+      if (!contours?.length) return null;
+      const meshes = await Promise.all(contours.map(outline => extrudePolygon(outline, kernelNum(node, 'thickness'))));
       // extrudePolygon returns EMPTY rather than an open shell when the
       // planform cannot be triangulated (edges that cross, a zero-height
       // outline). Report that the same way an unprintable type reports it —
       // null — so the caller declines instead of writing a non-manifold STL.
-      if (mesh.triangles.length === 0) return null;
+      if (meshes.some(mesh => mesh.triangles.length === 0)) return null;
+      const mesh: SolidMesh = {
+        positions: new Float64Array(meshes.reduce((n, m) => n + m.positions.length, 0)),
+        triangles: new Uint32Array(meshes.reduce((n, m) => n + m.triangles.length, 0)),
+      };
+      let positionOffset = 0, triangleOffset = 0;
+      for (const part of meshes) {
+        mesh.positions.set(part.positions, positionOffset);
+        mesh.triangles.set(part.triangles.map(i => i + positionOffset / 3), triangleOffset);
+        positionOffset += part.positions.length;
+        triangleOffset += part.triangles.length;
+      }
       const label = node.type === 'trapezoidfinset' ? 'Trapezoidal fin'
         : node.type === 'ellipticalfinset' ? 'Elliptical fin' : 'Freeform fin';
       return { mesh, label };
