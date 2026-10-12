@@ -112,6 +112,48 @@ export function exitDiameterFromRse(
   }
   return { exitDiameterM: exitDiaMm / 1000 };
 }
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const positive = (v: unknown): v is number => finite(v) && v > 0;
+const record = (v: unknown): v is Record<string, unknown> =>
+  v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/** Shared archive/library gate: old imports must meet today's checks (audit 2026-10-11, S1c-5). */
+export function validExMotor(v: unknown): v is ExMotor {
+  if (!record(v)) return false;
+  const totalG = v['totalWeightG'];
+  const propG = v['propWeightG'];
+  return typeof v['motorId'] === 'string' && v['motorId'].startsWith('ex:') && v['motorId'].length <= MAX_EX_MOTOR_ID_LENGTH
+    && (v['flightSnapshot'] === undefined || validFlightSnapshot(v['flightSnapshot']))
+    && typeof v['designation'] === 'string' && v['designation'].length > 0
+    && typeof v['realManufacturer'] === 'string' && typeof v['delays'] === 'string'
+    && positive(v['diameter']) && positive(v['length'])
+    && positive(totalG) && positive(propG) && propG <= totalG
+    && finite(v['addedAt']) && (v['source'] === 'eng' || v['source'] === 'rse'
+      || (v['source'] === 'snapshot' && v['flightSnapshot'] !== undefined))
+    && Array.isArray(v['samples']) && v['samples'].length >= 2 && v['samples'].length <= MAX_EX_MOTOR_SAMPLES
+    // Negative samples cannot fly; refuse them before the kernel (audit 2026-10-11, S1c-4).
+    && v['samples'].every((s: unknown) => record(s) && finite(s['time']) && s['time'] >= 0
+      && finite(s['thrust']) && s['thrust'] >= 0)
+    && (v['sampleMassesKg'] === undefined || (Array.isArray(v['sampleMassesKg'])
+      && v['sampleMassesKg'].length === v['samples'].length
+      && v['sampleMassesKg'].every((m: unknown) => finite(m)
+        && m >= (totalG - propG) / 1000 * 0.99 && m <= totalG / 1000 * 1.01)))
+    && (v['exitDiameterM'] === undefined || (positive(v['exitDiameterM'])
+      && v['exitDiameterM'] >= v['diameter'] / 1000 * EXIT_MIN_FRACTION_OF_CASE && v['exitDiameterM'] <= v['diameter'] / 1000 * EXIT_MAX_FRACTION_OF_CASE));
+}
+
+/** Exact loaded data is accepted only when every array can fly unchanged. */
+export function validFlightSnapshot(v: unknown): v is ExFlightSnapshot {
+  if (!record(v) || typeof v['designation'] !== 'string' || !v['designation']
+    || !positive(v['diameter']) || !positive(v['length']) || !finite(v['cgX'])) return false;
+  const times = v['times'], thrusts = v['thrusts'], masses = v['masses'];
+  return Array.isArray(times) && times.length >= 2 && times.length <= MAX_EX_MOTOR_SAMPLES
+    && times.every((t: unknown, i: number) => finite(t) && t >= 0 && (i === 0 || t > times[i - 1]))
+    && Array.isArray(thrusts) && thrusts.length === times.length && thrusts.every((f: unknown) => finite(f) && f >= 0)
+    && Array.isArray(masses) && masses.length === times.length && positive(masses[0])
+    && masses.every((m: unknown) => finite(m) && m >= 0);
+}
+
 /**
  * The library as last CHANGED, while that change is not in storage — null
  * whenever storage holds the current list (audit 2026-09-22).
@@ -124,18 +166,44 @@ export function exitDiameterFromRse(
  */
 let unstored: ExMotor[] | null = null;
 
-export function loadExMotors(): ExMotor[] {
+/** Save can retain a legacy maker even when its curve cannot be loaded (audit 2026-10-11, S1c-5 integration). */
+export function loadExMotorIdentities(): Pick<ExMotor, 'motorId' | 'designation' | 'realManufacturer'>[] {
+  try {
+    const list: unknown = unstored ?? JSON.parse(localStorage.getItem(KEY) ?? '[]');
+    if (!Array.isArray(list)) return [];
+    return list.flatMap((value: unknown) => {
+      if (!record(value) || typeof value['motorId'] !== 'string' || !value['motorId'].startsWith('ex:')
+        || value['motorId'].length > MAX_EX_MOTOR_ID_LENGTH
+        || typeof value['designation'] !== 'string' || !value['designation']
+        || typeof value['realManufacturer'] !== 'string') return [];
+      // Identity only: never expose rejected flight data to a motor loader.
+      return [{ motorId: value['motorId'], designation: value['designation'], realManufacturer: value['realManufacturer'] }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+export function loadExMotors(notes?: string[]): ExMotor[] {
   if (unstored) return unstored;
   try {
     const raw = localStorage.getItem(KEY);
     const list: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list.filter((m): m is ExMotor =>
-      m !== null && typeof m === 'object' && !Array.isArray(m)
-      && typeof m.motorId === 'string' && typeof m.designation === 'string'
-      && typeof m.realManufacturer === 'string' && typeof m.delays === 'string'
-      && Array.isArray(m.samples) && m.samples.every((s: unknown) =>
-        s !== null && typeof s === 'object' && !Array.isArray(s)
-        && 'time' in s && Number.isFinite(s.time) && 'thrust' in s && Number.isFinite(s.thrust))) : [];
+    if (!Array.isArray(list)) return [];
+    const valid: ExMotor[] = [];
+    for (const value of list) {
+      if (validExMotor(value)) { valid.push(value); continue; }
+      // The browser reports these once on opening; routine library lookups
+      // only refuse them, without repeating notices (audit 2026-10-11, S1c-5).
+      if (notes) {
+        const name = record(value) && typeof value['designation'] === 'string' ? value['designation'].slice(0, 160) : 'unnamed motor';
+        const reason = record(value)
+          ? massProblem(finite(value['propWeightG']) ? value['propWeightG'] : NaN,
+            finite(value['totalWeightG']) ? value['totalWeightG'] : NaN) : null;
+        notes.push(`Stored EX motor ${name} was not loaded: ${reason ?? 'invalid dimensions, curve or motor fields'}. Re-import its original .eng/.rse file.`);
+      }
+    }
+    return valid;
   } catch {
     return [];
   }
@@ -145,6 +213,20 @@ export function loadExMotors(): ExMotor[] {
 export interface ExLibraryWrite {
   motors: ExMotor[];
   stored: boolean;
+}
+
+// A re-import keeps its id; mounted nozzle consumers must still refresh
+// even without a parent render (audit 2026-10-11, S3c-2).
+let revision = 0;
+const listeners = new Set<() => void>();
+export const exMotorRevision = () => revision;
+export function subscribeExMotors(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => { listeners.delete(listener); };
+}
+function changedLibrary(): void {
+  revision++;
+  for (const listener of listeners) listener();
 }
 
 /**
@@ -163,12 +245,14 @@ function persist(motors: ExMotor[]): ExLibraryWrite {
     try {
       localStorage.setItem(KEY, json);
       unstored = null;
+      changedLibrary();
       return { motors, stored: true };
     } catch {
       if (attempt === 0) clearCurveCache();
     }
   }
   unstored = motors;
+  changedLibrary();
   return { motors, stored: false };
 }
 
@@ -276,22 +360,29 @@ function totals(samples: { time: number; thrust: number }[]) {
 
 /** Shape an EX motor as a browser/database row, retaining its EX filter identity. */
 export function exToDbEntry(m: ExMotor): MotorDbEntry {
-  const { impulse, maxThrust, burnTime } = totals(flownCurve(m.samples).samples);
+  // The picker must describe what Launch flies, including archived snapshots
+  // whose original source definition differs (audit 2026-10-11, S1c-2).
+  const snapshot = m.flightSnapshot;
+  const samples = snapshot ? snapshot.times.map((time, i) => ({ time, thrust: snapshot.thrusts[i]! }))
+    : flownCurve(m.samples).samples;
+  const { impulse, maxThrust, burnTime } = totals(samples);
+  const totalKg = snapshot?.masses[0];
+  const dryKg = snapshot?.masses.at(-1);
   return {
     motorId: m.motorId,
     manufacturerAbbrev: 'EX',
     realManufacturer: m.realManufacturer,
-    designation: m.designation,
-    commonName: m.designation,
+    designation: snapshot?.designation ?? m.designation,
+    commonName: snapshot?.designation ?? m.designation,
     impulseClass: impulseClassOf(impulse),
-    diameter: m.diameter,
-    length: m.length,
+    diameter: snapshot ? snapshot.diameter * 1000 : m.diameter,
+    length: snapshot ? snapshot.length * 1000 : m.length,
     avgThrustN: burnTime > 0 ? impulse / burnTime : 0,
     maxThrustN: maxThrust,
     totImpulseNs: impulse,
     burnTimeS: burnTime,
-    totalWeightG: m.totalWeightG,
-    propWeightG: m.propWeightG,
+    totalWeightG: totalKg !== undefined ? totalKg * 1000 : m.totalWeightG,
+    propWeightG: totalKg !== undefined && dryKg !== undefined ? (totalKg - dryKg) * 1000 : m.propWeightG,
     delays: m.delays || undefined,
     availability: 'regular',
     type: 'SU',
@@ -455,6 +546,12 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
     if (!Number.isFinite(t) || !Number.isFinite(f)) {
       throw new Error(`Bad data line: "${line.slice(0, 60)}"`);
     }
+    // Name the motor and point at import, not an unnamed kernel refusal
+    // after a successful import (audit 2026-10-11, S1c-4).
+    if (t! < 0 || f! < 0) {
+      refused = `${header[0]!}: data point ${samples.length + 1} has negative time or thrust (${t!}, ${f!})`;
+      continue;
+    }
     samples.push({ time: t!, thrust: f! });
   }
   finish(); // the last motor ends with the file
@@ -595,6 +692,13 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
       time: parseDecimal(d.getAttribute('t')),
       thrust: parseDecimal(d.getAttribute('f')),
     }));
+    // Match the RASP refusal before storing an unflyable curve (audit 2026-10-11, S1c-4).
+    const negative = samples.findIndex(s => s.time < 0 || s.thrust < 0);
+    if (negative >= 0) {
+      const point = samples[negative]!;
+      skipped.push(`Motor ${name}: data point ${negative + 1} has negative time or thrust (${point.time}, ${point.thrust})`);
+      continue;
+    }
     if (samples.length < 2) {
       skipped.push(`Motor ${name}: no thrust data`);
       continue;

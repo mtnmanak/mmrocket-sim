@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'vitest';
+// @vitest-environment happy-dom
+import { afterEach, describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { equivalentExitDiameterM, followNozzle, stageMotorKey, stageMotors } from './nozzleFollow.js';
+import { addExMotors, parseEng } from './exMotors.js';
+
+afterEach(() => localStorage.clear());
 
 /**
  * The nozzle exit diameter follows the motor (Eric, 2026-09-13). Three pure
@@ -148,6 +152,15 @@ describe('stageMotors', () => {
 describe('stageMotorKey', () => {
   const tree = design([{ id: 'sus', mounts: [['m1']] }]);
   const clustered = design([{ id: 'sus', mounts: [['m1', '4-ring']] }]);
+
+  it('uses the captured nozzle keys rather than rereading a newer source', () => {
+    const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.018 };
+    addExMotors([ex]);
+    const s = stageMotors(tree, [['m1', mm(ex.motorId)]])[0]!;
+    const captured = new Map([[ex.motorId, `${ex.motorId}@0.015`]]);
+    expect(stageMotorKey(s, captured)).toBe(`m1:${ex.motorId}@0.015x1`);
+    expect(stageMotorKey(s)).toBe(`m1:${ex.motorId}@0.018x1`);
+  });
 
   it('is stable while nothing changes', () => {
     const a = stageMotorKey(stageMotors(tree, [['m1', mm('aero-1')]])[0]!);

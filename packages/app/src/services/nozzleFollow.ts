@@ -1,6 +1,7 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { kernelStageIdByNode, nozzleMotorCount, nozzleStages } from '../tree/treeModel.js';
+import { getExMotor } from './exMotors.js';
 
 /**
  * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR.
@@ -107,8 +108,19 @@ export function stageMotors(
  * different mount within the stage does not read as "unchanged" when the two
  * mounts have different cluster counts.
  */
-export function stageMotorKey(s: StageMotors): string {
-  return s.motors.map((m) => `${m.mountId}:${m.motorId}x${m.count}`).join('|');
+export function stageMotorKey(s: StageMotors, capturedNozzleKeys?: ReadonlyMap<string, string>): string {
+  // A captured source key must stay fixed across a later library write
+  // (audit 2026-10-11, S3c-2 integration); only uncaptured motors need a read.
+  return s.motors.map((m) => `${m.mountId}:${capturedNozzleKeys?.get(m.motorId) ?? motorNozzleKey(m.motorId)}x${m.count}`).join('|');
+}
+
+/** Same-id EX re-imports can change or remove their exit (audit 2026-10-11, S3c-2). */
+export function motorNozzleKey(motorId: string, previousKey?: string): string {
+  if (!motorId.startsWith('ex:')) return motorId;
+  const ex = getExMotor(motorId);
+  // Library deletion does not unload a mounted motor. Only a present replacement
+  // can remove its known exit (audit 2026-10-11, S3c-2 follow-up).
+  return !ex && previousKey !== undefined ? previousKey : `${motorId}@${ex?.exitDiameterM ?? ''}`;
 }
 
 /**

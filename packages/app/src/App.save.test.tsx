@@ -1604,6 +1604,10 @@ describe('what a Save .ork hands the writer for each motor', () => {
     ]);
     // And the file says what the Auto mount was saved at.
     expect(document.body.textContent).toContain('it is saved at its provisional 5 s');
+    // The crash download must retain the same legacy identity without loading
+    // its rejected library curve (audit 2026-10-11, S1c-5 integration).
+    const recovered = importOrk(autosavedDesignFile()!.data);
+    expect(Object.values(recovered.motors).find(m => m.exMotorId)?.manufacturer).toBe('Loki');
   }, 30000);
 });
 

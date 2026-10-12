@@ -170,6 +170,18 @@ it('S7a-5: the live combo probe uses split mounts and drops the replaced motor',
   expect(flights.mock.calls[atComboStart]![0]!.maxTime).toBe(12);
 }, 30_000);
 
+it('S7a-1 keeps explicit nozzle OFF for the loaded candidate only', async () => {
+  const { rows } = await sweep(input(rocket({ nozzleExitDiameter: 0 }), {
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')],
+    assignedMotorIds: { mount: 'a' }, autoDelay: false,
+  }), { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({ a: 0.01, b: 0.012 }) });
+  expect(rows[0]?.error).toBeUndefined();
+  expect(rows[0]?.exitM).toBe(0);
+  expect(rows[0]?.run).toBeDefined();
+  expect(rows[0]?.run?.nozzleStages).toBeUndefined();
+  expect(rows[1]?.exitM).toBeCloseTo(0.012, 12);
+}, 30_000);
+
 it('rail-needed sweep timing control: three fixed-delay motors, one flight each', async () => {
   const inp = input(rocket(), {
     candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5'), entry('c', 'Acme', 'E24', '5')],

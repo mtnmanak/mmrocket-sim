@@ -232,11 +232,15 @@ export async function loadCatalogueMotor(
 /** @atestani TRF #162, Eric 2026-10-06: opening and the import dialog must agree. */
 export function matchingExMotors(ref: OrkMotorRef, library: ExMotor[]): ExMotor[] {
   const maker = namedMaker(ref);
-  return maker ? library.filter(ex =>
-    ex.realManufacturer.trim().toLowerCase() === maker.toLowerCase()
-    && (ex.designation.trim().toLowerCase() === ref.designation.trim().toLowerCase()
-      || baseDesignation(ex.designation) === baseDesignation(ref.designation))
-    && (!(ref.diameter > 0) || Math.abs(ex.diameter - ref.diameter * 1000) <= 0.5)) : [];
+  return maker ? library.filter(ex => {
+    // Match the motor that flies, not its archived source's potentially different
+    // designation or geometry (audit 2026-10-11, S1c-2 follow-up).
+    const db = exToDbEntry(ex);
+    return ex.realManufacturer.trim().toLowerCase() === maker.toLowerCase()
+      && (db.designation.trim().toLowerCase() === ref.designation.trim().toLowerCase()
+        || baseDesignation(db.designation) === baseDesignation(ref.designation))
+      && (!(ref.diameter > 0) || Math.abs(db.diameter - ref.diameter * 1000) <= 0.5);
+  }) : [];
 }
 
 /**
@@ -292,10 +296,15 @@ export async function matchImportedMotor(
     const ex = exMatches[0]!;
     try {
       const db = exToDbEntry(ex);
-      const spec = exToMotorSpec(ex, ref.delay);
-      const note = `Motor “${ref.designation}”: loaded as your imported EX motor ${ex.realManufacturer.trim()} ${ex.designation} — the motor database has no ${maker} ${ref.designation}.`;
+      // Every-delay refers to the motor that actually loads; retain explicit
+      // Auto on other references too (audit 2026-10-11, S7a-2).
+      const delay = ref.rktEveryDelay ? defaultDelay(db) ?? 0 : ref.delay;
+      const autoDelay = ref.rktEveryDelay ? defaultDelay(db) === null : ref.autoDelay;
+      const spec = exToMotorSpec(ex, delay);
+      const note = `Motor “${ref.designation}”: loaded as your imported EX motor ${ex.realManufacturer.trim()} ${db.designation} — the motor database has no ${maker} ${ref.designation}.`;
       return {
-        motor: mountMotorFromDb(db, spec, ref.delay, ignition, { ...fileIdentity, exMotorId: ex.motorId }),
+        motor: mountMotorFromDb(db, spec, delay, ignition, { ...fileIdentity, exMotorId: ex.motorId,
+          ...(autoDelay ? { autoDelay: true } : {}) }),
         note, infoNote: note,
       };
     } catch (error) {
@@ -303,7 +312,7 @@ export async function matchImportedMotor(
     }
   }
   const exCandidatesNote = exMatches.length > 1
-    ? ` Your imported EX motors include ${exMatches.length} that match it (${exMatches.map(ex => `${ex.realManufacturer.trim()} ${ex.designation} [${ex.motorId}]`).join('; ')}); pick one via Browse motor database.`
+    ? ` Your imported EX motors include ${exMatches.length} that match it (${exMatches.map(ex => `${ex.realManufacturer.trim()} ${exToDbEntry(ex).designation} [${ex.motorId}]`).join('; ')}); pick one via Browse motor database.`
     : '';
   /** Why the curve could not be had, when it could not. */
   let failure: unknown = null;
