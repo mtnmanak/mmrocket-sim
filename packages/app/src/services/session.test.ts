@@ -36,6 +36,92 @@ const state = () => ({
   } as LaunchConditions,
 });
 
+describe('audit 2026-10-11 persisted state', () => {
+  it.each([null, {}, 5, [null, false, []]].map(v => [v]))('S1d-2 keeps the design when configurations are malformed (%j)', savedConfigs => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs }));
+    const loaded = loadSession();
+    expect(loaded?.tree).toEqual(state().tree);
+    expect(loaded?.savedConfigs ?? []).toEqual([]);
+    expect(loaded?.treeRestoreNotes?.join(' ')).toContain('configuration');
+  });
+
+  it('S1d-2 retains readable configuration siblings', () => {
+    const cfg = { id: 'kept', name: 'Kept', motors: {} };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs: [null, cfg] }));
+    expect(loadSession()?.savedConfigs).toEqual([cfg]);
+  });
+
+  const unreadableConfigs = [
+    {},
+    { name: 'Bad', motors: {} },
+    ...[null, 7, {}, []].map(id => ({ id, name: 'Bad', motors: {} })),
+    { id: 'bad', name: 'Bad' },
+    ...['motors', 'unmatchedRefs', 'deployments', 'separations', 'nozzles',
+      'stageActiveness', 'stageMassOverrides'].flatMap(key =>
+      [null, false, 7, 'bad', []].map(value => ({ id: 'bad', name: 'Bad', motors: {}, [key]: value }))),
+  ];
+
+  it.each(unreadableConfigs)('S1d-2 restores valid siblings through App with unreadable configuration %j', bad => {
+    const kept = { id: 'kept', name: 'Kept', motors: {} };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
+      ...state(), savedConfigs: [null, bad, kept], activeConfigId: 'kept',
+    }));
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(restored.state.savedConfigs).toEqual([kept]);
+    expect(restored.state.activeConfigId).toBe('kept');
+    expect(restored.state.tree.name).toBe('Test');
+    expect(restored.state.launch).toEqual(state().launch);
+    expect(restored.restoreNotes.join(' ')).toContain('Unreadable saved configurations were removed.');
+  });
+
+  it('S1d-2 restores the design through App when every configuration is unreadable', () => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
+      ...state(), savedConfigs: [null, ...unreadableConfigs],
+    }));
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(restored.state.savedConfigs).toEqual([]);
+    expect(restored.state.tree.name).toBe('Test');
+    expect(restored.state.launch).toEqual(state().launch);
+    expect(restored.restoreNotes.join(' ')).toContain('Unreadable saved configurations were removed.');
+  });
+
+  it('S1d-2 accepts object configuration maps through App without a removal note', () => {
+    const kept = { id: 'kept', name: 'Kept', motors: {}, unmatchedRefs: {}, deployments: {},
+      separations: {}, nozzles: {}, stageActiveness: {}, stageMassOverrides: {} };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs: [kept] }));
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(restored.state.savedConfigs).toEqual([kept]);
+    expect(restored.restoreNotes.join(' ')).not.toContain('Unreadable saved configurations');
+  });
+
+  it.each(['x', 1, true, 0, '', false, null, []].map(v => [v]))('S1d-5 restores with empty measurements for %j', measured => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), measured }));
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    expect(loaded?.measured).toBeUndefined();
+    expect(designStateFromSession(loaded, { legacyMaxMotorLengthM: null }).state.measured)
+      .toEqual({ massKg: null, cgM: null });
+  });
+
+  it.each([undefined, '0.070'])('S1d-4 preserves a chosen fine step after one migration (%s)', appVersion => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), appVersion,
+      launch: { ...state().launch, timeStepS: 0.01 } }));
+    const loaded = loadSession()!;
+    expect(loaded.launch.timeStepS).toBe(0.05);
+    saveSessionDebounced({ ...state(), appVersion: loaded.appVersion,
+      launch: { ...loaded.launch, timeStepS: 0.01 } });
+    flushSession();
+    expect(loadSession()?.launch.timeStepS).toBe(0.01);
+    expect(loadSession()?.timeStepWasClamped).not.toBe(true);
+  });
+});
+
 it('V8 round-trips the lossy mark beside its file and drops stale or invalid marks', () => {
   const snapshot = { ...state(), mountMotors: {}, savedConfigs: [], activeConfigId: null, measured: { massKg: null, cgM: null } };
   const lossySaved = { mark: designFingerprint(snapshot), flights: 3, format: 'rkt' as const, lossCount: 4 };
@@ -258,11 +344,13 @@ describe('K2 stored stage activeness', () => {
     expect(loaded).not.toBeNull();
     if (stageActiveness && typeof stageActiveness === 'object' && !Array.isArray(stageActiveness)) {
       expect(loaded.savedConfigs![0]!.stageActiveness).toEqual({});
+      expect(loaded.treeRestoreNotes ?? []).toEqual([]);
     } else {
-      expect(loaded.savedConfigs![0]).not.toHaveProperty('stageActiveness');
+      // Invalid map shapes now discard the whole configuration (S1d-2 follow-up).
+      expect(loaded.savedConfigs).toEqual([{ id: 'legacy', motors: {} }]);
+      expect(loaded.treeRestoreNotes?.join(' ')).toContain('Unreadable saved configurations');
     }
-    expect(loaded.savedConfigs![1]).not.toHaveProperty('stageActiveness');
-    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+    expect(loaded.savedConfigs!.find(c => c.id === 'legacy')).not.toHaveProperty('stageActiveness');
   });
 });
 
@@ -540,6 +628,8 @@ describe('the one-time v0.071 time-step migration fires exactly once', () => {
     saveSessionDebounced({ ...state(), launch: { ...state().launch, timeStepS: 0.01 } });
     vi.runAllTimers();
     const raw = JSON.parse(localStorage.getItem(KEY)!) as Record<string, unknown>;
+    // This fixture represents bytes written before the one-shot marker existed.
+    delete raw['timeStepMigrationVersion'];
     if (version === undefined) delete raw['appVersion'];
     else raw['appVersion'] = version;
     localStorage.setItem(KEY, JSON.stringify(raw));

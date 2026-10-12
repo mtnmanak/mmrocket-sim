@@ -101,7 +101,8 @@ export function autosavedDesignFile(): AutosaveFile | null {
   const held = heldSession();
   let raw = sessionPayload();
   try {
-    if (held) raw = JSON.stringify(held);
+    // Keep plugged delays legible just as the autosave does (audit 2026-10-11, S1d-7).
+    if (held) raw = JSON.stringify(held, (_key, v) => v === Infinity ? 'Infinity' : v);
   } catch {
     // A held edit can be unserializable; keep the stored recovery bytes.
   }

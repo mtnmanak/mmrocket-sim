@@ -250,6 +250,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const [delay, setDelay] = useState<number | 'auto' | 'custom'>(0);
   const [customDelay, setCustomDelay] = useState(6);
   const [busy, setBusy] = useState(false);
+  const loadChoice = useRef({ picked, delay, customDelay });
+  loadChoice.current = { picked, delay, customDelay };
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [exMotors, setExMotors] = useState(() => loadExMotors());
@@ -450,6 +452,10 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     loadAbort.current = ctrl;
     setBusy(true);
     setError(null);
+    // The controls stay live during a download; only the choice still shown
+    // may reach the design (audit 2026-10-11, S3a-1).
+    const superseded = () => ctrl.signal.aborted || loadChoice.current.picked !== picked
+      || loadChoice.current.delay !== delay || loadChoice.current.customDelay !== customDelay;
     try {
       const opts = delayOptions(picked);
       // "auto" flies a provisional delay; each launch then re-runs with the
@@ -464,7 +470,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       // Closed while the download was in flight: the abort above fires, but a
       // cached spec can also resolve without ever touching the network, so the
       // check is on the signal rather than on the throw.
-      if (ctrl.signal.aborted) return;
+      if (superseded()) return;
       const label = motorLabel(picked, chosen, { autoDelay: delay === 'auto' });
       onSelect(label, spec, {
         label,
@@ -486,7 +492,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     } catch (e) {
       // A cancelled load is not a failure to report — the user asked for it,
       // and the dialog it would report into is already going away.
-      if (ctrl.signal.aborted) return;
+      if (superseded()) return;
       setError(String(e instanceof Error ? e.message : e));
     } finally {
       setBusy(false);

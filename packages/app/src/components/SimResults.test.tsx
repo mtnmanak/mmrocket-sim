@@ -117,6 +117,14 @@ afterEach(() => {
 });
 
 describe('SimRunDetails — where the raw flight data went', () => {
+  it.each(['bad', true, {}])('S3b-3 hides an unreadable stored landing bearing (%j)', landingBearingDeg => {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...run(), landingDistanceM: 100, landingBearingDeg }]));
+    render(<SimRunDetails run={loadRuns()[0]!} />);
+    act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+    expect(host.textContent).toContain('Landing distance from pad');
+    expect(host.textContent).not.toContain('Landing bearing');
+    expect(host.textContent).not.toContain('NaN');
+  });
   it.each([null, undefined, '5', {}, NaN, Infinity])('storage hardening: renders unavailable deployment time (%j)', (time) => {
     const deployment = { device: 'Main', time, altitude: 200, velocityAtDeployment: 35,
       descentRate: 5, groundSpeed: 5, isLanding: true, descentOk: true };

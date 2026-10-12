@@ -10,6 +10,12 @@ import { APP_VERSION } from './version.js';
 import { addExMotors, parseEng } from './services/exMotors.js';
 import { escapeXml } from './services/xmlUtil.js';
 import { num } from './tree/nodeNum.js';
+import { resolveImportMotors } from './services/importApply.js';
+
+vi.mock('./services/importApply.js', async importOriginal => {
+  const real = await importOriginal<typeof import('./services/importApply.js')>();
+  return { ...real, resolveImportMotors: vi.fn(real.resolveImportMotors) };
+});
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const ctx2d = new Proxy({}, {
@@ -170,6 +176,70 @@ it('Escape leaves the imported motors and repeating notes untouched', async () =
   expect(stored().mountMotors).toEqual(before.mountMotors);
   expect(stored().savedConfigs).toEqual(before.savedConfigs);
 }, 20000);
+
+it.each(['rename', 'delete'])('S2-1 preserves an inactive configuration %s across motor-answer undo and redo', async action => {
+  await open();
+  const before = stored();
+  await act(async () => button('Apply').click());
+  await waitFor(() => !host.querySelector('[aria-label="Choose motors for this file"]'));
+  await act(async () => button('Motors & Launch').click());
+  const label = action === 'rename' ? 'Rename Second' : 'Delete Second';
+  const edit = host.querySelector<HTMLButtonElement>(`button[aria-label^="${label}"]`)!;
+  await act(async () => edit.click());
+  if (action === 'rename') {
+    const input = host.querySelector<HTMLInputElement>('input[aria-label^="Rename Second"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Renamed');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+  } else {
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label^="Confirm delete Second"]')!.click());
+  }
+  for (const redo of [false, true]) {
+    await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: redo })));
+    flush();
+    const configs = stored().savedConfigs!;
+    if (action === 'rename') expect(configs.find(c => c.id === 'b')?.name).toBe('Renamed');
+    else expect(configs.some(c => c.id === 'b')).toBe(false);
+    if (!redo) expect(stored().mountMotors).toEqual(before.mountMotors);
+    else expect(Object.values(stored().mountMotors!)[0]?.openNote).toBeUndefined();
+  }
+}, 30000);
+
+it('S2-4 keeps the older-build notice when a slow open is superseded by a failed open', async () => {
+  await act(async () => root.unmount());
+  localStorage.setItem(sessionKey, JSON.stringify({ ...stored(), appVersion: '0.001' }));
+  root = createRoot(host);
+  await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+  const staleText = 'This design was restored from autosave and was read in by an earlier build';
+  expect(host.textContent).toContain(staleText);
+  const real = await vi.importActual<typeof import('./services/importApply.js')>('./services/importApply.js');
+  let started = false;
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.mocked(resolveImportMotors).mockImplementationOnce(async imported => {
+    started = true;
+    await gate;
+    return real.resolveImportMotors(imported);
+  });
+  const pick = async (name: string, xml: string) => {
+    const picker = host.querySelector<HTMLInputElement>('input[aria-label="Open a design file"]')!;
+    Object.defineProperty(picker, 'files', { configurable: true, value: [new File([xml], name)] });
+    await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
+    const discard = button('Open without saving');
+    if (discard) await act(async () => discard.click());
+  };
+  await pick('Slow.ork', '<openrocket version="1.10"><rocket><name>Slow</name><subcomponents><stage><name>Sustainer</name><subcomponents><bodytube><length>0.5</length><radius>0.016</radius><thickness>0.001</thickness></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>');
+  await waitFor(() => started);
+  await pick('Broken.ork', 'broken file');
+  await waitFor(() => !!host.querySelector('[aria-label="Notices"]')?.textContent?.includes('Could not open that .ork file'));
+  await act(async () => { release(); await gate; await new Promise(resolve => setTimeout(resolve, 20)); });
+  expect(host.textContent).toContain(staleText);
+  flush();
+  expect(stored().tree.name).toBe('Before open');
+  expect(stored().appVersion).toBe('0.001');
+}, 30000);
 
 it('expands a clean newer-format import after a prior import warning was collapsed', async () => {
   await open();

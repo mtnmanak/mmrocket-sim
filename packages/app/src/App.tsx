@@ -350,7 +350,14 @@ export function App() {
         motorAnswerRevision.current = motorRevision;
         setMountMotors(motorState.mountMotors);
         setUnmatchedRefs(motorState.unmatchedRefs);
-        setSavedConfigs(motorState.savedConfigs);
+        // Configuration names and deletions are not tree-history edits; keep
+        // them when crossing a motor answer (audit 2026-10-11, S2-1).
+        setSavedConfigs(prev => prev.map(c => {
+          const old = motorState.savedConfigs.find(row => row.id === c.id);
+          if (!old) return c;
+          const { motors, unmatchedRefs, unmatched, nozzles } = old;
+          return { ...c, motors, unmatchedRefs, unmatched, nozzles };
+        }));
       }
       if (revision === scaleRevision.current) return;
       scaleRevision.current = revision;
@@ -2462,9 +2469,6 @@ export function App() {
     // saved — leaving the user editing a rocket they had not asked for, with
     // `dirty` false so the next Open discarded the work silently.
     const openId = seq ?? openSeq.begin();
-    // Freshly parsed by THIS build's importer, so the autosave-is-stale warning
-    // no longer applies to what is on screen.
-    setRestoredByOlderBuild(false);
     // The awaits of an open: every motor the file names, resolved.
     const resolved = await resolveImportMotors(imported);
     // EVERY await is behind us; from here on this function writes state. A
@@ -2473,6 +2477,9 @@ export function App() {
     // never reaches the markSaved at the end, which is what made the loser's
     // work look saved.
     if (!openSeq.isCurrent(openId)) return;
+    // Only a winning open replaces the old parse on screen and its notice
+    // (audit 2026-10-11, S2-4).
+    setRestoredByOlderBuild(false);
     // The winning open owns the file name as well as the design. A share link
     // has no file, so its omitted argument clears the previous file's name.
     setDesignFile(file);

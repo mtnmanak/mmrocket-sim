@@ -41,6 +41,19 @@ afterEach(() => {
 });
 
 describe('autosavedDesignFile', () => {
+  it('S1d-7 preserves plugged delays in a held raw JSON recovery', () => {
+    const storage = localStorage;
+    vi.stubGlobal('localStorage', { getItem: (key: string) => storage.getItem(key),
+      setItem: () => { throw new Error('quota'); }, length: 0 });
+    try {
+      const motor = c6(); motor.spec.ejectionDelay = Infinity;
+      storeDesign({ name: 'Broken', components: null } as unknown as RocketTree, { mount: motor });
+      vi.runAllTimers();
+      const file = autosavedDesignFile()!;
+      expect(file.extension).toBe('.json');
+      expect(JSON.parse(file.data).mountMotors.mount.spec.ejectionDelay).toBe('Infinity');
+    } finally { vi.unstubAllGlobals(); }
+  });
   it.each([false, true])('recovers the newest design after refused writes (blocked reads: %s)', (blocked) => {
     storeDesign({ ...defaultTree(), name: 'Stored A' }, {});
     vi.runAllTimers();

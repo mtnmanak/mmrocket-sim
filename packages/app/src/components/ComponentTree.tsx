@@ -135,6 +135,13 @@ export function ComponentTree({
 }) {
   // Which add menu is open, keyed by the target parent's id ('stage' = first stage).
   const [addOpen, setAddOpen] = useState<string | null>(null);
+  const [addSelection, setAddSelection] = useState(selectedId);
+  // A hidden menu must not reopen when its old target is selected again
+  // (audit 2026-10-11, S3c-5).
+  if (addSelection !== selectedId) {
+    setAddSelection(selectedId);
+    setAddOpen(null);
+  }
 
   const selectedNode = selectedId
     ? (function find(nodes: ComponentNode[]): ComponentNode | null {

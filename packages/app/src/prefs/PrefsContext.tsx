@@ -40,6 +40,13 @@ function load(): Preferences {
     if (!parsed.themeExplicit) delete parsed.theme;
     // v0.025 stored a boolean; migrate it into the three-way aeroModel.
     if (!parsed.aeroModel && parsed.supersonicAero) parsed.aeroModel = 'supersonic';
+    // Unknown stored choices must use the same defaults as the controls and
+    // flight model, including after a rollback (audit 2026-10-11, S7d-3).
+    if (!['classic', 'supersonic', 'auto', 'hybrid'].includes(parsed.aeroModel!)) delete parsed.aeroModel;
+    if (!['light', 'dark', 'system'].includes(parsed.theme!)) delete parsed.theme;
+    if (!['radius', 'diameter'].includes(parsed.radiusMode!)) delete parsed.radiusMode;
+    if (!['both', 'callout', 'axis', 'off'].includes(parsed.markers3d!)) delete parsed.markers3d;
+    if (!['cal', 'pct', 'both'].includes(parsed.stabilityUnit!)) delete parsed.stabilityUnit;
     // A stored printer that isn't three positive numbers is dropped, not
     // repaired — planning cuts for a half-parsed machine is worse than not
     // offering to split at all. Absent stays absent (no printer configured).

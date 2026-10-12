@@ -7,6 +7,10 @@ import { exportRkt } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 
 describe('lossy fix regressions', () => {
+  it.each(['constructor', 'toString', '__proto__'])('S1d-6 does not invent inner parts from type %s', type => {
+    const report = checkFormatLoss('cdx1', input({ type } as ComponentNode));
+    expect(report.losses.join('\n')).not.toContain('Inner parts (');
+  });
   const staged = () => {
     const d = input();
     d.tree.components.push({ type: 'stage', id: 'lower', name: 'Booster', children: [

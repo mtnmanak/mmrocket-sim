@@ -44,6 +44,22 @@ afterEach(() => {
 });
 
 describe('storage hardening: result tiles', () => {
+  it('S7d-3 drops unknown preference unions and keeps valid independent choices', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ aeroModel: 'unknown', theme: 'unknown', themeExplicit: true,
+      radiusMode: 'unknown', markers3d: 'unknown', stabilityUnit: 'unknown', rogersKbf: false }));
+    mount();
+    expect(seen.prefs).toMatchObject({ theme: 'dark', radiusMode: 'diameter', rogersKbf: false });
+    expect(seen.prefs.aeroModel).toBeUndefined();
+    expect(seen.prefs.markers3d).toBeUndefined();
+    expect(seen.prefs.stabilityUnit).toBeUndefined();
+  });
+
+  it.each(['classic', 'supersonic', 'auto', 'hybrid'])('S7d-3 retains supported aero choice %s', aeroModel => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ aeroModel, theme: 'system', themeExplicit: true,
+      radiusMode: 'radius', markers3d: 'axis', stabilityUnit: 'both' }));
+    mount();
+    expect(seen.prefs).toMatchObject({ aeroModel, theme: 'system', radiusMode: 'radius', markers3d: 'axis', stabilityUnit: 'both' });
+  });
   it.each([{}, null, 3, 'apogee', ['apogee', null]].map((v) => [v]))('drops malformed tile choices (%j)', (resultTiles) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ resultTiles, radiusMode: 'radius' }));
     mount();

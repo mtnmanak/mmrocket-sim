@@ -815,6 +815,36 @@ describe('MotorBrowser — two earlier fixes with no test until now (audit 2026-
   let h: Harness;
   afterEach(() => { vi.unstubAllGlobals(); if (h.host.isConnected) closeBrowser(h); });
 
+  it.each(['motor', 'delay'])('S3a-1 ignores a download after the %s choice changes', async change => {
+    let answer: ((response: Response) => void) | undefined;
+    vi.stubGlobal('fetch', () => new Promise<Response>(resolve => { answer = resolve; }));
+    h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true } });
+    search(h, 'G80');
+    click(rowFor(h, 'Estes', 'G80')!);
+    click(loadButton(h)!);
+    for (let i = 0; i < 300 && !answer; i++) await act(async () => { await new Promise(r => setTimeout(r, 10)); });
+    expect(answer).toBeDefined();
+    if (change === 'motor') {
+      const other = bodyRows(h).find(row => row !== rowFor(h, 'Estes', 'G80'))!;
+      click(other);
+      expect(h.host.querySelector('.motor-row-picked')).toBe(other);
+    }
+    else {
+      const select = h.host.querySelector<HTMLSelectElement>('.motor-load-row select')!;
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, 'custom');
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+    }
+    await act(async () => {
+      answer!({ ok: true, status: 200,
+        json: async () => ({ results: [{ format: 'RASP', samples: [{ time: 0.1, thrust: 80 }, { time: 1.5, thrust: 0 }] }] }),
+      } as Response);
+      await new Promise(r => setTimeout(r, 50));
+    });
+    expect(h.selected).toEqual([]);
+  });
+
   it('a Load still downloading when the dialog closes never loads the motor', async () => {
     // Estes G80 has no bundled curve, so its load waits on the network. The
     // answer arrives AFTER the dialog is gone, and ignores the abort — the case

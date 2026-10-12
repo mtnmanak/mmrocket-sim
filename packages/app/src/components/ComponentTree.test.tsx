@@ -57,6 +57,16 @@ afterEach(() => {
 
 const rootRow = () => host.querySelector('.tree-row-root') as HTMLElement;
 
+it('S3c-5 closes the add menu across selection changes', () => {
+  show('n1');
+  const add = () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Add to Nose'))!;
+  act(() => add().click());
+  expect(add().getAttribute('aria-expanded')).toBe('true');
+  show('b1');
+  show('n1');
+  expect(add().getAttribute('aria-expanded')).toBe('false');
+});
+
 describe('the root "Rocket" row', () => {
   it('is a tab stop and activates on Enter and on Space', () => {
     // It was a bare onClick <div>: no tabIndex, no key handler, while every

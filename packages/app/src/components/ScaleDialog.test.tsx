@@ -92,6 +92,7 @@ const numberInputs = (): HTMLInputElement[] =>
 
 const type = (el: HTMLInputElement, value: string) => {
   act(() => {
+    el.focus();
     const setter = Object.getOwnPropertyDescriptor(
       HTMLInputElement.prototype, 'value')!.set!;
     setter.call(el, value);
@@ -463,6 +464,27 @@ describe('ScaleDialog', () => {
       el.dispatchEvent(new Event('change', { bubbles: true }));
     });
     const mountOf = (r: ScaleResult) => r.tree.components[0]!.children![1]!.children![0]!;
+
+    it('S3b-g2 resets an empty custom bore to the applied value on blur', async () => {
+      await render();
+      pick(mountSelect(), 'custom');
+      type(customBore(), '38');
+      type(customBore(), '');
+      expect(customBore().value).toBe('');
+      act(() => customBore().blur());
+      expect(customBore().value).toBe('38');
+      expect(customBore().getAttribute('aria-invalid')).toBeNull();
+    });
+
+    it('S3b-g2 accepts a decimal comma without applying a partial prefix', async () => {
+      await render();
+      pick(mountSelect(), 'custom');
+      type(customBore(), '38,5');
+      expect(customBore().getAttribute('aria-invalid')).toBeNull();
+      expect(text()).toContain('the 38.5 mm mount you chose');
+      act(() => applyButton().click());
+      expect((mountOf(applied!)['outerRadius'] as number) * 2).toBeCloseTo(0.0385 + 0.0032, 9);
+    });
 
     it('refuses a custom bore wider than the body tube it sits in', async () => {
       await render();

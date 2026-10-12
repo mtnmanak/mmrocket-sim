@@ -235,7 +235,8 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     'Exterior parts outside the written body/fin-can chain lose their geometry and drag; their mass is kept only in the total');
     const innerKinds: Record<string, string> = { innertube: 'inner tubes', tubecoupler: 'couplers', centeringring: 'centering rings',
       bulkhead: 'bulkheads', engineblock: 'engine blocks', shockcord: 'shock cords', masscomponent: 'mass objects', fairing: 'camera shrouds' };
-    const kinds = [...new Set(nodes.map(n => innerKinds[n.type]).filter(Boolean))];
+    // Unknown restored types must not read Object.prototype (audit 2026-10-11, S1d-6).
+    const kinds = [...new Set(nodes.map(n => Object.hasOwn(innerKinds, n.type) ? innerKinds[n.type] : undefined).filter(Boolean))];
     add(kinds.length > 0, `Inner parts (${kinds.join(', ')}) are kept only in the total mass and CG; their geometry, placement and individual settings are not kept.`);
     add(input.measured.massKg != null || input.measured.cgM != null, 'Measured mass & CG entries are not kept as editable measurements.');
     parts(n => has(n, 'overrideMass', 'overrideCGX'), 'Individual mass and CG overrides, including stage distribution and included-motor settings, are kept only as part of the rocket’s total mass and CG');
