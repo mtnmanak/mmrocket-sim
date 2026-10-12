@@ -1,5 +1,5 @@
 {
-  "version": "0.181",
-  "released": "2026-10-11",
-  "note": "Correction: the DXF cut file follows the Rocket dimensions unit in Preferences (v0.180 called it Length). No flight changes."
+  "version": "0.182",
+  "released": "2026-10-12",
+  "note": "Fixes from an engineering audit: no false import warning on .rkt/.CDX1, Undo on Motors & Launch, freeform fin prints on tapered mounts, file-import fidelity and keyboard access. No flight changes across the 1,005 designs in the test corpus. The LEM-1 parachute override is not fixed yet."
 }
