@@ -1,3 +1,5 @@
+import { savedConfigLabel, type SavedConfig } from '../model/design.js';
+import { runConfigurationLabel } from '../services/runConfiguration.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
@@ -29,7 +31,13 @@ import { TreeSchematic } from './TreeSchematic.js';
  */
 export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
   onLaunch, simulating, overrideSummary, onShowOverride, recovery, canLaunch, onChangeMotor, onCompare, canCompare,
-  staleModel, changedSince, onGetWeather, weather }: LaunchOverrideProps & {
+  staleModel, changedSince, onGetWeather, weather, configs = [], activeConfigId = null,
+  hasWorkingSettings = false, onApplyConfig, onClearConfig }: LaunchOverrideProps & {
+  configs?: SavedConfig[];
+  activeConfigId?: string | null;
+  hasWorkingSettings?: boolean;
+  onApplyConfig?: (config: SavedConfig) => void;
+  onClearConfig?: () => void;
   tree: RocketTree;
   info: StaticInfo | null;
   /** The newest flight (current result's summary, else the last stored run). */
@@ -176,6 +184,32 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
             )}
           </div>
 
+          <p className="download-caption">
+            {run?.flightConfig !== undefined
+              ? `Flight: ${runConfigurationLabel(run)} · ${formatRunWhenProse(run.when)}` : 'Not recorded'}
+          </p>
+          <label className="field" style={{ minWidth: 0 }}>
+            Configuration:
+            <select aria-label="Flight configuration" style={{ width: '100%', minWidth: 0 }}
+              value={activeConfigId !== null && configs.some(c => c.id === activeConfigId) ? `config:${activeConfigId}` : hasWorkingSettings ? 'working' : 'none'}
+              onChange={e => {
+                if (e.target.value === 'none') onClearConfig?.();
+                else {
+                  const config = configs.find(c => `config:${c.id}` === e.target.value);
+                  if (config) onApplyConfig?.(config);
+                }
+              }}>
+              {configs.map(c => <option key={c.id} value={`config:${c.id}`}>
+                {savedConfigLabel(c)}{c.isDefault ? ' — file default' : ''}
+              </option>)}
+              {hasWorkingSettings && !configs.some(c => c.id === activeConfigId)
+                && <option value="working" disabled>Working settings (not saved)</option>}
+              <option value="none">None (no motors)</option>
+            </select>
+          </label>
+          {configs.length === 0 && hasWorkingSettings && <p className="download-caption">
+            No saved configurations — the loaded motors fly as a working set
+          </p>}
           <button className="fly-motor" onClick={onChangeMotor}
             title="Pick or swap motors in the Motors & Launch workspace">
             <span>

@@ -74,6 +74,17 @@ function mount(flights: number) {
 }
 
 describe('large batch confirmation', () => {
+  it('RES-1 hands the selected mount base record to the sweep', async () => {
+    mount(1);
+    const configuration = { flightConfig: 'Club', flightConfigId: 'club', flightOverrides: [] };
+    props.configurationForMount = id => {
+      expect(id).toBe('mount');
+      return configuration;
+    };
+    render();
+    await click(primary());
+    expect(sweep.mock.calls[0]![0].configuration).toEqual(configuration);
+  });
   it.each([100, 5000])('starts %i flights without confirmation', async flights => {
     mount(flights);
     await click(primary());

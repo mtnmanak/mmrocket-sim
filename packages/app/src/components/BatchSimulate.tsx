@@ -89,11 +89,12 @@ function loadCriteria(): Criteria {
 /** The pair-split box's words — on the box, and in the refusal that says to untick it. */
 const PAIRS_NAME = 'mixed 4+2 / 2+2+2';
 
-export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ configurationForMount, overrideSummaryForMount, onShowOverride, info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
    *  the design's shared handle is never touched (no restore, no stale
    *  motors left on unassigned mounts). */
   tree: RocketTree;
+  configurationForMount?: (candidateMountId: string) => Pick<SimRun, 'flightConfig' | 'flightConfigId' | 'flightOverrides'>;
   overrideSummaryForMount?: (candidateMountId: string) => FlightOverrideSummary | null;
   onShowOverride?: LaunchOverrideProps['onShowOverride'];
   info: StaticInfo;
@@ -303,6 +304,7 @@ export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, t
     try {
       const { rows: out, stopped } = await runBatchSweep({
         tree, info, mounts, target: sel, candidates, splits,
+        configuration: configurationForMount?.(sel.id),
         assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware,
         model: batchModel, autoDelay: criteria.autoDelay, launch, rocketName,
       }, { signal: ctrl.signal, onProgress: setProgress, onRows: setRows });

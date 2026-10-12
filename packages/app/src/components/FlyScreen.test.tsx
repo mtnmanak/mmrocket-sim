@@ -67,6 +67,26 @@ describe('FlyScreen', () => {
     localStorage.clear();
   });
 
+  it('RES-1 names the selected historical flight and applies configurations or None once', () => {
+    const config = { id: 'club', name: 'Club day', isDefault: true, motors: {} };
+    const onApplyConfig = vi.fn();
+    const onClearConfig = vi.fn();
+    mount({ configs: [config], activeConfigId: 'club', onApplyConfig, onClearConfig,
+      run: { ...RUN, flightConfig: 'Yesterday', when: 1755000000000 } });
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+    expect(select).not.toBeNull();
+    expect(select.selectedOptions[0]!.textContent).toBe('Club day — file default');
+    expect(host.textContent).toContain('Flight: Yesterday ·');
+    act(() => { select.value = 'none'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(onClearConfig).toHaveBeenCalledTimes(1);
+    act(() => { select.value = 'config:club'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(onApplyConfig).toHaveBeenCalledExactlyOnceWith(config);
+    mount({ configs: [config], activeConfigId: null, hasWorkingSettings: true });
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!.selectedOptions[0]!.textContent)
+      .toBe('Working settings (not saved)');
+    expect(host.textContent).toContain('Not recorded');
+  });
+
   it('K1 marks an unflown recovery weight as an estimate', () => {
     mount({ recovery: { state: 'ok', mass: 1, multiStage: true, estimate: true, note: 'Separation is assumed; confirm with a flight.' } });
     expect(host.textContent).toContain('Recovery weight (estimate)');

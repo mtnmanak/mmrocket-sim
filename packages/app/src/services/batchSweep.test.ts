@@ -148,6 +148,27 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
 
+it('RES-1 freezes base configuration and overrides on single and mixed batch rows', async () => {
+  const tree = clusterRocket('4-ring');
+  const split = splitClusterTree(tree, 'mount')!;
+  const configuration: NonNullable<BatchSweepInput['configuration']> = {
+    flightConfig: 'Club base', flightConfigId: 'club', flightOverrides: [{ family: 'recovery', kind: 'parachute', partName: 'Main',
+      flies: { deployEvent: 'ejection', deployAltitude: 0, deployDelay: 0 },
+      own: { deployEvent: 'apogee', deployAltitude: 0, deployDelay: 0 } }],
+  };
+  const expected = structuredClone(configuration);
+  const { rows } = await sweep(input(tree, { configuration, autoDelay: false, splits: [split],
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')],
+  }), { fetchSpec: async (motor, delay) => {
+    configuration.flightConfig = 'Renamed during sweep';
+    configuration.flightOverrides![0]!.partName = 'Renamed part';
+    return { ...curve(motor.designation), ejectionDelay: delay };
+  }, nozzleFor: nozzles({}) });
+  expect(rows).toHaveLength(3);
+  expect(rows.some(r => r.combo)).toBe(true);
+  for (const row of rows) expect(row.run).toMatchObject({ ...expected, batch: true });
+}, 30_000);
+
 it('S7a-5: the live combo probe uses split mounts and drops the replaced motor', async () => {
   const tree = clusterRocket('4-ring');
   const split = splitClusterTree(tree, 'mount')!;

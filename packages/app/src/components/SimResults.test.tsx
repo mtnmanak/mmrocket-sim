@@ -102,6 +102,53 @@ const openTable = () => act(() => {
     ?.click();
 });
 
+it('RES-1 shows configuration and provenance status separately from Safe, lazily', () => {
+  const r = { ...run(), flightConfig: 'Club', batch: true, designKey: 'old' };
+  render(<SimHistory runs={[r, { ...run(), id: 'old', conditionsKey: undefined, aeroModel: undefined, rogersKbf: undefined }]} onRunsChange={() => {}}
+    provenance={{ designKey: 'new' } as DesignMatchKey} />);
+  expect(host.querySelector('tbody')).toBeNull();
+  openTable();
+  const headers = [...host.querySelectorAll('th')].map(h => h.textContent);
+  expect(headers.slice(0, 3)).toEqual(['Rocket', 'Motor', 'Configuration']);
+  expect(headers[headers.indexOf('Safe') + 1]).toBe('Status');
+  const cells = host.querySelector('tbody tr')!.querySelectorAll('td');
+  expect(cells[2]!.textContent).toBe('Batch · Club');
+  expect(cells[headers.indexOf('Status')]!.textContent).toBe('Changed');
+  expect(cells[headers.indexOf('Status')]!.title).toContain('the design');
+  const legacy = host.querySelectorAll('tbody tr')[1]!.querySelectorAll('td');
+  expect(legacy[2]!.title).toBe('Not recorded');
+  expect(legacy[headers.indexOf('Status')]!.textContent).toBe('Unknown');
+});
+
+it('RES-1 reports frozen override counts under the selected flight heading', () => {
+  const tuple = { deployEvent: 'ejection', deployAltitude: 0, deployDelay: 0 };
+  render(<SimRunDetails run={{ ...run(), flightConfig: '[F67C-9]', flightOverrides: ['Main', 'Backup'].map(partName => ({
+    family: 'recovery', kind: 'parachute', partName, flies: tuple,
+    own: { ...tuple, deployEvent: 'apogee' },
+  })) }} />);
+  expect(host.textContent).toContain('Flown in “[F67C-9]” · overrides: 2 parachutes at Motor ejection charge');
+  render(<SimRunDetails run={run()} />);
+  expect(host.textContent).toContain('Configuration not recorded');
+});
+
+it('RES-1 compares 500 runs only on expansion or provenance change', () => {
+  let reads = 0;
+  const runs = Array.from({ length: 500 }, (_, i) => Object.defineProperty({ ...run(), id: String(i) }, 'designKey', {
+    get: () => { reads++; return 'old'; },
+  }));
+  const provenance = { designKey: 'new' } as DesignMatchKey;
+  const show = () => render(<SimHistory runs={runs} provenance={provenance} onRunsChange={() => {}} />);
+  show();
+  expect(reads).toBe(0);
+  openTable();
+  expect(reads).toBeGreaterThanOrEqual(500);
+  const afterExpansion = reads;
+  show();
+  expect(reads).toBe(afterExpansion);
+  render(<SimHistory runs={runs} provenance={{ ...provenance }} onRunsChange={() => {}} />);
+  expect(reads).toBeGreaterThan(afterExpansion);
+});
+
 beforeEach(() => {
   localStorage.clear();
   host = document.createElement('div');
@@ -234,9 +281,9 @@ describe('SimRunDetails — where the raw flight data went', () => {
     openTable();
     const row = host.querySelector('tbody tr')!;
     expect(row.textContent).not.toContain('✓');
-    expect(row.querySelectorAll('td')[2]!.textContent).toBe('—');
-    expect(row.querySelectorAll('td')[7]!.textContent).toBe('—');
-    expect(row.querySelectorAll('td')[8]!.textContent).toBe('—');
+    expect(row.querySelectorAll('td')[3]!.textContent).toBe('—'); // Delay
+    expect(row.querySelectorAll('td')[8]!.textContent).toBe('—'); // Safe
+    expect(row.querySelectorAll('td')[10]!.textContent).toBe('—'); // Winds aloft
   });
   it('points down to the plots when this flight’s series are in memory', () => {
     render(<SimRunDetails run={run()} hasSeries />);
@@ -354,6 +401,11 @@ describe('SimRunDetails — the report carries its own provenance (v0.101)', () 
       render(<SimRunDetails run={r} changedSince={changedSinceRun(r, key)} />);
       expect(whenOf().includes('matches the design as it stands')).toBe(evidence === 'complete');
       expect(whenOf()).not.toContain('changed since');
+      render(<SimHistory runs={[r]} provenance={key} onRunsChange={() => {}} />);
+      openTable();
+      const headers = [...host.querySelectorAll('th')].map(h => h.textContent);
+      const status = host.querySelector('tbody tr')!.querySelectorAll('td')[headers.indexOf('Status')]!.textContent;
+      expect(status).toBe(evidence === 'complete' ? 'Current' : 'Unknown');
     },
   );
 

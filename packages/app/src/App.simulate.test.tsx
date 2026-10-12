@@ -1163,6 +1163,39 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM i
   expect(host.querySelector('[aria-label="Recovery override"]')?.textContent).toContain('[F67C-9]');
 }, 60000);
 
+it.each([false, true])('RES-1 Fly Change scrolls the primary mount card with reduced motion %s', async reduced => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  const mm = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: mm },
+    launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null }, savedAt: 1,
+    appVersion: APP_VERSION, configLayers: 1, activeConfigId: null, savedConfigs: [] }));
+  const matchMedia = window.matchMedia.bind(window);
+  const media = vi.spyOn(window, 'matchMedia').mockImplementation(query => {
+    const result = matchMedia(query);
+    if (query === '(prefers-reduced-motion: reduce)') Object.defineProperty(result, 'matches', { value: reduced });
+    return result;
+  });
+  const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+  try {
+    const host = await mountApp();
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Fly')!.click());
+    const chooser = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+    expect(chooser.selectedOptions[0]!.textContent).toBe('Working settings (not saved)');
+    scroll.mockClear();
+    await act(async () => host.querySelector<HTMLButtonElement>('.fly-motor')!.click());
+    const card = document.getElementById(`cfg-mount-${mount}`)!;
+    expect(card).not.toBeNull();
+    expect(scroll.mock.contexts.at(-1)).toBe(card);
+    expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: reduced ? 'instant' : 'smooth' });
+    expect(card.contains(document.activeElement)).toBe(true);
+  } finally {
+    scroll.mockRestore();
+    media.mockRestore();
+  }
+}, 30_000);
+
 it.each([false, true])('LW4 ignition Show scrolls the affected card and focuses Ignition (reduced motion %s)', async reduced => {
   prefs(CLASSIC);
   const original = defaultTree();

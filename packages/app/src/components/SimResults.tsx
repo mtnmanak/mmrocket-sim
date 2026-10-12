@@ -1,8 +1,10 @@
+import { runConfigurationHeading, runConfigurationLabel, runStatus } from '../services/runConfiguration.js';
+import type { DesignMatchKey } from '../services/simReport.js';
 import { MountDelayReport } from './MountDelayReport.js';
 import { railNeededLine } from '../services/railNeeded.js';
 import { FlightLoadStats } from './FlightLoadStats.js';
 import { windProfileSummary } from '../services/windProfile.js';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtAltitude, fmtSi } from '../prefs/units.js';
 import { clickable } from './clickable.js';
@@ -229,6 +231,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           {open ? 'Hide details' : 'Show all details'}
         </button>
       </div>
+      <p className="comp-stats">{runConfigurationHeading(run, prefs.units.distance)}</p>
       {/* The pair of raw flight-data buttons used to sit in this header. They
           vanished exactly when a user went hunting for them — selecting a
           saved run nulled the result they were gated on — leaving only the
@@ -502,8 +505,9 @@ export function historyMotorLabel(r: Pick<SimRun, 'manufacturer' | 'motor' | 'mo
 
 export function SimHistory({
   runs, onRunsChange, onSelect, selectedId,
-  canShowCharts, onShowCharts, reflyingId, flightRunning, hasChartsFor, designName,
+  canShowCharts, onShowCharts, reflyingId, flightRunning, hasChartsFor, designName, provenance = null,
 }: {
+  provenance?: DesignMatchKey | null;
   runs: SimRun[];
   onRunsChange: (runs: SimRun[]) => void;
   /** Click a row to load that run into the launch report. */
@@ -545,6 +549,9 @@ export function SimHistory({
    * offers Undo instead, one level deep.
    */
   const [confirmClear, setConfirmClear] = useState(false);
+  // No provenance work while collapsed, and no repeat comparisons for unrelated renders.
+  const statuses = useMemo(() => open
+    ? new Map(runs.map(run => [run, runStatus(run, provenance)])) : null, [open, runs, provenance]);
   const [undo, setUndo] = useState<{ run: SimRun; beforeId: string | null } | null>(null);
   const undoRef = useRef<HTMLButtonElement>(null);
   // The ✕ that had the focus went with its row; Undo takes it.
@@ -571,10 +578,10 @@ export function SimHistory({
   if (runs.length === 0) return <div className="panel" style={{ marginTop: 10 }}>{undoLine}</div>;
 
   const downloadCsv = () => downloadBlob(
-    new Blob([CSV_BOM, runsToCsv(runs, prefs.units)], { type: 'text/csv;charset=utf-8' }),
+    new Blob([CSV_BOM, runsToCsv(runs, prefs.units, undefined, provenance)], { type: 'text/csv;charset=utf-8' }),
     stampedName(designName, 'run-table', 'csv'));
   const downloadXlsx = () => {
-    const { headers, rows } = runsToTable(runs, prefs.units);
+    const { headers, rows } = runsToTable(runs, prefs.units, undefined, provenance);
     downloadBlob(
       new Blob([tableToXlsx(headers, rows, 'Simulations') as BlobPart], { type: XLSX_MIME }),
       stampedName(designName, 'run-table', 'xlsx'));
@@ -626,12 +633,14 @@ export function SimHistory({
               <tr>
                 <th scope="col">Rocket</th>
                 <th scope="col">Motor</th>
+                <th scope="col">Configuration</th>
                 <th scope="col">Delay</th>
                 <th scope="col">Apogee (<UnitChip quantity="distance" />)</th>
                 <th scope="col">Max V (<UnitChip quantity="velocity" />)</th>
                 <th scope="col">Opt. delay</th>
                 <th scope="col">Rod exit (<UnitChip quantity="velocity" />)</th>
                 <th scope="col">Safe</th>
+                <th scope="col">Status</th>
                 <th scope="col">Winds aloft</th>
                 <th scope="col">When</th>
                 <th scope="col"></th>
@@ -639,6 +648,7 @@ export function SimHistory({
             </thead>
             <tbody>
               {runs.map((r) => {
+                const status = statuses!.get(r)!;
                 // Over-stability is a caution (△), not a failure — only real
                 // failures paint the row's Safe cell red. A flight the kernel
                 // stopped early is one whatever its verdicts say: they describe
@@ -674,6 +684,7 @@ export function SimHistory({
                   >
                     <td>{r.rocket || '—'}</td>
                     <td>{historyMotorLabel(r)}</td>
+                    <td title={r.flightConfig === undefined ? 'Not recorded' : undefined}>{runConfigurationLabel(r)}</td>
                     <td>{Number.isFinite(r.delayS) ? `${r.delayS}s`
                       : r.importedSummary && r.delayS !== Infinity ? '—' : 'P'}</td>
                     <td>{fmtSi('distance', dist, r.maxAltitude)}</td>
@@ -683,6 +694,7 @@ export function SimHistory({
                     <td className={r.importedSummary ? undefined : unsafe ? 'stability-bad' : caution ? 'stability-warn' : 'stability-good'}>
                       {r.importedSummary ? '—' : unsafe ? '⚠' : caution ? '△' : '✓'}
                     </td>
+                    <td title={status.title}>{status.label}</td>
                     <td>{r.windLevels?.length ? `${r.windLevels.length} levels` : r.importedSummary ? '—' : "No"}</td>
                     {/* Date AND time once it is not today's run: the time alone
                         made a three-day-old row identical to a fresh one. */}

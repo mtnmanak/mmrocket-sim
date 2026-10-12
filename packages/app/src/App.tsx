@@ -1,5 +1,5 @@
 import { LaunchOverrideWarning } from './components/LaunchOverrideWarning.js';
-import { describeFlightOverrides, type FlightOverrideSummary } from './services/flightOverrideSummary.js';
+import { describeFlightOverrides, recordFlightOverrides, type FlightOverrideSummary } from './services/flightOverrideSummary.js';
 import { IGNITION_EVENT_LABELS } from './services/flightOverrideText.js';
 import { DesignConfirms } from './components/DesignConfirms.js';
 import { assignMotorRecords, planMotorAssignment, retireLoadoutNote } from './services/motorAssignment.js';
@@ -1124,6 +1124,15 @@ export function App() {
   const launchOverrideSummary = useMemo(() => describeFlightOverrides(
     tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance,
   ), [tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance]);
+  const [flyMountTarget, setFlyMountTarget] = useState<string | null>(null);
+  useEffect(() => {
+    if (tab !== 'motors' || flyMountTarget === null) return;
+    const card = document.getElementById(`cfg-mount-${flyMountTarget}`);
+    card?.scrollIntoView({ block: 'center',
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    card?.querySelector<HTMLElement>('button, select, input')?.focus({ preventScroll: true });
+    setFlyMountTarget(null);
+  }, [tab, flyMountTarget]);
   const [ignitionTarget, setIgnitionTarget] = useState<string | null>(null);
   useEffect(() => {
     if (tab !== 'motors' || ignitionTarget === null) return;
@@ -1830,6 +1839,7 @@ export function App() {
         const { flight: { result: res, execMs }, run } = await flyBuiltDesign({
           built,
           tree: flightTree,
+          flightOverrides: launchOverrideSummary?.records ?? [],
           derived: { mounts, stageList, assigned, effectiveSupersonic, primaryMountId },
           launch,
           aero: { aeroMode, effectiveKbf },
@@ -3408,6 +3418,11 @@ export function App() {
           Reported 2026-09-01b on two single-stage .ork files that carry no motor. */}
       {showBatch && built && mounts.length > 0 && !isStaged && (
         <BatchSimulate
+          configurationForMount={targetId => ({
+            flightConfig: overrideConfigLabel ?? (Object.keys(mountMotors).length || Object.keys(activeOverrides).length ? 'working settings' : 'none'),
+            ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
+            flightOverrides: recordFlightOverrides(tree, activeOverrides, mountMotors, targetId),
+          })}
           overrideSummaryForMount={targetId => describeFlightOverrides(tree, activeOverrides,
             Object.fromEntries(Object.entries(mountMotors).filter(([id]) => id !== targetId)),
             overrideConfigLabel, prefs.units.distance)}
@@ -3688,6 +3703,9 @@ export function App() {
 
         {tab === 'fly' && (
           <FlyScreen
+            configs={savedConfigs} activeConfigId={activeConfigId}
+            hasWorkingSettings={Object.keys(mountMotors).length > 0 || Object.keys(activeOverrides).length > 0}
+            onApplyConfig={applyConfig} onClearConfig={clearConfig}
             overrideSummary={launchOverrideSummary} onShowOverride={showFlightOverride}
             tree={tree}
             info={built?.info ?? null}
@@ -3701,7 +3719,7 @@ export function App() {
             simulating={simulating}
             recovery={recovery}
             canLaunch={!!built && !!primaryMountId && !nozzlePending}
-            onChangeMotor={() => setTab('motors')}
+            onChangeMotor={() => { setFlyMountTarget(primaryMountId ?? mounts[0]?.id ?? null); setTab('motors'); }}
             onCompare={() => setShowBatch(true)}
             canCompare={!!built && !!primaryMountId && !isStaged}
             staleModel={modelMatch === false && lastRun
@@ -4142,7 +4160,7 @@ export function App() {
               const delayCurrent = !!delayRun && runMatchesDesign(delayRun, provenanceKey)
                 && resolutionMatchesPolicy(delayRun.delayResolution, flownDelayMounts);
               return (
-                <div key={m.id} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
+                <div key={m.id} id={`cfg-mount-${m.id!}`} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                     {/* The card's title, not a <label>: it names no control
                         (audit 2026-09-30). */}
@@ -4603,6 +4621,7 @@ export function App() {
           )}
           <PanelBoundary what="The run history" resetKey={runs}>
             <SimHistory
+              provenance={provenanceKey}
               runs={runs}
               onRunsChange={recordRuns}
               selectedId={reportRun?.id ?? null}

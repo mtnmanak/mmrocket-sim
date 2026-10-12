@@ -392,6 +392,8 @@ export interface BatchRow {
 }
 
 export interface BatchSweepInput {
+  /** Base setup, already excluding the swept mount's ignition. */
+  configuration?: Pick<SimRun, 'flightConfig' | 'flightConfigId' | 'flightOverrides'>;
   /** The editing tree — the sweep builds its OWN engine handles from it, so
    *  the design's shared handle is never touched. */
   tree: RocketTree;
@@ -453,6 +455,7 @@ export async function runBatchSweep(
   hooks: BatchSweepHooks,
   deps: Partial<BatchSweepDeps> = {},
 ): Promise<{ rows: BatchRow[]; stopped: boolean }> {
+  const configuration = input.configuration === undefined ? undefined : structuredClone(input.configuration);
   const {
     fetchSpec = fetchMotorSpec,
     nozzleFor = nozzleForMotorId,
@@ -729,6 +732,7 @@ export async function runBatchSweep(
         aero,
       });
       const run = buildSimRun({
+        ...configuration, batch: true,
         result: f.res,
         delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,
         info,
@@ -874,6 +878,7 @@ export async function runBatchSweep(
           aero,
         });
         const run = buildSimRun({
+          ...configuration, batch: true,
           result: f.res,
           delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,
           info,

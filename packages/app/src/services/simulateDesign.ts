@@ -1,3 +1,5 @@
+import { recordFlightOverrides, type RecordedFlightOverride } from './flightOverrideSummary.js';
+import { activeFlightOverrides } from './flightState.js';
 import type { FlightResult, OrkRocket, RocketTree } from '@online-openrocket/engine';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/design.js';
 import { effectiveAero } from '../prefs/aeroChoice.js';
@@ -73,6 +75,8 @@ export interface BuiltLaunchInput<R extends BuildHandle = OrkRocket> {
   aero: Pick<AeroState, 'aeroMode' | 'effectiveKbf'>;
   activeConfigId: string | null;
   savedConfigs: SavedConfig[];
+  /** Captured against the own-settings tree before resolving the flight. */
+  flightOverrides?: RecordedFlightOverride[];
   /** App passes its `provenanceKey` memo, the key every comparison uses; never recomputed here. */
   provenance: Pick<DesignMatchKey, 'designKey' | 'motorSetKey' | 'motorDataKey' | 'motorDataKeys'>;
   /** App: `() => { if (stillFlown()) setAutoSupersonic(true); }`. Called after the last await. */
@@ -102,6 +106,9 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   if (refusal) throw new Error(refusal);
   const { mounts, stageList, assigned, effectiveSupersonic, primaryMountId } = derived;
   const { aeroMode, effectiveKbf } = aero;
+  const flightOverrides = input.flightOverrides === undefined ? undefined : structuredClone(input.flightOverrides);
+  const activeConfig = activeConfigId === null ? undefined : savedConfigs.find(c => c.id === activeConfigId);
+  const flightConfig = activeConfig ? savedConfigLabel(activeConfig) : assigned.length ? 'working settings' : 'none';
   const refusedMountIds = refusedMountIdsOf(built.motorFailures);
   // The keys and their order are onLaunch's at 78d3015; `signal` and `now` are
   // spread only when given, so the object App hands the runner is unchanged.
@@ -136,10 +143,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   // naming rule, and the reason it is not simply the stage's name, lives
   // with the function in services/flightPipeline.ts.
   const branchMotors = stageMotorInfo(tree, assigned, stageList);
-  // Stage B: which flight configuration flew, by display name (the
-  // CSV's trailing "Flight config" column; absent when none active).
-  const activeConfig = activeConfigId === null ? undefined
-    : savedConfigs.find((c) => c.id === activeConfigId);
+  // The configuration identity and override tuples were captured before flight.
   const run = buildSimRun({
     result: res,
     delayResolution, primaryMountId,
@@ -169,7 +173,8 @@ export async function flyBuiltDesign<R extends BuildHandle>(
     // including why `effectiveKbf` and never the raw preference.
     aeroModel: aeroModelFor(aeroMode, usedSupersonic),
     rogersKbf: rogersKbfFor(effectiveKbf, usedSupersonic),
-    ...(activeConfig ? { flightConfig: savedConfigLabel(activeConfig) } : {}),
+    flightConfig,
+    ...(flightOverrides !== undefined ? { flightOverrides } : {}),
     // Provenance for the .ork <flightdata> guard: what this flight was
     // computed FROM, so a later export can prove the design, motors and
     // conditions have not moved since — and refuse to write the numbers
@@ -398,6 +403,9 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
       aero,
       activeConfigId: state.activeConfigId,
       savedConfigs: state.savedConfigs,
+      flightOverrides: recordFlightOverrides(input.tree,
+        activeFlightOverrides(input.savedConfigs, input.activeConfigId, input.detachedOverrides ?? {}),
+        input.mountMotors),
       provenance,
       onSupersonicUpgrade: () => { upgraded = true; },
       ...(opts.signal ? { signal: opts.signal } : {}),
