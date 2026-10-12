@@ -546,6 +546,25 @@ export function nozzleStages(tree: RocketTree): ComponentNode[] {
   return out;
 }
 
+/**
+ * The nozzle-owning assemblies whose Nozzle exit diameter Motors & Configuration
+ * shows (CFG-SPEC A4, the field's one editor): every one inside an axial stage
+ * that holds a motor mount, plus any that already carries a value, so a value
+ * with no motor beside it can still be cleared there. Design's read-only line
+ * links only to these.
+ */
+export function nozzleEditableStageIds(tree: RocketTree): Set<string> {
+  const ids = new Set<string>();
+  const mountStages = new Set(motorMounts(tree).map((m) => stageIndexOf(tree, m.id!)));
+  stages(tree).forEach((st) => {
+    const withMount = mountStages.has(tree.components.indexOf(st));
+    for (const n of nozzleStages({ ...tree, components: [st] })) {
+      if (n.id && (withMount || numOrNull(n, 'nozzleExitDiameter') !== null)) ids.add(n.id);
+    }
+  });
+  return ids;
+}
+
 /** Cluster times assemblies BELOW the owning stage, never the strap-on ring. */
 export function nozzleMotorCount(tree: RocketTree, mountId: string): number {
   let count = clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);

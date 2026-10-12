@@ -59,16 +59,28 @@ afterEach(() => {
 const sliders = () => [...host.querySelectorAll('input[type="range"]')] as HTMLInputElement[];
 
 describe('every control has a name', () => {
-  it('associates the parallel nozzle help with its editable field', () => {
+  // CFG-3 port: the nozzle exit is edited only on Motors & Configuration (A4),
+  // where NozzleField.test pins the strap-on help and its association; Design
+  // shows it read-only, in words, with a named link to that one editor.
+  it('shows the parallel nozzle exit read-only with a named link to its editor', () => {
     const n = { type: 'parallelstage', id: 'strap', nozzleExitDiameter: 0 };
-    mount(treeWith(n), n);
-    const input = host.querySelector<HTMLInputElement>('input[aria-label="Nozzle exit diameter (mm)"]')!;
-    expect(input).not.toBeNull();
-    expect(input.value).toBe('0');
-    const help = document.getElementById(input.getAttribute('aria-describedby')!);
-    expect(help?.textContent).toContain('ONE strap-on');
-    expect(help?.textContent).toContain('enter 0');
-    expect(host.querySelector(`label[for="${input.id}"]`)?.textContent).toContain('Nozzle exit diameter');
+    const tree = treeWith(n);
+    const opened: string[] = [];
+    act(() => root.render(
+      <PrefsProvider>
+        <PropertyPanel tree={tree} node={n as unknown as ComponentNode} onPatch={(p) => patches.push(p as Record<string, unknown>)}
+          flight={{ overrides: {}, configLabel: null, detached: false, nozzleEditable: new Set(['strap']),
+            onOpenNozzle: (id) => opened.push(id) }} />
+      </PrefsProvider>,
+    ));
+    expect(host.querySelector('input[aria-label^="Nozzle exit diameter"]')).toBeNull();
+    const block = host.querySelector<HTMLElement>('[role="group"][aria-label="Nozzle exit"]')!;
+    expect(block.textContent).toContain('Nozzle exit: off (0)');
+    const link = block.querySelector<HTMLButtonElement>('button[aria-label="Nozzle exit: edit on Motors & Configuration"]')!;
+    expect(link.textContent).toBe('edit on Motors & Configuration ▸');
+    act(() => link.click());
+    expect(opened).toEqual(['strap']);
+    expect(patches).toEqual([]);
   });
   const TUBE = { id: 'b1', type: 'bodytube', length: 0.5, outerRadius: 0.027, thickness: 0.001 };
 

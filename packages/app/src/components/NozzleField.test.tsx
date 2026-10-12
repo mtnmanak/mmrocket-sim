@@ -26,6 +26,23 @@ describe('strap-on field and explicit OFF', () => {
     expect(document.getElementById(field.getAttribute('aria-describedby')!)?.textContent).toContain('Enter 0');
   });
 
+  it('CFG-3 takes a stable input id, so Design can focus it, and keeps its label and help on it', async () => {
+    act(() => {
+      root.render(
+        <PrefsProvider>
+          <NozzleField inputId="cfg-nozzle-strap" stageName="Strap" parallel exitDiameterM={0}
+            motors={[{ motorId: D13, count: 1 }]} motorLabel="D13-10" onCommit={() => {}} onAutoFill={() => {}} />
+        </PrefsProvider>,
+      );
+    });
+    await flush();
+    const field = document.getElementById('cfg-nozzle-strap') as HTMLInputElement;
+    expect(field.tagName).toBe('INPUT');
+    expect(field.value).toBe('0');
+    expect(host.querySelector('label[for="cfg-nozzle-strap"]')?.textContent).toContain('Nozzle exit diameter');
+    expect(document.getElementById(field.getAttribute('aria-describedby')!)?.textContent).toContain('ONE strap-on');
+  });
+
   it('does not fill or warn about explicit OFF, and blank resumes automatic fill', async () => {
     await render({ exitDiameterM: 0, parallel: true });
     expect(committed).toEqual([]);

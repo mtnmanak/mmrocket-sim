@@ -50,9 +50,11 @@ import { UnitChip } from './UnitChip.js';
  * re-read.
  */
 export function NozzleField({
-  stageName, exitDiameterM, motors, motorLabel, clearedFor, onCommit, onAutoFill, parallel = false,
+  stageName, exitDiameterM, motors, motorLabel, clearedFor, onCommit, onAutoFill, parallel = false, inputId: givenId,
 }: {
   stageName: string;
+  /** A stable id for the input (`cfg-nozzle-<stageId>`), so Design's read-only line can focus it. */
+  inputId?: string;
   parallel?: boolean;
   /** The stage's current value (m), or null when the field is empty. */
   exitDiameterM: number | null;
@@ -77,7 +79,8 @@ export function NozzleField({
 }) {
   const { prefs } = usePrefs();
   const sym = prefs.units.motorDimensions;
-  const inputId = useId();
+  const generatedId = useId();
+  const inputId = givenId ?? generatedId;
   /** `entries: null` — the look-up FAILED for this loadout (below). */
   const [lookup, setLookup] = useState<{ key: string; entries: (NozzleEntry | null)[] | null } | null>(null);
 

@@ -81,8 +81,10 @@ describe('deployOverrideNote', () => {
     const note = deployOverrideNote([o, o], null)!;
     expect(note).toContain('Parachute (×2) flies at Motor ejection charge, not at its own setting (Altitude (descending), 91.4 m (300 ft))');
     expect(note).toContain('Recovery: The flight configuration this file opens with overrides');
-    expect(note).toContain('parachute panel shows both');
-    expect(note).toContain("Reset there returns this configuration to the component's own setting");
+    // CFG-3: both settings, and Reset, live on Motors & Configuration's Recovery rows.
+    expect(note).toContain('The Recovery section on Motors & Configuration shows both');
+    expect(note).not.toContain('parachute panel');
+    expect(note).toContain("Reset to own setting there returns this configuration to the component's own setting");
     expect(note).not.toContain('The app shows and flies the override');
   });
 });

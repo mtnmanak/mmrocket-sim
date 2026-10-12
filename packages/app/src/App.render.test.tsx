@@ -904,6 +904,18 @@ async function openTab(host: HTMLElement, name: 'Fly' | 'Design' | 'Motors & Con
  * is for. statsDrawerDefault.test.ts held both as regexes over App.tsx.
  */
 describe('FC-5 configuration editors', () => {
+  // CFG-3 (ruling D2a): deployment and separation overrides are edited on
+  // Motors & Configuration's part rows; these tests drove the retired Design
+  // banner and now drive the row that replaced it.
+  const partRow = (host: HTMLElement, id: string) => host.querySelector<HTMLElement>(`[id="cfg-part-${id}"]`)!;
+  const openPartEditor = async (host: HTMLElement, id: string) => {
+    await openTab(host, 'Motors & Configuration');
+    const row = partRow(host, id);
+    await act(async () => { [...row.querySelectorAll('button')].find(b => b.textContent === 'Edit…')!.click(); });
+    return row;
+  };
+  const partField = (row: HTMLElement, field: 'altitude' | 'delay') =>
+    row.querySelector<HTMLInputElement>(`input[aria-label$=" ${field} (${field === 'altitude' ? 'm' : 's'})"]`)!;
   it('fixup3: establishing native ignition defaults preserves other configurations and detached values in one step', async () => {
     const { tree, mount, c6 } = await seedStarterSession();
     const composite = (await loadCatalogueMotor('AeroTech', 'D21', 4))!;
@@ -947,11 +959,7 @@ describe('FC-5 configuration editors', () => {
     await openTab(host, 'Motors & Configuration');
     await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Delete A"]')!.click(); });
     await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Confirm delete A"]')!.click(); });
-    await openTab(host, 'Design');
-    await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')]
-      .find(r => r.querySelector('.tree-label')?.textContent === 'Parachute')!.click(); });
-    await act(async () => { button(host, 'Edit the override').click(); });
-    const field = host.querySelector<HTMLInputElement>('[aria-label="Override delay (s)"]')!;
+    const field = partField(await openPartEditor(host, chute.id!), 'delay');
     await act(async () => { field.focus(); });
     await type(field, '2');
     await act(async () => { field.blur(); });
@@ -987,23 +995,21 @@ describe('FC-5 configuration editors', () => {
   ] as const)('fixup3: Escape cancels %s %s numeric edits without changing history', async (kind, fieldName) => {
     const { tree, mount, c6 } = await seedStarterSession();
     const chute = tree.components[0]!.children!.flatMap(n => [n, ...(n.children ?? [])]).find(n => n.type === 'parachute')!;
-    const target = kind === 'separation' ? tree.components[0]! : chute;
-    await seedStarterSession({ edit: () => ({ ...tree, ignitionDefaults: { [mount]: { event: 'automatic', delay: 0 } } }),
+    // A lower stage: the top stage never separates, so it has no row (CFG-2).
+    const staged = kind === 'separation' ? addStage(tree).tree : tree;
+    const target = kind === 'separation' ? staged.components[1]! : chute;
+    await seedStarterSession({ edit: () => ({ ...staged, ignitionDefaults: { [mount]: { event: 'automatic', delay: 0 } } }),
       over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: {}, savedConfigs: [{
         id: 'a', name: 'A', isDefault: true, motors: { [mount]: c6 },
         ignitions: { [mount]: { event: 'launch', delay: 1 } },
         deployments: { [chute.id!]: { deployEvent: 'ejection', deployAltitude: 1, deployDelay: 1 } },
-        separations: { [tree.components[0]!.id!]: { separationEvent: 'ejection', separationAltitude: 1, separationDelay: 1 } },
+        separations: { [target.id!]: { separationEvent: 'ejection', separationAltitude: 1, separationDelay: 1 } },
       }] } });
     const host = await mountApp();
-    await openTab(host, kind === 'ignition' ? 'Motors & Configuration' : 'Design');
-    if (kind !== 'ignition') {
-      await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')]
-        .find(r => r.querySelector('.tree-label')?.textContent === target.name)!.click(); });
-      await act(async () => { button(host, 'Edit the override').click(); });
-    }
-    const field = host.querySelector<HTMLInputElement>(kind === 'ignition'
-      ? '[aria-label^="Ignition delay for"]' : `[aria-label="Override ${fieldName} (${fieldName === 'altitude' ? 'm' : 's'})"]`)!;
+    await openTab(host, 'Motors & Configuration');
+    const field = kind === 'ignition'
+      ? host.querySelector<HTMLInputElement>('[aria-label^="Ignition delay for"]')!
+      : partField(await openPartEditor(host, target.id!), fieldName);
     const read = () => { window.dispatchEvent(new Event('pagehide')); return peekSession()!; };
     const before = read();
     await act(async () => { field.focus(); });
@@ -1106,8 +1112,11 @@ describe('FC-5 configuration editors', () => {
     ['parachute', 'altitude'], ['parachute', 'delay'], ['streamer', 'altitude'],
     ['streamer', 'delay'], ['stage', 'altitude'], ['stage', 'delay'],
   ] as const)('FC-5 gesture: %s %s retains the focused editor and one undo step', async (kind, fieldName) => {
-    const { tree, mount, c6 } = await seedStarterSession();
-    const node = kind === 'stage' ? tree.components[0]!
+    const seeded = await seedStarterSession();
+    const { mount, c6 } = seeded;
+    // A lower stage: the top stage never separates, so it has no row (CFG-2).
+    const tree = kind === 'stage' ? addStage(seeded.tree).tree : seeded.tree;
+    const node = kind === 'stage' ? tree.components[1]!
       : tree.components[0]!.children!.flatMap(n => [n, ...(n.children ?? [])]).find(n => n.type === 'parachute')!;
     const defaults = kind === 'stage'
       ? { separationEvent: 'altitudedescending', separationAltitude: 1, separationDelay: 1 }
@@ -1121,12 +1130,9 @@ describe('FC-5 configuration editors', () => {
         [kind === 'stage' ? 'separations' : 'deployments']: { [node.id!]: tuple },
       }] } });
     const host = await mountApp();
-    await openTab(host, 'Design');
-    await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')]
-      .find(r => r.querySelector('.tree-label')?.textContent === 'Gesture part')!.click(); });
-    const banner = () => host.querySelector(`[aria-label="${kind === 'stage' ? 'Stage separation' : 'Recovery'} override"]`);
-    await act(async () => { button(host, 'Edit the override').click(); });
-    const field = host.querySelector<HTMLInputElement>(`[aria-label="Override ${fieldName} (${fieldName === 'altitude' ? 'm' : 's'})"]`)!;
+    const row = await openPartEditor(host, node.id!);
+    const banner = () => (partRow(host, node.id!).textContent!.includes('overridden') ? partRow(host, node.id!) : null);
+    const field = partField(row, fieldName);
     await act(async () => { field.focus(); });
     for (const prefix of ['1', '10', '100']) {
       await type(field, prefix);
@@ -1147,7 +1153,7 @@ describe('FC-5 configuration editors', () => {
     expect(banner()).toBeNull();
     await act(async () => { button(host, 'Undo').click(); });
     expect(banner()).not.toBeNull();
-    expect(host.querySelector<HTMLInputElement>(`[aria-label^="Override ${fieldName}"]`)!.value).toBe('100');
+    expect(partField(partRow(host, node.id!), fieldName).value).toBe('100');
   }, 30000);
 
   it('CFG-1 resets all families in one undo step, keeps other owners/defaults and supports detached reset', async () => {
@@ -1242,10 +1248,12 @@ describe('FC-5 configuration editors', () => {
     const host = await mountApp();
     await openTab(host, 'Design');
     const rows = [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')];
-    for (const label of ['Parachute', tree.components[0]!.name]) {
+    // CFG-3: Design's read-only blocks carry no override line for inheriting parts.
+    for (const [label, block] of [['Parachute', 'Deployment'], [tree.components[0]!.name, 'Separation']] as const) {
       await act(async () => { rows.find(r => r.querySelector('.tree-label')?.textContent === label)!.click(); });
-      expect(host.querySelector('[aria-label="Recovery override"]')).toBeNull();
-      expect(host.querySelector('[aria-label="Stage separation override"]')).toBeNull();
+      const shown = host.querySelector(`[role="group"][aria-label="${block}"]`);
+      expect(shown, block).not.toBeNull();
+      expect(shown!.textContent).not.toContain('overridden');
     }
     await openTab(host, 'Motors & Configuration');
     // CFG-2 wording: status text, not colour alone.
@@ -1266,22 +1274,28 @@ describe('FC-5 configuration editors', () => {
     const host = await mountApp();
     await openTab(host, 'Design');
     await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')].find(r => r.querySelector('.tree-label')?.textContent === 'Booster')!.click(); });
-    const banner = () => host.querySelector('[role="region"][aria-label="Stage separation override"]');
-    expect(banner()?.textContent).toContain('Flight configuration “a”');
-    expect(banner()?.textContent).toContain('Altitude (descending)');
-    expect(host.querySelector<HTMLInputElement>('[aria-label^="Separation altitude"]')).not.toBeNull();
-    await act(async () => { button(host, 'Edit the override').click(); });
-    await type(host.querySelector<HTMLInputElement>('[aria-label="Override altitude (m)"]')!, '100');
-    expect(banner()?.textContent).toContain('Altitude (descending) 100 m');
+    // CFG-3 (ruling D2a): Design shows it read-only and links to the one editor.
+    const block = host.querySelector<HTMLElement>('[role="group"][aria-label="Separation"]')!;
+    expect(block.textContent).toContain("Own setting: This stage's ejection charge");
+    expect(block.textContent).toContain('In “a”: overridden — Altitude (descending), 91.44 m, delay 2 s');
+    expect(host.querySelector('[aria-label^="Separation altitude"], [aria-label^="Separate at"]')).toBeNull();
+    await act(async () => { button(block, 'Set on Motors & Configuration ▸').click(); });
+    expect(document.activeElement?.textContent).toBe('Edit…');
+    expect(document.activeElement?.closest('.config-part-row')?.id).toBe(`cfg-part-${stage.id!}`);
+    const row = () => host.querySelector<HTMLElement>(`[id="cfg-part-${stage.id!}"]`)!;
+    const banner = () => (row().textContent!.includes('This configuration: overridden') ? row() : null);
+    await act(async () => { button(row(), 'Edit…').click(); });
+    await type(row().querySelector<HTMLInputElement>('input[aria-label$=" altitude (m)"]')!, '100');
+    expect(banner()?.textContent).toContain('Altitude (descending), 100 m');
     await act(async () => { button(host, '↩ Undo').click(); });
-    expect(banner()?.textContent).toContain('Altitude (descending) 91.44 m');
-    await act(async () => { button(host, 'Reset to this setting').click(); });
+    expect(banner()?.textContent).toContain('Altitude (descending), 91.44 m');
+    await act(async () => { button(row(), 'Reset to own setting').click(); });
     expect(banner()).toBeNull();
     await settle(450);
     expect(peekSession()!.savedConfigs![0]!.separations?.[stage.id!]).toBeUndefined();
     await act(async () => { button(host, '↩ Undo').click(); });
     expect(banner()).not.toBeNull();
-    await act(async () => { button(host, 'Use the override everywhere').click(); });
+    await act(async () => { button(row(), 'Use the override everywhere').click(); });
     await settle(450);
     expect(findNode(peekSession()!.tree, stage.id!)).toMatchObject(tuple);
     for (const config of peekSession()!.savedConfigs!) expect(config.separations?.[stage.id!]).toBeUndefined();
@@ -1289,7 +1303,7 @@ describe('FC-5 configuration editors', () => {
     expect(banner()).toBeNull();
     await act(async () => { button(host, '↩ Undo').click(); });
     expect(banner()).not.toBeNull();
-    expect(host.querySelector<HTMLSelectElement>('[aria-label="Separate at (lower stages)"]')!.value).toBe('ejection');
+    expect(row().textContent).toContain("Own setting: This stage's ejection charge");
   }, 30000);
 
   it('a detached streamer override stays visible; editing the default leaves what flies alone; reset and redo work', async () => {
@@ -1299,21 +1313,28 @@ describe('FC-5 configuration editors', () => {
       over: { configLayers: 1, activeConfigId: null, savedConfigs: [], mountMotors: { [mount]: c6 },
         detachedOverrides: { deployments: { [chute.id!]: { deployEvent: 'apogee', deployAltitude: 200, deployDelay: 1 } } } } });
     const host = await mountApp();
+    // CFG-3: Design names the working settings' override read-only.
     await openTab(host, 'Design');
     await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')].find(r => r.querySelector('.tree-label')?.textContent === 'Ribbon')!.click(); });
-    const banner = () => host.querySelector('[aria-label="Recovery override"]');
-    expect(banner()?.textContent).toContain('detached working settings');
-    expect(banner()?.textContent).toContain('overrides this streamer');
-    const select = host.querySelector<HTMLSelectElement>('[aria-label="Deploy at"]')!;
+    expect(host.querySelector('[role="group"][aria-label="Deployment"]')!.textContent)
+      .toContain('In the working settings: overridden — Apogee, delay 1 s');
+    const row = await openPartEditor(host, chute.id!);
+    const banner = () => (partRow(host, chute.id!).textContent!.includes('The working settings: overridden') ? partRow(host, chute.id!) : null);
+    expect(banner()?.textContent).toContain('overridden — Apogee, delay 1 s');
+    // Own-setting scope: the default changes, what flies does not.
+    const scope = (text: string) => [...partRow(host, chute.id!).querySelectorAll('fieldset label')]
+      .find(l => l.textContent?.includes(text))!.querySelector('input')!;
+    await act(async () => { scope("part's own setting").click(); });
+    const select = row.querySelector<HTMLSelectElement>('select')!;
     await act(async () => { select.value = 'launch'; select.dispatchEvent(new Event('change', { bubbles: true })); });
-    expect(banner()?.textContent).toContain('it deploys at Apogee');
-    expect(banner()?.textContent).toContain("streamer's own setting (Launch");
-    await act(async () => { button(host, 'Edit the override').click(); });
-    await type(host.querySelector<HTMLInputElement>('[aria-label="Override delay (s)"]')!, '2');
+    expect(banner()?.textContent).toContain('overridden — Apogee');
+    expect(partRow(host, chute.id!).textContent).toContain('Own setting: Launch');
+    await act(async () => { scope('working settings only').click(); });
+    await type(partField(partRow(host, chute.id!), 'delay'), '2');
     expect(banner()?.textContent).toContain('delay 2 s');
     await act(async () => { button(host, '↩ Undo').click(); });
     expect(banner()?.textContent).toContain('delay 1 s');
-    await act(async () => { button(host, 'Reset to this setting').click(); });
+    await act(async () => { button(partRow(host, chute.id!), 'Reset to own setting').click(); });
     expect(banner()).toBeNull();
     await act(async () => { button(host, '↩ Undo').click(); });
     expect(banner()).not.toBeNull();
@@ -1582,6 +1603,60 @@ describe('CFG-2 scoped recovery, stage and ignition editors', () => {
   }, 60_000);
 });
 
+/**
+ * CFG-3 (CFG-SPEC B1/A4, ruling D2a): Design shows deployment and the nozzle
+ * exit read-only; each link lands on its one editor on Motors & Configuration,
+ * scrolled into view without smooth scrolling under reduced motion.
+ */
+describe('CFG-3 Design links to Motors & Configuration', () => {
+  it.each([false, true])('the deployment link focuses the row\'s Edit… and the nozzle link focuses the stage field (reduced motion %s)', async reduced => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const chute = tree.components[0]!.children!.flatMap(n => [n, ...(n.children ?? [])]).find(n => n.type === 'parachute')!;
+    const stage = tree.components[0]!;
+    await seedStarterSession({ edit: () => updateNode(tree, stage.id!, { nozzleExitDiameter: 0.005 }),
+      over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: {},
+        savedConfigs: [{ id: 'a', name: 'A', isDefault: true, motors: { [mount]: c6 } }] } });
+    const matchMedia = window.matchMedia.bind(window);
+    const media = vi.spyOn(window, 'matchMedia').mockImplementation(query => {
+      const result = matchMedia(query);
+      if (query === '(prefers-reduced-motion: reduce)') Object.defineProperty(result, 'matches', { value: reduced });
+      return result;
+    });
+    const scroll = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+    try {
+      const host = await mountApp();
+      const select = async (name: string) => {
+        await openTab(host, 'Design');
+        await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')]
+          .find(r => r.querySelector('.tree-label')?.textContent === name)!.click(); });
+      };
+      await select(chute.name!);
+      scroll.mockClear();
+      await act(async () => { button(host.querySelector<HTMLElement>('[role="group"][aria-label="Deployment"]')!, 'Set on Motors & Configuration ▸').click(); });
+      const row = host.querySelector(`[id="cfg-part-${chute.id!}"]`)!;
+      expect(host.querySelector('.motors-layout')).not.toBeNull();
+      expect(document.activeElement).toBe(row.querySelector('.config-part-actions button'));
+      expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: reduced ? 'instant' : 'smooth' });
+      expect(scroll.mock.contexts.at(-1)).toBe(row);
+
+      await select(stage.name!);
+      expect(host.querySelector('input[aria-label^="Nozzle exit diameter"]')).toBeNull();
+      const nozzle = host.querySelector<HTMLElement>('[role="group"][aria-label="Nozzle exit"]')!;
+      expect(nozzle.textContent).toContain('Nozzle exit: 5 mm');
+      scroll.mockClear();
+      await act(async () => { button(nozzle, 'edit on Motors & Configuration ▸').click(); });
+      const field = document.getElementById(`cfg-nozzle-${stage.id!}`) as HTMLInputElement;
+      expect(host.querySelector('.motors-layout')).not.toBeNull();
+      expect(document.activeElement).toBe(field);
+      expect(field.value).toBe('5');
+      expect(scroll).toHaveBeenCalledWith({ block: 'center', behavior: reduced ? 'instant' : 'smooth' });
+    } finally {
+      scroll.mockRestore();
+      media.mockRestore();
+    }
+  }, 60_000);
+});
+
 describe('the Batch simulate button', () => {
   const batchButton = (host: HTMLElement) => button(host, 'Batch simulate motors…');
 
@@ -1728,14 +1803,110 @@ describe('the panel header rows', () => {
     await waitFor(starterStored, 'the starter motor to be autosaved');
     expectWrapping(headOf(host, 'Components'), 'Components');
     expectWrapping(headOf(host, 'Rocket'), 'Rocket');
+    // Drag analysis sits on Design since CFG-3 (ruling D5).
+    expectWrapping(headOf(host, 'Drag analysis'), 'Drag analysis');
     await act(async () => {
       [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();
     });
     await waitFor(() => [...host.querySelectorAll('h2')].some((h) => h.textContent?.startsWith('Launch report')),
       'the launch report');
     expectWrapping(headOf(host, 'Launch report'), 'Launch report');
-    expectWrapping(headOf(host, 'Drag analysis'), 'Drag analysis');
   }, 30000);
+});
+
+/**
+ * CFG-3 (CFG-SPEC B2, ruling D5): Drag analysis is a property of the geometry,
+ * so it moved from Results to Design, under the rocket, collapsed until asked
+ * for, and keeps the user's open/closed choice across workspaces for the session.
+ */
+describe('Drag analysis on Design', () => {
+  const dragHead = (host: HTMLElement) =>
+    [...host.querySelectorAll('h2')].find((h) => h.textContent?.trim() === 'Drag analysis')?.parentElement ?? null;
+  it('sits under the rocket on Design, collapsed, keeps its state across tabs, and is gone from Results', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    await waitFor(() => dragHead(host) !== null, 'the drag panel');
+    const head = dragHead(host)!;
+    // In Design's main column, after the rocket panel.
+    const main = head.closest('main')!;
+    expect(main.querySelector('.hero-panel')).not.toBeNull();
+    expect(main.querySelector('.hero-panel')!.compareDocumentPosition(head) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const toggle = head.querySelector<HTMLButtonElement>('button[aria-expanded]')!;
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.textContent).toBe('Show CD vs Mach');
+    await act(async () => { toggle.click(); });
+    expect(dragHead(host)!.querySelector('button[aria-expanded]')!.getAttribute('aria-expanded')).toBe('true');
+    await openTab(host, 'Results');
+    expect(dragHead(host)).toBeNull();
+    await act(async () => { button(host, 'Launch').click(); });
+    await waitFor(() => [...host.querySelectorAll('h2')].some((h) => h.textContent?.startsWith('Launch report')), 'the launch report');
+    expect(dragHead(host)).toBeNull();
+    await openTab(host, 'Design');
+    expect(dragHead(host)!.querySelector('button[aria-expanded]')!.getAttribute('aria-expanded')).toBe('true');
+  }, 30000);
+});
+
+/**
+ * CFG-3 (CFG-SPEC B3, ruling D3): the strip's Motor item became a Flight item
+ * naming the configuration Launch flies, then its motor; Unload and "+N" stay.
+ */
+describe('the vitals strip Flight item', () => {
+  type Over = (mount: string, mm: MountMotor) => Record<string, unknown>;
+  const cases: [string, Over, string, string[]][] = [
+    ['a named configuration',
+      (m, mm) => ({ savedConfigs: [{ id: 'c', name: 'Club field', isDefault: true, motors: { [m]: mm } }], activeConfigId: 'c' }),
+      'Club field · F67C-9', ['Flight configuration “Club field”', 'AeroTech F67C, 9 s delay (F67C-9)']],
+    ['an unnamed configuration',
+      (m, mm) => ({ savedConfigs: [{ id: 'c', name: null, isDefault: true, motors: { [m]: mm } }], activeConfigId: 'c' }),
+      'F67C-9', ['Flight configuration “[F67C-9]”', 'AeroTech F67C, 9 s delay (F67C-9)']],
+    ['detached working settings beside a saved configuration',
+      (m, mm) => ({ savedConfigs: [{ id: 'c', name: 'Other', isDefault: true, motors: { [m]: mm } }], activeConfigId: null }),
+      'Working settings · F67C-9', ['Working settings (not saved', 'AeroTech F67C, 9 s delay (F67C-9)']],
+    ['no configuration and no motor', () => ({ mountMotors: {} }), 'none', ['No saved flight configuration', 'no motor loaded']],
+  ];
+  it.each(cases)('names %s', async (_name, over, shown, titleParts) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const mm = (await loadCatalogueMotor('AeroTech', 'F67C', 9))!;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: mm }, launch: DEFAULT_CONDITIONS,
+      savedAt: Date.now(), appVersion: APP_VERSION, ...over(mount, mm) }));
+    const host = await mountApp();
+    await settle(50);
+    const item = host.querySelector<HTMLElement>('.vitals-item-flight')!;
+    expect(item.querySelector('.vitals-label')!.textContent).toBe('Flight');
+    expect([...host.querySelectorAll('.vitals-label')].map(l => l.textContent)).not.toContain('Motor');
+    // The value without its Unload button.
+    const value = [...item.querySelector('.vitals-value')!.childNodes]
+      .filter(n => !(n instanceof HTMLButtonElement)).map(n => n.textContent).join('');
+    expect(value).toBe(shown);
+    for (const part of titleParts) expect(item.getAttribute('title')).toContain(part);
+    expect(!!item.querySelector('.vitals-unload')).toBe(shown !== 'none');
+  }, 30000);
+
+  it('clips the configuration name and the motor so the item never outgrows a 360 px strip', async () => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'styles.css'), 'utf8');
+    document.head.appendChild(style);
+    const probe = document.createElement('div');
+    probe.className = 'vitals-strip';
+    probe.innerHTML = '<span class="vitals-item vitals-item-flight"><span class="vitals-value vitals-motor">'
+      + '<span class="vitals-flight-name">n</span><span class="vitals-flight-sep"> · </span>'
+      + '<span class="vitals-motor-label">m</span><span class="vitals-motor-count"> +1</span></span></span>';
+    document.body.appendChild(probe);
+    try {
+      const at = (sel: string) => getComputedStyle(probe.querySelector(sel)!);
+      expect(at('.vitals-item-flight').maxWidth).toBe('100%');
+      expect(at('.vitals-flight-name').textOverflow).toBe('ellipsis');
+      expect(at('.vitals-flight-name').overflow).toBe('hidden');
+      expect(at('.vitals-flight-name').minWidth).toBe('0');
+      expect(at('.vitals-motor-label').minWidth).toBe('0');
+      expect(at('.vitals-flight-sep').flexShrink).toBe('0');
+      expect(at('.vitals-motor-count').flexShrink).toBe('0');
+    } finally {
+      probe.remove();
+      style.remove();
+    }
+  });
 });
 
 describe('the Motor vitals designation and tooltip', () => {
@@ -1869,7 +2040,11 @@ describe('the Motor vitals designation and tooltip', () => {
     } finally {
       style.remove();
     }
-    expect(value.closest('.vitals-item')?.getAttribute('title')).toContain(`(+${extra} more ${extra === 1 ? 'mount' : 'mounts'})`);
+    // CFG-3 (B3): the Flight item's tooltip lists every loaded motor, where it
+    // used to say "(+N more mounts)".
+    const title = value.closest('.vitals-item')?.getAttribute('title') ?? '';
+    expect(title).toContain('motors: ');
+    expect(title.split('Hypertek 1685CC098LFX-L225FX, automatic delay').length - 1).toBe(extra + 1);
     expect(value.parentElement?.querySelector('button')?.textContent).toContain('Unload');
   });
 

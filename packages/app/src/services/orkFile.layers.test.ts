@@ -35,7 +35,7 @@ describe('FC-2 configuration layers', () => {
       ]);
       expect(r.configs.find(c => c.id !== r.chosenConfigId)!.deployments).toEqual({});
       expect(flat(selected(r).components).filter(n => n.type === 'parachute').map(n => n['deployEvent'])).toEqual(['ejection', 'ejection']);
-      expect(r.notes.join('\n')).toContain('parachute panel shows both');
+      expect(r.notes.join('\n')).toContain('The Recovery section on Motors & Configuration shows both');
       expect(r.notes.join('\n')).toContain('Reset');
       expect(r.expand).toBe(true);
       const xml = save(r);
@@ -114,7 +114,7 @@ describe('FC-2 configuration layers', () => {
     expect(stage).toMatchObject({ separationEvent: 'never', separationDelay: 4 });
     expect(r.configs[0]!.separations[stage.id!]).toEqual({ separationEvent: 'burnout', separationDelay: 1, separationAltitude: 350 });
     expect(r.notes.join('\n')).toContain("stage's own setting (Never + 4 s)");
-    expect(r.notes.join('\n')).toContain('stage panel shows both');
+    expect(r.notes.join('\n')).toContain('The Stages section on Motors & Configuration shows both');
     expect(r.expand).toBe(true);
     expect(Object.values(importOrk(save(r)).configs[0]!.separations)).toEqual(Object.values(r.configs[0]!.separations));
   });

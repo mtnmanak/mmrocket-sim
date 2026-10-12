@@ -34,7 +34,7 @@ const read = (rel: string) => readFileSync(join(here, rel), 'utf8');
  *    App.tsx, DragPanel.tsx and SimResults.tsx for the markup, written before
  *    any test rendered App; App.render.test.tsx ("the panel header rows")
  *    mounts App and finds all four header rows as drawn — Components and
- *    Rocket on Design, Drag analysis on Results, the Launch report after a
+ *    Rocket and Drag analysis on Design, the Launch report after a
  *    flight — each carrying `.panel-head` and no inline flex. Mutation-checked:
  *    one header's class changed fails it.
  */

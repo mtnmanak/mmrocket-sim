@@ -126,5 +126,5 @@ export function nozzleOversizeText(w: NozzleOversize, len: (m: number) => string
   return `${w.stageName}: the nozzle exit diameter is ${len(w.exitDiameterM)}, wider than ${bound}`
     + ' — a nozzle cannot be wider than the motor it comes out of. This value now raises thrust as'
     + ' the rocket climbs as well as trimming base drag, so an overstated exit overstates apogee.'
-    + ' Check it under the stage on the Design tab.';
+    + ' Check it beside the stage’s motors on Motors & Configuration, where it is edited.';
 }

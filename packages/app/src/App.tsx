@@ -1,5 +1,6 @@
 import { LaunchOverrideWarning } from './components/LaunchOverrideWarning.js';
 import { describeFlightOverrides, type FlightOverrideSummary } from './services/flightOverrideSummary.js';
+import { flightVitals } from './services/flightVitals.js';
 import { DesignConfirms } from './components/DesignConfirms.js';
 import { assignMotorRecords, planMotorAssignment, retireLoadoutNote } from './services/motorAssignment.js';
 import { exportConfigs as assembleExportConfigs, exportMotorsMap as assembleExportMotors,
@@ -7,7 +8,7 @@ import { exportConfigs as assembleExportConfigs, exportMotorsMap as assembleExpo
 import { OpenMotorDialog } from './components/OpenMotorDialog.js';
 import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorIdentity, type OpenMotorState } from './services/openMotorChoices.js';
 import { activeFlightOverrides, overrideFor, resolveFlightState, resetOverride, setOverride, sparsify } from './services/flightState.js';
-import { FlightOverrideBanner, type ComponentFlightTuple } from './components/FlightOverrideBanner.js';
+import type { ComponentFlightTuple } from './services/flightOverrideText.js';
 import { deploymentTuple } from './services/foreignConfigLayers.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from './model/design.js';
 import { matchingRecoveryEvents } from './services/recoveryFlight.js';
@@ -28,7 +29,6 @@ import { ConfigPartEditors, overrideScopeText, type FlightEditScope } from './co
 import { MountIgnitionField } from './components/MountIgnitionField.js';
 import { ConfigPanel } from './components/ConfigPanel.js';
 import type { LongitudeReview } from './components/LongitudeCheck.js';
-import { recoveryScope } from './components/recoveryContext.js';
 import { Icon } from './components/Icon.js';
 import { LazyDialog } from './components/LazyDialog.js';
 import { FirstRunTour } from './components/FirstRunTour.js';
@@ -132,7 +132,7 @@ import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
 import { offlineStatusText, useOfflineStatus } from './services/offlineStatus.js';
 import {
-  addChild, addStage, nozzleStages, applyStageNozzles, autoDelayBox, cloneSubtree, duplicateNode, findNode,
+  addChild, addStage, nozzleStages, nozzleEditableStageIds, applyStageNozzles, autoDelayBox, cloneSubtree, duplicateNode, findNode,
   findParent, hasParallelStage, makeNode, motorMounts, moveNode,
   isPristineDefault, mountCountNote, mountMotorCount, mountName, removeNode, stageIndexOf, stages,
   suppressingAncestor, updateAllNodes, updateNode,
@@ -142,9 +142,8 @@ import {
   flightDataForExport as flightDataForExportPure, flownAutoDelays, planSummaryImport, summaryImportCounts, summaryDocument,
 } from './services/orkFlightData.js';
 import { sameStoredFlight } from './services/storedRunIdentity.js';
-import { estimateMotorRoom, noBoreReason } from './tree/motorRoom.js';
 import { motorLengthLimit } from './tree/motorLength.js';
-import { MotorLengthField } from './components/MotorLengthField.js';
+import { MotorLengthReadout } from './components/MotorLengthField.js';
 import { NozzleField } from './components/NozzleField.js';
 import { autoAlignFinSets } from './tree/finAlign.js';
 import { addNewComponent } from './services/addComponent.js';
@@ -1103,6 +1102,8 @@ export function App() {
   const mounts = useMemo(() => motorMounts(tree), [tree.components]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   const stageList = useMemo(() => stages(tree), [tree.components]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
+  const nozzleEditableIds = useMemo(() => nozzleEditableStageIds(tree), [tree.components]);
   // "Staged" for the batch-sim gate: a serial stage OR a separating parallel
   // booster — both make the flight multi-branch (batch across them explodes
   // combinatorially, per the owner's rule). A non-separating pod alone is fine.
@@ -1132,10 +1133,12 @@ export function App() {
   ), [tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance]);
   // `edit`: the Launch warning's Show lands on the row's Edit… button (CFG-SPEC A2);
   // the All configurations table lands on the row itself.
+  // `nozzle`: Design's read-only Nozzle exit line lands on that stage's field (CFG-SPEC A4).
   const [configPartTarget, setConfigPartTarget] = useState<{ id: string; family: string; focus?: 'edit' } | null>(null);
   useEffect(() => {
     if (tab !== 'motors' || !configPartTarget) return;
-    const target = document.getElementById(`cfg-${configPartTarget.family === 'ignition' ? 'mount' : 'part'}-${configPartTarget.id}`);
+    const kind = configPartTarget.family === 'ignition' ? 'mount' : configPartTarget.family === 'nozzle' ? 'nozzle' : 'part';
+    const target = document.getElementById(`cfg-${kind}-${configPartTarget.id}`);
     target?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
     const focus = configPartTarget.focus === 'edit'
       ? target?.querySelector<HTMLButtonElement>('.config-part-actions button') ?? target : target;
@@ -1151,6 +1154,28 @@ export function App() {
     control?.focus({ preventScroll: true });
     setIgnitionTarget(null);
   }, [tab, ignitionTarget]);
+  // A motor card's "set on Design ▸" lands on that mount's Max motor length
+  // field in the Design property panel (CFG-SPEC A4).
+  const [designLengthTarget, setDesignLengthTarget] = useState<string | null>(null);
+  // Design's Drag analysis section: collapsed by default, session-only (CFG-SPEC B2).
+  const [dragOpen, setDragOpen] = useState(false);
+  useEffect(() => {
+    if (tab !== 'design' || designLengthTarget === null) return;
+    const field = document.getElementById(`design-motor-length-${designLengthTarget}`);
+    field?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    field?.focus({ preventScroll: true });
+    setDesignLengthTarget(null);
+  }, [tab, designLengthTarget, selectedId]);
+  const showMotorLengthOnDesign = (mountId: string) => {
+    setSelectedId(mountId);
+    setDesignLengthTarget(mountId);
+    setTab('design');
+  };
+  /** Design's read-only flight settings: their one editor is a row or field on Motors & Configuration. */
+  const showOnConfigTab = (id: string, family: 'recovery' | 'separation' | 'nozzle') => {
+    setConfigPartTarget(family === 'nozzle' ? { id, family } : { id, family, focus: 'edit' });
+    setTab('motors');
+  };
   const showFlightOverride = (target: FlightOverrideSummary['first']) => {
     setShowBatch(false);
     if (target.family === 'ignition') {
@@ -2971,12 +2996,16 @@ export function App() {
   // Batch simulate targets the PRIMARY (sustainer) mount; per the owner's rule
   // batch never runs across staged rockets (combinatorics).
   const primaryLabel = primaryMountId ? mountMotors[primaryMountId]?.label : undefined;
-  const primaryMotor = primaryMountId ? mountMotors[primaryMountId] : undefined;
   const assignedCount = assigned.length;
-  const primaryMotorTooltip = useMemo(() => primaryMotor
-    ? `${motorTooltip(primaryMotor, catalogue)}${assignedCount > 1 ? ` (+${assignedCount - 1} more ${assignedCount === 2 ? 'mount' : 'mounts'})` : ''} — motor on the primary (sustainer) mount; assign it in Motors & Configuration`
-    : 'Motor on the primary (sustainer) mount — assign it in Motors & Configuration',
-  [primaryMotor, catalogue, assignedCount]);
+  // The strip's Flight item (CFG-SPEC B3): the configuration Launch flies,
+  // then its motor; the tooltip names the configuration and every loaded motor.
+  const flightWorking = !activeLayer && (assignedCount > 0 || detachedOwnsOverrides);
+  const flightItem = useMemo(() => flightVitals({
+    active: activeLayer, savedCount: savedConfigs.length, working: flightWorking,
+    motors: [...assigned].sort(([a], [b]) => Number(b === primaryMountId) - Number(a === primaryMountId))
+      .map(([id, mm]) => ({ mount: mountName(mounts.find((m) => m.id === id)!),
+        text: motorTooltip(mountMotors[id] ?? mm, catalogue) })),
+  }), [activeLayer, savedConfigs.length, flightWorking, assigned, primaryMountId, mounts, mountMotors, catalogue]);
 
   // Motor-mount sizes (nominal motor diameter each mount accepts), per stage —
   // surfaced in the Rocket panel and Motors panel so the flyer never has to
@@ -3630,11 +3659,15 @@ export function App() {
               <span className="vitals-value stability-bad">⚠ error</span>
             </span>
           )}
-          <span className="vitals-item" title={primaryMotorTooltip}>
-            <span className="vitals-label">Motor</span>
+          <span className="vitals-item vitals-item-flight" title={flightItem.title}>
+            <span className="vitals-label">Flight</span>
             <span className="vitals-value vitals-motor">
+              {flightItem.name !== null && <>
+                <span className="vitals-flight-name">{flightItem.name}</span>
+                <span className="vitals-flight-sep">{' · '}</span>
+              </>}
               <span className="vitals-motor-label">
-                {primaryLabel ?? <span className="vitals-none">none</span>}
+                {primaryLabel ?? <span className="vitals-none">{flightItem.name !== null ? 'no motor' : 'none'}</span>}
               </span>
               {assigned.length > 1 && <span className="vitals-motor-count">{` +${assigned.length - 1}`}</span>}
               {assigned.length > 0 && (
@@ -4028,6 +4061,18 @@ export function App() {
               </div>
             )}
           </div>
+          {/* Drag analysis is a property of the geometry, so it sits under the
+              rocket on Design (CFG-SPEC B2, ruling D5), collapsed until asked
+              for; its open state lasts the session (the sweep costs ~3 aero
+              solves per Mach step, so it never opens itself on a reload). */}
+          {built && (
+            <PanelBoundary what="The drag chart" resetKey={built}>
+              <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic || aeroMode === 'hybrid'} hybridModel={aeroMode === 'hybrid'}
+                aeroLabel={currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}
+                designName={tree.name} fileMachAlt={fileMachAlt}
+                open={dragOpen} onOpenChange={setDragOpen} />
+            </PanelBoundary>
+          )}
         </main>
 
         <aside className="design-props">
@@ -4041,15 +4086,14 @@ export function App() {
               key={selectedNode.id}
               tree={tree}
               node={selectedNode}
-              recoveryContext={recoveryScope(savedConfigs, activeConfigId, selectedNode.id!, detachedOverrides)}
-              flightOverride={<FlightOverrideBanner key={`${selectedNode.id!}:${activeConfigId ?? 'detached'}`}
-                node={selectedNode} overrides={activeOverrides} configLabel={activeLayer ? savedConfigLabel(activeLayer) : null}
-                onEdit={(tuple, numeric) => editComponentOverride(selectedNode, tuple, numeric)}
-                onEditStart={beginFlightEdit}
-                onEditCancel={cancelFlightEdit}
-                onEditEnd={tuple => finishFlightEdit(() => editComponentOverride(selectedNode, tuple, true, true))}
-                onReset={() => resetComponentOverride(selectedNode)}
-                onEverywhere={() => adoptComponentOverrideEverywhere(selectedNode)} />}
+              // Deployment, separation and nozzle exit are read-only here;
+              // their one editor is on Motors & Configuration (ruling D2a).
+              flight={{
+                overrides: activeOverrides, configLabel: overrideConfigLabel, detached: detachedOwnsOverrides,
+                onOpenPart: (id) => showOnConfigTab(id, selectedNode.type === 'parachute' || selectedNode.type === 'streamer' ? 'recovery' : 'separation'),
+                onOpenNozzle: (id) => showOnConfigTab(id, 'nozzle'),
+                nozzleEditable: nozzleEditableIds,
+              }}
               info={selectedInfo}
               rocketInfo={built?.info ?? null}
               onPatch={(patch) => setTree(updateNode(tree, selectedNode.id!, patch))}
@@ -4148,7 +4192,10 @@ export function App() {
             )}
             {stageList.map((st, stIdx) => {
               const stMounts = mounts.filter((m) => stageIndexOf(tree, m.id!) === stIdx);
-              if (stMounts.length === 0) return null;
+              const stNozzles = nozzleStages({ ...tree, components: [st] }).filter((s) => s.id && nozzleEditableIds.has(s.id));
+              // A stage with no mount still lists a nozzle value it carries, so
+              // its one editor can clear it (CFG-SPEC A4).
+              if (stMounts.length === 0 && stNozzles.length === 0) return null;
               const stName = st.name ?? `Stage ${stIdx + 1}`;
               return (
                 <div key={st.id}>
@@ -4160,11 +4207,12 @@ export function App() {
                         stage field — this is a second view of it, not a second
                         value — and it fills itself in from AeroTech's published
                         drawings with the provenance shown. */}
-                    {nozzleStages({ ...tree, components: [st] }).filter((s) => s.id).map((nozzleStage) => {
+                    {stNozzles.map((nozzleStage) => {
                       const loadout = stageMotorLoadout.find((s) => s.stageId === nozzleStage.id)?.motors ?? [];
                       return <div key={nozzleStage.id}>
                         {nozzleStage.type === 'parallelstage' && <div className="motor-stage-header">{nozzleStage.name ?? 'Strap-on'}</div>}
                         <NozzleField
+                          inputId={`cfg-nozzle-${nozzleStage.id!}`}
                           stageName={nozzleStage.name ?? stName}
                           parallel={nozzleStage.type === 'parallelstage'}
                           exitDiameterM={numOrNull(nozzleStage, 'nozzleExitDiameter')}
@@ -4238,10 +4286,10 @@ export function App() {
                         }}>✕</button>
                     )}
                   </div>
-                  <MotorLengthField mountName={mountName(m)}
-                    value={motorLengthLimit(mNode)} room={estimateMotorRoom(tree, m.id!)}
-                    noBore={mNode ? noBoreReason(mNode) : null}
-                    onCommit={(value) => setTree(updateNode(tree, m.id!, { maxMotorLength: value }))} />
+                  {/* Read-only: the limit belongs to the physical mount and is
+                      edited, with its Estimate, on Design (CFG-SPEC A4). */}
+                  <MotorLengthReadout mountName={mountName(m)} value={motorLengthLimit(mNode)}
+                    onOpenDesign={() => showMotorLengthOnDesign(m.id!)} />
                   <MotorPicker
                     mountDiameterMm={mountDiaMm(mNode)}
                     maxMotorLengthM={motorLengthLimit(mNode)}
@@ -4607,13 +4655,6 @@ export function App() {
                 </button>
               )}
             </div>
-          )}
-          {built && (
-            <PanelBoundary what="The drag chart" resetKey={built}>
-              <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic || aeroMode === 'hybrid'} hybridModel={aeroMode === 'hybrid'}
-                aeroLabel={currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}
-                designName={tree.name} fileMachAlt={fileMachAlt} />
-            </PanelBoundary>
           )}
           {runsQuotaWarn && (
             <div className="file-note file-note-warn" role="alert">

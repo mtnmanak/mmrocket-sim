@@ -198,6 +198,29 @@ html {
   text-overflow: ellipsis;
 }
 
+/* The Flight item (CFG-SPEC B3): configuration name, then motor. Both clip
+   with an ellipsis and shrink, so the item never outgrows a 360 px strip;
+   the "+N" count and Unload keep their size. */
+.vitals-item-flight {
+  max-width: 100%;
+}
+
+.vitals-flight-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.vitals-flight-sep {
+  flex-shrink: 0;
+  white-space: pre;
+}
+
+.vitals-item-flight .vitals-motor-label {
+  min-width: 0;
+}
+
 .vitals-none {
   color: var(--text-muted);
   font-weight: 500;
@@ -423,6 +446,12 @@ html {
 .flight-scope label { display: flex; gap: 6px; align-items: baseline; font-weight: normal; }
 .flight-scope input { width: auto; flex: none; }
 .config-overview summary { cursor: pointer; }
+/* CFG-SPEC B1/A4: Design shows flight settings read-only, linking to their editor. */
+.design-flight-setting { grid-column: 1 / -1; overflow-wrap: anywhere; min-width: 0; }
+.design-flight-setting p { margin: 2px 0; }
+.design-flight-setting h3 { margin: 0; font-size: 13px; }
+.design-flight-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.design-flight-setting .file-btn, .motor-length-readout .file-btn { max-width: 100%; white-space: normal; text-align: left; }
 
 .config-active-tag {
   font-size: 11px;

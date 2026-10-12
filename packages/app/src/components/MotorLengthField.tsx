@@ -1,16 +1,22 @@
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { fmtFieldValue, fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import type { MotorRoom, NoBore } from '../tree/motorRoom.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 
-/** One field contract for both mount cards and the Design property panel. */
-export function MotorLengthField({ mountName, value, onCommit, room, noBore }: {
+/**
+ * The Design property panel's Max motor length field: edited ONLY there, on the
+ * physical mount, with its ⌾ Estimate (CFG-SPEC A4). The motor card shows it
+ * read-only through `MotorLengthReadout`.
+ */
+export function MotorLengthField({ mountName, value, onCommit, room, noBore, inputId }: {
   mountName: string;
+  /** A stable id for the input, so another tab can focus it. */
+  inputId?: string;
   value: number | null;
   onCommit: (value: number | undefined) => void;
-  /** Omitted in Design; null on a card with no positive estimate. */
+  /** Null when the mount has no positive estimate; omitted, no Estimate is offered. */
   room?: MotorRoom | null;
   /**
    * Why the mount has no bore, when it has none (`noBoreReason`) — the cause
@@ -19,7 +25,8 @@ export function MotorLengthField({ mountName, value, onCommit, room, noBore }: {
    */
   noBore?: NoBore | null;
 }) {
-  const id = useId();
+  const generated = useId();
+  const id = inputId ?? generated;
   const { prefs } = usePrefs();
   const unit = prefs.units.motorDimensions;
   return <div className="field" style={{ marginBottom: 8 }}>
@@ -48,4 +55,22 @@ export function MotorLengthField({ mountName, value, onCommit, room, noBore }: {
             : 'No positive motor-room estimate is available for this mount. Check its length, position and overhang.'}
     </p>}
   </div>;
+}
+
+/**
+ * A motor card's Max motor length, read-only (CFG-SPEC A4): the limit belongs
+ * to the physical mount and is set on Design, where its Estimate is.
+ */
+export function MotorLengthReadout({ mountName, value, onOpenDesign }: {
+  mountName: string;
+  value: number | null;
+  onOpenDesign: () => void;
+}) {
+  const { prefs } = usePrefs();
+  const unit = prefs.units.motorDimensions;
+  return <p className="comp-stats motor-length-readout" style={{ margin: '0 0 8px' }}>
+    Max motor length: {value === null ? 'no limit' : `${fmtFieldValue(siToUi('motorDimensions', unit, value))} ${unit}`}
+    {' — '}<button type="button" className="file-btn" aria-label={`Set max motor length for ${mountName} on Design`}
+      onClick={onOpenDesign}>set on Design ▸</button>
+  </p>;
 }

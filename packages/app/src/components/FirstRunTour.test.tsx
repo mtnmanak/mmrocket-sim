@@ -116,6 +116,8 @@ describe('FirstRunTour', () => {
     expect(tabs).toContain('motors');
     expect(host.textContent).toContain('Motors & Configuration');
     expect(host.textContent).toContain('shared by every configuration');
+    // CFG-3: recovery and staging are set there too (ruling D2a).
+    expect(host.textContent).toContain('when the chutes open and the stages separate');
     next(); // → 4: launch (no tab)
     expect(host.textContent).toContain('any tab');
     next(); // → 5: results

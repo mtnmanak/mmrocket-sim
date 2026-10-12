@@ -80,7 +80,7 @@ it('FC-2 opens an override file note as information and respects a later collaps
   const bar = host.querySelector('.notice-bar')!;
   expect(bar.classList.contains('expanded')).toBe(true);
   expect(bar.classList.contains('notice-info')).toBe(true);
-  expect(bar.textContent).toContain('parachute panel shows both');
+  expect(bar.textContent).toContain('The Recovery section on Motors & Configuration shows both');
   await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Collapse notices"]')!.click(); });
   await act(async () => { button(host, 'Motors & Configuration').click(); });
   expect(host.querySelector('.notice-bar')?.classList.contains('expanded')).toBe(false);
@@ -111,28 +111,45 @@ describe('per-mount maximum motor length', () => {
     await act(async () => { button(host, 'Motors & Configuration').click(); });
     expect(motorMounts(storedSession()!.tree).map(motorLengthLimit)).toEqual([0.5, 0.4]);
     expect(host.textContent).not.toContain('Max motor length (override)');
+    // CFG-3 (A4): the card shows the limit read-only; it and its Estimate are
+    // edited on Design, where "set on Design ▸" lands on that mount's field.
+    const toDesign = (name: string) => host.querySelector<HTMLButtonElement>(`[aria-label="Set max motor length for ${name} on Design"]`)!;
+    expect(toDesign('Core').closest('.mount-card')!.textContent).toContain('Max motor length: 500 mm');
+    expect(toDesign('Pod').closest('.mount-card')!.textContent).toContain('Max motor length: 400 mm');
+    expect(host.querySelector('.mount-card [aria-label^="Max motor length for"]')).toBeNull();
+    expect(host.querySelector('.mount-card [aria-label^="Estimate maximum motor length"]')).toBeNull();
+    const onDesign = async (name: string) => {
+      await act(async () => { button(host, 'Motors & Configuration').click(); });
+      await act(async () => { toDesign(name).click(); });
+      expect(document.activeElement).toBe(input(host, 'Max motor length for ' + name));
+    };
+    await onDesign('Core');
     const estimate = host.querySelector<HTMLButtonElement>('[aria-label="Estimate maximum motor length for Core"]')!;
     expect(estimate).not.toBeNull();
     await act(async () => { estimate.click(); });
     await settle(600);
     expect(motorLengthLimit(findNode(storedSession()!.tree, 'core'))).toBeCloseTo(0.60, 9);
     expect(motorLengthLimit(findNode(storedSession()!.tree, 'pod'))).toBe(0.4);
+    await onDesign('Pod');
     await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Estimate maximum motor length for Pod"]')!.click(); });
     await settle(600);
+    await act(async () => { button(host, 'Motors & Configuration').click(); });
     expect(motorLengthLimit(findNode(storedSession()!.tree, 'pod'))).toBeCloseTo(0.25, 9);
     expect(motorLengthLimit(findNode(storedSession()!.tree, 'core'))).toBeCloseTo(0.60, 9);
     expect(storedSession()!.maxMotorLengthByStage).toBeUndefined();
     expect(storedSession()!.motorLengthLimitsMigrated).toBe(true);
     // Both card browsers consume only their own mount's value.
     for (const [name, limitMm] of [['Core', 600], ['Pod', 250]] as const) {
-      const card = input(host, 'Max motor length for ' + name).closest('.mount-card')!;
+      const card = toDesign(name).closest('.mount-card')!;
       const browse = [...card.querySelectorAll('button')].find((b) => b.textContent?.includes('Browse motors'))!;
       await act(async () => { browse.click(); });
       expect(host.querySelector('[role="dialog"]')?.textContent).toContain('≤ ' + limitMm + ' mm');
       await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Close motor browser"]')!.click(); });
     }
     // App must also pass each mount's own limit into Batch, not the first mount's.
+    await onDesign('Pod');
     await type(input(host, 'Max motor length for Pod'), '0');
+    await act(async () => { button(host, 'Motors & Configuration').click(); });
     await act(async () => { button(host, 'Batch simulate motors').click(); });
     const target = [...host.querySelectorAll('select')].find((el) => [...el.options].some((o) => o.value === 'pod'))!;
     await act(async () => { target.value = 'pod'; target.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -140,6 +157,7 @@ describe('per-mount maximum motor length', () => {
     const fitting = pool.filter((m) => m.length / 1000 <= 0).length;
     expect(host.querySelector('[role="dialog"] .motor-load-row')?.textContent).toContain(fitting + ' candidate motors');
     await act(async () => { button(host.querySelector('[role="dialog"]') as HTMLElement, 'Close').click(); });
+    await onDesign('Pod');
     await type(input(host, 'Max motor length for Pod'), '');
     await unmountAll();
     localStorage.setItem('online-openrocket.motor-filters.v1', JSON.stringify({ maxLength: 0.1 }));
@@ -600,9 +618,12 @@ describe('a SOLID motor mount on Motors & Configuration', () => {
     }));
     const host = await mountApp();
     await act(async () => { button(host, 'Motors & Configuration').click(); });
-    const card = input(host, 'Max motor length for Core').closest('.mount-card')!;
-    expect(card.textContent).toContain('No motor fits this mount: it is ticked Solid (filled), so it has no bore.');
-    expect(card.textContent).not.toContain('Check its length');
+    // CFG-3 (A4): the hint sits with the Estimate on Design's mount panel.
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Set max motor length for Core on Design"]')!.click(); });
+    const field = input(host, 'Max motor length for Core').closest('.field')!;
+    expect(field.closest('.mount-card')).toBeNull();
+    expect(field.textContent).toContain('No motor fits this mount: it is ticked Solid (filled), so it has no bore.');
+    expect(field.textContent).not.toContain('Check its length');
   }, 30000);
 });
 

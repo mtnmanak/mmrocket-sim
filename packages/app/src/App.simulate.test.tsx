@@ -996,19 +996,28 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-5 LEM bann
   expect(bar.textContent).toContain(`Opened “${configLabel}”`);
   expect(bar.textContent).toContain('Motor ejection charge');
   expect(bar.textContent).toContain('300 ft');
-  expect(bar.textContent).toContain('parachute panel');
+  expect(bar.textContent).toContain('The Recovery section on Motors & Configuration shows both');
   await click('Design');
-  const banner = () => host.querySelector('[role="region"][aria-label="Recovery override"]');
+  // CFG-3 (ruling D2a): Design shows both settings read-only; the row on
+  // Motors & Configuration edits them.
   for (const [index, chute] of chutes.entries()) {
     const sameNameIndex = chutes.slice(0, index).filter(n => n.name === chute.name).length;
     await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')].filter(r => r.querySelector('.tree-label')?.textContent === chute.name)[sameNameIndex]!.click(); });
-    expect(Number(host.querySelector<HTMLInputElement>('[aria-label^="Deploy altitude"]')!.value)).toBeCloseTo(300, 6);
-    expect(banner()?.textContent).toContain(configLabel);
-    expect(banner()?.textContent).toContain('Motor ejection charge');
-    expect(banner()?.textContent).toContain('300 ft');
+    const block = host.querySelector('[role="group"][aria-label="Deployment"]')!;
+    expect(block.textContent).toContain('Own setting: Altitude (descending), 300 ft');
+    expect(block.textContent).toContain(`In “${configLabel}”: overridden — Motor ejection charge`);
+    expect(host.querySelector('[aria-label^="Deploy altitude"]')).toBeNull();
   }
   const selected = chutes[1]!;
-  await click('Reset to this setting');
+  await click('Motors & Configuration');
+  const row = () => host.querySelector<HTMLElement>(`[id="cfg-part-${selected.id!}"]`)!;
+  const banner = () => (row().textContent!.includes('This configuration: overridden') ? row() : null);
+  expect(banner()?.textContent).toContain('Motor ejection charge');
+  expect(row().textContent).toContain('Own setting: Altitude (descending), 300 ft');
+  const inRow = async (text: string) => act(async () => {
+    [...row().querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();
+  });
+  await inRow('Reset to own setting');
   expect(banner()).toBeNull();
   // Launch's captured input is the real kernel build input, not a resolver-only assertion.
   await launch(host);
@@ -1016,10 +1025,11 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-5 LEM bann
   await waitFor(() => runs() > 0, 'Reset flight');
   const args = vi.mocked(flyBuiltDesign).mock.calls.at(-1)![0];
   expect(findNode(args.tree, selected.id!)).toMatchObject({ deployEvent: 'altitude', deployAltitude: 91.44 });
-  await click('Design');
+  await click('Motors & Configuration');
   await click('↩ Undo');
   expect(banner()).not.toBeNull();
-  await click('Use the override everywhere');
+  await inRow('Edit…');
+  await inRow('Use the override everywhere');
   expect(banner()).toBeNull();
   await settle(450);
   expect(findNode(peekSession()!.tree, selected.id!)!['deployEvent']).toBe('ejection');
@@ -1027,14 +1037,13 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-5 LEM bann
   expect(peekSession()!.detachedOverrides?.deployments?.[selected.id!]).toBeUndefined();
   await click('↩ Undo');
   expect(banner()).not.toBeNull();
-  expect(Number(host.querySelector<HTMLInputElement>('[aria-label^="Deploy altitude"]')!.value)).toBeCloseTo(300, 6);
-  await click('Edit the override');
-  const altitude = host.querySelector<HTMLInputElement>('[aria-label="Override altitude (ft)"]')!;
+  expect(row().textContent).toContain('Own setting: Altitude (descending), 300 ft');
+  const altitude = row().querySelector<HTMLInputElement>('input[aria-label$=" deploy altitude (ft)"]')!;
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(altitude, '300');
     altitude.dispatchEvent(new Event('input', { bubbles: true }));
   });
-  const event = host.querySelector<HTMLSelectElement>('[aria-label="Override event"]')!;
+  const event = row().querySelector<HTMLSelectElement>('select')!;
   await act(async () => { event.value = 'altitude'; event.dispatchEvent(new Event('change', { bubbles: true })); });
   expect(banner()).toBeNull();
   await settle(450);
@@ -1055,10 +1064,11 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-4 LEM file
       const sameNameIndex = chutes.slice(0, index).filter(n => n.name === chute.name).length;
       const row = rows.filter(r => r.querySelector('.tree-label')?.textContent === chute.name)[sameNameIndex]!;
       await act(async () => { row.click(); });
-      const altitude = host.querySelector<HTMLInputElement>('input[aria-label^="Deploy altitude"]')!;
-      expect(altitude).not.toBeNull();
-      // The tester's file is SI internally; this panel's current distance unit is ft.
-      expect(Number(altitude.value)).toBeCloseTo(300, 6);
+      // CFG-3 (ruling D2a): Design shows the own setting read-only. The tester's
+      // file is SI internally; this panel's current distance unit is ft.
+      expect(host.querySelector('input[aria-label^="Deploy altitude"]')).toBeNull();
+      expect(host.querySelector('[role="group"][aria-label="Deployment"]')!.textContent)
+        .toContain('Own setting: Altitude (descending), 300 ft');
     }
     const click = async (text: string) => act(async () => {
       [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();

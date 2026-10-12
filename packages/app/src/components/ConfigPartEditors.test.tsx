@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
 import { ConfigPartEditors } from './ConfigPartEditors.js';
+import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { FlightOverrides, FlightTree } from '../model/design.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -128,5 +129,54 @@ describe('CFG-2 Recovery and Stages rows', () => {
       expect(buttonIn(host, recovery)).toBeUndefined();
       expect(buttonIn(host, stage)).toBeUndefined();
     } finally { cleanup(); }
+  });
+});
+
+describe('CFG-3 ports from the Design deployment fields (ruling D2a moved their editor here)', () => {
+  const chuteTree = (deployEvent: unknown): FlightTree => ({ name: 'T', components: [
+    { id: 'top', type: 'stage', name: 'Sustainer', children: [
+      { id: 'p1', type: 'parachute', name: 'Main', deployEvent, deployAltitude: 300 } as FlightTree['components'][number],
+    ] },
+  ] });
+
+  it('RECOV-CASE: the Deploy at menu shows the event the kernel flies, not its first option', () => {
+    const { row, click, buttonIn, render, cleanup } = setup({ tree: chuteTree('Altitude'), overrides: {} });
+    try {
+      click(buttonIn(row('p1'), 'Edit…')!);
+      expect(row('p1').querySelector('select')!.value).toBe('altitude');
+      render({ tree: chuteTree('NEVER') });
+      expect(row('p1').querySelector('select')!.value).toBe('never');
+      render({ tree: chuteTree(undefined) });
+      expect(row('p1').querySelector('select')!.value).toBe('ejection');
+    } finally { cleanup(); }
+  });
+
+  it('flags a deployment-altitude overflow even without a density ceiling', () => {
+    // Was PropertyPanel.limits: 1e306 km is finite as typed and infinite in SI.
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'km' } }));
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const onEdit = vi.fn();
+    try {
+      act(() => root.render(<PrefsProvider>
+        <ConfigPartEditors tree={chuteTree('altitude')} overrides={{}} ownerKey="a" configLabel={null} detached={false}
+          onEdit={onEdit} onEditStart={vi.fn()} onEditEnd={vi.fn()} onEditCancel={vi.fn()}
+          onReset={vi.fn()} onResetAll={vi.fn()} onEverywhere={vi.fn()} />
+      </PrefsProvider>));
+      act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Edit…')!.click());
+      const el = host.querySelector<HTMLInputElement>('input[aria-label="Main deploy altitude (km)"]')!;
+      act(() => el.focus());
+      act(() => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, '1e306');
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(onEdit).not.toHaveBeenCalled();
+      expect(el.getAttribute('aria-invalid')).toBe('true');
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      localStorage.clear();
+    }
   });
 });

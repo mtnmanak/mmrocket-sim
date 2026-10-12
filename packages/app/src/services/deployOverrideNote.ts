@@ -78,10 +78,10 @@ export function deployOverrideNote(overrides: readonly DeployOverride[], configN
   const lines = [...groups.values()].map(({ o, n }) =>
     `${o.name}${n > 1 ? ` (×${n})` : ''} flies at ${describeDeployment(o.flown)}, `
     + `not at its own setting (${describeDeployment(o.own)})`);
-  const kinds = new Set(overrides.map((o) => o.kind));
-  const dialog = kinds.size === 1 && kinds.has('streamer') ? 'streamer' : kinds.has('streamer') ? 'parachute and streamer' : 'parachute';
+  // Both settings are shown, and edited, in the Recovery section of Motors &
+  // Configuration since CFG-3 (ruling D2a); Design shows them read-only.
   return `Recovery: ${where} overrides the deployment setting — ${lines.join('; ')}. `
-    + `The ${dialog} panel shows both; Reset there returns this configuration to the component's own setting.`;
+    + "The Recovery section on Motors & Configuration shows both; Reset to own setting there returns this configuration to the component's own setting.";
 }
 
 /** The other two parameter families use the same own-setting/override explanation. */
@@ -105,7 +105,7 @@ export function flightParameterOverrideNote(
   };
   const where = configName ? `Flight configuration “${configName}”` : 'The flight configuration this file opens with';
   const component = kind === 'separation' ? 'stage' : 'mount';
-  const panel = kind === 'separation' ? 'stage panel' : 'motor card on Motors & Configuration';
+  const panel = kind === 'separation' ? 'Stages section on Motors & Configuration' : 'motor card on Motors & Configuration';
   return `${where} overrides ${kind} for ${name}: it uses ${describe(flown)}, not the ${component}'s own setting (${describe(own)}). `
-    + `The ${panel} shows both; Reset there returns this configuration to the ${component}'s own setting.`;
+    + `The ${panel} shows both; Reset to own setting there returns this configuration to the ${component}'s own setting.`;
 }

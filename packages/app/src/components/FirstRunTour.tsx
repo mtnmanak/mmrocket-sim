@@ -35,7 +35,7 @@ const STEPS: TourStep[] = [
   },
   {
     target: 'motors-tab', tab: 'motors', title: 'Load a motor',
-    body: 'Choose a flight configuration and pick a motor for each mount on Motors & Configuration. Launch conditions are shared by every configuration.',
+    body: 'Choose a flight configuration on Motors & Configuration: a motor for each mount, and when the chutes open and the stages separate on that flight. Launch conditions are shared by every configuration.',
   },
   {
     target: 'launch', title: 'Fly it',

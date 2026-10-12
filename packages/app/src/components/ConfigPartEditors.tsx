@@ -9,6 +9,7 @@ import { overrideFor } from '../services/flightState.js';
 import { separationTuple, type ComponentFlightTuple } from '../services/flightOverrideText.js';
 import { hasParallelStage, stages } from '../tree/treeModel.js';
 import { DEPLOY_EVENTS, SEPARATION_EVENTS } from '../tree/schema.js';
+import { flownDeployEvent } from '../tree/deployEvent.js';
 import { configurationParts } from './ConfigOverview.js';
 import { NumField } from './NumField.js';
 
@@ -125,6 +126,9 @@ function PartRow({ node, family, stageName, override, configLabel, overrideLabel
     ? { event: shown.deployEvent, altitude: shown.deployAltitude, delay: shown.deployDelay }
     : { event: shown.separationEvent, altitude: shown.separationAltitude, delay: shown.separationDelay };
   const options = recovery ? DEPLOY_EVENTS : SEPARATION_EVENTS;
+  // The event the kernel flies (RECOV-CASE): a hand-edited "Altitude" names no
+  // option as written, and the menu would show something it does not fly.
+  const eventShown = recovery ? flownDeployEvent(values.event) : values.event;
   const keys = recovery
     ? { event: 'deployEvent', altitude: 'deployAltitude', delay: 'deployDelay' } as const
     : { event: 'separationEvent', altitude: 'separationAltitude', delay: 'separationDelay' } as const;
@@ -155,8 +159,8 @@ function PartRow({ node, family, stageName, override, configLabel, overrideLabel
       <div className="field-grid">
         <div className="field">
           <label htmlFor={`${uid}-event`}>{recovery ? 'Deploy at' : 'Separate at'}</label>
-          <select id={`${uid}-event`} value={values.event} onChange={e => edit('event', e.target.value)}>
-            {!options.some(([value]) => value === values.event) && <option value={values.event}>{values.event}</option>}
+          <select id={`${uid}-event`} value={eventShown} onChange={e => edit('event', e.target.value)}>
+            {!options.some(([value]) => value === eventShown) && <option value={eventShown}>{eventShown}</option>}
             {options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
           </select>
         </div>

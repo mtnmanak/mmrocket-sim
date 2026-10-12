@@ -1,18 +1,9 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { savedConfigLabel, type FlightOverrides, type SavedConfig } from '../model/design.js';
+import type { SavedConfig } from '../model/design.js';
 import { fmtFieldValue, siToUi } from '../prefs/units.js';
 import { findNode } from '../tree/treeModel.js';
 import { foldDeployEvent } from '../tree/deployEvent.js';
 import { activeFlightOverrides, resolveFlightState } from '../services/flightState.js';
-
-export function recoveryScope(configs: SavedConfig[], activeId: string | null, nodeId: string, detached: FlightOverrides = {}): string | null {
-  const active = configs.find((c) => c.id === activeId);
-  if ((active ?? detached).deployments?.[nodeId]) {
-    return `${active ? `Flight configuration “${savedConfigLabel(active)}”` : 'The detached working settings'} uses a recovery override. The fields below edit the component default; the override banner shows what flies.`;
-  }
-  return configs.length || Object.keys(detached.deployments ?? {}).length
-    ? 'These fields edit the component default, used by every flight configuration without an override for this device.' : null;
-}
 
 /**
  * A deployment altitude as the Deploy altitude box shows it: the user's

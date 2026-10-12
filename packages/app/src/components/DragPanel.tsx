@@ -318,8 +318,15 @@ function SweepAltitudeBox({ altM, distUnit, onCommit }: {
   );
 }
 
-export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, designName, fileMachAlt }: {
+export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, designName, fileMachAlt, open: openProp, onOpenChange }: {
   rocket: OrkRocket;
+  /**
+   * Controlled open state. Design holds it (CFG-SPEC B2) so the panel stays as
+   * the user left it across workspace switches for the session; omitted, the
+   * panel keeps its own, collapsed at first.
+   */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   /** Whether the opt-in supersonic aero model is active. */
   supersonicModel?: boolean;
   hybridModel?: boolean;
@@ -341,7 +348,9 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
    */
   fileMachAlt?: MachAlt;
 }) {
-  const [open, setOpen] = useState(false);
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openProp ?? ownOpen;
+  const setOpen = (next: boolean) => { setOwnOpen(next); onOpenChange?.(next); };
   const { prefs, setPrefs, daylight, resolvedTheme } = usePrefs();
   const settings = prefs.dragAnalysis ?? DEFAULT_DRAG_ANALYSIS;
   const { machMax, altM, mode, cpView } = settings;
@@ -538,7 +547,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
     <div className={open ? 'panel' : 'panel panel-dormant'}>
       <div className="panel-head">
         <h2 style={{ flex: 1 }}>Drag analysis</h2>
-        <button className="file-btn" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+        <button className="file-btn" aria-expanded={open} onClick={() => setOpen(!open)}>
           {open ? 'Hide' : 'Show CD vs Mach'}
         </button>
       </div>

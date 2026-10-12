@@ -236,7 +236,9 @@ describe('nozzleOversizeText', () => {
     const text = nozzleOversizeText(w, mmText);
     expect(text).toContain('Sustainer: the nozzle exit diameter is 60 mm, wider than the 29 mm casing');
     expect(text).toMatch(/raises thrust as the rocket climbs/);
-    expect(text).toMatch(/Design tab/);
+    // CFG-3 (A4): its one editor is on Motors & Configuration now.
+    expect(text).toContain('on Motors & Configuration, where it is edited');
+    expect(text).not.toMatch(/Design tab/);
     // The formatter is the ONLY place units enter — hand it inches and the
     // sentence is in inches.
     const inches = nozzleOversizeText(w, (m) => `${(m / 0.0254).toFixed(2)} in`);

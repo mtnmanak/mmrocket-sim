@@ -1,6 +1,13 @@
 import { MotorLengthField } from './MotorLengthField.js';
 import { motorLengthLimit } from '../tree/motorLength.js';
-import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { estimateMotorRoom, noBoreReason } from '../tree/motorRoom.js';
+import { DesignFlightSetting, DesignNozzleSetting, type DesignFlightContext } from './DesignFlightSetting.js';
+
+/** Shown read-only by DesignFlightSetting, at the event field's place. */
+const FLIGHT_SETTING_KEYS: ReadonlySet<string> = new Set([
+  'deployAltitude', 'deployDelay', 'separationAltitude', 'separationDelay',
+]);
+import { Fragment, useEffect, useId, useMemo, useState } from 'react';
 import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
@@ -17,7 +24,6 @@ import { anchorStarts, axialLength, offsetForStart, positionOf, snapStart, start
 import { filletMaterialPatch, numericFieldRules } from '../tree/numericFieldRules.js';
 import { betweenFinAnglesAmong, finAnglesAmong, frameContaining, nearestAngle } from '../tree/mountAngle.js';
 import { shroudEnds } from '../tree/shroud.js';
-import { flownDeployEvent } from '../tree/deployEvent.js';
 import { finTabFit, shoulderFit } from '../tree/fitHelpers.js';
 import { ventLimit } from '../tree/canopyVent.js';
 import { num, numOpt } from '../tree/nodeNum.js';
@@ -32,9 +38,6 @@ import { RAIL_BUTTON_AFT_GAP, railButtonPlacement } from '../services/railButton
 const RESOLVE_SELECT: Record<string, (n: ComponentNode) => string | undefined> = {
   fairingForeShape: (n) => shroudEnds(n).fore,
   fairingAftShape: (n) => shroudEnds(n).aft,
-  // The event the kernel flies (RECOV-CASE): a hand-edited "Altitude" names no
-  // option as written, and the menu showed its first — the ejection charge.
-  deployEvent: (n) => flownDeployEvent(n['deployEvent']),
 };
 import { shapeUsesParameter } from '../tree/shapeProfile.js';
 import { componentSolid } from '../tree/solidMesh.js';
@@ -392,11 +395,15 @@ const COLOR_PRESETS = [
   '#3fa34d', '#2a78d6', '#8e5bd1', '#9a978f', '#7a4a2b',
 ];
 
-export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, flightOverride, onPatch, onPatchAll, onAutoAlignFins }: {
+export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, onPatchAll, onAutoAlignFins }: {
   tree: RocketTree;
   node: ComponentNode;
-  recoveryContext?: string | null;
-  flightOverride?: ReactNode;
+  /**
+   * Deployment, separation and nozzle exit are shown READ-ONLY here and edited
+   * on Motors & Configuration (CFG-SPEC B1/A4, ruling D2a); this carries the
+   * active owner's overrides and the links there.
+   */
+  flight?: DesignFlightContext;
   /** Engine-computed stats for THIS component (null while a build is broken). */
   info?: ComponentInfo | null;
   /**
@@ -1201,15 +1208,25 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
           )}
         </div>
       </div>
-      {(node.type === 'parachute' || node.type === 'streamer') && recoveryContext && (
-        <p className="comp-stats">{recoveryContext}</p>
-      )}
       <div className="field-grid" style={{ marginTop: 8 }}>
         {fields.map((f) => {
           if (f.key === 'maxMotorLength') {
+            // Edited ONLY here, on the physical mount, with its Estimate
+            // (CFG-SPEC A4); the motor card shows it read-only.
             return node['motorMount'] === true ? <MotorLengthField key={f.key}
+              inputId={node.id ? `design-motor-length-${node.id}` : undefined}
               mountName={mountName(node)} value={motorLengthLimit(node)}
+              room={node.id ? estimateMotorRoom(tree, node.id) : null} noBore={noBoreReason(node)}
               onCommit={(value) => onPatch({ maxMotorLength: value })} /> : null;
+          }
+          // Where these are edited moved to Motors & Configuration (ruling
+          // D2a); the data, schema and file formats are unchanged.
+          if (f.key === 'deployEvent' || f.key === 'separationEvent') {
+            return <DesignFlightSetting key={f.key} tree={tree} node={node} context={flight} />;
+          }
+          if (FLIGHT_SETTING_KEYS.has(f.key)) return null;
+          if (f.key === 'nozzleExitDiameter') {
+            return <DesignNozzleSetting key={f.key} node={node} context={flight} />;
           }
           // Conical and ellipsoid profiles have no shape parameter.
           if (f.key === 'shapeParameter'
@@ -1260,7 +1277,6 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
             const sdiff = diffFor(f.key);
             return (
               <Fragment key={f.key}>
-              {(f.key === 'deployEvent' || f.key === 'separationEvent') && flightOverride}
               <div className="field">
                 {/* "→ all" sits BESIDE the label. Inside it, the button was the
                     label's control, and a click on the words "Surface finish"

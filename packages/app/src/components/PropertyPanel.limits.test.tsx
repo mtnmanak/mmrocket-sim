@@ -72,14 +72,14 @@ afterEach(() => {
 });
 
 describe('PropertyPanel — an entry that converts to infinity is refused', () => {
-  it('flags a deployment-altitude overflow even without a density ceiling', () => {
+  // CFG-3: the deployment altitude is edited on Motors & Configuration now
+  // (ruling D2a); its overflow check moved with it to ConfigPartEditors.test.
+  it('offers no deployment-altitude box on Design to overflow', () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'km' } }));
     mount(onBody({ id: 'p1', type: 'parachute', deployEvent: 'altitude', deployAltitude: 300 }));
-    const el = box('Deploy altitude (AGL) (km)');
-    act(() => el.focus());
-    type(el, '1e306');
+    expect(box('Deploy altitude (AGL) (km)')).toBeNull();
+    expect(host.textContent).toContain('Own setting: Altitude (descending), 0.3 km');
     expect(patches).toEqual([]);
-    expect(el.getAttribute('aria-invalid')).toBe('true');
   });
 
   it('a density of 1e306 g/cm³ (1e309 kg/m³) commits nothing', () => {
