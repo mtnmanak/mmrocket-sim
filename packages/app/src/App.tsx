@@ -88,7 +88,7 @@ import { autoDelayCardText } from './components/MountDelayReport.js';
 import { installedMounts, reflyRun } from './services/flightRunner.js';
 import { flyBuiltDesign } from './services/simulateDesign.js';
 import { buildDesign, KERNEL_HANDLES, type DesignBuild } from './services/buildDesign.js';
-import { loadExMotors } from './services/exMotors.js';
+import { loadExMotorIdentities, loadExMotors } from './services/exMotors.js';
 import { autoDelaySaveNote, exportOrk, importOrk, type MeasuredFigures, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
 import {
   decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
@@ -2056,7 +2056,7 @@ export function App() {
    */
   const exportMotorsMap = (flown: FlownAutoDelays = {}): Record<string, OrkExportMotor> => orkMotorSet({
     records: Object.fromEntries(assigned), refs: unmatchedRefs, tree, flown,
-    configKey: activeConfigId ?? '', exLibrary: loadExMotors, first: 'records',
+    configKey: activeConfigId ?? '', exLibrary: loadExMotorIdentities, first: 'records',
   });
 
   /**
@@ -2188,7 +2188,7 @@ export function App() {
     // stored configuration: on a same-stage tie that decides which mount's
     // pad mass is kept (orkExportMotors' `first`).
     motors: orkMotorSet({
-      records: c.motors, refs: c.unmatchedRefs, tree, flown, configKey: c.id, exLibrary: loadExMotors,
+      records: c.motors, refs: c.unmatchedRefs, tree, flown, configKey: c.id, exLibrary: loadExMotorIdentities,
       first: 'refs',
     }),
     ...(c.deployments ? { deployments: c.deployments } : {}),

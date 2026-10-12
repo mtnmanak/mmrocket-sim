@@ -1,5 +1,5 @@
 import type { MountMotor } from '../model/design.js';
-import { loadExMotors } from './exMotors.js';
+import { loadExMotorIdentities } from './exMotors.js';
 import { safeName } from './fileName.js';
 import { orkMotorSet, type OrkMotorSetInput } from './orkExportMotors.js';
 import { exportOrk, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
@@ -56,7 +56,7 @@ function motorSet(
   first: OrkMotorSetInput['first'],
 ): Record<string, OrkExportMotor> {
   return orkMotorSet({
-    records: motors ?? {}, refs, tree: s.tree, flown: s.flownAutoDelays, configKey, exLibrary: loadExMotors, first,
+    records: motors ?? {}, refs, tree: s.tree, flown: s.flownAutoDelays, configKey, exLibrary: loadExMotorIdentities, first,
   });
 }
 

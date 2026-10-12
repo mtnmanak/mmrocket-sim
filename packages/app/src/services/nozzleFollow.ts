@@ -108,8 +108,10 @@ export function stageMotors(
  * different mount within the stage does not read as "unchanged" when the two
  * mounts have different cluster counts.
  */
-export function stageMotorKey(s: StageMotors, previousNozzleKeys?: ReadonlyMap<string, string>): string {
-  return s.motors.map((m) => `${m.mountId}:${motorNozzleKey(m.motorId, previousNozzleKeys?.get(m.motorId))}x${m.count}`).join('|');
+export function stageMotorKey(s: StageMotors, capturedNozzleKeys?: ReadonlyMap<string, string>): string {
+  // A captured source key must stay fixed across a later library write
+  // (audit 2026-10-11, S3c-2 integration); only uncaptured motors need a read.
+  return s.motors.map((m) => `${m.mountId}:${capturedNozzleKeys?.get(m.motorId) ?? motorNozzleKey(m.motorId)}x${m.count}`).join('|');
 }
 
 /** Same-id EX re-imports can change or remove their exit (audit 2026-10-11, S3c-2). */

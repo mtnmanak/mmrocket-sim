@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest';
-import { exToDbEntry, exToMotorSpec, loadExMotors, parseEng, parseRse } from './exMotors.js';
+import { exToDbEntry, exToMotorSpec, loadExMotorIdentities, loadExMotors, parseEng, parseRse } from './exMotors.js';
 import { validArchivedExMotor } from './exMotorArchive.js';
 import { matchingExMotors, matchImportedMotor } from './motorMatch.js';
 import { applyOpenMotorChoices } from './openMotorChoices.js';
@@ -9,6 +9,29 @@ import type { OrkMotorRef } from './orkFile.js';
 const eng = 'E20 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0';
 const motor = () => parseEng(eng)[0]!;
 afterEach(() => localStorage.clear());
+
+describe('S1c-5 integration: saved identity is separate from loadable flight data', () => {
+  it('retains legacy makers without admitting their rejected curves or leaking flight fields', () => {
+    const good = motor();
+    const legacy = { ...good, motorId: 'ex:loki-e20', realManufacturer: 'Loki', source: undefined, addedAt: undefined };
+    const invalid = { ...good, motorId: 'ex:bad-e20', totalWeightG: 0 };
+    localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([
+      good, legacy, invalid, null, { ...good, motorId: 'catalogue' },
+      { ...good, designation: '' }, { ...good, realManufacturer: 7 },
+    ]));
+    expect(loadExMotors()).toEqual([good]);
+    expect(loadExMotorIdentities()).toEqual([
+      { motorId: good.motorId, designation: 'E20', realManufacturer: 'Home' },
+      { motorId: 'ex:loki-e20', designation: 'E20', realManufacturer: 'Loki' },
+      { motorId: 'ex:bad-e20', designation: 'E20', realManufacturer: 'Home' },
+    ]);
+  });
+
+  it.each(['{', '{}', 'null'])('ignores malformed stored identity lists: %s', raw => {
+    localStorage.setItem('online-openrocket.ex-motors.v1', raw);
+    expect(loadExMotorIdentities()).toEqual([]);
+  });
+});
 
 describe('S7a-2 EX delay policy', () => {
   it.each([
