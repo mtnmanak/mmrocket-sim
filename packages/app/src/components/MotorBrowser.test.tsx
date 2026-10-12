@@ -7,6 +7,7 @@ import { MotorBrowser } from './MotorBrowser.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { MountMotor } from '../model/design.js';
 import { withAuto, withDelay, withPlugged } from '../services/mountDelayEdits.js';
+import { parseEng } from '../services/exMotors.js';
 
 /**
  * The motor database's sortable column headers.
@@ -83,6 +84,15 @@ describe('MotorBrowser — sortable headers stay column headers', () => {
 // catalogue, the way a user does: search, click a row, press Load.
 
 const FILTERS_KEY = 'online-openrocket.motor-filters.v1';
+
+it('S1c-5 names refused legacy EX masses in the browser and offers re-import', () => {
+  const motor = parseEng('LEGACY 24 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!;
+  localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([{ ...motor, totalWeightG: 0, propWeightG: 0 }]));
+  const h = openBrowser({ mountDiameterMm: 24 });
+  onTestFinished(() => { closeBrowser(h); localStorage.clear(); });
+  expect(h.host.querySelector('.motor-browser > [role="status"]:not(.motor-check-status)')?.textContent).toMatch(/LEGACY.*loaded mass.*Re-import/);
+  expect(bodyRows(h).some(row => row.textContent?.includes('LEGACY'))).toBe(false);
+});
 
 interface Harness {
   host: HTMLDivElement;

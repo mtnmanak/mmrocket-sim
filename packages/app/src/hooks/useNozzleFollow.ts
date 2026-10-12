@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type MutableRefObject } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
 import {
@@ -6,6 +6,7 @@ import {
 } from '../services/nozzleFollow.js';
 import { numOrNull } from '../tree/nodeNum.js';
 import { applyStageNozzles, findNode } from '../tree/treeModel.js';
+import { exMotorRevision, subscribeExMotors } from '../services/exMotors.js';
 
 /**
  * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR (Eric, 2026-09-13).
@@ -70,6 +71,7 @@ export function useNozzleFollow(opts: {
   restoring: (t: RocketTree) => void;
 } {
   const { loadout, treeRef, writeTree, lookup = nozzleForMotorId } = opts;
+  const libraryRevision = useSyncExternalStore(subscribeExMotors, exMotorRevision);
   const seen = useRef(new Map<string, Seen>());
   /**
    * Per stage, the loadout the nozzle IN THE TREE was decided for. The same as
@@ -93,17 +95,20 @@ export function useNozzleFollow(opts: {
     return () => { mounted.current = false; };
   }, []);
   useEffect(() => {
+    // Capture the exit-aware keys before awaiting: a later same-id import
+    // must supersede this lookup's old answer (audit 2026-10-11, S3c-2).
+    const keys = new Map(loadout.map(s => [s.stageId, stageMotorKey(s)]));
     void (async () => {
       const acted = loadout.filter((s) => {
         const was = seen.current.get(s.stageId);
-        return was !== undefined && was.key !== stageMotorKey(s);
+        return was !== undefined && was.key !== keys.get(s.stageId);
       });
       // Record what we have seen BEFORE any await, so a second render landing
       // mid-lookup cannot act on the same change twice.
       const previous = new Map(seen.current);
       for (const s of loadout) {
         seen.current.set(s.stageId, {
-          key: stageMotorKey(s),
+          key: keys.get(s.stageId)!,
           label: s.motors[0]?.label ?? '',
         });
       }
@@ -157,7 +162,7 @@ export function useNozzleFollow(opts: {
       const nowDecided = new Map(decided.current);
       for (const { s, entries } of looked) {
         const current = seen.current.get(s.stageId);
-        if (current?.key !== stageMotorKey(s)) continue;
+        if (!current || current.key !== keys.get(s.stageId)) continue;
         // "The motors before" is what the nozzle IN THE TREE was decided for —
         // `decided`, NOT `previous` (audit 2026-09-30). While an earlier
         // look-up was pending, `previous` names a loadout that never got a
@@ -208,7 +213,7 @@ export function useNozzleFollow(opts: {
       refreshDecision((n) => n + 1);
     })();
     // `treeRef`, `writeTree` and `lookup` are stable; the loadout is the trigger.
-  }, [loadout, treeRef, writeTree, lookup]);
+  }, [loadout, treeRef, writeTree, lookup, libraryRevision]);
   /**
    * A CONFIGURATION SWITCH IS NOT A MOTOR CHANGE (audit 2026-09-22). A RASAero
    * simulation states the nozzle of the motor it flies, and the switch writes

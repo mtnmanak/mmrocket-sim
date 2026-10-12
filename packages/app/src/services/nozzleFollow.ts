@@ -1,6 +1,7 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { kernelStageIdByNode, nozzleMotorCount, nozzleStages } from '../tree/treeModel.js';
+import { getExMotor } from './exMotors.js';
 
 /**
  * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR.
@@ -108,7 +109,12 @@ export function stageMotors(
  * mounts have different cluster counts.
  */
 export function stageMotorKey(s: StageMotors): string {
-  return s.motors.map((m) => `${m.mountId}:${m.motorId}x${m.count}`).join('|');
+  return s.motors.map((m) => `${m.mountId}:${motorNozzleKey(m.motorId)}x${m.count}`).join('|');
+}
+
+/** Same-id EX re-imports can change or remove their exit (audit 2026-10-11, S3c-2). */
+export function motorNozzleKey(motorId: string): string {
+  return motorId.startsWith('ex:') ? `${motorId}@${getExMotor(motorId)?.exitDiameterM ?? ''}` : motorId;
 }
 
 /**

@@ -1,8 +1,9 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useState, useSyncExternalStore } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
-import { equivalentExitDiameterM } from '../services/nozzleFollow.js';
+import { equivalentExitDiameterM, motorNozzleKey } from '../services/nozzleFollow.js';
+import { exMotorRevision, subscribeExMotors } from '../services/exMotors.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 
@@ -78,7 +79,9 @@ export function NozzleField({
   /** `entries: null` — the look-up FAILED for this loadout (below). */
   const [lookup, setLookup] = useState<{ key: string; entries: (NozzleEntry | null)[] | null } | null>(null);
 
-  const key = motors.map((m) => `${m.motorId}x${m.count}`).join(',');
+  // A library write need not render the parent (audit 2026-10-11, S3c-2).
+  useSyncExternalStore(subscribeExMotors, exMotorRevision);
+  const key = motors.map((m) => `${motorNozzleKey(m.motorId)}x${m.count}`).join(',');
   useEffect(() => {
     let live = true;
     void (async () => {

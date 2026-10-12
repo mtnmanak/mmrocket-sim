@@ -8,6 +8,8 @@ import { stageMotors, type StageMotors } from '../services/nozzleFollow.js';
 import { applyStageNozzles, motorMounts } from '../tree/treeModel.js';
 import { useNozzleFollow, type NozzleCleared, type NozzleLookup } from './useNozzleFollow.js';
 import { HISTORY_COALESCE_MS, useTreeHistory, type TreeHistory } from './useTreeHistory.js';
+import { addExMotors, parseEng, parseRse } from '../services/exMotors.js';
+import { nozzleForMotorId } from '../services/nozzleDb.js';
 
 /**
  * The nozzle-follow rule as App runs it (Eric, 2026-09-13): the stage's exit
@@ -73,6 +75,40 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
 const exitOf = (t: RocketTree) => t.components[0]!['nozzleExitDiameter'];
 
 describe('useNozzleFollow', () => {
+  it('S3c-2 ignores a superseded lookup when two same-id re-imports overlap', async () => {
+    const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
+    addExMotors([ex]);
+    const releases: (() => void)[] = [];
+    const delayed: NozzleLookup = async id => {
+      const answer = await nozzleForMotorId(id);
+      await new Promise<void>(resolve => { releases.push(resolve); });
+      return answer;
+    };
+    const h = harness(tree(0.015), delayed);
+    await h.show(loadout(ex.motorId));
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.02 }]); });
+    await act(async () => { releases[0]!(); });
+    expect(exitOf(h.treeRef.current)).toBe(0.015);
+    expect(h.out.pending).toBe(true);
+    await act(async () => { releases[1]!(); });
+    expect(exitOf(h.treeRef.current)).toBe(0.02);
+    expect(h.out.pending).toBe(false);
+  });
+
+  it.each([0.015, 0])('S3c-2 follows a same-id re-import from %s m, preserving OFF', async initial => {
+    const ex = parseRse('<engine-database><engine code="G100" mfg="Home" dia="38" len="150" initWt="200" propWt="100" exitDia="15"><data><eng-data t="0" f="0"/><eng-data t="0.5" f="200"/><eng-data t="1" f="0"/></data></engine></engine-database>')[0]!;
+    addExMotors([ex]);
+    const h = harness(tree(initial), nozzleForMotorId);
+    await h.show(loadout(ex.motorId));
+    expect(h.writes).toHaveLength(0);
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
+    expect(exitOf(h.treeRef.current)).toBe(initial === 0 ? 0 : 0.018);
+    expect(h.out.pending).toBe(false);
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: undefined }]); });
+    expect(exitOf(h.treeRef.current)).toBe(initial === 0 ? 0 : undefined);
+  });
+
   it('keeps the current nozzle decision pending across edits and superseded lookups', async () => {
     const releases = new Map<string, () => void>();
     const slow: NozzleLookup = async (id) => {

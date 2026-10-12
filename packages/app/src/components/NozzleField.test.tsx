@@ -5,7 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { NozzleField } from './NozzleField.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { nozzleForMotorId } from '../services/nozzleDb.js';
-import { addExMotors } from '../services/exMotors.js';
+import { addExMotors, getExMotor } from '../services/exMotors.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -423,6 +423,16 @@ describe('NozzleField — a figure that came from an imported motor file', () =>
     // provenance line is asserted in the next test, where the value is in.
     await render({ exitDiameterM: null, motorIds: [EX_ID], motorLabel: 'B2' });
     expect(committed[committed.length - 1]).toBeCloseTo(EX_EXIT_M, 9);
+  });
+
+  it('S3c-2 refreshes the file figure after a same-id re-import without a parent render', async () => {
+    await render({ exitDiameterM: EX_EXIT_M, motorIds: [EX_ID], motorLabel: 'B2' });
+    await act(async () => { addExMotors([{ ...getExMotor(EX_ID)!, exitDiameterM: 0.006 }]); });
+    await flush();
+    expect(host.querySelector('[data-nozzle="disagrees"]')).not.toBeNull();
+    const button = [...host.querySelectorAll('button')].find(b => /^Use the file/.test(b.textContent ?? ''))!;
+    act(() => button.click());
+    expect(committed.at(-1)).toBeCloseTo(0.006, 9);
   });
 
   it('says the file is where it came from, and does NOT credit the manufacturer', async () => {

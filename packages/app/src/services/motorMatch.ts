@@ -292,10 +292,15 @@ export async function matchImportedMotor(
     const ex = exMatches[0]!;
     try {
       const db = exToDbEntry(ex);
-      const spec = exToMotorSpec(ex, ref.delay);
+      // Every-delay refers to the motor that actually loads; retain explicit
+      // Auto on other references too (audit 2026-10-11, S7a-2).
+      const delay = ref.rktEveryDelay ? defaultDelay(db) ?? 0 : ref.delay;
+      const autoDelay = ref.rktEveryDelay ? defaultDelay(db) === null : ref.autoDelay;
+      const spec = exToMotorSpec(ex, delay);
       const note = `Motor “${ref.designation}”: loaded as your imported EX motor ${ex.realManufacturer.trim()} ${ex.designation} — the motor database has no ${maker} ${ref.designation}.`;
       return {
-        motor: mountMotorFromDb(db, spec, ref.delay, ignition, { ...fileIdentity, exMotorId: ex.motorId }),
+        motor: mountMotorFromDb(db, spec, delay, ignition, { ...fileIdentity, exMotorId: ex.motorId,
+          ...(autoDelay ? { autoDelay: true } : {}) }),
         note, infoNote: note,
       };
     } catch (error) {

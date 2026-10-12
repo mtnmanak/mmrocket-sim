@@ -105,8 +105,11 @@ export async function applyOpenMotorChoices(
     }
     const db = choice.kind === 'ex' ? exToDbEntry(choice.motor) : choice.motor;
     const previousDelay = old?.spec.ejectionDelay ?? ref.delay;
-    const delay = choice.kind === 'ex' || delayOptions(db).includes(previousDelay)
-      ? previousDelay : defaultDelay(db) ?? 0;
+    // The chosen EX motor owns its every-delay list, just as it does on open
+    // (audit 2026-10-11, S7a-2). Explicit Auto survives the choice as well.
+    const exAuto = choice.kind === 'ex' && (ref.rktEveryDelay ? defaultDelay(db) === null : ref.autoDelay);
+    const delay = choice.kind === 'ex' && ref.rktEveryDelay ? defaultDelay(db) ?? 0
+      : choice.kind === 'ex' || delayOptions(db).includes(previousDelay) ? previousDelay : defaultDelay(db) ?? 0;
     // The file's <digest> goes along: on the motor the file named, it is the
     // curve desktop flew (thrustcurve.ts pickDigestFile); on another, it names
     // none of its files and changes nothing.
@@ -116,7 +119,7 @@ export async function applyOpenMotorChoices(
     const motor = mountMotorFromDb(db, spec, delay,
       old?.ignition ?? { event: knownIgnitionEvent(ref.ignitionEvent) ?? 'automatic', delay: ref.ignitionDelay ?? 0 },
       { ...identity, ...(choice.kind === 'ex' ? { exMotorId: choice.motor.motorId } : {}),
-        ...(choice.kind === 'catalogue' && defaultDelay(db) === null ? { autoDelay: true } : {}) });
+        ...(exAuto || (choice.kind === 'catalogue' && defaultDelay(db) === null) ? { autoDelay: true } : {}) });
     // @atestani TRF #162, Eric 2026-10-06: the weighed-set key must still flag a changed loadout.
     motors[mountId] = { ...old, ...motor };
     delete motors[mountId].openNote;
