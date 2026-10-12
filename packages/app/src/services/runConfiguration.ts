@@ -9,10 +9,19 @@ export function recordedConfiguration(run: ConfigurationRecord): string | undefi
   return run.flightConfig;
 }
 
+/**
+ * The special labels a flight with no saved configuration records ('none',
+ * 'working settings') are not configuration names. A Batch row quoted them as
+ * one — "Batch from “none”" — so Batch words them itself (review of b9-int).
+ */
+const unsaved = (run: ConfigurationRecord, label: 'none' | 'working settings') =>
+  !run.flightConfigId && run.flightConfig === label;
+
 export function runConfigurationLabel(run: ConfigurationRecord): string {
   const configuration = recordedConfiguration(run);
   if (configuration === undefined) return '—';
-  return `${run.batch ? 'Batch · ' : ''}${configuration}`;
+  if (!run.batch) return configuration;
+  return `Batch · ${unsaved(run, 'none') ? 'no configuration' : configuration}`;
 }
 
 export function runOverrideText(run: ConfigurationRecord, unit: string): string {
@@ -24,9 +33,9 @@ export function runOverrideText(run: ConfigurationRecord, unit: string): string 
 export function runConfigurationHeading(run: ConfigurationRecord, unit: string): string {
   const configuration = recordedConfiguration(run);
   if (configuration === undefined) return 'Configuration not recorded';
-  if (!run.batch && !run.flightConfigId && run.flightConfig === 'none') return 'Flown with no configuration';
-  const flown = run.batch ? `Batch from “${configuration}”`
-    : !run.flightConfigId && run.flightConfig === 'working settings' ? 'Flown with working settings' : `Flown in “${configuration}”`;
+  if (unsaved(run, 'none')) return run.batch ? 'Batch with no configuration' : 'Flown with no configuration';
+  const flown = unsaved(run, 'working settings') ? `${run.batch ? 'Batch' : 'Flown'} with working settings`
+    : run.batch ? `Batch from “${configuration}”` : `Flown in “${configuration}”`;
   if (!run.flightOverrides?.length) return `${flown} · overrides: ${run.flightOverrides ? 'none' : 'not recorded'}`;
   const groups = new Map<string, { count: number; kind: string; value: string }>();
   for (const record of run.flightOverrides) {

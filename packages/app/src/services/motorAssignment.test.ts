@@ -29,6 +29,8 @@ describe('motor assignment plan (S2-8)', () => {
     expect(plan.repairNotice).toEqual({ id: 'motor-loadout-repaired:A', severity: 'warn',
       text: 'Your motor assignment replaces the ambiguous imported loadout for “Imported”. Check all motor assignments before launching.' });
     expect(plan.padMassNote).toBe("The file's weighed pad mass (2 kg) was weighed with test, which is loaded now — it sits under test on this mount, and the line there says what it carries.");
+    // A receipt: the weighing is carried (review of b9-int, finding 11).
+    expect(plan.padMassTier).toBe('information');
     const next = assignMotorRecords({}, tree, 'a', plan);
     expect(next.a).toMatchObject({ padMassKg: 2, padMassWeighedWith: padMassSetKey(tree, next, {}) });
     expect({ tree, configs, ref }).toEqual(before);
@@ -37,6 +39,8 @@ describe('motor assignment plan (S2-8)', () => {
   it('names the original weighing when a different motor is selected and leaves unrelated notes intact', () => {
     const plan = planMotorAssignment({ ...input(), spec: { ...picked.spec, designation: 'different' } });
     expect(plan.padMassNote).toBe('The weighed pad mass in the file was weighed with test, which is not the motor now loaded — re-weigh with test in.');
+    // The file's weighing is no longer carried: I16 Caution, as on the open (review of b9-int, finding 11).
+    expect(plan.padMassTier).toBe('caution');
     expect(assignMotorRecords({}, tree, 'a', plan).a).not.toHaveProperty('padMassKg');
     expect(retireLoadoutNote({ text: 'before\nambiguous\nafter', severity: 'warn', expand: true }, plan.repairedConfig!))
       .toEqual({ text: 'before\nafter', severity: 'warn', expand: true });
@@ -62,6 +66,14 @@ describe('motor assignment plan (S2-8)', () => {
     const result = planMotorAssignment({ ...input(), tree: stale }).reconciliation;
     expect(result).not.toBeNull();
     expect(result!.note).toBeNull();
+    // A bookkeeping-only repair says nothing, and would say it as Information.
+    expect(planMotorAssignment({ ...input(), tree: stale }).reconciliationTier).toBe('information');
+    // A stated weight that still holds a DIFFERENT motor is cleared: I17 Caution.
+    const held = { ...tree, components: [{ ...tree.components[0]!, overrideIncludesMotor: 'Z999TEST', overrideMass: 0.5,
+      overrideSubcomponentsMass: true }, tree.components[1]!] };
+    const cleared = planMotorAssignment({ ...input(), tree: held });
+    expect(cleared.reconciliation!.severity).toBe('warn');
+    expect(cleared.reconciliationTier).toBe('caution');
     expect(result!.tree.components[0]).not.toHaveProperty('overrideIncludesMotor');
     expect(stale.components[0]).toHaveProperty('overrideIncludesMotor', 'test');
   });

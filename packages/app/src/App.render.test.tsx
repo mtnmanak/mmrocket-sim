@@ -1260,7 +1260,13 @@ describe('FC-5 configuration editors', () => {
     expect(host.textContent).toContain("Ignition: uses the mount's own setting — Automatic");
     expect(host.textContent).not.toContain('overridden here');
     expect(host.textContent).not.toContain('This configuration: overridden');
-    expect(host.querySelector('[aria-label^="Apply Plain"]')!.getAttribute('aria-describedby')).toBeNull();
+    // The active configuration's row navigates only (review of b9-int, finding 2): its cells.
+    const activeCells = [...host.querySelectorAll('.config-table tbody tr[aria-current="true"] td button')];
+    expect(activeCells.length).toBeGreaterThan(0);
+    for (const cell of activeCells) {
+      expect(cell.getAttribute('aria-label')).toContain('Plain, the active configuration');
+      expect(cell.getAttribute('aria-describedby')).toBeNull();
+    }
   }, 30000);
 
   it('stage separation Reset and Use everywhere are single undo steps, including detached entries', async () => {
@@ -1998,6 +2004,23 @@ describe('the vitals strip Flight item', () => {
     expect(value).toBe(shown);
     for (const part of titleParts) expect(item.getAttribute('title')).toContain(part);
     expect(!!item.querySelector('.vitals-unload')).toBe(shown !== 'none' && !shown.endsWith('no motor'));
+    // Review of b9-int, finding 3: Fly's chooser reads the same test, so it
+    // says Working settings exactly when the strip does — an unmatched motor
+    // alone included — and None is then a change it can make.
+    await openTab(host, 'Fly');
+    const fly = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+    const working = shown.startsWith('Working settings');
+    expect(fly.value === 'working').toBe(working);
+    if (working) {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(fly, 'none');
+        fly.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      window.dispatchEvent(new Event('pagehide'));
+      const after = peekSession()!;
+      expect(after.mountMotors).toEqual({});
+      expect(after.unmatchedRefs ?? {}).toEqual({});
+    }
   }, 30000);
 
   it('clips the configuration name and the motor so the item never outgrows a 360 px strip', async () => {
@@ -2061,7 +2084,7 @@ describe('the Motor vitals designation and tooltip', () => {
       const value = host.querySelector('.vitals-motor-label')!;
       expect(value.textContent).toBe(`${base}-${delay}`);
       expect(value.closest('.vitals-item')?.getAttribute('title')).toContain(`AeroTech ${base}, ${delay} s delay (${base}-${delay})`);
-      expect(host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!.selectedOptions[0]!.textContent).toContain(`[${base}-9]`);
+      expect(host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!.selectedOptions[0]!.textContent).toContain(`[${base}-${delay}]`); // the live motor (review of b9-int, finding 1)
     };
     expectDisplay('F67C-UPDATED');
     await settle(500);

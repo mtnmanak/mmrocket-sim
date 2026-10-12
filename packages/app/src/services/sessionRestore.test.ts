@@ -11,6 +11,7 @@ import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import type { OrkMotorRef } from './orkFile.js';
 import type { SessionState } from './session.js';
 import { designStateFromSession } from './sessionRestore.js';
+import { designFingerprint, isDirty, legacyDesignFingerprint } from './dirtyState.js';
 
 /**
  * A STORED SESSION, RESTORED (2026-10-01). Every migration App's state
@@ -285,4 +286,25 @@ it('the tooltip keeps the full designation and label behind an abbreviated strip
   mm.meta.manufacturer = 'Cesaroni';
   mm.label = 'J453-5';
   expect(motorTooltip(mm)).toBe('Cesaroni 1013J453-16A, 5 s delay (J453-5)');
+});
+
+// Review of b9-int, finding 4. v0.185 counted the detached maps whenever the
+// object had a key, so a .ork save after a reset that left `{ deployments: {} }`
+// took a mark the current rule cannot reproduce. Unchanged, it must restore clean.
+it('keeps an unchanged v0.185 session saved when its mark counted an empty detached map', () => {
+  const snapshot = { tree: PODS, mountMotors: { core: motor('C6') }, launch: DEFAULT_CONDITIONS,
+    maxMotorLengthByStage: {}, savedConfigs: [] as SavedConfig[], activeConfigId: null,
+    measured: { massKg: null, cgM: null }, detachedOverrides: { deployments: {} } };
+  const legacyMark = legacyDesignFingerprint(snapshot);
+  // The case exists only because the two rules disagree on this shape.
+  expect(legacyMark).not.toBe(designFingerprint(snapshot));
+  const r = designStateFromSession(session({ ...snapshot, configLayers: 1, savedMark: legacyMark }), NO_LIMIT);
+  const now = designFingerprint({ ...r.state, maxMotorLengthByStage: {} });
+  expect(r.session!.savedMark).toBe(now);
+  expect(isDirty(now, r.session!.savedMark, false)).toBe(false);
+  // A real detached override is design content under both rules: a mark that
+  // matches neither still reads as unsaved.
+  const changed = designStateFromSession(session({ ...snapshot, configLayers: 1, savedMark: legacyMark,
+    detachedOverrides: { ignitions: { core: { event: 'never', delay: 0 } } } }), NO_LIMIT);
+  expect(changed.session!.savedMark).toBe(legacyMark);
 });

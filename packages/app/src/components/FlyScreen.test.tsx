@@ -195,6 +195,23 @@ describe('FlyScreen', () => {
     mount({ run: null });
     const values = Array.from(host.querySelectorAll('.fly-stat .stat-value')).map((el) => el.textContent);
     expect(values).toEqual(['—', '—', '—', '—']);
+    // Review of b9-int: no flight, no "Not recorded" — that names a run whose
+    // configuration was not stored, and there is no run.
+    expect(host.textContent).not.toContain('Not recorded');
+    expect(host.textContent).not.toContain('Flight:');
+  });
+
+  it('words the no-saved-configuration line for working settings with no motor loaded, and None clears them', () => {
+    const onClearConfig = vi.fn();
+    mount({ configs: [], activeConfigId: null, hasWorkingSettings: true, motorLabel: null, onClearConfig });
+    expect(host.textContent).toContain('No saved configurations — working settings, with no motor loaded');
+    expect(host.textContent).not.toContain('the loaded motors fly');
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+    expect(select.value).toBe('working');
+    act(() => { select.value = 'none'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(onClearConfig).toHaveBeenCalledTimes(1);
+    mount({ configs: [], activeConfigId: null, hasWorkingSettings: true });
+    expect(host.textContent).toContain('No saved configurations — the loaded motors fly as a working set');
   });
 
   it('routes the three actions', () => {

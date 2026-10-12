@@ -1,5 +1,6 @@
 import { savedConfigLabel, type SavedConfig } from '../model/design.js';
 import { recordedConfiguration, runConfigurationLabel } from '../services/runConfiguration.js';
+import { noSavedConfigurationsText } from '../services/flightState.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
@@ -184,10 +185,12 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
             )}
           </div>
 
-          <p className="download-caption">
-            {run && recordedConfiguration(run) !== undefined
+          {/* No flight yet, no line: "Not recorded" is about a run that exists
+              and did not record its configuration (review of b9-int). */}
+          {run && <p className="download-caption">
+            {recordedConfiguration(run) !== undefined
               ? `Flight: ${runConfigurationLabel(run)} · ${formatRunWhenProse(run.when)}` : 'Not recorded'}
-          </p>
+          </p>}
           <label className="field" style={{ minWidth: 0 }}>
             Configuration:
             <select aria-label="Flight configuration" style={{ width: '100%', minWidth: 0 }}
@@ -208,7 +211,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
             </select>
           </label>
           {configs.length === 0 && hasWorkingSettings && <p className="download-caption">
-            No saved configurations — the loaded motors fly as a working set
+            {noSavedConfigurationsText({ configs: 0, working: true, hasMotors: motorLabel !== null })}
           </p>}
           <button className="fly-motor" onClick={onChangeMotor}
             title="Pick or swap motors in the Motors & Configuration workspace">

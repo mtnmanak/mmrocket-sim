@@ -4402,6 +4402,9 @@ select.unit-chip:hover {
 }
 .notice-item.notice-warn .notice-glyph { color: var(--status-warn); }
 .notice-item.notice-error .notice-glyph { color: var(--status-serious); }
+/* A group item keeps its announcement severity but draws the glyph of its highest line's tier (rows 93/94). */
+.notice-item .notice-glyph.notice-look-warn { color: var(--status-warn); }
+.notice-item .notice-glyph.notice-look-error { color: var(--status-serious); }
 
 .notice-glyph {
   flex: none;

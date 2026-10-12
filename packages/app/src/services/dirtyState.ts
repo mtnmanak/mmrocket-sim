@@ -74,8 +74,7 @@ export function stableJson(value: unknown): string {
   return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(obj[k])}`).join(',')}}`;
 }
 
-/** A short, stable mark for a design. Same design in, same string out. */
-export function designFingerprint(s: DesignSnapshot): string {
+function fingerprintOf(s: DesignSnapshot, withDetached: (d: NonNullable<DesignSnapshot['detachedOverrides']>) => boolean): string {
   // This placement bookkeeping is not a user edit. Showing or dismissing a
   // check must not mark a saved file dirty or prevent the existing restore
   // migrations from matching its mark.
@@ -88,9 +87,25 @@ export function designFingerprint(s: DesignSnapshot): string {
     s.savedConfigs,
     s.activeConfigId,
     s.measured,
-    // Empty layers preserve legacy marks; detached choices are design content.
-    ...(s.detachedOverrides && Object.values(s.detachedOverrides).some(map => Object.keys(map ?? {}).length > 0) ? [s.detachedOverrides] : []),
+    ...(s.detachedOverrides && withDetached(s.detachedOverrides) ? [s.detachedOverrides] : []),
   ]));
+}
+
+/** A short, stable mark for a design. Same design in, same string out. */
+export function designFingerprint(s: DesignSnapshot): string {
+  // Empty layers preserve legacy marks; detached choices are design content.
+  return fingerprintOf(s, d => Object.values(d).some(map => Object.keys(map ?? {}).length > 0));
+}
+
+/**
+ * The mark v0.185 took: the detached maps counted whenever the object had a
+ * KEY, so a reset that left `{ deployments: {} }` hashed differently from
+ * `{}`. Only the session restore reads it, to recognise a v0.185 save of an
+ * unchanged design and re-take its mark under the current rule (review of
+ * b9-int, finding 4) — never to compare a live design.
+ */
+export function legacyDesignFingerprint(s: DesignSnapshot): string {
+  return fingerprintOf(s, d => Object.keys(d).length > 0);
 }
 
 /**

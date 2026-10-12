@@ -2568,7 +2568,7 @@ export function exportOrk({
     : null;
   if (minted) writeConfigs.push(minted);
   if (writeConfigs.length > MAX_ORK_CONFIGURATIONS) {
-    throw new Error(`This design would write ${writeConfigs.length} flight configurations, past the ${MAX_ORK_CONFIGURATIONS} the app will open. Apply one of the stored configurations, or Apply None, before saving.`);
+    throw new Error(`This design would write ${writeConfigs.length} flight configurations, past the ${MAX_ORK_CONFIGURATIONS} the app will open. Choose a saved configuration, or None (no motors), in the Flight configuration chooser before saving.`);
   }
   // default="true" (also what <simulation> references): the active config,
   // else the minted custom one, else the original default.

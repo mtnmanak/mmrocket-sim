@@ -86,6 +86,20 @@ const groupLines = (n: Notice) => orderedLines(n.group?.lines ?? []);
 /** The notice's visual tier: its own, else (a group) its highest line's. */
 const tierOf = (n: Notice): NoteTier => n.tier ?? (n.group ? highestTier(n.group.lines) : 'information');
 
+/** The severity whose glyph and tint a tier needs: Caution is drawn as a warning, Danger as an error. */
+const TIER_LOOK: Record<NoteTier, NoticeSeverity> = { information: 'info', caution: 'warn', danger: 'error' };
+
+/**
+ * What a notice LOOKS like: the higher of its severity and its filled tier.
+ * A Caution line on an info notice drew the information glyph "i" on an
+ * untinted bar (review of b9-int, finding 13). Announcements keep the
+ * severity itself (LABEL, the polite/assertive split): only the look follows.
+ */
+const lookOf = (n: Notice): NoticeSeverity => {
+  const tier = TIER_LOOK[tierOf(n)];
+  return RANK[tier] > RANK[n.severity] ? tier : n.severity;
+};
+
 /**
  * The one line a collapsed group shows and the announcer says: its most
  * important line and how many there are — not "Loaded …", which is the
@@ -132,8 +146,9 @@ export function NoticeBar({ notices: all }: { notices: Notice[] }) {
   // it every render, nor fight the user if they collapse it again.
   const announced = useRef<ReadonlySet<string>>(new Set());
 
+  // The bar's tint follows what its notices look like, filled tiers included.
   const worst = notices.reduce<NoticeSeverity>(
-    (acc, n) => (RANK[n.severity] > RANK[acc] ? n.severity : acc), 'info');
+    (acc, n) => (RANK[lookOf(n)] > RANK[acc] ? lookOf(n) : acc), 'info');
   const key = notices.map((n) => `${n.id}:${n.severity}`).join('|');
   const textKey = notices.map(noticeKey).join('\u0001');
 
@@ -263,7 +278,7 @@ export function NoticeBar({ notices: all }: { notices: Notice[] }) {
             <ul className="notice-list">
               {notices.map((n) => (
                 <li key={n.id} className={`notice-item notice-${n.severity} ${n.group ? 'notice-group' : noteClass(tierOf(n))}`}>
-                  <span className="notice-glyph" aria-hidden="true">{GLYPH[n.severity]}</span>
+                  <span className={`notice-glyph notice-look-${lookOf(n)}`} aria-hidden="true">{GLYPH[lookOf(n)]}</span>
                   {n.group ? (
                     // Each line its own tier, so a routine translation does not
                     // inherit an amber slab from the one line that earned it.
@@ -298,7 +313,7 @@ export function NoticeBar({ notices: all }: { notices: Notice[] }) {
             </ul>
           ) : (
             <div className={`notice-item notice-${lead.severity} ${noteClass(tierOf(lead))}`}>
-              <span className="notice-glyph" aria-hidden="true">{GLYPH[lead.severity]}</span>
+              <span className={`notice-glyph notice-look-${lookOf(lead)}`} aria-hidden="true">{GLYPH[lookOf(lead)]}</span>
               <span className="notice-text notice-oneline">
                 <span className="sr-only">{`${LABEL[lead.severity]}: `}</span>
                 <NoteLabel tier={tierOf(lead)} />{leadSummary ?? firstLine(lead.text)}

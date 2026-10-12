@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
 import type { IgnitionEvent } from '@online-openrocket/engine';
 import type { IgnitionTuple } from '../model/design.js';
-import { describeFlownIgnition } from '../services/flightOverrideSummary.js';
+import { describeFlownIgnition, flownIgnition } from '../services/flightOverrideSummary.js';
+import { sparsify } from '../services/flightState.js';
+import { Note } from './Note.js';
 import { IGNITION_EVENT_LABELS } from '../services/flightOverrideText.js';
 import { defaultFlightScope, FlightScopeChoice, type FlightEditScope } from './ConfigPartEditors.js';
 import { NumField } from './NumField.js';
@@ -39,11 +41,18 @@ export function MountIgnitionField({ mountId, mountName, ownerKey, own, override
     if (chosen === null && overrideLabel !== null) setScope(scope);
     onEdit(scope, tuple, numeric);
   };
+  // The Launch warning's comparison (describeFlightOverrides): an override that
+  // flies differently is Caution, as on the Recovery and Stages rows (D7 I10);
+  // one that flies the same is said quietly (review of b9-int, finding 12).
+  const differs = !!override && sparsify(flownIgnition(own), flownIgnition(override)) !== undefined;
   return <>
     <label htmlFor={`ignition-${mountId}`}>Ignition</label>
-    <p className="comp-stats">{override
-      ? <>Ignition: <strong>overridden here</strong> — {describeFlownIgnition(override)}; own setting: {describeFlownIgnition(own)}.</>
-      : <>Ignition: uses the mount's own setting — {describeFlownIgnition(own)}.</>}</p>
+    {override
+      ? <Note as="p" tier={differs ? 'caution' : 'information'} className="comp-stats">
+        Ignition: <strong>overridden here</strong> — {describeFlownIgnition(override)}; own setting: {describeFlownIgnition(own)}
+        {differs ? '.' : ' (flies the same as the own setting).'}
+      </Note>
+      : <p className="comp-stats">Ignition: uses the mount's own setting — {describeFlownIgnition(own)}.</p>}
     {overrideLabel !== null && <FlightScopeChoice scope={scope} overrideLabel={overrideLabel} onChange={setScope}
       legend="Ignition changes apply to" />}
     {override && <button type="button" className="file-btn" onClick={() => {

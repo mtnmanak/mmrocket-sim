@@ -34,6 +34,17 @@ it.each(['Hybrid', 'none'])('RES-1b exports no configuration attribution for sto
   }
 });
 
+// Review of b9-int, finding 9: the export says Batch as the table does.
+it('exports a Batch row’s configuration with its Batch marker, as the run table shows it', () => {
+  const table = runsToTable([
+    mkRun('batch', { flightConfig: 'Club', flightConfigId: 'c', batch: true }),
+    mkRun('flown', { flightConfig: 'Club', flightConfigId: 'c' }),
+    mkRun('bare', { flightConfig: 'none', batch: true }),
+  ]);
+  const at = table.headers.indexOf('Flight config');
+  expect(table.rows.map(row => row[at])).toEqual(['Batch · Club', 'Club', 'Batch · no configuration']);
+});
+
 it('RES-1 persists frozen tuples and exports Overrides and Status with viewer units', () => {
   const flightOverrides: NonNullable<SimRun['flightOverrides']> = [{ family: 'recovery', kind: 'parachute', partName: 'Main',
     flies: { deployEvent: 'altitude', deployAltitude: 91.44, deployDelay: 0 },

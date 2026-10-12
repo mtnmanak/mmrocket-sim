@@ -50,6 +50,35 @@ it('visual tiers do not change announcement urgency or paint unrelated Informati
   expect(host.querySelector('.notice-announce[role="alert"]')?.textContent).toContain('Could not open');
   expect(bar()?.hasAttribute('aria-live')).toBe(false);
 });
+/**
+ * Review of b9-int, finding 13: a filled tier decides the glyph and the bar's
+ * tint, collapsed and expanded — a Caution notice drew "i" on an untinted bar.
+ * The announcement keeps the severity's own words and region.
+ */
+it('draws a Caution or Danger notice with its tier’s glyph and tints the bar, announcing by severity', () => {
+  const glyphs = () => [...host.querySelectorAll('.notice-glyph')].map(g => g.textContent);
+  draw([{ ...info, tier: 'caution' }]);
+  expect(bar()!.className).toContain('notice-warn');
+  expect(bar()!.className).not.toContain('notice-info');
+  expect(glyphs()).toEqual(['⚠']);
+  expect(host.querySelector('.notice-announce[role="status"]')?.textContent).toBe('Notice: Loaded “Goblin.ork”.');
+  expect(host.querySelector('.notice-announce[role="alert"]')?.textContent).toBe('');
+  act(() => { host.querySelector<HTMLButtonElement>('.notice-toggle')!.click(); });
+  expect(glyphs()).toEqual(['⚠']);
+  expect(host.querySelector('.notice-item .sr-only')?.textContent).toBe('Notice: ');
+  // A group takes its highest line's tier.
+  draw([{ ...info, id: 'g', group: { lines: [{ kind: 't.routine', text: 'routine', tier: 'information' }, { kind: 't.gone', text: 'gone', tier: 'danger' }] } }]);
+  expect(bar()!.className).toContain('notice-error');
+  expect(glyphs()).toEqual(['⛔']);
+  // Information stays "i", and a warning's own severity is never lowered by a tier.
+  draw([info]);
+  expect(bar()!.className).toContain('notice-info');
+  expect(glyphs()).toEqual(['i']);
+  draw([{ ...err, tier: 'information' }]);
+  expect(bar()!.className).toContain('notice-error');
+  expect(glyphs()).toEqual(['⛔']);
+});
+
 /** The two always-mounted announcers (audit 2026-09-22). */
 const polite = () => host.querySelector('.notice-announce[role="status"]');
 const assertive = () => host.querySelector('.notice-announce[role="alert"]');

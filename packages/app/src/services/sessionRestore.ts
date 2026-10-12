@@ -1,6 +1,6 @@
 import { carryFlags, flagNote, noteFlags, type ImportNote } from './importNotes.js';
 import { migrateConfigLayers } from './configLayersMigration.js';
-import { designFingerprint } from './dirtyState.js';
+import { designFingerprint, legacyDesignFingerprint } from './dirtyState.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { legacyStageLimits, migrateMotorLengths } from '../tree/motorLength.js';
@@ -193,11 +193,16 @@ export function designStateFromSession(
   // All established normalizations precede the layer migration (FC-4).
   const normalizedSession: SessionState = { ...session, ...normalized, maxMotorLengthByStage: {}, savedAt: session?.savedAt ?? 0 };
   if (session?.savedMark) {
-    const beforeMark = designFingerprint({ ...normalized,
+    const beforeState = { ...normalized,
       tree: before, maxMotorLengthByStage: limits,
       ...(preRankRestore ? { mountMotors: preRankRestore.motors, savedConfigs: preRankRestore.configs } : {}),
-      ...preConfigRestore, detachedOverrides: session.detachedOverrides });
-    if (beforeMark === session.savedMark) normalizedSession.savedMark = designFingerprint(normalizedSession as Required<DesignState>);
+      ...preConfigRestore, detachedOverrides: session.detachedOverrides };
+    // A v0.185 mark counted an EMPTY detached map (`{ deployments: {} }`, left
+    // by a reset) that the current rule ignores; matching it under that rule
+    // too keeps an unchanged restored design clean (review of b9-int, finding 4).
+    if (designFingerprint(beforeState) === session.savedMark || legacyDesignFingerprint(beforeState) === session.savedMark) {
+      normalizedSession.savedMark = designFingerprint(normalizedSession as Required<DesignState>);
+    }
   }
   const migrated = migrateConfigLayers(session ? normalizedSession : { ...normalizedSession, configLayers: 1, detachedOverrides: {} });
   if (migrated.note) flagNote(restoreNotes, { kind: 'I10.layer-migration', tier: migrated.noteTier ?? 'information', text: migrated.note });

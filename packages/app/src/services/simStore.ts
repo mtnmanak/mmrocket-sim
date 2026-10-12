@@ -1,4 +1,4 @@
-import { recordedConfiguration, runOverrideText, runStatus } from './runConfiguration.js';
+import { recordedConfiguration, runConfigurationLabel, runOverrideText, runStatus } from './runConfiguration.js';
 import type { DesignMatchKey } from './simReport.js';
 import { storedWarnings } from './storedWarnings.js';
 import { csvCell } from './csvUtil.js';
@@ -460,7 +460,9 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Comments', (r) => r.comments],
   // Trailing on purpose (Stage B): existing spreadsheet imports keep their
   // column positions; runs stored before the field export an empty cell.
-  ['Flight config', (r) => recordedConfiguration(r) ?? ''],
+  // The table's own label, so a Batch row says "Batch · <label>" here too: a
+  // bare configuration name read as a flight of it (review of b9-int).
+  ['Flight config', (r) => recordedConfiguration(r) === undefined ? '' : runConfigurationLabel(r)],
   // Trailing for the same reason, after it (weather build, 2026-09-22): the
   // dry-air density altitude the run flew in, stored at launch. A run flown
   // before the field, or a stored value that is not a finite number, is an

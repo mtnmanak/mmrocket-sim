@@ -55,20 +55,34 @@ export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowP
           <thead><tr><th scope="col">Configuration</th>{parts.map(p => <th key={p.node.id} scope="col">
             {p.node.name || p.node.type}<br />{p.family === 'ignition' ? 'Motor · ignition' : p.family === 'recovery' ? 'Recovery' : 'Separation'}
           </th>)}</tr></thead>
-          <tbody>{configs.map((config, index) => <tr key={config.id} aria-current={config.id === activeConfigId ? 'true' : undefined}>
-            <th scope="row"><button className="file-btn" aria-label={`Apply ${savedConfigLabel(config)} — configuration ${index + 1}`}
-              onClick={() => onApply(config)}>{savedConfigLabel(config)}</button>
-              {config.isDefault && <span> — file default</span>}
-              {config.id === activeConfigId && <span className="config-active-tag"> — active</span>}
-            </th>
-            {parts.map(part => {
-              const value = partValue(part, config, tree, prefs.units.distance);
-              return <td key={part.node.id}><button className="file-btn" onClick={() => { onApply(config); onShowPart(part.node.id!, part.family); }}
-                aria-label={`Apply ${savedConfigLabel(config)} — configuration ${index + 1}; ${part.node.name || part.node.type}: ${value.text}${value.override ? ' — override' : ''}`}>
-                {value.text}{value.override && <strong> — override</strong>}
-              </button></td>;
-            })}
-          </tr>)}</tbody>
+          <tbody>{configs.map((config, index) => {
+            // The active configuration is already applied. Re-applying it resets
+            // Undo and replaces the notice bar, so its row only navigates: its
+            // name is not a button, and a cell goes to that part's row (review
+            // of b9-int, finding 2). The choosers never re-apply it either.
+            const active = config.id === activeConfigId;
+            const label = savedConfigLabel(config);
+            return <tr key={config.id} aria-current={active ? 'true' : undefined}>
+              <th scope="row">{active ? <span>{label}</span>
+                : <button className="file-btn" aria-label={`Apply ${label} — configuration ${index + 1}`}
+                  onClick={() => onApply(config)}>{label}</button>}
+                {config.isDefault && <span> — file default</span>}
+                {active && <span className="config-active-tag"> — active</span>}
+              </th>
+              {parts.map(part => {
+                const value = partValue(part, config, tree, prefs.units.distance);
+                const what = `${part.node.name || part.node.type}: ${value.text}${value.override ? ' — override' : ''}`;
+                return <td key={part.node.id}><button className="file-btn" onClick={() => {
+                  if (!active) onApply(config);
+                  onShowPart(part.node.id!, part.family);
+                }}
+                  aria-label={active ? `Show ${what} — ${label}, the active configuration`
+                    : `Apply ${label} — configuration ${index + 1}; ${what}`}>
+                  {value.text}{value.override && <strong> — override</strong>}
+                </button></td>;
+              })}
+            </tr>;
+          })}</tbody>
         </table>
       </div>}
   </details>;

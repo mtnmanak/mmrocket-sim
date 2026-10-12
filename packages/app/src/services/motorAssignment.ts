@@ -6,6 +6,7 @@ import { adoptsRefPadMass, assignMotorRecord } from './configSync.js';
 import { ignitionDefaultFor } from './ignitionDefault.js';
 import { attachedOf } from './importApply.js';
 import type { HeldNote } from './notices.js';
+import type { NoteTier } from '../components/Note.js';
 import type { OrkMotorRef } from './orkFile.js';
 import type { MotorMeta } from './simReport.js';
 import { reconcileIncludedMotor, type StatedWeightText } from './statedLaunchWeight.js';
@@ -44,17 +45,27 @@ export function planMotorAssignment(input: MotorAssignmentInput) {
       + 'Check all motor assignments before launching.',
   } : undefined;
   let padMassNote: string | undefined;
+  // Each note's tier is set here, by the branch that writes it (D7 §4):
+  // carrying the file's weighing over is a receipt; losing it is I16 Caution,
+  // as the open's and the restore's own pad-mass-dropped lines are.
+  let padMassTier: NoteTier | undefined;
   const adoptedKg = adoptsRefPadMass(droppedRef, spec.designation);
   if (adoptedKg !== undefined) {
     padMassNote = `The file's weighed pad mass (${massText(adoptedKg)}) was weighed with ${droppedRef!.designation},`
       + ` which is loaded now — it sits under ${baseLabel(label)} on this mount, and the line there says what`
       + ' it carries.';
+    padMassTier = 'information';
   } else if (droppedRef && typeof droppedRef.padMassKg === 'number' && droppedRef.padMassKg > 0) {
     padMassNote = `The weighed pad mass in the file was weighed with ${droppedRef.designation}, which is not the`
       + ` motor now loaded — re-weigh with ${label} in.`;
+    padMassTier = 'caution';
   }
-  return { fresh, droppedRef, remainingRefs, repairedConfig, repairNotice, padMassNote,
-    reconciliation: reconcileIncludedMotor(tree, targetMountId, attachedOf(spec), statedWeightText) };
+  const reconciliation = reconcileIncludedMotor(tree, targetMountId, attachedOf(spec), statedWeightText);
+  return { fresh, droppedRef, remainingRefs, repairedConfig, repairNotice, padMassNote, padMassTier,
+    reconciliation,
+    // The reconcile's own severity is its line's tier, the rule
+    // reconcileAllIncludedMotors applies on the open and a switch (D7 I17).
+    reconciliationTier: (reconciliation?.severity === 'warn' ? 'caution' : 'information') as NoteTier };
 }
 
 /** Re-derive the primary inside App's updater: two fetched picks can land in one flush. */

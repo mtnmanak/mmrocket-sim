@@ -70,21 +70,24 @@ describe('recovery configuration context', () => {
 
   it('distinguishes same-motor rows and Apply labels, resolves active overrides, and keeps Apply functional', () => {
     const host = document.createElement('div'); const root = createRoot(host);
-    let applied = '';
+    let applied = ''; let shown = '';
     try {
       act(() => root.render(<ConfigOverview configs={configs} tree={tree} activeConfigId="a"
-        onApply={(c) => { applied = c.id; }}  onShowPart={() => {}} />));
+        onApply={(c) => { applied = c.id; }}  onShowPart={(id) => { shown = id; }} />));
       const buttons = [...host.querySelectorAll<HTMLButtonElement>('tbody td button')];
-      expect(buttons[0]!.getAttribute('aria-label')).toBe('Apply Same motors — configuration 1; Main: Motor ejection charge, delay 2 s — override');
+      // The active row only navigates: re-applying it would reset Undo (whole-feature review, 2026-10-12).
+      expect(buttons[0]!.getAttribute('aria-label')).toContain('Show Main');
+      expect(buttons[0]!.getAttribute('aria-label')).not.toContain('Apply');
       expect(buttons[1]!.getAttribute('aria-label')).toBe('Apply Same motors — configuration 2; Main: Altitude (descending), 121.92 m — override');
       expect(host.textContent).toContain('Motor ejection charge, delay 2 s');
       expect(buttons[0]!.textContent).toContain('override');
       expect(host.textContent).toContain('Altitude (descending), 121.92 m');
+      act(() => buttons[0]!.click()); expect(applied).toBe(''); expect(shown).not.toBe('');
       act(() => buttons[1]!.click()); expect(applied).toBe('b');
       act(() => root.render(<ConfigOverview configs={[configs[0]!]} tree={tree} activeConfigId="a"
         onApply={() => {}}  onShowPart={() => {}} />));
       expect(host.textContent).toContain('Motor ejection charge, delay 2 s');
-      expect(host.querySelector('button')!.getAttribute('aria-label')).toContain('Apply Same motors');
+      expect(host.querySelector('button')!.getAttribute('aria-label')).toContain('Show Main');
     } finally { act(() => root.unmount()); }
   });
 

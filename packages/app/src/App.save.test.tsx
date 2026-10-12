@@ -566,7 +566,8 @@ describe('flight configuration editing in App', () => {
     await settle(50);
     await openTab(host, 'Motors & Configuration');
     expect(host.querySelectorAll('.config-table tbody tr')).toHaveLength(2);
-    expect(host.querySelector('.config-table tbody th button')?.textContent).toBe('Club field');
+    // Club field is the active row, whose name is text rather than an Apply button (review of b9-int, finding 2).
+    expect(host.querySelector('.config-table tbody th')?.textContent).toBe('Club field — file default — active');
     flush();
     expect(storedSession()!.savedConfigs!.map((c: SavedConfig) => c.id)).toEqual(['a', 'c']);
     await unmountAll();
@@ -1840,6 +1841,46 @@ describe('an Auto mount flown in the active flight configuration', () => {
     expect(back.configs.find((c) => c.id === 'A')?.motors[backMount]?.delay).toBe(flownS);
     expect(document.body.textContent).toContain(`it is saved at ${flownS} s, the rounded optimum it flies on Auto`);
     expect(document.body.textContent).not.toContain('its provisional');
+  }, 30000);
+});
+
+/**
+ * A RUN FLOWN IN AN UNNAMED CONFIGURATION AFTER A MOTOR CHANGE (review of
+ * b9-int, finding 1). An unnamed configuration is labelled by its motors, and
+ * the active row's stored motors are written back only on a switch, None or a
+ * save — so a run flown after a motor edit was filed under the OLD motor's
+ * label, and the chooser kept naming it. Every label now comes from the live list.
+ */
+describe('an unnamed active configuration whose motor changed', () => {
+  it('records and shows the motors that fly, not the ones it was saved with', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: { [mount]: c6 }, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+      activeConfigId: 'A', savedConfigs: [{ id: 'A', name: null, isDefault: true, motors: { [mount]: c6 } },
+        { id: 'B', name: 'Other', isDefault: false, motors: { [mount]: c6 } }],
+    }));
+    const host = await mountApp();
+    await settle(50);
+    await openTab(host, 'Motors & Configuration');
+    const chooser = () => host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+    expect(chooser().selectedOptions[0]!.textContent).toContain('[C6-5]');
+    // The motor changes on the card: the delay is part of its label.
+    const delay = host.querySelector<HTMLInputElement>(`[id="ejection-delay-${mount}"]`)!;
+    await act(async () => { delay.focus(); });
+    await type(delay, '3');
+    await act(async () => { delay.blur(); });
+    await settle(50);
+    expect(chooser().selectedOptions[0]!.textContent).toContain('[C6-3]');
+    await act(async () => {
+      [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();
+    });
+    const stored = () => JSON.parse(localStorage.getItem(RUNS_KEY) ?? '[]') as SimRun[];
+    await waitFor(() => stored().length === 1, 'the flight to be saved');
+    const [run] = stored();
+    expect(run!.flightConfigId).toBe('A');
+    expect(run!.flightConfig).toBe('[C6-3]');
   }, 30000);
 });
 

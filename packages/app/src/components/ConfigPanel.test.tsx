@@ -139,9 +139,17 @@ describe('ConfigPanel', () => {
   it('keeps an empty chooser and disabled New when there are no saved configurations or motors', () => {
     mount({ configs: [], activeConfigId: null, hasMotors: false });
     expect(chooser().value).toBe('');
-    expect(host.textContent).toContain('No saved configurations — the loaded motors fly as a working set');
+    // Review of b9-int, finding 7: nothing loaded, so nothing "flies as a working set".
+    expect(host.textContent).toContain('No saved configurations.');
+    expect(host.textContent).not.toContain('the loaded motors fly');
     expect(host.textContent).toContain("No configuration: the parts' own settings, with no motors");
     expect(button('+ New from loaded motors').disabled).toBe(true);
+    // A motor the file named that could not be loaded is working settings with no motor.
+    mount({ configs: [], activeConfigId: null, hasMotors: false, unmatchedRefs: { m1: { designation: 'Z999' } as never } });
+    expect(chooser().value).toBe('__working__');
+    expect(host.textContent).toContain('No saved configurations — working settings, with no motor loaded');
+    mount({ configs: [], activeConfigId: null });
+    expect(host.textContent).toContain('No saved configurations — the loaded motors fly as a working set');
   });
 
   it.each([0, 1, 2])('shows %i saved configurations with loaded motors and always offers None', count => {

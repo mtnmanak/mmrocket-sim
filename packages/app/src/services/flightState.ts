@@ -44,6 +44,23 @@ export function isWorkingSettings({ active, hasMotors, hasUnmatched, hasOverride
   return !active && (hasMotors || hasUnmatched || hasOverrides);
 }
 
+/**
+ * The line under a chooser when no configuration is saved, or null when the
+ * chooser says nothing more than None. Shared by Motors & Configuration and
+ * Fly, so the two choosers word every state alike: with no motor loaded the
+ * working settings are an unresolved motor reference or an override, and
+ * saying "the loaded motors fly" there contradicted the line under it
+ * (review of b9-int, finding 7).
+ */
+export function noSavedConfigurationsText({ configs, working, hasMotors }: {
+  configs: number; working: boolean; hasMotors: boolean;
+}): string | null {
+  if (configs > 0) return null;
+  if (!working) return 'No saved configurations.';
+  return hasMotors ? 'No saved configurations — the loaded motors fly as a working set'
+    : 'No saved configurations — working settings, with no motor loaded';
+}
+
 /** The detached working settings hold at least one override of any family. */
 export function holdsOverrides(overrides: FlightOverrides): boolean {
   return Object.values(overrides).some(map => Object.keys(map ?? {}).length > 0);

@@ -80,7 +80,11 @@ it('FC-2 opens an override file note as information and respects a later collaps
   await waitFor(() => storedSession()?.tree.name === 'LEM recovery excerpt', 'LEM open');
   const bar = host.querySelector('.notice-bar')!;
   expect(bar.classList.contains('expanded')).toBe(true);
-  expect(bar.classList.contains('notice-info')).toBe(true);
+  // Information severity — said politely, never as an alert — while the bar's
+  // tint and glyph follow its Caution line (review of b9-int, finding 13).
+  expect(bar.classList.contains('notice-warn')).toBe(true);
+  expect(bar.querySelector('.message-caution')).not.toBeNull();
+  expect(host.querySelector('.notice-announce[role="alert"]')?.textContent ?? '').not.toContain('Recovery');
   expect(bar.textContent).toContain('The Recovery section on Motors & Configuration shows both');
   await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Collapse notices"]')!.click(); });
   await act(async () => { button(host, 'Motors & Configuration').click(); });

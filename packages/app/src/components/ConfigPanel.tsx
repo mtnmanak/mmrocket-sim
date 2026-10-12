@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { savedConfigLabel, type SavedConfig, type FlightTree, type FlightOverrides, type MountMotor } from '../model/design.js';
 import { MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS } from '../services/configSnapshot.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { activeFlightOverrides, isWorkingSettings } from '../services/flightState.js';
+import { activeFlightOverrides, isWorkingSettings, noSavedConfigurationsText } from '../services/flightState.js';
 import { describeFlightOverrides } from '../services/flightOverrideSummary.js';
 import type { OrkMotorRef } from '../services/orkFile.js';
 import { Note } from './Note.js';
@@ -75,6 +75,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
     hasUnmatched: Object.keys(unmatchedRefs ?? {}).length > 0, hasOverrides });
   const summary = tree ? describeFlightOverrides(tree, overrides, motors ?? active?.motors ?? {},
     active ? savedConfigLabel(active) : null, prefs.units.distance) : null;
+  const noSaved = noSavedConfigurationsText({ configs: configs.length, working, hasMotors });
   const labelOf = (c: SavedConfig) => `${savedConfigLabel(c)} — configuration ${configs.indexOf(c) + 1}`;
   const editingConfig = configs.find(c => c.id === editing);
   const deletingConfig = configs.find(c => c.id === deleting);
@@ -116,7 +117,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
         onCancel={() => { setDeleting(null); deleteButton.current?.focus(); }}
         onDelete={() => { setDeleting(null); onDelete(deletingConfig); chooser.current?.focus(); }} />}
     </div>
-    {configs.length === 0 && <p className="comp-stats">No saved configurations — the loaded motors fly as a working set</p>}
+    {noSaved !== null && <p className="comp-stats">{noSaved}</p>}
     <p id={summaryId} className="comp-stats">{summary?.shortText ?? (active || working
       ? "Uses every part's own setting." : "No configuration: the parts' own settings, with no motors")}</p>
     {hasOverrides && <button ref={resetButton} className="file-btn" onClick={() => setResetting(true)}>

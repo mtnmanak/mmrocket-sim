@@ -82,13 +82,24 @@ describe('CFG-1 comparison and summary', () => {
       expect(rows[1]!.textContent).toContain('Altitude (descending), 100 m');
       const labels = [...host.querySelectorAll('button')].map(b => b.getAttribute('aria-label'));
       expect(new Set(labels).size).toBe(labels.length);
-      act(() => { rows[0]!.querySelector('th button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-      expect(onApply).toHaveBeenCalledExactlyOnceWith(config); expect(onShowPart).not.toHaveBeenCalled();
+      // Review of b9-int, finding 2: the ACTIVE row never re-applies (that resets
+      // Undo and replaces the notice bar). Its name is not a button, and its
+      // cells only go to the part's row.
+      expect(rows[0]!.querySelector('th button')).toBeNull();
+      expect(rows[0]!.querySelector('th')!.textContent).toContain('Flight A');
       const cells = rows[0]!.querySelectorAll<HTMLButtonElement>('td button');
+      expect(cells[1]!.getAttribute('aria-label')).toBe('Show Main: Motor ejection charge — override — Flight A, the active configuration');
       act(() => cells[1]!.click());
-      expect(onApply).toHaveBeenCalledTimes(2); expect(onShowPart).toHaveBeenLastCalledWith('chute', 'recovery');
+      expect(onApply).not.toHaveBeenCalled(); expect(onShowPart).toHaveBeenLastCalledWith('chute', 'recovery');
       act(() => cells[0]!.click()); expect(onShowPart).toHaveBeenLastCalledWith('mount', 'ignition');
       act(() => cells[4]!.click()); expect(onShowPart).toHaveBeenLastCalledWith('lower', 'separation');
+      expect(onApply).not.toHaveBeenCalled();
+      // Another configuration's row applies it: by name, or by a cell that then goes to the part.
+      onShowPart.mockClear();
+      act(() => { rows[1]!.querySelector('th button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+      expect(onApply).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: 'b' })); expect(onShowPart).not.toHaveBeenCalled();
+      act(() => rows[1]!.querySelectorAll<HTMLButtonElement>('td button')[1]!.click());
+      expect(onApply).toHaveBeenCalledTimes(2); expect(onShowPart).toHaveBeenLastCalledWith('chute', 'recovery');
     } finally { act(() => root.unmount()); }
   });
 

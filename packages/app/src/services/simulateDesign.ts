@@ -6,6 +6,8 @@ import { effectiveAero } from '../prefs/aeroChoice.js';
 import { DEFAULT_PREFS } from '../prefs/preferences.js';
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import { resolveFlightState } from './flightState.js';
+import { withActiveConfigSynced } from './configSync.js';
+import type { OrkMotorRef } from './orkFile.js';
 import { isOnLaunchStage, motorisedStagesWithNozzle, mountMotorCount, stagesWithRecoveryDevice } from '../tree/treeModel.js';
 import { APP_VERSION } from '../version.js';
 import { buildDesign, KERNEL_HANDLES, type BuildHandle, type BuiltDesign, type HandleFactory } from './buildDesign.js';
@@ -75,6 +77,14 @@ export interface BuiltLaunchInput<R extends BuildHandle = OrkRocket> {
   aero: Pick<AeroState, 'aeroMode' | 'effectiveKbf'>;
   activeConfigId: string | null;
   savedConfigs: SavedConfig[];
+  /**
+   * The working set as it flies (App: `mountMotors`, `unmatchedRefs`). An
+   * unnamed configuration is labelled by its motors, and the active row's
+   * stored motors are written back only on a switch, None or a save — so the
+   * run's label is taken from the row synced with these, the list App's
+   * chooser and Batch read (review of b9-int, finding 1). Absent: as stored.
+   */
+  working?: { motors: Record<string, MountMotor>; unmatchedRefs: Record<string, OrkMotorRef> };
   /** Captured against the own-settings tree before resolving the flight. */
   flightOverrides?: RecordedFlightOverride[];
   /** App passes its `provenanceKey` memo, the key every comparison uses; never recomputed here. */
@@ -107,7 +117,9 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   const { mounts, stageList, assigned, effectiveSupersonic, primaryMountId } = derived;
   const { aeroMode, effectiveKbf } = aero;
   const flightOverrides = input.flightOverrides === undefined ? undefined : structuredClone(input.flightOverrides);
-  const activeConfig = activeConfigId === null ? undefined : savedConfigs.find(c => c.id === activeConfigId);
+  const labelled = input.working
+    ? withActiveConfigSynced(savedConfigs, activeConfigId, input.working.motors, input.working.unmatchedRefs) : savedConfigs;
+  const activeConfig = activeConfigId === null ? undefined : labelled.find(c => c.id === activeConfigId);
   const flightConfig = activeConfig ? savedConfigLabel(activeConfig) : assigned.length ? 'working settings' : 'none';
   const refusedMountIds = refusedMountIdsOf(built.motorFailures);
   // The keys and their order are onLaunch's at 78d3015; `signal` and `now` are
@@ -403,6 +415,8 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
       aero,
       activeConfigId: state.activeConfigId,
       savedConfigs: state.savedConfigs,
+      // The working set as App holds it, for the run's configuration label.
+      working: { motors: input.mountMotors, unmatchedRefs: input.unmatchedRefs ?? {} },
       flightOverrides: recordFlightOverrides(input.tree,
         activeFlightOverrides(input.savedConfigs, input.activeConfigId, input.detachedOverrides ?? {}),
         input.mountMotors),

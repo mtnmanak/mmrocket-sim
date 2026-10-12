@@ -747,7 +747,7 @@ describe('.ork configuration count limit', () => {
       mount: { designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5 },
     };
     expect(() => exportOrk({ ...input, motors, activeConfigId: null }))
-      .toThrow(/257 flight configurations, past the 256.*Apply one of the stored configurations, or Apply None, before saving\./);
+      .toThrow(/257 flight configurations, past the 256.*Choose a saved configuration, or None \(no motors\), in the Flight configuration chooser before saving\./);
     // Applying None clears the live motors, so no custom configuration is minted.
     expect(importOrk(exportOrk({ ...input, motors: {}, activeConfigId: null })).configs)
       .toHaveLength(MAX_ORK_CONFIGURATIONS);

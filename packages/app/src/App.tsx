@@ -178,7 +178,7 @@ import {
 } from './services/hardwareMass.js';
 import {
   migrateLegacyPadMass, stripPadMass, scaleConfigStageMass,
-  stripRefPadMass, syncActiveConfig, withoutStoredRef, withActiveConfigTreeSynced,
+  stripRefPadMass, syncActiveConfig, withoutStoredRef, withActiveConfigTreeSynced, withActiveConfigSynced,
   createLoadedConfig, duplicateActiveConfig, renameConfig, deleteConfig,
 } from './services/configSync.js';
 import {
@@ -1088,7 +1088,11 @@ export function App() {
     const motors = restoringMotors.current ?? mountMotors;
     restoringMotors.current = null;
     const spent = reconcileAllIncludedMotors(t, attachedSet(motors), statedWeightText);
-    if (spent.notes.length) setFileNote(spent.notes.join('\n'), spent.severity);
+    // Each line with the tier its producer flagged (D7 I17), as the open and the
+    // open-motor answer show it — not a plain Information strip (review of b9-int).
+    if (spent.notes.length) {
+      setGroupNote(spent.notes.join('\n'), spent.severity, undefined, { lines: tierLines(spent.notes, noteFlags(spent.notes)) });
+    }
     return spent.tree;
   };
   /**
@@ -1155,7 +1159,16 @@ export function App() {
     // Names and other configuration metadata must not rebuild flight inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only these three map identities affect resolution
     [activeLayer?.deployments, activeLayer?.separations, activeLayer?.ignitions, detachedOverrides]);
-  const overrideConfigLabel = activeLayer ? savedConfigLabel(activeLayer) : null;
+  // The saved configurations as they will fly NOW: the active row's motors
+  // follow the working set, which a motor pick changes without writing back
+  // until a switch, None or a save. An unnamed configuration is labelled by its
+  // motors, so every label the user reads — the chooser, the Launch warning,
+  // the scope wording, a run's record and Batch's — comes from this list, or a
+  // run flown on a D12-5 was filed under “[C6-5]” (review of b9-int, finding 1).
+  const liveConfigs = useMemo(() => withActiveConfigSynced(savedConfigs, activeConfigId, mountMotors, unmatchedRefs),
+    [savedConfigs, activeConfigId, mountMotors, unmatchedRefs]);
+  const liveActiveLayer = liveConfigs.find(c => c.id === activeConfigId);
+  const overrideConfigLabel = liveActiveLayer ? savedConfigLabel(liveActiveLayer) : null;
   // The detached working settings own an override layer whenever no
   // configuration is active and saved ones exist, or they hold an override:
   // ONE owner rule for the scope choices, beginFlightEdit and editIgnition, so
@@ -1791,7 +1804,7 @@ export function App() {
       setFileNoteState(prev => retireLoadoutNote(prev, repairedConfig));
       setMotorLoadoutRepair({ ...repairNotice, onDismiss: () => setMotorLoadoutRepair(null) });
     }
-    if (plan.padMassNote !== undefined) setFileNote(plan.padMassNote);
+    if (plan.padMassNote !== undefined) setFileNote(plan.padMassNote, 'info', undefined, plan.padMassTier);
     setUnmatchedRefs((prev) => {
       if (!(targetMountId in prev)) return prev;
       const next = { ...prev };
@@ -1813,7 +1826,7 @@ export function App() {
     if (fix) {
       if (fix.note) {
         setTree(fix.tree);
-        setFileNote(fix.note, fix.severity);
+        setFileNote(fix.note, fix.severity, undefined, plan.reconciliationTier);
       } else {
         // A STALE mark and nothing else: both overrides were already cleared by
         // hand, so this only drops the bookkeeping key. `setTree` would push an
@@ -1933,6 +1946,8 @@ export function App() {
           aero: { aeroMode, effectiveKbf },
           activeConfigId,
           savedConfigs,
+          // The working set, so an unnamed configuration's label names the motors that fly.
+          working: { motors: mountMotors, unmatchedRefs },
           // Stamped from the SAME key every comparison uses (`provenanceKey`,
           // below), so the two cannot be assembled apart.
           provenance: provenanceKey,
@@ -3068,11 +3083,11 @@ export function App() {
   const flightWorking = isWorkingSettings({ active: !!activeLayer, hasMotors: assignedCount > 0,
     hasUnmatched: Object.keys(unmatchedRefs).length > 0, hasOverrides: detachedHoldsOverrides });
   const flightItem = useMemo(() => flightVitals({
-    active: activeLayer, working: flightWorking,
+    active: liveActiveLayer, working: flightWorking,
     motors: [...assigned].sort(([a], [b]) => Number(b === primaryMountId) - Number(a === primaryMountId))
       .map(([id, mm]) => ({ mount: mountName(mounts.find((m) => m.id === id)!),
         text: motorTooltip(mountMotors[id] ?? mm, catalogue) })),
-  }), [activeLayer, flightWorking, assigned, primaryMountId, mounts, mountMotors, catalogue]);
+  }), [liveActiveLayer, flightWorking, assigned, primaryMountId, mounts, mountMotors, catalogue]);
 
   // Motor-mount sizes (nominal motor diameter each mount accepts), per stage —
   // surfaced in the Rocket panel and Motors panel so the flyer never has to
@@ -3582,7 +3597,7 @@ export function App() {
       {showBatch && built && mounts.length > 0 && !isStaged && (
         <BatchSimulate
           configurationForMount={targetId => ({
-            flightConfig: overrideConfigLabel ?? (Object.keys(mountMotors).length || Object.values(activeOverrides).some(map => !!map && Object.keys(map).length > 0) ? 'working settings' : 'none'),
+            flightConfig: overrideConfigLabel ?? (flightWorking ? 'working settings' : 'none'),
             ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
             flightOverrides: recordFlightOverrides(tree, activeOverrides, mountMotors, targetId),
           })}
@@ -3881,8 +3896,11 @@ export function App() {
 
         {tab === 'fly' && (
           <FlyScreen
-            configs={savedConfigs} activeConfigId={activeConfigId}
-            hasWorkingSettings={Object.keys(mountMotors).length > 0 || Object.values(activeOverrides).some(map => !!map && Object.keys(map).length > 0)}
+            configs={liveConfigs} activeConfigId={activeConfigId}
+            // THE shared test (flightState.isWorkingSettings), the one the tab's
+            // chooser and the strip read, unresolved motor references included —
+            // so None can be chosen here exactly as on the tab (review of b9-int).
+            hasWorkingSettings={flightWorking}
             onApplyConfig={applyConfig} onClearConfig={clearConfig}
             overrideSummary={launchOverrideSummary} onShowOverride={showFlightOverride}
             tree={tree}
@@ -4262,7 +4280,7 @@ export function App() {
             navigation found nothing on this tab. */}
         {tab === 'motors' && (
         <main className="motors-layout">
-          <ConfigPanel deletionUnprotected={dirty || !!replaceLoss} configs={savedConfigs} tree={tree} motors={mountMotors} unmatchedRefs={unmatchedRefs} detachedOverrides={detachedOverrides}
+          <ConfigPanel deletionUnprotected={dirty || !!replaceLoss} configs={liveConfigs} tree={tree} motors={mountMotors} unmatchedRefs={unmatchedRefs} detachedOverrides={detachedOverrides}
             activeConfigId={activeConfigId} hasMotors={assigned.length > 0}
             onApply={applyConfig} onClear={clearConfig} onCreate={createConfig} onDuplicate={duplicateFlightConfig}
             onRename={renameFlightConfig} onDelete={deleteFlightConfig}
