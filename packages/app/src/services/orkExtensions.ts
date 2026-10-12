@@ -95,7 +95,33 @@ export function preserveSimulationExtensions(
   tree: RocketTree, raw: string[][], sims: XmlElement[], chosenConfigId: string | null,
   hasConfigurations: boolean, notes: string[],
 ): RocketTree {
-  const extensions = sims.flatMap(s => Array.from(s.querySelectorAll(':scope > extension')));
+  const extensions: XmlElement[] = [];
+  // The DOM and lexical scanner must agree before promising retention (audit 2026-10-11, S1a-5).
+  if (raw.length !== sims.length) throw new Error('Simulation extension slices do not match the file’s simulations.');
+  const retained = sims.map((sim, i) => {
+    const elements = Array.from(sim.querySelectorAll(':scope > extension'));
+    const slices = raw[i]!;
+    if (slices.length !== elements.length) throw new Error('Simulation extension slices do not match the file’s extensions.');
+    return slices.filter((slice, j) => {
+      // Ancestor namespace bindings disappear on save; diagnose that on import,
+      // while the user can still choose the original file (audit 2026-10-11, S1a-2).
+      const refusal = 'Simulation extension is not standalone XML.';
+      let element: XmlElement;
+      try {
+        element = parseXml(slice, refusal).documentElement;
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== refusal) throw error;
+        notes.push('A simulation extension was not preserved because its XML cannot stand alone without the original document’s namespace declarations.');
+        return false;
+      }
+      if (element.tagName !== 'extension'
+        || element.getAttribute('extensionid') !== elements[j]!.getAttribute('extensionid')) {
+        throw new Error('Simulation extension slices do not match their simulation’s extension ids.');
+      }
+      extensions.push(elements[j]!);
+      return true;
+    });
+  });
   // Descendants of a retained extension remain opaque payload. Only descendants
   // of other simulation children are omitted by the writer and need a loss note.
   const ignored = sims.flatMap(s => Array.from(s.children))
@@ -135,7 +161,7 @@ export function preserveSimulationExtensions(
     ...(!hasConfigurations && (sim.querySelector(':scope > conditions > configid')?.textContent || null) === firstId
       ? { defaultSimulation: true } : {}),
     name: sim.querySelector(':scope > name')?.textContent ?? null,
-    xml: raw[i] ?? [],
+    xml: retained[i]!,
   }));
   // Retain non-extension siblings sharing an id as separate simulations too:
   // attaching a scripted run to a previously plain run changes desktop physics.
