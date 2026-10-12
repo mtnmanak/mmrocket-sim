@@ -1,16 +1,15 @@
 import { LaunchOverrideWarning } from './components/LaunchOverrideWarning.js';
 import { describeFlightOverrides, type FlightOverrideSummary } from './services/flightOverrideSummary.js';
-import { IGNITION_EVENT_LABELS } from './services/flightOverrideText.js';
 import { DesignConfirms } from './components/DesignConfirms.js';
 import { assignMotorRecords, planMotorAssignment, retireLoadoutNote } from './services/motorAssignment.js';
 import { exportConfigs as assembleExportConfigs, exportMotorsMap as assembleExportMotors,
   flightExportInput as assembleFlightExportInput } from './services/exportAssembly.js';
 import { OpenMotorDialog } from './components/OpenMotorDialog.js';
 import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorIdentity, type OpenMotorState } from './services/openMotorChoices.js';
-import { activeFlightOverrides, resolveFlightState, resetOverride, setOverride } from './services/flightState.js';
+import { activeFlightOverrides, overrideFor, resolveFlightState, resetOverride, setOverride, sparsify } from './services/flightState.js';
 import { FlightOverrideBanner, type ComponentFlightTuple } from './components/FlightOverrideBanner.js';
 import { deploymentTuple } from './services/foreignConfigLayers.js';
-import type { FlightOverrides, FlightTree, IgnitionTuple } from './model/design.js';
+import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from './model/design.js';
 import { matchingRecoveryEvents } from './services/recoveryFlight.js';
 import { editProfileSurface } from './services/windProfile.js';
 import { FlightLoadStats } from './components/FlightLoadStats.js';
@@ -19,13 +18,14 @@ import type {
   ComponentNode,
   ComponentType,
   FlightResult,
-  IgnitionEvent,
   MotorSpec,
   RocketTree,
 } from '@online-openrocket/engine';
 import { BatchSimulate, batchUnavailableReason } from './components/BatchSimulate.js';
 import { batchMotorIds } from './services/batchSweep.js';
-import { ConfigOverview, ConfigPartSummaries } from './components/ConfigOverview.js';
+import { ConfigOverview } from './components/ConfigOverview.js';
+import { ConfigPartEditors, overrideScopeText, type FlightEditScope } from './components/ConfigPartEditors.js';
+import { MountIgnitionField } from './components/MountIgnitionField.js';
 import { ConfigPanel } from './components/ConfigPanel.js';
 import type { LongitudeReview } from './components/LongitudeCheck.js';
 import { recoveryScope } from './components/recoveryContext.js';
@@ -1122,15 +1122,24 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only these three map identities affect resolution
     [activeLayer?.deployments, activeLayer?.separations, activeLayer?.ignitions, detachedOverrides]);
   const overrideConfigLabel = activeLayer ? savedConfigLabel(activeLayer) : null;
+  // The detached working settings own overrides only while they hold one
+  // (the FC-5 owner rule beginFlightEdit and editIgnition share).
+  const detachedOwnsOverrides = Object.values(detachedOverrides).some(map => Object.keys(map ?? {}).length > 0);
+  const overrideScopeLabel = overrideScopeText(overrideConfigLabel, detachedOwnsOverrides);
+  const flightOwnerKey = activeLayer?.id ?? 'working';
   const launchOverrideSummary = useMemo(() => describeFlightOverrides(
     tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance,
   ), [tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance]);
-  const [configPartTarget, setConfigPartTarget] = useState<{ id: string; family: string } | null>(null);
+  // `edit`: the Launch warning's Show lands on the row's Edit… button (CFG-SPEC A2);
+  // the All configurations table lands on the row itself.
+  const [configPartTarget, setConfigPartTarget] = useState<{ id: string; family: string; focus?: 'edit' } | null>(null);
   useEffect(() => {
     if (tab !== 'motors' || !configPartTarget) return;
     const target = document.getElementById(`cfg-${configPartTarget.family === 'ignition' ? 'mount' : 'part'}-${configPartTarget.id}`);
     target?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
-    target?.focus({ preventScroll: true });
+    const focus = configPartTarget.focus === 'edit'
+      ? target?.querySelector<HTMLButtonElement>('.config-part-actions button') ?? target : target;
+    focus?.focus({ preventScroll: true });
     setConfigPartTarget(null);
   }, [tab, configPartTarget]);
   const [ignitionTarget, setIgnitionTarget] = useState<string | null>(null);
@@ -1149,8 +1158,9 @@ export function App() {
       setTab('motors');
     }
     else {
-      setSelectedId(target.id);
-      setTab('design');
+      // Recovery and separation are edited on Motors & Configuration (CFG-SPEC A2).
+      setConfigPartTarget({ id: target.id, family: target.family, focus: 'edit' });
+      setTab('motors');
     }
   };
   const flightState = useMemo(() => resolveFlightState(tree, [], null, activeOverrides, mountMotors),
@@ -2540,7 +2550,7 @@ export function App() {
   // default+override controls use this same transaction, one history step.
   const beginFlightEdit = () => {
     flightEdit.current = { committed: false, cancel: flightCheckpoint(), owner: activeLayer ? { configId: activeLayer.id }
-      : Object.values(detachedOverrides).some(map => Object.keys(map ?? {}).length) ? 'detached' : 'default' };
+      : detachedOwnsOverrides ? 'detached' : 'default' };
   };
   const finishFlightEdit = (commit: () => void) => {
     if (flightEdit.current?.committed) commit();
@@ -2563,11 +2573,33 @@ export function App() {
     if (next.configs) setSavedConfigs(next.configs);
     if (next.detached) setDetachedOverrides(next.detached);
   };
-  const editIgnition = (id: string, tuple: IgnitionTuple, numeric = false, finished = false) => {
+  /**
+   * CFG-SPEC A3: the motor card edits an explicit scope. 'own' is the mount's
+   * own setting (every configuration without an override flies it); 'override'
+   * is the active owner's layer. There is no implicit "an active configuration
+   * means override" rule any more.
+   */
+  const editIgnition = (id: string, tuple: IgnitionTuple, scope: FlightEditScope, numeric = false, finished = false) => {
     const gesture = numeric ? flightEdit.current : null;
-    const owner = gesture?.owner ?? (activeLayer ? { configId: activeLayer.id }
-      : Object.values(detachedOverrides).some(map => Object.keys(map ?? {}).length) ? 'detached' : 'default');
     const baseline = (tree as FlightTree).ignitionDefaults?.[id] ?? mountMotors[id]!.ignition;
+    if (scope === 'own') {
+      // Establishing the first shared default must not change what another
+      // configuration flies: one whose own motor record lights differently
+      // from today's own setting keeps that as an override. Existing
+      // overrides are never touched (own-setting scope).
+      let frozen = false;
+      const configs = (tree as FlightTree).ignitionDefaults?.[id] ? savedConfigs : savedConfigs.map(c => {
+        const native = c.motors[id]?.ignition;
+        if (c.id === activeConfigId || !native || overrideFor(c.ignitions, id) || !sparsify(baseline, native)) return c;
+        frozen = true;
+        return { ...c, ignitions: { ...c.ignitions, [id]: { ...native } } };
+      });
+      commitFlightLayers({ tree: { ...tree, ignitionDefaults: { ...(tree as FlightTree).ignitionDefaults, [id]: { ...tuple } } } as FlightTree,
+        ...(frozen ? { configs } : {}) }, numeric);
+      return;
+    }
+    const owner = gesture?.owner ?? (activeLayer ? { configId: activeLayer.id }
+      : detachedOwnsOverrides ? 'detached' : 'default');
     // Native configurations can still inherit their own propellant-based motor
     // record. Establishing one shared default must not change any other owner.
     const establishing = !(tree as FlightTree).ignitionDefaults?.[id];
@@ -2578,7 +2610,7 @@ export function App() {
     const detached = establishing ? { ...detachedOverrides,
       ignitions: setOverride(detachedOverrides.ignitions, id, baseline, detachedOverrides.ignitions?.[id] ?? mountMotors[id]!.ignition),
     } : detachedOverrides;
-    // With no owner, the motor card edits the mount default (FC-5).
+    // With no owner there is no override layer: the mount default it is (FC-5).
     if (owner === 'default') {
       commitFlightLayers({ tree: { ...tree, ignitionDefaults: { ...(tree as FlightTree).ignitionDefaults, [id]: tuple } } as FlightTree }, numeric);
       return;
@@ -2633,6 +2665,19 @@ export function App() {
       detached: recovery ? { ...detachedOverrides, deployments: resetOverride(detachedOverrides.deployments, id) }
         : { ...detachedOverrides, separations: resetOverride(detachedOverrides.separations, id) },
     });
+  };
+
+  /** CFG-SPEC A2 own-setting scope: the part's tree default, as the Design field edits it. Overrides are left alone. */
+  const editComponentDefault = (node: ComponentNode, patch: Partial<ComponentFlightTuple>, numeric = false) => {
+    commitFlightLayers({ tree: updateNode(tree, node.id!, patch as Partial<ComponentNode>) }, numeric);
+  };
+  /** One undo step: drop the active owner's overrides for these parts of one family. */
+  const resetComponentOverrides = (family: 'recovery' | 'separation', ids: string[]) => {
+    const map = family === 'recovery' ? activeOverrides.deployments : activeOverrides.separations;
+    const next = ids.reduce<Record<string, ComponentFlightTuple>>((acc, id) => resetOverride(acc, id), { ...map });
+    commitActiveOverrides(family === 'recovery'
+      ? { deployments: next as Record<string, DeploymentTuple> }
+      : { separations: next as Record<string, SeparationTuple> });
   };
 
   const createConfig = (): string | null => {
@@ -4280,49 +4325,17 @@ export function App() {
                       title="When this motor lights. Automatic = launch-stage motors at launch, upper-stage motors on the ejection charge of the stage below — which lights a black powder motor, but not a composite one. Composite and hybrid motors need an igniter whatever their size, so they default to booster burnout + delay.">
                       {/* The words on screen name the select (audit
                           2026-09-30): it carried its own aria-label, "Ignition
-                          event", beside a label tied to nothing. */}
-                      <label htmlFor={`ignition-${m.id!}`}>Ignition</label>
-                      <p className="comp-stats">Ignition: {activeOverrides.ignitions?.[m.id!]
-                        ? activeLayer ? 'override for this configuration' : 'override in the detached working settings'
-                        : "mount's default"}.</p>
-                      {activeOverrides.ignitions?.[m.id!] && <button type="button" className="file-btn"
-                        onClick={() => commitActiveOverrides({ ignitions: resetOverride(activeOverrides.ignitions, m.id!) })}>
-                        Reset to the default
-                      </button>}
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        <select
-                          id={`ignition-${m.id!}`}
-                          style={{ flex: 1 }}
-                          value={mm.ignition.event}
-                          onChange={(e) => editIgnition(m.id!, { ...mm.ignition, event: e.target.value as IgnitionEvent })}
-                        >
-                          <option value="automatic">{IGNITION_EVENT_LABELS.automatic}</option>
-                          {/* A single-stage design has no lower stage, so these two would never
-                              light it (review of v0.169); one already set stays visible to change. */}
-                          {(isStaged || mm.ignition.event === 'burnout') && (
-                            <option value="burnout">{IGNITION_EVENT_LABELS.burnout}</option>)}
-                          <option value="launch">{IGNITION_EVENT_LABELS.launch}</option>
-                          {(isStaged || mm.ignition.event === 'ejectioncharge') && (
-                            <option value="ejectioncharge">{IGNITION_EVENT_LABELS.ejectioncharge}</option>)}
-                          <option value="never">{IGNITION_EVENT_LABELS.never}</option>
-                        </select>
-                        <div style={{ width: 70 }}>
-                          <NumField
-                            value={mm.ignition.delay}
-                            onEditStart={beginFlightEdit}
-                            onEditCancel={cancelFlightEdit}
-                            onEditEnd={() => finishFlightEdit(() => editIgnition(m.id!, mm.ignition, true, true))}
-                            step={0.5}
-                            max={60}
-                            ariaLabel={`Ignition delay for ${mountName(m)}`}
-                            onCommit={(v, editing) => {
-                              if (v === null) return;
-                              editIgnition(m.id!, { ...mm.ignition, delay: v }, editing);
-                            }}
-                          />
-                        </div>
-                        <span className="motor-db-meta">s</span>
-                      </div>
+                          event", beside a label tied to nothing. The scope
+                          choice is explicit (CFG-SPEC A3). */}
+                      <MountIgnitionField mountId={m.id!} mountName={mountName(m)} ownerKey={flightOwnerKey}
+                        own={(tree as FlightTree).ignitionDefaults?.[m.id!] ?? mountMotors[m.id!]?.ignition ?? mm.ignition}
+                        override={overrideFor(activeOverrides.ignitions, m.id!)}
+                        overrideLabel={overrideScopeLabel} isStaged={isStaged}
+                        onEdit={(scope, tuple, numeric) => editIgnition(m.id!, tuple, scope, numeric)}
+                        onEditStart={beginFlightEdit}
+                        onEditCancel={cancelFlightEdit}
+                        onEditEnd={(scope, tuple) => finishFlightEdit(() => { if (scope === 'override') editIgnition(m.id!, tuple, scope, true, true); })}
+                        onReset={() => commitActiveOverrides({ ignitions: resetOverride(activeOverrides.ignitions, m.id!) })} />
                     </div>
                   )}
                   {/* The weighed pad mass lives under the PRIMARY mount's motor —
@@ -4380,7 +4393,17 @@ export function App() {
                 </div>
               );
             })}
-            <ConfigPartSummaries tree={tree} overrides={activeOverrides} />
+            {/* CFG-SPEC A2: own settings and overrides for recovery and separation are edited here. */}
+            <ConfigPartEditors tree={tree} overrides={activeOverrides} ownerKey={flightOwnerKey}
+              configLabel={overrideConfigLabel} detached={detachedOwnsOverrides}
+              onEdit={(node, scope, tuple, patch, numeric) => scope === 'own'
+                ? editComponentDefault(node, patch, numeric) : editComponentOverride(node, tuple, numeric)}
+              onEditStart={beginFlightEdit}
+              onEditCancel={cancelFlightEdit}
+              onEditEnd={(node, scope, tuple) => finishFlightEdit(() => { if (scope === 'override') editComponentOverride(node, tuple, true, true); })}
+              onReset={resetComponentOverride}
+              onResetAll={resetComponentOverrides}
+              onEverywhere={adoptComponentOverrideEverywhere} />
             {/* A disabled button that does not say why reads as a broken button —
                 reported 2026-09-01b as "when I click the button, nothing happens".
                 There are THREE reasons this can be off and the tooltip named only

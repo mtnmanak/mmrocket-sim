@@ -2,13 +2,20 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { describe, expect, it, vi } from 'vitest';
-import { ConfigOverview, ConfigPartSummaries } from './ConfigOverview.js';
+import { ConfigOverview } from './ConfigOverview.js';
+import { ConfigPartEditors } from './ConfigPartEditors.js';
 import { ConfigPanel } from './ConfigPanel.js';
-import type { FlightTree, SavedConfig } from '../model/design.js';
+import type { FlightOverrides, FlightTree, SavedConfig } from '../model/design.js';
 import { describeFlightOverrides } from '../services/flightOverrideSummary.js';
 import { activeFlightOverrides } from '../services/flightState.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+const noop = () => {};
+/** CFG-2 replaced CFG-1's read-only summaries with the scoped editors; the destinations are the same rows. */
+function PartRows({ tree, overrides }: { tree: FlightTree; overrides: FlightOverrides }) {
+  return <ConfigPartEditors tree={tree} overrides={overrides} ownerKey="a" configLabel="Flight A" detached={false}
+    onEdit={noop} onEditStart={noop} onEditEnd={noop} onEditCancel={noop} onReset={noop} onResetAll={noop} onEverywhere={noop} />;
+}
 const tree: FlightTree = { name: 'T', ignitionDefaults: { mount: { event: 'automatic', delay: 0 } }, components: [
   { id: 'top', type: 'stage', name: 'Sustainer', children: [
     { id: 'mount', type: 'bodytube', name: 'Mount', motorMount: true },
@@ -40,15 +47,16 @@ describe('CFG-1 comparison and summary', () => {
     try {
       act(() => root.render(<>
         <ConfigOverview tree={tree} configs={[overridden]} activeConfigId="a" onApply={() => {}} onShowPart={() => {}} />
-        <ConfigPartSummaries tree={tree} overrides={overrides} />
+        <PartRows tree={tree} overrides={overrides} />
         <ConfigOverview tree={ownTree} configs={[config]} activeConfigId="a" onApply={() => {}} onShowPart={() => {}} />
-        <ConfigPartSummaries tree={ownTree} overrides={{}} />
+        <PartRows tree={ownTree} overrides={{}} />
       </>));
       const grids = host.querySelectorAll('table');
       expect(grids[0]!.querySelectorAll('td')[1]!.textContent).toBe(`${expected} — override`);
-      expect(host.querySelector('#cfg-part-chute p')!.textContent).toBe(`${expected} — override`);
+      expect(host.querySelectorAll('#cfg-part-chute p')[1]!.textContent).toBe(`This configuration: overridden — ${expected}`);
       expect(grids[1]!.querySelector('td')!.textContent).toBe(expected);
-      expect(host.querySelector('#cfg-part-own p')!.textContent).toBe(`${expected} — uses own setting`);
+      expect(host.querySelectorAll('#cfg-part-own p')[0]!.textContent).toBe(`Own setting: ${expected}`);
+      expect(host.querySelectorAll('#cfg-part-own p')[1]!.textContent).toBe('This configuration: uses own setting');
       expect(describeFlightOverrides(tree, overrides, config.motors, config.name, 'm')!.text).toContain(expected);
     } finally { act(() => root.unmount()); }
   });
@@ -91,7 +99,7 @@ describe('CFG-1 comparison and summary', () => {
     try {
       act(() => root.render(<><ConfigPanel tree={tree} configs={[config]} activeConfigId="a" hasMotors
         onApply={() => {}} onClear={() => {}} onCreate={() => null} onRename={() => {}} onDelete={() => {}} />
-        <ConfigPartSummaries tree={tree} overrides={overrides} /></>));
+        <PartRows tree={tree} overrides={overrides} /></>));
       const chooser = host.querySelector('select')!;
       expect(host.querySelector(`[id="${chooser.getAttribute('aria-describedby')}"]`)!.textContent).toBe(summary.shortText);
       expect(summary.shortText).toContain('parachute'); expect(summary.shortText).toContain('stage'); expect(summary.shortText).toContain('motor mount');

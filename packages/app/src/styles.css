@@ -413,7 +413,15 @@ html {
 .config-table { width: 100%; border-collapse: collapse; }
 .config-table th, .config-table td { min-width: 160px; padding: 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
 .config-table .file-btn { white-space: normal; overflow-wrap: anywhere; text-align: left; }
-.config-part-summary { padding: 6px 0; }
+/* CFG-SPEC A2: one row per recovery device / separating stage, editor inline. */
+.config-part-row { padding: 8px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.config-part-row p { margin: 2px 0; }
+.config-part-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+.config-part-actions .file-btn, .config-part-section > .file-btn { max-width: 100%; white-space: normal; }
+.config-part-editor { margin-top: 8px; }
+.flight-scope { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin: 6px 0; min-width: 0; }
+.flight-scope label { display: flex; gap: 6px; align-items: baseline; font-weight: normal; }
+.flight-scope input { width: auto; flex: none; }
 .config-overview summary { cursor: pointer; }
 
 .config-active-tag {

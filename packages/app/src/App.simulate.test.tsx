@@ -853,6 +853,13 @@ async function nativeIgnitionCase(staged = false) {
     [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();
   });
   await click('Motors & Configuration');
+  // CFG-2 (A3): the motor card no longer edits the override implicitly because
+  // a configuration is active; these cases choose the override scope first.
+  const scopes = [...host.querySelectorAll<HTMLLabelElement>('.mount-card fieldset label')];
+  expect(scopes.map(l => l.textContent?.trim())).toEqual([
+    "Change the part's own setting — every configuration that uses it", 'Override for “Native A” only']);
+  expect(scopes[0]!.querySelector('input')!.checked).toBe(true);
+  await act(async () => { scopes[1]!.querySelector('input')!.click(); });
   const select = () => host.querySelector<HTMLSelectElement>(`#ignition-${mount}`)!;
   const choose = async (event: string) => act(async () => {
     select().value = event;
@@ -897,7 +904,7 @@ it('FC-4 fixup native staged ignition save and reopen retain default and overrid
   const openedId = Object.keys(peekSession()!.tree.ignitionDefaults!)[0]!;
   expect(peekSession()!.tree.ignitionDefaults![openedId]).toEqual({ event: 'automatic', delay: 0 });
   expect(peekSession()!.savedConfigs!.find(c => c.id === 'a')!.ignitions![openedId]).toEqual({ event: 'launch', delay: 2 });
-  expect(host.textContent).toContain('override for this configuration');
+  expect(host.textContent).toContain('Ignition: overridden here — Launch + delay (timer), delay 2 s');
 }, 30000);
 
 it.each(['auto', 'plugged', 'delay'])('FC-4 fixup native ignition survives %s control and undo redo', async control => {
@@ -925,7 +932,8 @@ it('FC-4 fixup Delete keeps override history in the detached working layer', asy
   await number('[aria-label^="Ignition delay for"]', '2');
   await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Delete Native A"]')!.click(); });
   await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Confirm delete Native A"]')!.click(); });
-  expect(host.textContent).toContain('override in the detached working settings');
+  expect(host.textContent).toContain('Ignition: overridden here');
+  expect(host.textContent).toContain('Override in the working settings only');
   await click('Undo');
   await click('Undo');
   expect(select().value).toBe('automatic');
@@ -933,7 +941,8 @@ it('FC-4 fixup Delete keeps override history in the detached working layer', asy
   await click('Redo');
   await click('Redo');
   expect(select().value).toBe('launch');
-  expect(host.textContent).toContain('override in the detached working settings');
+  expect(host.textContent).toContain('Ignition: overridden here');
+  expect(host.textContent).toContain('Override in the working settings only');
   await fly('launch', 2);
   window.dispatchEvent(new Event('pagehide'));
   expect(peekSession()!.activeConfigId).toBeNull();
@@ -1097,7 +1106,7 @@ describe('the Launch button and simulateFile fly a real design the same (local c
 });
 
 
-it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM import warns below every launch site and Show selects its parachute', async () => {
+it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM import warns below every launch site and Show focuses its parachute row on Motors & Configuration', async () => {
   prefs(CLASSIC);
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
   const host = await mountApp();
@@ -1154,13 +1163,70 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM i
   await click('Batch simulate motors');
   await waitFor(() => !!host.querySelector('#launch-override-batch'), 'Batch warning');
   assertWarnings(3, true);
+  // CFG-2: Show lands on the first overridden parachute's row and focuses its Edit… button.
+  const flat = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...flat(n.children ?? [])]);
+  const firstChute = flat(peekSession()!.tree.components).find(n => n.type === 'parachute')!;
+  const expectShown = () => {
+    const row = host.querySelector(`[id="cfg-part-${firstChute.id!}"]`)!;
+    expect(row).not.toBeNull();
+    expect(document.activeElement).toBe(row.querySelector('.config-part-actions button'));
+    expect(document.activeElement?.textContent).toBe('Edit…');
+    expect(row.textContent).toContain('This configuration: overridden — Motor ejection charge');
+    expect(host.querySelector('.motors-layout')).not.toBeNull();
+  };
   await act(async () => host.querySelector<HTMLButtonElement>('#launch-override-batch')!.parentElement!.querySelector('button')!.click());
   expect(host.querySelector('#launch-override-batch')).toBeNull();
-  expect(host.querySelector('[aria-label="Recovery override"]')?.textContent).toContain('[F67C-9]');
+  expectShown();
   await click('Fly');
   assertWarnings(1, true);
   await act(async () => host.querySelector<HTMLButtonElement>('#launch-override-fly')!.parentElement!.querySelector('button')!.click());
-  expect(host.querySelector('[aria-label="Recovery override"]')?.textContent).toContain('[F67C-9]');
+  expectShown();
+}, 60000);
+
+it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('CFG-2 LEM rows show both chutes overridden; one bulk reset flies both at 300 ft and undoes in one step', async () => {
+  prefs(CLASSIC);
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  await pick(host, new File([readFileSync(corpus('atestani files/LEM-1-2026_2.ork'))], 'LEM-1-2026_2.ork'));
+  await waitFor(() => peekSession()?.activeConfigId === '365b8430-de05-45ee-a421-5142de1fd1ae', 'LEM open');
+  const click = async (text: string) => act(async () => {
+    [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();
+  });
+  const flat = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...flat(n.children ?? [])]);
+  const chutes = flat(peekSession()!.tree.components).filter(n => n.type === 'parachute');
+  expect(chutes).toHaveLength(2);
+  await click('Motors & Configuration');
+  const row = (id: string) => host.querySelector(`[id="cfg-part-${id}"]`)!;
+  const bulk = 'Reset all recovery overrides in this configuration';
+  for (const chute of chutes) {
+    expect(row(chute.id!).textContent).toContain('Own setting: Altitude (descending), 300 ft');
+    expect(row(chute.id!).textContent).toContain('This configuration: overridden — Motor ejection charge');
+  }
+  await click(bulk);
+  for (const chute of chutes) {
+    expect(row(chute.id!).textContent).toContain('This configuration: uses own setting');
+    expect(row(chute.id!).textContent).not.toContain('Reset to own setting');
+  }
+  expect([...host.querySelectorAll('button')].some(b => b.textContent === bulk)).toBe(false);
+  expect(host.querySelector('.config-panel')!.textContent).not.toContain('parachute');
+  await settle(450);
+  const state = peekSession()!;
+  const active = state.savedConfigs!.find(c => c.id === state.activeConfigId)!;
+  for (const chute of chutes) expect(active.deployments?.[chute.id!]).toBeUndefined();
+  // The real kernel input, not only the resolver: both deploy at 91.44 m (300 ft).
+  await launch(host);
+  await waitFor(() => vi.mocked(flyBuiltDesign).mock.calls.length > 0, 'bulk-reset Launch input');
+  await waitFor(() => runs() > 0, 'bulk-reset flight');
+  const args = vi.mocked(flyBuiltDesign).mock.calls.at(-1)![0];
+  for (const chute of chutes) expect(findNode(args.tree, chute.id!)).toMatchObject({ deployEvent: 'altitude', deployAltitude: 91.44 });
+  await click('Motors & Configuration');
+  const undo = () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('↩ Undo'))!;
+  expect(undo().disabled).toBe(false);
+  await click('↩ Undo');
+  for (const chute of chutes) expect(row(chute.id!).textContent).toContain('This configuration: overridden — Motor ejection charge');
+  // The reset was the only step since the file opened: one Undo took all of it back.
+  expect(undo().disabled).toBe(true);
 }, 60000);
 
 it.each([false, true])('LW4 ignition Show scrolls the affected card and focuses Ignition (reduced motion %s)', async reduced => {

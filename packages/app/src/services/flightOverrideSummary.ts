@@ -51,6 +51,16 @@ export function describeFlownDeployment(tuple: DeploymentTuple, unit: string): s
   return `${description} (the file's '${stored}' is not supported here)`;
 }
 
+/** The Launch warning's wording for a separation tuple, as the kernel flies it. */
+export function describeFlownSeparation(tuple: SeparationTuple, unit: string): string {
+  return describeComponentFlightTuple(flownSeparation(tuple), unit, 'warning');
+}
+
+/** The Launch warning's wording for an ignition tuple, as the kernel flies it. */
+export function describeFlownIgnition(tuple: IgnitionTuple): string {
+  return describeIgnitionTuple(flownIgnition(tuple), 'warning');
+}
+
 /** Describe effective overrides on present components / loaded motors. */
 export function describeFlightOverrides(
   tree: FlightTree, overrides: FlightOverrides, motors: Record<string, MountMotor>,
@@ -81,14 +91,14 @@ export function describeFlightOverrides(
         const tuple = overrideFor(overrides.separations, id);
         const own = separationTuple(node);
         if (tuple && sparsify(flownSeparation(own), flownSeparation(tuple))) add(node, 'separation', 'stage',
-          describeComponentFlightTuple(flownSeparation(tuple), distanceUnit, 'warning'), describeComponentFlightTuple(flownSeparation(own), distanceUnit, 'warning'));
+          describeFlownSeparation(tuple, distanceUnit), describeFlownSeparation(own, distanceUnit));
       }
       const motor = id ? overrideFor(motors, id) : undefined;
       if (id && motor && mountIds.has(id)) {
         const tuple = overrideFor(overrides.ignitions, id);
         const own = overrideFor(tree.ignitionDefaults, id) ?? motor.ignition;
         if (tuple && sparsify(flownIgnition(own), flownIgnition(tuple))) add(node, 'ignition', 'motor mount',
-          describeIgnitionTuple(flownIgnition(tuple), 'warning'), describeIgnitionTuple(flownIgnition(own), 'warning'));
+          describeFlownIgnition(tuple), describeFlownIgnition(own));
       }
       if (node.children) visit(node.children);
     }

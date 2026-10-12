@@ -1,10 +1,10 @@
 import { useMemo } from 'react';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { savedConfigLabel, type FlightTree, type SavedConfig, type FlightOverrides } from '../model/design.js';
+import { savedConfigLabel, type FlightTree, type SavedConfig } from '../model/design.js';
 import { motorMounts, stages } from '../tree/treeModel.js';
 import { deploymentTuple } from '../services/foreignConfigLayers.js';
-import { describeComponentFlightTuple, describeIgnitionTuple, separationTuple } from '../services/flightOverrideText.js';
-import { describeFlownDeployment } from '../services/flightOverrideSummary.js';
+import { describeIgnitionTuple, separationTuple } from '../services/flightOverrideText.js';
+import { describeFlownDeployment, describeFlownSeparation } from '../services/flightOverrideSummary.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 
 type Part = { node: ComponentNode; family: 'recovery' | 'separation' | 'ignition' };
@@ -36,26 +36,7 @@ function partValue(part: Part, config: Pick<SavedConfig, 'motors' | 'deployments
   const tuple = family === 'recovery' ? config.deployments?.[id] : config.separations?.[id];
   const effectiveNode = { ...node, ...tuple };
   return { text: family === 'recovery' ? describeFlownDeployment(deploymentTuple(effectiveNode), unit)
-    : describeComponentFlightTuple(separationTuple(effectiveNode), unit, 'warning'), override: !!tuple };
-}
-
-/** Read-only destinations for the grid; CFG-2 adds the scoped editors here. */
-export function ConfigPartSummaries({ tree, overrides }: { tree: FlightTree; overrides: FlightOverrides }) {
-  const { prefs } = usePrefs();
-  const parts = useMemo(() => configurationParts(tree), [tree]);
-  return <>{(['recovery', 'separation'] as const).map(family => {
-    const rows = parts.filter(p => p.family === family);
-    return rows.length > 0 && <section key={family} aria-label={family === 'recovery' ? 'Recovery' : 'Stages'}>
-      <h3>{family === 'recovery' ? 'Recovery' : 'Stages'}</h3>
-      {rows.map(part => {
-        const value = partValue(part, { motors: {}, ...overrides }, tree, prefs.units.distance);
-        return <div key={part.node.id} id={`cfg-part-${part.node.id!}`} tabIndex={-1} className="config-part-summary">
-          <strong>{part.node.name || part.node.type}</strong>
-          <p className="comp-stats">{value.text}{value.override ? ' — override' : ' — uses own setting'}</p>
-        </div>;
-      })}
-    </section>;
-  })}</>;
+    : describeFlownSeparation(separationTuple(effectiveNode), unit), override: !!tuple };
 }
 
 export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowPart }: {
