@@ -1,5 +1,5 @@
 {
-  "version": "0.182",
+  "version": "0.183",
   "released": "2026-10-12",
-  "note": "Fixes from an engineering audit: no false import warning on .rkt/.CDX1, Undo on Motors & Launch, freeform fin prints on tapered mounts, file-import fidelity and keyboard access. No flight changes across the 1,005 designs in the test corpus. The LEM-1 parachute override is not fixed yet."
+  "note": "A parachute keeps its own setting beside a flight configuration's override, as desktop OR stores them, with a banner to edit, reset or adopt the override (LEM-1). No change to what any design flies in its default configuration across 1,008 design files."
 }
