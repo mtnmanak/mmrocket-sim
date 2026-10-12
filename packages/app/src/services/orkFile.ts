@@ -465,8 +465,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // the 0 as no answer and keeps the part's own radius, MassObject()'s
       // 12.5 mm — which a mass component's 5 mm fallback above is not.
       noCavity = autoFallback): number => {
-    const raw = text(el, `:scope > ${tag}`);
-    if (raw === null) return fallback;
+    // Empty elements are invalid values, not missing dimensions (audit 2026-10-11, S1a-4).
+    const field = el.querySelector(`:scope > ${tag}`);
+    if (!field) return fallback;
+    const raw = field.textContent ?? '';
     const last = parseDecimal(raw.trim().split(/\s+/).pop()); // decimal only, as num() below
     if (Number.isFinite(last)) return last; // plain number, or `auto <lastvalue>`
     if (!/^auto\b/i.test(raw.trim())) {
@@ -499,7 +501,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
    */
   const readPackedSize = (el: XmlElement, n: ComponentNode): void => {
     if (text(el, ':scope > packedlength') !== null) n['packedLength'] = num(el, 'packedlength', 0.025, notes);
-    if (text(el, ':scope > packedradius') !== null) {
+    if (el.querySelector(':scope > packedradius')) {
       n['packedRadius'] = autoDim(el, 'packedradius', 0.0125, autoRadii.packed, 0.0125);
     }
   };
@@ -878,10 +880,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // the built tree, which is right. A PRESENT bare `auto` is resolved
         // here instead — the kernel would agree, but the schematic, the 3D
         // mesh and the property panel all need a number to show.
-        if (text(el, ':scope > foreradius') !== null) {
+        if (el.querySelector(':scope > foreradius')) {
           n['foreRadius'] = autoDim(el, 'foreradius', 0.012, autoRadii.fore);
         }
-        if (text(el, ':scope > aftradius') !== null) {
+        if (el.querySelector(':scope > aftradius')) {
           n['aftRadius'] = autoDim(el, 'aftradius', 0.009, autoRadii.aft);
         }
         if (text(el, ':scope > thickness') === 'filled') {

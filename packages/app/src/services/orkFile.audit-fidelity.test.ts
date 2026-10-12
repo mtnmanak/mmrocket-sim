@@ -72,6 +72,47 @@ describe('audit 2026-10-11 .ork fidelity and bounds', () => {
     expect(r.tree.components[0]!.children![0]!['packedRadius']).toBe(0.0125);
   });
 
+  describe.each(['self-closing', 'empty', 'whitespace'])('S1a-4 %s radius elements', form => {
+    const element = (tag: string) => form === 'self-closing' ? `<${tag}/>`
+      : `<${tag}>${form === 'whitespace' ? ' \t\n ' : ''}</${tag}>`;
+    it.each([
+      ['bodytube', 'radius', 'outerRadius'], ['nosecone', 'aftradius', 'aftRadius'],
+      ['transition', 'foreradius', 'foreRadius'], ['transition', 'aftradius', 'aftRadius'],
+    ])('resolves %s %s from a neighbour with a note and preserves it on reopen', (part, tag, prop) => {
+      const r = importOrk(fixture(tube + `<${part}><length>0.1</length>${element(tag)}</${part}>` + tube));
+      expect(r.notes.join('\n')).toContain(`invalid <${tag}> value; using an automatic radius`);
+      expect(r.tree.components[0]!.children![1]![prop]).toBeCloseTo(0.05, 12);
+      const reopened = importOrk(save(r));
+      expect(reopened.tree.components[0]!.children![1]![prop]).toBeCloseTo(0.05, 12);
+      expect(reopened.notes.join('\n')).not.toContain(`invalid <${tag}> value`);
+    });
+    it.each([
+      ['parachute', 'packedRadius', 0.0125], ['streamer', 'packedRadius', 0.0125],
+      ['shockcord', 'packedRadius', 0.0125], ['masscomponent', 'radius', 0.005],
+    ])('keeps the %s packed fallback with a note on import and reopen', (part, prop, fallback) => {
+      const packed = `<${part}>${element('packedradius')}</${part}>`;
+      const r = importOrk(fixture(tube.replace('</bodytube>', `<subcomponents>${packed}</subcomponents></bodytube>`)));
+      expect(r.notes.join('\n')).toContain(`invalid <packedradius> value; using the default (${fallback})`);
+      expect(r.tree.components[0]!.children![0]!.children![0]![prop]).toBe(fallback);
+      const reopened = importOrk(save(r));
+      expect(reopened.tree.components[0]!.children![0]!.children![0]![prop]).toBe(fallback);
+      expect(reopened.notes.join('\n')).not.toContain('invalid <packedradius> value');
+    });
+  });
+  it.each([
+    ['bodytube', 'radius', 'outerRadius', 0.012], ['nosecone', 'aftradius', 'aftRadius', 0.012],
+    ['transition', 'foreradius', 'foreRadius', undefined], ['transition', 'aftradius', 'aftRadius', undefined],
+  ])('S1a-4 keeps the absent %s %s fallback without an invalid-value note', (part, tag, prop, fallback) => {
+    const r = importOrk(fixture(tube + `<${part}><length>0.1</length></${part}>` + tube));
+    expect(r.tree.components[0]!.children![1]![prop]).toBe(fallback);
+    expect(r.notes.join('\n')).not.toContain(`invalid <${tag}> value`);
+  });
+  it.each(['parachute', 'streamer', 'shockcord'])('S1a-4 leaves an absent %s packed radius unset without a note', part => {
+    const r = importOrk(fixture(`<${part}/>`));
+    expect(r.tree.components[0]!.children![0]!['packedRadius']).toBeUndefined();
+    expect(r.notes.join('\n')).not.toContain('invalid <packedradius> value');
+  });
+
   it('S1a-5 refuses a wrapped openrocket root', () => {
     expect(() => importOrk(`<wrapper>${fixture(tube, config('A'), sim('A', '<extension extensionid="x"/>'))}</wrapper>`)).toThrow(/root.*openrocket/i);
   });
