@@ -3110,7 +3110,8 @@ export function App() {
               Ctrl+Z has worked globally since v0.013, but nothing advertised
               it outside the Design tab (issue 2026-08-05a #20). */}
           <button className="file-btn" onClick={undo} disabled={!canUndo}
-            title="Undo the last change to the design tree (Ctrl+Z) — 50 steps. Motors and launch conditions are not part of undo.">
+            // audit 2026-10-11, S2-6: crossing a motor answer restores its companion state.
+            title="Undo the last change to the design tree (Ctrl+Z) — 50 steps. Motors and launch conditions are not part of undo, except that undoing past an answer to the open-file motor question restores the motors it replaced.">
             ↩ Undo
           </button>
           <button className="file-btn" onClick={redo} disabled={!canRedo}
@@ -3770,7 +3771,7 @@ export function App() {
                 ⤢ Scale…
               </button>
               <button className="file-btn" onClick={undo} disabled={!canUndo}
-                title="Undo the last design-tree change (Ctrl+Z)">↩ Undo</button>
+                title="Undo the last design-tree change (Ctrl+Z). Undoing past an answer to the open-file motor question restores the motors it replaced.">↩ Undo</button>
               <button className="file-btn" onClick={redo} disabled={!canRedo}
                 title="Redo (Ctrl+Shift+Z or Ctrl+Y)">↪ Redo</button>
             </div>
@@ -4123,6 +4124,7 @@ export function App() {
                           motorLabel={loadout[0]?.label ?? null}
                           clearedFor={nozzleCleared[nozzleStage.id!] ?? null}
                           onCommit={(m) => setTree(applyStageNozzles(treeRef.current, { [nozzleStage.id!]: m }))}
+                          onAutoFill={(m) => writeTree(applyStageNozzles(treeRef.current, { [nozzleStage.id!]: m }))}
                         />
                       </div>;
                     })}

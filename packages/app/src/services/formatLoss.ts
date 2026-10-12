@@ -136,7 +136,8 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
   const active = input.configs.find(c => c.id === input.activeConfigId);
   const otherConfigs = input.configs.filter(c => c.id !== input.activeConfigId);
   add(otherConfigs.length > 0, `Flight configurations: only ${active ? `“${savedConfigLabel(active)}”` : 'the current working setup'} is written. Other configurations' motors, deployment, ignition, separation, stage on/off and stage mass settings are not kept.`);
-  add(input.configs.some(c => c.motorLoadoutRefusal || Object.keys(c.stageActiveness ?? {}).length > 0),
+  // audit 2026-10-11, S1d-1: all-true desktop OR maps lose no disabled stages.
+  add(input.configs.some(c => c.motorLoadoutRefusal || Object.values(c.stageActiveness ?? {}).includes(false)),
     'Which stages each flight configuration switches off, and the record of configuration motors that could not be loaded, are not kept.');
   add(Object.keys(input.flightData).length > 0, 'Flight summaries, their warnings and simulation provenance are not kept.');
   const motors = Object.values(input.motors);

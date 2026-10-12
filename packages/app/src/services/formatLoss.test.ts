@@ -252,6 +252,9 @@ describe('design-specific format losses', () => {
     d.configs.push({ id: 'b', name: 'Other', motors: {}, isDefault: false, nozzles: { s: 0 } });
     expect(line(format, d, 'only “Club flight” is written')).toBe(true);
     expect(line(format, d, 'Which stages each flight configuration switches off')).toBe(false);
+    // audit 2026-10-11, S1d-1: desktop OR writes all-true stage maps too.
+    d.configs[0]!.stageActiveness = { s: true };
+    expect(line(format, d, 'Which stages each flight configuration switches off')).toBe(false);
     d.configs[0]!.stageActiveness = { s: false };
     expect(line(format, d, 'Which stages each flight configuration switches off')).toBe(true);
   });

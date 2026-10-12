@@ -126,6 +126,19 @@ describe('resolveImportMotors — the awaits of an open', () => {
 });
 
 describe('planImport — one plan, applied and marked', () => {
+  // audit 2026-10-11, S7c-1: retained settings are information, not motor trouble.
+  it.each(['rkt', 'cdx1'] as const)('%s keeps a clean motor match informational but warns for an unmatched motor', (sourceFormat) => {
+    const imported: ImportedDesign = { name: 'x', tree: podTree(), notes: [], sourceFormat, motors: { mmt: ref('H100') } };
+    const clean = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });
+    expect(clean.note.text).toContain(retainedLaunchNote(sourceFormat, LAUNCH, undefined));
+    expect(clean.note.severity).toBe('info');
+    const unmatched = planImport(imported, {
+      working: { mmt: { note: 'Motor H100 is not in the motor database.' } }, configs: {},
+    }, { launch: LAUNCH, text: TEXT });
+    expect(unmatched.note.severity).toBe('warn');
+    expect(unmatched.unmatchedRefs.mmt?.designation).toBe('H100');
+  });
+
   it('O4 shows a confirmed EX library match once with a mount count as information', async () => {
     const ex = parseEng('F67 28.6 127 6 0.043 0.112 Enerjet\n0 0\n0.1 80\n1 0')[0]!;
     const reference = { ...ref('F67'), manufacturer: 'Enerjet', diameter: 0.0286 };

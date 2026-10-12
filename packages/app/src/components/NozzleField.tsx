@@ -49,7 +49,7 @@ import { UnitChip } from './UnitChip.js';
  * re-read.
  */
 export function NozzleField({
-  stageName, exitDiameterM, motors, motorLabel, clearedFor, onCommit, parallel = false,
+  stageName, exitDiameterM, motors, motorLabel, clearedFor, onCommit, onAutoFill, parallel = false,
 }: {
   stageName: string;
   parallel?: boolean;
@@ -71,6 +71,8 @@ export function NozzleField({
    */
   clearedFor?: { previousLabel: string; previousM: number } | null;
   onCommit: (m: number | null) => void;
+  /** Motor-driven writes do not create an undo step (audit 2026-10-11, S3c-1). */
+  onAutoFill: (m: number) => void;
 }) {
   const { prefs } = usePrefs();
   const sym = prefs.units.motorDimensions;
@@ -120,8 +122,8 @@ export function NozzleField({
   // Rule 1: fill an empty field from the published figure. In an effect and not
   // in render, because it writes to the design.
   useEffect(() => {
-    if (published !== null && exitDiameterM === null) onCommit(published);
-    // onCommit is a per-render closure; re-running on its identity would fight
+    if (published !== null && exitDiameterM === null) onAutoFill(published);
+    // onAutoFill is a per-render closure; re-running on its identity would fight
     // the write it just made.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fill once, on arrival
   }, [published, exitDiameterM]);

@@ -8,6 +8,8 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { downloadBlob } from '../services/saveFile.js';
 import { svgToImage } from '../services/schematicExport.js';
 import { finTemplatePixelSize } from '../services/finTemplate.js';
+import { QUANTITY_LABEL } from '../prefs/units.js';
+import * as dxfExport from '../services/dxfExport.js';
 
 vi.mock('../services/saveFile.js', () => ({ downloadBlob: vi.fn() }));
 vi.mock('../services/schematicExport.js', async (importOriginal) => ({
@@ -19,7 +21,7 @@ vi.mock('../services/schematicExport.js', async (importOriginal) => ({
  * @atestani (TRF, 2026-10-11): "the DXF export doesn't respect my units
  * preference" and "the background of the exported image is grey and when
  * converted/saved as a jpeg, is black". Wired end to end: the ✂ DXF button
- * reads the Length preference, and 📐 Fin template offers a white SVG (first),
+ * reads the Rocket dimensions (`prefs.units.length`) preference, and 📐 Fin template offers a white SVG (first),
  * the transparent one, and 300 dpi PNG/JPG images.
  */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -152,7 +154,28 @@ describe('📐 Fin template — one control, four files', () => {
   });
 });
 
-describe('✂ DXF follows the Length unit preference', () => {
+describe('✂ DXF follows the Rocket dimensions (`prefs.units.length`) preference', () => {
+  it('CR-5: the tooltip reads the drawing-unit word from the exporter', () => {
+    const word = vi.spyOn(dxfExport, 'dxfUnitWord').mockReturnValue('drawing unit word');
+    try {
+      mount();
+      expect(buttons().find(b => b.textContent!.startsWith('✂'))!.title).toContain('R12 DXF in drawing unit word');
+    } finally {
+      word.mockRestore();
+    }
+  });
+
+  it('CR-3: the tooltip follows a rename of the rendered quantity label', () => {
+    const original = QUANTITY_LABEL.length;
+    try {
+      QUANTITY_LABEL.length = 'Rocket size (renamed)';
+      mount();
+      expect(buttons().find(b => b.textContent!.startsWith('✂'))!.title).toContain(QUANTITY_LABEL.length);
+    } finally {
+      QUANTITY_LABEL.length = original;
+    }
+  });
+
   const dxf = async (): Promise<string> => {
     const b = buttons().find((x) => x.textContent!.startsWith('✂'))!;
     await act(async () => { b.click(); });
@@ -163,7 +186,7 @@ describe('✂ DXF follows the Length unit preference', () => {
     return lines[lines.indexOf('$INSUNITS') + 2]!;
   };
 
-  it('inches when Length is in', async () => {
+  it('inches when Rocket dimensions is in', async () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'in' } }));
     mount();
     const text = await dxf();
@@ -173,13 +196,13 @@ describe('✂ DXF follows the Length unit preference', () => {
     expect(buttons().find((x) => x.textContent!.startsWith('✂'))!.title).toContain('R12 DXF in inches');
   });
 
-  it('inches when Length is ft', async () => {
+  it('inches when Rocket dimensions is ft', async () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'ft' } }));
     mount();
     expect(insunits(await dxf())).toBe('1');
   });
 
-  it('millimetres when Length is cm (or the default mm)', async () => {
+  it('millimetres when Rocket dimensions is cm (or the default mm)', async () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'cm' } }));
     mount();
     const text = await dxf();
