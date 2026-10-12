@@ -23,7 +23,7 @@ import { shapeParamDefault } from '../tree/shapeProfile.js';
 import { solidContextFor } from '../tree/solidContext.js';
 import { isTailCone, tailConeAsTransition } from '../tree/tailCone.js';
 import {
-  autoDelaySaveNote, MAX_ORK_CONFIGURATIONS, type MeasuredFigures, type OrkDeployOverride, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult,
+  autoDelaySaveNote, MAX_ORK_CONFIGURATIONS, type MeasuredFigures, type OrkExportMotor, type OrkFlightConfig, type OrkImportResult,
   type OrkMotorRef,
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
@@ -37,6 +37,11 @@ import { declaresDoctype, parseXml, XmlDoctypeRefused, type XmlElement } from '.
 import { importLaunchValue } from './launchConditions.js';
 import { SITE_ALTITUDE_M_RANGE } from './atmosphere.js';
 import { checkFileLongitude, fileLongitudeNote } from './longitudeCheck.js';
+import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple } from '../model/design.js';
+import type { LayeredOrkFlightConfig, LayeredOrkImportResult } from './orkFile.js';
+import { sparsify } from './flightState.js';
+import { deploymentTuple, exportIgnitions, legacyImportFlightState } from './foreignConfigLayers.js';
+import { knownIgnitionEvent } from './ignitionEvent.js';
 
 /**
  * RockSim (.rkt) design import/export — Phase 3 "file imports and exports".
@@ -199,7 +204,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    * over; without it the line writes metres, the unit the file stores.
    */
   distanceUnit?: string;
-}): OrkImportResult {
+}): LayeredOrkImportResult {
   let xml: string;
   // Set when the bytes were not valid UTF-8 and named no other encoding (see
   // decodeXml): the first import note, once there are notes.
@@ -1290,7 +1295,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const simulationRecovery = simEls.map((el, i) =>
     readDeploymentEvents(el, serialToNode, simulationRecoveryNotes[i]!, num));
   const originalSerial = new Map([...serialToNode].map(([serial, node]) => [node, serial]));
-  const deploymentFor = (node: ComponentNode, simulation?: Map<string, RktTrigger>): OrkDeployOverride => {
+  const deploymentFor = (node: ComponentNode, simulation?: Map<string, RktTrigger>): DeploymentTuple => {
     const serial = originalSerial.get(node) ?? '';
     const trigger = simulation?.get(serial) ?? designRecovery.get(serial);
     return { deployEvent: trigger?.deployEvent ?? 'ejection',
@@ -1638,11 +1643,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     ...(node.type === 'parachute' || node.type === 'streamer' ? [node] : []),
     ...recoveryIn(node.children ?? []),
   ]);
-  // A device without a source serial cannot be targeted by an event, but still
-  // needs a complete default map so switching configurations clears old edits.
+  // Even a device without a source serial inherits its own complete default.
   const recoveryNodes = recoveryIn(components);
-  const deploymentsFor = (simulation?: Map<string, RktTrigger>): Record<string, OrkDeployOverride> =>
+  const deploymentsFor = (simulation?: Map<string, RktTrigger>): Record<string, DeploymentTuple> =>
     Object.fromEntries(recoveryNodes.filter((n) => n.id).map((n) => [n.id!, deploymentFor(n, simulation)]));
+  const defaultDeployments = deploymentsFor();
   for (const node of recoveryNodes) Object.assign(node, deploymentFor(node));
   applyPresetLinks(pendingLinks, opts?.presets, notes);
   // ConstructionType also governs a radius the file omitted and the catalogue
@@ -1903,7 +1908,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       simGroups.push({ number: i + 1, name: text(s, ':scope > SimulationName'), sets });
     }
   });
-  const configs: OrkFlightConfig[] = [];
+  const configs: LayeredOrkFlightConfig[] = [];
+  const ignitionDefaults: Record<string, IgnitionTuple> = {};
+  for (const [id, stage] of stageOfMount) ignitionDefaults[id] = {
+    event: stage === components.length - 1 ? 'automatic' : 'burnout', delay: 0,
+  };
   /** Per configuration: the simulation it came from (file order, 1-based; null = outside any). */
   const cfgSim = new Map<OrkFlightConfig, { number: number | null; name: string | null }>();
   const foldedSources = new Map<OrkFlightConfig, string[]>();
@@ -1983,7 +1992,16 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       continue;
     }
     const name = g.name?.trim() || null;
-    const cfg: OrkFlightConfig = {
+    // Keep the effective values above in the dedup key (audit 2026-10-11, FC-3).
+    // Storage alone is sparse; inherited devices must still count in diagnostics.
+    const sparseDeployments = Object.fromEntries(Object.entries(deployments)
+      .filter(([id, d]) => sparsify(defaultDeployments[id]!, d)));
+    const ignitions: Record<string, IgnitionTuple> = {};
+    for (const [id, ref] of entries) {
+      const ignition = { event: knownIgnitionEvent(ref.ignitionEvent) ?? 'automatic', delay: ref.ignitionDelay ?? 0 } satisfies IgnitionTuple;
+      if (sparsify(ignitionDefaults[id]!, ignition)) ignitions[id] = ignition;
+    }
+    const cfg: LayeredOrkFlightConfig = {
       id: g.number === null ? 'rocksim-design' : `rocksim-sim-${g.number}`,
       // RockSim names a simulation the user never named after its motors,
       // "[A8-0] [A8-5] ", and that would go stale here the moment a motor is
@@ -1992,7 +2010,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       // the note below still quotes it. A name typed in RockSim is kept.
       name: motorLoadoutRefusal ? source : name && !/^(\[[^\]]*\]\s*)+$/.test(name) ? name : null,
       isDefault: configs.length === 0,
-      motors: cfgMotors, deployments, separations: {},
+      motors: cfgMotors, deployments: sparseDeployments, separations: {},
+      ...(Object.keys(ignitions).length ? { ignitions } : {}),
       ...(motorLoadoutRefusal ? { motorLoadoutRefusal } : {}),
     };
     seenSets.set(key, cfg);
@@ -2071,7 +2090,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const recoveryNotesFor = (c: OrkFlightConfig): string[] => {
     const number = cfgSim.get(c)?.number;
     const summary = recoveryNodes.map((n) => {
-      const d = c.deployments[n.id!]!;
+      const d = c.deployments[n.id!] ?? deploymentFor(n);
       return (n.name ?? n.type) + ' ' + (d.deployEvent === 'altitude'
         ? 'at ' + deployAltitudeText(d.deployAltitude!, distanceUnit) + ' descending' : d.deployEvent === 'apogee'
           ? 'at apogee' : 'at the ejection charge') + (d.deployDelay ? ' + ' + d.deployDelay + ' s' : '');
@@ -2079,8 +2098,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     return [...designRecoveryNotes, ...(number == null ? [] : simulationRecoveryNotes[number - 1]!),
       ...(summary.length ? [simLabel(c) + ' recovery: ' + summary.join('; ') + '.'] : [])];
   };
-  if (chosen) for (const node of recoveryNodes) Object.assign(node, chosen.deployments[node.id!]);
-  else {
+  if (!chosen) {
     notes.push(...designRecoveryNotes);
     if (designRecovery.size) notes.push('Recovery deployment read from the file design defaults.');
   }
@@ -2249,7 +2267,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
 
   // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
   refuseTooManyParts(components);
-  const tree = sanitizeTree({ name, components }, notes);
+  const tree: FlightTree = { ...sanitizeTree({ name, components }, notes),
+    ...(Object.keys(ignitionDefaults).length ? { ignitionDefaults } : {}) };
   return {
     sourceFormat: 'rkt',
     name,
@@ -2267,6 +2286,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     ...(launchSiteRefused ? { launchSiteRefused: true as const } : {}),
     ...(longitudeCheck ? { longitudeCheck } : {}),
     configs,
+    legacyFlightState: () => legacyImportFlightState(tree, configs, chosenConfigId),
     chosenConfigId,
     configSources,
     configNotes,
@@ -2532,7 +2552,9 @@ export interface RktPartInfo {
 
 export interface RktExportInput {
   name: string;
-  tree: RocketTree;
+  tree: FlightTree;
+  /** Active configuration (or detached working set); all other configurations are omitted. */
+  overrides?: FlightOverrides;
   motors?: Record<string, OrkExportMotor>;
   /**
    * Per-component computed mass (kg, override-aware) and CG-from-front (m),
@@ -2662,7 +2684,8 @@ function subtreeOverrideNotes(stages: readonly ComponentNode[]): string[] {
   return out;
 }
 
-export function exportRkt({ name, tree, motors, compInfo, measured, notes, dryRun, distanceUnit = 'm' }: RktExportInput): string {
+export function exportRkt({ name, tree, motors, overrides = {}, compInfo, measured, notes, dryRun, distanceUnit = 'm' }: RktExportInput): string {
+  motors = exportIgnitions(tree, motors, overrides);
   notes?.push(...nozzleExportNotes(tree, '.rkt'));
   notes?.push(...filletExportNotes(tree, '.rkt'));
   notes?.push(...simulationExtensionLossNotes(tree, '.rkt'));
@@ -2676,15 +2699,23 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes, dryRu
   /** Mount node id → the SerialNo of every copy written (cluster tubes, pod instances). */
   const mountCopies = new Map<string, number[]>();
   const recoveryCopies: { node: ComponentNode; serial: number }[] = [];
-  const emitRecovery = (wrapper: 'SimulationEventList' | 'SimulationEvents') => {
+  const emitRecovery = (wrapper: 'SimulationEventList' | 'SimulationEvents', resolved = false) => {
     emit(`<${wrapper}>`);
+    // Preserve canonical no-override text; when layers differ only differing
+    // devices need a simulation event (audit 2026-10-11, FC-3).
+    const differs = (node: ComponentNode) => node.id && overrides.deployments?.[node.id]
+      ? sparsify(deploymentTuple(node), overrides.deployments[node.id]!) : undefined;
+    const sparse = resolved && recoveryCopies.some(({ node }) => differs(node));
     for (const { node, serial } of recoveryCopies) {
+      const override = differs(node);
+      if (sparse && !override) continue;
+      const settings = resolved && override ? override : deploymentTuple(node);
       // Case folded as the kernel folds it (RECOV-CASE): "Altitude" flies as
       // altitude and is saved as one. A value the kernel does not name stays
       // as written, so the refusal below still names it.
-      const event = foldDeployEvent(String(node['deployEvent'] ?? 'ejection'));
-      const delay = nnum(node, 'deployDelay', 0);
-      const altitude = nnum(node, 'deployAltitude', 200);
+      const event = foldDeployEvent(settings.deployEvent);
+      const delay = settings.deployDelay;
+      const altitude = settings.deployAltitude;
       const type = event === 'ejection' ? (delay > 0 ? 2 : 1)
         : event === 'apogee' ? 4 : event === 'altitude' ? 5 : null;
       if (type === null || delay < 0 || (event !== 'ejection' && delay !== 0)
@@ -3786,7 +3817,7 @@ export function exportRkt({ name, tree, motors, compInfo, measured, notes, dryRu
       }
       emit(`</Stage${slot}Engines>`);
     }
-    emitRecovery('SimulationEvents');
+    emitRecovery('SimulationEvents', true);
     emit('</SimulationResults>');
     emit('</SimulationResultsList>');
   }

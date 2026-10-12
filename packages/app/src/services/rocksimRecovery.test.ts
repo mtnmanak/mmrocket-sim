@@ -5,9 +5,10 @@ import { join } from 'node:path';
 import { OrkRocket, type ComponentNode, type RocketTree } from '@online-openrocket/engine';
 import { exportRkt, importRkt } from './rocksimFile.js';
 import { exportOrk, importOrk, type OrkDeployOverride } from './orkFile.js';
-import { configOntoTree, planImport, resolveImportMotors } from './importApply.js';
+import { planImport, resolveImportMotors } from './importApply.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { engineTree } from '../tree/treeModel.js';
+import { resolveFlightState } from './flightState.js';
 
 const all = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap((n) => [n, ...all(n.children ?? [])]);
 const chute = (tree: RocketTree) => all(tree.components).find((n) => n.type === 'parachute')!;
@@ -21,6 +22,8 @@ const fixture = (defaults: string, sims: string) => `<RockSimDocument><DesignInf
   <Streamer><Name>Streamer</Name><SerialNo>13</SerialNo><Len>300</Len><Width>40</Width></Streamer>
   </AttachedParts></BodyTube></Stage3Parts></RocketDesign></DesignInformation><SimulationResultsList>${sims}</SimulationResultsList></RockSimDocument>`;
 const state = (d: Partial<OrkDeployOverride>) => ({ deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0, ...d });
+const effective = (r: ReturnType<typeof importRkt>, index: number) => resolveFlightState(
+  r.tree, r.configs.map(c => ({ ...c, motors: {} })), r.configs[index]!.id, {}, {}).tree;
 
 describe('resolved RockSim recovery configurations', () => {
   it('keeps same-motor recovery variants, folds true duplicates, and switches A→B→A completely', () => {
@@ -29,16 +32,16 @@ describe('resolved RockSim recovery configurations', () => {
       + sim(event(12, 1))));
     expect(r.configs).toHaveLength(3);
     expect(r.configSources![r.configs[1]!.id]).toContain('Simulation 4');
-    expect(chute(r.tree)).toMatchObject(state({ deployDelay: 2 }));
+    expect(chute(r.tree)).toMatchObject(state({ deployEvent: 'altitude', deployAltitude: 121.92 }));
     expect(r.configs.map((c) => c.deployments[chute(r.tree).id!])).toEqual([
-      state({ deployDelay: 2 }), state({}), state({ deployEvent: 'altitude', deployAltitude: 121.92 }),
+      state({ deployDelay: 2 }), state({}), undefined,
     ]);
     expect(Object.values(r.configs[2]!.motors)[0]!.delay).toBe(Infinity);
-    let tree = configOntoTree(r.tree, r.configs[1]!);
+    let tree = effective(r, 1);
     expect(chute(tree)).toMatchObject(state({}));
-    tree = configOntoTree(tree, r.configs[2]!);
+    tree = effective(r, 2);
     expect(chute(tree)).toMatchObject(state({ deployEvent: 'altitude', deployAltitude: 121.92 }));
-    expect(chute(configOntoTree(tree, r.configs[0]!))).toMatchObject(state({ deployDelay: 2 }));
+    expect(chute(effective(r, 0))).toMatchObject(state({ deployDelay: 2 }));
     expect(r.configNotes?.[r.configs[1]!.id]?.join(' ')).toContain('Main at the ejection charge');
     expect(r.configNotes?.[r.configs[2]!.id]?.join(' ')).toContain('121.92 m descending');
   });
@@ -63,12 +66,15 @@ describe('resolved RockSim recovery configurations', () => {
     const r = importRkt(fixture(event(12, 4), sim(event(12, 2, 0, 2)) + sim(event(13, 5, 50), 4, 'E15', 'SimulationEventList')
       + sim(event(12, 28).replace('</SimulationEvent>', '<ProEvent>1</ProEvent></SimulationEvent>'))));
     const id = chute(r.tree).id!;
-    expect(r.configs[1]!.deployments[id]).toEqual(state({ deployEvent: 'apogee' }));
-    expect(r.configs[2]!.deployments[id]).toEqual(state({ deployEvent: 'apogee' }));
+    expect(r.configs[1]!.deployments[id]).toBeUndefined();
+    expect(r.configs[2]!.deployments[id]).toBeUndefined();
+    expect(chute(effective(r, 1))).toMatchObject(state({ deployEvent: 'apogee' }));
+    expect(chute(effective(r, 2))).toMatchObject(state({ deployEvent: 'apogee' }));
     expect(r.configNotes?.[r.configs[2]!.id]?.join(' ')).toMatch(/does not recognise \(28\)/);
     expect(r.configNotes?.[r.configs[2]!.id]?.join(' ')).toMatch(/Pro conditions/);
     const bare = importRkt(fixture('', sim(event(12, 2, 0, 3)) + sim('')).replace('<SimulationEventList></SimulationEventList>', ''));
-    expect(bare.configs[1]!.deployments[chute(bare.tree).id!]).toEqual(state({}));
+    expect(bare.configs[1]!.deployments[chute(bare.tree).id!]).toBeUndefined();
+    expect(chute(effective(bare, 1))).toMatchObject(state({}));
   });
 
   it('keeps diagnostics and source identity when an unsupported entry falls back to an equivalent configuration', () => {
@@ -81,17 +87,19 @@ describe('resolved RockSim recovery configurations', () => {
 
   it('retains the explanation when a source altitude without a positive height falls back to apogee', () => {
     const r = importRkt(fixture('', sim(event(12, 5))));
-    expect(chute(r.tree)['deployEvent']).toBe('apogee');
+    expect(chute(r.tree)['deployEvent']).toBe('ejection');
+    expect(chute(effective(r, 0))['deployEvent']).toBe('apogee');
     expect(r.notes.join(' ')).toContain('Main at apogee (the file asks for an altitude but names none).');
   });
 
-  it('materializes defaults for recovery devices without source serial numbers', () => {
+  it('inherits defaults for recovery devices without source serial numbers', () => {
     const r = importRkt(fixture('', sim('') + sim('', 6)).replace('<SerialNo>12</SerialNo>', ''));
     const id = chute(r.tree).id!;
     expect(r.configs).toHaveLength(2);
-    expect(r.configs.map((c) => c.deployments[id])).toEqual([state({}), state({})]);
+    expect(r.configs.map((c) => c.deployments[id])).toEqual([undefined, undefined]);
+    expect(chute(effective(r, 1))).toMatchObject(state({}));
     Object.assign(chute(r.tree), { deployEvent: 'altitude', deployAltitude: 42, deployDelay: 2 });
-    expect(chute(configOntoTree(r.tree, r.configs[1]!))).toMatchObject(state({}));
+    expect(chute(effective(r, 1))).toMatchObject(state({ deployEvent: 'altitude', deployAltitude: 42, deployDelay: 2 }));
   });
 
   it('motor-match re-pick applies the matching recovery and notes', async () => {
@@ -311,7 +319,8 @@ describe('RockSim recovery and cluster export', () => {
     const r = importRkt(exportRkt({ name: 'Nested', tree, motors: { nested: motor } }));
     const nested = all(r.tree.components).find((n) => n.name === 'Nested')!;
     expect(Object.keys(r.motors)).toEqual([nested.id]);
-    expect(Object.keys(r.configs[0]!.deployments)).toEqual([chute(r.tree).id]);
+    expect(r.configs[0]!.deployments).toEqual({});
+    expect(chute(effective(r, 0))).toMatchObject({ deployEvent: 'altitude', deployAltitude: 121.92 });
     expect(chute(r.tree)).toMatchObject({ deployEvent: 'altitude', deployAltitude: 121.92 });
   });
 

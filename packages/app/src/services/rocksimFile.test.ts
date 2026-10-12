@@ -1749,7 +1749,8 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
     const motors = Object.fromEntries(Object.entries(r.motors).map(([id, ref]) => [id, refToExportMotor(ref)]));
     const m1350 = Object.values(r.motors).find((m) => m.designation === 'M1350W')!;
     expect([m1350.ignitionEvent, m1350.ignitionDelay]).toEqual(['automatic', 12]);
-    const back = reread(exportRkt({ name: '38-54', tree: r.tree, motors }));
+    const back = reread(exportRkt({ name: '38-54', tree: r.tree, motors,
+      overrides: r.configs.find(c => c.id === r.chosenConfigId) }));
     expect([back['M1350W']!.ignitionEvent, back['M1350W']!.ignitionDelay]).toEqual(['launch', 12]);
     expect([back['K627LR']!.ignitionEvent, back['K627LR']!.ignitionDelay]).toEqual(['burnout', 22]);
   });
@@ -2233,13 +2234,15 @@ describe('RockSim <SimulationEventList> — dual deploy actually deploys dually 
       + '<EngineCode>F26FJ</EngineCode><EngineMfg>AeroTech</EngineMfg><MountSerialNo>1</MountSerialNo>'
       + '<EjectionDelay>6.</EjectionDelay></EngineSet></Stage3Engines></SimulationResults></SimulationResultsList>');
 
-  it('applies the opened simulation recovery and reports its resolved settings', () => {
+  it('keeps design recovery and reports the opened simulation resolved settings', () => {
     const { r, main, drogue } = chutes(withSim(ev(12, 5, 152.4) + ev(13, 4), ev(0, 0) + ev(12, 1) + ev(13, 4)));
     expect(r.chosenConfigId).toBe('rocksim-sim-1');
-    expect(main['deployEvent']).toBe('ejection');
-    expect(main['deployAltitude']).toBe(200);
+    expect(main['deployEvent']).toBe('altitude');
+    expect(main['deployAltitude']).toBe(152.4);
     expect(main['deployDelay']).toBe(0);
     expect(drogue['deployEvent']).toBe('apogee');
+    expect(r.configs[0]!.deployments[main.id!]).toEqual({ deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 });
+    expect(r.configs[0]!.deployments[drogue.id!]).toBeUndefined();
     expect(r.notes.join(' ')).toContain('Main at the ejection charge; Drogue at apogee');
   });
 
@@ -3523,7 +3526,8 @@ describe('.rkt simulations become flight configurations', () => {
 
   it('writes that delay back, so the .rkt round trip keeps it', () => {
     const r = importRkt(BLACKHAWK);
-    const xml = exportRkt({ name: 'Blackhawk', tree: r.tree, motors: r.motors });
+    const xml = exportRkt({ name: 'Blackhawk', tree: r.tree, motors: r.motors,
+      overrides: r.configs.find(c => c.id === r.chosenConfigId) });
     expect(xml).toContain('<SimulationName>[O5500X-0-15, O5500X-0] </SimulationName>');
     const back = importRkt(xml);
     expect(Object.values(back.motors).map((m) => [m.ignitionEvent, m.ignitionDelay]).sort())

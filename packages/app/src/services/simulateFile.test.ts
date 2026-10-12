@@ -170,6 +170,14 @@ describe('simulateFile flies a design file offline, on the shipped data', () => 
   }, 30000);
 });
 
+// FC-2/3's temporary compatibility callback is not structured-cloneable. Clone
+// its data projection for test isolation, exactly as planImport consumes it;
+// FC-4 removes this bridge when the headless path accepts layers directly.
+function cloneParsed(parsed: ImportedDesign): ImportedDesign {
+  const { legacyFlightState, ...data } = parsed;
+  return structuredClone({ ...data, ...legacyFlightState?.() });
+}
+
 describe('simulateFile reads the shipped data only', () => {
   // Dimensions change the spec's CG, every-delay reads happen in the .rkt
   // importer, and .CDX1 subtracts motor moments (2026-10-01). Cover both doors
@@ -183,7 +191,7 @@ describe('simulateFile reads the shipped data only', () => {
       name, { presets: await loadBundledPresets() });
     applyDesignNameFallback(parsed, name);
     const plain = await simulateFile(data, name);
-    const fromParse = await simulateImported(structuredClone(parsed));
+    const fromParse = await simulateImported(cloneParsed(parsed));
     const ids = new Set(Object.values(plain.state.mountMotors).map((m) => m.meta.motorId));
     expect(ids.size).toBeGreaterThan(0);
     const overlay = diffCatalogue(MOTOR_DB, MOTOR_DB.map((m) => ids.has(m.motorId)
@@ -192,7 +200,7 @@ describe('simulateFile reads the shipped data only', () => {
     setCatalogueOverlay({ ...overlay, baseGenerated: MOTOR_DB_DATE,
       fetchedAt: '2026-10-01T00:00:00Z', liveCount: MOTOR_DB.length, rejected: [] });
     const again = await simulateFile(data, name);
-    const parsedAgain = await simulateImported(structuredClone(parsed));
+    const parsedAgain = await simulateImported(cloneParsed(parsed));
     const specs = (out: typeof plain) => Object.values(out.state.mountMotors).map((m) => m.spec);
     expect(specs(again)).toStrictEqual(specs(plain));
     expect(specs(parsedAgain)).toStrictEqual(specs(fromParse));
@@ -230,7 +238,7 @@ describe('simulateFile reads the shipped data only', () => {
 
   it('flies the bundle’s curve over a curve this browser cached, and leaves the cache alone', async () => {
     const parsed = await parseDesignFile(buffer('reference.ork'), 'reference.ork', { presets: await loadBundledPresets() });
-    const plain = await simulateImported(structuredClone(parsed));
+    const plain = await simulateImported(cloneParsed(parsed));
     // The same motor's cache entry, 10 % hotter, in the generation the app reads.
     const records = Object.values(plain.state.mountMotors);
     expect(records).toHaveLength(1);
@@ -240,11 +248,11 @@ describe('simulateFile reads the shipped data only', () => {
     const key = `tc:samples:v7:${db!.motorId}`;
     const hot = primary.spec.times.map((time, i) => ({ time, thrust: primary.spec.thrusts[i]! * 1.1 }));
     localStorage.setItem(key, JSON.stringify({ samples: hot, masses: null, t: 1 }));
-    const again = await simulateImported(structuredClone(parsed));
+    const again = await simulateImported(cloneParsed(parsed));
     expect(comparable(again.run)).toStrictEqual(comparable(plain.run));
     expect(localStorage.getItem(key)).not.toBeNull();
     // The app's own path WOULD fly the cached curve — else this proves nothing.
-    const viaApp = await simulateImported(structuredClone(parsed), { network: 'allow' });
+    const viaApp = await simulateImported(cloneParsed(parsed), { network: 'allow' });
     expect(viaApp.result.summary.maxAltitude).toBeGreaterThan(plain.result.summary.maxAltitude);
   }, 60000);
 

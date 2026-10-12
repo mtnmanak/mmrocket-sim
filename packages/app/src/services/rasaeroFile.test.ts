@@ -13,6 +13,7 @@ import { isaPressurePa } from './atmosphere.js';
 import { componentsIterated } from './componentsIterated.testSupport.js';
 import { AERO_NAME, type AeroChoice } from '../prefs/aeroChoice.js';
 import { checkFormatLoss } from './formatLoss.js';
+import { resolveFlightState } from './flightState.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name: string) => readFileSync(join(here, '__fixtures__', name), 'utf8');
@@ -571,7 +572,7 @@ describe('RASAero import — supersonic airfoils, launch site, simulations', () 
     expect(boo.delay).toBe(0);
     // IncludeBooster1 True: separation 2 s after burnout, keyed by the stage.
     expect(cfg1.separations[r.tree.components[1]!.id!])
-      .toEqual({ separationEvent: 'burnout', separationDelay: 2 });
+      .toEqual({ separationEvent: 'burnout', separationDelay: 2, separationAltitude: 200 });
 
     const cfg2 = r.configs[1]!;
     expect(cfg2.motors[sustainerMount.id!]!.designation).toBe('J180T');
@@ -581,12 +582,11 @@ describe('RASAero import — supersonic airfoils, launch site, simulations', () 
     expect(r.motors).toEqual(cfg1.motors);
   });
 
-  it('bakes the chosen configuration separation onto the booster stage node', () => {
-    // App.applyImported applies configs, not stage settings — a fresh import
-    // must carry burnout + delay on the node itself, or the kernel separates
-    // on its default (ejection charge, 0 s).
+  it('resolves chosen separation while retaining the booster component default', () => {
     const r = importCdx1(fixture('Complex.Two-Stage.CDX1'));
-    const booster = r.tree.components[1]!;
+    expect(r.tree.components[1]!['separationEvent']).toBeUndefined();
+    const booster = resolveFlightState(r.tree, r.configs.map(c => ({ ...c, motors: {} })),
+      r.chosenConfigId, {}, {}).tree.components[1]!;
     expect(booster['separationEvent']).toBe('burnout');
     expect(booster['separationDelay']).toBe(2); // Booster1SeparationDelay
   });
@@ -1266,12 +1266,13 @@ describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
     });
     expect(xml).toContain('<Booster1SeparationDelay>3</Booster1SeparationDelay>');
     expect(xml).toContain('<Booster2Delay>1.5</Booster2Delay>');
-    // …and our own importer bakes them straight back onto the stage nodes.
+    // The importer keeps timers in configurations; the flight projection uses them.
     const back = importCdx1(xml);
-    expect(back.tree.components[1]!['separationEvent']).toBe('burnout');
-    expect(back.tree.components[1]!['separationDelay']).toBe(3);
-    expect(back.tree.components[2]!['separationEvent']).toBe('burnout');
-    expect(back.tree.components[2]!['separationDelay']).toBe(1.5);
+    const flown = resolveFlightState(back.tree, back.configs.map(c => ({ ...c, motors: {} })), back.chosenConfigId, {}, {}).tree;
+    expect(flown.components[1]!['separationEvent']).toBe('burnout');
+    expect(flown.components[1]!['separationDelay']).toBe(3);
+    expect(flown.components[2]!['separationEvent']).toBe('burnout');
+    expect(flown.components[2]!['separationDelay']).toBe(1.5);
   });
 
   it('writes 0 for a separation delay RASAero cannot express (non-burnout event)', () => {
