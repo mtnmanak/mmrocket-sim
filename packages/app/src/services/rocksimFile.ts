@@ -1914,14 +1914,20 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const missing = g.sets.map(e => missingMotorCounts.get(e)).find(n => n !== undefined);
     const source = `Simulation ${g.number ?? '(outside simulations)'}${g.name?.trim() ? ` (\u201c${g.name.trim()}\u201d)` : ''}`;
     // Check after the cluster repair moves, including body-tube and lone mounts
-    // it cannot repair (audit 2026-10-11, S1b-2). Merged copies still each hold one motor.
-    const setsPerMount = new Map<ComponentNode, number>();
+    // it cannot repair (audit 2026-10-11, S1b-2). Loose sets bypass groupLoadouts:
+    // merged copies can share a motor only when its code, maker and delays agree.
+    const setsPerMount = new Map<ComponentNode, XmlElement[]>();
     for (const es of g.sets) {
       if (!text(es, ':scope > EngineCode')) continue;
       const mount = movedSets.get(es) ?? namedMount(es) ?? stageFallbackMount(es);
-      if (mount) setsPerMount.set(mount, (setsPerMount.get(mount) ?? 0) + 1);
+      if (mount) {
+        const sets = setsPerMount.get(mount) ?? [];
+        sets.push(es);
+        setsPerMount.set(mount, sets);
+      }
     }
-    const duplicate = [...setsPerMount].some(([mount, count]) => count > (mountCopiesRead.get(mount) ?? 1));
+    const duplicate = [...setsPerMount].some(([mount, sets]) =>
+      sets.length > (mountCopiesRead.get(mount) ?? 1) || new Set(sets.map(setKey)).size > 1);
     const motorLoadoutRefusal = missing === undefined ? (duplicate
       ? `Launch refused for ${source}: the file assigns more than one motor to the same mount. `
         + 'Assign motors on Motors & Launch to separate mounts. No motors from this configuration were loaded.'

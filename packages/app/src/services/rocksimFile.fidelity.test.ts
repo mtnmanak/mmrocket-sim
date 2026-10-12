@@ -79,6 +79,52 @@ describe('RockSim mount fidelity', () => {
       expect(r.motors).toEqual({});
     }
   });
+
+  describe('loose engine sets on a merged cluster (audit 2026-10-11, S1b-2)', () => {
+    const engineSet = (code = 'C6', maker = 'Estes', ejection = '5', ignition = '0') =>
+      `<EngineSet><EngineCount>1</EngineCount><EngineCode>${code}</EngineCode>
+      <EngineMfg>${maker}</EngineMfg><MountSerialNo>7</MountSerialNo>
+      <EjectionDelay>${ejection}</EjectionDelay><IgnitionDelay>${ignition}</IgnitionDelay></EngineSet>`;
+    const clusterXml = (sets: string) => fixture('twin-tubes-one-mount')
+      .replace('<IsMotorMount>0</IsMotorMount>', '<IsMotorMount>1</IsMotorMount>')
+      .replace('</RockSimDocument>', `<Stage3Engines>${sets}</Stage3Engines></RockSimDocument>`);
+
+    describe.each([false, true])('input order reversed=%s', reverse => {
+      it.each([
+        ['motor code', engineSet('B6')],
+        ['manufacturer', engineSet('C6', 'Other maker')],
+        ['ejection delay', engineSet('C6', 'Estes', '3')],
+        ['ignition delay', engineSet('C6', 'Estes', '5', '2')],
+      ])('refuses conflicting %s without loading either motor', (_, conflicting) => {
+        const sets = engineSet() + conflicting;
+        const r = importRkt(clusterXml(reverse ? reverseElements(sets, 'EngineSet') : sets));
+        expect(motorMounts(r.tree)).toHaveLength(1);
+        expect(motorMounts(r.tree)[0]!['cluster']).toBe('double');
+        expect(r.configs).toHaveLength(1);
+        expect(r.configs[0]!.motorLoadoutRefusal).toMatch(/Launch refused.*Simulation \(outside simulations\).*same mount/);
+        expect(r.configs[0]!.motors).toEqual({});
+        expect(r.motors).toEqual({});
+        expect(r.notes).toContain(r.configs[0]!.motorLoadoutRefusal);
+      });
+    });
+
+    it.each([
+      ['legacy single set', engineSet()],
+      ['matching sets', engineSet() + engineSet()],
+      ['equivalent numeric delays', engineSet() + engineSet('C6', 'Estes', '5.0', '0.0')],
+    ])('keeps the full cluster loaded for %s', (_, sets) => {
+      const r = importRkt(clusterXml(sets));
+      const mounts = motorMounts(r.tree);
+      expect(mounts).toHaveLength(1);
+      expect(mounts[0]!['cluster']).toBe('double');
+      expect(r.configs).toHaveLength(1);
+      expect(r.configs[0]!.motorLoadoutRefusal).toBeUndefined();
+      expect(Object.values(r.motors)).toMatchObject([
+        { mountId: mounts[0]!.id, designation: 'C6', manufacturer: 'Estes', delay: 5 },
+      ]);
+      expect(r.notes.join('\n')).not.toMatch(/Launch refused/);
+    });
+  });
 });
 
 describe('RockSim shroud line count (audit 2026-10-11, S1b-5)', () => {
