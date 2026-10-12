@@ -168,7 +168,7 @@ async function type(el: HTMLInputElement, text: string): Promise<void> {
 const shownName = (host: HTMLElement) => host.querySelector('.vitals-item-name .vitals-value')?.textContent;
 
 /** A workspace tab, pressed. */
-async function openTab(host: HTMLElement, name: 'Design' | 'Motors & Launch' | 'Results'): Promise<void> {
+async function openTab(host: HTMLElement, name: 'Design' | 'Motors & Configuration' | 'Results'): Promise<void> {
   const b = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tabs button')]
     .find((x) => x.textContent?.trim() === name);
   if (!b) throw new Error(`no tab "${name}"`);
@@ -261,6 +261,11 @@ describe('flight configuration editing in App', () => {
         })),
       }));
       const host = await mountApp();
+      if (action === 'delete inactive') {
+        await openTab(host, 'Motors & Configuration');
+        await chooseConfiguration(host, 'B');
+        await openTab(host, 'Design');
+      }
       await act(async () => { button(host, 'Scale').click(); });
       await type(document.getElementById('scale-factor') as HTMLInputElement, '2');
       await act(async () => { button(document, 'Scale to 200').click(); });
@@ -268,9 +273,9 @@ describe('flight configuration editing in App', () => {
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: redo }));
       });
       flush();
-      expect(storedSession()!.tree.components[0]!.overrideMass).toBe(24);
+      expect(storedSession()!.tree.components[0]!.overrideMass).toBe(action === 'delete inactive' ? 32 : 24);
       if (action === 'redo') await key();
-      await openTab(host, 'Motors & Launch');
+      await openTab(host, 'Motors & Configuration');
       if (action.startsWith('delete')) {
         const id = action === 'delete active' ? 'A' : 'B';
         const position = id === 'A' ? 1 : 2;
@@ -278,19 +283,19 @@ describe('flight configuration editing in App', () => {
         await press(host, `Confirm delete ${id} — configuration ${position}`);
         await key();
         flush();
-        expect(storedSession()!.tree.components[0]!.overrideMass).toBe(3);
+        expect(storedSession()!.tree.components[0]!.overrideMass).toBe(id === 'B' ? 4 : 3);
         expect(storedSession()!.savedConfigs!.map(c => c.id)).toEqual([id === 'A' ? 'B' : 'A']);
         expect(storedSession()!.savedConfigs![0]!.stageMassOverrides![stage.id!]!.overrideMass)
           .toBe(id === 'A' ? 4 : 3);
-        expect(storedSession()!.activeConfigId).toBe(id === 'A' ? null : 'A');
+        expect(storedSession()!.activeConfigId).toBeNull();
         await key(true);
         flush();
-        expect(storedSession()!.tree.components[0]!.overrideMass).toBe(24);
+        expect(storedSession()!.tree.components[0]!.overrideMass).toBe(action === 'delete inactive' ? 32 : 24);
         expect(storedSession()!.savedConfigs![0]!.stageMassOverrides![stage.id!]!.overrideMass)
           .toBe(id === 'A' ? 32 : 24);
       } else {
         for (const name of ['C', 'D']) {
-          await act(async () => { button(host, '+ New configuration from loaded motors').click(); });
+          await act(async () => { button(host, '+ New from loaded motors').click(); });
           await enter(host, name);
         }
         flush();
@@ -305,7 +310,7 @@ describe('flight configuration editing in App', () => {
         expect(storedSession()!.savedConfigs).toEqual(before.savedConfigs);
         expect(button(host, '↩ Undo').disabled).toBe(true);
         expect(button(host, '↪ Redo').disabled).toBe(true);
-        await press(host, 'Apply C');
+        await chooseConfiguration(host, 'C');
         flush();
         const expected = action === 'redo' ? { overrideMass: 3, overrideCGX: 0.8 }
           : { overrideMass: 24, overrideCGX: 1.6 };
@@ -337,7 +342,7 @@ describe('flight configuration editing in App', () => {
       }
       const host = await mountApp();
       if (replacement !== 'share link') await saveAs(host, 'Save .ork');
-      await openTab(host, 'Motors & Launch');
+      await openTab(host, 'Motors & Configuration');
       await press(host, 'Delete A — configuration 1');
       expect(host.querySelector('[aria-label^="Confirm delete"]')).toBeTruthy();
       if (replacement === 'Open') {
@@ -354,7 +359,7 @@ describe('flight configuration editing in App', () => {
       } else {
         await openTab(host, 'Design');
         await act(async () => { button(host, '✕ New').click(); });
-        await openTab(host, 'Motors & Launch');
+        await openTab(host, 'Motors & Configuration');
       }
       expect(host.querySelector('[aria-label^="Confirm delete"]')).toBeNull();
       expect(host.querySelector('.config-panel input')).toBeNull();
@@ -372,10 +377,10 @@ describe('flight configuration editing in App', () => {
     expect(dry.match(/<simulation /g)).toHaveLength(1);
     expect(importOrk(dry).configs).toEqual([]);
     await pick(host, new File([dry], 'dry.ork'));
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     flush();
     expect(storedSession()!.savedConfigs).toEqual([]);
-    expect(host.querySelector('.config-panel')).toBeNull();
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!.value).toBe('');
     for (const designation of ['C6', 'B6']) {
       await act(async () => { button(host, 'Browse motors').click(); });
       await type(input(host, 'Search motor designation'), designation);
@@ -385,7 +390,7 @@ describe('flight configuration editing in App', () => {
       await act(async () => { row()!.click(); });
       await act(async () => { button(host, 'Load motor').click(); });
       await waitFor(() => { flush(); return Object.values(storedSession()!.mountMotors ?? {}).some(m => m.spec.designation === designation); }, 'chosen motor');
-      await act(async () => { button(host, '+ New configuration from loaded motors').click(); });
+      await act(async () => { button(host, '+ New from loaded motors').click(); });
       await act(async () => { input(host, 'Rename ').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     }
     flush();
@@ -399,8 +404,8 @@ describe('flight configuration editing in App', () => {
   it('untouched Create editor preserves its notice; unchanged rename stays saved; last empty delete keeps focus', async () => {
     const host = await mountApp();
     await waitFor(starterStored, 'starter motor');
-    await openTab(host, 'Motors & Launch');
-    await act(async () => { button(host, '+ New configuration from loaded motors').click(); });
+    await openTab(host, 'Motors & Configuration');
+    await act(async () => { button(host, '+ New from loaded motors').click(); });
     await act(async () => { input(host, 'Rename ').blur(); });
     expect(host.textContent).toContain('New flight configuration created from the loaded motors.');
     expect(host.textContent).not.toContain('Flight configuration renamed.');
@@ -415,17 +420,17 @@ describe('flight configuration editing in App', () => {
     // so check that last, after the independent focus regression below.
     flush();
     const saved = storedSession()!;
-    await press(host, 'Apply None — unload every motor');
     await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Delete "]')!.click(); });
     await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Confirm delete "]')!.click(); });
-    expect(host.querySelector('.config-panel')).toBeNull();
-    expect(document.activeElement?.textContent).toBe('Motors');
+    await chooseConfiguration(host, '');
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!.value).toBe('');
+    expect(document.activeElement?.getAttribute('aria-label')).toBe('Flight configuration');
     expect(document.activeElement?.isConnected).toBe(true);
     await unmountAll();
     localStorage.setItem(SESSION_KEY, JSON.stringify(saved));
     const restored = await mountApp();
     await saveAs(restored, 'Save .ork');
-    await openTab(restored, 'Motors & Launch');
+    await openTab(restored, 'Motors & Configuration');
     await act(async () => { restored.querySelector<HTMLButtonElement>('button[aria-label^="Rename "]')!.click(); });
     await enter(restored, '   ');
     await openTab(restored, 'Design');
@@ -436,9 +441,9 @@ describe('flight configuration editing in App', () => {
     let host = await mountApp();
     await waitFor(starterStored, 'starter motor');
     await saveAs(host, 'Save .ork');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     expect(host.querySelector('.config-panel')).not.toBeNull();
-    await act(async () => { button(host, '+ New configuration from loaded motors').click(); });
+    await act(async () => { button(host, '+ New from loaded motors').click(); });
     expect(document.activeElement).toBe(input(host, 'Rename '));
     await act(async () => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
     flush();
@@ -448,7 +453,7 @@ describe('flight configuration editing in App', () => {
     await openTab(host, 'Design');
     expect(await guarded(host)).toBe(true);
     await saveAs(host, 'Save .ork');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const rename = [...host.querySelectorAll('button')].find(b => b.getAttribute('aria-label')?.startsWith('Rename '))!;
     await act(async () => { rename.click(); });
     const name = 'Club <field> & "Été"';
@@ -469,8 +474,8 @@ describe('flight configuration editing in App', () => {
     } finally { delete (navigator as { clipboard?: unknown }).clipboard; }
     await unmountAll();
     host = await mountApp();
-    await openTab(host, 'Motors & Launch');
-    expect(host.querySelector('.config-name')?.textContent).toBe(name);
+    await openTab(host, 'Motors & Configuration');
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!.selectedOptions[0]!.textContent).toContain(name);
     flush();
     const before = storedSession()!;
     await press(host, `Delete ${name} — configuration 1`);
@@ -505,29 +510,31 @@ describe('flight configuration editing in App', () => {
     await waitFor(starterStored, 'starter motor');
     await pick(host, new File([xml], 'three.ork'));
     await settle(50);
-    await openTab(host, 'Motors & Launch');
-    expect(host.querySelectorAll('.config-row')).toHaveLength(4);
-    const rows = [...host.querySelectorAll('.config-row')];
-    await act(async () => { rows[0]!.querySelector<HTMLButtonElement>('button[aria-label^="Rename "]')!.click(); });
+    await openTab(host, 'Motors & Configuration');
+    expect(host.querySelectorAll('.config-table tbody tr')).toHaveLength(3);
+    await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Rename "]')!.click(); });
     await enter(host, 'Club field');
-    await act(async () => { rows[1]!.querySelector<HTMLButtonElement>('button[aria-label^="Delete "]')!.click(); });
-    await act(async () => { rows[1]!.querySelector<HTMLButtonElement>('button[aria-label^="Confirm delete "]')!.click(); });
+    await chooseConfiguration(host, 'b');
+    await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Delete "]')!.click(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Confirm delete "]')!.click(); });
     flush();
     expect(storedSession()!.importedDocument?.storedSimulations).toEqual([]);
+    // Deleting the selected owner leaves a detached set; select a survivor before saving two.
+    await chooseConfiguration(host, 'a');
     await saveAs(host, 'Save .ork');
     const saved = vi.mocked(exportOrk).mock.results.at(-1)!.value as string;
     expect(saved).not.toContain('<flightdata');
     await pick(host, new File([saved], 'two.ork'));
     await settle(50);
-    await openTab(host, 'Motors & Launch');
-    expect(host.querySelectorAll('.config-row')).toHaveLength(3);
-    expect(host.querySelector('.config-name')?.textContent).toBe('Club field');
+    await openTab(host, 'Motors & Configuration');
+    expect(host.querySelectorAll('.config-table tbody tr')).toHaveLength(2);
+    expect(host.querySelector('.config-table tbody th button')?.textContent).toBe('Club field');
     flush();
     expect(storedSession()!.savedConfigs!.map((c: SavedConfig) => c.id)).toEqual(['a', 'c']);
     await unmountAll();
     host = await mountApp();
-    await openTab(host, 'Motors & Launch');
-    expect(host.querySelectorAll('.config-row')).toHaveLength(3);
+    await openTab(host, 'Motors & Configuration');
+    expect(host.querySelectorAll('.config-table tbody tr')).toHaveLength(2);
   }, 30000);
 });
 
@@ -566,8 +573,8 @@ describe('lane C2 save and share fidelity', () => {
       .find(r => r.querySelector('.tree-label')?.textContent === stage.name)!;
     await act(async () => { row.click(); });
     await type(input(host, 'Mass override'), '5000'); // default display is grams
-    await openTab(host, 'Motors & Launch');
-    await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Apply None"]')!.click(); });
+    await openTab(host, 'Motors & Configuration');
+    await chooseConfiguration(host, '');
     window.dispatchEvent(new Event('pagehide'));
     expect(storedSession()!.savedConfigs![0]!.stageMassOverrides![stage.id!]!.overrideMass).toBe(5);
     await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })); });
@@ -607,7 +614,7 @@ describe('lane C2 save and share fidelity', () => {
     expect(await snapshots()).toEqual([a, b, pending]);
     await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true })); });
     expect(await snapshots()).toEqual(scaled);
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     for (const [name, expected] of [['B', scaled[1]], ['C', scaled[2]]] as const) {
       const apply = host.querySelector<HTMLButtonElement>(`button[aria-label^="Apply ${name} — configuration "]`)!;
       await act(async () => { apply.click(); });
@@ -705,7 +712,7 @@ describe('lane C2 save and share fidelity', () => {
         expect(stored.flownSinceSave).toBe(status === 'flown');
         expect(stored.savedMark).toBe(status === 'clean' || status === 'flown'
           ? designFingerprint({ ...state, tree: stored.tree, savedConfigs: [], activeConfigId: null }) : savedMark);
-        await openTab(host, 'Motors & Launch');
+        await openTab(host, 'Motors & Configuration');
         expect(host.querySelector('[aria-label="Flight configurations"]')).toBeNull();
         await openTab(host, 'Design');
         if (round === 0) {
@@ -797,7 +804,7 @@ describe('lane C2 save and share fidelity', () => {
     }).replace(/<geodeticmethod>.*?<\/geodeticmethod>/g, '<geodeticmethod>unknown-model</geodeticmethod>');
     await pick(host, new File([xml], `ambiguous.${format}`));
     await waitFor(() => shownName(host) === 'Ambiguous motor mounts', 'ambiguous import');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const importItem = [...host.querySelectorAll('.notice-item')].find(item => item.textContent?.includes('Launch refused'))!;
     expect(importItem).toBeDefined();
     const retainedLines = importItem.querySelector('.notice-text')!.textContent!
@@ -1001,7 +1008,7 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
     await pick(host, new File([fixture(RKT)], 'opened.rkt'));
     expect(shownName(host)).toBe(RKT_NAME);
     if (preview) await act(async () => { await vi.advanceTimersByTimeAsync(501); });
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await type(input(host, 'Rod angle'), '10');
     if (action === '✕ New') {
       await openTab(host, 'Design');
@@ -1016,7 +1023,7 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
     let host = await mountApp(); await waitFor(starterStored, 'starter motor');
     await pick(host, new File([fixture(RKT)], 'opened.rkt'));
     await waitFor(() => shownName(host) === RKT_NAME, 'the file to open');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await type(input(host, 'Rod angle'), '10');
     await unmountAll();
     window.location.hash = (await encodeShareFragment(exportOrk({ name: 'Linked', tree: defaultTree() }))).replace(/^#/, '');
@@ -1206,7 +1213,7 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
     expect(name.value).toBe(originalName);
     expect(status()?.textContent).toBe('No unsaved changes');
     await act(async () => { button(host, 'Redo').click(); });
-    for (const tab of ['Motors & Launch', 'Results', 'Fly'] as const) {
+    for (const tab of ['Motors & Configuration', 'Results', 'Fly'] as const) {
       const tabButton = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tabs button')]
         .find(b => b.textContent?.trim() === tab)!;
       await act(async () => { tabButton.click(); });
@@ -1457,7 +1464,7 @@ describe('an open and ✕ New leave a design that reads saved', () => {
   it('keeps a wind typed while a file is opening, and the opened design reads saved', async () => {
     const host = await mountApp();
     await waitFor(starterStored, 'the starter motor to be autosaved');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const held = heldFile(fixture(RKT), RKT);
     await pick(host, held.file); // clean first visit: opens with no question
     await type(input(host, 'Wind avg'), '8');
@@ -2049,7 +2056,7 @@ describe('pending motor choices across App actions', () => {
     const gate = new Promise<void>((r) => { finish = r; });
     let started = false;
     vi.mocked(loadCatalogueMotor).mockImplementationOnce(async () => { started = true; await gate; return a8; });
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const chooseQuick = async (value: string) => {
       const select = [...host.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === value))!;
       await act(async () => {
@@ -2062,10 +2069,10 @@ describe('pending motor choices across App actions', () => {
     if (action === 'Unload') await act(async () => { button(host, 'Unload').click(); });
     if (action === 'Remove') await act(async () => { host.querySelector<HTMLButtonElement>('button[title="Remove this motor"]')!.click(); });
     if (action === 'Config') await act(async () => { host.querySelector<HTMLButtonElement>('button[aria-label^="Apply Other motors"]')!.click(); });
-    if (action === 'tab only') { await openTab(host, 'Design'); await openTab(host, 'Motors & Launch'); }
+    if (action === 'tab only') { await openTab(host, 'Design'); await openTab(host, 'Motors & Configuration'); }
     if (action === 'remount') {
       await openTab(host, 'Design');
-      await openTab(host, 'Motors & Launch');
+      await openTab(host, 'Motors & Configuration');
       await chooseQuick('Estes B6-4');
       await waitFor(() => { window.dispatchEvent(new Event('pagehide')); return Object.values(storedSession()?.mountMotors ?? {}).some((m) => m.spec.designation === 'B6'); }, 'the later choice');
     }
@@ -2129,7 +2136,7 @@ it('a first-visit share link applies without an offer dialog', async () => {
 it('a shared design asks before replacing non-tree work on the starter rocket', async () => {
   const first = await mountApp();
   await waitFor(starterStored, 'the starter motor');
-  await openTab(first, 'Motors & Launch');
+  await openTab(first, 'Motors & Configuration');
   await type(input(first, 'Wind avg'), '8');
   await unmountAll();
   const xml = exportOrk({ name: 'Linked', tree: { ...defaultTree(), name: 'Linked' } });
@@ -2139,3 +2146,10 @@ it('a shared design asks before replacing non-tree work on the starter rocket', 
   expect(shownName(host)).toBe('My Rocket');
   expect(input(host, 'Wind avg').value).toBe('8');
 }, 30000);
+
+async function chooseConfiguration(host: HTMLElement, id: string) {
+  await act(async () => {
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+    select.value = id; select.dispatchEvent(new Event('change', { bubbles: true })); select.focus();
+  });
+}

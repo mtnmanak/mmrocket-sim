@@ -8,7 +8,7 @@ import { LEGACY_PAD_MASS_KEY } from './hardwareMass.js';
 import {
   adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, padMassSetKey, restoreUnmatchedRefs, stripPadMass,
   stripRefPadMass, syncActiveConfig, withActiveConfigSynced, withActiveConfigTreeSynced, withoutStoredRef,
-  createLoadedConfig, renameConfig, deleteConfig,
+  createLoadedConfig, duplicateActiveConfig, renameConfig, deleteConfig,
 } from './configSync.js';
 import { exportOrk, importOrk } from './orkFile.js';
 import { orkMotorSet } from './orkExportMotors.js';
@@ -31,6 +31,39 @@ describe('configuration editing', () => {
       separations: { s1: { separationEvent: 'ejection' }, s2: { separationEvent: 'ejection' } } })], 'A'),
     tree, unmatchedRefs: { 'b-mmt': ref('Missing') } };
   };
+
+  it('CFG-1 duplicates the live active configuration exactly, deep-copies all families and activates a new id', () => {
+    const state = working();
+    state.savedConfigs[0]!.ignitions = { removed: { event: 'never', delay: 3 } };
+    const before = structuredClone(state);
+    const synced = syncActiveConfig(state.savedConfigs, state.activeConfigId,
+      { tree: state.tree, motors: state.mountMotors, unmatchedRefs: state.unmatchedRefs });
+    const next = duplicateActiveConfig(state)!;
+    const copy = next.savedConfigs.at(-1)!;
+    expect(copy).toEqual({ ...synced[0], id: next.activeConfigId, name: 'A copy', isDefault: false });
+    expect(copy.id).not.toBe(state.activeConfigId);
+    expect(copy.motors).not.toBe(state.mountMotors);
+    expect(copy.deployments).not.toBe(synced[0]!.deployments);
+    expect(copy.ignitions).not.toBe(synced[0]!.ignitions);
+    expect(copy.nozzles).not.toBe(synced[0]!.nozzles);
+    expect(copy.stageMassOverrides).not.toBe(synced[0]!.stageMassOverrides);
+    expect(state).toEqual(before);
+  });
+
+  it('CFG-1 Duplicate permits motorless owners and the 256th, refuses detached/unknown/257th', () => {
+    const state: Parameters<typeof duplicateActiveConfig>[0] = working();
+    state.mountMotors = {};
+    state.unmatchedRefs = {};
+    state.savedConfigs[0]!.name = null;
+    expect(duplicateActiveConfig(state)!.savedConfigs.at(-1)!.name).toBe('No motors copy');
+    expect(duplicateActiveConfig({ ...state, activeConfigId: null })).toBeNull();
+    expect(duplicateActiveConfig({ ...state, activeConfigId: 'missing' })).toBeNull();
+    state.savedConfigs = Array.from({ length: 255 }, (_, i) => ({ ...state.savedConfigs[0]!, id: String(i) }));
+    state.activeConfigId = '0';
+    expect(duplicateActiveConfig(state)!.savedConfigs).toHaveLength(256);
+    state.savedConfigs.push({ ...state.savedConfigs[0]!, id: '255' });
+    expect(duplicateActiveConfig(state)).toBeNull();
+  });
 
   it('copies effective sparse layers and snapshots ancillary fields, activates it, and leaves the previous active unchanged', () => {
     const state = working();

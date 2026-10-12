@@ -18,6 +18,13 @@ import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 let host: HTMLDivElement;
 let root: Root;
 
+it('CFG-1 labels launch conditions as shared by every configuration below the heading', () => {
+  render();
+  const heading = host.querySelector('h2')!;
+  expect(heading.textContent).toBe('Launch conditions');
+  expect(heading.parentElement!.nextElementSibling!.textContent).toBe('Shared by every flight configuration.');
+});
+
 beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);

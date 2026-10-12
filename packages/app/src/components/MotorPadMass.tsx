@@ -6,7 +6,7 @@ import type { HardwareMassResult, MountChange } from '../services/hardwareMass.j
 
 /**
  * "Weighed pad mass with this motor" — the field under the PRIMARY mount's
- * motor on Motors & Launch (v0.118, 2026-09-08).
+ * motor on Motors & Configuration (v0.118, 2026-09-08).
  *
  * v0.116 put this number in the Measured mass & CG box beside the two airframe
  * figures. Those are meant to survive a motor change; a pad weight cannot — it

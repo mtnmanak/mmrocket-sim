@@ -2487,11 +2487,11 @@ describe('RASAero export — booster fins are located on the whole booster body'
     expect(() => exportCdx1(shoulder)).toThrow(/shoulder/);
   });
 
-  it('names a booster with no name "Stage 2", as Motors & Launch does, never "undefined" (audit 2026-09-30, batch 6)', () => {
+  it('names a booster with no name "Stage 2", as Motors & Configuration does, never "undefined" (audit 2026-09-30, batch 6)', () => {
     // The four refusals quoted the stage's name, so a booster saved without
     // one (a .ork with no <name>, a session or share link written without it)
     // was refused as stage "undefined". Then as "stage 1", counting from the
-    // sustainer as 0, while Motors & Launch calls the same stage "Stage 2";
+    // sustainer as 0, while Motors & Configuration calls the same stage "Stage 2";
     // now by the name on screen, with RASAero's own name beside it.
     const nameless = (children: ComponentNode[]) => {
       const d = booster(children);
@@ -2747,7 +2747,7 @@ describe('S1b-1 RASAero physical motor count', () => {
     expect(exportCdx1(design([mount]))).toContain('<SustainerEngine>C6  (ES)</SustainerEngine>');
     expect(exportCdx1({ ...design([{ ...mount, cluster: '3-ring' }]), engineExport: false }))
       .not.toContain('Engine>');
-    // An unnamed stage by the number Motors & Launch shows for it (batch 6), not “Stage”.
+    // An unnamed stage by the number Motors & Configuration shows for it (batch 6), not “Stage”.
     const unnamed = design([{ ...mount, cluster: '3-ring' }]);
     delete (unnamed.tree.components[0] as { name?: string }).name;
     expect(() => exportCdx1(unnamed)).toThrow(/one engine per stage — “Stage 1” has 3 motors/);

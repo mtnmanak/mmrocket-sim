@@ -96,7 +96,7 @@ export function writeMountMotor(
   if (event === null) {
     throw new Error(`${spec.designation}: its ignition event “${ignition.event}” is not one the`
       + ' simulator knows, so the motor was left off the rocket rather than flown on a guess.'
-      + ' Pick it again on Motors & Launch.');
+      + ' Pick it again on Motors & Configuration.');
   }
   rocket.setMotorById(id, spec);
   if (event !== 'automatic' || ignition.delay !== 0) {

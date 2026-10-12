@@ -1644,7 +1644,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
             motor matched no motor in the motor database when the file was imported, so nothing
             could take it out. Load a motor of that name and the app takes its weight back out
             first, and any other motor clears these figures instead; Browse motor database on
-            Motors &amp; Launch takes an .eng or .rse file. Type your own figure here instead and {statedLaunchCopy.mine} —{' '}
+            Motors &amp; Configuration takes an .eng or .rse file. Type your own figure here instead and {statedLaunchCopy.mine} —{' '}
             {statedLaunchCopy.enter}.
           </p>
         )}

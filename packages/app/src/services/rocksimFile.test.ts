@@ -1866,7 +1866,7 @@ describe('RockSim ejection-delay sentinels', () => {
     // motors, and the old text sent the user to a delay box that does not exist).
     const note = r.notes.find((n) => /EjectionDelay −1/.test(n))!;
     expect(note).toMatch(/this motor matched nothing in the motor database/);
-    expect(note).not.toMatch(/lists no delay|Motors & Launch|0 s/);
+    expect(note).not.toMatch(/lists no delay|Motors & Configuration|0 s/);
     // Saved the way App saves a reference nothing matched.
     const motors = { [ref.mountId!]: refToExportMotor(ref) };
     const asRkt = exportRkt({ name: 'Delays', tree: r.tree, motors });
@@ -1885,7 +1885,7 @@ describe('RockSim ejection-delay sentinels', () => {
   /**
    * 80 catalogue motors have no simulator file on thrustcurve.org at all, so
    * the matcher loads nothing and says so. This note said "loaded at the
-   * longest, 10 s … Change it on the Motors & Launch tab" right beside it
+   * longest, 10 s … Change it on the Motors & Configuration tab" right beside it
    * (review of the seam fixes, 2026-09-22). The reader cannot know — the curves
    * are a lazy bundle — so the note says what the REFERENCE carries.
    */
@@ -1899,7 +1899,7 @@ describe('RockSim ejection-delay sentinels', () => {
     expect(ref.delay).toBe(10);
     const note = r.notes.find((n) => /EjectionDelay −1/.test(n))!;
     expect(note).toMatch(/takes 10 s, the motor browser’s own default for it/);
-    expect(note).not.toMatch(/loaded|Motors & Launch/);
+    expect(note).not.toMatch(/loaded|Motors & Configuration/);
     // And a Save of it, still unmatched, gives RockSim its −1 back.
     expect(exportRkt({ name: 'G80', tree: r.tree, motors: { [ref.mountId!]: refToExportMotor(ref) } }))
       .toContain('<EjectionDelay>-1</EjectionDelay>');

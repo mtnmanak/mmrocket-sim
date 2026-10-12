@@ -649,7 +649,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             <label className="motor-inline-label"
               title={maxMotorLengthM !== null
                 ? `Hide motors longer than ${siToUi('motorDimensions', motorSym, maxMotorLengthM).toFixed(motorSym === 'mm' ? 0 : 2)} ${motorSym} — the limit for this mount. When off, longer motors stay flagged and selectable.`
-                : 'This mount has no maximum motor length set. Set one on its motor card in Motors & Launch.'}>
+                : 'This mount has no maximum motor length set. Set one on its motor card in Motors & Configuration.'}>
               <input
                 type="checkbox"
                 checked={filters.fitsOnly && maxMotorLengthM !== null}

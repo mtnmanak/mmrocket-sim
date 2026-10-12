@@ -73,7 +73,7 @@ async function mountApp(): Promise<HTMLElement> {
 }
 
 /** A workspace tab, pressed. */
-async function openTab(host: HTMLElement, name: 'Fly' | 'Design' | 'Motors & Launch' | 'Results'): Promise<void> {
+async function openTab(host: HTMLElement, name: 'Fly' | 'Design' | 'Motors & Configuration' | 'Results'): Promise<void> {
   const b = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tabs button')]
     .find((x) => x.textContent?.trim() === name);
   if (!b) throw new Error(`no tab "${name}"`);
@@ -133,7 +133,7 @@ describe('App — accessibility, as rendered', () => {
     const current = () => [...nav.querySelectorAll('[aria-current]')]
       .map((b) => `${b.textContent?.trim()}=${b.getAttribute('aria-current')}`);
     expect(current()).toEqual(['Design=page']);
-    for (const tab of ['Fly', 'Motors & Launch', 'Results', 'Design'] as const) {
+    for (const tab of ['Fly', 'Motors & Configuration', 'Results', 'Design'] as const) {
       await openTab(host, tab);
       expect(current(), tab).toEqual([`${tab}=page`]);
       expect(document.querySelectorAll('[role="tab"], [role="tablist"], [role="tabpanel"]'), tab).toHaveLength(0);
@@ -150,14 +150,14 @@ describe('App — accessibility, as rendered', () => {
   /**
    * Rows 453 and 455: the Rocket name box is named by its label, a motor's ✕
    * says which motor it removes and from where (it announced "multiplication
-   * x"), and Motors & Launch is a <main> landmark as the other workspaces are.
+   * x"), and Motors & Configuration is a <main> landmark as the other workspaces are.
    */
-  it('rows 453 and 455: the name box and the motor ✕ have names; Motors & Launch is a <main>', async () => {
+  it('rows 453 and 455: the name box and the motor ✕ have names; Motors & Configuration is a <main>', async () => {
     const host = await mountApp();
     const box = host.querySelector<HTMLInputElement>('#rocket-name')!;
     expect(host.querySelector('label[for="rocket-name"]')?.textContent).toBe('Rocket name');
     expect(box.value).toBe('My Rocket');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     expect(host.querySelector('.motors-layout')?.tagName).toBe('MAIN');
     const remove = [...host.querySelectorAll('button[title="Remove this motor"]')];
     const mount = host.querySelector('.mount-card-title')!.firstChild!.textContent;
@@ -176,7 +176,7 @@ describe('App — accessibility, as rendered', () => {
     const region = flightRegion();
     expect(region, 'mounted before any flight').not.toBeNull();
     expect(region!.textContent).toBe('');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await launch(host);
     const main = host.querySelector<HTMLElement>('.results-column')!;
     expect(main.tagName).toBe('MAIN');
@@ -197,7 +197,7 @@ describe('App — accessibility, as rendered', () => {
     };
     const watch = new MutationObserver(note);
     watch.observe(region!, { childList: true, subtree: true, characterData: true });
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await launch(host, 2);
     note(watch.takeRecords());
     watch.disconnect();
@@ -213,7 +213,7 @@ describe('App — accessibility, as rendered', () => {
    */
   it('row 443: a Launch whose flight fails still lands focus on the Results <main>', async () => {
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     vi.mocked(flyLaunch).mockImplementationOnce(() => { throw new Error('the flight failed (test)'); });
     await act(async () => {
       [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();
@@ -265,7 +265,7 @@ describe('App — accessibility, as rendered', () => {
       tree, mountMotors: { [mount]: c6 }, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
     }));
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const label = [...host.querySelectorAll<HTMLLabelElement>('.mount-card label')]
       .find((l) => l.textContent === 'Ignition');
     expect(label, 'a staged design shows the Ignition field').toBeTruthy();
@@ -287,7 +287,7 @@ describe('App — accessibility, as rendered', () => {
    */
   it('no label in a motor card labels nothing, and the delay’s words reach the delay box', async () => {
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const card = host.querySelector<HTMLElement>('.mount-card')!;
     const labels = [...card.querySelectorAll('label')];
     for (const l of labels) expect(l.control, `"${l.textContent}" labels nothing`).not.toBeNull();

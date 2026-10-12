@@ -852,7 +852,7 @@ async function nativeIgnitionCase(staged = false) {
   const click = async (text: string) => act(async () => {
     [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();
   });
-  await click('Motors & Launch');
+  await click('Motors & Configuration');
   const select = () => host.querySelector<HTMLSelectElement>(`#ignition-${mount}`)!;
   const choose = async (event: string) => act(async () => {
     select().value = event;
@@ -871,7 +871,7 @@ async function nativeIgnitionCase(staged = false) {
     await act(async () => { await vi.mocked(flyBuiltDesign).mock.results[count]!.value; });
     expect(vi.mocked(flyBuiltDesign).mock.calls[count]![0].derived.assigned[0]![1].ignition)
       .toEqual({ event, delay });
-    await click('Motors & Launch');
+    await click('Motors & Configuration');
   };
   return { host, mount, click, select, choose, number, fly };
 }
@@ -1136,7 +1136,7 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM i
   };
   // All three ordinary Launch sites inherit no warning with default inputs.
   assertWarnings(1, false);
-  await click('Motors & Launch');
+  await click('Motors & Configuration');
   assertWarnings(2, false);
   await click('Fly');
   assertWarnings(1, false);
@@ -1149,7 +1149,7 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM i
   expect(compact.classList.contains('sr-only')).toBe(true);
   await click('Results');
   assertWarnings(1, true);
-  await click('Motors & Launch');
+  await click('Motors & Configuration');
   assertWarnings(2, true);
   await click('Batch simulate motors');
   await waitFor(() => !!host.querySelector('#launch-override-batch'), 'Batch warning');
@@ -1185,7 +1185,7 @@ it.each([false, true])('LW4 ignition Show scrolls the affected card and focuses 
   try {
     const host = await mountApp();
     await waitFor(() => !!host.querySelector('#launch-override-vitals'), 'ignition warning');
-    // First opens the tab; second works while already on Motors & Launch.
+    // First opens the tab; second works while already on Motors & Configuration.
     for (let i = 0; i < 2; i++) {
       scroll.mockClear();
       const show = host.querySelector('#launch-override-vitals')!.parentElement!.querySelector<HTMLButtonElement>('button')!;

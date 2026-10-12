@@ -1,5 +1,6 @@
 import { captureStageMass, completeStageMass } from './stageMassOverrides.js';
-import { MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS, snapshotConfigFamilies, snapshotLoadedConfig } from './configSnapshot.js';
+import { configUuid, MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS, snapshotConfigFamilies, snapshotLoadedConfig } from './configSnapshot.js';
+import { savedConfigLabel } from '../model/design.js';
 import { activeFlightOverrides, snapshotFlightOverrides } from './flightState.js';
 import { scaleRocket } from '../tree/scaleRocket.js';
 import type { RocketTree } from '@online-openrocket/engine';
@@ -38,6 +39,20 @@ export function renameConfig(configs: SavedConfig[], id: string, value: string):
   const name = value.trim().slice(0, MAX_CONFIG_NAME_LENGTH) || null;
   if (name === current.name) return configs;
   return configs.map(c => c.id === id ? { ...c, name } : c);
+}
+
+/** Duplicate exactly, including dormant/removed-part tuples; New sparsifies instead. */
+export function duplicateActiveConfig(state: {
+  savedConfigs: SavedConfig[]; activeConfigId: string | null; tree: RocketTree;
+  mountMotors: Record<string, MountMotor>; unmatchedRefs: Record<string, OrkMotorRef>;
+}): { savedConfigs: SavedConfig[]; activeConfigId: string } | null {
+  if (state.savedConfigs.length >= MAX_ORK_CONFIGURATIONS
+    || !state.savedConfigs.some(c => c.id === state.activeConfigId)) return null;
+  const configs = syncActiveConfig(state.savedConfigs, state.activeConfigId,
+    { tree: state.tree, motors: state.mountMotors, unmatchedRefs: state.unmatchedRefs });
+  const active = configs.find(c => c.id === state.activeConfigId)!;
+  const copy = structuredClone({ ...active, id: configUuid(), name: `${savedConfigLabel(active)} copy`, isDefault: false });
+  return { savedConfigs: [...configs, copy], activeConfigId: copy.id };
 }
 
 /** The live working set is deliberately absent: deleting its owner cannot unload it. */

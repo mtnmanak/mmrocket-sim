@@ -168,7 +168,7 @@ async function type(el: HTMLInputElement, text: string): Promise<void> {
 }
 
 /** A workspace tab, pressed. */
-async function openTab(host: HTMLElement, name: 'Design' | 'Motors & Launch' | 'Results'): Promise<void> {
+async function openTab(host: HTMLElement, name: 'Design' | 'Motors & Configuration' | 'Results'): Promise<void> {
   const b = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tabs button')]
     .find((x) => x.textContent?.trim() === name);
   if (!b) throw new Error(`no tab "${name}"`);
@@ -355,7 +355,7 @@ describe('an Auto motor beside a pod motor the kernel refused', () => {
 
   it('its card says the flight just flown is current, not a previous one', async () => {
     const { host, flownS } = await flownWithRefusedPodMotor();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const card = [...host.querySelectorAll('.mount-card p.field-hint')]
       .map((p) => p.textContent ?? '').find((t) => /Auto (delay|flew)/.test(t));
     expect(card).toMatch(new RegExp(`^Auto flew ${flownS} s · ballistic optimum`));
@@ -420,7 +420,7 @@ describe('an Auto motor beside a pod motor the kernel refused', () => {
       expect(run!.refusedMountIds).toEqual(['pod-mmt']);
       const flownS = run!.delayResolution!.mounts[0]!.flownDelay as number;
       expect(flownS).not.toBe(5);
-      await openTab(host, 'Motors & Launch');
+      await openTab(host, 'Motors & Configuration');
       await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Apply Fixed"]')!.click(); });
       await settle(50);
       window.dispatchEvent(new Event('pagehide'));
@@ -633,7 +633,7 @@ describe('what a Launch computed lands only on the design it flew', () => {
       await waitFor(() => shownName(host) === RKT_NAME, 'the file to open');
       // An open sets the file's own time step — none here, so the default
       // (importApply.importedLaunch). The fine one again, so the caution is up.
-      await openTab(host, 'Motors & Launch');
+      await openTab(host, 'Motors & Configuration');
       await type(input(host, 'Time step'), '0.025');
     }, false],
     ['✕ New', async (host) => {
@@ -657,17 +657,17 @@ describe('what a Launch computed lands only on the design it flew', () => {
       await waitFor(() => [...host.querySelectorAll('[role="treeitem"] .tree-label')]
         .some((l) => l.textContent?.includes('Rail button')), 'the Rail button to be added');
     }, false],
-    ['a wind typed on Motors & Launch', async (host) => {
-      await openTab(host, 'Motors & Launch');
+    ['a wind typed on Motors & Configuration', async (host) => {
+      await openTab(host, 'Motors & Configuration');
       await type(input(host, 'Wind avg'), '8');
     }, true],
     ['a Measured mass typed on Design over a weighed pad mass: the same design, motors and conditions, other hardware',
       async (host) => {
-        await openTab(host, 'Motors & Launch');
+        await openTab(host, 'Motors & Configuration');
         expect(padMassLine(host), 'the hardware the held flight flies').toMatch(/^20\.0 g carried as hardware/);
         await openTab(host, 'Design');
         await type(input(host, 'Measured mass of the airframe'), '90');
-        await openTab(host, 'Motors & Launch');
+        await openTab(host, 'Motors & Configuration');
         expect(padMassLine(host), 'the hardware the design flies now').toMatch(/^30\.0 g carried as hardware/);
       }, false, weighedStarter],
   ];
@@ -679,7 +679,7 @@ describe('what a Launch computed lands only on the design it flew', () => {
     const host = await mountApp();
     await waitFor(starterStored, 'the starter motor to be autosaved');
     // A step finer than the default, so the caution is up and can quote seconds.
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await type(input(host, 'Time step'), '0.025');
     const { land } = holdLaunch({ upgrade: true });
     await launch(host);
@@ -695,7 +695,7 @@ describe('what a Launch computed lands only on the design it flew', () => {
     expect(document.body.textContent?.includes('Flight complete — apogee'), 'the spoken result').toBe(landed);
     await openTab(host, 'Results');
     expect(hasHeading(host, 'Launch report'), 'the run on screen').toBe(landed);
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const caution = host.querySelector('.field-caution')?.textContent ?? '';
     expect(caution, 'the time-step caution is up').toContain('0.025 s is finer than');
     expect(caution.includes('per flight instead of'), 'the measured cost').toBe(cost);
@@ -740,7 +740,7 @@ describe('motor relabeling preserves flight state', () => {
   it('keeps the shown flight, inspected summary, cache and measured cost on install and discard', async () => {
     const host = await mountApp();
     await waitFor(starterStored, 'the starter motor');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await type(input(host, 'Time step'), '0.025');
     await launch(host);
     await waitFor(() => runs() === 1, 'the first flight');
@@ -778,7 +778,7 @@ describe('motor relabeling preserves flight state', () => {
     }
     // Remove the stored-cost fallback so only lastSimCost can price this flight.
     await act(async () => { history!.onRunsChange([]); });
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const caution = host.querySelector('.field-caution')!.textContent;
     expect(caution).toContain('per flight instead of');
     await renameC6();
@@ -826,7 +826,7 @@ describe('motor relabeling preserves flight state', () => {
   }, 30000);
 
   async function editDelay(host: HTMLElement): Promise<void> {
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const field = input(host, 'Ejection delay for');
     await act(async () => { field.focus(); });
     await type(field, '7');
@@ -861,7 +861,7 @@ describe('motor relabeling preserves flight state', () => {
 
   async function changeMotor(host: HTMLElement, change: typeof changes[number]): Promise<void> {
     if (change === 'delay') return editDelay(host);
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const apply = host.querySelector<HTMLButtonElement>('[aria-label^="Apply Changed"]')!;
     await act(async () => { apply.click(); });
   }
@@ -916,9 +916,9 @@ describe('motor relabeling preserves flight state', () => {
  * lastSimCost exists to prevent. Matched now on the design and its motors.
  */
 describe('the time-step caution’s measured cost', () => {
-  /** The caution on Motors & Launch: up (asserted), and whether it quotes seconds. */
+  /** The caution on Motors & Configuration: up (asserted), and whether it quotes seconds. */
   async function quotesSeconds(host: HTMLElement): Promise<boolean> {
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const caution = host.querySelector('.field-caution')?.textContent ?? '';
     expect(caution, 'the time-step caution is up').toContain('0.025 s is finer than');
     return caution.includes('per flight instead of');
@@ -929,7 +929,7 @@ describe('the time-step caution’s measured cost', () => {
     const host = await mountApp();
     await waitFor(starterStored, 'the starter motor to be autosaved');
     await type(host.querySelector<HTMLInputElement>('#rocket-name')!, name);
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await type(input(host, 'Time step'), '0.025');
     await launch(host);
     await waitFor(() => runs() === 1, 'the flight to be saved');
@@ -1016,7 +1016,7 @@ describe('R7 Batch identity-independent replay', () => {
     const before = localStorage.getItem(RUNS_KEY);
     host = await mountApp();
     await settle(50);
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     if (autoDelay) {
       expect(host.textContent).toContain('Auto flew');
       expect(host.textContent).not.toContain('Previous flight: Auto flew');
@@ -1032,7 +1032,7 @@ describe('R7 Batch identity-independent replay', () => {
     expect(full.series.time.length).toBeGreaterThan(1);
     expect(vi.mocked(reflyRun)).toHaveBeenCalledTimes(2);
     expect(localStorage.getItem(RUNS_KEY)).toBe(before);
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     if (autoDelay) {
       const wind = input(host, 'Wind avg');
       const originalWind = wind.value;
@@ -1073,7 +1073,7 @@ describe('the Auto-delay card under a motor', () => {
     await launch(host);
     await waitFor(() => runs() === 1, 'the flight to be saved');
     expect(host.querySelector('.simdet-when')?.textContent).toContain('matches the design as it stands');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const delay = input(host, 'Ejection delay for');
     expect(delay.value).toBe('7');
     const label = [...host.querySelectorAll('label')].find((el) => el.textContent?.trim() === 'auto (optimal)')!;
@@ -1102,7 +1102,7 @@ describe('the Auto-delay card under a motor', () => {
     }));
     const host = await mountApp();
     await settle(50);
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const card = () => [...host.querySelectorAll('.mount-card p.field-hint')]
       .map((p) => p.textContent ?? '').find((t) => /Auto (delay|flew)/.test(t));
     expect(card()).toBe('Auto delay not yet calculated.');
@@ -1112,7 +1112,7 @@ describe('the Auto-delay card under a motor', () => {
     await launch(host);
     await waitFor(() => runs() === 2, 'the flight to be saved');
     await settle(50);
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     expect(card()).toMatch(/^Auto flew \d+ s · ballistic optimum/);
     await type(input(host, 'Wind avg'), '8');
     expect(card()).toMatch(/^Previous flight: Auto flew \d+ s · ballistic optimum/);
@@ -1144,7 +1144,7 @@ it.each(['evidence identity', 'motor-set key', 'motor-data key'] as const)(
   localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   host = await mountApp();
   await settle(50);
-  await openTab(host, 'Motors & Launch');
+  await openTab(host, 'Motors & Configuration');
   const card = [...host.querySelectorAll('.mount-card p.field-hint')]
     .map((p) => p.textContent ?? '').find((t) => /Auto (delay|flew)/.test(t));
   expect(card).toMatch(/^Previous flight: Auto flew 7 s/);
@@ -1185,7 +1185,7 @@ it.each(['motorIdentity', 'motorDataKey', 'motorDataKeys'] as const)(
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     host = await mountApp();
     await settle(50);
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const card = [...host.querySelectorAll('.mount-card p.field-hint')]
       .map((p) => p.textContent ?? '').find((t) => /Auto (delay|flew)/.test(t));
     expect(card).toBe('Auto delay not yet calculated.');
@@ -1227,7 +1227,7 @@ it.each(['pad mass', 'other motor', 'other delay'] as const)(
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     host = await mountApp();
     await settle(50);
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const card = [...host.querySelectorAll('.mount-card p.field-hint')]
       .map((p) => p.textContent ?? '').find((t) => /Auto (delay|flew)/.test(t));
     expect(card).toContain('Previous flight: Auto flew ' + record.flownDelay + ' s');

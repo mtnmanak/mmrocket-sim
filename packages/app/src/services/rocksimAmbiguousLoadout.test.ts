@@ -106,7 +106,7 @@ describe('ambiguous RockSim motor loadouts', () => {
     const plan = await open();
     expect(plan.note.text).toMatch(/Missing mounts.*4 motors.*mounts that no longer exist/);
     expect(plan.note.text).toMatch(/will not guess which tube each motor belongs in/);
-    expect(plan.note.text).toMatch(/Motors & Launch/);
+    expect(plan.note.text).toMatch(/Motors & Configuration/);
     expect(plan.note.severity).toBe('warn');
     expect(plan.snapshot.mountMotors).toEqual({});
     await expect(simulateDesign(plan.snapshot)).rejects.toThrow(/Launch refused.*Missing mounts/);

@@ -766,7 +766,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         unreadDelays.add(delayKey);
         notes.push(`Motor ${designation}: ${delayText === null ? 'the file gives no ejection delay'
           : `the file's ejection delay “${delayText}” is not a number`}, so it is read as plugged (no`
-          + ' ejection charge), as desktop OpenRocket reads it. If the motor has a delay, set it on Motors & Launch.');
+          + ' ejection charge), as desktop OpenRocket reads it. If the motor has a delay, set it on Motors & Configuration.');
       }
       return {
         designation,
@@ -1596,7 +1596,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // no single-configuration case to branch on here.)
       const openedNote = `Opened “${configLabel(chosen)}”${chosen.isDefault ? ', the file’s default' : ''} `
         + `flight configuration (${configs.length} in the file). Switch between them `
-        + `under Motors & Launch → Flight configurations.`;
+        + `under Motors & Configuration → Flight configurations.`;
       notes.push(openedNote);
       configLabelNotes.push({ text: openedNote, configId: chosen.id, label: configLabel(chosen) });
     }

@@ -57,97 +57,103 @@ describe('ConfigPanel', () => {
     return { applied, cleared };
   }
 
-  it('lists every config plus the None row: names, summaries, default marker, active state', () => {
-    mount();
-    const names = Array.from(host.querySelectorAll('.config-name')).map((el) => el.textContent);
-    // A nameless configuration reads as its MOTOR SET, never as a raw GUID —
-    // the picker used to show `33a7c4f9-1acd-…` as a user's first screen after
-    // opening a file (one beta-thread design carries ten of them).
-    expect(names).toEqual(['Club field C6', 'No motors', '[J1026-CT]', '[K550W]', 'None']);
-    const summaries = Array.from(host.querySelectorAll('.config-motors')).map((el) => el.textContent);
-    expect(summaries).toEqual(['C6-5, D12-0', 'no motors', 'J1026-CT', 'no motors', 'no motors loaded']);
-    // The file's default is marked once, on cfg-a's row.
-    const rows = Array.from(host.querySelectorAll('.config-row'));
-    expect(rows).toHaveLength(5);
-    expect(rows[0]!.querySelector('.config-default')).toBeTruthy();
-    expect(rows[1]!.querySelector('.config-default')).toBeFalsy();
-    // Active state rides the activeConfigId row only.
-    expect(rows[0]!.querySelector('.config-active-tag')).toBeTruthy();
-    expect(rows[1]!.querySelector('.config-active-tag')).toBeFalsy();
-    expect(rows[2]!.querySelector('.config-active-tag')).toBeFalsy();
-  });
-
-  it('Apply fires onApply with that config; the None row fires onClear', () => {
+  it('CFG-1 chooses a flight configuration or None in one action at the top', () => {
     const { applied, cleared } = mount();
-    const rows = Array.from(host.querySelectorAll('.config-row'));
-    act(() => { (rows[1]!.querySelector('button') as HTMLButtonElement).click(); });
+    const chooser = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]');
+    expect(chooser).not.toBeNull();
+    expect(chooser!.value).toBe('cfg-a');
+    act(() => { chooser!.value = 'cfg-b'; chooser!.dispatchEvent(new Event('change', { bubbles: true })); });
     expect(applied).toEqual(['cfg-b']);
-    // The None row is always LAST, after every configuration.
-    act(() => { (rows.at(-1)!.querySelector('button') as HTMLButtonElement).click(); });
-    expect(cleared).toHaveLength(1);
+    act(() => { chooser!.value = ''; chooser!.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(cleared).toEqual([1]);
   });
 
-  it('the None row shows active only when nothing is loaded AND no config is active', () => {
-    mount({ activeConfigId: null, hasMotors: false });
-    const rows = Array.from(host.querySelectorAll('.config-row'));
-    expect(rows.at(-1)!.querySelector('.config-active-tag')).toBeTruthy();
-    // Custom set (active null but motors loaded): nothing claims active.
-    mount({ activeConfigId: null, hasMotors: true });
-    expect(host.querySelector('.config-active-tag')).toBeFalsy();
-  });
 
-  it('renders nothing when there are neither configurations nor motors', () => {
-    mount({ configs: [], hasMotors: false });
-    expect(host.querySelector('.config-panel')).toBeFalsy();
-    expect(host.querySelector('.config-list')).toBeFalsy();
-    expect(host.textContent).toBe('');
-  });
-
-  it.each([0, 1, 2])('shows %i configurations with loaded motors, and None only for a nonempty list', (count) => {
-    mount({ configs: CONFIGS.slice(0, count) });
-    expect(host.querySelector('.config-panel')).toBeTruthy();
-    expect(host.querySelectorAll('.config-row')).toHaveLength(count ? count + 1 : 0);
-    expect(host.textContent).toContain('+ New configuration from loaded motors');
-    if (count === 0) expect(host.textContent).toContain('Keep this motor set');
-  });
-
-  it('disables creation without a loaded motor and at 256 configurations, explaining both', () => {
-    const onCreate = vi.fn(() => null);
-    const create = () => [...host.querySelectorAll('button')].find(b => b.textContent?.startsWith('+ New'))!;
-    mount({ hasMotors: false, onCreate });
-    expect(create().disabled).toBe(true);
-    expect(create().title).toContain('Load a motor');
-    act(() => create().click());
-    mount({ configs: Array.from({ length: 256 }, (_, i) => ({ ...CONFIGS[0]!, id: String(i) })), onCreate });
-    expect(create().disabled).toBe(true);
-    expect(create().title).toContain('256');
-    act(() => create().click());
-    expect(onCreate).not.toHaveBeenCalled();
-  });
-
+  const chooser = () => host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+  const choose = (id: string) => act(() => { chooser().value = id; chooser().dispatchEvent(new Event('change', { bubbles: true })); });
+  const button = (text: string) => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!;
   function click(label: string) {
     const b = [...host.querySelectorAll('button')].find(el => el.getAttribute('aria-label') === label)!;
-    expect(b).toBeTruthy();
-    act(() => b.click());
+    expect(b).toBeTruthy(); act(() => b.click());
   }
   function key(value: string) {
     act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent('keydown', { key: value, bubbles: true })); });
   }
   function edit(value: string) {
     const input = host.querySelector('input')!;
-    act(() => {
-      input.value = value;
-      input.dispatchEvent(new Event('input', { bubbles: true }));
-    });
+    act(() => { input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })); });
     return input;
   }
+
+  it('lists every name and motor fallback, the file default, active selection and None', () => {
+    mount();
+    expect([...chooser().options].map(o => o.textContent)).toEqual([
+      'Club field C6 — file default', 'No motors', '[J1026-CT]', '[K550W]', 'None (no motors)',
+    ]);
+    expect(chooser().selectedOptions[0]!.textContent).toBe('Club field C6 — file default');
+    expect(chooser().options[1]!.textContent).not.toContain('file default');
+  });
+
+  it('choosing each entry applies exactly that config and None clears once', () => {
+    const { applied, cleared } = mount();
+    for (const c of CONFIGS) choose(c.id);
+    expect(applied).toEqual(CONFIGS.map(c => c.id));
+    choose(''); expect(cleared).toEqual([1]);
+  });
+
+  it('None is selected only without an active config, motors or detached overrides', () => {
+    mount({ activeConfigId: null, hasMotors: false }); expect(chooser().value).toBe('');
+    mount({ activeConfigId: null }); expect(chooser().selectedOptions[0]!.textContent).toBe('Working settings (not saved)');
+    mount({ activeConfigId: null, hasMotors: false, detachedOverrides: { ignitions: { m1: { event: 'never', delay: 0 } } } });
+    expect(chooser().value).toBe('__working__');
+  });
+
+  it('keeps an empty chooser and disabled New when there are no saved configurations or motors', () => {
+    mount({ configs: [], activeConfigId: null, hasMotors: false });
+    expect(chooser().value).toBe('');
+    expect(host.textContent).toContain('No saved configurations — the loaded motors fly as a working set');
+    expect(host.textContent).toContain("No configuration: the parts' own settings, with no motors");
+    expect(button('+ New from loaded motors').disabled).toBe(true);
+  });
+
+  it.each([0, 1, 2])('shows %i saved configurations with loaded motors and always offers None', count => {
+    mount({ configs: CONFIGS.slice(0, count) });
+    expect([...chooser().options].filter(o => o.value && o.value !== '__working__')).toHaveLength(count);
+    expect([...chooser().options].at(-1)!.textContent).toBe('None (no motors)');
+    expect(button('+ New from loaded motors').disabled).toBe(false);
+  });
+
+  it('disables New without a motor and both New and Duplicate at 256, explaining the limit', () => {
+    const onCreate = vi.fn(() => null), onDuplicate = vi.fn();
+    mount({ hasMotors: false, onCreate, onDuplicate });
+    expect(button('+ New from loaded motors').title).toContain('Load a motor');
+    act(() => button('+ New from loaded motors').click());
+    mount({ configs: Array.from({ length: 256 }, (_, i) => ({ ...CONFIGS[0]!, id: String(i) })), activeConfigId: '0', onCreate, onDuplicate });
+    for (const label of ['+ New from loaded motors', 'Duplicate']) {
+      expect(button(label).disabled).toBe(true); expect(button(label).title).toContain('256');
+      act(() => button(label).click());
+    }
+    expect(onCreate).not.toHaveBeenCalled(); expect(onDuplicate).not.toHaveBeenCalled();
+  });
+
+  it('duplicates an active empty configuration, but not detached settings or None', () => {
+    const onDuplicate = vi.fn();
+    mount({ activeConfigId: 'cfg-b', hasMotors: false, onDuplicate });
+    act(() => button('Duplicate').click()); expect(onDuplicate).toHaveBeenCalledTimes(1);
+    for (const hasMotors of [true, false]) {
+      mount({ activeConfigId: null, hasMotors, onDuplicate });
+      for (const label of ['Duplicate', 'Rename', 'Delete']) expect(button(label).disabled).toBe(true);
+      act(() => button('Duplicate').click());
+    }
+    expect(onDuplicate).toHaveBeenCalledTimes(1);
+  });
 
   it('renames with Enter/blur, trims, clears to unnamed, and Escape preserves the old name', () => {
     const renamed = vi.fn();
     function Harness() {
       const [configs, setConfigs] = useState([CONFIGS[0]!]);
       return <ConfigPanel configs={configs} activeConfigId="cfg-a" hasMotors onApply={() => {}}
-        onEmpty={() => {}} onClear={() => {}} onCreate={() => null} onDelete={() => {}}
+        onClear={() => {}} onCreate={() => null} onDelete={() => {}}
         onRename={(id, name) => { renamed(id, name); setConfigs(prev => renameConfig(prev, id, name)); }} />;
     }
     act(() => root.render(<Harness />));
@@ -156,30 +162,30 @@ describe('ConfigPanel', () => {
     expect(host.querySelector('input')!.maxLength).toBe(100);
     expect(host.querySelector('input')!.title).toContain('100');
     edit('  Club field  '); key('Enter');
-    expect(host.querySelector('.config-name')?.textContent).toBe('Club field');
+    expect(chooser().selectedOptions[0]!.textContent).toContain('Club field');
     expect(renamed).toHaveBeenCalledTimes(1);
     click('Rename Club field — configuration 1'); edit('cancelled'); key('Escape');
-    expect(host.querySelector('.config-name')?.textContent).toBe('Club field');
+    expect(chooser().selectedOptions[0]!.textContent).toContain('Club field');
     expect(renamed).toHaveBeenCalledTimes(1);
     click('Rename Club field — configuration 1'); const input = edit('  ');
     act(() => input.blur());
-    expect(host.querySelector('.config-name')?.textContent).toBe('[C6-5, D12-0]');
+    expect(chooser().selectedOptions[0]!.textContent).toContain('[C6-5, D12-0]');
     expect(renamed).toHaveBeenCalledTimes(2);
   });
 
-  it('creates an active unnamed row and focuses its editor; Escape leaves it unnamed', () => {
+  it('creates an active unnamed configuration and focuses its editor; Escape leaves it unnamed', () => {
     function Harness() {
       const [configs, setConfigs] = useState<SavedConfig[]>([]);
       return <ConfigPanel configs={configs} activeConfigId={configs[0]?.id ?? null} hasMotors
-        onApply={() => {}} onEmpty={() => {}} onClear={() => {}} onRename={() => {}} onDelete={() => {}}
+        onApply={() => {}} onClear={() => {}} onRename={() => {}} onDelete={() => {}}
         onCreate={() => { setConfigs([{ ...CONFIGS[2]!, id: 'new' }]); return 'new'; }} />;
     }
     act(() => root.render(<Harness />));
-    act(() => host.querySelector<HTMLButtonElement>('button')!.click());
+    act(() => button('+ New from loaded motors').click());
     expect(document.activeElement).toBe(host.querySelector('input'));
     expect(host.querySelector('[aria-current="true"] input')).toBeTruthy();
     edit('discard'); key('Escape');
-    expect(host.querySelector('.config-name')?.textContent).toBe('[J1026-CT]');
+    expect(chooser().selectedOptions[0]!.textContent).toBe('[J1026-CT]');
   });
 
   it('unchanged Enter and blur never commit or shorten an imported name', () => {
@@ -187,10 +193,9 @@ describe('ConfigPanel', () => {
     for (const name of [null, 'Club', ' padded ', 'x'.repeat(120)]) {
       for (const action of ['Enter', 'blur']) {
         mount({ configs: [{ ...CONFIGS[0]!, name }], onRename });
-        act(() => host.querySelector<HTMLButtonElement>('button[aria-label^="Rename "]')!.click());
+        act(() => button('Rename').click());
         expect(host.querySelector('input')!.value).toBe(name ?? '');
-        if (action === 'blur') act(() => host.querySelector('input')!.blur());
-        else key(action);
+        if (action === 'blur') act(() => host.querySelector('input')!.blur()); else key(action);
         expect(onRename).not.toHaveBeenCalled();
       }
     }
@@ -199,120 +204,85 @@ describe('ConfigPanel', () => {
     expect(onRename).not.toHaveBeenCalled();
   });
 
-  it('disambiguates every same-label control and describes the deletion consequence', () => {
-    mount({ configs: [CONFIGS[0]!, { ...CONFIGS[0]!, id: 'second' }] });
+  it('disambiguates same-label active controls and describes the deletion consequence', () => {
+    mount({ configs: [CONFIGS[0]!, { ...CONFIGS[0]!, id: 'second' }], activeConfigId: 'second' });
     click('Rename Club field C6 — configuration 2');
     expect(host.querySelector('input')!.getAttribute('aria-label')).toBe('Rename Club field C6 — configuration 2');
-    key('Escape');
-    click('Delete Club field C6 — configuration 2');
+    key('Escape'); click('Delete Club field C6 — configuration 2');
     const group = host.querySelector('[aria-label="Delete Club field C6 — configuration 2?"]')!;
-    expect(group).toBeTruthy();
     expect(document.getElementById(group.getAttribute('aria-describedby')!)?.textContent)
       .toBe('Delete this configuration? Its motors stay loaded if it is the one you are flying.');
     expect(document.activeElement?.getAttribute('aria-label')).toBe('Cancel deleting Club field C6 — configuration 2');
     expect(group.querySelector('[aria-label="Confirm delete Club field C6 — configuration 2"]')).toBeTruthy();
-    const names = [...host.querySelectorAll('button:not([aria-label^="Apply "])')]
-      .map(b => b.getAttribute('aria-label')).filter(Boolean);
-    expect(new Set(names).size).toBe(names.length);
   });
 
-  it.each(['next', 'create', 'outside'] as const)('confirmed deletion focuses %s after the row disappears', (target) => {
+  it.each(['next', 'create', 'empty'] as const)('confirmed deletion keeps focus on the chooser with %s remaining', target => {
     function Harness() {
       const [configs, setConfigs] = useState(target === 'next' ? CONFIGS.slice(0, 2) : CONFIGS.slice(0, 1));
-      return <><h2 id="motors" tabIndex={-1}>Motors</h2>
-        <ConfigPanel configs={configs} activeConfigId={null} hasMotors={target !== 'outside'}
-          onApply={() => {}} onClear={() => {}} onCreate={() => null} onRename={() => {}}
-          onEmpty={() => document.getElementById('motors')!.focus()}
-          onDelete={c => setConfigs(prev => prev.filter(row => row.id !== c.id))} /></>;
+      return <ConfigPanel configs={configs} activeConfigId={configs.some(c => c.id === 'cfg-a') ? 'cfg-a' : null} hasMotors={target !== 'empty'}
+        onApply={() => {}} onClear={() => {}} onCreate={() => null} onRename={() => {}}
+        onDelete={c => setConfigs(prev => prev.filter(row => row.id !== c.id))} />;
     }
     act(() => root.render(<Harness />));
-    click('Delete Club field C6 — configuration 1');
-    click('Confirm delete Club field C6 — configuration 1');
-    const focused = document.activeElement;
-    expect(focused).not.toBe(document.body);
-    expect(focused?.isConnected).toBe(true);
-    if (target === 'next') expect(focused?.getAttribute('aria-label')).toBe('Apply No motors');
-    else if (target === 'create') expect(focused?.textContent).toBe('+ New configuration from loaded motors');
-    else {
-      expect(focused?.textContent).toBe('Motors');
-      expect(host.querySelector('.config-panel')).toBeNull();
-    }
+    click('Delete Club field C6 — configuration 1'); click('Confirm delete Club field C6 — configuration 1');
+    expect(document.activeElement).toBe(chooser()); expect(document.activeElement?.isConnected).toBe(true);
   });
 
-  it('confirms deletion in the row, focuses Cancel, and supports Cancel and Escape', () => {
-    const onDelete = vi.fn();
-    mount({ onDelete });
-    click('Delete Club field C6 — configuration 1');
-    expect(document.activeElement?.textContent).toBe('Cancel');
-    expect(host.querySelector('.config-row')?.textContent).toContain('Its motors stay loaded');
-    click('Cancel deleting Club field C6 — configuration 1');
-    expect(onDelete).not.toHaveBeenCalled();
+  it('confirms deletion inline, focuses Cancel, and supports Cancel and Escape', () => {
+    const onDelete = vi.fn(); mount({ onDelete });
+    click('Delete Club field C6 — configuration 1'); expect(document.activeElement?.textContent).toBe('Cancel');
+    expect(host.textContent).toContain('Its motors stay loaded');
+    click('Cancel deleting Club field C6 — configuration 1'); expect(onDelete).not.toHaveBeenCalled();
     expect(document.activeElement?.getAttribute('aria-label')).toBe('Delete Club field C6 — configuration 1');
-    click('Delete Club field C6 — configuration 1'); key('Escape');
-    expect(onDelete).not.toHaveBeenCalled();
+    click('Delete Club field C6 — configuration 1'); key('Escape'); expect(onDelete).not.toHaveBeenCalled();
     expect(host.textContent).not.toContain('Delete this configuration?');
     click('Delete Club field C6 — configuration 1'); click('Confirm delete Club field C6 — configuration 1');
     expect(onDelete).toHaveBeenCalledExactlyOnceWith(CONFIGS[0]);
   });
 
   it.each(['Delete', 'Rename'] as const)('clears pending %s when configurations are replaced or removed', action => {
-    const onDelete = vi.fn();
-    const onRename = vi.fn();
+    const onDelete = vi.fn(), onRename = vi.fn();
     for (const replacement of ['same IDs', 'removed', 'empty'] as const) {
-      mount({ onDelete, onRename });
-      click(`${action} Club field C6 — configuration 1`);
+      mount({ onDelete, onRename }); click(`${action} Club field C6 — configuration 1`);
       if (action === 'Rename') edit('uncommitted');
-      const configs = replacement === 'same IDs' ? structuredClone(CONFIGS)
-        : replacement === 'removed' ? CONFIGS.slice(1) : [];
+      const configs = replacement === 'same IDs' ? structuredClone(CONFIGS) : replacement === 'removed' ? CONFIGS.slice(1) : [];
       mount({ configs, hasMotors: replacement !== 'empty', onDelete, onRename });
-      expect(host.querySelector('input')).toBeNull();
-      expect(host.querySelector('[aria-label^="Confirm delete"]')).toBeNull();
-      // Reintroducing an old object must not resurrect its discarded action.
+      expect(host.querySelector('input')).toBeNull(); expect(host.querySelector('[aria-label^="Confirm delete"]')).toBeNull();
       mount({ onDelete, onRename });
-      expect(host.querySelector('input')).toBeNull();
-      expect(host.querySelector('[aria-label^="Confirm delete"]')).toBeNull();
-      expect(onDelete).not.toHaveBeenCalled();
-      expect(onRename).not.toHaveBeenCalled();
+      expect(host.querySelector('input')).toBeNull(); expect(host.querySelector('[aria-label^="Confirm delete"]')).toBeNull();
+      expect(onDelete).not.toHaveBeenCalled(); expect(onRename).not.toHaveBeenCalled();
     }
   });
 
   it.each(['Delete', 'Rename'] as const)('keeps pending %s during unrelated row and active-state changes', action => {
-    mount();
-    click(`${action} Club field C6 — configuration 1`);
+    mount(); click(`${action} Club field C6 — configuration 1`);
     mount({ configs: [CONFIGS[0]!, { ...CONFIGS[1]!, name: 'Other' }], activeConfigId: 'cfg-b' });
     expect(host.querySelector(action === 'Rename' ? 'input' : '[aria-label^="Confirm delete"]')).toBeTruthy();
   });
 
-  it('Apply leads every row, so the buttons line up where the eye lands first', () => {
-    // The owner's call, 2026-08-26. Reordered in the DOM, not with CSS
-    // `order` — assert the DOM, because that is what the tab order follows.
-    mount();
-    for (const row of host.querySelectorAll('.config-row')) {
-      expect(row.firstElementChild!.tagName).toBe('BUTTON');
-      expect(row.firstElementChild!.textContent).toBe('Apply');
+  it('the labelled chooser precedes actions in DOM and associates the visible summary', () => {
+    mount(); expect(host.querySelector('.config-bar')!.firstElementChild!.contains(chooser())).toBe(true);
+    expect(document.getElementById(chooser().getAttribute('aria-describedby')!)?.textContent).toBe("Uses every part's own setting.");
+  });
+
+  it('reset confirms inline with Cancel focused, Escape cancels, and confirmation calls once', () => {
+    const onResetOverrides = vi.fn();
+    mount({ configs: [{ ...CONFIGS[0]!, ignitions: { m1: { event: 'never', delay: 0 } } }], onResetOverrides });
+    act(() => button('Reset every override in this configuration').click());
+    expect(document.activeElement?.textContent).toBe('Cancel'); key('Escape');
+    expect(onResetOverrides).not.toHaveBeenCalled();
+    expect(document.activeElement?.textContent).toBe('Reset every override in this configuration');
+    act(() => button('Reset every override in this configuration').click());
+    act(() => button('Confirm reset every override').click()); expect(onResetOverrides).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(chooser());
+  });
+
+  it('reset confirmation cannot follow an owner switch or a same-id file replacement', () => {
+    const config = { ...CONFIGS[0]!, ignitions: { m1: { event: 'never' as const, delay: 0 } } };
+    for (const replaced of [false, true]) {
+      mount({ configs: [config] }); act(() => button('Reset every override in this configuration').click());
+      mount({ configs: replaced ? [structuredClone(config)] : [config], activeConfigId: replaced ? 'cfg-a' : null });
+      expect(host.querySelector('[aria-label="Reset every override?"]')).toBeNull();
     }
-  });
-
-  it('every Apply button says what it applies, not just "Apply"', () => {
-    // Leading the row costs the screen-reader cue that came from reading the
-    // configuration's name immediately before its button. Five buttons all
-    // named "Apply" is what that would leave behind.
-    mount();
-    const labels = Array.from(host.querySelectorAll('.config-row button'))
-      .map((b) => b.getAttribute('aria-label'));
-    expect(labels.every((l) => l && l !== 'Apply')).toBe(true);
-    expect(new Set(labels).size).toBe(labels.length);
-    expect(labels.at(-1)).toBe('Apply None — unload every motor');
-  });
-
-  it('the rows scroll inside the panel, below a heading that stays put', () => {
-    mount();
-    const list = host.querySelector('.config-list');
-    expect(list).toBeTruthy();
-    // The heading must be a SIBLING of the scroller, not inside it.
-    expect(list!.querySelector('h2')).toBeFalsy();
-    expect(host.querySelector('.config-panel > h2')?.textContent).toBe('Flight configurations');
-    expect(list!.querySelectorAll('.config-row').length)
-      .toBe(host.querySelectorAll('.config-row').length);
   });
 });

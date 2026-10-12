@@ -82,7 +82,7 @@ it('FC-2 opens an override file note as information and respects a later collaps
   expect(bar.classList.contains('notice-info')).toBe(true);
   expect(bar.textContent).toContain('parachute panel shows both');
   await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Collapse notices"]')!.click(); });
-  await act(async () => { button(host, 'Motors & Launch').click(); });
+  await act(async () => { button(host, 'Motors & Configuration').click(); });
   expect(host.querySelector('.notice-bar')?.classList.contains('expanded')).toBe(false);
 }, 30_000);
 
@@ -108,7 +108,7 @@ describe('per-mount maximum motor length', () => {
     await settle(600);
     expect(storedSession()!.savedMark).toBe(designFingerprint({ ...snapshot,
       tree: storedSession()!.tree, maxMotorLengthByStage: {} }));
-    await act(async () => { button(host, 'Motors & Launch').click(); });
+    await act(async () => { button(host, 'Motors & Configuration').click(); });
     expect(motorMounts(storedSession()!.tree).map(motorLengthLimit)).toEqual([0.5, 0.4]);
     expect(host.textContent).not.toContain('Max motor length (override)');
     const estimate = host.querySelector<HTMLButtonElement>('[aria-label="Estimate maximum motor length for Core"]')!;
@@ -295,7 +295,7 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-describe('a SOLID motor mount on Motors & Launch', () => {
+describe('a SOLID motor mount on Motors & Configuration', () => {
   it('saves only the opened document historical result through edits and session restore', async () => {
     const made = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test');
     const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
@@ -599,7 +599,7 @@ describe('a SOLID motor mount on Motors & Launch', () => {
       tree, launch: DEFAULT_CONDITIONS, mountMotors: {}, appVersion: APP_VERSION, savedAt: Date.now(),
     }));
     const host = await mountApp();
-    await act(async () => { button(host, 'Motors & Launch').click(); });
+    await act(async () => { button(host, 'Motors & Configuration').click(); });
     const card = input(host, 'Max motor length for Core').closest('.mount-card')!;
     expect(card.textContent).toContain('No motor fits this mount: it is ticked Solid (filled), so it has no bore.');
     expect(card.textContent).not.toContain('Check its length');

@@ -47,7 +47,7 @@ describe('restoredPadMassNote — what the restore already knows', () => {
       .toEqual({
         severity: 'warn',
         text: 'The weighed pad mass you entered before this version (1250 g) had no motor loaded to belong to'
-          + ' and was not kept. Weigh the rocket with the motor in and type it under that motor on Motors & Launch.',
+          + ' and was not kept. Weigh the rocket with the motor in and type it under that motor on Motors & Configuration.',
       });
   });
 
@@ -106,7 +106,7 @@ describe('reconcileLegacyPadMass — after the first build', () => {
       note: {
         severity: 'info',
         text: 'The weighed pad mass you entered in the Measured mass & CG box (2200 g) now belongs to the motor it'
-          + ' was weighed with: it sits under H220 on Motors & Launch, and the line there says what it carries.'
+          + ' was weighed with: it sits under H220 on Motors & Configuration, and the line there says what it carries.'
           + ' If that is not the motor you weighed with, clear it and re-weigh.',
       },
     });
@@ -130,7 +130,7 @@ describe('reconcileLegacyPadMass — after the first build', () => {
         severity: 'warn',
         text: 'The weighed pad mass entered before this version (2200 g) was not kept: it is lighter than the dry'
           + ' rocket plus the catalogue H220, so it was weighed with a different motor. Re-weigh with this motor'
-          + ' in and type it under it on Motors & Launch.',
+          + ' in and type it under it on Motors & Configuration.',
       },
     });
   });
@@ -144,7 +144,7 @@ describe('reconcileLegacyPadMass — after the first build', () => {
       severity: 'warn',
       text: 'The weighed pad mass entered before this version (2200 g) was not kept: against the catalogue H220 it'
         + ' would carry more hardware than the airframe itself. Re-weigh with this motor in and type it under it'
-        + ' on Motors & Launch.',
+        + ' on Motors & Configuration.',
     });
   });
 
@@ -168,7 +168,7 @@ describe('reconcileLegacyPadMass — after the first build', () => {
         text: 'The weighed pad mass you entered before this version (2200 g) could not be placed: the motor the file'
           + ' names on Sustainer MMT (K550W) is not loaded, so the app cannot tell which motors it was weighed with.'
           + ' Load that motor, or re-weigh with the motors you have in and type it under the top motor on Motors'
-          + ' & Launch.',
+          + ' & Configuration.',
       },
     });
   });

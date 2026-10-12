@@ -114,7 +114,10 @@ describe('FirstRunTour', () => {
     expect(host.querySelector('.tour-title')?.textContent).toBe('Check the drawing');
     next(); // → 3: motors tab
     expect(tabs).toContain('motors');
+    expect(host.textContent).toContain('Motors & Configuration');
+    expect(host.textContent).toContain('shared by every configuration');
     next(); // → 4: launch (no tab)
+    expect(host.textContent).toContain('any tab');
     next(); // → 5: results
     expect(tabs).toContain('results');
     next(); // → 6: guide

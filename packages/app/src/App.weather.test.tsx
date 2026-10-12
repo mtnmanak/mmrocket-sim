@@ -83,7 +83,7 @@ const stored = (): SessionState | null => {
 
 beforeEach(() => {
   localStorage.clear();
-  // The Motors & Launch workspace, where the Launch panel lives; tour off.
+  // The Motors & Configuration workspace, where the Launch panel lives; tour off.
   localStorage.setItem('online-openrocket.workspace.v1', 'motors');
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
   localStorage.setItem(SESSION_KEY, JSON.stringify({

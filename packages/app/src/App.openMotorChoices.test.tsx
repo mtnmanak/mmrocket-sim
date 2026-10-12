@@ -177,31 +177,31 @@ it('Escape leaves the imported motors and repeating notes untouched', async () =
   expect(stored().savedConfigs).toEqual(before.savedConfigs);
 }, 20000);
 
-it.each(['rename', 'delete'])('S2-1 preserves an inactive configuration %s across motor-answer undo and redo', async action => {
+it.each(['rename', 'delete'])('S2-1 preserves the selected configuration %s across motor-answer undo and redo', async action => {
   await open();
   const before = stored();
   await act(async () => button('Apply').click());
   await waitFor(() => !host.querySelector('[aria-label="Choose motors for this file"]'));
-  await act(async () => button('Motors & Launch').click());
-  const label = action === 'rename' ? 'Rename Second' : 'Delete Second';
+  await act(async () => button('Motors & Configuration').click());
+  const label = action === 'rename' ? 'Rename First' : 'Delete First';
   const edit = host.querySelector<HTMLButtonElement>(`button[aria-label^="${label}"]`)!;
   await act(async () => edit.click());
   if (action === 'rename') {
-    const input = host.querySelector<HTMLInputElement>('input[aria-label^="Rename Second"]')!;
+    const input = host.querySelector<HTMLInputElement>('input[aria-label^="Rename First"]')!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Renamed');
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     });
   } else {
-    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label^="Confirm delete Second"]')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label^="Confirm delete First"]')!.click());
   }
   for (const redo of [false, true]) {
     await act(async () => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: redo })));
     flush();
     const configs = stored().savedConfigs!;
-    if (action === 'rename') expect(configs.find(c => c.id === 'b')?.name).toBe('Renamed');
-    else expect(configs.some(c => c.id === 'b')).toBe(false);
+    if (action === 'rename') expect(configs.find(c => c.id === 'a')?.name).toBe('Renamed');
+    else expect(configs.some(c => c.id === 'a')).toBe(false);
     if (!redo) expect(stored().mountMotors).toEqual(before.mountMotors);
     else expect(Object.values(stored().mountMotors!)[0]?.openNote).toBeUndefined();
   }

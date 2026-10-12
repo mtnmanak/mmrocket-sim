@@ -164,7 +164,7 @@ async function choose(el: HTMLSelectElement, value: string): Promise<void> {
 }
 
 /** A workspace tab, pressed. */
-async function openTab(host: HTMLElement, name: 'Design' | 'Motors & Launch' | 'Results'): Promise<void> {
+async function openTab(host: HTMLElement, name: 'Design' | 'Motors & Configuration' | 'Results'): Promise<void> {
   const b = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tabs button')]
     .find((x) => x.textContent?.trim() === name);
   if (!b) throw new Error(`no tab "${name}"`);
@@ -231,7 +231,7 @@ describe('strap-on nozzle controls in App', () => {
     expect(d13).toBeTruthy();
     seedSession(t, { [mount.id!]: await c6(), 'nozzle-mount': d13 });
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await waitFor(() => Number(input(host, 'Nozzle exit diameter for Nozzle boosters').value) > 0, 'strap-on autofill');
     expect(Number(input(host, 'Nozzle exit diameter for Nozzle boosters').value)).toBeCloseTo(2 * 4.775, 2);
     expect(host.textContent).toContain('Exit areas summed over the 4 motors in one strap-on.');
@@ -243,7 +243,7 @@ describe('strap-on nozzle controls in App', () => {
     expect(findNode(storedSession().tree, 'nozzle-boost')!['nozzleExitDiameter']).toBe(0);
     await unmountAll();
     const restored = await mountApp();
-    await openTab(restored, 'Motors & Launch');
+    await openTab(restored, 'Motors & Configuration');
     await settle(50);
     expect(input(restored, 'Nozzle exit diameter for Nozzle boosters').value).toBe('0');
     expect(restored.querySelector('[data-nozzle="off"]')).not.toBeNull();
@@ -270,13 +270,13 @@ describe('a flight-configuration switch in App', () => {
     Object.defineProperty(picker, 'files', { configurable: true, value: [file] });
     await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
     await waitFor(() => shownName(host) === 'ThreeCarbYen-2018', 'the file to open');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const exit = (stage: string) => Number(input(host, `Nozzle exit diameter for ${stage} (`).value);
     // sim-1 as opened: 1.000 in on the sustainer, 1.750 in on the first booster.
     expect(exit('Sustainer')).toBeCloseTo(25.4, 2);
     expect(exit('Booster')).toBeCloseTo(44.45, 2);
     await act(async () => {
-      host.querySelector<HTMLButtonElement>('button[aria-label="Apply [M1401-P, N1560-P, N5800-0]"]')!.click();
+      host.querySelector<HTMLButtonElement>('button[aria-label^="Apply [M1401-P, N1560-P, N5800-0] — configuration"]')!.click();
     });
     await settle(50); // the follow hook's lookups
     // sim-2 states 1.000 in and 2.500 in, and the switch keeps both…
@@ -306,7 +306,7 @@ describe('Undo after a motor is unloaded', () => {
     const host = await mountApp();
     await settle(50);
     await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Renamed');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const d13 = (await loadCatalogueMotor('AeroTech', 'D13', 10))!;
     await act(async () => { pickerProps.onSelect(d13.label, d13.spec, d13.meta); });
     await waitFor(() => Number(input(host, 'Nozzle exit diameter for Sustainer').value) > 0, 'published nozzle fill');
@@ -316,7 +316,7 @@ describe('Undo after a motor is unloaded', () => {
     expect(button(host, '↩ Undo').disabled).toBe(true);
     expect(button(host, 'Redo').disabled).toBe(false);
     await openTab(host, 'Design');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await settle(50);
     expect(button(host, 'Redo').disabled).toBe(false);
     await act(async () => { button(host, 'Redo').click(); });
@@ -343,7 +343,7 @@ describe('Undo after a motor is unloaded', () => {
     const host = await mountApp();
     await settle(50);
     await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Renamed');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const exit = () => input(host, 'Nozzle exit diameter for Sustainer').value;
     expect(Number(exit())).toBeCloseTo(5, 2);
     await act(async () => {
@@ -577,7 +577,7 @@ it('blocks Launch while a motor swap is waiting for its nozzle lookup', async ()
   const mount = motorMounts(tree)[0]!;
   seedSession(tree, { [mount.id!]: await c6() });
   const host = await mountApp();
-  await openTab(host, 'Motors & Launch');
+  await openTab(host, 'Motors & Configuration');
   await type(input(host, 'Nozzle exit diameter for Sustainer'), '5');
   let release!: () => void;
   const gate = new Promise<void>((r) => { release = r; });

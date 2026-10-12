@@ -644,7 +644,7 @@ describe('scaleRocket — motor mounts', () => {
     // mountBore is 0 for a tube ticked Solid (filled). The mount then read
     // "0.0 mm bore becomes 0.0 mm, which is not a standard motor size (nearest
     // is 6 mm)" and, with a 24 mm motor loaded, "no longer fits the 0.0 mm
-    // bore. Choose another motor on Motors & Launch": a motor that never fitted
+    // bore. Choose another motor on Motors & Configuration": a motor that never fitted
     // it, sent to a browser that lists none for it. The remedy is the tick box.
     const rod = (filled: boolean): RocketTree => ({
       name: 'rod', components: [{

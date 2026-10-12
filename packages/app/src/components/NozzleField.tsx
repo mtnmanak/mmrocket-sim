@@ -8,7 +8,7 @@ import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 
 /**
- * A stage's nozzle exit diameter, on the Motors & Launch page, filled from the
+ * A stage's nozzle exit diameter, on the Motors & Configuration page, filled from the
  * manufacturer's own published data and showing where the number came from.
  *
  * WHY IT MOVED HERE (Eric, 2026-09-08b): "where is the field to input the nozzle

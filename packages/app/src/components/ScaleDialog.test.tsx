@@ -201,7 +201,7 @@ describe('ScaleDialog', () => {
     // Solid (filled): no bore before the scale or after it. The line read
     // "0.0 → 0.0 mm — not a motor size you can buy; nearest is 6 mm. The 24 mm
     // motor loaded in it will no longer fit.", with a warning to pick a new
-    // motor on Motors & Launch, whose browser lists none for a 0 mm bore.
+    // motor on Motors & Configuration, whose browser lists none for a 0 mm bore.
     const rod: RocketTree = {
       name: 'rod',
       components: [{

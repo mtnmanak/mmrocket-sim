@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 
 /**
- * THE WORKSPACE TAB (Fly / Design / Motors & Launch / Results), persisted so a
+ * THE WORKSPACE TAB (Fly / Design / Motors & Configuration / Results), persisted so a
  * reload lands the user back where they were working — and, with nothing
  * persisted, the device's home screen.
  *

@@ -1,50 +1,45 @@
 import { useEffect, useId, useRef, useState } from 'react';
-import { savedConfigLabel, type SavedConfig } from '../model/design.js';
+import { savedConfigLabel, type SavedConfig, type FlightTree, type FlightOverrides, type MountMotor } from '../model/design.js';
 import { MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS } from '../services/configSnapshot.js';
-import type { RocketTree } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { recoverySummary } from './recoveryContext.js';
+import { activeFlightOverrides } from '../services/flightState.js';
+import { describeFlightOverrides } from '../services/flightOverrideSummary.js';
 
-/**
- * Imported and app-created configurations as one-click motor sets.
- * The panel is the last, full-width row of the
- * Motors & Launch grid, below the Motors and Launch panels — it used to sit
- * above them, where a file with several configurations pushed the two panels
- * a flyer actually works in below the fold.
- *
- * Whatever the user applies stays loaded until they change or unload it —
- * manual motor edits keep the active mark (the working set is that
- * configuration's current truth, and saving writes it back). Renders nothing
- * only when there are neither configurations nor loaded motors.
- */
-export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, onApply, onClear,
-  onCreate, onRename, onDelete, onEmpty }: {
+const NO_OVERRIDES: FlightOverrides = {};
+
+/** The active flight owns the controls below this bar. Native select is deliberate. */
+export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, detachedOverrides = NO_OVERRIDES,
+  onApply, onClear, onCreate, onDuplicate, onRename, onDelete, onResetOverrides }: {
   configs: SavedConfig[];
-  tree?: RocketTree;
+  tree?: FlightTree;
+  motors?: Record<string, MountMotor>;
+  detachedOverrides?: FlightOverrides;
   activeConfigId: string | null;
-  /** Whether the working set holds any motor — decides the "None" row's active mark. */
   hasMotors: boolean;
   onApply: (cfg: SavedConfig) => void;
   onClear: () => void;
   onCreate: () => string | null;
+  onDuplicate?: () => void;
   onRename: (id: string, name: string) => void;
   onDelete: (config: SavedConfig) => void;
-  /** Focus a stable target outside the panel before its last empty row disappears. */
-  onEmpty: () => void;
+  onResetOverrides?: () => void;
+  onEmpty?: () => void;
 }) {
   const { prefs } = usePrefs();
   const summaryId = useId();
   const [editing, setEditing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
   const [previousConfigs, setPreviousConfigs] = useState(configs);
-  const renameButtons = useRef(new Map<string, HTMLButtonElement>());
-  const deleteButtons = useRef(new Map<string, HTMLButtonElement>());
-  const applyButtons = useRef(new Map<string, HTMLButtonElement>());
-  const createButton = useRef<HTMLButtonElement>(null);
+  const [previousOwner, setPreviousOwner] = useState(activeConfigId);
+  const [previousDetached, setPreviousDetached] = useState(detachedOverrides);
+  const chooser = useRef<HTMLSelectElement>(null);
+  const renameButton = useRef<HTMLButtonElement>(null);
+  const deleteButton = useRef<HTMLButtonElement>(null);
+  const resetButton = useRef<HTMLButtonElement>(null);
   if (configs !== previousConfigs) {
     setPreviousConfigs(configs);
     // Reopening a file can reuse IDs. Pending actions belong to the old objects.
-    // A just-created editor has no previous object yet and must stay open.
     const replaced = (id: string) => {
       const before = previousConfigs.find(c => c.id === id);
       const current = configs.find(c => c.id === id);
@@ -52,126 +47,82 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, onApply,
     };
     if (editing && replaced(editing)) setEditing(null);
     if (deleting && replaced(deleting)) setDeleting(null);
+    if (resetting && activeConfigId && replaced(activeConfigId)) setResetting(false);
   }
-  if (configs.length === 0 && !hasMotors) return null;
-  const createDisabled = !hasMotors || configs.length >= MAX_ORK_CONFIGURATIONS;
-  // The divider is a STYLESHEET rule (.config-list > .config-row + .config-row),
-  // not an inline style: as an inline border it outranked every author rule,
-  // so the "no rule above the first row" suppression could not win against it.
-  // Apply leads the row (the owner, 2026-08-26): the buttons line up in a
-  // column the eye and the pointer reach first, instead of hiding at the far
-  // right past a variable-length motor list. Reordered in the JSX, never with
-  // CSS `order` or `row-reverse` — tab order follows DOM order, and splitting
-  // the two is the classic keyboard trap.
-  //
-  // It costs the screen-reader cue that used to come free from reading the
-  // configuration's name immediately before its button, so every button now
-  // carries an aria-label naming what it applies. Without that, a button list
-  // reads "Apply" five times.
-  const btnStyle = { flex: '0 0 auto' } as const;
-  const noneActive = activeConfigId === null && !hasMotors;
-  return (
-    <div className="panel config-panel">
-      <h2>Flight configurations</h2>
-      {/* The heading stays put and the list scrolls inside itself — a 10-
-          configuration file must not turn the last row of the tab into a
-          wall. tabIndex makes the scroll region reachable by keyboard alone
-          (one extra tab stop, deliberately accepted). */}
-      {configs.length > 0 && <div className="config-list" role="group" aria-label="Flight configurations" tabIndex={0}>
-        {configs.map((c, index) => {
-          const labels = Object.values(c.motors).map((m) => m.label);
-          const isActive = c.id === activeConfigId;
-          const label = `${savedConfigLabel(c)} — configuration ${index + 1}`;
-          const families = [
-            ['recovery', Object.keys(c.deployments ?? {}).length],
-            ['separation', Object.keys(c.separations ?? {}).length],
-            ['ignition', Object.keys(c.ignitions ?? {}).length],
-          ] as const;
-          const count = families.reduce((sum, [, n]) => sum + n, 0);
-          const summary = count ? `${count} override${count === 1 ? '' : 's'}: ${families.filter(([, n]) => n).map(([name]) => name).join(', ')}` : '';
-          const recovery = configs.length > 1 || count ? recoverySummary(c, prefs.units.distance, tree) : '';
-          return (
-            <div key={c.id} className="config-row"
-              aria-current={isActive ? 'true' : undefined}>
-              <button className="file-btn" style={btnStyle} onClick={() => onApply(c)}
-                aria-describedby={summary ? `${summaryId}-${index}` : undefined}
-                ref={(el) => { if (el) applyButtons.current.set(c.id, el); else applyButtons.current.delete(c.id); }}
-                aria-label={`Apply ${savedConfigLabel(c)}${recovery ? ` — configuration ${index + 1}; Recovery: ${recovery}` : ''}`}
-                title={isActive
-                  ? 'Reload this configuration — your motor edits, overrides and weighed pad mass are kept'
-                  : "Load this configuration's motors, ignition and recovery settings"}>
-                Apply
-              </button>
-              <span className="config-details">
-                {editing === c.id ? <ConfigNameEditor config={c} label={label} onCommit={(name) => onRename(c.id, name)}
-                  onClose={(restoreFocus) => {
-                    setEditing(null); if (restoreFocus) renameButtons.current.get(c.id)?.focus();
-                  }} />
-                  : <span className="config-name" style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{savedConfigLabel(c)}</span>}
-                {c.isDefault && (
-                  <span className="config-default motor-db-meta" style={{ marginLeft: 6 }}>
-                    file default
-                  </span>
-                )}
-                <span className="config-motors comp-stats" style={{ display: 'block', margin: 0 }}>
-                  {labels.length > 0 ? labels.join(', ') : 'no motors'}
-                </span>
-                {summary && <span id={`${summaryId}-${index}`} className="comp-stats" style={{ display: 'block', margin: 0 }}>{summary}</span>}
-                {recovery && <span className="comp-stats" style={{ display: 'block', margin: 0 }}>Recovery: {recovery}</span>}
-              </span>
-              {isActive && (
-                <span className="config-active-tag"
-                  title="This configuration is loaded — motor edits and explicit override edits belong to it">
-                  ▶ active
-                </span>
-              )}
-              <button className="file-btn" aria-label={`Rename ${label}`}
-                title={`Rename ${savedConfigLabel(c)}`} ref={(el) => {
-                  if (el) renameButtons.current.set(c.id, el); else renameButtons.current.delete(c.id);
-                }} onClick={() => { setDeleting(null); setEditing(c.id); }}>✎</button>
-              <button className="file-btn" aria-label={`Delete ${label}`}
-                title={`Delete ${savedConfigLabel(c)}`} ref={(el) => {
-                  if (el) deleteButtons.current.set(c.id, el); else deleteButtons.current.delete(c.id);
-                }} onClick={() => { setEditing(null); setDeleting(c.id); }}>🗑</button>
-              {deleting === c.id && <ConfigDeleteConfirmation label={label}
-                onCancel={() => { setDeleting(null); deleteButtons.current.get(c.id)?.focus(); }}
-                onDelete={() => {
-                  setDeleting(null); onDelete(c);
-                  const next = configs[index + 1] ?? configs[index - 1];
-                  if (next) applyButtons.current.get(next.id)?.focus();
-                  else if (hasMotors) createButton.current?.focus();
-                  else onEmpty();
-                }} />}
-            </div>
-          );
-        })}
-        <div className="config-row config-row-none"
-          aria-current={noneActive ? 'true' : undefined}>
-          <button className="file-btn" style={btnStyle} onClick={onClear}
-            aria-label="Apply None — unload every motor"
-            title="Unload every motor — view and weigh the rocket clean">
-            Apply
-          </button>
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span className="config-name" style={{ fontWeight: 600 }}>None</span>
-            <span className="config-motors comp-stats" style={{ display: 'block', margin: 0 }}>
-              no motors loaded
-            </span>
-          </span>
-          {noneActive && <span className="config-active-tag">▶ active</span>}
-        </div>
-      </div>}
-      <button className="file-btn" ref={createButton} disabled={createDisabled}
-        title={!hasMotors ? 'Load a motor before creating a configuration.'
-          : configs.length >= MAX_ORK_CONFIGURATIONS ? `The ${MAX_ORK_CONFIGURATIONS}-configuration limit has been reached.`
-            : 'Keep the loaded motors and flight settings as a new configuration; the previous configuration keeps its stored settings.'}
-        onClick={() => {
-          const id = onCreate();
-          if (id) { setDeleting(null); setEditing(id); }
-        }}>+ New configuration from loaded motors</button>
-      {configs.length === 0 && <p className="comp-stats">Keep this motor set and its flight settings for later.</p>}
+  if (activeConfigId !== previousOwner || detachedOverrides !== previousDetached) {
+    setPreviousOwner(activeConfigId);
+    setPreviousDetached(detachedOverrides);
+    if (resetting) setResetting(false);
+  }
+  const active = configs.find(c => c.id === activeConfigId);
+  const overrides = activeFlightOverrides(configs, activeConfigId, detachedOverrides);
+  const hasOverrides = Object.values(overrides).some(map => Object.keys(map ?? {}).length > 0);
+  const working = !active && (hasMotors || hasOverrides);
+  const summary = tree ? describeFlightOverrides(tree, overrides, motors ?? active?.motors ?? {},
+    active ? savedConfigLabel(active) : null, prefs.units.distance) : null;
+  const labelOf = (c: SavedConfig) => `${savedConfigLabel(c)} — configuration ${configs.indexOf(c) + 1}`;
+  const editingConfig = configs.find(c => c.id === editing);
+  const deletingConfig = configs.find(c => c.id === deleting);
+  const atLimit = configs.length >= MAX_ORK_CONFIGURATIONS;
+  return <section className="panel config-panel" aria-label="Flight configuration">
+    <div className="config-bar" aria-current={active ? 'true' : undefined}>
+      <label className="config-chooser">Flight configuration
+        <select ref={chooser} aria-label="Flight configuration" value={active?.id ?? (working ? '__working__' : '')}
+          aria-describedby={summaryId} onChange={e => {
+            setEditing(null); setDeleting(null); setResetting(false);
+            if (!e.target.value) onClear();
+            else { const c = configs.find(row => row.id === e.target.value); if (c) onApply(c); }
+          }}>
+          {configs.map(c => <option key={c.id} value={c.id}>{savedConfigLabel(c)}{c.isDefault ? ' — file default' : ''}</option>)}
+          {working && <option value="__working__" disabled>Working settings (not saved)</option>}
+          <option value="">None (no motors)</option>
+        </select>
+      </label>
+      <button className="file-btn" disabled={!hasMotors || atLimit}
+        title={!hasMotors ? 'Load a motor before creating a configuration.' : atLimit
+          ? `The ${MAX_ORK_CONFIGURATIONS}-configuration limit has been reached.`
+          : 'Keep the loaded motors and flight settings as a new configuration; the previous configuration keeps its stored settings.'}
+        onClick={() => { const id = onCreate(); if (id) { setDeleting(null); setEditing(id); } }}>
+        + New from loaded motors
+      </button>
+      <button className="file-btn" disabled={!active || atLimit} onClick={onDuplicate}
+        title={atLimit ? `The ${MAX_ORK_CONFIGURATIONS}-configuration limit has been reached.` : 'Copy the active configuration and its settings'}>Duplicate</button>
+      <button className="file-btn" ref={renameButton} disabled={!active}
+        aria-label={active ? `Rename ${labelOf(active)}` : 'Rename configuration'}
+        onClick={() => { setDeleting(null); setEditing(active!.id); }}>Rename</button>
+      <button className="file-btn" ref={deleteButton} disabled={!active}
+        aria-label={active ? `Delete ${labelOf(active)}` : 'Delete configuration'}
+        onClick={() => { setEditing(null); setDeleting(active!.id); }}>Delete</button>
+      {editingConfig && <ConfigNameEditor key={editingConfig.id} config={editingConfig} label={labelOf(editingConfig)}
+        onCommit={name => onRename(editingConfig.id, name)} onClose={restore => {
+          setEditing(null); if (restore) (renameButton.current?.disabled ? chooser.current : renameButton.current)?.focus();
+        }} />}
+      {deletingConfig && <ConfigDeleteConfirmation label={labelOf(deletingConfig)}
+        onCancel={() => { setDeleting(null); deleteButton.current?.focus(); }}
+        onDelete={() => { setDeleting(null); onDelete(deletingConfig); chooser.current?.focus(); }} />}
     </div>
-  );
+    {configs.length === 0 && <p className="comp-stats">No saved configurations — the loaded motors fly as a working set</p>}
+    <p id={summaryId} className="comp-stats">{summary?.shortText ?? (active || working
+      ? "Uses every part's own setting." : "No configuration: the parts' own settings, with no motors")}</p>
+    {hasOverrides && <button ref={resetButton} className="file-btn" onClick={() => setResetting(true)}>
+      Reset every override in this configuration
+    </button>}
+    {resetting && <ConfigResetConfirmation onCancel={() => { setResetting(false); resetButton.current?.focus(); }}
+      onReset={() => { setResetting(false); onResetOverrides?.(); chooser.current?.focus(); }} />}
+  </section>;
+}
+
+function ConfigResetConfirmation({ onCancel, onReset }: { onCancel: () => void; onReset: () => void }) {
+  const cancel = useRef<HTMLButtonElement>(null);
+  const descriptionId = useId();
+  useEffect(() => { cancel.current?.focus(); }, []);
+  return <div role="group" aria-label="Reset every override?" aria-describedby={descriptionId} onKeyDown={e => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel(); }
+  }}>
+    <p id={descriptionId}>Reset recovery, stage separation and ignition to the parts' own settings in this configuration?</p>
+    <button className="file-btn file-btn-danger" onClick={onReset}>Confirm reset every override</button>{' '}
+    <button className="file-btn" ref={cancel} onClick={onCancel}>Cancel</button>
+  </div>;
 }
 
 function ConfigNameEditor({ config, label, onCommit, onClose }: {

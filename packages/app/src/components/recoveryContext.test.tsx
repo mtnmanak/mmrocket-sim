@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { SavedConfig } from '../model/design.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { ConfigPanel } from './ConfigPanel.js';
+import { ConfigOverview } from './ConfigOverview.js';
 import { PropertyPanel } from './PropertyPanel.js';
 import { recoveryScope, recoverySummary } from './recoveryContext.js';
 
@@ -18,17 +18,18 @@ const node = { id: 'chute', type: 'parachute', name: 'Main', diameter: 0.45, dep
 const tree: RocketTree = { name: 'T', components: [{ id: 'stage', type: 'stage', children: [node] }] };
 
 describe('recovery configuration context', () => {
-  it('includes inherited devices in resolved recovery and counts all three override families', () => {
+  it('includes inherited devices in the effective recovery table (all-family summary is covered by CFG-1)', () => {
     const c: SavedConfig = { ...configs[0]!, separations: { stage: { separationEvent: 'burnout', separationDelay: 1, separationAltitude: 200 } },
       ignitions: { mount: { event: 'launch', delay: 1 } } };
     const inherited = { ...tree, components: [...tree.components, { ...node, id: 'other', name: 'Drogue' }] };
     expect(recoverySummary(c, 'm', inherited)).toContain('Drogue: apogee');
     const host = document.createElement('div'); const root = createRoot(host);
     try {
-      act(() => root.render(<ConfigPanel configs={[c, { id: 'none', name: 'Plain', isDefault: false, motors: {} }]}
-        tree={inherited} activeConfigId="a" hasMotors={false} onApply={() => {}} onEmpty={() => {}} onClear={() => {}}
-        onCreate={() => null} onRename={() => {}} onDelete={() => {}} />));
-      expect(host.textContent).toContain('3 overrides: recovery, separation, ignition');
+      act(() => root.render(<ConfigOverview configs={[c, { id: 'none', name: 'Plain', isDefault: false, motors: {} }]}
+        tree={inherited} activeConfigId="a" onApply={() => {}}
+        onShowPart={() => {}} />));
+      expect(host.textContent).toContain('Drogue');
+      expect(host.textContent).toContain('Motor ejection charge, delay 2 s — override');
       const plain = host.querySelector<HTMLButtonElement>('[aria-label^="Apply Plain"]')!;
       expect(plain.getAttribute('aria-describedby')).toBeNull();
     } finally { act(() => root.unmount()); }
@@ -55,18 +56,18 @@ describe('recovery configuration context', () => {
     const host = document.createElement('div'); const root = createRoot(host);
     let applied = '';
     try {
-      act(() => root.render(<ConfigPanel configs={configs} tree={tree} activeConfigId="a" hasMotors={false}
-        onApply={(c) => { applied = c.id; }} onEmpty={() => {}} onClear={() => {}} onCreate={() => null} onRename={() => {}} onDelete={() => {}} />));
-      const buttons = [...host.querySelectorAll<HTMLButtonElement>('button[aria-label^="Apply "]')];
-      expect(buttons[0]!.getAttribute('aria-label')).toBe('Apply Same motors — configuration 1; Recovery: Main: ejection charge + 2 s (override; component default is shown in the panel)');
-      expect(buttons[1]!.getAttribute('aria-label')).toBe('Apply Same motors — configuration 2; Recovery: Main: 121.92 m AGL descending (override; component default is shown in the panel)');
-      expect(host.textContent).toContain('Recovery: Main: ejection charge + 2 s');
-      expect(host.querySelector(`[id="${buttons[0]!.getAttribute('aria-describedby')}"]`)?.textContent).toBe('1 override: recovery');
-      expect(host.textContent).toContain('Recovery: Main: 121.92 m AGL descending');
+      act(() => root.render(<ConfigOverview configs={configs} tree={tree} activeConfigId="a"
+        onApply={(c) => { applied = c.id; }}  onShowPart={() => {}} />));
+      const buttons = [...host.querySelectorAll<HTMLButtonElement>('tbody td button')];
+      expect(buttons[0]!.getAttribute('aria-label')).toBe('Apply Same motors — configuration 1; Main: Motor ejection charge, delay 2 s — override');
+      expect(buttons[1]!.getAttribute('aria-label')).toBe('Apply Same motors — configuration 2; Main: Altitude (descending), 121.92 m — override');
+      expect(host.textContent).toContain('Motor ejection charge, delay 2 s');
+      expect(buttons[0]!.textContent).toContain('override');
+      expect(host.textContent).toContain('Altitude (descending), 121.92 m');
       act(() => buttons[1]!.click()); expect(applied).toBe('b');
-      act(() => root.render(<ConfigPanel configs={[configs[0]!]} tree={tree} activeConfigId="a" hasMotors={false}
-        onApply={() => {}} onEmpty={() => {}} onClear={() => {}} onCreate={() => null} onRename={() => {}} onDelete={() => {}} />));
-      expect(host.textContent).toContain('Recovery: Main: ejection charge + 2 s');
+      act(() => root.render(<ConfigOverview configs={[configs[0]!]} tree={tree} activeConfigId="a"
+        onApply={() => {}}  onShowPart={() => {}} />));
+      expect(host.textContent).toContain('Motor ejection charge, delay 2 s');
       expect(host.querySelector('button')!.getAttribute('aria-label')).toContain('Apply Same motors');
     } finally { act(() => root.unmount()); }
   });
@@ -78,13 +79,13 @@ describe('recovery configuration context', () => {
     const host = document.createElement('div'); const root = createRoot(host);
     try {
       act(() => root.render(<PrefsProvider>
-        <ConfigPanel configs={configs} tree={tree} activeConfigId="a" hasMotors={false}
-          onApply={() => {}} onEmpty={() => {}} onClear={() => {}} onCreate={() => null} onRename={() => {}} onDelete={() => {}} />
+        <ConfigOverview configs={configs} tree={tree} activeConfigId="a"
+          onApply={() => {}}  onShowPart={() => {}} />
       </PrefsProvider>));
-      const buttons = [...host.querySelectorAll<HTMLButtonElement>('button[aria-label^="Apply "]')];
+      const buttons = [...host.querySelectorAll<HTMLButtonElement>('tbody td button')];
       expect(buttons[1]!.getAttribute('aria-label'))
-        .toBe('Apply Same motors — configuration 2; Recovery: Main: 400 ft AGL descending (override; component default is shown in the panel)');
-      expect(host.textContent).toContain('Recovery: Main: 400 ft AGL descending');
+        .toBe('Apply Same motors — configuration 2; Main: Altitude (descending), 400 ft — override');
+      expect(host.textContent).toContain('Altitude (descending), 400 ft');
       expect(host.textContent).not.toContain(' m AGL');
     } finally { act(() => root.unmount()); localStorage.clear(); }
   });

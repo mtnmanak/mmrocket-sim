@@ -924,7 +924,7 @@ export const FIELDS = lookupTable<FieldDef[]>({
     { key: 'motorOverhang', label: 'Motor overhang (past aft end)', unit: 'mm', step: 1, smin: -50, smax: 100 },
     // A physical property of the airframe (how much room the mount really
     // has), so it lives ON the mount and persists through sessions and .ork
-    // files. Motors & Launch edits this same per-mount value.
+    // files. Motors & Configuration edits this same per-mount value.
     { key: 'maxMotorLength', label: 'Max motor length (blank = no limit)', unit: 'mm', step: 5, optional: true },
     ...RADIAL_PLACEMENT,
     DENSITY,

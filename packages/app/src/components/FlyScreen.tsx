@@ -46,7 +46,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
    */
   recovery?: RecoveryMass;
   canLaunch: boolean;
-  /** "Change ▸" — jumps to the Motors & Launch workspace. */
+  /** "Change ▸" — jumps to the Motors & Configuration workspace. */
   onChangeMotor: () => void;
   /** Opens batch simulate ("the range box question"). */
   onCompare: () => void;
@@ -177,7 +177,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
           </div>
 
           <button className="fly-motor" onClick={onChangeMotor}
-            title="Pick or swap motors in the Motors & Launch workspace">
+            title="Pick or swap motors in the Motors & Configuration workspace">
             <span>
               <span className="stat-label">Motor</span>
               <span className="fly-motor-name">{motorLabel ?? 'none loaded'}</span>
@@ -232,7 +232,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
       </div>
 
       <button className="launch-btn fly-launch" onClick={onLaunch} aria-describedby={overrideSummary ? 'launch-override-fly' : undefined} disabled={!canLaunch || simulating}
-        title={!canLaunch ? 'Assign a motor first (Motors & Launch)' : 'Simulate the flight'}>
+        title={!canLaunch ? 'Assign a motor first (Motors & Configuration)' : 'Simulate the flight'}>
         {simulating ? 'Simulating…' : <><Icon name="rocket" size={17} /> Launch</>}
       </button>
       <LaunchOverrideWarning id="launch-override-fly" summary={overrideSummary} onShow={onShowOverride} />

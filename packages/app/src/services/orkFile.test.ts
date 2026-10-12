@@ -1353,7 +1353,7 @@ describe('.ork multi-configuration import (Stage A)', () => {
     // where to change it.
     expect(notes[0]).toBe(
       'Opened “Club field C6”, the file’s default flight configuration (2 in the file). '
-      + 'Switch between them under Motors & Launch → Flight configurations.');
+      + 'Switch between them under Motors & Configuration → Flight configurations.');
     // cfg-a flies every stage — no activeness caveat.
     expect(result.notes.some((n) => n.includes('deactivates'))).toBe(false);
   });

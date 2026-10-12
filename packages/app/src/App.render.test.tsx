@@ -261,7 +261,7 @@ const noticeBar = (): HTMLElement | null => document.querySelector<HTMLElement>(
 
 describe('flight configuration panel visibility', () => {
   it.each([[0, false], [0, true], [1, false], [2, true]] as const)(
-    '%i configurations, loaded motor %s: last full-width row when either exists', async (count, hasMotor) => {
+    '%i configurations, loaded motor %s: first full-width row including empty state', async (count, hasMotor) => {
       const tree = defaultTree();
       const mount = motorMounts(tree)[0]!.id!;
       const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
@@ -272,10 +272,10 @@ describe('flight configuration panel visibility', () => {
         savedConfigs: Array.from({ length: count }, (_, i) => ({ id: String(i), name: `Config ${i}`, isDefault: false, motors: {} })),
         appVersion: APP_VERSION, savedAt: Date.now() }));
       const host = await mountApp();
-      await act(async () => { button(host, 'Motors & Launch').click(); });
+      await act(async () => { button(host, 'Motors & Configuration').click(); });
       const panel = host.querySelector('.config-panel');
-      expect(!!panel).toBe(count > 0 || hasMotor);
-      if (panel) expect(panel.parentElement!.lastElementChild).toBe(panel);
+      expect(panel).not.toBeNull();
+      expect(panel!.parentElement!.firstElementChild).toBe(panel);
     }, 30000);
 });
 
@@ -590,7 +590,7 @@ describe('the Auto delay box on a motor card', () => {
     const load = vi.spyOn(simStore, 'loadRuns').mockReturnValueOnce([run]);
     try {
       const host = await mountApp();
-      await openTab(host, 'Motors & Launch');
+      await openTab(host, 'Motors & Configuration');
       const card = host.querySelector('.mount-card');
       expect(card).not.toBeNull();
       expect(card!.textContent).toContain('C6');
@@ -607,7 +607,7 @@ describe('the Auto delay box on a motor card', () => {
     const auto = { ...c6, meta: { ...c6.meta, autoDelay: true } };
     await seedStarterSession({ edit: () => probe, over: { mountMotors: { 'pod-mmt': auto, [core.id!]: auto } } });
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await settle(50);
     const box = (mountName: string) => [...host.querySelectorAll('.mount-card')]
       .find((c) => c.querySelector('.mount-card-title')?.firstChild?.textContent === mountName)
@@ -631,7 +631,7 @@ describe('the delay writers on a motor card', () => {
   it('Auto on, a typed delay, plugged, unplugged, then Auto on and off again', async () => {
     const { mount, c6 } = await seedStarterSession();
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await settle(50);
     const card = host.querySelector<HTMLElement>('.mount-card')!;
     const tick = (text: string) => act(async () => {
@@ -690,7 +690,7 @@ describe('the delay boxes on a motor card', () => {
     it(`name a mount with no ${drop.join(' and no ')} "Motor mount", never an id or "undefined"`, async () => {
       await seedStarterSession({ edit: bareMount(...drop) });
       const host = await mountApp();
-      await openTab(host, 'Motors & Launch');
+      await openTab(host, 'Motors & Configuration');
       await settle(50);
       expect(delayLabels(host)).toEqual(['Ejection delay for Motor mount', 'Ignition delay for Motor mount']);
     }, 30000);
@@ -746,7 +746,7 @@ describe('a mount whose name was emptied', () => {
         },
       });
       const host = await mountApp();
-      await openTab(host, 'Motors & Launch');
+      await openTab(host, 'Motors & Configuration');
       await settle(50);
       const title = host.querySelector('.mount-card .mount-card-title')!;
       expect(title.firstChild?.textContent).toBe('Motor mount');
@@ -886,7 +886,7 @@ describe('the workspace a first load lands on', () => {
 });
 
 /** A workspace tab, pressed. */
-async function openTab(host: HTMLElement, name: 'Fly' | 'Design' | 'Motors & Launch' | 'Results'): Promise<void> {
+async function openTab(host: HTMLElement, name: 'Fly' | 'Design' | 'Motors & Configuration' | 'Results'): Promise<void> {
   const b = [...host.querySelectorAll<HTMLButtonElement>('.workspace-tabs button')]
     .find((x) => x.textContent?.trim() === name);
   if (!b) throw new Error(`no tab "${name}"`);
@@ -916,7 +916,7 @@ describe('FC-5 configuration editors', () => {
         { id: 'b', name: 'B', isDefault: false, motors: { [mount]: b }, ignitions: {} },
       ] } });
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const select = host.querySelector<HTMLSelectElement>(`#ignition-${mount}`)!;
     await act(async () => { select.value = 'never'; select.dispatchEvent(new Event('change', { bubbles: true })); });
     window.dispatchEvent(new Event('pagehide'));
@@ -944,7 +944,7 @@ describe('FC-5 configuration editors', () => {
         deployments: { [chute.id!]: { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 } },
       }] } });
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Delete A"]')!.click(); });
     await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Confirm delete A"]')!.click(); });
     await openTab(host, 'Design');
@@ -967,7 +967,7 @@ describe('FC-5 configuration editors', () => {
       const loaded = resolveFlightState(state.tree, state.savedConfigs!, null, state.detachedOverrides!, { [mount]: c6 });
       expect(findNode(loaded.tree, chute.id!)).toMatchObject({ deployEvent: 'altitude', deployAltitude: 91.44, deployDelay: 0 });
     }
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await act(async () => { button(host, 'Browse motors').click(); });
     await type(host.querySelector<HTMLInputElement>('[aria-label="Search motor designation"]')!, 'C6');
     await act(async () => { [...host.querySelectorAll<HTMLTableRowElement>('.motor-browser tbody tr')]
@@ -996,7 +996,7 @@ describe('FC-5 configuration editors', () => {
         separations: { [tree.components[0]!.id!]: { separationEvent: 'ejection', separationAltitude: 1, separationDelay: 1 } },
       }] } });
     const host = await mountApp();
-    await openTab(host, kind === 'ignition' ? 'Motors & Launch' : 'Design');
+    await openTab(host, kind === 'ignition' ? 'Motors & Configuration' : 'Design');
     if (kind !== 'ignition') {
       await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')]
         .find(r => r.querySelector('.tree-label')?.textContent === target.name)!.click(); });
@@ -1038,7 +1038,7 @@ describe('FC-5 configuration editors', () => {
           ...(owner === 'saved' ? { ignitions } : {}) },
         { id: 'b', name: 'Inherits', isDefault: false, motors: { [mount]: c6 } }] } });
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const field = host.querySelector<HTMLInputElement>('[aria-label^="Ignition delay for"]')!;
     const read = () => {
       window.dispatchEvent(new Event('pagehide'));
@@ -1081,14 +1081,14 @@ describe('FC-5 configuration editors', () => {
       savedConfigs: [{ id: 'a', name: 'A', isDefault: true, motors: { [mount]: c6 },
         ignitions: { [mount]: { event: 'launch', delay: 1 } } }] } });
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const field = host.querySelector<HTMLInputElement>('[aria-label^="Ignition delay for"]')!;
     await act(async () => { field.focus(); });
     for (const prefix of ['1', '10']) await type(field, prefix);
     // Removing a focused input does not emit React's onBlur. The next card
     // must not reuse that field's history transaction for its spinner.
     await openTab(host, 'Design');
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const next = host.querySelector<HTMLInputElement>('[aria-label^="Ignition delay for"]')!;
     await act(async () => { next.parentElement!.querySelector<HTMLButtonElement>('[aria-label="Increment"]')!.click(); });
     expect(next.value).toBe('10.5');
@@ -1150,6 +1150,91 @@ describe('FC-5 configuration editors', () => {
     expect(host.querySelector<HTMLInputElement>(`[aria-label^="Override ${fieldName}"]`)!.value).toBe('100');
   }, 30000);
 
+  it('CFG-1 resets all families in one undo step, keeps other owners/defaults and supports detached reset', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const staged = addStage(tree).tree;
+    const chute = tree.components[0]!.children!.flatMap(n => [n, ...(n.children ?? [])]).find(n => n.type === 'parachute')!;
+    const maps = {
+      deployments: { [chute.id!]: { deployEvent: 'altitude', deployAltitude: 91.44, deployDelay: 2 } },
+      separations: { [staged.components[1]!.id!]: { separationEvent: 'launch', separationDelay: 3, separationAltitude: 100 } },
+      ignitions: { [mount]: { event: 'launch' as const, delay: 4 } },
+    };
+    await seedStarterSession({ edit: () => staged, over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: {},
+      savedConfigs: ['a', 'b'].map(id => ({ id, name: id, isDefault: id === 'a', motors: { [mount]: c6 }, ...maps })) } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    expect(host.querySelector('.motors-layout')!.firstElementChild!.classList.contains('config-panel')).toBe(true);
+    const chooser = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+    const reset = async () => {
+      await act(async () => button(host, 'Reset every override in this configuration').click());
+      expect(document.activeElement?.textContent).toBe('Cancel');
+      await act(async () => button(host, 'Confirm reset every override').click());
+      await settle(450);
+    };
+    await settle(450);
+    const before = structuredClone(peekSession()!);
+    await reset();
+    expect(peekSession()!.savedConfigs![0]).toMatchObject({ deployments: {}, separations: {}, ignitions: {} });
+    expect(peekSession()!.savedConfigs![1]).toEqual(before.savedConfigs![1]);
+    expect(peekSession()!.tree).toEqual(before.tree);
+    expect(peekSession()!.mountMotors).toEqual(before.mountMotors);
+    expect(peekSession()!.launch).toEqual(before.launch);
+    await act(async () => button(host, 'Undo').click()); await settle(450);
+    expect(peekSession()!.savedConfigs![0]).toMatchObject(maps);
+    await act(async () => button(host, 'Redo').click()); await settle(450);
+    expect(peekSession()!.savedConfigs![0]).toMatchObject({ deployments: {}, separations: {}, ignitions: {} });
+    await act(async () => { chooser.value = 'b'; chooser.dispatchEvent(new Event('change', { bubbles: true })); });
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Delete b — configuration 2"]')!.click());
+    await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="Confirm delete b — configuration 2"]')!.click());
+    expect(chooser.selectedOptions[0]!.textContent).toBe('Working settings (not saved)');
+    await reset(); expect(peekSession()!.detachedOverrides).toEqual({ deployments: {}, separations: {}, ignitions: {} });
+    await act(async () => button(host, 'Undo').click()); await settle(450);
+    expect(peekSession()!.detachedOverrides).toEqual(maps);
+  }, 30000);
+
+  it('CFG-1 Duplicate activates an independent copy of current edits and keeps launch conditions', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    await seedStarterSession({ edit: () => tree, over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: {},
+      savedConfigs: [{ id: 'a', name: 'Club', isDefault: true, motors: { [mount]: c6 },
+        ignitions: { [mount]: { event: 'launch', delay: 2 } } }] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    const ignition = host.querySelector<HTMLSelectElement>(`#ignition-${mount}`)!;
+    await act(async () => { ignition.value = 'never'; ignition.dispatchEvent(new Event('change', { bubbles: true })); });
+    await settle(450);
+    const before = structuredClone(peekSession()!);
+    await act(async () => button(host, 'Duplicate').click()); await settle(450);
+    const after = peekSession()!;
+    expect(after.savedConfigs).toHaveLength(2);
+    const copy = after.savedConfigs![1]!;
+    expect(copy.id).not.toBe('a'); expect(after.activeConfigId).toBe(copy.id);
+    expect(copy).toMatchObject({ name: 'Club copy', isDefault: false, motors: before.mountMotors,
+      ignitions: before.savedConfigs![0]!.ignitions });
+    expect(after.tree).toEqual(before.tree); expect(after.launch).toEqual(before.launch);
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!.value).toBe(copy.id);
+    await act(async () => { ignition.value = 'launch'; ignition.dispatchEvent(new Event('change', { bubbles: true })); });
+    await settle(450);
+    expect(peekSession()!.savedConfigs![0]!.ignitions![mount]!.event).toBe('never');
+    expect(peekSession()!.savedConfigs![1]!.ignitions![mount]!.event).toBe('launch');
+  }, 30000);
+
+  it('CFG-1 table part cells apply once and focus stable recovery, stage and motor destinations', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const staged = addStage(tree).tree;
+    await seedStarterSession({ edit: () => staged, over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: {},
+      savedConfigs: ['a', 'b'].map(id => ({ id, name: id, isDefault: id === 'a', motors: { [mount]: c6 } })) } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    for (const family of ['Motor · ignition', 'Recovery', 'Separation']) {
+      const headers = [...host.querySelectorAll('.config-table thead th')];
+      const index = headers.findIndex(th => th.textContent?.includes(family));
+      const cell = host.querySelectorAll('.config-table tbody tr')[1]!.children[index]!;
+      await act(async () => cell.querySelector<HTMLButtonElement>('button')!.click());
+      expect(host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!.value).toBe('b');
+      expect(document.activeElement?.id).toMatch(family === 'Motor · ignition' ? /^cfg-mount-/ : /^cfg-part-/);
+    }
+  }, 30000);
+
   it('no override banners or counts appear for inheriting recovery, stage and ignition', async () => {
     const { tree, mount, c6 } = await seedStarterSession();
     await seedStarterSession({ edit: () => tree, over: { configLayers: 1, activeConfigId: 'plain', detachedOverrides: {},
@@ -1162,7 +1247,7 @@ describe('FC-5 configuration editors', () => {
       expect(host.querySelector('[aria-label="Recovery override"]')).toBeNull();
       expect(host.querySelector('[aria-label="Stage separation override"]')).toBeNull();
     }
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     expect(host.textContent).toContain("Ignition: mount's default");
     expect(host.textContent).not.toContain('override for this configuration');
     expect(host.querySelector('[aria-label^="Apply Plain"]')!.getAttribute('aria-describedby')).toBeNull();
@@ -1243,9 +1328,9 @@ describe('FC-5 configuration editors', () => {
         { id: 'a', name: 'Layered', isDefault: true, motors: { [mount]: c6 }, ignitions: { [mount]: { event: 'launch', delay: 2 } } },
       ] } });
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     expect(host.textContent).toContain('Ignition: override for this configuration');
-    expect(host.textContent).toContain('1 override: ignition');
+    expect(host.querySelector('.config-panel')!.textContent).toContain('overrides motor mount');
     await act(async () => { button(host, 'Reset to the default').click(); });
     expect(host.textContent).toContain("Ignition: mount's default");
     expect(host.textContent).not.toContain('1 override: ignition');
@@ -1256,7 +1341,7 @@ describe('FC-5 configuration editors', () => {
     await unmountAll();
     await seedStarterSession({ edit: () => tree, over: { configLayers: 1, activeConfigId: null, savedConfigs: [], detachedOverrides: {} } });
     const plain = await mountApp();
-    await openTab(plain, 'Motors & Launch');
+    await openTab(plain, 'Motors & Configuration');
     const select = plain.querySelector<HTMLSelectElement>(`#ignition-${mount}`)!;
     await act(async () => { select.value = 'launch'; select.dispatchEvent(new Event('change', { bubbles: true })); });
     await settle(450);
@@ -1280,7 +1365,7 @@ describe('the Batch simulate button', () => {
           deployments: { [chute.id!]: { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 } },
           ignitions: { [mount]: { event: 'launch', delay: 2 } } }] } });
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await settle(50);
     await act(async () => { batchButton(host).click(); });
     expect(batchDialog!.assignedIgnitions).toEqual({ [mount]: { event: 'launch', delay: 2 } });
@@ -1298,7 +1383,7 @@ describe('the Batch simulate button', () => {
         savedConfigs: [{ id: 'a', name: 'Layered', isDefault: true, motors: { [mount]: c6 },
           ignitions: { [mount]: { event: 'launch', delay: 2 } } }] } });
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     const select = () => host.querySelector<HTMLSelectElement>(`#ignition-${mount}`)!;
     const choose = async (event: string) => act(async () => { select().value = event; select().dispatchEvent(new Event('change', { bubbles: true })); });
     await choose('never');
@@ -1321,7 +1406,7 @@ describe('the Batch simulate button', () => {
   it('on a staged rocket is off, and says why ON SCREEN, not only in a tooltip', async () => {
     await seedStarterSession({ edit: (t) => addStage(t).tree });
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await settle(50);
     const b = batchButton(host);
     expect(b.disabled).toBe(true);
@@ -1335,7 +1420,7 @@ describe('the Batch simulate button', () => {
   it('on a rocket with a mount and NO motor loaded is on, and opens the batch dialog', async () => {
     await seedStarterSession({ over: { mountMotors: {} } });
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await settle(50);
     const b = batchButton(host);
     expect(b.disabled).toBe(false);
@@ -1362,7 +1447,7 @@ describe('the Batch simulate button', () => {
       over: { mountMotors: { [mount]: { ...c6, meta: { ...meta, manufacturer: 'EX', exMotorId: 'ex:test-c6' } } } },
     });
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await settle(50);
     await act(async () => { batchButton(host).click(); });
     expect(batchDialog?.assignedMotorIds).toEqual({ [mount]: 'ex:test-c6' });
@@ -1440,7 +1525,7 @@ describe('the Motor vitals designation and tooltip', () => {
     await settle(500);
     const original = peekSession()!;
     expect(original.savedMark).toBe(designFingerprint({ ...snapshot, ...original }));
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await act(async () => { button(host, 'Browse').click(); });
     // Drive the actual check through App -> MotorPicker -> MotorBrowser, with no network.
     const rows = MOTOR_DB.map(m => m.motorId === mm.meta.motorId ? { ...m, designation: 'F67C-UPDATED' } : m);
@@ -1458,7 +1543,7 @@ describe('the Motor vitals designation and tooltip', () => {
       const value = host.querySelector('.vitals-motor-label')!;
       expect(value.textContent).toBe(`${base}-${delay}`);
       expect(value.closest('.vitals-item')?.getAttribute('title')).toContain(`AeroTech ${base}, ${delay} s delay (${base}-${delay})`);
-      expect(host.querySelector('.config-name')?.textContent).toBe(`[${base}-9]`);
+      expect(host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!.selectedOptions[0]!.textContent).toContain(`[${base}-9]`);
     };
     expectDisplay('F67C-UPDATED');
     await settle(500);
@@ -1593,7 +1678,7 @@ it('the Batch weighed-pad note receives the loaded designation without its delay
     measured: { massKg: null, cgM: null, padMassKg } } });
   const host = await mountApp();
   await settle(600);
-  await openTab(host, 'Motors & Launch');
+  await openTab(host, 'Motors & Configuration');
   await act(async () => { button(host, 'Batch simulate motors…').click(); });
   await waitFor(() => batchDialog !== null, 'batch dialog');
   expect(batchDialog!.weighed?.name).toBe('F67C');
@@ -1616,7 +1701,7 @@ describe('the Ignition control on a single-stage rocket', () => {
     s.mountMotors[mount] = { ...c6, ignition: { event: 'launch', delay: 2 } };
     localStorage.setItem(SESSION_KEY, JSON.stringify(s));
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await settle(50);
     expect(ignitionBox(host)).toBe(true);
   }, 30000);
@@ -1624,7 +1709,7 @@ describe('the Ignition control on a single-stage rocket', () => {
   it('FC-5 shows the editable mount default for an ordinary motor lit at launch', async () => {
     await seedStarterSession();
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await settle(50);
     expect(ignitionBox(host)).toBe(true);
     expect(host.textContent).toContain("Ignition: mount's default");
@@ -1638,7 +1723,7 @@ describe('the single-stage Ignition choices (review of v0.169)', () => {
     s.mountMotors[mount] = { ...c6, ignition: { event: 'launch', delay: 2 } };
     localStorage.setItem(SESSION_KEY, JSON.stringify(s));
     const host = await mountApp();
-    await openTab(host, 'Motors & Launch');
+    await openTab(host, 'Motors & Configuration');
     await settle(50);
     const values = [...host.querySelectorAll<HTMLOptionElement>('.mount-card select[id^="ignition-"] option')].map((o) => o.value);
     expect(values).toEqual(['automatic', 'launch', 'never']);

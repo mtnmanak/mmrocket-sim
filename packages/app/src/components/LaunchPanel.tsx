@@ -561,6 +561,7 @@ export function LaunchPanel({
         <h2 style={{ flex: 1 }}>Launch conditions</h2>
         {onGetWeather && <WeatherButton onClick={onGetWeather} />}
       </div>
+      <p className="comp-stats">Shared by every flight configuration.</p>
       <div className="field-grid">
         {/* THE ORDER IS THE LAYOUT. `.field-grid` is a fixed two columns, so
             cells pair off in the order written here (weather build, spec §0.4,

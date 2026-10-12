@@ -390,7 +390,7 @@ html {
   min-width: 0;
 }
 
-/* Motors & Launch: full-width schematic above two columns. */
+/* Motors & Configuration: full-width schematic above two columns. */
 .motors-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -402,56 +402,19 @@ html {
   grid-column: 1 / -1;
 }
 
-/* Flight-configuration presets (Stage B): full-width row at the FOOT of the
-   Motors & Launch grid. `grid-column: 1 / -1` is what makes the placement
-   free — it spans wherever auto-placement drops the panel, at two columns, at
-   the ≥1600px capped-and-centred columns, and at the ≤900px single column —
-   so the 2026-08-26 move from second-child to last-child needed no CSS. */
-.config-panel {
-  grid-column: 1 / -1;
-}
-
-/* The list scrolls inside itself so a 10-configuration file cannot turn the
-   last row of the tab into a wall; the panel's <h2> stays above it. Sized
-   like the notice bar's expanded cap — a viewport fraction, not a row count,
-   with a pixel ceiling so it stays a list and not a second page. */
-.config-list {
-  max-height: min(340px, 40vh);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-
-/* Dividers BETWEEN rows only — no rule under the heading. Written here rather
-   than as an inline style on the row, because an inline border outranks every
-   author rule and no `:first-child` suppression could beat it. */
-.config-list > .config-row + .config-row {
-  border-top: 1px solid var(--border);
-}
-
-.config-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 0;
-}
-
-.config-details {
-  flex: 1;
-  min-width: 0;
-}
-
-/* Keep Apply first; the name/editor gets a full line on phones. */
-@media (max-width: 480px) {
-  .config-details {
-    flex: 1 0 100%;
-    overflow-wrap: anywhere;
-  }
-  .config-panel > .file-btn {
-    max-width: 100%;
-    white-space: normal;
-  }
-}
+/* Configuration chooser above the drawing; comparison scrolls within its panel. */
+.config-panel, .config-overview { grid-column: 1 / -1; min-width: 0; }
+.motors-layout > * { min-width: 0; }
+.config-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.config-chooser { flex: 1 1 240px; min-width: 0; }
+.config-chooser select { display: block; width: 100%; min-width: 0; }
+.config-bar > .file-btn, .config-panel > .file-btn { max-width: 100%; white-space: normal; }
+.config-table-scroll { max-width: 100%; overflow: auto; max-height: min(440px, 60vh); overscroll-behavior: contain; }
+.config-table { width: 100%; border-collapse: collapse; }
+.config-table th, .config-table td { min-width: 160px; padding: 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.config-table .file-btn { white-space: normal; overflow-wrap: anywhere; text-align: left; }
+.config-part-summary { padding: 6px 0; }
+.config-overview summary { cursor: pointer; }
 
 .config-active-tag {
   font-size: 11px;
@@ -2249,7 +2212,9 @@ html {
     margin: 0;
     padding: 8px 2px 6px;
     font-size: 11px;
-    letter-spacing: 0.08em;
+    overflow-wrap: anywhere;
+    min-width: 0;
+    letter-spacing: 0.02em;
     border-bottom: none;
     border-top: 2px solid transparent;
     border-radius: 0;
@@ -3822,7 +3787,7 @@ select.unit-chip:hover {
     gap: 16px;
   }
 
-  /* Motors & Launch is form work — cap the columns at a readable width and
+  /* Motors & Configuration is form work — cap the columns at a readable width and
      center them; the full-span to-scale schematic above keeps the combined
      width. */
   .motors-layout {

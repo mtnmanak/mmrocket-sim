@@ -105,7 +105,7 @@ export function flightParameterOverrideNote(
   };
   const where = configName ? `Flight configuration “${configName}”` : 'The flight configuration this file opens with';
   const component = kind === 'separation' ? 'stage' : 'mount';
-  const panel = kind === 'separation' ? 'stage panel' : 'motor card on Motors & Launch';
+  const panel = kind === 'separation' ? 'stage panel' : 'motor card on Motors & Configuration';
   return `${where} overrides ${kind} for ${name}: it uses ${describe(flown)}, not the ${component}'s own setting (${describe(own)}). `
     + `The ${panel} shows both; Reset there returns this configuration to the ${component}'s own setting.`;
 }

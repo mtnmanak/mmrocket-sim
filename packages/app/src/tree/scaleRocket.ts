@@ -822,7 +822,7 @@ export function scaleRocket(
           ? ' Snapping to the standard size is what lost it — untick “Snap to standard motor'
             + ` sizes” and the scaled ${m.scaledBoreMm.toFixed(1)} mm bore still takes it.`
           : '')
-        + ' Choose another motor on Motors & Launch.');
+        + ' Choose another motor on Motors & Configuration.');
     }
   }
 
@@ -837,7 +837,7 @@ export function scaleRocket(
     'Not scaled, on purpose: angles, fin and instance counts, material densities, drag'
     + ' coefficients, surface finish, motor choice, deployment and separation settings, and'
     + ' the launch conditions.',
-    'Mount Max motor length values scale with the airframe. Check them on Motors & Launch before choosing motors.',
+    'Mount Max motor length values scale with the airframe. Check them on Motors & Configuration before choosing motors.',
   ];
   if (fixedSeen.size) {
     // Sorted so the sentence reads the same whatever order the tree holds

@@ -1395,7 +1395,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       type SlotMotor = StageMotor | null | 'absent' | 'unknown';
       const motor: [SlotMotor, SlotMotor, SlotMotor] =
         [stageMotorOf(0, chosen), stageMotorOf(1, chosen), stageMotorOf(2, chosen)];
-      // The fallbacks below count as Motors & Launch does, the sustainer being Stage 1.
+      // The fallbacks below count as Motors & Configuration does, the sustainer being Stage 1.
       const stageName = (i: number): string => stages[i]?.name ?? `Stage ${i + 1}`;
 
       // Desktop runs every mass override and THEN every CG override. One pass
@@ -2108,7 +2108,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     };
     seek(st.children ?? []);
     if (motorCount > 1) {
-      // An unnamed stage by the number Motors & Launch shows for it.
+      // An unnamed stage by the number Motors & Configuration shows for it.
       throw new Error(`RASAero supports one engine per stage — “${st.name ?? `Stage ${stIdx + 1}`}” has ${motorCount} motors. `
         + 'Export as .ork or .rkt to keep every motor and its thrust.');
     }
@@ -2522,7 +2522,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   for (let i = 1; i < stagesIn.length; i++) {
     const st = stagesIn[i]!;
     // How a refusal below names this stage: its own name, quoted, or — for a
-    // stage saved without one — the number Motors & Launch shows for it
+    // stage saved without one — the number Motors & Configuration shows for it
     // (`Stage ${i + 1}`, the sustainer being Stage 1), with RASAero's own name
     // for it beside the number (batch 6: it said "stage 1", counting from the
     // sustainer as 0, for the stage the screen calls Stage 2). Quoting

@@ -1939,10 +1939,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       sets.length > (mountCopiesRead.get(mount) ?? 1) || new Set(sets.map(setKey)).size > 1);
     const motorLoadoutRefusal = missing === undefined ? (duplicate
       ? `Launch refused for ${source}: the file assigns more than one motor to the same mount. `
-        + 'Assign motors on Motors & Launch to separate mounts. No motors from this configuration were loaded.'
+        + 'Assign motors on Motors & Configuration to separate mounts. No motors from this configuration were loaded.'
       : undefined)
       : `Launch refused for ${source}: the file names ${missing} motor${missing === 1 ? '' : 's'} for mounts that no longer exist in the design. `
-        + 'The app will not guess which tube each motor belongs in. Assign motors on Motors & Launch to real mounts, '
+        + 'The app will not guess which tube each motor belongs in. Assign motors on Motors & Configuration to real mounts, '
         + 'or add the missing mounts and assign their motors. No motors from this configuration were loaded.';
     if (motorLoadoutRefusal) notes.push(motorLoadoutRefusal);
     const cfgMotors: Record<string, OrkMotorRef> = {};

@@ -261,7 +261,7 @@ describe('MeasuredMassBox — the verdict is announced from one always-mounted r
  * weight with the motor in — and it was the wrong home: the two figures in
  * this box are meant to survive a motor change, a pad weight cannot, and
  * nothing said whether the button applied it. That field now lives under the
- * motor on Motors & Launch (components/MotorPadMass.tsx). These two pin the
+ * motor on Motors & Configuration (components/MotorPadMass.tsx). These two pin the
  * box's return to its v0.115 shape, so the field cannot creep back.
  */
 describe('MeasuredMassBox — airframe only, as in v0.115', () => {

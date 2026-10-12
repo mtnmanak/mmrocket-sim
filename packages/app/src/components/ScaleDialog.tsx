@@ -528,7 +528,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
 
             <p className="comp-stats">
               The <strong>Measured mass &amp; CG</strong> box is cleared, and so is every{' '}
-              <strong>weighed pad mass</strong> on Motors &amp; Launch, because they describe a
+              <strong>weighed pad mass</strong> on Motors &amp; Configuration, because they describe a
               rocket that will no longer exist. Ctrl+Z cannot put them back — undo covers the
               design tree — so write those numbers down first if you want them.
             </p>
@@ -558,7 +558,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
             {lostMotors.length > 0 && (
               <p className="file-note file-note-warn">
                 A loaded motor will not fit the scaled mount. The design still scales; pick a new
-                motor on Motors &amp; Launch afterwards.
+                motor on Motors &amp; Configuration afterwards.
               </p>
             )}
 

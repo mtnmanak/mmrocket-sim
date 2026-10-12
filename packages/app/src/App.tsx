@@ -25,6 +25,7 @@ import type {
 } from '@online-openrocket/engine';
 import { BatchSimulate, batchUnavailableReason } from './components/BatchSimulate.js';
 import { batchMotorIds } from './services/batchSweep.js';
+import { ConfigOverview, ConfigPartSummaries } from './components/ConfigOverview.js';
 import { ConfigPanel } from './components/ConfigPanel.js';
 import type { LongitudeReview } from './components/LongitudeCheck.js';
 import { recoveryScope } from './components/recoveryContext.js';
@@ -174,7 +175,7 @@ import {
 import {
   migrateLegacyPadMass, stripPadMass, scaleConfigStageMass,
   stripRefPadMass, syncActiveConfig, withoutStoredRef, withActiveConfigTreeSynced,
-  createLoadedConfig, renameConfig, deleteConfig,
+  createLoadedConfig, duplicateActiveConfig, renameConfig, deleteConfig,
 } from './services/configSync.js';
 import {
   reconcileAllIncludedMotors,
@@ -714,7 +715,7 @@ export function App() {
   /**
    * The Results workspace's <main>, which Launch focuses, and what the polite
    * flight announcer says (audit 2026-09-22). Launch switches tab in the same
-   * click, so the button pressed unmounts (Motors & Launch, Fly) or goes
+   * click, so the button pressed unmounts (Motors & Configuration, Fly) or goes
    * disabled (the vitals strip) and focus fell to <body>; and a finished flight
    * was announced to nobody, so the app's central action gave no non-visual
    * feedback at all. `seq` keys the spoken element, so a second flight to the
@@ -1124,6 +1125,14 @@ export function App() {
   const launchOverrideSummary = useMemo(() => describeFlightOverrides(
     tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance,
   ), [tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance]);
+  const [configPartTarget, setConfigPartTarget] = useState<{ id: string; family: string } | null>(null);
+  useEffect(() => {
+    if (tab !== 'motors' || !configPartTarget) return;
+    const target = document.getElementById(`cfg-${configPartTarget.family === 'ignition' ? 'mount' : 'part'}-${configPartTarget.id}`);
+    target?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    target?.focus({ preventScroll: true });
+    setConfigPartTarget(null);
+  }, [tab, configPartTarget]);
   const [ignitionTarget, setIgnitionTarget] = useState<string | null>(null);
   useEffect(() => {
     if (tab !== 'motors' || ignitionTarget === null) return;
@@ -1429,7 +1438,7 @@ export function App() {
    * it computed lands (audit 2026-09-30). A Launch awaits a paint and, on auto
    * delay, yields between up to eight probes, and the whole UI stays live
    * meanwhile: Open…, a share link, ✕ New, ⏏ Unload, every field on Design and
-   * Motors & Launch. Each of those moves one of these terms; the effect clears
+   * Motors & Configuration. Each of those moves one of these terms; the effect clears
    * the shown flight, the Auto aero upgrade and the error for the design now on
    * screen, and a write landing after it put them back on a design that never
    * flew.
@@ -2637,6 +2646,15 @@ export function App() {
     return next.activeConfigId;
   };
 
+  const duplicateFlightConfig = () => {
+    const next = duplicateActiveConfig({ savedConfigs, activeConfigId, tree, mountMotors, unmatchedRefs });
+    if (!next) return;
+    resetHistory();
+    setSavedConfigs(next.savedConfigs);
+    setActiveConfigId(next.activeConfigId);
+    setFileNote('Flight configuration duplicated.');
+  };
+
   const renameFlightConfig = (id: string, name: string) => {
     if (renameConfig(savedConfigs, id, name) === savedConfigs) return;
     setSavedConfigs(prev => renameConfig(prev, id, name));
@@ -2711,7 +2729,7 @@ export function App() {
       // the only thing most files give them, an OpenRocket GUID. We now open
       // the file's own default configuration, exactly as desktop OpenRocket
       // does, and say which one in the import note; the Flight configurations
-      // panel on Motors & Launch switches between them (motors AND recovery
+      // panel on Motors & Configuration switches between them (motors AND recovery
       // deployment, since applyConfig applies both now).
       await applyImported(imported, openId, { name: file.name, via: 'opened', format: imported.sourceFormat! });
     } catch (e) {
@@ -2911,8 +2929,8 @@ export function App() {
   const primaryMotor = primaryMountId ? mountMotors[primaryMountId] : undefined;
   const assignedCount = assigned.length;
   const primaryMotorTooltip = useMemo(() => primaryMotor
-    ? `${motorTooltip(primaryMotor, catalogue)}${assignedCount > 1 ? ` (+${assignedCount - 1} more ${assignedCount === 2 ? 'mount' : 'mounts'})` : ''} — motor on the primary (sustainer) mount; assign it in Motors & Launch`
-    : 'Motor on the primary (sustainer) mount — assign it in Motors & Launch',
+    ? `${motorTooltip(primaryMotor, catalogue)}${assignedCount > 1 ? ` (+${assignedCount - 1} more ${assignedCount === 2 ? 'mount' : 'mounts'})` : ''} — motor on the primary (sustainer) mount; assign it in Motors & Configuration`
+    : 'Motor on the primary (sustainer) mount — assign it in Motors & Configuration',
   [primaryMotor, catalogue, assignedCount]);
 
   // Motor-mount sizes (nominal motor diameter each mount accepts), per stage —
@@ -3542,7 +3560,7 @@ export function App() {
                 </span>
               </span>
               {/* RECOVERY WEIGHT, right of the pad weight and on every
-                  workspace the strip shows — which includes Motors & Launch,
+                  workspace the strip shows — which includes Motors & Configuration,
                   where the motor gets chosen and therefore where the mass
                   under the chute changes. It is deliberately shown even with
                   no motor loaded, saying "load a motor", because a readout
@@ -3580,7 +3598,7 @@ export function App() {
                 // labeled button — the bare ⏏ glyph was undiscoverable
                 // (batch 08-21c).
                 <button className="file-btn vitals-unload"
-                  title="Unload all motors — view and weigh the rocket clean (empty mass, no motor silhouettes). Reload any time from Motors & Launch."
+                  title="Unload all motors — view and weigh the rocket clean (empty mass, no motor silhouettes). Reload any time from Motors & Configuration."
                   onClick={clearConfig}>⏏ Unload</button>
               )}
             </span>
@@ -3646,7 +3664,7 @@ export function App() {
             onClick={onLaunch}
             disabled={!built || !primaryMountId || simulating || nozzlePending}
             title={savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal ?? (nozzlePending ? 'Updating the nozzle for this motor before launch'
-              : !primaryMountId ? 'Assign a motor first (Motors & Launch workspace)' : 'Simulate the flight')}
+              : !primaryMountId ? 'Assign a motor first (Motors & Configuration workspace)' : 'Simulate the flight')}
           >
             {simulating ? 'Simulating…' : <><Icon name="rocket" size={15} /> Launch</>}
           </button>
@@ -3674,7 +3692,7 @@ export function App() {
           </button>
           <button aria-current={tab === 'motors' ? 'page' : undefined} data-tour="motors-tab"
             className={tab === 'motors' ? 'active' : ''} onClick={() => setTab('motors')}>
-            <Icon name="flame" size={13} /> Motors &amp; Launch
+            <Icon name="flame" size={13} /> Motors &amp; Configuration
           </button>
           <button aria-current={tab === 'results' ? 'page' : undefined}
             className={tab === 'results' ? 'active' : ''} onClick={() => setTab('results')}>
@@ -4028,6 +4046,11 @@ export function App() {
             navigation found nothing on this tab. */}
         {tab === 'motors' && (
         <main className="motors-layout">
+          <ConfigPanel configs={savedConfigs} tree={tree} motors={mountMotors} detachedOverrides={detachedOverrides}
+            activeConfigId={activeConfigId} hasMotors={assigned.length > 0}
+            onApply={applyConfig} onClear={clearConfig} onCreate={createConfig} onDuplicate={duplicateFlightConfig}
+            onRename={renameFlightConfig} onDelete={deleteFlightConfig}
+            onResetOverrides={() => commitActiveOverrides({ deployments: {}, separations: {}, ignitions: {} })} />
           <div className="panel motors-schematic">
             <h2>Rocket — motors drawn to scale</h2>
             <div className="rocket-stage">
@@ -4142,7 +4165,7 @@ export function App() {
               const delayCurrent = !!delayRun && runMatchesDesign(delayRun, provenanceKey)
                 && resolutionMatchesPolicy(delayRun.delayResolution, flownDelayMounts);
               return (
-                <div key={m.id} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
+                <div key={m.id} id={m.id ? `cfg-mount-${m.id}` : undefined} tabIndex={-1} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                     {/* The card's title, not a <label>: it names no control
                         (audit 2026-09-30). */}
@@ -4357,6 +4380,7 @@ export function App() {
                 </div>
               );
             })}
+            <ConfigPartSummaries tree={tree} overrides={activeOverrides} />
             {/* A disabled button that does not say why reads as a broken button —
                 reported 2026-09-01b as "when I click the button, nothing happens".
                 There are THREE reasons this can be off and the tooltip named only
@@ -4397,27 +4421,9 @@ export function App() {
             onWeatherFetchAgain={() => setShowWeather('again')}
             onWeatherUndo={undoWeather} onWeatherDismiss={() => setWeather(null)} onWeatherSigma={estimateSigma} />
 
-          {/* Last row of the grid, full width (`.config-panel` spans
-              `1 / -1` wherever auto-placement drops it). It sat second, above
-              Motors, and pushed the two panels a tester actually works in
-              below the fold on a file with several configurations.
-
-              The old > 1 rule was superseded 2026-10-04: without the panel
-              there was no way to create a configuration from loaded motors. */}
-          {(savedConfigs.length > 0 || assigned.length > 0) && (
-            <ConfigPanel
-              configs={savedConfigs}
-              tree={tree}
-              activeConfigId={activeConfigId}
-              hasMotors={assigned.length > 0}
-              onApply={applyConfig}
-              onClear={clearConfig}
-              onCreate={createConfig}
-              onRename={renameFlightConfig}
-              onDelete={deleteFlightConfig}
-              onEmpty={() => motorsHeading.current?.focus()}
-            />
-          )}
+          <ConfigOverview configs={syncActiveConfig(savedConfigs, activeConfigId, { motors: mountMotors, unmatchedRefs, tree })}
+            activeConfigId={activeConfigId} tree={tree} onApply={applyConfig}
+            onShowPart={(id, family) => setConfigPartTarget({ id, family })} />
         </main>
         )}
 
