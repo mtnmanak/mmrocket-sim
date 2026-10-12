@@ -70,6 +70,14 @@ describe('ConfigPanel', () => {
 
 
   const chooser = () => host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+  it('CFG-1b treats empty override maps as None and offers no reset', () => {
+    mount({ activeConfigId: null, hasMotors: false,
+      detachedOverrides: { deployments: {}, separations: {}, ignitions: {} } });
+    expect(chooser().value).toBe('');
+    expect(host.textContent).not.toContain('Working settings (not saved)');
+    expect(host.textContent).not.toContain('Reset every override in this configuration');
+  });
+
   const choose = (id: string) => act(() => { chooser().value = id; chooser().dispatchEvent(new Event('change', { bubbles: true })); });
   const button = (text: string) => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!;
   function click(label: string) {

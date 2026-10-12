@@ -4,15 +4,17 @@ import { MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS } from '../services/conf
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { activeFlightOverrides } from '../services/flightState.js';
 import { describeFlightOverrides } from '../services/flightOverrideSummary.js';
+import type { OrkMotorRef } from '../services/orkFile.js';
 
 const NO_OVERRIDES: FlightOverrides = {};
 
 /** The active flight owns the controls below this bar. Native select is deliberate. */
-export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, detachedOverrides = NO_OVERRIDES,
+export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, unmatchedRefs, detachedOverrides = NO_OVERRIDES,
   onApply, onClear, onCreate, onDuplicate, onRename, onDelete, onResetOverrides }: {
   configs: SavedConfig[];
   tree?: FlightTree;
   motors?: Record<string, MountMotor>;
+  unmatchedRefs?: Record<string, OrkMotorRef>;
   detachedOverrides?: FlightOverrides;
   activeConfigId: string | null;
   hasMotors: boolean;
@@ -57,7 +59,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
   const active = configs.find(c => c.id === activeConfigId);
   const overrides = activeFlightOverrides(configs, activeConfigId, detachedOverrides);
   const hasOverrides = Object.values(overrides).some(map => Object.keys(map ?? {}).length > 0);
-  const working = !active && (hasMotors || hasOverrides);
+  const working = !active && (hasMotors || Object.keys(unmatchedRefs ?? {}).length > 0 || hasOverrides);
   const summary = tree ? describeFlightOverrides(tree, overrides, motors ?? active?.motors ?? {},
     active ? savedConfigLabel(active) : null, prefs.units.distance) : null;
   const labelOf = (c: SavedConfig) => `${savedConfigLabel(c)} — configuration ${configs.indexOf(c) + 1}`;

@@ -89,7 +89,7 @@ export function designFingerprint(s: DesignSnapshot): string {
     s.activeConfigId,
     s.measured,
     // Empty layers preserve legacy marks; detached choices are design content.
-    ...(s.detachedOverrides && Object.keys(s.detachedOverrides).length ? [s.detachedOverrides] : []),
+    ...(s.detachedOverrides && Object.values(s.detachedOverrides).some(map => Object.keys(map ?? {}).length > 0) ? [s.detachedOverrides] : []),
   ]));
 }
 

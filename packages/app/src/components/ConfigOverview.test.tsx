@@ -27,6 +27,32 @@ const config: SavedConfig = { id: 'a', name: 'Flight A', isDefault: true,
 };
 
 describe('CFG-1 comparison and summary', () => {
+  it.each([
+    ['lowerstageseparation', "Motor ejection charge, delay 2 s (the file's 'lower stage separation' is not supported here)"],
+    ['foreign-event', "Motor ejection charge, delay 2 s (the file's 'foreign-event' is not supported here)"],
+    ['NEVER', 'Never'],
+  ])('CFG-1b shows flown recovery for %s in the grid and Recovery summary', (deployEvent, expected) => {
+    const host = document.createElement('div'), root = createRoot(host);
+    const tuple = { deployEvent, deployAltitude: 300, deployDelay: 2 };
+    const overridden = { ...config, deployments: { chute: tuple } };
+    const overrides = { deployments: overridden.deployments };
+    const ownTree: FlightTree = { name: 'Own', components: [{ id: 'own', name: 'Own chute', type: 'parachute', ...tuple }] };
+    try {
+      act(() => root.render(<>
+        <ConfigOverview tree={tree} configs={[overridden]} activeConfigId="a" onApply={() => {}} onShowPart={() => {}} />
+        <ConfigPartSummaries tree={tree} overrides={overrides} />
+        <ConfigOverview tree={ownTree} configs={[config]} activeConfigId="a" onApply={() => {}} onShowPart={() => {}} />
+        <ConfigPartSummaries tree={ownTree} overrides={{}} />
+      </>));
+      const grids = host.querySelectorAll('table');
+      expect(grids[0]!.querySelectorAll('td')[1]!.textContent).toBe(`${expected} — override`);
+      expect(host.querySelector('#cfg-part-chute p')!.textContent).toBe(`${expected} — override`);
+      expect(grids[1]!.querySelector('td')!.textContent).toBe(expected);
+      expect(host.querySelector('#cfg-part-own p')!.textContent).toBe(`${expected} — uses own setting`);
+      expect(describeFlightOverrides(tree, overrides, config.motors, config.name, 'm')!.text).toContain(expected);
+    } finally { act(() => root.unmount()); }
+  });
+
   it('is collapsed, uses a keyboard scroll region and semantic table, and marks active/default/override in text', () => {
     const host = document.createElement('div'), root = createRoot(host);
     const onApply = vi.fn(), onShowPart = vi.fn();

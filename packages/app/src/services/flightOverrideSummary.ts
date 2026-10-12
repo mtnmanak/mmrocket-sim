@@ -43,7 +43,7 @@ function flownIgnition(tuple: IgnitionTuple): IgnitionTuple {
   return { event, delay: event === 'never' ? 0 : tuple.delay };
 }
 
-function describeFlownDeployment(tuple: DeploymentTuple, unit: string): string {
+export function describeFlownDeployment(tuple: DeploymentTuple, unit: string): string {
   const deployEvent = flownDeployEvent(tuple.deployEvent);
   const description = describeComponentFlightTuple(flownDeployment(tuple), unit, 'warning');
   if (deployEvent === tuple.deployEvent.toLowerCase()) return description;

@@ -4046,7 +4046,7 @@ export function App() {
             navigation found nothing on this tab. */}
         {tab === 'motors' && (
         <main className="motors-layout">
-          <ConfigPanel configs={savedConfigs} tree={tree} motors={mountMotors} detachedOverrides={detachedOverrides}
+          <ConfigPanel configs={savedConfigs} tree={tree} motors={mountMotors} unmatchedRefs={unmatchedRefs} detachedOverrides={detachedOverrides}
             activeConfigId={activeConfigId} hasMotors={assigned.length > 0}
             onApply={applyConfig} onClear={clearConfig} onCreate={createConfig} onDuplicate={duplicateFlightConfig}
             onRename={renameFlightConfig} onDelete={deleteFlightConfig}

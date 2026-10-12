@@ -233,6 +233,39 @@ const RKT = 'rocksimTestRocket1.rkt';
 const RKT_NAME = 'FooBar Test';
 
 describe('flight configuration editing in App', () => {
+  it('CFG-1b Delete then None clears unresolved working motors from the saved file', async () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const refs = { [mount]: { designation: 'ZQ9999X', manufacturer: 'AeroTech', diameter: 0.018, length: 0.07, delay: 6 } };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: {}, unmatchedRefs: refs, launch: DEFAULT_CONDITIONS,
+      appVersion: APP_VERSION, savedAt: Date.now(), activeConfigId: 'unresolved',
+      savedConfigs: [
+        { id: 'unresolved', name: 'Unresolved', isDefault: true, motors: {}, unmatchedRefs: refs },
+        { id: 'empty', name: 'Empty', isDefault: false, motors: {} },
+      ],
+    }));
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    await press(host, 'Delete Unresolved');
+    await press(host, 'Confirm delete Unresolved');
+    flush();
+    expect(storedSession()!.unmatchedRefs).toEqual(refs);
+    expect(storedSession()!.savedConfigs).toHaveLength(1);
+    const chooser = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+    expect(chooser.value).toBe('__working__');
+    await chooseConfiguration(host, '');
+    flush();
+    expect(chooser.value).toBe('');
+    expect(storedSession()!.unmatchedRefs).toEqual({});
+    await saveAs(host, 'Save .ork');
+    const xml = vi.mocked(exportOrk).mock.results.at(-1)!.value as string;
+    expect(xml).not.toContain('ZQ9999X');
+    const reopened = importOrk(xml);
+    expect(reopened.configs).toHaveLength(1);
+    expect(reopened.configs[0]!.motors).toEqual({});
+  });
+
   const press = async (host: HTMLElement, label: string) => {
     const b = [...host.querySelectorAll('button')].find(el => el.getAttribute('aria-label') === label
       || el.getAttribute('aria-label')?.startsWith(`${label} — configuration `));

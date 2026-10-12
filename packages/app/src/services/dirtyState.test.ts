@@ -25,6 +25,18 @@ const base = (): DesignSnapshot => ({
 });
 
 describe('designFingerprint', () => {
+  it('CFG-1b ignores empty detached override maps but detects entries in every family', () => {
+    const snapshot = base();
+    const saved = designFingerprint(snapshot);
+    const empty = { deployments: {}, separations: {}, ignitions: {} };
+    expect(designFingerprint({ ...snapshot, detachedOverrides: empty })).toBe(saved);
+    for (const overrides of [
+      { deployments: { chute: { deployEvent: 'apogee', deployAltitude: 200, deployDelay: 0 } } },
+      { separations: { s: { separationEvent: 'never', separationAltitude: 200, separationDelay: 0 } } },
+      { ignitions: { mount: { event: 'never' as const, delay: 0 } } },
+    ]) expect(designFingerprint({ ...snapshot, detachedOverrides: { ...empty, ...overrides } })).not.toBe(saved);
+  });
+
   it('ignores only the autosave position acknowledgement, while still noticing component edits', () => {
     const snapshot = base();
     const saved = designFingerprint(snapshot);

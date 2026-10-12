@@ -4,6 +4,7 @@ import { savedConfigLabel, type FlightTree, type SavedConfig, type FlightOverrid
 import { motorMounts, stages } from '../tree/treeModel.js';
 import { deploymentTuple } from '../services/foreignConfigLayers.js';
 import { describeComponentFlightTuple, describeIgnitionTuple, separationTuple } from '../services/flightOverrideText.js';
+import { describeFlownDeployment } from '../services/flightOverrideSummary.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 
 type Part = { node: ComponentNode; family: 'recovery' | 'separation' | 'ignition' };
@@ -33,8 +34,9 @@ function partValue(part: Part, config: Pick<SavedConfig, 'motors' | 'deployments
       override: !!config.ignitions?.[id] };
   }
   const tuple = family === 'recovery' ? config.deployments?.[id] : config.separations?.[id];
-  const effective = family === 'recovery' ? deploymentTuple({ ...node, ...tuple }) : separationTuple({ ...node, ...tuple });
-  return { text: describeComponentFlightTuple(effective, unit, 'warning'), override: !!tuple };
+  const effectiveNode = { ...node, ...tuple };
+  return { text: family === 'recovery' ? describeFlownDeployment(deploymentTuple(effectiveNode), unit)
+    : describeComponentFlightTuple(separationTuple(effectiveNode), unit, 'warning'), override: !!tuple };
 }
 
 /** Read-only destinations for the grid; CFG-2 adds the scoped editors here. */
