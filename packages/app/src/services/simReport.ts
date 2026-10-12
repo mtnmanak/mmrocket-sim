@@ -599,6 +599,8 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
    * NOT motorConfig, which means cluster combination.
    */
   flightConfig?: string;
+  /** Imported label matched a configuration ID in the source file. Older imports lack this evidence. */
+  importedConfigVerified?: true;
   /** Frozen SI tuples; absent on old/imported runs. No component ids. */
   flightOverrides?: RecordedFlightOverride[];
   /** Candidate sweep based on the recorded configuration. */

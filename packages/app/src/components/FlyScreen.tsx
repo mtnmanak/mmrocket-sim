@@ -1,5 +1,5 @@
 import { savedConfigLabel, type SavedConfig } from '../model/design.js';
-import { runConfigurationLabel } from '../services/runConfiguration.js';
+import { recordedConfiguration, runConfigurationLabel } from '../services/runConfiguration.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
@@ -185,7 +185,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
           </div>
 
           <p className="download-caption">
-            {run?.flightConfig !== undefined
+            {run && recordedConfiguration(run) !== undefined
               ? `Flight: ${runConfigurationLabel(run)} · ${formatRunWhenProse(run.when)}` : 'Not recorded'}
           </p>
           <label className="field" style={{ minWidth: 0 }}>

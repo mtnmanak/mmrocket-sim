@@ -1,4 +1,4 @@
-import { runConfigurationHeading, runConfigurationLabel, runStatus } from '../services/runConfiguration.js';
+import { recordedConfiguration, runConfigurationHeading, runConfigurationLabel, runStatus } from '../services/runConfiguration.js';
 import type { DesignMatchKey } from '../services/simReport.js';
 import { MountDelayReport } from './MountDelayReport.js';
 import { railNeededLine } from '../services/railNeeded.js';
@@ -684,7 +684,7 @@ export function SimHistory({
                   >
                     <td>{r.rocket || '—'}</td>
                     <td>{historyMotorLabel(r)}</td>
-                    <td title={r.flightConfig === undefined ? 'Not recorded' : undefined}>{runConfigurationLabel(r)}</td>
+                    <td title={recordedConfiguration(r) === undefined ? 'Not recorded' : undefined}>{runConfigurationLabel(r)}</td>
                     <td>{Number.isFinite(r.delayS) ? `${r.delayS}s`
                       : r.importedSummary && r.delayS !== Infinity ? '—' : 'P'}</td>
                     <td>{fmtSi('distance', dist, r.maxAltitude)}</td>

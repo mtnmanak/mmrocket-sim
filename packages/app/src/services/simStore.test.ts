@@ -24,6 +24,16 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     ...over,
   }) as SimRun;
 
+it.each(['Hybrid', 'none'])('RES-1b exports no configuration attribution for stored imported simulation %s', flightConfig => {
+  for (const flightConfigId of [undefined, 'unmatched']) {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+      mkRun('old-import', { importedSummary: true, flightConfig, flightConfigId }),
+    ]));
+    const table = runsToTable(loadRuns());
+    expect(table.rows[0]![table.headers.indexOf('Flight config')]).toBe('');
+  }
+});
+
 it('RES-1 persists frozen tuples and exports Overrides and Status with viewer units', () => {
   const flightOverrides: NonNullable<SimRun['flightOverrides']> = [{ family: 'recovery', kind: 'parachute', partName: 'Main',
     flies: { deployEvent: 'altitude', deployAltitude: 91.44, deployDelay: 0 },

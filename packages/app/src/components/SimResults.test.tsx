@@ -131,6 +131,20 @@ it('RES-1 reports frozen override counts under the selected flight heading', () 
   expect(host.textContent).toContain('Configuration not recorded');
 });
 
+it.each(['Hybrid', 'none'])('RES-1b treats stored imported simulation name %s as unrecorded configuration', flightConfig => {
+  for (const flightConfigId of [undefined, 'unmatched']) {
+    const imported = { ...run(), importedSummary: true, flightConfig, flightConfigId };
+    render(<SimRunDetails run={imported} />);
+    expect(host.textContent).toContain('Configuration not recorded');
+    expect(host.textContent).not.toContain('Flown with no configuration');
+    render(<SimHistory runs={[imported]} onRunsChange={() => {}} />);
+    openTable();
+    const cell = host.querySelector('tbody tr')!.querySelectorAll('td')[2]!;
+    expect(cell.textContent).toBe('—');
+    expect(cell.title).toBe('Not recorded');
+  }
+});
+
 it('RES-1 compares 500 runs only on expansion or provenance change', () => {
   let reads = 0;
   const runs = Array.from({ length: 500 }, (_, i) => Object.defineProperty({ ...run(), id: String(i) }, 'designKey', {
@@ -257,6 +271,7 @@ describe('SimRunDetails — where the raw flight data went', () => {
       windAverage: 12, data: { maxAltitude: 123, groundHitVelocity: 13, deploymentVelocity: 1, optimumDelay: 5, aeroModel: 'hybrid', rogersKbf: true, hybridBand: [0.7, 1.4] } }] })[0]!;
     render(<SimRunDetails run={imported} />);
     act(() => { [...host.querySelectorAll('button')].find((b) => b.textContent === 'Show all details')!.click(); });
+    expect(host.textContent).toContain('Configuration not recorded');
     expect(host.textContent).toContain('Hybrid (experimental)');
     expect(host.textContent).toContain('Mach 0.7–1.4');
     expect(host.textContent).toContain('unknown delay');
@@ -281,6 +296,8 @@ describe('SimRunDetails — where the raw flight data went', () => {
     openTable();
     const row = host.querySelector('tbody tr')!;
     expect(row.textContent).not.toContain('✓');
+    expect(row.querySelectorAll('td')[2]!.textContent).toBe('—');
+    expect(row.querySelectorAll('td')[2]!.title).toBe('Not recorded');
     expect(row.querySelectorAll('td')[3]!.textContent).toBe('—'); // Delay
     expect(row.querySelectorAll('td')[8]!.textContent).toBe('—'); // Safe
     expect(row.querySelectorAll('td')[10]!.textContent).toBe('—'); // Winds aloft

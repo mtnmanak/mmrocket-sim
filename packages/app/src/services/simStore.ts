@@ -1,4 +1,4 @@
-import { runOverrideText, runStatus } from './runConfiguration.js';
+import { recordedConfiguration, runOverrideText, runStatus } from './runConfiguration.js';
 import type { DesignMatchKey } from './simReport.js';
 import { storedWarnings } from './storedWarnings.js';
 import { csvCell } from './csvUtil.js';
@@ -457,7 +457,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Comments', (r) => r.comments],
   // Trailing on purpose (Stage B): existing spreadsheet imports keep their
   // column positions; runs stored before the field export an empty cell.
-  ['Flight config', (r) => r.flightConfig ?? ''],
+  ['Flight config', (r) => recordedConfiguration(r) ?? ''],
   // Trailing for the same reason, after it (weather build, 2026-09-22): the
   // dry-air density altitude the run flew in, stored at launch. A run flown
   // before the field, or a stored value that is not a finite number, is an

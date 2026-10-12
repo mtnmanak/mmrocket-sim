@@ -13,9 +13,12 @@ describe('RES-1 frozen run configuration', () => {
     expect(runConfigurationLabel({ flightConfig: 'working settings' })).toBe('working settings');
     expect(runConfigurationLabel({ flightConfig: 'Club', batch: true })).toBe('Batch · Club');
     expect(runConfigurationHeading({}, 'm')).toBe('Configuration not recorded');
-    expect(runConfigurationHeading({ flightConfig: 'none', flightOverrides: [] }, 'm')).toBe('Flown with no configuration · overrides: none');
+    expect(runConfigurationHeading({ flightConfig: 'none', flightOverrides: [] }, 'm')).toBe('Flown with no configuration');
     expect(runConfigurationHeading({ flightConfig: 'Club' }, 'm')).toContain('overrides: not recorded');
     expect(runConfigurationHeading({ flightConfig: 'none', flightConfigId: 'named' }, 'm')).toContain('Flown in “none”');
+  });
+  it.each([undefined, [], records])('RES-1b omits the override suffix for no configuration (%j)', flightOverrides => {
+    expect(runConfigurationHeading({ flightConfig: 'none', flightOverrides }, 'm')).toBe('Flown with no configuration');
   });
   it('re-renders recorded SI tuples in the viewer units and includes both settings in exports', () => {
     expect(runOverrideText({ flightOverrides: records }, 'ft')).toContain('300 ft');

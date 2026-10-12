@@ -129,7 +129,7 @@ existingRuns: readonly SimRun[] = []): SummaryImportPlan {
       ...(fd.runId ? { importedRunId: fd.runId } : {}),
       motor: '', manufacturer: '', motorDiameterMm: NaN,
       delayS: NaN,
-      flightConfig: config?.name ?? sim.name,
+      ...(sim.configId && config?.name ? { flightConfig: config.name, importedConfigVerified: true as const } : {}),
       ...(sim.configId ? { flightConfigId: sim.configId } : {}),
       aeroModel: fd.aeroModel,
       ...(fd.simWarnings !== undefined ? { simWarnings: mergeStoredWarnings([], fd.simWarnings) } : {}),

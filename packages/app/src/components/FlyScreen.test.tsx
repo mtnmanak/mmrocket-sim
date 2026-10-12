@@ -93,6 +93,14 @@ describe('FlyScreen', () => {
     expect(host.innerHTML).toContain('Separation is assumed; confirm with a flight.');
   });
 
+  it.each(['Hybrid', 'none'])('RES-1b does not name an unverified imported configuration %s on Fly', flightConfig => {
+    for (const flightConfigId of [undefined, 'unmatched']) {
+      mount({ run: { ...RUN, importedSummary: true, flightConfig, flightConfigId } });
+      expect(host.textContent).toContain('Not recorded');
+      expect(host.textContent).not.toContain(`Flight: ${flightConfig}`);
+    }
+  });
+
   it.each([true, false])('shares Rod length help with allowance %s', (allowance) => {
     mount({ tree: { components: [{ type: 'railbutton' }] }, launch: { ...DEFAULT_CONDITIONS, launchGuideAllowance: allowance } });
     expect(host.textContent).toContain(rodLengthHelp(true, allowance));

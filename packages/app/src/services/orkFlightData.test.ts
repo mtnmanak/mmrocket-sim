@@ -9,6 +9,7 @@ import { exportOrk, importOrk } from './orkFile.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { createLoadedConfig, deleteConfig } from './configSync.js';
 import { orkMotorSet } from './orkExportMotors.js';
+import { runConfigurationHeading, runConfigurationLabel } from './runConfiguration.js';
 
 /**
  * SIX INDEPENDENT REFUSAL RULES, none of which had a test until this function
@@ -76,6 +77,30 @@ const base = (over: Partial<FlightDataForExportInput> = {}): FlightDataForExport
 
 const ids = (over: Partial<FlightDataForExportInput> = {}) =>
   Object.keys(flightDataForExport(base(over)));
+
+it.each(['Hybrid', 'none'])('RES-1b imports only matched configuration labels, never simulation name %s', name => {
+  for (const configId of [null, 'missing']) {
+    const [run] = importedSummaryRuns({ name: 'Imported', configs: [], storedSimulations: [
+      { name, configId, windAverage: 0, data: { maxAltitude: 123 } },
+    ] });
+    expect(run!.flightConfig).toBeUndefined();
+  }
+});
+
+it.each(['Club', 'none'])('RES-1b preserves verified imported configuration %s through storage', name => {
+  localStorage.clear();
+  try {
+    const [run] = importedSummaryRuns({ name: 'Imported', configs: [{ id: 'c1', name, isDefault: true, motors: {}, deployments: {}, separations: {} }],
+      storedSimulations: [{ name: 'Simulation title', configId: 'c1', windAverage: 0, data: { maxAltitude: 123 } }] });
+    addRuns([run!]);
+    const saved = loadRuns()[0]!;
+    expect(saved.importedConfigVerified).toBe(true);
+    expect(runConfigurationLabel(saved)).toBe(name);
+    expect(runConfigurationHeading(saved, 'm')).toBe(`Flown in “${name}” · overrides: not recorded`);
+  } finally {
+    localStorage.clear();
+  }
+});
 
 describe('flightDataForExport — the baseline qualifies', () => {
   it('deleting the active default excludes both its app result and file summary from a reopened file', () => {

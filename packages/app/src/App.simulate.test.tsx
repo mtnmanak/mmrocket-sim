@@ -31,6 +31,7 @@ import { resolveFlightState } from './services/flightState.js';
 import { APP_VERSION } from './version.js';
 import { saveFile } from './services/saveFile.js';
 import { savedConfigLabel } from './model/design.js';
+import * as batchSweep from './services/batchSweep.js';
 
 /**
  * THE LAUNCH BUTTON AND THE HEADLESS LAUNCH FLY THE SAME BYTES (2026-10-01;
@@ -235,6 +236,37 @@ const AUTO: AeroState = { aeroMode: 'auto', effectiveKbf: true, autoSupersonic: 
 const SUPERSONIC: AeroState = { aeroMode: 'supersonic', effectiveKbf: true, autoSupersonic: false };
 /** Extended Barrowman: the classic model with Rogers Kbf off. */
 const KBF_OFF: AeroState = { aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false };
+
+it.each(['Fly', 'Batch'])('RES-1b %s counts override entries rather than empty categories', async surface => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree,
+    mountMotors: {}, launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null },
+    savedAt: 1, appVersion: APP_VERSION, configLayers: 1, activeConfigId: null, savedConfigs: [],
+    detachedOverrides: { deployments: {}, ignitions: {}, separations: {} } }));
+  const host = await mountApp();
+  await waitFor(() => shownName(host) === tree.name, 'restored design');
+  if (surface === 'Fly') {
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Fly')!.click());
+    const chooser = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+    expect(chooser.selectedOptions[0]!.textContent).toBe('None (no motors)');
+    expect(host.textContent).not.toContain('Working settings (not saved)');
+  } else {
+    const sweep = vi.spyOn(batchSweep, 'runBatchSweep').mockResolvedValue({ rows: [], stopped: false });
+    try {
+      await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Motors & Launch')!.click());
+      await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Batch simulate motors'))!.click());
+      await waitFor(() => !!host.querySelector('[aria-label="Batch simulate motors"] .launch-btn'), 'Batch dialog');
+      const button = host.querySelector<HTMLButtonElement>('[aria-label="Batch simulate motors"] .launch-btn')!;
+      await waitFor(() => !button.disabled, 'Batch candidates');
+      await act(async () => button.click());
+      expect(sweep).toHaveBeenCalledOnce();
+      expect(sweep.mock.calls[0]![0].configuration).toEqual({ flightConfig: 'none', flightOverrides: [] });
+    } finally {
+      sweep.mockRestore();
+    }
+  }
+}, 30000);
 
 it('FC-4 Launch flies layered recovery and ignition while autosave keeps defaults', async () => {
   prefs(CLASSIC);

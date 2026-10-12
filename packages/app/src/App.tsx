@@ -3419,7 +3419,7 @@ export function App() {
       {showBatch && built && mounts.length > 0 && !isStaged && (
         <BatchSimulate
           configurationForMount={targetId => ({
-            flightConfig: overrideConfigLabel ?? (Object.keys(mountMotors).length || Object.keys(activeOverrides).length ? 'working settings' : 'none'),
+            flightConfig: overrideConfigLabel ?? (Object.keys(mountMotors).length || Object.values(activeOverrides).some(map => !!map && Object.keys(map).length > 0) ? 'working settings' : 'none'),
             ...(activeConfigId !== null ? { flightConfigId: activeConfigId } : {}),
             flightOverrides: recordFlightOverrides(tree, activeOverrides, mountMotors, targetId),
           })}
@@ -3704,7 +3704,7 @@ export function App() {
         {tab === 'fly' && (
           <FlyScreen
             configs={savedConfigs} activeConfigId={activeConfigId}
-            hasWorkingSettings={Object.keys(mountMotors).length > 0 || Object.keys(activeOverrides).length > 0}
+            hasWorkingSettings={Object.keys(mountMotors).length > 0 || Object.values(activeOverrides).some(map => !!map && Object.keys(map).length > 0)}
             onApplyConfig={applyConfig} onClearConfig={clearConfig}
             overrideSummary={launchOverrideSummary} onShowOverride={showFlightOverride}
             tree={tree}
