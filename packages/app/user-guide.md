@@ -763,6 +763,8 @@ If the file names a maker whose motor is missing from the database, and the matc
 
 ## Flight configurations
 
+When a flight configuration or the detached working settings override a component setting, a persistent warning appears directly under each **Launch** button. It names the configuration and explains what will fly instead of the component's own recovery, separation or loaded-motor ignition setting. The vitals strip uses a short warning; **Show** opens the affected component on **Design**, or the motor controls on **Motors & Launch**, where you can review and edit the override. Batch run buttons also warn about overrides they use; candidate motors use automatic ignition.
+
 MMRocket Sim lets one design carry several **flight configurations** — "club field C6", "demo day D12" — each with its own motors and flight settings. Opening a multi-configuration .ork loads **the file's default configuration**. The **Flight configurations** panel is at the foot of Motors & Launch whenever a motor is loaded or at least one configuration exists. Each row uses its name, or its motor set when unnamed, and reports any recovery, separation or ignition overrides it carries. The recovery summary describes what that configuration flies, including devices that inherit their component setting.
 
 **Component defaults and configuration overrides.** A parachute or streamer's **Deploy at**, **Deploy altitude** and **Deploy delay** fields edit that device's own default. A stage's separation fields likewise edit its default. Every configuration without an override for that device or stage uses those defaults. An override keeps its own complete event, altitude and delay, even when the default changes. The altitude is retained when an event does not use it.

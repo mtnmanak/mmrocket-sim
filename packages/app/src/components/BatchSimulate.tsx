@@ -1,3 +1,5 @@
+import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
+import type { FlightOverrideSummary } from '../services/flightOverrideSummary.js';
 import {
   gradeBatchRun, batchTableRows, batchCapNote, batchSummary, BATCH_CONFIRM_ABOVE_FLIGHTS,
   BATCH_RUN_ANYWAY_ABOVE_FLIGHTS, batchConfirmationArmed, batchCandidates, batchFlightCount,
@@ -87,11 +89,13 @@ function loadCriteria(): Criteria {
 /** The pair-split box's words — on the box, and in the refusal that says to untick it. */
 const PAIRS_NAME = 'mixed 4+2 / 2+2+2';
 
-export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
    *  the design's shared handle is never touched (no restore, no stale
    *  motors left on unassigned mounts). */
   tree: RocketTree;
+  overrideSummaryForMount?: (candidateMountId: string) => FlightOverrideSummary | null;
+  onShowOverride?: LaunchOverrideProps['onShowOverride'];
   info: StaticInfo;
   /** Every motor mount in the (single-stage) design — the user picks which
    *  one the batch targets (2026-08-05: a ring around a central mount needs
@@ -159,6 +163,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
   // the combination split all follow it).
   const [mountId, setMountId] = useState(initialMountId);
   const sel = mounts.find((m) => m.id === mountId) ?? mounts[0]!;
+  // Candidate ignition is automatic; only the other loaded mounts retain overrides.
+  const overrideSummary = overrideSummaryForMount?.(sel.id);
   const mountDiameterMm = sel.diameterMm;
   const maxMotorLengthM = sel.maxMotorLengthM;
   const motorCount = sel.motorCount;
@@ -631,7 +637,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
               Stop
             </button>
           ) : (
-            <button className="launch-btn" style={{ width: 'auto', marginTop: 0, padding: '6px 16px' }}
+            <div className="batch-launch-group">
+            <button aria-describedby={overrideSummary ? 'launch-override-batch' : undefined} className="launch-btn" style={{ width: 'auto', marginTop: 0, padding: '6px 16px' }}
               onClick={() => {
                 // Past the cap there is nothing to start or to confirm.
                 if (refusal) return;
@@ -648,6 +655,8 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
                 candidates: candidates.length, totalFlights, confirming: armed && !runAnyway, estimate,
               })}
             </button>
+            <LaunchOverrideWarning id="launch-override-batch" summary={overrideSummary} onShow={onShowOverride} />
+            </div>
           )}
         </div>
         {/* Which row carries the weighed hardware, in words. v0.116's batch
@@ -836,10 +845,13 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
         <p role="alert">{batchConfirmWarning(totalFlights, estimate)}</p>
         <div className="modal-actions">
           <button className="file-btn" onClick={() => setConfirmedSweep(null)}>Cancel</button>
-          <button className="file-btn file-btn-primary" onClick={() => {
+          <div className="batch-launch-group">
+          <button aria-describedby={overrideSummary ? 'launch-override-batch-confirm' : undefined} className="file-btn file-btn-primary" onClick={() => {
             setConfirmedSweep(null);
             void start();
           }}>Run anyway</button>
+          <LaunchOverrideWarning id="launch-override-batch-confirm" summary={overrideSummary} onShow={onShowOverride} />
+          </div>
         </div>
       </Modal>
     )}

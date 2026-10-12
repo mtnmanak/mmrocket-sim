@@ -1,3 +1,4 @@
+import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -479,9 +480,9 @@ function PadPressureCaution({ value }: { value: LaunchConditions }) {
 }
 
 export function LaunchPanel({
-  value, onChange, onLaunch, simulating, canLaunch, lastRun, weather, onGetWeather, onWeatherFetchAgain, onWeatherUndo,
+  value, onChange, onLaunch, overrideSummary, onShowOverride, simulating, canLaunch, lastRun, weather, onGetWeather, onWeatherFetchAgain, onWeatherUndo,
   onWeatherDismiss, onWeatherSigma, hasLaunchGuide = false, longitudeReview, onLongitudeReview,
-}: {
+}: LaunchOverrideProps & {
   value: LaunchConditions;
   hasLaunchGuide?: boolean;
   onChange: (v: LaunchConditions) => void;
@@ -643,11 +644,12 @@ export function LaunchPanel({
         onFetchAgain={onWeatherFetchAgain ?? onGetWeather} />
       <PadPressureCaution value={value} />
       <TimeStepCaution dt={value.timeStepS} lastRun={lastRun} />
-      <button className="launch-btn" onClick={onLaunch}
+      <button className="launch-btn" onClick={onLaunch} aria-describedby={overrideSummary ? 'launch-override-panel' : undefined}
         disabled={!canLaunch || simulating}
         title={!canLaunch ? 'Assign a motor first' : 'Simulate the flight'}>
         {simulating ? 'Simulating…' : <><Icon name="rocket" size={15} /> Launch</>}
       </button>
+      <LaunchOverrideWarning id="launch-override-panel" summary={overrideSummary} onShow={onShowOverride} />
     </div>
   );
 }

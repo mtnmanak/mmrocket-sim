@@ -8,6 +8,7 @@ import { runBatchSweep } from '../services/batchSweep.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
 import { BatchSimulate } from './BatchSimulate.js';
+import { describeFlightOverrides } from '../services/flightOverrideSummary.js';
 import { batchConfirmationArmed } from '../services/batchCriteria.js';
 
 const catalog = vi.hoisted(() => ({ motors: [] as MotorDbEntry[] }));
@@ -241,4 +242,29 @@ describe('large batch confirmation', () => {
     expect(dialog()).toBeNull();
     expect(sweep).not.toHaveBeenCalled();
   });
+});
+
+
+it('LW describes both batch run controls and removes descriptions without overrides', async () => {
+  mount(20001);
+  expect(primary().getAttribute('aria-describedby')).toBeNull();
+  const summary = describeFlightOverrides({ components: [{ type: 'parachute', id: 'chute', name: 'Main' }] },
+    { deployments: { chute: { deployEvent: 'apogee', deployAltitude: 200, deployDelay: 1 } } }, {}, 'Batch settings', 'm');
+  props = { ...props, overrideSummaryForMount: () => summary, onShowOverride: close };
+  render();
+  const check = (b: HTMLButtonElement) => {
+    const description = document.getElementById(b.getAttribute('aria-describedby')!)!;
+    expect(description?.textContent).toContain('Batch settings');
+    expect(b.nextElementSibling).toBe(description.closest('.launch-override-warning'));
+  };
+  check(primary());
+  await click(primary());
+  check(button('Run anyway'));
+  await click(button('Show'));
+  expect(close).toHaveBeenCalledWith({ id: 'chute', family: 'recovery' });
+  props = { ...props, overrideSummaryForMount: () => null };
+  render();
+  expect(primary().getAttribute('aria-describedby')).toBeNull();
+  expect(button('Run anyway').getAttribute('aria-describedby')).toBeNull();
+  expect(host.querySelector('.launch-override-warning')).toBeNull();
 });

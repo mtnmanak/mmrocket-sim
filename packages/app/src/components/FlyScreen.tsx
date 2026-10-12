@@ -1,3 +1,4 @@
+import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -27,8 +28,8 @@ import { TreeSchematic } from './TreeSchematic.js';
  * a view over App's existing state — no state of its own.
  */
 export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
-  onLaunch, simulating, recovery, canLaunch, onChangeMotor, onCompare, canCompare,
-  staleModel, changedSince, onGetWeather, weather }: {
+  onLaunch, simulating, overrideSummary, onShowOverride, recovery, canLaunch, onChangeMotor, onCompare, canCompare,
+  staleModel, changedSince, onGetWeather, weather }: LaunchOverrideProps & {
   tree: RocketTree;
   info: StaticInfo | null;
   /** The newest flight (current result's summary, else the last stored run). */
@@ -230,10 +231,11 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
         </div>
       </div>
 
-      <button className="launch-btn fly-launch" onClick={onLaunch} disabled={!canLaunch || simulating}
+      <button className="launch-btn fly-launch" onClick={onLaunch} aria-describedby={overrideSummary ? 'launch-override-fly' : undefined} disabled={!canLaunch || simulating}
         title={!canLaunch ? 'Assign a motor first (Motors & Launch)' : 'Simulate the flight'}>
         {simulating ? 'Simulating…' : <><Icon name="rocket" size={17} /> Launch</>}
       </button>
+      <LaunchOverrideWarning id="launch-override-fly" summary={overrideSummary} onShow={onShowOverride} />
     </main>
   );
 }

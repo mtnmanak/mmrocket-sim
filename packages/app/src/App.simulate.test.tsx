@@ -1095,3 +1095,86 @@ describe('the Launch button and simulateFile fly a real design the same (local c
     expect(app.upgraded).toBe(true);
   }, 60000);
 });
+
+
+it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM import warns below every launch site and Show selects its parachute', async () => {
+  prefs(CLASSIC);
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  const click = async (text: string) => act(async () => {
+    [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();
+  });
+  const assertWarnings = (expected: number, present: boolean) => {
+    const launches = [...host.querySelectorAll<HTMLButtonElement>('button.launch-btn')];
+    expect(launches).toHaveLength(expected);
+    for (const launch of launches) {
+      const id = launch.getAttribute('aria-describedby');
+      if (!present) {
+        expect(id).toBeNull();
+        expect(launch.nextElementSibling?.classList.contains('launch-override-warning')).not.toBe(true);
+        continue;
+      }
+      expect(id).toBeTruthy();
+      const description = document.getElementById(id!)!;
+      expect(description).not.toBeNull();
+      expect(launch.nextElementSibling).toBe(description.closest('.launch-override-warning'));
+      expect(description.textContent).toContain('[F67C-9]');
+      expect(description.textContent).toContain('2 parachutes');
+      expect(description.textContent).toContain('Motor ejection charge');
+      expect(description.textContent).toContain('300 ft');
+      const flat = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...flat(n.children ?? [])]);
+      for (const chute of flat(peekSession()!.tree.components).filter(n => n.type === 'parachute')) {
+        expect(description.textContent).toContain(chute.name);
+      }
+    }
+  };
+  // All three ordinary Launch sites inherit no warning with default inputs.
+  assertWarnings(1, false);
+  await click('Motors & Launch');
+  assertWarnings(2, false);
+  await click('Fly');
+  assertWarnings(1, false);
+  await click('Design');
+  await pick(host, new File([readFileSync(corpus('atestani files/LEM-1-2026_2.ork'))], 'LEM-1-2026_2.ork'));
+  await waitFor(() => peekSession()?.activeConfigId === '365b8430-de05-45ee-a421-5142de1fd1ae', 'LEM open');
+  await click('Design');
+  assertWarnings(1, true);
+  const compact = host.querySelector('#launch-override-vitals')!;
+  expect(compact.classList.contains('sr-only')).toBe(true);
+  await click('Results');
+  assertWarnings(1, true);
+  await click('Motors & Launch');
+  assertWarnings(2, true);
+  await click('Batch simulate motors');
+  await waitFor(() => !!host.querySelector('#launch-override-batch'), 'Batch warning');
+  assertWarnings(3, true);
+  await act(async () => host.querySelector<HTMLButtonElement>('#launch-override-batch')!.parentElement!.querySelector('button')!.click());
+  expect(host.querySelector('#launch-override-batch')).toBeNull();
+  expect(host.querySelector('[aria-label="Recovery override"]')?.textContent).toContain('[F67C-9]');
+  await click('Fly');
+  assertWarnings(1, true);
+  await act(async () => host.querySelector<HTMLButtonElement>('#launch-override-fly')!.parentElement!.querySelector('button')!.click());
+  expect(host.querySelector('[aria-label="Recovery override"]')?.textContent).toContain('[F67C-9]');
+}, 60000);
+
+it('LW ignition Show reaches the motor editor; Batch excludes candidate ignition', async () => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  const mm = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: { ...tree, ignitionDefaults: { [mount]: mm.ignition } },
+    mountMotors: { [mount]: mm }, launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null },
+    savedAt: 1, appVersion: APP_VERSION, configLayers: 1, activeConfigId: null, savedConfigs: [],
+    detachedOverrides: { ignitions: { [mount]: { event: 'never', delay: 0 } } } }));
+  const host = await mountApp();
+  await waitFor(() => !!host.querySelector('#launch-override-vitals'), 'ignition warning');
+  expect(host.querySelector('#launch-override-vitals')!.textContent).toContain('detached working settings');
+  await act(async () => host.querySelector('#launch-override-vitals')!.parentElement!.querySelector<HTMLButtonElement>('button')!.click());
+  expect(host.querySelector<HTMLSelectElement>(`[id="ignition-${mount}"]`)?.value).toBe('never');
+  await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Batch simulate motors'))!.click());
+  await waitFor(() => !!host.querySelector('[aria-label="Batch simulate motors"]'), 'Batch dialog');
+  expect(host.querySelector('#launch-override-batch')).toBeNull();
+  const batchLaunch = host.querySelector('[aria-label="Batch simulate motors"] .launch-btn')!;
+  expect(batchLaunch.getAttribute('aria-describedby')).toBeNull();
+}, 30000);

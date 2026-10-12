@@ -273,6 +273,23 @@ html {
   align-self: center;
 }
 
+/* The warning stays within the Launch cell's existing width, even for long names. */
+.vitals-launch-group {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  max-width: 100%;
+  margin-left: auto;
+}
+.vitals-strip .vitals-launch-group .vitals-launch { margin: 7px 10px 4px; }
+.launch-override-warning { font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
+.launch-override-warning .file-btn { color: inherit; font-size: inherit; }
+.launch-override-compact { display: flex; align-items: center; gap: 4px; margin: 0 6px 5px; contain: inline-size; }
+.launch-override-short { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.launch-override-compact .file-btn { flex-shrink: 0; padding: 2px 4px; }
+.batch-launch-group { min-width: 0; max-width: 100%; }
+
 .workspace-tabs {
   display: flex;
   /* Wraps on phones. The 6px row gap must stay larger than the 2px the

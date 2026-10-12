@@ -1233,3 +1233,37 @@ it.each(['pad mass', 'other motor', 'other delay'] as const)(
     expect(card).toContain('Previous flight: Auto flew ' + record.flownDelay + ' s');
   }, 30000,
 );
+
+
+it.each([true, false])('LW relaunch latch describes active overrides only when present (%s)', async hasOverride => {
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  const motor = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: { ...tree, ignitionDefaults: { [mount]: motor.ignition } },
+    mountMotors: { [mount]: motor }, launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null },
+    savedAt: 1, appVersion: APP_VERSION, configLayers: 1, activeConfigId: null, savedConfigs: [],
+    detachedOverrides: hasOverride ? { ignitions: { [mount]: { event: 'launch', delay: 0.1 } } } : {} }));
+  // Only the Mach threshold is synthesized: the real runner still flies the design.
+  // This tests the warning on App's conditional relaunch control, not supersonic physics.
+  const real = vi.mocked(flyLaunch).getMockImplementation()!;
+  vi.mocked(flyLaunch).mockImplementationOnce(async (...args) => {
+    const flight = await real(...args);
+    return { ...flight, result: { ...flight.result, summary: { ...flight.result.summary, maxMachNumber: 1.2 } } };
+  });
+  const host = await mountApp();
+  await waitFor(() => !button(host, 'Launch').disabled, 'ready to launch');
+  await launch(host);
+  await waitFor(() => hasButton(host, 'Try Auto & re-fly'), 'relaunch control');
+  const relaunch = button(host, 'Try Auto & re-fly');
+  if (hasOverride) {
+    const description = document.getElementById(relaunch.getAttribute('aria-describedby')!)!;
+    expect(description.textContent).toContain('detached working settings');
+    expect(description.textContent).toContain('delay 0.1 s');
+    expect(relaunch.nextElementSibling).toBe(description.parentElement);
+    await act(async () => description.parentElement!.querySelector<HTMLButtonElement>('button')!.click());
+    expect(host.querySelector<HTMLSelectElement>(`[id="ignition-${mount}"]`)?.value).toBe('launch');
+  } else {
+    expect(relaunch.getAttribute('aria-describedby')).toBeNull();
+    expect(host.querySelector('.launch-override-warning')).toBeNull();
+  }
+}, 30000);

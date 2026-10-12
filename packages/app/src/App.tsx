@@ -1,3 +1,6 @@
+import { LaunchOverrideWarning } from './components/LaunchOverrideWarning.js';
+import { describeFlightOverrides, type FlightOverrideSummary } from './services/flightOverrideSummary.js';
+import { IGNITION_EVENT_LABELS } from './services/flightOverrideText.js';
 import { DesignConfirms } from './components/DesignConfirms.js';
 import { assignMotorRecords, planMotorAssignment, retireLoadoutNote } from './services/motorAssignment.js';
 import { exportConfigs as assembleExportConfigs, exportMotorsMap as assembleExportMotors,
@@ -1117,6 +1120,18 @@ export function App() {
     // Names and other configuration metadata must not rebuild flight inputs.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only these three map identities affect resolution
     [activeLayer?.deployments, activeLayer?.separations, activeLayer?.ignitions, detachedOverrides]);
+  const overrideConfigLabel = activeLayer ? savedConfigLabel(activeLayer) : null;
+  const launchOverrideSummary = useMemo(() => describeFlightOverrides(
+    tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance,
+  ), [tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance]);
+  const showFlightOverride = (target: FlightOverrideSummary['first']) => {
+    setShowBatch(false);
+    if (target.family === 'ignition') setTab('motors');
+    else {
+      setSelectedId(target.id);
+      setTab('design');
+    }
+  };
   const flightState = useMemo(() => resolveFlightState(tree, [], null, activeOverrides, mountMotors),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a rocket rename does not alter kernel inputs
     [tree.components, (tree as FlightTree).ignitionDefaults, activeOverrides, mountMotors]);
@@ -3381,6 +3396,10 @@ export function App() {
           Reported 2026-09-01b on two single-stage .ork files that carry no motor. */}
       {showBatch && built && mounts.length > 0 && !isStaged && (
         <BatchSimulate
+          overrideSummaryForMount={targetId => describeFlightOverrides(tree, activeOverrides,
+            Object.fromEntries(Object.entries(mountMotors).filter(([id]) => id !== targetId)),
+            overrideConfigLabel, prefs.units.distance)}
+          onShowOverride={showFlightOverride}
           info={built.info}
           tree={flightTree}
           // Every mount is batchable — a cluster ring around a central mount
@@ -3608,7 +3627,9 @@ export function App() {
               </span>
             </span>
           )}
+          <div className="vitals-launch-group">
           <button
+            aria-describedby={launchOverrideSummary ? 'launch-override-vitals' : undefined}
             className="launch-btn vitals-launch"
             data-tour="launch"
             onClick={onLaunch}
@@ -3618,6 +3639,9 @@ export function App() {
           >
             {simulating ? 'Simulating…' : <><Icon name="rocket" size={15} /> Launch</>}
           </button>
+          <LaunchOverrideWarning id="launch-override-vitals" summary={launchOverrideSummary}
+            onShow={showFlightOverride} compact />
+          </div>
         </div>
         )}
 
@@ -3654,6 +3678,7 @@ export function App() {
 
         {tab === 'fly' && (
           <FlyScreen
+            overrideSummary={launchOverrideSummary} onShowOverride={showFlightOverride}
             tree={tree}
             info={built?.info ?? null}
             run={lastRun}
@@ -4238,15 +4263,15 @@ export function App() {
                           value={mm.ignition.event}
                           onChange={(e) => editIgnition(m.id!, { ...mm.ignition, event: e.target.value as IgnitionEvent })}
                         >
-                          <option value="automatic">Automatic (launch / lower stage's ejection)</option>
+                          <option value="automatic">{IGNITION_EVENT_LABELS.automatic}</option>
                           {/* A single-stage design has no lower stage, so these two would never
                               light it (review of v0.169); one already set stays visible to change. */}
                           {(isStaged || mm.ignition.event === 'burnout') && (
-                            <option value="burnout">Lower stage burnout + delay (electronics)</option>)}
-                          <option value="launch">Launch + delay (timer)</option>
+                            <option value="burnout">{IGNITION_EVENT_LABELS.burnout}</option>)}
+                          <option value="launch">{IGNITION_EVENT_LABELS.launch}</option>
                           {(isStaged || mm.ignition.event === 'ejectioncharge') && (
-                            <option value="ejectioncharge">Lower stage ejection charge + delay</option>)}
-                          <option value="never">Never</option>
+                            <option value="ejectioncharge">{IGNITION_EVENT_LABELS.ejectioncharge}</option>)}
+                          <option value="never">{IGNITION_EVENT_LABELS.never}</option>
                         </select>
                         <div style={{ width: 70 }}>
                           <NumField
@@ -4354,7 +4379,7 @@ export function App() {
             })()}
           </div>
 
-          <LaunchPanel hasLaunchGuide={hasLaunchGuides(tree)} value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
+          <LaunchPanel overrideSummary={launchOverrideSummary} onShowOverride={showFlightOverride} hasLaunchGuide={hasLaunchGuides(tree)} value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
             longitudeReview={longitudeReview} onLongitudeReview={setLongitudeReview}
             canLaunch={!!built && !!primaryMountId && !nozzlePending}
             lastRun={simCostRef}
@@ -4396,7 +4421,7 @@ export function App() {
               supersonic model is available. Note: a model applies to the <strong>entire
               flight</strong>, subsonic portions included, so stability and apogee will shift when
               it changes.{' '}
-              <button className="file-btn" style={{ marginLeft: 6 }}
+              <button aria-describedby={launchOverrideSummary ? 'launch-override-relaunch' : undefined} className="file-btn" style={{ marginLeft: 6 }}
                 onClick={() => {
                   // Sets the SESSION switch, not the stored preference. It
                   // used to write the preference, which under an active strip
@@ -4409,6 +4434,7 @@ export function App() {
                 }}>
                 Try Auto &amp; re-fly (this session)
               </button>
+              <LaunchOverrideWarning id="launch-override-relaunch" summary={launchOverrideSummary} onShow={showFlightOverride} />
             </div>
           )}
           {!inspectedSummary && (lastRun?.simWarnings ?? []).some((w) => w.priority === 'HIGH') && (

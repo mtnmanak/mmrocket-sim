@@ -1,14 +1,14 @@
 import { useId, useState } from 'react';
 import type { ComponentNode } from '@online-openrocket/engine';
-import type { DeploymentTuple, FlightOverrides, SeparationTuple } from '../model/design.js';
+import type { FlightOverrides } from '../model/design.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtFieldValue, siToUi, uiToSi } from '../prefs/units.js';
+import { siToUi, uiToSi } from '../prefs/units.js';
 import { deploymentTuple } from '../services/foreignConfigLayers.js';
-import { num } from '../tree/nodeNum.js';
+import { describeComponentFlightTuple, separationTuple, type ComponentFlightTuple } from '../services/flightOverrideText.js';
 import { DEPLOY_EVENTS, SEPARATION_EVENTS } from '../tree/schema.js';
 import { NumField } from './NumField.js';
 
-export type ComponentFlightTuple = DeploymentTuple | SeparationTuple;
+export type { ComponentFlightTuple } from '../services/flightOverrideText.js';
 
 /** Defaults stay in the ordinary fields; this region edits only the flown layer (FC-5). */
 export function FlightOverrideBanner({ node, overrides, configLabel, onEdit, onEditStart, onEditEnd, onEditCancel, onReset, onEverywhere }: {
@@ -24,22 +24,14 @@ export function FlightOverrideBanner({ node, overrides, configLabel, onEdit, onE
   const recovery = node.type === 'parachute' || node.type === 'streamer';
   const tuple = recovery ? overrides.deployments?.[node.id!] : overrides.separations?.[node.id!];
   if (!tuple) return null;
-  const own = recovery ? deploymentTuple(node) : {
-    separationEvent: String(node['separationEvent'] ?? 'ejection'),
-    separationDelay: num(node, 'separationDelay', 0), separationAltitude: num(node, 'separationAltitude', 200),
-  };
+  const own = recovery ? deploymentTuple(node) : separationTuple(node);
   const values = (t: ComponentFlightTuple) => 'deployEvent' in t
     ? { event: t.deployEvent, altitude: t.deployAltitude, delay: t.deployDelay }
     : { event: t.separationEvent, altitude: t.separationAltitude, delay: t.separationDelay };
   const current = values(tuple);
   const options = recovery ? DEPLOY_EVENTS : SEPARATION_EVENTS;
   const unit = prefs.units.distance;
-  const describe = (t: ComponentFlightTuple) => {
-    const v = values(t);
-    const event = options.find(([key]) => key === v.event.toLowerCase())?.[1] ?? v.event;
-    const altitude = `${fmtFieldValue(siToUi('distance', unit, v.altitude))} ${unit}`;
-    return `${event}${v.event.toLowerCase().startsWith('altitude') ? ` ${altitude}` : ` (stored altitude ${altitude})`}, delay ${fmtFieldValue(v.delay)} s`;
-  };
+  const describe = (t: ComponentFlightTuple) => describeComponentFlightTuple(t, unit);
   const edit = (patch: Partial<ReturnType<typeof values>>, numeric = false) => {
     const v = { ...current, ...patch };
     onEdit(recovery ? { deployEvent: v.event, deployAltitude: v.altitude, deployDelay: v.delay }
