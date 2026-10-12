@@ -518,6 +518,8 @@ export function planImport(
       id: cfg.id, name: cfg.name, isDefault: cfg.isDefault, motors: cfgMotors,
       ...(cfg.motorLoadoutRefusal ? { motorLoadoutRefusal: cfg.motorLoadoutRefusal } : {}),
       ...(cfg.stageMassOverrides ? { stageMassOverrides: cfg.stageMassOverrides } : {}),
+      // Keep the warning with the figures it describes (audit 2026-10-11, S1c-3).
+      ...(cfg.stageMassNotes?.length ? { stageMassNotes: cfg.stageMassNotes } : {}),
       ...(cfg.stageActiveness ? { stageActiveness: cfg.stageActiveness } : {}),
       ...(unmatched.length > 0 ? { unmatched } : {}),
       ...(Object.keys(cfgUnmatchedRefs).length > 0 ? { unmatchedRefs: cfgUnmatchedRefs } : {}),
@@ -781,8 +783,10 @@ export function planConfigSwitch(
   // a second note that would overwrite the first: the mass that just
   // changed by tens of pounds belongs in the box the switch already writes.
   const withSpent = (lines: string[], sev: NoticeSeverity) => ({
-    text: [...lines, ...spent.notes].join('\n'),
-    severity: spent.severity === 'warn' && sev === 'info' ? 'warn' as const : sev,
+    // These are the import's decisions, even if the user has since edited a
+    // snapshot or resolved its motor (audit 2026-10-11, S1c-3).
+    text: [...lines, ...(cfg.stageMassNotes ?? []).map(n => `At file import: ${n}`), ...spent.notes].join('\n'),
+    severity: (spent.severity === 'warn' || cfg.stageMassNotes?.length) && sev === 'info' ? 'warn' as const : sev,
   });
   // The loadout exactly as App will compute it once this is written: the
   // configuration's motors on the mounts this tree has.

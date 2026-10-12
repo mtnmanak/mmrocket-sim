@@ -310,7 +310,7 @@ export function stageCgWithoutMotor(
 
 /**
  * Node key on a STAGE whose overrides the RASAero importer worked out by
- * backing a CATALOGUED motor out of the file's stated launch weight and CG:
+ * backing a motor out of the file's stated launch weight and CG:
  * the file's own figures for that stage, so the back-out can be done again
  * when that motor is loaded with different figures (board Tier 2, 2026-10-11).
  *
@@ -333,8 +333,10 @@ export function stageCgWithoutMotor(
 export const STATED_STAGE_FIGURES = 'statedStageFigures';
 
 export interface StatedStageFigures {
-  /** The motor backed out, as the motor database names it. */
+  /** The originally backed-out motor: catalogue name, or the unresolved file name. */
   motor: string;
+  /** The file's designation, which can differ from another maker's catalogue fallback. */
+  fileMotor?: string;
   /**
    * The mount it was backed out of: the stage's aft-most body tube when the
    * file was opened (the importer's `aftTube`, desktop getMotorMountForStage).
@@ -347,11 +349,11 @@ export interface StatedStageFigures {
   mountId?: string;
   /** The stage plus that motor, the stack above already off (kg). */
   launchKg?: number;
-  /** The `overrideMass` the import wrote from it. */
+  /** The `overrideMass` last written from it; absent when back-out was rejected. */
   massKg?: number;
   /** The CG of the stage plus that motor, from the stage's own front (m). */
   launchCgM?: number;
-  /** The `overrideCGX` the import wrote from it. */
+  /** The `overrideCGX` last written from it; absent when back-out was rejected. */
   cgM?: number;
 }
 
@@ -363,15 +365,17 @@ export function statedFiguresOf(stage: ComponentNode): StatedStageFigures | null
   if (typeof r['motor'] !== 'string' || r['motor'] === '') return null;
   const fin = (k: string) => (typeof r[k] === 'number' && Number.isFinite(r[k]) ? (r[k] as number) : undefined);
   const out: StatedStageFigures = { motor: r['motor'] };
+  if (typeof r['fileMotor'] === 'string' && r['fileMotor'] !== '') out.fileMotor = r['fileMotor'];
   if (typeof r['mountId'] === 'string' && r['mountId'] !== '') out.mountId = r['mountId'];
   for (const k of ['launchKg', 'massKg', 'launchCgM', 'cgM'] as const) {
     const v = fin(k);
     if (v !== undefined) out[k] = v;
   }
-  // A half pair is not a record of anything the import did.
-  if ((out.launchKg === undefined) !== (out.massKg === undefined)) return null;
-  if ((out.launchCgM === undefined) !== (out.cgM === undefined)) return null;
-  return out.massKg === undefined && out.cgM === undefined ? null : out;
+  // Inputs survive a rejected catalogue back-out so the actual EX motor can
+  // recover them; an output still requires its input (audit 2026-10-11, S1c-1).
+  if (out.massKg !== undefined && out.launchKg === undefined) return null;
+  if (out.cgM !== undefined && out.launchCgM === undefined) return null;
+  return out.launchKg === undefined && out.launchCgM === undefined ? null : out;
 }
 
 const nearly = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-9 * Math.max(1, Math.abs(a), Math.abs(b));
@@ -383,10 +387,13 @@ const nearly = (a: number, b: number): boolean => Math.abs(a - b) <= 1e-9 * Math
  */
 export function statedFiguresHold(
   rec: StatedStageFigures, overrideMass: number | undefined, overrideCGX: number | undefined,
+  subMass: unknown, subCg: unknown,
 ): boolean {
   const holds = (want: number | undefined, cur: number | undefined) =>
     (want === undefined ? cur === undefined : cur !== undefined && nearly(want, cur));
-  return holds(rec.massKg, overrideMass) && holds(rec.cgM, overrideCGX);
+  // Unticking a subcomponents override is a user edit too (audit 2026-10-11, S7b-2).
+  return holds(rec.massKg, overrideMass) && holds(rec.cgM, overrideCGX)
+    && (rec.massKg === undefined || subMass === true) && (rec.cgM === undefined || subCg === true);
 }
 
 /**
@@ -414,12 +421,16 @@ export function restateBackedOutMotor(
   if (!found) return null;
   const { stage, index } = found;
   const rec = statedFiguresOf(stage);
-  if (!rec || !namesSameMotor(motor.designation, rec.motor)) return null;
+  // The file's motor may load as an EX after a differently named catalogue
+  // fallback was backed out (audit 2026-10-11, S1c-1). Keep both identities.
+  if (!rec || !(namesSameMotor(motor.designation, rec.motor)
+      || (rec.fileMotor && namesSameMotor(motor.designation, rec.fileMotor)))) return null;
 
   const { [STATED_STAGE_FIGURES]: _rec, ...rest } = stage as ComponentNode & Record<string, unknown>;
   const unrecorded = rest as ComponentNode;
   const near = nearly;
-  if (!statedFiguresHold(rec, numOpt(stage, 'overrideMass'), numOpt(stage, 'overrideCGX'))) {
+  if (!statedFiguresHold(rec, numOpt(stage, 'overrideMass'), numOpt(stage, 'overrideCGX'),
+    stage['overrideSubcomponentsMass'], stage['overrideSubcomponentsCG'])) {
     return { tree: replaceStage(tree, index, unrecorded), note: null, severity: 'info' };
   }
   const kids = stage.children ?? [];
@@ -439,14 +450,21 @@ export function restateBackedOutMotor(
   const len = stageLength(stage);
   const massOk = dry === undefined || dry > 0;
   const cgOk = cg === undefined || (massOk && cg >= 0 && cg <= len);
-  if (massOk && cgOk && (dry === undefined || near(dry, rec.massKg!)) && (cg === undefined || near(cg, rec.cgM!))) {
+  const same = (a: number | undefined, b: number | undefined) =>
+    a === undefined ? b === undefined : b !== undefined && near(a, b);
+  if (massOk && cgOk && same(dry, rec.massKg) && same(cg, rec.cgM)) {
     return null;
   }
 
   const name = stage.name ?? 'Stage';
-  const who = `“${rec.motor}”`;
+  const who = `“${motor.designation}”`;
   const next: ComponentNode = { ...unrecorded };
-  const after: StatedStageFigures = { motor: rec.motor, ...(rec.mountId ? { mountId: rec.mountId } : {}) };
+  // Rejection by the loaded fallback must not spend the launch inputs: a
+  // later EX motor can recover them (audit 2026-10-11, S1c-1).
+  const after: StatedStageFigures = { motor: rec.motor, ...(rec.fileMotor ? { fileMotor: rec.fileMotor } : {}),
+    ...(rec.mountId ? { mountId: rec.mountId } : {}),
+    ...(rec.launchKg !== undefined ? { launchKg: rec.launchKg } : {}),
+    ...(rec.launchCgM !== undefined ? { launchCgM: rec.launchCgM } : {}) };
   const parts: string[] = [];
   let severity: ReconciledStatedWeight['severity'] = 'info';
   const cleared: string[] = [];
@@ -454,8 +472,9 @@ export function restateBackedOutMotor(
     if (massOk) {
       next['overrideMass'] = dry;
       next['overrideSubcomponentsMass'] = true;
-      Object.assign(after, { launchKg: rec.launchKg, massKg: dry });
-      if (!near(dry, rec.massKg!)) parts.push(`its mass override ${text.mass(rec.massKg!)} → ${text.mass(dry)}`);
+      after.massKg = dry;
+      if (rec.massKg === undefined) parts.push(`its mass override is now ${text.mass(dry)}`);
+      else if (!near(dry, rec.massKg)) parts.push(`its mass override ${text.mass(rec.massKg)} → ${text.mass(dry)}`);
     } else {
       delete next['overrideMass'];
       delete next['overrideSubcomponentsMass'];
@@ -467,8 +486,9 @@ export function restateBackedOutMotor(
     if (cgOk) {
       next['overrideCGX'] = cg;
       next['overrideSubcomponentsCG'] = true;
-      Object.assign(after, { launchCgM: rec.launchCgM, cgM: cg });
-      if (!near(cg, rec.cgM!)) parts.push(`its CG override ${text.length(rec.cgM!)} → ${text.length(cg)} from the stage’s own front`);
+      after.cgM = cg;
+      if (rec.cgM === undefined) parts.push(`its CG override is now ${text.length(cg)} from the stage’s own front`);
+      else if (!near(cg, rec.cgM)) parts.push(`its CG override ${text.length(rec.cgM)} → ${text.length(cg)} from the stage’s own front`);
     } else {
       delete next['overrideCGX'];
       delete next['overrideSubcomponentsCG'];
@@ -476,7 +496,7 @@ export function restateBackedOutMotor(
       cleared.push('CG');
     }
   }
-  if (after.massKg !== undefined || after.cgM !== undefined) next[STATED_STAGE_FIGURES] = after;
+  next[STATED_STAGE_FIGURES] = after;
   const loaded = `${who} loaded now weighs ${text.mass(motor.launchMassKg)} and is ${text.length(motor.lengthM)} long`;
   return {
     tree: replaceStage(tree, index, next),
@@ -619,6 +639,10 @@ export function reconcileIncludedMotor(
   }
 
   const next: ComponentNode = { ...cleared, overrideMass: dry, overrideSubcomponentsMass: true };
+  // A motor first resolved after import needs the same re-pick record as a
+  // catalogue back-out (audit 2026-10-11, S7b-1).
+  const figures: StatedStageFigures = { motor: named, mountId, launchKg: stated, massKg: dry };
+  next[STATED_STAGE_FIGURES] = figures;
   const parts = [`its mass override is now ${text.mass(dry)} of airframe`];
   let severity: ReconciledStatedWeight['severity'] = 'info';
   let trailer = '';
@@ -647,6 +671,7 @@ export function reconcileIncludedMotor(
     if (cg >= 0 && cg <= len) {
       next['overrideCGX'] = cg;
       next['overrideSubcomponentsCG'] = true;
+      Object.assign(figures, { launchCgM: statedCg, cgM: cg });
       parts.push(`its CG override is now ${text.length(cg)} from the stage’s own front`);
     } else {
       delete next['overrideCGX'];

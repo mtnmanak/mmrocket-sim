@@ -168,6 +168,8 @@ export interface OrkFlightConfig {
   motorLoadoutRefusal?: string;
   /** Per-stage mass/CG snapshots derived from each RASAero simulation. */
   stageMassOverrides?: Record<string, StageMassOverride>;
+  /** Import-time refusals and unresolved-motor cautions for these stage figures. */
+  stageMassNotes?: string[];
   id: string;
   /** File stage activeness keyed by editor node id; preserved, not simulated. */
   stageActiveness?: Record<string, boolean>;

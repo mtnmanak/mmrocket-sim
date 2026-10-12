@@ -600,6 +600,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       case 'NoseCone': {
         const shapeName = text(el, ':scope > Shape') ?? 'Tangent Ogive';
         const mapped = NOSE_SHAPES[shapeName] ?? { shape: 'ogive' };
+        // Unknown geometry changes CP and drag; name the fallback (audit 2026-10-11, S1c-6).
+        if (!NOSE_SHAPES[shapeName]) notes.push(`Unknown nose shape “${shapeName}” — imported as tangent ogive; check the nose shape.`);
         const nose: ComponentNode = {
           type: 'nosecone', id: freshId(), name: 'Nose cone',
           length: num(el, 'Length', 12) / IN,
@@ -1473,18 +1475,18 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
           } else {
             const launchKg = wt[i] - above;
             const dry = stageMassWithoutMotor(launchKg, m);
+            // Keep the inputs even when the catalogue fallback rejects them:
+            // the file's EX motor can yield valid overrides (audit 2026-10-11, S1c-1).
+            if (m) {
+              st[STATED_STAGE_FIGURES] = {
+                motor: m.row, fileMotor: m.label, ...recordedMount, launchKg,
+                ...(dry > 0 ? { massKg: dry } : {}),
+              } satisfies StatedStageFigures;
+            }
             if (dry > 0) {
               st['overrideMass'] = dry;
               st['overrideSubcomponentsMass'] = true;
               overrideMassKg[i] = dry;
-              // The file's figure behind it, so loading this motor later with
-              // other figures backs it out again (statedLaunchWeight.ts
-              // STATED_STAGE_FIGURES). Only for a motor actually backed out.
-              if (m) {
-                st[STATED_STAGE_FIGURES] = {
-                  motor: m.row, ...recordedMount, launchKg, massKg: dry,
-                } satisfies StatedStageFigures;
-              }
               // The one case where the override that just landed is NOT a dry
               // airframe mass: no motor could be backed out of it, so it still
               // holds that motor's weight. Marked on the stage so that loading
@@ -1519,6 +1521,14 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         const launchCg = combined - (stageFrontX[i] ?? 0);
         const stageCg = stageCgWithoutMotor(stages[i]!, aftTube(stages[i]), m, overrideMassKg[i] ?? 0, launchCg);
         const len = stageLength(st);
+        // A rejected fallback CG must also survive for the actual loaded motor.
+        if (m) {
+          st[STATED_STAGE_FIGURES] = {
+            ...(st[STATED_STAGE_FIGURES] as StatedStageFigures | undefined ?? { motor: m.row, fileMotor: m.label, ...recordedMount }),
+            launchCgM: launchCg,
+            ...(stageCg >= 0 && stageCg <= len ? { cgM: stageCg } : {}),
+          } satisfies StatedStageFigures;
+        }
         if (!(stageCg >= 0) || stageCg > len) {
           // Outside the stage's own extent is not a CG the file can mean — a
           // stage's mass is inside the stage. Either the file's numbers
@@ -1537,14 +1547,6 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         }
         st['overrideCGX'] = stageCg;
         st['overrideSubcomponentsCG'] = true;
-        // A motor backed out of the CG has been backed out of the mass first
-        // (stageCgWithoutMotor refuses otherwise), so the record exists.
-        if (m) {
-          st[STATED_STAGE_FIGURES] = {
-            ...(st[STATED_STAGE_FIGURES] as StatedStageFigures | undefined ?? { motor: m.row, ...recordedMount }),
-            launchCgM: launchCg, cgM: stageCg,
-          } satisfies StatedStageFigures;
-        }
         // Same mark, same reason as the mass above: with no motor to back out,
         // this CG override is a LAUNCH CG and still holds that motor's moment.
         // Idempotent — the mass branch usually set it already.
@@ -1556,9 +1558,21 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     const values = Object.fromEntries(overrideStages.map(s => [s.id!, captureStageMass(s)]));
     return { values, massDetail, cgDetail, skipped, motorless, overrideMassKg };
   };
+  // Keep each simulation's cautions beside its figures, so a later switch
+  // cannot silently install a rejected weight (audit 2026-10-11, S1c-3).
+  const overrideNotes = ({ skipped, motorless }: { skipped: string[]; motorless: string[] }): string[] => [
+    ...(skipped.length ? ['NOT applied from the RASAero simulation, because the numbers don’t support an override '
+      + `— these stages keep the computed 2 mm-wall mass and CG: ${skipped.join(' ')}`] : []),
+    ...(motorless.length ? ['Applied WITH the motor still included, because the file names a motor that isn’t in '
+      + `the database — nothing is loaded on those stages, so the figure is right for the rocket as it `
+      + `stands here: ${motorless.join(' ')} If you load that motor later — Browse motor database takes `
+      + 'an .eng or .rse file — the app takes its weight back out of the stage mass and CG first, so it '
+      + 'is never counted twice.'] : []),
+  ];
   const derived = new Map(configs.map(c => {
     const result = deriveOverrides(c, sims[simNumbers.get(c.id)! - 1]);
     c.stageMassOverrides = result.values;
+    c.stageMassNotes = overrideNotes(result);
     return [c.id, result] as const;
   }));
   const chosenSimNr = chosen ? simNumbers.get(chosen.id) : undefined;
@@ -1596,7 +1610,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       + 'measurement; the app flies the design with its own models.');
   }
   const selected = chosen ? derived.get(chosen.id)! : deriveOverrides(undefined, sims.find(carriesWeights));
-  const { massDetail, cgDetail, skipped, motorless, overrideMassKg } = selected;
+  const { massDetail, cgDetail, overrideMassKg } = selected;
   for (const st of stages) Object.assign(st, selected.values[st.id!]);
 
   // Only when EVERY stage got both overrides is the 2 mm wall out of the
@@ -1684,17 +1698,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       + 'own, which is what the flight carries; the two can differ by tens of grams on some motors. When '
       + 'that motor loads, the app backs it out again with its curve’s own weight.');
   }
-  if (skipped.length > 0) {
-    notes.push('NOT applied from the RASAero simulation, because the numbers don’t support an override '
-      + `— these stages keep the computed 2 mm-wall mass and CG: ${skipped.join(' ')}`);
-  }
-  if (motorless.length > 0) {
-    notes.push('Applied WITH the motor still included, because the file names a motor that isn’t in '
-      + `the database — nothing is loaded on those stages, so the figure is right for the rocket as it `
-      + `stands here: ${motorless.join(' ')} If you load that motor later — Browse motor database takes `
-      + 'an .eng or .rse file — the app takes its weight back out of the stage mass and CG first, so it '
-      + 'is never counted twice.');
-  }
+  notes.push(...overrideNotes(selected));
   // The nozzle, once: which stages got one, from which of RASAero's two
   // places, and that other simulations may carry their own. A number that
   // changes drag has to say where it came from — and this one comes from a
@@ -1753,6 +1757,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     ...(launch ? { launch } : {}),
     ...(machAlt ? { machAlt } : {}),
     configs, chosenConfigId,
+    configNotes: Object.fromEntries(configs.map(c => [c.id, c.stageMassNotes ?? []])),
   };
 }
 
