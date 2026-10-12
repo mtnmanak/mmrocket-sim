@@ -125,6 +125,10 @@ export class AppBoundary extends Component<
     const othersInSlot = this.state.confirming && autosaveIsAnotherTabs();
     // Read at render; `state.held` only makes the conflict's edges re-render.
     const held = heldSession() !== null;
+    // Something unprotected would go: the Danger block, with Download beside
+    // the destructive button (D7 §5, X09), not only at the top of the panel.
+    const resetLoses = this.state.confirming
+      && (held ? !this.handedOver : !this.downloadedBackup && !othersInSlot && sessionPayload() !== null);
     return (
       <div className="panel hero-fallback" role="alert" style={{ margin: '24px auto' }}>
         <h2>Something went wrong</h2>
@@ -151,7 +155,7 @@ export class AppBoundary extends Component<
         {this.state.note && <p role="status">{this.state.note}</p>}
         {this.state.confirming ? (
           <>
-            <Note tier={(held ? !this.handedOver : !this.downloadedBackup && !othersInSlot && sessionPayload() !== null) ? 'danger' : 'information'}>
+            <Note tier={resetLoses ? 'danger' : 'information'}>
             {othersInSlot ? (
               <p>
                 The autosave in this browser now holds a design from another tab, so starting
@@ -166,6 +170,11 @@ export class AppBoundary extends Component<
               </p>
             )}
             </Note>
+            {resetLoses && (
+              <button className="file-btn" onClick={() => { void this.download(); }}>
+                ⬇ Download first
+              </button>
+            )}{' '}
             <button className="file-btn modal-danger" onClick={this.startFresh}>
               {othersInSlot ? 'Discard this tab’s changes and reload' : 'Delete the autosave and start fresh'}
             </button>

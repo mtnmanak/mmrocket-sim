@@ -2,6 +2,7 @@ import { Note } from './Note.js';
 import { MountDelayReport } from './MountDelayReport.js';
 import { railNeededLine } from '../services/railNeeded.js';
 import { FlightLoadStats } from './FlightLoadStats.js';
+import { MACH_AUTO_THRESHOLD } from '../services/machProbe.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import { useEffect, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -214,6 +215,14 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
       <div className="panel-head">
         <h2 style={{ flex: 1 }}>
           Launch report — {formatRunLabel(run)}
+          {/* The classic model's limit beside the report's title, where the
+              numbers it qualifies start (D7 §5, R05) — the same condition as
+              the report comment simReport writes for it. */}
+          {run.aeroModel === 'classic' && run.maxMach > MACH_AUTO_THRESHOLD && (
+            <span className="chart-model-limit simdet-model-limit">
+              {' '}— classic aero model, approximate past Mach {MACH_AUTO_THRESHOLD} (flown to Mach {run.maxMach.toFixed(2)})
+            </span>
+          )}
         </h2>
         {/* The report's own provenance, in its header, because this panel is
             what gets screenshotted and forwarded — and a report with no date on

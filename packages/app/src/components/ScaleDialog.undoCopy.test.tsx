@@ -52,8 +52,34 @@ describe('ScaleDialog — what undo cannot restore', () => {
       losesMeasurements={losesMeasurements} onApply={() => {}} onSaveBackup={() => {}} onClose={() => {}} /></PrefsProvider>));
     await act(async () => { await Promise.resolve(); });
     const loss = [...host.querySelectorAll('p')].find(p => p.textContent?.includes('Ctrl+Z cannot'))!;
-    expect(loss.classList.contains('message-danger')).toBe(losesMeasurements);
+    expect(loss.closest('.message-danger') !== null).toBe(losesMeasurements);
     expect(host.querySelectorAll('.message-danger')).toHaveLength(losesMeasurements ? 1 : 0);
+  });
+  it('puts the exact items lost immediately above Scale, beside the backup button (D7 §5, X01)', async () => {
+    act(() => root.render(<PrefsProvider><ScaleDialog tree={tree()} assignedMotorDiameters={{}}
+      losesMeasurements lossDetail={{ massKg: 1.25, cgM: 0.5, padMass: false }}
+      onApply={() => {}} onSaveBackup={() => {}} onClose={() => {}} /></PrefsProvider>));
+    await act(async () => { await Promise.resolve(); });
+    const block = host.querySelector('.message-danger')!;
+    // Directly above the actions row that holds "Save a .ork backup first" and Scale.
+    expect(block.nextElementSibling?.classList.contains('modal-actions')).toBe(true);
+    expect(block.nextElementSibling!.textContent).toContain('Save a .ork backup first');
+    const said = block.textContent!.replace(/\s+/g, ' ');
+    expect(said).toContain('Measured mass & CG box (mass 1250 g, CG 500 mm)');
+    // No pad mass exists, so none is named.
+    expect(said).not.toContain('weighed pad mass');
+    expect(said).toContain('Ctrl+Z cannot');
+    // The generic paragraph is not repeated above.
+    expect([...host.querySelectorAll('p')].filter(p => p.textContent?.includes('Ctrl+Z cannot'))).toHaveLength(1);
+  });
+  it('names only the pad masses when the Measured box is empty', async () => {
+    act(() => root.render(<PrefsProvider><ScaleDialog tree={tree()} assignedMotorDiameters={{}}
+      losesMeasurements lossDetail={{ massKg: null, cgM: null, padMass: true }}
+      onApply={() => {}} onSaveBackup={() => {}} onClose={() => {}} /></PrefsProvider>));
+    await act(async () => { await Promise.resolve(); });
+    const said = host.querySelector('.message-danger')!.textContent!.replace(/\s+/g, ' ');
+    expect(said).toContain('weighed pad mass');
+    expect(said).not.toContain('Measured mass & CG');
   });
   it('names the weighed pad masses beside the Measured box, and does not call the box the only loss', async () => {
     act(() => {

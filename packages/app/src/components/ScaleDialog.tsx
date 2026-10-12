@@ -4,7 +4,7 @@ import type { RocketTree } from '@online-openrocket/engine';
 import { NumField } from './NumField.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSig, niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { fmtSi, fmtSig, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { loadPresets, type Preset } from '../services/presets.js';
 import { COMMON_CLASSES, classLabel } from '../services/motorDb.js';
 import {
@@ -37,9 +37,18 @@ const FACTOR_MAX = 100;
  * it is about to do to the motor mounts first, because a scaled mount usually
  * is not a motor you can buy.
  */
-export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBackup, onClose, losesMeasurements = false }: {
+export function ScaleDialog({
+  tree, assignedMotorDiameters, onApply, onSaveBackup, onClose, losesMeasurements = false, lossDetail,
+}: {
   tree: RocketTree;
   losesMeasurements?: boolean;
+  /**
+   * WHAT this Scale would clear, so the Danger block above the buttons can name
+   * the exact items (D7 §5, X01) rather than a generic list. The measured
+   * figures as they stand, and whether any weighed pad mass exists anywhere
+   * App strips one (working set, saved configurations, unmatched references).
+   */
+  lossDetail?: { massKg: number | null; cgM: number | null; padMass: boolean };
   /** Motor diameter (m) per mount id, for the "does it still fit" check. */
   assignedMotorDiameters: Record<string, number>;
   onApply: (result: ScaleResult) => void;
@@ -528,12 +537,14 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
               </div>
             )}
 
-            <Note as="p" tier={losesMeasurements ? 'danger' : 'information'} className="comp-stats">
-              The <strong>Measured mass &amp; CG</strong> box is cleared, and so is every{' '}
-              <strong>weighed pad mass</strong> on Motors &amp; Launch, because they describe a
-              rocket that will no longer exist. Ctrl+Z cannot put them back — undo covers the
-              design tree — so write those numbers down first if you want them.
-            </Note>
+            {!losesMeasurements && (
+              <p className="comp-stats">
+                The <strong>Measured mass &amp; CG</strong> box is cleared, and so is every{' '}
+                <strong>weighed pad mass</strong> on Motors &amp; Launch, because they describe a
+                rocket that will no longer exist. Ctrl+Z cannot put them back — undo covers the
+                design tree — so write those numbers down first if you want them.
+              </p>
+            )}
 
             <p className="comp-stats">
               <strong>Kept at their own size:</strong> camera shrouds (the camera does not scale)
@@ -554,6 +565,8 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
               <p className="file-note file-note-warn">
                 That is a factor of {fmtSig(factor, 3)}× — this dialog scales between{' '}
                 {FACTOR_MIN}× and {FACTOR_MAX}×. Choose a tube nearer this rocket&rsquo;s size.
+                {/* "Not applied" said in words, not only by the disabled button (D7 §5, X03). */}
+                {' '}Nothing is scaled until then.
               </p>
             )}
 
@@ -568,6 +581,39 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
               <div className="file-note file-note-warn" role="alert">
                 {finProblems.map((problem, i) => <p key={i}>{problem}</p>)}
               </div>
+            )}
+
+            {/* The irrecoverable items sit IMMEDIATELY above Scale, beside the
+                backup button, and only when there is something to lose (D7 §5,
+                X01): a permanently red generic paragraph teaches people to skip it. */}
+            {losesMeasurements && (
+              <Note tier="danger" className="comp-stats scale-loss">
+                <p style={{ margin: 0 }}>
+                  Scaling clears these, and Ctrl+Z cannot put them back — undo covers the design
+                  tree — because they describe a rocket that will no longer exist:
+                </p>
+                <ul style={{ margin: '4px 0', paddingLeft: 18 }}>
+                  {(!lossDetail || lossDetail.massKg !== null || lossDetail.cgM !== null) && (
+                    <li>
+                      the <strong>Measured mass &amp; CG</strong> box
+                      {lossDetail && (lossDetail.massKg !== null || lossDetail.cgM !== null) && (
+                        <> ({[
+                          lossDetail.massKg !== null
+                            ? `mass ${fmtSi('mass', prefs.units.mass, lossDetail.massKg)} ${prefs.units.mass}` : null,
+                          lossDetail.cgM !== null
+                            ? `CG ${fmtSi('length', lenSym, lossDetail.cgM, 3)} ${lenSym}` : null,
+                        ].filter(Boolean).join(', ')})</>
+                      )}
+                    </li>
+                  )}
+                  {(!lossDetail || lossDetail.padMass) && (
+                    <li>every <strong>weighed pad mass</strong> on Motors &amp; Launch</li>
+                  )}
+                </ul>
+                <p style={{ margin: 0 }}>
+                  Write those numbers down, or save a .ork backup first — the file keeps them.
+                </p>
+              </Note>
             )}
 
             <div className="modal-actions">

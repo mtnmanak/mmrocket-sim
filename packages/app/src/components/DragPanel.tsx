@@ -397,6 +397,12 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
   // back on starts from 5 as it always has; by then the sweep is already the
   // right one and its memo does not re-run.
   const machTop = supersonicModel ? machMax : Math.min(machMax, CLASSIC_MACH_MAX);
+  // The model's limitation rides IN the chart's title (D7 §5, R27), not only in
+  // a footnote under the third chart: same conditions as those footnotes.
+  const hybridLimit = 'Hybrid (experimental): flight accuracy not established';
+  const cdLimit = hybridModel ? hybridLimit
+    : !supersonicModel && machTop > 1.5 ? 'Barrowman estimate above Mach 1.5, approximate' : null;
+  const cpLimit = hybridModel ? hybridLimit : !supersonicModel ? 'Barrowman: body CP frozen above Mach 1' : null;
   // Apply both fallbacks in one write so they cannot overwrite each other.
   // Neither imported tables nor computed sweeps are saved in preferences.
   useEffect(() => {
@@ -612,7 +618,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
 
           <div className="chart-panel">
             <div className="chart-panel-head">
-              <h3>Drag coefficient vs Mach</h3>
+              <h3>Drag coefficient vs Mach{cdLimit && <span className="chart-model-limit"> — {cdLimit}</span>}</h3>
               <ChartHeadButtons chart="drag coefficient" zoomed={zoomedCharts.has('cd')} expanded={bigCharts.has('cd')}
                 plot={cdPlot} onToggleExpand={() => toggleBig('cd')} />
             </div>
@@ -645,6 +651,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
                 <h3>
                   Center of pressure vs Mach ({cpView === 'pct' ? '% of length' : `${lenUnit} from nose`})
                   {cpAoa > 0 && ` at ${cpAoa}° angle of attack`}
+                  {cpLimit && <span className="chart-model-limit"> — {cpLimit}</span>}
                 </h3>
                 {/* A <label> wrapping its <select>, so the control is named by
                     its visible text. 0-20 degrees only (CP_AOA_DEGREES): above

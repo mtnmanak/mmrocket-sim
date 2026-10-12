@@ -34,6 +34,11 @@ interface DesignConfirmsProps {
 }
 
 /**
+ * What a replacement loses — the generic consequence AND, when the last save
+ * was lossy, the exact items that file did not keep — is ONE block directly
+ * above the Save / Discard buttons (D7 §5, G21), not a red paragraph with a
+ * second note between it and the action.
+ *
  * The five design confirmations, kept in their original order with the motor
  * question between New and Open. App owns state; markup and save-before-open
  * cancellation semantics stay together (audit 2026-10-11, S2-8).
@@ -49,14 +54,16 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
       {confirmNew && (
         <Modal label="Start a new design" onClose={() => setConfirmNew(false)}>
           <h2>Start a new design?</h2>
-          <Note as="p" tier={unprotected || replaceLoss ? 'danger' : 'information'}>
-            This clears “{tree.name ?? 'the current rocket'}” — all components,
-            overrides and the current simulation. Make sure it's saved as an
-            .ork file first: Ctrl+Z brings the components back, but not the
-            motors, the flight configurations, the Measured mass &amp; CG, the
-            Geodetic calculations choice or the flight.
+          <Note tier={unprotected || replaceLoss ? 'danger' : 'information'}>
+            <p className="note-para">
+              This clears “{tree.name ?? 'the current rocket'}” — all components,
+              overrides and the current simulation. Make sure it's saved as an
+              .ork file first: Ctrl+Z brings the components back, but not the
+              motors, the flight configurations, the Measured mass &amp; CG, the
+              Geodetic calculations choice or the flight.
+            </p>
+            {replaceLoss && <p className="replacement-loss note-para">{replaceLoss}</p>}
           </Note>
-          {replaceLoss && <p className="replacement-loss">{replaceLoss}</p>}
           <div className="modal-actions">
             <button className="file-btn" onClick={() => { void onSaveOrk(); }}>
               <Icon name="save" /> Save .ork first
@@ -75,14 +82,16 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
       {pendingOpen && (
         <Modal label="Unsaved changes" onClose={() => setPendingOpen(null)}>
           <h2>Save “{tree.name ?? 'the current rocket'}” first?</h2>
-          <Note as="p" tier="danger">
-            Opening “{pendingOpen.name}” replaces what is on screen, and
-            “{tree.name ?? 'the current rocket'}” has changes that are not in any
-            file you have saved. There is one autosave slot and the new design
-            takes it, so those changes would be gone — Ctrl+Z does not reach
-            across a file open.
+          <Note tier="danger">
+            <p className="note-para">
+              Opening “{pendingOpen.name}” replaces what is on screen, and
+              “{tree.name ?? 'the current rocket'}” has changes that are not in any
+              file you have saved. There is one autosave slot and the new design
+              takes it, so those changes would be gone — Ctrl+Z does not reach
+              across a file open.
+            </p>
+            {replaceLoss && <p className="replacement-loss note-para">{replaceLoss}</p>}
           </Note>
-          {replaceLoss && <p className="replacement-loss">{replaceLoss}</p>}
           <div className="modal-actions">
             <button
               className="file-btn"
@@ -119,14 +128,16 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
       {shareOffer && (
         <Modal label="Open design from link" onClose={() => setShareOffer(null)}>
           <h2>Open design from this link?</h2>
-          <Note as="p" tier={unprotected || replaceLoss ? 'danger' : 'information'}>
-            This link opens “{shareOffer.name}”. Your current design
-            “{tree.name ?? 'Rocket'}” will be replaced. If you want to keep
-            it, save it as an .ork file first — declining simply drops the
-            link. Ctrl+Z will not put it back: the undo history starts over
-            from the linked design.
+          <Note tier={unprotected || replaceLoss ? 'danger' : 'information'}>
+            <p className="note-para">
+              This link opens “{shareOffer.name}”. Your current design
+              “{tree.name ?? 'Rocket'}” will be replaced. If you want to keep
+              it, save it as an .ork file first — declining simply drops the
+              link. Ctrl+Z will not put it back: the undo history starts over
+              from the linked design.
+            </p>
+            {replaceLoss && <p className="replacement-loss note-para">{replaceLoss}</p>}
           </Note>
-          {replaceLoss && <p className="replacement-loss">{replaceLoss}</p>}
           <div className="modal-actions">
             <button className="file-btn" onClick={() => { void onSaveOrk(); }}>
               <Icon name="save" /> Save mine first

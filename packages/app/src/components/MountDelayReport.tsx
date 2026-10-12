@@ -30,7 +30,15 @@ export function MountDelayReport({ resolution }: { resolution: unknown }) {
           <th scope="row">{m.mountName}</th><td>{m.branchName ?? '—'}</td><td>{m.exception ? 'plugged → Auto (charge recovery)' : m.mode}</td>
           <td>{m.rawOptimum === null ? '—' : `${m.rawOptimum.toFixed(1)} s`}</td>
           <td>{m.recommendedDelay === null ? '—' : `${m.recommendedDelay} s`}</td>
-          <td>{m.flownDelay === 'plugged' ? 'plugged' : `${m.flownDelay} s`}{m.caution && <Note as="p" tier="caution">{m.caution}</Note>}</td>
+          <td>{m.flownDelay === 'plugged' ? 'plugged' : `${m.flownDelay} s`}
+            {/* The charge this delay fires is one the motor as sold does not
+                have: said IN the flown-delay cell (D7 §5, L20/M16), so
+                "plugged" never reads as hardware supplying it. */}
+            {m.exception === 'plugged-on-charge' && <span className="simdet-delay-mark"> · hypothetical charge (motor sold plugged)</span>}
+            {/* Auto's earliest-possible charge, said in the row (D7 §5, M17). */}
+            {m.mode === 'auto' && m.rawOptimum !== null && m.rawOptimum < 0
+              && <span className="simdet-delay-mark"> · limited by burnout</span>}
+            {m.caution && <Note as="p" tier="caution">{m.caution}</Note>}</td>
           {anyBand && <td>{bands[i] ? formatDelayBand(bands[i]) : '—'}</td>}
         </tr>)}</tbody>
       </table>

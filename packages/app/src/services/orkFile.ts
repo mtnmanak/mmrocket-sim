@@ -2436,6 +2436,11 @@ function readStoredSimulations(simEls: XmlElement[], notes: string[]): OrkStored
     }
     if (!flightDataAttrs(data)) continue;
     const warnings = sim.querySelector(':scope > simwarnings');
+    // "Warnings unavailable" must not read as "no warnings" (D7 §5, I28): the
+    // note names the run, and says what its empty report does NOT mean.
+    const simName = text(sim, ':scope > name');
+    const unreadable = `Stored simulation warnings${simName ? ` for “${simName}”` : ''} could not be read, so its report `
+      + 'shows none — that does not mean the flight had none.';
     if (warnings?.getAttribute('version') === '1') {
       try {
         const parsed: unknown = JSON.parse(warnings.textContent ?? '');
@@ -2445,9 +2450,9 @@ function readStoredSimulations(simEls: XmlElement[], notes: string[]): OrkStored
         if (Array.isArray(parsed) && parsed.every(w => w !== null && typeof w === 'object'
           && !Array.isArray(w) && typeof w.key === 'string' && typeof w.message === 'string')) {
           data.simWarnings = storedWarnings(parsed);
-        } else cautionNote(notes, 'I28.stored-warnings', 'Stored simulation warnings could not be read.');
+        } else cautionNote(notes, 'I28.stored-warnings', unreadable);
       } catch {
-        cautionNote(notes, 'I28.stored-warnings', 'Stored simulation warnings could not be read.');
+        cautionNote(notes, 'I28.stored-warnings', unreadable);
       }
     }
     const kbf = tag.getAttribute('kbf');

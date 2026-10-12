@@ -20,6 +20,10 @@ it('shows the flight window, both angle units, sample details and unavailable ol
     expect(host.textContent).toContain('Mach 0.500; α 0.1000 rad (5.73°)');
     expect(host.textContent).toContain('stopping before recovery deployment');
     expect(host.textContent).toContain('not a loads check');
+    // D7 §5, R28: the scope statement precedes the first value.
+    const scope = host.querySelector('.flight-loads-scope')!;
+    expect(scope.textContent).toMatch(/^Inputs to a structural check; no structural verdict\./);
+    expect(scope.compareDocumentPosition(host.querySelector('table')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     act(() => root.render(<PrefsProvider><FlightLoadStats run={{ ...run,
       loads: { maxQ: peak, maxQAlpha: { ...peak, value: 0.001 } } }} /></PrefsProvider>));
     expect(host.textContent).toContain('0.00001 mbar·rad');

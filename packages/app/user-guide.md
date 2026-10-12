@@ -557,7 +557,10 @@ station goes as the factor, because that is what holds the balance point at the 
 the length. If a pinned mass was a part you actually weighed, it is a guess afterwards: re-weigh it.
 The **Measured mass & CG** box is cleared, and so is every **weighed pad mass** on Motors & Launch,
 because they described a rocket that no longer exists. Ctrl+Z does not bring them back, so write
-them down first if you want them.
+them down first if you want them. When the design has any of them, the dialog lists exactly which —
+with the measured figures themselves — in a red **Danger** block directly above the **Scale** button,
+beside **Save a .ork backup first** (the `.ork` keeps them). With nothing to lose, the same sentence
+stays a quiet note.
 
 **Three things keep their own size** and only move to their new stations: a **camera shroud** (the
 camera inside it is the same camera), a **rail button** (they come in fixed sizes — micro, mini,
@@ -1009,6 +1012,37 @@ Assign a motor, set conditions, and press **Launch**. The app resolves every Aut
 
 On a phone the app opens on **Fly** unless you were last working in another workspace — a launch-centered home screen built for the flying field rather than the workbench: your rocket drawn beside the four numbers that matter at the pad (**apogee, optimum delay, descent rate, max velocity** from the latest flight, or the one picked in **Saved simulations**) plus the rocket's **Recovery weight** with the motor loaded now (it needs no flight), the stability verdict up top, a **motor row** that jumps to Motors & Launch to swap what you're flying, the four launch conditions that actually change at the field (**rod angle, rod aim, rod length, wind**), a full-width **Launch** button, and a shortcut into batch compare for the "which of my motors flies this best today" question. Change the design, the motor, the motor delay policy or the launch conditions after your latest flight and its numbers clear until you launch again. If you pick a flight in **Saved simulations** that was flown with a different design, motor delay policy, motor or launch conditions, a **⚠ Flown with …** line above the numbers names the motor that flew and what has changed since; press **Launch** to fly the design as it stands. Current **Batch simulate** rows record the design, motors, delay policies and accepted weighed hardware as well as launch conditions, so their notices can name changes to those inputs. Older rows are compared only where they carry evidence; missing evidence does not establish a design match. New Batch rows include accepted hardware from an older weighed pad mass on a retained mount. Previously saved rows are not repaired automatically. The notice can say **the motor delay policy changed since** even when the stored delay number is unchanged. A run missing its design, motor or conditions record, a complete record of each mount's delay policy, or the aerodynamics evidence needed to identify its model (including Rogers Kbf for a Classic run), is not labelled as matching merely because no comparable value differs. The workspace tabs dock to the bottom of the screen, thumb-height; Design and Results stay one tap away. On a desktop the Fly tab is hidden — the vitals strip already serves that job there. One thing that is on every screen size, mentioned here because a phone is where it matters most: anything the app has to tell you — an import note, a motor warning, a build error — appears in a **message strip** pinned to the bottom of the window, and on a phone it sits above the tab bar rather than under it. Collapsed it shows the most serious message on one line (the newest, among messages of equal weight) with a **+N** count of the rest, and a new warning or error opens it by itself — unless it takes the place of one just as serious, such as a second failed export's error over the first's, which leaves a strip you collapsed as it was; tap **⌃** to open it and read them all, and **×** on a message to clear it. Some messages have no **×** — they state something about the design that is still true, so clearing one would do nothing; change the design and they go by themselves.
 
+## How the app marks what needs your attention
+
+Notes and warnings come in three levels, and the level says what the message means for you, not how
+loudly it was written:
+
+- **Information** — plain text, as most notes have always looked: what the app did, where a number
+  came from, a limit of the model. Information does not mean "safe". A number in a caution band, such
+  as a drogue descending between 70 and 90 ft/s or an over-stable margin, keeps its own △ mark and
+  wording in the report; it is simply not a filled block.
+- **Caution** — an amber filled block that starts with **⚠ Caution:**. Something you entered or a file
+  stated was replaced, dropped or ignored, or what flies differs from what the panel in front of you
+  shows — a session Aerodynamics choice overriding Preferences, a flight configuration overriding a
+  part's deployment, weather fetched for an earlier Site altitude.
+- **Danger** — a red filled block that starts with **⛔ Danger:**. A flight that failed one of the
+  report's checks or came down without working recovery, a save or export that failed, or an action
+  that would throw away something no file or undo step holds. Those last ones appear only when there
+  is something to lose, directly above the button that would lose it — in most of them with a Save or
+  Download button beside it.
+
+The word at the start says the level, so it never depends on colour alone, and with forced colours
+(Windows High Contrast) the blocks keep a border.
+
+**What the message strip shows after you open a file.** Everything the open changed is one entry
+in the strip, with each line marked at its own level. When that entry leads the collapsed strip, it
+takes the colour of its most serious line, and shows that line followed by how many lines there are —
+for example "… — 4 changes" — rather than the **Loaded …** heading; a file that opened with nothing to report still says
+**Loaded …**. Opened, the lines are listed Danger first, then Caution, then Information, each group in
+the order the open produced them, so a routine translation never sits above a dropped setting. A
+screen reader hears the one summary line, not every line at once. Restoring your autosave lists its
+repairs the same way.
+
 ## Flight plots
 
 The line under **Flight plots** names the flown rocket and motor, matching the launch report. It describes the whole flight; the downloads include all flight branches. Each chart's own heading repeats the flight identity and, when booster branches are present in the results, names the selected **Sustainer stack** or **Booster** branch. These chart headings stay visible when charts are expanded or zoomed, so include them in screenshots.
@@ -1054,7 +1088,7 @@ Every flight is graded against these thresholds:
 
 The report also flags **weathercocking risk** and echoes the average wind, so an over-stable rocket in a stiff breeze reads as a warning rather than a silent number.
 
-The physics kernel raises its own **simulation warnings**, and they appear as a distinct block near the top of the report — plain-language lines like "No recovery device — the rocket comes down ballistic" or "Recovery device opened faster than the simulator's fixed 20 m/s (65.6 ft/s)", carrying the kernel's detail (the speed, the device name) where it has one. That second one is the simulator's own fixed limit, stricter than the report's Safe deployment check, so a flight can carry it beside a Safe deployment of yes. High-priority warnings are styled red like failed checks, and also banner across the top of the Results view right after a launch, so a ballistic flight can't be scrolled past; lower-priority ones (supersonic flight, geometry cautions) read as notes. The saved-runs CSV keeps the warning keys in a **Sim warnings** column.
+The physics kernel raises its own **simulation warnings**, and they appear as a distinct block near the top of the report — plain-language lines like "No recovery device — the rocket comes down ballistic" or "Recovery device opened faster than the simulator's fixed 20 m/s (65.6 ft/s)", carrying the kernel's detail (the speed, the device name) where it has one. That second one is the simulator's own fixed limit, stricter than the report's Safe deployment check, so a flight can carry it beside a Safe deployment of yes. They are grouped by what they mean for the flight (see **How the app marks what needs your attention**): no recovery device, recovery deployed while still on the launch guide, tumbling under thrust and a simulation that stopped early sit in one red **Danger** block together with any failed checks; an input the simulator ignored, such as a fin with zero area, is an amber **Caution**; the rest — supersonic flight, the fixed 20 m/s opening flag, geometry and model notes — read as plain notes, whatever priority the kernel gave them. Right after a launch, a high-priority, Caution or Danger warning, or a failed check, is also read out to a screen reader. The saved-runs CSV keeps the warning keys in a **Sim warnings** column.
 
 For new flights, the recorded opening speed in a high-speed deployment warning and the angle in a large-angle-of-attack warning follow your current velocity and angle units. These details and the source names survive run-history reloads and a .ork save or share link that includes the run's summary. Other warnings, and older warnings without those recorded quantities, keep their existing detail text. The explanatory 20 m/s (65.6 ft/s) threshold stays written in both units.
 

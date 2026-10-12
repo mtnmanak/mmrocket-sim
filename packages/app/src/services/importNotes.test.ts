@@ -138,6 +138,37 @@ describe('the .ork reader (orkFile.ts, sanitize, deployOverrideNote)', () => {
   });
 });
 
+describe('simulation extensions (orkExtensions.ts, I02)', () => {
+  const extXml = (simBody: string, rootAttrs = '') => `<openrocket version="1.10" creator="OpenRocket 24.12"${rootAttrs}><rocket><name>X</name>
+    <motorconfiguration configid="A" default="true"><name>A</name></motorconfiguration>
+    <subcomponents><stage><name>Sustainer</name><subcomponents>${TUBE()}</subcomponents></stage></subcomponents></rocket>
+    <simulations><simulation status="notsimulated"><name>A</name><conditions><configid>A</configid></conditions>${simBody}</simulation></simulations></openrocket>`;
+  const air = '<extension extensionid="info.openrocket.core.simulation.extension.example.AirStart">'
+    + '<entry key="launchAltitude" type="double">100.0</entry></extension>';
+  const text = { mass: (kg: number) => `${kg} kg`, length: (m: number) => `${m} m` };
+
+  it('a direct extension the app keeps but does not run is Caution, and stays Caution through the open', async () => {
+    const imported: ImportedDesign = { ...importOrk(extXml(air)), sourceFormat: 'ork' };
+    expect(tierOf(tiered(imported), /simulation extension/)).toBe('caution');
+    const resolved = await resolveImportMotors(imported, async () => ({ note: '' }));
+    const plan = planImport(imported, resolved, { launch: DEFAULT_CONDITIONS, text });
+    const line = plan.note.group.lines.find(l => /simulation extension/.test(l.text))!;
+    expect(line).toMatchObject({ kind: 'I02.not-run', tier: 'caution' });
+    expect(orderedLines(plan.note.group.lines)[0]!.kind).toBe('I02.not-run');
+  });
+
+  it('a nested extension dropped on save is Caution', () => {
+    const lines = tiered(importOrk(extXml(`<wrapper>${air}</wrapper>`)));
+    expect(lines.find(l => /nested simulation extension/.test(l.text))).toMatchObject({ kind: 'I02.nested-dropped', tier: 'caution' });
+  });
+
+  it('an extension whose XML cannot stand alone is Caution', () => {
+    const bound = '<extension extensionid="custom.Ns"><x:entry/></extension>';
+    const lines = tiered(importOrk(extXml(bound, ' xmlns:x="urn:example"')));
+    expect(lines.find(l => /cannot stand alone/.test(l.text))).toMatchObject({ kind: 'I02.not-standalone', tier: 'caution' });
+  });
+});
+
 describe('the RockSim reader (rocksimFile.ts)', () => {
   it('Caution for an airfoil fin mass pinned over future edits; Information for a point mass placed as stated', () => {
     const lines = tiered(importRkt(fixture('rocksimTestRocket2.rkt')));

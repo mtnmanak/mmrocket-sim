@@ -23,7 +23,7 @@ import { peekSession } from './services/session.js';
 import { resolveFlightState } from './services/flightState.js';
 import { designMatchKeyOf, type SimRun } from './services/simReport.js';
 import * as simStore from './services/simStore.js';
-import { addChild, addStage, defaultTree, findNode, motorMounts, updateNode } from './tree/treeModel.js';
+import { addChild, addStage, defaultTree, findNode, makeNode, motorMounts, updateNode } from './tree/treeModel.js';
 import type { MountMotor } from './model/design.js';
 import { APP_VERSION } from './version.js';
 
@@ -1642,5 +1642,50 @@ describe('the single-stage Ignition choices (review of v0.169)', () => {
     await settle(50);
     const values = [...host.querySelectorAll<HTMLOptionElement>('.mount-card select[id^="ignition-"] option')].map((o) => o.value);
     expect(values).toEqual(['automatic', 'launch', 'never']);
+  }, 30000);
+});
+
+/**
+ * D7 §5, R08: a rail button on a fin's line is a mechanical fit finding on the
+ * pad. It gets its own block on Design, apart from the model's approximation
+ * notes, and each part it names is one click from its properties (where the
+ * rail button's snap controls are).
+ */
+describe('rail fit on the Design view', () => {
+  it('lists a rail-line finding in its own block with Select actions, not among the model notes', async () => {
+    await seedStarterSession({
+      edit: (t) => {
+        const withFins = (nodes: ComponentNode[]): ComponentNode | null => {
+          for (const n of nodes) {
+            if ((n.children ?? []).some((k) => (k.type as string).endsWith('finset'))) return n;
+            const inner = withFins(n.children ?? []);
+            if (inner) return inner;
+          }
+          return null;
+        };
+        const tube = withFins(t.components)!;
+        const fins = tube.children!.find((k) => (k.type as string).endsWith('finset'))!;
+        const button = { ...makeNode('railbutton'), id: 'rb-test', name: 'Fwd button',
+          angleOffset: (fins['rotation'] as number | undefined) ?? 0 } as ComponentNode;
+        return addChild(t, tube.id!, button);
+      },
+    });
+    const host = await mountApp();
+    await settle(50);
+    const block = host.querySelector('.rail-fit-findings');
+    expect(block, 'the rail-fit block').not.toBeNull();
+    expect(block!.textContent).toMatch(/^Rail fit on the pad/);
+    expect(block!.textContent).toContain('"Fwd button"');
+    expect(block!.textContent).toContain('fouls it');
+    // Said once: not repeated in the generic notes beside it.
+    const others = [...host.querySelectorAll('.file-note')].filter((n) => n !== block && !block!.contains(n));
+    expect(others.some((n) => (n.textContent ?? '').includes('fouls it'))).toBe(false);
+    const select = [...block!.querySelectorAll('button')].find((b) => b.textContent === 'Select “Fwd button”')!;
+    expect(select).toBeTruthy();
+    await act(async () => { select.click(); });
+    await settle(20);
+    // The selected part's panel, with the snap control that corrects it.
+    expect((host.querySelector('.design-props input[id$="-name"]') as HTMLInputElement).value).toBe('Fwd button');
+    expect(host.querySelector('.design-props')!.textContent).toContain('⟂ between fins');
   }, 30000);
 });

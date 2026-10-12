@@ -1621,6 +1621,10 @@ html {
   flex: 1;
   min-width: 0;
 }
+/* A model limitation in a chart title (D7 §5, R27): quiet, but full-size ink. */
+.chart-model-limit {
+  font-weight: normal;
+}
 
 .chart-head-btns {
   display: inline-flex;
@@ -4716,7 +4720,10 @@ select.unit-chip:hover {
    pad-mass figure (the accent on amber) and the failed run-save ×. (0,3,0),
    so a bare class rule cannot win back. contrastTokens.test.ts runs the
    cascade over every element written inside a filled block. */
-.message-tier.message-tier :is(.weather-stale, .measured-delta, .file-note-dismiss) { color: inherit; }
+.message-tier.message-tier :is(.weather-stale, .measured-delta, .file-note-dismiss, .replacement-loss) { color: inherit; }
+/* Paragraphs grouped inside one Note block (D7 §5): spaced, not margined like page prose. */
+.note-para { margin: 0; }
+.note-para + .note-para { margin-top: 6px; }
 /* The block's own padding replaced .file-note's 28px right edge, so the
    absolutely placed × sat over the end of the first line. */
 .message-tier.message-tier.file-note:has(> .file-note-dismiss) { padding-right: 28px; }

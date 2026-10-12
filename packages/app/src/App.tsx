@@ -125,6 +125,7 @@ import {
 } from './services/simReport.js';
 import { Note, type NoteTier } from './components/Note.js';
 import { formatWarning, formatWarningText, staticWarningTier } from './services/simWarnings.js';
+import { railInterferenceFindings } from './tree/mountAngle.js';
 import {
   addRun, appendImportedRuns, loadRuns, MAX_RUNS, persistFailed, runsEvictedByLastWrite, runsUnsavedByLastWrite, runsEvictedForUndoByLastWrite,
 } from './services/simStore.js';
@@ -3385,11 +3386,16 @@ export function App() {
         <ScaleDialog
           tree={tree}
           assignedMotorDiameters={assignedMotorDiameters}
-          losesMeasurements={measured.massKg !== null || measured.cgM !== null
-            || Object.values(mountMotors).some(m => m.padMassKg != null)
-            || Object.values(unmatchedRefs).some(m => m.padMassKg != null)
-            || savedConfigs.some(c => Object.values(c.motors).some(m => m.padMassKg != null)
-              || Object.values(c.unmatchedRefs ?? {}).some(m => m.padMassKg != null))}
+          {...(() => {
+            const padMass = Object.values(mountMotors).some(m => m.padMassKg != null)
+              || Object.values(unmatchedRefs).some(m => m.padMassKg != null)
+              || savedConfigs.some(c => Object.values(c.motors).some(m => m.padMassKg != null)
+                || Object.values(c.unmatchedRefs ?? {}).some(m => m.padMassKg != null));
+            return {
+              losesMeasurements: measured.massKg !== null || measured.cgM !== null || padMass,
+              lossDetail: { massKg: measured.massKg, cgM: measured.cgM, padMass },
+            };
+          })()}
           onApply={(res) => {
             const scaledConfigs = scaleConfigStageMass(savedConfigs, activeConfigId, tree, res.factor);
             commitTreeStep(res.tree);
@@ -3665,7 +3671,9 @@ export function App() {
                     rather than being silently re-labelled under the new one. */}
                 {apogeeStaleWhy && (
                   <>
-                    <span className="vitals-stale" aria-hidden="true"> ⚠</span>
+                    {/* "previous flight" in words beside the number (D7 §5, R04);
+                        the sr-only sentence below carries the same fact. */}
+                    <span className="vitals-stale" aria-hidden="true"> ⚠ previous flight</span>
                     <span className="sr-only">{` — warning: ${apogeeStaleWhy}`}</span>
                   </>
                 )}
@@ -3992,16 +4000,38 @@ export function App() {
               )}
             </div>
             {built && hero.open && !hero.wide && statsDrawerNode}
-            {built && built.info.warningTexts.length > 0 && (
-              <div>
+            {built && built.info.warningTexts.length > 0 && (() => {
+              // Rail-line findings are a mechanical fit problem on the pad, not an
+              // aerodynamic footnote or a failed flight (D7 §5, R08): their own
+              // block, each with the parts it names one click away, where the
+              // rail button's snap controls are. The same sentences buildDesign
+              // appended, matched by identity, so nothing is said twice.
+              const railFindings = railInterferenceFindings(tree);
+              const railTexts = new Set(railFindings.map(f => f.text));
+              const rest = built.info.warningTexts.filter(t => !railTexts.has(t));
+              return <div>
                 {(['caution', 'information'] as const).map(tier => {
-                  const texts = built.info.warningTexts.filter(t => staticWarningTier(t) === tier);
+                  const texts = rest.filter(t => staticWarningTier(t) === tier);
                   return texts.length ? <Note key={tier} tier={tier} className="file-note" role="alert">
                     {texts.map(formatWarningText).join('\n')}
                   </Note> : null;
                 })}
-              </div>
-            )}
+                {railFindings.length > 0 && (
+                  <Note tier="information" className="file-note rail-fit-findings" role="alert">
+                    <strong>Rail fit on the pad</strong> (the parts&rsquo; angles; no flight number changes):
+                    <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
+                      {railFindings.map(f => <li key={f.text}>
+                        {f.text}{' '}
+                        {f.parts.filter(p => p.id).map(p => (
+                          <button key={p.id} type="button" className="finish-all-btn"
+                            onClick={() => setSelectedId(p.id)}>Select “{p.name}”</button>
+                        ))}
+                      </li>)}
+                    </ul>
+                  </Note>
+                )}
+              </div>;
+            })()}
           </div>
         </main>
 

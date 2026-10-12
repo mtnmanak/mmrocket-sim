@@ -496,7 +496,7 @@ describe('the sweep, flown on the real kernel', () => {
     // motor is not sold with.
     const said = row.run!.comments.split(' | ');
     expect(said[said.length - 1]).toBe('This motor is sold plugged (no ejection charge), and this design '
-      + 'deploys its recovery on the motor’s charge, so the batch flew it at the optimum delay of '
+      + 'deploys its recovery on the motor’s charge, so the batch flew it with a hypothetical charge at the optimum delay of '
       + `${row.run!.delayS} s rather than with no deployment at all. To fly it as sold, set the recovery `
       + 'to deploy at apogee or altitude.');
     expect(commentLevelsAlign(row.run!)).toBe(true);

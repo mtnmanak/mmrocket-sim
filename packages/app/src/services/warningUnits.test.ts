@@ -100,7 +100,10 @@ describe('saved warning units', () => {
     const imported = importOrk(xml);
     expect(imported.storedSimulations?.[0]?.data.maxAltitude).toBe(123);
     expect(imported.storedSimulations?.[0]?.data.simWarnings).toBeUndefined();
-    expect(imported.notes).toContain('Stored simulation warnings could not be read.');
+    const said = imported.notes.filter(n => n.startsWith('Stored simulation warnings'));
+    expect(said).toHaveLength(1);
+    // D7 §5, I28: names the run, and keeps "unavailable" apart from "none".
+    expect(said[0]).toMatch(/^Stored simulation warnings for “[^”]+” could not be read, so its report shows none — that does not mean the flight had none\.$/);
   });
 
   it('ignores future extension versions rather than misinterpreting them', () => {

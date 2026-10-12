@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
   angleGap, betweenFinAnglesAmong, betweenFinAnglesOn, finAnglesAmong, finAnglesOn,
-  frameContaining, IN_LINE_TOLERANCE, nearestAngle, railInterferenceWarnings, reducePi,
+  frameContaining, IN_LINE_TOLERANCE, nearestAngle, railInterferenceFindings, railInterferenceWarnings, reducePi,
   wakeShadowWarnings, WAKE_REACH_HEIGHTS,
 } from './mountAngle.js';
 import { defaultParams } from './schema.js';
@@ -74,6 +74,20 @@ describe('rail interference', () => {
     expect(w).toHaveLength(1);
     expect(w[0]).toContain('in line with a fin');
     expect(w[0]).toContain('fouls it');
+  });
+
+  it('names the parts each finding is about, by id, so Design can select them (D7 §5, R08)', () => {
+    const f = railInterferenceFindings(tree([FINS3, { type: 'railbutton', id: 'r1', name: 'Button', angleOffset: 0 }]));
+    expect(f).toHaveLength(1);
+    expect(f[0]!.parts.map((p) => p.id)).toEqual(['r1', FINS3.id]);
+    expect(f[0]!.parts[0]!.name).toBe('Button');
+    const two = railInterferenceFindings(tree([
+      { type: 'railbutton', id: 'r1', angleOffset: D(180) }, { type: 'railbutton', id: 'r2', angleOffset: D(90) },
+    ]));
+    expect(two.find((x) => x.text.includes('different angles'))!.parts.map((p) => p.id)).toEqual(['r1', 'r2']);
+    // The sentence list is exactly the findings' texts.
+    expect(railInterferenceWarnings(tree([FINS3, { type: 'railbutton', id: 'r1', name: 'Button', angleOffset: 0 }])))
+      .toEqual(f.map((x) => x.text));
   });
 
   it('says nothing when the button is between the fins — the correct build', () => {

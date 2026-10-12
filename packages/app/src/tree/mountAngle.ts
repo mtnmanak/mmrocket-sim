@@ -220,7 +220,22 @@ const nameOf = nameOr;
  * warnings use.
  */
 export function railInterferenceWarnings(tree: RocketTree): string[] {
-  const out: string[] = [];
+  return [...new Set(railInterferenceFindings(tree).map((f) => f.text))];
+}
+
+/**
+ * One rail-line finding with the parts it names (D7 §5, R08): the Design
+ * view attaches it to those parts, with a way to select them, instead of
+ * burying a mechanical fit problem among aerodynamic footnotes.
+ */
+export interface RailFinding {
+  text: string;
+  /** The parts the sentence names, button first; ids as in the tree. */
+  parts: { id: string; name: string }[];
+}
+
+export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
+  const out: RailFinding[] = [];
   // ASSEMBLIES BELONG HERE, and they are the biggest things on the list. A pod
   // set or a parallel booster hangs off the airframe at its own `angleOffset`
   // in the PARENT's frame — collectFrame pushes the assembly NODE into
@@ -254,18 +269,18 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
     // The SAME frame walker the snap buttons use — see collectFrame.
     const { members, assemblies } = collectFrame(roots);
     const frame = {
-      buttons: [] as { angle: number; name: string }[],
-      fins: [] as { angle: number; owner: string }[],
-      others: [] as { angle: number; name: string }[],
+      buttons: [] as { angle: number; name: string; id: string }[],
+      fins: [] as { angle: number; owner: string; id: string }[],
+      others: [] as { angle: number; name: string; id: string }[],
     };
     for (const n of members) {
       if (n.type === 'railbutton') {
-        frame.buttons.push({ angle: reducePi(num(n, 'angleOffset', 0)), name: nameOf(n, 'Rail button') });
+        frame.buttons.push({ angle: reducePi(num(n, 'angleOffset', 0)), name: nameOf(n, 'Rail button'), id: n.id ?? '' });
       } else if (isFinSet(n)) {
         const c = finCountOf(n);
         const rot = num(n, 'rotation', 0);
         for (let i = 0; i < c; i++) {
-          frame.fins.push({ angle: reducePi(rot + (2 * Math.PI * i) / c), owner: nameOf(n, 'Fins') });
+          frame.fins.push({ angle: reducePi(rot + (2 * Math.PI * i) / c), owner: nameOf(n, 'Fins'), id: n.id ?? '' });
         }
       } else if (SURFACE.has(n.type as string)) {
         const base = num(n, 'angleOffset', 0);
@@ -278,6 +293,7 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
           frame.others.push({
             angle: reducePi(base + (2 * Math.PI * i) / c),
             name: nameOf(n, SURFACE_NAME[n.type as string] ?? n.type),
+            id: n.id ?? '',
           });
         }
       }
@@ -294,13 +310,15 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
       for (const f of frame.fins) {
         const g = angleGap(b.angle, f.angle);
         if (g <= IN_LINE_TOLERANCE) {
-          out.push(`"${b.name}" at ${deg(b.angle)} is in line with a fin of "${f.owner}" (${deg(g)} apart) — the rail runs down that line, so the fin fouls it. Move one of them.`);
+          out.push({ text: `"${b.name}" at ${deg(b.angle)} is in line with a fin of "${f.owner}" (${deg(g)} apart) — the rail runs down that line, so the fin fouls it. Move one of them.`,
+            parts: [{ id: b.id, name: b.name }, { id: f.id, name: f.owner }] });
         }
       }
       for (const o of frame.others) {
         const g = angleGap(b.angle, o.angle);
         if (g <= IN_LINE_TOLERANCE) {
-          out.push(`"${b.name}" at ${deg(b.angle)} is in line with "${o.name}" (${deg(g)} apart) — both sit on the rail's line.`);
+          out.push({ text: `"${b.name}" at ${deg(b.angle)} is in line with "${o.name}" (${deg(g)} apart) — both sit on the rail's line.`,
+            parts: [{ id: b.id, name: b.name }, { id: o.id, name: o.name }] });
         }
       }
     }
@@ -308,7 +326,8 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
       const first = frame.buttons[0]!.angle;
       const odd = frame.buttons.find((b) => angleGap(b.angle, first) > 1e-6);
       if (odd) {
-        out.push(`Rail buttons on this airframe are at different angles (${deg(first)} and ${deg(odd.angle)}) — one rail is a straight line, so they cannot both engage it.`);
+        out.push({ text: `Rail buttons on this airframe are at different angles (${deg(first)} and ${deg(odd.angle)}) — one rail is a straight line, so they cannot both engage it.`,
+          parts: [{ id: frame.buttons[0]!.id, name: frame.buttons[0]!.name }, { id: odd.id, name: odd.name }] });
       }
     }
     for (const a of assemblies) checkFrame(a);
@@ -322,7 +341,8 @@ export function railInterferenceWarnings(tree: RocketTree): string[] {
   checkFrame(tree.components);
 
   // Two buttons at the same angle raise the same sentence twice; say it once.
-  return [...new Set(out)];
+  const seen = new Set<string>();
+  return out.filter((f) => !seen.has(f.text) && !!seen.add(f.text));
 }
 
 /**

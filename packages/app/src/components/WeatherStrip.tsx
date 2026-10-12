@@ -110,5 +110,11 @@ export function provenanceText(launch: LaunchConditions, weather: WeatherSnapsho
   const p = fieldProvenance(launch, weather ?? null, key);
   if (p === null || !weather) return undefined;
   const source = sourceOf(key, weather);
+  if (p.kind === 'forecast' && (key === 'temperatureC' || key === 'pressureHPa')) {
+    // The air was fetched for a Site altitude that has since changed: say so
+    // WITH the number it qualifies, not only in the strip (D7 §5, L12).
+    const stale = staleness(launch, weather);
+    if (stale) return `${source} for the previous altitude, ${altitudeText(units.distance, stale.forAltitudeM)}`;
+  }
   return p.kind === 'forecast' ? source : `edited — ${source} said ${fieldText(key, p.said, units)}`;
 }

@@ -225,6 +225,24 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             Kbf checkbox next to a "Classic" option read as two things both
             called classic). The select derives from and writes BOTH stored
             prefs (aeroModel + rogersKbf) — no migration needed. */}
+        {aeroOverride && aeroOverride !== aeroChoiceOf(prefs) && (
+          // Two selects on screen showing different models, with nothing
+          // saying why, is the collision the strip switch could most easily
+          // have introduced. The strip is session-scoped; this is the durable
+          // setting; say so, and offer the one action that resolves it.
+          // (Choosing anything below ALSO clears the override — the newer,
+          // more deliberate act wins. See PrefsContext.setPrefs.)
+          // ABOVE the durable choice, leading with what flies (D7 §5, X14):
+          // otherwise the select reads as naming the model being flown.
+          <Note as="p" tier="caution" className="prefs-hint">
+            Flying this session: <strong>{AERO_NAME[aeroOverride]}</strong>, chosen on the vitals
+            strip for this session only, so it is overriding the setting below. The setting
+            below is the durable one and comes back on your next visit.{' '}
+            <button className="file-btn" onClick={() => setAeroOverride(null)}>
+              Go back to {AERO_NAME[aeroChoiceOf(prefs)]}
+            </button>
+          </Note>
+        )}
         <div className="field">
           <label htmlFor={idFor('aero-model')}>Aerodynamics model</label>
           <select
@@ -243,22 +261,6 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             <option value="hybrid">{aeroOptionLabel('hybrid')}</option>
           </select>
         </div>
-        {aeroOverride && aeroOverride !== aeroChoiceOf(prefs) && (
-          // Two selects on screen showing different models, with nothing
-          // saying why, is the collision the strip switch could most easily
-          // have introduced. The strip is session-scoped; this is the durable
-          // setting; say so, and offer the one action that resolves it.
-          // (Choosing anything above ALSO clears the override — the newer,
-          // more deliberate act wins. See PrefsContext.setPrefs.)
-          <Note as="p" tier="caution" className="prefs-hint">
-            The vitals strip is flying <strong>{AERO_NAME[aeroOverride]}</strong> for this
-            session only, so it is overriding the setting above. The setting above is the
-            durable one and comes back on your next visit.{' '}
-            <button className="file-btn" onClick={() => setAeroOverride(null)}>
-              Go back to {AERO_NAME[aeroChoiceOf(prefs)]}
-            </button>
-          </Note>
-        )}
         <p className="prefs-hint">
           <strong>Classic Extended Barrowman</strong> is OpenRocket 24.12's Barrowman
           model with three later upstream OpenRocket corrections: bounded fin CP at

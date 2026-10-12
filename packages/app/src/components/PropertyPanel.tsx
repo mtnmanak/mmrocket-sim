@@ -349,13 +349,15 @@ const CONTAINER_TYPES = new Set(['stage', 'podset', 'parallelstage']);
  * telling them a stage above is standing in for the lot — exactly the
  * "confusion up and down the hierarchical stack" the owner flagged.
  */
-function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch }: {
+function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch, fmtValue }: {
   tree: RocketTree;
   node: ComponentNode;
   quantity: string;
   valueKey: string;
   flagKey: string;
   onPatch: (patch: Partial<ComponentNode>) => void;
+  /** Formats the ancestor's figure, so the note states the value that FLIES (D7 §5, P01). */
+  fmtValue?: (v: number) => string;
 }) {
   // suppressingAncestor's own reading of an override (audit row 522).
   const active = numOpt(node, valueKey) !== undefined;
@@ -368,7 +370,12 @@ function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch 
     return (
       <Note as="p" tier="caution" className="override-suppressed" role="note">
         Not in use — <strong>{blockerName(blocker)}</strong>
-        {' '}stands in for the {quantity} of everything inside it. Untick its
+        {' '}stands in for the {quantity} of everything inside it
+        {(() => {
+          const flown = numOpt(blocker, valueKey);
+          return fmtValue && flown !== undefined
+            ? <> (flying: its {quantity} <strong>{fmtValue(flown)}</strong>)</> : null;
+        })()}. Untick its
         “Use instead of everything inside” to use this.
       </Note>
     );
@@ -903,7 +910,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
           max={maxUi}
           validate={(v) => Number.isFinite(fromDisplay(v)) && (f.key !== 'filletDensity' || v > 0)}
           clampToMax={f.unit === 'count'}
-          placeholder={autoPlaceholder}
+          // A blank shoulder wall flies as zero: the box SAYS the effective
+          // zero rather than leaving a blank and a footnote (D7 §5, P04).
+          placeholder={emptyShoulder && raw === undefined ? 'flies as 0' : autoPlaceholder}
           autoValue={autoValue}
           // Only a field whose blank MEANS something can be cleared; on any
           // other, an emptied box commits nothing and reverts on blur
@@ -1141,6 +1150,18 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
           {offer?.note && (
             <p className={offer.tone === 'warn' ? 'print-note print-note-warn' : 'print-note'}>
               {offer.note}
+            </p>
+          )}
+          {/* The fin print's limitation sits WITH the export choice, readable,
+              not only in the button's tooltip (D7 §5, P11) — most of all for a
+              rounded or airfoil section, which the flat prism does not have. */}
+          {node.type.endsWith('finset') && node.type !== 'tubefinset' && (
+            <p className="hint fin-print-scope">
+              The STL is ONE fin as a flat prism with its tab
+              {node['crossSection'] === 'rounded' || node['crossSection'] === 'airfoil'
+                ? <>: this fin&rsquo;s <strong>{node['crossSection'] === 'rounded' ? 'rounded' : 'airfoil'} cross-section
+                  is not in it</strong>, so shape it by sanding, and</>
+                : <>; any edge shaping is left to sanding, and</>} cant is not baked in. Check the fit before a long print.
             </p>
           )}
           {exportNote && (
@@ -1612,7 +1633,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
           shrouds also synthesize overrides; allow clearing legacy stored ones. */}
       {node.type === 'fairing' && (
         <div>
-          <p className="hint">Use the shroud’s Mass (as built) field to set its mass. Mass, CG and Cd overrides do not apply to camera shrouds.</p>
+          {/* The explanation links the control that really sets the mass (D7 §5, P05). */}
+          <p className="hint">
+            Use the shroud’s Mass (as built) field to set its mass. Mass, CG and Cd overrides do not apply to camera shrouds.{' '}
+            <button type="button" className="finish-all-btn"
+              onClick={() => document.getElementById(idFor('mass'))?.focus()}>Go to Mass (as built)</button>
+          </p>
           {['overrideMass', 'overrideCGX', 'overrideCD'].some((key) => node[key] != null) && (
             <button type="button" className="file-btn" onClick={() => onPatch({
               overrideMass: undefined, overrideCGX: undefined, overrideCD: undefined,
@@ -1689,6 +1715,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
               valueKey="overrideMass"
               flagKey="overrideSubcomponentsMass"
               onPatch={onPatch}
+              fmtValue={(v) => `${fmtSi('mass', massSym, v)} ${massSym}`}
             />
           </div>
           <div className="field">
@@ -1716,6 +1743,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
               valueKey="overrideCGX"
               flagKey="overrideSubcomponentsCG"
               onPatch={onPatch}
+              fmtValue={(v) => `${fmtSi('length', lengthSym, v, 3)} ${lengthSym} from its top`}
             />
             {/* The one case where a typed number provably changes nothing and
                 the panel would otherwise stay silent: a CG on a container, with
@@ -1726,7 +1754,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
               && node['overrideSubcomponentsCG'] !== true
               && massOverride === undefined && (
               <p className="override-inert" role="note">
-                <strong>This is not doing anything yet.</strong> A
+                <strong>CG not applied: no mass.</strong> A
                 {' '}{DISPLAY_NAME[node.type]?.toLowerCase() ?? 'container'} has
                 no mass of its own, so unticked this CG is positioning nothing.
                 Tick the box to set the balance point of the whole assembly, or
@@ -1766,6 +1794,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
               valueKey="overrideCD"
               flagKey="overrideSubcomponentsCD"
               onPatch={onPatch}
+              fmtValue={(v) => fmtSig(v, 3, 3)}
             />
           </div>
         </div>

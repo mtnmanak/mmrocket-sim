@@ -180,6 +180,8 @@ describe('K15 shoulder wall hint', () => {
       const node = { ...makeNode(type), thickness: 0.002, [lengthKey]: 0.02, [key]: value };
       show(node);
       expect(field().textContent).toContain('Blank flies as 0');
+      // D7 §5, P04: a blank box shows the effective zero itself.
+      if (value === undefined) expect(inputStarting(label).getAttribute('placeholder')).toBe('flies as 0');
       expect(document.getElementById(inputStarting(label).getAttribute('aria-describedby')!)?.textContent)
         .toContain('this shoulder weighs nothing');
       expect(button()!.textContent).toMatch(/Use 2(?:\.0+)? mm/);

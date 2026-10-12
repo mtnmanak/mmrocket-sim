@@ -9,7 +9,7 @@ import {
 } from '../services/batchCriteria.js';
 // App retains this re-export until its owning lane updates the import (audit 2026-10-11, S3a-7).
 export { batchUnavailableReason } from '../services/batchCriteria.js';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { MountMotor } from '../model/design.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import type { IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
@@ -89,6 +89,21 @@ function loadCriteria(): Criteria {
 
 /** The pair-split box's words — on the box, and in the refusal that says to untick it. */
 const PAIRS_NAME = 'mixed 4+2 / 2+2+2';
+
+/**
+ * The Delay cell's own words for a plugged-only motor flown at its optimum
+ * (D7 §5, L20): the charge that delay fires is hypothetical — the motor as
+ * sold has none — so the cell says so beside the number, not only a paragraph
+ * above the table.
+ */
+export const PLUGGED_DELAY_MARK = ' · opt., hypothetical charge';
+
+export function batchDelayCell(run: Pick<SimRun, 'delayS'> | undefined, optimumForPlugged?: boolean): ReactNode {
+  return <>
+    {run ? (Number.isFinite(run.delayS) ? `${run.delayS}s` : 'P') : '—'}
+    {optimumForPlugged && <span className="motor-db-meta">{PLUGGED_DELAY_MARK}</span>}
+  </>;
+}
 
 export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
@@ -780,9 +795,9 @@ export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, t
             so, because that is a delay the motor is not sold with. */}
         {sorted.some((r) => r.optimumForPlugged) && (
           <p className="comp-stats batch-plugged" style={{ margin: '4px 0 0' }}>
-            {'Delay marked · opt.: that motor is sold plugged (no ejection charge), and this design '
-              + 'deploys its recovery on the motor’s charge, so the row flies it at its optimum delay '
-              + 'rather than with no deployment at all. To fly it plugged, set the recovery to deploy '
+            {`Delay marked${PLUGGED_DELAY_MARK}: that motor is sold plugged (no ejection charge), and this design `
+              + 'deploys its recovery on the motor’s charge, so the row flies it with a hypothetical charge at its '
+              + 'optimum delay rather than with no deployment at all. To fly it plugged, set the recovery to deploy '
               + 'at apogee or altitude.'}
           </p>
         )}
@@ -835,10 +850,7 @@ export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, t
                       {run && !(run.aeroModel === 'classic' && !run.rogersKbf) && (run.nozzleStages?.length ?? 0) > 0
                         && <span className="motor-db-meta"> · nozzle</span>}
                     </td>
-                    <td>
-                      {run ? (Number.isFinite(run.delayS) ? `${run.delayS}s` : 'P') : '—'}
-                      {optimumForPlugged && <span className="motor-db-meta"> · opt.</span>}
-                    </td>
+                    <td>{batchDelayCell(run, optimumForPlugged)}</td>
                     <td>{run ? fmtSi('distance', dist, run.maxAltitude) : '—'}</td>
                     <td>{run?.rodExitVelocity != null ? fmtSi('velocity', vel, run.rodExitVelocity) : '—'}</td>
                     <td>{run && !run.importedSummary ? railNeededCell(run.railProfile, railThreshold, len, 'travel') : ''}</td>
