@@ -392,6 +392,7 @@ describe('useNozzleFollow under the undo history', () => {
     h: TreeHistory;
     setMotor: (id: string) => void;
     cleared: Record<string, NozzleCleared>;
+    pending: boolean;
   }
   let miniRoot: Root | null = null;
   let miniHost: HTMLElement | null = null;
@@ -419,7 +420,7 @@ describe('useNozzleFollow under the undo history', () => {
       }, [h.tree, m]);
       const nf = useNozzleFollow({ loadout, treeRef: h.treeRef, writeTree: h.writeTree, lookup: opts.look ?? lookup });
       restoring.current = nf.restoring;
-      out.current = { h, setMotor, cleared: nf.cleared };
+      out.current = { h, setMotor, cleared: nf.cleared, pending: nf.pending };
       return null;
     }
     miniHost = document.createElement('div');
@@ -442,6 +443,35 @@ describe('useNozzleFollow under the undo history', () => {
   };
   const undo = async (m: { current: Mini }) => { await act(async () => { m.current.h.undo(); }); await settle(); };
   const redo = async (m: { current: Mini }) => { await act(async () => { m.current.h.redo(); }); await settle(); };
+
+  it('S3c-2 keeps the resolved EX nozzle through re-import, deletion and undo of an earlier rename', async () => {
+    const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
+    addExMotors([ex]);
+    const m = mountMini(withMount(0.015), ex.motorId, { look: nozzleForMotorId });
+    await settle();
+    await edit(m, (t) => ({ ...t, name: 'renamed' }));
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.018);
+    await act(async () => { deleteExMotor(ex.motorId); });
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.018);
+    await undo(m);
+    expect(m.current.h.treeRef.current.name).toBe('r');
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.018);
+    expect(m.current.pending).toBe(false);
+    expect(m.current.cleared).toEqual({});
+    await redo(m);
+    expect(m.current.h.treeRef.current.name).toBe('renamed');
+    expect(exitOf(m.current.h.treeRef.current)).toBe(0.018);
+
+    // A present replacement can remove the figure; deleting it must not revive 18 mm.
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: undefined }]); });
+    expect(exitOf(m.current.h.treeRef.current)).toBeUndefined();
+    await act(async () => { deleteExMotor(ex.motorId); });
+    await undo(m);
+    expect(m.current.h.treeRef.current.name).toBe('r');
+    expect(exitOf(m.current.h.treeRef.current)).toBeUndefined();
+    expect(m.current.pending).toBe(false);
+  });
 
   it('restores explicit OFF on undo and redo even after a motor swap', async () => {
     const m = mountMini(withMount(0), 'J1');

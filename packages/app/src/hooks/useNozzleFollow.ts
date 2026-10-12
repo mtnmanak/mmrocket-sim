@@ -6,7 +6,7 @@ import {
 } from '../services/nozzleFollow.js';
 import { numOrNull } from '../tree/nodeNum.js';
 import { applyStageNozzles, findNode } from '../tree/treeModel.js';
-import { exMotorRevision, subscribeExMotors } from '../services/exMotors.js';
+import { exMotorRevision, getExMotor, subscribeExMotors } from '../services/exMotors.js';
 
 /**
  * THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR (Eric, 2026-09-13).
@@ -76,6 +76,9 @@ export function useNozzleFollow(opts: {
   // Remember resolved exits across library deletion, which leaves the motor
   // mounted (audit 2026-10-11, S3c-2 follow-up). Re-imports still replace them.
   const nozzleKeys = useRef(new Map<string, string>());
+  // Undo can need the VALUE again after deletion, not just its comparison key
+  // (audit 2026-10-11, S3c-2 follow-up 2). Null records a replacement with no exit.
+  const nozzleValues = useRef(new Map<string, Pick<NozzleEntry, 'exitDiameterM'> | null>());
   /**
    * Per stage, the loadout the nozzle IN THE TREE was decided for. The same as
    * `seen` except while a lookup is pending, when the tree still carries the
@@ -150,7 +153,10 @@ export function useNozzleFollow(opts: {
       // chunk for the life of the page (nozzleDb.ts).
       const looked: { s: StageMotors; entries: (Pick<NozzleEntry, 'exitDiameterM'> | null)[] }[] = [];
       for (const s of acted) {
-        looked.push({ s, entries: await Promise.all(s.motors.map((m) => lookup(m.motorId).catch(() => null))) });
+        looked.push({ s, entries: await Promise.all(s.motors.map((m) =>
+          m.motorId.startsWith('ex:') && !getExMotor(m.motorId)
+            ? Promise.resolve(nozzleValues.current.get(m.motorId) ?? null)
+            : lookup(m.motorId).catch(() => null))) });
       }
       if (!mounted.current) return;
 
@@ -169,6 +175,8 @@ export function useNozzleFollow(opts: {
       for (const { s, entries } of looked) {
         const current = seen.current.get(s.stageId);
         if (!current || current.key !== keys.get(s.stageId)) continue;
+        // Only current answers may replace the cache, including an absent exit.
+        s.motors.forEach((m, i) => { nozzleValues.current.set(m.motorId, entries[i] ?? null); });
         // "The motors before" is what the nozzle IN THE TREE was decided for —
         // `decided`, NOT `previous` (audit 2026-09-30). While an earlier
         // look-up was pending, `previous` names a loadout that never got a
