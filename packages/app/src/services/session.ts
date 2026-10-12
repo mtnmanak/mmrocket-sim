@@ -383,10 +383,15 @@ function readSession(restoreRoot: boolean): SessionState | null {
           + 'The old design\'s motors, configurations, and measurements were not applied.'],
       };
     }
-    // Keep the readable design when only its configuration list is corrupt
+    // Keep the readable design when only its configurations are corrupt.
+    // Restore needs an identity and object maps, not just an object entry
     // (audit 2026-10-11, S1d-2).
     if (s.savedConfigs !== undefined) {
-      const configs = Array.isArray(s.savedConfigs) ? s.savedConfigs.filter(isTable) : [];
+      const configs = Array.isArray(s.savedConfigs) ? s.savedConfigs.filter(c =>
+        isTable(c) && typeof c.id === 'string' && isTable(c.motors)
+        && ['unmatchedRefs', 'deployments', 'separations', 'nozzles', 'stageActiveness', 'stageMassOverrides']
+          .every(key => c[key] === undefined || isTable(c[key])),
+      ) : [];
       if (!Array.isArray(s.savedConfigs) || configs.length !== s.savedConfigs.length) {
         s.treeRestoreNotes = [...(s.treeRestoreNotes ?? []), 'Unreadable saved configurations were removed.'];
       }

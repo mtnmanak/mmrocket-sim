@@ -51,6 +51,55 @@ describe('audit 2026-10-11 persisted state', () => {
     expect(loadSession()?.savedConfigs).toEqual([cfg]);
   });
 
+  const unreadableConfigs = [
+    {},
+    { name: 'Bad', motors: {} },
+    ...[null, 7, {}, []].map(id => ({ id, name: 'Bad', motors: {} })),
+    { id: 'bad', name: 'Bad' },
+    ...['motors', 'unmatchedRefs', 'deployments', 'separations', 'nozzles',
+      'stageActiveness', 'stageMassOverrides'].flatMap(key =>
+      [null, false, 7, 'bad', []].map(value => ({ id: 'bad', name: 'Bad', motors: {}, [key]: value }))),
+  ];
+
+  it.each(unreadableConfigs)('S1d-2 restores valid siblings through App with unreadable configuration %j', bad => {
+    const kept = { id: 'kept', name: 'Kept', motors: {} };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
+      ...state(), savedConfigs: [null, bad, kept], activeConfigId: 'kept',
+    }));
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(restored.state.savedConfigs).toEqual([kept]);
+    expect(restored.state.activeConfigId).toBe('kept');
+    expect(restored.state.tree.name).toBe('Test');
+    expect(restored.state.launch).toEqual(state().launch);
+    expect(restored.restoreNotes.join(' ')).toContain('Unreadable saved configurations were removed.');
+  });
+
+  it('S1d-2 restores the design through App when every configuration is unreadable', () => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
+      ...state(), savedConfigs: [null, ...unreadableConfigs],
+    }));
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(restored.state.savedConfigs).toEqual([]);
+    expect(restored.state.tree.name).toBe('Test');
+    expect(restored.state.launch).toEqual(state().launch);
+    expect(restored.restoreNotes.join(' ')).toContain('Unreadable saved configurations were removed.');
+  });
+
+  it('S1d-2 accepts object configuration maps through App without a removal note', () => {
+    const kept = { id: 'kept', name: 'Kept', motors: {}, unmatchedRefs: {}, deployments: {},
+      separations: {}, nozzles: {}, stageActiveness: {}, stageMassOverrides: {} };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs: [kept] }));
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(restored.state.savedConfigs).toEqual([kept]);
+    expect(restored.restoreNotes.join(' ')).not.toContain('Unreadable saved configurations');
+  });
+
   it.each(['x', 1, true, 0, '', false, null, []].map(v => [v]))('S1d-5 restores with empty measurements for %j', measured => {
     localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), measured }));
     const loaded = loadSession();
@@ -295,11 +344,13 @@ describe('K2 stored stage activeness', () => {
     expect(loaded).not.toBeNull();
     if (stageActiveness && typeof stageActiveness === 'object' && !Array.isArray(stageActiveness)) {
       expect(loaded.savedConfigs![0]!.stageActiveness).toEqual({});
+      expect(loaded.treeRestoreNotes ?? []).toEqual([]);
     } else {
-      expect(loaded.savedConfigs![0]).not.toHaveProperty('stageActiveness');
+      // Invalid map shapes now discard the whole configuration (S1d-2 follow-up).
+      expect(loaded.savedConfigs).toEqual([{ id: 'legacy', motors: {} }]);
+      expect(loaded.treeRestoreNotes?.join(' ')).toContain('Unreadable saved configurations');
     }
-    expect(loaded.savedConfigs![1]).not.toHaveProperty('stageActiveness');
-    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+    expect(loaded.savedConfigs!.find(c => c.id === 'legacy')).not.toHaveProperty('stageActiveness');
   });
 });
 
