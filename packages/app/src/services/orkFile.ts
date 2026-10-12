@@ -17,7 +17,7 @@ import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import {
-  configSeparationNote, refuseTooManyParts, sanitizeTree, separationEventOf,
+  configSeparationNote, refuseTooManyParts, sanitizeTree, separationEventOf, MAX_DESIGN_PARTS, TOO_MANY_PARTS_ERROR_NAME,
 } from '../tree/sanitize.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
@@ -352,8 +352,26 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // before, or the JS parser a Node/Workers entry installs. Same message.
   const rawExtensions = extensionXmlBySimulation(xml);
   const doc = parseXml(xml, 'Not a valid .ork file (XML parse error)');
+  // The lexical extension scan and version read require this root (audit 2026-10-11, S1a-5).
+  if (doc.documentElement.tagName !== 'openrocket') throw new Error('Not a .ork file (root must be <openrocket>)');
   const rocketEl = doc.querySelector('openrocket > rocket');
   if (!rocketEl) throw new Error('Not a .ork file (missing <rocket>)');
+  // Refuse before conversion and its per-part diagnostics (audit 2026-10-11, S1a-7).
+  // Only component wrappers count: configuration <stage> flags and extension
+  // payloads are not design parts. Keep the existing named refusal and count.
+  const partElements = Array.from(rocketEl.querySelector(':scope > subcomponents')?.children ?? []);
+  let partCount = 0;
+  for (let i = 0; i < partElements.length; i++) {
+    partCount++;
+    const children = partElements[i]!.querySelector(':scope > subcomponents')?.children;
+    if (children) for (const child of Array.from(children)) partElements.push(child);
+  }
+  if (partCount > MAX_DESIGN_PARTS) {
+    const error = new Error(`This design has ${partCount.toLocaleString('en-US')} parts, past the `
+      + `${MAX_DESIGN_PARTS.toLocaleString('en-US')} the app will open. Desktop OR has no such limit.`);
+    error.name = TOO_MANY_PARTS_ERROR_NAME;
+    throw error;
+  }
   const configEls = Array.from(rocketEl.querySelectorAll(':scope > motorconfiguration'));
   if (configEls.length > MAX_ORK_CONFIGURATIONS) {
     throw new Error(`This .ork file declares ${configEls.length} flight configurations, past the ${MAX_ORK_CONFIGURATIONS} the app will open. Reduce the configurations in OpenRocket and save it again.`);
@@ -402,7 +420,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     const raw = text(rocketEl, `:scope > ${tag}`);
     if (raw === null) return null;
     const v = parseDecimal(raw);
-    return Number.isFinite(v) && v > 0 ? v : null;
+    if (Number.isFinite(v) && v > 0) return v;
+    // A discarded weighed figure must be visible (audit 2026-10-11, S1a-3).
+    invalidNumberNote(rocketEl, tag, notes);
+    return null;
   };
   const measuredMassKg = measuredNum('measuredmass');
   const measuredCgM = measuredNum('measuredcg');
@@ -446,11 +467,17 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // the 0 as no answer and keeps the part's own radius, MassObject()'s
       // 12.5 mm — which a mass component's 5 mm fallback above is not.
       noCavity = autoFallback): number => {
-    const raw = text(el, `:scope > ${tag}`);
-    if (raw === null) return fallback;
+    // Empty elements are invalid values, not missing dimensions (audit 2026-10-11, S1a-4).
+    const field = el.querySelector(`:scope > ${tag}`);
+    if (!field) return fallback;
+    const raw = field.textContent ?? '';
     const last = parseDecimal(raw.trim().split(/\s+/).pop()); // decimal only, as num() below
     if (Number.isFinite(last)) return last; // plain number, or `auto <lastvalue>`
-    if (!/^auto\b/i.test(raw.trim())) return fallback; // unparseable — unchanged
+    if (!/^auto\b/i.test(raw.trim())) {
+      // Desktop leaves malformed centreline radii automatic (audit 2026-10-11, S1a-4).
+      invalidNumberNote(el, tag, notes, tag === 'packedradius' ? `using the default (${fallback})` : 'using an automatic radius');
+      if (tag === 'packedradius') return fallback;
+    }
     const label = text(el, ':scope > name') ?? el.tagName;
     const r = resolve(el);
     if (r > 0) {
@@ -476,7 +503,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
    */
   const readPackedSize = (el: XmlElement, n: ComponentNode): void => {
     if (text(el, ':scope > packedlength') !== null) n['packedLength'] = num(el, 'packedlength', 0.025, notes);
-    if (text(el, ':scope > packedradius') !== null) {
+    if (el.querySelector(':scope > packedradius')) {
       n['packedRadius'] = autoDim(el, 'packedradius', 0.0125, autoRadii.packed, 0.0125);
     }
   };
@@ -485,7 +512,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // (optional <name>, optional default="true" — desktop 24.12
   // MotorConfigurationHandler).
   const stageIds = new Map<XmlElement, string>();
-  const configs: OrkFlightConfig[] = configEls
+  const configById = new Map<string, OrkFlightConfig>();
+  // Desktop reuses the same configuration and applies later fields (audit 2026-10-11, S1a-8).
+  for (const c of configEls
     .map((c) => ({
       id: c.getAttribute('configid') ?? '',
       name: text(c, ':scope > name'),
@@ -496,7 +525,16 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       deployments: {},
       separations: {},
     }))
-    .filter((c) => c.id !== '');
+    .filter((c) => c.id !== '')) {
+    const previous = configById.get(c.id);
+    if (previous) {
+      if (c.name !== null) previous.name = c.name;
+      if (c.isDefault) previous.isDefault = true;
+      if (c.motorLoadoutRefusal) previous.motorLoadoutRefusal = c.motorLoadoutRefusal;
+      notes.push(`Duplicate flight configuration “${c.id}” was merged; later fields replace earlier fields.`);
+    } else configById.set(c.id, c);
+  }
+  const configs = [...configById.values()];
   const requested = opts?.configId;
   const chosenConfigId =
     (requested != null && configs.some((c) => c.id === requested) ? requested : null)
@@ -518,7 +556,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // is applied. Never written again, only read.
   for (const el of Array.from(rocketEl.querySelectorAll(':scope > measuredpadmass'))) {
     const v = parseDecimal(el.textContent);
-    if (!Number.isFinite(v) || v <= 0) continue;
+    if (!Number.isFinite(v) || v <= 0) {
+      invalidNumberNote(rocketEl, 'measuredpadmass', notes);
+      continue;
+    }
     const id = el.getAttribute('configid');
     const target = id === null
       ? (configs.find((c) => c.isDefault) ?? configs[0])
@@ -611,29 +652,31 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     for (const c of configs) {
       const block = Array.from(el.children).find(
         (x) => x.tagName === 'separationconfiguration' && x.getAttribute('configid') === c.id);
-      const src = block ?? el;
-      const o: OrkSeparationOverride = {};
-      const event = text(src, ':scope > separationevent');
-      if (event) {
-        // The kernel's spelling, or desktop's default for a value it does not
-        // name. OrkEngine.separationEventOf THROWS on one, and a configuration
-        // is applied outside the tree, so a file carrying one opened and flew —
-        // then failed the whole build the day that configuration was picked
-        // (audit 2026-09-22). The opened configuration's value is also on the
-        // stage node, where the sanitize pass reports it; this reports the rest.
-        const known = separationEventOf(event);
-        o.separationEvent = known ?? 'ejection';
-        if (known === null && node['separationEvent'] !== event) {
-          outsideTreeEnums.set(`${String(node.id)}\u0000separation\u0000${event}`, configSeparationNote(node, event));
+      const o: OrkSeparationOverride = { separationEvent: 'ejection', separationDelay: 0, separationAltitude: 200 };
+      // Like deployment, a partial block inherits each bare field (audit 2026-10-11, S1a-1).
+      for (const src of block ? [el, block] : [el]) {
+        const event = text(src, ':scope > separationevent');
+        if (event) {
+          // The kernel's spelling, or desktop's default for a value it does not
+          // name. OrkEngine.separationEventOf THROWS on one, and a configuration
+          // is applied outside the tree, so a file carrying one opened and flew —
+          // then failed the whole build the day that configuration was picked
+          // (audit 2026-09-22). The opened configuration's value is also on the
+          // stage node, where the sanitize pass reports it; this reports the rest.
+          const known = separationEventOf(event);
+          o.separationEvent = known ?? 'ejection';
+          if (known === null && node['separationEvent'] !== event) {
+            outsideTreeEnums.set(`${String(node.id)}\u0000separation\u0000${event}`, configSeparationNote(node, event));
+          }
+        }
+        if (text(src, ':scope > separationdelay') !== null) {
+          o.separationDelay = num(src, 'separationdelay', 0, notes);
+        }
+        if (text(src, ':scope > separationaltitude') !== null) {
+          o.separationAltitude = num(src, 'separationaltitude', 200, notes);
         }
       }
-      if (text(src, ':scope > separationdelay') !== null) {
-        o.separationDelay = num(src, 'separationdelay', 0, notes);
-      }
-      if (text(src, ':scope > separationaltitude') !== null) {
-        o.separationAltitude = num(src, 'separationaltitude', 200, notes);
-      }
-      if (Object.keys(o).length > 0 && node.id) c.separations[node.id] = o;
+      if (node.id) c.separations[node.id] = o;
     }
   };
 
@@ -839,10 +882,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // the built tree, which is right. A PRESENT bare `auto` is resolved
         // here instead — the kernel would agree, but the schematic, the 3D
         // mesh and the property panel all need a number to show.
-        if (text(el, ':scope > foreradius') !== null) {
+        if (el.querySelector(':scope > foreradius')) {
           n['foreRadius'] = autoDim(el, 'foreradius', 0.012, autoRadii.fore);
         }
-        if (text(el, ':scope > aftradius') !== null) {
+        if (el.querySelector(':scope > aftradius')) {
           n['aftRadius'] = autoDim(el, 'aftradius', 0.009, autoRadii.aft);
         }
         if (text(el, ':scope > thickness') === 'filled') {
@@ -1030,14 +1073,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         readRadialPlacement(el, n, notes);
         n['length'] = num(el, 'length', 0.05, notes);
         n['thickness'] = num(el, 'thickness', 0.0005, notes);
-        readRingRadii(el, n);
+        readRingRadii(el, n, notes);
         return n;
       }
       case 'centeringring': {
         const n = base('centeringring', true);
         readRadialPlacement(el, n, notes);
         n['length'] = num(el, 'length', 0.002, notes);
-        readRingRadii(el, n);
+        readRingRadii(el, n, notes);
         readInstances(el, n, notes);
         // Extension tag: a bulkhead with a hole, which stops a motor (motorRoom.ts).
         if (text(el, ':scope > holedbulkhead') === 'true') n['holedBulkhead'] = true;
@@ -1047,7 +1090,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         const n = base('bulkhead', true);
         readRadialPlacement(el, n, notes);
         n['length'] = num(el, 'length', 0.003, notes);
-        readRingRadii(el, n);
+        readRingRadii(el, n, notes);
         readInstances(el, n, notes);
         return n;
       }
@@ -1056,7 +1099,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         readRadialPlacement(el, n, notes);
         n['length'] = num(el, 'length', 0.005, notes);
         n['thickness'] = num(el, 'thickness', 0.001, notes);
-        readRingRadii(el, n);
+        readRingRadii(el, n, notes);
         return n;
       }
       case 'launchlug': {
@@ -1157,7 +1200,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // <cd>auto</cd> stays automatic (the kernel's own CD_AUTOMATIC path).
         // Anything unparseable is dropped rather than stored as NaN — a NaN Cd
         // reaches the descent solver and poisons the whole trajectory.
-        readAutoCd(el, n);
+        readAutoCd(el, n, notes);
         n['lineCount'] = Math.round(num(el, 'linecount', 6, notes));
         n['lineLength'] = num(el, 'linelength', 0.3, notes);
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
@@ -1179,7 +1222,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         readPackedSize(el, n);
         n['stripLength'] = num(el, 'striplength', 0.5, notes);
         n['stripWidth'] = num(el, 'stripwidth', 0.05, notes);
-        readAutoCd(el, n);
+        readAutoCd(el, n, notes);
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
         readDeployment(el, n, chosenConfigId === null ? null : configScoped(el, 'deploymentconfiguration'), notes);
         captureDeployments(el, n);
@@ -1239,13 +1282,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           if (Number.isFinite(nozzle) && nozzle >= 0) n['nozzleExitDiameter'] = nozzle;
           // Same separation read as a booster <stage> — the chosen config's
           // block wins over the bare defaults.
-          const sepEl = configScoped(el, 'separationconfiguration') ?? el;
-          const ev = text(sepEl, ':scope > separationevent');
-          if (ev && ev !== 'ejection') n['separationEvent'] = ev;
-          const delay = num(sepEl, 'separationdelay', 0, notes);
-          if (delay !== 0) n['separationDelay'] = delay;
-          const alt = num(sepEl, 'separationaltitude', NaN, notes);
-          if (!Number.isNaN(alt) && alt !== 200) n['separationAltitude'] = alt;
+          readSeparation(el, n, configScoped(el, 'separationconfiguration'), notes);
           captureSeparations(el, n);
         }
         return n;
@@ -1337,13 +1374,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     if (i > 0) {
       // Like ignition: the chosen config's block overrides the bare defaults
       // (24.12 writes a <separationconfiguration> for EVERY config id).
-      const sepEl = configScoped(stageEl, 'separationconfiguration') ?? stageEl;
-      const ev = text(sepEl, ':scope > separationevent');
-      if (ev && ev !== 'ejection') stage['separationEvent'] = ev;
-      const delay = num(sepEl, 'separationdelay', 0, notes);
-      if (delay !== 0) stage['separationDelay'] = delay;
-      const alt = num(sepEl, 'separationaltitude', NaN, notes);
-      if (!Number.isNaN(alt) && alt !== 200) stage['separationAltitude'] = alt;
+      readSeparation(stageEl, stage, configScoped(stageEl, 'separationconfiguration'), notes);
       captureSeparations(stageEl, stage);
     }
     const kids = convertChildren(stageEl);
@@ -1468,23 +1499,24 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const numberedStages = Array.from(rocketEl.querySelector(':scope > subcomponents')!
     .querySelectorAll('stage, parallelstage, boosterset'));
   for (const c of configs) {
-    const configEl = configEls.find((el) => el.getAttribute('configid') === c.id)!;
     const flags: Record<string, boolean> = {};
-    for (const el of Array.from(configEl.querySelectorAll(':scope > stage'))) {
-      const number = el.getAttribute('number') ?? '';
-      if (!/^\d+$/.test(number)) continue;
-      const stageEl = numberedStages[Number(number)];
-      const id = stageEl && stageIds.get(stageEl);
-      if (id) flags[id] = /^true$/i.test(el.getAttribute('active') ?? '');
+    // Later duplicate declarations override only their stated stage flags (audit 2026-10-11, S1a-8).
+    for (const configEl of configEls.filter((el) => el.getAttribute('configid') === c.id)) {
+      for (const el of Array.from(configEl.querySelectorAll(':scope > stage'))) {
+        const number = el.getAttribute('number') ?? '';
+        if (!/^\d+$/.test(number)) continue;
+        const stageEl = numberedStages[Number(number)];
+        const id = stageEl && stageIds.get(stageEl);
+        if (id) flags[id] = /^true$/i.test(el.getAttribute('active') ?? '');
+      }
     }
     if (Object.keys(flags).length > 0) c.stageActiveness = flags;
   }
 
   // Stage activeness (<stage active="false">) is not applied (Stage C) —
   // warn when the chosen configuration would actually ground a stage.
-  const chosenEl = configEls.find((c) => c.getAttribute('configid') === chosenConfigId);
-  if (chosenEl && Array.from(chosenEl.querySelectorAll(':scope > stage'))
-      .some((s) => s.getAttribute('active') === 'false')) {
+  const chosen = configs.find((c) => c.id === chosenConfigId);
+  if (chosen && Object.values(chosen.stageActiveness ?? {}).some(active => !active)) {
     notes.push(
       'This configuration deactivates one or more stages — stage activeness isn’t applied here, so all stages fly in the simulation.');
   }
@@ -1693,6 +1725,12 @@ function readWindProfile(cond: XmlElement, launch: Partial<LaunchConditions>, no
   const block = Array.from(cond.querySelectorAll(':scope > wind'))
     .filter((w) => w.getAttribute('model')?.toLowerCase() === 'multilevel').pop();
   const rows = Array.from(block?.querySelectorAll(':scope > windlevel') ?? []);
+  // Bound retained launch data and kernel wind models (audit 2026-10-11, S1a-6).
+  // Refuse the whole profile, never fly a truncated sounding.
+  if (rows.length > 500) {
+    notes.push('The file’s wind profile exceeds 500 levels and was not used; its surface wind settings are used.');
+    return NaN;
+  }
   const offset = block?.getAttribute('altituderef')?.toLowerCase() === 'agl' ? 0 : launch.launchAltitudeM ?? 0;
   const levels = rows.map((row) => {
     const speed = parseDecimal(row.getAttribute('speed'));
@@ -3611,11 +3649,15 @@ function readOverrides(el: XmlElement, node: ComponentNode, notes: string[]): vo
  * becomes the fallback, which is how every explicit ring radius in a .ork was
  * being thrown away on import.
  */
-function autoNum(el: XmlElement, tag: string): number | undefined {
-  const t = text(el, `:scope > ${tag}`);
-  if (!t || t.trim().toLowerCase() === 'auto') return undefined;
+function autoNum(el: XmlElement, tag: string, notes: string[]): number | undefined {
+  const field = el.querySelector(`:scope > ${tag}`);
+  if (!field) return undefined;
+  const t = (field.textContent ?? '').trim();
+  if (t.toLowerCase() === 'auto') return undefined;
   const v = parseDecimal(t.split(/\s+/).pop()); // decimal only, as num() below
-  return Number.isFinite(v) ? v : undefined;
+  if (Number.isFinite(v)) return v;
+  invalidNumberNote(el, tag, notes);
+  return undefined;
 }
 
 /**
@@ -3943,11 +3985,19 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
  * the field off). Anything else is dropped — `parseDecimal("auto 0.8")` is NaN,
  * and a NaN drag coefficient reaches the descent solver.
  */
-function readAutoCd(el: XmlElement, node: ComponentNode): void {
+function readAutoCd(el: XmlElement, node: ComponentNode, notes: string[]): void {
   const t = text(el, ':scope > cd');
   if (t === null || /^auto\b/i.test(t)) return;
   const v = parseDecimal(t);
   if (Number.isFinite(v) && v >= 0) node['cd'] = v;
+  else invalidNumberNote(el, 'cd', notes);
+}
+
+/** Match num's diagnostics for values dropped outside it (audit 2026-10-11, S1a-3/S1a-4). */
+function invalidNumberNote(el: XmlElement, tag: string, notes: string[], action = 'the value was not used'): void {
+  const label = text(el, ':scope > name') ?? el.tagName;
+  const note = `“${label}”: invalid <${tag}> value; ${action}.`;
+  if (!notes.includes(note)) notes.push(note);
 }
 
 function num(el: XmlElement, tag: string, fallback: number, notes: string[]): number {
@@ -4001,10 +4051,10 @@ function readSoftMaterial(el: XmlElement, node: ComponentNode, kind: 'surface' |
  * `<innerradius>auto</innerradius>` next to an explicit outer radius became a
  * solid disk. Saving then wrote `auto` back over the author's numbers.
  */
-function readRingRadii(el: XmlElement, node: ComponentNode): void {
-  const or = autoNum(el, 'outerradius');
+function readRingRadii(el: XmlElement, node: ComponentNode, notes: string[]): void {
+  const or = autoNum(el, 'outerradius', notes);
   if (or !== undefined && or > 0) node['outerRadius'] = or;
-  const ir = autoNum(el, 'innerradius');
+  const ir = autoNum(el, 'innerradius', notes);
   if (ir !== undefined && ir >= 0) node['innerRadius'] = ir;
 }
 
@@ -4171,6 +4221,21 @@ function readDeployment(el: XmlElement, node: ComponentNode, configEl: XmlElemen
       node['deployDelay'] = num(src, 'deploydelay', 0, notes);
     }
   }
+}
+
+/** A partial separation block inherits bare fields, like deployment (audit 2026-10-11, S1a-1). */
+function readSeparation(el: XmlElement, node: ComponentNode, configEl: XmlElement | null, notes: string[]): void {
+  let event = 'ejection';
+  let delay = 0;
+  let altitude = 200;
+  for (const src of configEl ? [el, configEl] : [el]) {
+    event = text(src, ':scope > separationevent') || event;
+    if (text(src, ':scope > separationdelay') !== null) delay = num(src, 'separationdelay', 0, notes);
+    if (text(src, ':scope > separationaltitude') !== null) altitude = num(src, 'separationaltitude', 200, notes);
+  }
+  if (event !== 'ejection') node['separationEvent'] = event;
+  if (delay !== 0) node['separationDelay'] = delay;
+  if (altitude !== 200) node['separationAltitude'] = altitude;
 }
 
 /** The axial-position methods an .ork carries — the exporter's closed set for `method=`/`type=`. */
