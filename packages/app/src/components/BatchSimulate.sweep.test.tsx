@@ -8,7 +8,8 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { SimRun } from '../services/simReport.js';
 import { MOTOR_DB, MOTOR_DB_DATE, isAvailable, setCatalogueOverlay } from '../services/motorDb.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
-import { BATCH_TABLE_ROWS, BatchSimulate, batchCapNote } from './BatchSimulate.js';
+import { BatchSimulate } from './BatchSimulate.js';
+import { BATCH_TABLE_ROWS, batchCapNote } from '../services/batchCriteria.js';
 import {
   mixedComboCount, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepHooks, type BatchWeighed,
 } from '../services/batchSweep.js';

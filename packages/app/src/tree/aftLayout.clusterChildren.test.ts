@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
-import { aftLayout } from './AftView.js';
+import { aftLayout } from './aftLayout.js';
 
 it.each(['3-ring', '4-ring'])('S3b-1 instances the engine block in every %s tube', (cluster) => {
   const tree: RocketTree = { components: [{ id: 'b', type: 'bodytube', length: 0.3, outerRadius: 0.04,

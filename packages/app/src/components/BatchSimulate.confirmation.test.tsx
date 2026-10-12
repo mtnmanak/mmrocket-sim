@@ -7,7 +7,8 @@ import type { MotorDbEntry } from '../services/motorDb.js';
 import { runBatchSweep } from '../services/batchSweep.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
-import { BatchSimulate, batchConfirmationArmed } from './BatchSimulate.js';
+import { BatchSimulate } from './BatchSimulate.js';
+import { batchConfirmationArmed } from '../services/batchCriteria.js';
 
 const catalog = vi.hoisted(() => ({ motors: [] as MotorDbEntry[] }));
 vi.mock('./useCatalogue.js', () => ({ useCatalogue: () => catalog.motors }));

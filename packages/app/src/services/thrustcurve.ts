@@ -1126,6 +1126,7 @@ export async function fetchMotorSpec(
       + ' this run reads only the curves bundled with the app.');
   }
   if (motor.motorId.startsWith('ex:')) {
+    // Must stay dynamic to break the exMotors <-> thrustcurve cycle (audit 2026-10-11, S5-7).
     const { getExMotor, exToMotorSpec } = await import('./exMotors.js');
     const ex = getExMotor(motor.motorId);
     if (!ex) throw new Error(`Imported motor ${motor.designation} is no longer stored`);

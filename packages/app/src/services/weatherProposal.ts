@@ -178,11 +178,29 @@ export const applicable = (p: Proposal): ProposalRow[] => p.rows.filter((r) => r
  * What Apply writes: the ticked rows that may be applied, plus the Site
  * altitude when the ground was chosen. Never σ — it is not a row.
  */
-export function patchOf(p: Proposal, ticked: ReadonlySet<ProposalRow['key']>): WeatherPatch {
+export function patchOf(p: Proposal, ticked: ReadonlySet<ProposalRow['key']>, { aloft }: {
+  aloft?: {
+    ticked: boolean;
+    place: Pick<WeatherPlace, 'label' | 'method'> | null;
+    currentLevels: LaunchConditions['windLevels'];
+  };
+} = {}): WeatherPatch {
   const patch: WeatherPatch = {};
   for (const r of applicable(p)) if (ticked.has(r.key)) patch[r.key] = r.value!;
   if (p.altitude.canChoose && p.altitude.choice === 'ground' && p.altitude.groundAltitudeM !== null) {
     patch.launchAltitudeM = p.altitude.groundAltitudeM;
+  }
+  // Keep the whole Apply rule together (audit 2026-10-11, S3b-5): an unchecked
+  // or refused wind row must leave the profile and its source alone.
+  if (aloft && patch.windAverage !== undefined) {
+    if (aloft.place && aloft.ticked && p.windLevels.length) {
+      patch.windLevels = p.windLevels;
+      // The place method keeps GeoNames attribution with the profile after the snapshot.
+      patch.windProfileSource = { kind: 'open-meteo', place: aloft.place.label, validUnix: p.sample.unix,
+        surfaceFromDeg: p.sample.windFromDeg!, method: aloft.place.method };
+    } else if (aloft.currentLevels?.length) {
+      patch.windLevels = [];
+    }
   }
   return patch;
 }

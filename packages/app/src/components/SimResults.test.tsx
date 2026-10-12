@@ -15,7 +15,7 @@ import { testResolution } from '../services/autoDelay.testSupport.js';
 import { delayMountsOf } from '../services/autoDelaySolver.js';
 import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
-import { gradeBatchRun, type Criteria } from './BatchSimulate.js';
+import { gradeBatchRun, type Criteria } from '../services/batchCriteria.js';
 import type { FlightResult, StaticInfo } from '@online-openrocket/engine';
 
 /**
