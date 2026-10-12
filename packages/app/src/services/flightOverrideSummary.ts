@@ -1,6 +1,7 @@
 import type { ComponentNode } from '@online-openrocket/engine';
-import type { FlightOverrides, FlightTree, MountMotor } from '../model/design.js';
-import { motorMounts } from '../tree/treeModel.js';
+import type { DeploymentTuple, FlightOverrides, FlightTree, MountMotor } from '../model/design.js';
+import { motorMounts, stages } from '../tree/treeModel.js';
+import { flownDeployEvent } from '../tree/deployEvent.js';
 import { deploymentTuple } from './foreignConfigLayers.js';
 import { overrideFor, sparsify } from './flightState.js';
 import { describeComponentFlightTuple, describeIgnitionTuple, separationTuple } from './flightOverrideText.js';
@@ -15,13 +16,28 @@ interface Group {
   family: OverrideFamily; kind: string; names: string[]; flown: string; own: string;
 }
 
-/** Describe only tuples the resolver projects onto present components / loaded motors. */
+/** Warning equality follows flight behavior; storage equality still keeps the complete tuple. */
+function flownDeployment(tuple: DeploymentTuple): DeploymentTuple {
+  const deployEvent = flownDeployEvent(tuple.deployEvent);
+  return { ...tuple, deployEvent, deployAltitude: deployEvent === 'altitude' ? tuple.deployAltitude : 0 };
+}
+
+function describeFlownDeployment(tuple: DeploymentTuple, unit: string): string {
+  const deployEvent = flownDeployEvent(tuple.deployEvent);
+  const description = describeComponentFlightTuple({ ...tuple, deployEvent }, unit);
+  if (deployEvent === tuple.deployEvent.toLowerCase()) return description;
+  const stored = tuple.deployEvent.toLowerCase() === 'lowerstageseparation' ? 'lower stage separation' : tuple.deployEvent;
+  return `${description} (the file's '${stored}' is not supported here)`;
+}
+
+/** Describe effective overrides on present components / loaded motors. */
 export function describeFlightOverrides(
   tree: FlightTree, overrides: FlightOverrides, motors: Record<string, MountMotor>,
   configLabel: string | null, distanceUnit: string,
 ): FlightOverrideSummary | null {
   const groups = new Map<string, Group>();
   const mountIds = new Set(motorMounts(tree).map(node => node.id));
+  const topStage = stages(tree)[0];
   let first: FlightOverrideSummary['first'] | undefined;
   const add = (node: ComponentNode, family: OverrideFamily, kind: string, flown: string, own: string) => {
     first ??= { id: node.id!, family };
@@ -36,10 +52,11 @@ export function describeFlightOverrides(
       if (id && (node.type === 'parachute' || node.type === 'streamer')) {
         const tuple = overrideFor(overrides.deployments, id);
         const own = deploymentTuple(node);
-        if (tuple && sparsify(own, tuple)) add(node, 'recovery', node.type,
-          describeComponentFlightTuple(tuple, distanceUnit), describeComponentFlightTuple(own, distanceUnit));
+        if (tuple && sparsify(flownDeployment(own), flownDeployment(tuple))) add(node, 'recovery', node.type,
+          describeFlownDeployment(tuple, distanceUnit), describeFlownDeployment(own, distanceUnit));
       }
-      if (id && (node.type === 'stage' || node.type === 'parallelstage')) {
+      // BasicEventSimulationEngine never separates axial stage 0 (the sustainer).
+      if (id && node !== topStage && (node.type === 'stage' || node.type === 'parallelstage')) {
         const tuple = overrideFor(overrides.separations, id);
         const own = separationTuple(node);
         if (tuple && sparsify(own, tuple)) add(node, 'separation', 'stage',
