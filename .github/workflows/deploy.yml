@@ -94,10 +94,12 @@ jobs:
     # should change in a commit that does only that and runs the whole gate, not under an unrelated push.
     # The deploy job below and both jobs in motors-refresh.yml are pinned with it; move all four together.
     runs-on: ubuntu-24.04
-    # Recent runs of the whole single job took 2m53s-3m58s. Without a limit a hung
-    # step holds the concurrency group for GitHub's 6 h default, and every deploy
-    # queued behind it waits — a safety hotfix included.
-    timeout-minutes: 15
+    # Measured 2026-10-12: the whole build job took 11m (v0.182) and 14m45s (v0.183), with npm test
+    # alone at 12m21s; v0.184 was cancelled by the old 15-minute limit while building. Without a
+    # limit a hung step holds the concurrency group for GitHub's 6 h default, and every deploy
+    # queued behind it waits — a safety hotfix included. Keep roughly 2x headroom over the
+    # measured time, and re-measure when the suite grows.
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
