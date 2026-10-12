@@ -264,6 +264,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     return { motors, notice: notes.join(' ') || null, tier: highestTier(noteFlags(notes)) };
   });
   const [importTier, setImportTier] = useState<NoteTier>(initialEx.tier);
+  /** The tier the import notice alone carries — what remains once its error is replaced. */
+  const [noticeTier, setNoticeTier] = useState<NoteTier>(initialEx.tier);
   const [notice, setNotice] = useState<string | null>(initialEx.notice);
   const [exMotors, setExMotors] = useState(initialEx.motors);
 
@@ -379,8 +381,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const importMotorFiles = async (files: File[]) => {
     setError(null);
     setNotice(null);
-    const { parsed, write, error, notice, tier } = await readMotorFiles(files);
+    const { parsed, write, error, notice, tier, noticeTier: noticeOnly } = await readMotorFiles(files);
     setImportTier(tier);
+    setNoticeTier(noticeOnly);
     setError(error);
     setNotice(notice);
     if (write) {
@@ -464,6 +467,10 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     loadAbort.current = ctrl;
     setBusy(true);
     setError(null);
+    // The import's error is gone, so its amber goes with it: a catalogue load
+    // that fails is Information (D7 M01) and the block keeps only the tier
+    // the import notice still on screen carries (review of NOTES-1, finding 8).
+    setImportTier(noticeTier);
     // The controls stay live during a download; only the choice still shown
     // may reach the design (audit 2026-10-11, S3a-1).
     const superseded = () => ctrl.signal.aborted || loadChoice.current.picked !== picked

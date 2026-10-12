@@ -4,6 +4,7 @@ import { MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS } from '../services/conf
 import type { RocketTree } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { recoverySummary } from './recoveryContext.js';
+import { Note } from './Note.js';
 
 /**
  * Imported and app-created configurations as one-click motor sets.
@@ -210,7 +211,10 @@ function ConfigDeleteConfirmation({ label, onCancel, onDelete, unprotected }: {
     style={{ flexBasis: '100%' }} onKeyDown={(e) => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel(); }
     }}>
-    <p id={descriptionId} className={unprotected ? 'message-tier message-danger' : undefined}>Delete this configuration? Its motors stay loaded if it is the one you are flying.</p>
+    {/* The shared Note, so the unprotected state says "Danger:" in words and
+        not by its fill alone — forced colours flatten the fill (review of
+        NOTES-1, finding 5). */}
+    <Note as="p" id={descriptionId} tier={unprotected ? 'danger' : 'information'}>Delete this configuration? Its motors stay loaded if it is the one you are flying.</Note>
     <button className="file-btn file-btn-danger" aria-label={`Confirm delete ${label}`} onClick={onDelete}>Delete</button>{' '}
     <button className="file-btn" aria-label={`Cancel deleting ${label}`} ref={cancel} onClick={onCancel}>Cancel</button>
   </div>;

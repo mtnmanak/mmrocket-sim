@@ -434,9 +434,15 @@ describe('the 500-run cap (audit 2026-09-22)', () => {
     mount();
     await start();
     expect(saved[0]).toHaveLength(500);
-    expect(host.querySelector('.batch-finished')?.textContent)
+    // Its own Caution block (review of NOTES-1, finding 4: D7 G12), still in
+    // the status region that announces the finished line.
+    const retention = host.querySelector('.batch-status .batch-retention')!;
+    expect(retention.textContent)
       .toContain('Saved simulations keeps up to 500 runs, so the oldest 2 were removed to make room.');
-    expect(host.querySelector('.batch-finished')?.textContent).not.toContain('not saved');
+    expect(retention.textContent).not.toContain('not saved');
+    expect(retention.classList.contains('message-caution')).toBe(true);
+    expect(retention.textContent).toMatch(/^⚠ Caution: Saved simulations keeps/);
+    expect(host.querySelector('.batch-finished')?.textContent).not.toContain('Saved simulations keeps');
   });
 
   it('a sweep that accepts more than 500 says which runs were removed and which never fit (from review)', async () => {
@@ -450,9 +456,10 @@ describe('the 500-run cap (audit 2026-09-22)', () => {
     await start();
     expect(saved[0]).toHaveLength(500);
     expect(saved[0]!.some((r) => r.id.startsWith('old'))).toBe(false);
-    expect(host.querySelector('.batch-finished')?.textContent).toContain(
+    expect(host.querySelector('.batch-retention')?.textContent).toContain(
       'Saved simulations keeps up to 500 runs, so the oldest 100 were removed to make room,'
       + ' and 100 new runs did not fit and were not saved. The CSV and XLSX above still carry every accepted run');
+    expect(host.querySelector('.batch-retention')!.classList.contains('message-caution')).toBe(true);
   });
 
   it('and says nothing when there was room', async () => {
@@ -460,6 +467,7 @@ describe('the 500-run cap (audit 2026-09-22)', () => {
     mount();
     await start();
     expect(host.querySelector('.batch-finished')?.textContent).not.toContain('Saved simulations keeps');
+    expect(host.querySelector('.batch-retention')).toBeNull();
   });
 });
 
@@ -588,6 +596,10 @@ describe('the table', () => {
     expect(bodyRows()[0]!.textContent).toContain(`Acme E${BATCH_TABLE_ROWS + 49}`);
     expect(host.querySelector('.batch-cap')?.textContent)
       .toBe(`Showing the top ${BATCH_TABLE_ROWS} of ${BATCH_TABLE_ROWS + 50} flown rows — the CSV and XLSX carry every one.`);
+    // Nothing is lost — both exports carry every flown row — so it stays
+    // Information (review of NOTES-1, finding 4: D7 G12 is the retention loss).
+    expect(host.querySelector('.batch-outcome-notes')!.classList.contains('message-tier')).toBe(false);
+    expect(host.querySelector('.batch-outcome-notes .message-label')).toBeNull();
     act(() => { buttons().find((b) => b.textContent === '⬇ CSV')!.click(); });
     const csv = await vi.mocked(downloadBlob).mock.calls[0]![0].text();
     // A header line, then one line per row — none of them capped away.
@@ -629,6 +641,8 @@ describe('the table', () => {
     expect(bodyRows()).toHaveLength(BATCH_TABLE_ROWS + 1);
     expect(host.querySelector('.batch-cap')?.textContent)
       .toBe(`Listing the first ${BATCH_TABLE_ROWS} of ${BATCH_TABLE_ROWS + 5} rows that could not be flown, which neither export carries.`);
+    // Rows neither export carries: this branch of the cap does lose them.
+    expect(host.querySelector('.batch-outcome-notes')!.classList.contains('message-caution')).toBe(true);
   });
 
   it('names both cuts when both are made, and nothing when neither is', () => {

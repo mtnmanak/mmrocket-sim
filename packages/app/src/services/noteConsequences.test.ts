@@ -34,4 +34,6 @@ it('ordinary and wholly refused motor imports remain quiet; partial imports carr
   expect(partial.tier).toBe('caution');
   expect(partial.parsed).toHaveLength(1);
   expect(partial.error).toContain('Skipped 1 file');
+  // The Caution is the skipped file's (the error); the notice alone is quiet.
+  expect(partial.noticeTier).toBe('information');
 });

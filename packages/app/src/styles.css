@@ -4711,6 +4711,15 @@ select.unit-chip:hover {
 .message-label { font-weight: 700; }
 .message-tier.message-tier .simdet-comments,
 .message-tier.message-tier .comp-stats { color: inherit; }
+/* Children that carry their own ink take the fill's instead (review of
+   NOTES-1): the stale weather line (Dark: #f0efec on amber, 1.27:1), the
+   pad-mass figure (the accent on amber) and the failed run-save ×. (0,3,0),
+   so a bare class rule cannot win back. contrastTokens.test.ts runs the
+   cascade over every element written inside a filled block. */
+.message-tier.message-tier :is(.weather-stale, .measured-delta, .file-note-dismiss) { color: inherit; }
+/* The block's own padding replaced .file-note's 28px right edge, so the
+   absolutely placed × sat over the end of the first line. */
+.message-tier.message-tier.file-note:has(> .file-note-dismiss) { padding-right: 28px; }
 .message-tier.message-tier .notice-count { background: transparent; border-color: currentColor; }
 .message-tier.message-tier .file-note { background: transparent; color: inherit; border: 0; padding: 0; }
 .message-tier.message-tier .file-btn {
@@ -4724,7 +4733,10 @@ select.unit-chip:hover {
 .notice-count { color: var(--text-secondary); }
 .gust-estimate-muted { color: var(--text-secondary); }
 .notice-item.message-tier { margin: 2px 0; }
-.notice-bar .message-tier :where(.notice-count, .notice-glyph, .notice-dismiss) { color: inherit; }
+/* (0,3,0) and later than `.notice-item.notice-error .notice-glyph`, which the
+   earlier (0,2,0) `.notice-bar .message-tier :where(…)` lost to: a Danger
+   glyph drew --status-serious on the red fill (1.40:1 Light, 1.19:1 Daylight). */
+.notice-item.message-tier :is(.notice-count, .notice-glyph, .notice-dismiss) { color: inherit; }
 @media (forced-colors: active) {
   .message-tier.message-tier.message-tier {
     forced-color-adjust: auto;

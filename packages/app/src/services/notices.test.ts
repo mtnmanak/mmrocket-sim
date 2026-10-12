@@ -76,6 +76,12 @@ describe('designNotices', () => {
     expect(one({ fileNote: { text: 'Saved elsewhere', severity: 'warn', tier: 'caution' } }).tier).toBe('caution');
     expect(one({ fileNote: { text: 'Save failed', severity: 'error', tier: 'danger' } }).tier).toBeUndefined();
   });
+  it('announces a failed save or export without drawing it twice (review of NOTES-1, finding 7)', () => {
+    // Its one visible block is the header's Danger note beside Save / Export.
+    expect(one({ fileNote: { text: 'Save failed', severity: 'error', tier: 'danger' } }).announceOnly).toBe(true);
+    expect(one({ fileNote: { text: 'Saved elsewhere', severity: 'warn', tier: 'caution' } }).announceOnly).toBeUndefined();
+    expect(one({ fileNote: { text: 'Could not open', severity: 'error' } }).announceOnly).toBeUndefined();
+  });
   it('carries a file note attention flag without raising its severity', () => {
     expect(one({ fileNote: { text: 'Configuration override', severity: 'info', expand: true } }))
       .toMatchObject({ id: 'file-note', severity: 'info', expand: true });

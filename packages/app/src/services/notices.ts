@@ -232,9 +232,12 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
       id: 'file-note',
       severity: input.fileNote.severity,
       ...(fileGroup ? { group: { ...fileGroup, lines: fileGroup.lines.filter(l => !isLegacyPositionNote(l.text)) } } : {}),
-      // Save failures have their filled block beside Save / Export. This
-      // strip still owns their announcement and dismissal, without a second block.
+      // Save and export failures have their one visible block, the Danger
+      // note beside Save / Export, whose × dismisses them. This strip only
+      // announces them (review of NOTES-1, finding 7: drawn here too, the same
+      // words showed twice).
       ...(input.fileNote.tier && input.fileNote.tier !== 'danger' ? { tier: input.fileNote.tier } : {}),
+      ...(input.fileNote.tier === 'danger' ? { announceOnly: true } : {}),
       text: fileText,
       ...(input.fileNote.expand ? { expand: true } : {}),
       onDismiss: dismiss.fileNote,

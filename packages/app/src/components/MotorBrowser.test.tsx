@@ -786,6 +786,43 @@ describe('MotorBrowser — load and import results reach a screen reader (audit 
     expect(h.selected).toEqual([]);
   });
 
+  // Review of NOTES-1, finding 8: the import's Caution belonged to its
+  // skipped file, which the failed Load's message replaced — a fetch error
+  // with the previous motor intact is Information (D7 M01).
+  it('a failed catalogue Load after a partial import does not keep the import’s Caution', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true } });
+    await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }, { name: 'bad.eng', text: 'not a motor' }]);
+    const notes = () => h.host.querySelector('.motor-import-notes')!;
+    expect(notes().classList.contains('message-caution')).toBe(true);
+    expect(notes().querySelector('[role="alert"]')!.textContent).toContain('Skipped 1 file');
+    search(h, 'G80');
+    click(rowFor(h, 'Estes', 'G80')!);
+    click(loadButton(h)!);
+    for (let i = 0; i < 50 && !/thrustcurve\.org/.test(notes().querySelector('[role="alert"]')!.textContent ?? ''); i++) await settle(10);
+    expect(notes().querySelector('[role="alert"]')!.textContent).toMatch(/^thrustcurve\.org could not be reached for G80/);
+    expect(notes().querySelector('[role="status"]')!.textContent).toMatch(/Imported 1 EX motor/);
+    expect(notes().classList.contains('message-tier')).toBe(false);
+    expect(notes().querySelector('.message-label')).toBeNull();
+  });
+
+  it('but a still-showing import notice that names a repair keeps its Caution through a failed Load', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true } });
+    await importFiles(h, [{ name: 'inches.rse', text: `<engine-database><engine-list>
+      <engine mfg="Home" code="H99X" dia="29." len="200." initWt="300." propWt="150." delays="6" exitDia="0.5">
+        <data><eng-data t="0" f="0"/><eng-data t="0.5" f="120"/><eng-data t="1.5" f="0"/></data>
+      </engine></engine-list></engine-database>` }]);
+    const notes = () => h.host.querySelector('.motor-import-notes')!;
+    expect(notes().classList.contains('message-caution')).toBe(true);
+    search(h, 'G80');
+    click(rowFor(h, 'Estes', 'G80')!);
+    click(loadButton(h)!);
+    for (let i = 0; i < 50 && !/thrustcurve\.org/.test(notes().querySelector('[role="alert"]')!.textContent ?? ''); i++) await settle(10);
+    expect(notes().querySelector('[role="status"]')!.textContent).toMatch(/H99X: its nozzle exit/);
+    expect(notes().classList.contains('message-caution')).toBe(true);
+  });
+
   it('an import result lands in the status region', async () => {
     h = openBrowser({ mountDiameterMm: 54 });
     await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);

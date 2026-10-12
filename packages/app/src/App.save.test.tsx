@@ -1237,6 +1237,27 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
     expect(await guarded(host)).toBe(true);
   }, 30000);
 
+  it('shows a failed save once, beside Save / Export, and still announces it (review of NOTES-1, finding 7)', async () => {
+    await mountApp();
+    await waitFor(starterStored, 'the starter motor to be autosaved');
+    const host = document.body;
+    vi.mocked(saveFile).mockRejectedValueOnce(new Error('disk unavailable'));
+    await saveAs(host, 'Save .ork');
+    await settle();
+    // Every visible element whose own text says it: the header's Danger note alone.
+    const shown = [...host.querySelectorAll('*')].filter((el) => !el.closest('.sr-only')
+      && [...el.childNodes].some((c) => c.nodeType === 3 && c.textContent!.includes('Save .ork failed')));
+    expect(shown.map((el) => el.className)).toEqual(['file-operation-note message-tier message-danger']);
+    expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('Save .ork failed');
+    expect(host.querySelector('.notice-announce[role="alert"]')!.textContent).toContain('Save .ork failed');
+    // Its × is the one dismissal.
+    await act(async () => {
+      (host.querySelector('[aria-label="Dismiss failed save or export"]') as HTMLButtonElement).click();
+    });
+    expect(host.querySelector('.file-operation-note')).toBeNull();
+    expect(host.querySelector('.notice-bar')?.textContent ?? '').not.toContain('Save .ork failed');
+  }, 30000);
+
   it('every Save As / Export entry but Save .ork — the share link among them — leaves the design unsaved', async () => {
     const writeText = vi.fn(async (_url: string) => {});
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });

@@ -2,7 +2,7 @@ import { Note } from './Note.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import type { FlightOverrideSummary } from '../services/flightOverrideSummary.js';
 import {
-  gradeBatchRun, batchTableRows, batchCapNote, batchSummary, BATCH_CONFIRM_ABOVE_FLIGHTS,
+  gradeBatchRun, batchTableRows, batchCapNote, batchSummary, BATCH_CONFIRM_ABOVE_FLIGHTS, BATCH_TABLE_ROWS,
   BATCH_RUN_ANYWAY_ABOVE_FLIGHTS, batchConfirmationArmed, batchCandidates, batchFlightCount,
   batchEstimate, batchRefusal, batchButtonLabel, batchConfirmWarning, batchProgressAnnouncement,
   type BatchPace, type Criteria,
@@ -353,6 +353,10 @@ export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, t
   /** The rows the table draws — every FLOWN row still reaches the CSV and XLSX. */
   const table = useMemo(() => batchTableRows(sorted), [sorted]);
   const capNote = batchCapNote(table);
+  // D7 G12: Caution only where the cap changes what is KEPT. Rows the table
+  // leaves out but both exports carry lose nothing (Information); failed rows
+  // past the cap are in neither export, so that branch is Caution.
+  const capLosesRows = table.failed > BATCH_TABLE_ROWS;
 
   const downloadAs = (blob: Blob, ext: string) => {
     downloadBlob(blob, `batch-${safeName(rocketName)}.${ext}`,
@@ -747,14 +751,22 @@ export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, t
                 errors: sorted.filter((r) => r.error).length,
                 downloadable: sorted.some((r) => r.run),
               })}
-              {(finished.evicted > 0 || finished.unsaved > 0)
-                && ` ${runCapNote(finished.evicted, finished.unsaved)}`}
-              {finished.unsaved > 0 && ' The CSV and XLSX above still carry every accepted run: download one before closing.'}
             </p>
+          )}
+          {/* D7 G12: saved runs evicted or never saved is the batch's
+              retention loss, so it is the Caution here — its own block, in
+              this status region so it is still announced, leading with the
+              loss rather than trailing the summary. */}
+          {finished && !running && (finished.evicted > 0 || finished.unsaved > 0) && (
+            <Note as="p" tier="caution" className="comp-stats batch-retention" style={{ margin: '6px 0 0' }}>
+              {runCapNote(finished.evicted, finished.unsaved)}
+              {finished.unsaved > 0 && ' The CSV and XLSX above still carry every accepted run: download one before closing.'}
+            </Note>
           )}
         </div>
         {(failure && !running || sorted.some(r => r.optimumForPlugged) || capNote) && <Note
-          tier={failure && !running ? 'danger' : 'caution'} className="batch-outcome-notes">
+          tier={failure && !running ? 'danger' : sorted.some(r => r.optimumForPlugged) || capLosesRows ? 'caution' : 'information'}
+          className="batch-outcome-notes">
         {failure && !running && (
           <p className="comp-stats batch-failed stability-bad" role="alert" style={{ margin: '6px 0 0' }}>
             {`The batch stopped before it finished: ${failure}`}

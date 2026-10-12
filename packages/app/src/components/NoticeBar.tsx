@@ -1,5 +1,5 @@
 import { NoteLabel, noteClass, type NoteTier } from './Note.js';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { changesText, highestTier, orderedLines, tierRank, type NoteGroup } from '../services/importNotes.js';
 
 /**
@@ -55,6 +55,13 @@ export interface Notice {
   expand?: boolean;
   /** Present when the user is allowed to dismiss this one. */
   onDismiss?: () => void;
+  /**
+   * Said by the announcers but never drawn on the bar: a message whose one
+   * visible block lives beside the operation that failed (a failed save or
+   * export's Danger note in the header). Drawing it here as well showed the
+   * same words twice (review of NOTES-1, finding 7).
+   */
+  announceOnly?: boolean;
 }
 
 const RANK: Record<NoticeSeverity, number> = { info: 0, warn: 1, error: 2 };
@@ -116,8 +123,10 @@ const spoken = (n: Notice): string => {
   return `${LABEL[n.severity]}: ${n.severity === 'info' && !n.expand ? firstLine(n.text) : n.text}`;
 };
 
-export function NoticeBar({ notices }: { notices: Notice[] }) {
+export function NoticeBar({ notices: all }: { notices: Notice[] }) {
   const [expanded, setExpanded] = useState(false);
+  /** What the bar draws; the announcers below still speak for every notice. */
+  const notices = useMemo(() => all.filter((n) => !n.announceOnly), [all]);
   // Track what the user has already been shown — every id, severity and text on the
   // bar — so a warning opens it the first time it appears and does NOT re-open
   // it every render, nor fight the user if they collapse it again.
@@ -159,10 +168,11 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
    */
   const onBar = useRef<ReadonlySet<string>>(new Set());
   const [said, setSaid] = useState({ seq: 0, polite: '', assertive: '' });
+  const spokenKey = all.map(noticeKey).join('\u0001');
   useEffect(() => {
     const before = onBar.current;
-    onBar.current = new Set(notices.map(noticeKey));
-    const fresh = notices.filter((n) => !before.has(noticeKey(n)));
+    onBar.current = new Set(all.map(noticeKey));
+    const fresh = all.filter((n) => !before.has(noticeKey(n)));
     if (fresh.length === 0) return;
     const say = (want: (n: Notice) => boolean) => fresh.filter(want).map(spoken).join(' ');
     setSaid((prev) => ({
@@ -170,7 +180,7 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
       polite: say((n) => n.severity === 'info'),
       assertive: say((n) => n.severity !== 'info'),
     }));
-  }, [textKey, notices]);
+  }, [spokenKey, all]);
 
   useEffect(() => {
     const seen = announced.current;

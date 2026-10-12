@@ -42,6 +42,14 @@ describe('ConfigPanel', () => {
     mount({ deletionUnprotected });
     act(() => (host.querySelector('[aria-label="Delete Club field C6 — configuration 1"]') as HTMLButtonElement).click());
     expect(host.querySelectorAll('.message-danger')).toHaveLength(deletionUnprotected ? 1 : 0);
+    // Colour is never the only cue (review of NOTES-1, finding 5): the
+    // unprotected prompt says "Danger:" in words, and so does its description.
+    const group = host.querySelector('[aria-label="Delete Club field C6 — configuration 1?"]')!;
+    const description = document.getElementById(group.getAttribute('aria-describedby')!)!;
+    expect(description.querySelector('.message-label')?.textContent ?? null)
+      .toBe(deletionUnprotected ? '⛔ Danger: ' : null);
+    expect(description.textContent).toBe(`${deletionUnprotected ? '⛔ Danger: ' : ''}`
+      + 'Delete this configuration? Its motors stay loaded if it is the one you are flying.');
   });
 
   function mount(over: Partial<Parameters<typeof ConfigPanel>[0]> = {}) {

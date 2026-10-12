@@ -53,6 +53,24 @@ it('visual tiers do not change announcement urgency or paint unrelated Informati
 /** The two always-mounted announcers (audit 2026-09-22). */
 const polite = () => host.querySelector('.notice-announce[role="status"]');
 const assertive = () => host.querySelector('.notice-announce[role="alert"]');
+
+/**
+ * Review of NOTES-1, finding 7: a failed save's Danger block is beside Save /
+ * Export, and the bar drew the same words again. An announce-only notice is
+ * spoken, never drawn — and it does not open or hold the bar.
+ */
+it('says an announce-only notice without drawing it, beside or without others', () => {
+  const failed: Notice = { id: 'file-note', severity: 'error', text: 'Save .ork failed — nothing was written: disk full', announceOnly: true };
+  draw([failed]);
+  expect(bar()).toBeNull();
+  expect(assertive()?.textContent).toBe('Error: Save .ork failed — nothing was written: disk full');
+  expect(document.body.classList.contains('has-notice')).toBe(false);
+  draw([failed, info]);
+  expect(bar()?.textContent).not.toContain('Save .ork failed');
+  expect(bar()?.classList.contains('expanded')).toBe(false);
+  expect(bar()?.querySelector('.notice-count')).toBeNull();
+  expect(polite()?.textContent).toContain('Loaded');
+});
 const buttonByLabel = (re: RegExp): HTMLButtonElement => {
   const found = [...host.querySelectorAll('button')]
     .find((b) => re.test(b.getAttribute('aria-label') ?? ''));
