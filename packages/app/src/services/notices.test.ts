@@ -67,6 +67,11 @@ const one = (over: Partial<NoticeInput>, d = dismissers()) => {
 };
 
 describe('designNotices', () => {
+  it.each(['bad', {}, [1, null, 'kept repair']].map(v => [v]))('S7d-2 ignores malformed curve repair entries (%j)', curveRepairs => {
+    const notices = designNotices(quiet({ assigned: [['mount', mm(spec('H100', 29, { curveRepairs }))]] }), dismissers());
+    if (Array.isArray(curveRepairs)) expect(notices[0]?.text).toContain('kept repair');
+    else expect(notices).toEqual([]);
+  });
   it('says nothing about a design with nothing to say', () => {
     expect(designNotices(quiet(), dismissers())).toEqual([]);
   });

@@ -190,7 +190,7 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
   /** The Custom box holds something that cannot be applied (it is not). */
   const customBad = (m: MountPreview) => {
     const raw = custom[m.id];
-    if (raw === undefined || raw.trim() === '') return false;
+    if (raw === undefined) return false;
     return !goodBore(m, Number(raw));
   };
   /** Why NO size fits, where none does (`maxBoreMm` 0) — not "at most 0.0 mm". */
@@ -482,18 +482,18 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                           {custom[m.id] !== undefined && (
                             <>
                               {' '}
-                              <input
-                                type="number"
-                                min={1}
-                                max={m.maxBoreMm ?? undefined}
-                                step={1}
-                                aria-label={`Custom mount bore for ${m.name}, mm`}
-                                aria-invalid={customBad(m) || undefined}
-                                className={customBad(m) ? 'num-invalid' : undefined}
-                                value={custom[m.id] ?? ''}
-                                style={{ width: 90 }}
-                                onChange={(e) => onCustomBore(m, e.target.value)}
-                              />
+                              {/* Use the shared decimal parser, invalid-draft styling and blur reset;
+                                  a native number input hides rejected text as empty (audit 2026-10-11, S3b-g2). */}
+                              <span className="inline-numfield" style={{ display: 'inline-block', width: 90 }}>
+                                <NumField
+                                  min={1}
+                                  max={m.maxBoreMm ?? undefined}
+                                  ariaLabel={`Custom mount bore for ${m.name}, mm`}
+                                  invalid={customBad(m)}
+                                  value={Number(custom[m.id])}
+                                  onCommit={value => { if (value !== null && goodBore(m, value)) onCustomBore(m, String(value)); }}
+                                />
+                              </span>
                               {' mm'}
                               {m.maxBoreMm !== null && (m.maxBoreMm === 0
                                 ? <> — no size fits inside the tube around it, which {noRoomWhy(m)}</>

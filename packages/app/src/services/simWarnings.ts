@@ -105,7 +105,9 @@ function isHighPriority(w: EngineWarning): boolean {
  * Strip the DebugTranslator bracket prefix ("[Warning.X] rest" → "rest") and
  * tidy the source-list separator (":  \"Chute\"" → ": \"Chute\"").
  */
-function stripBrackets(message: string): string {
+function stripBrackets(message: unknown): string {
+  // Also tolerate unhydrated warning evidence (audit 2026-10-11, S7a-4).
+  if (typeof message !== 'string') return '';
   return message.replace(/^\[[^\]]*\]\s*/, '').replace(/:\s{2,}/g, ': ').trim();
 }
 

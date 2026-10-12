@@ -144,7 +144,8 @@ function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
     const limit = fieldLimit(n.type, key);
     if (!limit) continue;
     const fixed = applyFieldLimit(limit, raw);
-    if (fixed === raw) continue;
+    // NaN cannot be clamped and must not produce a repair (audit 2026-10-11, S4a-6).
+    if (!Number.isFinite(raw) || fixed === raw) continue;
     edit()[key] = fixed;
     found.push(limitFinding(n, key, limit, raw, fixed));
   }
@@ -152,7 +153,7 @@ function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
   // eslint-disable-next-line no-restricted-syntax -- the load clamp, as the field loop above: it clamps a number, it does not read one (audit row 522)
   if (pos && typeof pos.offset === 'number') {
     const fixed = applyFieldLimit(POSITION_LIMIT, pos.offset);
-    if (fixed !== pos.offset) {
+    if (Number.isFinite(pos.offset) && fixed !== pos.offset) {
       edit().position = { ...pos, offset: fixed };
       found.push(limitFinding(n, 'position', POSITION_LIMIT, pos.offset, fixed));
     }
@@ -275,7 +276,8 @@ export function limitPatch(
     const limit = fieldLimit(after.type, key);
     if (!limit) continue;
     const fixed = applyFieldLimit(limit, raw);
-    if (fixed === raw) continue;
+    // Match the load boundary for unrepairable values (audit 2026-10-11, S4a-6).
+    if (!Number.isFinite(raw) || fixed === raw) continue;
     (out ??= { ...patch })[key] = fixed;
     if (notes) {
       const f = limitFinding(after, key, limit, raw, fixed);

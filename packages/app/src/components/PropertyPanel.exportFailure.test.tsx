@@ -7,6 +7,13 @@ import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { componentSolid } from '../tree/solidMesh.js';
 import { downloadBlob } from '../services/saveFile.js';
+import { buildPrintPack } from '../services/printPack.js';
+import { printerFromPreset } from '../prefs/printers.js';
+
+vi.mock('../services/printPack.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../services/printPack.js')>()),
+  buildPrintPack: vi.fn(),
+}));
 
 vi.mock('../services/saveFile.js', () => ({ downloadBlob: vi.fn() }));
 
@@ -55,9 +62,22 @@ afterEach(() => {
   process.off('unhandledRejection', onRejection);
   vi.mocked(componentSolid).mockReset();
   vi.mocked(downloadBlob).mockReset();
+  vi.mocked(buildPrintPack).mockReset();
 });
 
 describe('PropertyPanel — an export that throws says so', () => {
+  it('S3a-3 clears the split-print error after a successful retry', async () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ printer: printerFromPreset('bambu-a1mini') }));
+    vi.mocked(buildPrintPack).mockRejectedValueOnce(new Error('offline chunk'))
+      .mockResolvedValueOnce({ bytes: new Uint8Array([1]), filename: 'Nose.zip' } as Awaited<ReturnType<typeof buildPrintPack>>);
+    act(() => root.render(<PrefsProvider><PropertyPanel tree={tree} node={nose} onPatch={() => {}} /></PrefsProvider>));
+    const print = [...host.querySelectorAll('button')].find(b => b.textContent!.startsWith('🖨'))!;
+    await act(async () => print.click());
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('offline chunk');
+    await act(async () => print.click());
+    expect(downloadBlob).toHaveBeenCalledOnce();
+    expect(host.querySelector('.print-note-warn[role="alert"]')).toBeNull();
+  });
   it('reports an unusable fin template and clears the note after a successful retry', () => {
     const fin: ComponentNode = { type: 'freeformfinset', id: 'f', name: 'Fins', points: [] };
     const t: RocketTree = { name: 'R', components: [{ type: 'stage', children: [{

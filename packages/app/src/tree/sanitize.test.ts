@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { OrkRocket, resetEngine, type ComponentNode, type RocketTree } from '@online-openrocket/engine';
 import {
-  explainBuildFailure, partBlockingBuild, sanitizeTree, separationEventOrDefault, treeProblems,
+  explainBuildFailure, limitPatch, partBlockingBuild, sanitizeTree, separationEventOrDefault, treeProblems,
 } from './sanitize.js';
 import { defaultTree, engineTree, normalizeTree } from './treeModel.js';
 import {
@@ -28,6 +28,22 @@ const rocket = (kids: Record<string, unknown>[], extraStages: Record<string, unk
 }) as unknown as RocketTree;
 
 const kid = (tree: RocketTree, i = 0): ComponentNode => tree.components[0]!.children![1]!.children![i]!;
+
+it.each(['length', 'position'])('S4a-6 does not claim to repair a NaN %s', field => {
+  const node: ComponentNode = { type: 'bodytube', id: 'nan',
+    ...(field === 'length' ? { length: NaN } : { position: { method: 'top', offset: NaN } }) };
+  const tree: RocketTree = { components: [node] };
+  const notes: string[] = [];
+  expect(sanitizeTree(tree, notes)).toBe(tree);
+  expect(notes).toEqual([]);
+});
+
+it('S4a-6 preserves an unrepairable NaN patch without a bogus note', () => {
+  const patch = { length: NaN };
+  const notes: string[] = [];
+  expect(limitPatch({ type: 'bodytube' }, patch, notes)).toBe(patch);
+  expect(notes).toEqual([]);
+});
 
 /** Build the way services/buildDesign.ts does; the kernel's message, or null. */
 function build(tree: RocketTree): string | null {

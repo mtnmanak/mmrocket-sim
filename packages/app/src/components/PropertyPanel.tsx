@@ -1174,6 +1174,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
                   if (!vol) return;
                   const name = node.name ?? offer.split.label;
                   const pack = await buildPrintPack(offer.split, name, vol, printerName(printer));
+                  // A successful retry supersedes the earlier failure (audit 2026-10-11, S3a-3).
+                  setExportNote(null);
                   downloadBlob(new Blob([pack.bytes as BlobPart], { type: ZIP_MIME }),
                     pack.filename, 'ZIP of printable segments');
                 } else {

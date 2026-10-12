@@ -95,7 +95,10 @@ export interface NoticeDismissers {
 export function curveNotes(assigned: NoticeInput['assigned']): { id: string; text: string }[] {
   const out: { id: string; text: string }[] = [];
   for (const [mountId, mm] of assigned) {
-    const entries = (mm.spec as { curveRepairs?: string[] }).curveRepairs ?? [];
+    // Restored metadata is untrusted, even when the motor itself is readable
+    // (audit 2026-10-11, S7d-2).
+    const raw = (mm.spec as { curveRepairs?: unknown }).curveRepairs;
+    const entries = Array.isArray(raw) ? raw.filter((e): e is string => typeof e === 'string') : [];
     const repairs = entries.filter((e) => !isImpulseNote(e));
     if (repairs.length) {
       out.push({

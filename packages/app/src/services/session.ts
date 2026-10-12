@@ -47,6 +47,8 @@ export interface SessionState {
    * restores, so a design first opened before v0.160 would keep its old stamp.
    */
   emptyConfigVersion?: 1;
+  /** One-shot time-step migration, independent of the parsing build stamp. */
+  timeStepMigrationVersion?: 1;
   /** Which preset the working motor set came from; null/absent = custom/none. */
   activeConfigId?: string | null;
   /**
@@ -381,6 +383,15 @@ function readSession(restoreRoot: boolean): SessionState | null {
           + 'The old design\'s motors, configurations, and measurements were not applied.'],
       };
     }
+    // Keep the readable design when only its configuration list is corrupt
+    // (audit 2026-10-11, S1d-2).
+    if (s.savedConfigs !== undefined) {
+      const configs = Array.isArray(s.savedConfigs) ? s.savedConfigs.filter(isTable) : [];
+      if (!Array.isArray(s.savedConfigs) || configs.length !== s.savedConfigs.length) {
+        s.treeRestoreNotes = [...(s.treeRestoreNotes ?? []), 'Unreadable saved configurations were removed.'];
+      }
+      s.savedConfigs = configs;
+    }
     for (const cfg of s.savedConfigs ?? []) {
       if (isTable(cfg.stageActiveness)) {
         cfg.stageActiveness = lookupTable(Object.fromEntries(
@@ -428,7 +439,9 @@ function readSession(restoreRoot: boolean): SessionState | null {
     // would have shown it. Sessions written by v0.071 or later are left alone —
     // a sub-default step there is a choice the user made in the panel after
     // being told what it costs, and it must survive every upgrade after that.
-    if (sessionPredatesTimeStepField(s) && s.launch
+    // appVersion is the parsing build and survives saves; the migration must
+    // not undo a later deliberate fine step (audit 2026-10-11, S1d-4).
+    if (s.timeStepMigrationVersion !== 1 && sessionPredatesTimeStepField(s) && s.launch
         && s.launch.timeStepS != null && s.launch.timeStepS < MIN_IMPORTED_TIME_STEP_S) {
       s.timeStepClampedFromS = s.launch.timeStepS;
       s.launch = { ...s.launch, timeStepS: MIN_IMPORTED_TIME_STEP_S };
@@ -436,6 +449,8 @@ function readSession(restoreRoot: boolean): SessionState | null {
     }
     // localStorage is anything's to write: a provenance record that does not
     // check out is dropped rather than put a wrong "forecast said" beside a field.
+    // The restore's legacy pad-mass check needs an object (audit 2026-10-11, S1d-5).
+    if (s.measured !== undefined && !isTable(s.measured)) delete s.measured;
     if (s.weather !== undefined) {
       const w = validWeatherSnapshot(s.weather);
       if (w) s.weather = w;
@@ -572,7 +587,7 @@ function writeNow(): void {
     // silently turn that into null, so round-trip it as a string.
     const { stamp: _stale, over: _staleOver, ...state } = pending;
     const content = JSON.stringify(
-      { appVersion: APP_VERSION, ...state, nozzleModeVersion: 1, emptyConfigVersion: 1 }, (key, v) =>
+      { appVersion: APP_VERSION, ...state, nozzleModeVersion: 1, emptyConfigVersion: 1, timeStepMigrationVersion: 1 }, (key, v) =>
       key === 'simWarnings' && Array.isArray(v) ? storedWarnings(v)
         : typeof v === 'number' && v === Infinity ? 'Infinity' : v);
     // The stamp covers everything but the timestamp (and a takeover's `over`),

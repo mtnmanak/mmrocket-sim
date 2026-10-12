@@ -8,7 +8,12 @@ import type { EngineWarning } from '@online-openrocket/engine';
 export function storedWarnings(warnings: EngineWarning[] | undefined): EngineWarning[] | undefined {
   if (!Array.isArray(warnings)) return warnings;
   let changed = false;
-  const normalized = warnings.map(warning => {
+  // Stored evidence can be malformed; string operations in the report must
+  // only receive readable warnings (audit 2026-10-11, S7a-4).
+  const valid = warnings.filter(warning => warning && typeof warning === 'object' && !Array.isArray(warning)
+    && typeof warning.key === 'string' && (warning.message === undefined || typeof warning.message === 'string'));
+  changed = valid.length !== warnings.length;
+  const normalized = valid.map(warning => {
     if (!warning || !Array.isArray(warning.sources)) return warning;
     let sourceChanged = false;
     const sources = warning.sources.map(source => {

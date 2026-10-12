@@ -422,7 +422,8 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                 <Row label="Landing distance from pad"
                   value={fmtSi('distance', dist, run.landingDistanceM)} quantity="distance" />
               )}
-              {run.landingDistanceM != null && run.landingBearingDeg != null && (
+              {/* A corrupt stored bearing is unavailable, not NaN degrees (audit 2026-10-11, S3b-3). */}
+              {run.landingDistanceM != null && run.landingBearingDeg != null && Number.isFinite(run.landingBearingDeg) && (
                 // Compass bearing (0° = north). The kernel's wind is a fixed
                 // east wind (the rocket drifts toward 270°), so a windy
                 // flight's drift reads "downwind" when it lands on that side.
