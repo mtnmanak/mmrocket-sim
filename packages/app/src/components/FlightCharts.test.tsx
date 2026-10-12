@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { FlightResult } from '@online-openrocket/engine';
 import { FlightCharts } from './FlightCharts.js';
-import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 
 /**
  * The raw flight-data downloads live beside the plots they produce.
@@ -295,4 +295,23 @@ it.each([false, true])('S3b-3: StrictMode clears export busy after rejection=%s'
   expect(full).toHaveBeenCalledOnce();
   expect(csv.disabled).toBe(false);
   if (reject) expect(host.textContent).toContain('export failed');
+});
+
+it('S3b-2: retains plots for unrelated preferences, rebuilds for units', () => {
+  const result = fakeResult();
+  function Probe() {
+    const { prefs, setPrefs } = usePrefs();
+    return <>
+      <button id="metric-pref" onClick={() => setPrefs({ ...prefs, stabilityUnit: prefs.stabilityUnit === 'cal' ? 'pct' : 'cal' })}>Metric</button>
+      <button id="unit-pref" onClick={() => setPrefs({ ...prefs, units: { ...prefs.units, distance: prefs.units.distance === 'm' ? 'ft' : 'm' } })}>Unit</button>
+      <FlightCharts result={result} flightName="Preference test" />
+    </>;
+  }
+  act(() => root.render(<PrefsProvider><Probe /></PrefsProvider>));
+  const canvas = host.querySelector('canvas');
+  expect(canvas).not.toBeNull();
+  act(() => { host.querySelector<HTMLButtonElement>('#metric-pref')!.click(); });
+  expect(host.querySelector('canvas')).toBe(canvas);
+  act(() => { host.querySelector<HTMLButtonElement>('#unit-pref')!.click(); });
+  expect(host.querySelector('canvas')).not.toBe(canvas);
 });

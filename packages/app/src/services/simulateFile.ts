@@ -104,11 +104,12 @@ export async function simulateImported(
   const { signal } = opts;
   // 'allow' is the app's own curve path with the caller's signal on the
   // download (fetchMotorSpec's third argument); nothing else about it changes.
+  // Browser-local EX entries are not shipped inputs (audit 2026-10-11, S7a-6).
   const match = opts.match ?? (opts.network === 'allow'
     ? (ref: OrkMotorRef) => matchImportedMotor(ref, {
       fetchSpec: (m, d, digest) => fetchMotorSpec(m, d, signal, digest ? { digest } : {}),
     })
-    : (ref: OrkMotorRef) => matchImportedMotor(ref, { catalogue: MOTOR_DB, fetchSpec: bundledOnlyFetchSpec }));
+    : (ref: OrkMotorRef) => matchImportedMotor(ref, { catalogue: MOTOR_DB, fetchSpec: bundledOnlyFetchSpec, exMotors: [] }));
   // The awaits of an open: every motor the file names, resolved — none after a
   // cancel. A download the cancel cut short is reported by the matcher as an
   // unloaded motor; the kernel lock (simulateDesign's withKernel) then refuses

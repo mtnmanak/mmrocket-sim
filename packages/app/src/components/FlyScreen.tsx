@@ -101,7 +101,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
         <span className="fly-name">{tree.name || 'Rocket'}</span>
         {info && stab && (
           <span className={`fly-stability ${stab.cls}`}>
-            {stab.glyph} {formatStability(info, prefs.stabilityUnit)}
+            <span aria-hidden="true">{stab.glyph}</span><span className="sr-only">{stab.label} </span> {formatStability(info, prefs.stabilityUnit)}
           </span>
         )}
       </div>

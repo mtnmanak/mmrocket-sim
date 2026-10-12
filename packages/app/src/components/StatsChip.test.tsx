@@ -79,12 +79,15 @@ describe('StatsChip — the floating readout', () => {
     act(() => root.render(
       <PrefsProvider><StatsChip info={{ ...(INFO as object), cp: 0, cna: 0 } as never} /></PrefsProvider>,
     ));
-    const values = Array.from(host.querySelectorAll('.stats-chip-row')).map((r) => [
-      r.querySelector('.stats-chip-label')?.textContent,
-      r.querySelector('.stats-chip-value')?.textContent,
-    ]);
+    const values = Array.from(host.querySelectorAll('.stats-chip-row')).map((r) => {
+      // S2-5 adds spoken meaning without changing the visible no-lift reading.
+      const visible = r.querySelector('.stats-chip-value')!.cloneNode(true) as HTMLElement;
+      visible.querySelectorAll('.sr-only').forEach((el) => el.remove());
+      return [r.querySelector('.stats-chip-label')?.textContent, visible.textContent];
+    });
     expect(values).toContainEqual(['CP', '—']);
     expect(values).toContainEqual(['Stability', '– no lift yet']);
+    expect(host.querySelector('.stats-chip-value.stability-unknown .sr-only')?.textContent).toBe('unknown ');
   });
 
   it('restores a remembered position and fold', () => {

@@ -1,14 +1,12 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+// One finite-number reader for design fields (audit 2026-10-11, S5-3).
+import { numOpt } from '../tree/nodeNum.js';
 import { absoluteStations, type AbsoluteStation } from '../tree/position.js';
 import { suppressingAncestor } from '../tree/treeModel.js';
 
 const hint = /base[\s-]*(?:drag|cone)|\bBD\b|drag[\s-]*cone|\bvirtual\b/i;
-const finite = (n: ComponentNode, key: string): number | undefined => {
-  const v = n[key];
-  return typeof v === 'number' && Number.isFinite(v) ? v : undefined;
-};
 const aftRadius = (n: ComponentNode): number | undefined =>
-  finite(n, n.type === 'bodytube' ? 'outerRadius' : 'aftRadius');
+  numOpt(n, n.type === 'bodytube' ? 'outerRadius' : 'aftRadius');
 
 /** Component-local provenance only; never a mass or aerodynamic override. */
 export const BASE_DRAG_DECLARATION = 'mmrBaseDragDeclaration';
@@ -40,17 +38,17 @@ function baseDragCandidates(tree: RocketTree, description = '') {
     if (tail.start < previous.end - 1e-9 || !(tail.end > tail.start)) continue;
     const radius = aftRadius(n), bodyRadius = aftRadius(previous.node);
     if (!(radius !== undefined && radius > 0 && bodyRadius !== undefined && bodyRadius > 0)) continue;
-    const fore = n.type === 'nosecone' && n['flipped'] !== true ? 0 : finite(n, 'foreRadius');
+    const fore = n.type === 'nosecone' && n['flipped'] !== true ? 0 : numOpt(n, 'foreRadius');
     const expanding = (n.type === 'nosecone' || n.type === 'transition')
       && fore !== undefined && radius > fore && n['flipped'] !== true;
     const detachedTip = expanding && fore <= bodyRadius * 0.1;
     // Tubes have zero normal-force slope at zero AoA, even when disk-like.
     // Their finite-AoA body lift alone is not evidence of a virtual CP-shifting cone.
     if (!expanding) continue; // Also excludes real shrinking boattails.
-    const mass = finite(n, 'overrideMass');
+    const mass = numOpt(n, 'overrideMass');
     const massless = mass !== undefined && mass >= 0 && mass <= 1e-6; // kg: at most 1 mg
     const named = hint.test(n.name ?? '');
-    const wall = finite(n, 'thickness');
+    const wall = numOpt(n, 'thickness');
     // ORK omits filled for hollow shells; the kernel defaults it to false.
     const ghostWall = mass === undefined && named && n['filled'] !== true
       && wall !== undefined && wall >= 0 && wall <= 1e-7; // m: <= 0.1 micrometre
@@ -61,8 +59,8 @@ function baseDragCandidates(tree: RocketTree, description = '') {
     // geometry and independent name/zero-CD evidence before calling it suspicious.
     const subsumed = n.id !== undefined
       && suppressingAncestor(tree, n.id, 'overrideSubcomponentsMass', 'overrideMass') !== null;
-    const subsumedPart = subsumed && detachedTip && (named || finite(n, 'overrideCD') === 0);
-    const evidence = massless && (named || finite(n, 'overrideCD') === 0 || detachedTip)
+    const subsumedPart = subsumed && detachedTip && (named || numOpt(n, 'overrideCD') === 0);
+    const evidence = massless && (named || numOpt(n, 'overrideCD') === 0 || detachedTip)
       ? 'an approximately zero mass override'
       : ghostWall ? 'an extremely thin shell and a base-drag-related name'
         : declaredPart ? 'a virtual base-drag model described in the file comments'

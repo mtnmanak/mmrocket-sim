@@ -252,8 +252,11 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const z = e.key.toLowerCase() === 'z';
-      const y = e.key.toLowerCase() === 'y';
+      // Trust Latin layout letters (QWERTZ/AZERTY); physical keys are only
+      // a fallback for non-Latin layouts (audit 2026-10-11, S7d-4).
+      const key = /^[a-z]$/i.test(e.key) ? e.key.toLowerCase() : e.code.replace(/^Key/, '').toLowerCase();
+      const z = key === 'z';
+      const y = key === 'y';
       if (!(e.ctrlKey || e.metaKey) || !(z || y)) return;
       // Leave native text undo/redo alone while the user is typing.
       const t = e.target;

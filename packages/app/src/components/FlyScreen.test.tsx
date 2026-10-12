@@ -142,6 +142,8 @@ describe('FlyScreen', () => {
     expect(labels).toEqual(['Apogee', 'Optimum delay', 'Descent', 'Max velocity']);
     expect(host.querySelector('.fly-stability')?.textContent).toContain('1.52 cal');
     expect(host.querySelector('.fly-stability')?.className).toContain('stability-good');
+    expect(host.querySelector('.fly-stability .sr-only')?.textContent).toBe('stable ');
+    expect(host.querySelector('.fly-stability [aria-hidden="true"]')?.textContent).toBe('✓');
     expect(host.querySelector('.fly-motor-name')?.textContent).toBe('Estes C6-5');
     expect(host.querySelector('.fly-name')?.textContent).toBe('Field Bird');
   });

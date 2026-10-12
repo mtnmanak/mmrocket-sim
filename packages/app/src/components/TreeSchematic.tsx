@@ -1,4 +1,5 @@
-import { createElement, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { pxToGuide, type GuideAxis } from '../services/rulerGuides.js';
+import { createElement, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ComponentNode, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { arrowPan, releasedDuring, startsGesture, wheelNotches } from '../chartPanZoom.js';
 import {
@@ -262,6 +263,12 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * centreline, then the zoom and pan.
    */
   const guides = useRulerGuides({ svgRef, viewWidth: w, gutX, gutY });
+  const guideFocus = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (guideFocus.current === null) return;
+    svgRef.current?.querySelector<SVGElement>(`[data-guide-id="${guideFocus.current}"]`)?.focus();
+    guideFocus.current = null;
+  }, [guides.guides]);
   const guideView = { k: zoom.k, x: zoom.x, y: zoom.y, x0: ctx.x0, cy: ctx.cy, scale };
 
   /**
@@ -739,7 +746,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         {rulers && (
           <RulerGuides guides={guides.guides} view={guideView} w={w} h={h} gutX={gutX} gutY={gutY}
             rollW={rollW} unit={lenUnit}
-            onCreate={(axis, e) => guides.create(axis, guideView, e)} onGrab={guides.grab} />
+            onCreate={(axis, e) => guides.create(axis, guideView, e)} onGrab={guides.grab}
+            onMoveTo={guides.moveTo} onRemove={guides.remove} />
         )}
       </svg>
       {/* ⟳90° keeps the roll control — laid out along the bottom, tracking
@@ -789,6 +797,15 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           title={rulers ? 'Hide the dimensional rulers' : 'Show dimensional rulers along the top and left'}
           aria-label={rulers ? 'Hide rulers' : 'Show rulers'} aria-pressed={rulers}
           onClick={() => setPrefs({ ...prefs, rulers2d: !rulersPref })}>📏</button>
+        {/* Create both guide axes from the keyboard (audit 2026-10-11, S3a-4). */}
+        {rulers && (['x', 'y'] as GuideAxis[]).map((axis) => (
+          <button key={axis} className="file-btn" aria-label={axis === 'x' ? 'Add station guide' : 'Add offset guide'}
+            title="Add a measuring guide; arrows move it, Delete removes it"
+            onClick={() => {
+              const centre = axis === 'x' ? (gutX + w) / 2 : (gutY + h) / 2;
+              guideFocus.current = guides.add(axis, pxToGuide(guideView, axis, centre));
+            }}>+ {axis === 'x' ? 'Station' : 'Offset'}</button>
+        ))}
         {rulers && guides.guides.length > 0 && (
           <button className="file-btn" title="Remove every measuring guide"
             onClick={guides.clear}>✕ Guides</button>

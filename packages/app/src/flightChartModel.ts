@@ -14,7 +14,7 @@ export interface SeriesDef {
 }
 
 /** Series defs in the user's units — the engine data underneath stays SI. */
-export function seriesCatalog(prefs: Preferences, C: string[]): SeriesDef[] {
+export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: string[]): SeriesDef[] {
   const u = prefs.units;
   return [
     { key: 'altitude', title: 'Altitude', unit: u.distance, quantity: 'distance', color: C[0]!, f: (v) => siToUi('distance', u.distance, v) },

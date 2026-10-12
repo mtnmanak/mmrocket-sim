@@ -1,5 +1,5 @@
 import { fmtSi } from '../prefs/units.js';
-import { guideDigits, guideSpans, guideToPx, type Guide, type GuideAxis, type GuideView } from '../services/rulerGuides.js';
+import { guideDigits, guideSpans, guideToPx, pxToGuide, type Guide, type GuideAxis, type GuideView } from '../services/rulerGuides.js';
 
 /** Approximate width of a 10 px label, for its backing plate. */
 const plateW = (text: string) => text.length * 5.8 + 8;
@@ -16,7 +16,7 @@ const INK = 'var(--accent)';
  * exporter drops it: a guide is a tool for reading the screen, not part of
  * the drawing, and the ⬇ SVG / ⬇ Image exports stay as they were.
  */
-export function RulerGuides({ guides, view, w, h, gutX, gutY, rollW, unit, onCreate, onGrab }: {
+export function RulerGuides({ guides, view, w, h, gutX, gutY, rollW, unit, onCreate, onGrab, onMoveTo, onRemove }: {
   guides: readonly Guide[];
   view: GuideView;
   /** viewBox size, and the drawing area's top-left corner inside the rulers. */
@@ -30,6 +30,8 @@ export function RulerGuides({ guides, view, w, h, gutX, gutY, rollW, unit, onCre
   unit: string;
   onCreate: (axis: GuideAxis, e: React.PointerEvent) => void;
   onGrab: (g: Guide, e: React.PointerEvent) => void;
+  onMoveTo: (id: number, m: number) => void;
+  onRemove: (id: number) => void;
 }) {
   const digits = guideDigits(unit);
   const len = (m: number) => `${fmtSi('length', unit, m, digits)} ${unit}`;
@@ -47,6 +49,36 @@ export function RulerGuides({ guides, view, w, h, gutX, gutY, rollW, unit, onCre
         <text x={anchor === 'middle' ? x : x + 4} y={y} textAnchor={anchor} dominantBaseline="central" fill={INK}>{text}</text>
       </g>
     );
+  };
+
+  // Match the visible ruler bounds; arrow nudges are one viewBox pixel,
+  // Shift ten. Stop propagation so arrows do not pan (audit 2026-10-11, S3a-4).
+  const slider = (g: Guide) => {
+    const ends = g.axis === 'x' ? [gutX + 0.5, w - 0.5] : [gutY + 0.5, h - 0.5];
+    const bounds = ends.map((p) => pxToGuide(view, g.axis, p));
+    const min = Math.min(...bounds), max = Math.max(...bounds);
+    return {
+      role: 'slider', tabIndex: 0, 'data-guide-id': g.id,
+      'aria-label': g.axis === 'x' ? 'Station guide' : 'Offset guide',
+      'aria-orientation': g.axis === 'x' ? 'horizontal' as const : 'vertical' as const,
+      'aria-valuemin': min, 'aria-valuemax': max, 'aria-valuenow': g.m,
+      'aria-valuetext': len(g.m),
+      onKeyDown: (e: React.KeyboardEvent<SVGLineElement>) => {
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          e.preventDefault(); e.stopPropagation();
+          e.currentTarget.ownerSVGElement?.focus();
+          onRemove(g.id);
+          return;
+        }
+        const direction = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1
+          : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
+        if (!direction && e.key !== 'Home' && e.key !== 'End') return;
+        e.preventDefault(); e.stopPropagation();
+        const m = e.key === 'Home' ? min : e.key === 'End' ? max
+          : g.m + direction * (e.shiftKey ? 10 : 1) / (view.k * view.scale);
+        onMoveTo(g.id, Math.max(min, Math.min(max, m)));
+      },
+    };
   };
 
   const across = guides.filter((g) => g.axis === 'x' && inside(g));
@@ -95,9 +127,9 @@ export function RulerGuides({ guides, view, w, h, gutX, gutY, rollW, unit, onCre
           <g key={g.id} data-guide="x">
             <line pointerEvents="none" x1={x} y1={gutY} x2={x} y2={h} stroke={INK} strokeWidth={1} strokeDasharray="5 3" />
             {/* A wide invisible stroke to grab: a 1 px line is too thin to hit. */}
-            <line x1={x} y1={gutY} x2={x} y2={h} stroke="transparent" strokeWidth={9}
+            <line {...slider(g)} x1={x} y1={gutY} x2={x} y2={h} stroke="transparent" strokeWidth={9}
               style={{ cursor: 'col-resize' }} onPointerDown={(e) => onGrab(g, e)}>
-              <title>Measuring guide — drag to move, drag back onto the ruler to remove</title>
+              <title>Measuring guide — arrows move, Shift moves faster, Home/End reach the edges, Delete removes; or drag</title>
             </line>
             {label(x, h - 10, len(g.m), 'middle')}
           </g>
@@ -108,9 +140,9 @@ export function RulerGuides({ guides, view, w, h, gutX, gutY, rollW, unit, onCre
         return (
           <g key={g.id} data-guide="y">
             <line pointerEvents="none" x1={gutX} y1={y} x2={w} y2={y} stroke={INK} strokeWidth={1} strokeDasharray="5 3" />
-            <line x1={gutX} y1={y} x2={w} y2={y} stroke="transparent" strokeWidth={9}
+            <line {...slider(g)} x1={gutX} y1={y} x2={w} y2={y} stroke="transparent" strokeWidth={9}
               style={{ cursor: 'row-resize' }} onPointerDown={(e) => onGrab(g, e)}>
-              <title>Measuring guide — drag to move, drag back onto the ruler to remove</title>
+              <title>Measuring guide — arrows move, Shift moves faster, Home/End reach the edges, Delete removes; or drag</title>
             </line>
             {label(gutX + 4, y - 10, len(g.m), 'start')}
           </g>

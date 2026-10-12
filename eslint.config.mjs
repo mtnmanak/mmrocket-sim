@@ -120,6 +120,14 @@ const NUMBER_READ_RESTRICTIONS = [{
  * 2026-10-01). Shared by the src/** block and App.tsx's own block, because a
  * later no-restricted-imports entry replaces an earlier one for the same file.
  */
+// Named exports and test-only helpers stay separate from shipped modules
+// (audit 2026-10-11, lint delta items 1-2).
+const NAMED_EXPORT_RESTRICTION = { selector: 'ExportDefaultDeclaration', message: 'named exports only' };
+const TEST_SUPPORT_RESTRICTION = {
+  group: ['**/*.testSupport', '**/*.testSupport.*'],
+  message: 'Test support belongs in tests, never in shipped source.',
+};
+
 const JS_XML_PARSER_RESTRICTION = {
   group: ['saxes', '@xmldom/*', 'css-select', '**/xmlParseJs', '**/xmlParseJs.*', '**/xmlParseParity', '**/xmlParseParity.*'],
   message: 'The JS XML parser is for Node and Workers only: the browser parses with its native DOMParser '
@@ -408,7 +416,7 @@ export default tseslint.config(
       //    too (canopyVent's diameter, rocksimFile's shape parameter, the
       //    panel's field value); what is left is a discriminator, the load
       //    clamp's walk (sanitize), or a value validated where it was set.
-      'no-restricted-syntax': ['error', ...NUMBER_READ_RESTRICTIONS],
+      'no-restricted-syntax': ['error', ...NUMBER_READ_RESTRICTIONS, NAMED_EXPORT_RESTRICTION],
     },
   },
 
@@ -455,9 +463,9 @@ export default tseslint.config(
         // The JS XML parser's rule, which the src/** block below applies to
         // every other browser file: that block skips App.tsx (it would replace
         // this one), so App carries it here.
-        patterns: [JS_XML_PARSER_RESTRICTION],
+        patterns: [JS_XML_PARSER_RESTRICTION, TEST_SUPPORT_RESTRICTION],
       }],
-      'no-restricted-syntax': ['error', ...NUMBER_READ_RESTRICTIONS, {
+      'no-restricted-syntax': ['error', ...NUMBER_READ_RESTRICTIONS, NAMED_EXPORT_RESTRICTION, {
         selector: "Identifier[name='markSaved']:not(ObjectPattern > Property[shorthand=true] > Identifier)",
         message: 'markSaved clears the unsaved-work guard, so the next Open or ✕ New discards without asking. '
           + 'Only a full-fidelity save (.ork), an import and ✕ New may mark; a new site needs '
@@ -679,8 +687,16 @@ export default tseslint.config(
       'packages/app/src/services/xmlParseParity.ts',
     ],
     rules: {
-      'no-restricted-imports': ['error', { patterns: [JS_XML_PARSER_RESTRICTION] }],
+      'no-restricted-imports': ['error', { patterns: [JS_XML_PARSER_RESTRICTION, TEST_SUPPORT_RESTRICTION] }],
     },
+  },
+
+  {
+    // The same test-support boundary in the engine, without the app's XML
+    // parser restriction (audit 2026-10-11, lint delta item 2).
+    files: ['packages/engine/src/**/*.{ts,tsx}'],
+    ignores: ['**/*.test.{ts,tsx}'],
+    rules: { 'no-restricted-imports': ['error', { patterns: [TEST_SUPPORT_RESTRICTION] }] },
   },
 
   {

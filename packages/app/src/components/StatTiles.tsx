@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import type { StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { RULER_LEFT, RULER_TOP } from './TreeSchematic.js';
@@ -13,20 +13,21 @@ import { recoveryMassTitle, type RecoveryMass } from '../services/recoveryMass.j
 import { UnitChip } from './UnitChip.js';
 
 /** Shared tiered styling: under-stable = red, over-stable = yellow caution. */
-export function stabilityGlyphClass(cal: number | null | undefined): { glyph: string; cls: string } {
+export function stabilityGlyphClass(cal: number | null | undefined): { glyph: string; cls: string; label: string } {
   const st = stabilityState(cal);
   // `null` means "not known", and it used to fall through to the ✓ — so an
   // absent or non-finite margin painted the same green tick as a good one.
-  // Unknown gets its own neutral glyph.
-  return st === null ? { glyph: '–', cls: 'stability-unknown' }
-    : st === 'under' ? { glyph: '⚠', cls: 'stability-bad' }
-    : st === 'over' ? { glyph: '△', cls: 'stability-warn' }
-    : { glyph: '✓', cls: 'stability-good' };
+  // Unknown gets its own neutral glyph. Words also name every tier to screen
+  // readers, where a triangle alone is meaningless (audit 2026-10-11, S2-5).
+  return st === null ? { glyph: '–', cls: 'stability-unknown', label: 'unknown' }
+    : st === 'under' ? { glyph: '⚠', cls: 'stability-bad', label: 'under-stable' }
+    : st === 'over' ? { glyph: '△', cls: 'stability-warn', label: 'over-stable' }
+    : { glyph: '✓', cls: 'stability-good', label: 'stable' };
 }
 
 function Tile({ label, value, unit, quantity, className, title }: {
   label: string;
-  value: string;
+  value: ReactNode;
   unit?: string;
   /** When set, the unit is a click-to-change chip for this quantity group. */
   quantity?: Quantity;
@@ -75,7 +76,7 @@ export function DesignStats({ info, motorLabel, cd, recovery }: {
   // answers (see hasAerodynamicForce). Report them as unavailable rather than
   // printing a number the design does not support.
   const aero = hasAerodynamicForce(info);
-  const { glyph, cls } = stabilityGlyphClass(aero ? shownStability(info) : null);
+  const { glyph, cls, label: stabilityLabel } = stabilityGlyphClass(aero ? shownStability(info) : null);
   const pct = aero ? stabilityPercent(info) : null;
   // Only worth showing when the clocking actually changes the answer: three or
   // more fins measure identically swept or not.
@@ -120,7 +121,7 @@ export function DesignStats({ info, motorLabel, cd, recovery }: {
         />
         <Tile
           label="Stability"
-          value={aero ? `${glyph} ${shownStability(info).toFixed(2)}` : '— no lift yet'}
+          value={<><span aria-hidden="true">{glyph}</span><span className="sr-only">{stabilityLabel} </span> {aero ? shownStability(info).toFixed(2) : 'no lift yet'}</>}
           unit={aero ? 'cal' : undefined}
           className={cls}
         />
@@ -259,7 +260,7 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
   const { prefs } = usePrefs();
   const len = prefs.units.length;
   const aero = hasAerodynamicForce(info);
-  const { glyph, cls } = stabilityGlyphClass(aero ? shownStability(info) : null);
+  const { glyph, cls, label: stabilityLabel } = stabilityGlyphClass(aero ? shownStability(info) : null);
   const [chip, setChip] = useState(loadChipState);
   const ref = useRef<HTMLDivElement | null>(null);
   // Drag bookkeeping: pointer-to-chip offset at grab, and whether the pointer
@@ -487,7 +488,7 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
     persist({ ...placed.current, x, y });
   };
 
-  const row = (label: string, value: string, cls2?: string) => (
+  const row = (label: string, value: ReactNode, cls2?: string) => (
     <div className="stats-chip-row">
       <span className="stats-chip-label">{label}</span>
       <span className={`stats-chip-value ${cls2 ?? ''}`}>{value}</span>
@@ -525,7 +526,7 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
         ? (
           <div className="stats-chip-row">
             <span className={`stats-chip-value ${cls}`}>
-              {glyph} {aero ? formatStability(info, prefs.stabilityUnit) : 'no lift'}
+              <span aria-hidden="true">{glyph}</span><span className="sr-only">{stabilityLabel} </span> {aero ? formatStability(info, prefs.stabilityUnit) : 'no lift'}
             </span>
           </div>
         )
@@ -537,7 +538,7 @@ export function StatsChip({ info, drawerOpen = false, tight = false }: {
             {/* The same "no force, no CP" rule as the drawer's CP tile — this
                 row printed the kernel's 0 as "CP 0.000" (audit 2026-09-22). */}
             {row('CP', aero ? `${fmtSi('length', len, shownCp(info), 3)} ${len}` : '—')}
-            {row('Stability', `${glyph} ${aero ? formatStability(info, prefs.stabilityUnit) : 'no lift yet'}`, cls)}
+            {row('Stability', <><span aria-hidden="true">{glyph}</span><span className="sr-only">{stabilityLabel} </span> {aero ? formatStability(info, prefs.stabilityUnit) : 'no lift yet'}</>, cls)}
           </>
         )}
     </div>

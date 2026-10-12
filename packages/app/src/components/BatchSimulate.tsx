@@ -917,16 +917,17 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
               );
             })}
           </div>
-          {/* Each criteria box names ITSELF. A <label> with no `for` labels its
+          {/* Explicit label targets keep clicks on the number, not its unit picker
+              (audit 2026-10-11, S3a-g3). Each criteria box names ITSELF. A <label> with no `for` labels its
               first labelable descendant, and in the three with a unit that is
               the UnitChip <select>, not the number box — so min rod-exit, min
               apogee and max apogee were all announced as "—", their
               placeholder, and a value typed in the wrong one changes which
               motors pass (audit 2026-09-22). */}
           <div className="motor-filter-row" style={{ flexWrap: 'wrap' }}>
-            <label className="motor-inline-label">
+            <label className="motor-inline-label" htmlFor="batch-rod">
               Min rod-exit <UnitChip quantity="velocity" />
-              <NumField value={velUi(criteria.minRodExit)} step={1} nullable placeholder="—"
+              <NumField id="batch-rod" value={velUi(criteria.minRodExit)} step={1} nullable placeholder="—"
                 ariaLabel={`Minimum rod-exit velocity (${vel})`}
                 onCommit={(v) => setCriteria({ ...criteria, minRodExit: v === null ? null : uiToSi('velocity', vel, v) })} />
             </label>
@@ -935,16 +936,16 @@ export function BatchSimulate({ info, tree, mounts, initialMountId, assignedMoun
               <NumField value={criteria.minThrustToWeight ?? undefined} step={0.5} nullable placeholder="—"
                 onCommit={(v) => setCriteria({ ...criteria, minThrustToWeight: v })} />
             </label>
-            <label className="motor-inline-label">
+            <label className="motor-inline-label" htmlFor="batch-min">
               Apogee min <UnitChip quantity="distance" />
-              <NumField value={distUi(criteria.minApogee)} step={10} nullable placeholder="—"
+              <NumField id="batch-min" value={distUi(criteria.minApogee)} step={10} nullable placeholder="—"
                 ariaLabel={`Minimum apogee (${dist})`}
                 validate={(v) => Number.isFinite(uiToSi('distance', dist, v))}
                 onCommit={(v) => setCriteria({ ...criteria, minApogee: v === null ? null : uiToSi('distance', dist, v) })} />
             </label>
-            <label className="motor-inline-label">
+            <label className="motor-inline-label" htmlFor="batch-max">
               max <UnitChip quantity="distance" />
-              <NumField value={distUi(criteria.maxApogee)} step={10} nullable placeholder="—"
+              <NumField id="batch-max" value={distUi(criteria.maxApogee)} step={10} nullable placeholder="—"
                 ariaLabel={`Maximum apogee (${dist})`}
                 validate={(v) => Number.isFinite(uiToSi('distance', dist, v))}
                 onCommit={(v) => setCriteria({ ...criteria, maxApogee: v === null ? null : uiToSi('distance', dist, v) })} />

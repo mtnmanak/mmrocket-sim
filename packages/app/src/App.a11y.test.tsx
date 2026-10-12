@@ -93,6 +93,14 @@ async function launch(host: HTMLElement, n = 1): Promise<void> {
 /** The polite region that says a flight is done (the notices have their own). */
 const flightRegion = () => document.querySelector('.sr-only[role="status"][aria-live="polite"]:not(.notice-announce)');
 
+it('S2-5: the stability strip names its verdict and band without speaking the glyph', async () => {
+  const host = await mountApp();
+  const item = [...host.querySelectorAll('.vitals-item')]
+    .find((el) => el.querySelector('.vitals-label')?.textContent === 'Stability')!;
+  expect(item.querySelector('.sr-only')?.textContent).toMatch(/stable.*stable band 1–3 cal/);
+  expect(item.querySelector('[aria-hidden="true"]')).not.toBeNull();
+}, 30_000);
+
 beforeEach(() => {
   localStorage.clear();
   localStorage.setItem('online-openrocket.workspace.v1', 'design');

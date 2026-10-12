@@ -88,7 +88,17 @@ export function useRulerGuides({ svgRef, viewWidth, gutX, gutY }: {
     if (drag.current?.pointerId === e.pointerId) drag.current = null;
   };
 
+  // Keyboard controls edit the same transient guides as pointer drags
+  // (audit 2026-10-11, S3a-4); they never change rocket geometry.
+  const add = (axis: GuideAxis, m: number) => {
+    const id = nextId.current++;
+    setGuides((gs) => [...gs, { id, axis, m }]);
+    return id;
+  };
+  const moveTo = (id: number, m: number) => setGuides((gs) => gs.map((g) => g.id === id ? { ...g, m } : g));
+  const remove = (id: number) => setGuides((gs) => gs.filter((g) => g.id !== id));
+
   const clear = () => { drag.current = null; setGuides([]); };
 
-  return { guides, create, grab, move, end, lostCapture, clear, dragging: () => drag.current !== null };
+  return { guides, add, moveTo, remove, create, grab, move, end, lostCapture, clear, dragging: () => drag.current !== null };
 }

@@ -227,8 +227,9 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
 }) {
   const { prefs, daylight, resolvedTheme } = usePrefs();
   const catalog = useMemo(
-    () => seriesCatalog(prefs, seriesPalette(daylight, resolvedTheme)),
-    [prefs, daylight, resolvedTheme],
+    () => seriesCatalog({ units: prefs.units }, seriesPalette(daylight, resolvedTheme)),
+    // Other preferences do not change plotted series (audit 2026-10-11, S3b-2).
+    [prefs.units, daylight, resolvedTheme],
   );
   const [comparison, setComparison] = useState('');
   const [branchChoice, setBranchChoice] = useState({ result, index: 0, generation: 0 });

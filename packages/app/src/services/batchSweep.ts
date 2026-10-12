@@ -18,7 +18,6 @@ import { aeroModelFor, rogersKbfFor, type AeroMode } from './flightPipeline.js';
 import type { MountMotor } from '../model/design.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { flyLaunch, writeMountMotor } from './flightRunner.js';
-import { machProbeSeconds } from './machProbe.js';
 import { kernelSimOptions, type LaunchConditions } from './launchConditions.js';
 import { physicsKeyOf, provenanceKeyOf } from './designDerivation.js';
 
@@ -52,35 +51,8 @@ export interface BatchMountOption {
   maxMotorLengthM: number | null;
 }
 
-/**
- * Probe cutoff for one candidate's auto-aero Mach probe. The cutoff has to
- * see the WHOLE stack, not just the motor under test: a candidate in the
- * sustainer waits on the booster below it, and a cutoff computed from the
- * candidate alone ends before it ever lights.
- *
- * `probeTree` is the tree the candidate actually FLIES. The combination
- * passes fly a SPLIT tree whose group mounts carry freshly minted ids, and
- * resolving those ids against the original tree put every combo candidate
- * "off the launch stage" — so the short probe silently became the full chain
- * bound (every burn plus every ejection delay, 20-40 s on a real cluster),
- * a near-full extra flight per combination. `replacedMountId` is the cluster
- * mount the split removed: its assigned motor is not aboard the split tree,
- * and leaving it in the set double-counted its burn in that same bound.
- * @internal Exported for components/BatchSimulate.test.tsx; no other module imports it.
- */
-export function batchProbeCutoff(
-  probeTree: RocketTree,
-  assigned: Record<string, MotorSpec>,
-  targets: Record<string, MotorSpec>,
-  replacedMountId?: string,
-): number {
-  const aboard: Record<string, MotorSpec> = { ...assigned, ...targets };
-  if (replacedMountId !== undefined && !(replacedMountId in targets)) delete aboard[replacedMountId];
-  return machProbeSeconds(Object.entries(aboard).map(([id, spec]) => ({
-    spec,
-    onLaunchStage: isOnLaunchStage(probeTree, id),
-  })));
-}
+// Auto-aero probes belong to the shared Launch runner; live sweep coverage
+// replaces the dead cutoff helper (audit 2026-10-11, S7a-5).
 
 /**
  * How many mixed combinations a split into `groups` mounts adds for `n`
@@ -867,7 +839,7 @@ export async function runBatchSweep(
           ? applyStageNozzles(tree, { [stageIdOfTarget]: exitM }) : tree;
         // The split tree is what this candidate flies — its group mounts do
         // not exist in `tree`, and the replaced cluster mount's motor is not
-        // aboard (see batchProbeCutoff).
+        // aboard the shared Launch runner's probe.
         const f = await flyLegs(comboHandle(exitM),
           split.mountIds.map((id, k) => ({
             mountId: id,

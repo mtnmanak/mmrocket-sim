@@ -144,7 +144,7 @@ it('comparison subsets never depend on hue alone when simulated colours approach
   const { METRIC_UNITS } = await import('./prefs/units.js');
   const measured: Record<string, string> = {};
   for (const [name, palette] of [['light', SERIES], ['dark', SERIES_DARK], ['daylight', SERIES_DAYLIGHT]] as const) {
-    const catalog = seriesCatalog({ units: METRIC_UNITS, theme: 'light', radiusMode: 'diameter' }, palette);
+    const catalog = seriesCatalog({ units: METRIC_UNITS }, palette);
     const minima = CVD.map(() => Infinity);
     for (const preset of PRESETS.filter((p) => p.x === 'time')) {
       const members = comparisonMembers(preset, catalog);

@@ -1,3 +1,5 @@
+// Reports and live alerts share the Mach policy (audit 2026-10-11, S7a-7).
+import { MACH_AUTO_THRESHOLD } from './machProbe.js';
 import { storedWarnings } from './storedWarnings.js';
 import { APP_HYBRID_BAND, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
 import { delayMountsOf, resolutionMatchesPolicy, validDelayResolution, type DelayMount, type DelayResolution } from './autoDelaySolver.js';
@@ -2164,10 +2166,10 @@ export function buildSimRun(input: {
   for (const t of info.warningTexts) say(formatWarningText(t));
   // Supersonic flight on the classic model: the flyer should know a validated
   // model exists — and that switching changes the model for the WHOLE flight.
-  if ((aeroModel ?? 'classic') === 'classic' && summary.maxMachNumber > 0.9) {
+  if ((aeroModel ?? 'classic') === 'classic' && summary.maxMachNumber > MACH_AUTO_THRESHOLD) {
     say(
       `Flight reaches Mach ${summary.maxMachNumber.toFixed(2)} on the classic aero model, `
-      + 'which is approximate past ~Mach 0.9 (supersonic CP travel is not modeled). '
+      + `which is approximate past ~Mach ${MACH_AUTO_THRESHOLD} (supersonic CP travel is not modeled). `
       + 'Preferences → Aerodynamics offers a validated supersonic model — switching '
       + 'changes the model for the entire flight, so expect stability and apogee to shift.');
   }
