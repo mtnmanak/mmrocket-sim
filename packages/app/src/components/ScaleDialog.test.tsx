@@ -222,6 +222,14 @@ describe('ScaleDialog', () => {
     expect(text()).not.toContain('A loaded motor will not fit the scaled mount');
   });
 
+  it('S4a-4 explains a wall with no bore without calling it a filled tube', async () => {
+    const design = tree();
+    design.components[0]!.children![1]!.children![0]!['thickness'] = 0.015;
+    await render({ m: 0.018 }, design);
+    expect(text()).toContain('its wall reaches or passes its radius, so it has no bore');
+    expect(text()).not.toMatch(/nearest is 6|will no longer fit|Untick Solid/);
+  });
+
   it('applies the factor that is on screen', async () => {
     await render();
     const [factor] = numberInputs();

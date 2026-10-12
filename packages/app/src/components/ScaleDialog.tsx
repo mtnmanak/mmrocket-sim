@@ -415,7 +415,10 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
                           list and the post-apply note disagree about an
                           off-class airframe mount with the snap unticked. */}
                       {m.verdict === 'solid'
-                        ? <> — solid (filled), so it has no bore and no motor fits it, scaled or
+                        ? m.noBoreReason === 'wall'
+                          ? <> — its wall reaches or passes its radius, so it has no bore.
+                            Reduce its wall thickness to fit a motor.</>
+                          : <> — solid (filled), so it has no bore and no motor fits it, scaled or
                           not. Untick Solid (filled) on it to make it a tube.</>
                         : m.verdict === 'resized'
                         ? <> — the {m.targetBoreMm!.toFixed(1)} mm mount you chose.</>

@@ -379,6 +379,8 @@ export interface MountPreview {
    * and sent the reader to a motor browser that lists none for it.
    */
   verdict: 'on-class' | 'snapped' | 'airframe-left' | 'off-class' | 'resized' | 'solid';
+  /** Why an unchanged zero-bore mount cannot take a motor. */
+  noBoreReason: 'filled' | 'wall' | null;
   /** The assigned motor's class (mm), when one is loaded. */
   motorMm: number | null;
   /** True when the mount IS the airframe (a body tube with motorMount) — never snapped. */
@@ -507,7 +509,10 @@ export function previewMounts(
       && choice !== undefined && choice !== 'scaled' && choice !== 'nearest';
     // A SOLID mount comes first: it is the airframe, so nothing resizes it, and
     // with no bore there is no class to be on, near or off.
-    const verdict: MountPreview['verdict'] = isSolidTube(m) ? 'solid'
+    // A wall reaching the axis is also no bore; a requested resize can open
+    // it, so judge the final bore (audit 2026-10-11, S4a-4).
+    const noBoreReason = finalBoreMm <= 0 ? (isSolidTube(m) ? 'filled' : 'wall') : null;
+    const verdict: MountPreview['verdict'] = noBoreReason ? 'solid'
       : chosenExplicitly ? 'resized'
         : onStandardClass && targetBoreMm === null ? 'on-class'
           : targetBoreMm !== null ? 'snapped'
@@ -536,6 +541,7 @@ export function previewMounts(
       choosable,
       targetBoreMm,
       verdict,
+      noBoreReason,
       motorMm,
       isAirframe,
       motorStillFits: fits(finalBoreMm),
@@ -772,8 +778,10 @@ export function scaleRocket(
     // Switched on the SAME discriminant the dialog renders from — see
     // `MountPreview.verdict`.
     if (m.verdict === 'solid') {
-      mountNotes.push(`${m.name}: solid (filled), so it has no bore and no motor fits it, scaled or not.`
-        + ' Untick Solid (filled) on it to make it a tube.');
+      mountNotes.push(m.noBoreReason === 'wall'
+        ? `${m.name}: its wall reaches or passes its radius, so it has no bore. Reduce its wall thickness to fit a motor.`
+        : `${m.name}: solid (filled), so it has no bore and no motor fits it, scaled or not.`
+          + ' Untick Solid (filled) on it to make it a tube.');
     } else if (m.verdict === 'resized') {
       const target = m.targetBoreMm!;
       const standard = Math.abs(target - nearestCommonClass(target)) < CLASS_TOLERANCE_MM;

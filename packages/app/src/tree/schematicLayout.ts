@@ -628,8 +628,8 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
    * Same projection as a fin: a surface point at radius r lands at r·cos θ,
    * and sin θ ≥ 0 puts it in FRONT of the airframe.
    */
-  const surfaceAt = (n: ComponentNode): { p: number; near: boolean } => {
-    const a = num(n, 'angleOffset', 0) + roll;
+  const surfaceAt = (n: ComponentNode, frameRoll: number): { p: number; near: boolean } => {
+    const a = num(n, 'angleOffset', 0) + frameRoll;
     return { p: Math.cos(a), near: Math.sin(a) >= 0 };
   };
 
@@ -646,12 +646,12 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
    * its fill at the wall, rolled it is a wire outline — but nothing is dropped
    * here, so nothing can pop.
    */
-  const finFactors = (n: ComponentNode): FinInstance[] => {
+  const finFactors = (n: ComponentNode, frameRoll: number): FinInstance[] => {
     // finCountOf: the kernel's 1..8, never the raw count. A .rkt FinCount of
     // 70,000 made the `Math.min(...ys)` spread below throw RangeError and took
     // the whole app down (audit 2026-09-22).
     const count = finCountOf(n);
-    const base = num(n, 'rotation', 0) + roll;
+    const base = num(n, 'rotation', 0) + frameRoll;
     const out: FinInstance[] = [];
     for (let i = 0; i < count; i++) {
       const a = base + (2 * Math.PI * i) / count;
@@ -690,7 +690,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
   // tree/finRoot.ts); every other child is placed by the one radius `pRadius`.
   const renderChildren = (
     parent: ComponentNode, pStart: number, pLen: number, pRadius: number, baseY: number, scope: string,
-    mount: MountSurface = flatMount(pRadius, pLen),
+    mount: MountSurface = flatMount(pRadius, pLen), frameRoll = roll,
   ) => {
     for (const child of parent.children ?? []) {
       const t = child.type;
@@ -704,9 +704,11 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const count = assemblyInstanceCount(child);
         const podKey = partKey(child, scope);
         let k = 0;
-        for (const off of ringInstanceOffsets(count, podRadius, num(child, 'angleOffset', 0) + roll)) {
+        for (const off of ringInstanceOffsets(count, podRadius, num(child, 'angleOffset', 0) + frameRoll)) {
+          // Carry the instance's roll into its own fins and surface parts
+          // rather than projecting every pod in the core frame (audit 2026-10-11, S4b-2).
           // −y: the cross-section frame's +y is UP, and SVG y grows down.
-          renderChain(podChain, podStart, baseY - off.y * ctx.scale, `${podKey}#${k++}/`);
+          renderChain(podChain, podStart, baseY - off.y * ctx.scale, `${podKey}#${k++}/`, off.angle);
         }
         continue;
       }
@@ -786,7 +788,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           // thinner at one end, and a fin can show there and nowhere else.
           const clears = (p: number): boolean =>
             outline.some(([x, y]) => (r0 + y) * Math.abs(p) > mount.radiusAt(xFront + x));
-          const projections = finFactors(child);
+          const projections = finFactors(child, frameRoll);
           noteHoverFins(child, ctx.x0 + start * ctx.scale, ctx.x0 + (start + chord) * ctx.scale,
             baseY, reach, rootR, wallR, projections);
           const clip = airframeClip(baseY, wallR);
@@ -832,7 +834,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // anywhere but a body tube, where that is simply the tube radius.
         const r0 = mount.radiusAt(start - pStart);
         const reach = r0 + height;
-        const projections = finFactors(child);
+        const projections = finFactors(child, frameRoll);
         noteHoverFins(child, ctx.x0 + start * ctx.scale,
           ctx.x0 + (start + Math.max(root, sweep + tip)) * ctx.scale,
           baseY, reach, r0, r0, projections);
@@ -888,7 +890,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const X = ctx.x0 + start * ctx.scale;
         noteHover(child, X, baseY - (pRadius + 2 * rt) * ctx.scale,
           X + len * ctx.scale, baseY + (pRadius + 2 * rt) * ctx.scale);
-        const tubes = finFactors(child);
+        const tubes = finFactors(child, frameRoll);
         const tubeClip = airframeClip(baseY, pRadius);
         for (const { p, near, i } of tubes) {
           const yc = baseY - (pRadius + rt) * p * ctx.scale;
@@ -930,7 +932,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const hgt = kernelNum(child, 'height');
         const ends = shroudEnds(child);
         const start = axialStart(child, len, pStart, pLen);
-        const { p: sp, near: snear } = surfaceAt(child);
+        const { p: sp, near: snear } = surfaceAt(child, frameRoll);
         const X = ctx.x0 + start * ctx.scale;
         const y0 = baseY - pRadius * sp * ctx.scale;
         const yh = baseY - (pRadius + hgt) * sp * ctx.scale;
@@ -991,7 +993,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const hgt = kernelNum(child, 'height');
         const cls = String(child['dragClass'] ?? 'streamlinedbase');
         const start = axialStart(child, len, pStart, pLen);
-        const { p: pp, near: pnear } = surfaceAt(child);
+        const { p: pp, near: pnear } = surfaceAt(child, frameRoll);
         const X = ctx.x0 + start * ctx.scale;
         const y0 = baseY - pRadius * pp * ctx.scale;
         const yh = baseY - (pRadius + hgt) * pp * ctx.scale;
@@ -1039,7 +1041,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           : axialStart(child, len, pStart, pLen);
         // Its own mounting angle places it (v0.087); the view roll turns it
         // from there. Solid at every roll — a button is a lump, not a line.
-        const { p: lp, near: lnear } = surfaceAt(child);
+        const { p: lp, near: lnear } = surfaceAt(child, frameRoll);
         const ySurf = baseY - pRadius * lp * ctx.scale;
         const yOut = baseY - (pRadius + btnH) * lp * ctx.scale;
         // LINE INSTANCES (v0.089): one node is N collinear copies at the same
@@ -1095,7 +1097,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
             kernelNum(child, 'outerRadius'),
             num(child, 'clusterScale', 1),
             num(child, 'clusterRotation', 0),
-            { radialDirection: num(child, 'radialDirection', 0), viewRoll: roll },
+            { radialDirection: num(child, 'radialDirection', 0), viewRoll: frameRoll },
           )
           : [{ y: 0, z: 0 }];
         // An inner tube can also sit OFF the centreline on its own, with no
@@ -1106,7 +1108,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // Only the +y component projects into a side view; the view roll turns
         // the pair, same as every other radial part here.
         const radY = child.type === 'innertube'
-          ? num(child, 'radialPosition', 0) * Math.cos(num(child, 'radialDirection', 0) + roll)
+          ? num(child, 'radialPosition', 0) * Math.cos(num(child, 'radialDirection', 0) + frameRoll)
           : 0;
         // Loaded motor: a brownish silhouette at the REAL case size, seated
         // flush against the mount's aft end (how motors actually load).
@@ -1200,9 +1202,9 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
               oy));
           }
         });
-        // Children ride the tube's own radial offset (not its cluster copies —
-        // there is one child set, and AftView.tsx:234 makes the same choice).
-        renderChildren(child, start, len, r, baseY - radY * ctx.scale, scope);
+        // This side projection combines the cluster's children at its radial
+        // offset; the aft view separates the children into individual tubes.
+        renderChildren(child, start, len, r, baseY - radY * ctx.scale, scope, undefined, frameRoll);
       }
     }
   };
@@ -1225,7 +1227,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
 
   // Draws an axial nose→tail chain with its centerline at screen `baseY`
   // (ctx.cy for the core rocket; offset for each off-axis pod instance).
-  const renderChain = (nodes: ComponentNode[], xStart: number, baseY: number, scope: string) => {
+  const renderChain = (nodes: ComponentNode[], xStart: number, baseY: number, scope: string, frameRoll = roll) => {
     let cx = xStart;
     for (const n of nodes) {
       // The kernel's length, as the frame above reads it and every child's
@@ -1245,7 +1247,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           attrs: { d: profilePath(ctx, n, cx, len, fore, aft, baseY), fill: fillOf(n, '#d5d2cb'), stroke: '#7a786f', strokeWidth: 1 },
         });
         shoulderRect(`${key}:shoulder`, isTailCone(n) ? cx - shL : cx + len, shL, num(n, 'shoulderRadius', 0), '#9a978f', baseY);
-        renderChildren(n, cx, len, r, baseY, scope, profileMountOf(n, len, fore, aft));
+        renderChildren(n, cx, len, r, baseY, scope, profileMountOf(n, len, fore, aft), frameRoll);
         cx += len;
       } else if (n.type === 'bodytube') {
         const r = drawnRadius(n);
@@ -1265,7 +1267,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           shapes.push(...motorShapes('base', `${key}:motor`,
             tubeMotor, cx + len - tubeMotor.length + num(n, 'motorOverhang', 0), baseY));
         }
-        renderChildren(n, cx, len, r, baseY, scope);
+        renderChildren(n, cx, len, r, baseY, scope, undefined, frameRoll);
         cx += len;
       } else if (n.type === 'transition') {
         const rf = num(n, 'foreRadius', 0.012);
@@ -1280,7 +1282,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         shoulderRect(`${key}:shoulder-fore`, cx - fsl, fsl, num(n, 'foreShoulderRadius', 0), '#9a978f', baseY);
         shoulderRect(`${key}:shoulder-aft`, cx + len, num(n, 'aftShoulderLength', 0), num(n, 'aftShoulderRadius', 0), '#9a978f', baseY);
         // A fin roots on the drawn profile, not at the larger end's radius.
-        renderChildren(n, cx, len, Math.max(rf, ra), baseY, scope, profileMountOf(n, len, rf, ra));
+        renderChildren(n, cx, len, Math.max(rf, ra), baseY, scope, profileMountOf(n, len, rf, ra), frameRoll);
         cx += len;
       }
     }

@@ -32,6 +32,7 @@ import { num, numOpt, numOrNull } from './nodeNum.js';
 import { sanitizeTree } from './sanitize.js';
 import { ventLimit } from './canopyVent.js';
 import { KERNEL_DEFAULT_CD, kernelNum } from './kernelDefaults.js';
+import { resolveTransitionRadii } from './transitionRadii.js';
 
 /**
  * Immutable tree-editing helpers. Every node carries a unique editor id
@@ -180,6 +181,14 @@ function repairTreeShape(tree: RocketTree, notes?: string[]): RocketTree {
         // FreeformFinSet's kernel default, in metres; show the outline that flies.
         node = { ...node, points: [[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]] };
         note(`Fin set "${node.name ?? 'freeform'}": its outline was not used — the points were unreadable. The set keeps a default outline; redraw it in the fin editor.`);
+      } else if (node.type === 'freeformfinset' && Array.isArray(points) && points.length) {
+        const [x0, y0] = points[0] as [number, number];
+        // FreeformFinSet.setPoints translates before positioning. Repair at the
+        // load boundary so every drawing and cut shares that frame (audit 2026-10-11, S4a-2).
+        if (x0 * x0 + y0 * y0 > 1e-12) {
+          node = { ...node, points: (points as [number, number][]).map(([x, y]) => [x - x0, y - y0]) };
+          note(`Fin set "${node.name ?? 'freeform'}": its points were moved to the origin to match desktop OR.`);
+        }
       }
       if (node !== value) changed = true;
       target.push(node);
@@ -1292,7 +1301,9 @@ export function referenceArea(tree: RocketTree): number {
       collect(n.children ?? []);
     }
   };
-  collect(tree.components);
+  // Automatic ends must see their own assembly's neighbours, not a flattened
+  // DFS list that borrows a core tube for a pod (audit 2026-10-11, S4a-3).
+  collect(resolveTransitionRadii(tree).components);
   sym.forEach((n, i) => {
     // The nose/tube fallbacks are ComponentFactory's own (ll. 66, 146), so a
     // node with no radius is measured at the radius the kernel will really

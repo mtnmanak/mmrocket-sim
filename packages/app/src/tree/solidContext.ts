@@ -7,6 +7,8 @@ import type { SolidContext } from './solidMesh.js';
 import { noseEnds } from './tailCone.js';
 import { kernelDefault } from './kernelDefaults.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
+import { flatMount } from './finRoot.js';
+import { profileMountOf } from './schematicLayout.js';
 
 /**
  * Parent-derived diameters for the printable (STL) and cuttable (DXF) exports
@@ -74,6 +76,16 @@ export function solidContextFor(tree: RocketTree, node: ComponentNode): SolidCon
   if (TABBED_FINS.has(node.type)) {
     const depth = tabMaxDepth(parent, node);
     if (depth !== undefined) ctx.tabMaxDepth = depth;
+    // Cut the root against the same surface as the views (audit 2026-10-11, S4b-1).
+    const len = axialLength(parent);
+    ctx.finFront = startFromPosition(positionOf(node), axialLength(node), len);
+    if (parent.type === 'bodytube') {
+      ctx.finMount = flatMount(num(parent, 'outerRadius', 0.012), len);
+    } else if (parent.type === 'transition' || parent.type === 'nosecone') {
+      const ends = parent.type === 'nosecone' ? noseEnds(parent, num(parent, 'aftRadius', 0.012))
+        : { fore: num(parent, 'foreRadius', 0.025), aft: num(parent, 'aftRadius', 0.025) };
+      ctx.finMount = profileMountOf(parent, len, ends.fore, ends.aft);
+    }
   }
   return ctx;
 }
