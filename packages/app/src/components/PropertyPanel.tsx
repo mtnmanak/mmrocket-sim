@@ -6,7 +6,7 @@ import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  applyFieldLimit, blankValue, DISPLAY_NAME, FIELDS, fieldLimit, POSITIONABLE, type FieldDef,
+  applyFieldLimit, blankValue, DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef,
 } from '../tree/schema.js';
 import {
   bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
@@ -14,7 +14,7 @@ import {
   protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor,
 } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, positionOf, snapStart, startFromPosition } from '../tree/position.js';
-import { tubeFinMaxCount, tubeFinMaxRadius, tubeFinRadius } from '../tree/tubefins.js';
+import { filletMaterialPatch, numericFieldRules } from '../tree/numericFieldRules.js';
 import { betweenFinAnglesAmong, finAnglesAmong, frameContaining, nearestAngle } from '../tree/mountAngle.js';
 import { shroudEnds } from '../tree/shroud.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
@@ -36,7 +36,7 @@ const RESOLVE_SELECT: Record<string, (n: ComponentNode) => string | undefined> =
   // option as written, and the menu showed its first — the ejection charge.
   deployEvent: (n) => flownDeployEvent(n['deployEvent']),
 };
-import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
+import { shapeUsesParameter } from '../tree/shapeProfile.js';
 import { componentSolid } from '../tree/solidMesh.js';
 import { massObjectParentRadius, solidContextFor } from '../tree/solidContext.js';
 import { componentDxf, DXF_CUTTABLE, DXF_MIME, dxfUnitFor, dxfUnitWord } from '../services/dxfExport.js';
@@ -44,7 +44,7 @@ import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { printerName, toPrinterVolume } from '../prefs/printers.js';
 import { fmtFieldValue, fmtSi, fmtSig, niceStep, QUANTITY_LABEL, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
-import { BULK_MATERIALS, DEFAULT_FILLET_MATERIAL, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
+import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import {
   catalogueDifferences, detachPatch, KIND_FOR_TYPE, linkedPreset, loadPresets,
@@ -719,68 +719,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
     const raw = numOpt(node, f.key);
     const value = raw !== undefined ? toDisplay(raw) : undefined;
 
-    // Cross-field ceilings for tube fins (issue 2026-08-05e): the outer
-    // radius is capped by the touching radius for the current fin count, and
-    // the fin count by how many tubes of the explicit radius fit. Blank
-    // radius shows the auto (touching) value grayed so builders can read the
-    // real as-built dimension without committing to an override.
-    let maxSi: number | undefined;
-    let maxCount: number | undefined;
+    const { maxSi, maxCount, autoRadiusSi, shapeDefault, limit } = numericFieldRules(node, f, tubeFinBodyR);
     let autoPlaceholder: string | undefined;
-    // The exact figure behind a numeric placeholder, in the display unit. The
-    // placeholder is rounded for reading (fmtSig, NumField's own display rule);
-    // the spinner steps from THIS. Both used to be one `toFixed(3)` string in
-    // the display unit, which NumField parsed back as the spinner's base (audit
-    // 2026-09-22): in metres the kernel's 9.7 mm rail button read
-    // "default: 0.01", and one ▴ committed 10.5 mm instead of 10.2.
+    // The exact SI base is converted separately from its rounded display label.
     let autoValue: number | undefined;
-    if (tubeFinBodyR !== null && f.key === 'outerRadius') {
-      const n = Math.round(num(node, 'finCount', 6));
-      maxSi = tubeFinMaxRadius(n, tubeFinBodyR) ?? undefined;
-      if (raw === undefined) {
-        autoValue = toDisplay(tubeFinRadius(node, tubeFinBodyR));
-        autoPlaceholder = `auto: ${fmtSig(autoValue, 3, 3)}`;
-      }
+    if (autoRadiusSi !== undefined) {
+      autoValue = toDisplay(autoRadiusSi);
+      autoPlaceholder = `auto: ${fmtSig(autoValue, 3, 3)}`;
     }
-    if (tubeFinBodyR !== null && f.key === 'finCount') {
-      const r = node['outerRadius'];
-      if (typeof r === 'number' && r > 0) {
-        maxCount = tubeFinMaxCount(r, tubeFinBodyR);
-      }
-    }
-    // THE HARD LIMIT (audit 2026-09-22) — the same table the load boundary's
-    // sanitize pass applies (schema.ts `fieldLimit`), so a typed or dragged
-    // value can never be one a reopened file would have to repair. A count's
-    // ceiling goes on the field itself, which CLAMPS a typed count to it
-    // (NumField `clampToMax`, below): typing 12 fins stores 8 and flags the
-    // box until blur shows 8 (the kernel flies at most 8, and the app used to
-    // draw and export 12). Refusing it instead kept the "1" committed on the
-    // way to "12" — a one-fin set. Bulk density also gets a typed ceiling
-    // below, refusing absurd prefixes (register: "Typed one key at a time...").
-    // The commit enforces the remaining bounds, including the positive floor
-    // for a tube-fin length or shroud height that would fail a build at 0.
-    const limit = fieldLimit(node.type, f.key);
-    if (f.unit === 'count' && limit?.hmax !== undefined) {
-      maxCount = Math.min(maxCount ?? Infinity, limit.hmax);
-    }
-    // Shape parameter: capped per shape (haack tops out at 1/3 = LV-Haack,
-    // matching the kernel's setShapeParameter clamp); blank = kernel default.
-    if (f.key === 'shapeParameter') {
-      const sh = String(node['shape'] ?? (node.type === 'transition' ? 'conical' : 'ogive'));
-      maxSi = shapeParamMax(sh);
-      if (raw === undefined) {
-        autoPlaceholder = `default: ${shapeParamDefault(sh)}`;
-      }
-    }
-    // A vent cannot be bigger than the canopy it is cut in. engineTree clamps
-    // the FLOWN hole to 0.95·D — silently, so the panel could show a 1 m vent
-    // on a 0.3 m chute that the rocket was not flying, on the one control that
-    // scales descent Cd. This is the same ceiling by construction: one rule,
-    // tree/canopyVent.ts, with the 0.3 m fallback and the `> 0` guard.
-    if (node.type === 'parachute' && f.key === 'spillHoleDiameter') {
-      const vent = ventLimit(node);
-      if (vent) maxSi = vent.maxHole;
-    }
+    if (shapeDefault !== undefined) autoPlaceholder = `default: ${shapeDefault}`;
     // A rail button's five geometry dimensions did not exist as fields before
     // v0.103, so a button in a design saved earlier carries none of them and
     // these boxes come up empty. Empty must not read as "zero": the engine
@@ -868,23 +815,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
         patch['filletMaterialName'] = undefined;
         patch['filletMaterialGroup'] = undefined;
       }
-      // Preserve both stored material and material supplied by this edit.
-      if (f.key === 'filletRadius'
-        && !('filletDensity' in patch) && !('filletMaterialName' in patch) && !('filletMaterialGroup' in patch)
-        && node['filletDensity'] === undefined && node['filletMaterialName'] === undefined
-        && node['filletMaterialGroup'] === undefined) {
-        const previous = numOpt(node, 'filletRadius') ?? 0;
-        if (next === 0 && previous > 0) {
-          // Retain the kernel's implicit Cardboard before disabling, so a later
-          // re-enable (including after reload) is not mistaken for first creation.
-          patch['filletDensity'] = blankValue(node.type, 'filletDensity');
-          patch['filletMaterialName'] = 'Cardboard';
-        } else if (next > 0 && previous === 0) {
-          patch['filletDensity'] = DEFAULT_FILLET_MATERIAL.density;
-          patch['filletMaterialName'] = DEFAULT_FILLET_MATERIAL.name;
-        }
-      }
-      onPatch(patch);
+      onPatch(f.key === 'filletRadius' ? filletMaterialPatch(node, next, patch) : patch);
     };
     // A count's display value IS its SI value (no unit, never a radius).
     const commit = (ui: number) => commitSi(f.unit === 'count' ? ui : fromDisplay(ui));

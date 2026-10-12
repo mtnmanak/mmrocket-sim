@@ -1,3 +1,7 @@
+import { DesignConfirms } from './components/DesignConfirms.js';
+import { assignMotorRecords, planMotorAssignment, retireLoadoutNote } from './services/motorAssignment.js';
+import { exportConfigs as assembleExportConfigs, exportMotorsMap as assembleExportMotors,
+  flightExportInput as assembleFlightExportInput } from './services/exportAssembly.js';
 import { OpenMotorDialog } from './components/OpenMotorDialog.js';
 import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorIdentity, type OpenMotorState } from './services/openMotorChoices.js';
 import { activeFlightOverrides, resolveFlightState, resetOverride, setOverride } from './services/flightState.js';
@@ -38,7 +42,6 @@ import {
   solePinnedStage, withoutAllowance, type BallastSolution,
 } from './services/buildAllowance.js';
 import { MotorPicker } from './components/MotorPicker.js';
-import { Modal } from './components/Modal.js';
 import { useMenuPopup } from './components/useDialog.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
@@ -84,8 +87,7 @@ import { AERO_NAME, aeroChoiceOf, effectiveAero, usePrefs, type AeroChoice } fro
 import { UnitChip } from './components/UnitChip.js';
 import { fmtSi } from './prefs/units.js';
 import { classLabel, diameterClass } from './services/motorDb.js';
-import { ignitionDefaultFor } from './services/ignitionDefault.js';
-import { orkMotorSet, type FlownAutoDelays } from './services/orkExportMotors.js';
+import type { FlownAutoDelays } from './services/orkExportMotors.js';
 import { withAuto, withDelay, withPlugged } from './services/mountDelayEdits.js';
 import { canReplayDelays, delayMountsOf, validDelayResolution, resolutionMatchesPolicy } from './services/autoDelaySolver.js';
 import { autoDelayCardText } from './components/MountDelayReport.js';
@@ -93,7 +95,7 @@ import { installedMounts, reflyRun } from './services/flightRunner.js';
 import { flyBuiltDesign } from './services/simulateDesign.js';
 import { buildDesign, KERNEL_HANDLES, type DesignBuild } from './services/buildDesign.js';
 import { loadExMotorIdentities, loadExMotors } from './services/exMotors.js';
-import { autoDelaySaveNote, exportOrk, importOrk, type MeasuredFigures, type OrkExportConfig, type OrkExportFlightData, type OrkExportMotor, type OrkMotorRef } from './services/orkFile.js';
+import { autoDelaySaveNote, exportOrk, importOrk, type MeasuredFigures, type OrkExportFlightData, type OrkMotorRef } from './services/orkFile.js';
 import {
   decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, shareLinkOpenFailure,
 } from './services/shareLink.js';
@@ -107,7 +109,6 @@ import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1 } from './services/rasaeroFile.js';
 import { checkFormatLossOf, checkFormatLossSafely, formatExtension, type CheckedFormatLossReport, type FormatLossInput, type FormatLossReport, type LossyFormat } from './services/formatLoss.js';
 import { gateLossySave, lossySaveStatus, replacementLossNote, type LossySaveMark } from './services/lossySave.js';
-import { FormatLossDialog } from './components/FormatLossDialog.js';
 import {
   flushSession, loadSession, onSessionConflictChange, onSessionSaveStateChange, saveSessionDebounced,
   sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession,
@@ -115,7 +116,7 @@ import {
 import {
   AERO_MODEL_CHANGED, aeroModelLabel, changedSinceRun,
   currentModelLabel, formatRunLabel, formatRunWhenProse, formatStability, listAnd,
-  hasAerodynamicForce, motorSetKeyOf, shownStability, runMatchesDesign, runMatchesModel,
+  hasAerodynamicForce, shownStability, runMatchesDesign, runMatchesModel,
   storedSimCost,
   type DesignMatchKey, type MotorMeta, type SimRun,
 } from './services/simReport.js';
@@ -129,13 +130,12 @@ import { offlineStatusText, useOfflineStatus } from './services/offlineStatus.js
 import {
   addChild, addStage, nozzleStages, applyStageNozzles, autoDelayBox, cloneSubtree, duplicateNode, findNode,
   findParent, hasParallelStage, makeNode, motorMounts, moveNode,
-  isPristineDefault, mountCountNote, mountMotorCount, mountName, primaryMountOf, removeNode, stageIndexOf, stages,
-  stagesWithNozzle,
+  isPristineDefault, mountCountNote, mountMotorCount, mountName, removeNode, stageIndexOf, stages,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
 import { num, numOrNull } from './tree/nodeNum.js';
 import {
-  flightDataForExport as flightDataForExportPure, flownAutoDelays, planSummaryImport, summaryImportCounts, summaryDocument, type FlightDataForExportInput,
+  flightDataForExport as flightDataForExportPure, flownAutoDelays, planSummaryImport, summaryImportCounts, summaryDocument,
 } from './services/orkFlightData.js';
 import { sameStoredFlight } from './services/storedRunIdentity.js';
 import { estimateMotorRoom, noBoreReason } from './tree/motorRoom.js';
@@ -169,16 +169,16 @@ import {
   catalogueMotorMass, flownSpec, LEGACY_PAD_MASS_KEY, motorIdentity,
 } from './services/hardwareMass.js';
 import {
-  adoptsRefPadMass, assignMotorRecord, migrateLegacyPadMass, stripPadMass, scaleConfigStageMass,
+  migrateLegacyPadMass, stripPadMass, scaleConfigStageMass,
   stripRefPadMass, syncActiveConfig, withoutStoredRef, withActiveConfigTreeSynced,
   createLoadedConfig, renameConfig, deleteConfig,
 } from './services/configSync.js';
 import {
-  reconcileAllIncludedMotors, reconcileIncludedMotor,
+  reconcileAllIncludedMotors,
 } from './services/statedLaunchWeight.js';
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import {
-  applyConfigSwitchPlan, applyImportPlan, attachedOf, attachedSet, configOntoTree, openShareLink, planConfigSwitch, planImport,
+  applyConfigSwitchPlan, applyImportPlan, attachedSet, openShareLink, planConfigSwitch, planImport,
   planNewDesign, planOrkSave, resolveImportMotors, starterMotorMayLand, type ImportedDesign,
 } from './services/importApply.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
@@ -194,6 +194,23 @@ import { useWorkspaceTab } from './hooks/useWorkspaceTab.js';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from './model/design.js';
 
 import './styles.css';
+
+// Static save-format metadata, shared by every render (audit 2026-10-11, S2-8).
+/**
+ * What the picker's file-type dropdown says, and the MIME each format is
+ * offered under. A blanket application/octet-stream made every save look
+ * like the same anonymous binary in the dialog.
+ */
+const FORMAT_INFO: Record<string, { mime: string; description: string }> = {
+  ork: { mime: 'application/octet-stream', description: 'OpenRocket design' },
+  rkt: { mime: 'application/octet-stream', description: 'RockSim design' },
+  CDX1: { mime: 'application/xml', description: 'RASAero II design' },
+  obj: { mime: 'text/plain', description: 'Wavefront OBJ geometry' },
+  glb: { mime: GLB_MIME, description: 'glTF binary 3D model' },
+  stl: { mime: 'application/octet-stream', description: 'STL 3D shell' },
+  csv: { mime: 'text/csv', description: 'Comma-separated values' },
+  xlsx: { mime: XLSX_MIME, description: 'Excel workbook' },
+};
 
 // Public feedback tracker — ONE tracker for the site and all tools
 // (adjudicated 2026-08-11).
@@ -1641,70 +1658,16 @@ export function App() {
     // flush, where the second would rebuild the whole tree from a snapshot
     // taken before the first. See the note on `treeRef`.
     const live = treeRef.current;
-    // The default is PROPELLANT-aware, not power-class aware — see
-    // services/ignitionDefault.ts, which carries the rule and Eric's striking
-    // of the one it replaced. It lives there rather than inline so a test can
-    // reach it, the same reason stageMotorInfo moved to flightPipeline.
-    const ignition: MountMotor['ignition'] =
-      ignitionDefaultFor(live, { mountId: targetMountId, propellant: meta.propellant });
-    // The file's unresolved reference for this mount stops being what should
-    // ride back out the moment the user picks a motor for it. THE LIVE SET,
-    // not this render's, for the reason `live` is the live tree — two picks in
-    // one flush (2026-09-08, from review).
-    const refs = unmatchedRefsRef.current;
-    const droppedRef = refs[targetMountId];
-    const { [targetMountId]: _dropped, ...remainingRefs } = refs;
-    // A fresh record: a pad mass weighed with a DIFFERENT motor does not
-    // belong to this one, so the field starts blank for it. The three ways a
-    // weighing survives — the same motor re-picked for its delay, the file's
-    // own motor adopting the value the file left on its reference, and the
-    // primary's `unmatched:` sentinel for this mount satisfied — are
-    // configSync.assignMotorRecord, pure and tested there.
-    setMountMotors((prev) => assignMotorRecord(prev, targetMountId, { label, spec, meta, ignition }, {
-      // The primary as of THIS assignment, re-derived inside the updater from
-      // the live tree and the live records — the same definition as the
-      // `primaryMountId` memo above (mounts that exist, topmost stage first),
-      // but not a render old. A first pick in the same flush can move it, and
-      // it decides whether the primary's `unmatched:` sentinel for this mount
-      // gets rewritten to the loaded motor. Pure: it reads its arguments and
-      // mutates nothing, so StrictMode's double-invoke is harmless.
-      tree: live,
-      primaryMountId: primaryMountOf(live, motorMounts(live)
-        .map((m) => m.id).filter((id): id is string => typeof id === 'string' && id in prev)),
-      droppedRef,
-      remainingRefs,
-    }));
-    // When the dropped reference carried the file's pad mass (its motor was
-    // the file's primary and could not be loaded): the file's own motor takes
-    // the value with it and the field under it shows what it carries; any
-    // other motor drops it, and the note says which motor it was weighed with
-    // — never that the motor just loaded is "no longer loaded".
-    const repairedConfig = savedConfigs.find(c => c.id === activeConfigId && c.motorLoadoutRefusal);
-    if (repairedConfig) {
-      // Retire only this configuration's obsolete refusal, not the rest of the import note.
-      setFileNoteState(prev => {
-        if (!prev) return prev;
-        const text = prev.text.split('\n').filter(line => line !== repairedConfig.motorLoadoutRefusal).join('\n');
-        return text ? { ...prev, text } : null;
-      });
-      setMotorLoadoutRepair({
-        // A distinct id also opens NoticeBar on builds that key only by id and severity.
-        id: `motor-loadout-repaired:${repairedConfig.id}`,
-        severity: 'warn',
-        text: `Your motor assignment replaces the ambiguous imported loadout for “${savedConfigLabel(repairedConfig)}”. `
-          + 'Check all motor assignments before launching.',
-        onDismiss: () => setMotorLoadoutRepair(null),
-      });
+    // Pure decisions; keep the live reads and React effect order here (audit 2026-10-11, S2-8).
+    const plan = planMotorAssignment({ tree: live, targetMountId, label, spec, meta,
+      refs: unmatchedRefsRef.current, savedConfigs, activeConfigId, massText, statedWeightText });
+    setMountMotors((prev) => assignMotorRecords(prev, live, targetMountId, plan));
+    const { repairedConfig, repairNotice } = plan;
+    if (repairedConfig && repairNotice) {
+      setFileNoteState(prev => retireLoadoutNote(prev, repairedConfig));
+      setMotorLoadoutRepair({ ...repairNotice, onDismiss: () => setMotorLoadoutRepair(null) });
     }
-    const adoptedKg = adoptsRefPadMass(droppedRef, spec.designation);
-    if (adoptedKg !== undefined) {
-      setFileNote(`The file's weighed pad mass (${massText(adoptedKg)}) was weighed with ${droppedRef!.designation},`
-        + ` which is loaded now — it sits under ${baseLabel(label)} on this mount, and the line there says what`
-        + ' it carries.');
-    } else if (droppedRef && typeof droppedRef.padMassKg === 'number' && droppedRef.padMassKg > 0) {
-      setFileNote(`The weighed pad mass in the file was weighed with ${droppedRef.designation}, which is not the`
-        + ` motor now loaded — re-weigh with ${label} in.`);
-    }
+    if (plan.padMassNote !== undefined) setFileNote(plan.padMassNote);
     setUnmatchedRefs((prev) => {
       if (!(targetMountId in prev)) return prev;
       const next = { ...prev };
@@ -1722,7 +1685,7 @@ export function App() {
     // only collide with the pad-mass notes above when a file left a weighed
     // pad mass on an unmatched reference AND a stage carries the mark, and the
     // mass being 79 % wrong outranks a note about where a weighing went.
-    const fix = reconcileIncludedMotor(live, targetMountId, attachedOf(spec), statedWeightText);
+    const fix = plan.reconciliation;
     if (fix) {
       if (fix.note) {
         setTree(fix.tree);
@@ -2093,10 +2056,9 @@ export function App() {
    * under no field (orkExportMotors.ts padMassOnPrimaryOnly) — until a value
    * typed or cleared on the card supersedes it (typedPadMass).
    */
-  const exportMotorsMap = (flown: FlownAutoDelays = {}): Record<string, OrkExportMotor> => orkMotorSet({
-    records: Object.fromEntries(assigned), refs: unmatchedRefs, tree, flown,
-    configKey: activeConfigId ?? '', exLibrary: loadExMotorIdentities, first: 'records',
-  });
+  const exportMotorsMap = (flown: FlownAutoDelays = {}) => assembleExportMotors({
+    assigned, unmatchedRefs, tree, activeConfigId, exLibrary: loadExMotorIdentities,
+  }, flown);
 
   /**
    * Prefer an app flight whose replay evidence still matches this design.
@@ -2111,45 +2073,9 @@ export function App() {
    * file desktop OpenRocket renders indistinguishably from a fresh result. This
    * is the adapter that hands them the app's state.
    */
-  const flightExportInput = useCallback((): FlightDataForExportInput => ({
-      runs,
-      importedDocument,
-      savedConfigs,
-      activeConfigId,
-      assigned,
-      // The working set's refusals: Launch flew without them, so its delay
-      // vector names none of them (orkFlightData.describedMotors).
-      refusedMountIds,
-      mountIds: mounts.map((m) => m.id).filter((id): id is string => typeof id === 'string'),
-      // The design and conditions terms of the ONE key a run is stamped with.
-      // The motor set is not taken from it: a non-active configuration is
-      // compared against its OWN motors, so the function is handed over.
-      designKey: provenanceKey.designKey,
-      configurationState: (id) => {
-        const cfg = savedConfigs.find(c => c.id === id);
-        const working = id === activeConfigId;
-        const resolved = resolveFlightState(!working && cfg ? configOntoTree(tree, cfg) : tree,
-          savedConfigs, id, detachedOverrides, working ? mountMotors : cfg?.motors ?? mountMotors);
-        const motors = assignedMotorsOf(resolved.mountMotors, mounts);
-        return { ...provenanceKeyOf({ tree: resolved.tree, physicsKey: physicsKeyOf(resolved.tree.components),
-          assigned: motors, hardwareDeltaKg: working ? hardwareDeltaKg : 0, launch,
-          aero: { aeroMode, effectiveKbf, autoSupersonic } }), motors };
-      },
-      conditionsKey: provenanceKey.conditionsKey,
-      model: { aeroMode, effectiveKbf, autoSupersonic },
-      // Tree-only, deliberately NOT joined to `assigned` the way the two match
-      // keys are: this admits runs from OTHER flight configurations, whose
-      // motors are not the working set, so a stage that is bare right now may
-      // well have burned in the configuration whose numbers are about to be
-      // written. Refusal is the safe direction here (2026-09-08).
-      hasNozzle: stagesWithNozzle(tree).length > 0,
-      requiresPhysicsRevision: provenanceKey.requiresPhysicsRevision,
-      physicsRevisions: provenanceKey.physicsRevisions,
-      motorSetKeyOf,
-      hardwareDeltaKg,
-      // Whose delay a run's `delayS` is: an auto-delay run is written only when
-      // it flew the delay the file's <delay> will name (audit 2026-09-22).
-      primaryMountOf: (ids) => primaryMountOf(tree, ids),
+  const flightExportInput = useCallback(() => assembleFlightExportInput({
+    runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
+    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree, detachedOverrides, mountMotors, launch,
   }), [runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree, detachedOverrides, mountMotors, launch]);
   const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataForExportPure(flightExportInput());
@@ -2224,44 +2150,8 @@ export function App() {
    * defaults to state; onSaveOrk passes the set it has just written the
    * working set back into, so the file and the mark agree.
    */
-  const exportConfigs = (
-    configs: SavedConfig[] = savedConfigs, flown: FlownAutoDelays = {},
-  ): OrkExportConfig[] => configs.map((c) => ({
-    id: c.id, name: c.name, isDefault: c.isDefault,
-    ...(c.stageActiveness ? { stageActiveness: c.stageActiveness } : {}),
-    ...(c.motorLoadoutRefusal ? { motorLoadoutRefusal: c.motorLoadoutRefusal } : {}),
-    // The same mapping as exportMotorsMap: what the file said, re-emitted
-    // verbatim for any mount this configuration could not match, so a preset
-    // the user has never applied does not quietly lose its motors on the way
-    // out — and the same primary gate, so each configuration writes ONE pad
-    // mass, its primary's. References first, as this has always built a
-    // stored configuration: on a same-stage tie that decides which mount's
-    // pad mass is kept (orkExportMotors' `first`).
-    motors: orkMotorSet({
-      records: c.motors, refs: c.unmatchedRefs, tree, flown, configKey: c.id, exLibrary: loadExMotorIdentities,
-      first: 'refs',
-    }),
-    ...(c.ignitions ? { ignitions: c.ignitions } : {}),
-    ...(c.deployments ? { deployments: c.deployments } : {}),
-    ...(c.separations ? { separations: c.separations } : {}),
-    ...(c.stageMassOverrides ? { stageMassOverrides: c.stageMassOverrides } : {}),
-  }));
-
-  /**
-   * What the picker's file-type dropdown says, and the MIME each format is
-   * offered under. A blanket application/octet-stream made every save look
-   * like the same anonymous binary in the dialog.
-   */
-  const FORMAT_INFO: Record<string, { mime: string; description: string }> = {
-    ork: { mime: 'application/octet-stream', description: 'OpenRocket design' },
-    rkt: { mime: 'application/octet-stream', description: 'RockSim design' },
-    CDX1: { mime: 'application/xml', description: 'RASAero II design' },
-    obj: { mime: 'text/plain', description: 'Wavefront OBJ geometry' },
-    glb: { mime: GLB_MIME, description: 'glTF binary 3D model' },
-    stl: { mime: 'application/octet-stream', description: 'STL 3D shell' },
-    csv: { mime: 'text/csv', description: 'Comma-separated values' },
-    xlsx: { mime: XLSX_MIME, description: 'Excel workbook' },
-  };
+  const exportConfigs = (configs: SavedConfig[] = savedConfigs, flown: FlownAutoDelays = {}) =>
+    assembleExportConfigs(configs, tree, loadExMotorIdentities, flown);
 
   /**
    * Save a design/export file. On Chrome and Edge this opens a REAL Save-As
@@ -3543,35 +3433,18 @@ export function App() {
           onClose={() => setShowBatch(false)}
         />
       )}
-      {lossDialog && <FormatLossDialog report={lossDialog.report} confirm={lossDialog.confirm}
-        onClose={() => setLossDialog(null)}
-        onSave={() => saveLossy(lossDialog.report.format, lossDialog.report)}
-        onSaveOrk={() => { setLossDialog(null); void onSaveOrk(); }} />}
-      {confirmNew && (
-        <Modal label="Start a new design" onClose={() => setConfirmNew(false)}>
-          <h2>Start a new design?</h2>
-          <p>
-            This clears “{tree.name ?? 'the current rocket'}” — all components,
-            overrides and the current simulation. Make sure it's saved as an
-            .ork file first: Ctrl+Z brings the components back, but not the
-            motors, the flight configurations, the Measured mass &amp; CG, the
-            Geodetic calculations choice or the flight.
-          </p>
-          {replaceLoss && <p className="replacement-loss">{replaceLoss}</p>}
-          <div className="modal-actions">
-            <button className="file-btn" onClick={() => { void onSaveOrk(); }}>
-              <Icon name="save" /> Save .ork first
-            </button>
-            <button
-              className="file-btn modal-danger"
-              onClick={startNewDesign}
-            >
-              Discard &amp; start new
-            </button>
-            <button className="file-btn" onClick={() => setConfirmNew(false)}>Cancel</button>
-          </div>
-        </Modal>
-      )}
+      <DesignConfirms tree={tree} lossDialog={lossDialog} setLossDialog={setLossDialog} saveLossy={saveLossy}
+        confirmNew={confirmNew} setConfirmNew={setConfirmNew} replaceLoss={replaceLoss} startNewDesign={startNewDesign}
+        onSaveOrk={onSaveOrk} pendingOpen={pendingOpen} setPendingOpen={setPendingOpen} onOpenOrk={onOpenOrk}
+        shareOffer={shareOffer} setShareOffer={setShareOffer} applyImported={applyImported}
+        shroudPrompt={shroudPrompt} setShroudPrompt={setShroudPrompt} hasOpenMotorQuestion={openMotorQuestion !== null}
+        onConvertShrouds={() => {
+          if (!shroudPrompt) return;
+          const res = convertShrouds(tree, shroudPrompt.map((s) => s.id));
+          setTree(res.tree);
+          setFileNote(res.notes.join('\n'));
+          setShroudPrompt(null);
+        }}>
       {openMotorQuestion && (
         <OpenMotorDialog key={openMotorQuestion.openId} identities={openMotorQuestion.identities}
           onLater={() => setOpenMotorQuestion(null)}
@@ -3598,112 +3471,7 @@ export function App() {
             } : null);
           }} />
       )}
-      {pendingOpen && (
-        <Modal label="Unsaved changes" onClose={() => setPendingOpen(null)}>
-          <h2>Save “{tree.name ?? 'the current rocket'}” first?</h2>
-          <p>
-            Opening “{pendingOpen.name}” replaces what is on screen, and
-            “{tree.name ?? 'the current rocket'}” has changes that are not in any
-            file you have saved. There is one autosave slot and the new design
-            takes it, so those changes would be gone — Ctrl+Z does not reach
-            across a file open.
-          </p>
-          {replaceLoss && <p className="replacement-loss">{replaceLoss}</p>}
-          <div className="modal-actions">
-            <button
-              className="file-btn"
-              onClick={() => {
-                const f = pendingOpen;
-                void (async () => {
-                  const out = await onSaveOrk();
-                  // Backing out of the Save-As picker must NOT then open the
-                  // file — that would discard the work the user just tried
-                  // to protect — and nor must a save that failed. Leave the
-                  // prompt up and let them decide.
-                  if (out.kind === 'cancelled' || out.kind === 'failed') return;
-                  setPendingOpen(null);
-                  void onOpenOrk(f);
-                })();
-              }}
-            >
-              <Icon name="save" /> Save .ork, then open
-            </button>
-            <button
-              className="file-btn modal-danger"
-              onClick={() => {
-                const f = pendingOpen;
-                setPendingOpen(null);
-                void onOpenOrk(f);
-              }}
-            >
-              Open without saving
-            </button>
-            <button className="file-btn" onClick={() => setPendingOpen(null)}>Cancel</button>
-          </div>
-        </Modal>
-      )}
-      {shareOffer && (
-        <Modal label="Open design from link" onClose={() => setShareOffer(null)}>
-          <h2>Open design from this link?</h2>
-          <p>
-            This link opens “{shareOffer.name}”. Your current design
-            “{tree.name ?? 'Rocket'}” will be replaced. If you want to keep
-            it, save it as an .ork file first — declining simply drops the
-            link. Ctrl+Z will not put it back: the undo history starts over
-            from the linked design.
-          </p>
-          {replaceLoss && <p className="replacement-loss">{replaceLoss}</p>}
-          <div className="modal-actions">
-            <button className="file-btn" onClick={() => { void onSaveOrk(); }}>
-              <Icon name="save" /> Save mine first
-            </button>
-            <button
-              className="file-btn modal-danger"
-              onClick={() => {
-                const offered = shareOffer;
-                setShareOffer(null);
-                void applyImported(offered);
-              }}
-            >
-              Open “{shareOffer.name}”
-            </button>
-            <button className="file-btn" onClick={() => setShareOffer(null)}>Keep my design</button>
-          </div>
-        </Modal>
-      )}
-      {shroudPrompt && !openMotorQuestion && (
-        <Modal label="Convert camera shrouds" onClose={() => setShroudPrompt(null)}>
-          <h2>Camera shroud detected</h2>
-          <p>
-            It looks like this file has {shroudPrompt.length === 1
-              ? <>a camera shroud modeled as a one-fin freeform set (<strong>{shroudPrompt[0]!.name}</strong>)</>
-              : <>{shroudPrompt.length} camera shrouds modeled as one-fin freeform sets ({shroudPrompt.map((s) => `“${s.name}”`).join(', ')})</>}.
-            Convert {shroudPrompt.length === 1 ? 'it' : 'them'} to this app&apos;s native
-            camera-shroud component? The native component charges the shroud&apos;s
-            frontal-area drag and takes its as-built mass in place of the fin set&apos;s
-            computed one; it still flies as a slender one-panel strake, so its small
-            lift stays —
-            dimensions carry over, and you can fine-tune shape and as-built mass
-            in its properties. (Ctrl+Z undoes the conversion.)
-          </p>
-          <div className="modal-actions">
-            <button
-              className="file-btn"
-              onClick={() => {
-                const res = convertShrouds(tree, shroudPrompt.map((s) => s.id));
-                setTree(res.tree);
-                setFileNote(res.notes.join('\n'));
-                setShroudPrompt(null);
-              }}
-            >
-              Convert to camera shroud
-            </button>
-            <button className="file-btn" onClick={() => setShroudPrompt(null)}>
-              Keep as freeform fin
-            </button>
-          </div>
-        </Modal>
-      )}
+      </DesignConfirms>
       <div className="workspace">
         {/* Always-visible vitals, styled as an instrument readout: the
             tweak-and-refly loop never needs a tab switch to check stability/
