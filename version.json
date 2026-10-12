@@ -1,5 +1,5 @@
 {
-  "version": "0.180",
+  "version": "0.181",
   "released": "2026-10-11",
-  "note": "DXF cut files follow your units and the fin template comes with a white page; AeroTech measured ejection delays in the launch report; six RockSim designs that would not build now open; a secant-ogive drag step fixed."
+  "note": "Correction: the DXF cut file follows the Rocket dimensions unit in Preferences (v0.180 called it Length). No flight changes."
 }
