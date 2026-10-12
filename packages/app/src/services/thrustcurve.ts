@@ -816,10 +816,7 @@ export function defaultDelay(motor: TcMotor): number | null {
   return finite[finite.length - 1] ?? opts[opts.length - 1] ?? null;
 }
 
-/** Display tag for a delay value: "5" / "P" (plugged). */
-export function delayTag(delay: number): string {
-  return Number.isFinite(delay) ? String(delay) : 'P';
-}
+// Delay display belongs to motorLabel (audit 2026-10-11, S5-2).
 
 /**
  * Pure transform: thrust samples + catalog metadata → engine MotorSpec.

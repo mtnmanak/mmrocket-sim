@@ -17,6 +17,7 @@ import { loadBundledPresets, loadPresets, type Preset } from './presets.js';
 import { comparable, idFree } from './simulate.testSupport.js';
 import { SimulateDesignError } from './simulateDesign.js';
 import { simulateFile, simulateImported } from './simulateFile.js';
+import { addExMotors, parseEng } from './exMotors.js';
 import { bundledOnlyFetchSpec, bundleHasCurve } from './thrustcurve.js';
 
 /**
@@ -342,3 +343,18 @@ describe('simulateFile says why it did not fly', () => {
     expect((err as SimulateDesignError).importNote?.text).toBeTruthy();
   }, 30000);
 });
+
+// audit 2026-10-11, S7a-6: an unpinned maker/name must not consult this browser.
+it('S7a-6: ignores the browser EX library in the default headless matcher', async () => {
+  const ex = parseEng('QTEST 18 70 5 0.01 0.025 PrivateMaker\n0 0\n0.1 8\n1 0\n')[0]!;
+  addExMotors([ex]);
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!.id!;
+  const ref = { designation: 'QTEST', manufacturer: 'PrivateMaker', diameter: 0.018, length: 0.07, delay: 5 };
+  const live = await matchImportedMotor(ref);
+  expect(live.motor?.meta.exMotorId).toBe(ex.motorId);
+  const error = await simulateImported({ name: 'EX independence', tree, notes: [], motors: { [mount]: ref } }).catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(SimulateDesignError);
+  expect((error as SimulateDesignError).kind).toBe('no-motor');
+  expect(fetchSpy).not.toHaveBeenCalled();
+}, 30_000);

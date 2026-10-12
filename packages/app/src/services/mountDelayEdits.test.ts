@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
-import { labelWithDelay, withAuto, withDelay, withPlugged } from './mountDelayEdits.js';
+import { withAuto, withDelay, withPlugged } from './mountDelayEdits.js';
 import type { MotorMeta } from './simReport.js';
 import { exToMotorSpec, parseEng } from './exMotors.js';
 import { motorTooltip } from './motorLabels.js';
@@ -25,30 +25,6 @@ const motor = (over: { delay?: number; meta?: Partial<MotorMeta>; label?: string
 
 /** What every writer rewrites: delay, Auto flag, label. */
 const fields = (mm: MountMotor) => [mm.spec.ejectionDelay, mm.meta.autoDelay, mm.label];
-
-describe('labelWithDelay', () => {
-  it('rewrites a delay suffix as a whole second, "P" for plugged, or "(auto delay)"', () => {
-    expect(labelWithDelay('H220-14', 7)).toBe('H220-7');
-    expect(labelWithDelay('H220-14', Infinity)).toBe('H220-P');
-    expect(labelWithDelay('H220-14', 'auto')).toBe('H220 (auto delay)');
-    expect(labelWithDelay('C6-5', 2.5)).toBe('C6-2.5');
-    expect(labelWithDelay('C6-2.5', 3)).toBe('C6-3');
-    expect(labelWithDelay('ROS-40-5', 3)).toBe('ROS-40-3');
-    expect(labelWithDelay('ROS-40 (auto delay)', 3)).toBe('ROS-40-3');
-    expect(labelWithDelay('BB-54-2550 (auto delay)', Infinity)).toBe('BB-54-2550-P');
-    expect(labelWithDelay('F115SN-12A', 8)).toBe('F115SN-8');
-    expect(labelWithDelay('N1975W-PS', Infinity)).toBe('N1975W-PS');
-    expect(labelWithDelay('N1975W-PS (auto delay)', Infinity)).toBe('N1975W-PS');
-    expect(labelWithDelay('N1975W-PS', 9)).toBe('N1975W-PS-9');
-  });
-
-  it('replaces whichever suffix the label has, never stacking two', () => {
-    expect(labelWithDelay('H220 (auto delay)', 14)).toBe('H220-14');
-    expect(labelWithDelay('H220-P', 'auto')).toBe('H220 (auto delay)');
-    expect(labelWithDelay('H220 (auto delay)', 'auto')).toBe('H220 (auto delay)');
-    expect(labelWithDelay('H220', 6)).toBe('H220-6');
-  });
-});
 
 describe('withDelay — a typed delay', () => {
   it('sets the delay and the label, and turns Auto off', () => {

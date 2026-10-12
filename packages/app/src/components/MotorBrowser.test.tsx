@@ -51,6 +51,16 @@ describe('MotorBrowser — sortable headers stay column headers', () => {
     localStorage.clear();
   });
 
+  it.each(['Enter', ' '])('S3a-2: leaves %s on a nested unit picker alone', (key) => {
+    for (const select of host.querySelectorAll('thead select')) {
+      const before = headers().map((th) => th.getAttribute('aria-sort'));
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      act(() => { select.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(false);
+      expect(headers().map((th) => th.getAttribute('aria-sort'))).toEqual(before);
+    }
+  });
+
   it('sets no role, so the implicit columnheader survives', () => {
     expect(headers().length).toBe(6);
     for (const th of headers()) expect(th.getAttribute('role')).toBe(null);
@@ -418,7 +428,7 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     expect(region?.getAttribute('role')).toBe('status');
     expect(region!.textContent).toBe('');
     click(checkButton(h));
-    for (let i = 0; i < 50 && !region!.textContent; i++) await settle(10);
+    for (let i = 0; i < 50 && !region!.querySelector('.file-note'); i++) await settle(10);
     // The same node, not a fresh one inserted with the text in place.
     expect(h.host.querySelector('.motor-check-status')).toBe(region);
     expect(region!.textContent).toMatch(/0 new, 0 changed, 0 no longer listed/);
@@ -440,19 +450,27 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     // Every request now carries a deadline merged with the caller's signal
     // (net.ts getJsonCapped), which reports a cancel in its own words; the
     // browser must still read the user's Stop as a Stop.
-    vi.stubGlobal('fetch', vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      const sig = init?.signal;
-      sig?.addEventListener('abort', () => reject(sig.reason instanceof Error
-        ? sig.reason : Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
-    })));
+    vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
+      if (url.includes('/metadata.json')) return Promise.resolve(new Response(JSON.stringify({
+        manufacturers: [{ abbrev: 'AeroTech' }], impulseClasses: [],
+      })));
+      return new Promise<Response>((_resolve, reject) => {
+        const sig = init?.signal;
+        sig?.addEventListener('abort', () => reject(sig.reason instanceof Error
+          ? sig.reason : Object.assign(new Error('aborted'), { name: 'AbortError' })), { once: true });
+      });
+    }));
     h = openBrowser({ mountDiameterMm: 29 });
     click(checkButton(h));
     const stop = h.host.querySelector('button[aria-label="Stop the catalogue check"]');
     expect(stop, 'the Stop button while checking').not.toBeNull();
+    expect(h.host.querySelector('.motor-check-status')!.textContent).toMatch(/Checking.*Stop/s);
+    await settle();
+    expect(h.host.querySelector('.motor-check-status')!.textContent).toContain('0/1 AeroTech');
     click(stop!);
     // The result renders into the always-mounted status region (audit 2026-09-30).
     const region = h.host.querySelector('.motor-check-status')!;
-    for (let i = 0; i < 50 && !region.textContent; i++) await settle(10);
+    for (let i = 0; i < 50 && !region.querySelector('.file-note'); i++) await settle(10);
     expect(region.textContent).toMatch(/Stopped\. Nothing was changed\./);
     expect(h.host.textContent).not.toMatch(/Could not check thrustcurve/);
   });

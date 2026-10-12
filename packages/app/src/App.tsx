@@ -2665,7 +2665,16 @@ export function App() {
   // a bad link must never blank the app.
   const shareHandled = useRef(false);
   const shareShouldOffer = useRef(false);
-  shareShouldOffer.current = dirty || !isPristineDefault(tree);
+  /**
+   * Offer the Quick Picks at all? They are the Quick Start's four Estes
+   * motors, so they are advice only while the design is still the Quick
+   * Start's rocket (Eric, 2026-09-21). Memoised on the tree rather than called
+   * inline: `isPristineDefault` builds a fresh `defaultTree()`, which mints new
+   * ids, and this is read once per mount card per render.
+   */
+  const quickPicksOffered = useMemo(() => isPristineDefault(tree), [tree]);
+  // Share and Quick picks use one memoized tree check (audit 2026-10-11, S2-9).
+  shareShouldOffer.current = dirty || !quickPicksOffered;
   useEffect(() => {
     if (shareHandled.current || !hasSharePayload(window.location.hash)) return;
     shareHandled.current = true; // StrictMode double-invoke guard (the ref survives the remount)
@@ -2852,15 +2861,6 @@ export function App() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this (row 513)
   }), [mounts, tree.components, stageList]);
-
-  /**
-   * Offer the Quick Picks at all? They are the Quick Start's four Estes
-   * motors, so they are advice only while the design is still the Quick
-   * Start's rocket (Eric, 2026-09-21). Memoised on the tree rather than called
-   * inline: `isPristineDefault` builds a fresh `defaultTree()`, which mints six
-   * ids, and this is read once per mount card per render.
-   */
-  const quickPicksOffered = useMemo(() => isPristineDefault(tree), [tree]);
 
   /**
    * The series to draw for whatever run the Results tab is showing — the one
@@ -3572,11 +3572,11 @@ export function App() {
                   // show — see hasAerodynamicForce. Passing null gives the
                   // neutral glyph rather than a green tick.
                   const hasAero = hasAerodynamicForce(built.info);
-                  const { glyph, cls } = stabilityGlyphClass(
+                  const { glyph, cls, label } = stabilityGlyphClass(
                     hasAero ? shownStability(built.info) : null);
                   return (
                     <span className={`vitals-value ${cls}`}>
-                      {glyph} {hasAero
+                      <span aria-hidden="true">{glyph}</span><span className="sr-only">{label}; stable band 1–3 cal. </span> {hasAero
                         ? formatStability(built.info, prefs.stabilityUnit)
                         : 'no lift yet'}
                     </span>

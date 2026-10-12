@@ -567,6 +567,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             dialog say why), so pressing Check could answer a screen-reader
             user with silence. */}
         <div className="motor-check-status" role="status">
+          {/* Progress and the cancel action must be spoken too (audit 2026-10-11, S3a-5). */}
+          {checking && <p>Checking thrustcurve.org… {checkProgress}. Use Stop to cancel.</p>}
           {checkNote && (
             <div className="file-note" style={{ marginTop: 6 }}>
               {checkWasRecent && (
@@ -792,6 +794,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                   // clickable() follows for this file's data rows.
                   <th key={key} scope="col" onClick={() => onHeader(key)} tabIndex={0}
                     onKeyDown={(e) => {
+                      // The nested unit picker owns its keys (audit 2026-10-11, S3a-2).
+                      if (e.target !== e.currentTarget) return;
                       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onHeader(key); }
                     }}
                     aria-sort={filters.sortKey === key ? (filters.sortDir === 1 ? 'ascending' : 'descending') : undefined}>

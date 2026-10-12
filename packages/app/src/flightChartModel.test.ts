@@ -4,7 +4,7 @@ import { PRESETS, comparisonMembers, convertedValues, phaseData, phaseRuns, seri
 import { METRIC_UNITS, IMPERIAL_UNITS } from './prefs/units.js';
 import { SERIES } from './chartTheme.js';
 
-const catalog = (imperial = false) => seriesCatalog({ units: imperial ? IMPERIAL_UNITS : METRIC_UNITS, theme: 'light', radiusMode: 'diameter' }, SERIES);
+const catalog = (imperial = false) => seriesCatalog({ units: imperial ? IMPERIAL_UNITS : METRIC_UNITS }, SERIES);
 const series = (altitude: (number | null)[], velocity = altitude.map((_, i) => i + 10)) => ({
   time: altitude.map((_, i) => i), altitude, velocity,
   acceleration: altitude.map(() => 3), Vz: altitude.map(() => -2),

@@ -480,7 +480,8 @@ export function Rocket3D({ tree, info, motors, exportData, onError }: {
   // rocket with no way back — these jump the camera to known-good stations.
   // OrbitControls re-derives its state from the camera, so setting position +
   // target + update() is the whole move.
-  const controls = useRef<import('three-stdlib').OrbitControls | null>(null);
+  // Derive from the declared drei API, not its hoisted dependency (audit 2026-10-11, S5-1).
+  const controls = useRef<React.ComponentRef<typeof OrbitControls> | null>(null);
   const jumpTo = (pos: [number, number, number]) => {
     const st = r3f.current;
     const c = controls.current;

@@ -194,3 +194,31 @@ describe('measuring guides', () => {
     pointer(svgEl(), 'pointerup', 350, 120);
   });
 });
+
+describe('S3a-4: keyboard measuring guides', () => {
+  it.each(['x', 'y'])('creates, reads, moves and removes a %s guide without panning', (axis) => {
+    const add = host.querySelector<HTMLButtonElement>('[aria-label="Add ' + (axis === 'x' ? 'station' : 'offset') + ' guide"]');
+    expect(add).not.toBeNull();
+    act(() => { add!.click(); });
+    const slider = host.querySelector<SVGElement>('[data-guide="' + axis + '"] [role="slider"]')!;
+    expect(slider.getAttribute('tabindex')).toBe('0');
+    expect(document.activeElement).toBe(slider);
+    expect(slider.getAttribute('aria-valuetext')).toMatch(/mm/);
+    const before = Number(slider.getAttribute('aria-valuenow'));
+    const press = (key: string) => {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      act(() => { slider.dispatchEvent(event); });
+      expect(event.defaultPrevented).toBe(true);
+    };
+    press(axis === 'x' ? 'ArrowRight' : 'ArrowUp');
+    expect(Number(slider.getAttribute('aria-valuenow'))).toBeGreaterThan(before);
+    expect(host.querySelector('svg > g')!.getAttribute('transform')).toBe('translate(0 0) scale(1)');
+    press('Home');
+    expect(slider.getAttribute('aria-valuenow')).toBe(slider.getAttribute('aria-valuemin'));
+    press('End');
+    expect(slider.getAttribute('aria-valuenow')).toBe(slider.getAttribute('aria-valuemax'));
+    press('Delete');
+    expect(host.querySelector('[data-guide]')).toBeNull();
+    expect(document.activeElement).toBe(svgEl());
+  });
+});

@@ -11,12 +11,8 @@ import { labelCatalogue, motorLabelEntry } from './motorLabels.js';
  * 2026-09-30, item 20).
  */
 
-/** Rewrites a motor label's delay suffix ("H220-14" / "H220-P" / "H220 (auto delay)"). */
-export function labelWithDelay(label: string, delay: number | 'auto'): string {
-  // Stored labels can carry a custom fractional delay or a legacy lowercase p.
-  const designation = label.trim().replace(/ \(auto delay\)$/, '-0').replace(/-(?:\d+\.\d+|p)$/, '-0');
-  return motorLabel({ designation }, delay === 'auto' ? 0 : delay, { autoDelay: delay === 'auto' });
-}
+// Use the catalogue-aware motorLabel rule below; the unused string-only
+// copy could drift (audit 2026-10-11, S7b-3).
 
 /**
  * A delay typed into the card. It overrides Auto — real motors get drilled to

@@ -7,12 +7,11 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { IgnitionEvent, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { AERO_NAME, PrefsProvider, type AeroChoice } from '../prefs/PrefsContext.js';
-import { splitClusterTree } from '../tree/treeModel.js';
 import { MOTOR_DB, filterMotors, sortMotors } from '../services/motorDb.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
 import { BatchSimulate, batchSummary, batchUnavailableReason } from './BatchSimulate.js';
 import {
-  batchFlownSpec, batchProbeCutoff, candidateIdentity, isWeighedCandidate, mixedComboCount,
+  batchFlownSpec, candidateIdentity, isWeighedCandidate, mixedComboCount,
   type BatchMountOption, type BatchWeighed, batchStageExit,
 } from '../services/batchSweep.js';
 
@@ -36,44 +35,6 @@ const TREE: RocketTree = {
     }],
   }],
 };
-
-describe('batchProbeCutoff', () => {
-  // The combination passes fly a SPLIT tree whose group mounts carry freshly
-  // minted ids. Resolved against the ORIGINAL tree those ids read as
-  // off-stage (chained ignition), so every combo probe ran to the full chain
-  // bound — a near-full extra flight per combination, on exactly the cluster
-  // designs combo mode serves.
-  it("keeps a combo candidate's probe short — burn plus margin, not the chain sum", () => {
-    const split = splitClusterTree(TREE, 'mount')!;
-    const targets = Object.fromEntries(split.mountIds.map((id) => [id, motor(9)]));
-    // Both group mounts sit on the split tree's only (= launch) stage, so
-    // both fire off the clock: 9 s burn + 3 s margin. Read as chained, the
-    // bound would be 2·(9 burn + 5 ejection) = 28 → a 40 s probe.
-    expect(batchProbeCutoff(split.tree, {}, targets)).toBe(12);
-  });
-
-  it("drops the replaced cluster mount's motor — the split tree does not fly it", () => {
-    const split = splitClusterTree(TREE, 'mount')!;
-    const targets = Object.fromEntries(split.mountIds.map((id) => [id, motor(9)]));
-    // The original mount keeps its assigned motor in `assignedMotors`, but
-    // the split tree never flies it. Leaked into the probe set it reads as a
-    // chained 30 s burn on an id the split tree cannot place — a 96 s probe.
-    expect(batchProbeCutoff(split.tree, { mount: motor(30) }, targets, 'mount')).toBe(12);
-  });
-
-  it('still waits out the whole stack for a single candidate on a staged design', () => {
-    const staged: RocketTree = {
-      components: [
-        { type: 'stage', id: 'su', children: [{ type: 'innertube', id: 'upper' }] },
-        { type: 'stage', id: 'bo', children: [{ type: 'innertube', id: 'lower' }] },
-      ],
-    };
-    // Candidate in the sustainer, booster assigned: the sustainer chains off
-    // the booster's ejection charge, so the probe must cover both burns and
-    // both delays — (4+5) + (3+5) = 17, upper done by 20, +3 s margin.
-    expect(batchProbeCutoff(staged, { lower: motor(4) }, { upper: motor(3) })).toBe(23);
-  });
-});
 
 describe('mixedComboCount', () => {
   // The one definition of "how many mixed rows a split adds" — it must agree
@@ -196,6 +157,18 @@ describe('the batch dialog', () => {
       </PrefsProvider>,
     ));
   }
+
+  it('S3a-g3: criteria labels target the number rather than the unit', () => {
+    mount();
+    for (const name of ['Minimum rod-exit velocity', 'Minimum apogee', 'Maximum apogee']) {
+      const input = host.querySelector<HTMLInputElement>('input[aria-label^="' + name + '"]')!;
+      expect(input).not.toBeNull();
+      expect(input.id).not.toBe('');
+      const label = input.closest('label')!;
+      expect(label.htmlFor).toBe(input.id);
+      expect(label.control).toBe(input);
+    }
+  });
 
   it('K2: the aero model options lead with each model’s one name, any description after " — "', () => {
     mount();

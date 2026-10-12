@@ -148,6 +148,28 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
 
+it('S7a-5: the live combo probe uses split mounts and drops the replaced motor', async () => {
+  const tree = clusterRocket('4-ring');
+  const split = splitClusterTree(tree, 'mount')!;
+  const target = { ...MOUNT, motorCount: 4 };
+  const slow = { ...curve('E20'), times: curve('E20').times.map((t) => t * 4.5) };
+  const flights = vi.spyOn(OrkRocket.prototype, 'simulate');
+  let atComboStart = -1;
+  const out = await runBatchSweep(input(tree, {
+    model: 'auto', autoDelay: false, mounts: [target], target, splits: [split],
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')],
+    assignedMotors: { mount: { ...slow, times: [0, 15, 30], thrusts: [0, 10, 0], masses: [0.07, 0.05, 0.03] } },
+  }), {
+    signal: new AbortController().signal,
+    onProgress: (p) => { if (p.done === 2) atComboStart = flights.mock.calls.length; },
+  }, { fetchSpec: fetchFrom({ a: slow, b: { ...slow, designation: 'E22' } }), nozzleFor: nozzles({}), yieldToUi: noYield });
+  expect(out.rows).toHaveLength(3);
+  expect(out.rows.map((r) => r.error)).toEqual([undefined, undefined, undefined]);
+  expect(atComboStart).toBeGreaterThan(0);
+  // A 9 s synthetic burn plus the 3 s probe margin; no exact kernel float.
+  expect(flights.mock.calls[atComboStart]![0]!.maxTime).toBe(12);
+}, 30_000);
+
 it('rail-needed sweep timing control: three fixed-delay motors, one flight each', async () => {
   const inp = input(rocket(), {
     candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5'), entry('c', 'Acme', 'E24', '5')],

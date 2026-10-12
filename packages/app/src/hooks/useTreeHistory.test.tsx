@@ -456,3 +456,22 @@ describe('useTreeHistory — the key binding', () => {
     expect(h.current.tree.name).toBe('0');
   });
 });
+
+describe('S7d-4: layout-aware undo shortcuts', () => {
+  it.each([
+    ['я', 'KeyZ', 'н', 'KeyY'],
+    ['z', 'KeyY', 'y', 'KeyZ'],
+  ])('undoes and redoes with %s/%s', (undoKey, undoCode, redoKey, redoCode) => {
+    const h = renderHistory(t('before'));
+    editApart(h, t('after'));
+    const press = (key: string, code: string) => act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key, code, ctrlKey: true, bubbles: true }));
+    });
+    press(undoKey, undoCode);
+    expect(h.current.tree.name).toBe('before');
+    press(redoKey, redoCode);
+    expect(h.current.tree.name).toBe('after');
+    press('w', 'KeyZ'); // AZERTY W must not become undo.
+    expect(h.current.tree.name).toBe('after');
+  });
+});
