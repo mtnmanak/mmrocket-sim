@@ -459,8 +459,12 @@ export function restateBackedOutMotor(
   const name = stage.name ?? 'Stage';
   const who = `“${motor.designation}”`;
   const next: ComponentNode = { ...unrecorded };
+  // Rejection by the loaded fallback must not spend the launch inputs: a
+  // later EX motor can recover them (audit 2026-10-11, S1c-1).
   const after: StatedStageFigures = { motor: rec.motor, ...(rec.fileMotor ? { fileMotor: rec.fileMotor } : {}),
-    ...(rec.mountId ? { mountId: rec.mountId } : {}) };
+    ...(rec.mountId ? { mountId: rec.mountId } : {}),
+    ...(rec.launchKg !== undefined ? { launchKg: rec.launchKg } : {}),
+    ...(rec.launchCgM !== undefined ? { launchCgM: rec.launchCgM } : {}) };
   const parts: string[] = [];
   let severity: ReconciledStatedWeight['severity'] = 'info';
   const cleared: string[] = [];
@@ -468,7 +472,7 @@ export function restateBackedOutMotor(
     if (massOk) {
       next['overrideMass'] = dry;
       next['overrideSubcomponentsMass'] = true;
-      Object.assign(after, { launchKg: rec.launchKg, massKg: dry });
+      after.massKg = dry;
       if (rec.massKg === undefined) parts.push(`its mass override is now ${text.mass(dry)}`);
       else if (!near(dry, rec.massKg)) parts.push(`its mass override ${text.mass(rec.massKg)} → ${text.mass(dry)}`);
     } else {
@@ -482,7 +486,7 @@ export function restateBackedOutMotor(
     if (cgOk) {
       next['overrideCGX'] = cg;
       next['overrideSubcomponentsCG'] = true;
-      Object.assign(after, { launchCgM: rec.launchCgM, cgM: cg });
+      after.cgM = cg;
       if (rec.cgM === undefined) parts.push(`its CG override is now ${text.length(cg)} from the stage’s own front`);
       else if (!near(cg, rec.cgM)) parts.push(`its CG override ${text.length(rec.cgM)} → ${text.length(cg)} from the stage’s own front`);
     } else {
@@ -492,7 +496,7 @@ export function restateBackedOutMotor(
       cleared.push('CG');
     }
   }
-  if (after.massKg !== undefined || after.cgM !== undefined) next[STATED_STAGE_FIGURES] = after;
+  next[STATED_STAGE_FIGURES] = after;
   const loaded = `${who} loaded now weighs ${text.mass(motor.launchMassKg)} and is ${text.length(motor.lengthM)} long`;
   return {
     tree: replaceStage(tree, index, next),

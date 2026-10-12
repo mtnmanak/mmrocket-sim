@@ -270,7 +270,12 @@ describe('re-picking the motor backs it out again, as re-opening the file does (
     expect(fix.severity).toBe('warn');
     expect(stage0(fix.tree)['overrideMass']).toBeUndefined();
     expect(stage0(fix.tree)['overrideCGX']).toBeUndefined();
-    expect(stage0(fix.tree)[STATED_STAGE_FIGURES]).toBeUndefined();
+    // Rejected outputs clear, but their launch inputs remain recoverable
+    // when a matching lighter motor loads later (audit 2026-10-11, S1c-1).
+    expect(statedFiguresOf(stage0(fix.tree))).toEqual({
+      motor: rec.motor, fileMotor: rec.fileMotor, mountId: rec.mountId,
+      launchKg: rec.launchKg, launchCgM: rec.launchCgM,
+    });
     expect(fix.note).toMatch(/mass or CG inside the stage, so the stage’s mass and CG overrides have been cleared/);
   });
 });
