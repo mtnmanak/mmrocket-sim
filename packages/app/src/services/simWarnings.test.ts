@@ -2,6 +2,18 @@ import { describe, expect, it } from 'vitest';
 import { formatWarning, formatWarningText, warningKeysCell, WARNING_LABEL } from './simWarnings.js';
 import { SAFETY } from './simReport.js';
 
+describe('D7 visual consequence, independent of kernel priority', () => {
+  it.each(['NO_RECOVERY_DEVICE', 'RECOVERY_LAUNCH_ROD', 'TUMBLE_UNDER_THRUST', 'SIM_ABORT'])('%s is Danger even at low priority', key => {
+    expect(formatWarning({ key, message: key, priority: 'LOW' })).toMatchObject({ tier: 'danger', high: false });
+  });
+  it.each(['HighSpeedDeployment', 'RECOVERY_HIGH_SPEED', 'SUPERSONIC', 'Other', 'constructor'])('%s is Information even at high priority', key => {
+    expect(formatWarning({ key, message: key, priority: 'HIGH' })).toMatchObject({ tier: 'information', high: true });
+  });
+  it.each(['ZERO_AREA_FIN', 'FILE_INVALID_PARAMETER'])('%s is Caution for an ignored input', key => {
+    expect(formatWarning({ key, message: key, priority: 'LOW' })).toMatchObject({ tier: 'caution' });
+  });
+});
+
 describe('formatWarning', () => {
   it('maps a known key to its plain-language label (no detail when the message is bare)', () => {
     const f = formatWarning({

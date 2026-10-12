@@ -191,10 +191,43 @@ describe('the Launch orange under its white label', () => {
 });
 
 describe('launch override callout contrast', () => {
+  it('Danger has at least 7:1 contrast in Light, Dark and Daylight', () => {
+    for (const [name, t] of Object.entries(THEMES)) {
+      expect(ratio(tok(t, '--callout-danger-fg'), tok(t, '--callout-danger-bg')), name).toBeGreaterThanOrEqual(7);
+    }
+  });
   it('near-black text and Show outlines have at least 7:1 contrast on the caution fill in every theme', () => {
     for (const [name, t] of Object.entries(THEMES)) {
       expect(ratio(tok(t, '--callout-caution-fg'), tok(t, '--callout-caution-bg')), name).toBeGreaterThanOrEqual(7);
     }
+  });
+});
+
+describe('NOTES-1 supporting text and startup contrast', () => {
+  it('NoticeBar counts and stale gust text clear 4.5:1 including the old failing Dark mixtures', () => {
+    expect(rules('.notice-count').join('\n')).toContain('color: var(--text-secondary)');
+    expect(rules('.gust-estimate-muted').at(-1)).toContain('color: var(--text-secondary)');
+    for (const [name, t] of Object.entries(THEMES)) {
+      const panel = tok(t, '--surface-2');
+      for (const bg of [panel, over(tok(t, '--status-warn'), 0.10, panel),
+        over(tok(t, '--status-serious'), 0.12, panel), over(tok(t, '--status-warn'), 0.08, panel)]) {
+        expect(ratio(tok(t, '--text-secondary'), bg), name).toBeGreaterThanOrEqual(AA);
+      }
+    }
+  });
+  it('the empty-root fallback supplies its own 7:1 fill outside the theme subtree', () => {
+    const source = read('../main.tsx');
+    const pair = /padding:24px;color:(#[0-9a-f]{6});background:(#[0-9a-f]{6})/.exec(source)!;
+    expect(pair).not.toBeNull();
+    expect(ratio(rgb(pair[1]!), rgb(pair[2]!))).toBeGreaterThanOrEqual(7);
+    expect(source).toContain('aria-hidden="true"');
+    expect(source).toContain('Danger: Something went wrong');
+  });
+  it('filled blocks defeat supporting prose in Daylight and retain a forced-colors border', () => {
+    expect(rule('.message-tier.message-tier.message-danger')).toContain('color: var(--callout-danger-fg');
+    expect(rule('.message-tier.message-tier.message-caution')).toContain('color: var(--callout-caution-fg');
+    expect(rule('.message-tier.message-tier .simdet-comments')).toContain('color: inherit');
+    expect(css).toMatch(/@media \(forced-colors: active\)\s*\{\s*\.message-tier\.message-tier\.message-tier\s*\{[^}]*background: Canvas;[^}]*color: CanvasText;[^}]*border: 2px solid CanvasText;/);
   });
 });
 

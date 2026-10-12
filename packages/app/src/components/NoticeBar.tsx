@@ -1,3 +1,4 @@
+import { NoteLabel, noteClass, type NoteTier } from './Note.js';
 import { useEffect, useRef, useState } from 'react';
 
 /**
@@ -39,6 +40,7 @@ export interface Notice {
   /** Stable within a kind; unchanged severity and text do not re-open the bar. */
   id: string;
   severity: NoticeSeverity;
+  tier?: NoteTier;
   text: string;
   /** Open this informational note once on arrival; later collapse still wins. */
   expand?: boolean;
@@ -212,11 +214,11 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
           {expanded ? (
             <ul className="notice-list">
               {notices.map((n) => (
-                <li key={n.id} className={`notice-item notice-${n.severity}`}>
+                <li key={n.id} className={`notice-item notice-${n.severity} ${noteClass(n.tier ?? 'information')}`}>
                   <span className="notice-glyph" aria-hidden="true">{GLYPH[n.severity]}</span>
                   <span className="notice-text">
                     <span className="sr-only">{`${LABEL[n.severity]}: `}</span>
-                    {n.text}
+                    <NoteLabel tier={n.tier ?? 'information'} />{n.text}
                   </span>
                   {n.onDismiss && (
                     <button
@@ -229,11 +231,11 @@ export function NoticeBar({ notices }: { notices: Notice[] }) {
               ))}
             </ul>
           ) : (
-            <div className={`notice-item notice-${lead.severity}`}>
+            <div className={`notice-item notice-${lead.severity} ${noteClass(lead.tier ?? 'information')}`}>
               <span className="notice-glyph" aria-hidden="true">{GLYPH[lead.severity]}</span>
               <span className="notice-text notice-oneline">
                 <span className="sr-only">{`${LABEL[lead.severity]}: `}</span>
-                {firstLine(lead.text)}
+                <NoteLabel tier={lead.tier ?? 'information'} />{firstLine(lead.text)}
               </span>
               {others > 0 && <span className="notice-count">{`+${others}`}</span>}
             </div>

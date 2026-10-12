@@ -38,6 +38,12 @@ describe('ConfigPanel', () => {
     host.remove();
   });
 
+  it.each([false, true])('fills deletion only when the configuration has unprotected work: %s', deletionUnprotected => {
+    mount({ deletionUnprotected });
+    act(() => (host.querySelector('[aria-label="Delete Club field C6 — configuration 1"]') as HTMLButtonElement).click());
+    expect(host.querySelectorAll('.message-danger')).toHaveLength(deletionUnprotected ? 1 : 0);
+  });
+
   function mount(over: Partial<Parameters<typeof ConfigPanel>[0]> = {}) {
     const applied: string[] = [];
     const cleared: number[] = [];

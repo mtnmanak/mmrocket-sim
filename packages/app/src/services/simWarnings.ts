@@ -1,5 +1,6 @@
 import type { EngineWarning } from '@online-openrocket/engine';
 import { lookupTable } from './xmlUtil.js';
+import type { NoteTier } from '../components/Note.js';
 import { fmtSi, INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 
 /**
@@ -112,6 +113,7 @@ function stripBrackets(message: unknown): string {
 }
 
 export interface FormattedWarning {
+  tier: NoteTier;
   /** Plain-language label (or the bracket-stripped raw message when unknown). */
   label: string;
   /**
@@ -130,9 +132,23 @@ export function formatWarning(w: EngineWarning, units: UnitSelection = INITIAL_U
   if (label === undefined) {
     // Unknown key (new kernel warning, or "Other"): the stripped message IS
     // the label; show the raw text rather than hiding the warning.
-    return { label: detail || w.key, detail: null, high: isHighPriority(w) };
+    return { label: detail || w.key, detail: null, high: isHighPriority(w), tier: warningTier(w.key) };
   }
-  return { label, detail: quantityDetail(w, units) ?? (detail || null), high: isHighPriority(w) };
+  return { label, detail: quantityDetail(w, units) ?? (detail || null), high: isHighPriority(w), tier: warningTier(w.key) };
+}
+
+/** D7: classify stable event keys, never priority or translated English. The
+ * fixed 20 m/s deployment flag is not the report's upper opening limit. */
+export function warningTier(key: string): NoteTier {
+  if (['NO_RECOVERY_DEVICE', 'RECOVERY_LAUNCH_ROD', 'TUMBLE_UNDER_THRUST', 'SIM_ABORT'].includes(key)) return 'danger';
+  if (['ZERO_AREA_FIN', 'FILE_INVALID_PARAMETER'].includes(key)) return 'caution';
+  return 'information';
+}
+
+/** Only machine-tagged static omissions qualify; geometric advice stays quiet. */
+export function staticWarningTier(text: string): NoteTier {
+  const key = /^\[Warning\.([^\]]+)\]/.exec(text)?.[1];
+  return key ? warningTier(key) : 'information';
 }
 
 /** Only typed warnings have enough evidence to replace the entire text suffix. */

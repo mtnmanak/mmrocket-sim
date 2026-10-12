@@ -1,8 +1,9 @@
+import { Note } from './Note.js';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { autosavedDesignFile } from '../services/autosaveBackup.js';
 import { saveFile, saveOutcomeNote } from '../services/saveFile.js';
 import {
-  autosaveIsAnotherTabs, discardSession, heldSession, onSessionConflictChange, onSessionSaveStateChange,
+  autosaveIsAnotherTabs, discardSession, heldSession, onSessionConflictChange, onSessionSaveStateChange, sessionPayload,
 } from '../services/session.js';
 
 /** The persisted workspace tab (App's own key): a crash tied to one tab re-opens on it. */
@@ -53,6 +54,7 @@ export class AppBoundary extends Component<
   private unsubscribe: (() => void) | null = null;
   /** This tab's held design has been handed to the user as a file: it is no longer only in memory. */
   private handedOver = false;
+  private downloadedBackup = false;
 
   static getDerivedStateFromError(err: unknown) {
     return { error: err instanceof Error ? err.message : String(err) };
@@ -98,6 +100,7 @@ export class AppBoundary extends Component<
     // autosavedDesignFile handed over the held design (it prefers it), so the
     // leave-page guard has nothing left to keep.
     if (held) this.handedOver = true;
+    this.downloadedBackup = true;
     // The app's own after-save line, so a crash save names Firefox's ask-where setting too.
     const where = saveOutcomeNote(out)!.text;
     this.setState({
@@ -125,6 +128,7 @@ export class AppBoundary extends Component<
     return (
       <div className="panel hero-fallback" role="alert" style={{ margin: '24px auto' }}>
         <h2>Something went wrong</h2>
+        <Note tier="danger">
         {held ? (
           <p>
             The app hit an error it could not draw past, so it stopped. This tab&rsquo;s design is
@@ -140,12 +144,14 @@ export class AppBoundary extends Component<
           </p>
         )}
         <p className="hero-fallback-detail">{this.state.error}</p>
+        </Note>
         <button className="file-btn" onClick={() => { void this.download(); }}>
           ⬇ Download the autosaved design
         </button>
         {this.state.note && <p role="status">{this.state.note}</p>}
         {this.state.confirming ? (
           <>
+            <Note tier={(held ? !this.handedOver : !this.downloadedBackup && !othersInSlot && sessionPayload() !== null) ? 'danger' : 'information'}>
             {othersInSlot ? (
               <p>
                 The autosave in this browser now holds a design from another tab, so starting
@@ -159,6 +165,7 @@ export class AppBoundary extends Component<
                 Saved runs, imported motors, custom presets and preferences are kept.
               </p>
             )}
+            </Note>
             <button className="file-btn modal-danger" onClick={this.startFresh}>
               {othersInSlot ? 'Discard this tab’s changes and reload' : 'Delete the autosave and start fresh'}
             </button>

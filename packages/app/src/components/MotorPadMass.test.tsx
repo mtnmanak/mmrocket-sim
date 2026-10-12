@@ -218,13 +218,13 @@ describe('MotorPadMass — the line under the field', () => {
     // the one moment the user is already confused.
     show({ valueKg: 7.48, hardware: undefined });
     expect(Number(input().value)).toBeCloseTo(7480, 6);
-    expect(text()).toBe('Not applied — the design could not be built; fix the error above and the pad mass applies again.');
+    expect(text()).toBe('\u26a0 Caution: Not applied — the design could not be built; fix the error above and the pad mass applies again.');
     expect(text()).not.toContain('Blank');
     expect(line().getAttribute('role')).toBe('status');
     // A build that saw no pad mass under a shown number cannot happen (App
     // reads the record the field does), but it must not say "Blank" either.
     show({ valueKg: 7.48, hardware: { state: 'none', why: 'no-pad-mass' } });
-    expect(text()).toBe('Not applied yet — the next build checks it.');
+    expect(text()).toBe('\u26a0 Caution: Not applied yet — the next build checks it.');
     // No value and no build: the blank-state line, as before.
     show({ valueKg: null, hardware: undefined });
     expect(text()).toMatch(/^Blank — flying at the catalogue motor weight/);
@@ -232,7 +232,7 @@ describe('MotorPadMass — the line under the field', () => {
     // number still in the field (App passes the record from `assigned`).
     show({ valueKg: 10.574, hardware: { state: 'none', why: 'no-motor' } });
     expect(Number(input().value)).toBeCloseTo(10574, 6);
-    expect(text()).toBe('The simulation kernel refused this motor\'s curve, so there is nothing to subtract the pad mass from — nothing is carried.');
+    expect(text()).toBe('\u26a0 Caution: The simulation kernel refused this motor\'s curve, so there is nothing to subtract the pad mass from — nothing is carried.');
   });
 
   it('stale set: greys the field (field-stale, aria-invalid), names the motor it was weighed with and the one now loaded, as a status not an alert, and applies nothing', () => {
@@ -250,7 +250,7 @@ describe('MotorPadMass — the line under the field', () => {
     expect(line().getAttribute('role')).toBe('status');
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(line().classList.contains('print-note-warn')).toBe(true);
-    expect(text()).toBe('Not applied — weighed with I284W on Booster MMT, which now has J350W. Re-weigh with these motors in and type it again, or clear the field.');
+    expect(text()).toBe('\u26a0 Caution: Not applied — weighed with I284W on Booster MMT, which now has J350W. Re-weigh with these motors in and type it again, or clear the field.');
     expect(host.querySelector('.measured-delta')).toBeNull();
     // And a live value carries none of that.
     show({ valueKg: 10.574, hardware: MAMBA });
@@ -261,20 +261,20 @@ describe('MotorPadMass — the line under the field', () => {
 
   it('stale set wording for a mount with no motor, a mount that gained one, a cluster count change, and a motor the file could not load', () => {
     show({ valueKg: 10.574, hardware: stale([{ mountId: 'booster', kind: 'missing', was: 'AeroTech/I284W', wasCount: 1 }]) });
-    expect(text()).toBe('Not applied — Booster MMT has no motor now; it was weighed with I284W in it. Re-weigh with these motors in and type it again, or clear the field.');
+    expect(text()).toBe('\u26a0 Caution: Not applied — Booster MMT has no motor now; it was weighed with I284W in it. Re-weigh with these motors in and type it again, or clear the field.');
 
     show({ valueKg: 10.574, hardware: stale([{ mountId: 'booster', kind: 'new', now: 'AeroTech/J350W', nowCount: 1 }]) });
-    expect(text()).toBe('Not applied — Booster MMT has gained a motor (J350W) since the weighing. Re-weigh with these motors in and type it again, or clear the field.');
+    expect(text()).toBe('\u26a0 Caution: Not applied — Booster MMT has gained a motor (J350W) since the weighing. Re-weigh with these motors in and type it again, or clear the field.');
 
     show({ valueKg: 10.574, hardware: stale([{ mountId: 'mmt', kind: 'count', was: 'AeroTech/J540R', wasCount: 1, nowCount: 3 }]) });
-    expect(text()).toBe('Not applied — Sustainer MMT now holds 3 motors; it was weighed with 1. Re-weigh with these motors in and type it again, or clear the field.');
+    expect(text()).toBe('\u26a0 Caution: Not applied — Sustainer MMT now holds 3 motors; it was weighed with 1. Re-weigh with these motors in and type it again, or clear the field.');
     show({ valueKg: 10.574, hardware: stale([{ mountId: 'mmt', kind: 'count', was: 'AeroTech/J540R', wasCount: 3, nowCount: 1 }]) });
     expect(text()).toContain('Sustainer MMT now holds 1 motor; it was weighed with 3.');
 
     // The file named a booster motor the app could not load: the pad mass
     // was weighed with it in, so loading it is what satisfies the weighing.
     show({ valueKg: 10.574, hardware: stale([{ mountId: 'booster', kind: 'missing', was: 'unmatched:K550W', wasCount: 1 }]) });
-    expect(text()).toBe('Not applied — the motor the file names for Booster MMT (K550W) is not loaded; the pad mass was weighed with it in — load it to use the pad mass. Re-weigh with these motors in and type it again, or clear the field.');
+    expect(text()).toBe('\u26a0 Caution: Not applied — the motor the file names for Booster MMT (K550W) is not loaded; the pad mass was weighed with it in — load it to use the pad mass. Re-weigh with these motors in and type it again, or clear the field.');
 
     // Two mounts changed at once: one clause each, joined.
     show({
@@ -290,14 +290,14 @@ describe('MotorPadMass — the line under the field', () => {
 
   it('a refused motor curve: says nothing is carried', () => {
     show({ valueKg: 10.574, hardware: { state: 'none', why: 'no-motor' } });
-    expect(text()).toBe('The simulation kernel refused this motor\'s curve, so there is nothing to subtract the pad mass from — nothing is carried.');
-    expect(line().className).toBe('comp-stats');
+    expect(text()).toBe('\u26a0 Caution: The simulation kernel refused this motor\'s curve, so there is nothing to subtract the pad mass from — nothing is carried.');
+    expect(line().classList.contains('message-caution')).toBe(true);
   });
 
   it('no mass curve', () => {
     show({ valueKg: 10.574, hardware: { state: 'none', why: 'no-mass-curve' } });
-    expect(text()).toBe('The catalogue motor carries no mass curve, so the hardware cannot be separated from it.');
-    expect(line().className).toBe('comp-stats');
+    expect(text()).toBe('\u26a0 Caution: The catalogue motor carries no mass curve, so the hardware cannot be separated from it.');
+    expect(line().classList.contains('message-caution')).toBe(true);
   });
 
   it('refuses a pad weight lighter than dry plus motor', () => {
@@ -312,7 +312,7 @@ describe('MotorPadMass — the line under the field', () => {
         mountCount: 1, dryMassKg: 6.55, drySource: 'computed',
       },
     });
-    expect(text()).toBe('Weighed pad mass is 351 g LIGHTER than the dry rocket plus the catalogue J460T (801 g) — a typo or a different motor. Nothing is carried.');
+    expect(text()).toBe('\u26a0 Caution: Weighed pad mass is 351 g LIGHTER than the dry rocket plus the catalogue J460T (801 g) — a typo or a different motor. Nothing is carried.');
     expect(line().getAttribute('role')).toBe('status');
     expect(line().classList.contains('print-note-warn')).toBe(true);
     expect(host.querySelector('.measured-delta')).toBeNull();
@@ -335,7 +335,7 @@ describe('MotorPadMass — the line under the field', () => {
         mountCount: 1, dryMassKg: 9.308, drySource: 'measured',
       },
     });
-    expect(text()).toBe('That would carry 95348 g as hardware — more than the airframe itself. A typo or a different motor; nothing is carried.');
+    expect(text()).toBe('\u26a0 Caution: That would carry 95348 g as hardware — more than the airframe itself. A typo or a different motor; nothing is carried.');
     expect(line().getAttribute('role')).toBe('status');
     expect(host.querySelector('.measured-delta')).toBeNull();
   });

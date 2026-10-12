@@ -117,6 +117,7 @@ describe('NozzleField — the nozzle data could not be loaded', () => {
     await waitFor(() => note() !== null, 'the could-not-load note');
     expect(note()!.textContent).toMatch(/nozzle data could not be loaded/);
     expect(note()!.textContent).toMatch(/cannot fill itself in/);
+    expect(note()!.closest('.message-caution')).not.toBeNull();
     // Blank is not "automatic" while nothing can fill it: say what blank does.
     expect(note()!.textContent).toMatch(/pressure-thrust term and the power-on base-drag reduction are both off/);
     const reload = [...host.querySelectorAll('button')].find((b) => /Reload the page/.test(b.textContent ?? ''));
@@ -146,6 +147,7 @@ describe('NozzleField — the nozzle data could not be loaded', () => {
     render({ exitDiameterM: 0.0102 });
     await waitFor(() => note() !== null, 'the could-not-load note');
     expect(note()!.textContent).not.toMatch(/both off/);
+    expect(host.querySelector('.message-caution')).toBeNull();
     // Nor is the value called a disagreement: there is nothing to disagree with.
     expect(host.querySelector('[data-nozzle="disagrees"]')).toBeNull();
   });

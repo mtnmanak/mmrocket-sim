@@ -234,9 +234,11 @@ describe('MeasuredMassBox — the verdict is announced from one always-mounted r
     show({ massKg: 1, cgM: 0.5 }); // matches: a sentence alone
     expect(region()).toBe(live);
     expect(live.textContent).toContain('Your build matches the model');
+    expect(host.querySelector('.message-caution')).toBeNull();
     show({ massKg: 0.9, cgM: 0.5 }); // lighter than the model
     expect(region()).toBe(live);
     expect(live.textContent).toContain('LIGHTER than the model');
+    expect(host.querySelector('.message-caution')!.textContent).toContain('LIGHTER than the model');
     show({ massKg: 1.1, cgM: 0.5 }, { blockedBy: { name: 'Sustainer' }, onPinStage: () => {} });
     expect(region()).toBe(live);
     expect(live.textContent).toContain('would weigh nothing');

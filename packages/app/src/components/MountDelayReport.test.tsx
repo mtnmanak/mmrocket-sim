@@ -28,6 +28,17 @@ function manual(motorIdentity: string, flownDelay: number | 'plugged', mountName
 const resolution = (...mounts: ReturnType<typeof manual>[]) => ({ policy: DELAY_POLICY, mounts, probes: 0, elapsedMs: 0 });
 const F52C = '5f5e57811e865c0004c955d8';
 
+it('fills a substituted Auto-delay caution, leaving a manual delay quiet', () => {
+  const fixed = manual(F52C, 5);
+  const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(fixed)} />);
+  expect(html).not.toContain('message-caution');
+  const changed = renderToStaticMarkup(<MountDelayReport resolution={resolution({ ...fixed,
+    ...{ caution: '0 s is used because the optimum precedes burnout.' },
+  })} />);
+  expect(changed).toContain('message-caution');
+  expect(changed).toContain('0 s is used because the optimum precedes burnout.');
+});
+
 it("shows AeroTech's published measured band beside a delay its certification tests fired, and says what it is", () => {
   const html = renderToStaticMarkup(<MountDelayReport resolution={resolution(manual(F52C, 5))} />);
   expect(html).toContain('Published test delays');

@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import type { FlightOverrideSummary } from '../services/flightOverrideSummary.js';
 import {
@@ -608,9 +609,9 @@ export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, t
         {/* On screen, not in a tooltip on the disabled button: a disabled
             button shows nothing when it is clicked (the 2026-09-01b report). */}
         {refusal && !running && (
-          <p className="field-caution batch-refused" role="alert" style={{ margin: '6px 0 0' }}>
+          <Note as="p" tier="danger" className="field-caution batch-refused" role="alert" style={{ margin: '6px 0 0' }}>
             <Icon name="zap" size={13} /> {refusal}
-          </p>
+          </Note>
         )}
 
         <div className="motor-load-row">
@@ -752,6 +753,8 @@ export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, t
             </p>
           )}
         </div>
+        {(failure && !running || sorted.some(r => r.optimumForPlugged) || capNote) && <Note
+          tier={failure && !running ? 'danger' : 'caution'} className="batch-outcome-notes">
         {failure && !running && (
           <p className="comp-stats batch-failed stability-bad" role="alert" style={{ margin: '6px 0 0' }}>
             {`The batch stopped before it finished: ${failure}`}
@@ -774,6 +777,8 @@ export function BatchSimulate({ overrideSummaryForMount, onShowOverride, info, t
         {capNote && (
           <p className="comp-stats batch-cap" style={{ margin: '4px 0 0' }}>{capNote}</p>
         )}
+
+        </Note>}
 
         {sorted.length > 0 && (
           <div className="motor-table-wrap" style={{ maxHeight: 320 }}>

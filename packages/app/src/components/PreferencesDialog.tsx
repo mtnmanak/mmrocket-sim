@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import { useId } from 'react';
 import { clearTourDone, markTourDone } from './FirstRunTour.js';
 import { NumField } from './NumField.js';
@@ -249,14 +250,14 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           // setting; say so, and offer the one action that resolves it.
           // (Choosing anything above ALSO clears the override — the newer,
           // more deliberate act wins. See PrefsContext.setPrefs.)
-          <p className="prefs-hint">
+          <Note as="p" tier="caution" className="prefs-hint">
             The vitals strip is flying <strong>{AERO_NAME[aeroOverride]}</strong> for this
             session only, so it is overriding the setting above. The setting above is the
             durable one and comes back on your next visit.{' '}
             <button className="file-btn" onClick={() => setAeroOverride(null)}>
               Go back to {AERO_NAME[aeroChoiceOf(prefs)]}
             </button>
-          </p>
+          </Note>
         )}
         <p className="prefs-hint">
           <strong>Classic Extended Barrowman</strong> is OpenRocket 24.12's Barrowman

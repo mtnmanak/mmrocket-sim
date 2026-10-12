@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import { useEffect, useMemo, useState } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import { NumField } from './NumField.js';
@@ -36,8 +37,9 @@ const FACTOR_MAX = 100;
  * it is about to do to the motor mounts first, because a scaled mount usually
  * is not a motor you can buy.
  */
-export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBackup, onClose }: {
+export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBackup, onClose, losesMeasurements = false }: {
   tree: RocketTree;
+  losesMeasurements?: boolean;
   /** Motor diameter (m) per mount id, for the "does it still fit" check. */
   assignedMotorDiameters: Record<string, number>;
   onApply: (result: ScaleResult) => void;
@@ -526,12 +528,12 @@ export function ScaleDialog({ tree, assignedMotorDiameters, onApply, onSaveBacku
               </div>
             )}
 
-            <p className="comp-stats">
+            <Note as="p" tier={losesMeasurements ? 'danger' : 'information'} className="comp-stats">
               The <strong>Measured mass &amp; CG</strong> box is cleared, and so is every{' '}
               <strong>weighed pad mass</strong> on Motors &amp; Launch, because they describe a
               rocket that will no longer exist. Ctrl+Z cannot put them back — undo covers the
               design tree — so write those numbers down first if you want them.
-            </p>
+            </Note>
 
             <p className="comp-stats">
               <strong>Kept at their own size:</strong> camera shrouds (the camera does not scale)

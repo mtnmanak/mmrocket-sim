@@ -429,6 +429,7 @@ describe('Preferences → Aerodynamics vs the strip override', () => {
     mountBoth();
     pick(strip(), 'supersonic');
     expect(host.textContent).toContain('overriding the setting above');
+    expect(host.querySelector('.message-caution')!.textContent).toContain('overriding the setting above');
     expect(host.textContent).toContain('Supersonic');
   });
 

@@ -134,7 +134,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
           {staleModel && (
             // Same rule as the Results tab: a flight kept across a model
             // switch is MARKED, never silently re-read under the new model.
-            <p className="fly-stale" role="status">
+            <p className="fly-stale message-tier message-caution" role="status">
               ⚠ Flown on <strong>{staleModel}</strong>, not the model now
               selected — press Launch to re-fly.
             </p>
@@ -143,7 +143,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
             // The Results tab's provenance note, phone-sized: what flew, and
             // what is different now. The motor is named because the Motor row
             // below shows the one loaded now, which may not be it.
-            <p className="fly-stale" role="status">
+            <p className="fly-stale message-tier message-caution" role="status">
               ⚠ Flown with{' '}
               <strong>{flownMotorLabel(run)}</strong>{' '}
               {formatRunWhenProse(run.when)} — <strong>{listAnd(changedSince)}</strong> changed

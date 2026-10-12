@@ -100,7 +100,7 @@ it('S1c-5 names refused legacy EX masses in the browser and offers re-import', (
   localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([{ ...motor, totalWeightG: 0, propWeightG: 0 }]));
   const h = openBrowser({ mountDiameterMm: 24 });
   onTestFinished(() => { closeBrowser(h); localStorage.clear(); });
-  expect(h.host.querySelector('.motor-browser > [role="status"]:not(.motor-check-status)')?.textContent).toMatch(/LEGACY.*loaded mass.*Re-import/);
+  expect(h.host.querySelector('.motor-import-notes > [role="status"]')?.textContent).toMatch(/LEGACY.*loaded mass.*Re-import/);
   expect(bodyRows(h).some(row => row.textContent?.includes('LEGACY'))).toBe(false);
 });
 
@@ -371,6 +371,7 @@ describe('MotorBrowser — what an import says about the motors it took (audit 2
       </engine></engine-list></engine-database>` }]);
     expect(h.host.textContent).toMatch(/Imported 1 EX motor \(H99X\)/);
     expect(h.host.textContent).toMatch(/inches\.rse: H99X: its nozzle exit, exitDia 0\.5 .*was not used/);
+    expect(h.host.querySelectorAll('.motor-import-notes.message-caution')).toHaveLength(1);
   });
 
   it('names twins kept side by side, motors skipped for impossible masses, and replacements', async () => {
@@ -766,7 +767,7 @@ describe('MotorBrowser — load and import results reach a screen reader (audit 
     // The first is the catalogue check's result (audit 2026-09-30), the other two
     // a load's or an import's.
     h = openBrowser({ mountDiameterMm: 54 });
-    const regions = h.host.querySelectorAll('.motor-browser > [role="status"], .motor-browser > [role="alert"]');
+    const regions = h.host.querySelectorAll('.motor-browser > [role="status"], .motor-import-notes > [role="status"], .motor-import-notes > [role="alert"]');
     expect(Array.from(regions).map((r) => [r.getAttribute('role'), r.textContent]))
       .toEqual([['status', ''], ['status', ''], ['alert', '']]);
   });
@@ -778,9 +779,9 @@ describe('MotorBrowser — load and import results reach a screen reader (audit 
     search(h, 'G80');
     click(rowFor(h, 'Estes', 'G80')!);
     click(loadButton(h)!);
-    for (let i = 0; i < 50 && !(h.host.querySelector('.motor-browser > [role="alert"]')!.textContent); i++) await settle(10);
+    for (let i = 0; i < 50 && !(h.host.querySelector('.motor-import-notes > [role="alert"]')!.textContent); i++) await settle(10);
     // Said in the app's words, not the browser's bare "Failed to fetch" (audit 2026-09-30).
-    expect(h.host.querySelector('.motor-browser > [role="alert"]')!.textContent)
+    expect(h.host.querySelector('.motor-import-notes > [role="alert"]')!.textContent)
       .toMatch(/^thrustcurve\.org could not be reached for G80 — are you offline\?/);
     expect(h.selected).toEqual([]);
   });
@@ -789,7 +790,7 @@ describe('MotorBrowser — load and import results reach a screen reader (audit 
     h = openBrowser({ mountDiameterMm: 54 });
     await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);
     // Not the catalogue check's region, which sits first.
-    expect(h.host.querySelector('.motor-browser > [role="status"]:not(.motor-check-status)')!.textContent)
+    expect(h.host.querySelector('.motor-import-notes > [role="status"]')!.textContent)
       .toMatch(/Imported 1 EX motor/);
   });
 });

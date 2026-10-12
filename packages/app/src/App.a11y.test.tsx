@@ -120,6 +120,25 @@ afterEach(async () => {
 });
 
 describe('App — accessibility, as rendered', () => {
+  it('keeps HIGH warning announcements even when an unknown event has Information styling', async () => {
+    const real = await vi.importActual<typeof import('./services/flightRunner.js')>('./services/flightRunner.js');
+    vi.mocked(flyLaunch).mockImplementationOnce(async (...args) => {
+      const out = await real.flyLaunch(...args);
+      return { ...out, result: { ...out.result, warnings: [
+        { key: 'UNMAPPED_EVENT', message: 'An unmapped recorded event', priority: 'HIGH' as const },
+      ] } };
+    });
+    const host = await mountApp();
+    const region = host.querySelector('.sr-only[role="alert"]:not(.notice-announce)')!;
+    expect(region.textContent).toBe('');
+    await launch(host);
+    expect(host.querySelector('.sr-only[role="alert"]:not(.notice-announce)')).toBe(region);
+    expect(region.textContent).toContain('An unmapped recorded event');
+    const visible = [...host.querySelectorAll('.flight-notes p')].find(p => p.textContent?.includes('An unmapped recorded event'))!;
+    expect(visible).toBeDefined();
+    expect(visible.closest('.message-tier')).toBeNull();
+  }, 30000);
+
   /**
    * Row 445: no tablist without the tab pattern. The workspace switch is a
    * <nav> of buttons marking the current one with aria-current="page", and

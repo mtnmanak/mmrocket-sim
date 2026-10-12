@@ -65,6 +65,15 @@ afterEach(() => {
 });
 
 describe('AppBoundary', () => {
+  it('fills actual reset loss, then keeps a downloaded backup receipt and reset quiet', async () => {
+    renderCrashed();
+    expect(host.querySelectorAll('.message-danger')).toHaveLength(1);
+    act(() => { button('Start fresh').click(); });
+    expect(host.querySelectorAll('.message-danger')).toHaveLength(2);
+    await act(async () => { button('Download the autosaved design').click(); });
+    expect(host.querySelectorAll('.message-danger')).toHaveLength(1);
+    expect(host.querySelector('[role="status"]')!.closest('.message-danger')).toBeNull();
+  });
   it('keeps and downloads the latest design when storage refuses the write after a crash', async () => {
     const storage = localStorage;
     saveSessionDebounced({ tree: { ...defaultTree(), name: 'Latest B' }, mountMotors: {}, launch: DEFAULT_CONDITIONS });

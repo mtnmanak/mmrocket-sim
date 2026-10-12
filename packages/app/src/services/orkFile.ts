@@ -2290,6 +2290,8 @@ export interface OrkExportConfig {
 }
 
 export interface OrkTreeExportInput {
+  /** Presentation only: a motor was omitted from the written archive. */
+  onOmittedMotor?: () => void;
   workingOverrides?: FlightOverrides;
   name: string;
   tree: FlightTree;
@@ -2457,7 +2459,7 @@ export function flightDataAttrs(fd: OrkExportFlightData | undefined): string | n
 
 export function exportOrk({
   name, tree, motors, launch, configs, activeConfigId, measured, flightData,
-  flightDataDefault, notes, workingOverrides = {},
+  flightDataDefault, notes, onOmittedMotor, workingOverrides = {},
 }: OrkTreeExportInput): string {
   // Complete existing owners before minting a custom configuration, including
   // callers that export directly without first syncing the active config.
@@ -3353,6 +3355,7 @@ export function exportOrk({
   // no native embedded-curve form; it resolves references with MotorFinder.
   const exNotes: string[] = [];
   const exArchive = archiveExMotors(writeConfigs.flatMap(c => Object.values(c.motors)), exNotes);
+  if ([...exArchive.ids.values()].some(id => id === null)) onOmittedMotor?.();
   // Copy only EX maps: never rewrite caller-owned configurations or loaded ids.
   for (const c of writeConfigs) {
     if (!Object.values(c.motors).some(m => exArchive.ids.has(m))) continue;

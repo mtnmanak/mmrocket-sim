@@ -67,6 +67,15 @@ const one = (over: Partial<NoticeInput>, d = dismissers()) => {
 };
 
 describe('designNotices', () => {
+  it('assigns consequence tiers to failures, changed thrust and capped history only', () => {
+    expect(one({ error: 'Build unavailable', buildFailed: true }).tier).toBe('danger');
+    expect(one({ motorFailures: [{ mountId: 'm', text: 'Motor left off' }] }).tier).toBe('caution');
+    expect(one({ runsCapped: { evicted: 2, unsaved: 0 } }).tier).toBe('caution');
+    expect(one({ assigned: [['m', mm(spec('H100', 29, { curveRepairs: ['repaired time'] }))]] }).tier).toBe('caution');
+    expect(one({ fileNote: { text: 'Could not open', severity: 'error' } }).tier).toBeUndefined();
+    expect(one({ fileNote: { text: 'Saved elsewhere', severity: 'warn', tier: 'caution' } }).tier).toBe('caution');
+    expect(one({ fileNote: { text: 'Save failed', severity: 'error', tier: 'danger' } }).tier).toBeUndefined();
+  });
   it('carries a file note attention flag without raising its severity', () => {
     expect(one({ fileNote: { text: 'Configuration override', severity: 'info', expand: true } }))
       .toMatchObject({ id: 'file-note', severity: 'info', expand: true });

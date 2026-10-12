@@ -294,7 +294,10 @@ it.each([false, true])('S3b-3: StrictMode clears export busy after rejection=%s'
   await act(async () => { csv.click(); });
   expect(full).toHaveBeenCalledOnce();
   expect(csv.disabled).toBe(false);
-  if (reject) expect(host.textContent).toContain('export failed');
+  if (reject) {
+    expect(host.textContent).toContain('export failed');
+    expect(host.querySelector('.message-danger[role="alert"]')?.textContent).toContain('export failed');
+  } else expect(host.querySelector('.message-danger')).toBeNull();
 });
 
 it('S3b-2: retains plots for unrelated preferences, rebuilds for units', () => {

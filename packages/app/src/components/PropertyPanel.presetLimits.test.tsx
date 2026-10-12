@@ -72,6 +72,7 @@ describe('PropertyPanel — a preset pick is held to the limits table', () => {
     // stored -10.668 mm, which only a restored session repaired — silently.
     expect(patches[0]!['thickness']).toBe(0);
     expect(patches[0]!['outerRadius']).toBe(0.0143256);
+    expect(host.querySelector('.message-caution[role="status"]')).not.toBeNull();
     expect(host.textContent).toContain(
       '“SEMROC HTC-11”: wall thickness -10.668 mm cannot be negative — set to 0 mm.');
   });

@@ -18,14 +18,14 @@ interface Group {
 }
 
 /** Normalize only equivalence that holds on every flight path; preserve stored tuples. */
-function flownDeployment(tuple: DeploymentTuple): DeploymentTuple {
+export function flownDeployment(tuple: DeploymentTuple): DeploymentTuple {
   const deployEvent = flownDeployEvent(tuple.deployEvent);
   // DeploymentConfiguration.NEVER cannot activate, so no delay is scheduled.
   return { ...tuple, deployEvent, deployAltitude: deployEvent === 'altitude' ? tuple.deployAltitude : 0,
     deployDelay: deployEvent === 'never' ? 0 : tuple.deployDelay };
 }
 
-function flownSeparation(tuple: SeparationTuple): SeparationTuple {
+export function flownSeparation(tuple: SeparationTuple): SeparationTuple {
   // OrkEngine.separationEventOf folds case/underscores; only the two altitude
   // handlers in StageSeparationConfiguration read altitude. NEVER returns false.
   const separationEvent = tuple.separationEvent.toLowerCase().replaceAll('_', '');

@@ -1,3 +1,6 @@
+import { flownDeployment, flownSeparation } from '../services/flightOverrideSummary.js';
+import { sparsify } from '../services/flightState.js';
+import { Note } from './Note.js';
 import { useId, useState } from 'react';
 import type { ComponentNode } from '@online-openrocket/engine';
 import type { FlightOverrides } from '../model/design.js';
@@ -40,11 +43,13 @@ export function FlightOverrideBanner({ node, overrides, configLabel, onEdit, onE
   const subject = recovery ? node.type : 'stage';
   return <div className="flight-override" role="region" aria-label={recovery ? 'Recovery override' : 'Stage separation override'}
     style={{ gridColumn: '1 / -1', border: '1px solid var(--border)', borderRadius: 6, padding: 10, overflowWrap: 'anywhere' }}>
-    <p className="comp-stats" style={{ marginTop: 0 }}>
+    <Note as="p" tier={('deployEvent' in tuple && 'deployEvent' in own
+      ? sparsify(flownDeployment(own), flownDeployment(tuple))
+      : 'separationEvent' in tuple && 'separationEvent' in own && sparsify(flownSeparation(own), flownSeparation(tuple))) ? 'caution' : 'information'} className="comp-stats" style={{ marginTop: 0 }}>
       {configLabel ? `Flight configuration “${configLabel}”` : 'The detached working settings'} overrides this {subject}:
       {' '}{recovery ? 'it deploys at' : 'it separates at'} {describe(tuple)}.
       {' '}These fields are the {subject}'s own setting ({describe(own)}), used by every configuration without an override.
-    </p>
+    </Note>
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
       <button type="button" className="file-btn" aria-expanded={editing} aria-controls={`${uid}-editor`}
         onClick={() => setEditing(!editing)}>Edit the override</button>

@@ -1,3 +1,4 @@
+import type { NoteTier } from '../components/Note.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { Notice, NoticeSeverity } from '../components/NoticeBar.js';
 import type { MountMotor } from '../model/design.js';
@@ -30,6 +31,7 @@ import { isLegacyPositionNote, legacyPositionNote, pendingLegacyPositions } from
 export interface HeldNote {
   text: string;
   severity: NoticeSeverity;
+  tier?: NoteTier;
   expand?: boolean;
 }
 
@@ -130,16 +132,17 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
     // who has read it should have to keep looking at it.
     out.push({
       id: 'build-error',
+      tier: 'danger',
       severity: 'error',
       text: input.error,
       ...(!input.buildFailed ? { onDismiss: dismiss.simError } : {}),
     });
   }
   for (const f of input.motorFailures) {
-    out.push({ id: `motor-failed:${f.mountId}`, severity: 'warn', text: f.text });
+    out.push({ id: `motor-failed:${f.mountId}`, severity: 'warn', tier: 'caution', text: f.text });
   }
   for (const { id, text } of curveNotes(input.assigned)) {
-    out.push({ id, severity: 'warn', text });
+    out.push({ id, severity: 'warn', tier: 'caution', text });
   }
   if (input.restoredByOlderBuild) {
     out.push({
@@ -216,6 +219,9 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
     out.push({
       id: 'file-note',
       severity: input.fileNote.severity,
+      // Save failures have their filled block beside Save / Export. This
+      // strip still owns their announcement and dismissal, without a second block.
+      ...(input.fileNote.tier && input.fileNote.tier !== 'danger' ? { tier: input.fileNote.tier } : {}),
       text: fileText,
       ...(input.fileNote.expand ? { expand: true } : {}),
       onDismiss: dismiss.fileNote,
@@ -226,6 +232,7 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
   if (input.runsCapped.evicted > 0 || input.runsCapped.unsaved > 0 || (input.runsCapped.undoEvicted ?? 0) > 0) {
     out.push({
       id: 'runs-evicted',
+      tier: 'caution',
       severity: 'warn',
       text: `${runCapNote(input.runsCapped.evicted, input.runsCapped.unsaved, input.runsCapped.undoEvicted)} Download the run table`
         + ' (Results) to keep a copy of the rest before more go.',

@@ -55,6 +55,8 @@ html {
   --status-warn: #845800;
   --callout-caution-bg: #ffcf66;
   --callout-caution-fg: #17130a;
+  --callout-danger-bg: #970f21;
+  --callout-danger-fg: #ffffff;
   --status-serious: #bd1e1d;
   --border: #d9d6cf;
   --border-strong: #c6c2b8;
@@ -101,6 +103,8 @@ html {
   --status-warn: #e0a53d;
   --callout-caution-bg: #ffcf66;
   --callout-caution-fg: #17130a;
+  --callout-danger-bg: #970f21;
+  --callout-danger-fg: #ffffff;
   --status-serious: #f0716f;
   --border: #403c35;
   --border-strong: #57524a;
@@ -4017,6 +4021,8 @@ select.unit-chip:hover {
   --status-warn: #6b4a00;
   --callout-caution-bg: #ffcf66;
   --callout-caution-fg: #17130a;
+  --callout-danger-bg: #970f21;
+  --callout-danger-fg: #ffffff;
   --status-serious: #b00016;
   --border: #000000;
   --hover: #d8d8d8;
@@ -4681,3 +4687,49 @@ select.unit-chip:hover {
 .comparison-table-scroll table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
 .comparison-table-scroll :is(th, td) { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .comparison-table-scroll caption { text-align: left; white-space: normal; padding: 6px; }
+
+/* NOTES-1: explicit consequence tiers outrank supporting-prose and modal rules. */
+.message-tier.message-tier {
+  padding: 10px 12px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.message-tier.message-tier.message-danger {
+  background: var(--callout-danger-bg, #970f21);
+  color: var(--callout-danger-fg, #ffffff);
+}
+.message-tier.message-tier.message-caution {
+  background: var(--callout-caution-bg, #ffcf66);
+  color: var(--callout-caution-fg, #17130a);
+}
+.message-tier.message-tier :where(p, li, strong, a, .comp-stats, .simdet-comments, .hero-fallback-detail) {
+  color: inherit;
+}
+.message-label { font-weight: 700; }
+.message-tier.message-tier .simdet-comments,
+.message-tier.message-tier .comp-stats { color: inherit; }
+.message-tier.message-tier .notice-count { background: transparent; border-color: currentColor; }
+.message-tier.message-tier .file-note { background: transparent; color: inherit; border: 0; padding: 0; }
+.message-tier.message-tier .file-btn {
+  background: transparent;
+  color: inherit;
+  border-color: currentColor;
+}
+.message-tier.message-tier :focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+.simdet-comments.stability-bad, .comp-stats.stability-bad { color: var(--status-serious); }
+.simdet-comments.stability-warn, .comp-stats.stability-warn { color: var(--status-warn); }
+.notice-count { color: var(--text-secondary); }
+.gust-estimate-muted { color: var(--text-secondary); }
+.notice-item.message-tier { margin: 2px 0; }
+.notice-bar .message-tier :where(.notice-count, .notice-glyph, .notice-dismiss) { color: inherit; }
+@media (forced-colors: active) {
+  .message-tier.message-tier.message-tier {
+    forced-color-adjust: auto;
+    background: Canvas;
+    color: CanvasText;
+    border: 2px solid CanvasText;
+  }
+}

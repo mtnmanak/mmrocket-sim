@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import { MountDelayReport } from './MountDelayReport.js';
 import { railNeededLine } from '../services/railNeeded.js';
 import { FlightLoadStats } from './FlightLoadStats.js';
@@ -255,45 +256,18 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           </strong>
         </p>
       )}
-      {(run.simWarnings ?? []).length > 0 && (
-        // Kernel flight warnings — deliberately separate from the comments
-        // blob below: HIGH priority is a flight-safety failure (red, like
-        // the verdict rows); the rest are cautions.
-        <div style={{ marginTop: 6 }}>
-          {(run.simWarnings ?? []).map((w, i) => {
-            const f = formatWarning(w, prefs.units);
-            return (
-              <p key={i} className={f.high ? 'simdet-comments stability-bad' : 'simdet-comments'}
-                style={{ margin: '2px 0 0' }}>
-                {f.high ? '⚠' : '△'} {f.label}
-                {f.detail && <span> — {f.detail}</span>}
-              </p>
-            );
-          })}
-        </div>
-      )}
-      {/* simReport joins its advisory sentences on COMMENT_SEP — one line each
-          reads as ranked flags instead of run-on prose (v0.076) — and
-          commentsOf is the one place they are split back apart. */}
-      {commentsOf(run).map(({ text: c, level }, i) => {
-        // Severity rides alongside as an index-aligned array (v0.114). A run
-        // saved before that has none, and every line renders plain exactly as
-        // it did — which is why this reads the array rather than re-deriving
-        // the thresholds here, where they would drift from simReport's. A
-        // run whose levels no longer align renders plain too, rather than
-        // shifted (commentsOf, audit 2026-09-22).
-        // The app's two existing severity colours, not new ones:
-        // `stability-bad` is --status-serious (red) and `stability-warn` is
-        // --status-warn (amber), both already used for the verdict rows. The
-        // ⚠ / △ pair matches the kernel-warning block directly above.
-        const cls = level === 'warning' ? 'simdet-comments stability-bad'
-          : level === 'caution' ? 'simdet-comments stability-warn'
-            : 'simdet-comments';
-        return (
-          <p key={i} className={cls} style={{ margin: '2px 0 0' }}>
-            {level === 'warning' ? '⚠ ' : level === 'caution' ? '△ ' : ''}{c}
-          </p>
-        );
+      {(['danger', 'caution', 'information'] as const).map(tier => {
+        const warnings = (run.simWarnings ?? []).map(w => formatWarning(w, prefs.units)).filter(w => w.tier === tier);
+        const comments = commentsOf(run).filter(c => (c.level === 'warning' ? 'danger' : 'information') === tier);
+        if (!warnings.length && !comments.length) return null;
+        return <Note key={tier} tier={tier} className="flight-notes">
+          {warnings.map((f, i) => <p key={`warning-${i}`} className="simdet-comments" style={{ margin: '2px 0 0' }}>
+            {f.label}{f.detail && <span> — {f.detail}</span>}
+          </p>)}
+          {comments.map(({ text, level }, i) => <p key={`comment-${i}`}
+            className={level === 'warning' ? 'simdet-comments stability-bad' : level === 'caution' ? 'simdet-comments stability-warn' : 'simdet-comments'}
+            style={{ margin: '2px 0 0' }}>{level === 'warning' ? '⚠ ' : level === 'caution' ? '△ ' : ''}{text}</p>)}
+        </Note>;
       })}
       {(run.deployments ?? []).length > 0 && (
         <div className="motor-table-wrap" style={{ marginTop: 8 }}>

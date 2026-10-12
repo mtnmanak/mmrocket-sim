@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import { useOnline } from '../hooks/useOnline.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { weatherPlaceLabel } from '../services/coordinates.js';
@@ -42,7 +43,7 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
   const year = weather ? showsYear(weather.endpoint) : false;
   const fetchedText = weather ? formatDay(Date.parse(weather.retrievedAt), undefined, year) : '';
   return (
-    <div className={weather ? 'weather-strip' : undefined} data-weather={weather ? 'strip' : undefined}>
+    <Note tier={stale ? 'caution' : 'information'} className={weather ? 'weather-strip' : undefined} data-weather={weather ? 'strip' : undefined}>
       <span role="status" data-weather="status">
         {weather && <>
           {sourceHeading(weather.endpoint)}{' '}
@@ -81,7 +82,7 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
           </button>
         </>}
       </div>
-    </div>
+    </Note>
   );
 }
 

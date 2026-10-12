@@ -1,3 +1,4 @@
+import { Note, type NoteTier } from './Note.js';
 import { importMotorFiles as readMotorFiles } from '../services/importMotorFiles.js';
 import {
   useEffect, useMemo, useRef, useState, type ReactNode,
@@ -252,6 +253,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const [busy, setBusy] = useState(false);
   const loadChoice = useRef({ picked, delay, customDelay });
   loadChoice.current = { picked, delay, customDelay };
+  const [importTier, setImportTier] = useState<NoteTier>('information');
   const [error, setError] = useState<string | null>(null);
   // Say which legacy imports were refused once per opening, through the
   // existing import status region (audit 2026-10-11, S1c-5).
@@ -374,7 +376,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const importMotorFiles = async (files: File[]) => {
     setError(null);
     setNotice(null);
-    const { parsed, write, error, notice } = await readMotorFiles(files);
+    const { parsed, write, error, notice, tier } = await readMotorFiles(files);
+    setImportTier(tier);
     setError(error);
     setNotice(notice);
     if (write) {
@@ -923,12 +926,14 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             region inserted with its text already in place is announced
             unreliably, so the containers exist before their first message.
             The import result and its notes are polite; a failure is an alert. */}
+        <Note tier={notice || error ? importTier : 'information'} className="motor-import-notes">
         <div role="status">
           {notice && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{notice}</p>}
         </div>
         <div role="alert">
-          {error && <p className="file-note file-note-error" style={{ marginBottom: 0 }}>{error}</p>}
+          {error && <p className="file-note" style={{ marginBottom: 0 }}>{error}</p>}
         </div>
+        </Note>
       </div>
     </div>
   );

@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import type { ReactNode } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { FormatLossReport, LossyFormat } from '../services/formatLoss.js';
@@ -10,6 +11,7 @@ import { Modal } from './Modal.js';
 
 interface DesignConfirmsProps {
   tree: RocketTree;
+  unprotected?: boolean;
   lossDialog: { report: FormatLossReport; confirm: boolean } | null;
   setLossDialog: (value: null) => void;
   saveLossy: (format: LossyFormat, report: FormatLossReport) => void;
@@ -36,7 +38,7 @@ interface DesignConfirmsProps {
  * question between New and Open. App owns state; markup and save-before-open
  * cancellation semantics stay together (audit 2026-10-11, S2-8).
  */
-export function DesignConfirms({ tree, lossDialog, setLossDialog, saveLossy, confirmNew, setConfirmNew,
+export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossDialog, saveLossy, confirmNew, setConfirmNew,
   replaceLoss, startNewDesign, onSaveOrk, pendingOpen, setPendingOpen, onOpenOrk, shareOffer, setShareOffer,
   applyImported, shroudPrompt, setShroudPrompt, hasOpenMotorQuestion, onConvertShrouds, children }: DesignConfirmsProps) {
   return <>
@@ -47,13 +49,13 @@ export function DesignConfirms({ tree, lossDialog, setLossDialog, saveLossy, con
       {confirmNew && (
         <Modal label="Start a new design" onClose={() => setConfirmNew(false)}>
           <h2>Start a new design?</h2>
-          <p>
+          <Note as="p" tier={unprotected || replaceLoss ? 'danger' : 'information'}>
             This clears “{tree.name ?? 'the current rocket'}” — all components,
             overrides and the current simulation. Make sure it's saved as an
             .ork file first: Ctrl+Z brings the components back, but not the
             motors, the flight configurations, the Measured mass &amp; CG, the
             Geodetic calculations choice or the flight.
-          </p>
+          </Note>
           {replaceLoss && <p className="replacement-loss">{replaceLoss}</p>}
           <div className="modal-actions">
             <button className="file-btn" onClick={() => { void onSaveOrk(); }}>
@@ -73,13 +75,13 @@ export function DesignConfirms({ tree, lossDialog, setLossDialog, saveLossy, con
       {pendingOpen && (
         <Modal label="Unsaved changes" onClose={() => setPendingOpen(null)}>
           <h2>Save “{tree.name ?? 'the current rocket'}” first?</h2>
-          <p>
+          <Note as="p" tier="danger">
             Opening “{pendingOpen.name}” replaces what is on screen, and
             “{tree.name ?? 'the current rocket'}” has changes that are not in any
             file you have saved. There is one autosave slot and the new design
             takes it, so those changes would be gone — Ctrl+Z does not reach
             across a file open.
-          </p>
+          </Note>
           {replaceLoss && <p className="replacement-loss">{replaceLoss}</p>}
           <div className="modal-actions">
             <button
@@ -117,13 +119,13 @@ export function DesignConfirms({ tree, lossDialog, setLossDialog, saveLossy, con
       {shareOffer && (
         <Modal label="Open design from link" onClose={() => setShareOffer(null)}>
           <h2>Open design from this link?</h2>
-          <p>
+          <Note as="p" tier={unprotected || replaceLoss ? 'danger' : 'information'}>
             This link opens “{shareOffer.name}”. Your current design
             “{tree.name ?? 'Rocket'}” will be replaced. If you want to keep
             it, save it as an .ork file first — declining simply drops the
             link. Ctrl+Z will not put it back: the undo history starts over
             from the linked design.
-          </p>
+          </Note>
           {replaceLoss && <p className="replacement-loss">{replaceLoss}</p>}
           <div className="modal-actions">
             <button className="file-btn" onClick={() => { void onSaveOrk(); }}>

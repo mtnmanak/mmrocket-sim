@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import { validDelayResolution, type MountDelayRecord } from '../services/autoDelaySolver.js';
 import { formatDelayBand, publishedDelayBand, PUBLISHED_DELAYS_URL } from '../services/publishedDelays.js';
 
@@ -29,7 +30,7 @@ export function MountDelayReport({ resolution }: { resolution: unknown }) {
           <th scope="row">{m.mountName}</th><td>{m.branchName ?? '—'}</td><td>{m.exception ? 'plugged → Auto (charge recovery)' : m.mode}</td>
           <td>{m.rawOptimum === null ? '—' : `${m.rawOptimum.toFixed(1)} s`}</td>
           <td>{m.recommendedDelay === null ? '—' : `${m.recommendedDelay} s`}</td>
-          <td>{m.flownDelay === 'plugged' ? 'plugged' : `${m.flownDelay} s`}{m.caution && <p>{m.caution}</p>}</td>
+          <td>{m.flownDelay === 'plugged' ? 'plugged' : `${m.flownDelay} s`}{m.caution && <Note as="p" tier="caution">{m.caution}</Note>}</td>
           {anyBand && <td>{bands[i] ? formatDelayBand(bands[i]) : '—'}</td>}
         </tr>)}</tbody>
       </table>

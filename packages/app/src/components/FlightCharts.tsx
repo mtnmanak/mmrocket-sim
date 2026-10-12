@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
@@ -368,9 +369,9 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
         // user pressed a button for and waited several seconds on, and it was
         // announced to nobody. PropertyPanel and MotorBrowser both use
         // role="alert" for the same situation.
-        <p className="simdet-comments stability-bad" role="alert" style={{ margin: '4px 0 0' }}>
+        <Note as="p" tier="danger" className="simdet-comments stability-bad" role="alert" style={{ margin: '4px 0 0' }}>
           Flight-data export failed: {exportError}
-        </p>
+        </Note>
       )}
       <div className="series-picker" role="group" aria-label="Plot series">
         {catalog.map((d) => {

@@ -364,7 +364,8 @@ describe('CP vs Mach at an angle of attack', () => {
     } as unknown as OrkRocket;
     open(rocket);
     pick(5);
-    expect(texts().some((t) => t === 'CP at 5° could not be computed: kernel said no')).toBe(true);
+    expect(texts().some((t) => t === '⛔ Danger: CP at 5° could not be computed: kernel said no')).toBe(true);
+    expect(host.querySelector('.message-danger')).not.toBeNull();
     expect(cpSeries()).toEqual(flat(50));
   });
 

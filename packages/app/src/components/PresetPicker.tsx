@@ -1,3 +1,4 @@
+import { Note, type NoteTier } from './Note.js';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import { useRovingRows } from './useRovingRows.js';
@@ -42,6 +43,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
   const [all, setAll] = useState<Preset[] | null>(null);
   const [text, setText] = useState('');
   const [mfr, setMfr] = useState('');
+  const [noteTier, setNoteTier] = useState<NoteTier>('information');
   const [note, setNote] = useState<string | null>(null);
 
   useEffect(() => {
@@ -118,6 +120,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
 
   /** Reports every failure itself (setNote), so callers fire it with `void`. */
   const importCsv = async (file: File) => {
+    setNoteTier('information');
     try {
       const parsed = csvToPresets(await file.text());
       if (parsed.length === 0) {
@@ -147,6 +150,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
       // reloads the OLD rows while the note claims the new ones were stored.
       const stored = new Set(loadCustomPresets().map((p) => JSON.stringify(p)));
       const missing = good.filter((p) => !stored.has(JSON.stringify(p))).length;
+      setNoteTier(dropped > 0 || missing > 0 ? 'caution' : 'information');
       const imported = missing > 0
         ? `Could not store ${missing} of ${good.length} preset(s) — this browser's storage`
           + ` is full or blocked, so the new values were not saved.${droppedNote}`
@@ -287,7 +291,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
             was rendered only with its text already in it, and a live region
             inserted that way is announced unreliably. */}
         <div role="status">
-          {note && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{note}</p>}
+          {note && <Note as="p" tier={noteTier} className="motor-db-meta" style={{ marginBottom: 0 }}>{note}</Note>}
         </div>
       </div>
     </div>

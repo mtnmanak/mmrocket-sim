@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import type { ReactNode } from 'react';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -205,7 +206,7 @@ function verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
         const who = blockedBy.name || 'A stage above it';
         return {
           text: (
-            <p className="measured-verdict measured-bad">
+            <Note as="p" tier="caution" className="measured-verdict measured-bad">
               <strong>{who}</strong> stands in for the mass of everything inside it, so a
               Build allowance added here would weigh nothing.{' '}
               {onPinStage
@@ -218,7 +219,7 @@ function verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
                 : <>You weighed the whole airframe and more than one stage is pinned, so there
                   is no telling which should carry the difference — clear the mass overrides
                   under <strong>Overrides</strong> and weigh again.</>}
-            </p>
+            </Note>
           ),
           action: onPinStage && (
             <button className="file-btn measured-apply" onClick={onPinStage}>
@@ -247,37 +248,37 @@ function verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
     case 'cg-only':
       return {
         text: (
-          <p className="measured-verdict measured-bad">
+          <Note as="p" tier="caution" className="measured-verdict measured-bad">
             {`Your rocket weighs what the model says but balances ${len(Math.abs(solution.cgErrorM))} `}
             {solution.cgErrorM > 0 ? 'further back' : 'further forward'}
             {'. Adding mass cannot move the CG without also changing the total, so the '}
             <strong>distribution</strong> of your part masses is off, not the total.
-          </p>
+          </Note>
         ),
       };
 
     case 'overweight-model':
       return {
         text: (
-          <p className="measured-verdict measured-bad">
+          <Note as="p" tier="caution" className="measured-verdict measured-bad">
             {`Your rocket came out ${mass(solution.excessKg)} LIGHTER than the model. `}
             There is no negative ballast — something in the design is modelled heavier than
             you built it. Check the parts you guessed at.
-          </p>
+          </Note>
         ),
       };
 
     case 'unreachable':
       return {
         text: (
-          <p className="measured-verdict measured-bad">
+          <Note as="p" tier="caution" className="measured-verdict measured-bad">
             {`Closing this gap would need ${mass(solution.massKg)} at `}
             {len(solution.stationM)}
             {solution.stationM < 0 ? ' — ahead of the nose tip' : ' — behind the tail'}
             {', which is not on the rocket. Your measured mass and balance point cannot both be '}
             explained by added mass anywhere, so the part masses are wrong in their
             <strong> distribution</strong>, not just their total.
-          </p>
+          </Note>
         ),
       };
   }

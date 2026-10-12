@@ -47,6 +47,14 @@ afterEach(() => {
 });
 
 describe('ScaleDialog — what undo cannot restore', () => {
+  it.each([false, true])('fills the loss disclosure only with actual measurements: %s', async losesMeasurements => {
+    act(() => root.render(<PrefsProvider><ScaleDialog tree={tree()} assignedMotorDiameters={{}}
+      losesMeasurements={losesMeasurements} onApply={() => {}} onSaveBackup={() => {}} onClose={() => {}} /></PrefsProvider>));
+    await act(async () => { await Promise.resolve(); });
+    const loss = [...host.querySelectorAll('p')].find(p => p.textContent?.includes('Ctrl+Z cannot'))!;
+    expect(loss.classList.contains('message-danger')).toBe(losesMeasurements);
+    expect(host.querySelectorAll('.message-danger')).toHaveLength(losesMeasurements ? 1 : 0);
+  });
   it('names the weighed pad masses beside the Measured box, and does not call the box the only loss', async () => {
     act(() => {
       root.render(

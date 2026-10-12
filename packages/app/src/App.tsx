@@ -117,13 +117,14 @@ import {
   sessionConflicted, sessionPredatesThisBuild, sessionSaveFailing, takeOverSession,
 } from './services/session.js';
 import {
-  AERO_MODEL_CHANGED, aeroModelLabel, changedSinceRun,
+  AERO_MODEL_CHANGED, aeroModelLabel, changedSinceRun, commentsOf,
   currentModelLabel, formatRunLabel, formatRunWhenProse, formatStability, listAnd,
   hasAerodynamicForce, shownStability, runMatchesDesign, runMatchesModel,
   storedSimCost,
   type DesignMatchKey, type MotorMeta, type SimRun,
 } from './services/simReport.js';
-import { formatWarning, formatWarningText } from './services/simWarnings.js';
+import { Note, type NoteTier } from './components/Note.js';
+import { formatWarning, formatWarningText, staticWarningTier } from './services/simWarnings.js';
 import {
   addRun, appendImportedRuns, loadRuns, MAX_RUNS, persistFailed, runsEvictedByLastWrite, runsUnsavedByLastWrite, runsEvictedForUndoByLastWrite,
 } from './services/simStore.js';
@@ -734,10 +735,10 @@ export function App() {
    * default) so every existing call site is unchanged.
    */
   const [fileNoteState, setFileNoteState] =
-    useState<{ text: string; severity: NoticeSeverity; expand?: boolean } | null>(() =>
+    useState<{ text: string; severity: NoticeSeverity; expand?: boolean; tier?: NoteTier } | null>(() =>
       restoreNotes.length ? { text: restoreNotes.join('\n'), severity: 'info' } : null);
-  const setFileNote = useCallback((text: string | null, severity: NoticeSeverity = 'info', expand?: boolean) => {
-    setFileNoteState(text === null ? null : { text, severity, ...(expand ? { expand: true } : {}) });
+  const setFileNote = useCallback((text: string | null, severity: NoticeSeverity = 'info', expand?: boolean, tier?: NoteTier) => {
+    setFileNoteState(text === null ? null : { text, severity, ...(expand ? { expand: true } : {}), ...(tier ? { tier } : {}) });
   }, []);
   /** Imported hand-rolled camera shrouds awaiting the convert-to-native offer. */
   const [shroudPrompt, setShroudPrompt] = useState<ShroudCandidate[] | null>(null);
@@ -2193,6 +2194,7 @@ export function App() {
     // the save line as a warning — never when the user cancelled, because
     // then no file exists to have lost anything.
     losses: readonly string[] = [],
+    lossTier: NoteTier = losses.length ? 'caution' : 'information',
   ) => {
     // CSV gets a UTF-8 BOM: headers can carry non-ASCII (units, symbols), and
     // Excel's double-click open decodes BOM-less CSV as the ANSI codepage.
@@ -2214,7 +2216,7 @@ export function App() {
     // Where it went, and what it could not carry (saveOutcomeNote); a
     // cancelled dialog says nothing.
     const said = saveOutcomeNote(out, losses);
-    if (said) setFileNote(said.text, said.severity);
+    if (said) setFileNote(said.text, said.severity, undefined, out.kind === 'downloaded' && out.fellBack ? 'caution' : lossTier);
     return out;
   };
 
@@ -2257,12 +2259,13 @@ export function App() {
         .map((m) => autoDelaySaveNote(m, '.ork')).filter((n): n is string => n !== null))];
       // WITH launch: the .ork's first <simulation> carries the pad and weather,
       // so the file (and the desktop app) round-trips the whole flight setup.
-      const out = await download(exportOrk({ workingOverrides: detachedOverrides,
+      let omittedMotor = losses.length > 0;
+      const out = await download(exportOrk({ onOmittedMotor: () => { omittedMotor = true; }, workingOverrides: detachedOverrides,
         name: tree.name ?? 'My Rocket', tree, motors, launch,
         configs, activeConfigId, measured,
         flightData: flightDataForExport(),
         notes: losses,
-      }), 'ork', '', losses);
+      }), 'ork', '', losses, omittedMotor ? 'caution' : 'information');
       // Only a real write counts. 'cancelled' means the user backed out of the
       // picker, and treating that as saved is how work gets discarded silently.
       if (out.kind === 'saved' || out.kind === 'downloaded') {
@@ -2273,7 +2276,7 @@ export function App() {
       }
       return out;
     } catch (e) {
-      setFileNote(`Save .ork failed — nothing was written: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      setFileNote(`Save .ork failed — nothing was written: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
       return { kind: 'failed' };
     }
   };
@@ -2295,7 +2298,7 @@ export function App() {
     distanceUnit: prefs.units.distance,
   });
   const lossyExportFailed = (format: LossyFormat, e: unknown) =>
-    setFileNote(`${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    setFileNote(`${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
   // Use the latest render at the idle edge, without restarting the timer for
   // unrelated UI renders. No kernel calls are made by this preview. The ref is
   // written after render, in a layout effect, so before the timer's effect.
@@ -2384,7 +2387,7 @@ export function App() {
       const { rocketToObj } = await import('./services/objExport.js');
       await download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj');
     } catch (e) {
-      setFileNote(`OBJ export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      setFileNote(`OBJ export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
     }
   };
 
@@ -2393,7 +2396,7 @@ export function App() {
       const { rocketToGlb } = await import('./services/gltfExport.js');
       await download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb');
     } catch (e) {
-      setFileNote(`glTF export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      setFileNote(`glTF export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
     }
   };
 
@@ -2406,7 +2409,7 @@ export function App() {
       const { pieces } = buildPieces(tree);
       await download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl');
     } catch (e) {
-      setFileNote(`STL export failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      setFileNote(`STL export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
     }
   };
 
@@ -2789,7 +2792,8 @@ export function App() {
     try {
       const flown = flownAutoDelaysNow();
       const saveNotes: string[] = [];
-      const xml = exportOrk({ workingOverrides: detachedOverrides,
+      let omittedMotor = false;
+      const xml = exportOrk({ onOmittedMotor: () => { omittedMotor = true; }, workingOverrides: detachedOverrides,
         name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flown), launch,
         // Included so a share link reproduces exactly what saving the file
         // reproduces — the recipient sees the sender's weighed build, which is
@@ -2815,13 +2819,13 @@ export function App() {
       try {
         await navigator.clipboard.writeText(url);
         setFileNote([`Share link copied — opening it loads “${tree.name ?? 'My Rocket'}” with its motors and launch conditions.${sizeNote}`,
-          ...saveNotes].join('\n'), saveNotes.length ? 'warn' : 'info');
+          ...saveNotes].join('\n'), saveNotes.length ? 'warn' : 'info', undefined, omittedMotor ? 'caution' : 'information');
       } catch {
         // Clipboard refused (permissions, iframe embed, non-secure context):
         // hand the link over for a manual Ctrl+C — prompt() pre-selects it.
         window.prompt('Copy this share link (Ctrl+C):', url);
         const fallbackNotes = [sizeNote.trim(), ...saveNotes].filter(Boolean).join('\n');
-        if (fallbackNotes) setFileNote(fallbackNotes, 'warn');
+        if (fallbackNotes) setFileNote(fallbackNotes, 'warn', undefined, omittedMotor ? 'caution' : 'information');
       }
     } catch (e) {
       // 'error' — nothing was copied and nothing is on screen to say so
@@ -3281,7 +3285,7 @@ export function App() {
             {lossyStatus ?? (dirty ? 'Unsaved changes' : 'No unsaved changes')}
           </span>
           {liveLossReport && (liveLossReport.refused || liveLossReport.losses.length > 0) && (
-            <button className="design-loss-warning" onClick={() => setLossDialog({ report: liveLossReport, confirm: false })}>
+            <button className={`design-loss-warning message-tier message-${liveLossReport.refused ? 'danger' : 'caution'}`} onClick={() => setLossDialog({ report: liveLossReport, confirm: false })}>
               {liveLossReport.refused ? `\u26a0 Can't be saved as ${formatExtension(liveLossReport.format)}`
                 : liveLossReport.incomplete ? `\u26a0 Couldn't fully check this ${formatExtension(liveLossReport.format)}`
                 : `\u26a0 ${liveLossReport.losses.length} this ${formatExtension(liveLossReport.format)} can't hold`}
@@ -3290,6 +3294,10 @@ export function App() {
         </div>
         {/* the owner's chosen identity line (2026-08-05b #9) — the per-model detail
             lives in Preferences and the launch report's "Aero model" row. */}
+        {fileNoteState?.tier === 'danger' && <Note tier="danger" className="file-operation-note">
+          {fileNoteState.text}
+          <button className="file-btn" onClick={() => setFileNote(null)} aria-label="Dismiss failed save or export">×</button>
+        </Note>}
         <p className="app-tagline">
           Design, simulate, fly — OpenRocket-derived physics, validated to
           Mach&nbsp;4.6 against NASA wind-tunnel data.
@@ -3306,16 +3314,16 @@ export function App() {
         {autosaveFailing && (
           // Persistent (not dismissible) on purpose: while this shows, edits
           // do NOT survive a reload. It clears itself on the recovery edge.
-          <div className="file-note file-note-error autosave-warn" role="alert">
+          <Note tier="danger" className="file-note file-note-error autosave-warn" role="alert">
             ⚠ Autosave can&apos;t write (storage full or blocked) — save your
             design to a file (Save As / Export → .ork) to keep it safe.
-          </div>
+          </Note>
         )}
         {sessionConflict && (
           // Persistent until answered: until then neither tab's work is at
           // risk, and a × that merely hid it would leave this tab's changes
           // unsaved with nothing on screen to say so.
-          <div className="file-note file-note-error autosave-warn" role="alert">
+          <Note tier="caution" className="file-note file-note-error autosave-warn" role="alert">
             ⚠ This design was changed in another tab. This tab has stopped
             autosaving so it does not overwrite that work — changes made here
             are not kept until you choose.{' '}
@@ -3328,7 +3336,7 @@ export function App() {
               onClick={() => { leavingForOtherTab.current = true; window.location.reload(); }}>
               Load the other tab&apos;s design
             </button>
-          </div>
+          </Note>
         )}
         {prefsSaveFailing && !autosaveFailing && (
           // Same shape, different store. Shown only when autosave is NOT
@@ -3364,6 +3372,11 @@ export function App() {
         <ScaleDialog
           tree={tree}
           assignedMotorDiameters={assignedMotorDiameters}
+          losesMeasurements={measured.massKg !== null || measured.cgM !== null
+            || Object.values(mountMotors).some(m => m.padMassKg != null)
+            || Object.values(unmatchedRefs).some(m => m.padMassKg != null)
+            || savedConfigs.some(c => Object.values(c.motors).some(m => m.padMassKg != null)
+              || Object.values(c.unmatchedRefs ?? {}).some(m => m.padMassKg != null))}
           onApply={(res) => {
             const scaledConfigs = scaleConfigStageMass(savedConfigs, activeConfigId, tree, res.factor);
             commitTreeStep(res.tree);
@@ -3465,7 +3478,7 @@ export function App() {
         />
       )}
       <DesignConfirms tree={tree} lossDialog={lossDialog} setLossDialog={setLossDialog} saveLossy={saveLossy}
-        confirmNew={confirmNew} setConfirmNew={setConfirmNew} replaceLoss={replaceLoss} startNewDesign={startNewDesign}
+        unprotected={dirty || flownSinceSave.current} confirmNew={confirmNew} setConfirmNew={setConfirmNew} replaceLoss={replaceLoss} startNewDesign={startNewDesign}
         onSaveOrk={onSaveOrk} pendingOpen={pendingOpen} setPendingOpen={setPendingOpen} onOpenOrk={onOpenOrk}
         shareOffer={shareOffer} setShareOffer={setShareOffer} applyImported={applyImported}
         shroudPrompt={shroudPrompt} setShroudPrompt={setShroudPrompt} hasOpenMotorQuestion={openMotorQuestion !== null}
@@ -3899,7 +3912,7 @@ export function App() {
                       selectedId={selectedId}
                       onSelect={(id) => setSelectedId(id)}
                       exportData={viewExportData}
-                      onError={setFileNote}
+                      onError={text => setFileNote(text, 'error', undefined, 'danger')}
                       vertical={vert2d}
                       fillHeight
                       onNaturalHeight={hero.setNatural}
@@ -3919,7 +3932,7 @@ export function App() {
                     <View3DBoundary onBack={() => setView('2d')}>
                       <Suspense fallback={<div className="hero-loading">Loading 3D view…</div>}>
                         <Rocket3D tree={tree} info={built?.info ?? null} motors={motorDims} exportData={viewExportData}
-                          onError={setFileNote} />
+                          onError={text => setFileNote(text, 'error', undefined, 'danger')} />
                       </Suspense>
                     </View3DBoundary>
                   )
@@ -3960,8 +3973,13 @@ export function App() {
             </div>
             {built && hero.open && !hero.wide && statsDrawerNode}
             {built && built.info.warningTexts.length > 0 && (
-              <div className="file-note file-note-warn" role="alert">
-                {built.info.warningTexts.map(formatWarningText).join('\n')}
+              <div>
+                {(['caution', 'information'] as const).map(tier => {
+                  const texts = built.info.warningTexts.filter(t => staticWarningTier(t) === tier);
+                  return texts.length ? <Note key={tier} tier={tier} className="file-note" role="alert">
+                    {texts.map(formatWarningText).join('\n')}
+                  </Note> : null;
+                })}
               </div>
             )}
           </div>
@@ -4406,6 +4424,7 @@ export function App() {
               there was no way to create a configuration from loaded motors. */}
           {(savedConfigs.length > 0 || assigned.length > 0) && (
             <ConfigPanel
+              deletionUnprotected={dirty || !!replaceLoss}
               configs={savedConfigs}
               tree={tree}
               activeConfigId={activeConfigId}
@@ -4447,21 +4466,6 @@ export function App() {
               <LaunchOverrideWarning id="launch-override-relaunch" summary={launchOverrideSummary} onShow={showFlightOverride} />
             </div>
           )}
-          {!inspectedSummary && (lastRun?.simWarnings ?? []).some((w) => w.priority === 'HIGH') && (
-            // The Launch flow lands here — a HIGH-priority kernel warning
-            // (no recovery device, deployment on the guide, …) must not be
-            // scrollable-past. Full list, cautions included, sits in the
-            // launch report below.
-            <div className="file-note file-note-error" role="alert">
-              ⚠ <strong>This flight raised {
-                lastRun!.simWarnings!.filter((w) => w.priority === 'HIGH').length === 1
-                  ? 'a serious simulation warning'
-                  : 'serious simulation warnings'
-              }:</strong>{' '}
-              {lastRun!.simWarnings!.filter((w) => w.priority === 'HIGH')
-                .map((w) => formatWarning(w).label).join(' · ')}
-            </div>
-          )}
           {!inspectedSummary && shownResult && lastRun?.aeroModel === 'auto-supersonic' && (
             <div className="file-note">
               {/* States what the flight DID, not what was predicted: the model can also be
@@ -4474,6 +4478,8 @@ export function App() {
               subsonic flights of this design would fly classic).
             </div>
           )}
+          {!inspectedSummary && lastRun && (modelMatch === false || changedSinceNonModel.length > 0) &&
+            <Note tier="caution" className="result-freshness">
           {!inspectedSummary && modelMatch === false && lastRun && (
             // States what the flight DID first, matching the auto-supersonic
             // note's precedent. This exists because a model switch no longer
@@ -4499,6 +4505,7 @@ export function App() {
               Press <strong>Launch</strong> to fly the current design.
             </div>
           )}
+            </Note>}
           {/* Each panel below draws stored or computed data, so each has its
               own boundary (audit 2026-09-22): a throw in one says so in place,
               and the rest of the tab — the run table included, where a bad
@@ -4587,7 +4594,7 @@ export function App() {
             </PanelBoundary>
           )}
           {runsQuotaWarn && (
-            <div className="file-note file-note-warn" role="alert">
+            <Note tier="danger" className="file-note file-note-warn" role="alert">
               {runs.length === 0
                 // Nothing stored at all (private mode / storage blocked): the
                 // "table below / export the CSV" advice is unfollowable —
@@ -4599,7 +4606,7 @@ export function App() {
                   full. The table below shows what is actually stored; export the
                   CSV to keep your results.</>}
               <button className="file-note-dismiss" onClick={() => setRunsQuotaWarn(false)} aria-label="Dismiss">×</button>
-            </div>
+            </Note>
           )}
           <PanelBoundary what="The run history" resetKey={runs}>
             <SimHistory
@@ -4626,6 +4633,12 @@ export function App() {
         )}
       </div>
       <SiteBandFooter nav={mmrNav} />
+      <div className="sr-only" role="alert" aria-live="assertive">
+        {!inspectedSummary && lastRun && [
+          ...(lastRun.simWarnings ?? []).map(w => formatWarning(w, prefs.units)).filter(w => w.high || w.tier !== 'information').map(w => w.label),
+          ...commentsOf(lastRun).filter(c => c.level === 'warning').map(c => c.text),
+        ].join(' ')}
+      </div>
       <NoticeBar notices={notices} />
       {/* Always mounted, so the first "Flight complete" lands in a region that
           already exists — see resultsMainRef. */}

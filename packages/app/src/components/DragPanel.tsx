@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
@@ -544,7 +545,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
       </div>
 
       {open && (!sweep ? null : 'error' in sweep ? (
-        <p className="stability-bad">{sweep.error}</p>
+        <Note as="p" tier="danger" className="stability-bad">{sweep.error}</Note>
       ) : (
         <>
           <div className="series-picker" role="group" aria-label="Drag analysis controls">
@@ -691,9 +692,9 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
                 </p>
               )}
               {aoaSweep && 'error' in aoaSweep && (
-                <p className="stability-bad" style={{ marginTop: 4 }}>
+                <Note as="p" tier="danger" className="stability-bad" style={{ marginTop: 4 }}>
                   CP at {cpAoa}° could not be computed: {aoaSweep.error}
-                </p>
+                </Note>
               )}
               {aoaCpSweep && (
                 <p className="motor-db-meta" style={{ marginTop: 4 }}>

@@ -95,7 +95,8 @@ describe('the gust-to-σ chip', () => {
   it('says so when Wind avg moves after applying — and never rescales σ', () => {
     render({ ...FIVE, windAverage: 3, windStdDev: 2 });
     expect(button()).toBeNull();
-    expect(text()).toBe('Wind gusts σ, 2 m/s, was estimated against the forecast’s 5 m/s average; Wind avg now reads 3 m/s.');
+    expect(text()).toBe('⚠ Caution: Wind gusts σ, 2 m/s, was estimated against the forecast’s 5 m/s average; Wind avg now reads 3 m/s.');
+    expect(chip()!.classList.contains('message-caution')).toBe(true);
     expect(chip()!.classList.contains('gust-estimate-muted')).toBe(true);
     expect(changes).toHaveLength(0);
     // Edited away from BOTH: nothing to say.

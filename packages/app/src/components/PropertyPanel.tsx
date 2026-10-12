@@ -1,3 +1,4 @@
+import { Note } from './Note.js';
 import { MotorLengthField } from './MotorLengthField.js';
 import { motorLengthLimit } from '../tree/motorLength.js';
 import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
@@ -365,11 +366,11 @@ function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch 
     // Shown whether or not THIS component has a value of its own: its geometry
     // is being stood in for either way, so the explanation is owed regardless.
     return (
-      <p className="override-suppressed" role="note">
+      <Note as="p" tier="caution" className="override-suppressed" role="note">
         Not in use — <strong>{blockerName(blocker)}</strong>
         {' '}stands in for the {quantity} of everything inside it. Untick its
         “Use instead of everything inside” to use this.
-      </p>
+      </Note>
     );
   }
   if (!active || !hasChildren) return null;
@@ -1017,7 +1018,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
         </>
       )}
       {presetNote && (
-        <p className="print-note print-note-warn" role="status">{presetNote}</p>
+        <Note as="p" tier="caution" className="print-note print-note-warn" role="status">{presetNote}</Note>
       )}
       {(node.type === 'trapezoidfinset' || node.type === 'ellipticalfinset'
         || node.type === 'freeformfinset') && (
@@ -1143,7 +1144,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
             </p>
           )}
           {exportNote && (
-            <p className="print-note print-note-warn" role="alert">{exportNote}</p>
+            <Note as="p" tier="danger" className="print-note print-note-warn" role="alert">{exportNote}</Note>
           )}
         </>
       )}
@@ -1637,7 +1638,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
             typing either one takes the stage off the file's stated weight
             (`statedLaunchMark` in the two commits below). */}
         {typeof node[OVERRIDE_INCLUDES_MOTOR] === 'string' && node[OVERRIDE_INCLUDES_MOTOR] !== '' && (
-          <p className="override-inert override-stated-launch" role="note">
+          <Note as="p" tier="caution" className="override-inert override-stated-launch" role="note">
             <strong>{statedLaunchCopy.lead}</strong>
             {' '}{statedLaunchCopy.figures} the weight of the
             “{node[OVERRIDE_INCLUDES_MOTOR] as string}” it names — that
@@ -1646,7 +1647,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, f
             first, and any other motor clears these figures instead; Browse motor database on
             Motors &amp; Launch takes an .eng or .rse file. Type your own figure here instead and {statedLaunchCopy.mine} —{' '}
             {statedLaunchCopy.enter}.
-          </p>
+          </Note>
         )}
         <div className="field-grid">
           <div className="field">

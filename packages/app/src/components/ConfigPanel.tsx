@@ -18,8 +18,9 @@ import { recoverySummary } from './recoveryContext.js';
  * only when there are neither configurations nor loaded motors.
  */
 export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, onApply, onClear,
-  onCreate, onRename, onDelete, onEmpty }: {
+  onCreate, onRename, onDelete, onEmpty, deletionUnprotected = false }: {
   configs: SavedConfig[];
+  deletionUnprotected?: boolean;
   tree?: RocketTree;
   activeConfigId: string | null;
   /** Whether the working set holds any motor — decides the "None" row's active mark. */
@@ -133,7 +134,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, onApply,
                 title={`Delete ${savedConfigLabel(c)}`} ref={(el) => {
                   if (el) deleteButtons.current.set(c.id, el); else deleteButtons.current.delete(c.id);
                 }} onClick={() => { setEditing(null); setDeleting(c.id); }}>🗑</button>
-              {deleting === c.id && <ConfigDeleteConfirmation label={label}
+              {deleting === c.id && <ConfigDeleteConfirmation label={label} unprotected={deletionUnprotected}
                 onCancel={() => { setDeleting(null); deleteButtons.current.get(c.id)?.focus(); }}
                 onDelete={() => {
                   setDeleting(null); onDelete(c);
@@ -199,8 +200,8 @@ function ConfigNameEditor({ config, label, onCommit, onClose }: {
     }} />;
 }
 
-function ConfigDeleteConfirmation({ label, onCancel, onDelete }: {
-  label: string; onCancel: () => void; onDelete: () => void;
+function ConfigDeleteConfirmation({ label, onCancel, onDelete, unprotected }: {
+  label: string; onCancel: () => void; onDelete: () => void; unprotected: boolean;
 }) {
   const cancel = useRef<HTMLButtonElement>(null);
   const descriptionId = useId();
@@ -209,7 +210,7 @@ function ConfigDeleteConfirmation({ label, onCancel, onDelete }: {
     style={{ flexBasis: '100%' }} onKeyDown={(e) => {
       if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel(); }
     }}>
-    <p id={descriptionId}>Delete this configuration? Its motors stay loaded if it is the one you are flying.</p>
+    <p id={descriptionId} className={unprotected ? 'message-tier message-danger' : undefined}>Delete this configuration? Its motors stay loaded if it is the one you are flying.</p>
     <button className="file-btn file-btn-danger" aria-label={`Confirm delete ${label}`} onClick={onDelete}>Delete</button>{' '}
     <button className="file-btn" aria-label={`Cancel deleting ${label}`} ref={cancel} onClick={onCancel}>Cancel</button>
   </div>;

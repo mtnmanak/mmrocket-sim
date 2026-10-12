@@ -39,6 +39,17 @@ const draw = (notices: Notice[]) => {
 };
 
 const bar = () => host.querySelector('.notice-bar');
+
+it('visual tiers do not change announcement urgency or paint unrelated Information', () => {
+  draw([{ ...info, tier: 'caution' }, err]);
+  expect(host.querySelectorAll('.message-caution')).toHaveLength(1);
+  expect(host.querySelectorAll('.message-danger')).toHaveLength(0);
+  expect(host.querySelector('.message-caution .message-label')?.textContent).toContain('Caution:');
+  expect(host.querySelector('.message-caution')?.textContent).toContain('Loaded');
+  expect(host.querySelector('.notice-announce[role="status"]')?.textContent).toContain('Loaded');
+  expect(host.querySelector('.notice-announce[role="alert"]')?.textContent).toContain('Could not open');
+  expect(bar()?.hasAttribute('aria-live')).toBe(false);
+});
 /** The two always-mounted announcers (audit 2026-09-22). */
 const polite = () => host.querySelector('.notice-announce[role="status"]');
 const assertive = () => host.querySelector('.notice-announce[role="alert"]');

@@ -94,6 +94,22 @@ const render = (node: React.ReactNode) => act(() => root.render(
   <PrefsProvider>{node}</PrefsProvider>,
 ));
 
+it('groups failed flight comments and consequential kernel events once, retaining quiet numeric bands', () => {
+  render(<SimRunDetails run={{ ...run(),
+    comments: 'Rod exit failed. | Landing failed. | Fast opening, caution band.',
+    commentLevels: ['warning', 'warning', 'caution'],
+    simWarnings: [{ key: 'SIM_ABORT', message: '[Warning.SIM_ABORT]', priority: 'LOW' }],
+  }} />);
+  const blocks = host.querySelectorAll('.message-danger');
+  expect(blocks).toHaveLength(1);
+  expect(blocks[0]!.textContent).toContain('Rod exit failed.');
+  expect(blocks[0]!.textContent).toContain('Landing failed.');
+  expect(blocks[0]!.textContent).toContain('stopped early');
+  expect(blocks[0]!.textContent).not.toContain('caution band');
+  expect(host.querySelectorAll('.message-caution')).toHaveLength(0);
+  expect(host.textContent).toContain('Fast opening, caution band.');
+});
+
 /** The run table starts collapsed — the rows (and their buttons) need it open.
  *  A no-op once it already is (re-rendering into the same root keeps state). */
 const openTable = () => act(() => {
