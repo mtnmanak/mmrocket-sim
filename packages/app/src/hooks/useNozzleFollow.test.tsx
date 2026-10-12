@@ -8,7 +8,7 @@ import { stageMotors, type StageMotors } from '../services/nozzleFollow.js';
 import { applyStageNozzles, motorMounts } from '../tree/treeModel.js';
 import { useNozzleFollow, type NozzleCleared, type NozzleLookup } from './useNozzleFollow.js';
 import { HISTORY_COALESCE_MS, useTreeHistory, type TreeHistory } from './useTreeHistory.js';
-import { addExMotors, parseEng, parseRse } from '../services/exMotors.js';
+import { addExMotors, deleteExMotor, parseEng, parseRse } from '../services/exMotors.js';
 import { nozzleForMotorId } from '../services/nozzleDb.js';
 
 /**
@@ -75,6 +75,26 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
 const exitOf = (t: RocketTree) => t.components[0]!['nozzleExitDiameter'];
 
 describe('useNozzleFollow', () => {
+  it('S3c-2 keeps the mounted nozzle after library deletion, then follows a corrected re-import', async () => {
+    const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
+    addExMotors([ex]);
+    const h = harness(tree(0.015), nozzleForMotorId);
+    await h.show(loadout(ex.motorId));
+    await act(async () => { deleteExMotor(ex.motorId); });
+    await h.show(loadout(ex.motorId)); // An unrelated render must not clear it either.
+    expect(exitOf(h.treeRef.current)).toBe(0.015);
+    expect(h.writes).toHaveLength(0);
+    expect(h.out.pending).toBe(false);
+    expect(h.out.cleared).toEqual({});
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
+    expect(exitOf(h.treeRef.current)).toBe(0.018);
+    await act(async () => { deleteExMotor(ex.motorId); });
+    expect(exitOf(h.treeRef.current)).toBe(0.018);
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: undefined }]); });
+    expect(exitOf(h.treeRef.current)).toBeUndefined();
+    expect(h.out.pending).toBe(false);
+  });
+
   it('S3c-2 ignores a superseded lookup when two same-id re-imports overlap', async () => {
     const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
     addExMotors([ex]);

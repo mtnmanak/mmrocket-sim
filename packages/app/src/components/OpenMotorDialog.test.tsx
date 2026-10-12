@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenMotorDialog } from './OpenMotorDialog.js';
 import { findDbMotor } from '../services/motorDb.js';
-import { loadExMotors } from '../services/exMotors.js';
+import { addExMotors, loadExMotors, parseEng } from '../services/exMotors.js';
 import type { OpenMotorIdentity } from '../services/openMotorChoices.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -60,6 +60,20 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe('open motor dialog', () => {
+  it('S1c-2 labels EX choices with the flown snapshot designation and diameter', () => {
+    addExMotors([{ ...parseEng('E20 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!, flightSnapshot: {
+      designation: 'H100', diameter: 0.054, length: 0.3, cgX: 0.15,
+      times: [0, 1, 2], thrusts: [0, 200, 0], masses: [0.5, 0.4, 0.3],
+    } }]);
+    const group = { ...identities[0]!, ref: {
+      manufacturer: 'Home', designation: 'H100', diameter: 0.054, length: 0.3, delay: 5,
+    } };
+    act(() => root.render(<OpenMotorDialog identities={[group]} onApply={apply} onLater={later} />));
+    const labels = [...host.querySelectorAll('label')].map(label => label.textContent);
+    expect(labels).toContain('Home H100 (EX, 54 mm)');
+    expect(labels.some(label => label?.includes('E20'))).toBe(false);
+  });
+
   it.each([true, false])('B1 selects the real Enerjet file using the LEM-1 reference (button click %s)', async click => {
     render();
     expect(new TextEncoder().encode(enerjetEng)).toHaveLength(504);

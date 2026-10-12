@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type Mu
 import type { RocketTree } from '@online-openrocket/engine';
 import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
 import {
-  equivalentExitDiameterM, followNozzle, stageMotorKey, type StageMotors,
+  equivalentExitDiameterM, followNozzle, motorNozzleKey, stageMotorKey, type StageMotors,
 } from '../services/nozzleFollow.js';
 import { numOrNull } from '../tree/nodeNum.js';
 import { applyStageNozzles, findNode } from '../tree/treeModel.js';
@@ -73,6 +73,9 @@ export function useNozzleFollow(opts: {
   const { loadout, treeRef, writeTree, lookup = nozzleForMotorId } = opts;
   const libraryRevision = useSyncExternalStore(subscribeExMotors, exMotorRevision);
   const seen = useRef(new Map<string, Seen>());
+  // Remember resolved exits across library deletion, which leaves the motor
+  // mounted (audit 2026-10-11, S3c-2 follow-up). Re-imports still replace them.
+  const nozzleKeys = useRef(new Map<string, string>());
   /**
    * Per stage, the loadout the nozzle IN THE TREE was decided for. The same as
    * `seen` except while a lookup is pending, when the tree still carries the
@@ -97,7 +100,10 @@ export function useNozzleFollow(opts: {
   useEffect(() => {
     // Capture the exit-aware keys before awaiting: a later same-id import
     // must supersede this lookup's old answer (audit 2026-10-11, S3c-2).
-    const keys = new Map(loadout.map(s => [s.stageId, stageMotorKey(s)]));
+    for (const s of loadout) for (const m of s.motors) {
+      nozzleKeys.current.set(m.motorId, motorNozzleKey(m.motorId, nozzleKeys.current.get(m.motorId)));
+    }
+    const keys = new Map(loadout.map(s => [s.stageId, stageMotorKey(s, nozzleKeys.current)]));
     void (async () => {
       const acted = loadout.filter((s) => {
         const was = seen.current.get(s.stageId);
@@ -228,7 +234,10 @@ export function useNozzleFollow(opts: {
   const seed = useCallback((stages: readonly StageMotors[]) => {
     const next = new Map(decided.current);
     for (const s of stages) {
-      const v = { key: stageMotorKey(s), label: s.motors[0]?.label ?? '' };
+      for (const m of s.motors) {
+        nozzleKeys.current.set(m.motorId, motorNozzleKey(m.motorId, nozzleKeys.current.get(m.motorId)));
+      }
+      const v = { key: stageMotorKey(s, nozzleKeys.current), label: s.motors[0]?.label ?? '' };
       seen.current.set(s.stageId, v);
       next.set(s.stageId, v);
     }
@@ -266,7 +275,7 @@ export function useNozzleFollow(opts: {
   }, []);
   const pending = loadout.some((s) => {
     const was = decided.current.get(s.stageId);
-    return was !== undefined && was.key !== stageMotorKey(s);
+    return was !== undefined && was.key !== stageMotorKey(s, nozzleKeys.current);
   });
   return { cleared, pending, seed, restoring };
 }

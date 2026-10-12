@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { exToDbEntry, exToMotorSpec, loadExMotors, parseEng, parseRse } from './exMotors.js';
 import { validArchivedExMotor } from './exMotorArchive.js';
-import { matchImportedMotor } from './motorMatch.js';
+import { matchingExMotors, matchImportedMotor } from './motorMatch.js';
 import { applyOpenMotorChoices } from './openMotorChoices.js';
 import type { OrkMotorRef } from './orkFile.js';
 
@@ -55,6 +55,36 @@ it('S1c-2 describes the flown snapshot in the browser row', () => {
     diameter: 54, length: 300, totalWeightG: 500, propWeightG: 200,
     impulseClass: 'H', totImpulseNs: 200, avgThrustN: 100, maxThrustN: 200, burnTimeS: 2 });
   expect(exToMotorSpec(ex, 5).thrusts).toEqual([0, 200, 0]);
+});
+
+describe('S1c-2 snapshot matching follow-up', () => {
+  const ex = () => ({ ...motor(), flightSnapshot: {
+    designation: 'H100', diameter: 0.054, length: 0.3, cgX: 0.15,
+    times: [0, 1, 2], thrusts: [0, 200, 0], masses: [0.5, 0.4, 0.3],
+  } });
+  const ref = (designation: string, diameter: number): OrkMotorRef => ({
+    designation, diameter, manufacturer: 'Home', length: 0, delay: 5,
+  });
+  it.each([['E20', 0.029], ['E20', 0], ['H100', 0.029]] as const)(
+    'does not auto-load a 54 mm H100 snapshot for %s at %s m', async (designation, diameter) => {
+      const result = await matchImportedMotor(ref(designation, diameter), { catalogue: [], exMotors: [ex()] });
+      expect(result.motor).toBeUndefined();
+      expect(result.missing).toBe('database');
+    });
+  it('matches the snapshot and names it in the substitution note', async () => {
+    const result = await matchImportedMotor(ref('H100', 0.054), { catalogue: [], exMotors: [ex()] });
+    expect(result.motor?.spec).toMatchObject({ designation: 'H100', diameter: 0.054 });
+    expect(result.infoNote).toContain('imported EX motor Home H100');
+    expect(result.infoNote).not.toContain('E20');
+  });
+  it('names the snapshot for ambiguous matching choices', async () => {
+    const motors = [ex(), { ...ex(), motorId: 'ex:home-e20~2' }];
+    expect(matchingExMotors(ref('H100', 0.054), motors)).toHaveLength(2);
+    const result = await matchImportedMotor(ref('H100', 0.054), { catalogue: [], exMotors: motors });
+    expect(result.motor).toBeUndefined();
+    expect(result.note).toContain('Home H100 [');
+    expect(result.note).not.toContain('Home E20');
+  });
 });
 
 describe('S1c-4 refuse negative motor points at import', () => {
