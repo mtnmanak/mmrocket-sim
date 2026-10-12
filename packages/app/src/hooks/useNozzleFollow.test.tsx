@@ -75,6 +75,33 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
 const exitOf = (t: RocketTree) => t.components[0]!['nozzleExitDiameter'];
 
 describe('useNozzleFollow', () => {
+  it('S3c-2 refreshes the cached exit when seeding an inactive re-import before deletion and clustering', async () => {
+    const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
+    addExMotors([ex]);
+    const h = harness(tree(0.015), nozzleForMotorId);
+    await h.show(loadout(ex.motorId));
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.018 }]); });
+    expect(exitOf(h.treeRef.current)).toBe(0.018);
+    await h.show(loadout());
+    await act(async () => { addExMotors([{ ...ex, exitDiameterM: 0.020 }]); });
+
+    h.out.seed(loadout(ex.motorId));
+    h.treeRef.current = tree(0.025); // The configuration's own figure must survive seeding.
+    const writesBeforeSeed = h.writes.length;
+    await h.show(loadout(ex.motorId));
+    await act(async () => { deleteExMotor(ex.motorId); });
+    expect(exitOf(h.treeRef.current)).toBe(0.025);
+    expect(h.writes).toHaveLength(writesBeforeSeed);
+    expect(h.out.pending).toBe(false);
+
+    const four = loadout(ex.motorId);
+    four[0]!.motors[0]!.count = 4;
+    await h.show(four);
+    expect(exitOf(h.treeRef.current)).toBe(0.040); // Four 20 mm exits have one 40 mm equivalent.
+    expect(h.out.pending).toBe(false);
+    expect(h.out.cleared).toEqual({});
+  });
+
   it('S3c-2 keeps the mounted nozzle after library deletion, then follows a corrected re-import', async () => {
     const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
     addExMotors([ex]);
