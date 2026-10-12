@@ -234,7 +234,8 @@ const RKT_NAME = 'FooBar Test';
 
 describe('flight configuration editing in App', () => {
   const press = async (host: HTMLElement, label: string) => {
-    const b = [...host.querySelectorAll('button')].find(el => el.getAttribute('aria-label') === label);
+    const b = [...host.querySelectorAll('button')].find(el => el.getAttribute('aria-label') === label
+      || el.getAttribute('aria-label')?.startsWith(`${label} — configuration `));
     expect(b, label).toBeDefined();
     await act(async () => { b!.click(); });
   };
@@ -608,7 +609,7 @@ describe('lane C2 save and share fidelity', () => {
     expect(await snapshots()).toEqual(scaled);
     await openTab(host, 'Motors & Launch');
     for (const [name, expected] of [['B', scaled[1]], ['C', scaled[2]]] as const) {
-      const apply = host.querySelector<HTMLButtonElement>(`button[aria-label="Apply ${name}"]`)!;
+      const apply = host.querySelector<HTMLButtonElement>(`button[aria-label^="Apply ${name} — configuration "]`)!;
       await act(async () => { apply.click(); });
       window.dispatchEvent(new Event('pagehide'));
       const current = storedSession()!.tree.components[0]!;

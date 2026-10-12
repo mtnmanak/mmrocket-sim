@@ -206,7 +206,7 @@ export const DEPLOY_EVENTS: [string, string][] = [
 ];
 
 /** Stage separation triggers (kernel SeparationEvent; desktop default: ejection). */
-const SEPARATION_EVENTS: [string, string][] = [
+export const SEPARATION_EVENTS: [string, string][] = [
   ['ejection', 'This stage\'s ejection charge'],
   ['burnout', 'This stage\'s motor burnout'],
   ['upperignition', 'Upper stage motor ignition'],
@@ -768,6 +768,8 @@ export const FIELDS = lookupTable<FieldDef[]>({
   stage: [
     { key: 'separationEvent', label: 'Separate at (lower stages)', unit: 'none', options: SEPARATION_EVENTS },
     { key: 'separationDelay', label: 'Separation delay', unit: 's', step: 0.5, smin: 0, smax: 10 },
+    { key: 'separationAltitude', label: 'Separation altitude (AGL)', unit: 'm', step: 10,
+      help: 'Used for altitude-based separation; retained for other events.' },
     // RASAero power-on drag: motor exhaust pressurizes the base during burn,
     // lowering base drag. 0 (default) = power-on CD equals power-off CD. For a
     // cluster, enter the single equivalent nozzle (sum the exit AREAS).
@@ -1087,6 +1089,8 @@ export const FIELDS = lookupTable<FieldDef[]>({
     { key: 'angleMethod', label: 'Angle reference', unit: 'none', options: ANGLE_METHODS },
     { key: 'separationEvent', label: 'Separate at', unit: 'none', options: SEPARATION_EVENTS },
     { key: 'separationDelay', label: 'Separation delay', unit: 's', step: 0.5, smin: 0, smax: 10 },
+    { key: 'separationAltitude', label: 'Separation altitude (AGL)', unit: 'm', step: 10,
+      help: 'Used for altitude-based separation; retained for other events.' },
   ],
 } satisfies Record<EditorComponentType, FieldDef[]>) as Record<EditorComponentType, FieldDef[]>;
 
@@ -1240,7 +1244,7 @@ const BLANK_BY_KEY: Record<string, number> = lookupTable<number>({
   packedLength: 0.025, packedRadius: 0.0125,
   // Unset, DeploymentConfiguration's own 200 m and 0 s (the .ork writer's too).
   deployAltitude: 200, deployDelay: 0,
-  separationDelay: 0, // StageSeparationConfiguration's own
+  separationDelay: 0, separationAltitude: 200, // StageSeparationConfiguration's own
 });
 
 /** Type-specific blanks, which win over BLANK_BY_KEY. */

@@ -372,6 +372,7 @@ describe('scaleRocket — the completeness guard', () => {
     // that are not rocket geometry.
     const EXEMPT = new Set([
       'deployAltitude',   // an altitude AGL, not a dimension
+      'separationAltitude', // FC-5 exposes this existing flight trigger, also AGL
       'motorOverhang',    // how far the MOTOR sticks out — motor-referenced
       'nozzleExitDiameter', // the motor's nozzle
     ]);

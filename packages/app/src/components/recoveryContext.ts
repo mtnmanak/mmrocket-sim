@@ -1,18 +1,17 @@
-import type { RocketTree } from '@online-openrocket/engine';
-import { savedConfigLabel, type SavedConfig } from '../model/design.js';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { savedConfigLabel, type FlightOverrides, type SavedConfig } from '../model/design.js';
 import { fmtFieldValue, siToUi } from '../prefs/units.js';
 import { findNode } from '../tree/treeModel.js';
 import { foldDeployEvent } from '../tree/deployEvent.js';
+import { activeFlightOverrides, resolveFlightState } from '../services/flightState.js';
 
-export function recoveryScope(configs: SavedConfig[], activeId: string | null, nodeId: string): string | null {
-  if (configs.length <= 1) return null;
+export function recoveryScope(configs: SavedConfig[], activeId: string | null, nodeId: string, detached: FlightOverrides = {}): string | null {
   const active = configs.find((c) => c.id === activeId);
-  if (active?.deployments?.[nodeId]) {
-    return `Recovery settings for ${savedConfigLabel(active)}. Flight configurations → Apply switches these settings with the motors.`;
+  if ((active ?? detached).deployments?.[nodeId]) {
+    return `${active ? `Flight configuration “${savedConfigLabel(active)}”` : 'The detached working settings'} uses a recovery override. The fields below edit the component default; the override banner shows what flies.`;
   }
-  return activeId === null
-    ? 'No flight configuration is active. Apply one under Flight configurations to edit its recovery settings. Newly added devices keep shared settings.'
-    : 'This device has shared recovery settings across flight configurations. Flight configurations → Apply switches motors and the recovery settings of devices a configuration stores.';
+  return configs.length || Object.keys(detached.deployments ?? {}).length
+    ? 'These fields edit the component default, used by every flight configuration without an override for this device.' : null;
 }
 
 /**
@@ -33,11 +32,20 @@ export function deployAltitudeText(altM: number, distanceUnit: string): string {
  * The digits are the box's own (`fmtFieldValue`), since this line quotes it.
  */
 export function recoverySummary(
-  config: SavedConfig, distanceUnit: string, tree?: RocketTree, live = false,
+  config: SavedConfig, distanceUnit: string, tree?: RocketTree,
 ): string {
-  return Object.entries(config.deployments ?? {}).map(([id, stored], i) => {
+  // Summaries describe what flies, including inheriting devices in a sparse map (FC-5).
+  const resolved = tree ? resolveFlightState(tree, [config], config.id, {}, {}).tree : undefined;
+  const devices: Record<string, ComponentNode> = {};
+  const visit = (nodes: ComponentNode[]) => nodes.forEach(n => {
+    if ((n.type === 'parachute' || n.type === 'streamer') && n.id) devices[n.id] = n;
+    visit(n.children ?? []);
+  });
+  if (resolved) visit(resolved.components);
+  const entries = resolved ? Object.entries(devices) : Object.entries(config.deployments ?? {});
+  const overrides = activeFlightOverrides([config], config.id, {}).deployments;
+  return entries.map(([id, d], i) => {
     const node = tree ? findNode(tree, id) : null;
-    const d = live && node ? node : stored;
     // A live node's fields are `unknown`; the stored record's are typed.
     // Case folded as the kernel folds it (RECOV-CASE): "Altitude" is quoted as
     // the altitude it flies at, not as a bare word.
@@ -48,6 +56,6 @@ export function recoverySummary(
     const at = event === 'altitude'
       ? `${deployAltitudeText(altM, distanceUnit)} AGL descending`
       : event === 'ejection' ? 'ejection charge' : event;
-    return `${node?.name ?? `Device ${i + 1}`}: ${at}${d.deployDelay ? ` + ${String(d.deployDelay)} s` : ''}`;
+    return `${node?.name ?? `Device ${i + 1}`}: ${at}${d.deployDelay ? ` + ${String(d.deployDelay)} s` : ''}${overrides?.[id] ? ' (override; component default is shown in the panel)' : ''}`;
   }).join('; ');
 }

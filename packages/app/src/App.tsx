@@ -1,6 +1,8 @@
 import { OpenMotorDialog } from './components/OpenMotorDialog.js';
 import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorIdentity, type OpenMotorState } from './services/openMotorChoices.js';
-import { activeFlightOverrides, resolveFlightState, setOverride } from './services/flightState.js';
+import { activeFlightOverrides, resolveFlightState, resetOverride, setOverride } from './services/flightState.js';
+import { FlightOverrideBanner, type ComponentFlightTuple } from './components/FlightOverrideBanner.js';
+import { deploymentTuple } from './services/foreignConfigLayers.js';
 import type { FlightOverrides, FlightTree, IgnitionTuple } from './model/design.js';
 import { matchingRecoveryEvents } from './services/recoveryFlight.js';
 import { editProfileSurface } from './services/windProfile.js';
@@ -2607,10 +2609,48 @@ export function App() {
   };
   const editIgnition = (id: string, tuple: IgnitionTuple) => {
     const baseline = (tree as FlightTree).ignitionDefaults?.[id] ?? mountMotors[id]!.ignition;
+    // With no owner, the motor card edits the mount default (FC-5).
+    if (!activeLayer && !Object.values(detachedOverrides).some(map => Object.keys(map ?? {}).length)) {
+      commitFlightLayers({ tree: { ...tree, ignitionDefaults: { ...(tree as FlightTree).ignitionDefaults, [id]: tuple } } as FlightTree });
+      return;
+    }
     const ignitions = setOverride(activeOverrides.ignitions, id, baseline, tuple);
     if (activeConfigId && savedConfigs.some(c => c.id === activeConfigId)) {
       commitFlightLayers({ configs: savedConfigs.map(c => c.id === activeConfigId ? { ...c, ignitions } : c) });
     } else commitFlightLayers({ detached: { ...detachedOverrides, ignitions } });
+  };
+
+  const commitActiveOverrides = (patch: FlightOverrides) => {
+    if (activeLayer) commitFlightLayers({ configs: savedConfigs.map(c => c.id === activeConfigId ? { ...c, ...patch } : c) });
+    else commitFlightLayers({ detached: { ...detachedOverrides, ...patch } });
+  };
+  const editComponentOverride = (node: ComponentNode, tuple: ComponentFlightTuple) => {
+    const id = node.id!;
+    commitActiveOverrides('deployEvent' in tuple
+      ? { deployments: setOverride(activeOverrides.deployments, id, deploymentTuple(node), tuple) }
+      : { separations: setOverride(activeOverrides.separations, id, {
+        separationEvent: String(node['separationEvent'] ?? 'ejection'),
+        separationDelay: num(node, 'separationDelay', 0), separationAltitude: num(node, 'separationAltitude', 200),
+      }, tuple) });
+  };
+  const resetComponentOverride = (node: ComponentNode) => {
+    const id = node.id!;
+    commitActiveOverrides(node.type === 'parachute' || node.type === 'streamer'
+      ? { deployments: resetOverride(activeOverrides.deployments, id) }
+      : { separations: resetOverride(activeOverrides.separations, id) });
+  };
+  const adoptComponentOverrideEverywhere = (node: ComponentNode) => {
+    const id = node.id!;
+    const recovery = node.type === 'parachute' || node.type === 'streamer';
+    const tuple = recovery ? activeOverrides.deployments?.[id] : activeOverrides.separations?.[id];
+    if (!tuple) return;
+    // Clear every owner, including detached choices, in the SAME history step (FC-5).
+    commitFlightLayers({ tree: updateNode(tree, id, { ...tuple }),
+      configs: savedConfigs.map(c => recovery ? { ...c, deployments: resetOverride(c.deployments, id) }
+        : { ...c, separations: resetOverride(c.separations, id) }),
+      detached: recovery ? { ...detachedOverrides, deployments: resetOverride(detachedOverrides.deployments, id) }
+        : { ...detachedOverrides, separations: resetOverride(detachedOverrides.separations, id) },
+    });
   };
 
   const createConfig = (): string | null => {
@@ -4078,7 +4118,12 @@ export function App() {
               key={selectedNode.id}
               tree={tree}
               node={selectedNode}
-              recoveryContext={recoveryScope(savedConfigs, activeConfigId, selectedNode.id!)}
+              recoveryContext={recoveryScope(savedConfigs, activeConfigId, selectedNode.id!, detachedOverrides)}
+              flightOverride={<FlightOverrideBanner key={`${selectedNode.id!}:${activeConfigId ?? 'detached'}`}
+                node={selectedNode} overrides={activeOverrides} configLabel={activeLayer ? savedConfigLabel(activeLayer) : null}
+                onEdit={tuple => editComponentOverride(selectedNode, tuple)}
+                onReset={() => resetComponentOverride(selectedNode)}
+                onEverywhere={() => adoptComponentOverrideEverywhere(selectedNode)} />}
               info={selectedInfo}
               rocketInfo={built?.info ?? null}
               onPatch={(patch) => setTree(updateNode(tree, selectedNode.id!, patch))}
@@ -4340,16 +4385,22 @@ export function App() {
                   {mm?.meta.autoDelay && <p className="field-hint">{autoDelayCardText(
                     delayRun?.delayResolution?.mounts.find((d) => d.mountId === m.id), delayCurrent,
                   )}</p>}
-                  {/* A single-stage motor not lit at launch (an imported RockSim
-                      IgnitionDelay, desktop's launch + delay) flies so, so its
-                      control shows until it is set back to Automatic, 0 s (K1). */}
-                  {mm && (isStaged || mm.ignition.event !== 'automatic' || mm.ignition.delay !== 0) && (
+                  {/* FC-5: keep the same ignition controls visible for every loaded
+                      motor, so an inherited default can also be inspected and edited. */}
+                  {mm && (
                     <div className="field" style={{ marginTop: 6 }}
                       title="When this motor lights. Automatic = launch-stage motors at launch, upper-stage motors on the ejection charge of the stage below — which lights a black powder motor, but not a composite one. Composite and hybrid motors need an igniter whatever their size, so they default to booster burnout + delay.">
                       {/* The words on screen name the select (audit
                           2026-09-30): it carried its own aria-label, "Ignition
                           event", beside a label tied to nothing. */}
                       <label htmlFor={`ignition-${m.id!}`}>Ignition</label>
+                      <p className="comp-stats">Ignition: {activeOverrides.ignitions?.[m.id!]
+                        ? activeLayer ? 'override for this configuration' : 'override in the detached working settings'
+                        : "mount's default"}.</p>
+                      {activeOverrides.ignitions?.[m.id!] && <button type="button" className="file-btn"
+                        onClick={() => commitActiveOverrides({ ignitions: resetOverride(activeOverrides.ignitions, m.id!) })}>
+                        Reset to the default
+                      </button>}
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <select
                           id={`ignition-${m.id!}`}

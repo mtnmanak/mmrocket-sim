@@ -33,6 +33,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, onApply,
   onEmpty: () => void;
 }) {
   const { prefs } = usePrefs();
+  const summaryId = useId();
   const [editing, setEditing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [previousConfigs, setPreviousConfigs] = useState(configs);
@@ -81,15 +82,23 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, onApply,
           const labels = Object.values(c.motors).map((m) => m.label);
           const isActive = c.id === activeConfigId;
           const label = `${savedConfigLabel(c)} — configuration ${index + 1}`;
-          const recovery = configs.length > 1 ? recoverySummary(c, prefs.units.distance, tree, isActive) : '';
+          const families = [
+            ['recovery', Object.keys(c.deployments ?? {}).length],
+            ['separation', Object.keys(c.separations ?? {}).length],
+            ['ignition', Object.keys(c.ignitions ?? {}).length],
+          ] as const;
+          const count = families.reduce((sum, [, n]) => sum + n, 0);
+          const summary = count ? `${count} override${count === 1 ? '' : 's'}: ${families.filter(([, n]) => n).map(([name]) => name).join(', ')}` : '';
+          const recovery = configs.length > 1 || count ? recoverySummary(c, prefs.units.distance, tree) : '';
           return (
             <div key={c.id} className="config-row"
               aria-current={isActive ? 'true' : undefined}>
               <button className="file-btn" style={btnStyle} onClick={() => onApply(c)}
+                aria-describedby={summary ? `${summaryId}-${index}` : undefined}
                 ref={(el) => { if (el) applyButtons.current.set(c.id, el); else applyButtons.current.delete(c.id); }}
                 aria-label={`Apply ${savedConfigLabel(c)}${recovery ? ` — configuration ${index + 1}; Recovery: ${recovery}` : ''}`}
                 title={isActive
-                  ? 'Reload this configuration — your motor and recovery edits and weighed pad mass are kept'
+                  ? 'Reload this configuration — your motor edits, overrides and weighed pad mass are kept'
                   : "Load this configuration's motors, ignition and recovery settings"}>
                 Apply
               </button>
@@ -107,11 +116,12 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, onApply,
                 <span className="config-motors comp-stats" style={{ display: 'block', margin: 0 }}>
                   {labels.length > 0 ? labels.join(', ') : 'no motors'}
                 </span>
+                {summary && <span id={`${summaryId}-${index}`} className="comp-stats" style={{ display: 'block', margin: 0 }}>{summary}</span>}
                 {recovery && <span className="comp-stats" style={{ display: 'block', margin: 0 }}>Recovery: {recovery}</span>}
               </span>
               {isActive && (
                 <span className="config-active-tag"
-                  title="This configuration is loaded — your motor and recovery edits update it when you save">
+                  title="This configuration is loaded — motor edits and explicit override edits belong to it">
                   ▶ active
                 </span>
               )}

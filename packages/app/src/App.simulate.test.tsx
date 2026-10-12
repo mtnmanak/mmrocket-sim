@@ -30,6 +30,7 @@ import { addChild, addStage, defaultTree, findNode, motorMounts, updateNode } fr
 import { resolveFlightState } from './services/flightState.js';
 import { APP_VERSION } from './version.js';
 import { saveFile } from './services/saveFile.js';
+import { savedConfigLabel } from './model/design.js';
 
 /**
  * THE LAUNCH BUTTON AND THE HEADLESS LAUNCH FLY THE SAME BYTES (2026-10-01;
@@ -836,6 +837,72 @@ describe('the Launch button and simulateFile fly an opened file the same', () =>
 });
 
 const corpus = (name: string) => join(CORPUS, name);
+it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-5 LEM banners, expanded notice, Reset kernel input, Undo, Use everywhere and equal edit', async () => {
+  prefs(CLASSIC);
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  await pick(host, new File([readFileSync(corpus('atestani files/LEM-1-2026_2.ork'))], 'LEM-1-2026_2.ork'));
+  await waitFor(() => peekSession()?.activeConfigId === '365b8430-de05-45ee-a421-5142de1fd1ae', 'LEM open');
+  const click = async (text: string) => act(async () => {
+    [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();
+  });
+  const flat = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...flat(n.children ?? [])]);
+  const chutes = flat(peekSession()!.tree.components).filter(n => n.type === 'parachute');
+  const configLabel = savedConfigLabel(peekSession()!.savedConfigs!.find(c => c.id === peekSession()!.activeConfigId)!);
+  expect(chutes).toHaveLength(2);
+  const bar = host.querySelector('.notice-bar')!;
+  expect(bar.classList.contains('expanded')).toBe(true);
+  expect(bar.textContent).toContain('Parachute (×2)');
+  for (const chute of chutes) expect(bar.textContent).toContain(chute.name);
+  expect(bar.textContent).toContain('[F67C]');
+  expect(bar.textContent).toContain('Motor ejection charge');
+  expect(bar.textContent).toContain('300 ft');
+  expect(bar.textContent).toContain('parachute panel');
+  await click('Design');
+  const banner = () => host.querySelector('[role="region"][aria-label="Recovery override"]');
+  for (const [index, chute] of chutes.entries()) {
+    const sameNameIndex = chutes.slice(0, index).filter(n => n.name === chute.name).length;
+    await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')].filter(r => r.querySelector('.tree-label')?.textContent === chute.name)[sameNameIndex]!.click(); });
+    expect(Number(host.querySelector<HTMLInputElement>('[aria-label^="Deploy altitude"]')!.value)).toBeCloseTo(300, 6);
+    expect(banner()?.textContent).toContain(configLabel);
+    expect(banner()?.textContent).toContain('Motor ejection charge');
+    expect(banner()?.textContent).toContain('300 ft');
+  }
+  const selected = chutes[1]!;
+  await click('Reset to this setting');
+  expect(banner()).toBeNull();
+  // Launch's captured input is the real kernel build input, not a resolver-only assertion.
+  await launch(host);
+  await waitFor(() => vi.mocked(flyBuiltDesign).mock.calls.length > 0, 'Reset Launch input');
+  await waitFor(() => runs() > 0, 'Reset flight');
+  const args = vi.mocked(flyBuiltDesign).mock.calls.at(-1)![0];
+  expect(findNode(args.tree, selected.id!)).toMatchObject({ deployEvent: 'altitude', deployAltitude: 91.44 });
+  await click('Design');
+  await click('↩ Undo');
+  expect(banner()).not.toBeNull();
+  await click('Use the override everywhere');
+  expect(banner()).toBeNull();
+  await settle(450);
+  expect(findNode(peekSession()!.tree, selected.id!)!['deployEvent']).toBe('ejection');
+  for (const config of peekSession()!.savedConfigs!) expect(config.deployments?.[selected.id!]).toBeUndefined();
+  expect(peekSession()!.detachedOverrides?.deployments?.[selected.id!]).toBeUndefined();
+  await click('↩ Undo');
+  expect(banner()).not.toBeNull();
+  expect(Number(host.querySelector<HTMLInputElement>('[aria-label^="Deploy altitude"]')!.value)).toBeCloseTo(300, 6);
+  await click('Edit the override');
+  const altitude = host.querySelector<HTMLInputElement>('[aria-label="Override altitude (ft)"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(altitude, '300');
+    altitude.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const event = host.querySelector<HTMLSelectElement>('[aria-label="Override event"]')!;
+  await act(async () => { event.value = 'altitude'; event.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(banner()).toBeNull();
+  await settle(450);
+  expect(peekSession()!.savedConfigs!.find(c => c.id === peekSession()!.activeConfigId)!.deployments?.[selected.id!]).toBeUndefined();
+}, 60000);
+
 it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-4 LEM file: panels show 300 ft; Launch and file API fly ejection; Save keeps both layers', async () => {
   const bytes = new Uint8Array(readFileSync(corpus('atestani files/LEM-1-2026_2.ork')));
   let xml = '';
@@ -844,10 +911,11 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-4 LEM file
     const flat = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...flat(n.children ?? [])]);
     const chutes = flat(defaults.components).filter(n => n.type === 'parachute');
     expect(chutes).toHaveLength(2);
-    for (const chute of chutes) {
+    for (const [index, chute] of chutes.entries()) {
       expect(chute).toMatchObject({ deployEvent: 'altitude', deployAltitude: 91.44 });
       const rows = [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')];
-      const row = rows.find(r => r.querySelector('.tree-label')?.textContent === chute.name)!;
+      const sameNameIndex = chutes.slice(0, index).filter(n => n.name === chute.name).length;
+      const row = rows.filter(r => r.querySelector('.tree-label')?.textContent === chute.name)[sameNameIndex]!;
       await act(async () => { row.click(); });
       const altitude = host.querySelector<HTMLInputElement>('input[aria-label^="Deploy altitude"]')!;
       expect(altitude).not.toBeNull();
