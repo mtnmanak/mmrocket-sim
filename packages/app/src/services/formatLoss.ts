@@ -4,7 +4,9 @@ import { asStageNodes, stageDefaultName } from '../tree/treeModel.js';
 import { num, numOpt } from '../tree/nodeNum.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { motorLengthLossNotes } from '../tree/motorLength.js';
-import { savedConfigLabel, type SavedConfig } from '../model/design.js';
+import { savedConfigLabel, type SavedConfig, type FlightOverrides } from '../model/design.js';
+import { resolveFlightState } from './flightState.js';
+import { exportIgnitions } from './foreignConfigLayers.js';
 import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MeasuredFigures, OrkExportFlightData, OrkExportMotor } from './orkFile.js';
 import { exportRkt, rktPackedChuteSize } from './rocksimFile.js';
@@ -21,6 +23,8 @@ export interface FormatLossReport {
 }
 export interface FormatLossInput {
   tree: RocketTree;
+  /** Active/detached layered tuples, supplied with the component-default tree. */
+  overrides?: FlightOverrides;
   motors: Record<string, OrkExportMotor>;
   launch: LaunchConditions;
   configs: SavedConfig[];
@@ -113,11 +117,15 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     // Geometry/motor refusals and the writer's existing notes stay owned by the
     // writer, which runs dry: every refusal and note, no XML.
     if (format === 'rkt') exportRkt({ name: input.tree.name ?? 'My Rocket', tree: input.tree,
-      motors: input.motors, measured: input.measured, compInfo: {}, notes: losses, dryRun: true,
+      motors: input.motors, overrides: input.overrides, measured: input.measured, compInfo: {}, notes: losses, dryRun: true,
       ...(input.distanceUnit !== undefined ? { distanceUnit: input.distanceUnit } : {}) });
     else exportCdx1({ name: input.tree.name ?? 'My Rocket', tree: input.tree,
-      motors: input.motors, launch: input.launch, notes: losses, dryRun: true });
+      motors: input.motors, overrides: input.overrides, launch: input.launch, notes: losses, dryRun: true });
   } catch (e) { refused = e instanceof Error ? e.message : String(e); }
+  // Remaining loss predicates must inspect the same effective settings as the writer.
+  input = { ...input,
+    motors: exportIgnitions(input.tree, input.motors, input.overrides ?? {})!,
+    tree: resolveFlightState(input.tree, [], null, input.overrides ?? {}, {}).tree };
   const ext = formatExtension(format);
   losses.push(...windProfileSaveNotes(input.launch, ext), ...motorLengthLossNotes(input.tree, ext));
   if (format === 'cdx1') {

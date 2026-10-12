@@ -23,12 +23,17 @@ import {
 import { findDbMotor, hasMassData, type MotorDbEntry } from './motorDb.js';
 import { decodeXml, escapeXml as esc, lookupTable, parseDecimal, xmlNum, xmlText as text } from './xmlUtil.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
-import { MAX_ORK_CONFIGURATIONS, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef, type OrkSeparationOverride } from './orkFile.js';
+import { MAX_ORK_CONFIGURATIONS, type OrkFlightConfig, type OrkMotorRef } from './orkFile.js';
 import {
   type BackedOutMotor, cgFromCombined, OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES, stageCgWithoutMotor, stageLength,
   stageMassWithoutMotor, type StatedStageFigures,
 } from './statedLaunchWeight.js';
 import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
+import type { FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
+import type { LayeredOrkFlightConfig, LayeredOrkImportResult } from './orkFile.js';
+import { resolveFlightState, sparsify } from './flightState.js';
+import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
+import { knownIgnitionEvent } from './ignitionEvent.js';
 
 /**
  * RASAero II (.CDX1) design import/export — Phase 3 "file imports and
@@ -287,7 +292,7 @@ function readMachAltTable(doc: XmlDocument): MachAltTable | undefined {
  * design-level conditions table. Nothing downstream is required to read it —
  * `machAlt` is optional, and the drag panel's default is still sea level.
  */
-export interface Cdx1ImportResult extends OrkImportResult {
+export interface Cdx1ImportResult extends LayeredOrkImportResult {
   /** The file's `<MachAlt>` conditions table (see {@link MachAltTable}). */
   machAlt?: MachAltTable;
 }
@@ -989,7 +994,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     return tubes[tubes.length - 1];
   };
 
-  const configs: OrkFlightConfig[] = [];
+  const configs: LayeredOrkFlightConfig[] = [];
+  const ignitionDefaults: Record<string, IgnitionTuple> = {};
   // The file-order simulation number the USER sees in RASAero, keyed by config
   // id. Engine-less sims produce no configuration, so a config's position in
   // `configs` diverges from its number as soon as a file carries one — and the
@@ -1058,7 +1064,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   };
   for (const [simIdx, sim] of sims.entries()) {
     const cfgMotors: Record<string, OrkMotorRef> = {};
-    const separations: Record<string, OrkSeparationOverride> = {};
+    const separations: Record<string, SeparationTuple> = {};
     const placed: { stageIdx: number; ref: OrkMotorRef }[] = [];
     const slots = [
       { engine: 'SustainerEngine', ignitionDelay: 'SustainerIgnitionDelay' },
@@ -1082,6 +1088,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         continue;
       }
       mount['motorMount'] = true;
+      ignitionDefaults[mount.id] = { event: stageIdx === stages.length - 1 ? 'automatic' : 'burnout', delay: 0 };
       const ref: OrkMotorRef = {
         designation: eng.designation,
         matchContext: { source: 'rasaero', ...(eng.delay !== undefined
@@ -1104,6 +1111,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         separations[stage.id] = {
           separationEvent: 'burnout',
           separationDelay: num(sim, slot.separationDelay, 0),
+          separationAltitude: 200,
         };
       }
     }
@@ -1136,10 +1144,21 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       }
     }
     const cfgId = `rasaero-sim-${simIdx + 1}`;
+    // No file default layer: use deterministic mount/stage defaults, independent
+    // of the simulation selected at open (audit 2026-10-11, FC-3).
+    const ignitions: Record<string, IgnitionTuple> = {};
+    for (const [id, ref] of Object.entries(cfgMotors)) {
+      const ignition = { event: knownIgnitionEvent(ref.ignitionEvent) ?? 'automatic', delay: ref.ignitionDelay ?? 0 } satisfies IgnitionTuple;
+      if (sparsify(ignitionDefaults[id]!, ignition)) ignitions[id] = ignition;
+    }
+    for (const [id, tuple] of Object.entries(separations)) {
+      if (!sparsify({ separationEvent: 'ejection', separationDelay: 0, separationAltitude: 200 }, tuple)) delete separations[id];
+    }
     simNumbers.set(cfgId, simIdx + 1);
     configs.push({
       id: cfgId, name: null, isDefault: configs.length === 0,
       motors: cfgMotors, deployments: {}, separations,
+      ...(Object.keys(ignitions).length ? { ignitions } : {}),
       nozzles: readNozzles(sim, cfgId),
     });
     if (configs.length > MAX_ORK_CONFIGURATIONS) {
@@ -1185,19 +1204,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   }
   const motors: Record<string, OrkMotorRef> = { ...(chosen?.motors ?? {}) };
   const chosenConfigId = chosen?.id ?? null;
-  // Bake the chosen configuration's separation onto its stage nodes, the way
-  // importOrk does — App.applyImported applies configs, not stage settings, so
-  // without this a fresh multi-stage import separates on the kernel default
-  // (ejection charge, 0 s) instead of burnout + Booster1SeparationDelay.
-  for (const [stageId, sep] of Object.entries(chosen?.separations ?? {})) {
-    const stage = stages.find((s) => s.id === stageId);
-    if (!stage) continue;
-    if (sep.separationEvent && sep.separationEvent !== 'ejection') {
-      stage['separationEvent'] = sep.separationEvent;
-    }
-    if (sep.separationDelay) stage['separationDelay'] = sep.separationDelay;
-  }
-  // Same for its nozzles. With NO engine-carrying simulation there is no
+  // Nozzles and stage mass retain today's Apply-time behavior, outside the
+  // recovery/separation/ignition layers. With NO engine-carrying simulation there is no
   // configuration to carry them; then, as the weight/CG block below does, the
   // first simulation that states one wins (ARCAS-Long - 2 is an engine-less
   // simulation carrying 1.25 in), and with no simulation at all the Design
@@ -1744,7 +1752,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     || 'Imported RASAero rocket';
   // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
   refuseTooManyParts(stages);
-  const tree = sanitizeTree({ name, components: stages }, notes);
+  const tree: FlightTree = { ...sanitizeTree({ name, components: stages }, notes),
+    ...(Object.keys(ignitionDefaults).length ? { ignitionDefaults } : {}) };
   retainBaseDragDeclaration(tree, text(design, ':scope > Comments') ?? '');
   return {
     sourceFormat: 'cdx1',
@@ -1778,7 +1787,9 @@ export interface Cdx1ExportInput {
   /** Losses for the existing export notice. */
   notes?: string[];
   name: string;
-  tree: RocketTree;
+  tree: FlightTree;
+  /** Active configuration (or detached working set); recovery has only global file slots. */
+  overrides?: FlightOverrides;
   /** Loaded launch mass (kg) and CG (m), for the mandatory simulation block. */
   launchMassKg?: number;
   launchCgM?: number;
@@ -2052,7 +2063,17 @@ export function cdx1RecoveryDelayNote(tree: RocketTree): string | null {
       + 'These parachutes open at the deployment event with no delay, earlier than in the app.';
 }
 
-export function exportCdx1({ name, tree, launchMassKg, launchCgM, launch, motors, engineExport, machAlt, notes, dryRun }: Cdx1ExportInput): string {
+export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM, launch, motors, engineExport, machAlt, notes, dryRun }: Cdx1ExportInput): string {
+  // CDX1 can carry only the effective recovery, not its separate own setting.
+  // Disclose the lost layer even for one configuration (audit 2026-10-11, FC-3).
+  for (const chute of cdx1Chutes(tree)) {
+    const override = chute.id ? overrides.deployments?.[chute.id] : undefined;
+    if (override && sparsify(deploymentTuple(chute), override)) {
+      notes?.push(`“${chute.name ?? 'Parachute'}”: the parachute's own setting is not kept; the file carries the configuration's.`);
+    }
+  }
+  motors = exportIgnitions(tree, motors, overrides);
+  tree = resolveFlightState(tree, [], null, overrides, {}).tree;
   notes?.push(...filletExportNotes(tree, '.CDX1'));
   notes?.push(...simulationExtensionLossNotes(tree, '.CDX1'));
   const stagesIn = asStageNodes(tree);

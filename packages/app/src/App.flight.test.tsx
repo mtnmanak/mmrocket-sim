@@ -20,8 +20,8 @@ import { loadCatalogueMotor } from './services/motorMatch.js';
 import { importOrk } from './services/orkFile.js';
 import type { SessionState } from './services/session.js';
 import type { SimRun } from './services/simReport.js';
-import type { MountMotor } from './model/design.js';
-import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
+import type { FlightTree, MountMotor } from './model/design.js';
+import { addChild, defaultTree, findNode, motorMounts, updateNode } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
 
 /**
@@ -957,6 +957,44 @@ describe('the time-step caution’s measured cost', () => {
 });
 
 describe('R7 Batch identity-independent replay', () => {
+  it('FC-4: Auto-delay, charts re-fly and full series retain the effective deployment and ignition', async () => {
+    const base = defaultTree();
+    const chute = base.components[0]!.children!.find(n => n.type === 'bodytube')!.children!.find(n => n.type === 'parachute')!.id!;
+    const mount = motorMounts(base)[0]!.id!;
+    const tree: FlightTree = { ...updateNode(base, chute, { deployEvent: 'altitude', deployAltitude: 91.44, deployDelay: 0 }),
+      ignitionDefaults: { [mount]: { event: 'automatic', delay: 0 } } };
+    const original = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const motor = { ...original, meta: { ...original.meta, autoDelay: true } };
+    const deployment = { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 1 };
+    const ignition = { event: 'launch', delay: 0.4 } as const;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: motor },
+      savedConfigs: [{ id: 'layered', name: 'Layered', isDefault: true, motors: { [mount]: motor },
+        deployments: { [chute]: deployment }, ignitions: { [mount]: ignition } }], activeConfigId: 'layered',
+      configLayers: 1, detachedOverrides: {}, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+    let host = await mountApp();
+    await launch(host);
+    await waitFor(() => runs() === 1, 'the layered Auto flight');
+    const launchArgs = vi.mocked(flyLaunch).mock.calls[0]![1];
+    const launched: Awaited<ReturnType<typeof flyLaunch>> = await vi.mocked(flyLaunch).mock.results[0]!.value;
+    expect(launched.delayResolution.probes).toBeGreaterThan(0);
+    expect(launchArgs.assigned[0]![1].ignition).toEqual(ignition);
+    const charge = launched.result.events.find(e => e.type === 'EJECTION_CHARGE')!;
+    const deployed = launched.result.events.find(e => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')!;
+    expect(Math.abs(deployed.time - charge.time - 1)).toBeLessThan(0.05);
+    await unmountAll();
+    const stored = JSON.parse(localStorage.getItem(SESSION_KEY)!) as SessionState;
+    expect(findNode(stored.tree, chute)).toMatchObject({ deployEvent: 'altitude', deployAltitude: 91.44 });
+    host = await mountApp();
+    await openTab(host, 'Results');
+    await openHistory(host);
+    const run = history!.runs[0]!;
+    expect(history!.canShowCharts!(run)).toBe(true);
+    await act(async () => { history!.onShowCharts!(run); });
+    await waitFor(() => !!charts?.onFullSeries && !history!.reflyingId, 'layered charts');
+    const full = await act(async () => charts!.onFullSeries!());
+    expect(full.events).toEqual(launched.result.events);
+    expect(vi.mocked(reflyRun)).toHaveBeenCalledTimes(2);
+  }, 30000);
   it.each([
     { autoDelay: false, target: false }, { autoDelay: true, target: false },
     { autoDelay: false, target: true }, { autoDelay: true, target: true },

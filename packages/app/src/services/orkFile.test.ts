@@ -6,6 +6,9 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, kernelSimOptions, PANEL_TIME_STEP_FLOOR_S } from '../components/LaunchPanel.js';
 import { conditionsKeyOf } from './simReport.js';
+import { resolveFlightState } from './flightState.js';
+const effective = (r: ReturnType<typeof importOrk>) => resolveFlightState(r.tree,
+  r.configs.map(c => ({ ...c, motors: {} })), r.chosenConfigId, {}, {}).tree;
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { exportOrk, flightDataAttrs, importOrk, MIN_IMPORTED_TIME_STEP_S, ORK_CREATOR, type OrkExportConfig, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
 import {
@@ -1317,14 +1320,14 @@ describe('.ork round-trip preservation of data the app does not model yet', () =
 describe('.ork multi-configuration import (Stage A)', () => {
   it('applies the default configuration when no pick is given', () => {
     const result = importOrk(MULTI);
-    expect(result.configs.map(({ motors: _m, deployments: _d, separations: _s, stageActiveness: _a, ...rest }) => rest)).toEqual([
+    expect(result.configs.map(({ motors: _m, deployments: _d, separations: _s, ignitions: _i, stageActiveness: _a, ...rest }) => rest)).toEqual([
       { id: 'cfg-a', name: 'Club field C6', isDefault: true },
       { id: 'cfg-b', name: 'Demo day D12', isDefault: false },
     ]);
     // Each config carries its own resolved chute deployment, so a save made
     // under one cannot rewrite the other's (see the Stage B export describe).
     const [cfgA, cfgB] = result.configs;
-    expect(Object.values(cfgA!.deployments)[0]).toMatchObject({ deployEvent: 'ejection', deployAltitude: 200 });
+    expect(cfgA!.deployments).toEqual({}); // inherits the component default
     expect(Object.values(cfgB!.deployments)[0]).toMatchObject({ deployEvent: 'altitude', deployAltitude: 150 });
     expect(result.chosenConfigId).toBe('cfg-a');
     // Both mounts carry a cfg-a motor.
@@ -1365,17 +1368,19 @@ describe('.ork multi-configuration import (Stage A)', () => {
     // Ignition/deployment/separation: cfg-b's override blocks apply.
     expect(firstMountMotor(result)?.ignitionEvent).toBe('launch');
     expect(firstMountMotor(result)?.ignitionDelay).toBeCloseTo(1.5, 12);
-    const chute = flatten(result.tree.components).find((c) => c.type === 'parachute')!;
+    const defaultChute = flatten(result.tree.components).find(c => c.type === 'parachute')!;
+    expect(defaultChute['deployEvent']).toBe('ejection');
+    const chute = flatten(effective(result).components).find((c) => c.type === 'parachute')!;
     expect(chute['deployEvent']).toBe('altitude');
     expect(chute['deployAltitude']).toBeCloseTo(150, 12);
     expect(chute['deployDelay']).toBeCloseTo(1, 12);
-    const booster = result.tree.components[1]!;
+    const booster = effective(result).components[1]!;
     expect(booster['separationEvent']).toBe('burnout');
     expect(booster['separationDelay']).toBeCloseTo(2, 12);
     // cfg-b's chute flies a different deployment from its own setting — the
     // recovery-override note (deployOverrideNote.ts) says so, separately.
     expect(result.notes.filter((n) => n.startsWith('Recovery: '))).toEqual([
-      expect.stringContaining('Recovery: Flight configuration “Demo day D12” overrides the deployment setting — Chute opens at '
+      expect.stringContaining('Recovery: Flight configuration “Demo day D12” overrides the deployment setting — Chute flies at '
         + 'Altitude (descending), 150.0 m (492 ft) + 1 s, not at its own setting (Motor ejection charge)'),
     ]);
     const notes = result.notes.filter((n) => n.includes('flight configuration') && !n.startsWith('Recovery: '));
@@ -1500,7 +1505,7 @@ describe('.ork multi-configuration export (Stage B)', () => {
     // whose chute deploys at 150 m — and saving made altitude/150 the file's
     // bare default. cfg-a, which deploys at ejection, silently inherited it.
     const openedB = importOrk(MULTI, { configId: 'cfg-b' });
-    const chuteB = flatten(openedB.tree.components).find((c) => c.type === 'parachute')!;
+    const chuteB = flatten(effective(openedB).components).find((c) => c.type === 'parachute')!;
     expect(chuteB['deployEvent']).toBe('altitude');
     expect(chuteB['deployAltitude']).toBeCloseTo(150, 9);
 
@@ -1522,7 +1527,7 @@ describe('.ork multi-configuration export (Stage B)', () => {
 
     // ...and cfg-b still deploys at 150 m.
     const backB = importOrk(xml, { configId: 'cfg-b' });
-    const chuteB2 = flatten(backB.tree.components).find((c) => c.type === 'parachute')!;
+    const chuteB2 = flatten(effective(backB).components).find((c) => c.type === 'parachute')!;
     expect(chuteB2['deployEvent']).toBe('altitude');
     expect(chuteB2['deployAltitude']).toBeCloseTo(150, 9);
   });
@@ -1748,6 +1753,7 @@ describe('.ork multi-configuration export (Stage B)', () => {
       motors: mapMotors(orig.motors), // the live working set = the applied config
       configs: orig.configs.map((c) => ({
         id: c.id, name: c.name, isDefault: c.isDefault, motors: mapMotors(c.motors),
+        deployments: c.deployments, separations: c.separations, ignitions: c.ignitions,
       })),
       activeConfigId: orig.chosenConfigId,
     });
@@ -2310,7 +2316,7 @@ describe('per-configuration stage separation', () => {
     const a = r.configs.find((c) => c.id === 'cfg-a')!;
     const b = r.configs.find((c) => c.id === 'cfg-b')!;
     // cfg-a declares no block: it inherits the bare desktop default.
-    expect(a.separations[boosterId]?.separationEvent).toBe('ejection');
+    expect(a.separations[boosterId]).toBeUndefined();
     // cfg-b says never, and that must survive being opened on cfg-a.
     expect(b.separations[boosterId]?.separationEvent).toBe('never');
   });
@@ -2330,15 +2336,16 @@ describe('per-configuration stage separation', () => {
       })),
       activeConfigId: 'cfg-a',
     });
-    expect(importOrk(xml, { configId: 'cfg-b' }).tree.components[1]!['separationEvent'])
+    expect(effective(importOrk(xml, { configId: 'cfg-b' })).components[1]!['separationEvent'])
       .toBe('never');
     // ...and cfg-a still flies the way it did.
     expect(importOrk(xml, { configId: 'cfg-a' }).tree.components[1]!['separationEvent'])
       .toBeUndefined();
   });
 
-  it('still bakes the OPENED configuration’s separation into the tree', () => {
-    expect(importOrk(TWO_STAGE, { configId: 'cfg-b' }).tree.components[1]!['separationEvent'])
+  it('keeps the default and resolves the OPENED configuration’s separation', () => {
+    expect(importOrk(TWO_STAGE, { configId: 'cfg-b' }).tree.components[1]!['separationEvent']).toBeUndefined();
+    expect(effective(importOrk(TWO_STAGE, { configId: 'cfg-b' })).components[1]!['separationEvent'])
       .toBe('never');
     // "ejection" is the kernel default, so cfg-a leaves the field unset.
     expect(importOrk(TWO_STAGE, { configId: 'cfg-a' }).tree.components[1]!['separationEvent'])

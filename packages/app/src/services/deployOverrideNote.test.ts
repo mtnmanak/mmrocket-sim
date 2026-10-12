@@ -2,6 +2,10 @@
 import { describe, expect, it } from 'vitest';
 import { deployOverrideNote, describeDeployment, sameDeployment, type DeploySetting } from './deployOverrideNote.js';
 import { exportOrk, importOrk } from './orkFile.js';
+import { resolveFlightState } from './flightState.js';
+
+const effective = (r: ReturnType<typeof importOrk>) => resolveFlightState(r.tree,
+  r.configs.map(c => ({ ...c, motors: {} })), r.chosenConfigId, {}, {}).tree;
 
 /**
  * A recovery device whose flight configuration overrides its own deployment
@@ -72,25 +76,26 @@ describe('deployOverrideNote', () => {
     expect(deployOverrideNote([], null)).toBeNull();
   });
 
-  it('counts identical devices once and names where the override lives in desktop OR', () => {
+  it('counts identical devices once and names both settings and Reset in the panel', () => {
     const o = { name: 'Parachute', kind: 'parachute', own: ALT_300, flown: EJECTION };
     const note = deployOverrideNote([o, o], null)!;
-    expect(note).toContain('Parachute (×2) opens at Motor ejection charge, not at its own setting (Altitude (descending), 91.4 m (300 ft))');
+    expect(note).toContain('Parachute (×2) flies at Motor ejection charge, not at its own setting (Altitude (descending), 91.4 m (300 ft))');
     expect(note).toContain('Recovery: The flight configuration this file opens with overrides');
-    expect(note).toContain('its parachute dialog shows only the component\'s own setting');
-    expect(note).toContain('Motors & Configuration tab, under Recovery');
-    expect(note).toContain('Reset deployment');
+    expect(note).toContain('parachute panel shows both');
+    expect(note).toContain("Reset there returns this configuration to the component's own setting");
+    expect(note).not.toContain('The app shows and flies the override');
   });
 });
 
 describe('importOrk — a configuration that overrides a recovery device', () => {
-  it('flies the override (unchanged) and now says so, once, for both chutes', () => {
+  it('retains defaults, resolves the override, and says so once for both chutes', () => {
     const r = importOrk(lem());
     const chutes = r.tree.components[0]!.children![1]!.children!;
-    expect(chutes.map((c) => c['deployEvent'])).toEqual(['ejection', 'ejection']);
+    expect(chutes.map((c) => c['deployEvent'])).toEqual(['altitude', 'altitude']);
+    expect(effective(r).components[0]!.children![1]!.children!.map(c => c['deployEvent'])).toEqual(['ejection', 'ejection']);
     const notes = overrideNotes(r.notes);
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain('Parachute (×2) opens at Motor ejection charge');
+    expect(notes[0]).toContain('Parachute (×2) flies at Motor ejection charge');
     expect(notes[0]).toContain('91.4 m (300 ft)');
   });
 
@@ -114,11 +119,12 @@ describe('importOrk — a configuration that overrides a recovery device', () =>
     expect(overrideNotes(r.notes)).toEqual([]);
   });
 
-  it('opens the app\'s own save of that file without the note, flying the same deployment', () => {
+  it('opens the app\'s own save with both settings and the same override note', () => {
     const first = importOrk(lem());
     const saved = exportOrk({ name: first.name, tree: first.tree, motors: first.motors, configs: first.configs, activeConfigId: first.chosenConfigId });
     const again = importOrk(saved);
-    expect(again.tree.components[0]!.children![1]!.children!.map((c) => c['deployEvent'])).toEqual(['ejection', 'ejection']);
-    expect(overrideNotes(again.notes)).toEqual([]);
+    expect(again.tree.components[0]!.children![1]!.children!.map((c) => c['deployEvent'])).toEqual(['altitude', 'altitude']);
+    expect(effective(again).components[0]!.children![1]!.children!.map(c => c['deployEvent'])).toEqual(['ejection', 'ejection']);
+    expect(overrideNotes(again.notes)).toEqual(overrideNotes(first.notes));
   });
 });

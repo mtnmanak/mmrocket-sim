@@ -3,6 +3,7 @@ import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/de
 import { effectiveAero } from '../prefs/aeroChoice.js';
 import { DEFAULT_PREFS } from '../prefs/preferences.js';
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
+import { resolveFlightState } from './flightState.js';
 import { isOnLaunchStage, motorisedStagesWithNozzle, mountMotorCount, stagesWithRecoveryDevice } from '../tree/treeModel.js';
 import { APP_VERSION } from '../version.js';
 import { buildDesign, KERNEL_HANDLES, type BuildHandle, type BuiltDesign, type HandleFactory } from './buildDesign.js';
@@ -361,7 +362,9 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
   if (refusal) throw new SimulateDesignError('flight', refusal);
   const aero = opts.aero ?? APP_DEFAULT_AERO;
   const handles = opts.handles ?? KERNEL_HANDLES;
-  let state = input;
+  // audit 2026-10-11, FC-4: every build and re-flight shares this projection.
+  const resolved = resolveFlightState(input.tree, input.savedConfigs, input.activeConfigId, input.detachedOverrides ?? {}, input.mountMotors);
+  let state = resolved.tree === input.tree && resolved.mountMotors === input.mountMotors ? input : { ...input, ...resolved };
   let { derived, built } = buildOrThrow(state, aero, handles);
   // THE LEGACY PAD-MASS SETTLE. App's reconcile effect runs after the first
   // build, before anyone can press Launch: a value keyed 'legacy' (a
@@ -413,7 +416,7 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
     flight,
     autoSupersonic: aero.autoSupersonic || upgraded,
     build: { info: built.info, motorFailures: built.motorFailures, hardware: built.hardware, flownRecovery: built.flownRecovery },
-    state,
+    state: step ? applyLegacyPadMassStep(input, step) : input,
     provenance,
     appVersion: APP_VERSION,
     padMassNote: step?.note ?? null,

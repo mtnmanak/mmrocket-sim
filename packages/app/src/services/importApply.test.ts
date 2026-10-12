@@ -401,16 +401,16 @@ describe('planConfigSwitch — one switch, applied and noted', () => {
     }, A, TEXT).nozzleStated).toEqual([]);
   });
 
-  it('puts the configuration’s deployment, separation and nozzle on the tree, the event in the kernel’s spelling', () => {
+  it('keeps component defaults while applying the configuration nozzle', () => {
     const plan = planConfigSwitch({
       savedConfigs: [A, B], activeConfigId: 'A', mountMotors: A.motors, unmatchedRefs: {}, tree: tree(),
     }, B, TEXT);
     const chute = plan.tree.components[0]!.children![0]!.children![1]!;
-    expect(chute['deployEvent']).toBe('altitude');
-    expect(chute['deployAltitude']).toBe(150);
+    expect(chute['deployEvent']).toBe('apogee');
+    expect(chute['deployAltitude']).toBeUndefined();
     const booster = plan.tree.components[1]!;
     expect(booster['separationEvent']).toBe('ejection');
-    expect(booster['separationDelay']).toBe(1.5);
+    expect(booster['separationDelay']).toBe(0);
     expect(booster['nozzleExitDiameter']).toBe(0.02);
     // The stage whose nozzle B states, under B's loadout — for the nozzle-follow
     // seed (audit 2026-09-22). The sustainer's nozzle is not B's to state.
@@ -472,7 +472,7 @@ describe('planConfigSwitch — the round trip', () => {
     const toB = planConfigSwitch({ savedConfigs: [A, B], activeConfigId: 'A', mountMotors: A.motors, unmatchedRefs: {}, tree: t }, B, TEXT);
     expect(toB.tree.components[1]!['nozzleExitDiameter']).toBe(0.0254);
     // What a Save while B is active writes for A: the edit, not the file's 200.
-    expect(toB.savedConfigs[0]!.deployments!['chute']).toEqual({ deployEvent: 'altitude', deployAltitude: 90, deployDelay: 1 });
+    expect(toB.savedConfigs[0]!.deployments!['chute']).toEqual(A.deployments!['chute']);
     const backToA = planConfigSwitch({
       savedConfigs: toB.savedConfigs, activeConfigId: 'B', mountMotors: toB.mountMotors, unmatchedRefs: {}, tree: toB.tree,
     }, toB.savedConfigs[0]!, TEXT);

@@ -35,11 +35,14 @@ const NO_TEXT: ReadonlySet<string> = new Set();
 export function NumField({
   value, onCommit, nullable = false, min, max, allowNegative = false,
   integer = false, step = 1, placeholder, autoValue, ariaLabel, id, invalid = false, describedBy,
-  clampToMax = false, validate,
+  clampToMax = false, validate, onEditStart, onEditEnd,
 }: {
   value: number | undefined;
-  /** Called with each valid typed value; null only when nullable and cleared. */
-  onCommit: (v: number | null) => void;
+  /** Called with each valid value; editing is false for an unfocused spinner. */
+  onCommit: (v: number | null, editing: boolean) => void;
+  /** Optional transaction boundaries; valid prefixes still commit live. */
+  onEditStart?: () => void;
+  onEditEnd?: () => void;
   nullable?: boolean;
   min?: number;
   max?: number;
@@ -171,12 +174,12 @@ export function NumField({
   const change = (s: string) => {
     setDraft(s);
     if (s.trim() === '') {
-      if (nullable) onCommit(null);
+      if (nullable) onCommit(null, focused);
       return;
     }
     const v = parse(s);
-    if (v !== null) onCommit(v);
-    else if (clampToMax && max !== undefined && parse(s, false) !== null) onCommit(max);
+    if (v !== null) onCommit(v, focused);
+    else if (clampToMax && max !== undefined && parse(s, false) !== null) onCommit(max, focused);
   };
 
   /**
@@ -234,7 +237,7 @@ export function NumField({
       setOwnText((prev) => new Set(prev).add(text));
       setDraft(text);
     }
-    onCommit(next);
+    onCommit(next, focused);
   };
 
   return (
@@ -251,13 +254,14 @@ export function NumField({
         aria-invalid={draftInvalid || invalid || undefined}
         aria-describedby={describedBy}
         onFocus={() => {
+          onEditStart?.();
           const seed = fmtEdit(value);
           setFocused(true);
           setOwnText(new Set([fmtDisplay(value), seed]));
           setDraft(seed);
         }}
         onChange={(e) => change(e.target.value)}
-        onBlur={() => { setFocused(false); setDraft(null); setOwnText(NO_TEXT); }}
+        onBlur={() => { setFocused(false); setDraft(null); setOwnText(NO_TEXT); onEditEnd?.(); }}
         onKeyDown={(e) => {
           if (e.key === 'ArrowUp') { e.preventDefault(); stepBy(1); }
           else if (e.key === 'ArrowDown') { e.preventDefault(); stepBy(-1); }

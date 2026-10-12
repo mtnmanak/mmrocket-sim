@@ -22,7 +22,7 @@ import { nozzleOversize } from './services/nozzleCheck.js';
 import { peekSession } from './services/session.js';
 import { designMatchKeyOf, type SimRun } from './services/simReport.js';
 import * as simStore from './services/simStore.js';
-import { addChild, addStage, defaultTree, motorMounts } from './tree/treeModel.js';
+import { addChild, addStage, defaultTree, findNode, motorMounts, updateNode } from './tree/treeModel.js';
 import type { MountMotor } from './model/design.js';
 import { APP_VERSION } from './version.js';
 
@@ -902,8 +902,296 @@ async function openTab(host: HTMLElement, name: 'Fly' | 'Design' | 'Motors & Lau
  * feature that exists to FIND a motor was unavailable on exactly the designs it
  * is for. statsDrawerDefault.test.ts held both as regexes over App.tsx.
  */
+describe('FC-5 configuration editors', () => {
+  it.each(['detached', 'saved'] as const)('FC-5 gesture: %s ignition keeps its owner through an equal prefix and coalesces history', async owner => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const ignitions = { [mount]: { event: 'launch', delay: 1 } };
+    await seedStarterSession({ edit: () => ({ ...tree, ignitionDefaults: { [mount]: { event: 'launch', delay: 0 } } }),
+      over: { configLayers: 1, activeConfigId: owner === 'saved' ? 'a' : null,
+        detachedOverrides: owner === 'detached' ? { ignitions } : {},
+        savedConfigs: [{ id: 'a', name: 'A', isDefault: true, motors: { [mount]: c6 },
+          ...(owner === 'saved' ? { ignitions } : {}) },
+        { id: 'b', name: 'Inherits', isDefault: false, motors: { [mount]: c6 } }] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    const field = host.querySelector<HTMLInputElement>('[aria-label^="Ignition delay for"]')!;
+    const read = () => {
+      window.dispatchEvent(new Event('pagehide'));
+      const state = peekSession()!;
+      return { state, tuple: (owner === 'saved' ? state.savedConfigs![0] : state.detachedOverrides)?.ignitions?.[mount] };
+    };
+    await act(async () => { field.focus(); });
+    for (const prefix of ['0', '0.', '0.5']) {
+      await type(field, prefix);
+      expect(read().tuple, `override survives ${prefix}`).toEqual({ event: 'launch', delay: Number(prefix) });
+      expect(document.activeElement).toBe(field);
+    }
+    await act(async () => { field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(read().state.tree.ignitionDefaults?.[mount]).toEqual({ event: 'launch', delay: 0 });
+    expect(read().state.savedConfigs![1]!.ignitions?.[mount]).toBeUndefined();
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(read().tuple).toEqual({ event: 'launch', delay: 1 });
+    await act(async () => { button(host, 'Redo').click(); });
+    expect(read().tuple).toEqual({ event: 'launch', delay: 0.5 });
+    // A second gesture is separate even when it immediately follows the first.
+    await act(async () => { field.focus(); });
+    for (const prefix of ['1', '10']) await type(field, prefix);
+    await act(async () => { field.blur(); });
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(read().tuple).toEqual({ event: 'launch', delay: 0.5 });
+    await act(async () => { button(host, 'Redo').click(); });
+    expect(read().tuple).toEqual({ event: 'launch', delay: 10 });
+    await act(async () => { field.focus(); });
+    await type(field, '0');
+    expect(read().tuple).toEqual({ event: 'launch', delay: 0 });
+    await act(async () => { field.blur(); });
+    expect(read().tuple).toBeUndefined();
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(read().tuple).toEqual({ event: 'launch', delay: 10 });
+  }, 30000);
+
+  it('FC-5 gesture: an unfocused ignition spinner starts a separate step after an editor unmount', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    await seedStarterSession({ edit: () => tree, over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: {},
+      savedConfigs: [{ id: 'a', name: 'A', isDefault: true, motors: { [mount]: c6 },
+        ignitions: { [mount]: { event: 'launch', delay: 1 } } }] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    const field = host.querySelector<HTMLInputElement>('[aria-label^="Ignition delay for"]')!;
+    await act(async () => { field.focus(); });
+    for (const prefix of ['1', '10']) await type(field, prefix);
+    // Removing a focused input does not emit React's onBlur. The next card
+    // must not reuse that field's history transaction for its spinner.
+    await openTab(host, 'Design');
+    await openTab(host, 'Motors & Launch');
+    const next = host.querySelector<HTMLInputElement>('[aria-label^="Ignition delay for"]')!;
+    await act(async () => { next.parentElement!.querySelector<HTMLButtonElement>('[aria-label="Increment"]')!.click(); });
+    expect(next.value).toBe('10.5');
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(next.value).toBe('10');
+    await act(async () => { next.focus(); });
+    await type(next, 'invalid');
+    await act(async () => { next.blur(); });
+    expect(next.value).toBe('10');
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(next.value).toBe('1');
+  }, 30000);
+
+  it.each([
+    ['parachute', 'altitude'], ['parachute', 'delay'], ['streamer', 'altitude'],
+    ['streamer', 'delay'], ['stage', 'altitude'], ['stage', 'delay'],
+  ] as const)('FC-5 gesture: %s %s retains the focused editor and one undo step', async (kind, fieldName) => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const node = kind === 'stage' ? tree.components[0]!
+      : tree.components[0]!.children!.flatMap(n => [n, ...(n.children ?? [])]).find(n => n.type === 'parachute')!;
+    const defaults = kind === 'stage'
+      ? { separationEvent: 'altitudedescending', separationAltitude: 1, separationDelay: 1 }
+      : { deployEvent: 'altitude', deployAltitude: 1, deployDelay: 1 };
+    const tuple = kind === 'stage'
+      ? { ...defaults, [fieldName === 'altitude' ? 'separationAltitude' : 'separationDelay']: 2 }
+      : { ...defaults, [fieldName === 'altitude' ? 'deployAltitude' : 'deployDelay']: 2 };
+    await seedStarterSession({ edit: () => updateNode(tree, node.id!, { ...defaults, name: 'Gesture part', type: kind }),
+      over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: {}, savedConfigs: [{
+        id: 'a', name: 'A', isDefault: true, motors: { [mount]: c6 },
+        [kind === 'stage' ? 'separations' : 'deployments']: { [node.id!]: tuple },
+      }] } });
+    const host = await mountApp();
+    await openTab(host, 'Design');
+    await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')]
+      .find(r => r.querySelector('.tree-label')?.textContent === 'Gesture part')!.click(); });
+    const banner = () => host.querySelector(`[aria-label="${kind === 'stage' ? 'Stage separation' : 'Recovery'} override"]`);
+    await act(async () => { button(host, 'Edit the override').click(); });
+    const field = host.querySelector<HTMLInputElement>(`[aria-label="Override ${fieldName} (${fieldName === 'altitude' ? 'm' : 's'})"]`)!;
+    await act(async () => { field.focus(); });
+    for (const prefix of ['1', '10', '100']) {
+      await type(field, prefix);
+      expect(banner(), `banner survives ${prefix}`).not.toBeNull();
+      expect(document.activeElement).toBe(field);
+      expect(field.isConnected).toBe(true);
+      expect(field.value).toBe(prefix);
+    }
+    await act(async () => { field.blur(); });
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(field.value).toBe('2');
+    await act(async () => { button(host, 'Redo').click(); });
+    expect(field.value).toBe('100');
+    await act(async () => { field.focus(); });
+    await type(field, '1');
+    expect(banner()).not.toBeNull();
+    await act(async () => { field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    expect(banner()).toBeNull();
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(banner()).not.toBeNull();
+    expect(host.querySelector<HTMLInputElement>(`[aria-label^="Override ${fieldName}"]`)!.value).toBe('100');
+  }, 30000);
+
+  it('no override banners or counts appear for inheriting recovery, stage and ignition', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    await seedStarterSession({ edit: () => tree, over: { configLayers: 1, activeConfigId: 'plain', detachedOverrides: {},
+      savedConfigs: [{ id: 'plain', name: 'Plain', isDefault: true, motors: { [mount]: c6 } }] } });
+    const host = await mountApp();
+    await openTab(host, 'Design');
+    const rows = [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')];
+    for (const label of ['Parachute', tree.components[0]!.name]) {
+      await act(async () => { rows.find(r => r.querySelector('.tree-label')?.textContent === label)!.click(); });
+      expect(host.querySelector('[aria-label="Recovery override"]')).toBeNull();
+      expect(host.querySelector('[aria-label="Stage separation override"]')).toBeNull();
+    }
+    await openTab(host, 'Motors & Launch');
+    expect(host.textContent).toContain("Ignition: mount's default");
+    expect(host.textContent).not.toContain('override for this configuration');
+    expect(host.querySelector('[aria-label^="Apply Plain"]')!.getAttribute('aria-describedby')).toBeNull();
+  }, 30000);
+
+  it('stage separation Reset and Use everywhere are single undo steps, including detached entries', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const staged = addStage(tree).tree;
+    const stage = staged.components[1]!;
+    const tuple = { separationEvent: 'altitudedescending', separationDelay: 2, separationAltitude: 91.44 };
+    await seedStarterSession({ edit: () => updateNode(staged, stage.id!, { name: 'Booster', separationEvent: 'ejection', separationDelay: 0, separationAltitude: 200 }),
+      over: { configLayers: 1, activeConfigId: 'a', detachedOverrides: { separations: { [stage.id!]: tuple } },
+        savedConfigs: ['a', 'b'].map(id => ({ id, name: id, isDefault: id === 'a', motors: { [mount]: c6 }, separations: { [stage.id!]: tuple } })) } });
+    const host = await mountApp();
+    await openTab(host, 'Design');
+    await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')].find(r => r.querySelector('.tree-label')?.textContent === 'Booster')!.click(); });
+    const banner = () => host.querySelector('[role="region"][aria-label="Stage separation override"]');
+    expect(banner()?.textContent).toContain('Flight configuration “a”');
+    expect(banner()?.textContent).toContain('Altitude (descending)');
+    expect(host.querySelector<HTMLInputElement>('[aria-label^="Separation altitude"]')).not.toBeNull();
+    await act(async () => { button(host, 'Edit the override').click(); });
+    await type(host.querySelector<HTMLInputElement>('[aria-label="Override altitude (m)"]')!, '100');
+    expect(banner()?.textContent).toContain('Altitude (descending) 100 m');
+    await act(async () => { button(host, '↩ Undo').click(); });
+    expect(banner()?.textContent).toContain('Altitude (descending) 91.44 m');
+    await act(async () => { button(host, 'Reset to this setting').click(); });
+    expect(banner()).toBeNull();
+    await settle(450);
+    expect(peekSession()!.savedConfigs![0]!.separations?.[stage.id!]).toBeUndefined();
+    await act(async () => { button(host, '↩ Undo').click(); });
+    expect(banner()).not.toBeNull();
+    await act(async () => { button(host, 'Use the override everywhere').click(); });
+    await settle(450);
+    expect(findNode(peekSession()!.tree, stage.id!)).toMatchObject(tuple);
+    for (const config of peekSession()!.savedConfigs!) expect(config.separations?.[stage.id!]).toBeUndefined();
+    expect(peekSession()!.detachedOverrides?.separations?.[stage.id!]).toBeUndefined();
+    expect(banner()).toBeNull();
+    await act(async () => { button(host, '↩ Undo').click(); });
+    expect(banner()).not.toBeNull();
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="Separate at (lower stages)"]')!.value).toBe('ejection');
+  }, 30000);
+
+  it('a detached streamer override stays visible; editing the default leaves what flies alone; reset and redo work', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const chute = tree.components[0]!.children!.flatMap(n => [n, ...(n.children ?? [])]).find(n => n.type === 'parachute')!;
+    await seedStarterSession({ edit: () => updateNode(tree, chute.id!, { type: 'streamer', name: 'Ribbon', deployEvent: 'altitude', deployAltitude: 91.44 }),
+      over: { configLayers: 1, activeConfigId: null, savedConfigs: [], mountMotors: { [mount]: c6 },
+        detachedOverrides: { deployments: { [chute.id!]: { deployEvent: 'apogee', deployAltitude: 200, deployDelay: 1 } } } } });
+    const host = await mountApp();
+    await openTab(host, 'Design');
+    await act(async () => { [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')].find(r => r.querySelector('.tree-label')?.textContent === 'Ribbon')!.click(); });
+    const banner = () => host.querySelector('[aria-label="Recovery override"]');
+    expect(banner()?.textContent).toContain('detached working settings');
+    expect(banner()?.textContent).toContain('overrides this streamer');
+    const select = host.querySelector<HTMLSelectElement>('[aria-label="Deploy at"]')!;
+    await act(async () => { select.value = 'launch'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(banner()?.textContent).toContain('it deploys at Apogee');
+    expect(banner()?.textContent).toContain("streamer's own setting (Launch");
+    await act(async () => { button(host, 'Edit the override').click(); });
+    await type(host.querySelector<HTMLInputElement>('[aria-label="Override delay (s)"]')!, '2');
+    expect(banner()?.textContent).toContain('delay 2 s');
+    await act(async () => { button(host, '↩ Undo').click(); });
+    expect(banner()?.textContent).toContain('delay 1 s');
+    await act(async () => { button(host, 'Reset to this setting').click(); });
+    expect(banner()).toBeNull();
+    await act(async () => { button(host, '↩ Undo').click(); });
+    expect(banner()).not.toBeNull();
+    await act(async () => { button(host, '↪ Redo').click(); });
+    expect(banner()).toBeNull();
+    await settle(450);
+    expect(peekSession()!.detachedOverrides?.deployments?.[chute.id!]).toBeUndefined();
+  }, 30000);
+
+  it('labels ignition overrides, Reset inherits the default, and unconfigured edits change the default', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    await seedStarterSession({ edit: () => ({ ...tree, ignitionDefaults: { [mount]: { event: 'automatic', delay: 0 } } }),
+      over: { configLayers: 1, detachedOverrides: {}, activeConfigId: 'a', savedConfigs: [
+        { id: 'a', name: 'Layered', isDefault: true, motors: { [mount]: c6 }, ignitions: { [mount]: { event: 'launch', delay: 2 } } },
+      ] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    expect(host.textContent).toContain('Ignition: override for this configuration');
+    expect(host.textContent).toContain('1 override: ignition');
+    await act(async () => { button(host, 'Reset to the default').click(); });
+    expect(host.textContent).toContain("Ignition: mount's default");
+    expect(host.textContent).not.toContain('1 override: ignition');
+    await settle(450);
+    expect(peekSession()!.savedConfigs![0]!.ignitions?.[mount]).toBeUndefined();
+    await act(async () => { button(host, '↩ Undo').click(); });
+    expect(host.textContent).toContain('Ignition: override for this configuration');
+    await unmountAll();
+    await seedStarterSession({ edit: () => tree, over: { configLayers: 1, activeConfigId: null, savedConfigs: [], detachedOverrides: {} } });
+    const plain = await mountApp();
+    await openTab(plain, 'Motors & Launch');
+    const select = plain.querySelector<HTMLSelectElement>(`#ignition-${mount}`)!;
+    await act(async () => { select.value = 'launch'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    await settle(450);
+    expect(peekSession()!.tree.ignitionDefaults?.[mount]).toEqual({ event: 'launch', delay: 0 });
+    expect(peekSession()!.detachedOverrides).toEqual({});
+    expect(plain.querySelector('[aria-label="Recovery override"]')).toBeNull();
+    expect(plain.querySelector('[aria-label="Stage separation override"]')).toBeNull();
+  }, 30000);
+});
+
 describe('the Batch simulate button', () => {
   const batchButton = (host: HTMLElement) => button(host, 'Batch simulate motors…');
+
+  it('FC-4 passes effective recovery and ignition to Batch while defaults stay editable', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const chute = tree.components[0]!.children!.flatMap(n => [n, ...(n.children ?? [])]).find(n => n.type === 'parachute')!;
+    const defaults = updateNode(tree, chute.id!, { deployEvent: 'altitude', deployAltitude: 91.44 });
+    await seedStarterSession({ edit: () => ({ ...defaults, ignitionDefaults: { [mount]: { event: 'automatic', delay: 0 } } }),
+      over: { configLayers: 1, detachedOverrides: {}, activeConfigId: 'a', mountMotors: { [mount]: c6 },
+        savedConfigs: [{ id: 'a', name: 'Layered', isDefault: true, motors: { [mount]: c6 },
+          deployments: { [chute.id!]: { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 } },
+          ignitions: { [mount]: { event: 'launch', delay: 2 } } }] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    await settle(50);
+    await act(async () => { batchButton(host).click(); });
+    expect(batchDialog!.assignedIgnitions).toEqual({ [mount]: { event: 'launch', delay: 2 } });
+    expect(batchDialog!.assignedMountMotors[mount]!.ignition).toEqual({ event: 'launch', delay: 2 });
+    expect(findNode(batchDialog!.tree, chute.id!)!['deployEvent']).toBe('ejection');
+    await act(async () => { batchDialog!.onClose(); });
+    await settle(450);
+    expect(findNode(peekSession()!.tree, chute.id!)!['deployAltitude']).toBe(91.44);
+  }, 30000);
+
+  it('FC-4 ignition override edits undo and redo atomically; Delete keeps them and None clears them', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    await seedStarterSession({ edit: () => ({ ...tree, ignitionDefaults: { [mount]: { event: 'automatic', delay: 0 } } }),
+      over: { configLayers: 1, detachedOverrides: {}, activeConfigId: 'a', mountMotors: { [mount]: c6 },
+        savedConfigs: [{ id: 'a', name: 'Layered', isDefault: true, motors: { [mount]: c6 },
+          ignitions: { [mount]: { event: 'launch', delay: 2 } } }] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    const select = () => host.querySelector<HTMLSelectElement>(`#ignition-${mount}`)!;
+    const choose = async (event: string) => act(async () => { select().value = event; select().dispatchEvent(new Event('change', { bubbles: true })); });
+    await choose('never');
+    expect(select().value).toBe('never');
+    await act(async () => { button(host, '↩ Undo').click(); });
+    expect(select().value).toBe('launch');
+    await act(async () => { button(host, '↪ Redo').click(); });
+    expect(select().value).toBe('never');
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Delete Layered"]')!.click(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Confirm delete Layered"]')!.click(); });
+    expect(select().value).toBe('never');
+    await settle(450);
+    expect(peekSession()!.detachedOverrides?.ignitions?.[mount]).toEqual({ event: 'never', delay: 2 });
+    expect(peekSession()!.tree.ignitionDefaults?.[mount]).toEqual({ event: 'automatic', delay: 0 });
+    await act(async () => { button(host, '⏏ Unload').click(); });
+    await settle(450);
+    expect(peekSession()!.detachedOverrides).toEqual({});
+  }, 30000);
 
   it('on a staged rocket is off, and says why ON SCREEN, not only in a tooltip', async () => {
     await seedStarterSession({ edit: (t) => addStage(t).tree });
@@ -1208,12 +1496,13 @@ describe('the Ignition control on a single-stage rocket', () => {
     expect(ignitionBox(host)).toBe(true);
   }, 30000);
 
-  it('stays out of the way for an ordinary motor lit at launch', async () => {
+  it('FC-5 shows the editable mount default for an ordinary motor lit at launch', async () => {
     await seedStarterSession();
     const host = await mountApp();
     await openTab(host, 'Motors & Launch');
     await settle(50);
-    expect(ignitionBox(host)).toBe(false);
+    expect(ignitionBox(host)).toBe(true);
+    expect(host.textContent).toContain("Ignition: mount's default");
   }, 30000);
 });
 

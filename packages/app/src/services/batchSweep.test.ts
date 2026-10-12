@@ -23,7 +23,7 @@ import { stageMotors } from './nozzleFollow.js';
 import { historyMotorLabel } from '../components/SimResults.js';
 import { matchingRecoveryEvents } from './recoveryFlight.js';
 import type { MountMotor } from '../model/design.js';
-import { configOntoTree } from './importApply.js';
+import { resolveFlightState } from './flightState.js';
 import {
   batchMotorIds, batchMotorNames, batchRowKey, batchSolverFlights, deploysOnEjectionCharge, listsNoDelay,
   provisionalDelay, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepDeps, type BatchSweepInput,
@@ -325,9 +325,9 @@ it('Batch builds and flies the switched recovery tree and retains the existing p
   const config = (deployEvent: string, deployAltitude = 200) => ({
     motors: {}, deployments: { chute: { deployEvent, deployAltitude, deployDelay: 0 } }, separations: {},
   });
-  const electronic = configOntoTree(rocket(), config('altitude', 50));
-  const ejection = configOntoTree(electronic, config('ejection'));
-  const back = configOntoTree(ejection, config('altitude', 50));
+  const base = rocket();
+  const ejection = resolveFlightState(base, [], null, config('ejection'), {}).tree;
+  const back = resolveFlightState(base, [], null, config('altitude', 50), {}).tree;
   const f13 = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'AeroTech' && m.designation === 'F13-RCT')!;
   for (const [tree, charge] of [[ejection, true], [back, false]] as const) {
     expect(deploysOnEjectionCharge(tree)).toBe(charge);
@@ -351,8 +351,8 @@ it('Batch builds and flies the switched recovery tree and retains the existing p
 it('the shipped engine deploys at the switched altitude or delayed charge', () => {
   const base = rocket();
   for (const [deployEvent, deployAltitude, deployDelay] of [['altitude', 50, 0], ['ejection', 200, 2]] as const) {
-    const tree = configOntoTree(base, { separations: {},
-      deployments: { chute: { deployEvent, deployAltitude, deployDelay } } });
+    const tree = resolveFlightState(base, [], null, { separations: {},
+      deployments: { chute: { deployEvent, deployAltitude, deployDelay } } }, {}).tree;
     const handle = OrkRocket.buildTree(engineTree(tree));
     handle.setMotorById('mount', curve('E20'));
     const flight = handle.simulate({ launchRodLength: 1, windAverage: 0 });

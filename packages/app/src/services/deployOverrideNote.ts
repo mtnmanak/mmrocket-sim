@@ -1,5 +1,6 @@
-import { DEPLOY_EVENTS } from '../tree/schema.js';
+import { DEPLOY_EVENTS, FIELDS } from '../tree/schema.js';
 import { foldDeployEvent } from '../tree/deployEvent.js';
+import type { IgnitionTuple, SeparationTuple } from '../model/design.js';
 
 /**
  * A recovery device whose flight configuration OVERRIDES its own deployment
@@ -14,8 +15,8 @@ import { foldDeployEvent } from '../tree/deployEvent.js';
  * configuration's value (BasicEventSimulationEngine.java:380 —
  * `get(fcid)`). So a user can set "300 ft" in the dialog, see 300 ft every
  * time they reopen it, and still fly — in desktop OR as in the app — the
- * override's ejection charge. The app shows and flies the override
- * (orkFile.ts `readDeployment`); this is the sentence that says so.
+ * override's ejection charge. The app retains both layers (FC-2); the note
+ * distinguishes the component default from the effective flight setting.
  */
 export interface DeploySetting {
   deployEvent: string;
@@ -75,12 +76,36 @@ export function deployOverrideNote(overrides: readonly DeployOverride[], configN
   }
   const where = configName ? `Flight configuration “${configName}”` : 'The flight configuration this file opens with';
   const lines = [...groups.values()].map(({ o, n }) =>
-    `${o.name}${n > 1 ? ` (×${n})` : ''} opens at ${describeDeployment(o.flown)}, `
+    `${o.name}${n > 1 ? ` (×${n})` : ''} flies at ${describeDeployment(o.flown)}, `
     + `not at its own setting (${describeDeployment(o.own)})`);
   const kinds = new Set(overrides.map((o) => o.kind));
   const dialog = kinds.size === 1 && kinds.has('streamer') ? 'streamer' : kinds.has('streamer') ? 'parachute and streamer' : 'parachute';
   return `Recovery: ${where} overrides the deployment setting — ${lines.join('; ')}. `
-    + `Desktop OR flies the override too, but its ${dialog} dialog shows only the component's own setting; `
-    + 'the override is on its Motors & Configuration tab, under Recovery, where Reset deployment returns it to the component\'s setting. '
-    + 'The app shows and flies the override: to fly the other setting, change Deploy at.';
+    + `The ${dialog} panel shows both; Reset there returns this configuration to the component's own setting.`;
+}
+
+/** The other two parameter families use the same own-setting/override explanation. */
+export function flightParameterOverrideNote(
+  kind: 'separation' | 'ignition', name: string, own: SeparationTuple | IgnitionTuple,
+  flown: SeparationTuple | IgnitionTuple, configName: string | null,
+): string {
+  const describe = (tuple: SeparationTuple | IgnitionTuple) => {
+    if ('separationEvent' in tuple) {
+      const labels = new Map(FIELDS.stage?.find(f => f.key === 'separationEvent')?.options ?? []);
+      const event = tuple.separationEvent;
+      return (labels.get(event) ?? event)
+        + (event.startsWith('altitude') ? `, ${tuple.separationAltitude} m` : '')
+        + (tuple.separationDelay ? ` + ${tuple.separationDelay} s` : '');
+    }
+    const labels: Record<IgnitionTuple['event'], string> = {
+      automatic: "Automatic (launch / lower stage's ejection)", burnout: 'Lower stage burnout + delay (electronics)',
+      launch: 'Launch + delay (timer)', ejectioncharge: 'Lower stage ejection charge + delay', never: 'Never',
+    };
+    return `${labels[tuple.event]}${tuple.delay ? ` + ${tuple.delay} s` : ''}`;
+  };
+  const where = configName ? `Flight configuration “${configName}”` : 'The flight configuration this file opens with';
+  const component = kind === 'separation' ? 'stage' : 'mount';
+  const panel = kind === 'separation' ? 'stage panel' : 'motor card on Motors & Launch';
+  return `${where} overrides ${kind} for ${name}: it uses ${describe(flown)}, not the ${component}'s own setting (${describe(own)}). `
+    + `The ${panel} shows both; Reset there returns this configuration to the ${component}'s own setting.`;
 }

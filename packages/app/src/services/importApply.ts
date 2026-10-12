@@ -24,10 +24,8 @@ import {
 import { stageMotors, type StageMotors } from './nozzleFollow.js';
 import type { TreeHistory } from '../hooks/useTreeHistory.js';
 import { findShroudCandidates, type ShroudCandidate } from '../tree/shroudConvert.js';
-import { separationEventOrDefault } from '../tree/sanitize.js';
 import {
   applyStageNozzles, asStageNodes, emptyTree, findNode, motorMounts, mountName, mountsIn, normalizeTree, primaryMountOf,
-  updateNode,
 } from '../tree/treeModel.js';
 
 /**
@@ -62,8 +60,8 @@ import {
  * .CDX1's only what RASAero states; the flight-configuration fields are
  * optional.
  */
-export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'launch' | 'launchSiteRefused' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
-  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'storedSimulations' | 'newerFormat'>>
+export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'expand' | 'launch' | 'launchSiteRefused' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
+  & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'configLabelNotes' | 'storedSimulations' | 'newerFormat'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
   & { machAlt?: [number, number][]; sourceFormat?: 'ork' | 'rkt' | 'cdx1' };
@@ -302,54 +300,15 @@ function swapConfigNotes(
   return out;
 }
 
-/**
- * A configuration's recovery deployments, separations and nozzles written onto
- * the tree — what switching to it puts there beyond its motors. ONE rule, for
- * the configuration switch and for an open that shows a configuration other
- * than the one the reader baked into the tree (flyablePick).
- */
+/** Apply-time nozzle and stage mass/CG state. Flight layers stay off the tree. */
 export function configOntoTree(
   tree: RocketTree,
   cfg: Pick<SavedConfig, 'deployments' | 'separations' | 'nozzles' | 'stageMassOverrides'>,
 ): RocketTree {
-  const hasDeploy = cfg.deployments && Object.keys(cfg.deployments).length > 0;
-  const hasSep = cfg.separations && Object.keys(cfg.separations).length > 0;
-  const hasNozzles = cfg.nozzles && Object.keys(cfg.nozzles).length > 0;
-  let next = applyStageMass(tree, cfg.stageMassOverrides);
-  if (!hasDeploy && !hasSep && !hasNozzles) return next;
-  // The nozzle is the flown motor's, so it switches with the motors: a
-  // RASAero file's simulations can each state a different one (0 removes
-  // it — the previous configuration's must not linger, same rule as the
-  // separation write below).
-  if (hasNozzles) next = applyStageNozzles(next, cfg.nozzles!);
-  for (const [nodeId, d] of Object.entries(cfg.deployments ?? {})) {
-    if (!findNode(next, nodeId)) continue;
-    next = updateNode(next, nodeId, {
-      ...(d.deployEvent !== undefined ? { deployEvent: d.deployEvent } : {}),
-      ...(d.deployAltitude !== undefined ? { deployAltitude: d.deployAltitude } : {}),
-      ...(d.deployDelay !== undefined ? { deployDelay: d.deployDelay } : {}),
-    });
-  }
-  // Separation must be written even when it is the kernel default
-  // ("ejection"): the point is to REPLACE whatever the previously applied
-  // configuration left behind, so skipping the default would strand a
-  // "never" from the last one.
-  //
-  // The event in the kernel's spelling, or desktop's default: a saved
-  // configuration lives outside the tree, so the load boundary's sanitize
-  // pass never sees it, and OrkEngine THROWS on a value it does not know —
-  // which failed the whole build the moment the configuration was applied
-  // (audit 2026-09-22). The .ork reader repairs one with a note; this
-  // guards a configuration a session saved before it did.
-  for (const [nodeId, sep] of Object.entries(cfg.separations ?? {})) {
-    if (!findNode(next, nodeId)) continue;
-    next = updateNode(next, nodeId, {
-      ...(sep.separationEvent !== undefined ? { separationEvent: separationEventOrDefault(sep.separationEvent) } : {}),
-      ...(sep.separationDelay !== undefined ? { separationDelay: sep.separationDelay } : {}),
-      ...(sep.separationAltitude !== undefined ? { separationAltitude: sep.separationAltitude } : {}),
-    });
-  }
-  return next;
+  // audit 2026-10-11, FC-4: these two families retain Apply-time semantics.
+  // Recovery, separation and ignition are resolved for flight, never baked here.
+  const next = applyStageMass(tree, cfg.stageMassOverrides);
+  return cfg.nozzles ? applyStageNozzles(next, cfg.nozzles) : next;
 }
 
 /**
@@ -379,7 +338,7 @@ export interface ImportPlan {
   unmatchedRefs: Record<string, OrkMotorRef>;
   machAlt: [number, number][] | undefined;
   /** The import note, and whether it reads as a warning. */
-  note: { text: string; severity: NoticeSeverity };
+  note: { text: string; severity: NoticeSeverity; expand?: boolean };
   /** Hand-rolled camera shrouds to offer the native fairing for. */
   shrouds: ShroudCandidate[];
 }
@@ -446,8 +405,7 @@ export function planImport(
   const chosenId = pick?.cfg.id ?? imported.chosenConfigId ?? null;
   // Normalised BEFORE the configuration loop (it keeps ids): the pad-mass
   // attach below needs the tree's stage order and cluster counts. A re-pick
-  // puts ITS configuration's recovery, separation and nozzle on the tree, as
-  // switching to it would — the reader baked in its own pick's.
+  // applies only nozzle and mass state; flight layers remain independent.
   // `let`, because the stated-launch-weight reconcile below may rewrite a
   // stage's overrides once the applied configuration's motors are known.
   let importedTree = normalizeTree(imported.tree, notes);
@@ -515,6 +473,7 @@ export function planImport(
       }
     }
     nextConfigs.push({
+      ...(cfg.ignitions ? { ignitions: cfg.ignitions } : {}),
       id: cfg.id, name: cfg.name, isDefault: cfg.isDefault, motors: cfgMotors,
       ...(cfg.motorLoadoutRefusal ? { motorLoadoutRefusal: cfg.motorLoadoutRefusal } : {}),
       ...(cfg.stageMassOverrides ? { stageMassOverrides: cfg.stageMassOverrides } : {}),
@@ -530,6 +489,16 @@ export function planImport(
       ...(cfg.nozzles && Object.keys(cfg.nozzles).length > 0
         ? { nozzles: cfg.nozzles } : {}),
     });
+  }
+  // Match ConfigPanel and the override banners after motor labels are known.
+  // Only explicitly identified notes are rewritten, by configuration id;
+  // arbitrary part names/file prose are untouched (audit 2026-10-11, FC-4 fixup).
+  for (const entry of imported.configLabelNotes ?? []) {
+    const config = nextConfigs.find(c => c.id === entry.configId);
+    const index = notes.indexOf(entry.text);
+    if (config && index !== -1) {
+      notes[index] = entry.text.replace(`“${entry.label}”`, () => `“${savedConfigLabel(config)}”`);
+    }
   }
   // A stage whose stated launch weight still holds an unidentified motor's
   // weight, opened from a .ork saved BEFORE that motor could be loaded and
@@ -612,7 +581,8 @@ export function planImport(
     // when every motor matched. Extensions also warn: omitting their behavior
     // can change the flight's numbers. Other reader notes retain their severity.
     note: { text: notes.join('\n'), severity: imported.newerFormat || hasSimulationExtensions(imported.tree)
-      || motorTrouble || spent.severity === 'warn' ? 'warn' : 'info' },
+      || motorTrouble || spent.severity === 'warn' ? 'warn' : 'info',
+      ...(imported.expand ? { expand: true } : {}) },
     // Hand-rolled shrouds (1-fin freeform sets named like "Camera Shroud")
     // get an offer to become the native fairing component (2026-08-05e).
     shrouds: findShroudCandidates(importedTree),
@@ -630,12 +600,13 @@ export interface ImportSinks {
   setMountMotors: (m: Record<string, MountMotor>) => void;
   setUnmatchedRefs: (r: Record<string, OrkMotorRef>) => void;
   setSavedConfigs: (c: SavedConfig[]) => void;
+  setDetachedOverrides?: (overrides: import('../model/design.js').FlightOverrides) => void;
   setActiveConfigId: (id: string | null) => void;
   setLaunch: (l: LaunchConditions) => void;
   setLongitudeCheck?: (check: OrkTreeImportResult['longitudeCheck']) => void;
   setMeasured: (m: MeasuredFigures) => void;
   setMachAlt: (t: [number, number][] | undefined) => void;
-  setNote: (text: string, severity: NoticeSeverity) => void;
+  setNote: (text: string, severity: NoticeSeverity, expand?: boolean) => void;
   setShroudPrompt: (s: ShroudCandidate[] | null) => void;
   markSaved: (mark: string) => void;
 }
@@ -683,6 +654,7 @@ export function applyImportPlan(plan: ImportPlan, sinks: ImportSinks): void {
   sinks.history.reset(snapshot.tree);
   sinks.setMountMotors(snapshot.mountMotors);
   sinks.setUnmatchedRefs(plan.unmatchedRefs);
+  sinks.setDetachedOverrides?.({});
   sinks.setSavedConfigs(snapshot.savedConfigs);
   sinks.setActiveConfigId(snapshot.activeConfigId);
   sinks.setMachAlt(plan.machAlt);
@@ -694,7 +666,7 @@ export function applyImportPlan(plan: ImportPlan, sinks: ImportSinks): void {
   sinks.setLaunch(snapshot.launch);
   sinks.setLongitudeCheck?.(plan.longitudeCheck);
   sinks.setMeasured(snapshot.measured);
-  sinks.setNote(plan.note.text, plan.note.severity);
+  sinks.setNote(plan.note.text, plan.note.severity, plan.note.expand);
   sinks.setShroudPrompt(plan.shrouds.length ? plan.shrouds : null);
   // The design now IS the file on disk, so the baseline moves with it — taken
   // over the plan, NOT from React state, which has not re-rendered yet: reading
@@ -712,7 +684,7 @@ export interface ConfigSwitchPlan {
   mountMotors: Record<string, MountMotor>;
   unmatchedRefs: Record<string, OrkMotorRef>;
   activeConfigId: string;
-  /** The design with the configuration's nozzles, deployments and separations on it, reconciled. */
+  /** The defaults tree with Apply-time nozzle and mass state reconciled. */
   tree: RocketTree;
   /**
    * The stages whose nozzle this configuration STATES, under the loadout it
@@ -733,10 +705,8 @@ export interface ConfigSwitchPlan {
  * already on screen KEEPS the edits rather than reverting them to the file's —
  * the three `setSavedConfigs` sites were init / New / import only, unchanged
  * since v0.050, so every in-app motor edit used to live in the working set alone.
- * Since the 2026-09-22 audit the same holds for what the configuration puts on
- * the TREE — its recovery deployments, separations and nozzle: until then only
- * the motors went back, so A→B→A reverted a deployment edited on A to the
- * file's, and the next Launch on A flew the file's chute.
+ * Nozzle and stage mass/CG edits also sync before switching. Recovery,
+ * separation and ignition edits already live in their configuration maps.
  */
 export function planConfigSwitch(
   state: {
@@ -754,13 +724,7 @@ export function planConfigSwitch(
   const selected = synced.find((c) => c.id === requested.id) ?? requested;
   const cfg = restoreConfigLabels(selected);
   const savedConfigs = cfg === selected ? synced : synced.map(c => c === selected ? cfg : c);
-  // A configuration is its motors AND its recovery deployment. These were
-  // carried for export only, so applying one here switched the motors and
-  // left the chute set the way the previously-opened configuration wanted
-  // it — the one thing picking a configuration at file-open used to do that
-  // this panel could not. Applying them makes the panel a complete switch,
-  // which is what lets the open-time picker go away.
-  // Folded into one tree, so the switch is written once (configOntoTree).
+  // Apply the two tree families that retain working-state semantics.
   const hasNozzles = cfg.nozzles && Object.keys(cfg.nozzles).length > 0;
   let next = configOntoTree(state.tree, cfg);
   // Applying a configuration is the THIRD way a motor lands on a mount, and
@@ -885,6 +849,7 @@ export function starterMotorMayLand(
 
 /** App's writers a configuration switch goes through. */
 export interface ConfigSwitchSinks {
+  setDetachedOverrides?: (overrides: import('../model/design.js').FlightOverrides) => void;
   /** The nozzle-follow record's seed (hooks/useNozzleFollow). */
   seedNozzleFollow: (stages: readonly StageMotors[]) => void;
   history: Pick<TreeHistory, 'reset'>;
@@ -896,16 +861,9 @@ export interface ConfigSwitchSinks {
 }
 
 /**
- * A configuration switch, written.
- *
- * THE HISTORY STARTS OVER (audit 2026-09-22). The switch writes the new
- * configuration's nozzle, separations and deployments into the tree, and the
- * stack holds the tree alone — so one Ctrl+Z put the PREVIOUS configuration's
- * back under the new motors. Measured on `38-54 2-stage.CDX1`: a K627 flying
- * the M1350's 31.75 mm exit, +2.2 % apogee on the supersonic model; on
- * `ThreeCarbYen-2018.CDX1` sim-1's 0.9 s separation delays under sim-2's
- * motors. `savedConfigs` is written only when the write-back changed it, so an
- * unchanged set keeps its identity (the dirty-state contract).
+ * Apply resets history: nozzle and mass state still change here, so undo must
+ * not put another loadout's physical assumptions under these motors (FC-4).
+ * Flight overrides remain separate; the detached set is cleared.
  */
 export function applyConfigSwitchPlan(
   plan: ConfigSwitchPlan, current: SavedConfig[], sinks: ConfigSwitchSinks,
@@ -918,6 +876,7 @@ export function applyConfigSwitchPlan(
   sinks.setMountMotors(plan.mountMotors);
   sinks.setUnmatchedRefs(plan.unmatchedRefs);
   sinks.setActiveConfigId(plan.activeConfigId);
+  sinks.setDetachedOverrides?.({});
   sinks.history.reset(plan.tree);
   sinks.setNote(plan.note.text, plan.note.severity);
 }

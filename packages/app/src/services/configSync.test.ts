@@ -32,7 +32,7 @@ describe('configuration editing', () => {
     tree, unmatchedRefs: { 'b-mmt': ref('Missing') } };
   };
 
-  it('snapshots every per-configuration field, activates it, and leaves the previous active unchanged', () => {
+  it('copies effective sparse layers and snapshots ancillary fields, activates it, and leaves the previous active unchanged', () => {
     const state = working();
     const before = structuredClone(state);
     const next = createLoadedConfig(state)!;
@@ -43,9 +43,9 @@ describe('configuration editing', () => {
       motors: state.mountMotors, unmatchedRefs: state.unmatchedRefs, unmatched: ['Missing'],
       stageActiveness: { s2: false }, stageMassOverrides: { s1: { overrideMass: 2.5, overrideCGX: 0.4 }, s2: {} },
       nozzles: { s1: 0.012, s2: 0 },
-      deployments: { chute: { deployEvent: 'altitude', deployAltitude: 150, deployDelay: 0.5 } },
-      separations: { s1: { separationEvent: 'ejection', separationDelay: 0, separationAltitude: 200 },
-        s2: { separationEvent: 'burnout', separationDelay: 1.5, separationAltitude: 200 } } });
+      deployments: { chute: { deployEvent: 'apogee', deployAltitude: 150, deployDelay: 0.5 } },
+      ignitions: {},
+      separations: { s2: { separationEvent: 'ejection', separationDelay: 1.5, separationAltitude: 200 } } });
     expect(created.id).toMatch(/^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/);
     expect(created.motors).not.toBe(state.mountMotors);
     expect(createLoadedConfig(state)!.activeConfigId).not.toBe(created.id);
@@ -60,14 +60,14 @@ describe('configuration editing', () => {
     expect(createLoadedConfig({ ...state, savedConfigs: configs.slice(1) })!.savedConfigs).toHaveLength(256);
   });
 
-  it('captures automatic nozzles and the writer separation fallback without inventing values', () => {
+  it('captures automatic nozzles and inherits the component separation fallback', () => {
     for (const value of [undefined, NaN, Infinity, -0.01]) {
       const state = working();
       state.tree.components[0]!['nozzleExitDiameter'] = value;
       state.tree.components[0]!['separationEvent'] = 7;
       const created = createLoadedConfig(state)!.savedConfigs[1]!;
       expect(created.nozzles?.['s1']).toBeNull();
-      expect(created.separations?.['s1']?.separationEvent).toBe('ejection');
+      expect(created.separations?.['s1']).toBeUndefined();
     }
   });
 
@@ -181,7 +181,7 @@ describe('configuration editing', () => {
     });
 
   it.each(['nozzles', 'deployments', 'separations'] as const)(
-    'Create takes the union of component IDs for %s', (family) => {
+    'Create retains nozzle ownership but snapshots effective sparse flight tuples for %s', (family) => {
       const state = working();
       state.tree.components[0]!.children!.push({ type: 'streamer', id: 'ch2', deployAltitude: 300 });
       const b = cfg('B', {}, { nozzles: { s2: 0 }, separations: { s2: { separationEvent: 'burnout' } },
@@ -191,7 +191,7 @@ describe('configuration editing', () => {
       state.savedConfigs[0]!.stageMassOverrides = { s1: {} };
       state.savedConfigs.push(b);
       const created = createLoadedConfig(state)!.savedConfigs[2]!;
-      expect(Object.keys(created[family]!).sort()).toEqual(family === 'deployments' ? ['ch2', 'chute'] : ['s1', 's2']);
+      expect(Object.keys(created[family]!).sort()).toEqual(family === 'deployments' ? ['chute'] : family === 'separations' ? [] : ['s1', 's2']);
     });
 
   it('round 5: Create snapshots every stage when an existing stage-mass map is empty', () => {
@@ -203,7 +203,7 @@ describe('configuration editing', () => {
   });
 
   it.each(['nozzles', 'deployments', 'separations', 'stageMassOverrides'] as const)(
-    'Create snapshots %s when another existing configuration owns it', (family) => {
+    'Create keeps ancillary %s ownership and inherits unowned flight settings', (family) => {
       const state = working();
       const expected = createLoadedConfig(state)!.savedConfigs[1]![family];
       const owner = { ...state.savedConfigs[0]!, id: 'B' };
@@ -211,15 +211,15 @@ describe('configuration editing', () => {
       state.savedConfigs.push(owner);
       const created = createLoadedConfig(state)!.savedConfigs[2]!;
       expect(Object.keys(expected ?? {}).length).toBeGreaterThan(0);
-      expect(created[family]).toEqual(expected);
+      expect(created[family]).toEqual(family === 'deployments' || family === 'separations' ? {} : expected);
       expect(state.savedConfigs[0]![family]).toBeUndefined();
     });
 
-  it('the first Create snapshots recovery, separation and nozzles, keeping stage mass design-wide', () => {
+  it('the first Create inherits recovery and separation, snapshots nozzles, and keeps stage mass design-wide', () => {
     const state = { ...working(), savedConfigs: [], activeConfigId: null };
     const created = createLoadedConfig(state)!.savedConfigs[0]!;
-    expect(created.deployments?.['chute']).toMatchObject({ deployEvent: 'altitude', deployAltitude: 150 });
-    expect(created.separations?.['s2']).toMatchObject({ separationEvent: 'burnout', separationDelay: 1.5 });
+    expect(created.deployments).toEqual({});
+    expect(created.separations).toEqual({});
     expect(created.nozzles).toEqual({ s1: 0.012, s2: 0 });
     expect(created.stageMassOverrides).toBeUndefined();
   });
@@ -303,7 +303,8 @@ describe('configuration editing', () => {
     const survivor = cfg('B', { 's-mmt': motor('F67C') });
     state.savedConfigs.push(survivor);
     const next = deleteConfig(state.savedConfigs, 'A', 'A');
-    expect(next).toEqual({ savedConfigs: [survivor], activeConfigId: null });
+    expect(next).toEqual({ savedConfigs: [survivor], activeConfigId: null,
+      detachedOverrides: { deployments: state.savedConfigs[0]!.deployments, separations: state.savedConfigs[0]!.separations } });
     expect(survivor.isDefault).toBe(false);
     const result = { ...state, ...next };
     expect(result.mountMotors).toEqual(before.mountMotors);
@@ -743,12 +744,9 @@ describe('withoutStoredRef', () => {
 });
 
 /**
- * THE TREE'S HALF OF THE WRITE-BACK (audit 2026-09-22). Only the motors went
- * back into the configuration being left, so a deployment, separation or nozzle
- * changed in the app while A was active was overwritten by B's on the switch
- * and by A's FILE values on the way back — and a Save while B was active wrote
- * A's stale copy, because the .ork writer replays every non-active
- * configuration from what it stores.
+ * The tree's remaining write-back families (audit 2026-10-11, FC-4): nozzle
+ * and stage mass/CG keep Apply-time semantics. Recovery and separation maps
+ * remain independent when the component defaults change.
  */
 describe('withActiveConfigTreeSynced', () => {
   /** twoStage() plus a chute under the sustainer, a booster separation and a nozzle. */
@@ -778,24 +776,24 @@ describe('withActiveConfigTreeSynced', () => {
     expect(withActiveConfigTreeSynced(configs, 'Z', live({ chute: { deployAltitude: 90 } }))).toBe(configs);
   });
 
-  it('captures a deployment, a separation and a nozzle edited in the app', () => {
+  it('keeps override maps while capturing an edited nozzle', () => {
     const B = cfg('B', {});
     const out = withActiveConfigTreeSynced([A, B], 'A', live({
       chute: { deployEvent: 'altitude', deployAltitude: 150 },
       booster: { separationEvent: 'never', separationDelay: 2, nozzleExitDiameter: 0.03 },
     }));
-    expect(out[0]!.deployments).toEqual({ chute: { deployEvent: 'altitude', deployAltitude: 150, deployDelay: 0 } });
+    expect(out[0]!.deployments).toEqual(A.deployments);
     // separationAltitude was not governed and the node flies the fallback: still not governed.
-    expect(out[0]!.separations).toEqual({ s2: { separationEvent: 'never', separationDelay: 2 } });
+    expect(out[0]!.separations).toEqual(A.separations);
     expect(out[0]!.nozzles).toEqual({ s2: 0.03 });
     expect(out[0]!.motors).toBe(A.motors);
     expect(out[1]).toBe(B);
     expect(A.deployments!['chute']!.deployAltitude).toBe(200); // the input is untouched
   });
 
-  it('adds a field the configuration did not govern only when the node carries a non-fallback value', () => {
+  it('does not capture a changed component separation default', () => {
     const out = withActiveConfigTreeSynced([A], 'A', live({ booster: { separationAltitude: 350 } }));
-    expect(out[0]!.separations).toEqual({ s2: { separationEvent: 'ejection', separationDelay: 0, separationAltitude: 350 } });
+    expect(out[0]!.separations).toEqual(A.separations);
     const same = [A];
     expect(withActiveConfigTreeSynced(same, 'A', live({ booster: { separationAltitude: 200 } }))).toBe(same);
   });
@@ -819,13 +817,13 @@ describe('withActiveConfigTreeSynced', () => {
     expect(withActiveConfigTreeSynced([ork], 'A', live())[0]!).toBe(ork);
   });
 
-  it('A→B→A through syncActiveConfig keeps the deployment edited on A', () => {
+  it('A→B→A through syncActiveConfig keeps overrides separate from a default edit', () => {
     const B = cfg('B', {}, { deployments: { chute: { deployEvent: 'apogee', deployAltitude: 300, deployDelay: 1 } } });
     const edited = live({ chute: { deployAltitude: 120 } });
     const leavingA = syncActiveConfig([A, B], 'A', { motors: A.motors, unmatchedRefs: {}, tree: edited });
-    expect(leavingA[0]!.deployments!['chute']!.deployAltitude).toBe(120);
-    // Before the fix the stored copy was still the file's 200, so coming back
-    // to A flew 200, and a Save while B was active wrote 200 for A.
+    expect(leavingA[0]!.deployments!['chute']!.deployAltitude).toBe(200);
+    expect(edited.components[0]!.children![0]!.children!.find(n => n.id === 'chute')!['deployAltitude']).toBe(120);
+    // A still owns 200; the component's new 120 is for inheriting configurations.
     expect(leavingA[1]).toBe(B);
   });
 });

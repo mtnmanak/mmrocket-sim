@@ -148,7 +148,8 @@ describe('pre-v0.138 station comparison', () => {
     findNode(tree, 'body')!.children = [];
     const before = JSON.stringify(tree);
     expect(checkLegacyPositions(tree, true, [])).toBe(tree);
-    expect(JSON.stringify(restore(tree, '0.137').state.tree)).toBe(before);
+    expect(JSON.stringify(restore(tree, '0.137').state.tree.components)).toBe(JSON.stringify(tree.components));
+    expect(JSON.stringify(tree)).toBe(before);
     expect(notesFor(importOrk(saveXml(tree)).notes)).toEqual([]);
   });
 

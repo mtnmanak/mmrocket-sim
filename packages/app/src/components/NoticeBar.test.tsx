@@ -63,6 +63,19 @@ afterEach(() => {
 });
 
 describe('NoticeBar', () => {
+  it('opens flagged information on arrival, speaks it politely in full, and respects collapse until new text arrives', () => {
+    const flagged = { ...info, expand: true };
+    draw([flagged]);
+    expect(bar()?.classList.contains('expanded')).toBe(true);
+    expect(polite()?.textContent).toBe(`Notice: ${info.text}`);
+    expect(assertive()?.textContent).toBe('');
+    act(() => buttonByLabel(/Collapse notices/).click());
+    draw([{ ...flagged }, { id: 'routine', severity: 'info', text: 'Saved' }]);
+    expect(bar()?.classList.contains('expanded')).toBe(false);
+    draw([{ ...flagged, text: `${info.text}\nA different override.` }]);
+    expect(bar()?.classList.contains('expanded')).toBe(true);
+  });
+
   it('draws no bar when there is nothing to say, but keeps its live regions mounted', () => {
     draw([]);
     expect(bar()).toBeNull();

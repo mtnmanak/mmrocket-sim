@@ -1,3 +1,4 @@
+import { designStateFromSession } from './sessionRestore.js';
 import type { MountMotor } from '../model/design.js';
 import { loadExMotorIdentities } from './exMotors.js';
 import { safeName } from './fileName.js';
@@ -62,6 +63,11 @@ function motorSet(
 
 /** The stored session as an .ork document. Throws whatever the writer throws. */
 export function autosaveToOrk(s: SessionState): string {
+  // A damaged root must still fall back to the original recovery bytes.
+  if (!Array.isArray(s.tree?.components)) throw new Error('Unreadable autosave tree');
+  // The crash path never mounts App; it must normalize and migrate independently.
+  const restored = designStateFromSession(s, { legacyMaxMotorLengthM: null });
+  s = { ...restored.session!, ...restored.state };
   const active = s.savedConfigs?.find((c) => c.id === s.activeConfigId);
   return exportOrk({
     name: s.tree.name ?? 'My Rocket',
@@ -79,11 +85,13 @@ export function autosaveToOrk(s: SessionState): string {
       ...(c.stageActiveness ? { stageActiveness: c.stageActiveness } : {}),
       ...(c.motorLoadoutRefusal ? { motorLoadoutRefusal: c.motorLoadoutRefusal } : {}),
       motors: motorSet(s, c.id, c.motors, c.unmatchedRefs, 'refs'),
+      ...(c.ignitions ? { ignitions: c.ignitions } : {}),
       ...(c.deployments ? { deployments: c.deployments } : {}),
       ...(c.separations ? { separations: c.separations } : {}),
       ...(c.stageMassOverrides ? { stageMassOverrides: c.stageMassOverrides } : {}),
     })),
     activeConfigId: s.activeConfigId ?? null,
+    workingOverrides: s.detachedOverrides,
     ...(s.measured ? { measured: s.measured } : {}),
   });
 }

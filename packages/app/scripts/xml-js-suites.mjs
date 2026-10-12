@@ -22,6 +22,7 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  'src/services/configLayers.wiring.test.ts',
   'src/services/legacyPositionCheck.test.ts',
   'src/services/legacyPositionCheck.round2.test.ts',
   'src/services/legacyPositionCheck.round3.test.ts',
@@ -45,6 +46,7 @@ export const XML_JS_SUITES = [
   'src/services/nozzleWiring.test.ts',
   'src/services/deployOverrideNote.test.ts',
   'src/services/orkFile.test.ts',
+  'src/services/orkFile.layers.test.ts',
   'src/services/orkFile.audit-fidelity.test.ts',
   'src/services/orkExtensions.test.ts',
   'src/services/orkFile.version.test.ts',
@@ -75,6 +77,7 @@ export const XML_JS_SUITES = [
   'src/services/rocksimFileHardening.test.ts',
   'src/services/rocksimFileIgnored.test.ts',
   'src/services/rocksimRecovery.test.ts',
+  'src/services/foreignFile.layers.test.ts',
   'src/services/rocksimRingBore.test.ts',
   'src/services/rocksimAttachRules.test.ts',
   'src/services/rocksimLaunchSite.test.ts',

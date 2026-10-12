@@ -405,6 +405,15 @@ describe('flightDataForExport — the rules that are about OTHER configurations'
   } as unknown as SavedConfig;
   const RUN2 = { ...RUN, id: 'r2', flightConfigId: 'c2' } as SimRun;
 
+  it('FC-4 qualifies each configuration against its own resolved physics, including detached flights', () => {
+    const input = { runs: [RUN, { ...RUN2, designKey: 'other-layer' }], savedConfigs: [CONFIG, OTHER], activeConfigId: 'c1',
+      configurationState: (id: string | null) => ({ designKey: id === 'c2' ? 'other-layer' : 'changed-layer',
+        hasNozzle: false, motors: [['m1', MOTOR]] as [string, MountMotor][] }) };
+    expect(ids(input)).toEqual(['c2']);
+    const detached = { ...RUN, flightConfigId: undefined } as SimRun;
+    expect(flownAutoDelays(base({ ...input, activeConfigId: null, runs: [detached] }))).toEqual({});
+  });
+
   it('exports a NON-active configuration’s stored result too', () => {
     // The user has since switched configurations; the others' results are still
     // theirs to save.

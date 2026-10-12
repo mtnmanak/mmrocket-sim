@@ -1,0 +1,293 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`FC-2 configuration layers > pins pre-FC-2 canonical XML for an existing no-override fixture > kernel document before FC-2 1`] = `
+{
+  "components": [
+    {
+      "children": [
+        {
+          "aftRadius": 0.078359,
+          "density": 2075.992848,
+          "id": "ID",
+          "length": 0.78359,
+          "materialName": "Wildman G12",
+          "name": "Nose cone",
+          "shape": "haack",
+          "shapeParameter": 0,
+          "shoulderLength": 0,
+          "shoulderRadius": 0,
+          "shoulderThickness": 0,
+          "thickness": 0.002159,
+          "type": "nosecone",
+        },
+        {
+          "density": 2075.992848,
+          "id": "ID",
+          "length": 0.4699,
+          "materialName": "Wildman G12",
+          "name": "Payload Tube",
+          "outerRadius": 0.078359,
+          "thickness": 0.002159,
+          "type": "bodytube",
+        },
+        {
+          "density": 2075.992848,
+          "id": "ID",
+          "length": 0.038099999999999995,
+          "materialName": "Wildman G12",
+          "name": "SwitchBand / Ebay Assembly",
+          "outerRadius": 0.078359,
+          "thickness": 0.002159,
+          "type": "bodytube",
+        },
+        {
+          "children": [
+            {
+              "deployAltitude": 200,
+              "deployDelay": 0,
+              "deployEvent": "ejection",
+              "diameter": 2.4384,
+              "id": "ID",
+              "lineCount": 8,
+              "lineLength": 2.4384,
+              "name": "Airframe Main",
+              "packedLength": 0.18,
+              "packedRadius": 0.05,
+              "position": {
+                "method": "top",
+                "offset": 0.1,
+              },
+              "surfaceDensity": 0.06,
+              "surfaceMaterialName": "Ripstop nylon",
+              "type": "parachute",
+            },
+          ],
+          "density": 2075.992848,
+          "id": "ID",
+          "length": 0.635,
+          "materialName": "Wildman G12",
+          "name": "Recovery Tube",
+          "outerRadius": 0.078359,
+          "thickness": 0.002159,
+          "type": "bodytube",
+        },
+        {
+          "children": [
+            {
+              "id": "ID",
+              "length": 0.06,
+              "mass": 0.2,
+              "massComponentType": "recoveryhardware",
+              "name": "Recovery Hardware",
+              "position": {
+                "method": "top",
+                "offset": 0.05,
+              },
+              "radius": 0.0762,
+              "type": "masscomponent",
+            },
+            {
+              "density": 680,
+              "id": "ID",
+              "length": 0.00635,
+              "materialName": "Cardboard",
+              "name": "Motor Ring",
+              "position": {
+                "method": "bottom",
+                "offset": 0,
+              },
+              "type": "centeringring",
+            },
+            {
+              "crossSection": "airfoil",
+              "density": 2075.992848,
+              "finCount": 3,
+              "height": 0.1524,
+              "id": "ID",
+              "materialName": "Wildman G12",
+              "name": "Fins",
+              "position": {
+                "method": "bottom",
+                "offset": 0,
+              },
+              "rootChord": 0.3048,
+              "sweep": 0.1778,
+              "thickness": 0.00476,
+              "tipChord": 0.127,
+              "type": "trapezoidfinset",
+            },
+          ],
+          "density": 2075.992848,
+          "id": "ID",
+          "length": 1.27,
+          "materialName": "Wildman G12",
+          "name": "Lower Body Tube",
+          "outerRadius": 0.078359,
+          "thickness": 0.002159,
+          "type": "bodytube",
+        },
+      ],
+      "id": "ID",
+      "name": "Primary Stage",
+      "type": "stage",
+    },
+  ],
+  "legacyPositionCheck": {
+    "pending": [],
+    "provenance": "current",
+  },
+  "name": "Comp Rocket (reduced)",
+}
+`;
+
+exports[`FC-2 configuration layers > pins pre-FC-2 canonical XML for an existing no-override fixture 1`] = `
+"<?xml version='1.0' encoding='utf-8'?>
+<openrocket version="1.10" creator="MMRocket Sim">
+  <rocket>
+    <name>Comp Rocket (reduced)</name>
+    <id>UUID</id>
+    <axialoffset method="absolute">0.0</axialoffset>
+    <position type="absolute">0.0</position>
+    <designtype>original</designtype>
+    <motorconfiguration configid="UUID" default="true">
+      <stage number="0" active="true"/>
+    </motorconfiguration>
+    <referencetype>maximum</referencetype>
+    <subcomponents>
+      <stage>
+        <name>Primary Stage</name>
+        <id>UUID</id>
+        <subcomponents>
+          <nosecone>
+            <name>Nose cone</name>
+            <id>UUID</id>
+            <finish>normal</finish>
+            <material type="bulk" density="2075.992848">Wildman G12</material>
+            <length>0.78359</length>
+            <thickness>0.002159</thickness>
+            <shape>haack</shape>
+            <shapeclipped>false</shapeclipped>
+            <shapeparameter>0</shapeparameter>
+            <aftradius>0.078359</aftradius>
+            <aftshoulderradius>0</aftshoulderradius>
+            <aftshoulderlength>0</aftshoulderlength>
+            <aftshoulderthickness>0</aftshoulderthickness>
+            <aftshouldercapped>false</aftshouldercapped>
+            <isflipped>false</isflipped>
+          </nosecone>
+          <bodytube>
+            <name>Payload Tube</name>
+            <id>UUID</id>
+            <finish>normal</finish>
+            <material type="bulk" density="2075.992848">Wildman G12</material>
+            <length>0.4699</length>
+            <thickness>0.002159</thickness>
+            <radius>0.078359</radius>
+          </bodytube>
+          <bodytube>
+            <name>SwitchBand / Ebay Assembly</name>
+            <id>UUID</id>
+            <finish>normal</finish>
+            <material type="bulk" density="2075.992848">Wildman G12</material>
+            <length>0.038099999999999995</length>
+            <thickness>0.002159</thickness>
+            <radius>0.078359</radius>
+          </bodytube>
+          <bodytube>
+            <name>Recovery Tube</name>
+            <id>UUID</id>
+            <finish>normal</finish>
+            <material type="bulk" density="2075.992848">Wildman G12</material>
+            <length>0.635</length>
+            <thickness>0.002159</thickness>
+            <radius>0.078359</radius>
+            <subcomponents>
+              <parachute>
+                <name>Airframe Main</name>
+                <id>UUID</id>
+                <axialoffset method="top">0.1</axialoffset>
+                <position type="top">0.1</position>
+                <packedlength>0.18</packedlength>
+                <packedradius>0.05</packedradius>
+                <radialposition>0</radialposition>
+                <radialdirection>0.0000</radialdirection>
+                <cd>auto</cd>
+                <material type="surface" density="0.06">Ripstop nylon</material>
+                <deployevent>ejection</deployevent>
+                <deployaltitude>200</deployaltitude>
+                <deploydelay>0</deploydelay>
+                <diameter>2.4384</diameter>
+                <linecount>8</linecount>
+                <linelength>2.4384</linelength>
+                <linematerial type="line" density="0.0018" group="ThreadsLines">Elastic cord (round 2 mm, 1/16 in)</linematerial>
+              </parachute>
+            </subcomponents>
+          </bodytube>
+          <bodytube>
+            <name>Lower Body Tube</name>
+            <id>UUID</id>
+            <finish>normal</finish>
+            <material type="bulk" density="2075.992848">Wildman G12</material>
+            <length>1.27</length>
+            <thickness>0.002159</thickness>
+            <radius>0.078359</radius>
+            <subcomponents>
+              <masscomponent>
+                <name>Recovery Hardware</name>
+                <id>UUID</id>
+                <axialoffset method="top">0.05</axialoffset>
+                <position type="top">0.05</position>
+                <packedlength>0.06</packedlength>
+                <packedradius>0.0762</packedradius>
+                <radialposition>0</radialposition>
+                <radialdirection>0.0000</radialdirection>
+                <mass>0.2</mass>
+                <masscomponenttype>recoveryhardware</masscomponenttype>
+              </masscomponent>
+              <centeringring>
+                <name>Motor Ring</name>
+                <id>UUID</id>
+                <instancecount>1</instancecount>
+                <instanceseparation>0</instanceseparation>
+                <axialoffset method="bottom">0</axialoffset>
+                <position type="bottom">0</position>
+                <material type="bulk" density="680">Cardboard</material>
+                <length>0.00635</length>
+                <radialposition>0</radialposition>
+                <radialdirection>0.0000</radialdirection>
+                <outerradius>auto</outerradius>
+                <innerradius>auto</innerradius>
+              </centeringring>
+              <trapezoidfinset>
+                <name>Fins</name>
+                <id>UUID</id>
+                <instancecount>3</instancecount>
+                <fincount>3</fincount>
+                <radiusoffset method="surface">0.0</radiusoffset>
+                <angleoffset method="relative">0.0</angleoffset>
+                <rotation>0</rotation>
+                <axialoffset method="bottom">0</axialoffset>
+                <position type="bottom">0</position>
+                <finish>normal</finish>
+                <material type="bulk" density="2075.992848">Wildman G12</material>
+                <thickness>0.00476</thickness>
+                <crosssection>airfoil</crosssection>
+                <cant>0</cant>
+                <filletradius>0</filletradius>
+                <filletmaterial type="bulk" density="680">Cardboard</filletmaterial>
+                <rootchord>0.3048</rootchord>
+                <tipchord>0.127</tipchord>
+                <sweeplength>0.1778</sweeplength>
+                <height>0.1524</height>
+              </trapezoidfinset>
+            </subcomponents>
+          </bodytube>
+        </subcomponents>
+      </stage>
+    </subcomponents>
+  </rocket>
+  <simulations>
+  </simulations>
+</openrocket>
+"
+`;

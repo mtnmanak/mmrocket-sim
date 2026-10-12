@@ -1,7 +1,7 @@
 import { storedWarnings } from './storedWarnings.js';
-import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
+import type { MotorSpec } from '@online-openrocket/engine';
 import type { LaunchConditions } from './launchConditions.js';
-import type { MountMotor, SavedConfig } from '../model/design.js';
+import type { FlightTree, FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
 import { shortHash, type MotorMeta } from './simReport.js';
 import { APP_VERSION } from '../version.js';
 import { MIN_IMPORTED_TIME_STEP_S, type MeasuredFigures, type OrkMotorRef } from './orkFile.js';
@@ -26,7 +26,9 @@ const DEBOUNCE_MS = 400;
 export interface SessionState {
   /** The opened file's original summaries; never reconstructed from history. */
   importedDocument?: ImportedSummaryDocument;
-  tree: RocketTree;
+  tree: FlightTree;
+  configLayers?: 1;
+  detachedOverrides?: FlightOverrides;
   /** Transient load notes when the stored root could not be restored. */
   treeRestoreNotes?: string[];
   /** Per-mount motors (v0.009+). */
@@ -389,7 +391,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
     if (s.savedConfigs !== undefined) {
       const configs = Array.isArray(s.savedConfigs) ? s.savedConfigs.filter(c =>
         isTable(c) && typeof c.id === 'string' && isTable(c.motors)
-        && ['unmatchedRefs', 'deployments', 'separations', 'nozzles', 'stageActiveness', 'stageMassOverrides']
+        && ['unmatchedRefs', 'deployments', 'separations', 'ignitions', 'nozzles', 'stageActiveness', 'stageMassOverrides']
           .every(key => c[key] === undefined || isTable(c[key])),
       ) : [];
       if (!Array.isArray(s.savedConfigs) || configs.length !== s.savedConfigs.length) {
@@ -473,6 +475,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
     }
     if (s.lossySaved !== undefined) {
       const mark = designFingerprint({ tree: s.tree, launch: s.launch, mountMotors: s.mountMotors ?? {},
+        detachedOverrides: s.detachedOverrides,
         savedConfigs: s.savedConfigs ?? [], activeConfigId: s.activeConfigId ?? null,
         measured: s.measured ?? { massKg: null, cgM: null } });
       const saved = validLossySaveMark(s.lossySaved, s.designFile, mark);

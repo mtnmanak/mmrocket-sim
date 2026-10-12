@@ -1,7 +1,51 @@
 import type { StageMassOverride } from '../services/stageMassOverrides.js';
-import type { IgnitionEvent, MotorSpec } from '@online-openrocket/engine';
+import type { IgnitionEvent, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { MotorMeta } from '../services/simReport.js';
 import type { OrkDeployOverride, OrkMotorRef, OrkSeparationOverride } from '../services/orkFile.js';
+
+/** Complete parameter objects, not field patches (FC-SPEC decision 1). SI: m and s. */
+export interface DeploymentTuple {
+  deployEvent: string;
+  deployAltitude: number;
+  deployDelay: number;
+}
+export interface SeparationTuple {
+  separationEvent: string;
+  separationDelay: number;
+  separationAltitude: number;
+}
+export interface IgnitionTuple { event: IgnitionEvent; delay: number }
+
+/** Missing entry inherits the component default; a present entry owns the whole tuple. */
+export interface FlightOverrides {
+  deployments?: Record<string, DeploymentTuple>;
+  separations?: Record<string, SeparationTuple>;
+  ignitions?: Record<string, IgnitionTuple>;
+}
+
+/**
+ * Recovery/separation defaults live on components; ignition defaults are keyed by
+ * mount id here, independently of whether a motor is currently loaded. Root
+ * metadata is not lowered to kernel components. Keep removed ids for undo.
+ */
+export interface FlightTree extends RocketTree {
+  ignitionDefaults?: Record<string, IgnitionTuple>;
+}
+
+/**
+ * Strict post-migration type. SavedConfig remains the legacy/import boundary
+ * until FC-2/FC-4 convert their partial maps. Nozzle and stage-mass maps keep
+ * their existing Apply-time semantics (FC-SPEC decision 2), outside these layers.
+ */
+export type LayeredSavedConfig = Omit<SavedConfig, 'deployments' | 'separations'> & FlightOverrides;
+
+/** Session schema payload; FC-4 will wire this into SessionState and autosave. */
+export interface ConfigurationLayers {
+  configLayers: 1;
+  tree: FlightTree;
+  savedConfigs: LayeredSavedConfig[];
+  detachedOverrides: FlightOverrides;
+}
 
 /**
  * THE DESIGN'S DOMAIN TYPES — what a mount's motor and a stored flight
@@ -72,6 +116,8 @@ export interface MountMotor {
  * reads; applying a preset copies its motors in and marks it active.
  */
 export interface SavedConfig {
+  /** Sparse ignition tuples; legacy motor-record ignition is migration input only. */
+  ignitions?: Record<string, IgnitionTuple>;
   /** Unresolved imported loadout: human-readable, with no component ids. Cleared by a motor assignment. */
   motorLoadoutRefusal?: string;
   /** Per-stage mass/CG snapshots derived from each RASAero simulation. */

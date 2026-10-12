@@ -234,7 +234,8 @@ const RKT_NAME = 'FooBar Test';
 
 describe('flight configuration editing in App', () => {
   const press = async (host: HTMLElement, label: string) => {
-    const b = [...host.querySelectorAll('button')].find(el => el.getAttribute('aria-label') === label);
+    const b = [...host.querySelectorAll('button')].find(el => el.getAttribute('aria-label') === label
+      || el.getAttribute('aria-label')?.startsWith(`${label} — configuration `));
     expect(b, label).toBeDefined();
     await act(async () => { b!.click(); });
   };
@@ -608,7 +609,7 @@ describe('lane C2 save and share fidelity', () => {
     expect(await snapshots()).toEqual(scaled);
     await openTab(host, 'Motors & Launch');
     for (const [name, expected] of [['B', scaled[1]], ['C', scaled[2]]] as const) {
-      const apply = host.querySelector<HTMLButtonElement>(`button[aria-label="Apply ${name}"]`)!;
+      const apply = host.querySelector<HTMLButtonElement>(`button[aria-label^="Apply ${name} — configuration "]`)!;
       await act(async () => { apply.click(); });
       window.dispatchEvent(new Event('pagehide'));
       const current = storedSession()!.tree.components[0]!;
@@ -703,7 +704,7 @@ describe('lane C2 save and share fidelity', () => {
         expect(stored.mountMotors).toEqual({});
         expect(stored.flownSinceSave).toBe(status === 'flown');
         expect(stored.savedMark).toBe(status === 'clean' || status === 'flown'
-          ? designFingerprint({ ...state, savedConfigs: [], activeConfigId: null }) : savedMark);
+          ? designFingerprint({ ...state, tree: stored.tree, savedConfigs: [], activeConfigId: null }) : savedMark);
         await openTab(host, 'Motors & Launch');
         expect(host.querySelector('[aria-label="Flight configurations"]')).toBeNull();
         await openTab(host, 'Design');
@@ -1589,7 +1590,8 @@ describe('what a Save .ork hands the writer for each motor', () => {
       exMotorId: 'ex:loki-x99', exMotorSpec: ex.spec };
     expect(written.motors).toEqual({ [core]: autoOut, 'pod-mmt': exOut });
     expect(written.configs).toEqual([
-      { id: 'A', name: null, isDefault: true, motors: { [core]: autoOut, 'pod-mmt': exOut } },
+      { id: 'A', name: null, isDefault: true, motors: { [core]: autoOut, 'pod-mmt': exOut },
+        deployments: {}, separations: {}, ignitions: {} },
       {
         id: 'B', name: 'Backup', isDefault: false,
         motors: {
@@ -1599,7 +1601,8 @@ describe('what a Save .ork hands the writer for each motor', () => {
           },
           'pod-mmt': { designation: 'ZQ9999X', manufacturer: 'AeroTech', diameter: 0.018, length: 0.07, delay: 6 },
         },
-        deployments: { chute: { deployEvent: 'altitude', deployAltitude: 150 } },
+        deployments: { chute: { deployEvent: 'altitude', deployAltitude: 150, deployDelay: 0 } },
+        separations: {}, ignitions: {},
       },
     ]);
     // And the file says what the Auto mount was saved at.

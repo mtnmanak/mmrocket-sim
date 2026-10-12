@@ -33,11 +33,13 @@ import {
   isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
+import { sparsify } from './flightState.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
 import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 import { checkFileLongitude, fileLongitudeNote, type FileLongitudeCheck } from './longitudeCheck.js';
-import { deployOverrideNote, sameDeployment, type DeployOverride, type DeploySetting } from './deployOverrideNote.js';
+import { deployOverrideNote, flightParameterOverrideNote, sameDeployment, type DeployOverride, type DeploySetting } from './deployOverrideNote.js';
 import { archiveExMotors, EX_MOTOR_ID_TAG, EX_MOTOR_NOTES_TAG, EX_MOTORS_TAG, readArchivedExMotors } from './exMotorArchive.js';
 import type { ExMotor } from './exMotors.js';
 import { checkLegacyPositions, currentPlacementStamp, legacyPositionCandidates, recordCurrentPlacement } from './legacyPositionCheck.js';
@@ -106,6 +108,8 @@ export interface OrkMotorRef {
 }
 
 export interface OrkTreeImportResult {
+  /** Informational file note that opens on arrival (FC-2); severity is independent. */
+  expand?: boolean;
   embeddedExMotors?: ExMotor[];
   name: string;
   tree: RocketTree;
@@ -164,6 +168,7 @@ export interface MeasuredFigures {
 
 /** One rocket-level <motorconfiguration> declaration. */
 export interface OrkFlightConfig {
+  ignitions?: FlightOverrides['ignitions'];
   /** Imported ambiguous motor loadout; id-free reason, retained until explicitly repaired. */
   motorLoadoutRefusal?: string;
   /** Per-stage mass/CG snapshots derived from each RASAero simulation. */
@@ -297,6 +302,8 @@ export interface OrkImportResult extends OrkTreeImportResult {
    * describes a simulation that is not on screen.
    */
   configNotes?: Record<string, string[]>;
+  /** Notes whose configuration label is finalized after motor matching. */
+  configLabelNotes?: { text: string; configId: string; label: string }[];
 }
 
 /**
@@ -319,7 +326,17 @@ export { MAX_ORK_CONFIGURATIONS } from './configSnapshot.js';
 
 // ============================ IMPORT ============================
 
-export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string; presets?: readonly Preset[] }): OrkImportResult {
+/** File motor references with FC-1's complete, sparse parameter tuples. */
+export type LayeredOrkFlightConfig = Omit<OrkFlightConfig, 'deployments' | 'separations'> & {
+  deployments: Record<string, DeploymentTuple>;
+  separations: Record<string, SeparationTuple>;
+};
+export interface LayeredOrkImportResult extends OrkImportResult {
+  tree: FlightTree;
+  configs: LayeredOrkFlightConfig[];
+}
+
+export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string; presets?: readonly Preset[] }): LayeredOrkImportResult {
   let xml: string;
   // Set when the bytes were not valid UTF-8 and named no other encoding (see
   // decodeXml): the first import note, once there are notes.
@@ -512,7 +529,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // (optional <name>, optional default="true" — desktop 24.12
   // MotorConfigurationHandler).
   const stageIds = new Map<XmlElement, string>();
-  const configById = new Map<string, OrkFlightConfig>();
+  const configById = new Map<string, LayeredOrkFlightConfig>();
+  const ignitionDefaults: Record<string, IgnitionTuple> = {};
   // Desktop reuses the same configuration and applies later fields (audit 2026-10-11, S1a-8).
   for (const c of configEls
     .map((c) => ({
@@ -597,19 +615,19 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     for (const c of configs) {
       const block = Array.from(el.children).find(
         (x) => x.tagName === 'deploymentconfiguration' && x.getAttribute('configid') === c.id);
-      // Fall back to the BARE tags for a configuration that declares no block
-      // of its own. Recording the resolved value (not "nothing") is what makes
-      // the round-trip safe: on save the bare defaults are rewritten from the
-      // configuration the user opened, so a config that silently inherited the
-      // old defaults would otherwise inherit the NEW ones instead.
-      const o: OrkDeployOverride = { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 };
+      // Defaults stay on the component; only a differing whole tuple is owned
+      // by a configuration (audit 2026-10-11, FC-2).
+      if (!block) continue;
+      const o: DeploymentTuple = { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 };
       for (const src of block ? [el, block] : [el]) {
         const event = text(src, ':scope > deployevent');
         if (event) o.deployEvent = event;
         if (text(src, ':scope > deployaltitude') !== null) o.deployAltitude = num(src, 'deployaltitude', 200, notes);
         if (text(src, ':scope > deploydelay') !== null) o.deployDelay = num(src, 'deploydelay', 0, notes);
       }
-      if (node.id) c.deployments[node.id] = o;
+      const own: DeploymentTuple = { deployEvent: String(node['deployEvent'] ?? 'ejection'),
+        deployAltitude: nodeNum(node, 'deployAltitude', 200), deployDelay: nodeNum(node, 'deployDelay', 0) };
+      if (node.id && sparsify(own, o)) c.deployments[node.id] = o;
     }
   };
 
@@ -652,7 +670,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     for (const c of configs) {
       const block = Array.from(el.children).find(
         (x) => x.tagName === 'separationconfiguration' && x.getAttribute('configid') === c.id);
-      const o: OrkSeparationOverride = { separationEvent: 'ejection', separationDelay: 0, separationAltitude: 200 };
+      if (!block) continue;
+      const o: SeparationTuple = { separationEvent: 'ejection', separationDelay: 0, separationAltitude: 200 };
       // Like deployment, a partial block inherits each bare field (audit 2026-10-11, S1a-1).
       for (const src of block ? [el, block] : [el]) {
         const event = text(src, ':scope > separationevent');
@@ -676,7 +695,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           o.separationAltitude = num(src, 'separationaltitude', 200, notes);
         }
       }
-      if (node.id) c.separations[node.id] = o;
+      const own: SeparationTuple = { separationEvent: separationEventOf(String(node['separationEvent'] ?? 'ejection')) ?? 'ejection',
+        separationDelay: nodeNum(node, 'separationDelay', 0), separationAltitude: nodeNum(node, 'separationAltitude', 200) };
+      if (node.id && sparsify(own, o)) c.separations[node.id] = o;
     }
   };
 
@@ -696,11 +717,25 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     // Motor overhang (m): aft protrusion past the mount — min-diameter practice.
     const overhang = num(mountEl, 'overhang', 0, notes);
     if (overhang !== 0) node['motorOverhang'] = overhang;
+    const readIgnition = (src: XmlElement, base: IgnitionTuple, designation: string): IgnitionTuple => {
+      const rawEvent = text(src, ':scope > ignitionevent');
+      const knownEvent = knownIgnitionEvent(rawEvent);
+      if (rawEvent !== null && knownEvent === null && !unknownIgnitions.has(`${designation}|${rawEvent}`)) {
+        unknownIgnitions.add(`${designation}|${rawEvent}`);
+        notes.push(`Motor ${designation}: the file's ignition event “${rawEvent}” is not one OpenRocket`
+          + ' knows, so it lights on Automatic. Desktop OpenRocket ignores it too, with a warning.');
+      }
+      return { event: rawEvent === null ? base.event : knownEvent ?? 'automatic',
+        delay: text(src, ':scope > ignitiondelay') === null ? base.delay : num(src, 'ignitiondelay', 0, notes) };
+    };
+    const ownIgnition = readIgnition(mountEl, { event: 'automatic', delay: 0 },
+      text(configScoped(mountEl, 'motor') ?? mountEl, ':scope > designation') ?? String(node['name'] ?? 'mount'));
+    if (node.id) ignitionDefaults[node.id] = ownIgnition;
     // ONE configuration's motor+ignition off this mount. Plugged motors (no
     // ejection charge): the desktop writes the literal string "none"
     // (Motor.PLUGGED_DELAY). Represent as Infinity — the kernel treats a
     // +Inf ejection delay as "never fires", matching the desktop.
-    const resolveRef = (motorEl: XmlElement, igEl: XmlElement): OrkMotorRef => {
+    const resolveRef = (motorEl: XmlElement, ignition: IgnitionTuple): OrkMotorRef => {
       const exIdElement = motorEl.querySelector(`:scope > ${EX_MOTOR_ID_TAG}`);
       const delayText = text(motorEl, ':scope > delay');
       // Pre-1.4 digests use the old algorithm — never carry them (see
@@ -716,14 +751,6 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // weight and the pad-mass arithmetic left out (audit 2026-09-22). Named
       // once per value in the notes, whichever configuration carries it:
       // nothing later would say it was replaced.
-      const rawEvent = text(igEl, ':scope > ignitionevent');
-      const knownEvent = knownIgnitionEvent(rawEvent);
-      const ignitionEvent = rawEvent === null ? undefined : knownEvent ?? 'automatic';
-      if (rawEvent !== null && knownEvent === null && !unknownIgnitions.has(`${designation}|${rawEvent}`)) {
-        unknownIgnitions.add(`${designation}|${rawEvent}`);
-        notes.push(`Motor ${designation}: the file's ignition event “${rawEvent}” is not one OpenRocket`
-          + ' knows, so it lights on Automatic. Desktop OpenRocket ignores it too, with a warning.');
-      }
       // The delay as desktop's MotorHandler reads it: `none` is plugged, a
       // number is that many seconds, and ANYTHING ELSE — no <delay>, a blank
       // one, or text Double.parseDouble refuses — is plugged as well, with
@@ -754,8 +781,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         ...(digest ? { digest } : {}),
         ...(motorType ? { motorType } : {}),
         mountId: node.id,
-        ignitionEvent,
-        ignitionDelay: num(igEl, 'ignitiondelay', 0, notes),
+        ignitionEvent: ignition.event,
+        ignitionDelay: ignition.delay,
       };
     };
     // Stage B: EVERY declared configuration's motor rides along as a preset
@@ -768,8 +795,13 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         const byId = (tag: string) => Array.from(mountEl.children).find(
           (c) => c.tagName === tag && c.getAttribute('configid') === cfg.id);
         const cfgMotorEl = byId('motor');
+        const block = byId('ignitionconfiguration');
+        const ignition = block ? readIgnition(block, ownIgnition,
+          text(cfgMotorEl ?? mountEl, ':scope > designation') ?? String(node['name'] ?? 'mount')) : ownIgnition;
+        // An unloaded mount can still own ignition parameters (audit 2026-10-11, FC-2).
+        if (sparsify(ownIgnition, ignition)) (cfg.ignitions ??= {})[node.id] = ignition;
         if (!cfgMotorEl) continue; // no motor for this config here — empty
-        cfg.motors[node.id] = resolveRef(cfgMotorEl, byId('ignitionconfiguration') ?? mountEl);
+        cfg.motors[node.id] = resolveRef(cfgMotorEl, ignition);
       }
     }
     // A mount with no motor for the chosen configuration imports empty.
@@ -777,7 +809,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     if (!motorEl) return;
     // Ignition: the chosen config's block wins over the bare default
     // (desktop writes defaults bare, overrides in <ignitionconfiguration>).
-    const ref = resolveRef(motorEl, configScoped(mountEl, 'ignitionconfiguration') ?? mountEl);
+    const selectedIgnition = node.id && configs.find(c => c.id === chosenConfigId)?.ignitions?.[node.id];
+    const legacyBlock = chosenConfigId === null ? configScoped(mountEl, 'ignitionconfiguration') : null;
+    const ref = resolveRef(motorEl, selectedIgnition || (legacyBlock
+      ? readIgnition(legacyBlock, ownIgnition, text(motorEl, ':scope > designation') ?? 'unknown') : ownIgnition));
     if (!Number.isFinite(ref.delay)) {
       // One note per motor, however many mounts carry it — the RockSim
       // reader's rule. A cluster built as separate mounts (PELTZER_Swarm_JR.rkt's
@@ -1208,7 +1243,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // <deploymentconfiguration> only overrides when a config was chosen —
         // with no declarations the bare tags stay the whole story (a stray
         // block in an undeclared file was never read, keep it that way).
-        readDeployment(el, n, chosenConfigId === null ? null : configScoped(el, 'deploymentconfiguration'), notes);
+        readDeployment(el, n, null, notes);
         captureDeployments(el, n);
         noteDeployOverride(el, n, 'parachute');
         // Our extension tag (desktop warns-and-ignores) — spill hole diameter.
@@ -1224,7 +1259,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         n['stripWidth'] = num(el, 'stripwidth', 0.05, notes);
         readAutoCd(el, n, notes);
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
-        readDeployment(el, n, chosenConfigId === null ? null : configScoped(el, 'deploymentconfiguration'), notes);
+        readDeployment(el, n, null, notes);
         captureDeployments(el, n);
         noteDeployOverride(el, n, 'streamer');
         return n;
@@ -1282,7 +1317,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           if (Number.isFinite(nozzle) && nozzle >= 0) n['nozzleExitDiameter'] = nozzle;
           // Same separation read as a booster <stage> — the chosen config's
           // block wins over the bare defaults.
-          readSeparation(el, n, configScoped(el, 'separationconfiguration'), notes);
+          readSeparation(el, n, null, notes);
           captureSeparations(el, n);
         }
         return n;
@@ -1372,9 +1407,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       }
     }
     if (i > 0) {
-      // Like ignition: the chosen config's block overrides the bare defaults
-      // (24.12 writes a <separationconfiguration> for EVERY config id).
-      readSeparation(stageEl, stage, configScoped(stageEl, 'separationconfiguration'), notes);
+      // Keep bare defaults on the stage, separately from configuration blocks.
+      readSeparation(stageEl, stage, null, notes);
       captureSeparations(stageEl, stage);
     }
     const kids = convertChildren(stageEl);
@@ -1388,8 +1422,28 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     notes.push(`Ignored unsupported components: ${[...ignored].join(', ')}.`);
   }
   if (tooDeep) notes.push(TOO_DEEP_NESTING);
-  const overrideNote = deployOverrideNote(deployOverrides, configs.find((cf) => cf.id === chosenConfigId)?.name ?? null);
-  if (overrideNote) notes.push(overrideNote);
+  const noteConfig = configs.find(cf => cf.id === chosenConfigId);
+  const noteName = noteConfig ? configLabel(noteConfig) : null;
+  const overrideNotes = [deployOverrideNote(deployOverrides, noteName)].filter((s): s is string => s !== null);
+  const noteParameters = (nodes: ComponentNode[]) => {
+    for (const node of nodes) {
+      const separation = node.id ? noteConfig?.separations[node.id] : undefined;
+      if (separation) overrideNotes.push(flightParameterOverrideNote('separation', String(node['name'] ?? 'Stage'), {
+        separationEvent: separationEventOf(String(node['separationEvent'] ?? 'ejection')) ?? 'ejection',
+        separationDelay: nodeNum(node, 'separationDelay', 0), separationAltitude: nodeNum(node, 'separationAltitude', 200),
+      }, separation, noteName));
+      const ignition = node.id ? noteConfig?.ignitions?.[node.id] : undefined;
+      if (ignition) overrideNotes.push(flightParameterOverrideNote('ignition', String(node['name'] ?? 'Motor mount'),
+        ignitionDefaults[node.id!]!, ignition, noteName));
+      noteParameters(node.children ?? []);
+    }
+  };
+  noteParameters(components);
+  notes.push(...overrideNotes);
+  // Keep identity beside the prose: a resolved motor label can include a delay
+  // or a disambiguated name (audit 2026-10-11, FC-4 fixup).
+  const configLabelNotes = noteConfig && noteName
+    ? overrideNotes.map(text => ({ text, configId: noteConfig.id, label: noteName })) : [];
 
   // Say when a dimension was INFERRED. The user opened an archived file and got
   // a number nobody typed; without this note the only clue that anything was
@@ -1540,10 +1594,11 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       // checking for.
       // (This whole block is already inside `configs.length > 1`, so there is
       // no single-configuration case to branch on here.)
-      notes.push(
-        `Opened “${configLabel(chosen)}”${chosen.isDefault ? ', the file’s default' : ''} `
+      const openedNote = `Opened “${configLabel(chosen)}”${chosen.isDefault ? ', the file’s default' : ''} `
         + `flight configuration (${configs.length} in the file). Switch between them `
-        + `under Motors & Launch → Flight configurations.`);
+        + `under Motors & Launch → Flight configurations.`;
+      notes.push(openedNote);
+      configLabelNotes.push({ text: openedNote, configId: chosen.id, label: configLabel(chosen) });
     }
   } else if (configs.length === 0) {
     // Hand-rolled files may key <motor configid>s without declaring the
@@ -1605,12 +1660,17 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     ? recordCurrentPlacement(importedTree)
     : checkLegacyPositions(importedTree, appFile, notes);
 
-  const tree = preserveSimulationExtensions(placedTree, rawExtensions, simEls, chosenConfigId, configs.length > 0, notes);
+  const tree: FlightTree = { ...preserveSimulationExtensions(placedTree, rawExtensions, simEls, chosenConfigId, configs.length > 0, notes),
+    ...(Object.keys(ignitionDefaults).length ? { ignitionDefaults } : {}) };
   const storedSimulations = readStoredSimulations(simEls, notes);
   // Dry saves need a simulation to carry launch conditions, not a panel row.
   // Keep configurations owning extensions too, including the untagged fallback.
-  const emptyDefault = isLoneEmptyConfig(configs, id => hasSimulationExtensions(tree, id)
-    || simEls.some(sim => simulationConfigId(sim) === id && sim.querySelector(':scope > flightdata')));
+  const emptyDefault = isLoneEmptyConfig(configs, id => {
+    const c = configs.find(c => c.id === id)!;
+    return Object.keys(c.deployments).length > 0 || Object.keys(c.separations).length > 0
+      || Object.keys(c.ignitions ?? {}).length > 0 || hasSimulationExtensions(tree, id)
+      || simEls.some(sim => simulationConfigId(sim) === id && sim.querySelector(':scope > flightdata'));
+  });
   // Definitions stay document-local. Only an accepted, current open persists them.
   const exIds = readArchivedExMotors(rocketEl, notes);
   const savedExNotes = rocketEl.querySelector(`:scope > ${EX_MOTOR_NOTES_TAG}`)?.textContent;
@@ -1627,6 +1687,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   }
   return {
     name, tree, motors, newerFormat, configs: emptyDefault ? [] : configs,
+    ...(overrideNotes.length ? { expand: true } : {}),
+    ...(configLabelNotes.length ? { configLabelNotes } : {}),
     chosenConfigId: emptyDefault ? null : chosenConfigId,
     ...(exIds.size ? { embeddedExMotors: [...exIds.values()] } : {}),
     ...(storedSimulations.length ? { storedSimulations } : {}),
@@ -2202,6 +2264,7 @@ export function autoDelaySaveNote(m: OrkExportMotor, format: '.ork' | '.rkt'): s
 
 /** One flight configuration to write (Stage B) — the stable id from import. */
 export interface OrkExportConfig {
+  ignitions?: FlightOverrides['ignitions'];
   motorLoadoutRefusal?: string;
   stageMassOverrides?: Record<string, StageMassOverride>;
   id: string;
@@ -2214,21 +2277,22 @@ export interface OrkExportConfig {
   motors: Record<string, OrkExportMotor>;
   /**
    * This configuration's recovery-deployment overrides keyed by recovery-device
-   * node id, as captured at import. The ACTIVE configuration's values come from
-   * the live tree instead; these keep every OTHER configuration intact.
+   * node id. Bare tags come from the defaults tree; active and inactive
+   * configurations both write their own sparse entries (FC-2).
    */
   deployments?: Record<string, OrkDeployOverride>;
   /**
    * This configuration's stage separation, keyed by stage node id, as captured
-   * at import. The ACTIVE configuration's values come from the live tree; these
-   * keep every OTHER configuration intact, exactly as `deployments` does.
+   * at import. Missing entries inherit the bare stage defaults, exactly as
+   * `deployments` does (FC-2).
    */
   separations?: Record<string, OrkSeparationOverride>;
 }
 
 export interface OrkTreeExportInput {
+  workingOverrides?: FlightOverrides;
   name: string;
-  tree: RocketTree;
+  tree: FlightTree;
   /** Save notices, displayed by the caller only after a successful write. */
   notes?: string[];
   /**
@@ -2393,7 +2457,7 @@ export function flightDataAttrs(fd: OrkExportFlightData | undefined): string | n
 
 export function exportOrk({
   name, tree, motors, launch, configs, activeConfigId, measured, flightData,
-  flightDataDefault, notes,
+  flightDataDefault, notes, workingOverrides = {},
 }: OrkTreeExportInput): string {
   // Complete existing owners before minting a custom configuration, including
   // callers that export directly without first syncing the active config.
@@ -2436,10 +2500,9 @@ export function exportOrk({
     name: string | null;
     /** The caller's own maps, uncopied: read only. */
     motors: Readonly<Record<string, OrkExportMotor>>;
-    /** null for the ACTIVE config: its deployment comes from the live tree. */
-    deployments: Record<string, OrkDeployOverride> | null;
-    /** null for the ACTIVE config: its separation comes from the live tree. */
-    separations: Record<string, OrkSeparationOverride> | null;
+    deployments: Record<string, OrkDeployOverride>;
+    separations: Record<string, OrkSeparationOverride>;
+    ignitions?: FlightOverrides['ignitions'];
     motorLoadoutRefusal?: string;
     stageActiveness?: Record<string, boolean>;
     stageMassOverrides?: Record<string, StageMassOverride>;
@@ -2449,17 +2512,19 @@ export function exportOrk({
         id: c.id,
         name: c.name,
         motors: c === active ? motorMap : c.motors,
-        deployments: c === active ? null : (c.deployments ?? {}),
-        separations: c === active ? null : (c.separations ?? {}),
+        deployments: c.deployments ?? {},
+        separations: c.separations ?? {},
+        ignitions: c.ignitions,
         stageActiveness: c.stageActiveness,
         ...(c.motorLoadoutRefusal ? { motorLoadoutRefusal: c.motorLoadoutRefusal } : {}),
         stageMassOverrides: c.stageMassOverrides,
       }))
-      : [snapshotLoadedConfig(tree, motorMap)];
+      : [{ ...snapshotLoadedConfig(tree, motorMap, { deployments: false, separations: false }), ...workingOverrides }];
   // Active = none but motors loaded: mint an extra config carrying the live
   // set, unnamed (the desktop renders unnamed configs as their motor list).
-  const minted = configs && configs.length > 0 && !active && Object.keys(motorMap).length > 0
-    ? snapshotLoadedConfig(tree, motorMap, { stageMass: configs.some(c => !!c.stageMassOverrides) })
+  const minted = configs && configs.length > 0 && !active && (Object.keys(motorMap).length > 0 || Object.values(workingOverrides).some(map => Object.keys(map ?? {}).length > 0))
+    ? { ...snapshotLoadedConfig(tree, motorMap, { deployments: false, separations: false,
+      stageMass: configs.some(c => !!c.stageMassOverrides) }), ...workingOverrides }
     : null;
   if (minted) writeConfigs.push(minted);
   if (writeConfigs.length > MAX_ORK_CONFIGURATIONS) {
@@ -2624,25 +2689,10 @@ export function exportOrk({
     }
   };
 
-  /**
-   * Per-configuration recovery deployment. The ACTIVE configuration (and the
-   * classic single-config path) takes its values from the live tree — those are
-   * already written as the bare defaults just above, so its block simply
-   * repeats them. Every OTHER configuration replays what it carried in from
-   * import. Without this, saving after opening one configuration rewrote every
-   * configuration's recovery settings to the opened one's — a chute set to pop
-   * at apogee in config A could come back deploying at 300 m.
-   */
+  /** One block per recovery override, even with one configuration (audit 2026-10-11, FC-2). */
   const deploymentConfigs = (depth: number, node: ComponentNode) => {
-    if (writeConfigs.length < 2) return;
     for (const c of writeConfigs) {
-      const o: OrkDeployOverride = c.deployments === null
-        ? {
-          deployEvent: String(node['deployEvent'] ?? 'ejection'),
-          deployAltitude: n(node, 'deployAltitude', 200),
-          deployDelay: n(node, 'deployDelay', 0),
-        }
-        : (node.id ? c.deployments[node.id] ?? {} : {});
+      const o = node.id ? c.deployments[node.id] ?? {} : {};
       if (Object.keys(o).length === 0) continue;
       emit(depth, `<deploymentconfiguration configid="${escapeXmlAttr(c.id)}">`);
       if (o.deployEvent !== undefined) emit(depth + 1, `<deployevent>${escapeXml(foldDeployEvent(o.deployEvent))}</deployevent>`);
@@ -2654,7 +2704,7 @@ export function exportOrk({
 
   /**
    * Separation for a booster stage / parallel stage: desktop's bare defaults
-   * followed by one block per configuration. Each configuration writes ITS OWN
+   * followed by one block per override. Each configuration writes ITS OWN
    * value — the writer used to repeat the live tree's into every block, so
    * saving while one configuration was open rewrote all the others. A design
    * that says "never separate" on six of its seven configurations came back
@@ -2671,7 +2721,8 @@ export function exportOrk({
     };
     sep(depth, liveEv, liveDelay, liveAlt);
     for (const c of writeConfigs) {
-      const o = c.separations === null || !node.id ? undefined : c.separations[node.id];
+      const o = node.id ? c.separations[node.id] : undefined;
+      if (!o) continue;
       emit(depth, `<separationconfiguration configid="${escapeXmlAttr(c.id)}">`);
       sep(depth + 1, o?.separationEvent ?? liveEv, o?.separationDelay ?? liveDelay,
         o?.separationAltitude ?? liveAlt);
@@ -2744,11 +2795,12 @@ export function exportOrk({
   // <motormount> so the mount flag survives the round trip (desktop same).
   const motorMountXml = (depth: number, nodeId: string | undefined, overhangM = 0) => {
     const withMotor = mountConfigs(nodeId);
-    // Bare ignition defaults: the default-marked config's motor when it has
-    // one here (the desktop writes its default config bare), else the first.
+    // Defaults belong to the mount. Existing API callers without a default
+    // layer retain the previous default-config/first-motor fallback.
     const bare = (withMotor.find((c) => c.id === defaultId) ?? withMotor[0])?.motors[nodeId!];
-    const ev = bare?.ignitionEvent ?? 'automatic';
-    const evDelay = bare?.ignitionDelay ?? 0;
+    const own = nodeId ? tree.ignitionDefaults?.[nodeId] : undefined;
+    const ev = own?.event ?? bare?.ignitionEvent ?? 'automatic';
+    const evDelay = own?.delay ?? bare?.ignitionDelay ?? 0;
     emit(depth, '<motormount>');
     emit(depth + 1, `<ignitionevent>${escapeXml(ev)}</ignitionevent>`);
     emit(depth + 1, `<ignitiondelay>${evDelay}</ignitiondelay>`);
@@ -2775,11 +2827,17 @@ export function exportOrk({
       emit(depth + 2, `<delay>${Number.isFinite(m.delay) ? m.delay : 'none'}</delay>`);
       emit(depth + 1, '</motor>');
     }
-    for (const c of withMotor) {
-      const m = c.motors[nodeId!]!;
+    for (const c of writeConfigs) {
+      // Explicit layer maps include unloaded mounts. For legacy API callers
+      // without a mount default, difference motor ignition against the fallback.
+      const m = nodeId ? c.motors[nodeId] : undefined;
+      const ignition = (nodeId ? c.ignitions?.[nodeId] : undefined) ?? (!own && m ? sparsify(
+        { event: knownIgnitionEvent(ev) ?? 'automatic', delay: evDelay },
+        { event: knownIgnitionEvent(m.ignitionEvent ?? null) ?? 'automatic', delay: m.ignitionDelay ?? 0 }) : undefined);
+      if (!ignition) continue;
       emit(depth + 1, `<ignitionconfiguration configid="${escapeXmlAttr(c.id)}">`);
-      emit(depth + 2, `<ignitionevent>${escapeXml(m.ignitionEvent ?? 'automatic')}</ignitionevent>`);
-      emit(depth + 2, `<ignitiondelay>${m.ignitionDelay ?? 0}</ignitiondelay>`);
+      emit(depth + 2, `<ignitionevent>${escapeXml(ignition.event)}</ignitionevent>`);
+      emit(depth + 2, `<ignitiondelay>${ignition.delay}</ignitiondelay>`);
       emit(depth + 1, '</ignitionconfiguration>');
     }
     emit(depth, '</motormount>');

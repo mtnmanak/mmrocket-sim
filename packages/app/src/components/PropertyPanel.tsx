@@ -1,6 +1,6 @@
 import { MotorLengthField } from './MotorLengthField.js';
 import { motorLengthLimit } from '../tree/motorLength.js';
-import { Fragment, useEffect, useId, useMemo, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
@@ -392,10 +392,11 @@ const COLOR_PRESETS = [
   '#3fa34d', '#2a78d6', '#8e5bd1', '#9a978f', '#7a4a2b',
 ];
 
-export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, onPatch, onPatchAll, onAutoAlignFins }: {
+export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, flightOverride, onPatch, onPatchAll, onAutoAlignFins }: {
   tree: RocketTree;
   node: ComponentNode;
   recoveryContext?: string | null;
+  flightOverride?: ReactNode;
   /** Engine-computed stats for THIS component (null while a build is broken). */
   info?: ComponentInfo | null;
   /**
@@ -1327,7 +1328,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
             const selectLabel = <label htmlFor={idFor(f.key)}>{f.label}</label>;
             const sdiff = diffFor(f.key);
             return (
-              <div className="field" key={f.key}>
+              <Fragment key={f.key}>
+              {(f.key === 'deployEvent' || f.key === 'separationEvent') && flightOverride}
+              <div className="field">
                 {/* "→ all" sits BESIDE the label. Inside it, the button was the
                     label's control, and a click on the words "Surface finish"
                     rewrote the finish of every component (audit 2026-09-22). */}
@@ -1378,6 +1381,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
                   );
                 })()}
               </div>
+              </Fragment>
             );
           }
           if (f.key === 'density') {

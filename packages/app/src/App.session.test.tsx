@@ -63,6 +63,29 @@ it('legacy position notice stays through Save and dismissal survives autosave re
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+it('FC-2 opens an override file note as information and respects a later collapse', async () => {
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  // A simple airframe around the extracted recovery devices permits the app's
+  // real build without introducing an unrelated missing-geometry error notice.
+  const xml = readFileSync(join(here, 'services/__fixtures__/config-layers/lem-recovery.xml'), 'utf8')
+    .replace('<subcomponents><stage><subcomponents>', '<subcomponents><stage><subcomponents><nosecone><length>0.2</length><aftradius>0.05</aftradius><shape>ogive</shape></nosecone><bodytube><length>0.8</length><radius>0.05</radius><thickness>0.002</thickness><subcomponents>')
+    .replace('</subcomponents></stage>', '</subcomponents></bodytube></subcomponents></stage>');
+  const picker = input(host, 'Open a design file');
+  Object.defineProperty(picker, 'files', { configurable: true, value: [new File([xml], 'LEM-recovery.ork')] });
+  await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
+  const discard = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('Open without saving'));
+  if (discard) await act(async () => { discard.click(); });
+  await waitFor(() => storedSession()?.tree.name === 'LEM recovery excerpt', 'LEM open');
+  const bar = host.querySelector('.notice-bar')!;
+  expect(bar.classList.contains('expanded')).toBe(true);
+  expect(bar.classList.contains('notice-info')).toBe(true);
+  expect(bar.textContent).toContain('parachute panel shows both');
+  await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Collapse notices"]')!.click(); });
+  await act(async () => { button(host, 'Motors & Launch').click(); });
+  expect(host.querySelector('.notice-bar')?.classList.contains('expanded')).toBe(false);
+}, 30_000);
+
 describe('per-mount maximum motor length', () => {
   it('migrates once, estimates only its own mount, and autosaves edits without stage state', async () => {
     // Synthetic SI geometry: 0.60 m core, 0.25 m pod; the old stage limit is 0.4 m.
