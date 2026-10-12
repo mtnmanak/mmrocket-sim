@@ -3656,7 +3656,14 @@ export function exportRkt({ name, tree, motors, overrides = {}, compInfo, measur
     (function inStage(nodes: ComponentNode[]): boolean {
       return nodes.some((n) => n.id === id || inStage(n.children ?? []));
     })(stagesIn[i]!.children ?? []))));
-  if (stageMotors.some((s) => s.length > 0)) {
+  const hasMotors = stageMotors.some((s) => s.length > 0);
+  if (!hasMotors && recoveryCopies.some(({ node }) => node.id && overrides.deployments?.[node.id]
+      && sparsify(deploymentTuple(node), overrides.deployments[node.id]!))) {
+    // A recovery-only SimulationResults block is not verified with RockSim.
+    // The shared dry-run writer also supplies this loss to the pre-save preview.
+    notes?.push('Recovery overrides are not saved in a motorless .rkt; it reopens with the recovery devices\' own settings. Save as .ork to keep the overrides.');
+  }
+  if (hasMotors) {
     emit('<SimulationResultsList>');
     emit('<SimulationResults>');
     // Staging timer, so a .rkt written here round-trips through our own
