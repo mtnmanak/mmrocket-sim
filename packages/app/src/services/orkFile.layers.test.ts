@@ -74,7 +74,7 @@ describe('FC-2 configuration layers', () => {
     expect(r.notes.join('\n')).toContain('ignition');
     expect(r.expand).toBe(true);
     // The temporary legacy projection exports its resolved motors correctly too.
-    const legacy = r.legacyFlightState!();
+    const legacy = { tree: r.tree, configs: r.configs };
     const legacyBack = importOrk(exportOrk({ name: r.name, ...legacy, motors: r.motors, activeConfigId: r.chosenConfigId }));
     expect(Object.values(legacyBack.motors)[0]).toMatchObject({ ignitionEvent: 'burnout', ignitionDelay: 1 });
   });
@@ -94,16 +94,17 @@ describe('FC-2 configuration layers', () => {
     expect(r.expand).toBeUndefined();
   });
 
-  it('adapts the layered result for existing import-plan consumers without changing its defaults', () => {
+  it('hands layered defaults directly to import-plan consumers', () => {
     const r = importOrk(file('config-layers/lem-recovery.xml').toString());
     const plan = planImport(r, { working: {}, configs: {} }, { launch: DEFAULT_CONDITIONS,
       text: { mass: n => `${n} kg`, length: n => `${n} m` } });
-    expect(flat(plan.snapshot.tree.components).filter(n => n.type === 'parachute').map(n => n['deployEvent'])).toEqual(['ejection', 'ejection']);
+    expect(flat(plan.snapshot.tree.components).filter(n => n.type === 'parachute').map(n => n['deployEvent'])).toEqual(['altitude', 'altitude']);
     expect(flat(r.tree.components).filter(n => n.type === 'parachute').map(n => n['deployEvent'])).toEqual(['altitude', 'altitude']);
     expect(plan.note).toMatchObject({ expand: true, severity: 'info' });
-    expect(Object.values(plan.snapshot.savedConfigs![0]!.deployments!)).toEqual([
-      { deployEvent: 'altitude', deployAltitude: 91.44, deployDelay: 0 },
-      { deployEvent: 'altitude', deployAltitude: 91.44, deployDelay: 0 },
+    expect(plan.snapshot.savedConfigs[0]!.deployments).toBeUndefined();
+    expect(Object.values(plan.snapshot.savedConfigs[1]!.deployments!)).toEqual([
+      { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 },
+      { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 },
     ]);
   });
 

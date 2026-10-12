@@ -242,7 +242,7 @@ describe('.ork — enum strings', () => {
     expect(r.chosenConfigId).toBe('a');
     const boosterId = r.tree.components[1]!.id!;
     const b = r.configs!.find((c) => c.id === 'b')!;
-    expect(b.separations[boosterId]!.separationEvent).toBe('ejection');
+    expect(b.separations[boosterId]).toBeUndefined(); // Repaired value equals the default: inherit.
     expect(r.notes).toContain('“Booster”: separation event “sometime”, in a flight configuration other than'
       + ' the one opened, is not one the simulation knows — that configuration now uses this stage’s ejection'
       + ' charge, desktop OpenRocket’s default.');
@@ -259,7 +259,7 @@ describe('.ork — enum strings', () => {
       '“Booster”: separation event “sometime” is not one the simulation knows — it now uses this stage’s'
         + ' ejection charge, desktop OpenRocket’s default.',
     ]);
-    for (const c of r.configs!) expect(c.separations[r.tree.components[1]!.id!]!.separationEvent).toBe('ejection');
+    for (const c of r.configs!) expect(c.separations[r.tree.components[1]!.id!]).toBeUndefined();
     expect(build(r.tree)).toBeNull();
   });
 

@@ -1,9 +1,10 @@
 import { captureStageMass, completeStageMass } from './stageMassOverrides.js';
 import { MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS, snapshotConfigFamilies, snapshotLoadedConfig } from './configSnapshot.js';
+import { activeFlightOverrides, snapshotFlightOverrides } from './flightState.js';
 import { scaleRocket } from '../tree/scaleRocket.js';
 import type { RocketTree } from '@online-openrocket/engine';
-import type { MountMotor, SavedConfig } from '../model/design.js';
-import type { OrkDeployOverride, OrkMotorRef, OrkSeparationOverride } from './orkFile.js';
+import type { FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
+import type { OrkMotorRef } from './orkFile.js';
 import { stableJson } from './dirtyState.js';
 import {
   LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity, parseSetIdentity, rekeyUnmatched,
@@ -12,7 +13,7 @@ import { findNode, motorMounts, mountMotorCount, primaryMountOf } from '../tree/
 
 /** Create is a copy of the working set, never a write-back into its old owner. */
 export function createLoadedConfig(state: {
-  savedConfigs: SavedConfig[]; activeConfigId: string | null;
+  savedConfigs: SavedConfig[]; activeConfigId: string | null; detachedOverrides?: FlightOverrides;
   tree: RocketTree; mountMotors: Record<string, MountMotor>; unmatchedRefs: Record<string, OrkMotorRef>;
 }): { savedConfigs: SavedConfig[]; activeConfigId: string } | null {
   if (state.savedConfigs.length >= MAX_ORK_CONFIGURATIONS
@@ -21,7 +22,8 @@ export function createLoadedConfig(state: {
   const existing = completeStageMass(state.savedConfigs, state.tree);
   const active = state.savedConfigs.find(c => c.id === state.activeConfigId);
   const config = snapshotLoadedConfig(state.tree, state.mountMotors,
-    { ...snapshotConfigFamilies(state.savedConfigs), stageActiveness: active?.stageActiveness });
+    { ...snapshotConfigFamilies(state.savedConfigs), deployments: false, separations: false, stageActiveness: active?.stageActiveness });
+  Object.assign(config, snapshotFlightOverrides(state.tree, state.savedConfigs, state.activeConfigId, state.detachedOverrides ?? {}, state.mountMotors));
   if (Object.keys(state.unmatchedRefs).length) {
     config.unmatchedRefs = state.unmatchedRefs;
     config.unmatched = Object.values(state.unmatchedRefs).map(r => r.designation);
@@ -39,8 +41,9 @@ export function renameConfig(configs: SavedConfig[], id: string, value: string):
 }
 
 /** The live working set is deliberately absent: deleting its owner cannot unload it. */
-export function deleteConfig(savedConfigs: SavedConfig[], activeConfigId: string | null, id: string) {
-  return { savedConfigs: savedConfigs.filter(c => c.id !== id),
+export function deleteConfig(savedConfigs: SavedConfig[], activeConfigId: string | null, id: string, detachedOverrides: FlightOverrides = {}) {
+  return { detachedOverrides: activeConfigId === id ? activeFlightOverrides(savedConfigs, activeConfigId, detachedOverrides) : detachedOverrides,
+    savedConfigs: savedConfigs.filter(c => c.id !== id),
     activeConfigId: activeConfigId === id ? null : activeConfigId };
 }
 
@@ -126,67 +129,12 @@ export function withActiveConfigSynced(
   return configs.map((row, i) => (i === at ? next : row));
 }
 
-/** One override field: the type the node must carry it as, and what it flies without one. */
-interface OverrideField { kind: 'string' | 'number'; fallback?: string | number }
-
 /**
- * The values a node flies when it carries no field of its own — what the .ork
- * writer puts in the bare tags for the live configuration. A recovery device's
- * missing `deployEvent` has no such value (the .ork writer reads it as
- * ejection, the .CDX1 writer as apogee), so it has none here either.
- */
-const DEPLOY_FIELDS: Record<keyof OrkDeployOverride, OverrideField> = {
-  deployEvent: { kind: 'string' },
-  deployAltitude: { kind: 'number', fallback: 200 },
-  deployDelay: { kind: 'number', fallback: 0 },
-};
-const SEPARATION_FIELDS: Record<keyof OrkSeparationOverride, OverrideField> = {
-  separationEvent: { kind: 'string', fallback: 'ejection' },
-  separationDelay: { kind: 'number', fallback: 0 },
-  separationAltitude: { kind: 'number', fallback: 200 },
-};
-
-/**
- * One node's live values in the shape of its stored override. A field the
- * entry already governs takes the node's value (the fallback when the node has
- * none). A field the entry does not govern is added only when the node carries
- * a value other than the fallback — something set on this configuration, which
- * a switch back must restore — so a configuration nobody edited reads exactly
- * as it was stored.
- */
-function liveOverride<T extends object>(
-  node: Record<string, unknown>, stored: T, fields: Record<keyof T & string, OverrideField>,
-): T {
-  const had = stored as Record<string, string | number | undefined>;
-  const out: Record<string, string | number> = {};
-  for (const [k, f] of Object.entries(fields) as [string, OverrideField][]) {
-    const v = node[k];
-    const own = f.kind === 'string'
-      ? (typeof v === 'string' ? v : undefined)
-      : (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
-    const was = had[k];
-    if (was !== undefined) out[k] = own ?? f.fallback ?? was;
-    else if (own !== undefined && own !== f.fallback) out[k] = own;
-  }
-  return out as T;
-}
-
-/**
- * The live tree written back into the active configuration: its recovery
- * deployments, stage separations and (RASAero) nozzles, for exactly the nodes
- * the configuration governs. Stage mass/CG maps also gain every added stage,
- * including while None is active. Returns `configs` BY IDENTITY when no maps
- * need completing and no active values differ under `stableJson`.
- *
- * WHY (audit 2026-09-22). Only the MOTORS were written back, so a deployment,
- * separation or nozzle changed in the app while A was active was overwritten
- * by B's on the switch and then by A's FILE values on the way back — A→B→A
- * reverted the edit, the next Launch on A flew the file's deployment, not the
- * user's, and a Save while B was active wrote A's stale values (the .ork writer
- * replays every non-active configuration from its stored copy). A node the tree
- * no longer has keeps its stored entry; a node the configuration does not
- * govern (a chute added in the app) is tree-level and stays out of it. Stage
- * mass/CG is the exception: all snapshot-bearing configs own every live stage.
+ * Capture only Apply-time nozzle and stage mass/CG families. Layered recovery,
+ * separation and ignition maps own their edits independently of the defaults
+ * tree (audit 2026-10-11, FC-4). Missing-node entries survive for undo; mass/CG
+ * maps gain added stages, including while None is active. Unchanged maps keep
+ * their identity and dirty-state fingerprint.
  */
 export function withActiveConfigTreeSynced(
   configs: SavedConfig[], activeId: string | null, tree: RocketTree,
@@ -209,19 +157,15 @@ export function withActiveConfigTreeSynced(
     return changed ? out : stored;
   };
   const stageMassOverrides = sync(c.stageMassOverrides, (n) => captureStageMass(n));
-  const deployments = sync(c.deployments, (n, o) => liveOverride(n, o, DEPLOY_FIELDS));
-  const separations = sync(c.separations, (n, o) => liveOverride(n, o, SEPARATION_FIELDS));
   // Preserve explicit OFF separately from blank/automatic.
   const nozzles = sync(c.nozzles, (n) => {
     const d = n['nozzleExitDiameter'];
     return typeof d === 'number' && Number.isFinite(d) && d >= 0 ? d : null;
   });
-  if (deployments === c.deployments && separations === c.separations && nozzles === c.nozzles
+  if (nozzles === c.nozzles
       && stageMassOverrides === c.stageMassOverrides) return configs;
   const next: SavedConfig = {
     ...c,
-    ...(deployments ? { deployments } : {}),
-    ...(separations ? { separations } : {}),
     ...(nozzles ? { nozzles } : {}),
     ...(stageMassOverrides ? { stageMassOverrides } : {}),
   };

@@ -229,7 +229,7 @@ describe('autosavedDesignFile', () => {
       const tree = { ...defaultTree(), name: 'Auto' };
       const mount = motorMounts(tree)[0]!.id!;
       saveSessionDebounced({
-        tree, mountMotors: { [mount]: auto() }, launch: DEFAULT_CONDITIONS, flownAutoDelays: { '': { [mount]: 7 } },
+        configLayers: 1, detachedOverrides: {}, tree, mountMotors: { [mount]: auto() }, launch: DEFAULT_CONDITIONS, flownAutoDelays: { '': { [mount]: 7 } },
       });
       vi.runAllTimers();
       const back = importOrk(autosavedDesignFile()!.data);
@@ -240,7 +240,7 @@ describe('autosavedDesignFile', () => {
       const tree = { ...defaultTree(), name: 'Two configurations' };
       const mount = motorMounts(tree)[0]!.id!;
       saveSessionDebounced({
-        tree, mountMotors: { [mount]: auto() }, launch: DEFAULT_CONDITIONS, activeConfigId: 'A',
+        configLayers: 1, detachedOverrides: {}, tree, mountMotors: { [mount]: auto() }, launch: DEFAULT_CONDITIONS, activeConfigId: 'A',
         savedConfigs: [
           { id: 'A', name: null, isDefault: true, motors: { [mount]: auto() } },
           { id: 'B', name: 'Windy', isDefault: false, motors: { [mount]: auto() } },

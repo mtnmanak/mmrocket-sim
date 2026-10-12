@@ -1,3 +1,5 @@
+import { migrateConfigLayers } from './configLayersMigration.js';
+import { designFingerprint } from './dirtyState.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { legacyStageLimits, migrateMotorLengths } from '../tree/motorLength.js';
@@ -38,6 +40,7 @@ export interface RankedPadMass { from?: string; to?: string; kg?: number }
 
 /** What a session restored to, and the bookkeeping App's notices and saved mark read once. */
 export interface RestoredDesign {
+  session: SessionState | null;
   /** The design as App's state initializers hold it before the first render. */
   state: Required<DesignState>;
   /** The repairs `normalizeTree` made — the restore's info note. */
@@ -70,10 +73,10 @@ export function designStateFromSession(
   const restoreNotes: string[] = [...(session?.treeRestoreNotes ?? [])];
   // Reserve references BEFORE normalization can mint a repair node. Some maps
   // retain absent mounts for undo; none may ever bind to a newly minted node.
-  const maps = [session?.mountMotors, session?.unmatchedRefs, session?.maxMotorLengthByStage,
+  const maps = [session?.tree.ignitionDefaults, session?.detachedOverrides?.deployments, session?.detachedOverrides?.separations, session?.detachedOverrides?.ignitions, session?.mountMotors, session?.unmatchedRefs, session?.maxMotorLengthByStage,
     ...Object.values(session?.flownAutoDelays ?? {}),
     ...(session?.savedConfigs ?? []).flatMap(c => [c.motors, c.unmatchedRefs, c.deployments,
-      c.separations, c.nozzles, c.stageActiveness, c.stageMassOverrides])];
+      c.separations, c.ignitions, c.nozzles, c.stageActiveness, c.stageMassOverrides])];
   reserveNodeIds([...(session?.mountId ? [session.mountId] : []),
     ...maps.flatMap(m => Object.keys(m ?? {})),
     ...[session?.mountMotors, ...(session?.savedConfigs ?? []).map(c => c.motors)]
@@ -169,8 +172,7 @@ export function designStateFromSession(
     measured = rest;
   }
 
-  return {
-    state: {
+  const normalized = {
       tree,
       mountMotors: labelledMotors,
       launch: session?.launch ?? DEFAULT_CONDITIONS,
@@ -181,7 +183,23 @@ export function designStateFromSession(
       // before they were stored falls back to the ACTIVE configuration's refs.
       unmatchedRefs: restoreUnmatchedRefs(session?.savedConfigs, session?.activeConfigId, session?.mountMotors ?? {},
         session?.unmatchedRefs),
-    },
+    };
+  // All established normalizations precede the layer migration (FC-4).
+  const normalizedSession: SessionState = { ...session, ...normalized, maxMotorLengthByStage: {}, savedAt: session?.savedAt ?? 0 };
+  if (session?.savedMark) {
+    const beforeMark = designFingerprint({ ...normalized,
+      tree: before, maxMotorLengthByStage: limits,
+      ...(preRankRestore ? { mountMotors: preRankRestore.motors, savedConfigs: preRankRestore.configs } : {}),
+      ...preConfigRestore, detachedOverrides: session.detachedOverrides });
+    if (beforeMark === session.savedMark) normalizedSession.savedMark = designFingerprint(normalizedSession as Required<DesignState>);
+  }
+  const migrated = migrateConfigLayers(session ? normalizedSession : { ...normalizedSession, configLayers: 1, detachedOverrides: {} });
+  if (migrated.note) restoreNotes.push(migrated.note);
+  return {
+    state: { ...normalized, tree: migrated.state.tree, savedConfigs: migrated.state.savedConfigs,
+      mountMotors: migrated.state.mountMotors, activeConfigId: migrated.state.activeConfigId,
+      configLayers: 1, detachedOverrides: migrated.state.detachedOverrides ?? {} },
+    session: session ? migrated.state : null,
     restoreNotes,
     preLengthRestore: { tree: before, maxMotorLengthByStage: limits },
     legacyPadMass,

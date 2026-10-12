@@ -32,7 +32,7 @@ import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 import type { FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
 import type { LayeredOrkFlightConfig, LayeredOrkImportResult } from './orkFile.js';
 import { resolveFlightState, sparsify } from './flightState.js';
-import { deploymentTuple, exportIgnitions, legacyImportFlightState } from './foreignConfigLayers.js';
+import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 
 /**
@@ -1766,7 +1766,6 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     ...(launch ? { launch } : {}),
     ...(machAlt ? { machAlt } : {}),
     configs, chosenConfigId,
-    legacyFlightState: () => legacyImportFlightState(tree, configs, chosenConfigId),
     configNotes: Object.fromEntries(configs.map(c => [c.id, c.stageMassNotes ?? []])),
   };
 }

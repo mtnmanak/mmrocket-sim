@@ -34,7 +34,7 @@ import {
 } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
-import { resolveFlightState, sparsify } from './flightState.js';
+import { sparsify } from './flightState.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
 import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
@@ -270,8 +270,6 @@ export interface OrkDeployOverride {
  * offer a picker and re-import with `{ configId }`.
  */
 export interface OrkImportResult extends OrkTreeImportResult {
-  /** Temporary FC-2 adapter for planImport's legacy working tree/full maps; removed by FC-4. */
-  legacyFlightState?: () => { tree: RocketTree; configs: OrkFlightConfig[] };
   /** Set by lossy readers too, so pre-parsed/headless imports use the same notices. */
   sourceFormat?: 'ork' | 'rkt' | 'cdx1';
   /** Transient import warning: the file format is newer than the app understands. */
@@ -1683,22 +1681,6 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   return {
     name, tree, motors, newerFormat, configs: emptyDefault ? [] : configs,
     ...(overrideNotes.length ? { expand: true } : {}),
-    // FC-4 removes this adapter. App/Open/share and simulateFile still consume
-    // planImport's working tree and full maps. Resolve without altering defaults;
-    // nozzle and stage mass retain their existing Apply-time semantics.
-    legacyFlightState: () => {
-      const layers = configs.map(c => ({ ...c, motors: {} }));
-      const legacyConfigs = configs.map(c => {
-        const resolved = resolveFlightState(tree, layers, c.id, {}, {}).tree;
-        const full = snapshotLoadedConfig(resolved, c.motors);
-        return { ...c, deployments: full.deployments, separations: full.separations };
-      });
-      // Legacy App owns ignition on its working motor records. Do not leave a
-      // stale default layer in its tree that its existing motor editor cannot edit.
-      const { ignitionDefaults: _defaults, ...legacyTree } = resolveFlightState(tree, layers, chosenConfigId, {}, {}).tree;
-      return { tree: legacyTree,
-        configs: emptyDefault ? [] : legacyConfigs };
-    },
     chosenConfigId: emptyDefault ? null : chosenConfigId,
     ...(exIds.size ? { embeddedExMotors: [...exIds.values()] } : {}),
     ...(storedSimulations.length ? { storedSimulations } : {}),
@@ -2300,6 +2282,7 @@ export interface OrkExportConfig {
 }
 
 export interface OrkTreeExportInput {
+  workingOverrides?: FlightOverrides;
   name: string;
   tree: FlightTree;
   /** Save notices, displayed by the caller only after a successful write. */
@@ -2466,7 +2449,7 @@ export function flightDataAttrs(fd: OrkExportFlightData | undefined): string | n
 
 export function exportOrk({
   name, tree, motors, launch, configs, activeConfigId, measured, flightData,
-  flightDataDefault, notes,
+  flightDataDefault, notes, workingOverrides = {},
 }: OrkTreeExportInput): string {
   // Complete existing owners before minting a custom configuration, including
   // callers that export directly without first syncing the active config.
@@ -2528,12 +2511,12 @@ export function exportOrk({
         ...(c.motorLoadoutRefusal ? { motorLoadoutRefusal: c.motorLoadoutRefusal } : {}),
         stageMassOverrides: c.stageMassOverrides,
       }))
-      : [snapshotLoadedConfig(tree, motorMap, { deployments: false, separations: false })];
+      : [{ ...snapshotLoadedConfig(tree, motorMap, { deployments: false, separations: false }), ...workingOverrides }];
   // Active = none but motors loaded: mint an extra config carrying the live
   // set, unnamed (the desktop renders unnamed configs as their motor list).
-  const minted = configs && configs.length > 0 && !active && Object.keys(motorMap).length > 0
-    ? snapshotLoadedConfig(tree, motorMap, { deployments: false, separations: false,
-      stageMass: configs.some(c => !!c.stageMassOverrides) })
+  const minted = configs && configs.length > 0 && !active && (Object.keys(motorMap).length > 0 || Object.values(workingOverrides).some(map => Object.keys(map ?? {}).length > 0))
+    ? { ...snapshotLoadedConfig(tree, motorMap, { deployments: false, separations: false,
+      stageMass: configs.some(c => !!c.stageMassOverrides) }), ...workingOverrides }
     : null;
   if (minted) writeConfigs.push(minted);
   if (writeConfigs.length > MAX_ORK_CONFIGURATIONS) {
@@ -2804,8 +2787,8 @@ export function exportOrk({
   // <motormount> so the mount flag survives the round trip (desktop same).
   const motorMountXml = (depth: number, nodeId: string | undefined, overhangM = 0) => {
     const withMotor = mountConfigs(nodeId);
-    // FC-2 defaults belong to the mount. Legacy callers without a default
-    // layer retain the previous default-config/first-motor fallback until FC-4.
+    // Defaults belong to the mount. Existing API callers without a default
+    // layer retain the previous default-config/first-motor fallback.
     const bare = (withMotor.find((c) => c.id === defaultId) ?? withMotor[0])?.motors[nodeId!];
     const own = nodeId ? tree.ignitionDefaults?.[nodeId] : undefined;
     const ev = own?.event ?? bare?.ignitionEvent ?? 'automatic';
@@ -2837,8 +2820,8 @@ export function exportOrk({
       emit(depth + 1, '</motor>');
     }
     for (const c of writeConfigs) {
-      // Explicit layer maps include unloaded mounts. Legacy callers still carry
-      // resolved ignition on motors until FC-4; difference it against the default.
+      // Explicit layer maps include unloaded mounts. For legacy API callers
+      // without a mount default, difference motor ignition against the fallback.
       const m = nodeId ? c.motors[nodeId] : undefined;
       const ignition = (nodeId ? c.ignitions?.[nodeId] : undefined) ?? (!own && m ? sparsify(
         { event: knownIgnitionEvent(ev) ?? 'automatic', delay: evDelay },

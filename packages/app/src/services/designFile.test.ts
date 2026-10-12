@@ -135,7 +135,7 @@ describe('a gzip-compressed .rkt or .CDX1 opens as desktop opens it', () => {
   /** An import with every minted id blanked, so two reads of one design compare equal. */
   const withoutIds = (r: ImportedDesign): unknown => JSON.parse(JSON.stringify(
     { name: r.name, tree: r.tree, motors: Object.values(r.motors), notes: r.notes },
-    (k, v: unknown) => (k === 'id' || k === 'mountId' || k.endsWith('Id') ? '' : v)));
+    (k, v: unknown) => (k === 'ignitionDefaults' ? Object.values(v as object) : k === 'id' || k === 'mountId' || k.endsWith('Id') ? '' : v)));
 
   it.each([
     ['rocksimTestRocket1.rkt', 'rkt'], ['FinsOnTransitions.rkt', 'rkt'],
@@ -181,7 +181,7 @@ describe('a zipped .CDX1 opens as desktop opens it', () => {
   };
   const withoutIds = (r: ImportedDesign): unknown => JSON.parse(JSON.stringify(
     { name: r.name, tree: r.tree, motors: Object.values(r.motors), notes: r.notes },
-    (k, v: unknown) => (k === 'id' || k === 'mountId' || k.endsWith('Id') ? '' : v)));
+    (k, v: unknown) => (k === 'ignitionDefaults' ? Object.values(v as object) : k === 'id' || k === 'mountId' || k.endsWith('Id') ? '' : v)));
 
   it.each(['Complex.Two-Stage.CDX1', 'Three-stage rocket.CDX1'])('%s reads the same zipped as plain', async (name) => {
     const plain = await parseDesignFile(fixture(name), name, { presets: [] });

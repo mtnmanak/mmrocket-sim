@@ -1,6 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { LaunchConditions } from './launchConditions.js';
-import type { MountMotor, SavedConfig } from '../model/design.js';
+import type { FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
 import { shortHash } from './simReport.js';
 
 /**
@@ -24,6 +24,7 @@ import { shortHash } from './simReport.js';
  * other. `tree` carries the rocket's name, so a rename counts as a change.
  */
 export interface DesignSnapshot {
+  detachedOverrides?: FlightOverrides;
   tree: RocketTree;
   mountMotors: Record<string, MountMotor>;
   launch: LaunchConditions;
@@ -87,6 +88,8 @@ export function designFingerprint(s: DesignSnapshot): string {
     s.savedConfigs,
     s.activeConfigId,
     s.measured,
+    // Empty layers preserve legacy marks; detached choices are design content.
+    ...(s.detachedOverrides && Object.keys(s.detachedOverrides).length ? [s.detachedOverrides] : []),
   ]));
 }
 

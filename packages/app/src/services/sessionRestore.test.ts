@@ -62,7 +62,7 @@ describe('designStateFromSession', () => {
       const before = structuredClone(s);
       const r = designStateFromSession(s, NO_LIMIT);
       expect(r.state.savedConfigs).toEqual([]);
-      expect(r.state.activeConfigId).toBe(activeConfigId === 'dry' ? null : activeConfigId);
+      expect(r.state.activeConfigId).toBe(null);
       expect(r.state.mountMotors).toEqual(s.mountMotors);
       expect(r.state.unmatchedRefs).toEqual(s.unmatchedRefs);
       expect(r.state.launch).toEqual(s.launch);
@@ -84,7 +84,7 @@ describe('designStateFromSession', () => {
     for (const appVersion of [undefined, '0.159', '0.160']) {
       const marked = designStateFromSession(session({ savedConfigs: [dry], activeConfigId: 'dry', appVersion,
         emptyConfigVersion: 1 }), NO_LIMIT);
-      expect(marked.state.savedConfigs).toEqual([dry]);
+      expect(marked.state.savedConfigs).toEqual([{ ...dry, deployments: {}, separations: {}, ignitions: {} }]);
       expect(marked.state.activeConfigId).toBe('dry');
       expect(marked.preConfigRestore).toBeNull();
       const unmarked = designStateFromSession(session({ savedConfigs: [dry], activeConfigId: 'dry', appVersion }), NO_LIMIT);
@@ -109,7 +109,7 @@ describe('designStateFromSession', () => {
       [{ savedConfigs: [] }, false],
     ];
     for (const [over, keep] of cases) {
-      const s = session({ savedConfigs: [dry], activeConfigId: 'dry', ...over });
+      const s = session({ configLayers: 1, detachedOverrides: {}, savedConfigs: [dry], activeConfigId: 'dry', ...over });
       const r = designStateFromSession(s, NO_LIMIT);
       expect(r.state.savedConfigs, JSON.stringify(over)).toEqual(keep ? s.savedConfigs : []);
       if (keep) {
@@ -198,7 +198,7 @@ describe('designStateFromSession', () => {
 
   it('a configuration nothing moves in is kept by identity, and nothing is recorded to re-take', () => {
     const config: SavedConfig = { id: 'cfg', name: 'One', isDefault: true, motors: { core: motor('C6') } };
-    const r = designStateFromSession(session({ mountMotors: { core: motor('C6') }, savedConfigs: [config] }), NO_LIMIT);
+    const r = designStateFromSession(session({ configLayers: 1, detachedOverrides: {}, mountMotors: { core: motor('C6') }, savedConfigs: [config] }), NO_LIMIT);
     expect(r.state.savedConfigs[0]).toBe(config);
     expect(r.preRankRestore).toBeNull();
   });

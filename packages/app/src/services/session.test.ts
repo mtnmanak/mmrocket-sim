@@ -56,7 +56,7 @@ describe('audit 2026-10-11 persisted state', () => {
     { name: 'Bad', motors: {} },
     ...[null, 7, {}, []].map(id => ({ id, name: 'Bad', motors: {} })),
     { id: 'bad', name: 'Bad' },
-    ...['motors', 'unmatchedRefs', 'deployments', 'separations', 'nozzles',
+    ...['motors', 'unmatchedRefs', 'deployments', 'separations', 'ignitions', 'nozzles',
       'stageActiveness', 'stageMassOverrides'].flatMap(key =>
       [null, false, 7, 'bad', []].map(value => ({ id: 'bad', name: 'Bad', motors: {}, [key]: value }))),
   ];
@@ -69,7 +69,7 @@ describe('audit 2026-10-11 persisted state', () => {
     const loaded = loadSession();
     expect(loaded).not.toBeNull();
     const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
-    expect(restored.state.savedConfigs).toEqual([kept]);
+    expect(restored.state.savedConfigs).toEqual([{ ...kept, deployments: {}, separations: {}, ignitions: {} }]);
     expect(restored.state.activeConfigId).toBe('kept');
     expect(restored.state.tree.name).toBe('Test');
     expect(restored.state.launch).toEqual(state().launch);
@@ -96,7 +96,7 @@ describe('audit 2026-10-11 persisted state', () => {
     const loaded = loadSession();
     expect(loaded).not.toBeNull();
     const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
-    expect(restored.state.savedConfigs).toEqual([kept]);
+    expect(restored.state.savedConfigs).toEqual([{ ...kept, deployments: {}, separations: {}, ignitions: {} }]);
     expect(restored.restoreNotes.join(' ')).not.toContain('Unreadable saved configurations');
   });
 
@@ -122,8 +122,8 @@ describe('audit 2026-10-11 persisted state', () => {
   });
 });
 
-it('V8 round-trips the lossy mark beside its file and drops stale or invalid marks', () => {
-  const snapshot = { ...state(), mountMotors: {}, savedConfigs: [], activeConfigId: null, measured: { massKg: null, cgM: null } };
+it.each([{}, { ignitions: { mount: { event: 'launch' as const, delay: 0.4 } } }])('V8/FC-4 round-trips lossy marks with detached overrides %j and drops stale marks', detachedOverrides => {
+  const snapshot = { ...state(), detachedOverrides, mountMotors: {}, savedConfigs: [], activeConfigId: null, measured: { massKg: null, cgM: null } };
   const lossySaved = { mark: designFingerprint(snapshot), flights: 3, format: 'rkt' as const, lossCount: 4 };
   const designFile = { name: 'test.rkt', via: 'saved' as const, format: 'rkt' as const };
   saveSessionDebounced({ ...snapshot, lossySaved, designFile }); vi.runAllTimers();
@@ -272,7 +272,7 @@ describe('storage hardening: session tree', () => {
     const raw = JSON.stringify({ ...state(), tree });
     localStorage.setItem('online-openrocket.session.v1', raw);
     const restored = restore();
-    expect(restored.state.tree).toEqual(expected);
+    expect(restored.state.tree).toEqual({ ...expected, ignitionDefaults: {} });
     expect(restored.restoreNotes.join(' ')).toContain('Fin set "Airfoil fins": its outline was not used');
     expect(restored.restoreNotes.join(' ')).toContain('The set keeps a default outline; redraw it in the fin editor.');
     expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
@@ -308,7 +308,7 @@ describe('storage hardening: session tree', () => {
     expect(loadSession()?.tree).toEqual(tree);
     const restored = restore();
     expect(restored.state.tree.components[0]!.children).toEqual(fins);
-    expect(restored.restoreNotes).toEqual([]);
+    expect(restored.restoreNotes).toEqual([expect.stringContaining('Reopening the original file')]);
   });
 });
 

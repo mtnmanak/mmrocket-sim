@@ -37,9 +37,9 @@ describe('FC-3 foreign configuration layers', () => {
     expect(chute(resolveFlightState(r.tree, layers, r.configs[0]!.id, {}, {}).tree)).toMatchObject(ejection);
     expect(chute(resolveFlightState(r.tree, layers, r.configs[1]!.id, {}, {}).tree)).toMatchObject(altitude);
     expect(r.configNotes![r.configs[1]!.id]!.join(' ')).toContain('121.92 m descending');
-    const legacy = r.legacyFlightState!();
+    const legacy = { tree: resolveFlightState(r.tree, layers, r.chosenConfigId, {}, {}).tree, configs: r.configs };
     expect(chute(legacy.tree)).toMatchObject(ejection);
-    expect(legacy.configs[1]!.deployments[id]).toEqual(altitude);
+    expect(legacy.configs[1]!.deployments[id]).toBeUndefined();
     expect(chute(r.tree)).toMatchObject(altitude);
   });
 
@@ -83,7 +83,7 @@ describe('FC-3 foreign configuration layers', () => {
     const sus = Object.values(r.configs[0]!.motors).find(m => m.ignitionEvent === 'burnout')!;
     expect(r.tree.ignitionDefaults?.[sus.mountId!]).toEqual({ event: 'burnout', delay: 0 });
     expect(r.configs.every(c => Object.keys(c.deployments).length === 0)).toBe(true);
-    expect(r.legacyFlightState!().tree.components[1]).toMatchObject({ separationEvent: 'burnout', separationDelay: 2 });
+    expect(resolveFlightState(r.tree, r.configs.map(c => ({ ...c, motors: {} })), r.chosenConfigId, {}, {}).tree.components[1]).toMatchObject({ separationEvent: 'burnout', separationDelay: 2 });
     // This imported fixture has booster transitions the writer cannot represent.
     // Keep its actual timing/motors but restrict this export check to plain tubes.
     booster.children = booster.children?.filter(n => n.type === 'bodytube');

@@ -40,6 +40,9 @@ export function motorLabelEntry(mm: Pick<MountMotor, 'spec' | 'meta'>, catalogue
 export function restoreMotorLabels(motors: Record<string, MountMotor>, catalogue = labelCatalogue()): Record<string, MountMotor> {
   let result = motors;
   for (const [id, mm] of Object.entries(motors)) {
+    // Crash recovery can preserve incomplete records for the writer's warning
+    // (audit 2026-10-11, FC-4); labels must not prevent that download.
+    if (!mm.spec || !mm.meta) continue;
     const entry = resolvedMotorEntry(mm, catalogue);
     if (!entry) continue;
     const label = motorLabel(entry, mm.spec.ejectionDelay, mm.meta, catalogue);

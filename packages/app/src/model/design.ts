@@ -116,6 +116,8 @@ export interface MountMotor {
  * reads; applying a preset copies its motors in and marks it active.
  */
 export interface SavedConfig {
+  /** Sparse ignition tuples; legacy motor-record ignition is migration input only. */
+  ignitions?: Record<string, IgnitionTuple>;
   /** Unresolved imported loadout: human-readable, with no component ids. Cleared by a motor assignment. */
   motorLoadoutRefusal?: string;
   /** Per-stage mass/CG snapshots derived from each RASAero simulation. */

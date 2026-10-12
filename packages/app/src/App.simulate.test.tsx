@@ -26,8 +26,10 @@ import { flyBuiltDesign, simulateDesign, type SimulateDesignResult } from './ser
 import { simulateFile, simulateImported } from './services/simulateFile.js';
 import { fetchMotorSpec } from './services/thrustcurve.js';
 import { unzipMember } from './services/zipMember.js';
-import { addChild, addStage, defaultTree, motorMounts } from './tree/treeModel.js';
+import { addChild, addStage, defaultTree, findNode, motorMounts, updateNode } from './tree/treeModel.js';
+import { resolveFlightState } from './services/flightState.js';
 import { APP_VERSION } from './version.js';
+import { saveFile } from './services/saveFile.js';
 
 /**
  * THE LAUNCH BUTTON AND THE HEADLESS LAUNCH FLY THE SAME BYTES (2026-10-01;
@@ -87,6 +89,11 @@ vi.mock('./services/simulateDesign.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/simulateDesign.js')>();
   return { ...real, flyBuiltDesign: vi.fn(real.flyBuiltDesign) };
 });
+vi.mock('./services/saveFile.js', async importOriginal => ({
+  ...await importOriginal<typeof import('./services/saveFile.js')>(),
+  saveFile: vi.fn(async (_data: BlobPart, opts: { suggestedName: string }) =>
+    ({ kind: 'downloaded', name: opts.suggestedName })),
+}));
 // Each importer's OWN output, cloned before App touches it (the name fallback
 // mutates it). Three literal calls: vitest hoists only top-level vi.mock.
 let parsed: ImportedDesign | null = null;
@@ -227,6 +234,34 @@ const AUTO: AeroState = { aeroMode: 'auto', effectiveKbf: true, autoSupersonic: 
 const SUPERSONIC: AeroState = { aeroMode: 'supersonic', effectiveKbf: true, autoSupersonic: false };
 /** Extended Barrowman: the classic model with Rogers Kbf off. */
 const KBF_OFF: AeroState = { aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false };
+
+it('FC-4 Launch flies layered recovery and ignition while autosave keeps defaults', async () => {
+  prefs(CLASSIC);
+  let tree = defaultTree();
+  const chute = tree.components[0]!.children!.flatMap(n => [n, ...(n.children ?? [])]).find(n => n.type === 'parachute')!;
+  expect(chute).toBeDefined();
+  tree = updateNode(tree, chute.id!, { deployEvent: 'altitude', deployAltitude: 91.44, deployDelay: 0 });
+  const mount = motorMounts(tree)[0]!.id!;
+  const mm = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+  const state: DesignState = { tree: { ...tree, ignitionDefaults: { [mount]: { event: 'automatic', delay: 0 } } },
+    mountMotors: { [mount]: mm }, launch: DEFAULT_CONDITIONS, measured: { massKg: null, cgM: null },
+    activeConfigId: 'layered', configLayers: 1, detachedOverrides: {}, savedConfigs: [{
+      id: 'layered', name: 'Ejection override', isDefault: true, motors: { [mount]: mm },
+      deployments: { [chute.id!]: { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 } },
+      ignitions: { [mount]: { event: 'launch', delay: 0.4 } },
+    }] };
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ ...state, savedAt: 1, appVersion: APP_VERSION }));
+  const host = await mountApp();
+  const app = await launchInApp(host);
+  expect(findNode(app.args.tree, chute.id!)).toMatchObject({ deployEvent: 'ejection' });
+  expect(app.args.derived.assigned[0]![1].ignition).toEqual({ event: 'launch', delay: 0.4 });
+  expect(findNode(peekSession()!.tree, chute.id!)).toMatchObject({ deployEvent: 'altitude', deployAltitude: 91.44 });
+  await unmountAll();
+  const resolved = resolveFlightState(state.tree, state.savedConfigs, state.activeConfigId, {}, state.mountMotors);
+  const expected = await simulateDesign({ ...state, ...resolved, tree: { ...resolved.tree, ignitionDefaults: undefined }, savedConfigs: [], activeConfigId: null });
+  expect(app.out.flight.result.events).toEqual(expected.result.events);
+  expect(app.out.run.designKey).toBe(expected.run.designKey);
+}, 30000);
 
 beforeEach(() => {
   parsed = null;
@@ -400,6 +435,9 @@ const renumbered = (x: unknown, ids: Map<string, string>): unknown => {
  */
 function expectSameLaunch(app: AppSide, out: SimulateDesignResult, aero: AeroState, stored = false): void {
   const same = (a: unknown, b: unknown) => (stored ? expect(plain(a)).toStrictEqual(plain(b)) : expect(a).toStrictEqual(b));
+  const effective = resolveFlightState(out.state.tree, out.state.savedConfigs, out.state.activeConfigId,
+    out.state.detachedOverrides ?? {}, out.state.mountMotors);
+  same(effective.tree, app.args.tree);
   // The flight and the run.
   expect(comparable(out.run)).toStrictEqual(comparable(app.out.run));
   expect(plain(comparable(app.persistedRun))).toStrictEqual(plain(comparable(out.run)));
@@ -411,8 +449,7 @@ function expectSameLaunch(app: AppSide, out: SimulateDesignResult, aero: AeroSta
   // What App handed the shared path: the provenance key, the state, the build.
   expect(out.provenance).toStrictEqual(app.args.provenance);
   expect(out.autoSupersonic).toBe(app.upgraded);
-  same(out.state.tree, app.args.tree);
-  same(deriveLaunchInputs(out.state, aero).assigned, app.args.derived.assigned);
+  same(deriveLaunchInputs({ ...out.state, ...effective }, aero).assigned, app.args.derived.assigned);
   same(out.state.launch, app.args.launch);
   same(out.state.savedConfigs, app.args.savedConfigs);
   expect(out.state.activeConfigId).toBe(app.args.activeConfigId);
@@ -449,8 +486,10 @@ async function sessionCase(seed: object | null, aero: AeroState, opts: { presses
 }
 
 /** A file case: open in App, fly; fly the importer's own parse headless. */
-async function fileCase(bytes: Uint8Array, name: string, aero: AeroState) {
+async function fileCase(bytes: Uint8Array, name: string, aero: AeroState,
+  beforeLaunch?: (host: HTMLElement) => Promise<void>, feet = false) {
   prefs(aero);
+  if (feet) localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
   const host = await mountApp();
   await waitFor(starterStored, 'the starter motor to land');
   await settle(50);
@@ -463,6 +502,8 @@ async function fileCase(bytes: Uint8Array, name: string, aero: AeroState) {
     'the file to open and be autosaved');
   // The reconcile effect and the rebuild it causes.
   await settle(100);
+  const originalImportNote = notes.fileNote;
+  await beforeLaunch?.(host);
   const app = await launchInApp(host);
   const imported = structuredClone(parsed!);
   applyDesignNameFallback(imported, name);
@@ -475,7 +516,7 @@ async function fileCase(bytes: Uint8Array, name: string, aero: AeroState) {
   // it) or is in no catalogue at all (F7's sustainer: neither side can load
   // it), so App's note and the headless note are the same words. A file whose
   // motor App downloads and the bundle lacks would not belong in this list.
-  expect(out.importNote).toStrictEqual(app.fileNote);
+  expect(out.importNote).toStrictEqual(originalImportNote);
   expectSameLaunch(app, out, aero);
   // The bytes door: its own parse, its own presets, its own unit words.
   const viaBytes = await simulateFile(bytes, name, { aero });
@@ -491,7 +532,7 @@ async function fileCase(bytes: Uint8Array, name: string, aero: AeroState) {
   const apps = positions(app.args.tree);
   expect(renumbered(viaBytes.build.info, mine)).toStrictEqual(renumbered(app.args.built.info, apps));
   expect(renumbered(viaBytes.build.hardware, mine)).toStrictEqual(renumbered(app.args.built.hardware, apps));
-  expect(viaBytes.importNote).toStrictEqual(app.fileNote);
+  expect(viaBytes.importNote).toStrictEqual(originalImportNote);
   expect(viaBytes.padMassNote).toStrictEqual(app.padMassNote);
   return { app, out };
 }
@@ -795,6 +836,49 @@ describe('the Launch button and simulateFile fly an opened file the same', () =>
 });
 
 const corpus = (name: string) => join(CORPUS, name);
+it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-4 LEM file: panels show 300 ft; Launch and file API fly ejection; Save keeps both layers', async () => {
+  const bytes = new Uint8Array(readFileSync(corpus('atestani files/LEM-1-2026_2.ork')));
+  let xml = '';
+  const { app, out } = await fileCase(bytes, 'LEM-1-2026_2.ork', CLASSIC, async host => {
+    const defaults = peekSession()!.tree;
+    const flat = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...flat(n.children ?? [])]);
+    const chutes = flat(defaults.components).filter(n => n.type === 'parachute');
+    expect(chutes).toHaveLength(2);
+    for (const chute of chutes) {
+      expect(chute).toMatchObject({ deployEvent: 'altitude', deployAltitude: 91.44 });
+      const rows = [...host.querySelectorAll<HTMLElement>('[role="treeitem"]')];
+      const row = rows.find(r => r.querySelector('.tree-label')?.textContent === chute.name)!;
+      await act(async () => { row.click(); });
+      const altitude = host.querySelector<HTMLInputElement>('input[aria-label^="Deploy altitude"]')!;
+      expect(altitude).not.toBeNull();
+      // The tester's file is SI internally; this panel's current distance unit is ft.
+      expect(Number(altitude.value)).toBeCloseTo(300, 6);
+    }
+    const click = async (text: string) => act(async () => {
+      [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();
+    });
+    await click('Save As / Export');
+    await click('Save .ork');
+    await settle(50);
+    xml = await (vi.mocked(saveFile).mock.calls.at(-1)![0] as Blob).text();
+  }, true);
+  const flat = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...flat(n.children ?? [])]);
+  expect(flat(app.args.tree.components).filter(n => n.type === 'parachute').map(n => n['deployEvent']))
+    .toEqual(['ejection', 'ejection']);
+  const events = out.result.events;
+  const charge = events.find(e => e.type === 'EJECTION_CHARGE')!;
+  const deployed = events.filter(e => e.type === 'RECOVERY_DEVICE_DEPLOYMENT');
+  expect(charge).toBeDefined();
+  expect(deployed.length).toBeGreaterThan(0);
+  // The zero-delay overrides deploy with the motor charge, within one event step.
+  for (const event of deployed) expect(Math.abs(event.time - charge.time)).toBeLessThan(0.05);
+  const reader = await vi.importActual<typeof import('./services/orkFile.js')>('./services/orkFile.js');
+  const reopened = reader.importOrk(xml);
+  expect(flat(reopened.tree.components).filter(n => n.type === 'parachute').map(n => n['deployAltitude']))
+    .toEqual([91.44, 91.44]);
+  expect(Object.values(reopened.configs.find(c => c.id === '365b8430-de05-45ee-a421-5142de1fd1ae')!.deployments!))
+    .toEqual([{ deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 }, { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 }]);
+}, 60000);
 describe('the Launch button and simulateFile fly a real design the same (local corpus)', () => {
   it.skipIf(!existsSync(corpus('LEM-M2B.ork')))('K1: LEM-M2B.ork, seven configurations', async () => {
     const { out } = await fileCase(new Uint8Array(readFileSync(corpus('LEM-M2B.ork'))), 'LEM-M2B.ork', CLASSIC);

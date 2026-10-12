@@ -53,7 +53,8 @@ describe('RECOV-CASE .ork writer', () => {
     });
     const blocks = [...xml.matchAll(/<deploymentconfiguration configid="(\w)">\s*<deployevent>([^<]*)</g)]
       .map((m) => [m[1], m[2]]);
-    expect(blocks).toEqual([['a', 'altitude'], ['b', 'apogee']]);
+    expect(blocks).toEqual([['b', 'apogee']]); // A inherits the bare altitude default.
+    expect(deployEvents(xml)).toContain('altitude');
   });
 });
 

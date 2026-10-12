@@ -4,8 +4,10 @@ import type { MountMotor, SavedConfig } from '../model/design.js';
 import type { SessionState } from './session.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { designFingerprint } from './dirtyState.js';
-import { configOntoTree } from './importApply.js';
-import { syncActiveConfig } from './configSync.js';
+import { configOntoTree, withActiveConfigTreeSynced } from './legacyConfigLayers.testSupport.js';
+import { withActiveConfigSynced } from './configSync.js';
+const syncActiveConfig = (configs: SavedConfig[], id: string, live: { tree: SessionState['tree']; motors: Record<string, MountMotor>; unmatchedRefs: NonNullable<SessionState['unmatchedRefs']> }) =>
+  withActiveConfigTreeSynced(withActiveConfigSynced(configs, id, live.motors, live.unmatchedRefs), id, live.tree);
 import { resolveFlightState } from './flightState.js';
 import { migrateConfigLayers } from './configLayersMigration.js';
 

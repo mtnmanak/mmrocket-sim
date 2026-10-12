@@ -1,5 +1,6 @@
 import type { ComponentNode } from '@online-openrocket/engine';
-import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, LayeredSavedConfig,
+import { snapshotLoadedConfig } from './configSnapshot.js';
+import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SavedConfig,
   MountMotor, SeparationTuple } from '../model/design.js';
 
 export type FlightTuple = DeploymentTuple | SeparationTuple | IgnitionTuple;
@@ -47,10 +48,10 @@ export function useOverrideEverywhere<T extends FlightTuple>(
  * working values, and stage activeness remains metadata (FC-SPEC decision 2).
  */
 export function resolveFlightState(
-  tree: FlightTree, savedConfigs: readonly LayeredSavedConfig[], activeConfigId: string | null,
+  tree: FlightTree, savedConfigs: readonly SavedConfig[], activeConfigId: string | null,
   detached: FlightOverrides, mountMotors: Record<string, MountMotor>,
 ): { tree: FlightTree; mountMotors: Record<string, MountMotor> } {
-  const overrides: FlightOverrides = savedConfigs.find(c => c.id === activeConfigId) ?? detached;
+  const overrides = savedConfigs.find(c => c.id === activeConfigId) ?? detached;
   const visit = (nodes: ComponentNode[]): ComponentNode[] => {
     let changed = false;
     const next = nodes.map(node => {
@@ -75,4 +76,40 @@ export function resolveFlightState(
     motors[id] = { ...motor, ignition: { ...ignition } };
   }
   return { tree: components === tree.components ? tree : { ...tree, components }, mountMotors: motors };
+}
+
+/** Only the three layered families travel when an active owner is deleted. */
+export function activeFlightOverrides(
+  configs: readonly SavedConfig[], activeId: string | null, detached: FlightOverrides,
+): FlightOverrides {
+  const active = configs.find(c => c.id === activeId);
+  if (!active) return detached;
+  // Only importer/migration output enters App. SavedConfig retains the legacy
+  // partial-map type for the migration boundary; do not reconstruct or reorder
+  // complete tuples here (the canonical physics document retains key order).
+  return {
+    ...(active.deployments ? { deployments: active.deployments as FlightOverrides['deployments'] } : {}),
+    ...(active.separations ? { separations: active.separations as FlightOverrides['separations'] } : {}),
+    ...(active.ignitions ? { ignitions: active.ignitions } : {}),
+  };
+}
+
+/** New owns only effective tuples which differ from today's component defaults. */
+export function snapshotFlightOverrides(
+  tree: FlightTree, configs: readonly SavedConfig[], activeId: string | null,
+  detached: FlightOverrides, motors: Record<string, MountMotor>,
+): FlightOverrides {
+  const effective = resolveFlightState(tree, configs, activeId, detached, motors);
+  const defaults = snapshotLoadedConfig(tree, {});
+  const flown = snapshotLoadedConfig(effective.tree, {});
+  const deployments = Object.fromEntries(Object.entries(flown.deployments).filter(([id, d]) =>
+    JSON.stringify(d) !== JSON.stringify(defaults.deployments[id]))) as Record<string, DeploymentTuple>;
+  const separations = Object.fromEntries(Object.entries(flown.separations).filter(([id, d]) =>
+    JSON.stringify(d) !== JSON.stringify(defaults.separations[id]))) as Record<string, SeparationTuple>;
+  // Unloaded mounts still own ignition choices; New must retain them too.
+  const ignitionChoices = { ...activeFlightOverrides(configs, activeId, detached).ignitions,
+    ...Object.fromEntries(Object.entries(effective.mountMotors).map(([id, m]) => [id, m.ignition])) };
+  const ignitions = Object.fromEntries(Object.entries(ignitionChoices).filter(([id, tuple]) =>
+    sparsify(tree.ignitionDefaults?.[id] ?? motors[id]?.ignition ?? { event: 'automatic', delay: 0 }, tuple)));
+  return { deployments, separations, ignitions };
 }

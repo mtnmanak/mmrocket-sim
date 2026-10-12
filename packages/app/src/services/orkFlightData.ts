@@ -162,6 +162,11 @@ existingRuns: readonly SimRun[] = []): SummaryImportPlan {
 }
 
 export interface FlightDataForExportInput {
+  /** FC-4: qualify against this owner's effective inputs, including null/detached. */
+  configurationState?: (id: string | null) => {
+    designKey: string; hasNozzle?: boolean; requiresPhysicsRevision?: boolean; physicsRevisions?: readonly string[];
+    motors: [string, MountMotor][];
+  };
   /** Historical fallback belongs exclusively to this opened document. */
   importedDocument?: ImportedSummaryDocument;
   /** Newest first — the first qualifying run per configuration wins. */
@@ -232,7 +237,8 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput): DescribedM
   } = input;
   const cfg = r.flightConfigId ? savedConfigs.find((c) => c.id === r.flightConfigId) : undefined;
   if (r.flightConfigId ? !cfg : activeConfigId !== null) return null;
-  if (r.designKey !== designKey) return null;
+  const effective = input.configurationState?.(cfg?.id ?? null);
+  if (r.designKey !== (effective?.designKey ?? designKey)) return null;
   if (r.conditionsKey !== conditionsKey) return null;
   // The model too. Without this a run the app itself marks "flown on a
   // different model" would be written into the file as that configuration's
@@ -243,8 +249,8 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput): DescribedM
   // And the kernel's own physics: the v0.119 nozzle stamp and the K9/K15
   // revision. None of the three input keys can see a kernel change. Both
   // result export and Auto-delay reuse must pass these same guards.
-  if (!runCarriesNozzleStamp(r, { hasNozzle, ...model })) return null;
-  if (!runCarriesPhysicsRevision(r, input)) return null;
+  if (!runCarriesNozzleStamp(r, { hasNozzle: effective?.hasNozzle ?? hasNozzle, ...model })) return null;
+  if (!runCarriesPhysicsRevision(r, effective ?? input)) return null;
   // The motor set is compared against the CONFIGURATION's own motors, not the
   // live working set: a user who has since switched configurations must still
   // be able to export the results of the others.
@@ -255,7 +261,7 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput): DescribedM
   // `assigned` — never had. Refusal is the safe direction, but a needless one
   // loses that configuration's stored result from the file.
   const active = !cfg || cfg.id === activeConfigId;
-  const cfgMotors: [string, MountMotor][] = active
+  const cfgMotors: [string, MountMotor][] = effective ? effective.motors.filter(([id]) => mountIds.includes(id)) : active
     ? [...assigned]
     : Object.entries(cfg.motors).filter(([id]) => mountIds.includes(id));
   // The hardware term is the ACTIVE configuration's: a non-active

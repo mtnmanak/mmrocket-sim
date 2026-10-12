@@ -114,7 +114,9 @@ describe('resolved RockSim recovery configurations', () => {
     const planned = planImport(r, resolved, { launch: DEFAULT_CONDITIONS,
       text: { mass: String, length: String } });
     expect(planned.snapshot.activeConfigId).toBe('rocksim-sim-2');
-    expect(chute(planned.snapshot.tree)).toMatchObject(state({ deployEvent: 'apogee' }));
+    expect(chute(planned.snapshot.tree)).toMatchObject(state({ deployEvent: 'altitude', deployAltitude: 121.92 }));
+    expect(chute(resolveFlightState(planned.snapshot.tree, planned.snapshot.savedConfigs,
+      planned.snapshot.activeConfigId, {}, planned.snapshot.mountMotors).tree)).toMatchObject(state({ deployEvent: 'apogee' }));
     expect(planned.note.text).toContain('Main at apogee');
     expect(planned.note.text).not.toContain('Main at the ejection charge');
   });

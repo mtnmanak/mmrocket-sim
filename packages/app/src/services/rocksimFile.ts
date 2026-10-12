@@ -40,7 +40,7 @@ import { checkFileLongitude, fileLongitudeNote } from './longitudeCheck.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple } from '../model/design.js';
 import type { LayeredOrkFlightConfig, LayeredOrkImportResult } from './orkFile.js';
 import { sparsify } from './flightState.js';
-import { deploymentTuple, exportIgnitions, legacyImportFlightState } from './foreignConfigLayers.js';
+import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 
 /**
@@ -2286,7 +2286,6 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     ...(launchSiteRefused ? { launchSiteRefused: true as const } : {}),
     ...(longitudeCheck ? { longitudeCheck } : {}),
     configs,
-    legacyFlightState: () => legacyImportFlightState(tree, configs, chosenConfigId),
     chosenConfigId,
     configSources,
     configNotes,

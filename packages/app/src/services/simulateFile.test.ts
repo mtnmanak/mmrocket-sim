@@ -170,12 +170,9 @@ describe('simulateFile flies a design file offline, on the shipped data', () => 
   }, 30000);
 });
 
-// FC-2/3's temporary compatibility callback is not structured-cloneable. Clone
-// its data projection for test isolation, exactly as planImport consumes it;
-// FC-4 removes this bridge when the headless path accepts layers directly.
+// Layered imports are plain data; keep each headless call isolated from its sibling.
 function cloneParsed(parsed: ImportedDesign): ImportedDesign {
-  const { legacyFlightState, ...data } = parsed;
-  return structuredClone({ ...data, ...legacyFlightState?.() });
+  return structuredClone(parsed);
 }
 
 describe('simulateFile reads the shipped data only', () => {

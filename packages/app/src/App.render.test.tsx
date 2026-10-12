@@ -22,7 +22,7 @@ import { nozzleOversize } from './services/nozzleCheck.js';
 import { peekSession } from './services/session.js';
 import { designMatchKeyOf, type SimRun } from './services/simReport.js';
 import * as simStore from './services/simStore.js';
-import { addChild, addStage, defaultTree, motorMounts } from './tree/treeModel.js';
+import { addChild, addStage, defaultTree, findNode, motorMounts, updateNode } from './tree/treeModel.js';
 import type { MountMotor } from './model/design.js';
 import { APP_VERSION } from './version.js';
 
@@ -904,6 +904,54 @@ async function openTab(host: HTMLElement, name: 'Fly' | 'Design' | 'Motors & Lau
  */
 describe('the Batch simulate button', () => {
   const batchButton = (host: HTMLElement) => button(host, 'Batch simulate motors…');
+
+  it('FC-4 passes effective recovery and ignition to Batch while defaults stay editable', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    const chute = tree.components[0]!.children!.flatMap(n => [n, ...(n.children ?? [])]).find(n => n.type === 'parachute')!;
+    const defaults = updateNode(tree, chute.id!, { deployEvent: 'altitude', deployAltitude: 91.44 });
+    await seedStarterSession({ edit: () => ({ ...defaults, ignitionDefaults: { [mount]: { event: 'automatic', delay: 0 } } }),
+      over: { configLayers: 1, detachedOverrides: {}, activeConfigId: 'a', mountMotors: { [mount]: c6 },
+        savedConfigs: [{ id: 'a', name: 'Layered', isDefault: true, motors: { [mount]: c6 },
+          deployments: { [chute.id!]: { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 } },
+          ignitions: { [mount]: { event: 'launch', delay: 2 } } }] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    await settle(50);
+    await act(async () => { batchButton(host).click(); });
+    expect(batchDialog!.assignedIgnitions).toEqual({ [mount]: { event: 'launch', delay: 2 } });
+    expect(batchDialog!.assignedMountMotors[mount]!.ignition).toEqual({ event: 'launch', delay: 2 });
+    expect(findNode(batchDialog!.tree, chute.id!)!['deployEvent']).toBe('ejection');
+    await act(async () => { batchDialog!.onClose(); });
+    await settle(450);
+    expect(findNode(peekSession()!.tree, chute.id!)!['deployAltitude']).toBe(91.44);
+  }, 30000);
+
+  it('FC-4 ignition override edits undo and redo atomically; Delete keeps them and None clears them', async () => {
+    const { tree, mount, c6 } = await seedStarterSession();
+    await seedStarterSession({ edit: () => ({ ...tree, ignitionDefaults: { [mount]: { event: 'automatic', delay: 0 } } }),
+      over: { configLayers: 1, detachedOverrides: {}, activeConfigId: 'a', mountMotors: { [mount]: c6 },
+        savedConfigs: [{ id: 'a', name: 'Layered', isDefault: true, motors: { [mount]: c6 },
+          ignitions: { [mount]: { event: 'launch', delay: 2 } } }] } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Launch');
+    const select = () => host.querySelector<HTMLSelectElement>(`#ignition-${mount}`)!;
+    const choose = async (event: string) => act(async () => { select().value = event; select().dispatchEvent(new Event('change', { bubbles: true })); });
+    await choose('never');
+    expect(select().value).toBe('never');
+    await act(async () => { button(host, '↩ Undo').click(); });
+    expect(select().value).toBe('launch');
+    await act(async () => { button(host, '↪ Redo').click(); });
+    expect(select().value).toBe('never');
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Delete Layered"]')!.click(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label^="Confirm delete Layered"]')!.click(); });
+    expect(select().value).toBe('never');
+    await settle(450);
+    expect(peekSession()!.detachedOverrides?.ignitions?.[mount]).toEqual({ event: 'never', delay: 2 });
+    expect(peekSession()!.tree.ignitionDefaults?.[mount]).toEqual({ event: 'automatic', delay: 0 });
+    await act(async () => { button(host, '⏏ Unload').click(); });
+    await settle(450);
+    expect(peekSession()!.detachedOverrides).toEqual({});
+  }, 30000);
 
   it('on a staged rocket is off, and says why ON SCREEN, not only in a tooltip', async () => {
     await seedStarterSession({ edit: (t) => addStage(t).tree });

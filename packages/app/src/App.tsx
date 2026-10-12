@@ -1,5 +1,7 @@
 import { OpenMotorDialog } from './components/OpenMotorDialog.js';
 import { acceptedOtherMakerNotes, applyOpenMotorChoices, collectOpenMotorIdentities, commitOpenMotorChoices, type OpenMotorIdentity, type OpenMotorState } from './services/openMotorChoices.js';
+import { activeFlightOverrides, resolveFlightState, setOverride } from './services/flightState.js';
+import type { FlightOverrides, FlightTree, IgnitionTuple } from './model/design.js';
 import { matchingRecoveryEvents } from './services/recoveryFlight.js';
 import { editProfileSurface } from './services/windProfile.js';
 import { FlightLoadStats } from './components/FlightLoadStats.js';
@@ -174,7 +176,7 @@ import {
 } from './services/statedLaunchWeight.js';
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import {
-  applyConfigSwitchPlan, applyImportPlan, attachedOf, attachedSet, openShareLink, planConfigSwitch, planImport,
+  applyConfigSwitchPlan, applyImportPlan, attachedOf, attachedSet, configOntoTree, openShareLink, planConfigSwitch, planImport,
   planNewDesign, planOrkSave, resolveImportMotors, starterMotorMayLand, type ImportedDesign,
 } from './services/importApply.js';
 import { ScaleDialog } from './components/ScaleDialog.js';
@@ -321,6 +323,7 @@ export function App() {
   // Only crossing a Scale step restores configuration snapshots. An ordinary
   // tree undo (especially after Apply None) must not undo saved configuration edits.
   const scaleRevision = useRef<object>({});
+  const layerRevision = useRef<object>({});
   const motorAnswerRevision = useRef<object>({});
   const restoringMotors = useRef<Record<string, MountMotor> | null>(null);
   const [openMotorQuestion, setOpenMotorQuestion] = useState<{ identities: OpenMotorIdentity[]; openId: number; acceptedLines: string[] } | null>(null);
@@ -336,13 +339,24 @@ export function App() {
     selectedId, setSelectedId, treeElementRef,
     reset: resetHistory, canUndo, canRedo,
   } = useTreeHistory(initialTree, {
-    captureCompanion: (): { revision: object; configs: SavedConfig[]; motorRevision: object; motorState: OpenMotorState } => ({
+    captureCompanion: (): { revision: object; configs: SavedConfig[]; motorRevision: object; motorState: OpenMotorState;
+      layerRevision: object; detachedOverrides: FlightOverrides; activeConfigId: string | null } => ({
+      layerRevision: layerRevision.current, detachedOverrides, activeConfigId,
       revision: scaleRevision.current,
       motorRevision: motorAnswerRevision.current,
       motorState: { mountMotors, savedConfigs, unmatchedRefs },
       configs: withActiveConfigTreeSynced(savedConfigs, activeConfigId, treeRef.current),
     }),
-    restoreCompanion: ({ revision, configs, motorRevision, motorState }) => {
+    restoreCompanion: ({ revision, configs, motorRevision, motorState, layerRevision: priorLayerRevision,
+      detachedOverrides: priorDetached, activeConfigId: priorActiveId }) => {
+      if (priorLayerRevision !== layerRevision.current) {
+        layerRevision.current = priorLayerRevision;
+        if (priorActiveId === activeConfigId) setDetachedOverrides(priorDetached);
+        setSavedConfigs(prev => prev.map(c => {
+          const old = configs.find(row => row.id === c.id);
+          return old ? { ...c, deployments: old.deployments, separations: old.separations, ignitions: old.ignitions } : c;
+        }));
+      }
       // React has not installed these motors when onRestore runs (audit 2026-10-11, S2-3).
       restoringMotors.current = motorRevision !== motorAnswerRevision.current ? motorState.mountMotors : null;
       // @atestani TRF #162, Eric 2026-10-06: only crossing an answer restores motors.
@@ -462,6 +476,7 @@ export function App() {
   // services/sessionRestore.ts), or applying one saved with a pod motor picked
   // first would orphan it again. A row nothing moves in is kept by identity.
   const [savedConfigs, setSavedConfigs] = useState<SavedConfig[]>(restored.state.savedConfigs);
+  const [detachedOverrides, setDetachedOverrides] = useState<FlightOverrides>(restored.state.detachedOverrides);
   const [activeConfigId, setActiveConfigId] = useState<string | null>(restored.state.activeConfigId);
   /**
    * The WORKING SET's unmatched motor references, keyed by mount node id — the
@@ -508,7 +523,7 @@ export function App() {
   // condition. Session-only: it belongs to the imported file, not the design.
   const [fileMachAlt, setFileMachAlt] = useState<[number, number][] | undefined>(() => session?.fileMachAlt);
   const [designFile, setDesignFile] = useState<DesignFileRef | null>(() => session?.designFile ?? null);
-  const [lossySaved, setLossySaved] = useState<LossySaveMark | null>(session?.lossySaved ?? null);
+  const [lossySaved, setLossySaved] = useState<LossySaveMark | null>(restored.session?.lossySaved ?? null);
   const [lossDialog, setLossDialog] = useState<{ report: FormatLossReport; confirm: boolean } | null>(null);
   const [liveLoss, setLiveLoss] = useState<{ file: DesignFileRef; report: CheckedFormatLossReport } | null>(null);
   const moveLossyMark = useCallback((before: string, after: string) => {
@@ -845,9 +860,10 @@ export function App() {
       launch,
       savedConfigs,
       activeConfigId,
+      detachedOverrides,
       measured,
     };
-  }, [tree, mountMotors, launch, savedConfigs, activeConfigId, measured]);
+  }, [tree, mountMotors, launch, savedConfigs, activeConfigId, detachedOverrides, measured]);
 
   /**
    * "Is there work a file on disk does not have?" — hooks/useDesignDirty.ts:
@@ -864,7 +880,7 @@ export function App() {
    */
   const {
     dirty, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
-  } = useDesignDirty(designSnapshot, session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore, restored.preConfigRestore,
+  } = useDesignDirty(designSnapshot, restored.session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore, restored.preConfigRestore,
     // A .rkt/.CDX1 save marks the design it wrote, apart from the .ork mark:
     // a non-edit rewrite (catalogue relabel, restore migration, starter landing)
     // moves it too, or a design identical to the saved file reads as unsaved.
@@ -931,6 +947,7 @@ export function App() {
     setMountMotors({});
     setUnmatchedRefs({});
     setSavedConfigs([]);
+    setDetachedOverrides({});
     setImportedDocument(undefined);
     setActiveConfigId(null);
     setSelectedId(null);
@@ -1065,12 +1082,21 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
     [stageList.length, tree.components]);
   // Assigned motors on mounts that still exist in the tree.
-  const assigned = useMemo(() => assignedMotorsOf(mountMotors, mounts), [mountMotors, mounts]);
+  const activeLayer = savedConfigs.find(c => c.id === activeConfigId);
+  const activeOverrides = useMemo(() => activeFlightOverrides(savedConfigs, activeConfigId, detachedOverrides),
+    // Names and other configuration metadata must not rebuild flight inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only these three map identities affect resolution
+    [activeLayer?.deployments, activeLayer?.separations, activeLayer?.ignitions, detachedOverrides]);
+  const flightState = useMemo(() => resolveFlightState(tree, [], null, activeOverrides, mountMotors),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a rocket rename does not alter kernel inputs
+    [tree.components, (tree as FlightTree).ignitionDefaults, activeOverrides, mountMotors]);
+  const flightTree = useMemo(() => ({ ...tree, components: flightState.tree.components }), [tree, flightState.tree.components]);
+  const assigned = useMemo(() => assignedMotorsOf(flightState.mountMotors, mounts), [flightState.mountMotors, mounts]);
 
   // THE NOZZLE EXIT DIAMETER FOLLOWS THE MOTOR (Eric, 2026-09-13) — the rule,
   // and why it is decided here rather than in NozzleField, are in
   // hooks/useNozzleFollow.ts. It acts on a change of this loadout only.
-  const stageMotorLoadout = useMemo(() => stageMotors(tree, assigned), [tree, assigned]);
+  const stageMotorLoadout = useMemo(() => stageMotors(flightTree, assigned), [flightTree, assigned]);
   const {
     cleared: nozzleCleared, pending: nozzlePending, seed: seedNozzleFollow, restoring: restoreNozzleFollow,
   } = useNozzleFollow({ loadout: stageMotorLoadout, treeRef, writeTree });
@@ -1133,7 +1159,7 @@ export function App() {
   // It never throws: the error is part of the memo's value, because setState
   // during render breaks under StrictMode's double-invoke.
   const buildResult = useMemo((): DesignBuild => buildDesign(designBuildInputOf({
-    tree,
+    tree: flightTree,
     assigned,
     effectiveKbf,
     effectiveSupersonic,
@@ -1164,7 +1190,7 @@ export function App() {
     // `primaryMountId` derives from `assigned` and `tree`, so it only ever
     // changes when they do.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
-  [tree.components, assigned, effectiveKbf, effectiveSupersonic, effectiveHybrid, measured.massKg, primaryMountId, currentSetKey,
+  [flightTree.components, assigned, effectiveKbf, effectiveSupersonic, effectiveHybrid, measured.massKg, primaryMountId, currentSetKey,
     prefs.units.length]);
   const built = 'error' in buildResult ? null : buildResult;
   const buildError = 'error' in buildResult ? buildResult.error : simError;
@@ -1221,7 +1247,7 @@ export function App() {
     if (!built) return null;
     const failed = new Set(built.motorFailures.map((f) => f.mountId));
     return {
-      tree,
+      tree: flightTree,
       info: built.info,
       // The FLOWN specs, hardware included (services/hardwareMass.ts). The
       // single-object path already sees the hardware through `info.mass`, but
@@ -1239,7 +1265,7 @@ export function App() {
       },
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
-  }, [built, tree.components, assigned]);
+  }, [built, flightTree.components, assigned]);
 
   /**
    * What the app thinks the rocket weighs on the pad with NO hardware
@@ -1303,14 +1329,14 @@ export function App() {
   // `tree.components` for the same reason as `mounts`/`buildResult` above: a
   // rename gives `tree` a fresh identity and this whole recursive strip +
   // JSON.stringify re-ran per keystroke to produce the identical string.
-  const physicsKey = useMemo(() => physicsKeyOf(tree.components), [tree.components]);
+  const physicsKey = useMemo(() => physicsKeyOf(flightTree.components), [flightTree.components]);
   // Catalogue relabeling changes only display text. Keep every other motor
   // field (including Auto, ignition and weighing) in the flight-reset key.
   const motorFlightKey = useMemo(() => stableJson(Object.fromEntries(
-    Object.entries(mountMotors).map(([id, mm]) => [id, {
+    Object.entries(flightState.mountMotors).map(([id, mm]) => [id, {
       ...mm, label: undefined, meta: { ...mm.meta, label: undefined },
     }]),
-  )), [mountMotors]);
+  )), [flightState.mountMotors]);
 
   useEffect(() => {
     setResult(null);
@@ -1800,7 +1826,7 @@ export function App() {
         // file, so the Launch cannot grow a second copy here.
         const { flight: { result: res, execMs }, run } = await flyBuiltDesign({
           built,
-          tree,
+          tree: flightTree,
           derived: { mounts, stageList, assigned, effectiveSupersonic, primaryMountId },
           launch,
           aero: { aeroMode, effectiveKbf },
@@ -1874,9 +1900,9 @@ export function App() {
   // against every saved run, and `changedSince`.
   const provenanceKey = useMemo<DesignMatchKey>(() => provenanceKeyOf({
     refusedMountIds,
-    physicsKey, tree, assigned, hardwareDeltaKg, launch, aero: { aeroMode, effectiveKbf, autoSupersonic },
+    physicsKey, tree: flightTree, assigned, hardwareDeltaKg, launch, aero: { aeroMode, effectiveKbf, autoSupersonic },
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
-  }), [physicsKey, assigned, refusedMountIds, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, tree.components]);
+  }), [physicsKey, assigned, refusedMountIds, hardwareDeltaKg, launch, aeroMode, effectiveKbf, autoSupersonic, flightTree.components]);
   const recoveryEvents = useMemo(() => matchingRecoveryEvents(runs, provenanceKey,
     (id) => result?.runId === id ? result.value : reflightCache.get(id)),
   // eslint-disable-next-line react-hooks/exhaustive-deps -- Show charts fills the ref-backed cache before clearing reflying
@@ -2086,6 +2112,16 @@ export function App() {
       // The motor set is not taken from it: a non-active configuration is
       // compared against its OWN motors, so the function is handed over.
       designKey: provenanceKey.designKey,
+      configurationState: (id) => {
+        const cfg = savedConfigs.find(c => c.id === id);
+        const working = id === activeConfigId;
+        const resolved = resolveFlightState(!working && cfg ? configOntoTree(tree, cfg) : tree,
+          savedConfigs, id, detachedOverrides, working ? mountMotors : cfg?.motors ?? mountMotors);
+        const motors = assignedMotorsOf(resolved.mountMotors, mounts);
+        return { ...provenanceKeyOf({ tree: resolved.tree, physicsKey: physicsKeyOf(resolved.tree.components),
+          assigned: motors, hardwareDeltaKg: working ? hardwareDeltaKg : 0, launch,
+          aero: { aeroMode, effectiveKbf, autoSupersonic } }), motors };
+      },
       conditionsKey: provenanceKey.conditionsKey,
       model: { aeroMode, effectiveKbf, autoSupersonic },
       // Tree-only, deliberately NOT joined to `assigned` the way the two match
@@ -2102,7 +2138,7 @@ export function App() {
       // it flew the delay the file's <delay> will name (audit 2026-09-22).
       primaryMountOf: (ids) => primaryMountOf(tree, ids),
   }), [runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
-    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree]);
+    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree, detachedOverrides, mountMotors, launch]);
   const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataForExportPure(flightExportInput());
   /**
    * The same results as of this render, for the .rkt/.CDX1 loss check, which
@@ -2132,6 +2168,7 @@ export function App() {
   useEffect(() => {
     saveSessionDebounced({
       ...designSnapshot,
+      configLayers: 1,
       importedDocument,
       motorLengthLimitsMigrated: true,
       // Not part of the design fingerprint, but the only copy of a
@@ -2191,6 +2228,7 @@ export function App() {
       records: c.motors, refs: c.unmatchedRefs, tree, flown, configKey: c.id, exLibrary: loadExMotorIdentities,
       first: 'refs',
     }),
+    ...(c.ignitions ? { ignitions: c.ignitions } : {}),
     ...(c.deployments ? { deployments: c.deployments } : {}),
     ...(c.separations ? { separations: c.separations } : {}),
     ...(c.stageMassOverrides ? { stageMassOverrides: c.stageMassOverrides } : {}),
@@ -2289,7 +2327,7 @@ export function App() {
         .map((m) => autoDelaySaveNote(m, '.ork')).filter((n): n is string => n !== null))];
       // WITH launch: the .ork's first <simulation> carries the pad and weather,
       // so the file (and the desktop app) round-trips the whole flight setup.
-      const out = await download(exportOrk({
+      const out = await download(exportOrk({ workingOverrides: detachedOverrides,
         name: tree.name ?? 'My Rocket', tree, motors, launch,
         configs, activeConfigId, measured,
         flightData: flightDataForExport(),
@@ -2322,7 +2360,7 @@ export function App() {
   // flownForAutosave and flightDataNow are this render's flownAutoDelaysNow()
   // and flightDataForExport(), memoized: the check runs after every edit.
   const lossInput = (format: LossyFormat): FormatLossInput => ({
-    tree, launch, measured, configs: savedConfigs, activeConfigId,
+    tree, overrides: activeOverrides, launch, measured, configs: savedConfigs, activeConfigId,
     motors: exportMotorsMap(format === 'rkt' ? flownForAutosave : {}), flightData: flightDataNow,
     distanceUnit: prefs.units.distance,
   });
@@ -2382,10 +2420,10 @@ export function App() {
       setLossDialog(null);
       try {
         const xml = format === 'rkt'
-          ? exportRkt({ name: tree.name ?? 'My Rocket', tree, motors: data.motors, measured,
+          ? exportRkt({ name: tree.name ?? 'My Rocket', tree, overrides: activeOverrides, motors: data.motors, measured,
             compInfo: built ? rktComponentInfo(tree, id => built.rocket.componentInfo(id)) : {},
             ...(data.distanceUnit !== undefined ? { distanceUnit: data.distanceUnit } : {}) })
-          : exportCdx1({ name: tree.name ?? 'My Rocket', tree, motors: data.motors, launch,
+          : exportCdx1({ name: tree.name ?? 'My Rocket', tree, overrides: activeOverrides, motors: data.motors, launch,
             launchMassKg: built?.info.mass, launchCgM: built?.info.cg,
             ...(fileMachAlt ? { machAlt: fileMachAlt } : {}) });
         const out = await download(xml, format === 'rkt' ? 'rkt' : 'CDX1', '', report.losses);
@@ -2496,7 +2534,7 @@ export function App() {
     motorChoices.current.clear();
     applyImportPlan(plan, {
       history: { reset: resetHistory },
-      setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setLaunch, setMeasured,
+      setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setDetachedOverrides, setLaunch, setMeasured,
       setLongitudeCheck: (evidence) => setLongitudeReview(evidence ? { evidence, applied: false } : null),
       setMachAlt: setFileMachAlt, setNote: setFileNote, setShroudPrompt,
       // eslint-disable-next-line no-restricted-syntax -- an import: the design on screen IS the file on disk
@@ -2555,12 +2593,28 @@ export function App() {
     applyConfigSwitchPlan(plan, savedConfigs, {
       seedNozzleFollow,
       history: { reset: resetHistory },
-      setSavedConfigs, setMountMotors, setUnmatchedRefs, setActiveConfigId, setNote: setFileNote,
+      setSavedConfigs, setMountMotors, setUnmatchedRefs, setActiveConfigId, setDetachedOverrides, setNote: setFileNote,
     });
   };
 
+  // FC-4: capture defaults and all layer maps before any setter runs. FC-5's
+  // default+override controls use this same transaction, one history step.
+  const commitFlightLayers = (next: { tree?: RocketTree; configs?: SavedConfig[]; detached?: FlightOverrides }) => {
+    commitTreeStep(next.tree ?? treeRef.current);
+    layerRevision.current = {};
+    if (next.configs) setSavedConfigs(next.configs);
+    if (next.detached) setDetachedOverrides(next.detached);
+  };
+  const editIgnition = (id: string, tuple: IgnitionTuple) => {
+    const baseline = (tree as FlightTree).ignitionDefaults?.[id] ?? mountMotors[id]!.ignition;
+    const ignitions = setOverride(activeOverrides.ignitions, id, baseline, tuple);
+    if (activeConfigId && savedConfigs.some(c => c.id === activeConfigId)) {
+      commitFlightLayers({ configs: savedConfigs.map(c => c.id === activeConfigId ? { ...c, ignitions } : c) });
+    } else commitFlightLayers({ detached: { ...detachedOverrides, ignitions } });
+  };
+
   const createConfig = (): string | null => {
-    const next = createLoadedConfig({ savedConfigs, activeConfigId, tree, mountMotors, unmatchedRefs });
+    const next = createLoadedConfig({ savedConfigs, activeConfigId, detachedOverrides, tree, mountMotors, unmatchedRefs });
     if (!next) return null;
     // Older scale companions cannot restore configurations created after them.
     resetHistory();
@@ -2577,9 +2631,10 @@ export function App() {
   };
 
   const deleteFlightConfig = (config: SavedConfig) => {
-    const next = deleteConfig(savedConfigs, activeConfigId, config.id);
+    const next = deleteConfig(savedConfigs, activeConfigId, config.id, detachedOverrides);
     setSavedConfigs(next.savedConfigs);
     setActiveConfigId(next.activeConfigId);
+    setDetachedOverrides(next.detachedOverrides);
     // History remains a record of flown flights. Its result export gate rejects this
     // missing id; remove the file-owned fallback association as well.
     setImportedDocument(prev => prev ? { ...prev,
@@ -2602,6 +2657,7 @@ export function App() {
     // unresolved references go with them.
     setUnmatchedRefs({});
     setActiveConfigId(null);
+    setDetachedOverrides({});
     // Every other action in the Flight configurations panel confirms through
     // the notice bar; this one said nothing, and it is now the last control on
     // the tab. The copy has to read correctly from the vitals strip's
@@ -2719,7 +2775,7 @@ export function App() {
     try {
       const flown = flownAutoDelaysNow();
       const saveNotes: string[] = [];
-      const xml = exportOrk({
+      const xml = exportOrk({ workingOverrides: detachedOverrides,
         name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flown), launch,
         // Included so a share link reproduces exactly what saving the file
         // reproduces — the recipient sees the sender's weighed build, which is
@@ -3339,7 +3395,7 @@ export function App() {
       {showBatch && built && mounts.length > 0 && !isStaged && (
         <BatchSimulate
           info={built.info}
-          tree={tree}
+          tree={flightTree}
           // Every mount is batchable — a cluster ring around a central mount
           // (the owner's Darkstar) needs the RING selectable, not just the primary.
           mounts={mounts.map((m) => {
@@ -3360,12 +3416,12 @@ export function App() {
           // The mount with a motor when there is one; otherwise the first mount,
           // because a design with nothing loaded is the normal starting point.
           initialMountId={primaryMountId ?? mounts[0]!.id!}
-          assignedMountMotors={mountMotors}
+          assignedMountMotors={flightState.mountMotors}
           // Flown specs, not catalogue: a weighed motor on a NON-target mount
           // keeps its hardware through the batch's applyOthers; the batch
           // itself shifts only the target mount's matching candidate (weighed).
           assignedMotors={Object.fromEntries(
-            Object.entries(mountMotors).map(([id, mm]) => [id, flownSpec(id, mm.spec, built.hardware)]))}
+            Object.entries(flightState.mountMotors).map(([id, mm]) => [id, flownSpec(id, mm.spec, built.hardware)]))}
           // The nozzle-database ids alongside the specs: the database is keyed
           // on the motor's id and a MotorSpec has none, so the sweep needs these
           // to resolve the published exit of every motor firing beside the
@@ -3373,7 +3429,7 @@ export function App() {
           // carries `exMotorId`, never `motorId`, and reading `motorId` alone
           // (as this did until audit 2026-09-22) left an imported motor out of
           // the sweep's stage sum and kept its row off the exit typed for it.
-          assignedMotorIds={batchMotorIds(mountMotors)}
+          assignedMotorIds={batchMotorIds(flightState.mountMotors)}
           // …and their ignition settings, for the same reason: a MotorSpec
           // carries none, and every setMotorById resets the mount to
           // AUTOMATIC. An imported single-stage design can hold a `never` or
@@ -3381,7 +3437,7 @@ export function App() {
           // staged design.
           assignedAutoDelays={Object.fromEntries(assigned.map(([id, mm]) => [id, mm.meta.autoDelay === true]))}
           assignedIgnitions={Object.fromEntries(
-            Object.entries(mountMotors).map(([id, mm]) => [id, mm.ignition]))}
+            Object.entries(flightState.mountMotors).map(([id, mm]) => [id, mm.ignition]))}
           weighed={batchWeighed}
           retainedHardware={batchRetainedHardware}
           launch={launch}
@@ -3847,7 +3903,7 @@ export function App() {
                 // handles go at the memo's next build.
                 const measure = (t: RocketTree) => {
                   const b = buildDesign(designBuildInputOf({
-                    tree: t, assigned, effectiveKbf, effectiveSupersonic, hybrid: effectiveHybrid,
+                    tree: resolveFlightState(t, [], null, activeOverrides, mountMotors).tree, assigned, effectiveKbf, effectiveSupersonic, hybrid: effectiveHybrid,
                     measuredDryMassKg: measured.massKg, primaryMountId, currentSetKey,
                   }), { reset: () => {}, build: KERNEL_HANDLES.build });
                   if ('error' in b) return null;
@@ -4052,7 +4108,7 @@ export function App() {
           <RecoverySizingPanel
             recovery={recovery}
             byStage={recoveryByStage}
-            tree={tree}
+            tree={flightTree}
             launch={launch}
             deviceMass={componentMass}
           />
@@ -4146,7 +4202,7 @@ export function App() {
                     })}
                   </div>
                   {stMounts.map((m) => {
-              const mm = mountMotors[m.id!];
+              const mm = flightState.mountMotors[m.id!];
               const mNode = findNode(tree, m.id!);
               // Pods and strap-ons included (audit 2026-09-22, row 351): the
               // label and the pad-mass card's multi-motor wording follow the
@@ -4299,10 +4355,7 @@ export function App() {
                           id={`ignition-${m.id!}`}
                           style={{ flex: 1 }}
                           value={mm.ignition.event}
-                          onChange={(e) => setMountMotors((prev) => ({
-                            ...prev,
-                            [m.id!]: { ...mm, ignition: { ...mm.ignition, event: e.target.value as IgnitionEvent } },
-                          }))}
+                          onChange={(e) => editIgnition(m.id!, { ...mm.ignition, event: e.target.value as IgnitionEvent })}
                         >
                           <option value="automatic">Automatic (launch / lower stage's ejection)</option>
                           {/* A single-stage design has no lower stage, so these two would never
@@ -4322,10 +4375,7 @@ export function App() {
                             ariaLabel={`Ignition delay for ${mountName(m)}`}
                             onCommit={(v) => {
                               if (v === null) return;
-                              setMountMotors((prev) => ({
-                                ...prev,
-                                [m.id!]: { ...mm, ignition: { ...mm.ignition, delay: v } },
-                              }));
+                              editIgnition(m.id!, { ...mm.ignition, delay: v });
                             }}
                           />
                         </div>

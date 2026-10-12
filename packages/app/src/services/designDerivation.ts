@@ -1,5 +1,5 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import type { MountMotor, SavedConfig } from '../model/design.js';
+import type { FlightOverrides, FlightTree, MountMotor, SavedConfig } from '../model/design.js';
 import { motorisedStagesWithNozzle, motorMounts, mountName, primaryMountOf, stages } from '../tree/treeModel.js';
 import type { BuiltDesign, DesignBuildInput } from './buildDesign.js';
 import { padMassSetKey } from './configSync.js';
@@ -30,7 +30,9 @@ import {
 
 /** The design as a Launch reads it: exactly the App state the button's closure sees. */
 export interface DesignState {
-  tree: RocketTree;
+  tree: FlightTree;
+  configLayers?: 1;
+  detachedOverrides?: FlightOverrides;
   mountMotors: Record<string, MountMotor>;
   launch: LaunchConditions;
   /** The Measured mass & CG box. Only `massKg` reaches the build. */
