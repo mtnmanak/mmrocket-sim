@@ -1,3 +1,4 @@
+import type { NoteTier } from '../components/Note.js';
 import type { ComponentNode } from '@online-openrocket/engine';
 import type { ConfigurationLayers, DeploymentTuple, IgnitionTuple, LayeredSavedConfig,
   MountMotor, SeparationTuple } from '../model/design.js';
@@ -42,7 +43,7 @@ function fingerprint(state: SessionState): string {
  */
 export function migrateConfigLayers(
   input: ConfigLayersInput, migratedFingerprint: (state: ConfigLayersSession) => string = fingerprint,
-): { state: ConfigLayersSession; note: string | null } {
+): { state: ConfigLayersSession; note: string | null; noteTier?: NoteTier } {
   if (input.configLayers === 1) return { state: input as ConfigLayersSession, note: null };
   const wasClean = !!input.savedMark && input.savedMark === fingerprint(input);
   const nodes = new Map<string, ComponentNode>();
@@ -150,7 +151,8 @@ export function migrateConfigLayers(
   const nextMark = migratedFingerprint(state);
   if (wasClean) state.savedMark = nextMark;
   else if (state.savedMark === nextMark) delete state.savedMark;
-  return { state, note: 'The component settings are what the autosave had. Reopening the original file brings back '
+  // D7 I10: a partial migration could not recover earlier settings — Caution.
+  return { state, ...(partial ? { noteTier: 'caution' as const } : {}), note: 'The component settings are what the autosave had. Reopening the original file brings back '
     + "the file's own settings. Saved flight configurations keep their restored settings as overrides."
     + (partial ? ' Missing legacy fields were fixed to the restored component settings; earlier configuration-switch sequences cannot be recovered.' : '') };
 }

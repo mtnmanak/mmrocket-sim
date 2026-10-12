@@ -1,3 +1,4 @@
+import { cautionNote } from '../services/importNotes.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { finOutlineProblem, type FinOutlinePoint } from './finOutline.js';
@@ -244,7 +245,8 @@ export function refuseTooManyParts(nodes: readonly ComponentNode[]): void {
 export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
   const found: Finding[] = [];
   const components = walk(tree.components, found);
-  if (notes) for (const f of found) notes.push(`${f.problem} — ${f.repair}.`);
+  // D7 I04: a repaired value replaces what the file or session held — Caution.
+  if (notes) for (const f of found) cautionNote(notes, 'I04.limits', `${f.problem} — ${f.repair}.`);
   return components ? { ...tree, components } : tree;
 }
 

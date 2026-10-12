@@ -1,3 +1,4 @@
+import { carryFlags, flagNote, noteFlags, type ImportNote } from './importNotes.js';
 import { migrateConfigLayers } from './configLayersMigration.js';
 import { designFingerprint } from './dirtyState.js';
 import type { RocketTree } from '@online-openrocket/engine';
@@ -45,6 +46,8 @@ export interface RestoredDesign {
   state: Required<DesignState>;
   /** The repairs `normalizeTree` made — the restore's info note. */
   restoreNotes: string[];
+  /** The producers' tier records for `restoreNotes` (services/importNotes.ts); an unrecorded line is Information. */
+  restoreNoteTiers: ImportNote[];
   /** The tree and limits before the motor-length migration, for the saved mark's one re-take. */
   preLengthRestore: { tree: RocketTree; maxMotorLengthByStage: Record<string, number | null> };
   /** What became of a v0.116/v0.117 `measured.padMassKg`; null when the session carried no motor set. */
@@ -71,6 +74,9 @@ export function designStateFromSession(
   // are named just like file imports (open-items, 22–23 September: "A
   // restored session is repaired without a note").
   const restoreNotes: string[] = [...(session?.treeRestoreNotes ?? [])];
+  // The loader's own records for those lines (session.ts: a removed design or
+  // configurations, D7 G04). Plain strings carry none and read as Information.
+  carryFlags(restoreNotes, session?.treeRestoreNotes ? noteFlags(session.treeRestoreNotes) : []);
   // Reserve references BEFORE normalization can mint a repair node. Some maps
   // retain absent mounts for undo; none may ever bind to a newly minted node.
   const maps = [session?.tree.ignitionDefaults, session?.detachedOverrides?.deployments, session?.detachedOverrides?.separations, session?.detachedOverrides?.ignitions, session?.mountMotors, session?.unmatchedRefs, session?.maxMotorLengthByStage,
@@ -194,13 +200,14 @@ export function designStateFromSession(
     if (beforeMark === session.savedMark) normalizedSession.savedMark = designFingerprint(normalizedSession as Required<DesignState>);
   }
   const migrated = migrateConfigLayers(session ? normalizedSession : { ...normalizedSession, configLayers: 1, detachedOverrides: {} });
-  if (migrated.note) restoreNotes.push(migrated.note);
+  if (migrated.note) flagNote(restoreNotes, { kind: 'I10.layer-migration', tier: migrated.noteTier ?? 'information', text: migrated.note });
   return {
     state: { ...normalized, tree: migrated.state.tree, savedConfigs: migrated.state.savedConfigs,
       mountMotors: migrated.state.mountMotors, activeConfigId: migrated.state.activeConfigId,
       configLayers: 1, detachedOverrides: migrated.state.detachedOverrides ?? {} },
     session: session ? migrated.state : null,
     restoreNotes,
+    restoreNoteTiers: noteFlags(restoreNotes),
     preLengthRestore: { tree: before, maxMotorLengthByStage: limits },
     legacyPadMass,
     rankedPadMass,

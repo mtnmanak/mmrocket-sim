@@ -151,6 +151,7 @@ import { addNewComponent } from './services/addComponent.js';
 import { convertShrouds, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
 import { designNotices, type HeldNote } from './services/notices.js';
+import { groupOf, tierLines, withoutLines, noteFlags, type ImportNote, type NoteGroup } from './services/importNotes.js';
 import { dismissLegacyPositions, preserveLegacyPositionCheck } from './services/legacyPositionCheck.js';
 import {
   legacyPadMassWrite, restoredPadMassNote, typedPadMass, type PadMassText,
@@ -341,7 +342,7 @@ export function App() {
   // reads from this one value, so they all key onto the SAME tree — a second
   // normalizeTree would mint ids that are not in it.
   const [restored] = useState(() => designStateFromSession(session, { legacyMaxMotorLengthM: legacyMaxMotorLength() }));
-  const { restoreNotes, preLengthRestore } = restored;
+  const { restoreNotes, restoreNoteTiers, preLengthRestore } = restored;
   const initialTree = restored.state.tree;
   // Only crossing a Scale step restores configuration snapshots. An ordinary
   // tree undo (especially after Apply None) must not undo saved configuration edits.
@@ -735,10 +736,16 @@ export function App() {
    * default) so every existing call site is unchanged.
    */
   const [fileNoteState, setFileNoteState] =
-    useState<{ text: string; severity: NoticeSeverity; expand?: boolean; tier?: NoteTier } | null>(() =>
-      restoreNotes.length ? { text: restoreNotes.join('\n'), severity: 'info' } : null);
+    useState<HeldNote | null>(() =>
+      // The restore's repairs, each line with its producer's tier (D7 §4).
+      restoreNotes.length ? { text: restoreNotes.join('\n'), severity: 'info',
+        group: { lines: tierLines(restoreNotes, restoreNoteTiers) } } : null);
   const setFileNote = useCallback((text: string | null, severity: NoticeSeverity = 'info', expand?: boolean, tier?: NoteTier) => {
     setFileNoteState(text === null ? null : { text, severity, ...(expand ? { expand: true } : {}), ...(tier ? { tier } : {}) });
+  }, []);
+  /** An open's or a configuration switch's note: its text and its tiered lines (services/importApply.ts). */
+  const setGroupNote = useCallback((text: string, severity: NoticeSeverity, expand?: boolean, group?: NoteGroup) => {
+    setFileNoteState({ text, severity, ...(expand ? { expand: true } : {}), ...(group ? { group } : {}) });
   }, []);
   /** Imported hand-rolled camera shrouds awaiting the convert-to-native offer. */
   const [shroudPrompt, setShroudPrompt] = useState<ShroudCandidate[] | null>(null);
@@ -2469,7 +2476,7 @@ export function App() {
       history: { reset: resetHistory },
       setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setDetachedOverrides, setLaunch, setMeasured,
       setLongitudeCheck: (evidence) => setLongitudeReview(evidence ? { evidence, applied: false } : null),
-      setMachAlt: setFileMachAlt, setNote: setFileNote, setShroudPrompt,
+      setMachAlt: setFileMachAlt, setNote: setGroupNote, setShroudPrompt,
       // eslint-disable-next-line no-restricted-syntax -- an import: the design on screen IS the file on disk
       markSaved,
     });
@@ -2489,10 +2496,16 @@ export function App() {
         recordRuns(next);
       }
       const { added, updated, alreadySaved, notKept } = summaryImportCounts(summaryPlan, next);
-      setFileNote([plan.note.text,
-        `Stored runs: ${added} added to Saved runs; ${updated ? `${updated} updated in Saved runs; ` : ''}${alreadySaved} already in Saved runs; ${notKept} not kept.`,
-        `Imports fill available spaces up to the ${MAX_RUNS}-run limit in file order; no existing runs were removed or reordered.`,
-      ].filter(Boolean).join('\n'), plan.note.severity, plan.note.expand);
+      // Their own lines in the open's group: Information, unless a stored run
+      // was not kept — imported flight evidence incomplete (D7 I28).
+      const runLines: ImportNote[] = [
+        { kind: 'I28.stored-runs', tier: notKept > 0 ? 'caution' : 'information',
+          text: `Stored runs: ${added} added to Saved runs; ${updated ? `${updated} updated in Saved runs; ` : ''}${alreadySaved} already in Saved runs; ${notKept} not kept.` },
+        { kind: 'I27.stored-runs-rule', tier: 'information',
+          text: `Imports fill available spaces up to the ${MAX_RUNS}-run limit in file order; no existing runs were removed or reordered.` },
+      ];
+      setGroupNote([plan.note.text, ...runLines.map(l => l.text)].filter(Boolean).join('\n'), plan.note.severity, plan.note.expand,
+        { ...plan.note.group, lines: [...plan.note.group.lines, ...runLines] });
     }
     // An opened design (a share link included) that brings launch conditions
     // of its own has replaced the ones the weather record describes.
@@ -2526,7 +2539,7 @@ export function App() {
     applyConfigSwitchPlan(plan, savedConfigs, {
       seedNozzleFollow,
       history: { reset: resetHistory },
-      setSavedConfigs, setMountMotors, setUnmatchedRefs, setActiveConfigId, setDetachedOverrides, setNote: setFileNote,
+      setSavedConfigs, setMountMotors, setUnmatchedRefs, setActiveConfigId, setDetachedOverrides, setNote: setGroupNote,
     });
   };
 
@@ -3506,13 +3519,20 @@ export function App() {
               setMountMotors, setSavedConfigs, setUnmatchedRefs,
             });
             setOpenMotorQuestion(null);
-            setFileNoteState(prev => prev ? {
+            setFileNoteState(prev => {
+              if (!prev) return null;
               // @atestani TRF #162, Eric 2026-10-06: edit the CURRENT notice,
               // preserving embedded-EX/storage lines and literal dollars in names.
-              ...prev, text: [...prev.text.split('\n').filter(line => !openMotorQuestion.acceptedLines.includes(line)),
-                ...spent.notes].join('\n'),
-              severity: spent.severity === 'warn' ? 'warn' : prev.severity,
-            } : null);
+              // Its group loses the same lines and gains the reconcile's, each
+              // keeping its tier (D7 §4).
+              const group = withoutLines(groupOf(prev), new Set(openMotorQuestion.acceptedLines));
+              return {
+                ...prev, text: [...prev.text.split('\n').filter(line => !openMotorQuestion.acceptedLines.includes(line)),
+                  ...spent.notes].join('\n'),
+                severity: spent.severity === 'warn' ? 'warn' : prev.severity,
+                group: { ...group, lines: [...group.lines, ...tierLines(spent.notes, noteFlags(spent.notes))] },
+              };
+            });
           }} />
       )}
       </DesignConfirms>

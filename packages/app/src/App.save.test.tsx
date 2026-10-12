@@ -800,8 +800,10 @@ describe('lane C2 save and share fidelity', () => {
     await openTab(host, 'Motors & Launch');
     const importItem = [...host.querySelectorAll('.notice-item')].find(item => item.textContent?.includes('Launch refused'))!;
     expect(importItem).toBeDefined();
-    const retainedLines = importItem.querySelector('.notice-text')!.textContent!
-      .replace(/^Warning: /, '').split('\n').filter(line => !line.includes('Launch refused'));
+    // NOTES-2: the open's note is a group — a heading and one element per line.
+    const retainedLines = [importItem.querySelector('.notice-group-heading')?.textContent ?? '',
+      ...[...importItem.querySelectorAll('.notice-line')].map(li => li.textContent ?? '')]
+      .filter(line => line !== '' && !line.includes('Launch refused'));
     expect(retainedLines.length).toBeGreaterThan(0);
     if (format === 'ork') expect(importItem.textContent).toContain('unknown-model');
     await act(async () => { host.querySelector<HTMLButtonElement>('.notice-toggle')!.click(); });

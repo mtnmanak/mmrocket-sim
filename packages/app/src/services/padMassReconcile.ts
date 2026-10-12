@@ -51,6 +51,7 @@ export function restoredPadMassNote(
   if (legacy?.outcome === 'dropped' && typeof legacy.kg === 'number') {
     return {
       severity: 'warn',
+      tier: 'caution',
       text: `The weighed pad mass you entered before this version (${text.mass(legacy.kg)}) had no motor loaded`
         + ' to belong to and was not kept. Weigh the rocket with the motor in and type it under that'
         + ' motor on Motors & Launch.',
@@ -62,6 +63,8 @@ export function restoredPadMassNote(
     const to = motors[ranked.to];
     return {
       severity: 'info',
+      // D7 I16: the weighing now rides a different flown carrier — Caution.
+      tier: 'caution',
       text: `The weighed pad mass (${text.mass(ranked.kg)}) now sits under ${to ? text.motorName(to.label) : 'another motor'}`
         + ` on ${mountName(findNode(tree, ranked.to), 'its mount')}, not under`
         + ` ${from ? text.motorName(from.label) : 'the motor'} on ${mountName(findNode(tree, ranked.from), 'its mount')}:`
@@ -137,6 +140,7 @@ export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMass
       mountId: primaryMountId,
       note: {
         severity: 'warn',
+        tier: 'caution',
         text: `The weighed pad mass you entered before this version (${text.mass(kg)}) could not be placed: the`
           + ` motor the file names on ${where} (${fileRef?.designation ?? 'unknown'}) is not loaded, so the app`
           + ' cannot tell which motors it was weighed with. Load that motor, or re-weigh with the motors you'
@@ -150,6 +154,7 @@ export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMass
       mountId: primaryMountId,
       note: {
         severity: 'warn',
+        tier: 'caution',
         text: h.reason === 'negative'
           ? `The weighed pad mass entered before this version (${text.mass(kg)}) was not kept: it is lighter`
             + ` than the dry rocket plus the catalogue ${name}, so it was weighed with a different motor.`
@@ -167,6 +172,8 @@ export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMass
       key: input.currentSetKey,
       note: {
         severity: 'info',
+        // Pure re-keying is Information; a weighing that carries nothing yet is Caution (D7 I16).
+        ...(h.state === 'none' ? { tier: 'caution' as const } : {}),
         text: `The weighed pad mass you entered in the Measured mass & CG box (${text.mass(kg)}) now belongs`
           + ` to the motor it was weighed with: it sits under ${name} on Motors & Launch, and the line there`
           + ' says what it carries. If that is not the motor you weighed with, clear it and re-weigh.'

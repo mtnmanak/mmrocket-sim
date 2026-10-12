@@ -22,6 +22,9 @@ import {
   reconcileAllIncludedMotors, type AttachedMotor, type StatedWeightText,
 } from './statedLaunchWeight.js';
 import { stageMotors, type StageMotors } from './nozzleFollow.js';
+import {
+  appendNotes, carryFlags, cautionNote, groupText, noteFlags, renameNote, tierLines, type ImportNote, type NoteGroup,
+} from './importNotes.js';
 import type { TreeHistory } from '../hooks/useTreeHistory.js';
 import { findShroudCandidates, type ShroudCandidate } from '../tree/shroudConvert.js';
 import {
@@ -60,7 +63,7 @@ import {
  * .CDX1's only what RASAero states; the flight-configuration fields are
  * optional.
  */
-export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'expand' | 'launch' | 'launchSiteRefused' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
+export type ImportedDesign = Pick<OrkTreeImportResult, 'name' | 'tree' | 'motors' | 'notes' | 'noteTiers' | 'expand' | 'launch' | 'launchSiteRefused' | 'measured' | 'longitudeCheck' | 'embeddedExMotors'>
   & Partial<Pick<OrkImportResult, 'configs' | 'chosenConfigId' | 'configSources' | 'configNotes' | 'configLabelNotes' | 'storedSimulations' | 'newerFormat'>>
   // RASAero files carry a Mach-Alt table; the drag panel offers it as a
   // sweep condition so a user can reproduce tunnel-matched Reynolds.
@@ -337,8 +340,12 @@ export interface ImportPlan {
   /** The working set's unresolved references (see SavedConfig.unmatchedRefs). */
   unmatchedRefs: Record<string, OrkMotorRef>;
   machAlt: [number, number][] | undefined;
-  /** The import note, and whether it reads as a warning. */
-  note: { text: string; severity: NoticeSeverity; expand?: boolean };
+  /**
+   * The import note, and whether it reads as a warning. `group` is the same
+   * note as the bar draws it — "Loaded …" as its heading, every other line with
+   * the tier its producer set (D7 §4); `text` is the whole of it, as before.
+   */
+  note: { text: string; severity: NoticeSeverity; expand?: boolean; group: NoteGroup };
   /** Hand-rolled camera shrouds to offer the native fairing for. */
   shrouds: ShroudCandidate[];
 }
@@ -366,6 +373,11 @@ export function planImport(
     ? swapConfigNotes(imported.notes, imported.configNotes, imported.chosenConfigId!, pick.cfg.id, pick.skipNote)
     : imported.notes;
   const notes: string[] = [`Loaded “${imported.name}”.`, ...readerNotes];
+  // The readers' own records (services/importNotes.ts), and the re-pick's
+  // lead: the configuration the reader chose cannot leave the pad, so
+  // another was opened — a source choice not followed (D7 I12).
+  carryFlags(notes, imported.noteTiers ?? []);
+  if (pick) carryFlags(notes, [{ kind: 'I12.reader-pick-skipped', tier: 'caution', text: pick.skipNote }]);
   const keptLaunch = retainedLaunchNote(imported.sourceFormat, ctx.launch, imported.launch, imported.launchSiteRefused === true);
   // Load EVERY mount's motor (staged/multi-mount files included).
   //
@@ -390,7 +402,8 @@ export function planImport(
     // configuration says it again.
     if (mm) nextMotors[nodeId] = openNote && mm.openNote !== openNote ? { ...mm, openNote } : mm;
     else nextUnmatchedRefs[nodeId] = ref;
-    if (!mm) notes.push(note);
+    // A motor that did not load: the flight lacks a source input (D7 I12).
+    if (!mm) cautionNote(notes, 'I12.motor-not-loaded', note);
     // A motor that loaded is reported only when the file did not confirm it —
     // another maker's than it names, one of several equal matches, an
     // out-of-production guess — in a sentence about the match, not the mount
@@ -398,7 +411,8 @@ export function planImport(
     // "Motor: … loaded" line did.
     else { openNotes.push(openNote); infoNotes.push(infoNote); }
   }
-  notes.push(...unconfirmedNotes(openNotes));
+  // Loaded but not what the file confirmed — substituted (D7 I12).
+  for (const t of unconfirmedNotes(openNotes)) cautionNote(notes, 'I12.motor-unconfirmed', t);
   // Stage B: every configuration in the file becomes a ready-to-apply
   // preset, matched in the same pass. Only the APPLIED config's notes
   // surface — a preset's failures are reported if/when it is applied.
@@ -445,7 +459,7 @@ export function planImport(
       const primary = primaryMountOf(importedTree, Object.keys(cfg.motors));
       if (!primary) {
         if (cfg.id === chosenId) {
-          notes.push(`This file's weighed pad mass (${massText(padMassKg)}) has no motor to attach to in configuration`
+          cautionNote(notes, 'I16.pad-mass-dropped', `This file's weighed pad mass (${massText(padMassKg)}) has no motor to attach to in configuration`
             + ` “${cfg.name ?? cfg.id}” and was not kept — re-enter it under the motor you weigh with.`);
         }
       } else {
@@ -461,7 +475,7 @@ export function planImport(
           cfgUnmatchedRefs[primary] = { ...ref, padMassKg };
           if (cfg.id === chosenId) {
             const named = mountName(findNode(importedTree, primary));
-            notes.push(`The file's weighed pad mass (${massText(padMassKg)}) belongs to the motor on “${named}”`
+            cautionNote(notes, 'I16.pad-mass-inactive', `The file's weighed pad mass (${massText(padMassKg)}) belongs to the motor on “${named}”`
               + ` (${ref.designation}), which could not be loaded. It is kept so the file saves unchanged,`
               + ' and nothing is carried until that motor is loaded — or re-weigh with the motors you have in.');
           }
@@ -497,7 +511,8 @@ export function planImport(
     const config = nextConfigs.find(c => c.id === entry.configId);
     const index = notes.indexOf(entry.text);
     if (config && index !== -1) {
-      notes[index] = entry.text.replace(`“${entry.label}”`, () => `“${savedConfigLabel(config)}”`);
+      // Reworded in place; the line keeps its producer's tier.
+      renameNote(notes, index, entry.text.replace(`“${entry.label}”`, () => `“${savedConfigLabel(config)}”`));
     }
   }
   // A stage whose stated launch weight still holds an unidentified motor's
@@ -520,18 +535,21 @@ export function planImport(
   // override still warns. A re-pick is trouble too: the file's own first
   // choice names a motor this app cannot load.
   for (const config of nextConfigs) {
-    if (config.motorLoadoutRefusal && !notes.includes(config.motorLoadoutRefusal)) notes.push(config.motorLoadoutRefusal);
+    if (config.motorLoadoutRefusal && !notes.includes(config.motorLoadoutRefusal)) {
+      cautionNote(notes, 'I12.loadout-refused', config.motorLoadoutRefusal);
+    }
   }
   const motorTrouble = pick !== null || notes.length > 1 + readerNotes.length
     || nextConfigs.some(c => !!c.motorLoadoutRefusal);
   // audit 2026-10-11, S7c-1: retained launch settings do not need motor attention.
-  if (keptLaunch) notes.push(keptLaunch);
+  // The previous design's conditions stay, off-screen (D7 I24).
+  if (keptLaunch) cautionNote(notes, 'I24.launch-retained', keptLaunch);
   // @atestani TRF #162, Eric 2026-10-06: confirmed EX matches are information,
   // counted like the other open lines but not treated as motor trouble.
   notes.push(...unconfirmedNotes(infoNotes));
   const spent = reconcileAllIncludedMotors(importedTree, attachedSet(nextMotors), ctx.text);
   importedTree = spent.tree;
-  notes.push(...spent.notes);
+  appendNotes(notes, spent.notes);
   // Launch conditions from the file (.ork's first <simulation>) — see
   // importedLaunch for the merge, and why the time step is not merged.
   //
@@ -551,12 +569,17 @@ export function planImport(
   const prevStepS = ctx.launch.timeStepS ?? DEFAULT_TIME_STEP_S;
   const nextStepS = imported.launch?.timeStepS ?? DEFAULT_TIME_STEP_S;
   if (prevStepS !== nextStepS) {
-    notes.push(imported.launch?.timeStepS != null
-      ? `Flights here now use a ${fmtStepS(nextStepS)} s simulation time step, replacing `
-        + `the ${fmtStepS(prevStepS)} s they were using.`
-      : `The simulation time step is back to the ${fmtStepS(DEFAULT_TIME_STEP_S)} s default `
+    // The file's own step is a receipt of a setting it states; a step the
+    // panel held, replaced by the default because the file states none, is a
+    // replaced flight input (D7 I24).
+    if (imported.launch?.timeStepS != null) {
+      notes.push(`Flights here now use a ${fmtStepS(nextStepS)} s simulation time step, replacing `
+        + `the ${fmtStepS(prevStepS)} s they were using.`);
+    } else {
+      cautionNote(notes, 'I24.timestep-default', `The simulation time step is back to the ${fmtStepS(DEFAULT_TIME_STEP_S)} s default `
         + `— this file carries none, and the ${fmtStepS(prevStepS)} s in the Launch panel `
         + 'belonged to the design it was set for.');
+    }
   }
   // What the builder weighed, if the file carried it. Always assigned — a file
   // WITHOUT the numbers must clear the previous rocket's, or the box would
@@ -582,7 +605,8 @@ export function planImport(
     // can change the flight's numbers. Other reader notes retain their severity.
     note: { text: notes.join('\n'), severity: imported.newerFormat || hasSimulationExtensions(imported.tree)
       || motorTrouble || spent.severity === 'warn' ? 'warn' : 'info',
-      ...(imported.expand ? { expand: true } : {}) },
+      ...(imported.expand ? { expand: true } : {}),
+      group: { heading: notes[0]!, lines: tierLines(notes.slice(1), noteFlags(notes)).filter((l) => l.text !== '') } },
     // Hand-rolled shrouds (1-fin freeform sets named like "Camera Shroud")
     // get an offer to become the native fairing component (2026-08-05e).
     shrouds: findShroudCandidates(importedTree),
@@ -606,7 +630,8 @@ export interface ImportSinks {
   setLongitudeCheck?: (check: OrkTreeImportResult['longitudeCheck']) => void;
   setMeasured: (m: MeasuredFigures) => void;
   setMachAlt: (t: [number, number][] | undefined) => void;
-  setNote: (text: string, severity: NoticeSeverity, expand?: boolean) => void;
+  /** `group` is the note's tiered lines (ImportPlan['note'].group); a sink may ignore it. */
+  setNote: (text: string, severity: NoticeSeverity, expand?: boolean, group?: NoteGroup) => void;
   setShroudPrompt: (s: ShroudCandidate[] | null) => void;
   markSaved: (mark: string) => void;
 }
@@ -648,7 +673,10 @@ export function applyImportPlan(plan: ImportPlan, sinks: ImportSinks): void {
     };
     plan.snapshot = { ...plan.snapshot, mountMotors: set(plan.snapshot.mountMotors, plan.unmatchedRefs),
       savedConfigs: plan.snapshot.savedConfigs.map(c => ({ ...c, motors: set(c.motors, c.unmatchedRefs) })) };
-    if (notes.length) plan.note = { ...plan.note, text: [plan.note.text, ...notes].filter(Boolean).join('\n') };
+    if (notes.length) {
+      plan.note = { ...plan.note, text: [plan.note.text, ...notes].filter(Boolean).join('\n'),
+        group: { ...plan.note.group, lines: [...plan.note.group.lines, ...tierLines(notes, noteFlags(notes))] } };
+    }
   }
   const { snapshot } = plan;
   sinks.history.reset(snapshot.tree);
@@ -666,7 +694,7 @@ export function applyImportPlan(plan: ImportPlan, sinks: ImportSinks): void {
   sinks.setLaunch(snapshot.launch);
   sinks.setLongitudeCheck?.(plan.longitudeCheck);
   sinks.setMeasured(snapshot.measured);
-  sinks.setNote(plan.note.text, plan.note.severity, plan.note.expand);
+  sinks.setNote(plan.note.text, plan.note.severity, plan.note.expand, plan.note.group);
   sinks.setShroudPrompt(plan.shrouds.length ? plan.shrouds : null);
   // The design now IS the file on disk, so the baseline moves with it — taken
   // over the plan, NOT from React state, which has not re-rendered yet: reading
@@ -692,7 +720,7 @@ export interface ConfigSwitchPlan {
    * motor change there (hooks/useNozzleFollow's `seed`).
    */
   nozzleStated: StageMotors[];
-  note: { text: string; severity: NoticeSeverity };
+  note: { text: string; severity: NoticeSeverity; group: NoteGroup };
 }
 
 /**
@@ -746,12 +774,18 @@ export function planConfigSwitch(
   // The reconcile's own sentences ride whichever note is written, rather than
   // a second note that would overwrite the first: the mass that just
   // changed by tens of pounds belongs in the box the switch already writes.
-  const withSpent = (lines: string[], sev: NoticeSeverity) => ({
+  const withSpent = (lines: ImportNote[], sev: NoticeSeverity): ConfigSwitchPlan['note'] => {
     // These are the import's decisions, even if the user has since edited a
-    // snapshot or resolved its motor (audit 2026-10-11, S1c-3).
-    text: [...lines, ...(cfg.stageMassNotes ?? []).map(n => `At file import: ${n}`), ...spent.notes].join('\n'),
-    severity: (spent.severity === 'warn' || cfg.stageMassNotes?.length) && sev === 'info' ? 'warn' as const : sev,
-  });
+    // snapshot or resolved its motor (audit 2026-10-11, S1c-3). A stage-mass
+    // line is only ever the RASAero reader's override note (I17): Caution.
+    const all = [...lines,
+      ...(cfg.stageMassNotes ?? []).map((n): ImportNote => ({ kind: 'I17.override-not-applied', tier: 'caution', text: `At file import: ${n}` })),
+      ...tierLines(spent.notes, noteFlags(spent.notes))];
+    const group: NoteGroup = { lines: all };
+    return { text: groupText(group), group,
+      severity: (spent.severity === 'warn' || cfg.stageMassNotes?.length) && sev === 'info' ? 'warn' as const : sev };
+  };
+  const caution = (kind: string, text: string): ImportNote => ({ kind, tier: 'caution', text });
   // The loadout exactly as App will compute it once this is written: the
   // configuration's motors on the mounts this tree has.
   const mountIds = new Set(motorMounts(next).map((m) => m.id));
@@ -759,15 +793,15 @@ export function planConfigSwitch(
   // applied (second review of audit 2026-09-23): the open says it only for the
   // configuration it shows, so a switch loaded the rest in silence.
   const unconfirmed = unconfirmedNotes(Object.entries(cfg.motors)
-    .filter(([id]) => mountIds.has(id)).map(([, m]) => m.openNote));
+    .filter(([id]) => mountIds.has(id)).map(([, m]) => m.openNote)).map(t => caution('I12.motor-unconfirmed', t));
   let note: ConfigSwitchPlan['note'];
   if (cfg.motorLoadoutRefusal) {
-    note = withSpent([cfg.motorLoadoutRefusal], 'warn');
+    note = withSpent([caution('I12.loadout-refused', cfg.motorLoadoutRefusal)], 'warn');
   } else if (cfg.unmatched?.length) {
     // Quiet at import time (only the applied config reports) — the debt
     // comes due when the user actually loads this preset.
-    note = withSpent([...cfg.unmatched.map((d) =>
-      `Motor “${d}” couldn't be matched when the file was opened — pick one via Browse motor database.`),
+    note = withSpent([...cfg.unmatched.map((d) => caution('I12.motor-not-loaded',
+      `Motor “${d}” couldn't be matched when the file was opened — pick one via Browse motor database.`)),
     ...unconfirmed], 'warn');
   } else {
     // "… and weighed pad mass" only when this configuration's primary record
@@ -775,8 +809,8 @@ export function planConfigSwitch(
     const primary = primaryMountOf(state.tree, Object.keys(cfg.motors));
     const pad = primary ? cfg.motors[primary]?.padMassKg : undefined;
     const hasPad = typeof pad === 'number' && Number.isFinite(pad) && pad > 0;
-    note = withSpent([`Flight configuration “${savedConfigLabel(cfg)}” applied — its motors and recovery settings`
-      + `${hasPad ? ' and weighed pad mass' : ''} are now live.`, ...unconfirmed],
+    note = withSpent([{ kind: 'config-applied', tier: 'information', text: `Flight configuration “${savedConfigLabel(cfg)}” applied — its motors and recovery settings`
+      + `${hasPad ? ' and weighed pad mass' : ''} are now live.` }, ...unconfirmed],
     unconfirmed.length > 0 ? 'warn' : 'info');
   }
   const nozzleStated = hasNozzles
@@ -857,7 +891,7 @@ export interface ConfigSwitchSinks {
   setMountMotors: (m: Record<string, MountMotor>) => void;
   setUnmatchedRefs: (r: Record<string, OrkMotorRef>) => void;
   setActiveConfigId: (id: string | null) => void;
-  setNote: (text: string, severity: NoticeSeverity) => void;
+  setNote: (text: string, severity: NoticeSeverity, expand?: boolean, group?: NoteGroup) => void;
 }
 
 /**
@@ -878,7 +912,7 @@ export function applyConfigSwitchPlan(
   sinks.setActiveConfigId(plan.activeConfigId);
   sinks.setDetachedOverrides?.({});
   sinks.history.reset(plan.tree);
-  sinks.setNote(plan.note.text, plan.note.severity);
+  sinks.setNote(plan.note.text, plan.note.severity, undefined, plan.note.group);
 }
 
 /**

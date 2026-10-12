@@ -1,3 +1,4 @@
+import { carryFlags, cautionNote, noteFlags } from './importNotes.js';
 import { storedWarnings } from './storedWarnings.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { LaunchConditions } from './launchConditions.js';
@@ -381,9 +382,11 @@ function readSession(restoreRoot: boolean): SessionState | null {
       s = {
         tree: defaultTree(), launch: s.launch, savedAt: s.savedAt, appVersion: s.appVersion,
         motorLengthLimitsMigrated: true,
-        treeRestoreNotes: ['The autosaved design root could not be read. The starter design was opened. '
-          + 'The old design\'s motors, configurations, and measurements were not applied.'],
+        treeRestoreNotes: [],
       };
+      // D7 G04: the restored design was replaced — Caution, set here where it is known.
+      cautionNote(s.treeRestoreNotes!, 'G04.root-replaced', 'The autosaved design root could not be read. The starter design was opened. '
+        + 'The old design\'s motors, configurations, and measurements were not applied.');
     }
     // Keep the readable design when only its configurations are corrupt.
     // Restore needs an identity and object maps, not just an object entry
@@ -395,7 +398,9 @@ function readSession(restoreRoot: boolean): SessionState | null {
           .every(key => c[key] === undefined || isTable(c[key])),
       ) : [];
       if (!Array.isArray(s.savedConfigs) || configs.length !== s.savedConfigs.length) {
-        s.treeRestoreNotes = [...(s.treeRestoreNotes ?? []), 'Unreadable saved configurations were removed.'];
+        const notes = carryFlags([...(s.treeRestoreNotes ?? [])], noteFlags(s.treeRestoreNotes ?? []));
+        cautionNote(notes, 'G04.configs-removed', 'Unreadable saved configurations were removed.');
+        s.treeRestoreNotes = notes;
       }
       s.savedConfigs = configs;
     }

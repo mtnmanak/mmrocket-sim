@@ -35,6 +35,9 @@ import {
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
 import { sparsify } from './flightState.js';
+import { flownIgnition, flownSeparation } from './flightOverrideSummary.js';
+import { cautionNote, flagNote, noteFlags, type ImportNote } from './importNotes.js';
+import type { NoteTier } from '../components/Note.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
 import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
@@ -121,6 +124,11 @@ export interface OrkTreeImportResult {
   motors: Record<string, OrkMotorRef>;
   ignored: string[];
   notes: string[];
+  /**
+   * The producer's tier for each flagged line of `notes` (services/importNotes.ts);
+   * a line with no record here is Information.
+   */
+  noteTiers?: ImportNote[];
   /**
    * Launch conditions from the file's FIRST <simulation>'s <conditions> —
    * only the fields the file actually carried (temperature/pressure are set
@@ -549,7 +557,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       if (c.name !== null) previous.name = c.name;
       if (c.isDefault) previous.isDefault = true;
       if (c.motorLoadoutRefusal) previous.motorLoadoutRefusal = c.motorLoadoutRefusal;
-      notes.push(`Duplicate flight configuration “${c.id}” was merged; later fields replace earlier fields.`);
+      cautionNote(notes, 'I08.duplicate-config', `Duplicate flight configuration “${c.id}” was merged; later fields replace earlier fields.`);
     } else configById.set(c.id, c);
   }
   const configs = [...configById.values()];
@@ -583,7 +591,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       ? (configs.find((c) => c.isDefault) ?? configs[0])
       : configs.find((c) => c.id === id);
     if (!target) {
-      notes.push(id === null
+      cautionNote(notes, 'I16.pad-mass-dropped', id === null
         ? `The file's weighed pad mass (${v} kg) belongs to no flight configuration — the file declares none — so it was not kept.`
         : `The file's weighed pad mass (${v} kg) names a flight configuration this file does not declare, so it was not kept.`);
       continue;
@@ -722,7 +730,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       const knownEvent = knownIgnitionEvent(rawEvent);
       if (rawEvent !== null && knownEvent === null && !unknownIgnitions.has(`${designation}|${rawEvent}`)) {
         unknownIgnitions.add(`${designation}|${rawEvent}`);
-        notes.push(`Motor ${designation}: the file's ignition event “${rawEvent}” is not one OpenRocket`
+        cautionNote(notes, 'I11.ignition-event', `Motor ${designation}: the file's ignition event “${rawEvent}” is not one OpenRocket`
           + ' knows, so it lights on Automatic. Desktop OpenRocket ignores it too, with a warning.');
       }
       return { event: rawEvent === null ? base.event : knownEvent ?? 'automatic',
@@ -764,7 +772,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       const delayKey = `${designation}|${String(delayText)}`; // "|null" for no <delay>, apart from a blank one
       if (delayText !== 'none' && Number.isNaN(delayValue) && !unreadDelays.has(delayKey)) {
         unreadDelays.add(delayKey);
-        notes.push(`Motor ${designation}: ${delayText === null ? 'the file gives no ejection delay'
+        cautionNote(notes, 'I11.delay-plugged', `Motor ${designation}: ${delayText === null ? 'the file gives no ejection delay'
           : `the file's ejection delay “${delayText}” is not a number`}, so it is read as plugged (no`
           + ' ejection charge), as desktop OpenRocket reads it. If the motor has a delay, set it on Motors & Launch.');
       }
@@ -1029,7 +1037,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
             else unreadable++;
           }
         }
-        if (unreadable > 0) notes.push(`Fin set "${n.name ?? 'freeform'}": ${unreadableFinPoints(unreadable)}`);
+        if (unreadable > 0) cautionNote(notes, 'I05.fin-points', `Fin set "${n.name ?? 'freeform'}": ${unreadableFinPoints(unreadable)}`);
         // The same test the fin editor applies before it commits an outline:
         // at least three points, none repeated, no edge crossing another. A
         // crossing outline reaches the kernel's FreeformFinSet, which refuses it,
@@ -1045,7 +1053,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           n['points'] = pts;
         } else {
           n['points'] = KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]);
-          if (ptEls.length > 0) notes.push(`Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} `
+          if (ptEls.length > 0) cautionNote(notes, 'I05.fin-outline', `Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} `
             + 'The set keeps a default outline; redraw it in the fin editor.');
         }
         return n;
@@ -1090,7 +1098,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
         // mount and SAY SO — the same answer rasaeroFile.ts:321 gives an
         // unknown <Surface>.
         if (cluster && cluster !== 'single' && !Object.hasOwn(CLUSTER_POINTS, cluster)) {
-          notes.push(`Motor mount "${n['name'] ?? 'inner tube'}": cluster pattern “${cluster}” is not one this app knows, so the mount was imported as a single tube.`);
+          cautionNote(notes, 'I06.cluster', `Motor mount "${n['name'] ?? 'inner tube'}": cluster pattern “${cluster}” is not one this app knows, so the mount was imported as a single tube.`);
         } else if (cluster && cluster !== 'single') {
           n['cluster'] = cluster;
           n['clusterScale'] = num(el, 'clusterscale', 1, notes);
@@ -1419,27 +1427,41 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     throw new Error('No supported components found in this design.');
   }
   if (ignored.size) {
-    notes.push(`Ignored unsupported components: ${[...ignored].join(', ')}.`);
+    cautionNote(notes, 'I03.ignored-components', `Ignored unsupported components: ${[...ignored].join(', ')}.`);
   }
-  if (tooDeep) notes.push(TOO_DEEP_NESTING);
+  if (tooDeep) cautionNote(notes, 'I03.too-deep', TOO_DEEP_NESTING);
   const noteConfig = configs.find(cf => cf.id === chosenConfigId);
   const noteName = noteConfig ? configLabel(noteConfig) : null;
   const overrideNotes = [deployOverrideNote(deployOverrides, noteName)].filter((s): s is string => s !== null);
+  // The deployment note lists only devices whose flown setting differs
+  // (sameDeployment), so it is Caution whenever it exists (D7 I10). A stored
+  // separation/ignition tuple that flies the same as the component's own is
+  // explained quietly; only an EFFECTIVE difference is Caution.
+  const overrideTiers = new Map<string, NoteTier>(overrideNotes.map(t => [t, 'caution']));
   const noteParameters = (nodes: ComponentNode[]) => {
     for (const node of nodes) {
       const separation = node.id ? noteConfig?.separations[node.id] : undefined;
-      if (separation) overrideNotes.push(flightParameterOverrideNote('separation', String(node['name'] ?? 'Stage'), {
-        separationEvent: separationEventOf(String(node['separationEvent'] ?? 'ejection')) ?? 'ejection',
-        separationDelay: nodeNum(node, 'separationDelay', 0), separationAltitude: nodeNum(node, 'separationAltitude', 200),
-      }, separation, noteName));
+      if (separation) {
+        const own: SeparationTuple = {
+          separationEvent: separationEventOf(String(node['separationEvent'] ?? 'ejection')) ?? 'ejection',
+          separationDelay: nodeNum(node, 'separationDelay', 0), separationAltitude: nodeNum(node, 'separationAltitude', 200),
+        };
+        const t = flightParameterOverrideNote('separation', String(node['name'] ?? 'Stage'), own, separation, noteName);
+        overrideNotes.push(t);
+        overrideTiers.set(t, !sparsify(flownSeparation(own), flownSeparation(separation)) ? 'information' : 'caution');
+      }
       const ignition = node.id ? noteConfig?.ignitions?.[node.id] : undefined;
-      if (ignition) overrideNotes.push(flightParameterOverrideNote('ignition', String(node['name'] ?? 'Motor mount'),
-        ignitionDefaults[node.id!]!, ignition, noteName));
+      if (ignition) {
+        const t = flightParameterOverrideNote('ignition', String(node['name'] ?? 'Motor mount'),
+          ignitionDefaults[node.id!]!, ignition, noteName);
+        overrideNotes.push(t);
+        overrideTiers.set(t, !sparsify(flownIgnition(ignitionDefaults[node.id!]!), flownIgnition(ignition)) ? 'information' : 'caution');
+      }
       noteParameters(node.children ?? []);
     }
   };
   noteParameters(components);
-  notes.push(...overrideNotes);
+  for (const t of overrideNotes) flagNote(notes, { kind: 'I10.config-override', tier: overrideTiers.get(t) ?? 'caution', text: t });
   // Keep identity beside the prose: a resolved motor label can include a delay
   // or a disambiguated name (audit 2026-10-11, FC-4 fixup).
   const configLabelNotes = noteConfig && noteName
@@ -1492,7 +1514,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     // keying on the NAME collapsed into one (the common case: the desktop
     // default-names every tube "Body tube").
     const k = new Set(autoUnresolved.map((a) => a.el)).size;
-    notes.push(
+    cautionNote(notes, 'I07.auto-diameter-default',
       `${k} component${k === 1 ? '' : 's'} had an automatic diameter and no neighbour to `
       + `take one from, so ${clauses.join('; ')}. `
       + `Set the diameter${k === 1 ? '' : 's'} before simulating.`);
@@ -1512,7 +1534,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     const clauses = [...byKept].map(([radius, names]) =>
       `${nameList(names)} ${new Set(names).size === 1 ? 'keeps' : 'keep'} OpenRocket’s own ${(radius * 2000).toFixed(0)} mm`);
     const k = new Set(autoNoCavity.map((a) => a.el)).size;
-    notes.push(
+    cautionNote(notes, 'I07.auto-diameter-no-cavity',
       `${k} component${k === 1 ? '' : 's'} had an automatic diameter inside a part with no cavity to size `
       + `${k === 1 ? 'it' : 'them'} to (a solid part, or a wall as thick as the part’s radius), so, as desktop OR does, `
       + `${clauses.join('; ')}. Set the diameter${k === 1 ? '' : 's'} if that is not the size packed there.`);
@@ -1540,7 +1562,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       && nd.type !== 'parallelstage' && nd.type !== 'podset'
       && nd.type !== 'railbutton' && nd.type !== 'launchlug');
   if (instanced.length > 0) {
-    notes.push(
+    cautionNote(notes, 'I06.instances',
       `${instanced.length} component${instanced.length === 1 ? '' : 's'} in this design `
         + `(${[...new Set(instanced.map((nd) => nd.name ?? nd.type))].join(', ')}) `
         + 'repeat as multiple instances. The file keeps every instance, but the '
@@ -1571,7 +1593,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // warn when the chosen configuration would actually ground a stage.
   const chosen = configs.find((c) => c.id === chosenConfigId);
   if (chosen && Object.values(chosen.stageActiveness ?? {}).some(active => !active)) {
-    notes.push(
+    cautionNote(notes, 'I06.stage-activeness',
       'This configuration deactivates one or more stages — stage activeness isn’t applied here, so all stages fly in the simulation.');
   }
 
@@ -1613,7 +1635,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       const keptId = Array.from(rocketEl.querySelectorAll('motormount > motor'))
         .map((m) => m.getAttribute('configid'))
         .find((id) => id !== null);
-      notes.push(
+      cautionNote(notes, 'I08.configs-dropped',
         `File has ${strayIds.size} flight configurations — kept “${keptId ?? 'the first'}”; the other ${strayIds.size - 1} ${strayIds.size - 1 === 1 ? 'was' : 'were'} not imported.`);
     }
   }
@@ -1643,7 +1665,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   // 70000, a lug <instancecount> of 20000, a negative fin height, an unknown
   // <airfoilsection>. normalizeTree runs the same pass again at every load
   // boundary (this path included, with nothing left to do).
-  notes.push(...outsideTreeEnums.values());
+  for (const t of outsideTreeEnums.values()) cautionNote(notes, 'I04.enum', t);
   const root = doc.documentElement;
   // Historical writers stamped only their name; .ork's version="1.10" is
   // the OpenRocket format, not the app version. Share links carry this XML too.
@@ -1692,7 +1714,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     chosenConfigId: emptyDefault ? null : chosenConfigId,
     ...(exIds.size ? { embeddedExMotors: [...exIds.values()] } : {}),
     ...(storedSimulations.length ? { storedSimulations } : {}),
-    ignored: [...ignored], notes, ...(launch ? { launch } : {}),
+    ignored: [...ignored], notes, noteTiers: noteFlags(notes), ...(launch ? { launch } : {}),
     ...(measured ? { measured } : {}),
     ...(longitudeCheck ? { longitudeCheck } : {}),
   };
@@ -1790,7 +1812,7 @@ function readWindProfile(cond: XmlElement, launch: Partial<LaunchConditions>, no
   // Bound retained launch data and kernel wind models (audit 2026-10-11, S1a-6).
   // Refuse the whole profile, never fly a truncated sounding.
   if (rows.length > 500) {
-    notes.push('The file’s wind profile exceeds 500 levels and was not used; its surface wind settings are used.');
+    cautionNote(notes, 'I25.wind-profile', 'The file’s wind profile exceeds 500 levels and was not used; its surface wind settings are used.');
     return NaN;
   }
   const offset = block?.getAttribute('altituderef')?.toLowerCase() === 'agl' ? 0 : launch.launchAltitudeM ?? 0;
@@ -1803,9 +1825,9 @@ function readWindProfile(cond: XmlElement, launch: Partial<LaunchConditions>, no
       ratio: parseDecimal(row.getAttribute('mmrcalmspeedratio')) };
   }).filter((l) => validWindLevels([l])).sort((a, b) => a.altitude - b.altitude)
     .filter((l, i, a) => i === 0 || l.altitude !== a[i - 1]!.altitude);
-  if (levels.length !== rows.length) notes.push('Invalid or duplicate wind levels were omitted from the file’s winds aloft.');
+  if (levels.length !== rows.length) cautionNote(notes, 'I25.wind-levels', 'Invalid or duplicate wind levels were omitted from the file’s winds aloft.');
   if (!levels.length) {
-    notes.push('The file’s multilevel wind profile has no usable levels; its surface wind settings are used.');
+    cautionNote(notes, 'I25.wind-profile', 'The file’s multilevel wind profile has no usable levels; its surface wind settings are used.');
     return NaN;
   }
   const { windAverage, windStdDev, direction: from } = profileSurface(levels);
@@ -2044,7 +2066,7 @@ function readLaunchConditions(
           launch.temperatureC = c;
         } else {
           launch.temperatureC = null;
-          notes.push(
+          cautionNote(notes, 'I25.temperature',
             `The file's launch site states ${fmt6(tK)} K (${fmt6(c)} °C) — outside the `
             + `${IMPORTED_TEMP_C_RANGE[0]} to ${IMPORTED_TEMP_C_RANGE[1]} °C the Temperature `
             + 'field accepts, so it is not a launch site this app can fly. (That element holds '
@@ -2059,7 +2081,7 @@ function readLaunchConditions(
           launch.pressureHPa = hPa;
         } else {
           launch.pressureHPa = null;
-          notes.push(
+          cautionNote(notes, 'I25.pressure',
             `The file's launch site states ${fmt6(pPa)} Pa (${fmt6(hPa)} hPa) — outside the `
             + `${IMPORTED_PRESSURE_HPA_RANGE[0]} to ${IMPORTED_PRESSURE_HPA_RANGE[1]} hPa the `
             + 'Station pressure field accepts, so it is not a launch site this app can fly. (That '
@@ -2139,14 +2161,14 @@ function readLaunchConditions(
       // with an unexplained second number: a foreign file asking 0.005 is
       // below the panel's 0.01 AND lands on the 0.05 an imported design
       // starts at. Say which number came from where.
-      notes.push(
+      cautionNote(notes, 'I24.timestep',
         `This design's simulation asks for a ${fmtStepS(step)} s time step — below the `
         + `${fmtStepS(PANEL_TIME_STEP_FLOOR_S)} s minimum of the Time step field, which matches `
         + `desktop OpenRocket's own. It is being flown at ${fmtStepS(floorS)} s instead`
         + (floorS === PANEL_TIME_STEP_FLOOR_S ? '' : ', the step an imported design starts at')
         + ': a finer step costs multiples of the run time and buys no accuracy you can read.');
     } else if (step < MIN_IMPORTED_TIME_STEP_S && !ourOwnFile) {
-      notes.push(
+      cautionNote(notes, 'I24.timestep',
         `This design's simulation asks for a ${fmtStepS(step)} s time step. It is being flown at `
         + `${MIN_IMPORTED_TIME_STEP_S} s instead, which is several times faster and — measured `
         + 'against a converged reference on four designs — lands apogee within 0.06 m on a 6.4 km '
@@ -2185,7 +2207,7 @@ function readLaunchConditions(
     launch.geodeticMethod = ourOwnFile ? 'spherical' : 'flat';
     const opensOn = ourOwnFile ? 'Spherical Earth' : 'Flat Earth, as desktop OpenRocket opens it';
     if (gmText !== null) {
-      notes.push(`This design's simulation names the geodetic model “${gmText}”, which neither this app `
+      cautionNote(notes, 'I24.geodetic-unknown', `This design's simulation names the geodetic model “${gmText}”, which neither this app `
         + `nor desktop OpenRocket knows. It opens on ${opensOn}; Geodetic calculations, in the Launch `
         + 'panel, changes it.');
     } else if (!ourOwnFile) {
@@ -2423,9 +2445,9 @@ function readStoredSimulations(simEls: XmlElement[], notes: string[]): OrkStored
         if (Array.isArray(parsed) && parsed.every(w => w !== null && typeof w === 'object'
           && !Array.isArray(w) && typeof w.key === 'string' && typeof w.message === 'string')) {
           data.simWarnings = storedWarnings(parsed);
-        } else notes.push('Stored simulation warnings could not be read.');
+        } else cautionNote(notes, 'I28.stored-warnings', 'Stored simulation warnings could not be read.');
       } catch {
-        notes.push('Stored simulation warnings could not be read.');
+        cautionNote(notes, 'I28.stored-warnings', 'Stored simulation warnings could not be read.');
       }
     }
     const kbf = tag.getAttribute('kbf');
@@ -4058,7 +4080,7 @@ function readAutoCd(el: XmlElement, node: ComponentNode, notes: string[]): void 
 function invalidNumberNote(el: XmlElement, tag: string, notes: string[], action = 'the value was not used'): void {
   const label = text(el, ':scope > name') ?? el.tagName;
   const note = `“${label}”: invalid <${tag}> value; ${action}.`;
-  if (!notes.includes(note)) notes.push(note);
+  if (!notes.includes(note)) cautionNote(notes, 'I04.invalid-number', note);
 }
 
 function num(el: XmlElement, tag: string, fallback: number, notes: string[]): number {
@@ -4073,7 +4095,7 @@ function num(el: XmlElement, tag: string, fallback: number, notes: string[]): nu
   if (Number.isFinite(v)) return v;
   const label = text(el, ':scope > name') ?? el.tagName;
   const note = `“${label}”: invalid <${tag}> value; ${Number.isFinite(fallback) ? `using the default (${fallback})` : 'the value was not used'}.`;
-  if (!notes.includes(note)) notes.push(note);
+  if (!notes.includes(note)) cautionNote(notes, 'I04.invalid-number', note);
   return fallback;
 }
 
@@ -4220,7 +4242,7 @@ function readRadialPlacement(el: XmlElement, node: ComponentNode, notes: string[
   if (pos !== 0) node['radialPosition'] = pos;
   if (dir !== 0) node['radialDirection'] = (dir * Math.PI) / 180;
   if (pos !== 0 && ['tubecoupler', 'centeringring', 'bulkhead', 'engineblock'].includes(node.type)) {
-    notes.push(`“${node.name ?? node.type}”: its radial offset is kept when saving .ork, but the app and desktop OpenRocket both fly this part on the centerline, so the offset does not affect the simulated inertia.`);
+    cautionNote(notes, 'I21.radial-offset', `“${node.name ?? node.type}”: its radial offset is kept when saving .ork, but the app and desktop OpenRocket both fly this part on the centerline, so the offset does not affect the simulated inertia.`);
   }
 }
 

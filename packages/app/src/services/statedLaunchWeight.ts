@@ -1,3 +1,4 @@
+import { cautionNote } from './importNotes.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
 import { axialLength } from '../tree/position.js';
@@ -767,7 +768,11 @@ export function reconcileAllIncludedMotors(
     const fix = reconcileIncludedMotor(next, mountId, motors[mountId]!, text);
     if (!fix) continue;
     next = fix.tree;
-    if (fix.note) notes.push(fix.note);
+    // The fix's own severity is its line's tier (D7 I17): a cleared or
+    // replaced override is Caution; an exact back-out is a receipt.
+    if (fix.note) {
+      if (fix.severity === 'warn') cautionNote(notes, 'I17.reconcile', fix.note); else notes.push(fix.note);
+    }
     if (fix.severity === 'warn') severity = 'warn';
   }
   return { tree: next, notes, severity };

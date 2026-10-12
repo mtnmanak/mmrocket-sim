@@ -4733,3 +4733,11 @@ select.unit-chip:hover {
     border: 2px solid CanvasText;
   }
 }
+
+/* NOTES-2 (D7 §4): one file-open/restore group, each line in its own tier. */
+.notice-item.notice-group { white-space: normal; }
+.notice-group-heading { display: block; white-space: pre-line; }
+.notice-lines { margin: 4px 0 0; padding: 0; list-style: none; }
+.notice-lines > .notice-line { white-space: pre-line; }
+.notice-lines > .notice-line + .notice-line { margin-top: 4px; }
+.notice-lines > .notice-line.message-tier.message-tier { padding: 6px 8px; }

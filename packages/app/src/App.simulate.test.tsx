@@ -988,6 +988,10 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-5 LEM bann
   expect(bar.textContent).toContain('Motor ejection charge');
   expect(bar.textContent).toContain('300 ft');
   expect(bar.textContent).toContain('parachute panel');
+  // NOTES-2 (D7 §4): the override note is the open's first line, and Caution.
+  const firstLine = bar.querySelector('.notice-group .notice-line')!;
+  expect(firstLine.classList.contains('message-caution')).toBe(true);
+  expect(firstLine.textContent).toContain('Parachute (×2)');
   await click('Design');
   const banner = () => host.querySelector('[role="region"][aria-label="Recovery override"]');
   for (const [index, chute] of chutes.entries()) {

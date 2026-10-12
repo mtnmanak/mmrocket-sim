@@ -7,6 +7,7 @@ import { fmtStepS } from './orkFile.js';
 import { runCapNote } from './simStore.js';
 import { isImpulseNote } from './thrustcurve.js';
 import { isLegacyPositionNote, legacyPositionNote, pendingLegacyPositions } from './legacyPositionCheck.js';
+import type { NoteGroup } from './importNotes.js';
 
 /**
  * EVERYTHING TRANSIENT THE USER SHOULD SEE, in one channel with a severity —
@@ -33,6 +34,12 @@ export interface HeldNote {
   severity: NoticeSeverity;
   tier?: NoteTier;
   expand?: boolean;
+  /**
+   * A file-open/restore note's lines with their producers' tiers (D7 §4,
+   * services/importNotes.ts). Absent on a note written as plain text, whose
+   * lines all read as Information.
+   */
+  group?: NoteGroup;
 }
 
 /** What the list is made from — App's state, read as it stands. */
@@ -169,6 +176,9 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
     out.push({
       id: 'timestep-migrated',
       severity: 'info',
+      // D7 G03: the migration replaced a saved flight input — Caution, though
+      // announced politely: a one-time restore note, not an action's result.
+      tier: 'caution',
       // The closing sentence names the replaced value when the session
       // carried it — the migration overwrites it in place, so this notice is
       // the last thing that can — and promises nothing when it did not:
@@ -192,6 +202,7 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
     out.push({
       id: 'pad-mass-moved',
       severity: input.padMassNote.severity,
+      ...(input.padMassNote.tier ? { tier: input.padMassNote.tier } : {}),
       text: input.padMassNote.text,
       onDismiss: dismiss.padMassNote,
     });
@@ -215,10 +226,12 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
   // its own live entry, so saves cannot overwrite it and edits cannot leave a
   // stale copy in the file banner. All other import/restore notes stay intact.
   const fileText = input.fileNote?.text.split('\n').filter(line => !isLegacyPositionNote(line)).join('\n');
+  const fileGroup = input.fileNote?.group;
   if (input.fileNote && fileText) {
     out.push({
       id: 'file-note',
       severity: input.fileNote.severity,
+      ...(fileGroup ? { group: { ...fileGroup, lines: fileGroup.lines.filter(l => !isLegacyPositionNote(l.text)) } } : {}),
       // Save failures have their filled block beside Save / Export. This
       // strip still owns their announcement and dismissal, without a second block.
       ...(input.fileNote.tier && input.fileNote.tier !== 'danger' ? { tier: input.fileNote.tier } : {}),

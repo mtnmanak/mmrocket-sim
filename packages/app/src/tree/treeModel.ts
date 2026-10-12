@@ -21,6 +21,7 @@
 // 60-file, 941-test app suite still runs in 4.8 s. Not worth splitting
 // engineTree back out for, and it would not be a cheap split anyway:
 // bodyDragReference and engineTree call each other.
+import { cautionNote } from '../services/importNotes.js';
 import { OrkRocket } from '@online-openrocket/engine';
 import { recordCurrentPlacement } from '../services/legacyPositionCheck.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
@@ -148,7 +149,12 @@ export function normalizeTree(
 
 /** Repair stored shapes before any recursive id, position or dimension walk. */
 function repairTreeShape(tree: RocketTree, notes?: string[]): RocketTree {
-  const note = (text: string) => { if (notes && !notes.includes(text)) notes.push(text); };
+  // D7: a removed part or a substituted outline changes what flies — Caution
+  // (G04/I05). A translation that keeps the outline is Information.
+  const note = (text: string, kind = 'I05.tree-repair', caution = true) => {
+    if (!notes || notes.includes(text)) return;
+    if (caution) cautionNote(notes, kind, text); else notes.push(text);
+  };
   const repair = (source: unknown[], depth: number): ComponentNode[] => {
     let changed = false;
     const target: ComponentNode[] = [];
@@ -156,7 +162,7 @@ function repairTreeShape(tree: RocketTree, notes?: string[]): RocketTree {
       if (!value || typeof value !== 'object' || Array.isArray(value)
           || Object.getPrototypeOf(value) !== Object.prototype
           || typeof (value as Record<string, unknown>)['type'] !== 'string') {
-        note('A component that could not be read was removed.');
+        note('A component that could not be read was removed.', 'G04.part-removed');
         changed = true;
         continue;
       }
@@ -187,7 +193,7 @@ function repairTreeShape(tree: RocketTree, notes?: string[]): RocketTree {
         // load boundary so every drawing and cut shares that frame (audit 2026-10-11, S4a-2).
         if (x0 * x0 + y0 * y0 > 1e-12) {
           node = { ...node, points: (points as [number, number][]).map(([x, y]) => [x - x0, y - y0]) };
-          note(`Fin set "${node.name ?? 'freeform'}": its points were moved to the origin to match desktop OR.`);
+          note(`Fin set "${node.name ?? 'freeform'}": its points were moved to the origin to match desktop OR.`, 'I05.origin', false);
         }
       }
       if (node !== value) changed = true;

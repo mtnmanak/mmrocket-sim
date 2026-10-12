@@ -34,7 +34,7 @@ export function flownSeparation(tuple: SeparationTuple): SeparationTuple {
     separationDelay: separationEvent === 'never' ? 0 : tuple.separationDelay };
 }
 
-function flownIgnition(tuple: IgnitionTuple): IgnitionTuple {
+export function flownIgnition(tuple: IgnitionTuple): IgnitionTuple {
   // flightRunner.writeMountMotor uses this parser before calling OrkEngine.
   const event = knownIgnitionEvent(tuple.event) ?? tuple.event;
   // Keep AUTOMATIC distinct: IgnitionEvent checks isLaunchStage at each event,
