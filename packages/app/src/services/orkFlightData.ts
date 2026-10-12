@@ -62,13 +62,23 @@ existingRuns: readonly SimRun[] = [], savedConfigs: readonly SavedConfig[] = [])
  * configuration App built (`savedConfigs`), else from the file's own motor
  * designations. Never the simulation's name: that names the flight, not the
  * configuration, and the two were confused before RES-1b.
+ *
+ * The motor-derived label is a claim about the motors this flight flew, and
+ * the configuration's motors are only today's (RES-1d). The exporter keeps an
+ * imported summary for a configuration whose motors have since changed and
+ * marks it `outdated`; it writes `uptodate` only for an app flight proved to
+ * match the configuration's motors (orkFile.ts exportOrk's status line, fed by
+ * flightDataForExport's describedMotors). So an unnamed configuration is
+ * labelled only from an `uptodate` simulation. A user-given name is not a
+ * claim about motors and is recorded whatever the status.
  */
-function verifiedConfigLabel(configId: string | null | undefined,
+function verifiedConfigLabel(configId: string | null | undefined, status: string | undefined,
   configs: OrkImportResult['configs'] | undefined, savedConfigs: readonly SavedConfig[]): string | undefined {
   if (!configId) return undefined;
   const config = configs?.find((c) => c.id === configId);
   if (!config) return undefined;
   const saved = savedConfigs.find((c) => c.id === configId);
+  if (!(saved ? saved.name : config.name) && status !== 'uptodate') return undefined;
   return saved ? savedConfigLabel(saved) : savedConfigLabel({ id: config.id, name: config.name,
     isDefault: config.isDefault, motors: {}, unmatched: Object.values(config.motors).map((ref) => ref.designation) });
 }
@@ -115,7 +125,7 @@ savedConfigs: readonly SavedConfig[] = []): SummaryImportPlan {
   const runs = simulations.flatMap((sim): SimRun[] => {
     const fd = sim.data;
     const fingerprint = summaryFingerprint(sim.configId, fd);
-    const flightConfig = verifiedConfigLabel(sim.configId, imported.configs, savedConfigs);
+    const flightConfig = verifiedConfigLabel(sim.configId, sim.status, imported.configs, savedConfigs);
     const duplicate = fd.runId ? identities.get(identity(fd.runId, fingerprint))
       ?? (ids.get(fd.runId) === fingerprint ? fd.runId : undefined)
       : fingerprints.get(fingerprint);
