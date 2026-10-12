@@ -1,5 +1,5 @@
 {
-  "version": "0.185",
+  "version": "0.186",
   "released": "2026-10-12",
-  "note": "A warning under every Launch button when the flight configuration you are about to fly overrides a part."
+  "note": "Motors & Configuration: a flight configuration is set up in one place; notes and warnings in three tiers."
 }
