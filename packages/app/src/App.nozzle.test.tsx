@@ -300,6 +300,41 @@ describe('a flight-configuration switch in App', () => {
  * motor it belonged to has gone), then Undo the rename.
  */
 describe('Undo after a motor is unloaded', () => {
+  // audit 2026-10-11, S3c-1: automatic fills must neither add history nor erase Redo.
+  it('undoes a rename after a published nozzle auto-fill and preserves Redo', async () => {
+    seedSession(defaultTree(), {});
+    const host = await mountApp();
+    await settle(50);
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Renamed');
+    await openTab(host, 'Motors & Launch');
+    const d13 = (await loadCatalogueMotor('AeroTech', 'D13', 10))!;
+    await act(async () => { pickerProps.onSelect(d13.label, d13.spec, d13.meta); });
+    await waitFor(() => Number(input(host, 'Nozzle exit diameter for Sustainer').value) > 0, 'published nozzle fill');
+    await act(async () => { button(host, '↩ Undo').click(); });
+    await settle(50);
+    expect(shownName(host)).toBe('My Rocket');
+    expect(button(host, '↩ Undo').disabled).toBe(true);
+    expect(button(host, 'Redo').disabled).toBe(false);
+    await openTab(host, 'Design');
+    await openTab(host, 'Motors & Launch');
+    await settle(50);
+    expect(button(host, 'Redo').disabled).toBe(false);
+    await act(async () => { button(host, 'Redo').click(); });
+    await settle(50);
+    expect(shownName(host)).toBe('Renamed');
+  }, 30000);
+
+  it('S2-6: both Undo controls explain the open-file motor-answer exception', async () => {
+    seedSession(defaultTree(), {});
+    const host = await mountApp();
+    const controls = [...host.querySelectorAll('button')].filter(b => b.textContent?.includes('↩ Undo'));
+    expect(controls).toHaveLength(2);
+    for (const control of controls) {
+      expect(control.title).toContain('open-file motor question');
+      expect(control.title).toContain('restores the motors');
+    }
+  }, 30000);
+
   it('takes the rename back and leaves the unloaded motor’s exit cleared', async () => {
     const tree = withNozzle(defaultTree(), 0.005);
     const mount = motorMounts(tree)[0]!;

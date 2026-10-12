@@ -130,6 +130,7 @@ const render = async (over: {
           motorLabel={over.motorLabel ?? 'D13-10'}
           clearedFor={over.clearedFor ?? null}
           onCommit={(m) => { committed.push(m); }}
+          onAutoFill={(m) => { committed.push(m); }}
         />
       </PrefsProvider>,
     );

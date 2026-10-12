@@ -5,6 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PreferencesDialog } from './PreferencesDialog.js';
 import { AERO_NAME, aeroChoiceOf, effectiveAero, PrefsProvider, usePrefs, type AeroChoice, type Preferences } from '../prefs/PrefsContext.js';
 import { QUANTITY_LABEL, UNITS, type Quantity } from '../prefs/units.js';
+import guide from '../../user-guide.md?raw';
+import ts from 'typescript';
+import { CHANGELOG } from '../changelog.js';
 
 /**
  * The 3D-printing section: picking a machine fills the build volume, typing
@@ -63,6 +66,70 @@ const type = (el: HTMLInputElement, value: string) => act(() => {
 const mount = () => act(() => root.render(
   <PrefsProvider><PreferencesDialog onClose={() => {}} /></PrefsProvider>,
 ));
+
+// audit 2026-10-11, CR-2: check live paths against the controls people can find.
+// Releases through 0.180 are frozen history, allow-listed by version; never
+// excuse the newest entry, even when it is correcting an older release.
+const FROZEN_CHANGELOG_VERSIONS = new Set(
+  Array.from({ length: 180 }, (_, i) => `0.${String(i + 1).padStart(3, '0')}`),
+);
+const shippedSources = import.meta.glob<string>(['../**/*.tsx', '!../**/*.test.tsx'], {
+  query: '?raw', import: 'default', eager: true,
+});
+
+it('CR-2: current changelog, guide and shipped titles name rendered Preferences controls', () => {
+  mount();
+  pick(printerSelect(), 'bambu-h2d');
+  const names = [...new Set([
+    ...[...host.querySelectorAll('h2, h3')].map(e => e.textContent!.trim()),
+    ...[...host.querySelectorAll('label')].map(labelWords),
+    ...[...host.querySelectorAll('option')].map(e => e.textContent!.split(' — ')[0]!.trim()),
+  ])].sort((a, b) => b.length - a.length);
+  const badPaths = (text: string): string[] => {
+    const plain = text.replace(/[*`]/g, '');
+    const bad: string[] = [];
+    for (const match of plain.matchAll(/Preferences\s*→\s*/g)) {
+      let tail = plain.slice(match.index + match[0].length);
+      for (;;) {
+        const name = names.find(n => tail.startsWith(n)
+          && /^(?:$|\s*→|\s*[().,:;—]|\s+(?:is|can|to|sets|offers|nor|as|has|and|adds)\b)/.test(tail.slice(n.length)));
+        if (!name) { bad.push(tail.split('\n')[0]!.slice(0, 100)); break; }
+        tail = tail.slice(name.length).trimStart();
+        if (!tail.startsWith('→')) break;
+        tail = tail.slice(1).trimStart();
+      }
+    }
+    return bad;
+  };
+  // Pin the guard's failure modes too: unknown names and invented suffixes
+  // must fail even when the section or the beginning of an option is real.
+  for (const invalid of ['Preferences → length', 'Preferences → Units of measure → Length',
+    'Preferences → Aerodynamics → Supersonic aerodynamics.']) {
+    expect(badPaths(invalid), invalid).not.toEqual([]);
+  }
+  const current = CHANGELOG[0]!;
+  expect(FROZEN_CHANGELOG_VERSIONS.has(current.version)).toBe(false);
+  const copy: [string, string][] = [
+    [`CHANGELOG[0] (${current.version})`, [current.title, ...current.items].join('\n')],
+    ['user-guide.md', guide],
+  ];
+  for (const [file, source] of Object.entries(shippedSources)) {
+    const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+    const visit = (node: ts.Node) => {
+      if (ts.isJsxAttribute(node) && node.name.getText(ast) === 'title' && node.initializer) {
+        const value = ts.isJsxExpression(node.initializer) ? node.initializer.expression : node.initializer;
+        if (value && ts.isStringLiteralLike(value)) copy.push([file, value.text]);
+        else if (value && ts.isTemplateExpression(value)) {
+          copy.push([file, value.head.text + value.templateSpans.map(s => ` ${s.literal.text}`).join('')]);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(ast);
+  }
+  expect(copy.filter(([, text]) => text.includes('Preferences →')).length).toBeGreaterThan(4);
+  for (const [file, text] of copy) expect(badPaths(text), file).toEqual([]);
+});
 
 beforeEach(() => {
   localStorage.clear();

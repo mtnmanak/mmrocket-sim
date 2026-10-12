@@ -1,5 +1,5 @@
 /**
- * The DXF drawing unit follows the Length unit preference (@atestani, TRF
+ * The DXF drawing unit follows the Rocket dimensions (`prefs.units.length`) preference (@atestani, TRF
  * 2026-10-11: "the DXF export doesn't respect my units preference"). Imperial
  * draws in inches; metric must stay byte-for-byte the file the app wrote
  * before inches existed, which the hashes below were taken from (v0.179).
@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import type { SolidContext } from '../tree/solidMesh.js';
-import { componentDxf, dxfUnitFor, type DxfUnit } from './dxfExport.js';
+import { componentDxf, dxfUnitFor, dxfUnitWord, type DxfUnit } from './dxfExport.js';
 
 const node = (type: string, p: Record<string, unknown> = {}): ComponentNode =>
   ({ type, ...p } as unknown as ComponentNode);
@@ -84,7 +84,13 @@ const texts = (text: string): string[] => {
     .map((p) => p.value);
 };
 
-describe('dxfUnitFor — the Length preference picks the drawing unit', () => {
+describe('dxfUnitFor — the Rocket dimensions (`prefs.units.length`) preference picks the drawing unit', () => {
+  it.each([['in', 'inches'], ['mm', 'millimetres']] as const)('CR-5: %s exposes the word used by the drawing labels', (unit, word) => {
+    expect(dxfUnitWord, 'the shared drawing-unit word helper').toBeTypeOf('function');
+    expect(dxfUnitWord(unit)).toBe(word);
+    expect(draw(FIN, {}, unit)).toContain(`1:1 in ${word}`);
+  });
+
   it('in and ft draw in inches; mm, cm and m in millimetres', () => {
     expect(dxfUnitFor('in')).toBe('in');
     expect(dxfUnitFor('ft')).toBe('in');

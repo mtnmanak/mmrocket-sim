@@ -25,9 +25,9 @@ import { axialLength } from '../tree/position.js';
  *   POLYLINE/VERTEX/SEQEND trio and a round hole is a true CIRCLE (exact,
  *   and CAM can read its centre and diameter for a drill/bore op instead of
  *   chasing a faceted polygon).
- * - **Millimetres or inches, from the Length unit preference** (@atestani,
- *   TRF 2026-10-11: the file came out metric on an imperial setup). A Length
- *   unit of in or ft draws in INCHES ($INSUNITS=1); mm, cm or m draw in
+ * - **Millimetres or inches, from Rocket dimensions (`prefs.units.length`)**
+ *   (@atestani, TRF 2026-10-11: the file came out metric on an imperial setup).
+ *   A unit of in or ft draws in INCHES ($INSUNITS=1); mm, cm or m draw in
  *   MILLIMETRES ($INSUNITS=4). Feet are never the drawing unit: a fin is a
  *   few inches, and cutter software takes in or mm. Everything upstream is
  *   pure SI (meters) and the conversion lives in the writer alone — see
@@ -121,8 +121,9 @@ interface Part {
 export type DxfUnit = 'mm' | 'in';
 
 /**
- * The drawing unit for a Length unit preference (prefs/units.ts symbols): in
+ * The drawing unit for the Rocket dimensions preference (`prefs.units.length`): in
  * and ft draw in inches, every metric length unit in millimetres.
+ * Name the rendered setting, not its key (audit 2026-10-11, CR-4).
  */
 export const dxfUnitFor = (lengthSymbol: string): DxfUnit =>
   lengthSymbol === 'in' || lengthSymbol === 'ft' ? 'in' : 'mm';
@@ -150,6 +151,9 @@ const DRAWING_UNITS: Record<DxfUnit, DrawingUnits> = {
   mm: { fromM: (m) => m * 1000, insunits: 4, geomDp: 4, dimDp: 1, tableDp: 1, sym: 'mm', word: 'millimetres' },
   in: { fromM: (m) => m / 0.0254, insunits: 1, geomDp: 6, dimDp: 3, tableDp: 4, sym: 'in', word: 'inches' },
 };
+
+/** Keep tooltip and drawing labels together (audit 2026-10-11, CR-5). */
+export const dxfUnitWord = (unit: DxfUnit): string => DRAWING_UNITS[unit].word;
 
 /** Geometry group value. */
 const geomVal = (u: DrawingUnits, meters: number): string => u.fromM(meters).toFixed(u.geomDp);
@@ -580,7 +584,8 @@ function writeDxf(ents: Ent[], u: DrawingUnits): string {
  * Flat cut profile for one component as an R12 DXF, or null when the type is
  * not plate-cuttable. `ctx` is the same SolidContext the STL export builds,
  * so the machined and printed versions of a part cannot disagree. `unit` is
- * the drawing unit — the caller passes dxfUnitFor(the Length preference).
+ * the drawing unit — the caller passes dxfUnitFor(prefs.units.length), the
+ * Rocket dimensions preference.
  */
 export function componentDxf(
   node: ComponentNode,

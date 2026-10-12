@@ -408,7 +408,6 @@ export function planImport(
     : imported.notes;
   const notes: string[] = [`Loaded “${imported.name}”.`, ...readerNotes];
   const keptLaunch = retainedLaunchNote(imported.sourceFormat, ctx.launch, imported.launch, imported.launchSiteRefused === true);
-  if (keptLaunch) notes.push(keptLaunch);
   // Load EVERY mount's motor (staged/multi-mount files included).
   //
   // Only motor PROBLEMS go in the note. The successful "Motor: C6-5 (matched
@@ -554,6 +553,8 @@ export function planImport(
   }
   const motorTrouble = pick !== null || notes.length > 1 + readerNotes.length
     || nextConfigs.some(c => !!c.motorLoadoutRefusal);
+  // audit 2026-10-11, S7c-1: retained launch settings do not need motor attention.
+  if (keptLaunch) notes.push(keptLaunch);
   // @atestani TRF #162, Eric 2026-10-06: confirmed EX matches are information,
   // counted like the other open lines but not treated as motor trouble.
   notes.push(...unconfirmedNotes(infoNotes));

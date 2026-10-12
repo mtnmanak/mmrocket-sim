@@ -117,7 +117,7 @@ describe('the spill-hole field', () => {
   it('steps by 1 mm in mm, not by 1 of whatever unit is selected', () => {
     // schema.ts passes 0 as lenMM's step for this one field, and `?? 1` let it
     // through to niceStep(0), which returns 1 — a step of 1 in the DISPLAY
-    // unit. With Preferences → length in metres the slider ran 0…0.285 in
+    // unit. With Preferences → Rocket dimensions (`prefs.units.length`) in metres the slider ran 0…0.285 in
     // steps of 1: one reachable position, and no vent settable at all.
     mount(treeWith(CHUTE), CHUTE);
     expect(Number(spillSlider().step)).toBeCloseTo(1, 12); // mm

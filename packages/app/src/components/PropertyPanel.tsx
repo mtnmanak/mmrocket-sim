@@ -39,11 +39,11 @@ const RESOLVE_SELECT: Record<string, (n: ComponentNode) => string | undefined> =
 import { shapeParamDefault, shapeParamMax, shapeUsesParameter } from '../tree/shapeProfile.js';
 import { componentSolid } from '../tree/solidMesh.js';
 import { massObjectParentRadius, solidContextFor } from '../tree/solidContext.js';
-import { componentDxf, DXF_CUTTABLE, DXF_MIME, dxfUnitFor } from '../services/dxfExport.js';
+import { componentDxf, DXF_CUTTABLE, DXF_MIME, dxfUnitFor, dxfUnitWord } from '../services/dxfExport.js';
 import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services/printPack.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { printerName, toPrinterVolume } from '../prefs/printers.js';
-import { fmtFieldValue, fmtSi, fmtSig, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { fmtFieldValue, fmtSi, fmtSig, niceStep, QUANTITY_LABEL, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, DEFAULT_FILLET_MATERIAL, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import {
@@ -833,8 +833,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
     // substitutes only for undefined/null, so the one field that declares 0 —
     // schema.ts's `lenMM('spillHoleDiameter', …, 0, 500)` — reached
     // `niceStep(0)`, which returns 1 for any non-positive input. That 1 is in
-    // the DISPLAY unit, not the field's legacy mm: with Preferences → length
-    // set to m the spill-hole slider ran 0…0.5 in steps of 1 (one reachable
+    // the DISPLAY unit, not the field's legacy mm: with Preferences → Rocket
+    // dimensions (`prefs.units.length`) set to m the slider ran 0…0.5 in steps of 1 (one reachable
     // position, no vent settable at all) and one press of ▴ committed a 1 m
     // hole; with 'in' the step was 25.4 mm, with 'ft' 305 mm.
     const step = f.unit === 'count' ? 1 : niceStep(legacyToDisplay(f.step || 1));
@@ -1130,7 +1130,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, recoveryContext, o
         // two sit adjacent, and with a shared glyph a user scanning for the
         // laser export stops at the print-and-trace template instead.
         <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
-          title={`Flat 1:1 cut profile as R12 DXF in ${dxfUnitFor(prefs.units.length) === 'in' ? 'inches' : 'millimetres'} — it follows your Rocket dimensions unit (Preferences → Units of measure): inches for in or ft, millimetres otherwise. For laser/router/waterjet CAM and Fusion 360 sketch import. Fin sets export ONE fin as a single closed contour with the through-the-wall tab merged into it (airfoil shaping, cant and sweep-into-the-tube are NOT represented); rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (the label says so when neither can be found), and a centering ring's bore from its own stated ID, else the motor mount. Cut geometry is on the CUT layer only — REFERENCE (root chord, centre marks) and TEXT are guides; switch them off before cutting.`}
+          // audit 2026-10-11, CR-3/CR-5: use the dialog label and drawing-unit word.
+          title={`Flat 1:1 cut profile as R12 DXF in ${dxfUnitWord(dxfUnitFor(prefs.units.length))} — it follows your ${QUANTITY_LABEL.length} unit (Preferences → Units of measure): inches for in or ft, millimetres otherwise. For laser/router/waterjet CAM and Fusion 360 sketch import. Fin sets export ONE fin as a single closed contour with the through-the-wall tab merged into it (airfoil shaping, cant and sweep-into-the-tube are NOT represented); rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (the label says so when neither can be found), and a centering ring's bore from its own stated ID, else the motor mount. Cut geometry is on the CUT layer only — REFERENCE (root chord, centre marks) and TEXT are guides; switch them off before cutting.`}
           onClick={() => {
             const dxf = componentDxf(node, solidContextFor(tree, node), tree.name ?? 'Rocket',
               dxfUnitFor(prefs.units.length));
