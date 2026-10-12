@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { OrkRocket, type ComponentNode, type MotorSpec } from '@online-openrocket/engine';
 import type { DeploymentTuple, FlightTree, IgnitionTuple, MountMotor } from '../model/design.js';
 import { describeFlightOverrides } from './flightOverrideSummary.js';
 
@@ -69,17 +70,76 @@ describe('launch override summary', () => {
     const defaults = { ...tree, ignitionDefaults: { mount: { event: event.trim().toLowerCase().replaceAll('_', '') as IgnitionTuple['event'], delay: 2 } } };
     expect(describeFlightOverrides(defaults, { ignitions: { mount: { event: event as IgnitionTuple['event'], delay: 2 } } }, { mount: motor }, null, 'm')).toBeNull();
   });
-  it.each(['flat', 'bottom', 'upper', 'parallel'] as const)('LW4 resolves automatic ignition on the %s stage', kind => {
+  it.each(['flat', 'bottom', 'upper', 'parallel'] as const)('LW5 keeps automatic ignition distinct on the %s stage', kind => {
     const mount = { type: 'innertube' as const, id: 'mount', motorMount: true };
     const defaults: FlightTree = { components: kind === 'flat' ? [mount] : [
       { type: 'stage', id: 'top', children: kind === 'upper' ? [mount] : [] },
       { type: 'stage', id: 'bottom', children: kind === 'parallel' ? [{ type: 'parallelstage', id: 'strap', children: [mount] }] : kind === 'bottom' ? [mount] : [] },
     ], ignitionDefaults: { mount: { event: 'automatic', delay: 1 } } };
     const event = kind === 'upper' ? 'ejectioncharge' : 'launch';
-    expect(describeFlightOverrides(defaults, { ignitions: { mount: { event, delay: 1 } } }, { mount: motor }, null, 'm')).toBeNull();
+    expect(describeFlightOverrides(defaults, { ignitions: { mount: { event, delay: 1 } } }, { mount: motor }, null, 'm')).not.toBeNull();
+    // Equality must not depend on which spelling is the component default.
+    expect(describeFlightOverrides({ ...defaults, ignitionDefaults: { mount: { event, delay: 1 } } },
+      { ignitions: { mount: { event: 'automatic', delay: 1 } } }, { mount: motor }, null, 'm')).not.toBeNull();
     expect(describeFlightOverrides(defaults, { ignitions: { mount: { event, delay: 2 } } }, { mount: motor }, null, 'm')).not.toBeNull();
     expect(describeFlightOverrides(defaults, { ignitions: { mount: { event: event === 'launch' ? 'ejectioncharge' : 'launch', delay: 1 } } }, { mount: motor }, null, 'm')).not.toBeNull();
   });
+  it('LW5 warns when retained strap-ons eject after the lower core separates', () => {
+    const mount = (id: string): ComponentNode => ({ type: 'innertube', id, motorMount: true,
+      length: 0.07, outerRadius: 0.0095, thickness: 0.0005, position: { method: 'bottom', offset: 0 } });
+    const fins: ComponentNode = { type: 'freeformfinset', finCount: 3, thickness: 0.003, crossSection: 'airfoil',
+      position: { method: 'bottom', offset: 0 },
+      points: [[0, 0], [0.04, 0.06], [0.08, 0.06], [0.10, 0]] };
+    const defaults: FlightTree = { components: [
+      { type: 'stage', id: 'upper', children: [
+        // Nose ballast keeps the staged fixture stable through the delayed ignition.
+        { type: 'nosecone', length: 0.07, aftRadius: 0.012, thickness: 0.002, overrideMass: 0.06 },
+        { type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0003, density: 950, children: [
+          fins, mount('upper-mount'),
+          { type: 'parallelstage', id: 'straps', instanceCount: 2, separationEvent: 'never',
+            radiusMethod: 'relative', radiusOffset: 0, position: { method: 'bottom', offset: 0 }, children: [
+              { type: 'nosecone', length: 0.04, aftRadius: 0.010, thickness: 0.001 },
+              { type: 'bodytube', length: 0.15, outerRadius: 0.010, thickness: 0.0003, density: 950,
+                children: [mount('strap-mount'), fins] },
+            ] },
+        ] },
+      ] },
+      { type: 'stage', id: 'lower', separationEvent: 'launch', separationDelay: 2, children: [
+        { type: 'bodytube', length: 0.12, outerRadius: 0.012, thickness: 0.0003, density: 950,
+          children: [fins, mount('lower-mount')] },
+      ] },
+    ], ignitionDefaults: { 'upper-mount': { event: 'automatic', delay: 0 } } };
+    const spec: MotorSpec = { designation: 'C6', diameter: 0.018, length: 0.07, cgX: 0.035, ejectionDelay: 3,
+      times: [0, 0.1, 0.3, 0.5, 1, 1.5, 1.85, 2], thrusts: [0, 12, 6, 5.1, 4.9, 4.8, 4.5, 0],
+      masses: [0.024, 0.0231, 0.0215, 0.0202, 0.0174, 0.0147, 0.0133, 0.0132] };
+    const fly = (event: IgnitionTuple['event']) => {
+      const rocket = OrkRocket.buildTree(defaults);
+      for (const id of ['upper-mount', 'strap-mount', 'lower-mount']) rocket.setMotorById(id, spec);
+      rocket.setMotorIgnitionById('upper-mount', event, 0);
+      return rocket.simulate({ delayProbe: true, windAverage: 0, windStdDeviation: 0, maxTime: 15 }).delayProbe!.branches;
+    };
+    for (const event of ['automatic', 'ejectioncharge'] as const) {
+      const branches = fly(event);
+      const upper = branches.find(branch => branch.mountIds.includes('upper-mount'))!;
+      const lower = branches.find(branch => branch.mountIds.includes('lower-mount'))!;
+      // Event-time tolerance covers one 0.05 s integration step, not a trajectory literal.
+      expect(Math.abs(lower.separationTime! - 2)).toBeLessThanOrEqual(0.05);
+      expect(upper.mountIds).toContain('strap-mount');
+      const charge = upper.events.find(e => e.type === 'EJECTION_CHARGE' && e.motorMountId === 'strap-mount')!;
+      expect(charge).toBeDefined();
+      expect(Math.abs(charge.time - 5)).toBeLessThanOrEqual(0.05);
+      const ignition = upper.events.find(e => e.type === 'IGNITION' && e.motorMountId === 'upper-mount');
+      if (event === 'automatic') expect(ignition).toBeUndefined();
+      else {
+        expect(ignition).toBeDefined();
+        expect(Math.abs(ignition!.time - charge.time)).toBeLessThanOrEqual(0.05);
+      }
+    }
+    const overrides = { ignitions: { 'upper-mount': { event: 'ejectioncharge' as const, delay: 0 } } };
+    const summary = describeFlightOverrides(defaults, overrides, { 'upper-mount': motor }, null, 'm');
+    expect(summary).not.toBeNull();
+    expect(summary!.first).toEqual({ id: 'upper-mount', family: 'ignition' });
+  }, 60_000);
   it('omits absent, equal, deleted and wrong-family entries', () => {
     expect(describeFlightOverrides(tree, {}, {}, '[F67C-9]', 'ft')).toBeNull();
     expect(describeFlightOverrides(tree, { deployments: { a: own, gone: flown, mount: flown } }, {}, null, 'ft')).toBeNull();

@@ -17,7 +17,7 @@ interface Group {
   family: OverrideFamily; kind: string; names: string[]; flown: string; own: string;
 }
 
-/** Warning equality follows flight behavior; storage equality still keeps the complete tuple. */
+/** Normalize only equivalence that holds on every flight path; preserve stored tuples. */
 function flownDeployment(tuple: DeploymentTuple): DeploymentTuple {
   const deployEvent = flownDeployEvent(tuple.deployEvent);
   // DeploymentConfiguration.NEVER cannot activate, so no delay is scheduled.
@@ -34,12 +34,11 @@ function flownSeparation(tuple: SeparationTuple): SeparationTuple {
     separationDelay: separationEvent === 'never' ? 0 : tuple.separationDelay };
 }
 
-function flownIgnition(tuple: IgnitionTuple, onLaunchStage?: boolean): IgnitionTuple {
+function flownIgnition(tuple: IgnitionTuple): IgnitionTuple {
   // flightRunner.writeMountMotor uses this parser before calling OrkEngine.
-  let event = knownIgnitionEvent(tuple.event) ?? tuple.event;
-  // IgnitionEvent.AUTOMATIC delegates to LAUNCH or EJECTION_CHARGE. Leave its
-  // familiar label intact when formatting (no stage argument), resolve for equality.
-  if (event === 'automatic' && onLaunchStage !== undefined) event = onLaunchStage ? 'launch' : 'ejectioncharge';
+  const event = knownIgnitionEvent(tuple.event) ?? tuple.event;
+  // Keep AUTOMATIC distinct: IgnitionEvent checks isLaunchStage at each event,
+  // and separation can change which core stage is the bottom active one.
   // IgnitionEvent.NEVER uses the always-false default activation handler.
   return { event, delay: event === 'never' ? 0 : tuple.delay };
 }
@@ -60,7 +59,6 @@ export function describeFlightOverrides(
   const groups = new Map<string, Group>();
   const mountIds = new Set(motorMounts(tree).map(node => node.id));
   const topStage = stages(tree)[0];
-  const bottomStage = stages(tree).at(-1);
   let first: FlightOverrideSummary['first'] | undefined;
   const add = (node: ComponentNode, family: OverrideFamily, kind: string, flown: string, own: string) => {
     first ??= { id: node.id!, family };
@@ -69,11 +67,8 @@ export function describeFlightOverrides(
     group.names.push(node.name || kind);
     groups.set(key, group);
   };
-  const visit = (nodes: ComponentNode[], onLaunchStage = true) => {
+  const visit = (nodes: ComponentNode[]) => {
     for (const node of nodes) {
-      // AxialStage.isLaunchStage -> Rocket.getBottomCoreStage; ParallelStage's
-      // override returns true for active straps. The app build activates all stages.
-      const launchStage = node.type === 'parallelstage' || (node.type === 'stage' ? node === bottomStage : onLaunchStage);
       const id = node.id;
       if (id && (node.type === 'parachute' || node.type === 'streamer')) {
         const tuple = overrideFor(overrides.deployments, id);
@@ -92,10 +87,10 @@ export function describeFlightOverrides(
       if (id && motor && mountIds.has(id)) {
         const tuple = overrideFor(overrides.ignitions, id);
         const own = overrideFor(tree.ignitionDefaults, id) ?? motor.ignition;
-        if (tuple && sparsify(flownIgnition(own, launchStage), flownIgnition(tuple, launchStage))) add(node, 'ignition', 'motor mount',
+        if (tuple && sparsify(flownIgnition(own), flownIgnition(tuple))) add(node, 'ignition', 'motor mount',
           describeIgnitionTuple(flownIgnition(tuple), 'warning'), describeIgnitionTuple(flownIgnition(own), 'warning'));
       }
-      if (node.children) visit(node.children, launchStage);
+      if (node.children) visit(node.children);
     }
   };
   visit(tree.components);
