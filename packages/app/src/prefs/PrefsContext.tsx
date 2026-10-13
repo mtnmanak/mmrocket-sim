@@ -4,6 +4,7 @@ import { normalizePrinter } from './printers.js';
 import { normalizeDragAnalysis } from './dragAnalysis.js';
 import { DEFAULT_PREFS, type Preferences } from './preferences.js';
 import type { AeroChoice } from './aeroChoice.js';
+import { sessionDebugLog } from '../services/sessionDebugLog.js';
 
 // The stored shape and its defaults, and the aero choice, live in React-free
 // modules (2026-10-01: the headless Launch reads them with no React mounted).
@@ -47,6 +48,7 @@ function load(): Preferences {
     if (!['radius', 'diameter'].includes(parsed.radiusMode!)) delete parsed.radiusMode;
     if (!['both', 'callout', 'axis', 'off'].includes(parsed.markers3d!)) delete parsed.markers3d;
     if (!['cal', 'pct', 'both'].includes(parsed.stabilityUnit!)) delete parsed.stabilityUnit;
+    if (!['creation', 'name', 'name-desc', 'motor', 'motor-desc'].includes(parsed.configurationSort!)) delete parsed.configurationSort;
     // A stored printer that isn't three positive numbers is dropped, not
     // repaired — planning cuts for a half-parsed machine is worse than not
     // offering to split at all. Absent stays absent (no printer configured).
@@ -111,6 +113,7 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
   const [prefs, setPrefsRaw] = useState<Preferences>(load);
   const [saveFailing, setSaveFailing] = useState(false);
   const [aeroOverride, setAeroOverride] = useState<AeroChoice | null>(null);
+  useEffect(() => { sessionDebugLog.preferences(prefs, aeroOverride); }, [prefs, aeroOverride]);
   const [systemDark, setSystemDark] = useState<boolean>(
     () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches,
   );

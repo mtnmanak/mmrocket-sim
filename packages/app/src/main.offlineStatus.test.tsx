@@ -43,6 +43,10 @@ it('wires entry-point registration callbacks to the real offline status singleto
   expect(offlineStatus.getSnapshot()).toMatchObject({ kind: 'ready' });
 
   options.onRegisterError?.(new Error('Registration blocked'));
+  const { sessionDebugLog } = await import('./services/sessionDebugLog.js');
+  navigator.serviceWorker.dispatchEvent(new Event('messageerror'));
+  expect(sessionDebugLog.text()).toContain('worker-message-error');
+  expect(sessionDebugLog.text()).toContain('worker-error: Error: Message omitted for privacy');
   expect(offlineStatus.getSnapshot()).toEqual({
     kind: 'unavailable', reason: 'registration failed', detail: 'Registration blocked',
   });

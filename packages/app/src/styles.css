@@ -435,6 +435,12 @@ html {
 .config-bar { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
 .config-chooser { flex: 1 1 240px; min-width: 0; }
 .config-chooser select { display: block; width: 100%; min-width: 0; }
+.config-sort { flex: 0 1 200px; }
+.debug-log-download { min-width: 0; max-width: 100%; }
+.debug-log-download .file-btn { max-width: 100%; white-space: normal; }
+.debug-log-download .comp-stats { white-space: normal; overflow-wrap: anywhere; }
+.file-menu .debug-log-download { width: 280px; max-width: calc(100vw - 48px); padding: 4px 6px; box-sizing: border-box; }
+.feedback-menu { max-height: 60vh; overflow-y: auto; }
 .config-bar > .file-btn, .config-panel > .file-btn { max-width: 100%; white-space: normal; }
 .config-table-scroll { max-width: 100%; overflow: auto; max-height: min(440px, 60vh); overscroll-behavior: contain; }
 .config-table { width: 100%; border-collapse: collapse; }

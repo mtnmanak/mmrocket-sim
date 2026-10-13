@@ -133,6 +133,8 @@ import {
 } from './services/simStore.js';
 import { APP_VERSION } from './version.js';
 import { pokeServiceWorker, useVersionCheck } from './services/versionCheck.js';
+import { DebugLogDownload } from './components/DebugLogDownload.js';
+import { sessionDebugLog } from './services/sessionDebugLog.js';
 import { offlineStatusText, useOfflineStatus } from './services/offlineStatus.js';
 import {
   addChild, addStage, nozzleStages, nozzleEditableStageIds, applyStageNozzles, autoDelayBox, cloneSubtree, duplicateNode, findNode,
@@ -1905,6 +1907,7 @@ export function App() {
     if (refusal) { setSimError(refusal); return; }
     if (!built || !primaryMountId || simulating || nozzlePending || flightHoldsHandle.current) return;
     flightHoldsHandle.current = true;
+    sessionDebugLog.record('launch-start');
     // The design this flight flies: this render's, the one `built` was built
     // from. Everything it computed lands after an await, and only while that
     // design still stands (`designNow`, audit 2026-09-30) — an Open, a ✕ New,
@@ -1961,6 +1964,7 @@ export function App() {
         // stamped with the design it flew, and selecting it says what changed
         // since — a Launch press never simply vanishes.
         recordRuns(addRun(run));
+        sessionDebugLog.record('launch-complete');
         if (!stillFlown()) return;
         // Bound to the run it produced — the id is what lets a click through
         // the history table come back to these charts.
@@ -1982,6 +1986,7 @@ export function App() {
         }));
       } catch (e) {
         // The error is the launched design's, and dies with it like the rest.
+        sessionDebugLog.record('launch-failed', e);
         if (stillFlown()) setSimError(e instanceof Error ? e.message : String(e));
       } finally {
         setSimulating(false);
@@ -2846,6 +2851,7 @@ export function App() {
   };
 
   const onOpenOrk = async (file: File) => {
+    sessionDebugLog.record('import-start');
     // Claim the open BEFORE the first await — the parse and the motor fetches
     // that follow can take seconds, and a second Open in the meantime has to
     // win however the network orders them. See openSeq.
@@ -2855,6 +2861,7 @@ export function App() {
       // file door (services/designFile.ts), which the headless open uses too.
       const tooBig = designFileTooLarge(file.size, file.name);
       if (tooBig) {
+        sessionDebugLog.record('import-failed', new Error('File exceeds the design-file size limit.'));
         setFileNote(tooBig, 'error');
         return;
       }
@@ -2880,7 +2887,9 @@ export function App() {
       // panel on Motors & Configuration switches between them (motors AND recovery
       // deployment, since applyConfig applies both now).
       await applyImported(imported, openId, { name: file.name, via: 'opened', format: imported.sourceFormat! });
+      sessionDebugLog.record('import-complete');
     } catch (e) {
+      sessionDebugLog.record('import-failed', e);
       // A superseded open must not shout about a design nobody is waiting for.
       if (!openSeq.isCurrent(openId)) return;
       // Named for the format the user actually picked (designFile.ts says why);
@@ -2941,7 +2950,7 @@ export function App() {
       // bar that never opened itself — for a link that simply did not work.
       // The sentence names the browser when this one cannot unpack links at
       // all, rather than calling every link damaged (audit 2026-09-22).
-      onError: (e) => setFileNote(shareLinkOpenFailure(e), 'warn'),
+      onError: (e) => { sessionDebugLog.record('import-failed', e); setFileNote(shareLinkOpenFailure(e), 'warn'); },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot startup decode
   }, []);
@@ -3399,7 +3408,7 @@ export function App() {
                     ruling: don't take the user away from the site); the mailto
                     deliberately does NOT, because a mail client launched into a
                     new tab leaves a blank tab behind. */}
-                <div className="file-menu" role="group" aria-label="Feedback"
+                <div className="file-menu feedback-menu" role="group" aria-label="Feedback"
                   onClick={() => setShowFeedback(false)}>
                   <button onClick={() => window.open(
                     withVersionParam(mmrNav.feedback?.bug ?? feedbackIssueUrl('bug-report.yml')),
@@ -3429,6 +3438,7 @@ export function App() {
                   }}>
                     Email instead — no account needed
                   </button>
+                  <DebugLogDownload />
                 </div>
               </>
             )}

@@ -13,6 +13,8 @@ import type { DragAnalysisPrefs } from './dragAnalysis.js';
  * re-exports both, so every existing importer gets the same bindings.
  */
 export interface Preferences {
+  /** N011: viewer order only; absent preserves the file's configuration order. */
+  configurationSort?: 'creation' | 'name' | 'name-desc' | 'motor' | 'motor-desc';
   units: UnitSelection;
   /** How round components are entered/displayed. Engine always stores radius (SI). */
   radiusMode: 'radius' | 'diameter';

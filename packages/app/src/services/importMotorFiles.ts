@@ -1,11 +1,14 @@
 import type { NoteTier } from '../components/Note.js';
 import { addExMotors, parseMotorFile, type ExMotor } from './exMotors.js';
+import { sessionDebugLog } from './sessionDebugLog.js';
 
 // @atestani TRF #162, Eric 2026-10-06: both pickers share parsing, storage and notices.
 export async function importMotorFiles(files: File[]) {
+  sessionDebugLog.record('import-start');
   let notice: string | null = null;
   const motorFiles = files.filter((f) => /\.(eng|rse|txt)$/i.test(f.name));
   if (motorFiles.length === 0) {
+    sessionDebugLog.record('import-failed', new Error('No .eng or .rse files found in that selection.'));
     return {
       parsed: [], write: null, error: 'No .eng or .rse files found in that selection.', notice: null,
       tier: 'information' as NoteTier, noticeTier: 'information' as NoteTier,
@@ -21,6 +24,7 @@ export async function importMotorFiles(files: File[]) {
       parsed.push(...parseMotorFile(f.name, await f.text(), notes));
       said.push(...notes.map((n) => `${f.name}: ${n}`));
     } catch (e) {
+      sessionDebugLog.record('import-failed', e);
       failed.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
@@ -31,6 +35,7 @@ export async function importMotorFiles(files: File[]) {
   const imported = parsed.map((m) => m.designation);
   const write = parsed.length ? addExMotors(parsed) : null;
   const unsaved = write !== null && !write.stored;
+  if (parsed.length > 0) sessionDebugLog.record('import-complete');
   const some = (names: string[]) => `${names.slice(0, 6).join(', ')}${names.length > 6 ? ', …' : ''}`;
   if (write?.duplicates.length) {
     said.push(`${some(write.duplicates)}: listed more than once with different data — each copy is kept `

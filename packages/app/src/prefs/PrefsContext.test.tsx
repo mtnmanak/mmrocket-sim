@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PrefsProvider, usePrefs, type Preferences } from './PrefsContext.js';
 import { printerFromPreset } from './printers.js';
 import { INITIAL_UNITS, UNITS, type Quantity } from './units.js';
+import { sessionDebugLog } from '../services/sessionDebugLog.js';
 
 /**
  * Loading stored preferences. The one that matters is MIGRATION SAFETY: a
@@ -44,6 +45,26 @@ afterEach(() => {
 });
 
 describe('storage hardening: result tiles', () => {
+  it('C-H3 follows current validated preferences without capturing unrelated stored fields', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ configurationSort: 'name', theme: 'light', themeExplicit: true,
+      weatherSearch: 'Private weather place', latitude: 61.234 }));
+    mount();
+    expect(sessionDebugLog.text()).toContain('"configurationSort":"name"');
+    act(() => seen.setPrefs({ ...seen.prefs, configurationSort: 'motor' }));
+    expect(sessionDebugLog.text()).toContain('"configurationSort":"motor"');
+    expect(sessionDebugLog.text()).not.toContain('Private');
+    expect(sessionDebugLog.text()).not.toContain('61.234');
+  });
+  it.each(['creation', 'name', 'name-desc', 'motor', 'motor-desc'])('N011 retains configuration sort %s', configurationSort => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ configurationSort }));
+    mount();
+    expect(seen.prefs.configurationSort).toBe(configurationSort);
+  });
+  it.each([null, [], {}, 'unknown', 5])('N011 drops malformed configuration sort %j', configurationSort => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ configurationSort }));
+    mount();
+    expect(seen.prefs.configurationSort).toBeUndefined();
+  });
   it('S7d-3 drops unknown preference unions and keeps valid independent choices', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ aeroModel: 'unknown', theme: 'unknown', themeExplicit: true,
       radiusMode: 'unknown', markers3d: 'unknown', stabilityUnit: 'unknown', rogersKbf: false }));
