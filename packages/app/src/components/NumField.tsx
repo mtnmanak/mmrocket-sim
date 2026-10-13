@@ -202,7 +202,11 @@ export function NumField({
     }
     const v = parse(s);
     if (v !== null) {
-      lastTyped.current = { text: s.trim(), value: v };
+      // Canonical, not literal: "1,625" typed in a decimal-comma locale is
+      // remembered as "1.625", the form the field's own text is read back in
+      // (a literal comma + three digits reads as a thousands group there).
+      // String() of the parsed number keeps every typed digit.
+      lastTyped.current = { text: String(v), value: v };
       onCommit(v, focused);
     }
     else if (clampToMax && max !== undefined && parse(s, false) !== null) onCommit(max, focused);
