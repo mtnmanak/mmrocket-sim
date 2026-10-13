@@ -12,7 +12,7 @@ function validRecord(value: unknown): value is RecentDesignRecord {
   if (!value || typeof value !== 'object') return false;
   const e = value as Partial<RecentDesignRecord>;
   return typeof e.name === 'string' && e.name.length > 0 && e.name.length <= 1024
-    && /\.(ork|rkt|cdx1)$/i.test(e.name) && typeof e.openedAt === 'number'
+    && typeof e.openedAt === 'number'
     && Number.isSafeInteger(e.openedAt) && e.openedAt >= 0 && e.openedAt <= 8.64e15 && e.bytes instanceof ArrayBuffer
     && e.bytes.byteLength <= MAX_RECENT_FILE_BYTES;
 }
@@ -86,7 +86,7 @@ export async function recentDesignFile(name: string): Promise<File | null> {
 /** Errors here must never undo a successful file open/save or replace its import notes. */
 export async function rememberRecentDesign(name: string, bytes: ArrayBuffer): Promise<string | null> {
   if (bytes.byteLength > MAX_RECENT_FILE_BYTES) return 'This file is over 8 MiB, so the app did not keep a copy in Recent.';
-  if (!validRecord({ name, bytes, openedAt: 0 })) return 'The app could not keep this filename in Recent. Save a .ork, .rkt or .CDX1 file to keep a recent copy.';
+  if (!validRecord({ name, bytes, openedAt: 0 })) return 'The app could not keep this filename in Recent. Save a file to keep this design.';
   try {
     await transaction<void>('readwrite', (store, done) => {
       const request = store.getAll();

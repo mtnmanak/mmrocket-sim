@@ -1,4 +1,9 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { openDesignFile } from './designFile.js';
 import { boundedRecentDesigns, clearRecentDesigns, listRecentDesigns, rememberRecentDesign,
   recentDesignFile, MAX_RECENT_DESIGNS, MAX_RECENT_BYTES, MAX_RECENT_FILE_BYTES } from './recentDesigns.js';
 
@@ -81,6 +86,30 @@ function storageDouble() {
 }
 
 describe('C-A2 recent storage transactions', () => {
+  it.each(['reference.zip', 'reference'])('retains and reopens a successfully imported %s with its original bytes and name', async name => {
+    storageDouble();
+    const fixture = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '__fixtures__', 'reference.ork'));
+    const bytes = fixture.buffer.slice(fixture.byteOffset, fixture.byteOffset + fixture.byteLength) as ArrayBuffer;
+    const opened = await openDesignFile(bytes, name, { presets: [] });
+    expect(opened.sourceFormat).toBe('ork');
+    expect(opened.tree.components).toHaveLength(1);
+
+    expect(await rememberRecentDesign(name, bytes)).toBeNull();
+    expect(await listRecentDesigns()).toEqual([{ name, openedAt: expect.any(Number), size: bytes.byteLength }]);
+    const file = await recentDesignFile(name);
+    expect(file?.name).toBe(name);
+    const retained = await file!.arrayBuffer();
+    expect(new Uint8Array(retained)).toEqual(new Uint8Array(bytes));
+    const reopened = await openDesignFile(retained, file!.name, { presets: [] });
+    expect(reopened.sourceFormat).toBe('ork');
+    expect(reopened.name).toBe(opened.name);
+    expect(reopened.notes).toEqual(opened.notes);
+    // Re-importing mints component ids, including ignition-default keys; retain their values.
+    const treeValues = (tree: typeof opened.tree) => JSON.parse(JSON.stringify(tree,
+      (key, value: unknown) => key === 'ignitionDefaults' ? Object.values(value as object)
+        : key === 'id' ? undefined : value));
+    expect(treeValues(reopened.tree)).toEqual(treeValues(opened.tree));
+  });
   it('stores exact bytes across reload-like reads and closes every connection', async () => {
     const storage = storageDouble();
     const bytes = new TextEncoder().encode('original café <&>\nbytes').buffer;
@@ -147,12 +176,22 @@ describe('C-A2 recent file retention', () => {
     expect(kept.length).toBe(MAX_RECENT_BYTES / MAX_RECENT_FILE_BYTES);
     expect(boundedRecentDesigns([entry('big.ork', 1, MAX_RECENT_FILE_BYTES + 1)])).toEqual([]);
   });
-  it('validates stored records without coercion and ignores malformed or unsupported files', () => {
+  it('validates stored records without coercion and ignores malformed records', () => {
     expect(boundedRecentDesigns([null, {}, entry('ok.CDX1', 3), entry('ok.rkt', 2),
-      { ...entry('bad.ork', 2), openedAt: '2' }, entry('bad.txt', 2),
+      { ...entry('bad.ork', 2), openedAt: '2' }, entry('', 2), entry('a'.repeat(1025), 2),
+      { ...entry('bad.ork', 2), name: 1 }, entry('bad.ork', -1), entry('bad.ork', 8.64e15 + 1),
+      entry('bad.ork', 1.5),
       { ...entry('bad.ork', 2), bytes: [1, 2] },
       { ...entry('fake.ork', 2), bytes: { byteLength: 1 } }, entry('bad.ork', NaN)]).map(e => e.name))
       .toEqual(['ok.CDX1', 'ok.rkt']);
+  });
+  it('retains structurally valid snapshots regardless of filename extension', () => {
+    expect(boundedRecentDesigns([entry('reference.zip', 3), entry('reference', 2), entry('reference.txt', 1)])
+      .map(e => e.name)).toEqual(['reference.zip', 'reference', 'reference.txt']);
+  });
+  it.each([['empty', ''], ['overlong', 'a'.repeat(1025)]])('refuses an %s filename before opening storage', async (_label, name) => {
+    vi.stubGlobal('indexedDB', undefined);
+    expect(await rememberRecentDesign(name, new ArrayBuffer(1))).toContain('filename');
   });
   it('reports unavailable storage without rejecting an otherwise successful open or save', async () => {
     vi.stubGlobal('indexedDB', undefined);

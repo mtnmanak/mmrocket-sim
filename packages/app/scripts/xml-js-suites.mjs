@@ -54,6 +54,8 @@ export const XML_JS_SUITES = [
   'src/services/deployOverrideNote.test.ts',
   'src/services/orkFile.test.ts',
   'src/services/partComments.test.ts',
+  // C-A2: recent copies reopen through the real file door, including nonstandard names.
+  'src/services/recentDesigns.test.ts',
   'src/services/orkFile.layers.test.ts',
   'src/services/orkFile.audit-fidelity.test.ts',
   'src/services/orkExtensions.test.ts',
