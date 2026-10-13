@@ -181,7 +181,9 @@ export function NumField({
   const fmtEdit = (v: number | undefined) => {
     if (v === undefined) return '';
     const typed = lastTyped.current;
-    if (typed && Math.abs(v - typed.value) <= 1e-9 * Math.max(1, Math.abs(typed.value))) return typed.text;
+    // An echo of the typed value through a unit round trip differs by ~1e-14;
+    // anything farther apart is a different value (a cancel, an undo).
+    if (typed && Math.abs(v - typed.value) <= 1e-12 * Math.max(1, Math.abs(typed.value))) return typed.text;
     // A value from elsewhere: 12 significant digits, counted from at least the
     // units place. Rounding relative to |v| alone kept an affine conversion's
     // noise near zero (0 °F read back as 1.4e-14, 0.01 °F as 0.00999999999999);
@@ -303,6 +305,7 @@ export function NumField({
           else if (e.key === 'Escape' && onEditCancel) {
             e.preventDefault();
             cancelled.current = true;
+            lastTyped.current = null;
             onEditCancel();
             (e.target as HTMLInputElement).blur();
           }

@@ -267,6 +267,25 @@ describe('NumField — typing', () => {
     expect(ended).toBe(1);
   });
 
+  it('N005 review: a cancelled nearby edit is not remembered on refocus', () => {
+    render({ value: 1.23456789, onEditCancel: () => rerender({ value: 1.23456789 }) }, { controlled: true });
+    type('1.234567891');
+    key('Escape');
+    focus();
+    expect(input().value).toBe('1.23456789');
+    blur();
+  });
+
+  it('N005 review: a nearby value supplied from elsewhere is not shown as the typed one', () => {
+    render({ value: 1 }, { controlled: true });
+    type('1.234567891');
+    blur();
+    rerender({ value: 1.23456789 });
+    focus();
+    expect(input().value).toBe('1.23456789');
+    blur();
+  });
+
   it('flags and refuses a conversion overflow, including with clampToMax', () => {
     render({ value: 2, max: 10, clampToMax: true, validate: (v) => Number.isFinite(v * 1000) });
     type('1e306');
