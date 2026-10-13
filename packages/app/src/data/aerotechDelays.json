@@ -8,7 +8,14 @@
     "nar": 19,
     "plugged": 5,
     "none": 175,
-    "scan": 100
+    "scan": 100,
+    "scan-reviewed": 0
+  },
+  "scanReview": {
+    "reviewed": 100,
+    "accepted": 0,
+    "unreadForMerge": 100,
+    "source": "packages/app/scripts/aerotech-delay-transcriptions.json"
   },
   "notInCatalogue": [],
   "motorCount": 32,

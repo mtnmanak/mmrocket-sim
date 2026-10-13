@@ -1,0 +1,2975 @@
+{
+  "reviewedOn": "2026-10-13",
+  "method": "Visual review of all 114 pages rendered with pymupdf at 200 dpi, outside the repo; no OCR. Positions use 1-based pages and printed row/column labels.",
+  "policy": "Merge individual measurements only when the document also prints an agreeing delay average or repeated summary. Count checks are recorded but do not verify values. Candidates in unread are never merged.",
+  "documents": [],
+  "unread": [
+    {
+      "index": 0,
+      "document": "NAR/18mm Model Rocket Single-Use/D21T.pdf",
+      "filenameMotor": "D21T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160039",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "8806259cd7812e1c22558a84c606e102a3a8b989891b81300e82dd4918299007",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 1,
+      "document": "NAR/18mm Model Rocket Single-Use/E25T.pdf",
+      "filenameMotor": "E25T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103155934",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "6281ac4fc19b2d3fea9e776bf195541945c9b79a5fec163a9bed16d6147f8865",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 2,
+      "document": "NAR/18mm Model Rocket Single-Use/E45T.pdf",
+      "filenameMotor": "E45T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103155941",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "9a96a8b5103eb6f5c1790e8c1371687df697facf02467db4e98d5fd351d874c9",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 3,
+      "document": "NAR/24mm Model Rocket Single-Use/E15W.pdf",
+      "filenameMotor": "E15W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103155931",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "46f197c21e4b83610bfb700f3f7221ddf80810fc658dc20b50f8f58c45531a96",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 4,
+      "document": "NAR/24mm Model Rocket Single-Use/E30T.pdf",
+      "filenameMotor": "E30T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103155938",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "78dbb0e98e1083dcd67b1a2de5b7ff02d38446e54af69ba07a90914203fe2f7e",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 5,
+      "document": "NAR/24mm Model Rocket Single-Use/E6T.pdf",
+      "filenameMotor": "E6T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103155945",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "ca410b71229637c912c5e1523a484dd8251af36f8edf5db5d70e27761815ded8",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 6,
+      "document": "NAR/24mm Model Rocket Single-Use/F32W.pdf",
+      "filenameMotor": "F32W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160002",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "aa7374fdbe76e43eb41255792973c360c6c95f47267d56a4b7969cac14e88586",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 7,
+      "document": "NAR/24mm Model Rocket Single-Use/F44 Classic.pdf",
+      "filenameMotor": "F44 Classic",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160005",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "05a9b652876e8323e40dfe0701fd2de250ec2a1da373e5f4c683840e31b2b4c2",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 8,
+      "document": "NAR/24mm Model Rocket Single-Use/F72T.pdf",
+      "filenameMotor": "F72T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160012",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "d6a2e062388a3629901c20def46fe5178264394acf460fa2c281bb123e0d1b49",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 9,
+      "document": "NAR/24mm Model Rocket Single-Use/G42W.pdf",
+      "filenameMotor": "G42W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160025",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "adfe38b85169931a71b5dc0c2348c5cafd782abd63751ac32ff50e363f6e0821",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 10,
+      "document": "NAR/24mm Model Rocket Single-Use/G55W.pdf",
+      "filenameMotor": "G55W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160029",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "b16cb32aea36aa6ad9f8330e807872fe846cfaf646fd6ffc5fc4cf4dcc9e71aa",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 11,
+      "document": "NAR/29mm Model Rocket Single-Use/F10T.pdf",
+      "filenameMotor": "F10T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103155948",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "216018f5aa5b6bb66e3945cd1f7206710ea5d80e9a08e5be014dcb0b8675dc98",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 12,
+      "document": "NAR/29mm Model Rocket Single-Use/F14J.pdf",
+      "filenameMotor": "F14J",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103155951",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "70b798806887cb76488400269669e19feb2e86a71b405028d5bb908dcf93cb0e",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 13,
+      "document": "NAR/29mm Model Rocket Single-Use/F20W.pdf",
+      "filenameMotor": "F20W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103155955",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "b89bbe650395921941e0f85849fe047fa2b59fe5cf74ef69525fe28663630e50",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 14,
+      "document": "NAR/29mm Model Rocket Single-Use/F25W.pdf",
+      "filenameMotor": "F25W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103155958",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "02d5210664fe8be657d61d6e1f99b07abb48c59b71f7d26d536dae64ffdb0e25",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 15,
+      "document": "NAR/29mm Model Rocket Single-Use/F50T.pdf",
+      "filenameMotor": "F50T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160008",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "51840223f524c4f33ea83d3083176c2a1dc585621c90abf00a4fa6a0c906019a",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 16,
+      "document": "NAR/29mm Model Rocket Single-Use/G25W.pdf",
+      "filenameMotor": "G25W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160015",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "b984edd1ab38aef9fb9dddea06796ff2a4fddcec3f967ee7c796256dc0101006",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 17,
+      "document": "NAR/29mm Model Rocket Single-Use/G40W.pdf",
+      "filenameMotor": "G40W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160022",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "5e31c7a92eefca1a33004fd7f14fc3add896d2698c65e66f61949eda74aa1c9e",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 18,
+      "document": "NAR/29mm Model Rocket Single-Use/G80T.pdf",
+      "filenameMotor": "G80T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160033",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "c38224ecdcf43680d71c4a0f526cf395dfdf600a20acd2aa58059712b4f3bf4d",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 19,
+      "document": "NAR/RMS-18-20/C12T.pdf",
+      "filenameMotor": "C12T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103155920",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "a919604d1cbd0b45a844f7a55e57ee1aea0751f460f293db5e39ce0151732654",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 20,
+      "document": "NAR/RMS-18-20/C6W.pdf",
+      "filenameMotor": "C6W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103155923",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "d31733365ee5d54495f5c25a4d35d6b700bb7e2436280d06629b2001ad2342b2",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 21,
+      "document": "NAR/RMS-18-20/D13W.pdf",
+      "filenameMotor": "D13W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103155927",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "ad61a8d226fe0da7cf401c9c406c5c91339471cc962418e30ed94d10cb092537",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 22,
+      "document": "NAR/RMS-18-20/E27T.pdf",
+      "filenameMotor": "E27T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160036",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "4020ab042268d898829226c92d9084614e9d0bdf336476ec99f7617cd9bb24fa",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 23,
+      "document": "NAR/RMS-24-40/D15T.pdf",
+      "filenameMotor": "D15T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160046",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "42f085bfd48f25b8e00ed9b595ee90eb33bd1ec6cd30279ca732551401ae5154",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 24,
+      "document": "NAR/RMS-24-40/D9W.pdf",
+      "filenameMotor": "D9W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160043",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "970f41c1a38810283b6108aa2b65134dce0b9345f4fd7098491471056c75b909",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 25,
+      "document": "NAR/RMS-24-40/E11J.pdf",
+      "filenameMotor": "E11J",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160049",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "abd0650d8ce2df08829d6f2a6b6ca26b4b71333c8e66418718a244b874e51534",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 26,
+      "document": "NAR/RMS-24-40/E18W.pdf",
+      "filenameMotor": "E18W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160052",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "2afb144944825feba52dd4df84daa780f66c083d3db97597721691e1f96fd707",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 27,
+      "document": "NAR/RMS-24-40/E28T.pdf",
+      "filenameMotor": "E28T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160056",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "84c9113b226c4130149bddeafa5c3ce507f09612bbc2ea32657f82da096c0c75",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 28,
+      "document": "NAR/RMS-24-40/F12J.pdf",
+      "filenameMotor": "F12J",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160059",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "126bf1f0a9620beebf914f6f70434b6298ee876b02702a75547b36751b2420c2",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 29,
+      "document": "NAR/RMS-24-40/F24W.pdf",
+      "filenameMotor": "F24W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160102",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "dc4dd07a50c8cb912944354bc2f276a52c9746fe82839c4fefb6910049489037",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 30,
+      "document": "NAR/RMS-24-40/F39T.pdf",
+      "filenameMotor": "F39T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160106",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "3db496cf6b67abed547953c75ad1086452e0c25c6d6c38c1b396e81d570c9835",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 31,
+      "document": "NAR/RMS-29-100/G54W.pdf",
+      "filenameMotor": "G54W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160133",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "29f3024332cdd0d8824ee4ca592f3d7b88ceb82d95b669e8f70d572a58f5460d",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 32,
+      "document": "NAR/RMS-29-240/H220T.pdf",
+      "filenameMotor": "H220T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160137",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "f2e7f77e768d835b8b8891f4c90cf42b4f18b9b4918df28eedbbc1b8a48df9af",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 33,
+      "document": "NAR/RMS-29-40-120/E16W.pdf",
+      "filenameMotor": "E16W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160109",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "139ead2ac5088741159b70b776431bfbf34bdf62fc989fdcde70062bfa17f399",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 34,
+      "document": "NAR/RMS-29-40-120/F22J.pdf",
+      "filenameMotor": "F22J",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160112",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "db3258b64e3d37e0208bdf817b728b37985e57b396185507d8d22892e7b17a9c",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 35,
+      "document": "NAR/RMS-29-40-120/F40W.pdf",
+      "filenameMotor": "F40W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160116",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "b64dcb7fcda2ce12dd5145b42e667d5ed47c454b41ce0fb7b20bae8d8fc057fc",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 36,
+      "document": "NAR/RMS-29-40-120/F52T.pdf",
+      "filenameMotor": "F52T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160119",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "d9534554a1dffd6df4ed46551a69695e978de7dcca64d7508626927386027180",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 37,
+      "document": "NAR/RMS-29-40-120/G33J.pdf",
+      "filenameMotor": "G33J",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160123",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "54e168a486f263080588134cff2f1b83fb05811a2111cefdae0f6f8bfdec7b56",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 38,
+      "document": "NAR/RMS-29-40-120/G64W.pdf",
+      "filenameMotor": "G64W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160126",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "5bd68a1ca8c695c8cb3b6b01a32f80b2d2871546f3d9dad4686bc5660e1af99e",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 39,
+      "document": "NAR/RMS-29-60/F37W.pdf",
+      "filenameMotor": "F37W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160129",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "f2a50f48fe70ccf71a95164d1d6d9827b07e65b2b0abff7932635184319ad290",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 40,
+      "document": "NAR/RMS-38-480/I300T.pdf",
+      "filenameMotor": "I300T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160140",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "9d1dc91d4e18e8b177599f4142023a302dd3fc0adc6cea9bc0a6ebbdd24edd30",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 41,
+      "document": "NAR/RMS-R-C 24-20-40/D7T.pdf",
+      "filenameMotor": "D7T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160144",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "1deda965e53a328e067c49446b87d1600ceb57a45ef2ed7d980d2aca71da8f9d",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 42,
+      "document": "NAR/RMS-R-C 24-20-40/E12J.pdf",
+      "filenameMotor": "E12J",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160156",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "55534ed2c2d4e749a013009f8954a8a0c29674727e34de15e0f513588a057f0b",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 43,
+      "document": "NAR/RMS-R-C 24-20-40/E6T-RC.pdf",
+      "filenameMotor": "E6T-RC",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160152",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "3c4a44a527861099f302d706f76b8888c1f59e770a88ff8cc18060fffeb7e90b",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 44,
+      "document": "NAR/RMS-R-C 24-20-40/E7T.pdf",
+      "filenameMotor": "E7T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160148",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "7ee137dc75015144d80f625b638da82625eabc627b26014a70eb5ff07e1c86a4",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 45,
+      "document": "NAR/RMS-R-C 32-60-100/F13T.pdf",
+      "filenameMotor": "F13T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160200",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "fd5571cd7cd72313d1e38fee1460d6fbc9f3434fed7c1c92fbe929d6e213411f",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 46,
+      "document": "NAR/RMS-R-C 32-60-100/F16J.pdf",
+      "filenameMotor": "F16J",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160203",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "f9ac5781eb880e6fb9df9ff790f94e88e99b08cd699172c1a5db6158cb01977e",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 47,
+      "document": "NAR/RMS-R-C 32-60-100/G12T.pdf",
+      "filenameMotor": "G12T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160209",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "c11567ada1ec384048c69c0ae056b84a56e47fff9859e584c9a5738919b47d5e",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 48,
+      "document": "TRA/24mm Model Rocket Single-Use/F21W.pdf",
+      "filenameMotor": "F21W",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "c4450c61.jfx 1",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "eFax Messenger: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20020422114758",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "f2969ffb0be6ae1c3c601676ed4bf31d47e9aa3b311d89be856cfb2a116d11c4",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 49,
+      "document": "TRA/24mm Quest Single Use/Quest Q-Jet E35-5, 8, 11W.pdf",
+      "filenameMotor": "Quest Q-Jet E35-5, 8, 11W",
+      "metadata": {
+        "format": "PDF 1.4",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH IM C4500",
+        "producer": "RICOH IM C4500",
+        "creationDate": "D:20220622132757-06'00'",
+        "modDate": "D:20220622132757-06'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "a01a54e1d56a44a0dceba07db3024d17588dd3c60d14d20479960b69d8c7c902",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "reason": "Individual measurements are legible, but neither a delay average nor a repeated delay summary is printed. Motors-tested count alone does not meet SPEC step 1.",
+      "category": "missing-value-cross-check",
+      "motorsTested": 12,
+      "motorsTestedPosition": {
+        "page": 1,
+        "row": "Number of Motors Tested",
+        "column": "value"
+      },
+      "candidateDelays": [
+        {
+          "nominalS": 5,
+          "measurements": [
+            {
+              "printed": "4.956",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 5 s",
+                "column": "Measured, value 1"
+              }
+            },
+            {
+              "printed": "4.431",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 5 s",
+                "column": "Measured, value 2"
+              }
+            },
+            {
+              "printed": "4.694",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 5 s",
+                "column": "Measured, value 3"
+              }
+            }
+          ],
+          "crossChecks": []
+        },
+        {
+          "nominalS": 8,
+          "measurements": [
+            {
+              "printed": "7.207",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 8 s",
+                "column": "Measured, value 1"
+              }
+            },
+            {
+              "printed": "7.157",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 8 s",
+                "column": "Measured, value 2"
+              }
+            },
+            {
+              "printed": "6.434",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 8 s",
+                "column": "Measured, value 3"
+              }
+            },
+            {
+              "printed": "6.856",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 8 s",
+                "column": "Measured, value 4"
+              }
+            }
+          ],
+          "crossChecks": []
+        },
+        {
+          "nominalS": 11,
+          "measurements": [
+            {
+              "printed": "10.720",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 11 s",
+                "column": "Measured, value 1"
+              }
+            },
+            {
+              "printed": "9.931",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 11 s",
+                "column": "Measured, value 2"
+              }
+            },
+            {
+              "printed": "9.081",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 11 s",
+                "column": "Measured, value 3"
+              }
+            },
+            {
+              "printed": "9.046",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 11 s",
+                "column": "Measured, value 4"
+              }
+            },
+            {
+              "printed": "9.558",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 11 s",
+                "column": "Measured, value 5"
+              }
+            }
+          ],
+          "crossChecks": []
+        }
+      ]
+    },
+    {
+      "index": 50,
+      "document": "TRA/24mm Quest Single Use/Quest Q-Jet F41-5, 8, 11W.pdf",
+      "filenameMotor": "Quest Q-Jet F41-5, 8, 11W",
+      "metadata": {
+        "format": "PDF 1.4",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH IM C4500",
+        "producer": "RICOH IM C4500",
+        "creationDate": "D:20230927153443-06'00'",
+        "modDate": "D:20230927153443-06'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "e5ec52625cf9731da5cec460631a1ac2965ff6f0b48e77942961e4fd24cfefc3",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "reason": "Individual measurements are legible, but neither a delay average nor a repeated delay summary is printed. Motors-tested count alone does not meet SPEC step 1.",
+      "category": "missing-value-cross-check",
+      "motorsTested": 10,
+      "motorsTestedPosition": {
+        "page": 2,
+        "row": "Number of Motors Tested",
+        "column": "value"
+      },
+      "candidateDelays": [
+        {
+          "nominalS": 5,
+          "measurements": [
+            {
+              "printed": "5.907",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 5 s",
+                "column": "Measured, value 1"
+              }
+            },
+            {
+              "printed": "4.972",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 5 s",
+                "column": "Measured, value 2"
+              }
+            },
+            {
+              "printed": "4.904",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 5 s",
+                "column": "Measured, value 3"
+              }
+            },
+            {
+              "printed": "5.415",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 5 s",
+                "column": "Measured, value 4"
+              }
+            }
+          ],
+          "crossChecks": []
+        },
+        {
+          "nominalS": 8,
+          "measurements": [
+            {
+              "printed": "8.752",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 8 s",
+                "column": "Measured, value 1"
+              }
+            },
+            {
+              "printed": "8.341",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 8 s",
+                "column": "Measured, value 2"
+              }
+            },
+            {
+              "printed": "8.322",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 8 s",
+                "column": "Measured, value 3"
+              }
+            }
+          ],
+          "crossChecks": []
+        },
+        {
+          "nominalS": 11,
+          "measurements": [
+            {
+              "printed": "11.004",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 11 s",
+                "column": "Measured, value 1"
+              }
+            },
+            {
+              "printed": "10.92",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 11 s",
+                "column": "Measured, value 2"
+              }
+            },
+            {
+              "printed": "11.426",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 11 s",
+                "column": "Measured, value 3"
+              }
+            }
+          ],
+          "crossChecks": []
+        }
+      ]
+    },
+    {
+      "index": 51,
+      "document": "TRA/29mm High Power Single-Use/H124FJ.pdf",
+      "filenameMotor": "H124FJ",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6.5",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19991207110126",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "2d3d0146513f31be9a9ae382308a02be6700f78a1ecd78d392a6384b4910cc48",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 52,
+      "document": "TRA/29mm High Power Single-Use/H55W.pdf",
+      "filenameMotor": "H55W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120807",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "0747fb524bb7f57ddd6c686a4c254669be30c7bec5df97c82fbc4314d2244502",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 53,
+      "document": "TRA/38mm High Power Single-Use/I132W.pdf",
+      "filenameMotor": "I132W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120820",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "2f48d9444e9621a6ea8db94cb222174b13bc9e357fb93636a0119b1785aecd0a",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 54,
+      "document": "TRA/38mm High Power Single-Use/I40N-P DMS.pdf",
+      "filenameMotor": "I40N-P DMS",
+      "metadata": {
+        "format": "PDF 1.3",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH MP C4503",
+        "producer": "macOS Version 11.6 (Build 20G165) Quartz PDFContext",
+        "creationDate": "D:20211027163032Z00'00'",
+        "modDate": "D:20211027163032Z00'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "584206c817909ac2081ad084af835ae1e7bd7d471b1dd69c1af8d40143415479",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 55,
+      "document": "TRA/54mm High Power Single-Use/I65W-P DMS.pdf",
+      "filenameMotor": "I65W-P DMS",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120818",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "0b34fbb64a912666b9a1f24ca888c603103f717956637c388e8c4b2b45c1f8a1",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 56,
+      "document": "TRA/54mm High Power Single-Use/J1265ST-14A DMS.pdf",
+      "filenameMotor": "J1265ST-14A DMS",
+      "metadata": {
+        "format": "PDF 1.4",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH IM C4500",
+        "producer": "RICOH IM C4500",
+        "creationDate": "D:20221212133459-07'00'",
+        "modDate": "D:20221212133459-07'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "ee31b0b132dbd3a1c0fda175daa37c86047cc8d78771e009e323afcff7eea70c",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "reason": "Individual measurements are legible, but neither a delay average nor a repeated delay summary is printed. Motors-tested count alone does not meet SPEC step 1.",
+      "category": "missing-value-cross-check",
+      "motorsTested": 3,
+      "motorsTestedPosition": {
+        "page": 2,
+        "row": "Number of Motors Tested",
+        "column": "value"
+      },
+      "candidateDelays": [
+        {
+          "nominalS": 6,
+          "measurements": [
+            {
+              "printed": "7.345",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 6 s",
+                "column": "Measured, value 1"
+              }
+            }
+          ],
+          "crossChecks": []
+        },
+        {
+          "nominalS": 10,
+          "measurements": [
+            {
+              "printed": "10.35",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 10 s",
+                "column": "Measured, value 1"
+              }
+            }
+          ],
+          "crossChecks": []
+        },
+        {
+          "nominalS": 14,
+          "measurements": [
+            {
+              "printed": "12.925",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 14 s",
+                "column": "Measured, value 1"
+              }
+            }
+          ],
+          "crossChecks": []
+        }
+      ]
+    },
+    {
+      "index": 57,
+      "document": "TRA/54mm High Power Single-Use/K62N-P DMS.pdf",
+      "filenameMotor": "K62N-P DMS",
+      "metadata": {
+        "format": "PDF 1.4",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH IM C4500",
+        "producer": "RICOH IM C4500",
+        "creationDate": "D:20221212133523-07'00'",
+        "modDate": "D:20221212133523-07'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "c893e9c387c37f873f288a17ee832cc92fdbe730236d130f082c852fd2958318",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 58,
+      "document": "TRA/98mm High Power Single Use/N1975W-PS DMS.pdf",
+      "filenameMotor": "N1975W-PS DMS",
+      "metadata": {
+        "format": "PDF 1.3",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH MP C4503",
+        "producer": "macOS Version 11.6 (Build 20G165) Quartz PDFContext",
+        "creationDate": "D:20211027163256Z00'00'",
+        "modDate": "D:20211027163256Z00'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "91a133dde2ba562127c1f28f0d46a1c3f2ccd49db3311c34a5d2e316f40a6c0f",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 59,
+      "document": "TRA/98mm High Power Single Use/O5500X-PS DMS.pdf",
+      "filenameMotor": "O5500X-PS DMS",
+      "metadata": {
+        "format": "PDF 1.3",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH IM C4500",
+        "producer": "macOS Version 11.7.2 (Build 20G1020) Quartz PDFContext",
+        "creationDate": "D:20230117230925Z00'00'",
+        "modDate": "D:20230117230925Z00'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "eff0d2fd0a29774d39a49beaf3ccbc95380f7e8e20e0d640d9e6fe6b45e540e1",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 60,
+      "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA I170S.pdf",
+      "filenameMotor": "KBA I170S",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "fbc3d513.jfx",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "eFax Messenger: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20020603133222",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "9d91d6d21f897014d45a3af5e315539aeedd7e17661f8d1519792135103a78f0",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 61,
+      "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA I280F.pdf",
+      "filenameMotor": "KBA I280F",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "fbc3d513.jfx",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "eFax Messenger: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20020603133123",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "430aa39d844ab9d37771e024eea6fb0b7366fe1322352249dd9a9bd7cfe34094",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 62,
+      "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA I450F.pdf",
+      "filenameMotor": "KBA I450F",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "fbc3d513.jfx",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "eFax Messenger: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20020603133022",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "982b4aabee79793648a340826d1ee4d86dd69637ff1365de321eede7351a0214",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 63,
+      "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA J405S.pdf",
+      "filenameMotor": "KBA J405S",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "fbc3d513.jfx",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "eFax Messenger: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20020603133547",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "351347e76c974454b2d745f88e4e9f80417c792b6e7e5353eeed78fc49d1fb2b",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 64,
+      "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA J605F.pdf",
+      "filenameMotor": "KBA J605F",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "fbc3d513.jfx",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "eFax Messenger: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20020603133459",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "ff9d89b776653ecbe8b0522ec57b7930e66d8219bc0dfaa7e98595cf2de8cca9",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 65,
+      "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA K400S-7, P.pdf",
+      "filenameMotor": "KBA K400S-7, P",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010914141217",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "bc832da8711591e518d7e51d8774e3d3e1dd39fa6dac4fb389862903f093494c",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 66,
+      "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA K600F.pdf",
+      "filenameMotor": "KBA K600F",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010914140756",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "12eaa7219b8f10608b62c35f81259c37c31af5dc0b99f905980eee4871cbf26b",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 67,
+      "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA L1000S-P.pdf",
+      "filenameMotor": "KBA L1000S-P",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010914141053",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "912ff324e539007bb475abd30952ff28bf7cc95690471aeecfabfaa15caf98cb",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 68,
+      "document": "TRA/Kosdon By AeroTech (KBA) & Kosdon by AeroTech Animal-Compatible (KBA A-C)/KBA L1400F.pdf",
+      "filenameMotor": "KBA L1400F",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "fbc3d513.jfx",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "eFax Messenger: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20020603133747",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "6bbadf97bebca85291844047f4c421b8c7df1242ac63e43dd4861b0c83117a8f",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 69,
+      "document": "TRA/RMS-29-100/G104T.pdf",
+      "filenameMotor": "G104T",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010802111227",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "b9ad951e98ea5f4fdccc9246c9303eff31ad773a938ecaa703ced219b1c07fec",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 70,
+      "document": "TRA/RMS-29-100/G54W.pdf",
+      "filenameMotor": "G54W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160133",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "29f3024332cdd0d8824ee4ca592f3d7b88ceb82d95b669e8f70d572a58f5460d",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 71,
+      "document": "TRA/RMS-29-180/H128W.pdf",
+      "filenameMotor": "H128W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120812",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "29968d5f8c84679458d354a8832110af04a20eb7f3caa90346701512050f4c03",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 72,
+      "document": "TRA/RMS-29-180/H165R.pdf",
+      "filenameMotor": "H165R",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010613154930",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "9e2966d715ea6dbbc06909316b77040bebe12b1b23cb7831942069e935fc3f11",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 73,
+      "document": "TRA/RMS-29-180/H238T.pdf",
+      "filenameMotor": "H238T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120816",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "69273af2d42a86000421b30213d5e9b21b14055b9d5eff7e6b47495397040582",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 74,
+      "document": "TRA/RMS-29-240/H180W.pdf",
+      "filenameMotor": "H180W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120815",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "efc67875ba770af55e4f8c1e88d93105e48d865cb5f520ffc016f621d15dba99",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 75,
+      "document": "TRA/RMS-29-240/H97JS.pdf",
+      "filenameMotor": "H97JS",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120810",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "da83b26269c5d0395e7245915451d4d7e4813847a8095f919c904f430514a775",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 76,
+      "document": "TRA/RMS-29-360/I200W.pdf",
+      "filenameMotor": "I200W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120823",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "bd4596e4b5a26a5bdef3c38828dbd4032ea28c5c00ba5a7df184f16f0a898d0a",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 77,
+      "document": "TRA/RMS-29-60/F37W.pdf",
+      "filenameMotor": "F37W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.5.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19981103160129",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "f2a50f48fe70ccf71a95164d1d6d9827b07e65b2b0abff7932635184319ad290",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "average-only",
+      "reason": "Avg. Measured Delay only; no individual test-motor delay values or spread."
+    },
+    {
+      "index": 78,
+      "document": "TRA/RMS-29-60/F62T.pdf",
+      "filenameMotor": "F62T",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010802111101",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "eb197451389c1b066b8b0ea503d293129dbe01c7949fd51100553b9f5410e311",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 79,
+      "document": "TRA/RMS-38-240/H148R.pdf",
+      "filenameMotor": "H148R",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010813133347",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "a863d1ce8425a0900c1d5578008cb0a6efdc471de38251fa03d6933779c2e0d3",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 80,
+      "document": "TRA/RMS-38-240/H73J.pdf",
+      "filenameMotor": "H73J",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120809",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "902c9c4afb00882db69a5d545974f50f194957c786348fe5047bb9a48d8cf181",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 81,
+      "document": "TRA/RMS-38-360/I161W.pdf",
+      "filenameMotor": "I161W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120821",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "1abfc7bd0a88c2a47c744a06be638ac5bc976e9b37ffd3ca1426fbc5322113be",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 82,
+      "document": "TRA/RMS-38-360/I357T.pdf",
+      "filenameMotor": "I357T",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120825",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "b336f4651ce3c731fa9cd9013fc2cf72fb1233f54fc2cb0f0d5df521140213af",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 83,
+      "document": "TRA/RMS-38-600/I366R.pdf",
+      "filenameMotor": "I366R",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010813133522",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "f7c2b95b0bf1177cfd993500c9cf3f077ba4bddc7ba4673c4d23a466443b8bd0",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 84,
+      "document": "TRA/RMS-38-720/J350W (Small Core).pdf",
+      "filenameMotor": "J350W (Small Core)",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120828",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "7ea01c7181ec2380afd146535ac8e8663ded2d84756048b8d3530964348b02d3",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 85,
+      "document": "TRA/RMS-38-720/J420R-M, L.pdf",
+      "filenameMotor": "J420R-M, L",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010613155103",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "01f77e28995d4353608beb1b77441bd52497308e0bc1906283fbff536b5c9b3f",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 86,
+      "document": "TRA/RMS-38-720/J420R-S.pdf",
+      "filenameMotor": "J420R-S",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010813133631",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "e191c99d261a921be5fba4cb56852c84858a99f3f70f35c36b4a3d10ed854c9e",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 87,
+      "document": "TRA/RMS-54-1280/J540R.pdf",
+      "filenameMotor": "J540R",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010613155234",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "762de4482e1dd53c8bd6c49c4bce33cd1f078f7ecbfb68e23cdc9472676d9600",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 88,
+      "document": "TRA/RMS-54-1706/K185W.pdf",
+      "filenameMotor": "K185W",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120832",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "3898156ac86e5646a8cf1b9dec90c9b6988af2cd7c4774a591c1e898712fc5b8",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 89,
+      "document": "TRA/RMS-54-1706/K695R.pdf",
+      "filenameMotor": "K695R",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010613155510",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "3b56281f1ad65aff60aa65f5bff15221f9d99b4f5fb6a56ae5885c3aa2413682",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-individual-measurements",
+      "reason": "Certification letter/list prints designations or nominal delays and thrust data, without individual measured ejection delays."
+    },
+    {
+      "index": 90,
+      "document": "TRA/RMS-54-852/J615ST-20A Aerospike.pdf",
+      "filenameMotor": "J615ST-20A Aerospike",
+      "metadata": {
+        "format": "PDF 1.3",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH MP C4503",
+        "producer": "macOS Version 11.6 (Build 20G165) Quartz PDFContext",
+        "creationDate": "D:20211027163157Z00'00'",
+        "modDate": "D:20211027163157Z00'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "67fb09c52938fb73bd16cf98d0f30000e571f77b458d6ec15ea8ab299a7c08c9",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "reason": "Individual measurements are legible, but neither a delay average nor a repeated delay summary is printed. Motors-tested count alone does not meet SPEC step 1.",
+      "category": "missing-value-cross-check",
+      "motorsTested": 6,
+      "motorsTestedPosition": {
+        "page": 2,
+        "row": "Number of Motors Tested",
+        "column": "value"
+      },
+      "candidateDelays": [
+        {
+          "nominalS": 20,
+          "measurements": [
+            {
+              "printed": "20.035",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 20 s",
+                "column": "Measured, value 1"
+              }
+            },
+            {
+              "printed": "20.094",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 20 s",
+                "column": "Measured, value 2"
+              }
+            }
+          ],
+          "crossChecks": []
+        },
+        {
+          "nominalS": 16,
+          "measurements": [
+            {
+              "printed": "17.405",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 16 s",
+                "column": "Measured, value 1"
+              }
+            },
+            {
+              "printed": "17.438",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 16 s",
+                "column": "Measured, value 2"
+              }
+            }
+          ],
+          "crossChecks": []
+        },
+        {
+          "nominalS": 12,
+          "measurements": [
+            {
+              "printed": "12.749",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 12 s",
+                "column": "Measured, value 1"
+              }
+            },
+            {
+              "printed": "12.653",
+              "position": {
+                "page": 2,
+                "row": "Delay Time Data, 12 s",
+                "column": "Measured, value 2"
+              }
+            }
+          ],
+          "crossChecks": []
+        }
+      ]
+    },
+    {
+      "index": 91,
+      "document": "TRA/RMS-75-10240/N2700W-PS.pdf",
+      "filenameMotor": "N2700W-PS",
+      "metadata": {
+        "format": "PDF 1.3",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH IM C4500",
+        "producer": "iOS Version 18.2 (Build 22C5142a) Quartz PDFContext, AppendMode 1.1",
+        "creationDate": "D:20240430015312Z00'00'",
+        "modDate": "D:20241130202353Z00'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "5d8b3db737e329efa0ed40881cec7873df7b4a0332ef2a4df4b10c513073e165",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample.",
+      "identityNote": "Filename N2700W-PS; pages identify manufacturer designation M2700W-PS and TMT nomenclature N2717. No delay data; no catalogue join attempted."
+    },
+    {
+      "index": 92,
+      "document": "TRA/RMS-75-1280/K750ST-P.pdf",
+      "filenameMotor": "K750ST-P",
+      "metadata": {
+        "format": "PDF 1.3",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH IM C4500",
+        "producer": "macOS Version 11.6.5 (Build 20G527) Quartz PDFContext",
+        "creationDate": "D:20220516191833Z00'00'",
+        "modDate": "D:20220516191833Z00'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "8a35c6dc6933c1ae08da9a8b526095d0e423700e5a3c6f343cd84ea4a3293148",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 93,
+      "document": "TRA/RMS-75-2560/K1800ST-PS.pdf",
+      "filenameMotor": "K1800ST-PS",
+      "metadata": {
+        "format": "PDF 1.4",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH IM C4500",
+        "producer": "RICOH IM C4500",
+        "creationDate": "D:20220818111243-06'00'",
+        "modDate": "D:20220818111243-06'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "4a6440bb2351066e55ca0798e0b6135dadd5fd28a90d02f91e1e8240aad6e228",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 94,
+      "document": "TRA/RMS-75-2560/K560W-P.pdf",
+      "filenameMotor": "K560W-P",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19990419120834",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "fe0aebdc9951d51136dea5f8d066aecd2b85f665de9e5e8a6fe7fdec4285f7ef",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 95,
+      "document": "TRA/RMS-75-5120/M2225WS-PS.pdf",
+      "filenameMotor": "M2225WS-PS",
+      "metadata": {
+        "format": "PDF 1.3",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH IM C4500",
+        "producer": "macOS Version 11.7.2 (Build 20G1020) Quartz PDFContext",
+        "creationDate": "D:20230117230848Z00'00'",
+        "modDate": "D:20230117230848Z00'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "e04c7a98bfa742b92e80a6a3c2b45731b11f78936149680175581894110e9b57",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 96,
+      "document": "TRA/RMS-75-6400/M1315W-P.pdf",
+      "filenameMotor": "M1315W-P",
+      "metadata": {
+        "format": "PDF 1.1",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PhotoCopy: LaserWriter 8 8.6.5",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:19991111181045",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "05b19bc5d12980574cd6aa7e4f89aae4784e314a28c7b046100d1471595bafa3",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 97,
+      "document": "TRA/RMS-75-6400/M1550R-P.pdf",
+      "filenameMotor": "M1550R-P",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010613155629",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "7ddb4e90a752609c41518aae6c01c474d632d741b200221c2227254eff12054c",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 98,
+      "document": "TRA/RMS-98-10240/M6000ST (2022 redesign).pdf",
+      "filenameMotor": "M6000ST (2022 redesign)",
+      "metadata": {
+        "format": "PDF 1.3",
+        "title": "",
+        "author": "",
+        "subject": "",
+        "keywords": "",
+        "creator": "RICOH IM C4500",
+        "producer": "macOS Version 11.6.5 (Build 20G527) Quartz PDFContext",
+        "creationDate": "D:20220516191804Z00'00'",
+        "modDate": "D:20220516191804Z00'00'",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 2,
+      "sha256": "4e741d5df8eb2074c525e960375b9f6e536f5f267d4d7c6c690235c742ef7117",
+      "reviewedPages": [
+        1,
+        2
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    },
+    {
+      "index": 99,
+      "document": "TRA/RMS-98-7680/M1600R-P.pdf",
+      "filenameMotor": "M1600R-P",
+      "metadata": {
+        "format": "PDF 1.2",
+        "title": "Untitled",
+        "author": "Gary C. Rosenfield",
+        "subject": "",
+        "keywords": "",
+        "creator": "PaperPort Page Viewer: LaserWriter 8 8.7.1",
+        "producer": "Acrobat Distiller 3.02 for Power Macintosh",
+        "creationDate": "D:20010613155742",
+        "modDate": "",
+        "trapped": "",
+        "encryption": null
+      },
+      "pages": 1,
+      "sha256": "d28335f71d81318414cc3d9909029aef4df1148a043c2b9ba155ae0a59b022cc",
+      "reviewedPages": [
+        1
+      ],
+      "status": "unread-for-merge",
+      "category": "no-ejection-delay",
+      "reason": "Plugged / RC / n.a. / None: no measured ejection-delay sample."
+    }
+  ]
+}

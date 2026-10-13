@@ -52,6 +52,10 @@
  *     rather than failing a test nobody on CI can clear (2026-09-08, from
  *     review; nozzle-db.test.mjs reports the same thing and explains the
  *     split). Local files only — no network in this section.
+ * 5b. AeroTech's certification index links and the bytes of the PDFs behind
+ *     shipped delay bands or withheld scan candidates (b10 DELAY). An index
+ *     change or an in-place PDF replacement needs a fresh read, never an
+ *     automatic data update. Other PDFs' in-place changes are not watched.
  *  6. Open-Meteo's terms (https://open-meteo.com/en/terms). The weather
  *     dialog's intro and the guide's "What leaves your browser" tell the user
  *     what Open-Meteo does with a request, and the only source allowed for
@@ -85,6 +89,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { checkAdvisories } from './upstream-advisories.mjs';
@@ -114,6 +119,19 @@ async function json(url) {
   const res = await fetch(url, { headers: UA });
   if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
   return res.json();
+}
+
+async function pdfBytes(url) {
+  const res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(30_000) });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
+  const chunks = [];
+  let length = 0;
+  for await (const chunk of res.body) {
+    length += chunk.length;
+    if (length > 2_000_000) throw new Error(`PDF exceeds 2 MB for ${url}`);
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks);
 }
 
 /**
@@ -546,6 +564,51 @@ function checkNozzles() {
   }
 }
 
+/** Certification PDF hrefs; labels, whitespace and unrelated page markup are not data drift. */
+export function aerotechDocumentLinks(html, base) {
+  const links = new Set();
+  const page = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi, '');
+  for (const match of page.matchAll(/<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1/gi)) {
+    const href = match[2].replace(/&amp;/gi, '&').replace(/&#(\d+);/g, (_all, n) => String.fromCodePoint(Number(n)));
+    const url = new URL(href, base);
+    if (url.protocol !== 'https:' || !/\.pdf$/i.test(url.pathname)) continue;
+    url.hash = '';
+    links.add(url.href);
+  }
+  if (links.size === 0) throw new Error('no certification PDF links; index unavailable or changed shape');
+  return [...links].sort();
+}
+
+export async function checkAerotechDelays(getText = text, getBytes = pdfBytes,
+  snapshot = JSON.parse(readFileSync(join(here, '..', 'packages', 'app', 'scripts', 'aerotech-delay-sources.json'), 'utf8'))) {
+  say('');
+  say('5b. AeroTech published delay documents (index links and consumed/withheld PDF bytes)');
+  const current = new Set(aerotechDocumentLinks(await getText(snapshot.publishedOn), snapshot.publishedOn));
+  const expected = new Set(snapshot.indexPdfUrls);
+  checked++;
+  const added = [...current].filter((url) => !expected.has(url));
+  const removed = [...expected].filter((url) => !current.has(url));
+  if (added.length || removed.length) {
+    const note = `AeroTech certification index changed: ${added.length} added, ${removed.length} removed PDF links — re-read the delay sources`;
+    flag(note);
+    notes.push(note);
+    for (const url of added) say(`  ** certification index ADDED ${url} — inspect for new delay measurements`);
+    for (const url of removed) say(`  ** certification index REMOVED ${url} — re-read the delay source/join`);
+  } else say(`  ok   ${current.size} certification PDF links unchanged`);
+  for (const doc of snapshot.documents) {
+    // A removed link was already reported; do not keep downloading its stale URL.
+    if (!current.has(doc.url)) continue;
+    checked++;
+    const bytes = Buffer.from(await getBytes(doc.url));
+    if (bytes.subarray(0, 5).toString() !== '%PDF-') throw new Error(`not a PDF: ${doc.url}`);
+    if (createHash('sha256').update(bytes).digest('hex') === doc.sha256) say(`  ok   ${doc.document}: source bytes unchanged`);
+    else {
+      flag(`${doc.document}: source bytes changed at ${doc.url} — re-render/re-read and cross-check before regenerating delays`);
+      notes.push(`AeroTech delay source changed: ${doc.document}`);
+    }
+  }
+}
+
 /**
  * 6. The sentences of Open-Meteo's terms the app's copy and its free-tier use
  * rest on, VERBATIM from https://open-meteo.com/en/terms as read 2026-09-23.
@@ -657,8 +720,11 @@ export async function checkOpenMeteoShape(getJson = json, today = new Date()) {
 }
 
 export async function main(checks = [checkCorrections, checkWatch, checkHead, checkMaterials,
-  checkThrustCurve, checkMotorCorrections, checkNozzles, checkOpenMeteoTerms, checkOpenMeteoShape],
+  checkThrustCurve, checkMotorCorrections, checkNozzles, checkAerotechDelays, checkOpenMeteoTerms, checkOpenMeteoShape],
 advisories = checkAdvisories) {
+  moved = 0;
+  checked = 0;
+  notes.length = 0;
   let status;
   try {
     say('Upstream vigilance check — READ ONLY, nothing here is written to the repo.');
@@ -673,7 +739,7 @@ advisories = checkAdvisories) {
       for (const n of notes) say(`  - ${n}`);
       say('');
       say('None of this is applied automatically. Decide, then edit apply-preset-corrections.mjs (parts) '
-        + 'or packages/app/scripts/motor-corrections.mjs (motors).');
+        + 'or packages/app/scripts/motor-corrections.mjs (motors), or re-read the AeroTech delay sources.');
       status = 1;
     }
   } catch (err) {
