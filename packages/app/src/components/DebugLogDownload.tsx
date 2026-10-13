@@ -28,7 +28,7 @@ export function DebugLogDownload() {
     <Note as="p" id={description} tier="information" className="comp-stats">
       Contains the app version, browser UA, viewport size, display, unit, aerodynamics, tour and configuration-sort
       preferences, elapsed app events and privacy-filtered errors from this tab. No design, file names or contents,
-      coordinates or weather searches. Keeps the last 200 events, at most 64 KiB, in memory until reload.
+      coordinates or weather searches. Keeps up to the last 200 events in memory until reload; the file is at most 64 KiB, so long messages can push older events out sooner.
       It leaves your browser only if you attach it to a report or email. Unknown messages and error stacks are omitted;
       errors before capture loaded are unavailable.
     </Note>
