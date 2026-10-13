@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { farText, visibilityText } from './weatherText.js';
+import { farText, visibilityText, windNumber, windText, fieldText } from './weatherText.js';
+import { fmtFieldValue, INITIAL_UNITS } from '../prefs/units.js';
+
+it.each(['auto', 3, 4] as const)('N005 wind text follows field precision %s', precision => {
+  const digits = precision === 4 ? '1.0625' : '1.063';
+  expect(fmtFieldValue(1.0625, precision)).toBe(digits);
+  expect(windNumber('m/s', 1.0625, precision)).toBe(digits);
+  expect(windText('m/s', 1.0625, precision)).toBe(`${digits} m/s`);
+  expect(fieldText('windAverage', 1.0625, { ...INITIAL_UNITS, windspeed: 'm/s' }, precision)).toBe(`${digits} m/s`);
+});
 
 describe('visibilityText', () => {
   it.each([

@@ -2,6 +2,7 @@ import { savedConfigLabel, type SavedConfig } from '../model/design.js';
 import { recordedConfiguration, runConfigurationLabel } from '../services/runConfiguration.js';
 import { noSavedConfigurationsText } from '../services/flightState.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
+import { GroundWindNote } from './GroundWindNote.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -239,6 +240,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
               help={rodLengthHelp(hasLaunchGuides(tree), launch.launchGuideAllowance)} />
             <LaunchField label="Wind avg" field="windAverage" value={launch}
               onChange={onLaunchChange} stepStored={0.5} min={WIND_MS_RANGE[0]} />
+            <GroundWindNote wind={launch.windAverage} />
           </div>
           <p className="weather-small">{hasLaunchGuides(tree)
             ? `Lug and rail-button allowance ${launch.launchGuideAllowance === false ? 'off: the full entered length is used' : 'on: enter the real rod or rail length'}. Change it under Launch conditions.`

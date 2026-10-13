@@ -384,7 +384,7 @@ export function WeatherDialog({
   };
 
   const alt = (m: number) => altitudeText(units.distance, m);
-  const fmt = (k: ProposalRow['key'], v: number) => fieldText(k, v, units);
+  const fmt = (k: ProposalRow['key'], v: number) => fieldText(k, v, units, prefs.fieldPrecision);
   const offerSite = launch.latitudeDeg !== DEFAULT_CONDITIONS.latitudeDeg && flownLongitudeDeg(launch) !== null;
   const siteKey = place ? `${place.latitudeDeg},${place.longitudeDeg}` : '';
   const checkLongitude = answer && place && !keptSites.has(siteKey) && likelyFlippedLongitude({
@@ -605,7 +605,7 @@ export function WeatherDialog({
                   checked={aloftTicked && applyingWind} disabled={!applyingWind}
                   onChange={(e) => setAloftTicked(e.target.checked)} /> Winds aloft</label>
                 <p>{windProfileSummary(proposal.windLevels)}, strongest{' '}
-                  {fieldText('windAverage', Math.max(...proposal.windLevels.map((l) => l.speed)), units)} at{' '}
+                  {fieldText('windAverage', Math.max(...proposal.windLevels.map((l) => l.speed)), units, prefs.fieldPrecision)} at{' '}
                   {alt(proposal.windLevels.reduce((a, b) => b.speed > a.speed ? b : a).altitude)}.</p>
                 <details><summary>View wind levels</summary>
                   <WindProfileTable levels={proposal.windLevels} surfaceFromDeg={proposal.sample.windFromDeg!} />
@@ -628,11 +628,11 @@ export function WeatherDialog({
                 </li>
               )}
               {proposal.sample.windGustMs !== null && (
-                <li>Gust {fieldText('windAverage', proposal.sample.windGustMs, units)} (strongest in the hour before)
+                <li>Gust {fieldText('windAverage', proposal.sample.windGustMs, units, prefs.fieldPrecision)} (strongest in the hour before)
                   {' — '}{gustNote(proposal.sample.windSpeedMs, proposal.sample.windGustMs)}</li>
               )}
               {gust.ok && (
-                <li>σ from this gust ≈ {fieldText('windAverage', gust.sigmaMs, units)} — offered beside Wind gusts σ
+                <li>σ from this gust ≈ {fieldText('windAverage', gust.sigmaMs, units, prefs.fieldPrecision)} — offered beside Wind gusts σ
                   once this wind is applied; Apply never sets σ.</li>
               )}
               {proposal.gridDistanceM !== null && (

@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { nozzleEditableStageIds } from '../tree/treeModel.js';
-import type { DesignFlightContext } from './DesignFlightSetting.js';
+import { DesignNozzleSetting, type DesignFlightContext } from './DesignFlightSetting.js';
+import { NumField } from './NumField.js';
+
 import { MotorLengthReadout } from './MotorLengthField.js';
 import { PropertyPanel } from './PropertyPanel.js';
 
@@ -58,6 +60,14 @@ const mount = (id: string, flight?: DesignFlightContext) => act(() => root.rende
 ));
 const group = (label: string) => host.querySelector<HTMLElement>(`[role="group"][aria-label="${label}"]`);
 
+it('offers definitions for read-only deployment, separation and nozzle settings on Design', () => {
+  mount('ribbon', context());
+  expect(group('Deployment')?.querySelector('button[aria-label="Definition: Deployment"]')).not.toBeNull();
+  mount('booster', context());
+  expect(group('Separation')?.querySelector('button[aria-label="Definition: Separation"]')).not.toBeNull();
+  expect(group('Nozzle exit')?.querySelector('button[aria-label="Definition: Nozzle exit"]')).not.toBeNull();
+});
+
 beforeEach(() => {
   localStorage.clear();
   patches = [];
@@ -74,6 +84,17 @@ afterEach(() => {
 });
 
 describe('Design shows separation read-only', () => {
+  it('N005 nozzle readout quotes its four-decimal field', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
+      fieldPrecision: 4, units: { motorDimensions: 'in' },
+    }));
+    act(() => root.render(<PrefsProvider>
+      <NumField value={1.0625} onCommit={() => {}} />
+      <DesignNozzleSetting node={{ type: 'stage', nozzleExitDiameter: 1.0625 * 0.0254 } as ComponentNode} />
+    </PrefsProvider>));
+    expect(host.querySelector('input')!.value).toBe('1.0625');
+    expect(host.textContent).toContain('Nozzle exit: 1.0625 in');
+  });
   it('a lower stage: own setting, the active override, and a link to its row; no editable separation field', () => {
     mount('booster', context());
     expect(host.querySelector('select[aria-label^="Separate at"]')).toBeNull();
@@ -98,7 +119,7 @@ describe('Design shows separation read-only', () => {
     mount('top', context());
     const block = group('Separation')!;
     expect(block.textContent).toContain('The top stage never separates');
-    expect(block.querySelector('button')).toBeNull();
+    expect(block.querySelector('button[aria-label="Separation: set on Motors & Configuration"]')).toBeNull();
     expect(host.querySelector('select[aria-label^="Separate at"]')).toBeNull();
   });
 
@@ -130,7 +151,7 @@ describe('Design shows the nozzle exit read-only (A4)', () => {
     const block = group('Nozzle exit')!;
     expect(block.textContent).toContain('Nozzle exit: automatic');
     expect(block.textContent).toContain('once this stage has a motor mount');
-    expect(block.querySelector('button')).toBeNull();
+    expect(block.querySelector('button[aria-label="Nozzle exit: edit on Motors & Configuration"]')).toBeNull();
   });
 
   it('lists a stage for the motors-tab field when it has a mount or already carries a value', () => {

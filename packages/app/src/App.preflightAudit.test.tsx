@@ -9,6 +9,7 @@ import { defaultTree, findNode, updateNode } from './tree/treeModel.js';
 import { snapshotLoadedConfig } from './services/configSnapshot.js';
 import { buildDesign } from './services/buildDesign.js';
 import { readAuditMasses } from './services/preflightAudit.js';
+import type { StabilityRange, StabilityRangeInput } from './services/configStabilityRange.js';
 import { APP_VERSION } from './version.js';
 
 vi.mock('./services/buildDesign.js', async original => {
@@ -68,7 +69,18 @@ describe('Design preflight wiring', () => {
     } finally { vi.mocked(buildDesign).mockImplementation(originalBuild); }
   });
 
-  it('finds an active-configuration Never and only selects its part; selection does not rebuild or change inputs', async () => {
+  it('keeps the stability range beside active-configuration audit advice; selection changes neither inputs nor diagnostics', async () => {
+    // Exercise both sides of the v0.188 merge through App. The worker's canned
+    // answer checks routing and rendering; service tests check numerical results.
+    const workers: RangeWorker[] = [];
+    class RangeWorker {
+      onmessage?: (event: { data: { id: number; result: StabilityRange } }) => void;
+      messages: { id: number; input?: StabilityRangeInput }[] = [];
+      constructor() { workers.push(this); }
+      postMessage(message: { id: number; input?: StabilityRangeInput }) { this.messages.push(message); }
+      terminate() {}
+    }
+    vi.stubGlobal('Worker', RangeWorker);
     let tree = defaultTree();
     const chute = tree.components[0]!.children!.flatMap(n => n.children ?? []).find(n => n.type === 'parachute')!;
     tree = updateNode(tree, chute.id!, { deployEvent: 'apogee' });
@@ -84,11 +96,35 @@ describe('Design preflight wiring', () => {
     expect(panel).not.toBeNull();
     expect(panel.textContent).toContain('Deployment is Never');
     expect(panel.querySelector('.message-danger')?.textContent).toContain('Danger:');
+    const rangePanel = host.querySelector('.config-stability-range')!;
+    expect(rangePanel).not.toBeNull();
+    const started = Date.now();
+    while (!workers[0]?.messages.some(message => message.input)) {
+      if (Date.now() - started > 2000) throw new Error('Stability range request did not arrive');
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    }
+    const worker = workers[0]!;
+    const request = worker.messages.find(message => message.input)!;
+    expect(request.input!.tree).toEqual(tree);
+    expect(request.input!.configs).toHaveLength(1);
+    expect(request.input!.configs[0]!.id).toBe(config.id);
+    expect(request.input!.configs[0]!.deployments?.[chute.id!]?.deployEvent).toBe('never');
+    const minimum = { id: config.id, label: config.name, cal: 0.8, pct: 4 };
+    const maximum = { id: 'empty', label: 'Empty rocket (no motor)', cal: 2, pct: 10 };
+    await act(async () => worker.onmessage!({ data: { id: request.id, result: {
+      cases: [minimum, maximum], min: minimum, max: maximum, complete: true, builds: 2,
+    } } }));
+    expect(rangePanel.textContent).toContain('Lowest margin: Electronics off');
+    const rangeRequests = worker.messages.length;
     const before = stored();
     const builds = vi.mocked(buildDesign).mock.calls.length;
     const comparisons = vi.mocked(readAuditMasses).mock.calls.length;
     const select = [...panel.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.includes(chute.name!))!;
     await act(async () => select.click());
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 250)); });
+    expect(host.querySelector('.config-stability-range')).toBe(rangePanel);
+    expect(rangePanel.textContent).toContain('Lowest margin: Electronics off');
+    expect(worker.messages).toHaveLength(rangeRequests);
     expect(host.querySelector('[role="treeitem"][aria-selected="true"] .tree-label')?.textContent).toBe(chute.name);
     expect(host.querySelector('.design-props')?.textContent).toContain('In “Electronics off”');
     expect(host.querySelector('.design-props')?.textContent).toContain('Never');

@@ -17,8 +17,8 @@ import { loadCatalogueMotor } from './motorMatch.js';
 import type { OrkMotorRef } from './orkFile.js';
 import { comparable } from './simulate.testSupport.js';
 import { padMassTextFor } from './unitText.js';
-import { INITIAL_UNITS } from '../prefs/units.js';
-import { changedSinceRun, runMatchesDesign } from './simReport.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS, uiToSi } from '../prefs/units.js';
+import { changedSinceRun, commentsOf, runMatchesDesign } from './simReport.js';
 import {
   APP_DEFAULT_AERO, flyBuiltDesign, simulateDesign, SimulateDesignError, withKernel,
 } from './simulateDesign.js';
@@ -77,6 +77,52 @@ describe('APP_DEFAULT_AERO', () => {
 });
 
 describe('simulateDesign flies the design', () => {
+  it('N007 headless Launch uses imperial limit entries in frozen report comments', async () => {
+    const s = await starter();
+    const out = await simulateDesign(s, { units: IMPERIAL_UNITS,
+      advisoryLimits: { maxAirspeedMs: uiToSi('velocity', 'ft/s', 10) } });
+    expect(out.run.comments).toContain('10 ft/s [3.0 m/s]');
+  });
+  it.each([1000, 10])('N003 a charge at late ignition %s s has conditional configuration advice, not deployment attribution', async (ignitionDelay) => {
+    const s = await starter();
+    const mount = motorMounts(s.tree)[0]!;
+    const late: ComponentNode = { ...structuredClone(mount), id: 'late-mount', name: 'Late motor mount' };
+    const insert = (nodes: ComponentNode[]): boolean => {
+      for (const node of nodes) {
+        if (node.children?.some(child => child.id === mount.id)) { node.children.push(late); return true; }
+        if (insert(node.children ?? [])) return true;
+      }
+      return false;
+    };
+    expect(insert(s.tree.components)).toBe(true);
+    const zero = (await loadCatalogueMotor('Estes', 'C6', 0))!;
+    s.mountMotors[late.id!] = { ...zero, ignition: { event: 'launch', delay: ignitionDelay } };
+    const out = await simulateDesign(s);
+    const charge = out.result.events.find(e => e.type === 'EJECTION_CHARGE' && e.motorMountId === late.id)!;
+    const deployment = out.result.events.find(e => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')!;
+    expect(charge.time).toBeGreaterThan(deployment.time);
+    if (ignitionDelay === 1000) {
+      expect(charge.time).toBeGreaterThan(out.result.events.find(e => e.type === 'GROUND_HIT')!.time);
+    } else expect(charge.time).toBeLessThan(out.result.events.find(e => e.type === 'GROUND_HIT')!.time);
+    const advice = commentsOf(out.run).find(c => c.text.includes('zero-second'))!;
+    expect(advice.level).toBe('caution');
+    expect(advice.text).toContain('Configuration caution');
+    expect(advice.text).toContain('if');
+    expect(advice.text).toContain('already deployed');
+    expect(advice.text).toContain('before landing');
+    expect(advice.text).not.toMatch(/and triggers|triggered/);
+  }, 30_000);
+  it('W2-WARN personal advice leaves the entire real-kernel flight unchanged', async () => {
+    const s = await starter();
+    const plain = await simulateDesign(s);
+    const advised = await simulateDesign(s, { advisoryLimits: { maxAirspeedMs: 1, maxMach: 0.01,
+      armingAltitudeM: 1000, armingCautionBandM: 100 } });
+    // Differential comparison in one Node runtime, not a hard-coded kernel float.
+    expect(advised.result).toEqual(plain.result);
+    expect(advised.provenance).toEqual(plain.provenance);
+    expect(advised.run.advisoryLimits?.armingAltitudeM).toBe(1000);
+    expect(advised.run.comments).toContain('your maximum');
+  });
   it.each([false, true])('R7: Launch and headless keep a legacy motor identity with Auto=%s', async (autoDelay) => {
     const s = await starter();
     const [id, mm] = Object.entries(s.mountMotors)[0]!;

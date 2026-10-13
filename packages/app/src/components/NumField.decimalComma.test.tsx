@@ -177,3 +177,26 @@ describe('NumField — a number typed from scratch is read as before', () => {
     expect(commits).toEqual([1.5]);
   });
 });
+
+describe('NumField — refocusing what was just typed, in a decimal-comma locale (N005 review)', () => {
+  for (const [typed, value] of [['1,625', 1.625], ['12,345', 12.345], ['-1,625', -1.625]] as const) {
+    it(`"${typed}" typed, blurred and refocused stays valid, and its last digit can be retyped`, () => {
+      locale.decimalComma = true;
+      render({ value: 1, allowNegative: true });
+      focus();
+      type(typed);
+      expect(commits).toEqual([value]);
+      blur();
+      focus();
+      expect(flagged()).toBe(false);
+      const shown = input().value;
+      expect(Number(shown)).toBe(value);
+      key('Backspace');
+      type(shown.slice(0, -1));
+      type(shown);
+      expect(flagged()).toBe(false);
+      blur();
+      expect(commits.at(-1)).toBe(value);
+    });
+  }
+});
