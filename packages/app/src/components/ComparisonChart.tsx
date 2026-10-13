@@ -10,11 +10,13 @@ import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots, zoomPercent } fro
 import { comparisonMembers, convertedValues, phaseData, usableSeries,
   type ComparisonPreset, type SeriesDef } from '../flightChartModel.js';
 import { UnitChip } from './UnitChip.js';
+import { emphasizeSeries } from '../chartEmphasis.js';
 
 const labelled = (d: SeriesDef) => `${d.title}${d.unit ? ` (${d.unit})` : ''}`;
 
 /** One branch, real scales. Phase plots never enter either time-sync bus. */
-export function ComparisonChart({ series, preset, catalog, flightName, plots, onZoomChange, csvNote }: {
+export function ComparisonChart({ series, preset, catalog, flightName, plots, onZoomChange, csvNote, emphasis = null }: {
+  emphasis?: keyof FlightSeries | null;
   series: FlightSeries;
   preset: ComparisonPreset;
   catalog: SeriesDef[];
@@ -130,6 +132,11 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
       plot.destroy();
     };
   }, [available, phase, series, values, prepared, members, altitude, preset, prefs.units.distance, daylight, resolvedTheme, expanded, plots]);
+
+  useEffect(() => {
+    if (plotRef.current && ref.current) emphasizeSeries(plotRef.current,
+      prepared ? prepared.runs.map(() => members[0]!.key) : members.map((d) => d.key), emphasis, ref.current);
+  }, [emphasis, available, phase, series, values, prepared, members, altitude, preset, prefs.units.distance, daylight, resolvedTheme, expanded]);
 
   const tableMembers = phase ? [altitude, ...members] : members;
   const tableValues = phase ? [altitudeValues, ...values] : values;

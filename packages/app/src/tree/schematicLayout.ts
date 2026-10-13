@@ -153,6 +153,8 @@ export interface SchematicFrameOptions {
 }
 
 export interface SchematicFrame {
+  /** Physical core body-chain aft station (m), without the fit floor. */
+  axialLen: number;
   /** Axial length drawn (m), floored at 5 cm. */
   totalLen: number;
   /** Vertical half-extent (m): body, fins, and any off-axis pod's reach. */
@@ -221,6 +223,7 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
     ...collect(tree.components, finSpan),
     ...collect(tree.components, protuberanceSpan),
   );
+  const axialLen = totalLen;
   totalLen = Math.max(totalLen, 0.05);
 
   // Vertical half-extent (m): the core body + fins, plus any off-axis pod's
@@ -292,7 +295,7 @@ export function schematicFrame(tree: RocketTree, o: SchematicFrameOptions): Sche
     (h - bottomReserve - 2 * pad - lanes - gutY) / (2 * vHalf),
   ));
   return {
-    totalLen, vHalf, w, h, gutX, gutY, lanes, naturalH, scale,
+    axialLen, totalLen, vHalf, w, h, gutX, gutY, lanes, naturalH, scale,
     cy: centrelineY({ h: h - bottomReserve, gutY, pad, lanes, halfDrawn: vHalf * scale, topReserve: o.topReserve }),
     x0: pad + gutX,
   };

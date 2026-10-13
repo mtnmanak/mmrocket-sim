@@ -10,6 +10,25 @@ import { AppRoot } from './root.js';
 import { guardPrecache } from './services/precacheGuard.js';
 import { setSwRegistration } from './services/versionCheck.js';
 import { offlineStatus } from './services/offlineStatus.js';
+import { sessionDebugLog, startSessionDebugCapture } from './services/sessionDebugLog.js';
+
+const stopDebugCapture = startSessionDebugCapture();
+const stopWorkerDebug = (() => {
+  try {
+    return navigator.serviceWorker ? sessionDebugLog.watchWorker(navigator.serviceWorker) : () => {};
+  } catch (error) {
+    sessionDebugLog.record('worker-error', error);
+    return () => {};
+  }
+})();
+const stopOfflineDebug = offlineStatus.subscribe(() => {
+  const status = offlineStatus.getSnapshot();
+  if (status.kind === 'unavailable' && status.reason === 'registration failed') {
+    sessionDebugLog.record('worker-error', new Error(status.detail));
+  }
+});
+// The running app uses the page lifetime; development reloads remove old listeners.
+if (import.meta.hot) import.meta.hot.dispose(() => { stopDebugCapture(); stopWorkerDebug(); stopOfflineDebug(); });
 
 // Offline-first. autoUpdate: a new build takes over and reloads the page by
 // itself. What it does NOT do is go looking — the browser checks for a new
@@ -55,5 +74,6 @@ try {
     </StrictMode>,
   );
 } catch (e) {
+  sessionDebugLog.record('app-error', e);
   showFatal(String((e as Error).stack ?? e));
 }

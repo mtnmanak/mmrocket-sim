@@ -110,6 +110,11 @@ export function schematicSvg(
     clone.querySelector('[data-ruler="view"]')?.remove();
     fitRuler.removeAttribute('display');
   }
+  const fitGrid = clone.querySelector('[data-grid="fit"]');
+  if (fitGrid) {
+    clone.querySelector('[data-grid="view"]')?.remove();
+    fitGrid.removeAttribute('display');
+  }
   // Measuring guides are a tool for reading the screen, not part of the
   // drawing (components/RulerGuides.tsx) — and their positions, like the
   // on-screen ruler's, are resolved for the zoomed view.

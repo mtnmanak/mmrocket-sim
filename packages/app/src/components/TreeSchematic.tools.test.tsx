@@ -32,6 +32,43 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); vi.restoreAllMocks(); });
 
 describe('N033 and N044 view tools', () => {
+  it.each([
+    { length: 'mm', rulerReference2d: 'aft', grid2d: true, distance: '200 mm' },
+    { length: 'in', rulerReference2d: 'offset', grid2d: false, distance: '7.874 in' },
+  ])('keeps caliper distances and walls with a $rulerReference2d ruler in $length', (settings) => {
+    const stored = { units: { length: settings.length }, walls2d: true,
+      rulerReference2d: settings.rulerReference2d, rulerOffset2dM: -0.0254,
+      rulerReversed2d: true, grid2d: settings.grid2d, fieldPrecision: 4 };
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify(stored));
+    mount();
+    expect(host.firstElementChild!.classList.contains('tree-schematic')).toBe(true);
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="Ruler reference"]')!.value).toBe(settings.rulerReference2d);
+    expect(host.querySelector('summary')!.textContent).toContain('(reversed)');
+    click('Measure two points');
+    expect(host.querySelector('[aria-label="Ruler reference"]')).toBeNull();
+    expect(svg().querySelector('[data-grid]') !== null).toBe(settings.grid2d);
+    const body = svg().querySelector<SVGRectElement>(':scope > g > rect')!;
+    const x = Number(body.getAttribute('x')), y = Number(body.getAttribute('y'));
+    const width = Number(body.getAttribute('width'));
+    const h = Number(svg().getAttribute('viewBox')!.split(' ')[3]);
+    pointer(x + 2, y * 240 / h); pointer(x + width - 2, y * 240 / h);
+    const readout = host.querySelector('[data-caliper-readout]')!.textContent;
+    expect(readout).toContain(`Horizontal ${settings.distance}`);
+    expect(readout).toContain(`Vertical 0 ${settings.length}`);
+    expect(readout).toContain(`Straight ${settings.distance}`);
+    click('Zoom in');
+    expect(host.querySelector('[data-caliper-readout]')!.textContent).toBe(readout);
+    const drawing = exported();
+    expect(drawing).toContain('data-wall');
+    expect(drawing).not.toContain('data-caliper');
+    expect(drawing.includes('data-grid="fit"')).toBe(settings.grid2d);
+    key(svg(), 'Escape');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="Ruler reference"]')!.value).toBe(settings.rulerReference2d);
+    click('Hide schematic walls');
+    expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!)).toMatchObject({ ...stored, walls2d: false });
+    expect(patch).not.toHaveBeenCalled(); expect(select).not.toHaveBeenCalled();
+  });
+
   it('defaults walls off, toggles them in exports and preserves component selection', () => {
     mount();
     expect(svg().querySelector('[data-wall]')).toBeNull();

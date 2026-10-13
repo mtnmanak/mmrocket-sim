@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { fmtFieldValue, readDecimal } from '../prefs/units.js';
+import { usePrefs } from '../prefs/PrefsContext.js';
 
 /** An unfocused field has written no text of its own (`ownText`). */
 const NO_TEXT: ReadonlySet<string> = new Set();
@@ -23,9 +24,10 @@ const NO_TEXT: ReadonlySet<string> = new Set();
  * - Unfocused, the box always shows `value`. The draft exists only while the
  *   input has focus, so a spinner click — which never focuses it — cannot
  *   leave one behind for the next component, an undo or a unit switch.
- * - Unfocused display is capped at 3 decimals, or 3 significant figures for
+ * - Unfocused display uses the selected decimals, or 3 significant figures for
  *   a value too small for that (display only — the stored value keeps full
- *   precision, which is what you edit on focus).
+ *   precision). Focus seeds up to 12 significant digits to strip conversion
+ *   noise; this formatting never commits, and typed drafts keep every digit.
  * - Clearing the field commits null when `nullable` (blank = auto/calculated
  *   fields); otherwise it's treated as an incomplete draft.
  * - ArrowUp/ArrowDown and the spinner buttons step by `step`, from the draft,
@@ -100,6 +102,7 @@ export function NumField({
   /** Extra draft/step check, e.g. a finite display value that overflows in SI. */
   validate?: (v: number) => boolean;
 }) {
+  const { prefs } = usePrefs();
   const [draft, setDraft] = useState<string | null>(null);
   /**
    * Whether the input itself has focus. The draft is an EDITING state and means
@@ -161,14 +164,33 @@ export function NumField({
   // error styling — not invalid.
   const isIncomplete = (t: string) => /^-?[.,]?$/.test(t);
 
-  // Three decimals, or three significant figures where three decimals would
+  // The selected decimals, or three significant figures where those would
   // round a real value away: in metres a 0.4 mm wall is 0.0004, and it used to
   // show as "0" (audit 2026-09-22). Values of 0.1 and up read exactly as before.
   // One definition (units.ts), which the weather UI's text also prints with.
   const fmtDisplay = (v: number | undefined) =>
-    v === undefined ? '' : fmtFieldValue(v);
-  const fmtEdit = (v: number | undefined) =>
-    v === undefined ? '' : String(Number(v.toFixed(9)));
+    v === undefined ? '' : fmtFieldValue(v, prefs.fieldPrecision);
+  /**
+   * The text last typed here and the number it committed. Refocusing a value
+   * the user just typed shows exactly what they typed, in every unit: a
+   * conversion round trip (°F → K → °F, in → m → in) cannot then put noise
+   * in front of their Backspace (N005 review, three rounds of unit-by-unit
+   * cleanup before this).
+   */
+  const lastTyped = useRef<{ text: string; value: number } | null>(null);
+  const fmtEdit = (v: number | undefined) => {
+    if (v === undefined) return '';
+    const typed = lastTyped.current;
+    // An echo of the typed value through a unit round trip differs by ~1e-14;
+    // anything farther apart is a different value (a cancel, an undo).
+    if (typed && Math.abs(v - typed.value) <= 1e-12 * Math.max(1, Math.abs(typed.value))) return typed.text;
+    // A value from elsewhere: 12 significant digits, counted from at least the
+    // units place. Rounding relative to |v| alone kept an affine conversion's
+    // noise near zero (0 °F read back as 1.4e-14, 0.01 °F as 0.00999999999999);
+    // no field holds a meaningful value below 1e-12 of its display unit.
+    const places = Math.max(0, 12 - Math.floor(Math.log10(Math.max(1, Math.abs(v)))));
+    return String(Number(Number(v.toFixed(Math.min(places, 100))).toPrecision(12)));
+  };
 
   const shown = live !== null ? live : fmtDisplay(value);
   const draftInvalid = live !== null && live.trim() !== ''
@@ -181,7 +203,14 @@ export function NumField({
       return;
     }
     const v = parse(s);
-    if (v !== null) onCommit(v, focused);
+    if (v !== null) {
+      // Canonical, not literal: "1,625" typed in a decimal-comma locale is
+      // remembered as "1.625", the form the field's own text is read back in
+      // (a literal comma + three digits reads as a thousands group there).
+      // String() of the parsed number keeps every typed digit.
+      lastTyped.current = { text: String(v), value: v };
+      onCommit(v, focused);
+    }
     else if (clampToMax && max !== undefined && parse(s, false) !== null) onCommit(max, focused);
   };
 
@@ -276,6 +305,7 @@ export function NumField({
           else if (e.key === 'Escape' && onEditCancel) {
             e.preventDefault();
             cancelled.current = true;
+            lastTyped.current = null;
             onEditCancel();
             (e.target as HTMLInputElement).blur();
           }

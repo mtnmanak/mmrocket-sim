@@ -21,6 +21,7 @@ import { kernelSimOptions, type LaunchConditions } from './launchConditions.js';
 import { applyLegacyPadMassStep } from './padMassReconcile.js';
 import type { HeldNote } from './notices.js';
 import { buildSimRun, type DesignMatchKey, type FreshSimRun } from './simReport.js';
+import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
 import { padMassTextFor } from './unitText.js';
 
 /**
@@ -65,6 +66,8 @@ import { padMassTextFor } from './unitText.js';
 
 /** App's state as one Launch reads it, with the design already built. */
 export interface BuiltLaunchInput<R extends BuildHandle = OrkRocket> {
+  units?: UnitSelection;
+  advisoryLimits?: FlightAdvisories;
   /** App: `built` (this render's). */
   built: BuiltDesign<R>;
   tree: RocketTree;
@@ -112,6 +115,8 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   input: BuiltLaunchInput<R>,
 ): Promise<{ flight: LaunchFlight; run: FreshSimRun }> {
   const { built, tree, derived, launch, aero, activeConfigId, savedConfigs, provenance, signal, now } = input;
+  const advisoryLimits = normalizeFlightAdvisories(input.advisoryLimits);
+  const units = { ...(input.units ?? INITIAL_UNITS) };
   const refusal = savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal;
   if (refusal) throw new Error(refusal);
   const { mounts, stageList, assigned, effectiveSupersonic, primaryMountId } = derived;
@@ -158,6 +163,10 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   const branchMotors = stageMotorInfo(tree, assigned, stageList);
   // The configuration identity and override tuples were captured before flight.
   const run = buildSimRun({
+    ...(input.units ? { units } : {}),
+    advisoryLimits,
+    advisoryTree: tree,
+    advisoryMotors: assigned,
     result: res,
     delayResolution, primaryMountId,
     // Which of the configuration's motors did not fly: once another
@@ -227,6 +236,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
 export const APP_DEFAULT_AERO: AeroState = { ...effectiveAero(DEFAULT_PREFS, null), autoSupersonic: false };
 
 export interface SimulateDesignOptions {
+  advisoryLimits?: FlightAdvisories;
   /** The aero model to fly; default APP_DEFAULT_AERO (what a first visit flies). */
   aero?: AeroState;
   /** Where the build gets its handle; default the kernel's own (`resetEngine` + buildTree). */
@@ -235,7 +245,7 @@ export interface SimulateDesignOptions {
   signal?: AbortSignal;
   /** The clock the flight's cost is read from (`performance.now` when absent). */
   now?: () => number;
-  /** Unit words for a note only (never a number) — the result's `padMassNote`: default INITIAL_UNITS. */
+  /** Display units for pad-mass notes and frozen report advice: default INITIAL_UNITS. */
   units?: UnitSelection;
 }
 
@@ -409,6 +419,8 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
   let flown: Awaited<ReturnType<typeof flyBuiltDesign>>;
   try {
     flown = await flyBuiltDesign({
+      units: opts.units,
+      advisoryLimits: opts.advisoryLimits,
       built,
       tree: state.tree,
       derived: { ...derived, primaryMountId },

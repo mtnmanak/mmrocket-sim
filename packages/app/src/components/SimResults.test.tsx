@@ -94,6 +94,19 @@ const render = (node: React.ReactNode) => act(() => root.render(
   <PrefsProvider>{node}</PrefsProvider>,
 ));
 
+it('W2-WARN renders personal advice in the Caution tier with frozen limits in current units', () => {
+  const r = run();
+  r.comments = 'Exceeded your maximum speed.';
+  r.commentLevels = ['caution'];
+  r.advisoryLimits = { maxAirspeedMs: 30.48, maxMach: 0.8, armingAltitudeM: 100, armingCautionBandM: 10 };
+  render(<SimRunDetails run={r} />);
+  expect(host.querySelector('.flight-notes.message-caution')?.textContent).toContain('Caution:');
+  expect(host.querySelector('.flight-notes.message-caution')?.textContent).toContain('Exceeded your maximum');
+  expect(host.textContent).toContain('Limits used for this flight');
+  expect(host.textContent).toContain('100');
+  expect(host.textContent).toContain('structural rating');
+});
+
 it('groups failed flight comments and consequential kernel events once, retaining quiet numeric bands', () => {
   render(<SimRunDetails run={{ ...run(),
     comments: 'Rod exit failed. | Landing failed. | Fast opening, caution band.',
@@ -106,7 +119,8 @@ it('groups failed flight comments and consequential kernel events once, retainin
   expect(blocks[0]!.textContent).toContain('Landing failed.');
   expect(blocks[0]!.textContent).toContain('stopped early');
   expect(blocks[0]!.textContent).not.toContain('caution band');
-  expect(host.querySelectorAll('.message-caution')).toHaveLength(0);
+  expect(host.querySelectorAll('.message-caution')).toHaveLength(1);
+  expect(host.querySelector('.message-caution')?.textContent).toContain('Caution:');
   expect(host.textContent).toContain('Fast opening, caution band.');
 });
 

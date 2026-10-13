@@ -43,7 +43,9 @@ export const FIN_TEMPLATE_FORMATS: Array<{ format: FinTemplateFormat; label: str
  * (ImageExportMenu): a group of plain buttons, not a role="menu" of
  * non-menuitems, with useMenuPopup's Escape and focus return.
  */
-export function FinTemplateMenu({ onPick }: {
+export function FinTemplateMenu({ onPick, template = 'fin', disabled = false }: {
+  template?: 'fin' | 'tube-wrap';
+  disabled?: boolean;
   /** May be async; the menu does not wait, so the handler reports its own failure. */
   onPick: (format: FinTemplateFormat) => void | Promise<void>;
 }) {
@@ -61,22 +63,28 @@ export function FinTemplateMenu({ onPick }: {
 
   useMenuPopup(open, () => setOpen(false));
 
+  const wrapTemplate = template === 'tube-wrap';
+
   return (
     <div ref={wrap} style={{ position: 'relative', marginTop: 6 }}>
-      <button className="file-btn" style={{ width: '100%' }} aria-expanded={open}
-        title="True-scale 1:1 cut template with the through-the-wall tab and a 50 mm calibration ruler — choose SVG (white or transparent background) or a PNG/JPG image"
-        onClick={() => setOpen((v) => !v)}>
-        📐 Fin template (1:1) ▾
+      {/* C-A8: keep the busy opener focusable so a raster pick can return focus. */}
+      <button className="file-btn" style={{ width: '100%' }} aria-expanded={open} aria-disabled={disabled}
+        title={wrapTemplate
+          ? 'True-scale tube marking wrap with fin positions, lug/button lines, tab slots and a calibration ruler — choose SVG or PNG/JPG; larger wraps download as a ZIP of pages'
+          : 'True-scale 1:1 cut template with the through-the-wall tab and a 50 mm calibration ruler — choose SVG (white or transparent background) or a PNG/JPG image'}
+        onClick={() => { if (!disabled) setOpen((v) => !v); }}>
+        {wrapTemplate ? 'Tube wrap (1:1) ▾' : '📐 Fin template (1:1) ▾'}
       </button>
       {open && (
-        <div className="image-export-popup" role="group" aria-label="Fin template — file format" style={{
+        <div className="image-export-popup" role="group" aria-label={`${wrapTemplate ? 'Tube wrap' : 'Fin template'} — file format`} style={{
           position: 'absolute', left: 0, right: 0, top: '100%', marginTop: 4, zIndex: 30,
           background: 'var(--surface-1)', border: '1px solid var(--border, #444)',
           borderRadius: 6, padding: 6, boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
           display: 'grid', gap: 4, fontSize: 12,
         }}>
           {FIN_TEMPLATE_FORMATS.map(({ format, label, title }) => (
-            <button key={format} className="file-btn" style={{ textAlign: 'left' }} title={title}
+            <button key={format} className="file-btn" style={{ textAlign: 'left' }}
+              title={wrapTemplate && format === 'svg-transparent' ? 'A vector marking wrap with no page colour — print at 100% and check the calibration ruler' : title}
               onClick={() => { setOpen(false); void onPick(format); }}>
               {label}
             </button>

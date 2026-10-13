@@ -39,7 +39,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
   onResetOverrides?: () => void;
   onEmpty?: () => void;
 }) {
-  const { prefs } = usePrefs();
+  const { prefs, setPrefs } = usePrefs();
   const summaryId = useId();
   const [editing, setEditing] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -80,6 +80,14 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
   const editingConfig = configs.find(c => c.id === editing);
   const deletingConfig = configs.find(c => c.id === deleting);
   const atLimit = configs.length >= MAX_ORK_CONFIGURATIONS;
+  const sort = prefs.configurationSort ?? 'creation';
+  const motorLabel = (c: SavedConfig) => [...Object.values(c.motors).map(m => m.label), ...(c.unmatched ?? [])].join(', ') || 'No motors';
+  // N011: sort a copy; file order breaks ties and remains the creation-order choice.
+  const displayed = sort === 'creation' ? configs : [...configs].sort((a, b) => {
+    const key = sort.startsWith('motor') ? motorLabel : savedConfigLabel;
+    const compared = key(a).localeCompare(key(b), undefined, { numeric: true, sensitivity: 'base' });
+    return sort.endsWith('-desc') ? -compared : compared;
+  });
   return <section className="panel config-panel" aria-label="Flight configuration">
     <div className="config-bar" aria-current={active ? 'true' : undefined}>
       <label className="config-chooser">Flight configuration
@@ -89,9 +97,19 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
             if (!e.target.value) onClear();
             else { const c = configs.find(row => row.id === e.target.value); if (c) onApply(c); }
           }}>
-          {configs.map(c => <option key={c.id} value={c.id}>{savedConfigLabel(c)}{c.isDefault ? ' — file default' : ''}</option>)}
+          {displayed.map(c => <option key={c.id} value={c.id}>{savedConfigLabel(c)}{c.isDefault ? ' — file default' : ''}</option>)}
           {working && <option value="__working__" disabled>Working settings (not saved)</option>}
           <option value="">None (no motors)</option>
+        </select>
+      </label>
+      <label className="config-chooser config-sort">Sort configurations
+        <select aria-label="Sort configurations" value={sort}
+          onChange={e => setPrefs({ ...prefs, configurationSort: e.target.value as NonNullable<typeof prefs.configurationSort> })}>
+          <option value="creation">Creation order (file order)</option>
+          <option value="name">Name A–Z</option>
+          <option value="name-desc">Name Z–A</option>
+          <option value="motor">Motor A–Z</option>
+          <option value="motor-desc">Motor Z–A</option>
         </select>
       </label>
       <button className="file-btn" disabled={!hasMotors || atLimit}

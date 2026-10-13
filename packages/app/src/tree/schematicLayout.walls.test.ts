@@ -13,12 +13,28 @@ const tree = { name: 'Walls', components: [{ id: 's', type: 'stage', children: [
 const options = { scale: 1000, x0: 0, cy: 100, roll: 0, idPrefix: 'w' };
 
 describe('N033 schematic walls', () => {
+  it('preserves the physical aft ruler station below the fit floor while reserving caliper space', () => {
+    const short = { name: 'Short', components: [
+      { id: 'b', type: 'bodytube', length: 0.03, outerRadius: 0.001 },
+    ] } as RocketTree;
+    const f = schematicFrame(short, { cw: 360, chPx: 240, fillHeight: true, maxHeight: 480,
+      rulers: true, rollW: 26, rollBar: 0, lanes: false, topReserve: 0, bottomReserve: 80 });
+    expect(f.axialLen).toBeCloseTo(0.03, 12);
+    expect(f.totalLen).toBe(0.05);
+    expect(f.cy + f.vHalf * f.scale).toBeLessThan(f.h - 80);
+  });
+
   it('keeps phone-width geometry above the caliper readout at a constrained viewer height', () => {
     const f = schematicFrame(tree, { cw: 360, chPx: 240, fillHeight: true, maxHeight: 480,
       rulers: true, rollW: 26, rollBar: 0, lanes: true, topReserve: 0, bottomReserve: 80 });
+    const drawing = schematicFrame(tree, { cw: 360, chPx: 200, fillHeight: true, maxHeight: 480,
+      rulers: true, rollW: 26, rollBar: 0, lanes: true, topReserve: 0 });
     expect(f.w).toBe(360);
     expect(f.h).toBeGreaterThanOrEqual(280); // Keep the existing 200 px drawing plus its readout.
     expect(f.cy + f.vHalf * f.scale).toBeLessThan(f.h - 80);
+    expect(f.scale).toBe(drawing.scale);
+    expect(f.cy).toBe(drawing.cy); // The readout adds space below the existing drawing.
+    expect(f.h).toBe(drawing.h + 80);
   });
   it('is opt-in and preserves selection geometry and source data', () => {
     const before = JSON.stringify(tree);
