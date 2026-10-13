@@ -51,3 +51,47 @@ it('reports storage failure and allows retry', async () => {
   await show(); expect(host.textContent).toContain('Storage blocked');
   await click('Retry'); expect(host.textContent).toContain('No recent designs');
 });
+
+it.each(['Close', 'Escape', 'unmount'])('ignores a pending read after %s', async dismissal => {
+  let resolveRead!: (file: File) => void;
+  vi.mocked(recent.recentDesignFile).mockImplementation(() => new Promise<File>(resolve => { resolveRead = resolve; }));
+  await show(); await click('café.ork');
+  if (dismissal === 'Close') await click('Close');
+  else if (dismissal === 'Escape') await act(async () => {
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  });
+  else await act(async () => { root.render(null); });
+  if (dismissal !== 'unmount') expect(onClose).toHaveBeenCalledOnce();
+  await act(async () => { resolveRead(new File(['old choice'], 'café.ork')); });
+  expect(onOpen).not.toHaveBeenCalled();
+});
+
+it('accepts a pending read through the current caller after a rerender', async () => {
+  let resolveRead!: (file: File) => void;
+  vi.mocked(recent.recentDesignFile).mockImplementation(() => new Promise<File>(resolve => { resolveRead = resolve; }));
+  await show(); await click('café.ork');
+  const currentOpen = vi.fn();
+  await act(async () => { root.render(<RecentDesignsDialog onOpen={currentOpen} onClose={onClose} />); });
+  const file = new File(['chosen bytes'], 'café.ork');
+  await act(async () => { resolveRead(file); });
+  expect(currentOpen).toHaveBeenCalledWith(file);
+  expect(onOpen).not.toHaveBeenCalled();
+});
+
+it.each(['missing', 'failed'])('ignores a cancelled read that later reports %s storage', async result => {
+  let resolveRead!: (file: File | null) => void;
+  let rejectRead!: (error: Error) => void;
+  vi.mocked(recent.recentDesignFile).mockImplementation(() => new Promise<File | null>((resolve, reject) => {
+    resolveRead = resolve; rejectRead = reject;
+  }));
+  await show(); await click('café.ork'); await click('Close');
+  await act(async () => {
+    if (result === 'missing') resolveRead(null);
+    else rejectRead(new Error('Late storage error'));
+  });
+  expect(onOpen).not.toHaveBeenCalled();
+  expect(host.textContent).not.toContain('no longer');
+  expect(host.textContent).not.toContain('Late storage error');
+  // The close callback can defer unmount; a cancelled completion must not update it.
+  expect(button('café.ork').disabled).toBe(true);
+});

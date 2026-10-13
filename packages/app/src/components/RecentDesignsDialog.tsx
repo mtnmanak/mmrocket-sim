@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Modal } from './Modal.js';
 import { Note } from './Note.js';
 import { clearRecentDesigns, listRecentDesigns, recentDesignFile, type RecentDesign } from '../services/recentDesigns.js';
@@ -9,6 +9,15 @@ export function RecentDesignsDialog({ onOpen, onClose }: { onOpen: (file: File) 
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   const [confirmClear, setConfirmClear] = useState(false);
+  // C-A2 review finding 1: a cancelled read must never replace later work.
+  const openOperation = useRef(0);
+  const onOpenRef = useRef(onOpen);
+  useLayoutEffect(() => { onOpenRef.current = onOpen; });
+  useLayoutEffect(() => () => { openOperation.current++; }, []);
+  const close = () => {
+    openOperation.current++;
+    onClose();
+  };
   useEffect(() => {
     let active = true;
     void listRecentDesigns().then(rows => {
@@ -19,13 +28,18 @@ export function RecentDesignsDialog({ onOpen, onClose }: { onOpen: (file: File) 
     return () => { active = false; };
   }, [retry]);
   const open = async (name: string) => {
+    const operation = ++openOperation.current;
     setBusy(true); setError(null);
     try {
       const file = await recentDesignFile(name);
-      if (file) onOpen(file);
+      if (operation !== openOperation.current) return;
+      if (file) onOpenRef.current(file);
       else setError('This copy is no longer in Recent. Open the file from your device instead.');
-    } catch (e) { setError(e instanceof Error ? e.message : 'This copy could not be opened.'); }
-    finally { setBusy(false); }
+    } catch (e) {
+      if (operation === openOperation.current) setError(e instanceof Error ? e.message : 'This copy could not be opened.');
+    } finally {
+      if (operation === openOperation.current) setBusy(false);
+    }
   };
   const clear = async () => {
     setConfirmClear(false); setBusy(true); setError(null);
@@ -33,7 +47,7 @@ export function RecentDesignsDialog({ onOpen, onClose }: { onOpen: (file: File) 
     catch (e) { setError(e instanceof Error ? e.message : 'Recent copies could not be cleared.'); }
     finally { setBusy(false); }
   };
-  return <Modal label="Recent designs" onClose={onClose}>
+  return <Modal label="Recent designs" onClose={close}>
     <h2>Recent designs</h2>
     <p>These are copies kept in this browser when a file was opened or saved. Changes to the file on your device are not read here.</p>
     <div role="status" aria-live="polite">
@@ -48,7 +62,7 @@ export function RecentDesignsDialog({ onOpen, onClose }: { onOpen: (file: File) 
       </button>
     </li>)}</ul>
     <div className="modal-actions">
-      <button className="file-btn" onClick={onClose}>Close</button>
+      <button className="file-btn" onClick={close}>Close</button>
       {error ? <button className="file-btn" disabled={busy} onClick={() => {
         setError(null); setBusy(true); setRetry(r => r + 1);
       }}>Retry</button> : null}
