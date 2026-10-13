@@ -320,7 +320,7 @@ export interface ShapePart {
    */
   grip: boolean;
   /**
-   * An invisible hit surface duplicating a drawn outline (wire fins): it takes
+   * An invisible hit surface beside a drawn outline: it takes
    * the pointer and never the keyboard — focus must not land on nothing.
    */
   hit?: boolean;
@@ -462,7 +462,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
   const grips = new Map<string, Grip>();
 
   const wallBand = (list: SchematicShape[], key: string, id: string, start: number, len: number,
-    radius: number, thickness: number, baseY: number, filled = false, profile?: [number, number][]) => {
+    radius: number, thickness: number, baseY: number, filled = false, profile?: [number, number][], cap?: 'fore' | 'aft') => {
     if (!o.walls || len <= 0 || radius <= 0 || (!filled && thickness <= 0)) return;
     const outer = profile ?? [[0, radius], [len, radius]];
     const contour = (pts: number[][]) => {
@@ -470,9 +470,14 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
       const bottom = pts.slice().reverse().map(([x, r]) => `${ctx.x0 + (start + x!) * scale} ${baseY + r! * scale}`);
       return `M ${top.join(' L ')} L ${bottom.join(' L ')} Z`;
     };
-    const inner = outer.map(([x, r]) => [x, Math.max(0, r - thickness)]);
+    // N033: a shoulder cap closes the distal end with material of the same thickness.
+    const capThickness = cap ? Math.min(thickness, len) : 0;
+    const inner = outer.map(([x, r]) => [
+      cap === 'fore' ? Math.max(x, capThickness) : cap === 'aft' ? Math.min(x, len - capThickness) : x,
+      Math.max(0, r - thickness),
+    ]);
     list.push({ key: `${key}:wall`, layer: list === shapes ? 'base' : 'overlay', tag: 'path',
-      attrs: { d: contour(outer) + (filled || thickness >= radius ? '' : ` ${contour(inner)}`),
+      attrs: { d: contour(outer) + (filled || thickness >= radius || capThickness >= len ? '' : ` ${contour(inner)}`),
         fillRule: 'evenodd', fill: 'var(--text-secondary)', 'data-wall': id,
         style: { pointerEvents: 'none' } } });
   };
@@ -1158,13 +1163,19 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
             attrs: {
               x: ctx.x0 + start * ctx.scale,
               y: oy - r * ctx.scale,
-              width: Math.max(2, len * ctx.scale), height: 2 * r * ctx.scale,
+              width: child.type === 'innertube' || child.type === 'tubecoupler' ? len * ctx.scale : Math.max(2, len * ctx.scale), height: 2 * r * ctx.scale,
               fill: child.type === 'bulkhead' ? 'url(#bulkhead-hatch)' : 'rgba(127,127,127,0.001)',
               stroke: ink, strokeWidth: 1,
               strokeDasharray: '3 2',
             },
           });
           if (child.type === 'innertube' || child.type === 'tubecoupler') {
+            // N044: keep short tube stations physical; only the pick surface gets a floor.
+            if (len * ctx.scale < 2) overlay.push({
+              key: `${key}:inner${j}-hit`, layer: 'overlay', tag: 'rect', part: part && { ...part, hit: true },
+              attrs: { x: ctx.x0 + start * ctx.scale, y: oy - r * ctx.scale,
+                width: 2, height: 2 * r * ctx.scale, fill: 'transparent', stroke: 'none', 'data-tube-hit': '' },
+            });
             wallBand(overlay, `${key}:inner${j}`, child.id ?? key, start, len, r,
               kernelNum(child, 'thickness'), oy, child['filled'] === true);
           }
@@ -1249,18 +1260,18 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
   // Dashed outline for a shoulder sliding inside the adjacent tube. Painted in
   // the overlay pass — an aft shoulder lives inside the NEXT tube, which is
   // drawn later and would otherwise cover it.
-  const shoulderRect = (key: string, startX: number, lenSi: number, rSi: number, color: string, baseY: number, thickness = 0) => {
+  const shoulderRect = (key: string, startX: number, lenSi: number, rSi: number, color: string, baseY: number, thickness = 0, cap?: 'fore' | 'aft') => {
     if (lenSi <= 0 || rSi <= 0) return;
     overlay.push({
       key, layer: 'overlay', tag: 'rect',
       attrs: {
         x: ctx.x0 + startX * scale, y: baseY - rSi * scale,
-        width: Math.max(1.5, lenSi * scale), height: 2 * rSi * scale,
+        width: lenSi * scale, height: 2 * rSi * scale,
         fill: 'rgba(127,127,127,0.001)', stroke: color, strokeWidth: '1',
         strokeDasharray: '3 2', style: { pointerEvents: 'none' },
       },
     });
-    wallBand(overlay, key, key, startX, lenSi, rSi, thickness, baseY);
+    wallBand(overlay, key, key, startX, lenSi, rSi, thickness, baseY, false, undefined, cap);
   };
 
   // Draws an axial nose→tail chain with its centerline at screen `baseY`
@@ -1284,7 +1295,8 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           key: `${key}:nose`, layer: 'base', tag: 'path', part, sel: true,
           attrs: { d: profilePath(ctx, n, cx, len, fore, aft, baseY), fill: fillOf(n, '#d5d2cb'), stroke: '#7a786f', strokeWidth: 1 },
         });
-        shoulderRect(`${key}:shoulder`, isTailCone(n) ? cx - shL : cx + len, shL, num(n, 'shoulderRadius', 0), '#9a978f', baseY, num(n, 'shoulderThickness', 0));
+        shoulderRect(`${key}:shoulder`, isTailCone(n) ? cx - shL : cx + len, shL, num(n, 'shoulderRadius', 0), '#9a978f', baseY, num(n, 'shoulderThickness', 0),
+          n['shoulderCapped'] === true ? isTailCone(n) ? 'fore' : 'aft' : undefined);
         renderChildren(n, cx, len, r, baseY, scope, profileMountOf(n, len, fore, aft), frameRoll);
         cx += len;
       } else if (n.type === 'bodytube') {
@@ -1320,8 +1332,10 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         wallBand(shapes, key, n.id ?? key, cx, len, Math.max(rf, ra), kernelNum(n, 'thickness'), baseY,
           n['filled'] === true, outerProfile(profileShape(n), numOpt(n, 'shapeParameter'), len, rf, ra, 24, undefined, clippedOf(n)));
         const fsl = num(n, 'foreShoulderLength', 0);
-        shoulderRect(`${key}:shoulder-fore`, cx - fsl, fsl, num(n, 'foreShoulderRadius', 0), '#9a978f', baseY, num(n, 'foreShoulderThickness', 0));
-        shoulderRect(`${key}:shoulder-aft`, cx + len, num(n, 'aftShoulderLength', 0), num(n, 'aftShoulderRadius', 0), '#9a978f', baseY, num(n, 'aftShoulderThickness', 0));
+        shoulderRect(`${key}:shoulder-fore`, cx - fsl, fsl, num(n, 'foreShoulderRadius', 0), '#9a978f', baseY, num(n, 'foreShoulderThickness', 0),
+          n['foreShoulderCapped'] === true ? 'fore' : undefined);
+        shoulderRect(`${key}:shoulder-aft`, cx + len, num(n, 'aftShoulderLength', 0), num(n, 'aftShoulderRadius', 0), '#9a978f', baseY, num(n, 'aftShoulderThickness', 0),
+          n['aftShoulderCapped'] === true ? 'aft' : undefined);
         // A fin roots on the drawn profile, not at the larger end's radius.
         renderChildren(n, cx, len, Math.max(rf, ra), baseY, scope, profileMountOf(n, len, rf, ra), frameRoll);
         cx += len;

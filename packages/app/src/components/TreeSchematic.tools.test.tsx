@@ -3,7 +3,7 @@ import { act } from 'react';
 import { readFileSync } from 'node:fs';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { TreeSchematic } from './TreeSchematic.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { schematicSvg } from '../services/schematicExport.js';
@@ -34,6 +34,71 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); document.querySelector('[data-tools-test-style]')?.remove(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('N033 and N044 view tools', () => {
+  it.each([
+    { type: 'nosecone', flipped: false, prefix: '', key: 'n:shoulder', fore: false },
+    { type: 'nosecone', flipped: true, prefix: '', key: 'n:shoulder', fore: true },
+    { type: 'transition', prefix: 'fore', key: 'n:shoulder-fore', fore: true },
+    { type: 'transition', prefix: 'aft', key: 'n:shoulder-aft', fore: false },
+  ])('exports the closed-end material of $key ($type flipped $flipped) only with Walls on', ({ type, flipped, prefix, key: wallKey, fore }) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ walls2d: true }));
+    for (const capped of [false, true]) {
+      const caps = { name: 'Caps', components: [{ id: 'n', type, flipped, length: 0.1, aftRadius: 0.02, foreRadius: 0.02,
+        [`${prefix}ShoulderLength`.replace(/^Shoulder/, 'shoulder')]: 0.02,
+        [`${prefix}ShoulderRadius`.replace(/^Shoulder/, 'shoulder')]: 0.018,
+        [`${prefix}ShoulderThickness`.replace(/^Shoulder/, 'shoulder')]: 0.001,
+        [`${prefix}ShoulderCapped`.replace(/^Shoulder/, 'shoulder')]: capped } as ComponentNode] };
+      act(() => root.render(<PrefsProvider><TreeSchematic tree={caps} info={null} /></PrefsProvider>));
+      const path = svg().querySelector(`[data-wall="${wallKey}"]`)!.getAttribute('d')!;
+      const coords = path.match(/[-\d.]+/g)!.map(Number);
+      const x = coords[0]!, width = coords[2]! - x;
+      // 1 mm cap in a 20 mm shoulder occupies 5% of its axial span.
+      expect((coords[8]! - x) / width).toBeCloseTo(capped && fore ? 0.05 : 0, 10);
+      expect((coords[10]! - x) / width).toBeCloseTo(capped && !fore ? 0.95 : 1, 10);
+      const doc = new DOMParser().parseFromString(exported(), 'image/svg+xml');
+      expect(doc.querySelector(`[data-wall="${wallKey}"]`)!.getAttribute('d')).toBe(path);
+    }
+    click('Hide schematic walls');
+    expect(new DOMParser().parseFromString(exported(), 'image/svg+xml').querySelector('[data-wall]')).toBeNull();
+  });
+
+  it.each([360, 640].flatMap(width => [false, true].flatMap(walls2d => [
+    { width, walls2d, type: 'innertube', length: 0.002, distance: '2 mm' },
+    { width, walls2d, type: 'tubecoupler', length: 0.01, distance: '10 mm' },
+  ])))('touch measures a short $type at $width px with walls $walls2d before and after zoom', ({ width, walls2d, type, length, distance }) => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(width);
+    vi.stubGlobal('ResizeObserver', class {
+      callback: () => void;
+      constructor(callback: () => void) { this.callback = callback; }
+      observe() { this.callback(); }
+      disconnect() {}
+    });
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width, height: 240 } as DOMRect);
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ walls2d }));
+    const short = { name: 'Short tube', components: [{ id: 'b', type: 'bodytube', length: 2,
+      outerRadius: 0.02, children: [{ id: 'i', type, length, outerRadius: 0.01, thickness: 0.001,
+        position: { method: 'top', offset: 0.1 } }] }] } as RocketTree;
+    act(() => root.render(<PrefsProvider><TreeSchematic tree={short} info={null} onSelect={select} onPatchNode={patch} /></PrefsProvider>));
+    click('Measure two points');
+    const inner = svg().querySelector<SVGRectElement>('rect[stroke-dasharray="3 2"]')!;
+    const x = Number(inner.getAttribute('x')), y = Number(inner.getAttribute('y'));
+    const tubeWidth = Number(inner.getAttribute('width'));
+    const measure = () => {
+      const [dx, dy, k] = svg().querySelector('g')!.getAttribute('transform')!.match(/[-\d.]+/g)!.map(Number);
+      const h = Number(svg().getAttribute('viewBox')!.split(' ')[3]);
+      pointer(dx! + k! * x, (dy! + k! * y) * 240 / h);
+      pointer(dx! + k! * (x + tubeWidth), (dy! + k! * y) * 240 / h);
+      expect(host.querySelector('[data-caliper-readout]')!.textContent)
+        .toBe(`Horizontal ${distance} · Vertical 0 mm · Straight ${distance}`);
+    };
+    measure(); click('Zoom in'); measure();
+    expect(select).not.toHaveBeenCalled(); expect(patch).not.toHaveBeenCalled();
+    key(svg(), 'Escape');
+    const hit = svg().querySelector('[data-tube-hit]');
+    expect(!!hit).toBe(tubeWidth < 2);
+    act(() => { (hit ?? inner).dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(select).toHaveBeenCalledWith('i');
+  });
+
   it.each([false, true])('measures a fitting internal tube at its 38 mm diameter with walls %s', (walls2d) => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ walls2d }));
     const nested = { name: 'Fitting tube', components: [{ id: 'b', type: 'bodytube',
