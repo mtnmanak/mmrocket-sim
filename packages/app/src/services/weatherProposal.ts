@@ -2,7 +2,7 @@ import {
   LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE, WIND_MS_RANGE, type LaunchConditions,
 } from './launchConditions.js';
 import {
-  densityAltitudeM, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
+  type AtmosphereModel, densityAltitudeM, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
 import { distanceM, type HourSample, type WeatherAnswer, type WeatherPlace } from './openMeteo.js';
 import { applyProposal, beforeOf, type ApplyKey, type WeatherPatch, type WeatherSnapshot } from './weatherSnapshot.js';
@@ -96,9 +96,10 @@ export function buildProposal(q: {
   place: Pick<WeatherPlace, 'latitudeDeg' | 'longitudeDeg'>;
   unix: number;
   choice: AltitudeChoice;
+  atmosphereModel?: AtmosphereModel;
 }): Proposal {
   const { launch, answer, place } = q;
-  const now = padAir(launch);
+  const now = padAir(launch, q.atmosphereModel);
   const siteM = now.altitudeM;
   const dem = answer.demM;
   const [altLo, altHi] = SITE_ALTITUDE_M_RANGE;
@@ -126,7 +127,7 @@ export function buildProposal(q: {
   // choice above already rules it out, so this fires only on a wiring bug —
   // and then refuses the row rather than trusting the wiring.
   if (pressure.refusal === null && pressure.value !== null
-      && padPressureIssue({ launchAltitudeM: forAltitudeM, temperatureC: null, pressureHPa: pressure.value }) !== null) {
+      && padPressureIssue({ launchAltitudeM: forAltitudeM, temperatureC: null, pressureHPa: pressure.value }, q.atmosphereModel) !== null) {
     pressure.refusal = { why: 'sea-level', altitudeM: forAltitudeM };
   }
 
@@ -206,8 +207,8 @@ export function patchOf(p: Proposal, ticked: ReadonlySet<ProposalRow['key']>, { 
 }
 
 /** Density altitude the flight would fly after this patch — the review's "now → after" line. */
-export function densityAfter(launch: LaunchConditions, patch: WeatherPatch): number {
-  return densityAltitudeM(applyProposal(launch, patch));
+export function densityAfter(launch: LaunchConditions, patch: WeatherPatch, model?: AtmosphereModel): number {
+  return densityAltitudeM(applyProposal(launch, patch), model);
 }
 
 /** The provenance record for an Apply of `patch` onto `launch`. */

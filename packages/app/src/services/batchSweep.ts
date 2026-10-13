@@ -593,7 +593,8 @@ export async function runBatchSweep(
   // The shared construction — this used to be a private copy that omitted
   // `timeStep`, so a design carrying its own step from its .ork gave one set
   // of numbers here and a different set on the Launch button.
-  const simOpts = kernelSimOptions(launch);
+  const simOpts = kernelSimOptions(launch, { aeroMode, effectiveKbf: kbf });
+  const supersonicSimOpts = kernelSimOptions(launch, { aeroMode: 'supersonic' });
   const deploysOnCharge = deploysOnEjectionCharge(tree);
   const names = batchMotorNames(candidates);
   // @atestani, TRF #162, 2026-10-06: maker display must not rewrite exported runs.
@@ -654,6 +655,7 @@ export async function runBatchSweep(
       assigned, hardware: undefined, primaryMountId: legs[0]!.mountId,
       mountNames: Object.fromEntries(mounts.map((m) => [m.id, m.label])),
       simOptions: simOpts, aeroMode, supersonic: model === 'supersonic',
+      supersonicSimOptions: supersonicSimOpts,
       isOnLaunchStage: (id) => isOnLaunchStage(probeTree, id),
       onSupersonicUpgrade: () => {}, signal, yieldToUi,
     });

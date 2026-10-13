@@ -702,9 +702,16 @@ pass before it (all 328 rows across the two models). Full accounting:
   1.4 wins the gate count and loses the accuracy aggregate and both flights; it has no
   source, and picking it would be fitting to the anchors. Shipped value stays 1.8.
 - **The six ARCAS supersonic gates removal would flip cannot be attributed to this term**:
-  TN D-4013's fins-off data stops at M1.2. Below M1.2, where the data exists, 1.8×
-  leaves our fin increment **14–39 % short** of the measured one and our *body*
-  **+10…+19 % over** — the term is under-charging fins, not over-charging them.
+  TN D-4013's fins-off data stops at M1.2. The historical 25 August comparison found
+  the fin increment **14–39 % short** and the *body* **+10…+19 % over**. The v0.180
+  re-read (`validation/scorecard-finson-reread-2026-10-11.md`, §5, checked against
+  `validation/anchors.json`) finds **14–62 % short for Short ARCAS** and
+  **39–68 % short for Long ARCAS at the sampled M0.60–0.90 points**. These are the
+  fins-on minus fins-off axial-drag increments, not isolated fin pressure drag.
+  Those ranges must not be extended to every point below M1.2: the transonic
+  deficits reach **75 % for Short at M0.95** and **79 % for Long at M1.0**.
+  Long includes the faired-over fins-off anchors used by that scorecard. The term
+  still under-charges fins at these measured points.
 - **Measured for the owner, deliberately NOT enabled:** applying the term in BOTH models
   (§6a step 2's "baseline for everyone at all speeds"). Classic 10/164 → **12/164**, RMS
   5.279 → **4.970**, **80 of 83 gated CD rows closer** and 3 worse; LEM-IV +7.3 % →
@@ -1606,7 +1613,125 @@ components (centering rings, bulkheads, tube couplers) — which is exactly the
   differs by subclass, so a hashed index would need a proof per subclass.
 - **Divergence from upstream:** none in behaviour; upstreamable.
 
+### simulation/DataBranch.java - read-only column views instead of a clone per read (OR #2909 / PR #2909, KPERF, 2026-10-11)
+
+- **Why:** `DataBranch.get(type)` cloned the whole column on every call. The bridge's
+  `appendBranchSeries` reads every emitted column of every branch through it (branch 0
+  twice on a staged flight), and `FlightData.calculateInterestingValues` reads five
+  columns plus one velocity column per LAUNCHROD / deployment / ground-hit event, so a
+  flight copies `columns x samples` references it only reads. Board row "OR batch 7 -
+  #2909"; `BUG-PLAN.md` section 30.
+- **Change (the DataBranch hunk of upstream PR #2909, merged to `unstable`):** the old
+  body is renamed `getClone(type)` (an independent mutable snapshot, null for a missing
+  type), and `get(type)` returns `Collections.unmodifiableList(list)` - a live, read-only
+  view backed by the column, still null for a missing type. One import added. No other
+  file changes: every caller in the carved kernel (`FlightData`, `FlightDataBranch.
+  getDataIndexOfTime`), the bridge (`OrkEngine.appendBranchSeries`) and the harness
+  (`GoldenMain`) only reads, and reads after the branch has stopped growing, so neither
+  the view's refusal to write nor its liveness is observable. Upstream's other hunks
+  (CSVExport, OpenRocketSaver, OpenRocketLoader, custom expressions, CADataBranch, Swing
+  plots, `final` on LinearInterpolator parameters) touch files this kernel does not carve
+  or change nothing; not ported.
+- **TeaVM:** `Collections.unmodifiableList` is linked (artifact grep: `iocs_DataBranch_get`
+  now returns `ju_Collections_unmodifiableList`; `unmodifiableList` 2 -> 3 occurrences).
+  `getClone` has no caller and is dead-code-eliminated (0 occurrences) - by design: it
+  exists for a future ported caller that needs a snapshot.
+- **Evidence:** `gradlew goldenJvm` ZERO-line diff against the pre-patch kernel (446/446
+  lines), and the TeaVM golden output likewise identical; difftest clean (446 lines, 294
+  bit-identical, 152 within the ULP tolerance - unchanged). The pre-patch rebuild was
+  byte-identical to the committed artifact (md5 606ce0cf...), so the only difference
+  between the two kernels is this patch. Corpus: 49 designs (every docs/User files and
+  fixture .ork/.rkt whose motors resolve from the catalogue), each flown Kbf full, Kbf
+  summary and Classic full = 147 flights: 147/147 identical once same-time events are put
+  in a canonical order, 144/147 raw-byte identical. The 3 raw differences are PRE-EXISTING
+  run-to-run nondeterminism, present between two runs of the UNPATCHED kernel too: on
+  `8 in Goblin 4 x 75mm v2.rkt` (four separate motor mounts) the order of the four
+  same-time IGNITION / BURNOUT / EJECTION_CHARGE events changes from run to run, because
+  `FlightConfiguration.motors` is a HashMap keyed by MotorConfigurationId, whose hash
+  comes from the mount's random UUID. Series and summary were identical in every case.
+  JUnit `DataBranchViewTest` (6 tests: live view, every write refused, missing type null
+  on both accessors, clone independence both ways, view on an immuted branch and through
+  getDataIndexOfTime, branch-copy independence). Mutations: `get` back to `list.clone()`
+  fails 2 of them; `getClone` returning the view fails 1.
+- **Measured effect: none detectable in wall time.** Declared workload: 6 designs
+  (`2,4-D.rkt` 4,468 samples / 2 branches, `SS Wild Bash 20260623v0.ork` 3 branches,
+  `OR vs RAS Test 1.ork`, `LEM-IV.ork`, fixture `reference.ork`, `38mm Min.ork`), Kbf,
+  `series` full and summary, both kernels loaded in ONE node process, 20 paired flights
+  per design per mode alternating A/B and B/A. The patched kernel was faster in 59/120
+  full-series pairs and 51/120 summary pairs; per-design median paired ratios ran from
+  -2.1 % to +4.1 %, inside the noise. Separate-process runs on the shared machine swung
+  -27 % to +240 % and are not evidence either way. What the patch does remove is
+  allocation: 635,292 element copies per `2,4-D.rkt` full-series flight (224,892 in
+  summary), 43,956 on `reference.ork` - a few MB of short-lived arrays per flight, too
+  small against the RK4 loop's own allocation to move the GC count measurably.
+- **Divergence from upstream 24.12:** yes for this class; it matches upstream `unstable`
+  after PR #2909.
+
+- **B10 reapplication (2026-10-13):** patch and six tests restored byte-for-byte from
+  `24812cdb`. The six scoped JVM tests pass; clone-on-get and view-on-getClone
+  mutations fail two and one tests respectively. A source-JVM comparison of all
+  464 current golden rows with/without this allocation patch found zero differences.
+  The TeaVM, corpus and timing evidence above belongs to the original KPERF pass;
+  it was not rerun for this reapplication because Gradle is sandbox-blocked.
+
 ## Correctness fixes (documented physics change — a kernel defect, fixed deliberately)
+
+### models/atmosphere/ExtendedISAModel.java + api/OrkEngine.java (K10, OR #2731, 2026-10-13)
+
+- **Why:** [OR #2731](https://github.com/openrocket/openrocket/issues/2731) /
+  [PR #2997](https://github.com/openrocket/openrocket/pull/2997): the ISA layer
+  heights are geopotential, while flight altitude is geometric. Eric's 11 October
+  ruling preserves desktop atmosphere in Classic and corrects Kbf, Supersonic and
+  Hybrid. Auto follows the flags of the flight actually selected.
+- **Change:** an immutable per-instance gate converts external height once with
+  `h = R*z/(R+z)`, `R = 6,356,766 m`, the effective radius in US Standard Atmosphere
+  1976 ([NASA-TM-X-74335](https://ntrs.nasa.gov/citations/19770009539)). This is the
+  ISA radius, not a rocket-position geodetic radius. Both flight atmosphere and
+  Mach/altitude drag sweeps use the independent Kbf/Supersonic/Hybrid disjunction.
+  Custom-site layer construction converts the site before forming its lapse;
+  internal layer pressure calculations already use geopotential height.
+- **Corrected layer continuity:** non-Classic pressures are chained at the exact
+  layer boundary; retaining desktop's one-metre-short base calculation would leave
+  browser/kernel disagreement after the coordinate correction. Classic retains
+  the original arithmetic. The corrected cache includes one extra 500 m terminal
+  cell, because the parent interpolator otherwise omits the final point and clamps
+  below the model top. No upper-atmosphere extension is introduced: the analytic
+  profile clamps at 84,852 geopotential m (about 85,999.95 geometric m).
+- **Browser:** model-selected ISA, pad air, density altitude and its inverse use
+  the same coordinate. Launch/weather/recovery, simulation/replay/batch and stored
+  report density altitude receive the actual or stored model. Omitted selection
+  preserves the existing Classic API. Import/export destination-format ISA
+  conventions remain Classic; altitude-only weather queries are model-independent.
+  Auto also replaces partial-weather defaults when its flight upgrades to
+  Supersonic, including an upgrade triggered by the final flight.
+- **Source verification:** 14 scoped JVM tests pass (5 atmosphere, 2 bridge,
+  6 DataBranch, 1 transition). Four published layer temperatures and pressure
+  equations are checked with OR's existing rounded gas constant, without widening
+  tolerances. Classic matches the pre-change class bit-for-bit at 2,002 sampled
+  standard/custom-site altitudes. At 22 standard-profile samples, Java exact and
+  browser temperature differ by 0 K, pressure by at most 2.00e-15 relative;
+  the existing 500 m Java interpolation differs by at most 0.03724 % pressure.
+  Fourteen additive JVM golden rows cover standard and custom-site corrected ISA.
+- **Measured atmosphere effect:** at geometric 11/20/32/47/80 km, the old browser
+  analytic profile's density is 0.2423/0.9843/2.4356/4.6099/14.9392 % below the
+  corrected profile. These are atmosphere samples, not flight/apogee measurements.
+  At a 1,219.2 m pad, 35 C, pressure blank, density altitude changes from
+  2,170.8101 m Classic to 2,171.2691 m corrected.
+- **Mutation evidence:** removing conversion or applying it to Classic each fails
+  two JVM tests; removing any independent bridge disjunct fails two. Browser
+  conversion/gate mutations fail six/five tests. Independent transition disjuncts
+  each fail their own assertion. Omitting the terminal cell fails the top-clamp
+  regression. All mutations restored; the six DataBranch tests have their own
+  mutation evidence in the allocation entry above.
+- **Build status:** SOURCE IMPLEMENTED, COMPILED KERNEL VERIFICATION BLOCKED.
+  Gradle could not acquire its wrapper distribution lock in the sandboxed user
+  profile. No `engine:js` output, artifact symbol check/MD5, JVM-to-TeaVM differential
+  or rebuilt high-flight comparison is claimed. The earlier KTODO flight deltas
+  are historical prototype measurements, not evidence for this exact source.
+  The orchestrator must rebuild and run those integration gates before use.
+- **Divergence from upstream 24.12:** intentional for corrected-model instances;
+  Classic's public interpolated conditions remain bit-identical in the sampled
+  standard and custom profiles. See `.b10/REPORT.md` for exact commands and limits.
 
 This section exists because Rule 1 below did not have a home for it. A performance
 patch must prove a zero-line `goldenJvm` diff; a feature patch adds an opt-in model.

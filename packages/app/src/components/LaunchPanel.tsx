@@ -1,3 +1,5 @@
+import type { AtmosphereModel } from '../services/atmosphere.js';
+import { effectiveAero } from '../prefs/aeroChoice.js';
 import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrideWarning.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { useId } from 'react';
@@ -413,14 +415,14 @@ function GeodeticField({ value, onChange }: { value: LaunchConditions; onChange:
  * measured from `padAir`'s clamped altitude, never the stored one, which can
  * be NaN or outside the field's range after an import.
  */
-function DensityAltitudeReadout({ value }: { value: LaunchConditions }) {
+function DensityAltitudeReadout({ value, atmosphereModel }: { value: LaunchConditions; atmosphereModel: AtmosphereModel }) {
   const { prefs } = usePrefs();
   const id = useId();
   const labelId = `${id}-label`;
   const helpId = `${id}-help`;
   const sym = prefs.units.distance;
-  const air = padAir(value);
-  const da = densityAltitudeM(value);
+  const air = padAir(value, atmosphereModel);
+  const da = densityAltitudeM(value, atmosphereModel);
   const delta = fmtAltitude(sym, da - air.altitudeM);
   return (
     <div className="field field-readout" title={DENSITY_ALTITUDE_HELP} data-readout="density-altitude">
@@ -453,17 +455,17 @@ function DensityAltitudeReadout({ value }: { value: LaunchConditions }) {
  * offers the blank field as the fix rather than asking for a barometer reading
  * nobody has. Silent below 600 m.
  */
-function PadPressureCaution({ value }: { value: LaunchConditions }) {
+function PadPressureCaution({ value, atmosphereModel }: { value: LaunchConditions; atmosphereModel: AtmosphereModel }) {
   const { prefs } = usePrefs();
-  const issue = padPressureIssue(value);
+  const issue = padPressureIssue(value, atmosphereModel);
   if (!issue) return null;
   const sym = prefs.units.pressure;
   const altSym = prefs.units.distance;
   // The site the flight flies (`padAir` clamps the stored one into its range),
   // so "Clear the field and the app uses …" names the pressure it really would.
-  const siteM = padAir(value).altitudeM;
+  const siteM = padAir(value, atmosphereModel).altitudeM;
   const site = fmtSi('distance', altSym, siteM);
-  const standing = `${fmtSi('pressure', sym, isaPressurePa(siteM))} ${sym}`;
+  const standing = `${fmtSi('pressure', sym, isaPressurePa(siteM, atmosphereModel))} ${sym}`;
   return (
     <p className="field-caution" role="status" data-caution="pad-pressure">
       <Icon name="zap" size={13} />{' '}
@@ -480,10 +482,11 @@ function PadPressureCaution({ value }: { value: LaunchConditions }) {
 }
 
 export function LaunchPanel({
-  value, onChange, onLaunch, overrideSummary, onShowOverride, simulating, canLaunch, lastRun, weather, onGetWeather, onWeatherFetchAgain, onWeatherUndo,
+  value, flownAtmosphere, onChange, onLaunch, overrideSummary, onShowOverride, simulating, canLaunch, lastRun, weather, onGetWeather, onWeatherFetchAgain, onWeatherUndo,
   onWeatherDismiss, onWeatherSigma, hasLaunchGuide = false, longitudeReview, onLongitudeReview,
 }: LaunchOverrideProps & {
   value: LaunchConditions;
+  flownAtmosphere?: AtmosphereModel;
   hasLaunchGuide?: boolean;
   onChange: (v: LaunchConditions) => void;
   onLaunch: () => void;
@@ -529,7 +532,8 @@ export function LaunchPanel({
   longitudeReview?: LongitudeReview | null;
   onLongitudeReview?: (review: LongitudeReview | null) => void;
 }) {
-  const { prefs } = usePrefs();
+  const { prefs, aeroOverride } = usePrefs();
+  const atmosphereModel = flownAtmosphere ?? effectiveAero(prefs, aeroOverride);
   // The applied forecast hour's mean wind and gust — what the σ chip works
   // from. From the snapshot's FETCHED values, whether or not the wind was
   // applied; the chip itself decides whether Wind avg still matches.
@@ -545,7 +549,7 @@ export function LaunchPanel({
   // spinners step from, the standard day HERE — the stored figure is not a pad
   // the design flies (audit 2026-09-30: a session stored at 12,000 m showed,
   // and one step committed, 12 km air for a flight at 10 km).
-  const siteM = padAir(value).altitudeM;
+  const siteM = padAir(value, atmosphereModel).altitudeM;
   const numField = (label: string, key: keyof LaunchConditions, stepStored: number,
       min?: number, max?: number, nullable = false, help?: string, autoStored?: number, absentStored?: number) => (
     <LaunchField label={label} field={key} value={value} onChange={onChange}
@@ -606,15 +610,15 @@ export function LaunchPanel({
             and kernelSimOptions's chokepoint read the same arrays, so the panel
             refusing a value and the flight refusing it are one rule. */}
         {numField('Temperature', 'temperatureC', 1, ...PAD_TEMP_C_RANGE, true, SITE_TEMPERATURE_HELP,
-          isaTemperatureK(siteM) - 273.15)}
+          isaTemperatureK(siteM, atmosphereModel) - 273.15)}
         {/* "Station pressure", not "Pressure" (2026-09-08). The bare label let
             every reader supply their own meaning, and the common one — the
             altimeter setting an airport broadcasts, or the sea-level figure a
             weather app shows — is the wrong number by 15 % at 3,900 ft. Two
             words, sentence case, the same shape as "Site altitude" above it. */}
         {numField('Station pressure', 'pressureHPa', 5, ...PAD_PRESSURE_HPA_RANGE, true, STATION_PRESSURE_HELP,
-          isaPressurePa(siteM) / 100)}
-        <DensityAltitudeReadout value={value} />
+          isaPressurePa(siteM, atmosphereModel) / 100)}
+        <DensityAltitudeReadout value={value} atmosphereModel={atmosphereModel} />
         {/* Blank = 0.05 s, the engine's and desktop OpenRocket's default. Smaller
             is slower and NOT more accurate: measured against a converged dt
             0.002 reference on four designs with real thrust curves, 0.05 lands
@@ -643,7 +647,7 @@ export function LaunchPanel({
       <WeatherStrip weather={weather} launch={value} onChange={onChange}
         onUndo={() => onWeatherUndo?.()} onDismiss={() => onWeatherDismiss?.()}
         onFetchAgain={onWeatherFetchAgain ?? onGetWeather} />
-      <PadPressureCaution value={value} />
+      <PadPressureCaution value={value} atmosphereModel={atmosphereModel} />
       <TimeStepCaution dt={value.timeStepS} lastRun={lastRun} />
       <button className="launch-btn" onClick={onLaunch} aria-describedby={overrideSummary ? 'launch-override-panel' : undefined}
         disabled={!canLaunch || simulating}

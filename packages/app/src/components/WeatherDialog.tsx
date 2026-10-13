@@ -1,3 +1,5 @@
+import type { AtmosphereModel } from '../services/atmosphere.js';
+import { effectiveAero } from '../prefs/aeroChoice.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { coordinateLabel, weatherPlaceLabel } from '../services/coordinates.js';
 import { deviceMirrorsDesign, likelyFlippedLongitude } from '../services/longitudeCheck.js';
@@ -157,9 +159,10 @@ function refusalText(key: ProposalRow['key'], r: RowRefusal, fmt: (k: ProposalRo
 }
 
 export function WeatherDialog({
-  launch, initialPlace, initialHour, onApply, onClose, fetchImpl, now = Date.now, geolocation,
+  launch, flownAtmosphere, initialPlace, initialHour, onApply, onClose, fetchImpl, now = Date.now, geolocation,
 }: {
   launch: LaunchConditions;
+  flownAtmosphere?: AtmosphereModel;
   /**
    * Where the last applied weather was for — both ways in start there. With
    * its zone (the applied answer's), so "today" is the site's today.
@@ -185,7 +188,9 @@ export function WeatherDialog({
   /** Tests only: null = no geolocation API; undefined = the browser's own. */
   geolocation?: Pick<Geolocation, 'getCurrentPosition'> | null;
 }) {
-  const { prefs } = usePrefs();
+  const { prefs, aeroOverride } = usePrefs();
+  const atmosphereModel = useMemo(() => flownAtmosphere ?? effectiveAero(prefs, aeroOverride),
+    [flownAtmosphere, prefs, aeroOverride]);
   const units = prefs.units;
   const dialogRef = useDialog<HTMLDivElement>(onClose);
   const memory = useMemo(readMemory, []);
@@ -352,8 +357,8 @@ export function WeatherDialog({
   };
 
   const proposal = useMemo(() => (answer && place && hourUnix !== null
-    ? buildProposal({ launch, answer, place, unix: hourUnix, choice })
-    : null), [launch, answer, place, hourUnix, choice]);
+    ? buildProposal({ launch, answer, place, unix: hourUnix, choice, atmosphereModel })
+    : null), [launch, answer, place, hourUnix, choice, atmosphereModel]);
   const patch: WeatherPatch = proposal ? patchOf(proposal, ticked, {
     aloft: { ticked: aloftTicked, place, currentLevels: launch.windLevels },
   }) : {};
@@ -633,7 +638,7 @@ export function WeatherDialog({
               {proposal.gridDistanceM !== null && (
                 <li>{capitalise(source)} grid point {farText(units.distance, proposal.gridDistanceM)} from your site.</li>
               )}
-              <li>Density altitude {alt(densityAltitudeM(launch))} → {alt(densityAfter(launch, patch))}.</li>
+              <li>Density altitude {alt(densityAltitudeM(launch, atmosphereModel))} → {alt(densityAfter(launch, patch, atmosphereModel))}.</li>
             </ul>
           </div>
         )}

@@ -9,7 +9,7 @@ import {
   hasLaunchGuides, rodLengthHelp, LaunchField, LaunchPanel, LONGITUDE_HELP, normalizeRodAimDeg, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, timeStepCostFactor,
   type LaunchConditions,
 } from './LaunchPanel.js';
-import { densityAltitudeM, isaPressurePa, isaTemperatureK } from '../services/atmosphere.js';
+import { densityAltitudeM, isaPressurePa, isaTemperatureK, type AtmosphereModel } from '../services/atmosphere.js';
 import { fmtSi } from '../prefs/units.js';
 import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 
@@ -181,13 +181,14 @@ describe('timeStepCostFactor', () => {
 /** The last conditions the panel committed, so a spinner step can be asserted. */
 let lastLaunch: LaunchConditions | null = null;
 
-function renderConditions(over: Partial<typeof DEFAULT_CONDITIONS>) {
+function renderConditions(over: Partial<typeof DEFAULT_CONDITIONS>, flownAtmosphere?: AtmosphereModel) {
   lastLaunch = null;
   act(() => {
     root.render(
       <PrefsProvider>
         <LaunchPanel
           value={{ ...DEFAULT_CONDITIONS, ...over }}
+          {...(flownAtmosphere ? { flownAtmosphere } : {})}
           onChange={(v) => { lastLaunch = v; }}
           onLaunch={() => {}}
           simulating={false}
@@ -513,8 +514,8 @@ describe('a stored site altitude outside the range the flight flies', () => {
   it('shows the air at the altitude flown in the blank boxes', () => {
     renderConditions({ launchAltitudeM: 12000 });
     // Flown at 10,000 m: −50 °C and 264 mbar, not 12 km's −56.5 °C and 193.
-    expect(Number(placeholder('Temperature'))).toBeCloseTo(-50, 1);
-    expect(placeholder('Station pressure')).toBe('264');
+    expect(Number(placeholder('Temperature'))).toBeCloseTo(-49.9, 1);
+    expect(placeholder('Station pressure')).toBe('265');
     renderConditions({ launchAltitudeM: NaN });
     expect(Number(placeholder('Temperature'))).toBeCloseTo(15, 1);
     expect(placeholder('Station pressure')).toBe('1013');
@@ -525,13 +526,13 @@ describe('a stored site altitude outside the range the flight flies', () => {
     act(() => {
       box('Temperature').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true }));
     });
-    expect(lastLaunch?.temperatureC).toBeCloseTo(-49, 1);
+    expect(lastLaunch?.temperatureC).toBeCloseTo(-48.9, 1);
   });
 
   it('quotes the flown site, and the pressure clearing would give, in the pad-pressure caution', () => {
     const t = renderConditions({ launchAltitudeM: 12000, pressureHPa: 1013.25 })?.textContent ?? '';
-    expect(t).toMatch(/this pad is 10000 m up, where a barometer reads about 264 mbar/);
-    expect(t).toMatch(/Clear the field and the app uses 264 mbar/);
+    expect(t).toMatch(/this pad is 10000 m up, where a barometer reads about 265 mbar/);
+    expect(t).toMatch(/Clear the field and the app uses 265 mbar/);
     // Neither figure of the STORED site, which the caution quoted before the
     // fix. Its pressure is derived through the caution's own formatter: this
     // guard used to look for "194 mbar", which the app never printed (ISA at
@@ -708,12 +709,12 @@ describe('the density-altitude readout', () => {
     renderConditions({ launchAltitudeM: 1219.2, temperatureC: 35 });
     expect(shown()!.textContent).toBe('2171 (+952 vs site)');
     expect(shown()!.className).not.toContain('readout-muted');
-    // The same air in feet: 7,122 ft, 3,122 above the 4,000 ft site.
+    // The same Kbf air in feet: 7,124 ft, 3,124 above the 4,000 ft site.
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'ft' } }));
     act(() => root.unmount());
     root = createRoot(host);
     renderConditions({ launchAltitudeM: 1219.2, temperatureC: 35 });
-    expect(shown()!.textContent).toBe('7122 (+3122 vs site)');
+    expect(shown()!.textContent).toBe('7124 (+3124 vs site)');
   });
 
   it('goes negative, unclamped, on an altimeter setting — beside the caution that names it', () => {
@@ -1261,5 +1262,27 @@ describe('guide allowance controls', () => {
     expect(host.textContent).not.toContain('Allow for lug and rail-button positions');
     expect(host.textContent).toContain(rodLengthHelp(false));
     expect(host.textContent).not.toContain('Do not shorten');
+  });
+});
+
+
+describe('OR #2731 model-selected pad displays', () => {
+  it('keeps Classic placeholders and density altitude, while Kbf uses geopotential ISA', () => {
+    for (const [model, pressure] of [
+      [{ aeroMode: 'classic', effectiveKbf: false }, '264'],
+      [{ aeroMode: 'classic', effectiveKbf: true }, '265'],
+      [{ aeroMode: 'supersonic', effectiveKbf: false }, '265'],
+      [{ aeroMode: 'hybrid', effectiveKbf: false }, '265'],
+    ] as const) {
+      renderConditions({ launchAltitudeM: 10000 }, model);
+      expect(launchBox('Station pressure')!.placeholder).toBe(pressure);
+    }
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'ft' } }));
+    act(() => root.unmount());
+    root = createRoot(host);
+    renderConditions({ launchAltitudeM: 1219.2, temperatureC: 35 }, { aeroMode: 'classic', effectiveKbf: false });
+    expect(host.querySelector('[data-readout="density-altitude"] output')!.textContent).toBe('7122 (+3122 vs site)');
+    renderConditions({ launchAltitudeM: 1219.2, temperatureC: 35 }, { aeroMode: 'classic', effectiveKbf: true });
+    expect(host.querySelector('[data-readout="density-altitude"] output')!.textContent).toBe('7124 (+3124 vs site)');
   });
 });
