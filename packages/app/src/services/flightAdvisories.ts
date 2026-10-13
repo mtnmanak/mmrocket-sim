@@ -8,7 +8,7 @@ import { flownDeployEvent } from '../tree/deployEvent.js';
 // Safety Code §9 (Flight Safety): no launch above 20 mph. Tripoli Unified
 // Safety Code §9-3: no launch when sustained surface winds exceed 20 MPH.
 // https://www.nar.org/ModelRocketSafetyCode
-// https://www.nar.org/content.aspx?page_id=22
+// https://www.nar.org/content.aspx?page_id=22&club_id=114127&module_id=669238 (the bare page_id=22 redirects to the home page)
 // https://www.tripoli.org/safetycode (checked 2026-10-13)
 export const SURFACE_WIND_LIMIT_MS = 20 * 0.44704;
 
