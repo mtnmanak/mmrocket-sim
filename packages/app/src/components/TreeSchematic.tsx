@@ -231,15 +231,18 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // the origin without touching the scale.
   const rollW = vertical ? 0 : ROLL_COL;
   const rollBar = vertical ? ROLL_BAR : 0;
+  // N033/N044: guide labels and callouts must clear every displayed tool note.
+  const bottomReserve = !vertical && (walls || measuring) ? 80 : 0;
   const hasInfo = !!info;
   // From the COMMITTED design, not the drag preview: the frame reads lengths
   // and radii, never a position, so the two give the same frame — and the
   // drag needs the frame's scale before it can say where the part is.
   const frame = useMemo(() => schematicFrame(tree, {
     cw, chPx, vertical, fillHeight, maxHeight, rulers, rollW, rollBar, lanes: hasInfo, topReserve,
-    bottomReserve: measuring ? 80 : 0,
-  }), [tree, cw, chPx, vertical, fillHeight, maxHeight, rulers, rollW, rollBar, hasInfo, topReserve, measuring]);
+    bottomReserve,
+  }), [tree, cw, chPx, vertical, fillHeight, maxHeight, rulers, rollW, rollBar, hasInfo, topReserve, bottomReserve]);
   const { w, h, gutX, gutY, scale, vHalf, naturalH } = frame;
+  const drawingH = h - bottomReserve;
   const ctx = { scale, cy: frame.cy, x0: frame.x0 };
 
   // Report the natural height to the hero stage (fit-to-content, v0.076).
@@ -494,14 +497,14 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // offset — a walk of the design, never a kernel rebuild.
   const shown = axial.shown;
   const layout = useMemo(() => layoutSchematic(shown, {
-    scale, cy: frame.cy, x0: frame.x0, roll, motors, vertical, idPrefix: uid, walls,
-  }), [shown, scale, frame.cy, frame.x0, roll, motors, vertical, uid, walls]);
+    scale, cy: frame.cy, x0: frame.x0, roll, motors, vertical, idPrefix: uid, walls, measuring,
+  }), [shown, scale, frame.cy, frame.x0, roll, motors, vertical, uid, walls, measuring]);
   const snapTargets = useMemo(() => schematicSnapTargets(layout, { scale, cy: frame.cy, x0: frame.x0 }), [layout, scale, frame.cy, frame.x0]);
   const caliperAt = (e: { clientX: number; clientY: number }): CaliperPoint | null => {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0 || rect.height === 0) return null;
     const x = (e.clientX - rect.left) * w / rect.width, y = (e.clientY - rect.top) * h / rect.height;
-    if (x < gutX || y < gutY || x > w || y > h) return null;
+    if (x < gutX || y < gutY || x > w || y > drawingH) return null;
     const p = { x: pxToGuide(guideView, 'x', x), y: pxToGuide(guideView, 'y', y) };
     return caliperSnap ? snapCaliperPoint(p, snapTargets, 8 * w / rect.width / (scale * zoom.k)) : p;
   };
@@ -606,7 +609,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const marginText = info && stab
     ? stabilityReadout(stab, formatStability(info, prefs.stabilityUnit))
     : null;
-  const callouts = calloutLayout(cgX, cpX, ctx.cy, vHalf * scale, w, h, marginText, gutY, gutX);
+  const callouts = calloutLayout(cgX, cpX, ctx.cy, vHalf * scale, w, drawingH, marginText, gutY, gutX);
 
   /**
    * The ruler gutters: a horizontal scale along the top reading axial
@@ -629,7 +632,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
     view.k * pxPerUnit * rulerDirection, gutX, w, RULER_TOP,
   );
   const downMarks = (view: { k: number; y: number }) => rulerLayout(
-    view.y + view.k * ctx.cy, -view.k * pxPerUnit, gutY, h, RULER_LEFT,
+    view.y + view.k * ctx.cy, -view.k * pxPerUnit, gutY, drawingH, RULER_LEFT,
   );
   // N009: grid divisions use the labelled ruler ladder in display units.
   // Coordinates return to drawing space so the same export transform fits both.
@@ -638,7 +641,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       pointerEvents="none" stroke="var(--border)" strokeWidth={1 / view.k}>
       {acrossMarks(view).filter(t => t.label !== null).map((t, i) => (
         <line key={`x${i}`} data-axis="x" x1={(t.px - view.x) / view.k} x2={(t.px - view.x) / view.k}
-          y1={(gutY - view.y) / view.k} y2={(h - view.y) / view.k} />
+          y1={(gutY - view.y) / view.k} y2={(drawingH - view.y) / view.k} />
       ))}
       {downMarks(view).filter(t => t.label !== null).map((t, i) => (
         <line key={`y${i}`} data-axis="y" y1={(t.px - view.y) / view.k} y2={(t.px - view.y) / view.k}
@@ -657,8 +660,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         data-ruler={forExport ? 'fit' : 'view'} display={forExport ? 'none' : undefined}
         pointerEvents="none" fontSize="9" fill={ink}>
         <rect x={rollW} y={0} width={w - rollW} height={RULER_TOP} fill={band} />
-        <rect x={rollW} y={0} width={RULER_LEFT} height={h} fill={band} />
-        <path d={`M ${rollW} ${RULER_TOP} H ${w} M ${gutX} 0 V ${h}`} stroke={edge} strokeWidth="1" fill="none" />
+        <rect x={rollW} y={0} width={RULER_LEFT} height={drawingH} fill={band} />
+        <path d={`M ${rollW} ${RULER_TOP} H ${w} M ${gutX} 0 V ${drawingH}`} stroke={edge} strokeWidth="1" fill="none" />
         {across.map((t, i) => (
           <g key={`h${i}`}>
             <line x1={t.px} y1={RULER_TOP - t.len} x2={t.px} y2={RULER_TOP} stroke={ink} strokeWidth="1" />
@@ -701,7 +704,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
       x: Math.min(w - tw / 2 - 2, Math.max(gutX + tw / 2 + 2, (hoverBox.x0 + hoverBox.x1) / 2)),
       // Above the component unless that leaves the drawing area (the ruler
       // gutter is not drawing area); then below.
-      y: hoverBox.y0 - 22 >= gutY + 2 ? hoverBox.y0 - 13 : Math.min(h - 11, hoverBox.y1 + 13),
+      y: hoverBox.y0 - 22 >= gutY + 2 ? hoverBox.y0 - 13 : Math.min(drawingH - 11, hoverBox.y1 + 13),
       tw,
     };
   }
@@ -709,7 +712,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   return (
     <div ref={wrapRef} className="tree-schematic" onKeyDown={e => { if (e.key === 'Escape' && measuring) { e.stopPropagation(); setCaliper(null); } }}
       style={{ position: 'relative', ...(vertical || fillHeight ? { height: '100%' } : null),
-        ...(measuring && fillHeight ? { minHeight: 280 } : null) }}>
+        ...(bottomReserve && fillHeight ? { minHeight: 200 + bottomReserve } : null) }}>
       <svg ref={svgRef} viewBox={vertical ? `0 0 ${h} ${w}` : `0 0 ${w} ${h}`}
           style={vertical
             ? { height: '100%', maxWidth: '100%', display: 'block', margin: '0 auto' }
@@ -727,9 +730,10 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           // select, and the Fly screen, which passed a no-op onSelect and so
           // cost a keyboard user one dead stop per drawn part.
           role={vertical && !onSelect ? 'img' : 'group'}
-          aria-label={vertical
+          aria-label={measuring ? 'Rocket side view with CG and CP markers — Caliper active' : vertical
             ? `Rocket side view, nose up, with CG and CP markers${onSelect ? ' — select components' : ''}`
             : 'Rocket side view with CG and CP markers — drag components, wheel to zoom, drag the background or use the arrow keys to pan'}
+          aria-describedby={measuring ? `${uid}-caliper-help` : undefined}
           // A tab stop of its own for the arrow-key pan (see onKeyPan) — the
           // nose-up drawing neither pans nor zooms, so it takes no keys.
           tabIndex={vertical ? undefined : 0}
@@ -840,7 +844,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         {rulers && rulerGutters(zoom, false)}
         {rulers && !viewIsFit && rulerGutters({ k: 1, x: 0, y: 0 }, true)}
         {rulers && (
-          <RulerGuides guides={guides.guides} view={guideView} w={w} h={h} gutX={gutX} gutY={gutY}
+          <RulerGuides guides={guides.guides} view={guideView} w={w} h={drawingH} gutX={gutX} gutY={gutY}
             rollW={rollW} unit={lenUnit}
             onCreate={(axis, e) => guides.create(axis, guideView, e)} onGrab={guides.grab}
             onMoveTo={guides.moveTo} onRemove={guides.remove} />
@@ -863,10 +867,11 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           {caliper.points.length < 2 && <path d={`M ${guideToPx(guideView, 'x', caliper.cursor.x) - 6} ${guideToPx(guideView, 'y', caliper.cursor.y)} h 12 m -6 -6 v 12`} fill="none" />}
         </g>}
       </svg>
-      {(walls || measuring) && <div className="schematic-tool-notes">
+      {(walls || measuring) && <div className="schematic-tool-notes" style={{ left: rollW, bottom: rollBar }}>
         {walls && <span>Schematic cutaway · wall bands show thickness</span>}
         {measuring && caliper && <>
-          <span title="Pick two points; arrows move a point, Enter places it, Alt + arrows pan, Escape clears">Projected in this view plane</span>
+          <span>Projected in this view plane</span>
+          <span id={`${uid}-caliper-help`}>Pick two points; arrows move a point, Enter places it, Alt + arrows pan, Escape clears</span>
           <label><input type="checkbox" checked={caliperSnap} onChange={e => setCaliperSnap(e.target.checked)} /> Snap to edges</label>
           {caliper.points.length === 2 && <>
             <span data-caliper-readout="" role="status">{caliperReadout(caliper.points[0]!, caliper.points[1]!, prefs.units.length)}</span>

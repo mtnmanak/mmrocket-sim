@@ -393,6 +393,8 @@ export interface SchematicLayoutOptions {
   motors?: Record<string, SchematicMotor>;
   /** N033: schematic cutaway bands, at actual wall thickness. */
   walls?: boolean;
+  /** N044: measure effective tube outlines even without the cutaway bands. */
+  measuring?: boolean;
   /** Nose-up: every text label counter-rotates about its own anchor. */
   vertical?: boolean;
   /**
@@ -1113,7 +1115,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
               ?? num(child, 'packedRadius', kernelDefault(child.type, 'packedRadius') ?? pRadius * 0.7))),
         );
         const start = axialStart(child, len, pStart, pLen);
-        if (o.walls && (child.type === 'innertube' || child.type === 'tubecoupler')) {
+        if ((o.walls || o.measuring) && (child.type === 'innertube' || child.type === 'tubecoupler')) {
           const wall = Math.max(0, kernelNum(parent, 'thickness'));
           const bore = parent['filled'] === true ? 0 : Math.max(0,
             Math.min(mount.radiusAt(Math.max(0, Math.min(pLen, start - pStart))),

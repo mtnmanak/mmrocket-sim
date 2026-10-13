@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
+import { readFileSync } from 'node:fs';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
@@ -7,6 +8,7 @@ import { TreeSchematic } from './TreeSchematic.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { schematicSvg } from '../services/schematicExport.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
+const stylesheet = readFileSync('src/styles.css', 'utf8');
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement, root: Root;
@@ -29,9 +31,73 @@ beforeEach(() => {
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 640, height: 240 } as DOMRect);
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); vi.restoreAllMocks(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); document.querySelector('[data-tools-test-style]')?.remove(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('N033 and N044 view tools', () => {
+  it.each([false, true])('measures a fitting internal tube at its 38 mm diameter with walls %s', (walls2d) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ walls2d }));
+    const nested = { name: 'Fitting tube', components: [{ id: 'b', type: 'bodytube',
+      length: 0.2, outerRadius: 0.02, thickness: 0.0003, children: [
+        { id: 'i', type: 'innertube', length: 0.1, outerRadius: 0.019, thickness: 0.0005 },
+      ] }] } as RocketTree;
+    act(() => root.render(<PrefsProvider><TreeSchematic tree={nested} info={null} /></PrefsProvider>));
+    click('Measure two points');
+    const inner = svg().querySelector<SVGRectElement>('rect[stroke-dasharray="3 2"]')!;
+    const x = Number(inner.getAttribute('x')), y = Number(inner.getAttribute('y'));
+    const height = Number(inner.getAttribute('height'));
+    const h = Number(svg().getAttribute('viewBox')!.split(' ')[3]);
+    pointer(x, y * 240 / h); pointer(x, (y + height) * 240 / h);
+    expect(host.querySelector('[data-caliper-readout]')!.textContent).toBe('Horizontal 0 mm · Vertical 38 mm · Straight 38 mm');
+  });
+
+  it.each([640, 360])('keeps station labels and spans above Walls and Caliper notes at %s px', (width) => {
+    host.classList.add('viz-root'); host.dataset.theme = 'dark'; host.dataset.contrast = 'high';
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(width);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(240);
+    vi.stubGlobal('ResizeObserver', class {
+      callback: () => void;
+      constructor(callback: () => void) { this.callback = callback; }
+      observe() { this.callback(); }
+      disconnect() {}
+    });
+    mount(); click('Add station guide'); click('Add station guide');
+    const style = document.createElement('style'); style.textContent = stylesheet;
+    style.dataset.toolsTestStyle = ''; document.head.appendChild(style);
+    click('Show schematic walls');
+    const aboveNotes = () => {
+      const h = Number(svg().getAttribute('viewBox')!.split(' ')[3]);
+      expect(Number(svg().getAttribute('viewBox')!.split(' ')[2])).toBe(width);
+      const plates = svg().querySelectorAll('[data-guide="x"] rect, [data-guide-span="x"] rect');
+      expect(plates).toHaveLength(3);
+      for (const plate of plates) expect(Number(plate.getAttribute('y')) + Number(plate.getAttribute('height'))).toBeLessThanOrEqual(h - 80);
+      for (const line of svg().querySelectorAll('[data-guide="x"] line')) expect(Number(line.getAttribute('y2'))).toBeLessThanOrEqual(h - 80);
+      const notes = host.querySelector<HTMLDivElement>('.schematic-tool-notes')!;
+      expect(notes.style.left).toBe('26px');
+      const css = getComputedStyle(notes);
+      const outerCap = parseFloat(css.maxHeight) + (css.boxSizing === 'border-box' ? 0
+        : parseFloat(css.paddingTop) + parseFloat(css.paddingBottom));
+      expect(outerCap).toBeLessThanOrEqual(80);
+    };
+    aboveNotes(); click('Measure two points'); aboveNotes();
+    click('Hide schematic walls'); aboveNotes();
+  });
+
+  it('describes the focused caliper keyboard controls and restores pan instructions on clearing', () => {
+    mount(); click('Measure two points');
+    expect(document.activeElement).toBe(svg());
+    expect(svg().getAttribute('aria-label')).toContain('Caliper');
+    expect(svg().getAttribute('aria-label')).not.toMatch(/drag components|arrow keys to pan/);
+    const helpId = svg().getAttribute('aria-describedby');
+    expect(helpId).toBeTruthy();
+    const help = document.getElementById(helpId!)!;
+    expect(help?.textContent).toMatch(/arrows move.*Enter places.*Alt \+ arrows pan.*Escape clears/);
+    key(svg(), 'Enter'); key(svg(), 'ArrowRight'); key(svg(), 'Enter');
+    expect(host.querySelector('[data-caliper-readout]')!.textContent).toContain('Horizontal 1 mm');
+    key(svg(), 'Escape');
+    expect(svg().getAttribute('aria-describedby')).toBeNull();
+    expect(svg().getAttribute('aria-label')).toContain('arrow keys to pan');
+  });
+
   it.each([
     { length: 'mm', rulerReference2d: 'aft', grid2d: true, distance: '200 mm' },
     { length: 'in', rulerReference2d: 'offset', grid2d: false, distance: '7.874 in' },

@@ -13,6 +13,22 @@ const tree = { name: 'Walls', components: [{ id: 's', type: 'stage', children: [
 const options = { scale: 1000, x0: 0, cy: 100, roll: 0, idPrefix: 'w' };
 
 describe('N033 schematic walls', () => {
+  it.each([false, true])('uses effective nested tube diameters when measuring with walls %s', (walls) => {
+    const nested = { name: 'Fitting tubes', components: [{ id: 'b', type: 'bodytube',
+      length: 0.2, outerRadius: 0.02, thickness: 0.0003, children: [
+        { id: 'i', type: 'innertube', length: 0.1, outerRadius: 0.019, thickness: 0.0005 },
+        { id: 'c', type: 'tubecoupler', length: 0.05, thickness: 0.001, children: [
+          { id: 'nested', type: 'tubecoupler', length: 0.02, thickness: 0.001 },
+        ] },
+      ] }] } as RocketTree;
+    const lay = layoutSchematic(nested, { ...options, walls, measuring: true });
+    for (const [id, diameter] of [['i', 38], ['c', 39.4], ['nested', 37.4]] as const) {
+      const outline = lay.shapes.find(s => s.part?.id === id && s.tag === 'rect')!;
+      // At 1000 px/m, pixels equal mm; allow only JS arithmetic rounding.
+      expect(Number(outline.attrs['height'])).toBeCloseTo(diameter, 10);
+    }
+  });
+
   it('preserves the physical aft ruler station below the fit floor while reserving caliper space', () => {
     const short = { name: 'Short', components: [
       { id: 'b', type: 'bodytube', length: 0.03, outerRadius: 0.001 },

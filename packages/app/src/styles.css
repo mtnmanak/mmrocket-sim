@@ -2858,6 +2858,7 @@ html {
 }
 
 .schematic-tool-notes {
+  box-sizing: border-box;
   position: absolute;
   bottom: 0;
   left: 0;
