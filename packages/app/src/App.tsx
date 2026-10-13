@@ -50,6 +50,7 @@ import { MotorPicker } from './components/MotorPicker.js';
 import { useMenuPopup } from './components/useDialog.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
+import { PreflightAudit } from './components/PreflightAudit.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
 import {
   CD_REFERENCE_MACH, DesignStats, FlightStats, StatsChip, stabilityGlyphClass,
@@ -99,6 +100,7 @@ import { autoDelayCardText } from './components/MountDelayReport.js';
 import { installedMounts, reflyRun } from './services/flightRunner.js';
 import { flyBuiltDesign } from './services/simulateDesign.js';
 import { buildDesign, KERNEL_HANDLES, type DesignBuild } from './services/buildDesign.js';
+import { preflightAudit, readAuditMasses } from './services/preflightAudit.js';
 import { loadExMotorIdentities, loadExMotors } from './services/exMotors.js';
 import { autoDelaySaveNote, exportOrk, importOrk, type MeasuredFigures, type OrkExportFlightData, type OrkMotorRef } from './services/orkFile.js';
 import {
@@ -1363,6 +1365,15 @@ export function App() {
   [flightTree.components, assigned, effectiveKbf, effectiveSupersonic, effectiveHybrid, measured.massKg, primaryMountId, currentSetKey,
     prefs.units.length]);
   const built = 'error' in buildResult ? null : buildResult;
+  const auditCanReadMass = built !== null;
+  const auditMasses = useMemo(() => auditCanReadMass ? readAuditMasses(flightTree) : {},
+    // The diagnostic reads only components; motor picks and rocket renames do
+    // not change computed own-part mass (N028). Keep numeric evidence, not a handle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- components deliberately: no rocket-name dependency
+    [flightTree.components, auditCanReadMass]);
+  const designAudit = useMemo(() => preflightAudit(flightTree, auditMasses, built?.info.warningTexts),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- components deliberately: no rocket-name dependency
+    [flightTree.components, auditMasses, built]);
   const buildError = 'error' in buildResult ? buildResult.error : simError;
   // A fresh array every render whenever the build failed, which invalidated the
   // `notices` memo below on every render (eslint reports it by name). Stable
@@ -4185,8 +4196,8 @@ export function App() {
               const railFindings = railInterferenceFindings(tree);
               const railTexts = new Set(railFindings.map(f => f.text));
               const rest = built.info.warningTexts.filter(t => !railTexts.has(t));
-              return <div>
-                {(['caution', 'information'] as const).map(tier => {
+              return <div id="design-notes" tabIndex={-1}>
+                {(['danger', 'caution', 'information'] as const).map(tier => {
                   const texts = rest.filter(t => staticWarningTier(t) === tier);
                   return texts.length ? <Note key={tier} tier={tier} className="file-note" role="alert">
                     {texts.map(formatWarningText).join('\n')}
@@ -4208,6 +4219,7 @@ export function App() {
                 )}
               </div>;
             })()}
+            <PreflightAudit result={designAudit} onSelectPart={setSelectedId} />
           </div>
           {/* Drag analysis is a property of the geometry, so it sits under the
               rocket on Design (CFG-SPEC B2, ruling D5), collapsed until asked
