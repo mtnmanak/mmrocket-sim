@@ -227,7 +227,11 @@ export function countParts(nodes: readonly ComponentNode[]): number {
  * sentence is the reason a caller's own "Could not open that … file:" wraps.
  */
 export function refuseTooManyParts(nodes: readonly ComponentNode[]): void {
-  const parts = countParts(nodes);
+  refusePartCount(countParts(nodes));
+}
+
+/** The same refusal for a proven count made before allocating the design tree. */
+export function refusePartCount(parts: number): void {
   if (parts <= MAX_DESIGN_PARTS) return;
   // Worded like the importers' flight-configuration limit: the count, the limit, and that desktop OR has none.
   const err = new Error(`This design has ${parts.toLocaleString('en-US')} parts, past the `

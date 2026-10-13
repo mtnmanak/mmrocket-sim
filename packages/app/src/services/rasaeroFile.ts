@@ -12,6 +12,7 @@ import { asStageNodes, flownInstanceCount, freshId, mountMotorCount, mountsIn, p
 import { KERNEL_DEFAULT_FIN_POINTS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
 import { refuseTooManyParts, sanitizeTree } from '../tree/sanitize.js';
+import { refuseOversizedForeignXml } from './foreignPartPrecount.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { axialLength, positionOf } from '../tree/position.js';
@@ -372,6 +373,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   const decoded: { xml: string; note?: string } =
     typeof data === 'string' ? { xml: data } : decodeXml(inflated(new Uint8Array(data)));
   const xml = decoded.xml.replace(/^﻿?/, '');
+  refuseOversizedForeignXml(xml, 'cdx1');
   // Through the parser seam (xmlParse.ts); same message as before it.
   const doc = parseXml(xml, 'Not a valid RASAero file (XML parse error)');
   const design = doc.querySelector('RASAeroDocument > RocketDesign');
