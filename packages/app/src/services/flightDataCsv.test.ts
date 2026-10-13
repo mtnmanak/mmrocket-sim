@@ -38,6 +38,16 @@ function fakeSeries(): FlightSeries {
 }
 
 describe('seriesColumns', () => {
+  it('labels recorded active aerodynamic length and converts it with rocket dimensions', () => {
+    const input = { ...fakeSeries(), activeLength: [0.49, 0.37, null] };
+    const before = structuredClone(input);
+    const col = seriesColumns(input, '', IMPERIAL_UNITS).find(c => c.header === 'Active aerodynamic length (in)');
+    expect(col).toBeDefined();
+    expect(col!.values[0]).toBeCloseTo(0.49 / 0.0254, 12);
+    expect(col!.values[1]).toBeCloseTo(0.37 / 0.0254, 12);
+    expect(col!.values[2]).toBeNull();
+    expect(input).toEqual(before);
+  });
   it('keeps the friendly dozen (time first) plus non-duplicate extras', () => {
     const cols = seriesColumns(fakeSeries());
     // 12 friendly + Vz, dΦ, ρ, zz — the t/h/Vt duplicates are dropped.

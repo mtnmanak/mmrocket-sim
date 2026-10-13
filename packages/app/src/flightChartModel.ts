@@ -1,4 +1,4 @@
-import type { FlightSeries } from '@online-openrocket/engine';
+import type { FlightEvent, FlightSeries } from '@online-openrocket/engine';
 import type { Preferences } from './prefs/PrefsContext.js';
 import { siToUi, type Quantity } from './prefs/units.js';
 
@@ -31,6 +31,7 @@ export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: string[]): S
     { key: 'drag', title: 'Drag force', unit: 'N', color: C[5]! },
     { key: 'mach', title: 'Mach number', unit: '', color: C[6]! },
     { key: 'stability', title: 'Stability margin', unit: 'cal', color: C[7]! },
+    { key: 'stabilityPercent', title: 'Stability margin (% of active length)', unit: '%', color: C[7]! },
     { key: 'cpLocation', title: 'CP location', unit: u.length, quantity: 'length', color: C[0]!, f: (v) => siToUi('length', u.length, v) },
     { key: 'cgLocation', title: 'CG location', unit: u.length, quantity: 'length', color: C[1]!, f: (v) => siToUi('length', u.length, v) },
     { key: 'aoa', title: 'Angle of attack', unit: '°', color: C[2]!, f: (v) => (v * 180) / Math.PI },
@@ -64,6 +65,20 @@ export function comparisonMembers(preset: ComparisonPreset, catalog: SeriesDef[]
 }
 
 export const finiteSample = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/** N042: the branch's recorded geometry, never the edited design's length.
+ * Recovery/tumble CP no longer describes aerodynamic stability. */
+export function withStabilityPercent(series: FlightSeries, events: FlightEvent[] = []): FlightSeries {
+  const stop = Math.min(Infinity, ...events.filter(e =>
+    ['RECOVERY_DEVICE_DEPLOYMENT', 'TUMBLE'].includes(e.type) && finiteSample(e.time)).map(e => e.time));
+  return { ...series, stabilityPercent: series.time.map((t, i) => {
+    const length = series.activeLength?.[i], cp = series.cpLocation?.[i], cg = series.cgLocation?.[i];
+    if (!finiteSample(t) || t >= stop || !finiteSample(length) || length <= 0
+      || !finiteSample(cp) || !finiteSample(cg)) return null;
+    const value = (cp - cg) / length * 100;
+    return finiteSample(value) ? value : null;
+  }) };
+}
 
 export function usableSeries(series: FlightSeries, keys: string[], x = 'time'): boolean {
   return series.time.some((t, i) => finiteSample(t) && finiteSample(series[x]?.[i])

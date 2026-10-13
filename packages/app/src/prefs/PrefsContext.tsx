@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { UNITS, type Quantity, type UnitSelection } from './units.js';
 import { normalizePrinter } from './printers.js';
 import { normalizeDragAnalysis } from './dragAnalysis.js';
+import { normalizeFlightPlots } from './flightPlots.js';
 import { DEFAULT_PREFS, type Preferences } from './preferences.js';
 import type { AeroChoice } from './aeroChoice.js';
 
@@ -56,6 +57,7 @@ function load(): Preferences {
     const dragAnalysis = normalizeDragAnalysis(parsed.dragAnalysis);
     if (dragAnalysis) parsed.dragAnalysis = dragAnalysis;
     else delete parsed.dragAnalysis;
+    if (parsed.flightPlots !== undefined) parsed.flightPlots = normalizeFlightPlots(parsed.flightPlots);
     if (!Array.isArray(parsed.resultTiles) || !parsed.resultTiles.every((tile) => typeof tile === 'string')) {
       delete parsed.resultTiles;
     }

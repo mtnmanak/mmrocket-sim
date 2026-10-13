@@ -72,6 +72,54 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
 describe('flight comparisons wiring', () => {
+  it('recalls panel and comparison selections across units and missing branch data without changing the flight', () => {
+    const flight = result();
+    flight.branches = [{ name: 'Core', series: flight.series, events: [] },
+      { name: 'Booster', series: { ...data(), velocity: [] }, events: [] }];
+    const before = structuredClone(flight);
+    render(flight);
+    select('Comparison chart', 'phase');
+    act(() => button('Velocity').click());
+    const input = host.querySelector('.saved-flight-plots input') as HTMLInputElement;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'My coast');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => button('Save current plots').click());
+    select('Comparison chart', '');
+    act(() => button('Velocity').click());
+    select('Flight branch', '1');
+    act(() => button('Apply').click());
+    expect(host.textContent).toContain('This flight branch has no usable data for this comparison.');
+    select('Flight branch', '0');
+    expect(overlay().series[1]!.label).toContain('Velocity');
+    expect(host.querySelectorAll('.charts-grid .chart-panel')).toHaveLength(2);
+    act(() => {
+      const unit = host.querySelector<HTMLSelectElement>('[aria-label="Velocity unit"]')!;
+      unit.value = 'ft/s'; unit.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    act(() => button('Apply').click());
+    expect(overlay().series[1]!.label).toContain('ft/s');
+    expect(flight).toEqual(before);
+    const stored = JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!);
+    expect(stored.flightPlots[0]).toMatchObject({ name: 'My coast', panels: ['altitude', 'acceleration'], comparison: 'phase' });
+  });
+  it('plots percent stability using each branch recording and preserves the caliber series', () => {
+    const flight = result(); flight.series.activeLength = [2, 2, 1, 1, 1];
+    flight.branches = [{ name: 'Core', series: flight.series, events: [] },
+      { name: 'Booster', series: { ...data(), activeLength: [2, 2, 0.5, 0.5, 0.5] }, events: [] }];
+    const before = structuredClone(flight);
+    render(flight);
+    act(() => button('Stability margin (% of active length)').click());
+    const percent = () => live().find(p => String(p.series[1]?.label).includes('% of active length'))!;
+    expect(percent().data[1]![2]).toBeCloseTo(20, 12);
+    select('Flight branch', '1');
+    expect(percent().data[1]![2]).toBeCloseTo(40, 12);
+    act(() => button('Stability margin').click());
+    expect(live().find(p => p.series[1]?.label === 'Stability margin (cal)')!.data[1]).toEqual([2, 2, 2, 2, 2]);
+    expect(host.textContent).toContain('after recovery deployment or tumbling');
+    expect(flight).toEqual(before);
+  });
   it('identifies every single-stage plot in normal, expanded and zoomed views', () => {
     render(result());
     const check = () => {
@@ -113,7 +161,7 @@ describe('flight comparisons wiring', () => {
   });
   it('keeps three separate defaults and all five optional presets with summary Vz', () => {
     render(result()); expect(live()).toHaveLength(3); expect(host.querySelector('.comparison-panel')).toBeNull();
-    expect([...host.querySelectorAll('.comparison-controls option')].map((o) => o.textContent)).toEqual([
+    expect([...host.querySelector('.comparison-controls select')!.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
       'None', 'Altitude + velocity', 'Altitude + vertical velocity', 'Velocity + acceleration', 'Stability + CP + CG', 'Velocity vs altitude',
     ]);
     select('Comparison chart', 'altitude-vertical'); expect(live()).toHaveLength(4);

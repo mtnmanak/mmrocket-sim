@@ -449,6 +449,8 @@ export interface FlightSeries {
   stability: number[];
   cpLocation: number[];
   cgLocation: number[];
+  /** Active aerodynamic span (m), sample-aligned; absent on older artifacts. */
+  activeLength?: (number | null)[];
   /** Angle of attack (rad). */
   aoa: number[];
   /**

@@ -1088,6 +1088,7 @@ public final class OrkEngine {
         conditions.setTimeStep(timeStep > 0 ? timeStep : 0.05);
         conditions.setMaxSimulationTime(JsonLite.dbl(o, "maxTime", 1200));
         conditions.setRandomSeed(randomSeed);
+        conditions.getSimulationListenerList().add(new ActiveLengthListener());
         DelayProbeListener delayProbe = Boolean.TRUE.equals(o.get("delayProbe"))
                 ? new DelayProbeListener() : null;
         if (delayProbe != null) conditions.getSimulationListenerList().add(delayProbe);
@@ -1591,6 +1592,8 @@ public final class OrkEngine {
         appendSeries(sb, "cpLocation", branch.get(FlightDataType.TYPE_CP_LOCATION)).append(',');
         appendSeries(sb, "cgLocation", branch.get(FlightDataType.TYPE_CG_LOCATION)).append(',');
         appendSeries(sb, "aoa", branch.get(FlightDataType.TYPE_AOA));
+        sb.append(',');
+        appendSeries(sb, "activeLength", branch.get(ActiveLengthListener.LENGTH));
         // Symbol-keyed series ("Pl", "Cdf", "mp"…) beyond the friendly
         // dozen, in getTypes()' natural sort order — only the types this
         // branch actually carries. Key ORDER is deterministic; with
@@ -1599,6 +1602,7 @@ public final class OrkEngine {
         // Summary mode emits only SUMMARY_SYMBOL_TYPES; full mode emits
         // everything except tc and the friendly-named duplicates.
         for (FlightDataType type : branch.getTypes()) {
+            if (type.equals(ActiveLengthListener.LENGTH)) continue;
             if (fullSeries
                     ? (type.equals(FlightDataType.TYPE_COMPUTATION_TIME)
                             || FRIENDLY_NAMED_TYPES.contains(type))
