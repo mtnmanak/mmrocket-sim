@@ -422,6 +422,47 @@ async function reviewGerlach(launch?: LaunchConditions) {
   choose(q('.weather-when select'), String(SAT_2PM));
 }
 
+describe('the highlighted button follows the next step (issues-2026-10-13a.md)', () => {
+  const lit = () => [...host.querySelectorAll('button.file-btn-primary')].map((b) => b.textContent?.trim());
+
+  it('lights Search, then Fetch once a place is picked, then Apply once there is weather to apply', async () => {
+    render();
+    // Before anything is typed: Search is the step, though it cannot be pressed yet.
+    expect(lit()).toEqual(['Search']);
+    expect(button('Apply')!.disabled).toBe(true);
+    typeInto(q('input[aria-label="Place"]'), 'Gerlach, NV');
+    choose(q('.weather-country select'), 'US');
+    expect(lit()).toEqual(['Search']);
+    await click(button('Search'));
+    // A list to pick from: no place is chosen yet, so Search stays lit and Apply does not.
+    expect(button(/^Gerlach, Nevada, US/)).toBeTruthy();
+    expect(lit()).toEqual(['Search']);
+    await click(button(/^Gerlach, Nevada, US/));
+    expect(lit()).toEqual(['Fetch']);
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    await click(button('Fetch'));
+    expect(q('.weather-review')).toBeTruthy();
+    expect(lit()).toEqual(['Apply']);
+    expect(button('Apply')!.disabled).toBe(false);
+    // A new date throws the answer away: Fetch is the step again.
+    typeInto(q('input[type="date"]'), '2026-09-27');
+    expect(lit()).toEqual(['Fetch']);
+  });
+
+  it('opens on Fetch for Fetch again, whose place is already known', () => {
+    render({ initialPlace: RENO, initialHour: { validUnix: SAT_2PM, timezone: 'America/Los_Angeles' } });
+    expect(lit()).toEqual(['Fetch']);
+  });
+
+  it('a disabled primary drops the accent fill, so an unlit step never looks like the next one', () => {
+    const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
+    const rule = /\.file-btn-primary:disabled,\s*\.file-btn-primary:disabled:hover\s*\{([^}]*)\}/.exec(css);
+    expect(rule, 'the disabled-primary rule').toBeTruthy();
+    expect(rule![1]).toContain('background: var(--surface-3)');
+    expect(css).toMatch(/\.file-btn:disabled\s*\{[^}]*opacity: 0\.5/);
+  });
+});
+
 describe('the weather dialog', () => {
   it('omits the information block when the API omits its fields', async () => {
     await reviewGerlach();

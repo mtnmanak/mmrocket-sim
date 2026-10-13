@@ -2372,6 +2372,40 @@ html {
   border-color: var(--border);
 }
 
+/* A disabled button must not look pressable — and a disabled PRIMARY must not
+   look like the next step (issues-2026-10-13a.md: the weather dialog's unlit
+   Apply wore the accent fill before anything had been searched). Until
+   v0.187 no .file-btn had a disabled look at all; the few that had one
+   (schematic controls, Launch) keep their own rules. After the variants, so
+   their hovers do not light a
+   disabled one. */
+.file-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.file-btn:disabled:hover {
+  background: var(--surface-3);
+  filter: none;
+}
+
+.file-btn-danger:disabled:hover,
+.file-btn-ghost:disabled:hover {
+  background: transparent;
+}
+
+.file-btn-ghost:disabled:hover {
+  border-color: transparent;
+}
+
+.file-btn-primary:disabled,
+.file-btn-primary:disabled:hover {
+  background: var(--surface-3);
+  border-color: var(--border);
+  color: var(--text-primary);
+  font-weight: normal;
+}
+
 /* Every download button names its DATA and puts the format in parentheses;
    this caption is what tells you which dataset the group beside it is. Three
    different files on the Results tab used to be labelled "⬇ CSV". */
@@ -4119,6 +4153,7 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .empty-state svg,
 .viz-root[data-contrast='high'] .series-dot,
 .viz-root[data-contrast='high'] .fin-row-del:disabled,
+.viz-root[data-contrast='high'] .file-btn:disabled,
 .viz-root[data-contrast='high'] .schematic-controls .file-btn:disabled,
 .viz-root[data-contrast='high'] .chart-btn:disabled,
 .viz-root[data-contrast='high'] .launch-btn:disabled,
@@ -4150,7 +4185,8 @@ select.unit-chip:hover {
 
 /* Disabled chart buttons keep full opacity in sun (rule above); the state
    reads through ink instead — muted text on a gray border vs. black-on-black
-   for a live button. */
+   for a live button. File buttons the same (issues-2026-10-13a.md). */
+.viz-root[data-contrast='high'] .file-btn:disabled,
 .viz-root[data-contrast='high'] .chart-btn:disabled {
   color: var(--text-muted);
   border-color: var(--chart-grid);

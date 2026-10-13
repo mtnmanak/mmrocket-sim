@@ -359,6 +359,14 @@ export function WeatherDialog({
   }) : {};
   const applyingWind = patch.windAverage !== undefined;
   const canApply = proposal !== null && Object.keys(patch).length > 0;
+  // ONE highlighted button, on the next step: Search until a place is chosen,
+  // then Fetch until there is weather to review, then Apply. Apply lit from
+  // the start read as the next step before anything had been searched
+  // (Eric, issues-2026-10-13a.md: "potter, ny" typed, Apply looked like the
+  // way on). A list of places to pick from keeps Search lit — no place is
+  // chosen yet — and the list itself is the step.
+  const nextStep: 'search' | 'fetch' | 'apply' = !place ? 'search' : !answer ? 'fetch' : 'apply';
+  const tier = (step: typeof nextStep) => (nextStep === step ? 'file-btn file-btn-primary' : 'file-btn');
   // The step-4 preview: what the panel's σ chip will offer from this hour.
   const gust = sigmaFromGust(proposal?.sample.windSpeedMs, proposal?.sample.windGustMs);
 
@@ -404,7 +412,7 @@ export function WeatherDialog({
           </label>
           {busy === 'search'
             ? <button type="button" className="file-btn" onClick={cancel}>Cancel</button>
-            : <button type="submit" className="file-btn" disabled={busy !== null || query.trim() === ''}>Search</button>}
+            : <button type="submit" className={tier('search')} disabled={busy !== null || query.trim() === ''}>Search</button>}
         </form>
         <div className="weather-place-alt">
           {/* A Cancel while the browser is asked, as for a search or a fetch: its
@@ -483,7 +491,7 @@ export function WeatherDialog({
             </label>
             {busy === 'fetch'
               ? <button type="button" className="file-btn" onClick={cancel}>Cancel</button>
-              : <button type="button" className="file-btn file-btn-primary" onClick={() => void runFetch()} disabled={busy !== null}>Fetch</button>}
+              : <button type="button" className={tier('fetch')} onClick={() => void runFetch()} disabled={busy !== null}>Fetch</button>}
             {answer && hours.length > 0 && (
               <label>
                 Hour{' '}
@@ -631,7 +639,7 @@ export function WeatherDialog({
         )}
 
         <div className="modal-actions weather-actions">
-          <button type="button" className="file-btn file-btn-primary" onClick={apply} disabled={!canApply}>Apply</button>
+          <button type="button" className={tier('apply')} onClick={apply} disabled={!canApply}>Apply</button>
           <button type="button" className="file-btn" onClick={onClose}>Cancel</button>
         </div>
 
