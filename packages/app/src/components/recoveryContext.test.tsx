@@ -64,7 +64,8 @@ describe('recovery configuration context', () => {
       expect(block().textContent).toContain('In the working settings: overridden — Altitude (descending), 121.92 m');
       // No context (isolated panel): the own setting, no link.
       render(null, {}, false, false);
-      expect(block().querySelector('button')).toBeNull();
+      // No link button; a definition ⓘ (N020) is not a link.
+      expect(block().querySelector('button:not(.glossary-help)')).toBeNull();
     } finally { act(() => root.unmount()); }
   });
 

@@ -477,10 +477,12 @@ describe('the highlighted button follows the next step (issues-2026-10-13a.md)',
 
   it('a disabled primary drops the accent fill, so an unlit step never looks like the next one', () => {
     const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
-    const rule = /\.file-btn-primary:disabled,\s*\.file-btn-primary:disabled:hover\s*\{([^}]*)\}/.exec(css);
+    // The disabled state also covers aria-disabled (v0.188: a busy menu opener keeps its focus).
+    const dis = String.raw`:is\(:disabled, \[aria-disabled='true'\]\)`;
+    const rule = new RegExp(String.raw`\.file-btn-primary${dis},\s*\.file-btn-primary${dis}:hover\s*\{([^}]*)\}`).exec(css);
     expect(rule, 'the disabled-primary rule').toBeTruthy();
     expect(rule![1]).toContain('background: var(--surface-3)');
-    expect(css).toMatch(/\.file-btn:disabled\s*\{[^}]*opacity: 0\.5/);
+    expect(css).toMatch(new RegExp(String.raw`\.file-btn${dis}\s*\{[^}]*opacity: 0\.5`));
   });
 });
 

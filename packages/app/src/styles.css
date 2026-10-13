@@ -2397,8 +2397,8 @@ html {
   border-color: transparent;
 }
 
-.file-btn-primary:disabled,
-.file-btn-primary:disabled:hover {
+.file-btn-primary:is(:disabled, [aria-disabled='true']),
+.file-btn-primary:is(:disabled, [aria-disabled='true']):hover {
   background: var(--surface-3);
   border-color: var(--border);
   color: var(--text-primary);
