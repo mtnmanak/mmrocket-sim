@@ -134,7 +134,7 @@ export function FinPointsEditor({ points, onChange }: {
   const helpId = useId();
 
   const touches = useRef(new Map<number, FinPoint>());
-  const pinch = useRef<{ transform: Transform; center: FinPoint; distance: number } | null>(null);
+  const pinch = useRef<{ ids: [number, number]; transform: Transform; center: FinPoint; distance: number } | null>(null);
   // After a pinch ends, the remaining finger must lift before it can edit.
   const touchView = useRef(false);
 
@@ -210,8 +210,9 @@ export function FinPointsEditor({ points, onChange }: {
     svgRef.current!.setPointerCapture?.(e.pointerId);
   };
 
-  const touchPair = () => {
-    const [a, b] = [...touches.current.values()];
+  const touchPair = (ids: [number, number]) => {
+    const a = touches.current.get(ids[0]);
+    const b = touches.current.get(ids[1]);
     if (!a || !b) return null;
     return { center: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] as FinPoint,
       distance: Math.hypot(b[0] - a[0], b[1] - a[1]) };
@@ -223,8 +224,9 @@ export function FinPointsEditor({ points, onChange }: {
     if (touches.current.size !== 2) return;
     // N019: a second finger cancels a tentative point edit, never drops it.
     clearPress(false);
-    const pair = touchPair()!;
-    pinch.current = { ...pair, transform: currentView() };
+    const ids = [...touches.current.keys()] as [number, number];
+    const pair = touchPair(ids)!;
+    pinch.current = { ...pair, ids, transform: currentView() };
     touchView.current = true;
     for (const id of touches.current.keys()) svgRef.current!.setPointerCapture?.(id);
   };
@@ -260,7 +262,7 @@ export function FinPointsEditor({ points, onChange }: {
     if (touches.current.has(e.pointerId)) {
       touches.current.set(e.pointerId, clientToSvg(e));
       const start = pinch.current;
-      const pair = touchPair();
+      const pair = start && start.ids.includes(e.pointerId) ? touchPair(start.ids) : null;
       if (start && pair) {
         const zoomed = zoomFin(start.transform, start.center,
           start.distance > 0 ? pair.distance / start.distance : 1, layoutTransform.scale);
@@ -309,7 +311,8 @@ export function FinPointsEditor({ points, onChange }: {
   const finishTouch = (e: React.PointerEvent): boolean => {
     if (!touches.current.delete(e.pointerId)) return false;
     const consumed = touchView.current;
-    pinch.current = null;
+    // N019: an extra finger lifting must not stop the original pair's view gesture.
+    if (pinch.current?.ids.includes(e.pointerId)) pinch.current = null;
     if (touches.current.size === 0) touchView.current = false;
     if (consumed && svgRef.current?.hasPointerCapture?.(e.pointerId)) svgRef.current.releasePointerCapture(e.pointerId);
     return consumed;

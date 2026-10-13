@@ -198,6 +198,54 @@ describe('view gestures preserve fin coordinates (N019)', () => {
     expect(commits).toEqual([]);
   });
 
+  it.each(['pointerup', 'pointercancel'])('keeps the original pinch pair moving after a third touch %s', (finish) => {
+    const before = structuredClone(GOOD);
+    const svg = svgEl();
+    const target = capturePointers();
+    pointer(handle(1), 'pointerdown', { x: 106, y: 22, touch: true });
+    pointer(svg, 'pointerdown', { x: 206, y: 22, touch: true, id: 2, primary: false });
+    pointer(target(2, document.body), 'pointermove', { x: 306, y: 22, touch: true, id: 2, primary: false });
+    pointer(target(1, document.body), 'pointermove', { x: 116, y: 32, touch: true });
+    pointer(target(2, document.body), 'pointermove', { x: 316, y: 32, touch: true, id: 2, primary: false });
+    expect(location(2)[0]).toBeCloseTo(326, 9);
+    expect(location(2)[1]).toBeCloseTo(32, 9);
+    pointer(svg, 'pointerdown', { x: 180, y: 100, touch: true, id: 3, primary: false });
+    const held = location(2);
+    pointer(svg, 'pointermove', { x: 280, y: 120, touch: true, id: 3, primary: false });
+    expect(location(2)).toEqual(held);
+    pointer(svg, finish, { x: 280, y: 120, touch: true, id: 3, primary: false });
+    pointer(target(2, document.body), 'pointermove', { x: 336, y: 32, touch: true, id: 2, primary: false });
+    // Separation 220 / 100: point 3 is 55 * 2.2 + midpoint 226 = 347.
+    expect(location(2)[0]).toBeCloseTo(347, 9);
+    expect(location(2)[1]).toBeCloseTo(32, 9);
+    pointer(target(1, document.body), 'pointermove', { x: 126, y: 42, touch: true });
+    pointer(target(2, document.body), 'pointermove', { x: 346, y: 42, touch: true, id: 2, primary: false });
+    expect(location(2)[0]).toBeCloseTo(357, 9);
+    expect(location(2)[1]).toBeCloseTo(42, 9);
+    pointer(target(1, document.body), 'pointerup', { x: 126, y: 42, touch: true });
+    pointer(target(2, document.body), 'pointerup', { x: 346, y: 42, touch: true, id: 2, primary: false });
+    expect(commits).toEqual([]);
+    expect(GOOD).toEqual(before);
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Point 2 x"]')!.value).toBe('20');
+    expect(host.querySelector<HTMLInputElement>('input[aria-label="Point 2 y"]')!.value).toBe('30');
+  });
+
+  it.each(['pointerup', 'pointercancel'])('ends the pinch when an original finger %s with a third touch still down', (finish) => {
+    const svg = svgEl();
+    pointer(handle(1), 'pointerdown', { x: 106, y: 22, touch: true });
+    pointer(svg, 'pointerdown', { x: 206, y: 22, touch: true, id: 2, primary: false });
+    pointer(svg, 'pointermove', { x: 306, y: 22, touch: true, id: 2, primary: false });
+    pointer(svg, 'pointerdown', { x: 180, y: 100, touch: true, id: 3, primary: false });
+    const held = location(2);
+    pointer(svg, finish, { x: 106, y: 22, touch: true });
+    pointer(svg, 'pointermove', { x: 336, y: 32, touch: true, id: 2, primary: false });
+    pointer(svg, 'pointermove', { x: 280, y: 120, touch: true, id: 3, primary: false });
+    expect(location(2)).toEqual(held);
+    pointer(svg, 'pointerup', { x: 336, y: 32, touch: true, id: 2, primary: false });
+    pointer(svg, 'pointerup', { x: 280, y: 120, touch: true, id: 3, primary: false });
+    expect(commits).toEqual([]);
+  });
+
   it('view gestures spend no undo steps and a long zoomed drag undoes in one step', () => {
     let history: TreeHistory;
     const initial: RocketTree = { components: [{ type: 'freeformfinset', id: 'fin', points: GOOD }] };
