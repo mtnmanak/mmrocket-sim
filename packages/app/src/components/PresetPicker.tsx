@@ -11,8 +11,26 @@ import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSig, siToUi } from '../prefs/units.js';
 import { downloadBlob } from '../services/saveFile.js';
 import { numOpt } from '../tree/nodeNum.js';
+import { canopyCdA } from '../services/recoverySizing.js';
 
 const ROW_CAP = 300;
+type SortKey = 'manufacturer' | 'partNo' | 'description' | 'dimensions' | 'material'
+  | 'mass' | 'packedDiameter' | 'packedLength' | 'cdA';
+
+const positive = (p: Preset, key: string): number | undefined => {
+  const v = numOpt(p, key);
+  return v !== undefined && v > 0 ? v : undefined;
+};
+
+function sortValue(p: Preset, key: SortKey): string | number | null | undefined {
+  switch (key) {
+    case 'manufacturer': case 'partNo': case 'description': return p[key];
+    case 'material': return p.material?.name;
+    case 'dimensions': return numOpt(p, 'outsideDiameter') ?? numOpt(p, 'aftOutsideDiameter') ?? numOpt(p, 'diameter');
+    case 'cdA': return canopyCdA(p);
+    default: return positive(p, key);
+  }
+}
 
 /**
  * Component preset chooser over the bundled openrocket-database catalog
@@ -38,7 +56,10 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
 }) {
   const { prefs } = usePrefs();
   const lenSym = prefs.units.length;
+  const massSym = prefs.units.mass;
   const kind = KIND_FOR_TYPE[type]!;
+  const isChute = type === 'parachute';
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null);
 
   const [all, setAll] = useState<Preset[] | null>(null);
   const [text, setText] = useState('');
@@ -66,7 +87,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
   );
   const rows = useMemo(() => {
     const q = text.trim().toLowerCase();
-    return ofKind.filter((p) =>
+    const filtered = ofKind.filter((p) =>
       (!mfr || p.manufacturer === mfr)
       && (!q || p.partNo.toLowerCase().includes(q)
         || p.description.toLowerCase().includes(q)
@@ -76,7 +97,40 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
         // 2026-09-01a manufacturer consolidation, because one canonical
         // spelling is only useful if you can search for it.
         || p.manufacturer.toLowerCase().includes(q)));
-  }, [ofKind, mfr, text]);
+    if (sort) filtered.sort((a, b) => {
+      const av = sortValue(a, sort.key);
+      const bv = sortValue(b, sort.key);
+      // N026: unpublished measurements stay blank and sort after known ones in either direction.
+      if (av == null || av === '') return bv == null || bv === '' ? 0 : 1;
+      if (bv == null || bv === '') return -1;
+      return sort.dir * (typeof av === 'number' && typeof bv === 'number'
+        ? av - bv : String(av).localeCompare(String(bv), undefined, { numeric: true }));
+    });
+    return filtered;
+  }, [ofKind, mfr, text, sort]);
+
+  const columns: { key: SortKey; label: string }[] = [
+    { key: 'manufacturer', label: 'Manufacturer' },
+    { key: 'partNo', label: 'Part number' },
+    { key: 'description', label: 'Description' },
+    { key: 'dimensions', label: 'Dimensions' },
+    { key: 'material', label: 'Material' },
+    ...(isChute ? [
+      { key: 'mass' as const, label: `Mass (${massSym})` },
+      { key: 'packedDiameter' as const, label: `Packed diameter (${lenSym})` },
+      { key: 'packedLength' as const, label: `Packed length (${lenSym})` },
+      { key: 'cdA' as const, label: `Effective CdA (${lenSym}²)` },
+    ] : []),
+  ];
+  const measurement = (p: Preset, key: 'mass' | 'packedDiameter' | 'packedLength'): string => {
+    const v = positive(p, key);
+    return v === undefined ? '' : fmtSig(siToUi(key === 'mass' ? 'mass' : 'length', key === 'mass' ? massSym : lenSym, v), 3, 1);
+  };
+  const dragArea = (p: Preset): string => {
+    const area = canopyCdA(p);
+    // N026: square the length conversion; CdA remains Cd times the vent-adjusted area.
+    return area === null ? '' : fmtSig(area * siToUi('length', lenSym, 1) ** 2, 3, 1);
+  };
 
   const dim = (p: Preset): string => {
     const v = (k: string) => numOpt(p, k);
@@ -197,10 +251,10 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
 
   return (
     <div className="prefs-overlay" role="presentation" {...backdrop}>
-      <div className="prefs-dialog panel motor-browser" role="dialog" aria-modal="true" aria-label="Component presets"
+      <div className="prefs-dialog panel motor-browser preset-picker" role="dialog" aria-modal="true" aria-label="Component presets"
         ref={dialogRef} tabIndex={-1}
         onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <div className="preset-picker-heading">
           <h2 style={{ flex: 1 }}>
             {kind} presets
             <span className="motor-db-meta">openrocket-database{all ? ` · ${ofKind.length} parts` : ''}</span>
@@ -237,22 +291,25 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
           </select>
         </div>
 
+        {isChute && <Note as="p" tier="information" className="preset-comparison-note">
+          Packed sizes are as published, before fitting to the parent tube. Effective CdA is Cd × canopy area
+          with the spill hole removed, using the app's convention. Blank cells mean the source has no usable value;
+          a missing Cd is not filled with the flight default.
+        </Note>}
         <div className="motor-table-wrap">
           {!all && !note && <p className="placeholder">Loading preset database…</p>}
           <span id={hintId} className="sr-only">Enter applies this part and closes the presets.</span>
           <table className="motor-table">
-            {/* A <thead> at last (2026-09-08 audit). Five unlabelled data
-                columns, on the dialog whose whole job is COMPARING parts, so a
-                screen reader announced every cell with no column identity. The
-                sibling MotorBrowser table has had full headers with aria-sort
-                throughout — this was drift between two pickers, not a decision. */}
             <thead>
               <tr>
-                <th scope="col">Manufacturer</th>
-                <th scope="col">Part number</th>
-                <th scope="col">Description</th>
-                <th scope="col">Dimensions</th>
-                <th scope="col">Material</th>
+                {columns.map(({ key, label }) => <th key={key} scope="col"
+                  aria-sort={sort?.key === key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined}>
+                  {isChute ? <button type="button" className="preset-sort" onClick={() => setSort((prev) => ({
+                    key, dir: prev?.key === key && prev.dir === 1 ? -1 : 1,
+                  }))}>
+                    {label}{sort?.key === key ? (sort.dir === 1 ? ' ▲' : ' ▼') : ''}
+                  </button> : label}
+                </th>)}
               </tr>
             </thead>
             <tbody ref={bodyRef}>
@@ -268,6 +325,12 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
                   <td>{p.description}</td>
                   <td>{dim(p)}</td>
                   <td>{p.material?.name ?? ''}</td>
+                  {isChute && <>
+                    <td>{measurement(p, 'mass')}</td>
+                    <td>{measurement(p, 'packedDiameter')}</td>
+                    <td>{measurement(p, 'packedLength')}</td>
+                    <td>{dragArea(p)}</td>
+                  </>}
                 </tr>
               ))}
             </tbody>

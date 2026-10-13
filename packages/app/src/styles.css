@@ -3640,6 +3640,32 @@ select.unit-chip:hover {
   overflow-y: auto;
 }
 
+/* N026: keep the chute comparison within the dialog's own scroller on phones. */
+.preset-picker-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.preset-picker .motor-table-wrap { overflow-x: auto; }
+.preset-comparison-note { font-size: 12px; margin: 0 0 8px; }
+
+.preset-sort {
+  appearance: none;
+  background: transparent;
+  color: inherit;
+  border: 0;
+  border-radius: 3px;
+  font: inherit;
+  padding: 4px;
+  cursor: pointer;
+}
+
+.preset-sort:hover { background: var(--hover); }
+.preset-sort:active { background: var(--surface-3); }
+.preset-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
 .motor-db-meta {
   font-size: 11px;
   font-weight: 400;

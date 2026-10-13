@@ -4,8 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { PresetPicker } from './PresetPicker.js';
-import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { loadCustomPresets, loadPresets, saveCustomPresets, type Preset } from '../services/presets.js';
+import { DEFAULT_PREFS, PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
+import { loadCustomPresets, loadPresets, presetPatch, saveCustomPresets, type Preset } from '../services/presets.js';
 
 /**
  * The CSV round trip this dialog advertises (⬇ CSV, "Import an edited CSV") is
@@ -25,7 +25,7 @@ import { loadCustomPresets, loadPresets, saveCustomPresets, type Preset } from '
  * table shows nothing but what these tests import.
  */
 vi.mock('../data/presets.json', () => ({ default: { presets: [] } }));
-// Passed through unchanged; one test makes a single reload fail.
+// Passed through by default; individual tests override one load or reload.
 vi.mock('../services/presets.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../services/presets.js')>();
   return { ...real, loadPresets: vi.fn(real.loadPresets) };
@@ -118,6 +118,183 @@ afterEach(() => {
   act(() => root.unmount());
   host.remove();
   vi.restoreAllMocks();
+});
+
+describe('N026 parachute preset comparisons', () => {
+  const CHUTES: Preset[] = [
+    { kind: 'Parachute', manufacturer: 'ACME', partNo: 'VENT', description: 'Vented canopy',
+      diameter: 1, dragCoefficient: 2, spillHoleDiameter: 0.1, mass: 0.1,
+      packedDiameter: 0.05, packedLength: 0.2 },
+    { kind: 'Parachute', manufacturer: 'ACME', partNo: 'OPEN', description: 'Unvented canopy',
+      diameter: 1, dragCoefficient: 2, mass: 0.02, packedDiameter: 0.08 },
+    { kind: 'Parachute', manufacturer: 'ACME', partNo: 'LENGTH', description: 'Length only',
+      diameter: 0.5, dragCoefficient: 0.8, packedLength: 0.1 },
+    { kind: 'Parachute', manufacturer: 'ACME', partNo: 'UNKNOWN', description: 'No rated Cd', diameter: 1 },
+  ];
+  const bodyRows = () => [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')];
+  const cells = (partNo: string) => [...bodyRows().find((r) => r.cells[1]!.textContent === partNo)!.cells]
+    .map((c) => c.textContent);
+  const sort = (label: string) => {
+    const button = [...host.querySelectorAll<HTMLButtonElement>('thead button')]
+      .find((b) => b.textContent?.startsWith(label));
+    expect(button, `sortable ${label} header`).toBeDefined();
+    act(() => { button!.click(); });
+    return button!.closest('th')!;
+  };
+  const open = async (chutes = CHUTES, node?: ComponentNode, parentRadius?: number) => {
+    saveCustomPresets(chutes);
+    const onApply = vi.fn();
+    const onClose = vi.fn();
+    function ChangeUnits() {
+      const { prefs, setPrefs } = usePrefs();
+      return <button onClick={() => setPrefs({ ...prefs, units: { ...prefs.units, length: 'in', mass: 'oz' } })}>
+        Change units
+      </button>;
+    }
+    act(() => root.render(<PrefsProvider>
+      <ChangeUnits />
+      <PresetPicker type="parachute" node={node} parentRadius={parentRadius} onApply={onApply} onClose={onClose} />
+    </PrefsProvider>));
+    await flush();
+    return { onApply, onClose };
+  };
+
+  it('shows source mass and each published packed dimension, leaving missing halves blank', async () => {
+    await open();
+    expect(cells('VENT').slice(5, 8)).toEqual(['100', '50', '200']);
+    expect(cells('OPEN').slice(5, 8)).toEqual(['20', '80', '']);
+    expect(cells('LENGTH').slice(5, 8)).toEqual(['', '', '100']);
+    expect(cells('UNKNOWN').slice(5)).toEqual(['', '', '', '']);
+    expect(host.querySelector('thead')!.textContent).toContain('Mass (g)');
+    expect(host.querySelector('thead')!.textContent).toContain('Packed diameter (mm)');
+    expect(host.querySelector('thead')!.textContent).toContain('Packed length (mm)');
+    expect(text()).toContain('Packed sizes are as published');
+  });
+
+  it('keeps Cd and vent area together and does not fill unknown Cd with the flight default', async () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
+      ...DEFAULT_PREFS, units: { ...DEFAULT_PREFS.units, length: 'm' },
+    }));
+    await open();
+    // Rounded display tolerance (3 significant figures), not a kernel float literal.
+    expect(Number(cells('VENT')[8])).toBeCloseTo(2 * Math.PI * (1 - 0.1 ** 2) / 4, 2);
+    expect(Number(cells('OPEN')[8])).toBeCloseTo(2 * Math.PI / 4, 2);
+    expect(cells('UNKNOWN')[8]).toBe('');
+    expect(host.querySelector('thead')!.textContent).toContain('Effective CdA (m²)');
+  });
+
+  it('converts mass, packed lengths and drag area when display units change', async () => {
+    await open();
+    act(() => [...host.querySelectorAll('button')].find((b) => b.textContent === 'Change units')!.click());
+    expect(host.querySelector('thead')!.textContent).toContain('Mass (oz)');
+    expect(host.querySelector('thead')!.textContent).toContain('Packed diameter (in)');
+    expect(host.querySelector('thead')!.textContent).toContain('Effective CdA (in²)');
+    expect(Number(cells('VENT')[5])).toBeCloseTo(0.1 / 0.0283495231, 2);
+    expect(Number(cells('VENT')[6])).toBeCloseTo(0.05 / 0.0254, 2);
+    expect(Number(cells('VENT')[7])).toBeCloseTo(0.2 / 0.0254, 2);
+    expect(Number(cells('VENT')[8])).toBeCloseTo((2 * Math.PI * (1 - 0.1 ** 2) / 4) / 0.0254 ** 2, 1);
+  });
+
+  it.each(['mass', 'packedDiameter', 'packedLength', 'diameter', 'dragCoefficient'])(
+    'leaves invalid stored %s blank (nonfinite values become null)', async (field) => {
+      const invalid = [0, -1, NaN, Infinity, '0.1', null].map((v, i) => ({ ...CHUTES[0]!, partNo: `BAD-${i}`, [field]: v }));
+      await open(invalid);
+      const col = { mass: 5, packedDiameter: 6, packedLength: 7, diameter: 8, dragCoefficient: 8 }[field]!;
+      for (const p of invalid) expect(cells(p.partNo)[col]).toBe('');
+    });
+
+  it.each(['mass', 'packedDiameter', 'packedLength', 'diameter', 'dragCoefficient'])(
+    'leaves in-memory nonfinite %s blank instead of showing a formatting placeholder', async (field) => {
+      const invalid = [NaN, Infinity, -Infinity].map((v, i) => ({ ...CHUTES[0]!, partNo: `NONFINITE-${i}`, [field]: v }));
+      // N026 review F1: bypass JSON storage so the picker receives nonfinite numbers.
+      vi.mocked(loadPresets).mockResolvedValueOnce(invalid);
+      await open();
+      const col = { mass: 5, packedDiameter: 6, packedLength: 7, diameter: 8, dragCoefficient: 8 }[field]!;
+      for (const p of invalid) expect(cells(p.partNo)[col]).toBe('');
+    });
+
+  it.each([
+    ['Mass', ['OPEN', 'VENT', 'LENGTH', 'UNKNOWN']],
+    ['Packed diameter', ['VENT', 'OPEN', 'LENGTH', 'UNKNOWN']],
+    ['Packed length', ['LENGTH', 'VENT', 'OPEN', 'UNKNOWN']],
+    ['Effective CdA', ['LENGTH', 'VENT', 'OPEN', 'UNKNOWN']],
+  ])('sorts %s numerically in both directions with blanks last, without applying', async (label, ascending) => {
+    const { onApply, onClose } = await open();
+    const header = sort(label);
+    expect(header.getAttribute('aria-sort')).toBe('ascending');
+    expect(bodyRows().map((r) => r.cells[1]!.textContent)).toEqual(ascending);
+    act(() => header.querySelector('button')!.click());
+    expect(header.getAttribute('aria-sort')).toBe('descending');
+    const knownCount = label === 'Mass' || label.startsWith('Packed') ? 2 : 3;
+    expect(bodyRows().map((r) => r.cells[1]!.textContent))
+      .toEqual([...ascending.slice(0, knownCount)].reverse().concat(ascending.slice(knownCount)));
+    expect(bodyRows().filter((r) => r.tabIndex === 0)).toHaveLength(1);
+    expect(onApply).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('sorts before the 300-row display cap and keeps the full filtered list available', async () => {
+    await open(Array.from({ length: 301 }, (_, i) => ({ ...CHUTES[0]!, partNo: `P-${i}`, mass: 1 / (i + 1) })));
+    sort('Mass');
+    expect(bodyRows()).toHaveLength(300);
+    expect(bodyRows()[0]!.cells[1]!.textContent).toBe('P-300');
+    expect(text()).toContain('Showing 300 of 301');
+  });
+
+  it.each([
+    ['Manufacturer', ['Z-2', 'Z-10']],
+    ['Part number', ['Z-2', 'Z-10']],
+    ['Description', ['Z-2', 'Z-10']],
+    ['Dimensions', ['Z-2', 'Z-10']],
+    ['Material', ['Z-2', 'Z-10']],
+  ])('sorts the existing %s column while preserving its columnheader role', async (label, ascending) => {
+    await open([
+      { ...CHUTES[0]!, manufacturer: 'Maker 10', partNo: 'Z-10', description: 'Canopy 10', diameter: 1,
+        material: { name: 'Nylon 10', type: 'SURFACE', density: 0.067 } },
+      { ...CHUTES[0]!, manufacturer: 'Maker 2', partNo: 'Z-2', description: 'Canopy 2', diameter: 0.5,
+        material: { name: 'Nylon 2', type: 'SURFACE', density: 0.067 } },
+    ]);
+    const header = sort(label);
+    expect(header.getAttribute('role')).toBeNull();
+    expect(header.getAttribute('scope')).toBe('col');
+    expect(header.querySelector('button')!.tabIndex).toBe(0);
+    expect(bodyRows().map((r) => r.cells[1]!.textContent)).toEqual(ascending);
+  });
+
+  it('keeps the comparison sort when the manufacturer filter changes', async () => {
+    await open();
+    sort('Mass');
+    act(() => {
+      const filter = host.querySelector<HTMLSelectElement>('select[aria-label="Filter by manufacturer"]')!;
+      filter.value = 'ACME';
+      filter.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(bodyRows().map((r) => r.cells[1]!.textContent)).toEqual(['OPEN', 'VENT', 'LENGTH', 'UNKNOWN']);
+    expect(host.querySelector('th[aria-sort="ascending"]')!.textContent).toContain('Mass');
+  });
+
+  it('keeps the other part types at their existing five columns', async () => {
+    await render();
+    expect([...host.querySelectorAll('th')].map((h) => h.textContent))
+      .toEqual(['Manufacturer', 'Part number', 'Description', 'Dimensions', 'Material']);
+    expect(host.querySelectorAll('thead button')).toHaveLength(0);
+    expect(host.querySelector('.preset-comparison-note')).toBeNull();
+  });
+
+  it('preserves the exact pick patch including the parent-adjusted packed size', async () => {
+    const node: ComponentNode = { type: 'parachute', id: 'p', name: 'Previous', cd: 0.8, packedRadius: 0.02, packedLength: 0.12 };
+    const { onApply, onClose } = await open(CHUTES, node, 0.04);
+    sort('Mass');
+    // The comparison shows the source size, even though applying uses the bay radius.
+    expect(cells('VENT').slice(6, 8)).toEqual(['50', '200']);
+    for (const p of CHUTES) {
+      const row = bodyRows().find((r) => r.cells[1]!.textContent === p.partNo)!;
+      act(() => { row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); });
+      expect(onApply).toHaveBeenLastCalledWith(presetPatch('parachute', p, { node, presets: CHUTES }, { parentRadius: 0.04 }));
+    }
+    expect(onApply).toHaveBeenCalledTimes(CHUTES.length);
+    expect(onClose).toHaveBeenCalledTimes(CHUTES.length);
+  });
 });
 
 describe('PresetPicker — CSV import', () => {
