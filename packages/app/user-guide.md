@@ -745,6 +745,16 @@ From any fin set, **📐 Fin template (1:1)** exports a **true-scale printable c
 
 The SVGs use physical millimeter units and a 0.2 mm hairline, so they feed a laser cutter directly. For CNC or laser cutting from CAD geometry rather than a drawing, use **✂ DXF (CNC/laser, 1:1)** (see *Files, Units, and Offline Use → File formats*).
 
+## 1:1 tube marking wraps (SVG, PNG, JPG)
+
+Select a straight round **Body tube**, or a trapezoidal, elliptical or freeform fin set attached to it, and choose **Tube wrap (1:1)**. The wrap uses the tube's outer circumference and each fin set's rotation and fin count. Solid lines mark fin positions; dashed lines mark launch lugs and rail buttons on that tube. Heavy ticks mark fin-root ends and guide positions. Tab-slot boxes show the tab's front and aft extents along the tube and use the fin thickness as their width, with no cutting allowance. Slot extents follow **Tab offset** and **Tab offset from**, clamped to the fin root, as in the individual fin template.
+
+Choose white or transparent **SVG**, or white **PNG/JPG at 300 dpi**, as for fin templates. Dimension and angle labels follow **Preferences → Units of measure → Rocket dimensions** and **Angle**. Each page states **Scale 1:1** and includes a calibration ruler: **50 mm** (shown in your length unit), or **2 in** when using inches or feet. Print at **100% with no fit to page** and measure the ruler on every sheet. If its length is wrong, the printed fin spacing and slots will be wrong too.
+
+Larger wraps download as a **ZIP of pages**, each sized to fit A4 or US Letter. Arrange the numbered rows and columns, match the printed coordinates in the overlap, then trim at the tube outline. The front of the tube is at the top; the aft end is at the bottom. Join the two edges at the zero-angle seam with the printed side facing out, and align the front edge with the front of the body tube. The wrap covers this tube's own fins, lugs and buttons; it does not carry lines from another tube or a pod onto this one.
+
+**Caution:** Measure the actual tube and check the fitted fins before cutting. The wrap includes no allowance for glue, cutting width, or paper thickness. Canted fins get reference-angle lines and a note, with slot outlines omitted; their fitted slots are not rectangular. Filled tubes have no through-the-wall slots. Parts extending beyond a tube are clipped at its ends and noted. This is a marking aid, separate from a fin alignment jig, and it changes no simulation setting.
+
 ## Drag analysis (CD vs Mach)
 
 The app remembers **Max Mach**, **Conditions**, the accepted altitude, **By component / By type**, and the CP display choice when you leave Design and, when browser storage is available, after a reload. Whether the panel is open lasts until you reload: it starts closed each visit, because the sweep takes a moment. Open it again to compute fresh curves for the current design. The Mach range still follows the active aero model; **File Mach-Alt table** falls back to **Sea level** when the current design has no table.
