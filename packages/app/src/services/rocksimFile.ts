@@ -1168,9 +1168,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     for (const tag of ['FinSet', 'CustomFinSet', 'TubeFinSet']) {
       for (const fin of Array.from(slotEl?.querySelectorAll(tag) ?? [])) {
         if (fin.parentElement?.closest('FinSet, CustomFinSet, TubeFinSet')) continue;
-        const wrap = fin.querySelector(':scope > AttachedParts');
-        if (!wrap?.children.length) continue;
-        const parts = Array.from(wrap.children);
+        const parts = Array.from(fin.children).filter(c => c.tagName === 'AttachedParts')
+          .flatMap(wrap => Array.from(wrap.children));
+        if (!parts.length) continue;
         const names: string[] = [];
         for (let at = 0; at < parts.length; at++) {
           const part = parts[at]!;

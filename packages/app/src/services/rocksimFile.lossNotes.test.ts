@@ -45,6 +45,20 @@ describe('RockSim discloses losses without moving or retaining the lost parts', 
     expect(importRkt(xml).noteTiers?.some(n => n.kind === 'I03.fin-attached')).toBe(false);
   });
 
+  it.each(['FinSet', 'CustomFinSet', 'TubeFinSet'])('%s discloses every direct AttachedParts block once', tag => {
+    const attached = '<MassObject><Name>A</Name></MassObject>';
+    const wing = fin(tag, attached).replace(`</${tag}>`, '<AttachedParts><MassObject><Name>B</Name></MassObject>'
+      + `</AttachedParts></${tag}>`);
+    const result = importRkt(rkt(tube(wing)));
+    const baseline = importRkt(rkt(tube(fin(tag, ''))));
+    expect(JSON.stringify(result.tree, withoutIds)).toBe(JSON.stringify(baseline.tree, withoutIds));
+    expect(mass(result.tree)).toBeCloseTo(mass(baseline.tree), 12);
+    const losses = result.noteTiers?.filter(n => n.kind === 'I03.fin-attached') ?? [];
+    expect(losses).toHaveLength(1);
+    expect(losses[0]?.tier).toBe('caution');
+    for (const name of ['Wing', 'A', 'B']) expect(losses[0]?.text.split(`“${name}”`)).toHaveLength(2);
+  }, 30_000);
+
   it('discloses fins judged by the inner-tube rule before a hostless stage tube becomes a body tube', () => {
     const result = importRkt(rkt(tube(fin('FinSet', ''), '<IsInsideTube>1</IsInsideTube>')));
     const baseline = importRkt(rkt(tube('', '<IsInsideTube>1</IsInsideTube>')));

@@ -14,6 +14,7 @@ import { countParts, MAX_DESIGN_PARTS, TOO_MANY_PARTS_ERROR_NAME } from '../tree
 import { makeNode } from '../tree/treeModel.js';
 import { browserXmlParser, currentXmlParser, setXmlParser } from './xmlParse.js';
 import { jsXmlParser } from './xmlParseJs.js';
+import * as foreignPartPrecount from './foreignPartPrecount.js';
 
 /**
  * THE PART LIMIT (board Tier 0 row 84, ruled by Eric 2026-10-11, option c):
@@ -65,6 +66,59 @@ describe('foreign-format pre-count (board Tier 2 part-cap early refusal)', () =>
         expect(parsed).toBe(false);
       } finally { setXmlParser(parser); }
     }, 30_000);
+
+  describe.each([
+    ['.rkt', importRkt, rktOf, 'RockSimDocument'],
+    ['.CDX1', importCdx1, cdxOf, 'RASAeroDocument'],
+  ] as const)('%s nested format documents', (_format, read, input, documentTag) => {
+    it.each(['before', 'after'] as const)('%s the direct design keeps the parser-selected tree or refusal', placement => {
+      const nested = `<Unknown>${input(2)}</Unknown>`;
+      const xml = placement === 'before' ? input(2001).replace(`<${documentTag}>`, `<${documentTag}>${nested}`)
+        : input(2001).replace(`</${documentTag}>`, `${nested}</${documentTag}>`);
+      const outcome = () => {
+        try {
+          const result = read(xml);
+          return { parts: countParts(result.tree.components),
+            tree: JSON.stringify(result.tree, (key, value: unknown) => key === 'id' ? undefined : value) };
+        } catch (e) {
+          return { error: (e as Error).message };
+        }
+      };
+      const bypass = vi.spyOn(foreignPartPrecount, 'refuseOversizedForeignXml').mockImplementation(() => {});
+      let baseline: ReturnType<typeof outcome>;
+      try { baseline = outcome(); } finally { bypass.mockRestore(); }
+      const parser = currentXmlParser();
+      // happy-dom selects differently here; pin the shipped JS reproduction
+      // while comparing each route with its own existing importer behavior.
+      if (parser === jsXmlParser) {
+        if (placement === 'before') expect(baseline.parts).toBe(2);
+        else expect(baseline.error).toBe(SENTENCE('2,001'));
+      }
+      let parsed = false;
+      setXmlParser(value => { parsed = true; return parser(value); });
+      try {
+        expect(outcome()).toEqual(baseline);
+        expect(parsed).toBe(true);
+      } finally { setXmlParser(parser); }
+    }, 30_000);
+  });
+
+  it('RASAero nested Recovery keeps the document-wide auxiliary selector and exact late count', () => {
+    const xml = cdxOf(2001).replace('<RASAeroDocument>', '<RASAeroDocument><Unknown><RASAeroDocument>'
+      + '<Recovery><Event1>true</Event1><EventType1>Apogee</EventType1></Recovery>'
+      + '</RASAeroDocument></Unknown>');
+    const bypass = vi.spyOn(foreignPartPrecount, 'refuseOversizedForeignXml').mockImplementation(() => {});
+    let baseline: string;
+    try { baseline = refusal(() => importCdx1(xml)).message; } finally { bypass.mockRestore(); }
+    const parser = currentXmlParser();
+    if (parser === jsXmlParser) expect(baseline).toBe(SENTENCE('2,002'));
+    let parsed = false;
+    setXmlParser(value => { parsed = true; return parser(value); });
+    try {
+      expect(refusal(() => importCdx1(xml)).message).toBe(baseline);
+      expect(parsed).toBe(true);
+    } finally { setXmlParser(parser); }
+  }, 30_000);
 
   it('RockSim does not count unsupported, incompatible, inactive-stage or fin-attached parts', () => {
     const ignored = '<Unknown><MassObject/></Unknown>'.repeat(2001);

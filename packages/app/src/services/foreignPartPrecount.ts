@@ -16,7 +16,7 @@ const child = (el: ElementCount, tag: string) => el.children.find(c => c.tag ===
  * fall back to the existing checks, never to a guessed count. Scan to the end
  * for the exact refusal count, without a DOM or any design-part allocation.
  */
-function plainElements(xml: string): ElementCount | undefined {
+function plainElements(xml: string, documentTag: string): ElementCount | undefined {
   // Tier 2 early refusal must not replace the parser's malformed-XML refusal.
   if (/[\x00-\x08\x0B\x0C\x0E-\x1F\uD800-\uDFFF\uFFFE\uFFFF]/u.test(xml)) return;
   const holder: ElementCount = { tag: '', text: '', children: [] };
@@ -50,6 +50,9 @@ function plainElements(xml: string): ElementCount | undefined {
     if (match[1]) {
       if (match[3] || stack.length === 1 || stack.pop()!.tag !== match[2]) return;
     } else {
+      // Tier 2: document-wide selectors may use a nested design or Recovery.
+      // Leave that selection to the installed parser and the existing late cap.
+      if (stack.length > 1 && match[2] === documentTag) return;
       const el: ElementCount = { tag: match[2]!, text: '', children: [] };
       stack[stack.length - 1]!.children.push(el);
       if (!match[3]) stack.push(el);
@@ -132,7 +135,7 @@ function rasaeroCount(root: ElementCount): number | undefined {
 
 export function refuseOversizedForeignXml(xml: string, format: 'rkt' | 'cdx1'): void {
   if (declaresDoctype(xml)) throw new XmlDoctypeRefused();
-  const root = plainElements(xml);
+  const root = plainElements(xml, format === 'rkt' ? 'RockSimDocument' : 'RASAeroDocument');
   if (!root) return;
   const count = format === 'rkt' ? rocksimCount(root) : rasaeroCount(root);
   if (count !== undefined && count > MAX_DESIGN_PARTS) refusePartCount(count);
