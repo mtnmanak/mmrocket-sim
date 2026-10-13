@@ -2,12 +2,48 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSessionDebugLog, MAX_DEBUG_LOG_BYTES, MAX_DEBUG_LOG_EVENTS, startSessionDebugCapture } from './sessionDebugLog.js';
 import { DEFAULT_PREFS } from '../prefs/preferences.js';
+import type { AeroChoice } from '../prefs/aeroChoice.js';
 
 const context = vi.hoisted(() => ({ version: 'test-version' }));
 vi.mock('../version.js', () => ({ get APP_VERSION() { return context.version; } }));
 afterEach(() => { context.version = 'test-version'; vi.restoreAllMocks(); });
 
 describe('C-H3 session diagnostics', () => {
+  it.each(['eb', 'kbf', 'auto', 'supersonic', 'hybrid', null] as const)('exports the session aero override %s with stored preferences intact', aeroOverride => {
+    const log = createSessionDebugLog();
+    log.preferences({ ...DEFAULT_PREFS, aeroModel: 'supersonic', rogersKbf: false }, aeroOverride);
+    const text = log.text();
+    expect(text).toContain(`"aeroOverride":${JSON.stringify(aeroOverride)}`);
+    expect(text).toContain('"aeroModel":"supersonic"');
+    expect(text).toContain('"rogersKbf":false');
+    expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(MAX_DEBUG_LOG_BYTES);
+  });
+
+  it.each(['classic', 'unknown', 'Private weather 61.234', 'constructor', '__proto__', '', 0, {}, ['eb']].map(value => [value]))('omits an invalid session aero override %j without serializing it', value => {
+    const log = createSessionDebugLog();
+    log.preferences(DEFAULT_PREFS, value as AeroChoice);
+    const text = log.text();
+    expect(text).not.toContain('"aeroOverride"');
+    expect(text).toContain('"units":');
+    for (const secret of ['Private', '61.234', 'constructor', '__proto__']) expect(text).not.toContain(secret);
+  });
+
+  it('records eb to kbf and clearing the session override as distinct preference changes', () => {
+    const log = createSessionDebugLog();
+    const prefs = { ...DEFAULT_PREFS, aeroModel: 'supersonic' as const };
+    log.preferences(prefs, 'eb');
+    expect(log.text()).toContain('"aeroOverride":"eb"');
+    expect(log.text().match(/preferences-changed/g)).toHaveLength(1);
+    log.preferences(prefs, 'kbf');
+    expect(log.text()).toContain('"aeroOverride":"kbf"');
+    expect(log.text().match(/preferences-changed/g)).toHaveLength(2);
+    log.preferences(prefs, 'kbf');
+    expect(log.text().match(/preferences-changed/g)).toHaveLength(2);
+    log.preferences(prefs, null);
+    expect(log.text()).toContain('"aeroOverride":null');
+    expect(log.text().match(/preferences-changed/g)).toHaveLength(3);
+  });
+
   it('serializes only the browser UA value that was checked when its getter changes', () => {
     const log = createSessionDebugLog();
     vi.spyOn(navigator, 'userAgent', 'get').mockReturnValueOnce('Test browser').mockReturnValue('Private design 61.234 Fairbanks');

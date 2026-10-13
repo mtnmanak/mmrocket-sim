@@ -1,6 +1,6 @@
 import { APP_VERSION } from '../version.js';
 import type { Preferences } from '../prefs/preferences.js';
-import type { AeroChoice } from '../prefs/aeroChoice.js';
+import { AERO_NAME, type AeroChoice } from '../prefs/aeroChoice.js';
 import { UNITS, type Quantity } from '../prefs/units.js';
 import { MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 
@@ -120,7 +120,7 @@ function diagnosticPreferences(prefs: Preferences, aeroOverride: AeroChoice | nu
     const value = prefs[key];
     if (typeof value === 'boolean') out[key] = value;
   }
-  if (aeroOverride === null || ['classic', 'supersonic', 'auto', 'hybrid'].includes(aeroOverride)) out['aeroOverride'] = aeroOverride;
+  if (aeroOverride === null || (typeof aeroOverride === 'string' && Object.prototype.hasOwnProperty.call(AERO_NAME, aeroOverride))) out['aeroOverride'] = aeroOverride;
   out['units'] = Object.fromEntries((Object.keys(UNITS) as Quantity[]).flatMap(q => {
     const symbol = prefs.units?.[q];
     return typeof symbol === 'string' && UNITS[q].some(u => u.symbol === symbol) ? [[q, symbol]] : [];
