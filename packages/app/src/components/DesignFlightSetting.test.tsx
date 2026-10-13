@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { nozzleEditableStageIds } from '../tree/treeModel.js';
-import type { DesignFlightContext } from './DesignFlightSetting.js';
+import { DesignNozzleSetting, type DesignFlightContext } from './DesignFlightSetting.js';
+import { NumField } from './NumField.js';
+
 import { MotorLengthReadout } from './MotorLengthField.js';
 import { PropertyPanel } from './PropertyPanel.js';
 
@@ -74,6 +76,17 @@ afterEach(() => {
 });
 
 describe('Design shows separation read-only', () => {
+  it('N005 nozzle readout quotes its four-decimal field', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
+      fieldPrecision: 4, units: { motorDimensions: 'in' },
+    }));
+    act(() => root.render(<PrefsProvider>
+      <NumField value={1.0625} onCommit={() => {}} />
+      <DesignNozzleSetting node={{ type: 'stage', nozzleExitDiameter: 1.0625 * 0.0254 } as ComponentNode} />
+    </PrefsProvider>));
+    expect(host.querySelector('input')!.value).toBe('1.0625');
+    expect(host.textContent).toContain('Nozzle exit: 1.0625 in');
+  });
   it('a lower stage: own setting, the active override, and a link to its row; no editable separation field', () => {
     mount('booster', context());
     expect(host.querySelector('select[aria-label^="Separate at"]')).toBeNull();

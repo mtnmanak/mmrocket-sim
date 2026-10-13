@@ -18,10 +18,11 @@ beforeEach(() => {
 });
 afterEach(() => { host.remove(); style.remove(); });
 
-it.each(['light', 'dark'])('N009 removes fixed decoration from the %s schematic for both grid states', (theme) => {
+it.each(['light', 'dark'])('N009 removes fixed decoration from the %s schematic for both grid states without :has support', (theme) => {
+  style.textContent = css.replace(/[^{}]*:has\([^{}]*\)\s*\{[^{}]*\}/g, '');
   host.className = 'viz-root';
   host.dataset.theme = theme;
-  host.innerHTML = '<div class="rocket-stage"><div class="tree-schematic"><svg></svg></div></div>';
+  host.innerHTML = '<div class="rocket-stage" data-view="2d"><div class="tree-schematic"><svg></svg></div></div>';
   const stage = host.querySelector<HTMLElement>('.rocket-stage')!;
   for (const grid of [true, false]) {
     host.querySelector('svg')!.innerHTML = grid ? '<g data-grid="view"><line /></g>' : '';
@@ -45,7 +46,7 @@ it.each(['light', 'dark'])('N009 preserves the flat Daylight background in the %
   host.className = 'viz-root';
   host.dataset.theme = theme;
   host.dataset.contrast = 'high';
-  host.innerHTML = '<div class="rocket-stage"><div class="tree-schematic"></div></div>';
+  host.innerHTML = '<div class="rocket-stage" data-view="2d"><div class="tree-schematic"></div></div>';
   // happy-dom spells the shorthand's reset as initial; browsers resolve it to none.
   expect(['none', 'initial']).toContain(getComputedStyle(host.querySelector<HTMLElement>('.rocket-stage')!).backgroundImage);
 });

@@ -358,6 +358,33 @@ describe('kernelSimOptions fills a blank atmosphere field from the site altitude
 });
 
 describe('the site-temperature field', () => {
+  it.each([0, 0.1, 1.1, 5.1, 10.1, 20.1, -0.1, -5.1, 0.1000000001234567])(
+    'N005 preserves a stored Celsius draft %s and commits only the edited value', (temperatureC) => {
+      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { temperature: '°C' } }));
+      const changes: LaunchConditions[] = [];
+      const value = { ...DEFAULT_CONDITIONS, temperatureC };
+      const options = kernelSimOptions(value);
+      try {
+        act(() => root.render(<PrefsProvider><LaunchField label="Temperature" field="temperatureC"
+          value={value} onChange={v => changes.push(v)} stepStored={1} nullable /></PrefsProvider>));
+        const input = launchBox('Temperature')!;
+        act(() => input.focus());
+        expect(input.value).toBe(String(temperatureC));
+        act(() => input.blur());
+        expect(changes).toEqual([]);
+        expect(kernelSimOptions(value)).toEqual(options);
+        act(() => input.focus());
+        const edited = input.value.slice(0, -1);
+        act(() => {
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, edited);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        if (edited === '') expect(changes.at(-1)?.temperatureC).toBeNull();
+        else expect(changes.at(-1)?.temperatureC).toBe(Number(edited));
+      } finally { localStorage.clear(); }
+    },
+  );
   it('says the field fills itself in from the site altitude', () => {
     renderConditions({});
     const help = [...host.querySelectorAll('.field')]
@@ -881,6 +908,17 @@ describe('applied weather in the Launch panel', () => {
     });
   }
   const strip = () => host.querySelector('[data-weather="strip"]');
+  it('N005 weather provenance quotes the four-decimal wind field', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ fieldPrecision: 4, units: { windspeed: 'm/s' } }));
+    try {
+      renderWeather({ ...APPLIED, windAverage: 2 }, {
+        ...SNAP, fetched: { ...SNAP.fetched, windSpeedMs: 1.0625 },
+        applied: { ...SNAP.applied, windAverage: 1.0625 },
+      });
+      expect(launchBox('Wind avg')!.closest('.field')!.textContent).toContain('edited — forecast said 1.0625 m/s');
+      expect(lastLaunch).toBeNull();
+    } finally { localStorage.clear(); }
+  });
   it.each([0.1, 5.1, 33.3])('N014 prints clean fractional bearings: %s degrees', (aim) => {
     const value = { ...APPLIED, launchRodAngleDeg: 5, launchRodAimDeg: aim };
     const before = kernelSimOptions(value);

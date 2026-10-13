@@ -566,7 +566,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const lenUnit = prefs.units.length;
   const pxPerUnit = scale * uiToSi('length', lenUnit, 1);
   const rulerReference = prefs.rulerReference2d ?? 'nose';
-  const rulerZeroM = rulerReference === 'aft' ? frame.totalLen
+  const rulerZeroM = rulerReference === 'aft' ? frame.axialLen
     : rulerReference === 'offset' ? (prefs.rulerOffset2dM ?? 0) : 0;
   const rulerDirection = (rulerReference === 'aft' ? -1 : 1) * (prefs.rulerReversed2d ? -1 : 1);
   const acrossMarks = (view: { k: number; x: number }) => rulerLayout(

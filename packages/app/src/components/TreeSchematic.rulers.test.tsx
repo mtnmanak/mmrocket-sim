@@ -104,6 +104,30 @@ describe('dimensional rulers', () => {
     expect(host.querySelector<HTMLInputElement>('[aria-label="Ruler zero from nose (in)"]')!.value).toBe('1');
   });
 
+  it.each([false, true])('N013 anchors a short airframe aft ruler to its body end, reversed=%s, including fit export', (reversed) => {
+    const tree = { name: 'Short', components: [{ id: 's', type: 'stage', children: [
+      { id: 'n', type: 'nosecone', length: 0.01, aftRadius: 0.001 },
+      { id: 'b', type: 'bodytube', length: 0.02, outerRadius: 0.001 },
+    ] }] } as unknown as RocketTree;
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
+      rulerReference2d: 'aft', rulerReversed2d: reversed,
+    }));
+    show(<PrefsProvider><TreeSchematic tree={tree} info={null} /></PrefsProvider>);
+    const body = host.querySelector('svg > g rect')!;
+    const aftX = Number(body.getAttribute('x')) + Number(body.getAttribute('width'));
+    const zero = (svg: Element, kind: string) => [...svg.querySelectorAll(`[data-ruler="${kind}"] g`)]
+      .find(g => g.querySelector('text')?.textContent === '0'
+        && g.querySelector('line')?.getAttribute('x1') === g.querySelector('line')?.getAttribute('x2'))!
+      .querySelector('line')!;
+    expect(Number(zero(host, 'view').getAttribute('x1'))).toBeCloseTo(aftX, 8); // SVG coordinate roundoff
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!.click());
+    const svg = schematicSvg(host.querySelector('svg')!, 100, 640, 300, {
+      name: 'Short', info: null, units: INITIAL_UNITS, withMotors: false, appVersion: '0',
+    });
+    const exported = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    expect(Number(zero(exported.documentElement, 'fit').getAttribute('x1'))).toBeCloseTo(aftX, 8);
+  });
+
   it('N013 keeps measuring guides at their nose-based stations when the reference changes', () => {
     storedView({ rulerReference2d: 'nose' });
     act(() => host.querySelector<HTMLButtonElement>('[aria-label="Add station guide"]')!.click());
