@@ -19,12 +19,12 @@ const shipped = JSON.parse(readFileSync(new URL('./aerotech-delay-sources.json',
 const delays = JSON.parse(readFileSync(new URL('../src/data/aerotechDelays.json', import.meta.url), 'utf8'));
 const review = JSON.parse(readFileSync(new URL('./aerotech-delay-transcriptions.json', import.meta.url), 'utf8'));
 
-async function watch(html = page, body = bytes) {
+async function watch(html = page, body = bytes, baseline = snapshot) {
   const log = vi.spyOn(console, 'log').mockImplementation(() => {});
   const getText = vi.fn(async () => html);
   const getBytes = vi.fn(async () => body);
   try {
-    const status = await main([() => checkAerotechDelays(getText, getBytes, snapshot)], () => {});
+    const status = await main([() => checkAerotechDelays(getText, getBytes, baseline)], () => {});
     return { status, output: log.mock.calls.flat().join('\n'), getText, getBytes };
   } finally { log.mockRestore(); }
 }
@@ -43,6 +43,63 @@ describe('AeroTech published delay source watch (offline)', () => {
     expect(result.output).toContain('unchanged');
     expect(result.getText).toHaveBeenCalledWith(snapshot.publishedOn);
     expect(result.getBytes).toHaveBeenCalledWith(urls[0]);
+  });
+
+  it.each([
+    ['same path', urls[0].replace('d3l66gvjdr7rqw.cloudfront.net', 'old.example.test')],
+    ['S3 bucket path', urls[0].replace('d3l66gvjdr7rqw.cloudfront.net', 's3.eu-west-1.amazonaws.com/static.fw1.biz')],
+  ])('reports a host move quietly (%s) and checks the bytes at the current URL', async (_kind, oldUrl) => {
+    const baseline = {
+      ...snapshot,
+      indexPdfUrls: [oldUrl, urls[1]],
+      documents: [{ ...snapshot.documents[0], url: oldUrl }],
+    };
+    const result = await watch(page, bytes, baseline);
+    expect(result.status).toBe(0);
+    expect(result.output).toContain('note  AeroTech certification index: 1 PDF host move');
+    expect(result.output).not.toContain('ADDED');
+    expect(result.output).not.toContain('REMOVED');
+    expect(result.output).toContain('source bytes unchanged');
+    expect(result.getBytes).toHaveBeenCalledWith(urls[0]);
+
+    const changed = await watch(page, Buffer.from('%PDF-1.3\nchanged after host move'), baseline);
+    expect(changed.status).toBe(1);
+    expect(changed.output).toContain(`source bytes changed at ${urls[0]}`);
+  });
+
+  it('separates six S3 host moves from the two genuinely new certificates', async () => {
+    const oldUrls = Array.from({ length: 6 }, (_, i) => `https://s3.eu-west-1.amazonaws.com/static.fw1.biz/Templates/170652/myimages/motor-${i}.pdf`);
+    const liveUrls = Array.from({ length: 6 }, (_, i) => `https://d3l66gvjdr7rqw.cloudfront.net/Templates/170652/myimages/motor-${i}.pdf`);
+    const html = [...liveUrls, 'https://web.archive.org/g35w.pdf', 'https://web.archive.org/j135w.pdf']
+      .map((url) => `<a href="${url}">Certificate</a>`).join('');
+    const result = await watch(html, bytes, { ...snapshot, indexPdfUrls: oldUrls, documents: [] });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('note  AeroTech certification index: 6 PDF host moves');
+    expect(result.output).toContain('index changed: 2 added, 0 removed');
+    expect(result.output).toContain('ADDED https://web.archive.org/g35w.pdf');
+    expect(result.output).toContain('ADDED https://web.archive.org/j135w.pdf');
+    expect(result.output).not.toContain('REMOVED');
+  });
+
+  it.each([
+    ['directory', 'https://new.example.test/another/certificate.pdf'],
+    ['query', 'https://new.example.test/certificates/certificate.pdf?revision=2'],
+    ['port', 'https://new.example.test:8443/certificates/certificate.pdf'],
+  ])('keeps a changed %s flagged even when the filename and host change together', async (_kind, liveUrl) => {
+    const oldUrl = 'https://old.example.test/certificates/certificate.pdf';
+    const result = await watch(`<a href="${liveUrl}">Certificate</a>`, bytes,
+      { ...snapshot, indexPdfUrls: [oldUrl], documents: [] });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('1 added, 1 removed');
+    expect(result.output).not.toContain('host move');
+  });
+
+  it('does not guess host moves when multiple links name the same asset path', async () => {
+    const result = await watch('<a href="https://new.example.test/certificate.pdf">Certificate</a>', bytes,
+      { ...snapshot, indexPdfUrls: ['https://old.example.test/certificate.pdf', 'https://other.example.test/certificate.pdf'], documents: [] });
+    expect(result.status).toBe(1);
+    expect(result.output).toContain('1 added, 2 removed');
+    expect(result.output).not.toContain('host move');
   });
 
   it('returns MOVED for an added PDF, a removed PDF and a changed linked URL', async () => {

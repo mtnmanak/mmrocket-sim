@@ -579,6 +579,42 @@ export function aerotechDocumentLinks(html, base) {
   return [...links].sort();
 }
 
+function aerotechIndexChanges(current, expected) {
+  const group = (links) => {
+    const byAsset = new Map();
+    for (const href of links) {
+      const url = new URL(href);
+      // W3-DELAY: this maker's S3 bucket prefix is absent from its CDN URLs.
+      // Keep the full asset path and query; a filename alone can hide a revision.
+      if (url.hostname === 's3.eu-west-1.amazonaws.com') {
+        url.pathname = url.pathname.replace(/^\/static\.fw1\.biz\/Templates\//, '/Templates/');
+      }
+      url.hostname = 'asset.invalid';
+      const key = url.href;
+      if (!byAsset.has(key)) byAsset.set(key, []);
+      byAsset.get(key).push(href);
+    }
+    return byAsset;
+  };
+  const added = new Set([...current].filter((url) => !expected.has(url)));
+  const removed = new Set([...expected].filter((url) => !current.has(url)));
+  const liveAssets = group(current);
+  const oldAssets = group(expected);
+  const hostMoves = new Map();
+  for (const [key, oldUrls] of oldAssets) {
+    const liveUrls = liveAssets.get(key);
+    // Do not guess which link replaced which when the index contains aliases.
+    if (oldUrls.length !== 1 || liveUrls?.length !== 1) continue;
+    const [from] = oldUrls;
+    const [to] = liveUrls;
+    if (!removed.has(from) || !added.has(to) || new URL(from).hostname === new URL(to).hostname) continue;
+    removed.delete(from);
+    added.delete(to);
+    hostMoves.set(from, to);
+  }
+  return { added: [...added], removed: [...removed], hostMoves };
+}
+
 export async function checkAerotechDelays(getText = text, getBytes = pdfBytes,
   snapshot = JSON.parse(readFileSync(join(here, '..', 'packages', 'app', 'scripts', 'aerotech-delay-sources.json'), 'utf8'))) {
   say('');
@@ -586,24 +622,28 @@ export async function checkAerotechDelays(getText = text, getBytes = pdfBytes,
   const current = new Set(aerotechDocumentLinks(await getText(snapshot.publishedOn), snapshot.publishedOn));
   const expected = new Set(snapshot.indexPdfUrls);
   checked++;
-  const added = [...current].filter((url) => !expected.has(url));
-  const removed = [...expected].filter((url) => !current.has(url));
+  const { added, removed, hostMoves } = aerotechIndexChanges(current, expected);
+  if (hostMoves.size) {
+    say(`  note  AeroTech certification index: ${hostMoves.size} PDF host move${hostMoves.size === 1 ? '' : 's'} (same asset path)`);
+    for (const [from, to] of hostMoves) say(`  note  certification index HOST MOVE ${from} -> ${to}`);
+  }
   if (added.length || removed.length) {
     const note = `AeroTech certification index changed: ${added.length} added, ${removed.length} removed PDF links — re-read the delay sources`;
     flag(note);
     notes.push(note);
     for (const url of added) say(`  ** certification index ADDED ${url} — inspect for new delay measurements`);
     for (const url of removed) say(`  ** certification index REMOVED ${url} — re-read the delay source/join`);
-  } else say(`  ok   ${current.size} certification PDF links unchanged`);
+  } else say(`  ok   ${current.size} certification PDF links ${hostMoves.size ? 'accounted for after host moves' : 'unchanged'}`);
   for (const doc of snapshot.documents) {
     // A removed link was already reported; do not keep downloading its stale URL.
-    if (!current.has(doc.url)) continue;
+    const url = hostMoves.get(doc.url) ?? doc.url;
+    if (!current.has(url)) continue;
     checked++;
-    const bytes = Buffer.from(await getBytes(doc.url));
-    if (bytes.subarray(0, 5).toString() !== '%PDF-') throw new Error(`not a PDF: ${doc.url}`);
+    const bytes = Buffer.from(await getBytes(url));
+    if (bytes.subarray(0, 5).toString() !== '%PDF-') throw new Error(`not a PDF: ${url}`);
     if (createHash('sha256').update(bytes).digest('hex') === doc.sha256) say(`  ok   ${doc.document}: source bytes unchanged`);
     else {
-      flag(`${doc.document}: source bytes changed at ${doc.url} — re-render/re-read and cross-check before regenerating delays`);
+      flag(`${doc.document}: source bytes changed at ${url} — re-render/re-read and cross-check before regenerating delays`);
       notes.push(`AeroTech delay source changed: ${doc.document}`);
     }
   }
