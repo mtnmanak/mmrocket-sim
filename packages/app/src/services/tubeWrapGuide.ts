@@ -172,6 +172,28 @@ export function tubeWrapPages(
           svg.push(`<text x="${x + 1}" y="${gy + 3}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gy / 1000))}</text>`);
         }
       }
+      const labelPlacements = new Map<string, { x: number; y: number; length: number; text: string }>();
+      const pendingLabels = [...labels.keys()].map(key => {
+        const line = guide.lines.find(l => clockKey(l) === key)!;
+        const cx = line.x * 1000;
+        const name = labels.get(key)!.join(' / ');
+        const text = `${name.slice(0, 36)}${name.length > 36 ? '…' : ''} · ${fmtSi('angle', units.angle, line.angle, 2)} ${units.angle}`;
+        return { key, cx, x: cx + 5 >= endX ? cx - 4 : cx + 2, text };
+      }).filter(label => label.cx >= x && label.cx <= endX && label.cx < circumference - 1e-6)
+        .sort((a, b) => a.x - b.x);
+      // C-A8: nearby clock lines need separate axial bands; presence alone does not make a label readable.
+      for (let i = 0; i < pendingLabels.length;) {
+        let next = i + 1;
+        while (next < pendingLabels.length && pendingLabels[next]!.x - pendingLabels[next - 1]!.x < 5) next++;
+        const start = y + (endY - y <= 20 ? 2 : 10);
+        const band = (endY - start - 2) / (next - i);
+        for (let j = i; j < next; j++) {
+          const label = pendingLabels[j]!;
+          labelPlacements.set(label.key, { x: label.x, y: start + (j - i) * band,
+            length: Math.min(label.text.length * 1.65, band - (next - i > 1 ? Math.min(2, band / 4) : 0)), text: label.text });
+        }
+        i = next;
+      }
       const drawnMarks = new Set<string>();
       for (const line of guide.lines) {
         const lx = line.x * 1000;
@@ -184,12 +206,8 @@ export function tubeWrapPages(
               svg.push(`<line class="marking-line" x1="${f(cx)}" y1="${f(y)}" x2="${f(cx)}" y2="${f(endY)}"${!finClocks.has(clockKey(line)) ? ' stroke-dasharray="3 2"' : ''}/>`);
             }
             if (!drawnMarks.has(markKey) && cx < circumference - 1e-6 && endY - y > 6) {
-              const name = labels.get(clockKey(line))!.join(' / ');
-              const label = `${name.slice(0, 36)}${name.length > 36 ? '…' : ''} · ${fmtSi('angle', units.angle, line.angle, 2)} ${units.angle}`;
-              // C-A8: keep labels inside narrow edge tiles and short rows, without repeating the seam label.
-              const labelX = cx + 5 >= endX ? cx - 4 : cx + 2;
-              const labelY = y + (endY - y <= 20 ? 2 : 10);
-              svg.push(`<text transform="translate(${f(labelX)} ${f(labelY)}) rotate(90)" fill="#000" stroke="none" font-size="3" font-family="sans-serif" textLength="${f(Math.min(label.length * 1.65, endY - labelY - 2))}" lengthAdjust="spacingAndGlyphs">${escapeXml(label)}</text>`);
+              const label = labelPlacements.get(clockKey(line))!;
+              svg.push(`<text transform="translate(${f(label.x)} ${f(label.y)}) rotate(90)" fill="#000" stroke="none" font-size="3" font-family="sans-serif" textLength="${f(label.length)}" lengthAdjust="spacingAndGlyphs">${escapeXml(label.text)}</text>`);
             }
             drawnMarks.add(markKey);
             for (const station of [line.root.start, line.root.end]) {
@@ -199,11 +217,20 @@ export function tubeWrapPages(
             }
           }
           if (line.slot) {
-            const sx = Math.max(x, cx - line.slot.width * 500);
-            const ex = Math.min(endX, cx + line.slot.width * 500);
-            const sy = Math.max(y, line.slot.start * 1000), ey = Math.min(endY, line.slot.end * 1000);
+            const leftEdge = cx - line.slot.width * 500, rightEdge = cx + line.slot.width * 500;
+            const front = line.slot.start * 1000, aft = line.slot.end * 1000;
+            const sx = Math.max(x, leftEdge), ex = Math.min(endX, rightEdge);
+            const sy = Math.max(y, front), ey = Math.min(endY, aft);
             if (ex > sx && ey > sy) {
-              svg.push(`<rect class="tab-slot" x="${f(sx)}" y="${f(sy)}" width="${f(ex - sx)}" height="${f(ey - sy)}" stroke-width="0.35"/>`);
+              // C-A8/R09: clipping a closed rectangle invents cutting edges at page joins and the seam.
+              const slotEdge = (x1: number, y1: number, x2: number, y2: number) =>
+                `<line class="tab-slot" x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}" stroke-width="0.35"/>`;
+              for (const edge of [leftEdge, rightEdge]) {
+                if (edge >= x && edge <= endX) svg.push(slotEdge(edge, sy, edge, ey));
+              }
+              for (const edge of [front, aft]) {
+                if (edge >= y && edge <= endY) svg.push(slotEdge(sx, edge, ex, edge));
+              }
             }
           }
         }

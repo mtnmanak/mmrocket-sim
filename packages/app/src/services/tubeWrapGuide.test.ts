@@ -238,10 +238,15 @@ describe('print pages', () => {
     const { tree, tube } = fixture([fin()], { length: 0.1 });
     const [page] = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
     const doc = new DOMParser().parseFromString(page!.svg, 'image/svg+xml');
-    const slots = [...doc.getElementsByTagName('rect')].filter(r => r.getAttribute('class') === 'tab-slot');
-    expect(slots).toHaveLength(4); // three slots, one in two halves
-    expect(Number(slots[0]!.getAttribute('width'))).toBeCloseTo(1.5, 8);
-    expect(Number(slots[1]!.getAttribute('width'))).toBeCloseTo(1.5, 8);
+    const slots = [...doc.getElementsByTagName('line')].filter(r => r.getAttribute('class') === 'tab-slot');
+    const sides = slots.filter(s => s.getAttribute('x1') === s.getAttribute('x2'));
+    expect(sides).toHaveLength(6);
+    expect(sides.some(s => Number(s.getAttribute('x1')) === 1.5)).toBe(true);
+    expect(sides.some(s => Math.abs(Number(s.getAttribute('x1')) - 155.5796) < 0.0001)).toBe(true);
+    expect(sides.some(s => ['0.0000', '157.0796'].includes(s.getAttribute('x1')!))).toBe(false);
+    const ends = slots.filter(s => s.getAttribute('y1') === s.getAttribute('y2'));
+    expect(ends).toHaveLength(8); // three front/aft edges; the seam slot has two halves
+    expect(Number(ends[0]!.getAttribute('x2')) - Number(ends[0]!.getAttribute('x1'))).toBeCloseTo(1.5, 8);
   });
 
   it('labels inches and radians without scaling geometry, with a 2 inch calibration ruler', () => {
@@ -262,16 +267,87 @@ describe('print pages', () => {
     expect(pages.every(p => p.svg.includes('Caution:') && p.svg.includes('slot outlines are omitted'))).toBe(true);
   });
 
-  it('clips a slot crossing a tile boundary to each overlapping sheet', () => {
+  it('clips longitudinal slot sides without inventing transverse ends at axial tile boundaries', () => {
     const { tree, tube } = fixture([fin({ position: { method: 'top', offset: 0.15 },
       tabLength: 0.1, tabOffsetMethod: 'top', tabOffset: 0 })]);
     const pages = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
-    const slots = pages.map(p => [...new DOMParser().parseFromString(p.svg, 'image/svg+xml').getElementsByTagName('rect')]
+    const slots = pages.map(p => [...new DOMParser().parseFromString(p.svg, 'image/svg+xml').getElementsByTagName('line')]
       .filter(r => r.getAttribute('class') === 'tab-slot'));
-    expect(Number(slots[0]![0]!.getAttribute('y'))).toBe(150);
-    expect(Number(slots[0]![0]!.getAttribute('height'))).toBe(50);
-    expect(Number(slots[1]![0]!.getAttribute('y'))).toBe(190);
-    expect(Number(slots[1]![0]!.getAttribute('height'))).toBe(60);
+    for (const [row, start, end, genuineEnd] of [[0, 150, 200, 150], [1, 190, 250, 250]]) {
+      const sides = slots[row!]!.filter(s => s.getAttribute('x1') === s.getAttribute('x2'));
+      expect(sides).toHaveLength(6);
+      expect(sides.every(s => Number(s.getAttribute('y1')) === start && Number(s.getAttribute('y2')) === end)).toBe(true);
+      const ends = slots[row!]!.filter(s => s.getAttribute('y1') === s.getAttribute('y2'));
+      expect(ends).toHaveLength(4);
+      expect(ends.every(s => Number(s.getAttribute('y1')) === genuineEnd)).toBe(true);
+    }
+  });
+
+  it('clips transverse slot ends without inventing sides at circumferential tile boundaries', () => {
+    // One 20 mm wide slot centred at 175 mm spans both column boundaries (170/180 mm).
+    const { tree, tube } = fixture([fin({ finCount: 1, rotation: 3.5, thickness: 0.02,
+      position: { method: 'top', offset: 0.04 }, tabOffsetMethod: 'top', tabOffset: 0,
+    })], { outerRadius: 0.05, length: 0.15 });
+    const pages = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
+    for (const [column, side, start, end] of [[0, 165, 165, 180], [1, 185, 170, 185]]) {
+      const doc = new DOMParser().parseFromString(pages[column!]!.svg, 'image/svg+xml');
+      const slots = [...doc.getElementsByTagName('line')].filter(s => s.getAttribute('class') === 'tab-slot');
+      const sides = slots.filter(s => s.getAttribute('x1') === s.getAttribute('x2'));
+      expect(sides).toHaveLength(1);
+      expect(Number(sides[0]!.getAttribute('x1'))).toBe(side);
+      const ends = slots.filter(s => s.getAttribute('y1') === s.getAttribute('y2'));
+      expect(ends).toHaveLength(2);
+      expect(ends.every(s => Number(s.getAttribute('x1')) === start && Number(s.getAttribute('x2')) === end)).toBe(true);
+      expect(ends.map(s => Number(s.getAttribute('y1')))).toEqual([40, 100]);
+    }
+  });
+
+  it.each(['left', 'right'])('separates nearby distinct clock labels at the %s seam into readable axial bands', edge => {
+    const angles = edge === 'right' ? [345, 340, 350] : [15, 10, 20];
+    const { tree, tube } = fixture([
+      fin({ rotation: angles[0]! * Math.PI / 180 }),
+      node('launchlug', { name: 'Lug', angleOffset: angles[1]! * Math.PI / 180 }),
+      node('railbutton', { name: 'Button', angleOffset: angles[2]! * Math.PI / 180 }),
+    ], { outerRadius: 0.009347 });
+    for (const page of tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' })) {
+      const doc = new DOMParser().parseFromString(page.svg, 'image/svg+xml');
+      const labels = [...doc.getElementsByTagName('text')].filter(t => t.hasAttribute('transform'));
+      const bounds = labels.map(label => {
+        const [, tx, ty] = label.getAttribute('transform')!.match(/translate\(([-\d.]+) ([-\d.]+)\)/)!;
+        const textLength = Number(label.getAttribute('textLength'));
+        // At least 1 mm per character for this fixture: catch separation by crushing the text.
+        expect(textLength).toBeGreaterThanOrEqual(label.textContent!.length);
+        expect(Number(label.getAttribute('font-size'))).toBe(3);
+        expect(Number(ty) + textLength).toBeLessThanOrEqual(Math.min(page.y * 1000 + 200, 300) - 2);
+        return { x: Number(tx), y: Number(ty), end: Number(ty) + textLength };
+      });
+      for (let i = 0; i < bounds.length; i++) {
+        for (let j = i + 1; j < bounds.length; j++) {
+          const a = bounds[i]!, b = bounds[j]!;
+          // Allow font ascenders/descenders beyond the rotated 3 mm em, plus axial clearance.
+          expect(Math.abs(a.x - b.x) >= 5 || a.end + 2 <= b.y || b.end + 2 <= a.y).toBe(true);
+        }
+      }
+      for (const [name, angle] of [['Fins 1', angles[0]], ['Lug 1', angles[1]], ['Button 1', angles[2]]] as const) {
+        expect(labels.some(t => t.textContent!.includes(`${name} · ${angle} °`))).toBe(true);
+      }
+    }
+  });
+
+  it('separates nearby labels with baselines just over 4 mm apart to allow font ascenders and descenders', () => {
+    const { tree, tube } = fixture([
+      node('launchlug', { name: 'Lug', angleOffset: 0 }),
+      node('railbutton', { name: 'Button', angleOffset: 0.162 }), // 25 mm radius * 0.162 rad = 4.05 mm
+    ]);
+    const [page] = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
+    const doc = new DOMParser().parseFromString(page!.svg, 'image/svg+xml');
+    const labels = [...doc.getElementsByTagName('text')].filter(t => t.hasAttribute('transform'));
+    expect(labels).toHaveLength(2);
+    const bands = labels.map(label => {
+      const ty = Number(label.getAttribute('transform')!.match(/translate\([-\d.]+ ([-\d.]+)/)![1]);
+      return { y: ty, end: ty + Number(label.getAttribute('textLength')) };
+    }).sort((a, b) => a.y - b.y);
+    expect(bands[0]!.end + 2).toBeLessThanOrEqual(bands[1]!.y);
   });
 
   it('labels collinear button instances once so names do not print over one another', () => {
