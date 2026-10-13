@@ -620,11 +620,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     transition: (cls) => cls === 'internal' || cls === 'fin',
     innertube: (cls) => cls === 'internal',
   });
-  const leftOut: string[] = [];
+  const leftOut: { part: string; text: string; parent: ComponentNode | null }[] = [];
   /** <BodyTube>s marked <IsInsideTube> that sit in a stage's (or a pod's) own chain — see placeChainInnerTubes. */
   const chainInside = new Set<ComponentNode>();
   /** The stage being read, for a part left out of the stage itself. */
   let stageBeingRead = '';
+  // A part with no name is "an unnamed transition", not a transition called “unnamed”.
+  const named = (word: string, n: string | null | undefined): string => (n ? `the ${word} “${n}”` : `an unnamed ${word}`);
   /** Whether `parent` (null: the stage itself) can carry what `el` becomes; records the part left out if not. */
   const attachable = (el: XmlElement, parent: ComponentNode | null): boolean => {
     const kind = PART_KIND[el.tagName];
@@ -632,15 +634,14 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const cls = parent === null && el.tagName === 'BodyTube' ? 'body' : kind.cls;
     const holds = parent === null ? cls === 'body' : (PARENT_HOLDS[parent.type]?.(cls) ?? true);
     if (holds) return true;
-    // A part with no name is "an unnamed transition", not a transition called “unnamed”.
-    const named = (word: string, n: string | null | undefined): string => (n ? `the ${word} “${n}”` : `an unnamed ${word}`);
     const on = parent === null ? (stageBeingRead ? `the stage “${stageBeingRead}”` : 'the stage')
       : named((DISPLAY_NAME[parent.type] ?? parent.type).toLowerCase(), parent.name);
     // A pod may hold its chain directly as well as in AttachedParts (see the ExternalPod branch).
     const carries = (el.querySelector(':scope > AttachedParts')?.children.length ?? 0) > 0
       || (el.tagName === 'ExternalPod' && Array.from(el.children).some((c) => ['NoseCone', 'BodyTube', 'Transition'].includes(c.tagName)));
-    leftOut.push(`${named(kind.word, text(el, ':scope > Name'))} on ${on}`
-      + (carries ? ', with the parts attached to it' : ''));
+    const part = named(kind.word, text(el, ':scope > Name'));
+    const attached = carries ? ', with the parts attached to it' : '';
+    leftOut.push({ part: part + attached, text: `${part} on ${on}${attached}`, parent });
     return false;
   };
 
@@ -1166,21 +1167,22 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     // itself left out. Keep desktop-parity trees; moving a pod is Eric's row 92.
     for (const tag of ['FinSet', 'CustomFinSet', 'TubeFinSet']) {
       for (const fin of Array.from(slotEl?.querySelectorAll(tag) ?? [])) {
+        if (fin.parentElement?.closest('FinSet, CustomFinSet, TubeFinSet')) continue;
         const wrap = fin.querySelector(':scope > AttachedParts');
         if (!wrap?.children.length) continue;
         const parts = Array.from(wrap.children);
         const names: string[] = [];
         for (let at = 0; at < parts.length; at++) {
           const part = parts[at]!;
-          const word = PART_KIND[part.tagName]?.word ?? part.tagName;
+          const word = PART_KIND[part.tagName]?.word ?? (part.tagName === 'SubAssembly' ? 'sub-assembly' : part.tagName);
           const partName = text(part, ':scope > Name');
-          names.push(partName ? `the ${word} “${partName}”` : `an unnamed ${word}`);
+          names.push(named(word, partName));
           for (const c of Array.from(part.children)) {
             if (c.tagName === 'AttachedParts') for (const attached of Array.from(c.children)) parts.push(attached);
             else if (part.tagName === 'ExternalPod' && ['NoseCone', 'BodyTube', 'Transition'].includes(c.tagName)) parts.push(c);
           }
         }
-        cautionNote(notes, 'I03.fin-attached', `Left out the parts attached to the fin set “${text(fin, ':scope > Name') ?? 'unnamed'}”: `
+        cautionNote(notes, 'I03.fin-attached', `Left out the parts attached to ${named(PART_KIND[fin.tagName]?.word ?? 'fin set', text(fin, ':scope > Name'))}: `
           + `${names.join('; ')}. The app, like desktop OR, leaves out every part attached to a fin set.`,
         { part: text(fin, ':scope > Name') ?? 'unnamed' });
       }
@@ -1754,13 +1756,29 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   if (ignored.size) {
     cautionNote(notes, 'I03.ignored-components', `Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
   }
-  const [onlyLeftOut] = leftOut;
-  if (leftOut.length === 1 && onlyLeftOut) {
+  // Tier 2 import loss notes: a hostless IsInsideTube becomes a body tube
+  // after its attachments were filtered; desktop does not share that loss.
+  const ordinaryLeftOut: string[] = [];
+  const promotedLeftOut = new Map<ComponentNode, string[]>();
+  for (const { parent, part, text: description } of leftOut) {
+    if (parent && chainInside.has(parent) && parent.type === 'bodytube') {
+      const parts = promotedLeftOut.get(parent) ?? [];
+      parts.push(part);
+      promotedLeftOut.set(parent, parts);
+    } else ordinaryLeftOut.push(description);
+  }
+  for (const [parent, parts] of promotedLeftOut) {
+    cautionNote(notes, 'I03.left-out', `Left out ${parts.join('; ')}: the file marks ${named('tube', parent.name)} `
+      + 'as IsInsideTube among the outer parts. The app checked its attachments using inner-tube rules before importing '
+      + 'it as a body tube.');
+  }
+  const [onlyLeftOut] = ordinaryLeftOut;
+  if (ordinaryLeftOut.length === 1 && onlyLeftOut) {
     cautionNote(notes, 'I03.left-out', `Left out ${onlyLeftOut}: the app, like desktop OR, cannot attach that kind of part there, so the `
       + 'design could not be built with it.');
-  } else if (leftOut.length > 1) {
-    cautionNote(notes, 'I03.left-out', `Left out ${leftOut.length} parts the file attaches where the app, like desktop OR, cannot attach `
-      + `that kind of part, so the design could not be built with them: ${leftOut.join('; ')}.`);
+  } else if (ordinaryLeftOut.length > 1) {
+    cautionNote(notes, 'I03.left-out', `Left out ${ordinaryLeftOut.length} parts the file attaches where the app, like desktop OR, cannot attach `
+      + `that kind of part, so the design could not be built with them: ${ordinaryLeftOut.join('; ')}.`);
   }
   if (tooDeep) cautionNote(notes, 'I03.too-deep', TOO_DEEP_NESTING);
   if (keptWithoutCGFlag.size) {

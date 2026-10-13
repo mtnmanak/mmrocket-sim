@@ -13,6 +13,7 @@ import { SimulateDesignError } from './simulateDesign.js';
 import { countParts, MAX_DESIGN_PARTS, TOO_MANY_PARTS_ERROR_NAME } from '../tree/sanitize.js';
 import { makeNode } from '../tree/treeModel.js';
 import { browserXmlParser, currentXmlParser, setXmlParser } from './xmlParse.js';
+import { jsXmlParser } from './xmlParseJs.js';
 
 /**
  * THE PART LIMIT (board Tier 0 row 84, ruled by Eric 2026-10-11, option c):
@@ -110,6 +111,58 @@ describe('foreign-format pre-count (board Tier 2 part-cap early refusal)', () =>
     expect(() => importRkt(rktOf(2001).replace('</RockSimDocument>', ''))).toThrow('XML parse error');
     expect(() => importCdx1(cdxOf(2001).replace('</RASAeroDocument>', ''))).toThrow('XML parse error');
   });
+
+  describe.each([['.rkt', importRkt, rktOf], ['.CDX1', importCdx1, cdxOf]] as const)(
+    '%s malformed oversized XML', (_format, read, input) => {
+      const inject = (xml: string, value: string) => xml.replace('<RocketDesign>', `<RocketDesign>${value}`);
+      it.each([
+        ['empty comment ending in a hyphen', (xml: string) => inject(xml, '<!--->')],
+        ['comment ending in a hyphen', (xml: string) => inject(xml, '<!-- a --->')],
+        ['CDATA terminator in text', (xml: string) => inject(xml, '<Comments>bad ]]></Comments>')],
+        ['control character in text', (xml: string) => inject(xml, '<Comments>\x02</Comments>')],
+        ['control character in a comment', (xml: string) => inject(xml, '<!--\x02-->')],
+        ['noncharacter FFFE in text', (xml: string) => inject(xml, '<Comments>\uFFFE</Comments>')],
+        ['noncharacter FFFF in a comment', (xml: string) => inject(xml, '<!--\uFFFF-->')],
+        ['isolated high surrogate in text', (xml: string) => inject(xml, '<Comments>\uD800</Comments>')],
+        ['isolated low surrogate in a comment', (xml: string) => inject(xml, '<!--\uDC00-->')],
+        ['non-XML whitespace before root', (xml: string) => '\u00A0' + xml],
+        ['non-XML whitespace in a tag', (xml: string) => inject(xml, '<Comments\u00A0/>')],
+        ['whitespace before XML declaration', (xml: string) => ' <?xml version="1.0"?>' + xml],
+        ['comment before XML declaration', (xml: string) => '<!--before--><?xml version="1.0"?>' + xml],
+        ['repeated XML declaration', (xml: string) => '<?xml version="1.0"?><?xml version="1.0"?>' + xml],
+        ['unknown declaration attribute', (xml: string) => '<?xml version="1.0" extra="yes"?>' + xml],
+        ['invalid standalone declaration', (xml: string) => '<?xml version="1.0" standalone="maybe"?>' + xml],
+        ['invalid encoding declaration', (xml: string) => '<?xml version="1.0" encoding="1bad"?>' + xml],
+        ['misordered declaration attributes', (xml: string) => '<?xml version="1.0" standalone="yes" encoding="UTF-8"?>' + xml],
+        ['literal parsererror element', (xml: string) => inject(xml, '<parsererror/>')],
+      ] as const)('leaves %s to the parser, preserving the XML refusal', (_case, alter) => {
+        const parser = currentXmlParser();
+        let parsed = false;
+        // happy-dom accepts some XML Chrome refuses. Use the shipped strict
+        // parser for the grammar refusal, and prove the importer reaches it.
+        setXmlParser(xml => { parsed = true; return jsXmlParser(xml); });
+        try {
+          expect(refusal(() => read(alter(input(2001)))).message).toContain('XML parse error');
+          expect(parsed).toBe(true);
+        } finally { setXmlParser(parser); }
+      });
+
+      it.each([
+        '<?xml version="1.0"?>',
+        '\uFEFF<?xml version="1.0" encoding="UTF-8" standalone="yes"?>',
+        "<?xml version = '1.0'\nencoding = 'utf-8' standalone = 'no' ?>",
+        '<!-- a ]]> is legal in a comment -->',
+        '<!-- a valid astral character: 🚀 -->',
+      ])('still refuses valid prolog %s before the parser', prolog => {
+        const parser = currentXmlParser();
+        let parsed = false;
+        setXmlParser(xml => { parsed = true; return parser(xml); });
+        try {
+          expect(refusal(() => read(prolog + input(2001))).message).toBe(SENTENCE('2,001'));
+          expect(parsed).toBe(false);
+        } finally { setXmlParser(parser); }
+      });
+    });
 
   it('RASAero counts only the first direct Fin and ignores unsupported subtrees and text', () => {
     const xml = cdxOf(2).replace('</BodyTube>', '<Fin/>'.repeat(2001) + '</BodyTube>')

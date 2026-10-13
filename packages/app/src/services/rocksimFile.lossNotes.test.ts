@@ -51,9 +51,52 @@ describe('RockSim discloses losses without moving or retaining the lost parts', 
     expect(flatten(result.tree.components).map(n => n.type)).toEqual(['stage', 'bodytube']);
     expect(JSON.stringify(result.tree, withoutIds)).toBe(JSON.stringify(baseline.tree, withoutIds));
     expect(mass(result.tree)).toBeCloseTo(mass(baseline.tree), 12);
-    expect(result.noteTiers?.find(n => n.kind === 'I03.left-out')).toMatchObject({ tier: 'caution' });
-    expect(result.notes.join('\n')).toMatch(/Wing.*inner tube.*Host/);
+    const loss = result.noteTiers?.find(n => n.kind === 'I03.left-out');
+    expect(loss?.tier).toBe('caution');
+    expect(loss?.text).toMatch(/Wing/);
+    expect(loss?.text).toMatch(/tube “Host”/);
+    expect(loss?.text).toMatch(/IsInsideTube/);
+    expect(loss?.text).toMatch(/before.*body tube/);
+    expect(loss?.text).not.toContain('inner tube “Host”');
+    expect(loss?.text).not.toContain('like desktop OR');
   }, 30_000);
+
+  it('keeps ordinary incompatible-part notes separate from promoted-tube losses', () => {
+    const result = importRkt(rkt(tube(fin('FinSet', ''), '<IsInsideTube>1</IsInsideTube>')
+      + '<MassObject><Name>Loose weight</Name></MassObject>'));
+    const losses = result.noteTiers?.filter(n => n.kind === 'I03.left-out') ?? [];
+    expect(losses).toHaveLength(2);
+    const promoted = losses.find(n => n.text.includes('Wing'));
+    const ordinary = losses.find(n => n.text.includes('Loose weight'));
+    expect(promoted?.text).toContain('IsInsideTube');
+    expect(promoted?.text).not.toContain('like desktop OR');
+    expect(ordinary?.text).toContain('like desktop OR');
+    expect(ordinary?.text).not.toContain('Wing');
+  });
+
+  it.each(['FinSet', 'CustomFinSet', 'TubeFinSet'])('%s discloses nested fin attachments once in the outer note', tag => {
+    const attached = '<ExternalPod><Name>Pod</Name><AttachedParts>'
+      + fin('CustomFinSet', '<MassObject><Name>Weight</Name></MassObject>').replace('<Name>Wing</Name>', '<Name>Tip</Name>')
+      + '</AttachedParts></ExternalPod>';
+    const result = importRkt(rkt(tube(fin(tag, attached))));
+    const baseline = importRkt(rkt(tube(fin(tag, ''))));
+    expect(JSON.stringify(result.tree, withoutIds)).toBe(JSON.stringify(baseline.tree, withoutIds));
+    const losses = result.noteTiers?.filter(n => n.kind === 'I03.fin-attached') ?? [];
+    expect(losses).toHaveLength(1);
+    expect(losses[0]?.tier).toBe('caution');
+    for (const name of ['Wing', 'Pod', 'Tip', 'Weight']) expect(losses[0]?.text).toContain(`“${name}”`);
+    expect(losses[0]?.text.match(/“Weight”/g)).toHaveLength(1);
+  });
+
+  it.each(['FinSet', 'CustomFinSet', 'TubeFinSet'])('%s names an unnamed host and a sub-assembly in plain language', tag => {
+    const attached = '<SubAssembly><AttachedParts><MassObject><Name>M</Name></MassObject></AttachedParts></SubAssembly>';
+    const result = importRkt(rkt(tube(fin(tag, attached).replace('<Name>Wing</Name>', ''))));
+    const loss = result.noteTiers?.find(n => n.kind === 'I03.fin-attached');
+    expect(loss?.text).toContain(`attached to an unnamed ${tag === 'TubeFinSet' ? 'tube fin set' : 'fin set'}:`);
+    expect(loss?.text).toContain('an unnamed sub-assembly');
+    expect(loss?.text).toContain('the mass object “M”');
+    expect(loss?.text).not.toContain('“unnamed”');
+  });
 
   // Pre-change measurements: exact imported nodes (IDs removed), mass in kg.
   for (const [name, parts, massKg, digest] of [

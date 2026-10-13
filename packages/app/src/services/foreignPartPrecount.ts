@@ -17,33 +17,36 @@ const child = (el: ElementCount, tag: string) => el.children.find(c => c.tag ===
  * for the exact refusal count, without a DOM or any design-part allocation.
  */
 function plainElements(xml: string): ElementCount | undefined {
+  // Tier 2 early refusal must not replace the parser's malformed-XML refusal.
+  if (/[\x00-\x08\x0B\x0C\x0E-\x1F\uD800-\uDFFF\uFFFE\uFFFF]/u.test(xml)) return;
   const holder: ElementCount = { tag: '', text: '', children: [] };
   const stack = [holder];
-  let at = xml.charCodeAt(0) === 0xfeff ? 1 : 0;
+  const start = xml.charCodeAt(0) === 0xfeff ? 1 : 0;
+  let at = start;
   while (at < xml.length) {
     const open = xml.indexOf('<', at);
     const raw = xml.slice(at, open < 0 ? xml.length : open);
-    if (raw.includes('&') || (stack.length === 1 && raw.trim())) return;
+    if (raw.includes('&') || raw.includes(']]>') || (stack.length === 1 && /[^ \t\r\n]/.test(raw))) return;
     stack[stack.length - 1]!.text += raw;
     if (open < 0) break;
     if (xml.startsWith('<!--', open)) {
       const close = xml.indexOf('-->', open + 4);
-      if (close < 0 || xml.slice(open + 4, close).includes('--')) return;
+      if (close < 0 || xml[close - 1] === '-' || xml.slice(open + 4, close).includes('--')) return;
       at = close + 3;
       continue;
     }
     if (xml.startsWith('<?xml ', open) && stack.length === 1 && !holder.children.length) {
       const close = xml.indexOf('?>', open + 6);
-      if (close < 0) return;
-      // The JS route refuses non-1.0 declarations; leave those to that parser.
-      if (!/^<\?xml\s+version\s*=\s*(['"])1\.0\1(?:\s+[^?]*)?\?>$/.test(xml.slice(open, close + 2))) return;
+      if (close < 0 || open !== start) return;
+      // Prove only XML 1.0 and its ordered, standard pseudo-attributes.
+      if (!/^<\?xml[ \t\r\n]+version[ \t\r\n]*=[ \t\r\n]*(['"])1\.0\1(?:[ \t\r\n]+encoding[ \t\r\n]*=[ \t\r\n]*(['"])[A-Za-z][A-Za-z0-9._-]*\2)?(?:[ \t\r\n]+standalone[ \t\r\n]*=[ \t\r\n]*(['"])(?:yes|no)\3)?[ \t\r\n]*\?>$/.test(xml.slice(open, close + 2))) return;
       at = close + 2;
       continue;
     }
     const close = xml.indexOf('>', open + 1);
     if (close < 0) return;
-    const match = /^<(\/?)([A-Za-z_][\w.-]*)\s*(\/?)>$/.exec(xml.slice(open, close + 1));
-    if (!match) return;
+    const match = /^<(\/?)([A-Za-z_][\w.-]*)[ \t\r\n]*(\/?)>$/.exec(xml.slice(open, close + 1));
+    if (!match || match[2] === 'parsererror') return;
     if (match[1]) {
       if (match[3] || stack.length === 1 || stack.pop()!.tag !== match[2]) return;
     } else {
