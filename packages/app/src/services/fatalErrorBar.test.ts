@@ -123,3 +123,20 @@ it('allows one download at a time and enables retry when it finishes', async () 
   finish();
   await vi.waitFor(() => expect(download.disabled).toBe(false));
 });
+
+it('restores pre-error focus after replacement errors, while respecting focus moved elsewhere', () => {
+  const opener = document.createElement('button');
+  const other = document.createElement('button');
+  root.append(opener, other);
+  opener.focus();
+  stop = installFatalErrorBar();
+  error('First failure');
+  error('Second failure');
+  expect(document.activeElement).toBe(bar()?.querySelector('[aria-label="Dismiss error"]'));
+  bar()!.querySelector<HTMLButtonElement>('[aria-label="Dismiss error"]')!.click();
+  expect(document.activeElement).toBe(opener);
+  error('Third failure');
+  other.focus();
+  stop();
+  expect(document.activeElement).toBe(other);
+});

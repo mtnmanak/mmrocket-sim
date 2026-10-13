@@ -3,6 +3,9 @@ export interface FatalErrorBarOptions {
   downloadSessionDebugLog?: () => void | Promise<void>;
 }
 
+/** W3-DIAG: shared dialogs suspend their backdrop and focus trap while this bar is present. */
+export const FATAL_ERROR_BAR_CHANGE = 'mmrocket-fatal-error-bar-change';
+
 function shortMessage(reason: unknown): string {
   try {
     const message = typeof reason === 'object' && reason !== null && 'message' in reason
@@ -14,10 +17,24 @@ function shortMessage(reason: unknown): string {
 /** Independent of React so an error in rendering or startup cannot remove the bar. */
 export function installFatalErrorBar(options: FatalErrorBarOptions = {}): (() => void) & { report: (reason: unknown) => void } {
   let bar: HTMLElement | null = null;
+  let returnFocus: HTMLElement | null = null;
+  const notifyDialogs = () => document.dispatchEvent(new Event(FATAL_ERROR_BAR_CHANGE));
+  const removeBar = () => {
+    if (!bar) return;
+    const current = bar;
+    const active = document.activeElement;
+    bar = null;
+    current.remove();
+    notifyDialogs();
+    if ((!active || active === document.body || current.contains(active))
+      && document.activeElement === document.body && returnFocus?.isConnected) returnFocus.focus();
+    returnFocus = null;
+  };
   const report = (reason: unknown) => {
     const message = shortMessage(reason);
     // Safari and Chromium's two benign observer-loop messages (W3-DIAG).
     if (/^ResizeObserver loop (?:limit exceeded|completed with undelivered notifications\.?)$/.test(message)) return;
+    if (!bar) returnFocus = document.activeElement as HTMLElement | null;
     bar?.remove();
     const current = document.createElement('section');
     current.className = 'fatal-error-bar message-tier message-danger';
@@ -50,13 +67,15 @@ export function installFatalErrorBar(options: FatalErrorBarOptions = {}): (() =>
     dismiss.type = 'button';
     dismiss.textContent = 'Dismiss';
     dismiss.setAttribute('aria-label', 'Dismiss error');
-    dismiss.addEventListener('click', () => { current.remove(); if (bar === current) bar = null; });
+    dismiss.addEventListener('click', () => { if (bar === current) removeBar(); });
     actions.append(download, dismiss);
     current.append(text, actions, detail);
     // Normal flow BEFORE the app root: never a fixed layer over tabs or Launch.
     const root = document.getElementById('root');
     if (root?.parentElement) root.before(current); else document.body.prepend(current);
     bar = current;
+    notifyDialogs();
+    dismiss.focus({ preventScroll: true });
     // W3-DIAG: a normal-flow bar above a scrolled page must still be seen.
     const bounds = current.getBoundingClientRect();
     if (bounds.top < 0 || bounds.bottom > window.innerHeight) {
@@ -70,7 +89,6 @@ export function installFatalErrorBar(options: FatalErrorBarOptions = {}): (() =>
   return Object.assign(() => {
     window.removeEventListener('error', onError);
     window.removeEventListener('unhandledrejection', onRejection);
-    bar?.remove();
-    bar = null;
+    removeBar();
   }, { report });
 }
