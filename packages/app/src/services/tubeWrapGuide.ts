@@ -62,8 +62,10 @@ export function tubeWrapGeometry(tree: RocketTree, tube: ComponentNode): TubeWra
     const count = isFin ? finCountOf(child) : lineInstanceCount(child);
     for (let i = 0; i < count; i++) {
       const rawAngle = isFin ? num(child, 'rotation', 0) + 2 * Math.PI * i / count
-        : num(child, 'angleOffset', Math.PI);
-      const angle = ((rawAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+        : num(child, 'angleOffset', 0);
+      let angle = ((rawAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      // C-A8: a negative rounding residual must share the zero-angle seam's label and solid fin mark.
+      if (2 * Math.PI - angle < 1e-9) angle = 0;
       const instanceStart = isFin ? 0 : i * num(child, 'instanceSeparation', 0);
       lines.push({
         label: `${child.name ?? (isFin ? 'Fin set' : child.type === 'launchlug' ? 'Launch lug' : 'Rail button')} ${i + 1}`,
@@ -181,10 +183,13 @@ export function tubeWrapPages(
             if (!drawnMarks.has(markKey)) {
               svg.push(`<line class="marking-line" x1="${f(cx)}" y1="${f(y)}" x2="${f(cx)}" y2="${f(endY)}"${!finClocks.has(clockKey(line)) ? ' stroke-dasharray="3 2"' : ''}/>`);
             }
-            if (!drawnMarks.has(markKey) && cx + 5 < endX && endY - y > 20) {
+            if (!drawnMarks.has(markKey) && cx < circumference - 1e-6 && endY - y > 6) {
               const name = labels.get(clockKey(line))!.join(' / ');
               const label = `${name.slice(0, 36)}${name.length > 36 ? '…' : ''} · ${fmtSi('angle', units.angle, line.angle, 2)} ${units.angle}`;
-              svg.push(`<text transform="translate(${f(cx + 2)} ${f(y + 10)}) rotate(90)" fill="#000" stroke="none" font-size="3" font-family="sans-serif" textLength="${f(Math.min(label.length * 1.65, endY - y - 12))}" lengthAdjust="spacingAndGlyphs">${escapeXml(label)}</text>`);
+              // C-A8: keep labels inside narrow edge tiles and short rows, without repeating the seam label.
+              const labelX = cx + 5 >= endX ? cx - 4 : cx + 2;
+              const labelY = y + (endY - y <= 20 ? 2 : 10);
+              svg.push(`<text transform="translate(${f(labelX)} ${f(labelY)}) rotate(90)" fill="#000" stroke="none" font-size="3" font-family="sans-serif" textLength="${f(Math.min(label.length * 1.65, endY - labelY - 2))}" lengthAdjust="spacingAndGlyphs">${escapeXml(label)}</text>`);
             }
             drawnMarks.add(markKey);
             for (const station of [line.root.start, line.root.end]) {

@@ -50,10 +50,29 @@ describe('tube wrap geometry (SI, hand-computed)', () => {
     const g = tubeWrapGeometry(tree, tube);
     expect(g.lines).toHaveLength(9);
     expect(g.lines[3]!.x).toBeCloseTo(0.01308996938996, 10);
-    expect(g.lines[7]!.angle).toBeCloseTo(Math.PI, 10);
+    expect(g.lines[7]!.angle).toBe(0);
     expect(g.lines[8]!.x).toBeCloseTo(0.03926990816987, 10);
     expect(g.lines[7]!.root).toEqual({ start: 0.125, end: 0.175 });
     expect(g.lines[8]!.root).toEqual({ start: 0.15, end: 0.15 });
+  });
+
+  it.each(['launchlug', 'railbutton'])('defaults an absent %s angle to zero and preserves explicit 180 degrees', type => {
+    const { tree, tube } = fixture([node(type), node(type, { id: 'explicit', angleOffset: Math.PI })]);
+    const g = tubeWrapGeometry(tree, tube);
+    expect(g.lines[0]!.angle).toBe(0);
+    expect(g.lines[0]!.x).toBe(0);
+    expect(g.lines[1]!.angle).toBeCloseTo(Math.PI, 10);
+    expect(g.lines[1]!.x).toBeCloseTo(g.circumference / 2, 10);
+  });
+
+  it('normalizes a negative rounding residual at the seam to zero', () => {
+    const { tree, tube } = fixture([fin({ finCount: 7, rotation: -(360 * 5 / 7) * (Math.PI / 180) })]);
+    const g = tubeWrapGeometry(tree, tube);
+    expect(g.lines[5]!.angle).toBe(0);
+    expect(g.lines[5]!.x).toBe(0);
+    // A real angle near the seam stays distinct; only rounding noise is snapped.
+    const nearby = fixture([node('launchlug', { angleOffset: -1e-6 })]);
+    expect(tubeWrapGeometry(nearby.tree, nearby.tube).lines[0]!.angle).toBeCloseTo(2 * Math.PI - 1e-6, 10);
   });
 
   it('uses the freeform root rather than overhanging tip; clamps an offset tab', () => {
@@ -128,6 +147,64 @@ describe('tube wrap geometry (SI, hand-computed)', () => {
 });
 
 describe('print pages', () => {
+  it('labels rotated fins, lugs and buttons within 5 mm of the right seam', () => {
+    const { tree, tube } = fixture([
+      fin({ rotation: -15 * Math.PI / 180 }),
+      node('launchlug', { name: 'Lug', angleOffset: 340 * Math.PI / 180 }),
+      node('railbutton', { name: 'Button', angleOffset: 350 * Math.PI / 180 }),
+    ], { outerRadius: 0.009347 });
+    const g = tubeWrapGeometry(tree, tube);
+    const [page] = tubeWrapPages(g, 'Rocket', { length: 'mm', angle: '°' });
+    const doc = new DOMParser().parseFromString(page!.svg, 'image/svg+xml');
+    const labels = [...doc.getElementsByTagName('text')].filter(t => t.hasAttribute('transform'));
+    for (const [name, angle] of [['Fins 1', 345], ['Lug 1', 340], ['Button 1', 350]] as const) {
+      const label = labels.find(t => t.textContent!.includes(`${name} · ${angle} °`));
+      expect(label).toBeDefined();
+      const tx = Number(label!.getAttribute('transform')!.match(/translate\(([-\d.]+)/)![1]);
+      const lx = g.lines.find(l => l.label === name)!.x * 1000;
+      expect(tx).toBeLessThan(lx);
+      expect(tx).toBeGreaterThan(0);
+    }
+  });
+
+  it.each([0.02, 0.202])('labels fins and guides on short rows of a %s m tube', length => {
+    const { tree, tube } = fixture([
+      fin({ rootChord: 0.01, tabHeight: 0, position: { method: 'top', offset: 0 } }),
+      node('launchlug', { name: 'Lug', length: 0.01, angleOffset: Math.PI / 3 }),
+      node('railbutton', { name: 'Button', angleOffset: Math.PI }),
+    ], { length });
+    const pages = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
+    const page = pages.at(-1)!;
+    const doc = new DOMParser().parseFromString(page.svg, 'image/svg+xml');
+    const labels = [...doc.getElementsByTagName('text')].filter(t => t.hasAttribute('transform'));
+    expect(labels).toHaveLength(5);
+    expect(labels.map(t => t.textContent).join(' / ')).toContain('Lug 1 · 60 °');
+    expect(labels.map(t => t.textContent).join(' / ')).toContain('Button 1 · 180 °');
+    for (const label of labels) {
+      const ty = Number(label.getAttribute('transform')!.match(/translate\([-\d.]+ ([-\d.]+)/)![1]);
+      const textLength = Number(label.getAttribute('textLength'));
+      expect(ty).toBeGreaterThan(page.y * 1000);
+      expect(textLength).toBeGreaterThan(0);
+      expect(ty + textLength).toBeLessThan(length * 1000);
+    }
+  });
+
+  it('prints a solid shared seam line and one combined label when the lug precedes a near-zero fin', () => {
+    const { tree, tube } = fixture([
+      node('launchlug', { name: 'Lug', angleOffset: 0 }),
+      fin({ finCount: 7, rotation: -(360 * 5 / 7) * (Math.PI / 180) }),
+    ]);
+    const [page] = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
+    const doc = new DOMParser().parseFromString(page!.svg, 'image/svg+xml');
+    const marks = [...doc.getElementsByTagName('line')].filter(l => l.getAttribute('class') === 'marking-line');
+    const seamMarks = marks.filter(l => ['0.0000', '157.0796'].includes(l.getAttribute('x1')!));
+    expect(seamMarks).toHaveLength(2);
+    expect(seamMarks.every(l => !l.hasAttribute('stroke-dasharray'))).toBe(true);
+    const labels = [...doc.getElementsByTagName('text')].filter(t => t.textContent!.includes('Lug 1'));
+    expect(labels).toHaveLength(1);
+    expect(labels[0]!.textContent).toContain('Lug 1 / Fins 6 · 0 °');
+  });
+
   it('tiles a 314.159 mm by 500 mm tube in six Letter/A4-compatible pages with 10 mm overlap', () => {
     const { tree, tube } = fixture([fin()], { outerRadius: 0.05, length: 0.5 });
     const pages = tubeWrapPages(tubeWrapGeometry(tree, tube), tree.name!, { length: 'mm', angle: '°' });
@@ -215,6 +292,6 @@ describe('print pages', () => {
     const [page] = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
     const doc = new DOMParser().parseFromString(page!.svg, 'image/svg+xml');
     const label = [...doc.getElementsByTagName('text')].find(t => t.textContent!.includes('Button'))!;
-    expect(label.textContent).toContain('Fins 3 / Button 1');
+    expect(label.textContent).toContain('Fins 1 / Button 1');
   });
 });
