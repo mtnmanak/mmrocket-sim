@@ -941,11 +941,13 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             region inserted with its text already in place is announced
             unreliably, so the containers exist before their first message.
             The import result and its notes are polite; a failure is an alert. */}
-        {recoveryAdvice && (
-          <Note tier="caution" as="p" className="motor-db-meta" role="status">
-            {recoveryAdvice}
-          </Note>
-        )}
+        <div className="zero-delay-recovery" role="status">
+          {recoveryAdvice && (
+            <Note tier="caution" as="p" className="motor-db-meta">
+              {recoveryAdvice}
+            </Note>
+          )}
+        </div>
         <Note tier={notice || error ? importTier : 'information'} className="motor-import-notes">
         <div role="status">
           {notice && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{notice}</p>}

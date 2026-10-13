@@ -15,6 +15,7 @@ import { runsToCsv } from './simStore.js';
 import { idFree } from './simulate.testSupport.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
 import { engineTree, flownRecoveryDevices } from '../tree/treeModel.js';
+import { IMPERIAL_UNITS, uiToSi } from '../prefs/units.js';
 
 const info: StaticInfo = {
   length: 0.37, lengthAerodynamic: 0.37, mass: 0.051, massEmpty: 0.027, cgEmpty: 0.19, cg: 0.26,
@@ -101,6 +102,22 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
     expect(commentsOf(run).find(c => c.text.includes('airspeed limit'))?.text).toContain('cannot check');
     expect(run.maxAirspeedMs).toBeNull();
   });
+  it('N007/N010 freeze rounded user units first and SI in brackets for imperial entries', () => {
+    const result = fakeResult();
+    result.series.Vs = result.series.time.map(() => 300);
+    result.summary.maxAltitude = 300;
+    const advisoryLimits = { maxAirspeedMs: uiToSi('velocity', 'ft/s', 100),
+      armingAltitudeM: uiToSi('distance', 'ft', 1000), armingCautionBandM: uiToSi('distance', 'ft', 3) };
+    const run = build({ result, advisoryLimits, units: IMPERIAL_UNITS });
+    const notes = commentsOf(run);
+    expect(notes.find(c => c.text.includes('your maximum'))?.text).toContain('100 ft/s [30.5 m/s]');
+    const arming = notes.find(c => c.text.includes('Apogee') && c.text.includes('arming'))!.text;
+    expect(arming).toContain('arming 1000 ft [304.8 m] AGL, band 3 ft [0.9 m]');
+    expect(arming).not.toContain('0.9144000000000001');
+    expect(commentsOf(build({ advisoryLimits, units: IMPERIAL_UNITS }))
+      .find(c => c.text.includes('cannot check your airspeed'))?.text).toContain('100 ft/s [30.5 m/s]');
+    expect(runsToCsv([run])).toContain('100 ft/s [30.5 m/s]');
+  });
   it.each([[99, 'below'], [100, 'within'], [110, 'within'], [110.01, null]] as const)('N010 apogee %s m AGL gives %s advice for the named configuration', (height, word) => {
     const result = fakeResult(); result.summary.maxAltitude = height;
     const run = build({ result, advisoryLimits: { armingAltitudeM: 100, armingCautionBandM: 10 } });
@@ -162,9 +179,10 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
     simultaneous.events.push({ type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 7, source: 'Second main' });
     expect(build({ result: simultaneous }).deployments.map(d => d.role)).toEqual(['main', 'main']);
   });
-  it('N027 distinguishes role expectations and keeps unknown/old-run opening limits', () => {
-    expect(openingPolicy('drogue').expectation).toContain('near apogee');
-    expect(openingPolicy('main').expectation).toContain('landing recovery');
+  it('N027 describes role order honestly and keeps shared unknown/old-run opening limits', () => {
+    expect(openingPolicy('drogue').expectation).toContain('opening order');
+    expect(openingPolicy('main').expectation).toContain('opening order');
+    expect(openingPolicy('drogue').expectation).not.toMatch(/expected|near apogee/);
     expect(openingPolicy('unknown').expectation).toContain('generic');
     expect(deploymentRole({ isLanding: false })).toBe('drogue');
     expect(deploymentRole({ isLanding: true })).toBe('main');
@@ -175,6 +193,17 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
       expect(openingVerdict(27.432, role)).toBe('caution');
       expect(openingVerdict(27.433, role)).toBe(false);
     }
+  });
+  it('N027 opening verdicts remain independent of drogue descent bands', () => {
+    const before = { ...SAFETY };
+    try {
+      Object.assign(SAFETY, { maxDrogueDescentRate: 1, warnDrogueDescentRate: 2 });
+      for (const role of ['drogue', 'main', 'unknown'] as const) {
+        expect(openingVerdict(20, role)).toBe(true);
+        expect(openingVerdict(25, role)).toBe('caution');
+        expect(openingVerdict(30, role)).toBe(false);
+      }
+    } finally { Object.assign(SAFETY, before); }
   });
   it('N010 cannot call a truncated low flight a completed apogee', () => {
     const result = fakeResult();

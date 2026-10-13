@@ -66,6 +66,7 @@ import { padMassTextFor } from './unitText.js';
 
 /** App's state as one Launch reads it, with the design already built. */
 export interface BuiltLaunchInput<R extends BuildHandle = OrkRocket> {
+  units?: UnitSelection;
   advisoryLimits?: FlightAdvisories;
   /** App: `built` (this render's). */
   built: BuiltDesign<R>;
@@ -115,6 +116,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
 ): Promise<{ flight: LaunchFlight; run: FreshSimRun }> {
   const { built, tree, derived, launch, aero, activeConfigId, savedConfigs, provenance, signal, now } = input;
   const advisoryLimits = normalizeFlightAdvisories(input.advisoryLimits);
+  const units = { ...(input.units ?? INITIAL_UNITS) };
   const refusal = savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal;
   if (refusal) throw new Error(refusal);
   const { mounts, stageList, assigned, effectiveSupersonic, primaryMountId } = derived;
@@ -160,6 +162,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   const branchMotors = stageMotorInfo(tree, assigned, stageList);
   // The configuration identity and override tuples were captured before flight.
   const run = buildSimRun({
+    ...(input.units ? { units } : {}),
     advisoryLimits,
     advisoryTree: tree,
     advisoryMotors: assigned,
@@ -241,7 +244,7 @@ export interface SimulateDesignOptions {
   signal?: AbortSignal;
   /** The clock the flight's cost is read from (`performance.now` when absent). */
   now?: () => number;
-  /** Unit words for a note only (never a number) — the result's `padMassNote`: default INITIAL_UNITS. */
+  /** Display units for pad-mass notes and frozen report advice: default INITIAL_UNITS. */
   units?: UnitSelection;
 }
 
@@ -415,6 +418,7 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
   let flown: Awaited<ReturnType<typeof flyBuiltDesign>>;
   try {
     flown = await flyBuiltDesign({
+      units: opts.units,
       advisoryLimits: opts.advisoryLimits,
       built,
       tree: state.tree,

@@ -49,6 +49,12 @@ describe('surface-wind advice (N004)', () => {
     expect(advice).toContain('surface');
     expect(groundWindAdvice(NaN, INITIAL_UNITS)).toBeNull();
   });
+  it.each([8.95, 8.94081, 8.940800000001])('does not round an above-limit wind %s down to the limit', (wind) => {
+    const advice = groundWindAdvice(wind, IMPERIAL_UNITS)!;
+    if (wind === 8.95) expect(advice).toContain('average 20.02 mph');
+    else expect(advice).toContain('is just above 20 mph');
+    expect(advice).not.toContain('average 20.0 mph exceeds 20 mph');
+  });
 });
 
 it('N007 uses Mach times local sound speed, never ground speed; gaps stay unknown', () => {

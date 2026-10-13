@@ -23,7 +23,7 @@ import { affectsPodsOnlyBase, affectsStrapOnNozzle } from './revisionNozzle.js';
 import { completedRecoveryEvents, type RecoveryEvent } from './recoveryMass.js';
 import { flightLimitAdvice, groundWindAdvice, peakAirspeed, zeroDelayRecoveryAdvice } from './flightAdvisories.js';
 import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
-import { INITIAL_UNITS } from '../prefs/units.js';
+import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 
 /**
  * Post-simulation report: every attribute the owner's flight-day workflow needs,
@@ -276,17 +276,13 @@ export function deploymentRole(d: Pick<DeploymentReport, 'role' | 'isLanding'>):
   return d.isLanding === true ? 'main' : d.isLanding === false ? 'drogue' : 'unknown';
 }
 
-/** N027: Eric's 2026-09-07 ruling (SAFETY), not manufacturer strength.
- * Drogues are expected near apogee; mains may open under a drogue descending
- * up to the preferred 70 ft/s. The owner set 70/90 ft/s for both expectations.
- * Unknown roles retain the existing generic opening policy. */
+/** N027: Eric's 2026-09-07 opening-speed ruling (SAFETY), not manufacturer
+ * strength. Role labels describe opening order; neither checks apogee timing.
+ * Opening limits are independent of the drogue descent-rate band. */
 export function openingPolicy(role: RecoveryRole) {
-  return role === 'drogue'
-    ? { preferred: SAFETY.maxDrogueDescentRate, upper: SAFETY.warnDrogueDescentRate,
-      expectation: 'Drogue role, inferred from opening order: expected near apogee.' }
-    : { preferred: SAFETY.maxDeploymentVelocity, upper: SAFETY.warnDeploymentVelocity,
-      expectation: role === 'main' ? 'Main role, inferred from opening order: expected at low speed for landing recovery.'
-        : 'Recovery role unknown: using the generic opening-speed limits.' };
+  return { preferred: SAFETY.maxDeploymentVelocity, upper: SAFETY.warnDeploymentVelocity,
+    expectation: role === 'unknown' ? 'Recovery role unknown: using the generic opening-speed limits.'
+      : `${role === 'drogue' ? 'Drogue' : 'Main'} role, inferred from opening order: using the shared opening-speed limits.` };
 }
 
 export function openingVerdict(velocity: number | null | undefined, role: RecoveryRole = 'unknown'): DeploymentVerdict {
@@ -1927,6 +1923,7 @@ export function extractMaxRollRate(series: FlightSeries): number | null {
 }
 
 export function buildSimRun(input: {
+  units?: UnitSelection;
   advisoryLimits?: FlightAdvisories;
   advisoryTree?: RocketTree;
   advisoryMotors?: readonly (readonly [string, MountMotor])[];
@@ -2202,15 +2199,16 @@ export function buildSimRun(input: {
     comments.push(text.replace(/\|/g, '/'));
     levels.push(level);
   };
-  const windAdvice = groundWindAdvice(launch.windAverage, INITIAL_UNITS);
+  const units = input.units ?? INITIAL_UNITS;
+  const windAdvice = groundWindAdvice(launch.windAverage, units);
   if (windAdvice) say(windAdvice, 'caution');
-  for (const note of flightLimitAdvice(result, advisoryLimits, flightConfig ?? 'Working settings', input.advisoryTree)) say(note.text, note.level);
+  for (const note of flightLimitAdvice(result, advisoryLimits, flightConfig ?? 'Working settings', input.advisoryTree, units)) say(note.text, note.level);
   if (input.advisoryTree) for (const [id, mm] of input.advisoryMotors ?? []) {
     if (mm.ignition?.event === 'never' || input.refusedMountIds?.includes(id)) continue;
     const flown = input.delayResolution?.mounts.find(m => m.mountId === id)?.flownDelay;
     const delay = flown === 'plugged' ? Infinity : typeof flown === 'number' ? flown : mm.spec.ejectionDelay;
     const note = zeroDelayRecoveryAdvice(input.advisoryTree, id, delay, mm.meta.autoDelay && flown === undefined);
-    if (note) say(`${flightConfig ?? 'Working settings'} — ${mm.label}: ${note}`, 'caution');
+    if (note) say(`${flightConfig ?? 'Working settings'} — ${mm.label}: Configuration caution: ${note}`, 'caution');
   }
   // Format the kernel's static warnings into the app's voice here too: this
   // blob becomes the launch report AND the Comments column of the saved-runs

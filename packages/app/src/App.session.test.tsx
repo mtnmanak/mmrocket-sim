@@ -23,6 +23,7 @@ import { MOTOR_DB, filterMotors } from './services/motorDb.js';
 import { importedSummaryRuns } from './services/orkFlightData.js';
 import { addRuns, loadRuns } from './services/simStore.js';
 import { savedConfigLabel } from './model/design.js';
+import { IMPERIAL_UNITS, uiToSi } from './prefs/units.js';
 
 it('legacy position notice stays through Save and dismissal survives autosave reload', async () => {
   const tree = { name: 'Position review', components: [{ type: 'stage', id: 's', children: [
@@ -317,6 +318,38 @@ afterEach(async () => {
   await unmountAll();
   vi.unstubAllGlobals();
 });
+
+it('N007 App Launch freezes personal limits in the selected imperial units', async () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: IMPERIAL_UNITS,
+    flightAdvisories: { maxAirspeedMs: uiToSi('velocity', 'ft/s', 10) } }));
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  await act(async () => {
+    [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Launch')!.click();
+  });
+  await waitFor(() => loadRuns().length === 1, 'saved flight');
+  expect(loadRuns()[0]!.comments).toContain('10 ft/s [3.0 m/s]');
+}, 30_000);
+
+it('N003 mount-card status stays mounted across fixed zero and Auto delay edits', async () => {
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  await act(async () => { button(host, 'Motors & Configuration').click(); });
+  const region = host.querySelector('.mount-card .zero-delay-recovery[role="status"]');
+  expect(region).not.toBeNull();
+  expect(region!.textContent).toBe('');
+  const card = region!.closest('.mount-card')!;
+  const auto = [...card.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')]
+    .find(el => el.closest('label')?.textContent?.includes('auto (optimal)'))!;
+  if (auto.checked) await act(async () => { auto.click(); });
+  const delay = card.querySelector<HTMLInputElement>('input[aria-label^="Ejection delay"]')!;
+  await type(delay, '0');
+  expect(host.querySelector('.mount-card .zero-delay-recovery[role="status"]')).toBe(region);
+  expect(region!.textContent).toContain('zero-second');
+  await act(async () => { auto.click(); });
+  expect(host.querySelector('.mount-card .zero-delay-recovery[role="status"]')).toBe(region);
+  expect(region!.textContent).toBe('');
+}, 30_000);
 
 describe('a SOLID motor mount on Motors & Configuration', () => {
   it('saves only the opened document historical result through edits and session restore', async () => {

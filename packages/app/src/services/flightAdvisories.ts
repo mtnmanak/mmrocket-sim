@@ -1,20 +1,27 @@
 import type { ComponentNode, FlightResult, FlightSeries, RocketTree } from '@online-openrocket/engine';
 import { boosterBranches } from '@online-openrocket/engine';
 import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
-import { fmtSi, type UnitSelection } from '../prefs/units.js';
+import { fmtSi, INITIAL_UNITS, siToUi, type UnitSelection } from '../prefs/units.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 
 // N004: NAR Model Rocket Safety Code §9 (Launch Site), NAR High Power Rocket
 // Safety Code §9 (Flight Safety): no launch above 20 mph. Tripoli Unified
 // Safety Code §9-3: no launch when sustained surface winds exceed 20 MPH.
 // https://www.nar.org/ModelRocketSafetyCode
-// https://www.nar.org/HighPowerRocketSafetyCode
+// https://www.nar.org/content.aspx?page_id=22
 // https://www.tripoli.org/safetycode (checked 2026-10-13)
 export const SURFACE_WIND_LIMIT_MS = 20 * 0.44704;
 
 export function groundWindAdvice(wind: number, units: UnitSelection): string | null {
   if (!Number.isFinite(wind) || wind <= SURFACE_WIND_LIMIT_MS) return null;
-  return `Surface wind average ${fmtSi('windspeed', units.windspeed, wind)} ${units.windspeed} exceeds 20 mph (8.9408 m/s). `
+  const limit = siToUi('windspeed', units.windspeed, SURFACE_WIND_LIMIT_MS);
+  let speed = fmtSi('windspeed', units.windspeed, wind);
+  if (Number(speed) <= limit) speed = fmtSi('windspeed', units.windspeed, wind, 2);
+  // N004: finite display precision must not turn an exceedance into equality.
+  const measurement = Number(speed) > limit
+    ? `Surface wind average ${speed} ${units.windspeed} exceeds 20 mph (8.9408 m/s). `
+    : 'Surface wind average is just above 20 mph (8.9408 m/s). ';
+  return measurement
     + 'NAR model and high-power codes limit launch wind to 20 mph; Tripoli applies this limit to sustained surface wind. '
     + 'Wind can carry the rocket outside the recovery area. Check wind at the pad, including gusts; the app does not block Launch.';
 }
@@ -50,7 +57,8 @@ export function zeroDelayRecoveryAdvice(
     }
   };
   walk(recoveryAssembly(tree, mountId), true);
-  return devices.length ? `This motor's zero-second delay fires its ejection charge at burnout and triggers ${devices.join(', ')}. `
+  return devices.length ? `This motor's zero-second delay is set to fire its ejection charge at burnout. It can trigger ${devices.join(', ')} `
+    + 'if the charge and any deployment delay complete before landing or a simulation abort and that device has not already deployed. '
     + 'Recovery can open while the rocket is still moving fast, which can tear the device or damage the airframe. Check the delay and deployment settings; selection remains allowed.' : null;
 }
 
@@ -75,10 +83,15 @@ export function peakAirspeed(series: Pick<FlightSeries, 'time' | 'mach'> & Recor
 /** N007/N010: compare recorded evidence; limits never reach simulation options.
  * Reaching an arming height does not establish that hardware actually armed. */
 export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisories | undefined,
-  configuration: string, tree?: RocketTree): { text: string; level: 'info' | 'caution' }[] {
+  configuration: string, tree?: RocketTree, units: UnitSelection = INITIAL_UNITS): { text: string; level: 'info' | 'caution' }[] {
   const limits = normalizeFlightAdvisories(rawLimits);
   if (!limits) return [];
   const notes: { text: string; level: 'info' | 'caution' }[] = [];
+  const quantity = (kind: 'velocity' | 'distance', si: number): string => {
+    const symbol = units[kind], siSymbol = kind === 'velocity' ? 'm/s' : 'm';
+    return symbol === siSymbol ? `${si.toFixed(1)} ${siSymbol}`
+      : `${fmtSi(kind, symbol, si, 3)} ${symbol} [${si.toFixed(1)} ${siSymbol}]`;
+  };
   const nodes: ComponentNode[] = [];
   const walk = (parts: ComponentNode[]): void => {
     for (const part of parts) { nodes.push(part); walk(part.children ?? []); }
@@ -97,9 +110,9 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
     if (limits.maxAirspeedMs !== undefined) {
       const peak = peakAirspeed(flight.series);
       if (peak.value !== null && peak.value > limits.maxAirspeedMs) {
-        notes.push({ text: `${context}: recorded airspeed ${peak.value.toFixed(1)} m/s exceeded your maximum of ${limits.maxAirspeedMs} m/s. This is your limit, not a structural rating.`, level: 'caution' });
+        notes.push({ text: `${context}: recorded airspeed ${quantity('velocity', peak.value)} exceeded your maximum of ${quantity('velocity', limits.maxAirspeedMs)}. This is your limit, not a structural rating.`, level: 'caution' });
       } else if (!peak.complete) {
-        notes.push({ text: `${context}: the app cannot check your airspeed limit of ${limits.maxAirspeedMs} m/s because airspeed telemetry is incomplete. Ground speed is not a substitute.`, level: 'info' });
+        notes.push({ text: `${context}: the app cannot check your airspeed limit of ${quantity('velocity', limits.maxAirspeedMs)} because airspeed telemetry is incomplete. Ground speed is not a substitute.`, level: 'info' });
       }
     }
     if (limits.maxMach !== undefined) {
@@ -117,7 +130,7 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
         notes.push({ text: `${context}: the app cannot check ${label} against your electronics arming altitude; AGL altitude is unavailable.`, level: 'info' });
       } else if (altitude <= height + band) {
         const below = altitude < height;
-        notes.push({ text: `${context}: ${label} at ${altitude.toFixed(1)} m AGL is ${below ? 'below your arming altitude' : 'within your arming caution band'} (arming ${height} m AGL, band ${band} m). `
+        notes.push({ text: `${context}: ${label} at ${quantity('distance', altitude)} AGL is ${below ? 'below your arming altitude' : 'within your arming caution band'} (arming ${quantity('distance', height)} AGL, band ${quantity('distance', band)}). `
           + 'If recovery depends on these electronics, they may not be armed when needed and recovery may fail. This comparison does not prove the electronics armed.', level: 'caution' });
       }
     };

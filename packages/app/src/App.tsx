@@ -1939,6 +1939,7 @@ export function App() {
         // 78d3015. The lint gate keeps flyLaunch and buildSimRun out of this
         // file, so the Launch cannot grow a second copy here.
         const { flight: { result: res, execMs }, run } = await flyBuiltDesign({
+          units: prefs.units,
           advisoryLimits: prefs.flightAdvisories,
           built,
           tree: flightTree,
@@ -4454,11 +4455,13 @@ export function App() {
                     showQuickPicks={quickPicksOffered}
                     primaryControlId={`cfg-mount-${m.id!}-motor`}
                   />
-                  {mm && mm.ignition?.event !== 'never' && zeroDelayRecoveryAdvice(flightTree, m.id!, mm.spec.ejectionDelay, mm.meta.autoDelay) && (
-                    <Note tier="caution" as="p" className="comp-stats" role="status">
-                      {zeroDelayRecoveryAdvice(flightTree, m.id!, mm.spec.ejectionDelay, mm.meta.autoDelay)}
-                    </Note>
-                  )}
+                  <div className="zero-delay-recovery" role="status">
+                    {mm && mm.ignition?.event !== 'never' && zeroDelayRecoveryAdvice(flightTree, m.id!, mm.spec.ejectionDelay, mm.meta.autoDelay) && (
+                      <Note tier="caution" as="p" className="comp-stats">
+                        {zeroDelayRecoveryAdvice(flightTree, m.id!, mm.spec.ejectionDelay, mm.meta.autoDelay)}
+                      </Note>
+                    )}
+                  </div>
                   {mm && (
                     <div className="field" style={{ marginTop: 6 }}>
                       {/* Tied to its box (audit 2026-09-30), which keeps the

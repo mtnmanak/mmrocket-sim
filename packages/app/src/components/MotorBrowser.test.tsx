@@ -172,10 +172,17 @@ it('W2-WARN previews catalogue and custom zero-delay recovery as Caution while a
     delaySelect(h)!.value = value;
     delaySelect(h)!.dispatchEvent(new Event('change', { bubbles: true }));
   });
+  const region = h.host.querySelector('.zero-delay-recovery[role="status"]');
+  expect(region).not.toBeNull();
+  expect(region!.textContent).toBe('');
   setDelay('0');
+  expect(h.host.querySelector('.zero-delay-recovery[role="status"]')).toBe(region);
+  expect(region!.textContent).toContain('burnout');
   expect(h.host.querySelector('.message-caution')?.textContent).toContain('burnout');
   expect(loadButton(h)?.hasAttribute('disabled')).toBe(false);
   setDelay('auto');
+  expect(h.host.querySelector('.zero-delay-recovery[role="status"]')).toBe(region);
+  expect(region!.textContent).toBe('');
   expect(h.host.textContent).not.toContain('Zero delay');
   setDelay('custom');
   const field = h.host.querySelector<HTMLInputElement>('input[aria-label="Custom delay (s)"]')!;
@@ -786,12 +793,11 @@ describe('MotorBrowser — load and import results reach a screen reader (audit 
 
   it('has its status and alert regions in place before any message', () => {
     // A live region inserted with its text already in it is announced unreliably.
-    // The first is the catalogue check's result (audit 2026-09-30), the other two
-    // a load's or an import's.
+    // Catalogue check, zero-delay recovery (N003), then load/import feedback.
     h = openBrowser({ mountDiameterMm: 54 });
     const regions = h.host.querySelectorAll('.motor-browser > [role="status"], .motor-import-notes > [role="status"], .motor-import-notes > [role="alert"]');
     expect(Array.from(regions).map((r) => [r.getAttribute('role'), r.textContent]))
-      .toEqual([['status', ''], ['status', ''], ['alert', '']]);
+      .toEqual([['status', ''], ['status', ''], ['status', ''], ['alert', '']]);
   });
 
   it('a Load that fails offline lands in the alert region', async () => {
