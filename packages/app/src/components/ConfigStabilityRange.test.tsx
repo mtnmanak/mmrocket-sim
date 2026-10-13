@@ -70,3 +70,57 @@ it('keeps a worker failure beside the qualified readout and offers a retry', () 
   act(() => host.querySelector<HTMLButtonElement>('button')!.click());
   expect(host.textContent).toContain('Calculating');
 });
+
+it('recovers when worker startup fails during a replacement input debounce', () => {
+  vi.useFakeTimers(); vi.stubGlobal('Worker', RangeWorker);
+  const host = document.createElement('div'); const root = createRoot(host);
+  cleanup = () => { act(() => root.unmount()); host.remove(); };
+  const render = (value: StabilityRangeInput) => act(() => root.render(<PrefsProvider>
+    <ConfigStabilityRange input={value} /></PrefsProvider>));
+  render(input);
+  act(() => { vi.advanceTimersByTime(250); });
+  const failed = RangeWorker.instance;
+  const lateError = failed.onerror!;
+  render({ ...input, supersonic: true });
+  act(() => lateError());
+  expect(failed.terminated).toBe(true);
+  act(() => { vi.advanceTimersByTime(250); });
+  const replacement = RangeWorker.instance;
+  expect(replacement).not.toBe(failed);
+  // A late callback from the old worker must not dispose the replacement.
+  act(() => lateError());
+  expect(replacement.terminated).toBe(false);
+  act(() => replacement.onerror!());
+  expect(host.querySelector('button')?.textContent).toBe('Retry');
+  act(() => host.querySelector<HTMLButtonElement>('button')!.click());
+  act(() => { vi.advanceTimersByTime(250); });
+  const retry = RangeWorker.instance;
+  act(() => retry.onmessage!({ data: { id: retry.messages.at(-1)!.id, result } }));
+  expect(host.textContent).toContain('Lowest margin: Club field');
+});
+
+it('preserves an open disclosure across edits while hiding stale numbers from the live status', () => {
+  vi.useFakeTimers(); vi.stubGlobal('Worker', RangeWorker);
+  const host = document.createElement('div'); const root = createRoot(host);
+  cleanup = () => { act(() => root.unmount()); host.remove(); };
+  const render = (value: StabilityRangeInput) => act(() => root.render(<PrefsProvider>
+    <ConfigStabilityRange input={value} /></PrefsProvider>));
+  render(input);
+  act(() => { vi.advanceTimersByTime(250); });
+  const worker = RangeWorker.instance;
+  act(() => worker.onmessage!({ data: { id: worker.messages.at(-1)!.id, result } }));
+  const details = host.querySelector('details')!;
+  act(() => { details.open = true; details.dispatchEvent(new Event('toggle')); });
+  render({ ...input, supersonic: true });
+  expect(host.querySelector('details')).toBe(details);
+  expect(details.open).toBe(true);
+  expect(details.querySelector('ul')).toBeNull();
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('');
+  expect(host.textContent).toContain('Calculating');
+  act(() => { vi.advanceTimersByTime(250); });
+  act(() => worker.onmessage!({ data: { id: worker.messages.at(-1)!.id, result } }));
+  expect(host.querySelector('details')).toBe(details);
+  expect(details.open).toBe(true);
+  expect(details.textContent).toContain('Club field');
+  expect(host.querySelector('[role="status"]')?.textContent).toContain('0.80');
+});

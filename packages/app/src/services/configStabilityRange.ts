@@ -68,8 +68,9 @@ export function prepareStabilityCases(input: StabilityRangeInput): StabilityCase
       && n['overrideIncludesMotor'] !== '');
     const unavailable = Object.entries(config.stageActiveness ?? {}).some(([id, active]) => liveStages.has(id) && !active)
       ? 'Inactive stages are not represented by the app.'
-      : config.motorLoadoutRefusal || config.unmatched?.length
-        || Object.keys(config.unmatchedRefs ?? {}).some(id => mountIds.has(id))
+      : config.motorLoadoutRefusal || (config.unmatchedRefs !== undefined
+        ? Object.keys(config.unmatchedRefs).some(id => mountIds.has(id))
+        : config.unmatched?.length)
         ? 'Unresolved motor: the complete loadout cannot be calculated.'
         : unresolvedMass ? 'A stage mass or CG still includes an unresolved motor.' : undefined;
     return { id: config.id, label: savedConfigLabel(config), unavailable, input: {

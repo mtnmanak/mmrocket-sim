@@ -1270,7 +1270,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             const bdiff = diffFor(f.key);
             return (
               <div className="field" key={f.key} style={{ justifyContent: 'flex-end' }}>
-                <label title={f.key === 'caseAirframe'
+                <div className="field-label-help"><label title={f.key === 'caseAirframe'
                   ? 'Sub-minimum build: the motor case IS the outer airframe (fins bond straight to the case, or propellant is cast into this tube). The motor browser then fits motors to this tube’s OUTER diameter. The motor file’s weight should include the case; keep the wall at 0 unless this tube adds real structure on top of it.'
                   : undefined}>
                   <input
@@ -1285,7 +1285,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   />
                   {f.label}
                 </label>
-                {definition(f.key, f.label)}
+                {definition(f.key, f.label)}</div>
                 {/* Beside the label, never inside it: a button inside a label
                     is that label's control (see `uid`). */}
                 {bdiff && typeof bdiff.want === 'boolean' && (() => {
@@ -1624,7 +1624,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
 
       {node.type === 'innertube' && (
         <div className="field" style={{ marginTop: 8 }}>
-          <label>
+          <div className="field-label-help"><label>
             <input
               type="checkbox"
               checked={node['motorMount'] === true}
@@ -1644,7 +1644,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             />
             Acts as motor mount
           </label>
-          {definition('motorMount', 'Acts as motor mount')}
+          {definition('motorMount', 'Acts as motor mount')}</div>
         </div>
       )}
 

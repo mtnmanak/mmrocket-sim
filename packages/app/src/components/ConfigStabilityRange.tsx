@@ -10,6 +10,7 @@ export function ConfigStabilityRange({ input }: { input: StabilityRangeInput }) 
   const { prefs } = usePrefs();
   const [answer, setAnswer] = useState<Answer>();
   const [attempt, setAttempt] = useState(0);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const worker = useRef<Worker>();
   const sequence = useRef(0);
   useEffect(() => {
@@ -17,15 +18,17 @@ export function ConfigStabilityRange({ input }: { input: StabilityRangeInput }) 
     const timer = setTimeout(() => {
       try {
         worker.current ??= new Worker(new URL('../services/configStabilityRange.worker.ts', import.meta.url), { type: 'module' });
+        const currentWorker = worker.current;
         worker.current.onmessage = (event: MessageEvent<{ id: number; result?: StabilityRange; error?: string }>) => {
           if (event.data.id !== sequence.current) return;
           setAnswer({ input, attempt, result: event.data.result, error: event.data.error });
         };
         worker.current.onerror = () => {
+          if (worker.current !== currentWorker) return;
+          currentWorker.terminate();
+          worker.current = undefined;
           if (id !== sequence.current) return;
           setAnswer({ input, attempt, error: 'Could not calculate the range. The selected configuration readout still applies only to that configuration.' });
-          worker.current?.terminate();
-          worker.current = undefined;
         };
         worker.current.postMessage({ id, input });
       } catch {
@@ -54,21 +57,22 @@ export function ConfigStabilityRange({ input }: { input: StabilityRangeInput }) 
     : 'unavailable';
   return <section className="config-stability-range" aria-label="Stability across configurations">
     <div role="status" aria-live="polite">
-      <strong>{result && !result.complete ? 'Partial stability range' : 'Stability range'}</strong>{' · '}
-      {!current ? 'Calculating…' : current.error ? 'unavailable' : rangeText}
-      {result?.min && <span className="range-worst">Lowest margin: {result.min.label}</span>}
+      {current && <>
+        <strong>{result && !result.complete ? 'Partial stability range' : 'Stability range'}</strong>{' · '}
+        {current.error ? 'unavailable' : rangeText}
+        {result?.min && <span className="range-worst">Lowest margin: {result.min.label}</span>}
+      </>}
     </div>
+    {!current && <div><strong>Stability range</strong>{' · '}Calculating…</div>}
     <p className="hint">Static, at Mach 0.3, using the most-forward CP across roll planes. Includes the empty rocket and all saved flight configurations; this is not the margin throughout a flight.</p>
     {current?.error && <p className="hint">{current.error}{' '}
       <button type="button" className="file-btn" onClick={() => setAttempt(a => a + 1)}>Retry</button></p>}
-    {result && <>
-      {!result.complete && <Note tier="caution" as="p">Some cases are unavailable and excluded. The calculated minimum may show more margin than the rocket really has in an uncalculated case.</Note>}
-      <details>
-        <summary>Configuration margins ({result.cases.length})</summary>
-        <ul>{result.cases.map((c, i) => <li key={`${c.id}-${i}`}>
-          <strong>{c.label}</strong>: {c.unavailable ? `unavailable — ${c.unavailable}` : format(c)}
-        </li>)}</ul>
-      </details>
-    </>}
+    {result && !result.complete && <Note tier="caution" as="p">Some cases are unavailable and excluded. The calculated minimum may show more margin than the rocket really has in an uncalculated case.</Note>}
+    <details open={detailsOpen} onToggle={event => setDetailsOpen(event.currentTarget.open)} aria-busy={!current}>
+      <summary>Configuration margins{result ? ` (${result.cases.length})` : ''}</summary>
+      {result ? <ul>{result.cases.map((c, i) => <li key={`${c.id}-${i}`}>
+        <strong>{c.label}</strong>: {c.unavailable ? `unavailable — ${c.unavailable}` : format(c)}
+      </li>)}</ul> : <p className="hint">{current?.error ? 'Configuration margins are unavailable.' : 'Calculating…'}</p>}
+    </details>
   </section>;
 }

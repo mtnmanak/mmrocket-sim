@@ -65,6 +65,7 @@ export function fieldTerm(type: string, key: string): string | undefined {
   const title = type === 'transition' && key === 'shape' ? 'Transition'
     : type !== 'railbutton' && key === 'innerDiameter' ? 'Diameter / radius / bore'
     : type === 'railbutton' && key === 'instanceSeparation' ? 'Rail button dimensions'
+    : type === 'railbutton' && key === 'instanceCount' ? 'Rail button'
     : type === 'centeringring' && key === 'length' ? 'Wall thickness / fin thickness'
     : fields[key];
   return typeof title === 'string' ? slug(title) : undefined;

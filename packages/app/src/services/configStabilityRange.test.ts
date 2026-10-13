@@ -4,6 +4,11 @@ import { defaultTree, motorMounts } from '../tree/treeModel.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { prepareStabilityCases, stabilityRange, StabilityRangeCalculator } from './configStabilityRange.js';
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
+import { assignedMotorsOf, currentSetKeyOf, designBuildInputOf, launchPrimaryOf } from './designDerivation.js';
+import { activeFlightOverrides, resolveFlightState } from './flightState.js';
+import { applyStageMass } from './stageMassOverrides.js';
+import { attachedSet } from './importApply.js';
+import { reconcileAllIncludedMotors } from './statedLaunchWeight.js';
 
 const motor: MountMotor = { label: 'C6', meta: { label: 'C6' }, ignition: { event: 'automatic', delay: 0 },
   spec: { designation: 'C6', diameter: 0.018, length: 0.07, times: [0, 0.2, 1.8],
@@ -70,21 +75,77 @@ describe('configuration stability range (N024)', () => {
     let checks = 0;
     expect(await calc.calculate(input, () => ++checks > 1)).toBeNull();
   });
-  it.each(['rounded', 'airfoil'])('agrees with the existing static build including %s freeform fins and measured pad hardware', async crossSection => {
+  it.each(['rounded', 'airfoil'])('agrees with App static derivation including %s freeform fins and keyed pad hardware', async crossSection => {
     const { tree, mount, config, input } = setup();
     const body = tree.components[0]!.children!.find(n => n.type === 'bodytube')!;
     const fins = body.children!.find(n => n.type === 'trapezoidfinset')!;
     Object.assign(fins, { type: 'freeformfinset', crossSection,
       points: [[0, 0], [0.02, 0.05], [0.07, 0.05], [0.1, 0]] });
-    config.motors[mount] = { ...motor, padMassKg: 0.12, padMassWeighedWith: 'legacy' };
-    const cases = prepareStabilityCases(input);
-    const expected = buildDesign(cases[1]!.input, KERNEL_HANDLES);
-    expect('error' in expected).toBe(false);
-    const result = await new StabilityRangeCalculator(KERNEL_HANDLES).calculate(input);
-    // Same calculation, tolerance permits Node 22/24 last-bit differences.
+    const stage = tree.components[0]!;
+    config.stageMassOverrides = { [stage.id!]: { overrideMass: 0.045, overrideCGX: 0.1,
+      overrideSubcomponentsMass: true, overrideSubcomponentsCG: true } };
+    config.ignitions = { [mount]: { event: 'launch', delay: 0.25 } };
+    config.motors[mount] = { ...motor, padMassKg: 0.08,
+      padMassWeighedWith: currentSetKeyOf(tree, [[mount, motor]]) };
+    // Apply-time working state, then App's derivation helpers, independently
+    // of the range projection. A dormant motor record must not change the key.
+    const applied = reconcileAllIncludedMotors(applyStageMass(tree, config.stageMassOverrides),
+      attachedSet(config.motors), { mass: kg => `${kg} kg`, length: m => `${m} m` }).tree;
+    const flightState = resolveFlightState(applied, [], null, activeFlightOverrides([config], config.id, {}),
+      { ...config.motors, deleted: motor });
+    const assigned = assignedMotorsOf(flightState.mountMotors, motorMounts(applied));
+    const appInput = designBuildInputOf({ tree: { ...applied, components: flightState.tree.components },
+      assigned, effectiveKbf: input.kbf, effectiveSupersonic: input.supersonic,
+      measuredDryMassKg: input.measuredDryMassKg, primaryMountId: launchPrimaryOf(applied, assigned),
+      currentSetKey: currentSetKeyOf(applied, assigned) });
+    const expected = buildDesign(appInput, KERNEL_HANDLES);
     if ('error' in expected) throw new Error(expected.error);
+    expect(expected.hardware.state).toBe('ok');
+    if (expected.hardware.state !== 'ok') throw new Error('Pad hardware was not applied');
+    const withoutPad = buildDesign({ ...appInput, assigned: [[mount, motor]] }, KERNEL_HANDLES);
+    if ('error' in withoutPad) throw new Error(withoutPad.error);
+    // 80 g pad - 45 g airframe - 24 g motor = 11 g hardware.
+    // 1e-10 kg/m/cal agreement permits Node 22/24 kernel last-bit differences.
+    expect(expected.hardware.deltaKg).toBeCloseTo(0.011, 10);
+    expect(expected.info.mass).toBeCloseTo(0.08, 10);
+    expect(expected.info.mass - withoutPad.info.mass).toBeCloseTo(0.011, 10);
+    expect(expected.info.cg).toBeGreaterThan(withoutPad.info.cg);
+    expect(expected.info.stabilityCalibersWorst ?? expected.info.stabilityCalibers)
+      .toBeLessThan(withoutPad.info.stabilityCalibersWorst ?? withoutPad.info.stabilityCalibers);
+    const result = await new StabilityRangeCalculator(KERNEL_HANDLES).calculate(input);
     expect(result!.cases[1]!.cal).toBeCloseTo(expected.info.stabilityCalibersWorst ?? expected.info.stabilityCalibers, 10);
     expect(result!.cases[1]!.info?.mass).toBeCloseTo(expected.info.mass, 10);
+    expect(result!.cases[1]!.info?.cg).toBeCloseTo(expected.info.cg, 10);
+    const prepared = prepareStabilityCases(input)[1]!.input;
+    expect(prepared.assigned).toEqual(appInput.assigned);
+    expect(prepared.tree).toEqual(appInput.tree);
+    expect(prepared.primaryMountId).toBe(appInput.primaryMountId);
+    expect(prepared.currentSetKey).toBe(appInput.currentSetKey);
+  });
+  it('ignores dormant keyed unresolved references after mount deletion and excludes them again on Undo', async () => {
+    const { tree, config, input, mount } = setup();
+    const body = tree.components[0]!.children!.find(n => n.type === 'bodytube')!;
+    const deletedMount = { ...motorMounts(tree)[0]!, id: 'deleted' };
+    body.children!.push(deletedMount);
+    config.unmatched = ['EX'];
+    config.unmatchedRefs = { deleted: { designation: 'EX', manufacturer: 'Unknown',
+      diameter: 0.018, length: 0.07, delay: 5 } };
+    const before = structuredClone(config);
+    expect(prepareStabilityCases(input)[1]!.unavailable).toMatch(/unresolved motor/i);
+    body.children = body.children!.filter(n => n.id !== 'deleted');
+    const cases = prepareStabilityCases(input);
+    expect(cases[1]!.unavailable).toBeUndefined();
+    expect(cases[1]!.input.assigned.map(([id]) => id)).toEqual([mount]);
+    const range = await new StabilityRangeCalculator(KERNEL_HANDLES).calculate(input);
+    expect(range!.complete).toBe(true);
+    expect(range!.min!.id).toBe(config.id);
+    expect(range!.cases[1]!.cal).toBeLessThan(range!.cases[0]!.cal!);
+    body.children.push(deletedMount);
+    expect(prepareStabilityCases(input)[1]!.unavailable).toMatch(/unresolved motor/i);
+    expect(config).toEqual(before);
+    // Old imports without keyed metadata must still fail conservatively.
+    expect(prepareStabilityCases({ ...input, configs: [{ ...config, unmatchedRefs: undefined }] })[1]!.unavailable)
+      .toMatch(/unresolved motor/i);
   });
   it('counts every loaded mount and clears overrides in an explicitly empty mass snapshot', async () => {
     const { tree, config, input, mount } = setup();
