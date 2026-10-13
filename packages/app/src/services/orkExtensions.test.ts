@@ -4,7 +4,10 @@ import { exportOrk, importOrk } from './orkFile.js';
 import { exportRkt } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
-import { parseXml, currentXmlParser, browserXmlParser } from './xmlParse.js';
+import { parseXml, currentXmlParser, browserXmlParser, setXmlParser } from './xmlParse.js';
+import { jsXmlParser } from './xmlParseJs.js';
+import { noteFlags } from './importNotes.js';
+import { explanationFor } from './noteExplanations.js';
 import { planImport, resolveImportMotors } from './importApply.js';
 import { designStateFromSession } from './sessionRestore.js';
 import { gzipSync, strToU8, zipSync } from 'fflate';
@@ -85,6 +88,40 @@ describe('opaque desktop simulation extensions', () => {
       launch: DEFAULT_CONDITIONS })).toContain(script);
     expect(autosaveToOrk({ ...restored.state, savedAt: 1 })).toContain(script);
     expect(preservedSimulationExtensions(restored.state.tree).map(g => g.configId)).toEqual(['B', 'A']);
+  });
+
+  it('explains non-execution for a standalone design with an enabled script and Air-start', () => {
+    const opened = importOrk(fixture());
+    const note = noteFlags(opened.notes).find(n => n.kind === 'I02.not-run')!;
+    expect(note.text).toMatch(/enabled.*desktop OpenRocket would run.*numbers may differ/i);
+    expect(note.tier).toBe('caution');
+    expect(save(opened)).toContain(script);
+    expect(save(opened)).toContain(air);
+    const explanation = explanationFor(note.kind);
+    expect(explanation.meaning).toMatch(/simulation extensions.*does not run/i);
+    expect(explanation.meaning).toMatch(/flight.*differ.*desktop OpenRocket/i);
+    expect(explanation.remedy).toMatch(/desktop OpenRocket.*extensions/i);
+    expect(explanation.remedy).toMatch(/enabled scripts.*trusted/i);
+    expect(explanation.remedy).not.toMatch(/open a standalone design/i);
+  });
+
+  it('explains extension loss from ancestor namespace declarations', () => {
+    const previous = currentXmlParser();
+    setXmlParser(jsXmlParser); // happy-dom does not enforce XML namespace bindings.
+    try {
+      const dependent = '<extension extensionid="custom.Ns"><x:entry/></extension>';
+      const opened = importOrk(fixture(sim('A', dependent))
+        .replace('<openrocket ', '<openrocket xmlns:x="urn:example" '));
+      const note = noteFlags(opened.notes).find(n => n.kind === 'I02.not-standalone')!;
+      expect(note.tier).toBe('caution');
+      expect(save(opened)).not.toContain(dependent);
+      const explanation = explanationFor(note.kind);
+      expect(explanation.meaning).toMatch(/simulation extension.*not preserved/i);
+      expect(explanation.meaning).toMatch(/namespace declarations/i);
+      expect(explanation.remedy).toMatch(/original.*file/i);
+      expect(explanation.remedy).toMatch(/saving.*loses.*extension/i);
+      expect(explanation.remedy).not.toMatch(/standalone design/i);
+    } finally { setXmlParser(previous); }
   });
 
   it("names desktop's example extensions as desktop does and keeps unknown ids verbatim", () => {
@@ -196,6 +233,14 @@ describe('opaque desktop simulation extensions', () => {
     expect(opened.notes.join(' ')).toMatch(/nested simulation extension.*not preserved.*save/i);
     expect(opened.notes.join(' ')).not.toContain('Air-start');
     expect(opened.notes.join(' ')).not.toContain('the app keeps them');
+    const note = noteFlags(opened.notes).find(n => n.kind === 'I02.nested-dropped')!;
+    expect(note.tier).toBe('caution');
+    const explanation = explanationFor(note.kind);
+    expect(explanation.meaning).toMatch(/simulation extension.*inside other elements/i);
+    expect(explanation.meaning).toMatch(/not preserved.*save/i);
+    expect(explanation.remedy).toMatch(/original.*file/i);
+    expect(explanation.remedy).toMatch(/direct.*simulation/i);
+    expect(explanation.remedy).not.toMatch(/standalone design/i);
   });
 
   it('preserves direct extension payloads while omitting wrapped siblings', () => {

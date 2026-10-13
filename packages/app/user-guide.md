@@ -1565,7 +1565,7 @@ One of those differences is worth spelling out, because it is the one you can se
 
 ## Feedback & Bug Reports
 
-If an unexpected error or an unhandled background failure reaches the page, a bar at the top says **Something went wrong** and shows the short error message. **Dismiss** closes the bar; it does not fix the error. Keep the message with your bug report. The bar leaves the phone’s tabs and Launch controls uncovered. Benign ResizeObserver loop notifications do not open it.
+If an unexpected error or an unhandled background failure reaches the page, a bar at the top says **Something went wrong** and shows the short error message. If the bar is outside the visible part of the page, the page scrolls to show it. **Dismiss** closes the bar; it does not fix the error. Keep the message with your bug report. The bar leaves the phone’s tabs and Launch controls uncovered. Benign ResizeObserver loop notifications do not open it.
 
 The bar includes **Download session debug log**. In builds without session-log support, that action is disabled and the bar says the download is unavailable. When session-log support is connected, the action downloads the current session log; it does not send a report. The separate recovery screen for a rendering failure still offers to download the autosaved design.
 

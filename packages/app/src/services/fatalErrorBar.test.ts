@@ -5,7 +5,7 @@ import { installFatalErrorBar } from './fatalErrorBar.js';
 let stop: () => void;
 let root: HTMLDivElement;
 beforeEach(() => { root = document.createElement('div'); root.id = 'root'; root.textContent = 'Running app'; document.body.append(root); });
-afterEach(() => { stop?.(); root.remove(); });
+afterEach(() => { stop?.(); root.remove(); vi.restoreAllMocks(); });
 const bar = () => document.querySelector<HTMLElement>('.fatal-error-bar');
 const error = (message: string) => window.dispatchEvent(new ErrorEvent('error', { message, cancelable: true }));
 
@@ -32,6 +32,43 @@ it('reports rejection reasons including objects without suppressing browser repo
   window.dispatchEvent(event);
   expect(bar()?.textContent).toContain('Asynchronous failure');
   expect(event.defaultPrevented).toBe(false);
+});
+
+it.each(['error', 'unhandledrejection'])('reveals an offscreen fatal bar for %s on a scrolled phone page', channel => {
+  // happy-dom has no layout: model the normal-flow bar above a 1,200 px scroll.
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    top: -1200, bottom: -1040, left: 0, right: 360, width: 360, height: 160,
+    x: 0, y: -1200, toJSON: () => ({}),
+  });
+  const reveal = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+  stop = installFatalErrorBar();
+  if (channel === 'error') error('Scrolled page failure');
+  else {
+    const event = new Event('unhandledrejection');
+    Object.defineProperty(event, 'reason', { value: new Error('Scrolled page failure') });
+    window.dispatchEvent(event);
+  }
+  expect(reveal).toHaveBeenCalledExactlyOnceWith({ block: 'start', behavior: 'instant' });
+  expect(reveal.mock.instances[0]).toBe(bar());
+  expect(bar()?.nextElementSibling).toBe(root);
+  expect(bar()?.textContent).toContain('Scrolled page failure');
+});
+
+it.each([
+  [-10, 150, true],
+  [600, 760, true],
+  [0, 160, false],
+  [480, 640, false],
+] as const)('reveals only a bar outside the viewport (top %s, bottom %s)', (top, bottom, offscreen) => {
+  vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(640);
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+    top, bottom, left: 0, right: 360, width: 360, height: 160,
+    x: 0, y: top, toJSON: () => ({}),
+  });
+  const reveal = vi.spyOn(HTMLElement.prototype, 'scrollIntoView');
+  stop = installFatalErrorBar();
+  error('Viewport boundary failure');
+  expect(reveal).toHaveBeenCalledTimes(offscreen ? 1 : 0);
 });
 
 it.each(['ResizeObserver loop limit exceeded', 'ResizeObserver loop completed with undelivered notifications.'])(

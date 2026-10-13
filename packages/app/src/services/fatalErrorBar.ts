@@ -57,6 +57,11 @@ export function installFatalErrorBar(options: FatalErrorBarOptions = {}): (() =>
     const root = document.getElementById('root');
     if (root?.parentElement) root.before(current); else document.body.prepend(current);
     bar = current;
+    // W3-DIAG: a normal-flow bar above a scrolled page must still be seen.
+    const bounds = current.getBoundingClientRect();
+    if (bounds.top < 0 || bounds.bottom > window.innerHeight) {
+      current.scrollIntoView({ block: 'start', behavior: 'instant' });
+    }
   };
   const onError = (event: ErrorEvent) => report(event.error ?? event.message);
   const onRejection = (event: PromiseRejectionEvent) => report(event.reason);
