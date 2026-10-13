@@ -4721,6 +4721,12 @@ select.unit-chip:hover {
 .comparison-axis-key > span { display: inline-flex; align-items: center; gap: 4px; }
 .chart-comparison-note { color: var(--text-secondary); font-size: 12px; line-height: 1.5; margin: 6px 0; }
 .comparison-panel .u-legend { white-space: normal; }
+.flight-series-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
+.flight-series-legend > span { flex-basis: 100%; }
+.flight-series-legend .series-emphasized { outline: 2px solid currentColor; outline-offset: 1px; }
+.flight-series-legend .series-emphasis-mark { width: 1em; }
+.flight-series-legend .series-dot { opacity: 1; }
+.roll-plane-panel .chart-panel-head h4 { flex: 1; min-width: 0; }
 .comparison-panel .u-legend .u-series { margin-right: 10px; }
 .comparison-panel .chart-btn { min-height: 36px; }
 .comparison-panel summary { cursor: pointer; padding: 10px 0; }
