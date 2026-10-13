@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtFieldValue, fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
@@ -22,7 +23,8 @@ export function noBoreText(noBore: NoBore): string {
  * physical mount, with its ⌾ Estimate (CFG-SPEC A4). The motor card shows it
  * read-only through `MotorLengthReadout`.
  */
-export function MotorLengthField({ mountName, value, onCommit, room, noBore, inputId }: {
+export function MotorLengthField({ mountName, value, onCommit, room, noBore, inputId, definition }: {
+  definition?: ReactNode;
   mountName: string;
   /** A stable id for the input, so another tab can focus it. */
   inputId?: string;
@@ -42,7 +44,7 @@ export function MotorLengthField({ mountName, value, onCommit, room, noBore, inp
   const { prefs } = usePrefs();
   const unit = prefs.units.motorDimensions;
   return <div className="field" style={{ marginBottom: 8 }}>
-    <label htmlFor={id}>Max motor length <UnitChip quantity="motorDimensions" /></label>
+    <div className="field-label-help"><label htmlFor={id}>Max motor length <UnitChip quantity="motorDimensions" /></label>{definition}</div>
     <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
       <NumField id={id} ariaLabel={`Max motor length for ${mountName}`}
         value={value === null ? undefined : siToUi('motorDimensions', unit, value)}
@@ -80,7 +82,7 @@ export function MotorLengthReadout({ mountName, value, onOpenDesign, noBore }: {
   const { prefs } = usePrefs();
   const unit = prefs.units.motorDimensions;
   return <p className="comp-stats motor-length-readout" style={{ margin: '0 0 8px' }}>
-    Max motor length: {value === null ? 'no limit' : `${fmtFieldValue(siToUi('motorDimensions', unit, value))} ${unit}`}
+    Max motor length: {value === null ? 'no limit' : `${fmtFieldValue(siToUi('motorDimensions', unit, value), prefs.fieldPrecision)} ${unit}`}
     {/* The accessible name CONTAINS the visible words (WCAG 2.5.3, label in
         name), so a speech-input user can say what they see. */}
     {' — '}<button type="button" className="file-btn" aria-label={`Max motor length for ${mountName}: set on Design`}

@@ -29,6 +29,7 @@ import type { SimRun } from './services/simReport.js';
 import { decodeShareFragment, encodeShareFragment } from './services/shareLink.js';
 import { downloadImage } from './services/schematicExport.js';
 import * as recentDesigns from './services/recentDesigns.js';
+import { sessionDebugLog } from './services/sessionDebugLog.js';
 
 vi.mock('./services/recentDesigns.js', () => ({
   rememberRecentDesign: vi.fn(async (): Promise<string | null> => null),
@@ -598,6 +599,29 @@ beforeEach(() => {
 });
 
 describe('C-A2 and C-B8 file workflow', () => {
+  it.each([null, 'The app could not keep a copy in Recent.'])('C-A2 / C-H3: logs the applied import before Recent storage settles with %s', async note => {
+    let finishStorage!: (note: string | null) => void;
+    vi.mocked(recentDesigns.rememberRecentDesign).mockImplementationOnce(() =>
+      new Promise<string | null>(resolve => { finishStorage = resolve; }));
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    const file = new File([fixture(RKT)], 'Private-recent.rkt');
+    const completeCount = () => sessionDebugLog.text().match(/ms import-complete\n/g)?.length ?? 0;
+    const before = completeCount();
+    await pick(host, file);
+    await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.length === 1, 'pending recent copy');
+    expect(shownName(host)).toBe(RKT_NAME);
+    expect(completeCount()).toBe(before + 1);
+    expect(sessionDebugLog.text()).not.toContain(file.name);
+    const [name, bytes] = vi.mocked(recentDesigns.rememberRecentDesign).mock.calls[0]!;
+    expect(name).toBe(file.name);
+    expect(new TextDecoder().decode(bytes)).toBe(fixture(RKT));
+    await act(async () => { finishStorage(note); });
+    expect(completeCount()).toBe(before + 1);
+    expect(host.querySelector('.notice-bar')?.textContent).toContain('states its launch site as latitude 43°');
+    expect(host.querySelector('.recent-storage-note')?.textContent ?? null).toEqual(note === null ? null : expect.stringContaining(note));
+  });
+
   it.each(['Close', 'Escape'])('C-A2: %s cancels a pending Recent read without losing later edits or history', async dismissal => {
     const file = new File([fixture(RKT)], 'pending.rkt');
     let resolveRead!: (file: File) => void;

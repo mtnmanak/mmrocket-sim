@@ -6,6 +6,7 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { PresetPicker } from './PresetPicker.js';
 import { DEFAULT_PREFS, PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 import { loadCustomPresets, loadPresets, presetPatch, saveCustomPresets, type Preset } from '../services/presets.js';
+import { sessionDebugLog } from '../services/sessionDebugLog.js';
 
 /**
  * The CSV round trip this dialog advertises (⬇ CSV, "Import an edited CSV") is
@@ -87,6 +88,16 @@ const importCsv = async (text: string) => {
 };
 
 const text = () => host.textContent ?? '';
+
+it('C-H3 records a refused preset CSV without its text or file name', async () => {
+  await render();
+  await importCsv('Private weather place 61.234');
+  expect(text()).toContain('No presets found in that CSV.');
+  expect(sessionDebugLog.text()).toContain('import-failed: Error: No presets found in that CSV.');
+  expect(sessionDebugLog.text()).not.toContain('Private');
+  expect(sessionDebugLog.text()).not.toContain('61.234');
+  expect(sessionDebugLog.text()).not.toContain('presets.csv');
+});
 
 /**
  * `vi.spyOn(localStorage, 'setItem')`, taken off again when the test ends.

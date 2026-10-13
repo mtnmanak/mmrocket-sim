@@ -422,6 +422,27 @@ async function reviewGerlach(launch?: LaunchConditions) {
   choose(q('.weather-when select'), String(SAT_2PM));
 }
 
+it('N005 weather review and gust note keep four-decimal wind digits', async () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ fieldPrecision: 4, units: { windspeed: 'm/s' } }));
+  render({ initialPlace: GERLACH_PLACE, launch: { ...DEFAULT_CONDITIONS, windAverage: 1.0625 }, route: async u => {
+    const response = await GERLACH(u);
+    if (u.startsWith('https://api.open-meteo.com/v1/forecast?')) {
+      for (const entry of (Array.isArray(response.body) ? response.body : [response.body])) {
+        const hourly = (entry as { hourly: Record<string, number[]> }).hourly;
+        hourly.wind_speed_10m = hourly.wind_speed_10m!.map(() => 1.0625);
+        hourly.wind_gusts_10m = hourly.wind_gusts_10m!.map(() => 8.25);
+      }
+    }
+    return response;
+  } });
+  typeInto(q('input[type="date"]'), '2026-09-26');
+  await click(button('Fetch'));
+  choose(q('.weather-when select'), String(SAT_2PM));
+  expect(row('windAverage')!.textContent).toContain('1.0625 m/s');
+  expect(q('.weather-context')!.textContent).toContain('σ from this gust ≈ 1.0625 m/s');
+  expect(applied).toEqual([]);
+});
+
 describe('the highlighted button follows the next step (issues-2026-10-13a.md)', () => {
   const lit = () => [...host.querySelectorAll('button.file-btn-primary')].map((b) => b.textContent?.trim());
 
@@ -456,10 +477,12 @@ describe('the highlighted button follows the next step (issues-2026-10-13a.md)',
 
   it('a disabled primary drops the accent fill, so an unlit step never looks like the next one', () => {
     const css = readFileSync(join(here, '..', 'styles.css'), 'utf8');
-    const rule = /\.file-btn-primary:disabled,\s*\.file-btn-primary:disabled:hover\s*\{([^}]*)\}/.exec(css);
+    // The disabled state also covers aria-disabled (v0.188: a busy menu opener keeps its focus).
+    const dis = String.raw`:is\(:disabled, \[aria-disabled='true'\]\)`;
+    const rule = new RegExp(String.raw`\.file-btn-primary${dis},\s*\.file-btn-primary${dis}:hover\s*\{([^}]*)\}`).exec(css);
     expect(rule, 'the disabled-primary rule').toBeTruthy();
     expect(rule![1]).toContain('background: var(--surface-3)');
-    expect(css).toMatch(/\.file-btn:disabled\s*\{[^}]*opacity: 0\.5/);
+    expect(css).toMatch(new RegExp(String.raw`\.file-btn${dis}\s*\{[^}]*opacity: 0\.5`));
   });
 });
 
