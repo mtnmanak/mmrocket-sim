@@ -358,7 +358,7 @@ describe('kernelSimOptions fills a blank atmosphere field from the site altitude
 });
 
 describe('the site-temperature field', () => {
-  it.each([0, 0.1, 1.1, 5.1, 10.1, 20.1, -0.1, -5.1, 0.1000000001234567])(
+  it.each([0, 0.1, 1.1, 5.1, 10.1, 20.1, -0.1, -5.1, 0.100000000123])(
     'N005 preserves a stored Celsius draft %s and commits only the edited value', (temperatureC) => {
       localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { temperature: '°C' } }));
       const changes: LaunchConditions[] = [];
@@ -382,6 +382,47 @@ describe('the site-temperature field', () => {
         });
         if (edited === '') expect(changes.at(-1)?.temperatureC).toBeNull();
         else expect(changes.at(-1)?.temperatureC).toBe(Number(edited));
+      } finally { localStorage.clear(); }
+    },
+  );
+  it.each(['0.1', '1.1', '5.1', '-0.1', '-40', '98.6', '15.2', '0.0625',
+    '1.23456789012', '0.123456789012'])(
+    'N005 Fahrenheit refocus and Backspace edit the typed digits: %s', text => {
+      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { temperature: '°F' } }));
+      const changes: LaunchConditions[] = [];
+      let value = { ...DEFAULT_CONDITIONS, temperatureC: null as number | null };
+      const draw = () => root.render(<PrefsProvider><LaunchField label="Temperature" field="temperatureC"
+        value={value} onChange={v => { changes.push(v); value = v; draw(); }} stepStored={1} nullable
+      /></PrefsProvider>);
+      try {
+        act(draw);
+        const input = launchBox('Temperature')!;
+        const type = (draft: string) => act(() => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, draft);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        act(() => input.focus());
+        type(text);
+        expect(input.value).toBe(text);
+        expect(changes).toHaveLength(1);
+        // Independent Fahrenheit/Celsius formula; 10 decimals allow affine roundoff.
+        expect(value.temperatureC).toBeCloseTo((Number(text) - 32) * 5 / 9, 10);
+        const stored = value.temperatureC;
+        const options = kernelSimOptions(value);
+        act(() => input.blur());
+        act(() => input.focus());
+        expect(input.value).toBe(text);
+        expect(changes).toHaveLength(1);
+        expect(value.temperatureC).toBe(stored);
+        expect(kernelSimOptions(value)).toEqual(options);
+        act(() => {
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+        });
+        type(input.value.slice(0, -1));
+        expect(input.value).toBe(text.slice(0, -1));
+        expect(changes).toHaveLength(2);
+        expect(value.temperatureC).toBeCloseTo((Number(text.slice(0, -1)) - 32) * 5 / 9, 10);
+        act(() => input.blur());
       } finally { localStorage.clear(); }
     },
   );

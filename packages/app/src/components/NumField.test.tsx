@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NumField } from './NumField.js';
-import { LOCALE_DECIMAL_COMMA, siToUi } from '../prefs/units.js';
+import { LOCALE_DECIMAL_COMMA, siToUi, uiToSi, UNITS, type Quantity } from '../prefs/units.js';
 import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 
 /**
@@ -110,15 +110,15 @@ it('N005 changes resting precision without committing or truncating focused text
   function Field() {
     const { prefs, setPrefs } = usePrefs();
     choose = (fieldPrecision) => setPrefs({ ...prefs, fieldPrecision });
-    return <NumField value={1.0625123456789} onCommit={(v) => commits.push(v)} />;
+    return <NumField value={1.06251234567} onCommit={(v) => commits.push(v)} />;
   }
   commits = [];
   act(() => root.render(<PrefsProvider><Field /></PrefsProvider>));
   expect(input().value).toBe('1.0625');
   focus();
-  expect(input().value).toBe('1.0625123456789');
+  expect(input().value).toBe('1.06251234567');
   act(() => choose(3));
-  expect(input().value).toBe('1.0625123456789');
+  expect(input().value).toBe('1.06251234567');
   blur();
   expect(input().value).toBe('1.063');
   expect(commits).toEqual([]);
@@ -131,6 +131,44 @@ afterEach(() => {
 });
 
 describe('NumField — typing', () => {
+  const unitCases = (Object.keys(UNITS) as Quantity[]).flatMap(quantity =>
+    UNITS[quantity].map(unit => [quantity, unit.symbol] as const));
+
+  it.each(unitCases)('N005 round-trip editing in %s %s removes the intended digit', (quantity, symbol) => {
+    let storedSi: number | undefined;
+    commits = [];
+    const draw = () => root.render(<NumField
+      value={storedSi === undefined ? undefined : siToUi(quantity, symbol, storedSi)}
+      allowNegative
+      onCommit={v => {
+        commits.push(v);
+        if (v !== null) storedSi = uiToSi(quantity, symbol, v);
+        draw();
+      }}
+    />);
+    act(draw);
+    for (const text of ['0.1', '1.1', '15.2', '0.0625', '-40', '98.6', '101.325', '-0.1',
+      '1.23456789012', '0.123456789012']) {
+      commits = [];
+      type(text);
+      expect(input().value).toBe(text);
+      expect(commits).toEqual([Number(text)]);
+      const stored = storedSi;
+      blur();
+      focus();
+      expect(input().value, text).toBe(text);
+      expect(input().getAttribute('aria-invalid')).toBeNull();
+      expect(commits).toEqual([Number(text)]);
+      expect(storedSi).toBe(stored);
+      // happy-dom dispatches keys but does not apply the browser's text deletion.
+      key('Backspace');
+      type(input().value.slice(0, -1));
+      expect(input().value).toBe(text.slice(0, -1));
+      expect(commits).toEqual([Number(text), Number(text.slice(0, -1))]);
+      blur();
+    }
+  });
+
   it.each([
     [70.00000000000001, '70'],
     [0.30000000000000004, '0.3'],
@@ -159,7 +197,7 @@ describe('NumField — typing', () => {
     expect(commits).toEqual([]);
   });
 
-  it.each([1.0625123456789, 1.2345678901234567, 1.2345678901234567e-12, 1e-12])(
+  it.each([1.06251234567, 1.23456789012, 1.23456789012e-12, 1e-12])(
     'N005 retains meaningful focused precision and tiny values: %s', (value) => {
       render({ value });
       focus();
@@ -174,6 +212,20 @@ describe('NumField — typing', () => {
     type(input().value.slice(0, -1));
     expect(input().value).toBe('7');
     expect(commits).toEqual([7]);
+  });
+
+  it('N005 keeps longer typed drafts exact and never commits focus formatting', () => {
+    render({ value: 1 }, { controlled: true });
+    const text = '1.2345678901234567';
+    type(text);
+    expect(input().value).toBe(text);
+    expect(commits).toEqual([Number(text)]);
+    blur();
+    focus();
+    expect(input().value).toBe('1.23456789012');
+    blur();
+    expect(current.value).toBe(Number(text));
+    expect(commits).toEqual([Number(text)]);
   });
 
   it('fixup3: ordinary live-commit fields retain their Escape and blur behavior', () => {

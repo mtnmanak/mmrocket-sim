@@ -26,7 +26,8 @@ const NO_TEXT: ReadonlySet<string> = new Set();
  *   leave one behind for the next component, an undo or a unit switch.
  * - Unfocused display uses the selected decimals, or 3 significant figures for
  *   a value too small for that (display only — the stored value keeps full
- *   precision, which is what you edit on focus).
+ *   precision). Focus seeds up to 12 significant digits to strip conversion
+ *   noise; this formatting never commits, and typed drafts keep every digit.
  * - Clearing the field commits null when `nullable` (blank = auto/calculated
  *   fields); otherwise it's treated as an incomplete draft.
  * - ArrowUp/ArrowDown and the spinner buttons step by `step`, from the draft,
@@ -171,10 +172,9 @@ export function NumField({
     v === undefined ? '' : fmtFieldValue(v, prefs.fieldPrecision);
   const fmtEdit = (v: number | undefined) => {
     if (v === undefined) return '';
-    // N005: clean SI conversion noise only within a few floating-point steps;
-    // an unconditional decimal cap would discard meaningful focused digits.
-    const clean = Number(v.toPrecision(12));
-    return String(Math.abs(v - clean) <= Math.abs(v) * Number.EPSILON * 4 ? clean : v);
+    // N005 review ruling: affine conversions need the same cleanup as linear
+    // ones; an epsilon bound relative to a near-zero result misses their noise.
+    return String(Number(v.toPrecision(12)));
   };
 
   const shown = live !== null ? live : fmtDisplay(value);
