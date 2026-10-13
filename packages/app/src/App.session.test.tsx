@@ -836,7 +836,8 @@ describe('restored limits-table repairs (open-items, 22–23 September)', () => 
     seed();
     const host = await mountApp();
     const notice = (await repairNotice(host))!;
-    const dismiss = notice.querySelector<HTMLButtonElement>('button');
+    expect(notice.querySelector('.warning-code')).not.toBeNull();
+    const dismiss = notice.querySelector<HTMLButtonElement>('button.notice-dismiss[aria-label^="Dismiss:"]');
     expect(dismiss).not.toBeNull();
     await act(async () => { dismiss!.click(); });
     await type(input(host, 'Measured mass'), '31');

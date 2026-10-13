@@ -1,6 +1,7 @@
 import {
   useEffect, useRef, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent,
 } from 'react';
+import { FATAL_ERROR_BAR_CHANGE } from '../services/fatalErrorBar.js';
 
 /**
  * Shared modal behaviour for every `role="dialog"` overlay in the app.
@@ -80,12 +81,49 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
     const node = ref.current;
-    if (node) {
+    const overlay = node?.closest<HTMLElement>('.prefs-overlay, .modal-backdrop') ?? node;
+    let suspended = false;
+    let resumeFocus: HTMLElement | null = null;
+    let display = '';
+    let displayPriority = '';
+    let inert: string | null = null;
+    const restoreOverlay = () => {
+      if (!overlay || !suspended) return;
+      suspended = false;
+      if (display) overlay.style.setProperty('display', display, displayPriority);
+      else overlay.style.removeProperty('display');
+      if (inert === null) overlay.removeAttribute('inert');
+      else overlay.setAttribute('inert', inert);
+    };
+    const onFatalErrorBarChange = () => {
+      if (!overlay) return;
+      if (document.querySelector('.fatal-error-bar')) {
+        if (suspended) return; // replacement errors keep the original focus/state
+        suspended = true;
+        const active = document.activeElement as HTMLElement | null;
+        resumeFocus = active && node?.contains(active) ? active : null;
+        display = overlay.style.getPropertyValue('display');
+        displayPriority = overlay.style.getPropertyPriority('display');
+        inert = overlay.getAttribute('inert');
+        // W3-DIAG: hide the whole scrim, retaining React state for dismissal.
+        overlay.style.setProperty('display', 'none', 'important');
+        overlay.setAttribute('inert', '');
+      } else if (suspended) {
+        restoreOverlay();
+        if (node && stack[stack.length - 1] === id) {
+          (resumeFocus?.isConnected ? resumeFocus : focusableWithin(node)[0] ?? node).focus();
+        }
+      }
+    };
+    document.addEventListener(FATAL_ERROR_BAR_CHANGE, onFatalErrorBarChange);
+    onFatalErrorBarChange();
+    if (node && !suspended) {
       const first = focusableWithin(node)[0];
       (first ?? node).focus?.();
     }
 
     const onKeyDown = (e: KeyboardEvent) => {
+      if (suspended) return; // the fatal actions now own keyboard access
       if (stack[stack.length - 1] !== id) return; // an inner dialog owns the key
       const el = ref.current;
       if (e.key === 'Escape') {
@@ -117,6 +155,8 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
     document.addEventListener('keydown', onKeyDown, true);
     return () => {
       document.removeEventListener('keydown', onKeyDown, true);
+      document.removeEventListener(FATAL_ERROR_BAR_CHANGE, onFatalErrorBarChange);
+      restoreOverlay();
       const i = stack.indexOf(id);
       if (i >= 0) stack.splice(i, 1);
       // Only restore if focus is still inside (or was lost to) this dialog —
@@ -126,7 +166,8 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
       // 2026-09-22), so `ref.current` read here was null on every close and
       // its clause could never fire.
       const active = document.activeElement;
-      if (!active || active === document.body || node?.contains(active)) {
+      if (!document.querySelector('.fatal-error-bar')
+        && (!active || active === document.body || node?.contains(active))) {
         previouslyFocused?.focus?.();
       }
     };

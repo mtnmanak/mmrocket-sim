@@ -113,6 +113,8 @@ function stripBrackets(message: unknown): string {
 }
 
 export interface FormattedWarning {
+  /** N046: preserve the producer's identity at the display boundary only. */
+  code: string;
   tier: NoteTier;
   /** Plain-language label (or the bracket-stripped raw message when unknown). */
   label: string;
@@ -132,9 +134,9 @@ export function formatWarning(w: EngineWarning, units: UnitSelection = INITIAL_U
   if (label === undefined) {
     // Unknown key (new kernel warning, or "Other"): the stripped message IS
     // the label; show the raw text rather than hiding the warning.
-    return { label: detail || w.key, detail: null, high: isHighPriority(w), tier: warningTier(w.key) };
+    return { code: w.key, label: detail || w.key, detail: null, high: isHighPriority(w), tier: warningTier(w.key) };
   }
-  return { label, detail: quantityDetail(w, units) ?? (detail || null), high: isHighPriority(w), tier: warningTier(w.key) };
+  return { code: w.key, label, detail: quantityDetail(w, units) ?? (detail || null), high: isHighPriority(w), tier: warningTier(w.key) };
 }
 
 /** D7: classify stable event keys, never priority or translated English. The

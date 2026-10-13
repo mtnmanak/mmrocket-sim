@@ -1060,6 +1060,12 @@ Launch conditions also travel inside your `.ork` file (and in share links), so a
 
 ## Simulating and Reading Results
 
+### Note codes and explanations
+
+Simulation warnings and recognized design warnings show a small code beside the note. File-open notes with a recorded code, such as **I03.left-out**, show it when the notices bar is expanded. Select the code to open **Note explanations**: **What it means** explains the note, and **What to do** suggests checks. **Find a note code** searches the codes and their meanings; **Clear** clears the search. Escape or **Close** returns to the note.
+
+Older plain-text notes may have no code. An unknown code remains visible, with a message that this version has no explanation for it. Keep that code and the original details with a bug report. Codes do not change a note’s wording or severity. Notes are advice: they do not block Launch or certify a flight.
+
 With a motor assigned and conditions set, press **Launch**. This section covers the single-flight run, the plots, the safety-graded report, saved runs, and batch simulation.
 
 ## Running a single flight
@@ -1623,6 +1629,10 @@ One of those differences is worth spelling out, because it is the one you can se
 <a id="feedback"></a>
 
 ## Feedback & Bug Reports
+
+If an unexpected error or an unhandled background failure reaches the page, a bar at the top says **Something went wrong** and shows the short error message. If the bar is outside the visible part of the page, the page scrolls to show it. Focus moves to **Dismiss** so the error controls are available by keyboard. An open dialog is temporarily hidden with its contents kept; dismissing the bar restores the dialog and its focus. **Dismiss** closes the bar; it does not fix the error. Keep the message with your bug report. The bar leaves the phone’s tabs and Launch controls uncovered. Benign ResizeObserver loop notifications do not open it.
+
+The bar's **Download session debug log** action saves the current session log locally; it does not send a report. The separate recovery screen for a rendering failure still offers to download the autosaved design.
 
 **Download session debug log** in **Feedback** saves a text file you can attach to a bug report or email. The same button is available when the app or a results panel cannot draw after an error. It contains the app version, browser user-agent string, viewport size in CSS pixels, display, unit, aerodynamics, tour and configuration-sort preferences (including the session aerodynamics choice), elapsed app events and privacy-filtered error messages. It contains no design, file names or contents, coordinates or weather searches. Unknown error messages, property names, file details, URLs and error stacks are omitted for privacy; failures before capture loaded cannot be recorded. The log keeps up to the last 200 events in memory until you reload or close the tab; the file is at most 64 KiB, so long messages can push older events out sooner. Downloading it does not send a report: it leaves your browser only if you attach it yourself. Attach it to a public issue only if you are comfortable making those diagnostics public.
 

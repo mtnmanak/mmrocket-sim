@@ -3,6 +3,7 @@ import type { DesignMatchKey } from '../services/simReport.js';
 import { deploymentRole, openingPolicy } from '../services/simReport.js';
 import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
 import { Note } from './Note.js';
+import { WarningCode } from './WarningCode.js';
 import { MountDelayReport } from './MountDelayReport.js';
 import { railNeededLine } from '../services/railNeeded.js';
 import { FlightLoadStats } from './FlightLoadStats.js';
@@ -297,7 +298,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
         if (!warnings.length && !comments.length) return null;
         return <Note key={tier} tier={tier} className="flight-notes">
           {warnings.map((f, i) => <p key={`warning-${i}`} className="simdet-comments" style={{ margin: '2px 0 0' }}>
-            {f.label}{f.detail && <span> — {f.detail}</span>}
+            {f.label}{f.detail && <span> — {f.detail}</span>}<WarningCode code={f.code} />
           </p>)}
           {comments.map(({ text, level }, i) => <p key={`comment-${i}`}
             className={level === 'warning' ? 'simdet-comments stability-bad' : level === 'caution' ? 'simdet-comments stability-warn' : 'simdet-comments'}
