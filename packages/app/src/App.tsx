@@ -1,3 +1,4 @@
+import { ConfigStabilityRange } from './components/ConfigStabilityRange.js';
 import { LaunchOverrideWarning } from './components/LaunchOverrideWarning.js';
 import { describeFlightOverrides, recordFlightOverrides, type FlightOverrideSummary } from './services/flightOverrideSummary.js';
 import { flightVitals } from './services/flightVitals.js';
@@ -1360,6 +1361,15 @@ export function App() {
   [flightTree.components, assigned, effectiveKbf, effectiveSupersonic, effectiveHybrid, measured.massKg, primaryMountId, currentSetKey,
     prefs.units.length]);
   const built = 'error' in buildResult ? null : buildResult;
+  const stabilityRangeInput = useMemo(() => ({
+    tree,
+    configs: syncActiveConfig(savedConfigs, activeConfigId, { tree, motors: mountMotors, unmatchedRefs }),
+    ...(activeConfigId === null ? { workingMotors: mountMotors, workingUnmatchedRefs: unmatchedRefs } : {}),
+    kbf: effectiveKbf, supersonic: effectiveSupersonic, hybrid: effectiveHybrid,
+    measuredDryMassKg: measured.massKg,
+  }), [tree, savedConfigs, activeConfigId, mountMotors, unmatchedRefs, effectiveKbf, effectiveSupersonic,
+    effectiveHybrid, measured.massKg]);
+
   const buildError = 'error' in buildResult ? buildResult.error : simError;
   // A fresh array every render whenever the build failed, which invalidated the
   // `notices` memo below on every render (eslint reports it by name). Stable
@@ -4172,6 +4182,7 @@ export function App() {
                 </div>
               )}
             </div>
+            {built && <ConfigStabilityRange input={stabilityRangeInput} />}
             {built && hero.open && !hero.wide && statsDrawerNode}
             {built && built.info.warningTexts.length > 0 && (() => {
               // Rail-line findings are a mechanical fit problem on the pad, not an

@@ -1,3 +1,5 @@
+import { GlossaryHelp } from './GlossaryHelp.js';
+import { componentTerm, fieldTerm } from '../tree/glossaryTerms.js';
 import { Note } from './Note.js';
 import { MotorLengthField } from './MotorLengthField.js';
 import { motorLengthLimit } from '../tree/motorLength.js';
@@ -264,7 +266,7 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
   const id = useId();
   return (
     <div className="field">
-      <label htmlFor={id}>{label}</label>
+      <div className="field-label-help"><label htmlFor={id}>{label}</label><GlossaryHelp term={fieldTerm(node.type, 'material')} label={label} /></div>
       <select
         id={id}
         aria-label={label}
@@ -385,7 +387,7 @@ function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch,
   }
   if (!active || !hasChildren) return null;
   return (
-    <label className="override-subs">
+    <div className="field-label-help"><label className="override-subs">
       <input
         type="checkbox"
         checked={node[flagKey] === true}
@@ -393,7 +395,7 @@ function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch,
         aria-label={`Use this ${quantity} override instead of everything inside this component`}
       />
       Use instead of everything inside
-    </label>
+    </label><GlossaryHelp term={fieldTerm(node.type, flagKey)} label={`Use ${quantity} instead of everything inside`} /></div>
   );
 }
 
@@ -713,6 +715,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
     };
   })();
 
+  const definition = (key: string, label: string) => <GlossaryHelp term={fieldTerm(node.type, key)} label={label} />;
+
   const renderNumeric = (f: FieldDef) => {
     const legacy = LEGACY[f.unit];
     const quantity = legacy.quantity;
@@ -879,10 +883,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
     const wallLabel = `${fmtSi('length', lengthSym, wall, 3)} ${lengthSym}`;
 
     const fieldLabel = (
-      <label htmlFor={inputId}>
+      <div className="field-label-help"><label htmlFor={inputId}>
         {label}
         {quantity ? <> <UnitChip quantity={quantity} /></> : plainSuffix && ` (${plainSuffix})`}
-      </label>
+      </label>{definition(f.key, plainLabel(label))}</div>
     );
 
     return (
@@ -960,7 +964,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
 
   return (
     <div className="panel">
-      <h2>{DISPLAY_NAME[node.type]}</h2>
+      <h2 className="field-label-help">{DISPLAY_NAME[node.type]} <GlossaryHelp term={componentTerm(node.type)} label={DISPLAY_NAME[node.type]} /></h2>
       {info && (
         <p className="comp-stats">
           this component: {fmtSi('length', lengthSym, info.length, 3)} {lengthSym}
@@ -977,7 +981,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         {/* The label is wired by htmlFor, and the explicit aria-label stays:
             these two were once announced as a bare "edit text" and "color
             picker", and every other control in the panel carries one. */}
-        <label htmlFor={idFor('name')}>Name</label>
+        <div className="field-label-help"><label htmlFor={idFor('name')}>Name</label>{definition('name', 'Name')}</div>
         <input id={idFor('name')} aria-label="Component name"
           value={node.name ?? ''} onChange={(e) => onPatch({ name: e.target.value })} />
       </div>
@@ -1215,7 +1219,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         }} />
       )}
       <div className="field" style={{ marginTop: 6 }}>
-        <label htmlFor={idFor('color')}>Color (2D/3D display)</label>
+        <div className="field-label-help"><label htmlFor={idFor('color')}>Color (2D/3D display)</label>{definition('color', 'Color')}</div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <input type="color" id={idFor('color')} aria-label="Component color" style={{ width: 44, padding: 2, height: 26 }}
             value={typeof node['color'] === 'string' ? (node['color'] as string) : '#d5d2cb'}
@@ -1236,6 +1240,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             // Edited ONLY here, on the physical mount, with its Estimate
             // (CFG-SPEC A4); the motor card shows it read-only.
             return node['motorMount'] === true ? <MotorLengthField key={f.key}
+              definition={definition(f.key, 'Max motor length')}
               inputId={node.id ? `design-motor-length-${node.id}` : undefined}
               mountName={mountName(node)} value={motorLengthLimit(node)}
               room={node.id ? estimateMotorRoom(tree, node.id) : null} noBore={noBoreReason(node)}
@@ -1280,6 +1285,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   />
                   {f.label}
                 </label>
+                {definition(f.key, f.label)}
                 {/* Beside the label, never inside it: a button inside a label
                     is that label's control (see `uid`). */}
                 {bdiff && typeof bdiff.want === 'boolean' && (() => {
@@ -1295,7 +1301,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             );
           }
           if (f.options) {
-            const selectLabel = <label htmlFor={idFor(f.key)}>{f.label}</label>;
+            const selectLabel = <div className="field-label-help"><label htmlFor={idFor(f.key)}>{f.label}</label>{definition(f.key, f.label)}</div>;
             const sdiff = diffFor(f.key);
             return (
               <Fragment key={f.key}>
@@ -1401,10 +1407,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
               <Fragment key={f.key}>
                 {renderNumeric(f)}
                 <div className="field">
-                  <label htmlFor={idFor('innerDiameter')}>
+                  <div className="field-label-help"><label htmlFor={idFor('innerDiameter')}>
                     {node.type === 'nosecone' ? 'Base inner diameter' : 'Inner diameter'}
                     {' '}<UnitChip quantity="length" />
-                  </label>
+                  </label>{definition('innerDiameter', 'Inner diameter')}</div>
                   <NumField
                     id={idFor('innerDiameter')}
                     ariaLabel={node.type === 'nosecone' ? 'Base inner diameter' : 'Inner diameter'}
@@ -1638,6 +1644,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             />
             Acts as motor mount
           </label>
+          {definition('motorMount', 'Acts as motor mount')}
         </div>
       )}
 
@@ -1693,7 +1700,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         )}
         <div className="field-grid">
           <div className="field">
-            <label htmlFor={idFor('overrideMass')}>Mass{node.type.endsWith('finset') ? ' (all fins combined)' : ''} <UnitChip quantity="mass" /></label>
+            <div className="field-label-help"><label htmlFor={idFor('overrideMass')}>Mass{node.type.endsWith('finset') ? ' (all fins combined)' : ''} <UnitChip quantity="mass" /></label>{definition('overrideMass', 'Mass override')}</div>
             <NumField
               id={idFor('overrideMass')}
               ariaLabel="Mass override"
@@ -1735,7 +1742,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             />
           </div>
           <div className="field">
-            <label htmlFor={idFor('overrideCGX')}>CG from component top <UnitChip quantity="length" /></label>
+            <div className="field-label-help"><label htmlFor={idFor('overrideCGX')}>CG from component top <UnitChip quantity="length" /></label>{definition('overrideCGX', 'CG override')}</div>
             <NumField
               id={idFor('overrideCGX')}
               ariaLabel="CG override, from component top"
@@ -1789,9 +1796,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                 whole set — measured, not assumed: Cd 0.5 contributes 1.5 / 2.0
                 / 3.0 on 3 / 4 / 6 fins. That asymmetry has to be on the label
                 or it silently triples someone's drag. */}
-            <label htmlFor={idFor('overrideCD')}>
+            <div className="field-label-help"><label htmlFor={idFor('overrideCD')}>
               Drag coefficient (Cd){node.type.endsWith('finset') ? ' — per fin' : ''}
-            </label>
+            </label>{definition('overrideCD', 'Cd override')}</div>
             <NumField
               id={idFor('overrideCD')}
               ariaLabel="Drag coefficient (Cd) override"
@@ -1844,7 +1851,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           <h3 style={{ marginTop: 0 }}>Position (in parent)</h3>
           <div className="field-grid">
             <div className="field">
-              <label htmlFor={idFor('positionMethod')}>Relative to</label>
+              <div className="field-label-help"><label htmlFor={idFor('positionMethod')}>Relative to</label>{definition('positionMethod', 'Relative to')}</div>
               <select
                 id={idFor('positionMethod')}
                 aria-label="Position relative to"
@@ -1874,7 +1881,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
               </select>
             </div>
             <div className="field">
-              <label htmlFor={idFor('positionOffset')}>Offset <UnitChip quantity="length" /></label>
+              <div className="field-label-help"><label htmlFor={idFor('positionOffset')}>Offset <UnitChip quantity="length" /></label>{definition('positionOffset', 'Offset')}</div>
               <NumField
                 id={idFor('positionOffset')}
                 ariaLabel="Position offset"

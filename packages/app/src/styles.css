@@ -4801,3 +4801,24 @@ select.unit-chip:hover {
 .notice-lines > .notice-line { white-space: pre-line; }
 .notice-lines > .notice-line + .notice-line { margin-top: 4px; }
 .notice-lines > .notice-line.message-tier.message-tier { padding: 6px 8px; }
+
+/* N020/N024 use the existing field and note palette, including the sun theme. */
+.field-label-help { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.glossary-help {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 28px; min-height: 28px; padding: 2px;
+  border: 1px solid var(--border-strong); border-radius: 4px;
+  background: var(--surface-3); color: var(--text-primary); cursor: pointer;
+  font: inherit; font-size: 15px;
+}
+.glossary-help:hover { background: var(--surface-1); }
+.glossary-help:active { background: var(--surface-2); }
+.glossary-help:focus-visible, .config-stability-range summary:focus-visible {
+  outline: 2px solid var(--text-primary); outline-offset: 2px;
+}
+.config-stability-range { margin-top: 8px; min-height: 5em; font-size: 12px; overflow-wrap: anywhere; }
+.range-worst { display: block; }
+.config-stability-range p { margin: 4px 0; }
+.config-stability-range summary { cursor: pointer; padding: 6px 0; }
+.config-stability-range summary:hover { text-decoration: underline; }
+.config-stability-range ul { max-height: 14em; overflow: auto; padding-left: 20px; }

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtFieldValue, fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
@@ -22,7 +23,8 @@ export function noBoreText(noBore: NoBore): string {
  * physical mount, with its ⌾ Estimate (CFG-SPEC A4). The motor card shows it
  * read-only through `MotorLengthReadout`.
  */
-export function MotorLengthField({ mountName, value, onCommit, room, noBore, inputId }: {
+export function MotorLengthField({ mountName, value, onCommit, room, noBore, inputId, definition }: {
+  definition?: ReactNode;
   mountName: string;
   /** A stable id for the input, so another tab can focus it. */
   inputId?: string;
@@ -42,7 +44,7 @@ export function MotorLengthField({ mountName, value, onCommit, room, noBore, inp
   const { prefs } = usePrefs();
   const unit = prefs.units.motorDimensions;
   return <div className="field" style={{ marginBottom: 8 }}>
-    <label htmlFor={id}>Max motor length <UnitChip quantity="motorDimensions" /></label>
+    <div className="field-label-help"><label htmlFor={id}>Max motor length <UnitChip quantity="motorDimensions" /></label>{definition}</div>
     <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
       <NumField id={id} ariaLabel={`Max motor length for ${mountName}`}
         value={value === null ? undefined : siToUi('motorDimensions', unit, value)}

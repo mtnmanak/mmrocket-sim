@@ -1,3 +1,4 @@
+import { GlossaryHelp } from './GlossaryHelp.js';
 import { useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
@@ -326,7 +327,7 @@ export function FinPointsEditor({ points, onChange }: {
 
   return (
     <div style={{ marginTop: 10 }}>
-      <h2>Fin planform</h2>
+      <h2 className="field-label-help">Fin planform <GlossaryHelp term="fin-outline-coordinates" label="Fin planform" /></h2>
       <svg ref={svgRef} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
           style={{ width: '100%', height: 'auto', background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 6, touchAction: 'none', cursor: 'crosshair' }}
           // role="group", not "img" — the fix TreeSchematic's interactive <svg> `role` documents
@@ -381,8 +382,8 @@ export function FinPointsEditor({ points, onChange }: {
         <thead>
           <tr>
             <th scope="col">#</th>
-            <th scope="col">x <UnitChip quantity="length" /></th>
-            <th scope="col">y <UnitChip quantity="length" /></th>
+            <th scope="col">x <UnitChip quantity="length" /> <GlossaryHelp term="fin-outline-coordinates" label="Fin point x" /></th>
+            <th scope="col">y <UnitChip quantity="length" /> <GlossaryHelp term="fin-outline-coordinates" label="Fin point y" /></th>
             <th scope="col"></th>
           </tr>
         </thead>
