@@ -61,7 +61,7 @@ describe('N033 schematic walls', () => {
     const frame = schematicFrame(short, { cw: 360, chPx: 240, maxHeight: 480,
       rulers: true, rollW: 26, rollBar: 0, lanes: false, topReserve: 0, bottomReserve: 80 });
     const lay = layoutSchematic(short, { ...options, ...frame, walls, measuring: true });
-    const targets = schematicSnapTargets(lay, frame);
+    const targets = schematicSnapTargets(lay);
     for (const [id, start, length, radius] of [['i', 0.1, 0.002, 0.01], ['c', 0.2, 0.01, 0.008]] as const) {
       const outline = lay.shapes.find(s => s.part?.id === id && !s.part.hit && s.tag === 'rect')!;
       expect(Number(outline.attrs['width']) / frame.scale).toBeCloseTo(length, 12);

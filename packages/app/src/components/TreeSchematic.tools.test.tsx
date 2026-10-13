@@ -34,6 +34,44 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); document.querySelector('[data-tools-test-style]')?.remove(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('N033 and N044 view tools', () => {
+  it('keeps the visible Caliper label in the inactive accessible name', () => {
+    mount();
+    const caliper = Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Caliper')!;
+    expect(caliper.getAttribute('aria-label') ?? caliper.textContent).toMatch(/Caliper/i);
+  });
+
+  it.each([false, true])('touch measures a 5 mm engine block at 360 px with walls %s', walls2d => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(360);
+    vi.stubGlobal('ResizeObserver', class {
+      callback: () => void;
+      constructor(callback: () => void) { this.callback = callback; }
+      observe() { this.callback(); }
+      disconnect() {}
+    });
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 360, height: 240 } as DOMRect);
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ walls2d }));
+    const long = { name: 'Engine block', components: [{ id: 'b', type: 'bodytube', length: 2, outerRadius: 0.02,
+      children: [{ id: 'e', type: 'engineblock', length: 0.005, position: { method: 'top', offset: 0.1 } }] }] } as RocketTree;
+    act(() => { root.render(<PrefsProvider><TreeSchematic tree={long} info={null} onSelect={select} onPatchNode={patch} /></PrefsProvider>); });
+    click('Caliper: measure two points');
+    const part = svg().querySelector<SVGRectElement>('rect[stroke-dasharray="3 2"]')!;
+    const x = Number(part.getAttribute('x')), y = Number(part.getAttribute('y'));
+    const width = Number(part.getAttribute('width'));
+    const measure = () => {
+      const [dx, dy, k] = svg().querySelector('g')!.getAttribute('transform')!.match(/[-\d.]+/g)!.map(Number);
+      const h = Number(svg().getAttribute('viewBox')!.split(' ')[3]);
+      pointer(dx! + k! * x, (dy! + k! * y) * 240 / h);
+      pointer(dx! + k! * (x + width), (dy! + k! * y) * 240 / h);
+      expect(host.querySelector('[data-caliper-readout]')!.textContent)
+        .toBe('Horizontal 5 mm · Vertical 0 mm · Straight 5 mm');
+    };
+    measure(); click('Zoom in'); measure();
+    expect(select).not.toHaveBeenCalled(); expect(patch).not.toHaveBeenCalled();
+    key(svg(), 'Escape');
+    act(() => { part.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(select).toHaveBeenCalledWith('e');
+  });
+
   it.each([
     { type: 'nosecone', flipped: false, prefix: '', key: 'n:shoulder', fore: false },
     { type: 'nosecone', flipped: true, prefix: '', key: 'n:shoulder', fore: true },
@@ -78,7 +116,7 @@ describe('N033 and N044 view tools', () => {
       outerRadius: 0.02, children: [{ id: 'i', type, length, outerRadius: 0.01, thickness: 0.001,
         position: { method: 'top', offset: 0.1 } }] }] } as RocketTree;
     act(() => root.render(<PrefsProvider><TreeSchematic tree={short} info={null} onSelect={select} onPatchNode={patch} /></PrefsProvider>));
-    click('Measure two points');
+    click('Caliper: measure two points');
     const inner = svg().querySelector<SVGRectElement>('rect[stroke-dasharray="3 2"]')!;
     const x = Number(inner.getAttribute('x')), y = Number(inner.getAttribute('y'));
     const tubeWidth = Number(inner.getAttribute('width'));
@@ -106,7 +144,7 @@ describe('N033 and N044 view tools', () => {
         { id: 'i', type: 'innertube', length: 0.1, outerRadius: 0.019, thickness: 0.0005 },
       ] }] } as RocketTree;
     act(() => root.render(<PrefsProvider><TreeSchematic tree={nested} info={null} /></PrefsProvider>));
-    click('Measure two points');
+    click('Caliper: measure two points');
     const inner = svg().querySelector<SVGRectElement>('rect[stroke-dasharray="3 2"]')!;
     const x = Number(inner.getAttribute('x')), y = Number(inner.getAttribute('y'));
     const height = Number(inner.getAttribute('height'));
@@ -143,12 +181,12 @@ describe('N033 and N044 view tools', () => {
         : parseFloat(css.paddingTop) + parseFloat(css.paddingBottom));
       expect(outerCap).toBeLessThanOrEqual(80);
     };
-    aboveNotes(); click('Measure two points'); aboveNotes();
+    aboveNotes(); click('Caliper: measure two points'); aboveNotes();
     click('Hide schematic walls'); aboveNotes();
   });
 
   it('describes the focused caliper keyboard controls and restores pan instructions on clearing', () => {
-    mount(); click('Measure two points');
+    mount(); click('Caliper: measure two points');
     expect(document.activeElement).toBe(svg());
     expect(svg().getAttribute('aria-label')).toContain('Caliper');
     expect(svg().getAttribute('aria-label')).not.toMatch(/drag components|arrow keys to pan/);
@@ -175,7 +213,7 @@ describe('N033 and N044 view tools', () => {
     expect(host.firstElementChild!.classList.contains('tree-schematic')).toBe(true);
     expect(host.querySelector<HTMLSelectElement>('[aria-label="Ruler reference"]')!.value).toBe(settings.rulerReference2d);
     expect(host.querySelector('summary')!.textContent).toContain('(reversed)');
-    click('Measure two points');
+    click('Caliper: measure two points');
     expect(host.querySelector('[aria-label="Ruler reference"]')).toBeNull();
     expect(svg().querySelector('[data-grid]') !== null).toBe(settings.grid2d);
     const body = svg().querySelector<SVGRectElement>(':scope > g > rect')!;
@@ -220,19 +258,19 @@ describe('N033 and N044 view tools', () => {
   });
 
   it('picks two points by touch, shows three distances and clears with Escape without editing', () => {
-    mount(); click('Measure two points');
+    mount(); click('Caliper: measure two points');
     pointer(200, 130); pointer(350, 160);
     expect(host.querySelector('[data-caliper-readout]')!.textContent).toMatch(/Horizontal .* mm.*Vertical .* mm.*Straight .* mm/);
     expect(svg().querySelectorAll('[data-caliper-point]')).toHaveLength(2);
     expect(exported()).not.toContain('data-caliper');
     expect(patch).not.toHaveBeenCalled(); expect(select).not.toHaveBeenCalled();
     key(svg(), 'Escape'); expect(svg().querySelector('[data-caliper]')).toBeNull();
-    expect(button('Measure two points').getAttribute('aria-pressed')).toBe('false');
+    expect(button('Caliper: measure two points').getAttribute('aria-pressed')).toBe('false');
   });
 
   it('supports keyboard placement and adjustment without panning, and units follow preferences', () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'in' } }));
-    mount(); click('Measure two points');
+    mount(); click('Caliper: measure two points');
     expect(document.activeElement).toBe(svg());
     key(svg(), 'Enter'); key(svg(), 'ArrowRight'); key(svg(), 'ArrowUp'); key(svg(), 'Enter');
     expect(host.querySelector('[data-caliper-readout]')!.textContent).toContain('in');
@@ -244,7 +282,7 @@ describe('N033 and N044 view tools', () => {
 
   it('snaps a tap near tube corners and keeps its SI measurement through zoom and pan', () => {
     mount();
-    click('Measure two points');
+    click('Caliper: measure two points');
     const body = svg().querySelector<SVGRectElement>(':scope > g > rect')!;
     const x = Number(body.getAttribute('x')), y = Number(body.getAttribute('y'));
     const width = Number(body.getAttribute('width'));
@@ -262,20 +300,20 @@ describe('N033 and N044 view tools', () => {
     const transform = svg().querySelector('g')!.getAttribute('transform')!.match(/[-\d.]+/g)!.map(Number);
     const pickX = transform[0]! + transform[2]! * (x + width / 4);
     const pickY = transform[1]! + transform[2]! * (y + Number(body.getAttribute('height')) / 2);
-    click('Measure two points');
+    click('Caliper: measure two points');
     pointer(pickX, pickY * 240 / h); pointer(pickX + transform[2]! * width / 4, pickY * 240 / h);
     expect(text()).toBe('Horizontal 50 mm · Vertical 0 mm · Straight 50 mm');
     expect(Number(svg().querySelector('[data-caliper-point="1"] circle')!.getAttribute('cx'))).toBeCloseTo(pickX, 10);
     key(svg(), 'Escape');
-    click('Measure two points'); key(svg(), 'Enter'); key(svg(), 'ArrowRight'); key(svg(), 'Enter');
+    click('Caliper: measure two points'); key(svg(), 'Enter'); key(svg(), 'ArrowRight'); key(svg(), 'Enter');
     expect(text()).toBe('Horizontal 1 mm · Vertical 0 mm · Straight 1 mm');
   });
 
   it('clears on a design or roll change, and undo cannot resurrect old endpoints', () => {
-    mount(); click('Measure two points'); pointer(200, 130); pointer(350, 160);
+    mount(); click('Caliper: measure two points'); pointer(200, 130); pointer(350, 160);
     act(() => { root.render(<PrefsProvider><TreeSchematic tree={{ ...tree, name: 'Changed' }} info={null} /></PrefsProvider>); });
     mount(); expect(svg().querySelector('[data-caliper]')).toBeNull();
-    click('Measure two points'); pointer(200, 130); pointer(350, 160);
+    click('Caliper: measure two points'); pointer(200, 130); pointer(350, 160);
     act(() => { root.render(<PrefsProvider><TreeSchematic tree={tree} info={null} roll={0.3} /></PrefsProvider>); });
     expect(svg().querySelector('[data-caliper]')).toBeNull();
   });

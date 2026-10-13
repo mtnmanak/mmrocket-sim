@@ -499,7 +499,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   const layout = useMemo(() => layoutSchematic(shown, {
     scale, cy: frame.cy, x0: frame.x0, roll, motors, vertical, idPrefix: uid, walls, measuring,
   }), [shown, scale, frame.cy, frame.x0, roll, motors, vertical, uid, walls, measuring]);
-  const snapTargets = useMemo(() => schematicSnapTargets(layout, { scale, cy: frame.cy, x0: frame.x0 }), [layout, scale, frame.cy, frame.x0]);
+  const snapTargets = useMemo(() => schematicSnapTargets(layout), [layout]);
   const caliperAt = (e: { clientX: number; clientY: number }): CaliperPoint | null => {
     const rect = svgRef.current?.getBoundingClientRect();
     if (!rect || rect.width === 0 || rect.height === 0) return null;
@@ -892,7 +892,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         <button className="file-btn" aria-label={walls ? 'Hide schematic walls' : 'Show schematic walls'}
           aria-pressed={walls} title="Show wall thickness as a schematic cutaway"
           onClick={() => setPrefs({ ...prefs, walls2d: !walls })}>Walls</button>
-        <button className="file-btn" aria-label={measuring ? 'Clear caliper' : 'Measure two points'} aria-pressed={measuring}
+        <button className="file-btn" aria-label={measuring ? 'Clear caliper' : 'Caliper: measure two points'} aria-pressed={measuring}
           title="Measure projected distances between two points"
           onClick={() => {
             setHoverId(null);
