@@ -4,6 +4,7 @@ import { strFromU8, unzipSync } from 'fflate';
 import type { FlightResult, FlightSeries, FlightSummary } from '@online-openrocket/engine';
 import { IMPERIAL_UNITS } from '../prefs/units.js';
 import { flightXlsx } from './flightXlsx.js';
+import type { FlightExportLayout } from './flightExportLayouts.js';
 
 const summary: FlightSummary = {
   maxAltitude: 100, maxVelocity: 50, maxAcceleration: 100, maxMachNumber: 0.2,
@@ -53,6 +54,39 @@ function richSeries(): FlightSeries {
 function singleFlight(): FlightResult {
   return { summary, events: [], series: fakeSeries() };
 }
+
+describe('N038 saved workbook layout', () => {
+  const layout: FlightExportLayout = { id: 'chosen', name: 'Chosen', columns: [
+    { key: 'altitude', unit: 'ft' }, { key: 'time', unit: 's' }, { key: 'velocity', unit: 'mph' },
+  ], events: { from: 'BURNOUT' } };
+  it('reorders numeric cells and charts against the selected, filtered time column', () => {
+    const flight = { ...singleFlight(), events: [{ type: 'BURNOUT', time: 0.05 }] };
+    const files = unzipSync(flightXlsx(flight, undefined, layout));
+    const sheet = strFromU8(files['xl/worksheets/sheet1.xml']!);
+    expect(sheet).toContain('Altitude (ft)');
+    expect(sheet).not.toContain('Acceleration');
+    expect(sheet).toContain(`<c r="A2" s="0"><v>${String(1 / 0.3048)}</v></c>`);
+    expect(sheet).toContain('<c r="B2" s="0"><v>0.05</v></c>');
+    expect(sheet).not.toContain('r="4"');
+    const chart = strFromU8(files['xl/charts/chart1.xml']!);
+    expect(chart).toContain("'Flight data'!$B$2:$B$3");
+    expect(chart).toContain("'Flight data'!$A$2:$A$3");
+  });
+  it('exports without charts when time is omitted, and separates mixed-unit chart groups', () => {
+    const flight = singleFlight();
+    flight.series['Θ'] = [0, Math.PI, 0];
+    flight.series['Φ'] = [0, Math.PI, 0];
+    const files = unzipSync(flightXlsx(flight, undefined, { ...layout, events: {}, columns: [
+      { key: 'time', unit: 's' }, { key: 'Θ', unit: '°' }, { key: 'Φ', unit: 'rad' },
+    ] }));
+    const charts = Object.entries(files).filter(([p]) => p.startsWith('xl/charts/chart')).map(([, b]) => strFromU8(b));
+    expect(charts).toHaveLength(2);
+    expect(charts.filter(c => c.includes('(rad)'))).toHaveLength(1);
+    expect(charts.filter(c => c.includes('(°)'))).toHaveLength(1);
+    const noTime = unzipSync(flightXlsx(flight, undefined, { ...layout, events: {}, columns: [{ key: 'altitude', unit: 'm' }] }));
+    expect(Object.keys(noTime).some(p => p.startsWith('xl/charts/chart'))).toBe(false);
+  });
+});
 
 function richFlight(): FlightResult {
   return { summary, events: [], series: richSeries() };

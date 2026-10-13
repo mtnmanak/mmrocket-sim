@@ -30,6 +30,23 @@ function Probe() {
 
 const mount = () => act(() => root.render(<PrefsProvider><Probe /></PrefsProvider>));
 
+it('N038/N058 validates viewer choices and preserves a saved layout across remounts', () => {
+  const layout = { id: 'ascent', name: 'Ascent', columns: [{ key: 'altitude', unit: 'ft' }], events: { to: 'APOGEE' } };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ runColumns: ['maxMach', 'unknown', 'maxAltitude'],
+    flightExportLayouts: [null, { ...layout, id: 'bad', columns: [{ key: 'altitude', unit: 'mph' }] }, layout],
+    flightExportLayoutId: 'bad' }));
+  mount();
+  expect(seen.prefs.runColumns).toEqual(['maxMach', 'maxAltitude']);
+  expect(seen.prefs.flightExportLayouts).toEqual([layout]);
+  expect(seen.prefs.flightExportLayoutId).toBeUndefined();
+  act(() => seen.setPrefs({ ...seen.prefs, flightExportLayoutId: 'ascent' }));
+  act(() => root.unmount());
+  root = createRoot(host);
+  mount();
+  expect(seen.prefs.flightExportLayoutId).toBe('ascent');
+  expect(seen.prefs.flightExportLayouts).toEqual([layout]);
+});
+
 beforeEach(() => {
   localStorage.clear();
   host = document.createElement('div');

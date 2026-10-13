@@ -1,5 +1,6 @@
-import { boosterBranches, type FlightResult, type FlightSeries } from '@online-openrocket/engine';
-import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
+import { boosterBranches, type FlightEvent, type FlightResult, type FlightSeries } from '@online-openrocket/engine';
+import { siToUi, UNITS, type Quantity, type UnitSelection } from '../prefs/units.js';
+import type { FlightExportLayout } from './flightExportLayouts.js';
 import { csvCell } from './csvUtil.js';
 import { withLoadSeries } from './flightLoads.js';
 
@@ -118,6 +119,12 @@ const SYMBOL_SPEC: Record<string, ColSpec> = {
 
 const FRIENDLY_KEYS = new Set(FRIENDLY.map(([k]) => k));
 
+export function exportColumnCatalog() {
+  return [...FRIENDLY, ...Object.entries(SYMBOL_SPEC)].filter(([key]) => key !== 'tc').map(([key, spec]) => ({
+    key, ...spec, units: spec.quantity ? UNITS[spec.quantity].map(u => u.symbol) : [spec.si],
+  }));
+}
+
 interface Column {
   header: string;
   values: (number | null)[];
@@ -144,7 +151,29 @@ function valuesFor(spec: ColSpec, units: UnitSelection | undefined, values: (num
  * UnitSelection). Absent/empty series are skipped (old engine artifacts
  * carry no symbol keys at all).
  */
-export function seriesColumns(series: FlightSeries, prefix = '', units?: UnitSelection): Column[] {
+export function seriesColumns(series: FlightSeries, prefix = '', units?: UnitSelection,
+  layout?: FlightExportLayout, events: FlightEvent[] = []): Column[] {
+  if (layout) {
+    // N038: filter by branch-local event times, then apply the SAME indices to
+    // every column. A missing boundary has no samples, never a guessed phase.
+    const firstEvent = (type: string, after = -Infinity) => Math.min(Infinity,
+      ...events.filter(e => e.type === type && Number.isFinite(e.time) && e.time >= after).map(e => e.time));
+    const from = layout.events.from ? firstEvent(layout.events.from) : -Infinity;
+    const to = layout.events.to ? firstEvent(layout.events.to, from) : Infinity;
+    const indices = series.time.flatMap((t, i) => Number.isFinite(t) && t >= from && t <= to
+      && (!layout.events.to || to !== Infinity) ? [i] : []);
+    const catalog = new Map(exportColumnCatalog().map(c => [c.key, c]));
+    return layout.columns.map(c => {
+      const spec = catalog.get(c.key);
+      if (!spec || !spec.units.includes(c.unit)) throw new Error(`Unsupported export column or unit: ${c.key} (${c.unit})`);
+      const selection = spec.quantity ? { ...units, [spec.quantity]: c.unit } as UnitSelection : undefined;
+      const values = indices.map(i => series[c.key]?.[i] ?? null);
+      return {
+        header: prefix + (FRIENDLY_KEYS.has(c.key) ? '' : `${c.key} — `) + headerFor(spec, selection),
+        values: valuesFor(spec, selection, values),
+      };
+    });
+  }
   const cols: Column[] = [];
   for (const [key, spec] of FRIENDLY) {
     const values = series[key];
@@ -175,11 +204,11 @@ export function seriesColumns(series: FlightSeries, prefix = '', units?: UnitSel
  * the longest branch; shorter branches leave trailing cells empty.
  * NaN samples (kernel: undefined at that step) become empty cells.
  */
-export function flightDataCsv(result: FlightResult, units?: UnitSelection): string {
+export function flightDataCsv(result: FlightResult, units?: UnitSelection, layout?: FlightExportLayout): string {
   result = withLoadSeries(result);
-  const cols = seriesColumns(result.series, '', units);
+  const cols = seriesColumns(result.series, '', units, layout, result.events);
   for (const b of boosterBranches(result)) {
-    cols.push(...seriesColumns(b.series, `${b.name} — `, units));
+    cols.push(...seriesColumns(b.series, `${b.name} — `, units, layout, b.events));
   }
   const rowCount = Math.max(0, ...cols.map((c) => c.values.length));
   const lines = [cols.map((c) => csvCell(c.header)).join(',')];

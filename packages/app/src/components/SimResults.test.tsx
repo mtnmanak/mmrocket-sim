@@ -128,6 +128,27 @@ const openTable = () => act(() => {
     ?.click();
 });
 
+it('N058 persists the summary chooser, keeps default columns and blanks old unknown values', () => {
+  render(<SimHistory runs={[{ ...run(), landingDistanceM: undefined }]} onRunsChange={() => {}} />);
+  openTable();
+  expect(Array.from(host.querySelectorAll('th')).some(t => t.textContent?.startsWith('Max V (m/s'))).toBe(true);
+  const checkbox = host.querySelector<HTMLInputElement>('input[aria-label="Show Landing drift"]');
+  expect(checkbox).not.toBeNull();
+  act(() => checkbox!.click());
+  const headers = Array.from(host.querySelectorAll('th')).map(t => t.textContent);
+  const index = headers.findIndex(t => t?.startsWith('Landing drift (m'));
+  expect(index).toBeGreaterThan(0);
+  expect(host.querySelectorAll('tbody tr')[0]!.children[index]!.textContent).toBe('');
+  expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).runColumns).toContain('landingDistanceM');
+  act(() => root.unmount());
+  root = createRoot(host);
+  render(<SimHistory runs={[run()]} onRunsChange={() => {}} />);
+  openTable();
+  expect(host.querySelector<HTMLInputElement>('input[aria-label="Show Landing drift"]')!.checked).toBe(true);
+  act(() => Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Default columns')!.click());
+  expect(Array.from(host.querySelectorAll('th')).some(t => t.textContent?.startsWith('Landing drift'))).toBe(false);
+});
+
 it('RES-1 shows configuration and provenance status separately from Safe, lazily', () => {
   const r = { ...run(), flightConfig: 'Club', batch: true, designKey: 'old' };
   render(<SimHistory runs={[r, { ...run(), id: 'old', conditionsKey: undefined, aeroModel: undefined, rogersKbf: undefined }]} onRunsChange={() => {}}
@@ -576,7 +597,7 @@ describe('SimHistory — the run table names its data', () => {
     const index = [...table.querySelectorAll('thead th')].findIndex((th) => th.textContent?.includes('Opt. delay'));
     expect(index).toBeGreaterThanOrEqual(0);
     const rows = table.querySelectorAll('tbody tr');
-    expect(rows[0]!.querySelectorAll('td')[index]?.textContent).toBe('—');
+    expect(rows[0]!.querySelectorAll('td')[index]?.textContent).toBe('');
     expect(rows[1]!.querySelectorAll('td')[index]?.textContent).toBe('4.9s');
   });
   it('labels both exports as the run table, not as bare formats', () => {

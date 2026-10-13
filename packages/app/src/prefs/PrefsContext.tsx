@@ -4,6 +4,8 @@ import { normalizePrinter } from './printers.js';
 import { normalizeDragAnalysis } from './dragAnalysis.js';
 import { DEFAULT_PREFS, type Preferences } from './preferences.js';
 import type { AeroChoice } from './aeroChoice.js';
+import { normalizeRunColumns } from '../services/runSummaryColumns.js';
+import { normalizeExportLayouts } from '../services/flightExportLayouts.js';
 
 // The stored shape and its defaults, and the aero choice, live in React-free
 // modules (2026-10-01: the headless Launch reads them with no React mounted).
@@ -56,6 +58,11 @@ function load(): Preferences {
     const dragAnalysis = normalizeDragAnalysis(parsed.dragAnalysis);
     if (dragAnalysis) parsed.dragAnalysis = dragAnalysis;
     else delete parsed.dragAnalysis;
+    const runColumns = normalizeRunColumns(parsed.runColumns);
+    if (runColumns) parsed.runColumns = runColumns;
+    else delete parsed.runColumns;
+    if (parsed.flightExportLayouts !== undefined) parsed.flightExportLayouts = normalizeExportLayouts(parsed.flightExportLayouts);
+    if (!parsed.flightExportLayouts?.some(l => l.id === parsed.flightExportLayoutId)) delete parsed.flightExportLayoutId;
     if (!Array.isArray(parsed.resultTiles) || !parsed.resultTiles.every((tile) => typeof tile === 'string')) {
       delete parsed.resultTiles;
     }
