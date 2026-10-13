@@ -10,5 +10,7 @@ export function emphasizeSeries(plot: uPlot, keys: (keyof FlightSeries)[], key: 
     series.alpha = key === null || key === member ? 1 : 0.35;
     series.width = key === member ? width * 1.5 : width;
   });
-  plot.redraw();
+  // N012: reuse paths so redraw cannot overwrite queued autoscale/zoom bounds
+  // with the current (still null during initialization) X scale.
+  plot.redraw(false);
 }
