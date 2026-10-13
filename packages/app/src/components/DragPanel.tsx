@@ -51,9 +51,10 @@ const DRAG_CSV_NOTE = 'The Drag table (.csv) download above holds the same numbe
 
 /** A single multi-series uPlot line chart (all series share the CD y-scale). */
 function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend = false, expanded = false, plotRef, onZoomChange,
-  rollPlane = false, worstAngle = null }: {
+  rollPlane = false, worstAngle = null, worstPlaneNote }: {
   rollPlane?: boolean;
   worstAngle?: number | null;
+  worstPlaneNote?: string;
   x: number[];
   lines: Line[];
   /**
@@ -88,9 +89,9 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
   const summary = useMemo(() => chartSummary({
     title, x, at: (m) => rollPlane ? `${formatReadout(m, 3)}° roll-plane angle` : `Mach ${formatReadout(m, 3)}`,
     series: lines, source: rollPlane
-      ? (worstAngle === null ? 'No defined worst plane.' : `Worst plane: ${worstAngle}°; marked by a dotted vertical line.`)
+      ? (worstPlaneNote ?? (worstAngle === null ? 'No defined worst plane.' : `Worst plane: ${worstAngle}°; marked by a dotted vertical line.`))
       : DRAG_CSV_NOTE,
-  }), [title, x, lines, rollPlane, worstAngle]);
+  }), [title, x, lines, rollPlane, worstAngle, worstPlaneNote]);
 
   useEffect(() => {
     const el = ref.current;
@@ -176,6 +177,9 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
     };
   }, [analysis, cpLabel, palette, cpView, info.length, lenUnit]);
   const conditions = `Mach ${mach}, angle of attack ${aoaDeg}°`;
+  const worstPlaneNote = analysis && !('error' in analysis) && analysis.cpUniform
+    ? `CP is the same in every ${analysis.cp.some((v) => v === null) ? 'defined ' : ''}roll plane (to rounding); no single worst plane.`
+    : undefined;
   return <section className="chart-panel roll-plane-panel">
     <div className="chart-panel-head">
       <h3>CP and stability vs roll-plane angle{modelLimit && <span className="chart-model-limit"> — {modelLimit}</span>}</h3>
@@ -201,12 +205,14 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
       {analysis && 'error' in analysis ? <Note as="p" tier="danger" role="alert">Roll-plane CP could not be computed: {analysis.error}</Note>
         : analysis && lines && <>
           <p className="motor-db-meta">
-            {analysis.worstAngle === null ? 'No defined worst plane.' : <>
+            {analysis.worstAngle === null ? worstPlaneNote ?? 'No defined worst plane.' : <>
               <strong>Worst plane: {analysis.worstAngle}°</strong>, marked by a dotted vertical line on both charts.
               {' '}CP: {fmtSi('length', lenUnit, analysis.cp[analysis.worstAngle]!, 3)} {lenUnit} from nose;
               {' '}margin: {formatReadout(analysis.margin[analysis.worstAngle], 4)} cal.
             </>}
-            {' '}The marker uses the kernel&apos;s forward-most CP among planes with positive normal-force slope at these sampling conditions, the same convention used in flight.
+            {' '}When shown, the marker uses the kernel&apos;s forward-most CP among planes with positive normal-force slope at these sampling conditions,
+            {' '}the convention of the app&apos;s static stability margin (stat tiles).
+            {' '}Flight uses the CP of the plane the airflow is in, so a flight can show more margin than this worst plane.
           </p>
           {analysis.noLift.some(Boolean) && <p className="motor-db-meta"><strong>No lift in this plane:</strong>{' '}
             {analysis.noLift.every(Boolean) ? 'every sampled angle' : analysis.angles.filter((i) => analysis.noLift[i]).slice(0, 12).map((i) => `${i}°`).join(', ')}
@@ -218,13 +224,13 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
           <div className="chart-panel-head"><h4>CP position vs roll-plane angle ({cpLabel}) — {conditions}</h4>
             <ChartHeadButtons chart="roll-plane CP" zoomed={zoomed.cp} expanded={expanded.cp} plot={cpPlot}
               onToggleExpand={() => setExpanded({ ...expanded, cp: !expanded.cp })} /></div>
-          <LineChart x={analysis.angles} lines={lines.cp} rollPlane worstAngle={analysis.worstAngle}
+          <LineChart x={analysis.angles} lines={lines.cp} rollPlane worstAngle={analysis.worstAngle} worstPlaneNote={worstPlaneNote}
             plotRef={cpPlot} expanded={expanded.cp} onZoomChange={(cp) => setZoomed((prev) => prev.cp === cp ? prev : { ...prev, cp })}
             title={`CP vs roll-plane angle (${cpLabel}) — ${conditions}`} xLabel="Roll-plane angle (°)" yLabel={cpLabel} lockLegend />
           <div className="chart-panel-head"><h4>Stability margin vs roll-plane angle (cal) — {conditions}</h4>
             <ChartHeadButtons chart="roll-plane stability" zoomed={zoomed.margin} expanded={expanded.margin} plot={marginPlot}
               onToggleExpand={() => setExpanded({ ...expanded, margin: !expanded.margin })} /></div>
-          <LineChart x={analysis.angles} lines={lines.margin} rollPlane worstAngle={analysis.worstAngle}
+          <LineChart x={analysis.angles} lines={lines.margin} rollPlane worstAngle={analysis.worstAngle} worstPlaneNote={worstPlaneNote}
             plotRef={marginPlot} expanded={expanded.margin} onZoomChange={(margin) => setZoomed((prev) => prev.margin === margin ? prev : { ...prev, margin })}
             title={`Stability margin vs roll-plane angle (cal) — ${conditions}`} xLabel="Roll-plane angle (°)" yLabel="Margin (cal)" lockLegend />
           <details onToggle={(e) => setTableOpen(e.currentTarget.open)}>

@@ -11,6 +11,9 @@ import { strFromU8, unzipSync } from 'fflate';
 import { flightXlsx } from '../services/flightXlsx.js';
 import * as fileName from '../services/fileName.js';
 import { SERIES_DAYLIGHT } from '../chartTheme.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const registry = vi.hoisted(() => ({ plots: [] as Plot[] }));
 interface Plot {
@@ -75,6 +78,29 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
 describe('flight comparisons wiring', () => {
+  it('N012 keeps Emphasize swatches at full opacity in sun mode without filling plot-selection chips', () => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../styles.css'), 'utf8');
+    document.head.append(style);
+    host.className = 'viz-root';
+    host.dataset['contrast'] = 'high';
+    try {
+      render(result());
+      act(() => button('Sun').click());
+      const dots = host.querySelectorAll('.flight-series-legend .series-dot');
+      expect(dots.length).toBeGreaterThan(1);
+      for (const dot of dots) expect(getComputedStyle(dot).opacity).toBe('1');
+      const offDot = host.querySelector('[aria-label="Plot series"] .series-chip:not(.series-chip-on) .series-dot')!;
+      expect(offDot).not.toBeNull();
+      expect(getComputedStyle(offDot).opacity).toBe('0.55');
+      act(() => host.querySelector<HTMLButtonElement>('[aria-label="Emphasize Velocity"]')!.click());
+      for (const dot of dots) expect(getComputedStyle(dot).opacity).toBe('1');
+    } finally {
+      style.remove();
+      host.className = '';
+      delete host.dataset['contrast'];
+    }
+  });
   it('N012 emphasizes on hover, focus and tap without changing selection, data or zoom', () => {
     render(result()); select('Comparison chart', 'altitude-velocity'); wheel(overlay());
     const plots = live();
