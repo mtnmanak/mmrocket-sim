@@ -67,11 +67,12 @@ export function FinTemplateMenu({ onPick, template = 'fin', disabled = false }: 
 
   return (
     <div ref={wrap} style={{ position: 'relative', marginTop: 6 }}>
-      <button className="file-btn" style={{ width: '100%' }} aria-expanded={open} disabled={disabled}
+      {/* C-A8: keep the busy opener focusable so a raster pick can return focus. */}
+      <button className="file-btn" style={{ width: '100%' }} aria-expanded={open} aria-disabled={disabled}
         title={wrapTemplate
           ? 'True-scale tube marking wrap with fin positions, lug/button lines, tab slots and a calibration ruler — choose SVG or PNG/JPG; larger wraps download as a ZIP of pages'
           : 'True-scale 1:1 cut template with the through-the-wall tab and a 50 mm calibration ruler — choose SVG (white or transparent background) or a PNG/JPG image'}
-        onClick={() => setOpen((v) => !v)}>
+        onClick={() => { if (!disabled) setOpen((v) => !v); }}>
         {wrapTemplate ? 'Tube wrap (1:1) ▾' : '📐 Fin template (1:1) ▾'}
       </button>
       {open && (

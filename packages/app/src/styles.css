@@ -2379,12 +2379,12 @@ html {
    (schematic controls, Launch) keep their own rules. After the variants, so
    their hovers do not light a
    disabled one. */
-.file-btn:disabled {
+.file-btn:is(:disabled, [aria-disabled='true']) {
   opacity: 0.5;
   cursor: default;
 }
 
-.file-btn:disabled:hover {
+.file-btn:is(:disabled, [aria-disabled='true']):hover {
   background: var(--surface-3);
   filter: none;
 }
@@ -4153,7 +4153,7 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .empty-state svg,
 .viz-root[data-contrast='high'] .series-dot,
 .viz-root[data-contrast='high'] .fin-row-del:disabled,
-.viz-root[data-contrast='high'] .file-btn:disabled,
+.viz-root[data-contrast='high'] .file-btn:is(:disabled, [aria-disabled='true']),
 .viz-root[data-contrast='high'] .schematic-controls .file-btn:disabled,
 .viz-root[data-contrast='high'] .chart-btn:disabled,
 .viz-root[data-contrast='high'] .launch-btn:disabled,
@@ -4186,7 +4186,7 @@ select.unit-chip:hover {
 /* Disabled chart buttons keep full opacity in sun (rule above); the state
    reads through ink instead — muted text on a gray border vs. black-on-black
    for a live button. File buttons the same (issues-2026-10-13a.md). */
-.viz-root[data-contrast='high'] .file-btn:disabled,
+.viz-root[data-contrast='high'] .file-btn:is(:disabled, [aria-disabled='true']),
 .viz-root[data-contrast='high'] .chart-btn:disabled {
   color: var(--text-muted);
   border-color: var(--chart-grid);
