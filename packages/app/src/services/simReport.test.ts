@@ -15,6 +15,7 @@ import { runsToCsv } from './simStore.js';
 import { idFree } from './simulate.testSupport.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
 import { engineTree, flownRecoveryDevices } from '../tree/treeModel.js';
+import { densityAltitudeM } from './atmosphere.js';
 
 const info: StaticInfo = {
   length: 0.37, lengthAerodynamic: 0.37, mass: 0.051, massEmpty: 0.027, cgEmpty: 0.19, cg: 0.26,
@@ -2370,4 +2371,16 @@ describe('thrust : weight at departure: where the report takes g from (K17)', ()
     expect(run.thrustToWeightAtRod).toBeCloseTo(result.series.thrust[1]! / (result.series.mass[1]!
       * kernelGravity(28.61, DEFAULT_CONDITIONS.launchAltitudeM + result.series.altitude[1]!)), 10);
   });
+});
+
+
+it('OR #2731 stores density altitude from the flown model, including Auto upgrades', () => {
+  const launch = { ...DEFAULT_CONDITIONS, launchAltitudeM: 2682, temperatureC: 35 };
+  for (const aeroModel of ['classic', 'supersonic', 'auto-supersonic', 'hybrid'] as const) {
+    for (const rogersKbf of [false, true]) {
+      const run = buildSimRun({ result: fakeResult(), info, motor, meta: { label: 'C6-5' },
+        launch, rocketName: 'ISA', execMs: 1, aeroModel, rogersKbf });
+      expect(run.densityAltitudeM).toBe(densityAltitudeM(launch, { aeroMode: aeroModel, effectiveKbf: rogersKbf }));
+    }
+  }
 });

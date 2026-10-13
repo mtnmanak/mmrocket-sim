@@ -1943,7 +1943,7 @@ export function buildSimRun(input: {
   nozzleStages?: string[];
 }): FreshSimRun {
   const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey, flownRecovery, nozzleStages, recoveryStages } = input;
-  const da = densityAltitudeM(launch);
+  const da = densityAltitudeM(launch, { ...(aeroModel ? { aeroMode: aeroModel } : {}), effectiveKbf: rogersKbf === true });
   const { summary, series } = result;
 
   const tRod = eventTime(result, 'LAUNCHROD');

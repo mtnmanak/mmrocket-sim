@@ -1380,6 +1380,20 @@ it('batch flight mount labels use the catalogue designation and chosen delay', a
   expect(fly.mock.calls[0]![1].assigned[0]![1].meta.label).toBe('J453-5');
 });
 
+it.each(['eb', 'kbf', 'supersonic', 'hybrid', 'auto'] as const)('batch %s prepares model-selected partial weather and Auto upgrade air', async (model) => {
+  const fly = vi.spyOn(flightRunner, 'flyLaunch');
+  const candidate = entry('isa-test', 'Acme', 'E20', '5');
+  const launch = { ...DEFAULT_CONDITIONS, launchAltitudeM: 10000, pressureHPa: 800 };
+  await sweep(input(rocket(), { model, launch, candidates: [candidate], autoDelay: false }),
+    { fetchSpec: fetchFrom({ 'isa-test': curve('E20') }), nozzleFor: nozzles({}) });
+  expect(fly).toHaveBeenCalled();
+  const options = fly.mock.calls[0]![1];
+  const classic = kernelSimOptions(launch, { aeroMode: 'classic' });
+  const corrected = kernelSimOptions(launch, { aeroMode: 'supersonic' });
+  expect(options.simOptions).toStrictEqual(model === 'eb' ? classic : corrected);
+  expect(options.supersonicSimOptions).toStrictEqual(corrected);
+});
+
 it('batch background labels follow an overlay without changing the loaded spec', async () => {
   const fly = vi.spyOn(flightRunner, 'flyLaunch');
   const before = MOTOR_DB.find(m => m.designation === 'F67C')!;

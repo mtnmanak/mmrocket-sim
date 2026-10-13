@@ -37,6 +37,23 @@ import info.openrocket.core.util.ModID;
  * @author Sampo Niskanen <sampo.niskanen@iki.fi>
  */
 public class ExtendedISAModel extends InterpolatingAtmosphericModel {
+	// OR #2731 (board ISA, Eric 2026-10-11): instance-scoped, so Classic
+	// retains desktop arithmetic even when another rocket uses corrected ISA.
+	private final boolean geopotentialIsa;
+	public static final double ISA_RADIUS = 6356766.0; // NASA-TM-X-74335
+
+	public ExtendedISAModel(boolean geopotentialIsa) {
+		this(0, STANDARD_TEMPERATURE, STANDARD_PRESSURE, geopotentialIsa);
+	}
+
+	private static double geopotentialAltitude(double z) {
+		return ISA_RADIUS * z / (ISA_RADIUS + z);
+	}
+
+	private static double geometricAltitude(double h) {
+		return ISA_RADIUS * h / (ISA_RADIUS - h);
+	}
+
 	/** Standard sea level temperature in Kelvin */
 	public static final double STANDARD_TEMPERATURE = 288.15;
 
@@ -96,6 +113,13 @@ public class ExtendedISAModel extends InterpolatingAtmosphericModel {
 	 * @throws IllegalArgumentException if the altitude exceeds the second layer boundary of the ISA model (over 11km).
 	 */
 	public ExtendedISAModel(double altitude, double temperature, double pressure) {
+		this(altitude, temperature, pressure, false);
+	}
+
+	public ExtendedISAModel(double altitude, double temperature, double pressure, boolean geopotentialIsa) {
+		this.geopotentialIsa = geopotentialIsa;
+		// The measured site and the table must use the same coordinate once.
+		if (geopotentialIsa) altitude = geopotentialAltitude(altitude);
 		if (altitude >= STANDARD_LAYERS[1]) {
 			throw new IllegalArgumentException("Too high first altitude: " + altitude);
 		}
@@ -148,7 +172,10 @@ public class ExtendedISAModel extends InterpolatingAtmosphericModel {
 
 		// Calculate pressures for all remaining layers
 		for (int i = (altitude > 0 ? 2 : 1); i < basePressure.length; i++) {
-			basePressure[i] = getExactConditions(layer[i] - 1).getPressure();
+			basePressure[i] = geopotentialIsa
+					? calculatePressure(layer[i], baseTemperature[i], layer[i - 1],
+							baseTemperature[i - 1], basePressure[i - 1])
+					: exactAtModelAltitude(layer[i] - 1).getPressure();
 		}
 	}
 
@@ -160,6 +187,10 @@ public class ExtendedISAModel extends InterpolatingAtmosphericModel {
 	 */
 	@Override
 	protected AtmosphericConditions getExactConditions(double altitude) {
+		return exactAtModelAltitude(geopotentialIsa ? geopotentialAltitude(altitude) : altitude);
+	}
+
+	private AtmosphericConditions exactAtModelAltitude(double altitude) {
 		// Clamp altitude to be within defined layers
 		altitude = MathUtil.clamp(altitude, layer[0], layer[layer.length - 1]);
 
@@ -169,6 +200,10 @@ public class ExtendedISAModel extends InterpolatingAtmosphericModel {
 			if (layer[startLayer + 1] > altitude) {
 				break;
 			}
+		}
+
+		if (geopotentialIsa && startLayer == layer.length - 1) {
+			return new AtmosphericConditions(baseTemperature[startLayer], basePressure[startLayer]);
 		}
 
 		double altDiff = altitude - layer[startLayer];
@@ -201,7 +236,10 @@ public class ExtendedISAModel extends InterpolatingAtmosphericModel {
 
 	@Override
 	protected double getMaxAltitude() {
-		return layer[layer.length - 1];
+		// InterpolatingAtmosphericModel allocates ceil(max / 500) entries,
+		// omitting the final grid point. Include one clamped terminal cell for
+		// corrected ISA; Classic keeps desktop's truncated cache exactly.
+		return geopotentialIsa ? geometricAltitude(layer[layer.length - 1]) + 500 : layer[layer.length - 1];
 	}
 
 	/**

@@ -3,7 +3,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
-import { densityAltitudeM, isaPressurePa } from './atmosphere.js';
+import { densityAltitudeM, isaPressurePa, isaTemperatureK } from './atmosphere.js';
 import { parseForecast, placeFromGeo, parseGeocode, type ForecastVariant, type WeatherAnswer } from './openMeteo.js';
 import {
   applicable, buildProposal, defaultAltitudeChoice, densityAfter, patchOf, snapshotOf, type ProposalRow,
@@ -35,6 +35,20 @@ const row = (rows: ProposalRow[], key: ProposalRow['key']) => rows.find((r) => r
 const all = new Set<ProposalRow['key']>(['temperatureC', 'pressureHPa', 'windAverage', 'latitudeDeg', 'longitudeDeg']);
 
 describe('the review of one fetched hour', () => {
+  it('reviews the selected model air and uses its geometric density altitude after Apply', () => {
+    const launch = { ...DEFAULT_CONDITIONS, launchAltitudeM: 2682 };
+    for (const atmosphereModel of [
+      { aeroMode: 'classic' as const, effectiveKbf: false },
+      { aeroMode: 'classic' as const, effectiveKbf: true },
+      { aeroMode: 'supersonic' as const, effectiveKbf: false },
+    ]) {
+      const p = buildProposal({ launch, answer: TWO(), place: gerlach, unix: SAT_2PM, choice: 'site', atmosphereModel });
+      expect(row(p.rows, 'pressureHPa').now).toBe(isaPressurePa(2682, atmosphereModel) / 100);
+      expect(row(p.rows, 'temperatureC').now).toBe(isaTemperatureK(2682, atmosphereModel) - 273.15);
+      expect(densityAfter(launch, { temperatureC: 35 }, atmosphereModel))
+        .toBe(densityAltitudeM({ ...launch, temperatureC: 35 }, atmosphereModel));
+    }
+  });
   it('at the default Site altitude of 0, offers the ground height and flies ITS air', () => {
     const a = TWO();
     expect(defaultAltitudeChoice(DEFAULT_CONDITIONS, a)).toBe('ground');

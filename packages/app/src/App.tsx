@@ -1318,6 +1318,9 @@ export function App() {
   const { aeroMode, effectiveKbf } = effectiveAero(prefs, aeroOverride);
   const effectiveSupersonic = effectiveSupersonicOf(aeroMode, autoSupersonic);
   const effectiveHybrid = aeroMode === 'hybrid';
+  const flownAtmosphere = useMemo(() => ({
+    aeroMode: effectiveSupersonic ? 'supersonic' as const : aeroMode, effectiveKbf,
+  }), [aeroMode, effectiveKbf, effectiveSupersonic]);
 
   // THE BUILD — services/buildDesign.ts, where the two orderings that decide
   // numbers (the ignition re-applied after the weighed-hardware write; the
@@ -2118,7 +2121,7 @@ export function App() {
         assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
         delayS: run.delayS, delayResolution: run.delayResolution,
         motorIdentityVerified: true,
-        simOptions: kernelSimOptions(launch),
+        simOptions: kernelSimOptions(launch, { aeroMode: effectiveHybrid ? 'hybrid' : effectiveSupersonic ? 'supersonic' : 'classic', effectiveKbf }),
         fly: current,
         restore: current,
       });
@@ -2170,7 +2173,7 @@ export function App() {
         // Auto delay flew the rounded optimum, recorded on the run.
         delayS: lastRun.delayS, delayResolution: lastRun.delayResolution,
         motorIdentityVerified: true,
-        simOptions: { ...kernelSimOptions(launch), series: 'full' },
+        simOptions: { ...kernelSimOptions(launch, { aeroMode: lastRun.aeroModel ?? 'classic', effectiveKbf: wasKbf }), series: 'full' },
         fly: { supersonic: wasSupersonic, kbf: wasKbf, hybrid: lastRun.aeroModel === 'hybrid' },
         // Hand the shared handle back on the CURRENT model: the drag panel and
         // the component table read it too.
@@ -3532,7 +3535,7 @@ export function App() {
         </LazyDialog>
       )}
       {showWeather && (
-        <WeatherDialog launch={launch}
+        <WeatherDialog launch={launch} flownAtmosphere={flownAtmosphere}
           initialPlace={weather ? { ...weather.place, timezone: weather.timezone } : null}
           initialHour={showWeather === 'again' && weather
             ? { validUnix: weather.validUnix, timezone: weather.timezone } : null}
@@ -4266,6 +4269,7 @@ export function App() {
               because it is a fact about the whole rocket, and it collapses to a
               one-line summary because this column is already the long one. */}
           <RecoverySizingPanel
+            flownAtmosphere={flownAtmosphere}
             recovery={recovery}
             byStage={recoveryByStage}
             tree={flightTree}
@@ -4636,7 +4640,7 @@ export function App() {
             })()}
           </div>
 
-          <LaunchPanel overrideSummary={launchOverrideSummary} onShowOverride={showFlightOverride} hasLaunchGuide={hasLaunchGuides(tree)} value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
+          <LaunchPanel flownAtmosphere={flownAtmosphere} overrideSummary={launchOverrideSummary} onShowOverride={showFlightOverride} hasLaunchGuide={hasLaunchGuides(tree)} value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
             longitudeReview={longitudeReview} onLongitudeReview={setLongitudeReview}
             canLaunch={!!built && !!primaryMountId && !nozzlePending}
             lastRun={simCostRef}

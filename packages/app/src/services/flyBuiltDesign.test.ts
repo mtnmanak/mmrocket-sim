@@ -209,7 +209,21 @@ describe('flyBuiltDesign hands flyLaunch what onLaunch handed it', () => {
     expect('signal' in a).toBe(false);
     expect('now' in a).toBe(false);
     expect(Object.keys(a)).toEqual(['assigned', 'mountNames', 'refusedMountIds', 'hardware', 'primaryMountId',
-      'simOptions', 'aeroMode', 'supersonic', 'isOnLaunchStage', 'onSupersonicUpgrade']);
+      'simOptions', 'supersonicSimOptions', 'aeroMode', 'supersonic', 'isOnLaunchStage', 'onSupersonicUpgrade']);
+  });
+
+  it.each([
+    ['classic', false, false], ['classic', false, true], ['supersonic', true, false],
+    ['auto', false, false], ['auto', true, false], ['hybrid', false, true],
+  ] as const)('prepares partial pad weather for %s, upgraded=%s, Kbf=%s', async (aeroMode, supersonic, effectiveKbf) => {
+    const input = recorded({ aeroMode, supersonic });
+    input.aero.effectiveKbf = effectiveKbf;
+    input.launch = { ...input.launch, launchAltitudeM: 10000, pressureHPa: 800 };
+    await flyBuiltDesign(input);
+    const classic = kernelSimOptions(input.launch, { aeroMode: 'classic' });
+    const corrected = kernelSimOptions(input.launch, { aeroMode: 'supersonic' });
+    expect(flyArg().simOptions).toStrictEqual(aeroMode === 'hybrid' || effectiveKbf || supersonic ? corrected : classic);
+    expect(flyArg().supersonicSimOptions).toStrictEqual(corrected);
   });
 
   it('the model the design is on now, whatever the mode — Auto already upgraded flies supersonic', async () => {

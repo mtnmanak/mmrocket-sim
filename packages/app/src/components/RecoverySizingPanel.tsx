@@ -1,3 +1,5 @@
+import type { AtmosphereModel } from '../services/atmosphere.js';
+import { effectiveAero } from '../prefs/aeroChoice.js';
 import { useEffect, useMemo, useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -40,7 +42,7 @@ import { UnitChip } from './UnitChip.js';
  * The arithmetic, the bands and every judgement call live in
  * services/recoverySizing.ts; this file is presentation only.
  */
-export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMass }: {
+export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMass, flownAtmosphere }: {
   /** The recovery weight, straight from App — never recomputed here. */
   recovery: RecoveryMass;
   /**
@@ -50,10 +52,13 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
   byStage?: RecoveryByStage;
   tree: RocketTree;
   launch: LaunchConditions;
+  flownAtmosphere?: AtmosphereModel;
   /** Kernel mass of a component (kg), or null. See the substitution note in the service. */
   deviceMass: (node: ComponentNode) => number | null;
 }) {
-  const { prefs } = usePrefs();
+  const { prefs, aeroOverride } = usePrefs();
+  const atmosphereModel = useMemo(() => flownAtmosphere ?? effectiveAero(prefs, aeroOverride),
+    [flownAtmosphere, prefs, aeroOverride]);
   const lenSym = prefs.units.length;
   const velSym = prefs.units.velocity;
   const massSym = prefs.units.mass;
@@ -96,9 +101,9 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
 
   const sizings: RecoverySizing[] = useMemo(
     () => objects.map((o) => recoverySizing({
-      recovery: o.recovery, tree, deviceMass, presets: presets ?? [], launch, scope: o.scope,
+      recovery: o.recovery, tree, deviceMass, presets: presets ?? [], launch, atmosphereModel, scope: o.scope,
     })),
-    [objects, tree, deviceMass, presets, launch],
+    [objects, tree, deviceMass, presets, launch, atmosphereModel],
   );
 
   const sustainer = sizings[0]!;

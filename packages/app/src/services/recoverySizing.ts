@@ -15,7 +15,7 @@ import { flownDeployEvent } from '../tree/deployEvent.js';
 import {
   findParent, isSeparatingParallelStage, KERNEL_DEFAULT_CD, mountMotorCount, stageIndexOf, suppressingAncestor,
 } from '../tree/treeModel.js';
-import { padAir, R_AIR } from './atmosphere.js';
+import { padAir, R_AIR, type AtmosphereModel } from './atmosphere.js';
 import type { Preset } from './presets.js';
 import type { RecoveryMass } from './recoveryMass.js';
 import { sustainerScope } from './recoveryMass.js';
@@ -189,12 +189,13 @@ const PER_MANUFACTURER_LIMIT = 2;
  */
 export function siteAirDensity(
   launch: Pick<LaunchConditions, 'launchAltitudeM' | 'temperatureC' | 'pressureHPa'>,
+  model?: AtmosphereModel,
 ): number {
   // `padAir` never returns a non-positive temperature or pressure: a typed one
   // is inside the panel's envelope (-60 °C, 300 hPa at the bottom) and a blank
   // one is ISA at an altitude clamped to 0-10,000 m, so there is no fallback
   // branch left to take.
-  const { temperatureK, pressurePa } = padAir(launch);
+  const { temperatureK, pressurePa } = padAir(launch, model);
   return pressurePa / (R_AIR * temperatureK);
 }
 
@@ -808,6 +809,7 @@ export interface RecoverySizingInput {
   presets: readonly Preset[];
   /** Launch conditions, for the site density. */
   launch: Pick<LaunchConditions, 'launchAltitudeM' | 'temperatureC' | 'pressureHPa'>;
+  atmosphereModel?: AtmosphereModel;
   /**
    * The stage nodes whose devices and bay this answer is about. Defaults to
    * the stages that come down with the sustainer (`sustainerScope`), which is
@@ -1165,7 +1167,7 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
   if (recovery.state === 'no-motor') return { state: 'no-motor' };
   if (recovery.state === 'unavailable') return { state: 'unavailable', reason: recovery.reason };
 
-  const rho = siteAirDensity(launch);
+  const rho = siteAirDensity(launch, input.atmosphereModel);
   if (!(rho > 0)) return { state: 'unavailable', reason: 'the launch conditions give no air density' };
 
   // `recovery.mass` is ONE object's weight (`recoveryMass.ts`), so the devices

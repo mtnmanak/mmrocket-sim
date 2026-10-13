@@ -2,7 +2,7 @@ import { cautionNote } from './importNotes.js';
 import {
   DEFAULT_TIME_STEP_S, KERNEL_WIND_FROM_RAD, type GeodeticMethod, type SimulationOptions,
 } from '@online-openrocket/engine';
-import { padAir } from './atmosphere.js';
+import { padAir, type AtmosphereModel } from './atmosphere.js';
 import { kernelWindProfile, type WindProfileConditions } from './windProfile.js';
 
 /**
@@ -127,7 +127,7 @@ export interface LaunchConditions extends WindProfileConditions {
  * `timeStep`, so a design carrying its own step from its .ork gave different
  * numbers in the batch table than the same design gave on the Launch button.
  */
-export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
+export function kernelSimOptions(l: LaunchConditions, model?: AtmosphereModel): SimulationOptions {
   // A BLANK field means "the standard value for THIS SITE" — never "sea level".
   //
   // The kernel takes the site-altitude atmosphere only when BOTH fields are
@@ -168,7 +168,7 @@ export function kernelSimOptions(l: LaunchConditions): SimulationOptions {
   // passed here as stored. Outside its bounds a rod angle or a wind is still a
   // setting the kernel can fly, so clamping it at flight time would only make
   // the flight disagree, silently, with the number in the box.
-  const air = padAir(l);
+  const air = padAir(l, model);
   const longitude = flownLongitudeDeg(l);
   const aim = flownRodAimDeg(l);
   const geodetic = flownGeodeticMethod(l);

@@ -549,6 +549,12 @@ public final class OrkEngine {
         ctx.hybridHigh = high;
     }
 
+    // OR #2731: both flight air and Mach-alt Reynolds matching follow the
+    // same non-Classic boundary as the aerodynamic calculator.
+    private static boolean geopotentialIsa(RocketCtx ctx) {
+        return ctx.rogersKbf || ctx.supersonicAero || ctx.hybridAero;
+    }
+
     private static BarrowmanCalculator aerodynamicCalculator(RocketCtx ctx) {
         if (ctx.hybridAero) return BarrowmanCalculator.hybrid(ctx.hybridLow, ctx.hybridHigh);
         BarrowmanCalculator calc = new BarrowmanCalculator();
@@ -818,7 +824,7 @@ public final class OrkEngine {
                 maAlt[i] = ((Number) row.get(1)).doubleValue();
             }
         }
-        ExtendedISAModel isa = (maMach != null) ? new ExtendedISAModel() : null;
+        ExtendedISAModel isa = (maMach != null) ? new ExtendedISAModel(geopotentialIsa(ctx)) : null;
 
         // Every stage number -> the power-on thrusting set; note if any nozzle set.
         java.util.Set<Integer> allStages = new java.util.HashSet<>();
@@ -1069,9 +1075,9 @@ public final class OrkEngine {
             conditions.setAtmosphericModel(new ExtendedISAModel(
                     launchAltitude,
                     Double.isNaN(temperature) ? ExtendedISAModel.STANDARD_TEMPERATURE : temperature,
-                    Double.isNaN(pressure) ? ExtendedISAModel.STANDARD_PRESSURE : pressure));
+                    Double.isNaN(pressure) ? ExtendedISAModel.STANDARD_PRESSURE : pressure, geopotentialIsa(ctx)));
         } else {
-            conditions.setAtmosphericModel(new ExtendedISAModel());
+            conditions.setAtmosphericModel(new ExtendedISAModel(geopotentialIsa(ctx)));
         }
         conditions.setGravityModel(new WGSGravityModel());
         BarrowmanCalculator aeroCalc = aerodynamicCalculator(ctx);

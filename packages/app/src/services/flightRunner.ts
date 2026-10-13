@@ -181,6 +181,8 @@ export interface LaunchInput extends AssignedMotors {
   primaryMountId: string;
   /** `kernelSimOptions(launch)`. */
   simOptions: SimulationOptions;
+  /** OR #2731: blank weather fields must follow an Auto upgrade's atmosphere. */
+  supersonicSimOptions?: SimulationOptions;
   aeroMode: 'classic' | 'supersonic' | 'auto' | 'hybrid';
   /** The model the design is on right now (App's `effectiveSupersonic`). */
   supersonic: boolean;
@@ -243,7 +245,8 @@ export async function flyLaunch(rocket: FlightHandle, input: LaunchInput): Promi
 async function flyFromCleanHandle(
   rocket: FlightHandle, input: LaunchInput, now: () => number,
 ): Promise<LaunchFlight> {
-  const { primaryMountId, simOptions, aeroMode } = input;
+  const { primaryMountId, aeroMode } = input;
+  let simOptions = input.simOptions;
   let execMs = 0;
   const hybrid = aeroMode === 'hybrid';
   rocket.setHybridAero(hybrid);
@@ -252,6 +255,7 @@ async function flyFromCleanHandle(
   rocket.setSupersonicAero(usedSupersonic);
   const upgrade = () => {
     rocket.setSupersonicAero(true);
+    simOptions = input.supersonicSimOptions ?? simOptions;
     usedSupersonic = true;
     input.onSupersonicUpgrade();
   };

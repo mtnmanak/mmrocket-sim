@@ -1552,7 +1552,8 @@ public final class GoldenMain {
                                 rocket.getSelectedConfiguration();
                         info.openrocket.core.aerodynamics.BarrowmanCalculator calc =
                                 new info.openrocket.core.aerodynamics.BarrowmanCalculator();
-                        calc.setRogersKbf(model >= 1);
+                        // Each disjunct alone (transitionScenarios golden, board Tier 2).
+                        calc.setRogersKbf(model == 1);
                         calc.setSupersonicAero(model == 2);
                         info.openrocket.core.aerodynamics.FlightConditions c =
                                 new info.openrocket.core.aerodynamics.FlightConditions(config);
@@ -1560,6 +1561,11 @@ public final class GoldenMain {
                         c.setAOA(0);
                         v[k++] = calc.getAerodynamicForces(config, c, w).getFrictionCD();
                     }
+                }
+                if (v[0] != v[1]) throw new AssertionError("Classic transition gate");
+                if (polished == 1) {
+                    if (v[2] == v[3]) throw new AssertionError("Kbf transition disjunct");
+                    if (v[4] == v[5]) throw new AssertionError("Supersonic transition disjunct");
                 }
                 line("transition." + (polished == 1 ? "polished." : "paint.") + mach,
                         v[0], v[1], v[2], v[3], v[4], v[5]);
@@ -2852,6 +2858,16 @@ public final class GoldenMain {
             AtmosphericConditions c = std.getConditions(alt);
             line("isa.std", alt, c.getTemperature(), c.getPressure(), c.getDensity(),
                     c.getMachSpeed(), c.getKinematicViscosity());
+        }
+        // OR #2731: geometric input, geopotential layers; additive rows keep
+        // the original Classic scenarios available for identity comparisons.
+        ExtendedISAModel corrected = new ExtendedISAModel(true);
+        ExtendedISAModel correctedSite = new ExtendedISAModel(1400, 285.15, 86000, true);
+        for (double alt : new double[] {1400, 11000, 20000, 32000, 47000, 80000, 90000}) {
+            AtmosphericConditions c = corrected.getConditions(alt);
+            AtmosphericConditions d = correctedSite.getConditions(alt);
+            line("isa.geopotential", alt, c.getTemperature(), c.getPressure(), c.getDensity());
+            line("isa.geopotential.site1400", alt, d.getTemperature(), d.getPressure(), d.getDensity());
         }
         // Custom launch-site model (plan: base configurable at site altitude).
         ExtendedISAModel site = new ExtendedISAModel(1400, 285.15, 86000);

@@ -113,6 +113,32 @@ describe('Hybrid handle protocol', () => {
   });
 });
 
+describe('Auto atmosphere upgrade (OR #2731)', () => {
+  it.each(['probe', 'final'] as const)('switches pad air when the %s flight upgrades', async (when) => {
+    const { handle } = recordingHandle();
+    const originalSimulate = handle.simulate;
+    const temperatures: number[] = [];
+    handle.simulate = (options) => {
+      temperatures.push(options!.temperature!);
+      const result = originalSimulate(options);
+      result.summary.maxMachNumber = when === 'probe' || !options?.maxTime ? 1.1 : 0.3;
+      return result;
+    };
+    const launch = { ...DEFAULT_CONDITIONS, launchAltitudeM: 10000, pressureHPa: 800 };
+    const classic = kernelSimOptions(launch, { aeroMode: 'classic' });
+    const supersonic = kernelSimOptions(launch, { aeroMode: 'supersonic' });
+    expect(classic.temperature).not.toBe(supersonic.temperature);
+    const result = await flyLaunch(handle, { ...staged(false), aeroMode: 'auto',
+      simOptions: classic, supersonicSimOptions: supersonic });
+    expect(result.usedSupersonic).toBe(true);
+    expect(temperatures[0]).toBe(classic.temperature);
+    expect(temperatures.at(-1)).toBe(supersonic.temperature);
+    expect(temperatures).toEqual(when === 'probe'
+      ? [classic.temperature, supersonic.temperature]
+      : [classic.temperature, classic.temperature, supersonic.temperature]);
+  });
+});
+
 describe('complete per-mount Launch protocol', () => {
   function setup() {
     const specs = new Map<string, MotorSpec>();

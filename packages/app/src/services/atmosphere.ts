@@ -1,5 +1,24 @@
 import { G0, ISA_SEA_LEVEL } from '@online-openrocket/engine';
 
+/** OR #2731: external altitudes stay geometric; only non-Classic ISA changes. */
+export interface AtmosphereModel {
+  aeroMode?: 'classic' | 'supersonic' | 'auto' | 'auto-supersonic' | 'hybrid';
+  effectiveKbf?: boolean;
+  autoSupersonic?: boolean;
+}
+
+export function usesGeopotentialIsa(model?: AtmosphereModel): boolean {
+  return model?.effectiveKbf === true || model?.autoSupersonic === true
+    || model?.aeroMode === 'supersonic' || model?.aeroMode === 'auto-supersonic'
+    || model?.aeroMode === 'hybrid';
+}
+
+// US Standard Atmosphere 1976, NASA-TM-X-74335: the effective ISA radius,
+// rather than the geodetic radius used to place a rocket on Earth.
+export const ISA_RADIUS_M = 6356766;
+const geopotentialM = (z: number) => ISA_RADIUS_M * z / (ISA_RADIUS_M + z);
+const geometricM = (h: number) => ISA_RADIUS_M * h / (ISA_RADIUS_M - h);
+
 /**
  * THE PAD'S OWN AIR — one definition, shared by what the flight is handed
  * (`kernelSimOptions`), what the Recovery sizing panel sizes against
@@ -136,8 +155,9 @@ export const ISA_TOP_M = ISA_LAYERS[ISA_LAYERS.length - 1]!.baseM;
  * this is total: a non-finite altitude reads as sea level, anything above the
  * table reads as its top.
  */
-function layerAt(altitudeM: number): { layer: IsaLayer; h: number } {
-  const h = Number.isFinite(altitudeM) ? Math.min(Math.max(0, altitudeM), ISA_TOP_M) : 0;
+function layerAt(altitudeM: number, model?: AtmosphereModel): { layer: IsaLayer; h: number } {
+  const z = Number.isFinite(altitudeM) ? Math.max(0, altitudeM) : 0;
+  const h = Math.min(usesGeopotentialIsa(model) ? geopotentialM(z) : z, ISA_TOP_M);
   let i = 0;
   while (i < ISA_LAYERS.length - 1 && ISA_LAYERS[i + 1]!.baseM <= h) i++;
   return { layer: ISA_LAYERS[i]!, h };
@@ -150,8 +170,8 @@ function layerAt(altitudeM: number): { layer: IsaLayer; h: number } {
  * WOULD read with both launch fields blank, against the flat 288.15 K the
  * kernel substitutes when only the pressure is typed.
  */
-export function isaTemperatureK(altitudeM: number): number {
-  const { layer, h } = layerAt(altitudeM);
+export function isaTemperatureK(altitudeM: number, model?: AtmosphereModel): number {
+  const { layer, h } = layerAt(altitudeM, model);
   return layer.baseK + layer.lapseKPerM * (h - layer.baseM);
 }
 
@@ -184,8 +204,8 @@ export function isaTemperatureK(altitudeM: number): number {
  * interpolates the same profile on a 500 m grid, which differs by at most
  * 0.06 % over the site-altitude field's 0-10,000 m range.
  */
-export function isaPressurePa(altitudeM: number): number {
-  const { layer, h } = layerAt(altitudeM);
+export function isaPressurePa(altitudeM: number, model?: AtmosphereModel): number {
+  const { layer, h } = layerAt(altitudeM, model);
   return pressureInLayer(layer, h);
 }
 
@@ -262,7 +282,7 @@ export interface PadConditions {
   pressureHPa?: number | null;
 }
 
-export function padPressureIssue(launch: PadConditions): PadPressureIssue | null {
+export function padPressureIssue(launch: PadConditions, model?: AtmosphereModel): PadPressureIssue | null {
   const h = launch.launchAltitudeM;
   if (typeof h !== 'number' || !Number.isFinite(h) || h <= PAD_PRESSURE_SITE_M) return null;
   // A blank field is CORRECT input and says nothing: kernelSimOptions fills it
@@ -272,7 +292,7 @@ export function padPressureIssue(launch: PadConditions): PadPressureIssue | null
   // outside it as blank too.
   const p = inEnvelope(launch.pressureHPa, PAD_PRESSURE_HPA_RANGE);
   if (p === null) return null;
-  if (p * 100 > isaPressurePa(h) * (1 + PAD_PRESSURE_SEA_LEVEL_MARGIN)) return 'sea-level';
+  if (p * 100 > isaPressurePa(h, model) * (1 + PAD_PRESSURE_SEA_LEVEL_MARGIN)) return 'sea-level';
   return null;
 }
 
@@ -379,12 +399,12 @@ export interface PadAir {
  * one `kernelSimOptions` hands the kernel, so the pad the atmosphere is
  * evaluated at and the pad the flight starts from cannot differ.
  */
-export function padAir(launch: PadConditions): PadAir {
+export function padAir(launch: PadConditions, model?: AtmosphereModel): PadAir {
   const { launchAltitudeM: altitudeM, temperatureC: tC, pressureHPa: pHPa } = padFieldsAsFlown(launch);
   return {
     altitudeM,
-    temperatureK: tC !== null ? tC + 273.15 : isaTemperatureK(altitudeM),
-    pressurePa: pHPa !== null ? pHPa * 100 : isaPressurePa(altitudeM),
+    temperatureK: tC !== null ? tC + 273.15 : isaTemperatureK(altitudeM, model),
+    pressurePa: pHPa !== null ? pHPa * 100 : isaPressurePa(altitudeM, model),
     standard: tC === null && pHPa === null,
     temperatureFromSite: tC === null,
     pressureFromSite: pHPa === null,
@@ -420,15 +440,19 @@ const ISA_BASE_RHO: readonly number[] = ISA_LAYERS.map((l) => l.basePa / (R_AIR 
  * T = Tb·(ρ/ρb)^(−1/(g/(L·R)+1)) and h = hb + (T − Tb)/L; in an isothermal
  * one ρ = ρb·e^(−g·(h−hb)/(R·T)), so h = hb + (R·T/g)·ln(ρb/ρ).
  */
-export function isaAltitudeForDensity(rho: number): number {
+export function isaAltitudeForDensity(rho: number, model?: AtmosphereModel): number {
   if (!(rho > 0) || !Number.isFinite(rho)) return NaN;
   let i = 0;
   while (i < ISA_LAYERS.length - 1 && ISA_BASE_RHO[i + 1]! >= rho) i++;
   const l = ISA_LAYERS[i]!;
   const rb = ISA_BASE_RHO[i]!;
-  if (Math.abs(l.lapseKPerM) < 1e-9) return l.baseM + (R_AIR * l.baseK / G0) * Math.log(rb / rho);
+  if (Math.abs(l.lapseKPerM) < 1e-9) {
+    const h = l.baseM + (R_AIR * l.baseK / G0) * Math.log(rb / rho);
+    return usesGeopotentialIsa(model) ? geometricM(h) : h;
+  }
   const t = l.baseK * Math.pow(rho / rb, -1 / (G0 / (l.lapseKPerM * R_AIR) + 1));
-  return l.baseM + (t - l.baseK) / l.lapseKPerM;
+  const h = l.baseM + (t - l.baseK) / l.lapseKPerM;
+  return usesGeopotentialIsa(model) ? geometricM(h) : h;
 }
 
 /**
@@ -454,7 +478,7 @@ export function isaAltitudeForDensity(rho: number): number {
  * density (a 500 m grid, within about 16 ft here) — that would break "a
  * standard day reads its own site altitude".
  */
-export function densityAltitudeM(launch: PadConditions): number {
-  const air = padAir(launch);
-  return isaAltitudeForDensity(air.pressurePa / (R_AIR * air.temperatureK));
+export function densityAltitudeM(launch: PadConditions, model?: AtmosphereModel): number {
+  const air = padAir(launch, model);
+  return isaAltitudeForDensity(air.pressurePa / (R_AIR * air.temperatureK), model);
 }
