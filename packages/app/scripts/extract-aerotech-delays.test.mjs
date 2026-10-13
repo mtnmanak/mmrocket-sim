@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -32,6 +33,8 @@ const MAKE_PDFS = `
 import json, os, sys, pymupdf
 for path, lines in json.load(open(sys.argv[1], encoding='utf-8')).items():
     os.makedirs(os.path.dirname(path), exist_ok=True)
+    scan = isinstance(lines, dict)
+    if scan: lines = lines['scan']
     doc = pymupdf.open()
     page = doc.new_page()
     y = 72
@@ -39,7 +42,13 @@ for path, lines in json.load(open(sys.argv[1], encoding='utf-8')).items():
         for x, text in line:
             page.insert_text((x, y), text, fontname='helv', fontsize=10)
         y += 15
-    doc.save(path)
+    if scan:
+        image = page.get_pixmap().tobytes('png')
+        doc.close()
+        doc = pymupdf.open()
+        page = doc.new_page()
+        page.insert_image(page.rect, stream=image)
+    with open(path, 'wb') as fh: fh.write(doc.tobytes())
 `;
 
 /** A NAR report for an "E99W" sold at 4 and 7 s: its averages, then its motor table. `edit` replaces lines by name. */
@@ -74,13 +83,17 @@ let dir;
 afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); dir = undefined; });
 
 /** A Cert Docs folder holding `docs` (NAR/... paths -> lines), a one-motor catalogue, and a JOIN naming every doc. */
-function run(docs) {
+function run(docs, transcriptions = { documents: [], unread: [] }) {
   dir = mkdtempSync(join(tmpdir(), 'delay-docs-'));
   const certDocs = join(dir, 'Cert Docs');
   const spec = Object.fromEntries(Object.entries(docs).map(([p, lines]) => [join(certDocs, p), lines]));
   writeFileSync(join(dir, 'spec.json'), JSON.stringify(spec));
   const made = spawnSync(python, ['-c', MAKE_PDFS, join(dir, 'spec.json')], { encoding: 'utf8' });
   expect(made.status, made.stderr).toBe(0);
+  for (const entry of transcriptions.documents) {
+    entry.sha256 ??= createHash('sha256').update(readFileSync(join(certDocs, entry.document))).digest('hex');
+  }
+  writeFileSync(join(dir, 'transcriptions.json'), JSON.stringify(transcriptions));
   const entries = Object.keys(docs).map((rel, i) => {
     const folder = rel.slice(0, rel.lastIndexOf('/')).replace(/\//g, '\\');
     return `    @{ Case = '${folder}'; Name = '${rel.slice(rel.lastIndexOf('/') + 1, -4)}'; Url = 'https://example.invalid/${i}.pdf' }`;
@@ -93,7 +106,8 @@ function run(docs) {
   writeFileSync(join(dir, 'join.json'), JSON.stringify(Object.fromEntries(Object.keys(docs).map((p) => [p, ['AeroTech', 'E99W']]))));
   const out = join(dir, 'out.json');
   const res = spawnSync(python, [extractor, '--source', dir, '--motors', join(dir, 'motors.json'),
-    '--join', join(dir, 'join.json'), '--out', out], { encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+    '--join', join(dir, 'join.json'), '--transcriptions', join(dir, 'transcriptions.json'), '--out', out],
+  { encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
   return { ...res, json: existsSync(out) ? JSON.parse(readFileSync(out, 'utf8')) : null };
 }
 
@@ -155,9 +169,64 @@ describe.skipIf(!hasPyMuPDF)('extract-aerotech-delays.py reads each motor\'s del
   });
 });
 
+const scanPath = 'NAR/Test/E99W.pdf';
+const position = { page: 1, row: '4 s', column: 'Delay (seconds)' };
+function transcription() {
+  return { documents: [{ document: scanPath, manufacturer: 'AeroTech', designation: 'E99W', delays: [{
+    nominalS: 4,
+    measurements: ['4.40', '4.60'].map((printed, i) => ({ printed, position: { ...position, row: `Motor ${i + 1}` } })),
+    crossChecks: [
+      { kind: 'average', printed: ['4.50'], position },
+      { kind: 'summary', printed: ['4.40', '4.60'], position: { ...position, column: 'Actual' } },
+    ],
+  }] }], unread: [] };
+}
+
+describe.skipIf(!hasPyMuPDF)('reviewed scan transcriptions', { timeout: 30_000 }, () => {
+  it('merges source-positioned measurements from a scan only after its own average and summary agree', () => {
+    const result = run({ [scanPath]: { scan: report() } }, transcription());
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json.motors['id-e99w']).toMatchObject({
+      form: 'scan-reviewed', delays: [{ nominalS: 4, measuredS: [4.4, 4.6] }],
+    });
+    expect(result.json).toMatchObject({ motorCount: 1, pairCount: 1, documents: { 'scan-reviewed': 1, scan: 0 } });
+  });
+
+  it.each([
+    ['missing cross-check', (d) => { d.crossChecks = []; }, /missing cross-check/],
+    ['conflicting average', (d) => { d.crossChecks[0].printed = ['4.70']; }, /average disagrees/],
+    ['conflicting summary with the same mean', (d) => { d.crossChecks[1].printed = ['4.20', '4.80']; }, /summary disagrees/],
+    ['missing value position', (d) => { delete d.measurements[0].position; }, /source position/],
+    ['missing cross-check position', (d) => { delete d.crossChecks[0].position; }, /source position/],
+    ['extra summary value', (d) => { d.crossChecks[1].printed.push('4.50'); }, /summary disagrees/],
+  ])('refuses %s without writing output', (_name, edit, message) => {
+    const data = transcription();
+    edit(data.documents[0].delays[0]);
+    const result = run({ [scanPath]: { scan: report() } }, data);
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toMatch(message);
+    expect(result.json).toBeNull();
+  });
+
+  it('refuses a changed PDF rather than trusting a transcription of its previous bytes', () => {
+    const data = transcription();
+    data.documents[0].sha256 = '0'.repeat(64);
+    const result = run({ [scanPath]: { scan: report() } }, data);
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toMatch(/source hash changed/);
+  });
+
+  it('does not override the coordinate reader with a manual entry for a text-layer PDF', () => {
+    const result = run({ [scanPath]: report() }, transcription());
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toMatch(/not a scan/);
+  });
+});
+
 describe.skipIf(!hasPyMuPDF || !existsSync(realDocs))('src/data/aerotechDelays.json', { timeout: 30_000 }, () => {
   it('is what the certification documents give', () => {
-    const res = spawnSync(python, [extractor, '--check'], { encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
+    const res = spawnSync(python, [extractor, '--check', '--watch-out', join(here, 'aerotech-delay-sources.json')],
+      { encoding: 'utf8', env: { ...process.env, PYTHONIOENCODING: 'utf-8' } });
     expect(res.status, res.stdout + res.stderr).toBe(0);
   });
 });

@@ -26,7 +26,9 @@ documents that print EACH motor's delay are read; two forms do:
 Documents that print only an AVERAGE per delay (the 1998-2014 NAR summary
 sheets without a motor table, and TRA's "Delay Performance (labeled/tested
 average)" letters) give no spread and are counted, not read. The 100 scans with
-no text layer are out of reach on a machine with no OCR.
+no text layer use the reviewed, source-positioned transcriptions beside this
+script. A scan needs an agreeing delay average or repeated summary; a count
+of motors tested alone does not verify a manually read value (b10 DELAY).
 
 NEVER FROM FLATTENED TEXT (CLAUDE.md). `page.get_text()` returns labels and
 values as separate runs, and an empty cell lets the next column slide into its
@@ -56,15 +58,24 @@ motor stops this run instead of shipping a dangling key. RUN IT AFTER
 fetch-motor-db.mjs (motors.json), in the same sitting as any motors refresh.
 
 Usage:
-  python extract-aerotech-delays.py [--source "<RCS Schematics folder>"] [--motors <motors.json>] [--out <file>] [--check] [--join <file>]
+  python extract-aerotech-delays.py [--source "<RCS Schematics folder>"] [--motors <motors.json>] [--out <file>] [--check] [--join <file>] [--transcriptions <file>] [--watch-out <file>]
 
 --source defaults to $RCS_SCHEMATICS, then to the repo's docs/RCS Schematics.
 --motors defaults to src/data/motors.json. --out defaults to
 src/data/aerotechDelays.json. --check compares instead of writing, and exits 1
 when the committed file is not what the documents give. --join replaces the
 JOIN table with a JSON file's (the tests' synthetic documents).
+--transcriptions defaults to aerotech-delay-transcriptions.json beside this
+script. Accepted `documents` carry manufacturer/designation, the PDF's SHA-256,
+and delays whose `measurements` and `crossChecks` preserve printed strings and
+1-based page / row / column positions. `unread` entries carry reasons and may
+hold candidate values, which never enter the shipped bands.
+--watch-out also writes (or, with --check, compares) the upstream-watch snapshot:
+all published PDF URLs from the downloader, plus hashes of shipped delay source
+documents and withheld individual-sample scans. Run it in the same regeneration.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -81,6 +92,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SOURCE = os.path.join(HERE, '..', '..', '..', 'docs', 'RCS Schematics')
 DEFAULT_MOTORS = os.path.join(HERE, '..', 'src', 'data', 'motors.json')
 DEFAULT_OUT = os.path.join(HERE, '..', 'src', 'data', 'aerotechDelays.json')
+DEFAULT_TRANSCRIPTIONS = os.path.join(HERE, 'aerotech-delay-transcriptions.json')
 
 # The manufacturer's own page linking every document read here (read 2026-10-01).
 PUBLISHED_ON = 'https://www.rocketmotorparts.com/page/nar-tra-certification-docs'
@@ -419,8 +431,8 @@ def download_urls(cert_docs):
 
 def read_document(path, where):
     """('tmt' | 'nar', {nominal: [measured]}, facts) for a document that prints each motor's delay; None otherwise."""
-    doc = pymupdf.open(path)
-    rows = word_rows(doc)
+    with pymupdf.open(path) as doc:
+        rows = word_rows(doc)
     if not rows:
         return 'scan', None, {}
     tmt = tmt_delays(rows, where)
@@ -449,16 +461,92 @@ def read_document(path, where):
     return 'nar', kept, {'noData': no_data, 'confirmed': confirmed, 'nominals': len(kept)}
 
 
-def read_all(source, motors_path, join=None):
-    join = JOIN if join is None else join
+def source_hash(path):
+    with open(path, 'rb') as fh:
+        return hashlib.sha256(fh.read()).hexdigest()
+
+
+def checked_transcriptions(cert_docs, path):
+    """Only reviewed scans with a value cross-check may supplement the coordinate reader."""
+    with open(path, encoding='utf-8') as fh:
+        data = json.load(fh)
+    accepted, seen = {}, set()
+    for entry in data['documents'] + data['unread']:
+        rel = entry['document']
+        if rel in seen or not re.match(r'^(NAR|TRA)/', rel) or '..' in rel.split('/'):
+            raise SystemExit(f'{rel}: duplicate or invalid transcription document')
+        seen.add(rel)
+        pdf_path = os.path.join(cert_docs, rel)
+        if source_hash(pdf_path) != entry.get('sha256'):
+            raise SystemExit(f'{rel}: source hash changed; re-render and review the scan')
+        with pymupdf.open(pdf_path) as doc:
+            if any(page.get_text('words') for page in doc):
+                raise SystemExit(f'{rel}: transcription source is not a scan')
+            pages = len(doc)
+        if entry in data['unread']:
+            if not entry.get('reason'):
+                raise SystemExit(f'{rel}: unread scan needs a reason')
+            continue
+
+        def position(item):
+            p = item.get('position') or {}
+            if (type(p.get('page')) is not int or not 1 <= p['page'] <= pages
+                    or not p.get('row') or not p.get('column')):
+                raise SystemExit(f'{rel}: missing or invalid source position')
+
+        def numbers(printed):
+            if not printed or any(not isinstance(v, str) or num(v) is None or num(v) <= 0 for v in printed):
+                raise SystemExit(f'{rel}: expected positive printed seconds')
+            return [float(v) for v in printed]
+
+        delays = {}
+        for delay in entry['delays']:
+            nominal = delay['nominalS']
+            if type(nominal) is not int or nominal <= 0 or nominal in delays:
+                raise SystemExit(f'{rel}: invalid or duplicate nominal')
+            if nominal in DISPUTED.get(rel, set()):
+                raise SystemExit(f'{rel}: {nominal} s is withheld as disputed')
+            measurements = delay['measurements']
+            for item in measurements:
+                position(item)
+            values = numbers([item['printed'] for item in measurements])
+            checks = delay.get('crossChecks') or []
+            if not checks:
+                raise SystemExit(f'{rel}: {nominal} s missing cross-check')
+            for check in checks:
+                position(check)
+                printed = numbers(check['printed'])
+                if check['kind'] == 'average':
+                    if len(printed) != 1 or abs(sum(values) / len(values) - printed[0]) > PRINT_TOLERANCE_S:
+                        raise SystemExit(f'{rel}: {nominal} s average disagrees')
+                elif check['kind'] == 'summary':
+                    if len(printed) != len(values) or not same_print(values, printed):
+                        raise SystemExit(f'{rel}: {nominal} s summary disagrees')
+                else:
+                    raise SystemExit(f'{rel}: unknown cross-check kind {check["kind"]!r}')
+            delays[nominal] = values
+        if not delays:
+            raise SystemExit(f'{rel}: reviewed scan has no delays')
+        accepted[rel] = (entry, delays)
+    return accepted, data['unread']
+
+
+def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIONS):
+    join = dict(JOIN if join is None else join)
     cert_docs = os.path.join(source, 'Cert Docs')
+    reviewed, unread = checked_transcriptions(cert_docs, transcriptions)
+    for rel, (entry, _delays) in reviewed.items():
+        target = (entry['manufacturer'], entry['designation'])
+        if rel in join and tuple(join[rel]) != target:
+            raise SystemExit(f'{rel}: transcription conflicts with JOIN')
+        join[rel] = target
     urls = download_urls(cert_docs)
     with open(motors_path, encoding='utf-8') as fh:
         catalogue = json.load(fh)
     by_name = {}
     for m in catalogue['motors']:
         by_name.setdefault((m['manufacturerAbbrev'], m['designation']), []).append(m)
-    forms = {'tmt': 0, 'nar': 0, 'plugged': 0, 'none': 0, 'scan': 0}
+    forms = {'tmt': 0, 'nar': 0, 'plugged': 0, 'none': 0, 'scan': 0, 'scan-reviewed': 0}
     motors, unjoined, seen = {}, [], set()
     for body in ('NAR', 'TRA'):
         root = os.path.join(cert_docs, body)
@@ -468,6 +556,8 @@ def read_all(source, motors_path, join=None):
                     continue
                 rel = f'{body}/' + os.path.relpath(os.path.join(folder, name), root).replace(os.sep, '/')
                 form, delays, facts = read_document(os.path.join(folder, name), rel)
+                if rel in reviewed:
+                    form, delays = 'scan-reviewed', reviewed[rel][1]
                 forms[form] += 1
                 if delays is None:
                     continue
@@ -506,6 +596,12 @@ def read_all(source, motors_path, join=None):
         'folder': 'docs/RCS Schematics/Cert Docs (local-only)',
         'extractedBy': 'packages/app/scripts/extract-aerotech-delays.py',
         'documents': forms,
+        'scanReview': {
+            'reviewed': len(reviewed) + len(unread),
+            'accepted': len(reviewed),
+            'unreadForMerge': len(unread),
+            'source': 'packages/app/scripts/aerotech-delay-transcriptions.json',
+        },
         'notInCatalogue': unjoined,
         'motorCount': len(motors),
         'pairCount': pairs,
@@ -519,6 +615,8 @@ def main(argv):
     ap.add_argument('--motors', default=DEFAULT_MOTORS)
     ap.add_argument('--out', default=DEFAULT_OUT)
     ap.add_argument('--check', action='store_true')
+    ap.add_argument('--transcriptions', default=DEFAULT_TRANSCRIPTIONS)
+    ap.add_argument('--watch-out', help='also generate/check the published-source watch snapshot')
     # extract-aerotech-delays.test.mjs's synthetic documents are not the real ones.
     ap.add_argument('--join', help='a JSON file replacing JOIN: {document: [manufacturer, designation] or null}')
     args = ap.parse_args(argv)
@@ -526,16 +624,37 @@ def main(argv):
     if args.join:
         with open(args.join, encoding='utf-8') as fh:
             join = json.load(fh)
-    text = json.dumps(read_all(args.source, args.motors, join), ensure_ascii=False, indent=2) + '\n'
+    data = read_all(args.source, args.motors, join, args.transcriptions)
+    outputs = {args.out: json.dumps(data, ensure_ascii=False, indent=2) + '\n'}
+    if args.watch_out:
+        cert_docs = os.path.join(args.source, 'Cert Docs')
+        urls = download_urls(cert_docs)
+        with open(args.transcriptions, encoding='utf-8') as fh:
+            review = json.load(fh)
+        # Watch all index links, plus the bytes we consume or may consume after
+        # Eric rules on the four count-only scans. Do not fetch 312 PDFs per run.
+        paths = {m['document'] for m in data['motors'].values()}
+        paths.update(e['document'] for e in review['unread'] if e.get('candidateDelays'))
+        snapshot = {
+            'publishedOn': PUBLISHED_ON,
+            'indexPdfUrls': sorted(set(urls.values())),
+            'documents': [{'document': rel, 'url': urls[rel], 'sha256': source_hash(os.path.join(cert_docs, rel))}
+                          for rel in sorted(paths)],
+        }
+        outputs[args.watch_out] = json.dumps(snapshot, ensure_ascii=False, indent=2) + '\n'
     if args.check:
-        with open(args.out, encoding='utf-8') as fh:
-            same = fh.read() == text
-        print('aerotechDelays.json is what the documents give' if same else
-              'aerotechDelays.json DIFFERS from what the documents give: re-run without --check')
+        same = True
+        for path, text in outputs.items():
+            with open(path, encoding='utf-8') as fh:
+                matches = fh.read() == text
+            same = same and matches
+            print(f'{os.path.basename(path)} is what the documents give' if matches else
+                  f'{os.path.basename(path)} DIFFERS from what the documents give: re-run without --check')
         return 0 if same else 1
-    with open(args.out, 'w', encoding='utf-8', newline='\n') as fh:
-        fh.write(text)
-    print(f'wrote {args.out}')
+    for path, text in outputs.items():
+        with open(path, 'w', encoding='utf-8', newline='\n') as fh:
+            fh.write(text)
+        print(f'wrote {path}')
     return 0
 
 
