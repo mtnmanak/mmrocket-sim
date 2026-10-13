@@ -170,11 +170,24 @@ export function NumField({
   // One definition (units.ts), which the weather UI's text also prints with.
   const fmtDisplay = (v: number | undefined) =>
     v === undefined ? '' : fmtFieldValue(v, prefs.fieldPrecision);
+  /**
+   * The text last typed here and the number it committed. Refocusing a value
+   * the user just typed shows exactly what they typed, in every unit: a
+   * conversion round trip (°F → K → °F, in → m → in) cannot then put noise
+   * in front of their Backspace (N005 review, three rounds of unit-by-unit
+   * cleanup before this).
+   */
+  const lastTyped = useRef<{ text: string; value: number } | null>(null);
   const fmtEdit = (v: number | undefined) => {
     if (v === undefined) return '';
-    // N005 review ruling: affine conversions need the same cleanup as linear
-    // ones; an epsilon bound relative to a near-zero result misses their noise.
-    return String(Number(v.toPrecision(12)));
+    const typed = lastTyped.current;
+    if (typed && Math.abs(v - typed.value) <= 1e-9 * Math.max(1, Math.abs(typed.value))) return typed.text;
+    // A value from elsewhere: 12 significant digits, counted from at least the
+    // units place. Rounding relative to |v| alone kept an affine conversion's
+    // noise near zero (0 °F read back as 1.4e-14, 0.01 °F as 0.00999999999999);
+    // no field holds a meaningful value below 1e-12 of its display unit.
+    const places = Math.max(0, 12 - Math.floor(Math.log10(Math.max(1, Math.abs(v)))));
+    return String(Number(Number(v.toFixed(Math.min(places, 100))).toPrecision(12)));
   };
 
   const shown = live !== null ? live : fmtDisplay(value);
@@ -188,7 +201,10 @@ export function NumField({
       return;
     }
     const v = parse(s);
-    if (v !== null) onCommit(v, focused);
+    if (v !== null) {
+      lastTyped.current = { text: s.trim(), value: v };
+      onCommit(v, focused);
+    }
     else if (clampToMax && max !== undefined && parse(s, false) !== null) onCommit(max, focused);
   };
 

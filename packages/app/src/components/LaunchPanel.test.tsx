@@ -385,7 +385,7 @@ describe('the site-temperature field', () => {
       } finally { localStorage.clear(); }
     },
   );
-  it.each(['0.1', '1.1', '5.1', '-0.1', '-40', '98.6', '15.2', '0.0625',
+  it.each(['0.1', '1.1', '5.1', '-0.1', '-40', '98.6', '15.2', '0.0625', '0.01', '0.001', '-0.001', '0.0001',
     '1.23456789012', '0.123456789012'])(
     'N005 Fahrenheit refocus and Backspace edit the typed digits: %s', text => {
       localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { temperature: '°F' } }));

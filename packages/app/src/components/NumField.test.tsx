@@ -147,7 +147,7 @@ describe('NumField — typing', () => {
       }}
     />);
     act(draw);
-    for (const text of ['0.1', '1.1', '15.2', '0.0625', '-40', '98.6', '101.325', '-0.1',
+    for (const text of ['0.1', '1.1', '15.2', '0.0625', '-40', '98.6', '101.325', '-0.1', '0.01', '0.001', '-0.001',
       '1.23456789012', '0.123456789012']) {
       commits = [];
       type(text);
@@ -197,8 +197,20 @@ describe('NumField — typing', () => {
     expect(commits).toEqual([]);
   });
 
-  it.each([1.06251234567, 1.23456789012, 1.23456789012e-12, 1e-12])(
-    'N005 retains meaningful focused precision and tiny values: %s', (value) => {
+  it.each([
+    [1.4210854715202004e-14, '0'],
+    [0.009999999999990905, '0.01'],
+    [-0.0009999999999763531, '-0.001'],
+  ])('N005 strips affine noise near zero on focus (°F round trips): %s', (value, text) => {
+    render({ value });
+    focus();
+    expect(input().value).toBe(text);
+    blur();
+    expect(commits).toEqual([]);
+  });
+
+  it.each([1.06251234567, 1.23456789012, 0.000000667, 1.5e-6])(
+    'N005 retains meaningful focused precision and small values: %s', (value) => {
       render({ value });
       focus();
       expect(input().value).toBe(String(value));
@@ -222,7 +234,8 @@ describe('NumField — typing', () => {
     expect(commits).toEqual([Number(text)]);
     blur();
     focus();
-    expect(input().value).toBe('1.23456789012');
+    // Refocusing what was just typed shows it as typed, all its digits.
+    expect(input().value).toBe(text);
     blur();
     expect(current.value).toBe(Number(text));
     expect(commits).toEqual([Number(text)]);

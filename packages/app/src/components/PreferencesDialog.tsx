@@ -216,8 +216,8 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         </div>
         <p className="prefs-hint">
           <strong>Displayed decimals</strong> controls resting numeric fields. Small values keep
-          at least three significant figures. Focus a field to read its full stored precision;
-          changing this setting does not round stored values.
+          at least three significant figures. Focus a field to read up to 12 significant digits
+          (exactly what you typed, if you just typed it); changing this setting does not round stored values.
         </p>
         <p className="prefs-hint">
           <strong>Daylight</strong> is the launch-site mode: black on white at maximum
