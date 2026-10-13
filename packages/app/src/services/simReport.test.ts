@@ -239,9 +239,11 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
     expect(build({ result: simultaneous }).deployments.map(d => d.role)).toEqual(['main', 'main']);
   });
   it('N027 describes role order honestly and keeps shared unknown/old-run opening limits', () => {
-    expect(openingPolicy('drogue').expectation).toContain('opening order');
-    expect(openingPolicy('main').expectation).toContain('opening order');
-    expect(openingPolicy('drogue').expectation).not.toMatch(/expected|near apogee/);
+    for (const role of ['drogue', 'main'] as const) {
+      expect(openingPolicy(role).expectation).toContain('opening order');
+      expect(openingPolicy(role).expectation).toContain("the owner's shared opening-speed limits for drogue and main");
+      expect(openingPolicy(role).expectation).toContain('does not check near-apogee timing or apply separate drogue opening limits');
+    }
     expect(openingPolicy('unknown').expectation).toContain('generic');
     expect(deploymentRole({ isLanding: false })).toBe('drogue');
     expect(deploymentRole({ isLanding: true })).toBe('main');
@@ -264,6 +266,27 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
       }
     } finally { Object.assign(SAFETY, before); }
   });
+  it.each([false, true])('N027 keeps partial-role wording and raw warnings in reports (booster: %s)', (booster) => {
+    const flight = dualDeployResult(30, 5);
+    flight.series.velocity[2] = 30;
+    flight.warnings = [{ key: 'HighSpeedDeployment', message: 'raw 30 m/s', priority: 'HIGH' }];
+    const result = booster ? { ...flight, branches: [
+      { name: 'Sustainer', events: flight.events, series: flight.series },
+      { name: 'Booster', events: flight.events, series: flight.series },
+    ] } : flight;
+    const run = build({ result });
+    const openings = commentsOf(run).filter(c => c.text.includes('hard opening')
+      && (!booster || c.text.startsWith('Booster:')));
+    expect(openings).toHaveLength(2);
+    for (const [i, role] of ['Drogue', 'Main'].entries()) {
+      expect(openings[i]!.level).toBe('warning');
+      expect(openings[i]!.text).toContain('30.0 m/s');
+      expect(openings[i]!.text).toContain(`${role} role, inferred from opening order`);
+      expect(openings[i]!.text).toContain("the owner's shared opening-speed limits for drogue and main");
+      expect(openings[i]!.text).toContain('does not check near-apogee timing or apply separate drogue opening limits');
+    }
+    expect(run.simWarnings?.[0]?.message).toBe('raw 30 m/s');
+  });
   it('N010 cannot call a truncated low flight a completed apogee', () => {
     const result = fakeResult();
     result.events = [{ type: 'SIM_ABORT', time: 2 }];
@@ -271,6 +294,34 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
     const notes = commentsOf(build({ result, advisoryLimits: { armingAltitudeM: 100 } }));
     expect(notes.find(c => c.text.includes('arming altitude'))?.text).toContain('cannot check Apogee');
     expect(notes.find(c => c.text.includes('arming altitude'))?.level).toBe('info');
+  });
+  it.each([
+    { aborted: true, apogee: true, reason: 'the simulation aborted, so the final flight maximum is not established' },
+    { aborted: false, apogee: false, reason: 'no apogee event was recorded, so the flight maximum is not established' },
+  ])('N010 explains an unestablished flight maximum with finite AGL data: $reason', ({ aborted, apogee, reason }) => {
+    const result = fakeResult();
+    result.series.time = [0, 1, 2];
+    result.series.altitude = [0, 99, 90];
+    result.summary.maxAltitude = 99;
+    result.events = [
+      ...(apogee ? [{ type: 'APOGEE', time: 1 }] : []),
+      ...(aborted ? [{ type: 'SIM_ABORT', time: 2 }] : []),
+    ];
+    const advice = commentsOf(build({ result, advisoryLimits: { armingAltitudeM: 100 } }))
+      .filter(c => c.text.includes('arming altitude'));
+    expect(advice).toHaveLength(1);
+    expect(advice[0]).toMatchObject({ level: 'info', text: expect.stringContaining(reason) });
+    expect(advice[0]!.text).toContain('Low flight — Flight: the app cannot check Apogee');
+    expect(advice[0]!.text).not.toContain('AGL altitude is unavailable');
+  });
+  it('N010 still identifies unavailable AGL when apogee is recorded without a valid maximum', () => {
+    const result = fakeResult();
+    result.summary.maxAltitude = NaN;
+    result.series.altitude = result.series.time.map(() => NaN);
+    const advice = commentsOf(build({ result, advisoryLimits: { armingAltitudeM: 100 } }))
+      .find(c => c.text.includes('arming altitude'));
+    expect(advice).toMatchObject({ level: 'info', text: expect.stringContaining('AGL altitude is unavailable') });
+    expect(advice!.text).not.toContain('simulation aborted');
   });
   it('N010 skips charges after landing and interpolates AGL altitude at an in-flight event', () => {
     const result = fakeResult();
@@ -1088,7 +1139,8 @@ describe('dual deployment attribution', () => {
         expect(d.descentRate).toBeCloseTo(7, 2);
         expect(d.descentOk).toBe(false); // 23 ft/s really is over the 20 ft/s target
       }
-      expect(run.comments ?? '').not.toMatch(/drogue/i);
+      expect(run.deployments.map(d => d.role)).toEqual(['main', 'main']);
+      expect(run.comments ?? '').not.toMatch(/Drogue role|for a drogue/i);
       expect(run.landingRate).toBeCloseTo(7, 2);
     });
 

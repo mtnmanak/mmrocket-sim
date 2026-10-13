@@ -282,7 +282,8 @@ export function deploymentRole(d: Pick<DeploymentReport, 'role' | 'isLanding'>):
 export function openingPolicy(role: RecoveryRole) {
   return { preferred: SAFETY.maxDeploymentVelocity, upper: SAFETY.warnDeploymentVelocity,
     expectation: role === 'unknown' ? 'Recovery role unknown: using the generic opening-speed limits.'
-      : `${role === 'drogue' ? 'Drogue' : 'Main'} role, inferred from opening order: using the shared opening-speed limits.` };
+      : `${role === 'drogue' ? 'Drogue' : 'Main'} role, inferred from opening order: using the owner's shared opening-speed limits for drogue and main. `
+        + 'The app does not check near-apogee timing or apply separate drogue opening limits.' };
 }
 
 export function openingVerdict(velocity: number | null | undefined, role: RecoveryRole = 'unknown'): DeploymentVerdict {

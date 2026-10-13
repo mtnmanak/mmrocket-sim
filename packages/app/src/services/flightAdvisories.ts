@@ -138,9 +138,9 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
     if (limits.armingAltitudeM === undefined) continue;
     const height = limits.armingAltitudeM;
     const band = limits.armingCautionBandM ?? 0;
-    const check = (label: string, altitude: number | null): void => {
+    const check = (label: string, altitude: number | null, unavailable = 'AGL altitude is unavailable'): void => {
       if (altitude === null || !Number.isFinite(altitude)) {
-        notes.push({ text: `${context}: the app cannot check ${label} against your electronics arming altitude; AGL altitude is unavailable.`, level: 'info' });
+        notes.push({ text: `${context}: the app cannot check ${label} against your electronics arming altitude; ${unavailable}.`, level: 'info' });
       } else if (altitude <= height + band) {
         const below = altitude < height;
         const pair = below ? comparison('distance', altitude, height) : null;
@@ -151,7 +151,12 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
       }
     };
     const aborted = flight.events.some(e => e.type === 'SIM_ABORT');
-    check('Apogee', aborted || !flight.events.some(e => e.type === 'APOGEE') ? null : flight.apogee);
+    // N010: an incomplete flight cannot establish its final maximum, even
+    // when finite AGL samples and an apogee event were recorded before abort.
+    if (aborted) check('Apogee', null, 'the simulation aborted, so the final flight maximum is not established');
+    else if (!flight.events.some(e => e.type === 'APOGEE')) {
+      check('Apogee', null, 'no apogee event was recorded, so the flight maximum is not established');
+    } else check('Apogee', flight.apogee);
     const groundTime = flight.events.find(e => e.type === 'GROUND_HIT')?.time;
     for (const event of flight.events.filter(e => e.type === 'RECOVERY_DEVICE_DEPLOYMENT'
       && (groundTime === undefined || e.time < groundTime))) {
