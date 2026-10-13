@@ -87,10 +87,19 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
   const limits = normalizeFlightAdvisories(rawLimits);
   if (!limits) return [];
   const notes: { text: string; level: 'info' | 'caution' }[] = [];
-  const quantity = (kind: 'velocity' | 'distance', si: number): string => {
+  const quantity = (kind: 'velocity' | 'distance', si: number, digits = 1): string => {
     const symbol = units[kind], siSymbol = kind === 'velocity' ? 'm/s' : 'm';
-    return symbol === siSymbol ? `${si.toFixed(1)} ${siSymbol}`
-      : `${fmtSi(kind, symbol, si, 3)} ${symbol} [${si.toFixed(1)} ${siSymbol}]`;
+    return symbol === siSymbol ? `${si.toFixed(digits)} ${siSymbol}`
+      : `${fmtSi(kind, symbol, si, 3)} ${symbol} [${si.toFixed(digits)} ${siSymbol}]`;
+  };
+  const comparison = (kind: 'velocity' | 'distance', actual: number, limit: number) => {
+    // N007/N010: neither the selected unit nor its SI companion may show a
+    // false equality. Keep tiny differences explicit when three decimals cannot.
+    const sameDisplay = (digits: number): boolean => Number(actual.toFixed(digits)) === Number(limit.toFixed(digits))
+      || Number(fmtSi(kind, units[kind], actual, 3)) === Number(fmtSi(kind, units[kind], limit, 3));
+    const digits = sameDisplay(1) ? 3 : 1;
+    return { actual: quantity(kind, actual, digits), limit: quantity(kind, limit, digits),
+      indistinguishable: sameDisplay(digits) };
   };
   const nodes: ComponentNode[] = [];
   const walk = (parts: ComponentNode[]): void => {
@@ -110,14 +119,18 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
     if (limits.maxAirspeedMs !== undefined) {
       const peak = peakAirspeed(flight.series);
       if (peak.value !== null && peak.value > limits.maxAirspeedMs) {
-        notes.push({ text: `${context}: recorded airspeed ${quantity('velocity', peak.value)} exceeded your maximum of ${quantity('velocity', limits.maxAirspeedMs)}. This is your limit, not a structural rating.`, level: 'caution' });
+        const pair = comparison('velocity', peak.value, limits.maxAirspeedMs);
+        const measurement = pair.indistinguishable ? 'is just above' : `${pair.actual} exceeded`;
+        notes.push({ text: `${context}: recorded airspeed ${measurement} your maximum of ${pair.limit}. This is your limit, not a structural rating.`, level: 'caution' });
       } else if (!peak.complete) {
         notes.push({ text: `${context}: the app cannot check your airspeed limit of ${quantity('velocity', limits.maxAirspeedMs)} because airspeed telemetry is incomplete. Ground speed is not a substitute.`, level: 'info' });
       }
     }
     if (limits.maxMach !== undefined) {
       if (typeof flight.mach === 'number' && Number.isFinite(flight.mach) && flight.mach > limits.maxMach) {
-        notes.push({ text: `${context}: maximum Mach ${flight.mach.toFixed(3)} exceeded your maximum of Mach ${limits.maxMach}. This is your limit, not a structural rating.`, level: 'caution' });
+        const recorded = flight.mach.toFixed(3);
+        const measurement = Number(recorded) <= limits.maxMach ? 'is just above' : `${recorded} exceeded`;
+        notes.push({ text: `${context}: maximum Mach ${measurement} your maximum of Mach ${limits.maxMach}. This is your limit, not a structural rating.`, level: 'caution' });
       } else if (!Number.isFinite(flight.mach)) {
         notes.push({ text: `${context}: the app cannot check your Mach limit because the maximum Mach is unavailable.`, level: 'info' });
       }
@@ -130,7 +143,10 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
         notes.push({ text: `${context}: the app cannot check ${label} against your electronics arming altitude; AGL altitude is unavailable.`, level: 'info' });
       } else if (altitude <= height + band) {
         const below = altitude < height;
-        notes.push({ text: `${context}: ${label} at ${quantity('distance', altitude)} AGL is ${below ? 'below your arming altitude' : 'within your arming caution band'} (arming ${quantity('distance', height)} AGL, band ${quantity('distance', band)}). `
+        const pair = below ? comparison('distance', altitude, height) : null;
+        const measurement = pair?.indistinguishable ? 'is just below your arming altitude'
+          : `at ${pair?.actual ?? quantity('distance', altitude)} AGL is ${below ? 'below your arming altitude' : 'within your arming caution band'}`;
+        notes.push({ text: `${context}: ${label} ${measurement} (arming ${pair?.limit ?? quantity('distance', height)} AGL, band ${quantity('distance', band)}). `
           + 'If recovery depends on these electronics, they may not be armed when needed and recovery may fail. This comparison does not prove the electronics armed.', level: 'caution' });
       }
     };

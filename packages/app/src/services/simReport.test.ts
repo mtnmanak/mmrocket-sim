@@ -15,7 +15,7 @@ import { runsToCsv } from './simStore.js';
 import { idFree } from './simulate.testSupport.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
 import { engineTree, flownRecoveryDevices } from '../tree/treeModel.js';
-import { IMPERIAL_UNITS, uiToSi } from '../prefs/units.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS, uiToSi } from '../prefs/units.js';
 
 const info: StaticInfo = {
   length: 0.37, lengthAerodynamic: 0.37, mass: 0.051, massEmpty: 0.027, cgEmpty: 0.19, cg: 0.26,
@@ -117,6 +117,65 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
     expect(commentsOf(build({ advisoryLimits, units: IMPERIAL_UNITS }))
       .find(c => c.text.includes('cannot check your airspeed'))?.text).toContain('100 ft/s [30.5 m/s]');
     expect(runsToCsv([run])).toContain('100 ft/s [30.5 m/s]');
+  });
+  it.each([
+    { units: INITIAL_UNITS, speed: 100.01, speedLimit: 100, altitude: 99.99, arming: 100,
+      air: '100.010 m/s exceeded your maximum of 100.000 m/s',
+      height: '99.990 m AGL is below your arming altitude (arming 100.000 m AGL' },
+    { units: IMPERIAL_UNITS, speed: 30.481, speedLimit: 30.48, altitude: 304.799, arming: 304.8,
+      air: '100.003 ft/s [30.481 m/s] exceeded your maximum of 100 ft/s [30.480 m/s]',
+      height: '999.997 ft [304.799 m] AGL is below your arming altitude (arming 1000 ft [304.800 m] AGL' },
+    { units: IMPERIAL_UNITS, speed: 30.4801, speedLimit: 30.48, altitude: 304.7999, arming: 304.8,
+      air: 'is just above your maximum of 100 ft/s [30.480 m/s]',
+      height: 'Apogee is just below your arming altitude (arming 1000 ft [304.800 m] AGL' },
+  ])('N007/N010 keep near-limit report and CSV copy consistent in $units.velocity / $units.distance',
+    ({ units, speed, speedLimit, altitude, arming, air, height }) => {
+      const result = fakeResult();
+      result.series.mach = result.series.time.map(() => speed / 300);
+      result.series.Vs = result.series.time.map(() => 300);
+      result.summary.maxAltitude = altitude;
+      const run = build({ result, units, advisoryLimits: { maxAirspeedMs: speedLimit, armingAltitudeM: arming } });
+      const notes = commentsOf(run);
+      expect(notes.find(c => c.text.includes('your maximum'))).toMatchObject({ level: 'caution', text: expect.stringContaining(air) });
+      expect(notes.find(c => c.text.includes('Apogee') && c.text.includes('arming')))
+        .toMatchObject({ level: 'caution', text: expect.stringContaining(height) });
+      expect(runsToCsv([run])).toContain(air);
+      expect(runsToCsv([run])).toContain(height);
+    });
+  it('N007/N010 use explicit near-limit wording when finite precision cannot show an SI difference', () => {
+    const result = fakeResult();
+    result.series.mach = result.series.time.map(() => 100.000001 / 300);
+    result.series.Vs = result.series.time.map(() => 300);
+    result.summary.maxAltitude = 99.999999;
+    result.summary.maxMachNumber = 0.350001;
+    const run = build({ result, advisoryLimits: { maxAirspeedMs: 100, maxMach: 0.35, armingAltitudeM: 100 } });
+    const notes = commentsOf(run);
+    expect(notes.find(c => c.text.includes('recorded airspeed'))?.text).toContain('is just above your maximum of 100.000 m/s');
+    expect(notes.find(c => c.text.includes('maximum Mach'))?.text).toContain('maximum Mach is just above your maximum of Mach 0.35');
+    expect(notes.find(c => c.text.includes('Apogee') && c.text.includes('arming'))?.text)
+      .toContain('Apogee is just below your arming altitude (arming 100.000 m AGL');
+    result.series.mach = result.series.time.map(() => 100 / 300);
+    result.summary.maxMachNumber = 0.35;
+    result.summary.maxAltitude = 100;
+    const equal = commentsOf(build({ result, advisoryLimits: { maxAirspeedMs: 100, maxMach: 0.35, armingAltitudeM: 100 } }));
+    expect(equal.some(c => c.text.includes('your maximum'))).toBe(false);
+    expect(equal.find(c => c.text.includes('Apogee') && c.text.includes('arming'))?.text).toContain('within your arming caution band');
+  });
+  it('N010 shows a near-limit electronic deployment shortfall independently of apogee', () => {
+    const result = fakeResult();
+    result.events.find(e => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')!.sourceId = 'main';
+    result.series.altitude[5] = 99.99;
+    const advisoryTree: RocketTree = { components: [{ type: 'parachute', id: 'main', name: 'Electronic main', deployEvent: 'altitude' }] };
+    const notes = commentsOf(build({ result, advisoryTree, advisoryLimits: { armingAltitudeM: 100 } }));
+    expect(notes.find(c => c.text.includes('Electronic main deployment'))?.text)
+      .toContain('Electronic main deployment at 99.990 m AGL is below your arming altitude (arming 100.000 m AGL');
+    expect(notes.some(c => c.text.includes('Apogee') && c.text.includes('arming'))).toBe(false);
+  });
+  it('N010 uses near-limit wording when only the selected distance unit rounds alike', () => {
+    const result = fakeResult(); result.summary.maxAltitude = 999.9;
+    const notes = commentsOf(build({ result, units: { ...INITIAL_UNITS, distance: 'km' }, advisoryLimits: { armingAltitudeM: 1000 } }));
+    expect(notes.find(c => c.text.includes('Apogee') && c.text.includes('arming'))?.text)
+      .toContain('Apogee is just below your arming altitude (arming 1 km [1000.000 m] AGL');
   });
   it.each([[99, 'below'], [100, 'within'], [110, 'within'], [110.01, null]] as const)('N010 apogee %s m AGL gives %s advice for the named configuration', (height, word) => {
     const result = fakeResult(); result.summary.maxAltitude = height;
