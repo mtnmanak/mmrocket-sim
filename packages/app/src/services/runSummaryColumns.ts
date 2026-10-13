@@ -6,6 +6,7 @@ interface RunColumn {
   label: string;
   quantity?: Quantity;
   unit?: string;
+  loadWindow?: boolean;
   value: (run: SimRun) => unknown;
 }
 
@@ -37,16 +38,16 @@ export const RUN_SUMMARY_COLUMNS: RunColumn[] = [
   { id: 'launchStaticMarginPct', label: 'Launch stability by length', unit: '%', value: r => r.launchStaticMarginPct },
   { id: 'rodExitAoa', label: 'Guide exit angle of attack', quantity: 'angle', value: r => r.rodExitAoa },
   { id: 'thrustToWeightAtRod', label: 'Thrust / weight at guide exit', value: r => r.thrustToWeightAtRod },
-  { id: 'maxQ', label: 'Max dynamic pressure', quantity: 'pressure', value: r => r.loads?.maxQ?.value },
-  { id: 'maxQAlpha', label: 'Max q·α', quantity: 'pressure', unit: '·rad', value: r => r.loads?.maxQAlpha?.value },
-  { id: 'maxQTime', label: 'Time at max Q', unit: 's', value: r => r.loads?.maxQ?.time },
-  { id: 'maxQAltitude', label: 'Altitude at max Q', quantity: 'distance', value: r => r.loads?.maxQ?.altitude },
-  { id: 'maxQMach', label: 'Mach at max Q', value: r => r.loads?.maxQ?.mach },
-  { id: 'maxQAoa', label: 'Angle of attack at max Q', quantity: 'angle', value: r => r.loads?.maxQ?.aoa },
-  { id: 'maxQAlphaTime', label: 'Time at max q·α', unit: 's', value: r => r.loads?.maxQAlpha?.time },
-  { id: 'maxQAlphaAltitude', label: 'Altitude at max q·α', quantity: 'distance', value: r => r.loads?.maxQAlpha?.altitude },
-  { id: 'maxQAlphaMach', label: 'Mach at max q·α', value: r => r.loads?.maxQAlpha?.mach },
-  { id: 'maxQAlphaAoa', label: 'Angle of attack at max q·α', quantity: 'angle', value: r => r.loads?.maxQAlpha?.aoa },
+  { id: 'maxQ', label: 'Max dynamic pressure (ascent)', loadWindow: true, quantity: 'pressure', value: r => r.loads?.maxQ?.value },
+  { id: 'maxQAlpha', label: 'Max q·α (ascent)', loadWindow: true, quantity: 'pressure', unit: '·rad', value: r => r.loads?.maxQAlpha?.value },
+  { id: 'maxQTime', label: 'Time at max Q (ascent)', loadWindow: true, unit: 's', value: r => r.loads?.maxQ?.time },
+  { id: 'maxQAltitude', label: 'Altitude at max Q (ascent)', loadWindow: true, quantity: 'distance', value: r => r.loads?.maxQ?.altitude },
+  { id: 'maxQMach', label: 'Mach at max Q (ascent)', loadWindow: true, value: r => r.loads?.maxQ?.mach },
+  { id: 'maxQAoa', label: 'Angle of attack at max Q (ascent)', loadWindow: true, quantity: 'angle', value: r => r.loads?.maxQ?.aoa },
+  { id: 'maxQAlphaTime', label: 'Time at max q·α (ascent)', loadWindow: true, unit: 's', value: r => r.loads?.maxQAlpha?.time },
+  { id: 'maxQAlphaAltitude', label: 'Altitude at max q·α (ascent)', loadWindow: true, quantity: 'distance', value: r => r.loads?.maxQAlpha?.altitude },
+  { id: 'maxQAlphaMach', label: 'Mach at max q·α (ascent)', loadWindow: true, value: r => r.loads?.maxQAlpha?.mach },
+  { id: 'maxQAlphaAoa', label: 'Angle of attack at max q·α (ascent)', loadWindow: true, quantity: 'angle', value: r => r.loads?.maxQAlpha?.aoa },
 ];
 
 export const DEFAULT_RUN_COLUMNS = ['maxAltitude', 'maxVelocity', 'optimumDelayS', 'rodExitVelocity'];

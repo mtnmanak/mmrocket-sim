@@ -4,6 +4,7 @@ import { Note } from './Note.js';
 import { MountDelayReport } from './MountDelayReport.js';
 import { railNeededLine } from '../services/railNeeded.js';
 import { FlightLoadStats } from './FlightLoadStats.js';
+import { LOAD_WINDOW } from '../services/flightLoads.js';
 import { MACH_AUTO_THRESHOLD } from '../services/machProbe.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -608,6 +609,14 @@ export function SimHistory({
         </div>
         <button className="file-btn" onClick={() => setPrefs({ ...prefs, runColumns: undefined })}>Default columns</button>
       </details>
+      {/* N058 / D7 §5: load scope stays beside the values when the chooser is closed. */}
+      {columns.some(column => column.loadWindow) && <>
+        <Note tier="information" as="p" className="simdet-comments flight-loads-scope">
+          <strong>Inputs to a structural check; no structural verdict.</strong>{' '}
+          This is an input to a structural loads check, not a loads check.
+        </Note>
+        <p className="simdet-comments">{LOAD_WINDOW}.</p>
+      </>}
       {confirmClear && (
         <Modal label="Delete all saved runs" onClose={() => setConfirmClear(false)}>
           <h2>Delete all {runs.length} saved runs?</h2>

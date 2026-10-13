@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { exportColumnCatalog } from '../services/flightDataCsv.js';
+import { configUuid } from '../services/configSnapshot.js';
 import { EXPORT_EVENTS, type FlightExportLayout } from '../services/flightExportLayouts.js';
 import { Modal } from './Modal.js';
 
@@ -24,7 +25,7 @@ export function FlightExportLayoutDialog({ layout, onClose }: {
   };
   const save = () => {
     if (!name.trim() || !columns.length) { setError('Enter a layout name and select at least one column.'); return; }
-    const saved = { id: layout?.id ?? crypto.randomUUID(), name: name.trim(), columns, events };
+    const saved = { id: layout?.id ?? configUuid(), name: name.trim(), columns, events };
     const layouts = prefs.flightExportLayouts ?? [];
     setPrefs({ ...prefs, flightExportLayouts: layout ? layouts.map(l => l.id === layout.id ? saved : l) : [...layouts, saved],
       flightExportLayoutId: saved.id });
