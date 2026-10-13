@@ -22,6 +22,9 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  // C-H3: diagnostic messages are taken from the real importer refusals.
+  'src/services/sessionDebugLog.imports.test.ts',
+  'src/App.a11y.test.tsx',
   // Per-line note tiers on file open, and the tier surfaces that render them (rows 93/94, 2026-10-12).
   'src/services/importNotes.test.ts',
   'src/components/NoticeBar.groups.test.tsx',

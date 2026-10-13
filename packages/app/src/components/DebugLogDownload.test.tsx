@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { DebugLogDownload } from './DebugLogDownload.js';
@@ -54,4 +54,24 @@ it('C-H3 keeps cancellation quiet and the control usable after a failed download
   await act(async () => { button.click(); });
   expect(host.querySelector('[role="status"]')?.textContent).toContain('could not be downloaded');
   expect(button.disabled).toBe(false);
+});
+
+it('C-H3 keeps Feedback open when the privacy note or download status is clicked', async () => {
+  (window as Window & { showSaveFilePicker?: unknown }).showSaveFilePicker = async () => ({
+    name: 'mmrocket-sim-session-debug.txt',
+    createWritable: async () => ({ write: async () => {}, close: async () => {} }),
+  });
+  function Feedback() {
+    const [open, setOpen] = useState(true);
+    return open ? <div className="feedback-menu" onClick={() => setOpen(false)}><DebugLogDownload /></div> : null;
+  }
+  act(() => root.render(<Feedback />));
+  act(() => host.querySelector<HTMLElement>('.debug-log-download p')!.click());
+  expect(host.querySelector('.feedback-menu')).not.toBeNull();
+  await act(async () => { host.querySelector<HTMLButtonElement>('button')!.click(); });
+  act(() => host.querySelector<HTMLElement>('[role="status"]')!.click());
+  expect(host.querySelector('.feedback-menu')).not.toBeNull();
+  // The rest of the menu still owns its close-on-click behavior.
+  act(() => host.querySelector<HTMLElement>('.feedback-menu')!.click());
+  expect(host.querySelector('.feedback-menu')).toBeNull();
 });

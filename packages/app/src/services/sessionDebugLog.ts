@@ -21,9 +21,27 @@ const SAFE_MESSAGES = new Set(['No stage found', 'Failed to fetch', 'Load failed
   'No supported components found in this RockSim design.', 'No supported components found in this RASAero design.',
   'Not a .ork file (root must be <openrocket>)', 'Not a .ork file (missing <rocket>)',
   'Not a RockSim design file (missing RocketDesign)', 'Not a RASAero design file (missing RocketDesign)',
-  'Cache Storage is unavailable.', 'Empty .ork archive', 'File exceeds the design-file size limit.',
+  'Cache Storage is unavailable.', 'Empty .ork archive', 'Empty .rkt archive', 'Empty .CDX1 archive',
+  'File exceeds the design-file size limit.',
   'No .eng or .rse files found in that selection.', 'No motors found in .eng file', 'No <engine> entries in .rse file',
-  'No presets found in that CSV.', 'No valid preset rows found.', 'Preset storage refused the import.']);
+  'No presets found in that CSV.', 'No valid preset rows found.', 'Preset storage refused the import.',
+  'not a share link (missing the d=<version>.<data> payload)', 'the compressed data is corrupt or cut short',
+  'the link is far longer than any real design — refusing to decode it',
+  "this browser can't unpack share links. Open the link in Chrome or Edge 103, Firefox 113 or Safari 16.4 (iPhone and iPad: iOS 16.4) or later — or ask for the .ork file, which opens here.",
+  'This is an older BINARY RockSim file, not the XML .rkt this app reads. Open it in RockSim and re-save (RockSim 9 writes XML), or export it as .ork — either opens here.']);
+
+// C-H3: these refusals contain only format names and counts, never user text.
+const SAFE_IMPORT_MESSAGES = [
+  /^this link was made by a newer version of the app \(format [0-9]+\)$/,
+  /^this link expands past [0-9]+ MB — that is not a rocket design$/,
+  /^This archive lists [0-9,]+ entries, past the [0-9,]+ this app will read — that is not a rocket design\.$/,
+  /^Not a readable (\.ork|\.rkt|\.CDX1) archive — (it has no end-of-directory record|its directory lists [0-9]+ entries, more than [0-9]+ bytes can hold|directory entry [0-9]+ of [0-9]+ (is missing|runs past the end of the file|has no zip64 sizes))\.$/,
+  /^Not a readable compressed (\.ork|\.rkt|\.CDX1) file — it is damaged \((part [0-9]+ of [0-9]+ )?does not match its own checksum — the file is cut short or corrupted\)\.$/,
+  /^This compressed (\.ork|\.rkt|\.CDX1) file expands past the [0-9]+ MB this app will open — that is not a rocket design\.$/,
+  /^This design has [0-9,]+ parts, past the [0-9,]+ the app will open\. Desktop OR has no such limit\.$/,
+  /^This \.ork file declares [0-9]+ flight configurations, past the [0-9]+ the app will open\. Reduce the configurations in OpenRocket and save it again\.$/,
+  /^This file would open as more than [0-9]+ flight configurations, past the [0-9]+ the app will open\. Reduce the simulations in (RockSim|RASAero) and save it again\.$/,
+];
 
 function diagnosticMessage(value: unknown): string {
   let name = ''; let message: unknown = value;
@@ -35,11 +53,18 @@ function diagnosticMessage(value: unknown): string {
     }
     if (typeof message !== 'string' || message.length > 8192) return `${name}Message omitted for privacy`;
     if (SAFE_MESSAGES.has(message)) return name + message;
+    for (const pattern of SAFE_IMPORT_MESSAGES) if (pattern.test(message)) return name + message;
     if (/^Cannot read properties of (undefined|null) \(reading .+\)$/s.test(message)) {
       return `${name}Cannot read properties of ${message.startsWith('Cannot read properties of null') ? 'null' : 'undefined'} (property omitted)`;
     }
     if (message.startsWith('Failed to fetch dynamically imported module:')) return `${name}Failed to fetch dynamically imported module (URL omitted)`;
-    if (/^(XML|RockSim XML|RASAero XML) parse error/.test(message)) return `${name}XML parse error (file detail omitted)`;
+    if (/^(?:Not a valid (?:\.ork|RockSim|RASAero) file \(XML parse error\)|Not valid XML \(\.rse\))(?:$| — )/.test(message)) {
+      return `${name}XML parse error (file detail omitted)`;
+    }
+    const archive = /^(Not a readable (?:\.ork|\.rkt|\.CDX1) archive|Not a readable compressed (?:\.ork|\.rkt|\.CDX1) file) — /.exec(message);
+    if (archive?.[1]) return `${name}${archive[1]} (file detail omitted)`;
+    const member = /^“[\s\S]*” in this archive (expands to [0-9]+ MB, past the [0-9]+ MB this app will open — that is not a rocket design\.|inflates past the [0-9,]+ bytes its directory declares — the archive is damaged or crafted, not a rocket design\.)$/.exec(message);
+    if (member?.[1]) return `${name}Archive member ${member[1]} (file name omitted)`;
     if (message.startsWith('This file starts with a DOCTYPE')) return `${name}XML DOCTYPE refused (file detail omitted)`;
     if (message.startsWith('Not a RASP header line:')) return `${name}Not a RASP header line (file detail omitted)`;
     if (message.startsWith('Bad data line:')) return `${name}Bad data line (file detail omitted)`;

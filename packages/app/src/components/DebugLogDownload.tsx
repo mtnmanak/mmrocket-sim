@@ -22,9 +22,9 @@ export function DebugLogDownload() {
       setNote('The debug log could not be downloaded. Try again, or describe the problem in your report.');
     } finally { setBusy(false); }
   };
-  return <div className="debug-log-download">
+  return <div className="debug-log-download" onClick={e => e.stopPropagation()}>
     <button className="file-btn" disabled={busy} aria-describedby={description}
-      onClick={e => { e.stopPropagation(); void download(); }}>Download session debug log</button>
+      onClick={() => { void download(); }}>Download session debug log</button>
     <Note as="p" id={description} tier="information" className="comp-stats">
       Contains the app version, browser UA, viewport size, display, unit, aerodynamics, tour and configuration-sort
       preferences, elapsed app events and privacy-filtered errors from this tab. No design, file names or contents,

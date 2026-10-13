@@ -2887,7 +2887,7 @@ export function App() {
       // panel on Motors & Configuration switches between them (motors AND recovery
       // deployment, since applyConfig applies both now).
       await applyImported(imported, openId, { name: file.name, via: 'opened', format: imported.sourceFormat! });
-      sessionDebugLog.record('import-complete');
+      if (openSeq.isCurrent(openId)) sessionDebugLog.record('import-complete');
     } catch (e) {
       sessionDebugLog.record('import-failed', e);
       // A superseded open must not shout about a design nobody is waiting for.
