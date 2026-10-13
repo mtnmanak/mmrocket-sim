@@ -169,8 +169,13 @@ export function NumField({
   // One definition (units.ts), which the weather UI's text also prints with.
   const fmtDisplay = (v: number | undefined) =>
     v === undefined ? '' : fmtFieldValue(v, prefs.fieldPrecision);
-  const fmtEdit = (v: number | undefined) =>
-    v === undefined ? '' : String(v);
+  const fmtEdit = (v: number | undefined) => {
+    if (v === undefined) return '';
+    // N005: clean SI conversion noise only within a few floating-point steps;
+    // an unconditional decimal cap would discard meaningful focused digits.
+    const clean = Number(v.toPrecision(12));
+    return String(Math.abs(v - clean) <= Math.abs(v) * Number.EPSILON * 4 ? clean : v);
+  };
 
   const shown = live !== null ? live : fmtDisplay(value);
   const draftInvalid = live !== null && live.trim() !== ''

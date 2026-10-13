@@ -2284,6 +2284,12 @@ html {
   background-size: 22px 22px, 22px 22px, 100% 100%;
 }
 
+/* N009: match the dark stage's specificity while still yielding to Daylight. */
+.viz-root[data-theme='dark'] .rocket-stage:where(:has(.tree-schematic)) {
+  background-image: linear-gradient(180deg, #14161d 0%, #191c25 55%, #20222b 100%);
+  background-size: 100% 100%;
+}
+
 /* 3D viewport: grows with the monitor instead of a fixed 300px letterbox. */
 .rocket3d-wrap {
   height: clamp(300px, 42vh, 560px);

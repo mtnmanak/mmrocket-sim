@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NumField } from './NumField.js';
-import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
+import { LOCALE_DECIMAL_COMMA, siToUi } from '../prefs/units.js';
 import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 
 /**
@@ -131,6 +131,51 @@ afterEach(() => {
 });
 
 describe('NumField — typing', () => {
+  it.each([
+    [70.00000000000001, '70'],
+    [0.30000000000000004, '0.3'],
+    [0.7000000000000001, '0.7'],
+  ])('N005 strips supplied conversion noise on focus: %s', (value, text) => {
+    render({ value });
+    focus();
+    expect(input().value).toBe(text);
+    blur();
+    expect(commits).toEqual([]);
+  });
+
+  it.each([
+    ['length', 'mm', 0.07, '70'],
+    ['length', 'mm', 0.0003, '0.3'],
+    ['length', 'cm', 0.07, '7'],
+    ['length', 'in', 0.7 * 0.0254, '0.7'],
+    ['length', 'in', 1.4 * 0.0254, '1.4'],
+    ['temperature', '°C', 15.2 + 273.15, '15.2'],
+  ] as const)('N005 strips conversion noise on focus: %s %s %s', (quantity, symbol, si, text) => {
+    render({ value: siToUi(quantity, symbol, si) });
+    focus();
+    expect(input().value).toBe(text);
+    expect(input().getAttribute('aria-invalid')).toBeNull();
+    blur();
+    expect(commits).toEqual([]);
+  });
+
+  it.each([1.0625123456789, 1.2345678901234567, 1.2345678901234567e-12, 1e-12])(
+    'N005 retains meaningful focused precision and tiny values: %s', (value) => {
+      render({ value });
+      focus();
+      expect(input().value).toBe(String(value));
+      blur();
+      expect(commits).toEqual([]);
+    });
+
+  it('N005 backspace after focusing a converted 70 mm edits the intended digit', () => {
+    render({ value: 70.00000000000001 }, { controlled: true });
+    focus();
+    type(input().value.slice(0, -1));
+    expect(input().value).toBe('7');
+    expect(commits).toEqual([7]);
+  });
+
   it('fixup3: ordinary live-commit fields retain their Escape and blur behavior', () => {
     let ended = 0;
     render({ value: 1, onEditEnd: () => { ended++; } }, { controlled: true });

@@ -881,6 +881,35 @@ describe('applied weather in the Launch panel', () => {
     });
   }
   const strip = () => host.querySelector('[data-weather="strip"]');
+  it.each([0.1, 5.1, 33.3])('N014 prints clean fractional bearings: %s degrees', (aim) => {
+    const value = { ...APPLIED, launchRodAngleDeg: 5, launchRodAimDeg: aim };
+    const before = kernelSimOptions(value);
+    renderWeather(value, { ...SNAP, fetched: { ...SNAP.fetched, windFromDeg: aim } });
+    const compass = host.querySelector('[data-launch-compass]')!;
+    const rodText = `Rod lean ${aim}° clockwise relative to wind`;
+    expect(compass.querySelector('figcaption')!.textContent).toBe(rodText);
+    expect(compass.querySelector('svg')!.getAttribute('aria-label')).toBe(rodText);
+    expect(compass.querySelector('[data-direction="rod"]')!.getAttribute('transform')).toBe(`rotate(${aim} 50 50)`);
+    expect(compass.querySelector('[data-direction="weather"]')!.getAttribute('transform')).toBe(`rotate(${aim} 50 50)`);
+    expect(compass.querySelectorAll('figcaption')[1]!.textContent).toContain(`Weather wind from ${aim}°`);
+    expect(compass.querySelectorAll('svg')[1]!.getAttribute('aria-label')).toContain(`Weather wind from ${aim}°`);
+    expect(lastLaunch).toBeNull();
+    expect(kernelSimOptions(value)).toEqual(before);
+  });
+
+  it('N014 formats a radian-derived aim using the selected field precision', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ fieldPrecision: 4, units: { angle: 'rad' } }));
+    const value = { ...APPLIED, launchRodAngleDeg: -5, launchRodAimDeg: 0.1 * 180 / Math.PI };
+    renderWeather(value, { ...SNAP, fetched: { ...SNAP.fetched, windFromDeg: 359.9999999999 } });
+    const compass = host.querySelector('[data-launch-compass]')!;
+    const rodText = 'Rod lean 185.7296° clockwise relative to wind (negative Rod angle reverses the aim)';
+    expect(compass.querySelector('figcaption')!.textContent).toBe(rodText);
+    expect(compass.querySelector('svg')!.getAttribute('aria-label')).toBe(rodText);
+    expect(compass.querySelector('[data-direction="weather"]')!.getAttribute('transform')).toBe('rotate(0 50 50)');
+    expect(lastLaunch).toBeNull();
+    localStorage.clear();
+  });
+
   it.each([0, 90, 180, 270, 450])('N014 labels weather from %s degrees without changing launch inputs', (bearing) => {
     const value = { ...APPLIED, launchRodAngleDeg: 5, launchRodAimDeg: 90 };
     const before = kernelSimOptions(value);
