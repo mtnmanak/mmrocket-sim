@@ -24,6 +24,25 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     ...over,
   }) as SimRun;
 
+it('persists the last deployment ground speed without backfilling legacy runs', () => {
+  localStorage.clear();
+  addRuns([mkRun('zero', { lastDeploymentGroundSpeed: 0 }), mkRun('main', { lastDeploymentGroundSpeed: 20.1 }),
+    mkRun('unknown', { lastDeploymentGroundSpeed: null }), mkRun('legacy', { velocityAtDeployment: 2 })]);
+  expect(loadRuns().map(r => r.lastDeploymentGroundSpeed)).toEqual([0, 20.1, null, undefined]);
+});
+
+it.each([-1, '2', {}, Infinity])('invalid stored last deployment ground speed %j becomes unknown', speed => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+    { ...mkRun('bad'), lastDeploymentGroundSpeed: speed }, mkRun('legacy'),
+  ]));
+  // JSON cannot carry Infinity; exercise that corrupt in-memory value through the parser boundary.
+  if (speed === Infinity) vi.spyOn(JSON, 'parse').mockReturnValueOnce([{ ...mkRun('bad'), lastDeploymentGroundSpeed: speed }, mkRun('legacy')]);
+  const loaded = loadRuns();
+  expect(loaded).toHaveLength(2);
+  expect(loaded[0]).not.toHaveProperty('lastDeploymentGroundSpeed');
+  expect(loaded[1]).not.toHaveProperty('lastDeploymentGroundSpeed');
+});
+
 it('appends gust sigma to CSV/XLSX headers in wind units, leaving legacy cells blank', () => {
   const list = [mkRun('calm', { windSigma: 0 }), mkRun('gusty', { windSigma: 1 }), mkRun('old', { conditionsKey: '{"windStdDev":9}' })];
   const table = runsToTable(list, IMPERIAL_UNITS);

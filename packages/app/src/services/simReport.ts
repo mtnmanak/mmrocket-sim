@@ -539,6 +539,9 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   /** First deployment (kept for CSV/back-compat; see `deployments`). */
   altitudeAtDeployment: number | null;
   velocityAtDeployment: number | null;
+  /** W3 desktop comparison: kernel summary's LAST deployment ground speed (m/s).
+   * Separate from opening-speed advice; absent on older saved runs. */
+  lastDeploymentGroundSpeed?: number | null;
   /**
    * Every recovery deployment, in order — drogue first, main later.
    *
@@ -2434,6 +2437,8 @@ export function buildSimRun(input: {
     launchStaticMarginPct,
     altitudeAtDeployment,
     velocityAtDeployment,
+    lastDeploymentGroundSpeed: summary.deploymentVelocity !== null && Number.isFinite(summary.deploymentVelocity)
+      && summary.deploymentVelocity >= 0 ? summary.deploymentVelocity : null,
     deployments,
     branches: branches.length > 0 ? branches : undefined,
     boosterMotors: boosterMotors && boosterMotors.length > 0 ? boosterMotors : undefined,

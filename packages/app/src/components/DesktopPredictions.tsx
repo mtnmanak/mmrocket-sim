@@ -13,7 +13,7 @@ const SUMMARY_FIELDS: [keyof DesktopStoredPrediction['data'], keyof SimRun, stri
   ['flightTime', 'totalFlightTime', 'Total flight time (s)', null],
   ['groundHitVelocity', 'groundHitVelocity', 'Ground hit velocity', 'velocity'],
   ['launchRodVelocity', 'rodExitVelocity', 'Rod exit velocity', 'velocity'],
-  ['deploymentVelocity', 'velocityAtDeployment', 'Deployment velocity', 'velocity'],
+  ['deploymentVelocity', 'lastDeploymentGroundSpeed', 'Last deployment ground speed', 'velocity'],
   ['optimumDelay', 'optimumDelayS', 'Optimal delay (s)', null],
 ];
 
@@ -34,6 +34,7 @@ export function DesktopPredictions({ predictions, configId, run }: {
     <div className="panel-head"><h2>Desktop OpenRocket stored predictions</h2></div>
     <Note as="p" tier="information" className="download-caption">
       These stored predictions may describe older settings. They are not used as simulation inputs.
+      {' '}Last deployment ground speed compares the final deployment in each simulation, rather than the first opening speed in the app's recovery report. Older app runs without this recorded value show a blank.
     </Note>
     {matching.map((prediction, index) => {
       const app = prediction.configId !== null && run && !run.importedSummary && run.flightConfigId === prediction.configId ? run : null;

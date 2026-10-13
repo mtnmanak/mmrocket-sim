@@ -15,6 +15,44 @@ const predictions: DesktopStoredPrediction[] = [
 ];
 
 describe('desktop prediction comparison', () => {
+  it.each([0, 5])('compares the last deployment ground speed for dual deployment with %s m/s drift', wind => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const groundSpeed = Math.hypot(19.5, wind);
+    const run = {
+      flightConfigId: 'a', velocityAtDeployment: 2, lastDeploymentGroundSpeed: groundSpeed,
+      deployments: [
+        { time: 7, velocityAtDeployment: 2, groundSpeedAtDeployment: 2 },
+        { time: 30, velocityAtDeployment: 19.5, groundSpeedAtDeployment: groundSpeed },
+      ],
+    } as SimRun;
+    const desktop = [{ name: 'Dual deploy', configId: 'a', data: { deploymentVelocity: groundSpeed } }];
+    act(() => root.render(<PrefsProvider><DesktopPredictions predictions={desktop} configId="a" run={run} /></PrefsProvider>));
+    const row = [...host.querySelectorAll('tbody tr')].find(tr => tr.querySelector('th')?.textContent === 'Last deployment ground speed')!;
+    expect(row).toBeDefined();
+    const cells = row.querySelectorAll('td');
+    expect(cells[0]!.textContent).toBe(cells[1]!.textContent);
+    expect(cells[1]!.textContent).toBe(`${groundSpeed.toFixed(1)} m/s`);
+    expect(host.textContent).toContain('Older app runs without this recorded value show a blank');
+    expect(run.velocityAtDeployment).toBe(2);
+    act(() => root.unmount());
+  });
+
+  it('keeps legacy deployment evidence blank rather than using the first or last opening speed', () => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const run = { flightConfigId: 'a', velocityAtDeployment: 2,
+      deployments: [{ velocityAtDeployment: 19.5, groundSpeedAtDeployment: 20.1 }],
+    } as SimRun;
+    act(() => root.render(<PrefsProvider><DesktopPredictions
+      predictions={[{ name: 'Legacy', configId: 'a', data: { deploymentVelocity: 20.1 } }]}
+      configId="a" run={run} /></PrefsProvider>));
+    const row = [...host.querySelectorAll('tbody tr')].find(tr => tr.querySelector('th')?.textContent === 'Last deployment ground speed')!;
+    expect(row).toBeDefined();
+    expect(row.querySelector('td:last-child')?.textContent).toBe('—');
+    act(() => root.unmount());
+  });
+
   it('excludes external summaries even from a previously saved session', () => {
     const host = document.createElement('div');
     const root = createRoot(host);

@@ -2089,6 +2089,28 @@ describe('WIND IS NOT AN OPENING SHOCK (services-rest-1)', () => {
 });
 
 describe('SimRun.velocityAtDeployment names the FIRST deployment', () => {
+  it.each([0, 5])('records the kernel last-deployment ground speed separately with %s m/s drift', wind => {
+    const r = dualDeployResult(19.5, 5.5, wind);
+    const groundSpeed = Math.hypot(19.5, wind);
+    r.summary.deploymentVelocity = groundSpeed;
+    const run = buildSimRun({
+      result: r, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+    });
+    expect(run.lastDeploymentGroundSpeed).toBeCloseTo(groundSpeed, 6);
+    expect(run.velocityAtDeployment).toBeCloseTo(2, 1);
+    expect(run.deployments[1]!.velocityAtDeployment).toBeCloseTo(19.5, 1);
+  });
+
+  it('does not invent a desktop-compatible deployment speed when the kernel summary is unknown', () => {
+    const r = dualDeployResult(19.5, 5.5);
+    r.summary.deploymentVelocity = null;
+    const run = buildSimRun({
+      result: r, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+    });
+    expect(run.lastDeploymentGroundSpeed).toBeNull();
+    expect(run.velocityAtDeployment).toBeCloseTo(2, 1);
+  });
+
   it('does not take the summary figure, which is the LAST device', () => {
     // FlightData.java:240-243 assigns deploymentVelocity inside a loop over
     // EVERY flight event, so on a dual-deploy rocket the last one wins. The
