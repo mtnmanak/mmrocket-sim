@@ -1,6 +1,7 @@
 import { INITIAL_UNITS, type UnitSelection } from './units.js';
 import type { PrinterPrefs } from './printers.js';
 import type { DragAnalysisPrefs } from './dragAnalysis.js';
+import type { FlightExportLayout } from '../services/flightExportLayouts.js';
 import type { FlightAdvisories } from './flightAdvisories.js';
 
 /**
@@ -62,6 +63,11 @@ export interface Preferences {
    * Absent = the default set. Unknown ids are ignored (forward compat).
    */
   resultTiles?: string[];
+  /** Saved simulations' visible numeric summaries, in viewer order. */
+  runColumns?: string[];
+  /** Local export layouts; never written into a rocket file. */
+  flightExportLayouts?: FlightExportLayout[];
+  flightExportLayoutId?: string;
   /** Drag analysis inputs retained across Results navigation and reloads. */
   dragAnalysis?: DragAnalysisPrefs;
   /**

@@ -31,6 +31,32 @@ function Probe() {
 
 const mount = () => act(() => root.render(<PrefsProvider><Probe /></PrefsProvider>));
 
+it('N038/N058 validates viewer choices and preserves a saved layout across remounts', () => {
+  const layout = { id: 'ascent', name: 'Ascent', columns: [{ key: 'altitude', unit: 'ft' }], events: { to: 'APOGEE' } };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ runColumns: ['maxMach', 'unknown', 'maxAltitude'],
+    flightExportLayouts: [null, { ...layout, id: 'bad', columns: [{ key: 'altitude', unit: 'mph' }] }, layout],
+    flightExportLayoutId: 'bad', flightAdvisories: { maxMach: 0.8, maxAirspeedMs: 'fast' },
+    configurationSort: 'motor', fieldPrecision: 4, grid2d: false,
+    rulerReference2d: 'offset', rulerOffset2dM: -0.0254, rulerReversed2d: true }));
+  mount();
+  expect(seen.prefs.runColumns).toEqual(['maxMach', 'maxAltitude']);
+  expect(seen.prefs.flightExportLayouts).toEqual([layout]);
+  expect(seen.prefs.flightExportLayoutId).toBeUndefined();
+  const mainPreferences = { flightAdvisories: { maxMach: 0.8 }, configurationSort: 'motor', fieldPrecision: 4,
+    grid2d: false, rulerReference2d: 'offset', rulerOffset2dM: -0.0254, rulerReversed2d: true };
+  expect(seen.prefs).toMatchObject(mainPreferences);
+  act(() => seen.setPrefs({ ...seen.prefs, flightExportLayoutId: 'ascent' }));
+  act(() => root.unmount());
+  root = createRoot(host);
+  mount();
+  expect(seen.prefs.flightExportLayoutId).toBe('ascent');
+  expect(seen.prefs.flightExportLayouts).toEqual([layout]);
+  expect(seen.prefs.runColumns).toEqual(['maxMach', 'maxAltitude']);
+  expect(seen.prefs).toMatchObject(mainPreferences);
+  expect(sessionDebugLog.text()).toContain('"configurationSort":"motor"');
+  expect(sessionDebugLog.text()).not.toContain('Ascent');
+});
+
 beforeEach(() => {
   localStorage.clear();
   host = document.createElement('div');

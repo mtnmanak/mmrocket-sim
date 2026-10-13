@@ -142,6 +142,63 @@ const openTable = () => act(() => {
     ?.click();
 });
 
+it('N058 persists the summary chooser, keeps default columns and blanks old unknown values', () => {
+  render(<SimHistory runs={[{ ...run(), landingDistanceM: undefined }]} onRunsChange={() => {}} />);
+  openTable();
+  expect(Array.from(host.querySelectorAll('th')).some(t => t.textContent?.startsWith('Max V (m/s'))).toBe(true);
+  const checkbox = host.querySelector<HTMLInputElement>('input[aria-label="Show Landing drift"]');
+  expect(checkbox).not.toBeNull();
+  act(() => checkbox!.click());
+  const headers = Array.from(host.querySelectorAll('th')).map(t => t.textContent);
+  const index = headers.findIndex(t => t?.startsWith('Landing drift (m'));
+  expect(index).toBeGreaterThan(0);
+  expect(host.querySelectorAll('tbody tr')[0]!.children[index]!.textContent).toBe('');
+  expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).runColumns).toContain('landingDistanceM');
+  act(() => root.unmount());
+  root = createRoot(host);
+  render(<SimHistory runs={[run()]} onRunsChange={() => {}} />);
+  openTable();
+  expect(host.querySelector<HTMLInputElement>('input[aria-label="Show Landing drift"]')!.checked).toBe(true);
+  act(() => Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Default columns')!.click());
+  expect(Array.from(host.querySelectorAll('th')).some(t => t.textContent?.startsWith('Landing drift'))).toBe(false);
+});
+
+it.each([
+  ['maxQ', 'Max dynamic pressure'], ['maxQAlpha', 'Max q·α'],
+  ['maxQTime', 'Time at max Q'], ['maxQAltitude', 'Altitude at max Q'],
+  ['maxQMach', 'Mach at max Q'], ['maxQAoa', 'Angle of attack at max Q'],
+  ['maxQAlphaTime', 'Time at max q·α'], ['maxQAlphaAltitude', 'Altitude at max q·α'],
+  ['maxQAlphaMach', 'Mach at max q·α'], ['maxQAlphaAoa', 'Angle of attack at max q·α'],
+])('N058 qualifies selected ascent load column %s before values outside the collapsed chooser', (id, label) => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ runColumns: [id], units: { pressure: 'Pa' } }));
+  const peak = { value: 50, time: 1, altitude: 10, mach: 1, aoa: 0.1 };
+  render(<SimHistory runs={[{ ...run(), loads: { maxQ: peak, maxQAlpha: { ...peak, value: 5 } } },
+    { ...run(), id: 'legacy', loads: undefined }]} onRunsChange={() => {}} />);
+  openTable();
+  const chooser = host.querySelector('details')!;
+  expect(chooser.open).toBe(false);
+  const table = host.querySelector('.motor-table')!;
+  const notes = [...host.querySelectorAll('p')].filter(p => !p.closest('details'));
+  const caveat = notes.find(p => p.textContent?.includes('Inputs to a structural check; no structural verdict.'));
+  const window = notes.find(p => p.textContent?.includes('Launch through apogee, stopping before recovery deployment or tumbling'));
+  expect(caveat).toBeDefined();
+  expect(window).toBeDefined();
+  expect(caveat!.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(window!.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const index = [...table.querySelectorAll('th')].findIndex(th => th.textContent?.startsWith(`${label} (ascent)`));
+  expect(index).toBeGreaterThan(0);
+  expect(host.querySelector<HTMLInputElement>(`input[aria-label="Show ${label} (ascent)"]`)).not.toBeNull();
+  const rows = table.querySelectorAll('tbody tr');
+  expect(rows[1]!.children[index]!.textContent).toBe('');
+  if (id === 'maxQ') expect(rows[0]!.children[index]!.textContent).toBe('50.0');
+  if (id === 'maxQAlpha') expect(rows[0]!.children[index]!.textContent).toBe('5.00');
+  act(() => { chooser.open = true; });
+  expect(caveat!.closest('details')).toBeNull();
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Default columns')!.click());
+  expect(host.textContent).not.toContain('Inputs to a structural check; no structural verdict.');
+  expect(host.textContent).not.toContain('Launch through apogee, stopping before recovery deployment or tumbling');
+});
+
 it('RES-1 shows configuration and provenance status separately from Safe, lazily', () => {
   const r = { ...run(), flightConfig: 'Club', batch: true, designKey: 'old' };
   render(<SimHistory runs={[r, { ...run(), id: 'old', conditionsKey: undefined, aeroModel: undefined, rogersKbf: undefined }]} onRunsChange={() => {}}
@@ -590,7 +647,7 @@ describe('SimHistory — the run table names its data', () => {
     const index = [...table.querySelectorAll('thead th')].findIndex((th) => th.textContent?.includes('Opt. delay'));
     expect(index).toBeGreaterThanOrEqual(0);
     const rows = table.querySelectorAll('tbody tr');
-    expect(rows[0]!.querySelectorAll('td')[index]?.textContent).toBe('—');
+    expect(rows[0]!.querySelectorAll('td')[index]?.textContent).toBe('');
     expect(rows[1]!.querySelectorAll('td')[index]?.textContent).toBe('4.9s');
   });
   it('labels both exports as the run table, not as bare formats', () => {

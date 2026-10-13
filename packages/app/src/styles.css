@@ -3171,6 +3171,15 @@ html {
   margin: 10px 0 14px;
 }
 
+/* N038: keep all editor controls reachable on supported clients predating dvh. */
+.flight-export-layout-editor {
+  width: min(400px, calc(100vw - 76px));
+  max-height: calc(100vh - 76px);
+  max-height: calc(100dvh - 76px);
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
 /* @atestani TRF #162, Eric 2026-10-06: all file identities fit without hiding Apply. */
 .open-motor-choices {
   max-height: 55vh;
