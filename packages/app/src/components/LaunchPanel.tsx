@@ -26,6 +26,7 @@ import {
 } from '../services/launchConditions.js';
 import { editProfileSurface } from '../services/windProfile.js';
 import { WindProfile } from './WindProfile.js';
+import { GroundWindNote } from './GroundWindNote.js';
 
 // The launch conditions themselves — the stored shape, kernelSimOptions, the
 // bounds, the rod-aim and longitude rules, the import clamp — are domain logic
@@ -591,6 +592,7 @@ export function LaunchPanel({
         {numField('Rod aim', 'launchRodAimDeg', 15, ...ROD_AIM_DEG_RANGE, false, ROD_AIM_HELP, undefined, 0)}
         {numField('Wind avg', 'windAverage', 0.5, WIND_MS_RANGE[0])}
         {numField('Wind gusts σ', 'windStdDev', 0.1, WIND_MS_RANGE[0])}
+        <GroundWindNote wind={value.windAverage} />
         <WindProfile value={value} onChange={onChange} />
         {/* The gust-to-σ chip (weather build, step 4): directly under the wind
             pair, full width, and only here — never inside LaunchField, which the

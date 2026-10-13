@@ -48,6 +48,7 @@ import {
   solePinnedStage, withoutAllowance, type BallastSolution,
 } from './services/buildAllowance.js';
 import { MotorPicker } from './components/MotorPicker.js';
+import { zeroDelayRecoveryAdvice } from './services/flightAdvisories.js';
 import { useMenuPopup } from './components/useDialog.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
@@ -1954,6 +1955,8 @@ export function App() {
         // 78d3015. The lint gate keeps flyLaunch and buildSimRun out of this
         // file, so the Launch cannot grow a second copy here.
         const { flight: { result: res, execMs }, run } = await flyBuiltDesign({
+          units: prefs.units,
+          advisoryLimits: prefs.flightAdvisories,
           built,
           tree: flightTree,
           flightOverrides: launchOverrideSummary?.records ?? [],
@@ -4467,6 +4470,12 @@ export function App() {
                     noBore={mNode ? noBoreReason(mNode) : null}
                     onOpenDesign={() => showMotorLengthOnDesign(m.id!)} />
                   <MotorPicker
+                    recoveryAdviceFor={(delay, auto) => {
+                      // N003: replacement resets the motor's ignition; only mount/config layers survive.
+                      const ignition = overrideFor(activeOverrides.ignitions, m.id!)
+                        ?? overrideFor((tree as FlightTree).ignitionDefaults, m.id!);
+                      return ignition?.event === 'never' ? null : zeroDelayRecoveryAdvice(flightTree, m.id!, delay, auto);
+                    }}
                     mountDiameterMm={mountDiaMm(mNode)}
                     maxMotorLengthM={motorLengthLimit(mNode)}
                     selectedLabel={mm?.label ?? ''}
@@ -4476,6 +4485,13 @@ export function App() {
                     showQuickPicks={quickPicksOffered}
                     primaryControlId={`cfg-mount-${m.id!}-motor`}
                   />
+                  <div className="zero-delay-recovery" role="status">
+                    {mm && mm.ignition?.event !== 'never' && zeroDelayRecoveryAdvice(flightTree, m.id!, mm.spec.ejectionDelay, mm.meta.autoDelay) && (
+                      <Note tier="caution" as="p" className="comp-stats">
+                        {zeroDelayRecoveryAdvice(flightTree, m.id!, mm.spec.ejectionDelay, mm.meta.autoDelay)}
+                      </Note>
+                    )}
+                  </div>
                   {mm && (
                     <div className="field" style={{ marginTop: 6 }}>
                       {/* Tied to its box (audit 2026-09-30), which keeps the

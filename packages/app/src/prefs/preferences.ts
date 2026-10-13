@@ -1,6 +1,7 @@
 import { INITIAL_UNITS, type UnitSelection } from './units.js';
 import type { PrinterPrefs } from './printers.js';
 import type { DragAnalysisPrefs } from './dragAnalysis.js';
+import type { FlightAdvisories } from './flightAdvisories.js';
 
 /**
  * Persisted user preferences: per-quantity units (desktop UnitGroup style),
@@ -15,6 +16,7 @@ import type { DragAnalysisPrefs } from './dragAnalysis.js';
 export interface Preferences {
   /** N011: viewer order only; absent preserves the file's configuration order. */
   configurationSort?: 'creation' | 'name' | 'name-desc' | 'motor' | 'motor-desc';
+  flightAdvisories?: FlightAdvisories;
   units: UnitSelection;
   /** How round components are entered/displayed. Engine always stores radius (SI). */
   radiusMode: 'radius' | 'diameter';

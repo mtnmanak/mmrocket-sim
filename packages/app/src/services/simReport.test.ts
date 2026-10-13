@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import {
   launchGuideExplanation, buildSimRun, commentLevelsAlign, commentsOf, conditionsKeyOf, extractLandingDrift, extractMaxRollRate,
-  formatStability, openingVerdict, deploymentVerdict,
+  formatStability, openingVerdict, deploymentVerdict, deploymentRole, openingPolicy,
   recommendDelay,
   AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
   pressureThrustActive, PRESSURE_THRUST_CHANGED, runCarriesNozzleStamp,
@@ -16,6 +16,7 @@ import { idFree } from './simulate.testSupport.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
 import { engineTree, flownRecoveryDevices } from '../tree/treeModel.js';
 import { densityAltitudeM } from './atmosphere.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS, uiToSi } from '../prefs/units.js';
 
 const info: StaticInfo = {
   length: 0.37, lengthAerodynamic: 0.37, mass: 0.051, massEmpty: 0.027, cgEmpty: 0.19, cg: 0.26,
@@ -66,6 +67,275 @@ const motor = {
   times: [0, 2], thrusts: [10, 0], masses: [0.024, 0.013],
   cgX: 0.035, ejectionDelay: 5,
 };
+
+describe('W2-WARN personal limits and frozen flight evidence', () => {
+  const build = (extra: Partial<Parameters<typeof buildSimRun>[0]> = {}) => buildSimRun({
+    result: fakeResult(), info, motor, launch: DEFAULT_CONDITIONS,
+    rocketName: 'Advice test', execMs: 1, flightConfig: 'Low flight', ...extra,
+  });
+  it('N004 cautions above 20 mph independently of rail-speed advice', () => {
+    expect(commentsOf(build({ launch: { ...DEFAULT_CONDITIONS, windAverage: 8.9408 } }))
+      .some(c => c.text.includes('Surface wind average'))).toBe(false);
+    expect(commentsOf(build({ launch: { ...DEFAULT_CONDITIONS, windAverage: 9 } }))
+      .find(c => c.text.includes('Surface wind average'))?.level).toBe('caution');
+  });
+  it('N007 compares airspeed and Mach strictly against YOUR limits; keeps the inputs and raw flight unchanged', () => {
+    const result = fakeResult();
+    result.series.Vs = result.series.time.map(() => 300);
+    const before = structuredClone(result);
+    const limits = { maxAirspeedMs: 104, maxMach: 0.34 };
+    const run = build({ result, advisoryLimits: limits });
+    const advice = commentsOf(run).filter(c => c.text.includes('your maximum'));
+    expect(advice).toHaveLength(2);
+    expect(advice.every(c => c.level === 'caution')).toBe(true);
+    expect(advice[0]!.text).toContain('105.0'); // 0.35 × 300, not 116.2 over the ground.
+    expect(advice[0]!.text).toContain('Low flight');
+    expect(run.maxAirspeedMs).toBeCloseTo(105, 10); // synthetic telemetry, arithmetic precision.
+    limits.maxAirspeedMs = 999;
+    expect(run.advisoryLimits?.maxAirspeedMs).toBe(104);
+    expect(result).toEqual(before);
+    expect(commentsOf(build({ result, advisoryLimits: { maxAirspeedMs: 105, maxMach: 0.35 } }))
+      .some(c => c.text.includes('your maximum'))).toBe(false);
+    expect(build()).not.toHaveProperty('advisoryLimits');
+  });
+  it('N007 cannot substitute ground speed for absent air telemetry', () => {
+    const run = build({ advisoryLimits: { maxAirspeedMs: 1 } });
+    expect(commentsOf(run).find(c => c.text.includes('airspeed limit'))?.text).toContain('cannot check');
+    expect(run.maxAirspeedMs).toBeNull();
+  });
+  it('N007/N010 freeze rounded user units first and SI in brackets for imperial entries', () => {
+    const result = fakeResult();
+    result.series.Vs = result.series.time.map(() => 300);
+    result.summary.maxAltitude = 300;
+    const advisoryLimits = { maxAirspeedMs: uiToSi('velocity', 'ft/s', 100),
+      armingAltitudeM: uiToSi('distance', 'ft', 1000), armingCautionBandM: uiToSi('distance', 'ft', 3) };
+    const run = build({ result, advisoryLimits, units: IMPERIAL_UNITS });
+    const notes = commentsOf(run);
+    expect(notes.find(c => c.text.includes('your maximum'))?.text).toContain('100 ft/s [30.5 m/s]');
+    const arming = notes.find(c => c.text.includes('Apogee') && c.text.includes('arming'))!.text;
+    expect(arming).toContain('arming 1000 ft [304.8 m] AGL, band 3 ft [0.9 m]');
+    expect(arming).not.toContain('0.9144000000000001');
+    expect(commentsOf(build({ advisoryLimits, units: IMPERIAL_UNITS }))
+      .find(c => c.text.includes('cannot check your airspeed'))?.text).toContain('100 ft/s [30.5 m/s]');
+    expect(runsToCsv([run])).toContain('100 ft/s [30.5 m/s]');
+  });
+  it.each([
+    { units: INITIAL_UNITS, speed: 100.01, speedLimit: 100, altitude: 99.99, arming: 100,
+      air: '100.010 m/s exceeded your maximum of 100.000 m/s',
+      height: '99.990 m AGL is below your arming altitude (arming 100.000 m AGL' },
+    { units: IMPERIAL_UNITS, speed: 30.481, speedLimit: 30.48, altitude: 304.799, arming: 304.8,
+      air: '100.003 ft/s [30.481 m/s] exceeded your maximum of 100 ft/s [30.480 m/s]',
+      height: '999.997 ft [304.799 m] AGL is below your arming altitude (arming 1000 ft [304.800 m] AGL' },
+    { units: IMPERIAL_UNITS, speed: 30.4801, speedLimit: 30.48, altitude: 304.7999, arming: 304.8,
+      air: 'is just above your maximum of 100 ft/s [30.480 m/s]',
+      height: 'Apogee is just below your arming altitude (arming 1000 ft [304.800 m] AGL' },
+  ])('N007/N010 keep near-limit report and CSV copy consistent in $units.velocity / $units.distance',
+    ({ units, speed, speedLimit, altitude, arming, air, height }) => {
+      const result = fakeResult();
+      result.series.mach = result.series.time.map(() => speed / 300);
+      result.series.Vs = result.series.time.map(() => 300);
+      result.summary.maxAltitude = altitude;
+      const run = build({ result, units, advisoryLimits: { maxAirspeedMs: speedLimit, armingAltitudeM: arming } });
+      const notes = commentsOf(run);
+      expect(notes.find(c => c.text.includes('your maximum'))).toMatchObject({ level: 'caution', text: expect.stringContaining(air) });
+      expect(notes.find(c => c.text.includes('Apogee') && c.text.includes('arming')))
+        .toMatchObject({ level: 'caution', text: expect.stringContaining(height) });
+      expect(runsToCsv([run])).toContain(air);
+      expect(runsToCsv([run])).toContain(height);
+    });
+  it('N007/N010 use explicit near-limit wording when finite precision cannot show an SI difference', () => {
+    const result = fakeResult();
+    result.series.mach = result.series.time.map(() => 100.000001 / 300);
+    result.series.Vs = result.series.time.map(() => 300);
+    result.summary.maxAltitude = 99.999999;
+    result.summary.maxMachNumber = 0.350001;
+    const run = build({ result, advisoryLimits: { maxAirspeedMs: 100, maxMach: 0.35, armingAltitudeM: 100 } });
+    const notes = commentsOf(run);
+    expect(notes.find(c => c.text.includes('recorded airspeed'))?.text).toContain('is just above your maximum of 100.000 m/s');
+    expect(notes.find(c => c.text.includes('maximum Mach'))?.text).toContain('maximum Mach is just above your maximum of Mach 0.35');
+    expect(notes.find(c => c.text.includes('Apogee') && c.text.includes('arming'))?.text)
+      .toContain('Apogee is just below your arming altitude (arming 100.000 m AGL');
+    result.series.mach = result.series.time.map(() => 100 / 300);
+    result.summary.maxMachNumber = 0.35;
+    result.summary.maxAltitude = 100;
+    const equal = commentsOf(build({ result, advisoryLimits: { maxAirspeedMs: 100, maxMach: 0.35, armingAltitudeM: 100 } }));
+    expect(equal.some(c => c.text.includes('your maximum'))).toBe(false);
+    expect(equal.find(c => c.text.includes('Apogee') && c.text.includes('arming'))?.text).toContain('within your arming caution band');
+  });
+  it('N010 shows a near-limit electronic deployment shortfall independently of apogee', () => {
+    const result = fakeResult();
+    result.events.find(e => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')!.sourceId = 'main';
+    result.series.altitude[5] = 99.99;
+    const advisoryTree: RocketTree = { components: [{ type: 'parachute', id: 'main', name: 'Electronic main', deployEvent: 'altitude' }] };
+    const notes = commentsOf(build({ result, advisoryTree, advisoryLimits: { armingAltitudeM: 100 } }));
+    expect(notes.find(c => c.text.includes('Electronic main deployment'))?.text)
+      .toContain('Electronic main deployment at 99.990 m AGL is below your arming altitude (arming 100.000 m AGL');
+    expect(notes.some(c => c.text.includes('Apogee') && c.text.includes('arming'))).toBe(false);
+  });
+  it('N010 uses near-limit wording when only the selected distance unit rounds alike', () => {
+    const result = fakeResult(); result.summary.maxAltitude = 999.9;
+    const notes = commentsOf(build({ result, units: { ...INITIAL_UNITS, distance: 'km' }, advisoryLimits: { armingAltitudeM: 1000 } }));
+    expect(notes.find(c => c.text.includes('Apogee') && c.text.includes('arming'))?.text)
+      .toContain('Apogee is just below your arming altitude (arming 1 km [1000.000 m] AGL');
+  });
+  it.each([[99, 'below'], [100, 'within'], [110, 'within'], [110.01, null]] as const)('N010 apogee %s m AGL gives %s advice for the named configuration', (height, word) => {
+    const result = fakeResult(); result.summary.maxAltitude = height;
+    const run = build({ result, advisoryLimits: { armingAltitudeM: 100, armingCautionBandM: 10 } });
+    const advice = commentsOf(run).find(c => c.text.includes('Apogee') && c.text.includes('arming'));
+    if (word) {
+      expect(advice?.text).toContain(word);
+      expect(advice?.text).toContain('Low flight');
+      expect(advice?.level).toBe('caution');
+    } else expect(advice).toBeUndefined();
+  });
+  it('N010 checks independent recovery deployment even when apogee clears the band', () => {
+    const result = fakeResult();
+    result.events.find(e => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')!.sourceId = 'main';
+    result.series.altitude[5] = 90;
+    const advisoryTree: RocketTree = { components: [{ type: 'parachute', id: 'main', name: 'Electronic main', deployEvent: 'altitude' }] };
+    const run = build({ result, advisoryTree, advisoryLimits: { armingAltitudeM: 100 } });
+    expect(commentsOf(run).find(c => c.text.includes('Electronic main'))?.text).toContain('below');
+    advisoryTree.components[0]!['deployEvent'] = 'Altitude';
+    expect(commentsOf(build({ result, advisoryTree, advisoryLimits: { armingAltitudeM: 100 } }))
+      .find(c => c.text.includes('Electronic main'))?.level).toBe('caution');
+    advisoryTree.components[0]!['deployEvent'] = 'lowerstageseparation';
+    expect(commentsOf(build({ result, advisoryTree, advisoryLimits: { armingAltitudeM: 100 } }))
+      .some(c => c.text.includes('Electronic main'))).toBe(false);
+    advisoryTree.components[0]!.deployEvent = 'ejection';
+    expect(commentsOf(build({ result, advisoryTree, advisoryLimits: { armingAltitudeM: 100 } }))
+      .some(c => c.text.includes('Electronic main'))).toBe(false);
+  });
+  it('N003 report names every installed zero-delay recovery mount, without advisory physics changes', () => {
+    const advisoryTree: RocketTree = { components: [{ type: 'stage', children: [
+      { type: 'innertube', id: 'mount' }, { type: 'parachute', name: 'Main', deployEvent: 'ejection' },
+    ] }] };
+    const run = build({ advisoryTree, advisoryMotors: [['mount', { label: 'C6-0',
+      spec: { ...motor, ejectionDelay: 0 }, meta: { label: 'C6-0' }, ignition: { event: 'automatic', delay: 0 } }]] });
+    expect(commentsOf(run).find(c => c.text.includes('zero-second'))?.level).toBe('caution');
+  });
+  it('N003 report uses Auto delay actually flown, and excludes refused/never-ignited mounts', () => {
+    const advisoryTree: RocketTree = { components: [{ type: 'stage', children: [
+      { type: 'innertube', id: 'mount' }, { type: 'parachute', name: 'Main' },
+    ] }] };
+    const assigned: [string, ReturnType<typeof testMotor>][] = [['mount', testMotor(true, 0)]];
+    const make = (flown: number, extra: Partial<Parameters<typeof buildSimRun>[0]> = {}) => build({
+      advisoryTree, advisoryMotors: assigned, delayResolution: testResolution(assigned, [flown]), ...extra,
+    });
+    const warning = (run: SimRun) => commentsOf(run).some(c => c.text.includes('zero-second'));
+    expect(warning(make(0))).toBe(true);
+    expect(warning(make(5))).toBe(false);
+    expect(warning(make(Infinity))).toBe(false);
+    expect(warning(make(0, { refusedMountIds: ['mount'] }))).toBe(false);
+    assigned[0]![1].ignition.event = 'never';
+    expect(warning(make(0))).toBe(false);
+  });
+  it('N027 records inferred drogue/main roles per opening group and retains the raw warning', () => {
+    const result = dualDeployResult(19.5, 5);
+    result.warnings = [{ key: 'HighSpeedDeployment', message: 'raw 22 m/s', priority: 'HIGH' }];
+    const run = build({ result });
+    expect(run.deployments.map(d => d.role)).toEqual(['drogue', 'main']);
+    expect(run.simWarnings?.[0]?.message).toBe('raw 22 m/s');
+    const simultaneous = fakeResult();
+    simultaneous.events.push({ type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 7, source: 'Second main' });
+    expect(build({ result: simultaneous }).deployments.map(d => d.role)).toEqual(['main', 'main']);
+  });
+  it('N027 describes role order honestly and keeps shared unknown/old-run opening limits', () => {
+    for (const role of ['drogue', 'main'] as const) {
+      expect(openingPolicy(role).expectation).toContain('opening order');
+      expect(openingPolicy(role).expectation).toContain("the owner's shared opening-speed limits for drogue and main");
+      expect(openingPolicy(role).expectation).toContain('does not check near-apogee timing or apply separate drogue opening limits');
+    }
+    expect(openingPolicy('unknown').expectation).toContain('generic');
+    expect(deploymentRole({ isLanding: false })).toBe('drogue');
+    expect(deploymentRole({ isLanding: true })).toBe('main');
+    expect(deploymentRole({ isLanding: true, role: 'unknown' })).toBe('unknown');
+    for (const role of ['drogue', 'main', 'unknown'] as const) {
+      expect(openingVerdict(21.34, role)).toBe(true);
+      expect(openingVerdict(21.341, role)).toBe('caution');
+      expect(openingVerdict(27.432, role)).toBe('caution');
+      expect(openingVerdict(27.433, role)).toBe(false);
+    }
+  });
+  it('N027 opening verdicts remain independent of drogue descent bands', () => {
+    const before = { ...SAFETY };
+    try {
+      Object.assign(SAFETY, { maxDrogueDescentRate: 1, warnDrogueDescentRate: 2 });
+      for (const role of ['drogue', 'main', 'unknown'] as const) {
+        expect(openingVerdict(20, role)).toBe(true);
+        expect(openingVerdict(25, role)).toBe('caution');
+        expect(openingVerdict(30, role)).toBe(false);
+      }
+    } finally { Object.assign(SAFETY, before); }
+  });
+  it.each([false, true])('N027 keeps partial-role wording and raw warnings in reports (booster: %s)', (booster) => {
+    const flight = dualDeployResult(30, 5);
+    flight.series.velocity[2] = 30;
+    flight.warnings = [{ key: 'HighSpeedDeployment', message: 'raw 30 m/s', priority: 'HIGH' }];
+    const result = booster ? { ...flight, branches: [
+      { name: 'Sustainer', events: flight.events, series: flight.series },
+      { name: 'Booster', events: flight.events, series: flight.series },
+    ] } : flight;
+    const run = build({ result });
+    const openings = commentsOf(run).filter(c => c.text.includes('hard opening')
+      && (!booster || c.text.startsWith('Booster:')));
+    expect(openings).toHaveLength(2);
+    for (const [i, role] of ['Drogue', 'Main'].entries()) {
+      expect(openings[i]!.level).toBe('warning');
+      expect(openings[i]!.text).toContain('30.0 m/s');
+      expect(openings[i]!.text).toContain(`${role} role, inferred from opening order`);
+      expect(openings[i]!.text).toContain("the owner's shared opening-speed limits for drogue and main");
+      expect(openings[i]!.text).toContain('does not check near-apogee timing or apply separate drogue opening limits');
+    }
+    expect(run.simWarnings?.[0]?.message).toBe('raw 30 m/s');
+  });
+  it('N010 cannot call a truncated low flight a completed apogee', () => {
+    const result = fakeResult();
+    result.events = [{ type: 'SIM_ABORT', time: 2 }];
+    result.summary.maxAltitude = 20;
+    const notes = commentsOf(build({ result, advisoryLimits: { armingAltitudeM: 100 } }));
+    expect(notes.find(c => c.text.includes('arming altitude'))?.text).toContain('cannot check Apogee');
+    expect(notes.find(c => c.text.includes('arming altitude'))?.level).toBe('info');
+  });
+  it.each([
+    { aborted: true, apogee: true, reason: 'the simulation aborted, so the final flight maximum is not established' },
+    { aborted: false, apogee: false, reason: 'no apogee event was recorded, so the flight maximum is not established' },
+  ])('N010 explains an unestablished flight maximum with finite AGL data: $reason', ({ aborted, apogee, reason }) => {
+    const result = fakeResult();
+    result.series.time = [0, 1, 2];
+    result.series.altitude = [0, 99, 90];
+    result.summary.maxAltitude = 99;
+    result.events = [
+      ...(apogee ? [{ type: 'APOGEE', time: 1 }] : []),
+      ...(aborted ? [{ type: 'SIM_ABORT', time: 2 }] : []),
+    ];
+    const advice = commentsOf(build({ result, advisoryLimits: { armingAltitudeM: 100 } }))
+      .filter(c => c.text.includes('arming altitude'));
+    expect(advice).toHaveLength(1);
+    expect(advice[0]).toMatchObject({ level: 'info', text: expect.stringContaining(reason) });
+    expect(advice[0]!.text).toContain('Low flight — Flight: the app cannot check Apogee');
+    expect(advice[0]!.text).not.toContain('AGL altitude is unavailable');
+  });
+  it('N010 still identifies unavailable AGL when apogee is recorded without a valid maximum', () => {
+    const result = fakeResult();
+    result.summary.maxAltitude = NaN;
+    result.series.altitude = result.series.time.map(() => NaN);
+    const advice = commentsOf(build({ result, advisoryLimits: { armingAltitudeM: 100 } }))
+      .find(c => c.text.includes('arming altitude'));
+    expect(advice).toMatchObject({ level: 'info', text: expect.stringContaining('AGL altitude is unavailable') });
+    expect(advice!.text).not.toContain('simulation aborted');
+  });
+  it('N010 skips charges after landing and interpolates AGL altitude at an in-flight event', () => {
+    const result = fakeResult();
+    const event = result.events.find(e => e.type === 'RECOVERY_DEVICE_DEPLOYMENT')!;
+    event.sourceId = 'chute'; event.time = 104.1;
+    const advisoryTree: RocketTree = { components: [{ type: 'parachute', id: 'chute', name: 'Electronic main', deployEvent: 'altitude' }] };
+    const make = () => build({ result, advisoryTree, advisoryLimits: { armingAltitudeM: 100 } });
+    expect(commentsOf(make()).some(c => c.text.includes('Electronic main deployment'))).toBe(false);
+    event.time = 50;
+    result.series.altitude[5] = 90;
+    expect(commentsOf(make()).find(c => c.text.includes('Electronic main deployment'))?.level).toBe('caution');
+  });
+});
 
 it('R7: scalar reports cannot distinguish Auto from fixed at the same flown delay', () => {
   // This is the pre-vector buildSimRun input shape: meta was an input only,
@@ -870,7 +1140,8 @@ describe('dual deployment attribution', () => {
         expect(d.descentRate).toBeCloseTo(7, 2);
         expect(d.descentOk).toBe(false); // 23 ft/s really is over the 20 ft/s target
       }
-      expect(run.comments ?? '').not.toMatch(/drogue/i);
+      expect(run.deployments.map(d => d.role)).toEqual(['main', 'main']);
+      expect(run.comments ?? '').not.toMatch(/Drogue role|for a drogue/i);
       expect(run.landingRate).toBeCloseTo(7, 2);
     });
 

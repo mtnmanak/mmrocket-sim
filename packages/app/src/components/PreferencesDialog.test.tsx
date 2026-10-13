@@ -138,6 +138,25 @@ beforeEach(() => {
   root = createRoot(host);
 });
 
+describe('Preferences → Flight advice (N007/N010)', () => {
+  it('starts blank, stores SI through the selected units and clearing turns advice off', () => {
+    mount();
+    for (const name of ['Maximum airspeed', 'Maximum Mach', 'Electronics arming altitude (AGL)', 'Arming caution band']) {
+      expect(axis(name)?.value).toBe('');
+    }
+    const velocity = byLabel('Velocity') as HTMLSelectElement;
+    pick(velocity, 'ft/s');
+    type(axis('Maximum airspeed')!, '100');
+    expect(stored().flightAdvisories?.maxAirspeedMs).toBeCloseTo(30.48, 10);
+    pick(byLabel(QUANTITY_LABEL.distance) as HTMLSelectElement, 'ft');
+    type(axis('Electronics arming altitude (AGL)')!, '100');
+    expect(stored().flightAdvisories?.armingAltitudeM).toBeCloseTo(30.48, 10);
+    type(axis('Maximum airspeed')!, '');
+    expect(stored().flightAdvisories?.maxAirspeedMs).toBeUndefined();
+    expect(host.textContent).toContain('structural rating');
+  });
+});
+
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
@@ -304,7 +323,7 @@ describe('Preferences → every label names its own control', () => {
     mount();
     pick(printerSelect(), 'bambu-h2d'); // every field on screen
     const labels = [...host.querySelectorAll('label')];
-    expect(labels).toHaveLength(QUANTITIES.length + SETTINGS.length + 4);
+    expect(labels).toHaveLength(QUANTITIES.length + SETTINGS.length + 8);
     for (const l of labels) {
       const control = l.control;
       expect(control, `"${labelWords(l)}" labels nothing`).not.toBeNull();
