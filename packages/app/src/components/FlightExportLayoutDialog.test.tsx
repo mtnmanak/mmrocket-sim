@@ -1,18 +1,46 @@
 // @vitest-environment happy-dom
 import { act, useState } from 'react';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { Window as HappyWindow } from 'happy-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { PrefsProvider, usePrefs, type Preferences } from '../prefs/PrefsContext.js';
 import { FlightExportLayoutDialog } from './FlightExportLayoutDialog.js';
 
+const styles = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../styles.css'), 'utf8');
+const dom = (window as unknown as HappyWindow).happyDOM;
+const originalViewport = { width: window.innerWidth, height: window.innerHeight };
+
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
 let root: Root;
 let prefs: Preferences;
+let stylesheet: HTMLStyleElement;
 function Probe() { prefs = usePrefs().prefs; return null; }
-beforeEach(() => { localStorage.clear(); host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
-afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); vi.unstubAllGlobals(); });
+beforeEach(() => { localStorage.clear(); host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  stylesheet = document.createElement('style'); document.head.append(stylesheet); });
+afterEach(() => { act(() => root.unmount()); host.remove(); stylesheet.remove(); dom.setWindowSize(originalViewport);
+  localStorage.clear(); vi.unstubAllGlobals(); });
 const click = (name: string) => act(() => Array.from(host.querySelectorAll('button')).find(b => b.textContent === name)!.click());
+
+it.each([false, true])('N038 bounds the whole editor with scrolling when dvh support is %s', supportsDvh => {
+  // happy-dom has no layout engine; exercise the cascade with unsupported declarations discarded.
+  dom.setWindowSize({ width: 360, height: 320 });
+  stylesheet.textContent = supportsDvh ? styles : styles.replace(/max-height:[^;]*dvh[^;]*;/g, '');
+  act(() => root.render(<PrefsProvider><FlightExportLayoutDialog onClose={() => {}} /></PrefsProvider>));
+  const editor = host.querySelector<HTMLInputElement>('input[aria-label="Layout name"]')!.closest('[role="dialog"]')!.firstElementChild as HTMLElement;
+  if (!supportsDvh && editor.style.maxHeight.includes('dvh')) editor.style.removeProperty('max-height');
+  const computed = getComputedStyle(editor);
+  expect(computed.maxHeight).toBe(supportsDvh ? 'calc(100dvh - 76px)' : `calc(${window.innerHeight}px - 76px)`);
+  expect(computed.overflowY).toBe('auto');
+  expect(computed.overflowX).toBe('hidden');
+  expect(editor.querySelector('input[aria-label="Layout name"]')).not.toBeNull();
+  expect(editor.querySelectorAll('.comparison-controls select').length).toBeGreaterThanOrEqual(2);
+  expect(editor.querySelector('.modal-actions')!.textContent).toContain('Save layout');
+  expect(editor.querySelector('.modal-actions')!.textContent).toContain('Cancel');
+});
 
 it('N038 saves and closes a new layout without crypto.randomUUID on supported older clients', () => {
   vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });

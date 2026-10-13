@@ -32,7 +32,7 @@ export function FlightExportLayoutDialog({ layout, onClose }: {
     onClose();
   };
   return <Modal label={layout ? 'Edit export layout' : 'New export layout'} onClose={onClose}>
-    <div style={{ width: 'min(400px, calc(100vw - 76px))', maxHeight: 'calc(100dvh - 76px)', overflowY: 'auto', overflowX: 'hidden' }}>
+    <div className="flight-export-layout-editor">
     <h2>{layout ? 'Edit export layout' : 'New export layout'}</h2>
     <label style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>Layout name
       <input style={{ minWidth: 0, maxWidth: '100%' }} aria-label="Layout name" value={name} onChange={e => setName(e.target.value)} /></label>
