@@ -1,3 +1,5 @@
+import { GlossaryHelp } from './GlossaryHelp.js';
+import { fieldTerm } from '../tree/glossaryTerms.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { DeploymentTuple, FlightOverrides, SeparationTuple } from '../model/design.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -48,7 +50,7 @@ export function DesignFlightSetting({ tree, node, context }: {
   const top = stages(tree)[0];
   if (!recovery && node.type === 'stage' && top !== undefined && top.id === node.id) {
     return <div className="design-flight-setting" role="group" aria-label={heading}>
-      <h3>{heading}</h3>
+      <h3 className="field-label-help">{heading} <GlossaryHelp term={fieldTerm(node.type, 'separationEvent')} label={heading} /></h3>
       <p className="comp-stats">The top stage never separates, so it has no separation setting to fly.</p>
     </div>;
   }
@@ -67,6 +69,7 @@ export function DesignFlightSetting({ tree, node, context }: {
       {open && node.id && <button type="button" className="file-btn"
         aria-label={`${heading}: set on Motors & Configuration`}
         onClick={() => open(node.id!)}>{CONFIG_TAB_LINK}</button>}
+      <GlossaryHelp term={fieldTerm(node.type, recovery ? 'deployEvent' : 'separationEvent')} label={heading} />
     </div>
     {/* D7 I10: the effective value beside each setting. An override that
         flies differently is Caution and the own setting says it is not flown;
@@ -87,7 +90,7 @@ export function DesignNozzleSetting({ node, context }: { node: ComponentNode; co
   const unit = prefs.units.motorDimensions;
   // The same reading Motors & Configuration's field takes (App: numOrNull).
   const value = numOrNull(node, 'nozzleExitDiameter');
-  const text = value === null ? 'automatic' : value === 0 ? 'off (0)' : `${fmtFieldValue(siToUi('motorDimensions', unit, value))} ${unit}`;
+  const text = value === null ? 'automatic' : value === 0 ? 'off (0)' : `${fmtFieldValue(siToUi('motorDimensions', unit, value), prefs.fieldPrecision)} ${unit}`;
   const editable = !!node.id && !!context?.onOpenNozzle && (context.nozzleEditable?.has(node.id) ?? false);
   return <div className="design-flight-setting" role="group" aria-label="Nozzle exit">
     <p className="comp-stats">
@@ -98,6 +101,7 @@ export function DesignNozzleSetting({ node, context }: { node: ComponentNode; co
         : context?.onOpenNozzle
           ? ' — edited on Motors & Configuration once this stage has a motor mount.'
           : ' — edited on Motors & Configuration.'}
+      {' '}<GlossaryHelp term={fieldTerm(node.type, 'nozzleExitDiameter')} label="Nozzle exit" />
     </p>
   </div>;
 }

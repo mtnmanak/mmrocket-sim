@@ -2,6 +2,7 @@ import { INITIAL_UNITS, type UnitSelection } from './units.js';
 import type { PrinterPrefs } from './printers.js';
 import type { DragAnalysisPrefs } from './dragAnalysis.js';
 import type { FlightExportLayout } from '../services/flightExportLayouts.js';
+import type { FlightAdvisories } from './flightAdvisories.js';
 
 /**
  * Persisted user preferences: per-quantity units (desktop UnitGroup style),
@@ -14,6 +15,9 @@ import type { FlightExportLayout } from '../services/flightExportLayouts.js';
  * re-exports both, so every existing importer gets the same bindings.
  */
 export interface Preferences {
+  /** N011: viewer order only; absent preserves the file's configuration order. */
+  configurationSort?: 'creation' | 'name' | 'name-desc' | 'motor' | 'motor-desc';
+  flightAdvisories?: FlightAdvisories;
   units: UnitSelection;
   /** How round components are entered/displayed. Engine always stores radius (SI). */
   radiusMode: 'radius' | 'diameter';
@@ -106,6 +110,13 @@ export interface Preferences {
    * gutters back.
    */
   rulers2d?: boolean;
+  /** N005: resting numeric fields only; absent/auto retains the existing formatter. */
+  fieldPrecision?: 'auto' | 3 | 4;
+  /** N009/N013: viewer settings, never design or simulation inputs. Offset is SI metres. */
+  grid2d?: boolean;
+  rulerReference2d?: 'nose' | 'aft' | 'offset';
+  rulerOffset2dM?: number;
+  rulerReversed2d?: boolean;
   /**
    * The user's 3D printer, in METRES (see prefs/printers.ts for why metres and
    * not the millimetres a slicer quotes). Absent = no printer configured, and

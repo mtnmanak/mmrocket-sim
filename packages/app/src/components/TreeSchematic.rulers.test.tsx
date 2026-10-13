@@ -69,6 +69,143 @@ afterEach(() => {
 });
 
 describe('dimensional rulers', () => {
+  const storedView = (settings: Record<string, unknown>) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify(settings));
+    show(<PrefsProvider><TreeSchematic tree={finTree(3)} info={info} /></PrefsProvider>);
+  };
+  const axialLabel = (text: string) => [...host.querySelectorAll('[data-ruler="view"] g text')]
+    .find((el) => el.textContent === text && el.parentElement?.querySelector('line')?.getAttribute('x1')
+      === el.parentElement?.querySelector('line')?.getAttribute('x2'))!;
+
+  it('N013 reads zero at the aft end, increases toward the nose, and preserves geometry', () => {
+    storedView({ rulerReference2d: 'aft' });
+    const nose = host.querySelector('svg > g > path')!.getAttribute('d');
+    expect(axialLabel('0')).toBeDefined();
+    expect(axialLabel('100')).toBeDefined();
+    const zeroX = Number(axialLabel('0').getAttribute('x'));
+    const hundredX = Number(axialLabel('100').getAttribute('x'));
+    expect(hundredX).toBeLessThan(zeroX);
+    const noseX = Number(/M\s*([\d.]+)/.exec(nose!)![1]);
+    expect(zeroX - noseX - 1.5).toBeCloseTo(400 / 100 * (zeroX - hundredX), 6);
+    const select = host.querySelector<HTMLSelectElement>('[aria-label="Ruler reference"]')!;
+    act(() => { select.value = 'nose'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(host.querySelector('svg > g > path')!.getAttribute('d')).toBe(nose);
+    expect(Number(axialLabel('0').getAttribute('x'))).toBeCloseTo(noseX + 1.5, 6);
+  });
+
+  it('N013 applies offset and reversed direction in display units', () => {
+    storedView({ units: { length: 'in' }, rulerReference2d: 'offset', rulerOffset2dM: 0.0254,
+      rulerReversed2d: true });
+    const zeroX = Number(axialLabel('0').getAttribute('x'));
+    const minusOneX = Number(axialLabel('-1').getAttribute('x'));
+    const noseX = Number(/M\s*([\d.]+)/.exec(host.querySelector('svg > g > path')!.getAttribute('d')!)![1]);
+    expect(minusOneX).toBeGreaterThan(zeroX);
+    expect(zeroX - noseX - 1.5).toBeCloseTo(minusOneX - zeroX, 6);
+    expect(host.querySelector<HTMLInputElement>('[aria-label="Ruler zero from nose (in)"]')!.value).toBe('1');
+  });
+
+  it.each([false, true])('N013 anchors a short airframe aft ruler to its body end, reversed=%s, including fit export', (reversed) => {
+    const tree = { name: 'Short', components: [{ id: 's', type: 'stage', children: [
+      { id: 'n', type: 'nosecone', length: 0.01, aftRadius: 0.001 },
+      { id: 'b', type: 'bodytube', length: 0.02, outerRadius: 0.001 },
+    ] }] } as unknown as RocketTree;
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
+      rulerReference2d: 'aft', rulerReversed2d: reversed,
+    }));
+    show(<PrefsProvider><TreeSchematic tree={tree} info={null} /></PrefsProvider>);
+    const body = host.querySelector('svg > g rect')!;
+    const aftX = Number(body.getAttribute('x')) + Number(body.getAttribute('width'));
+    const zero = (svg: Element, kind: string) => [...svg.querySelectorAll(`[data-ruler="${kind}"] g`)]
+      .find(g => g.querySelector('text')?.textContent === '0'
+        && g.querySelector('line')?.getAttribute('x1') === g.querySelector('line')?.getAttribute('x2'))!
+      .querySelector('line')!;
+    expect(Number(zero(host, 'view').getAttribute('x1'))).toBeCloseTo(aftX, 8); // SVG coordinate roundoff
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!.click());
+    const svg = schematicSvg(host.querySelector('svg')!, 100, 640, 300, {
+      name: 'Short', info: null, units: INITIAL_UNITS, withMotors: false, appVersion: '0',
+    });
+    const exported = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    expect(Number(zero(exported.documentElement, 'fit').getAttribute('x1'))).toBeCloseTo(aftX, 8);
+  });
+
+  it('N013 keeps measuring guides at their nose-based stations when the reference changes', () => {
+    storedView({ rulerReference2d: 'nose' });
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Add station guide"]')!.click());
+    const guide = host.querySelector('[data-guide="x"]')!;
+    const before = guide.innerHTML;
+    const select = host.querySelector<HTMLSelectElement>('[aria-label="Ruler reference"]')!;
+    act(() => { select.value = 'aft'; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(host.querySelector('[data-guide="x"]')!.innerHTML).toBe(before);
+  });
+
+  it('N013 stores typed negative offsets in metres and reverses only the displayed axis', () => {
+    storedView({ units: { length: 'in' }, rulerReference2d: 'offset' });
+    const box = host.querySelector<HTMLInputElement>('[aria-label="Ruler zero from nose (in)"]')!;
+    const label = host.querySelector<HTMLLabelElement>(`label[for="${box.id}"]`)!;
+    expect(label.control).toBe(box);
+    act(() => {
+      box.focus();
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(box, '-1');
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => box.blur());
+    expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).rulerOffset2dM).toBeCloseTo(-0.0254, 12);
+    const nose = host.querySelector('svg > g > path')!.getAttribute('d');
+    const reverse = host.querySelector<HTMLInputElement>('.schematic-ruler-card input[type="checkbox"]')!;
+    act(() => reverse.click());
+    expect(host.querySelector('summary')!.textContent).toContain('(reversed)');
+    expect(host.querySelector('svg > g > path')!.getAttribute('d')).toBe(nose);
+    expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).rulerReversed2d).toBe(true);
+  });
+
+  it.each(['mm', 'in'])('N009 grid measures in %s and scales with zoom', (length) => {
+    storedView({ units: { length } });
+    const lines = () => [...host.querySelectorAll('[data-grid="view"] line[data-axis="x"]')]
+      .map(el => Number(el.getAttribute('x1')));
+    const before = lines();
+    const noseX = Number(/M\s*([\d.]+)/.exec(host.querySelector('svg > g > path')!.getAttribute('d')!)![1]);
+    const hundredX = Number(axialLabel(length === 'mm' ? '100' : '2').getAttribute('x'));
+    const metresPerDivision = length === 'mm' ? 0.05 : 0.0254;
+    const metresAtLabel = length === 'mm' ? 0.1 : 0.0508;
+    const scale = (hundredX - noseX - 1.5) / metresAtLabel;
+    expect(before[1]! - before[0]!).toBeCloseTo(scale * metresPerDivision, 8);
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!.click());
+    const transform = host.querySelector('svg > g')!.getAttribute('transform')!;
+    const zoom = Number(/scale\(([^)]+)\)/.exec(transform)![1]);
+    expect((lines()[1]! - lines()[0]!) * zoom).toBeCloseTo((before[1]! - before[0]!) * 1.5, 8);
+  });
+
+  it('N009 grid follows ruler ticks through zoom and pan, exports fit spacing, and switches independently', () => {
+    storedView({ grid2d: true });
+    const gridX = () => {
+      const transform = host.querySelector('svg > g')!.getAttribute('transform')!;
+      const [x, , k] = [...transform.matchAll(/-?[\d.]+/g)].map(m => Number(m[0]));
+      return [...host.querySelectorAll('[data-grid="view"] line[data-axis="x"]')]
+        .map(el => x! + Number(el.getAttribute('x1')) * k!);
+    };
+    const before = gridX();
+    expect(before.length).toBeGreaterThan(2);
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')!.click());
+    expect(gridX()).not.toEqual(before);
+    act(() => { host.querySelector('svg')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); });
+    const ticks = [...host.querySelectorAll('[data-ruler="view"] g')].filter(g => g.querySelector('text'))
+      .map(g => g.querySelector('line')).filter(l => l?.getAttribute('x1') === l?.getAttribute('x2'))
+      .map(l => Number(l!.getAttribute('x1')));
+    expect(gridX()).toHaveLength(ticks.length);
+    gridX().forEach((x, i) => expect(x).toBeCloseTo(ticks[i]!, 8)); // inverse SVG transform roundoff
+    const svg = schematicSvg(host.querySelector('svg')!, 100, 640, 300, {
+      name: 'Rocket', info: null, units: INITIAL_UNITS, withMotors: false, appVersion: '0',
+    });
+    expect(svg).toContain('data-grid="fit"');
+    expect(svg).not.toContain('data-grid="view"');
+    expect(svg).not.toContain('display="none"');
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Hide rulers"]')!.click());
+    expect(gridX().length).toBeGreaterThan(2);
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Hide grid"]')!.click());
+    expect(host.querySelector('[data-grid]')).toBeNull();
+    expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).grid2d).toBe(false);
+  });
+
   const rulerGroup = () => host.querySelector<SVGGElement>('[data-ruler="view"]');
   /** The nose cone's leading edge — the first path INSIDE the view group
    *  (`querySelector('path')` finds the bulkhead hatch in <defs> instead). */

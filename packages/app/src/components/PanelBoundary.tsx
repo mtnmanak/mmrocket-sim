@@ -1,4 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { DebugLogDownload } from './DebugLogDownload.js';
+import { sessionDebugLog } from '../services/sessionDebugLog.js';
 
 /**
  * A boundary round ONE panel — the flight report, the plots, the drag chart,
@@ -31,6 +33,7 @@ export class PanelBoundary extends Component<
   }
 
   override componentDidCatch(err: Error, info: ErrorInfo) {
+    sessionDebugLog.record('panel-error', err);
     console.error(`${this.props.what} failed to draw:`, err, info.componentStack);
   }
 
@@ -44,6 +47,7 @@ export class PanelBoundary extends Component<
         </p>
         <p className="hero-fallback-detail">{this.state.error}</p>
         <button className="file-btn" onClick={() => this.setState({ error: null })}>↻ Try again</button>
+        <DebugLogDownload />
       </div>
     );
   }

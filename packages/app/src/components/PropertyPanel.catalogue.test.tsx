@@ -114,6 +114,19 @@ afterEach(() => {
 });
 
 describe('the conflict marker in the property panel — tier (b), the ≠ chip', () => {
+  it('N005 catalogue markers quote the four-decimal field and coupled canopy values', async () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ fieldPrecision: 4, units: { length: 'in' } }));
+    const row = { ...CHUTE, dragCoefficient: 1.0625, spillHoleDiameter: 1.0625 * 0.0254 };
+    loadPresets.mockResolvedValue([row]);
+    await show(linkedChute({ cd: 1.1625, spillHoleDiameter: 1.1625 * 0.0254 }, row));
+    const use = byLabel('Use catalogue value 1.0625 for Drag coefficient')!;
+    expect(use).toBeDefined();
+    expect(use.title).toContain('Cd 1.0625 with a 1.0625 in spill hole');
+    expect(use.title).toContain('Cd 1.1625 with a 1.1625 in spill hole');
+    expect(byLabel('Use catalogue value 1.0625 in for Spill hole ⌀')).toBeDefined();
+    expect(use.closest('.field')!.querySelector('input')!.value).toBe('1.1625');
+    expect(patches).toEqual([]);
+  });
   it('offers computed mass for a retired catalogue override and clears it in one edit', async () => {
     const row = (presetsJson.presets as Preset[]).find((p) => p.kind === 'Transition'
       && p.manufacturer === 'SEMROC' && p.partNo === 'TA-5055L [R]')!;

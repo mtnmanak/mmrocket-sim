@@ -24,6 +24,20 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     ...over,
   }) as SimRun;
 
+it('W2-WARN round-trips frozen limits and drops corrupt advice without losing the run', () => {
+  const limits = { maxAirspeedMs: 100, armingAltitudeM: 200, armingCautionBandM: 10 };
+  addRun(mkRun('advice', { advisoryLimits: limits, maxAirspeedMs: 101 }));
+  expect(loadRuns()[0]?.advisoryLimits).toEqual(limits);
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+    { ...mkRun('bad'), advisoryLimits: [], maxAirspeedMs: 'fast', deployments: [{ role: 'bogus', isLanding: true }] },
+  ]));
+  const loaded = loadRuns()[0]!;
+  expect(loaded.id).toBe('bad');
+  expect(loaded.advisoryLimits).toBeUndefined();
+  expect(loaded.maxAirspeedMs).toBeUndefined();
+  expect(loaded.deployments?.[0]?.role).toBe('unknown');
+});
+
 it.each(['Hybrid', 'none'])('RES-1b exports no configuration attribution for stored imported simulation %s', flightConfig => {
   for (const flightConfigId of [undefined, 'unmatched']) {
     localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([

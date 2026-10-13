@@ -11,6 +11,7 @@ import { addExMotors, parseEng } from './services/exMotors.js';
 import { escapeXml } from './services/xmlUtil.js';
 import { num } from './tree/nodeNum.js';
 import { resolveImportMotors } from './services/importApply.js';
+import { sessionDebugLog } from './services/sessionDebugLog.js';
 
 vi.mock('./services/importApply.js', async importOriginal => {
   const real = await importOriginal<typeof import('./services/importApply.js')>();
@@ -207,7 +208,7 @@ it.each(['rename', 'delete'])('S2-1 preserves the selected configuration %s acro
   }
 }, 30000);
 
-it('S2-4 keeps the older-build notice when a slow open is superseded by a failed open', async () => {
+it('C-H3 / S2-4 does not log completion or clear the older-build notice for a superseded slow open', async () => {
   await act(async () => root.unmount());
   localStorage.setItem(sessionKey, JSON.stringify({ ...stored(), appVersion: '0.001' }));
   root = createRoot(host);
@@ -218,10 +219,13 @@ it('S2-4 keeps the older-build notice when a slow open is superseded by a failed
   let started = false;
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
+  let resolvedSlow = false;
   vi.mocked(resolveImportMotors).mockImplementationOnce(async imported => {
     started = true;
     await gate;
-    return real.resolveImportMotors(imported);
+    const resolved = await real.resolveImportMotors(imported);
+    resolvedSlow = true;
+    return resolved;
   });
   const pick = async (name: string, xml: string) => {
     const picker = host.querySelector<HTMLInputElement>('input[aria-label="Open a design file"]')!;
@@ -230,15 +234,25 @@ it('S2-4 keeps the older-build notice when a slow open is superseded by a failed
     const discard = button('Open without saving');
     if (discard) await act(async () => discard.click());
   };
-  await pick('Slow.ork', '<openrocket version="1.10"><rocket><name>Slow</name><subcomponents><stage><name>Sustainer</name><subcomponents><bodytube><length>0.5</length><radius>0.016</radius><thickness>0.001</thickness></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>');
+  const completeCount = () => sessionDebugLog.text().match(/ms import-complete\n/g)?.length ?? 0;
+  const before = completeCount();
+  const slowXml = '<openrocket version="1.10"><rocket><name>Slow</name><subcomponents><stage><name>Sustainer</name><subcomponents><bodytube><length>0.5</length><radius>0.016</radius><thickness>0.001</thickness></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>';
+  await pick('Slow.ork', slowXml);
   await waitFor(() => started);
   await pick('Broken.ork', 'broken file');
   await waitFor(() => !!host.querySelector('[aria-label="Notices"]')?.textContent?.includes('Could not open that .ork file'));
   await act(async () => { release(); await gate; await new Promise(resolve => setTimeout(resolve, 20)); });
+  await waitFor(() => resolvedSlow);
+  expect(completeCount()).toBe(before);
   expect(host.textContent).toContain(staleText);
   flush();
   expect(stored().tree.name).toBe('Before open');
   expect(stored().appVersion).toBe('0.001');
+  // A current open must still record completion after it applies the design.
+  await pick('Current.ork', slowXml.replace('<name>Slow</name>', '<name>Current</name>'));
+  await waitFor(() => completeCount() === before + 1);
+  flush();
+  expect(stored().tree.name).toBe('Current');
 }, 30000);
 
 it('expands a clean newer-format import after a prior import warning was collapsed', async () => {

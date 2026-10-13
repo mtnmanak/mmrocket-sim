@@ -144,6 +144,13 @@ describe('fmtAltitude — a readout that can sit on, or cross, zero', () => {
 });
 
 describe('fmtSig — a display-unit value that does not collapse in a big unit', () => {
+  it('N005 selects four decimals without losing the tiny-value fallback', () => {
+    expect(fmtFieldValue(1 / 16, 4)).toBe('0.0625');
+    expect(fmtFieldValue(1 / 16, 3)).toBe('0.0625'); // three significant figures also need four places
+    expect(fmtFieldValue(1.0625, 3)).toBe('1.063');
+    expect(fmtFieldValue(1.0625, 4)).toBe('1.0625');
+    expect(fmtFieldValue(0.0000004321, 4)).toBe('0.000000432');
+  });
   it('keeps the zeros of an exponent: 1e30 is not "1e+3" (board Tier 2, L2)', () => {
     // toFixed answers in exponential form from 1e21, and the trailing-zero strip
     // ate the exponent's own zeros — in every box, through fmtFieldValue.

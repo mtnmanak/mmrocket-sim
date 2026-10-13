@@ -2,10 +2,12 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { UNITS, type Quantity, type UnitSelection } from './units.js';
 import { normalizePrinter } from './printers.js';
 import { normalizeDragAnalysis } from './dragAnalysis.js';
+import { normalizeFlightAdvisories } from './flightAdvisories.js';
 import { DEFAULT_PREFS, type Preferences } from './preferences.js';
 import type { AeroChoice } from './aeroChoice.js';
 import { normalizeRunColumns } from '../services/runSummaryColumns.js';
 import { normalizeExportLayouts } from '../services/flightExportLayouts.js';
+import { sessionDebugLog } from '../services/sessionDebugLog.js';
 
 // The stored shape and its defaults, and the aero choice, live in React-free
 // modules (2026-10-01: the headless Launch reads them with no React mounted).
@@ -49,6 +51,13 @@ function load(): Preferences {
     if (!['radius', 'diameter'].includes(parsed.radiusMode!)) delete parsed.radiusMode;
     if (!['both', 'callout', 'axis', 'off'].includes(parsed.markers3d!)) delete parsed.markers3d;
     if (!['cal', 'pct', 'both'].includes(parsed.stabilityUnit!)) delete parsed.stabilityUnit;
+    if (!['creation', 'name', 'name-desc', 'motor', 'motor-desc'].includes(parsed.configurationSort!)) delete parsed.configurationSort;
+    if (parsed.fieldPrecision !== 'auto' && parsed.fieldPrecision !== 3 && parsed.fieldPrecision !== 4) delete parsed.fieldPrecision;
+    if (!['nose', 'aft', 'offset'].includes(parsed.rulerReference2d!)) delete parsed.rulerReference2d;
+    if (typeof parsed.rulerOffset2dM !== 'number' || !Number.isFinite(parsed.rulerOffset2dM)) delete parsed.rulerOffset2dM;
+    for (const key of ['grid2d', 'rulerReversed2d'] as const) {
+      if (typeof parsed[key] !== 'boolean') delete parsed[key];
+    }
     // A stored printer that isn't three positive numbers is dropped, not
     // repaired — planning cuts for a half-parsed machine is worse than not
     // offering to split at all. Absent stays absent (no printer configured).
@@ -63,6 +72,9 @@ function load(): Preferences {
     else delete parsed.runColumns;
     if (parsed.flightExportLayouts !== undefined) parsed.flightExportLayouts = normalizeExportLayouts(parsed.flightExportLayouts);
     if (!parsed.flightExportLayouts?.some(l => l.id === parsed.flightExportLayoutId)) delete parsed.flightExportLayoutId;
+    const flightAdvisories = normalizeFlightAdvisories(parsed.flightAdvisories);
+    if (flightAdvisories) parsed.flightAdvisories = flightAdvisories;
+    else delete parsed.flightAdvisories;
     if (!Array.isArray(parsed.resultTiles) || !parsed.resultTiles.every((tile) => typeof tile === 'string')) {
       delete parsed.resultTiles;
     }
@@ -118,6 +130,7 @@ export function PrefsProvider({ children }: { children: ReactNode }) {
   const [prefs, setPrefsRaw] = useState<Preferences>(load);
   const [saveFailing, setSaveFailing] = useState(false);
   const [aeroOverride, setAeroOverride] = useState<AeroChoice | null>(null);
+  useEffect(() => { sessionDebugLog.preferences(prefs, aeroOverride); }, [prefs, aeroOverride]);
   const [systemDark, setSystemDark] = useState<boolean>(
     () => typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches,
   );

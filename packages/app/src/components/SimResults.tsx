@@ -1,5 +1,7 @@
 import { recordedConfiguration, runConfigurationHeading, runConfigurationLabel, runStatus } from '../services/runConfiguration.js';
 import type { DesignMatchKey } from '../services/simReport.js';
+import { deploymentRole, openingPolicy } from '../services/simReport.js';
+import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
 import { Note } from './Note.js';
 import { MountDelayReport } from './MountDelayReport.js';
 import { railNeededLine } from '../services/railNeeded.js';
@@ -134,6 +136,15 @@ function compassPoint8(deg: number): string {
  * landing device is a drogue on a booster branch just as much as on the main
  * flight, and "drogue descent too fast" says which chute to look at.
  */
+function DeploymentRoleNote({ deployments }: { deployments: readonly DeploymentReport[] }) {
+  return <p className="simdet-comments">
+    {deployments.map(d => `${d.device}: ${openingPolicy(deploymentRole(d)).expectation}`).join(' ')}{' '}
+    Preferred opening speed ≤70 ft/s (21.34 m/s); Caution above 70 through 90 ft/s (27.432 m/s), Danger above 90.
+    These are the app owner&rsquo;s advice limits, not recovery hardware ratings.
+    A simulator opening-speed flag, when recorded, remains separate and visible above with its measured speed.
+  </p>;
+}
+
 function DeploymentTable({ deployments, dist, vel }: {
   deployments: readonly DeploymentReport[];
   dist: string;
@@ -163,7 +174,7 @@ function DeploymentTable({ deployments, dist, vel }: {
       <tbody>
         {deployments.map((d, i) => {
           const problems: string[] = [];
-          const opening = openingVerdict(d.velocityAtDeployment);
+          const opening = openingVerdict(d.velocityAtDeployment, deploymentRole(d));
           if (opening === false) problems.push('hard opening');
           if (opening === 'caution') problems.push('fast opening — watch for a zippered tube');
           if (d.descentOk === false) {
@@ -171,7 +182,7 @@ function DeploymentTable({ deployments, dist, vel }: {
           }
           return (
             <tr key={i}>
-              <td>{d.device}{d.isLanding ? ' (landing)' : ''}</td>
+              <td data-recovery-role={deploymentRole(d)}>{d.device}{d.isLanding ? ' (landing)' : ''}</td>
               <td>{Number.isFinite(d.time) ? `${d.time.toFixed(1)} s` : '—'}</td>
               <td>{typeof d.altitude !== 'number' || !Number.isFinite(d.altitude) ? '\u2014' : fmtSi('distance', dist, d.altitude)}</td>
               <td className={opening === false ? 'stability-bad' : opening === 'caution' ? 'stability-warn' : undefined}>
@@ -212,6 +223,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
   const mass = prefs.units.mass;
   const acc = prefs.units.acceleration;
   const safeDeployment = deploymentVerdict(run);
+  const limits = normalizeFlightAdvisories(run.advisoryLimits);
   const railLine = railNeededLine(run.railProfile, SAFETY.minRodExitVelocity, len, vel, run.launchGuideReason);
 
   return (
@@ -270,9 +282,18 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           </strong>
         </p>
       )}
+      {limits && <p className="simdet-comments">
+        Limits used for this flight ({run.flightConfig ?? 'Working settings'}):{' '}
+        {[
+          limits.maxAirspeedMs !== undefined ? `maximum airspeed ${fmtSi('velocity', vel, limits.maxAirspeedMs)} ${vel}` : null,
+          limits.maxMach !== undefined ? `maximum Mach ${limits.maxMach}` : null,
+          limits.armingAltitudeM !== undefined ? `arming ${fmtSi('distance', dist, limits.armingAltitudeM)} ${dist} AGL, caution band ${fmtSi('distance', dist, limits.armingCautionBandM ?? 0)} ${dist}` : null,
+          limits.armingAltitudeM === undefined && limits.armingCautionBandM !== undefined ? `arming band ${fmtSi('distance', dist, limits.armingCautionBandM)} ${dist} (off without an arming altitude)` : null,
+        ].filter(Boolean).join('; ')}. Your limits are not a structural rating or proof that electronics armed.
+      </p>}
       {(['danger', 'caution', 'information'] as const).map(tier => {
         const warnings = (run.simWarnings ?? []).map(w => formatWarning(w, prefs.units)).filter(w => w.tier === tier);
-        const comments = commentsOf(run).filter(c => (c.level === 'warning' ? 'danger' : 'information') === tier);
+        const comments = commentsOf(run).filter(c => (c.level === 'warning' ? 'danger' : c.level === 'caution' ? 'caution' : 'information') === tier);
         if (!warnings.length && !comments.length) return null;
         return <Note key={tier} tier={tier} className="flight-notes">
           {warnings.map((f, i) => <p key={`warning-${i}`} className="simdet-comments" style={{ margin: '2px 0 0' }}>
@@ -286,6 +307,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
       {(run.deployments ?? []).length > 0 && (
         <div className="motor-table-wrap" style={{ marginTop: 8 }}>
           <DeploymentTable deployments={run.deployments ?? []} dist={dist} vel={vel} />
+          <DeploymentRoleNote deployments={run.deployments ?? []} />
         </div>
       )}
       {(run.branches ?? []).map((b) => {
@@ -309,6 +331,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
             {b.deployments.length > 0 && (
               <div className="motor-table-wrap">
                 <DeploymentTable deployments={b.deployments} dist={dist} vel={vel} />
+                <DeploymentRoleNote deployments={b.deployments} />
               </div>
             )}
           </div>

@@ -176,7 +176,8 @@ function FilterChip({ on, onToggle, children }: {
   );
 }
 
-export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose, loadedMotors }: {
+export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClose, loadedMotors, recoveryAdviceFor }: {
+  recoveryAdviceFor?: (delay: number, auto: boolean) => string | null;
   mountDiameterMm: number;
   /** Mount max motor length (SI m); null = no limit. */
   maxMotorLengthM: number | null;
@@ -251,6 +252,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const [picked, setPicked] = useState<MotorDbEntry | null>(null);
   const [delay, setDelay] = useState<number | 'auto' | 'custom'>(0);
   const [customDelay, setCustomDelay] = useState(6);
+  const recoveryAdvice = picked ? recoveryAdviceFor?.(
+    delay === 'custom' ? customDelay : typeof delay === 'number' ? delay : NaN, delay === 'auto') : null;
   const [busy, setBusy] = useState(false);
   const loadChoice = useRef({ picked, delay, customDelay });
   loadChoice.current = { picked, delay, customDelay };
@@ -938,6 +941,13 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             region inserted with its text already in place is announced
             unreliably, so the containers exist before their first message.
             The import result and its notes are polite; a failure is an alert. */}
+        <div className="zero-delay-recovery" role="status">
+          {recoveryAdvice && (
+            <Note tier="caution" as="p" className="motor-db-meta">
+              {recoveryAdvice}
+            </Note>
+          )}
+        </div>
         <Note tier={notice || error ? importTier : 'information'} className="motor-import-notes">
         <div role="status">
           {notice && <p className="motor-db-meta" style={{ marginBottom: 0 }}>{notice}</p>}
