@@ -27,7 +27,9 @@ describe('header controls wrap before overflowing', () => {
     expect(rule('.app-header-row')).toContain('display: flex');
     expect(rule('.app-header-row')).toContain('flex-wrap: wrap');
     expect(rule('.app-header-brand')).toContain('flex-wrap: wrap');
-    expect(rule('.app-header-brand')).toContain('flex: 0 1 auto');
+    // Basis 0, floored at min-content: the brand wraps inside itself before a button leaves the row.
+    expect(rule('.app-header-brand')).toContain('flex: 1 1 0');
+    expect(rule('.app-header-brand')).toContain('min-width: min-content');
   });
 
   it('keeps complete button labels together rather than squeezing Save As', () => {

@@ -613,7 +613,12 @@ html {
   align-items: baseline;
   gap: 8px;
   margin-right: auto;
-  flex: 0 1 auto;
+  /* Basis 0 with a min-content floor: the row breaks on the brand's NARROWEST
+     form, so its badge and status wrap inside it before any button leaves the
+     row (measured in a 1,280 px frame: Preferences wrapped alone with the old
+     0 1 auto basis). */
+  flex: 1 1 0;
+  min-width: min-content;
 }
 
 /* A complete version badge moves to the next line instead of squeezing. */
