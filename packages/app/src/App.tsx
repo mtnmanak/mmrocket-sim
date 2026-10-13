@@ -4445,7 +4445,12 @@ export function App() {
                     noBore={mNode ? noBoreReason(mNode) : null}
                     onOpenDesign={() => showMotorLengthOnDesign(m.id!)} />
                   <MotorPicker
-                    recoveryAdviceFor={(delay, auto) => mm?.ignition?.event === 'never' ? null : zeroDelayRecoveryAdvice(flightTree, m.id!, delay, auto)}
+                    recoveryAdviceFor={(delay, auto) => {
+                      // N003: replacement resets the motor's ignition; only mount/config layers survive.
+                      const ignition = overrideFor(activeOverrides.ignitions, m.id!)
+                        ?? overrideFor((tree as FlightTree).ignitionDefaults, m.id!);
+                      return ignition?.event === 'never' ? null : zeroDelayRecoveryAdvice(flightTree, m.id!, delay, auto);
+                    }}
                     mountDiameterMm={mountDiaMm(mNode)}
                     maxMotorLengthM={motorLengthLimit(mNode)}
                     selectedLabel={mm?.label ?? ''}

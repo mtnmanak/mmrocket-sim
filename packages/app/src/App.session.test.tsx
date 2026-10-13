@@ -24,6 +24,7 @@ import { importedSummaryRuns } from './services/orkFlightData.js';
 import { addRuns, loadRuns } from './services/simStore.js';
 import { savedConfigLabel } from './model/design.js';
 import { IMPERIAL_UNITS, uiToSi } from './prefs/units.js';
+import { resolveFlightState } from './services/flightState.js';
 
 it('legacy position notice stays through Save and dismissal survives autosave reload', async () => {
   const tree = { name: 'Position review', components: [{ type: 'stage', id: 's', children: [
@@ -349,6 +350,72 @@ it('N003 mount-card status stays mounted across fixed zero and Auto delay edits'
   await act(async () => { auto.click(); });
   expect(host.querySelector('.mount-card .zero-delay-recovery[role="status"]')).toBe(region);
   expect(region!.textContent).toBe('');
+}, 30_000);
+
+it.each([
+  { delay: '0', layer: 'none', warns: true },
+  { delay: 'custom', layer: 'none', warns: true },
+  { delay: '0', layer: 'own', warns: false },
+  { delay: '0', layer: 'config', warns: false },
+  { delay: '0', layer: 'detached', warns: false },
+  { delay: '0', layer: 'active-over-own', warns: true },
+])('N003 replacement preview from Never: $delay delay with $layer ignition layer', async ({ delay, layer, warns }) => {
+  let host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  await unmountAll();
+  const session = storedSession()!;
+  const [mountId, motor] = Object.entries(session.mountMotors!)[0]!;
+  const never = { event: 'never' as const, delay: 0 };
+  session.mountMotors = { [mountId]: { ...motor, spec: { ...motor.spec, ejectionDelay: 0 },
+    meta: { ...motor.meta, autoDelay: false }, ignition: never } };
+  session.configLayers = 1;
+  session.savedConfigs = [];
+  session.activeConfigId = null;
+  session.detachedOverrides = {};
+  delete session.tree.ignitionDefaults;
+  if (layer === 'own' || layer === 'active-over-own') session.tree.ignitionDefaults = { [mountId]: never };
+  if (layer === 'config' || layer === 'active-over-own') {
+    session.savedConfigs = [{ id: 'preview', name: 'Preview', isDefault: true, motors: session.mountMotors,
+      ignitions: { [mountId]: layer === 'config' ? never : { event: 'automatic', delay: 0 } } }];
+    session.activeConfigId = 'preview';
+  }
+  if (layer === 'detached') session.detachedOverrides = { ignitions: { [mountId]: never } };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  host = await mountApp();
+  await act(async () => { button(host, 'Motors & Configuration').click(); });
+  const card = host.querySelector('.mount-card')!;
+  const installedStatus = card.querySelector('.zero-delay-recovery[role="status"]')!;
+  expect(installedStatus.textContent?.includes('burnout')).toBe(layer === 'active-over-own');
+  await act(async () => { button(card as HTMLElement, 'Browse motors').click(); });
+  const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+  await type(input(dialog, 'Search motor designation'), 'C6');
+  const c6Row = () => [...dialog.querySelectorAll<HTMLTableRowElement>('tbody tr')]
+    .find(row => row.cells[1]?.textContent === 'Estes' && row.cells[0]?.textContent?.trim() === 'C6');
+  await waitFor(() => !!c6Row(), 'catalogue C6');
+  await act(async () => { c6Row()!.click(); });
+  const delaySelect = dialog.querySelector<HTMLSelectElement>('.motor-load-row select')!;
+  await act(async () => {
+    delaySelect.value = delay;
+    delaySelect.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  if (delay === 'custom') await type(input(dialog, 'Custom delay (s)'), '0');
+  const preview = dialog.querySelector('.zero-delay-recovery[role="status"]')!;
+  expect(preview.textContent?.includes('burnout')).toBe(warns);
+  expect(preview.querySelector('.message-caution') !== null).toBe(warns);
+  if (warns) expect(preview.textContent).toContain('Parachute');
+  expect(installedStatus.textContent?.includes('burnout')).toBe(layer === 'active-over-own');
+  expect(storedSession()!.mountMotors![mountId]!.ignition).toEqual(never);
+  const load = button(dialog, 'Load motor');
+  expect(load.disabled).toBe(false);
+  await act(async () => { load.click(); });
+  await waitFor(() => storedSession()?.mountMotors?.[mountId]?.ignition.event === 'automatic', 'replacement ignition');
+  const assigned = storedSession()!;
+  expect(assigned.mountMotors![mountId]!.spec.ejectionDelay).toBe(0);
+  expect(assigned.mountMotors![mountId]!.meta.autoDelay).toBe(false);
+  const flown = resolveFlightState(assigned.tree, assigned.savedConfigs ?? [], assigned.activeConfigId ?? null,
+    assigned.detachedOverrides ?? {}, assigned.mountMotors!);
+  expect(flown.mountMotors[mountId]!.ignition).toEqual({ event: warns ? 'automatic' : 'never', delay: 0 });
+  expect(installedStatus.textContent?.includes('burnout')).toBe(warns);
 }, 30_000);
 
 describe('a SOLID motor mount on Motors & Configuration', () => {
