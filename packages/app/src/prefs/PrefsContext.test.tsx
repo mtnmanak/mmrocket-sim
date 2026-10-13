@@ -124,6 +124,23 @@ describe('storage hardening: result tiles', () => {
     expect(seen.prefs.radiusMode).toBe('radius');
   });
 
+  it('loads saved plots alongside v0.188 viewer settings and independent flight advice validation', () => {
+    const layout = { id: 'coast', name: 'Coast', panels: ['stabilityPercent'], comparison: 'phase' };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      flightPlots: [layout, { id: 'bad', name: 'Bad', panels: ['unknown'], comparison: 'phase' }],
+      flightAdvisories: { maxMach: 0.8, maxAirspeedMs: 'fast' },
+      configurationSort: 'motor', fieldPrecision: 4, grid2d: false,
+      rulerReference2d: 'offset', rulerOffset2dM: -0.0254, rulerReversed2d: true,
+    }));
+    mount();
+    expect(seen.prefs.flightPlots).toEqual([layout]);
+    expect(seen.prefs.flightAdvisories).toEqual({ maxMach: 0.8 });
+    expect(seen.prefs).toMatchObject({ configurationSort: 'motor', fieldPrecision: 4, grid2d: false,
+      rulerReference2d: 'offset', rulerOffset2dM: -0.0254, rulerReversed2d: true });
+    expect(sessionDebugLog.text()).toContain('"configurationSort":"motor"');
+    expect(sessionDebugLog.text()).not.toContain('"name":"Coast"');
+  });
+
   it('W2-UI drops invalid display choices without discarding independent preferences', () => {
     localStorage.setItem(STORAGE_KEY, '{"fieldPrecision":"4","grid2d":"off","rulerReference2d":"bad","rulerOffset2dM":1e999,"rulerReversed2d":1,"radiusMode":"radius"}');
     mount();

@@ -41,6 +41,7 @@ const FRIENDLY: [key: string, spec: ColSpec][] = [
   ['stability', { name: 'Stability margin', si: 'cal' }],
   ['cpLocation', { name: 'CP location', si: 'm', quantity: 'length' }],
   ['cgLocation', { name: 'CG location', si: 'm', quantity: 'length' }],
+  ['activeLength', { name: 'Active aerodynamic length', si: 'm', quantity: 'length' }],
   ['aoa', { name: 'Angle of attack', si: 'rad', quantity: 'angle' }],
   ['dynamicPressure', { name: 'Dynamic pressure', si: 'Pa', quantity: 'pressure' }],
   ['qAlpha', { name: 'q·α', si: 'Pa', quantity: 'pressure', suffix: '·rad' }],

@@ -4844,6 +4844,9 @@ select.unit-chip:hover {
 .comparison-controls { margin-top: 12px; }
 .comparison-controls label { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; max-width: 100%; }
 .comparison-controls select { min-width: 0; max-width: 100%; min-height: 36px; }
+.saved-flight-plots input { min-width: 0; max-width: 100%; flex: 1 1 140px; min-height: 36px; }
+.saved-flight-plots .chart-btn { min-height: 36px; }
+.saved-flight-plots :is(input, select, button):focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
 .comparison-axis-keys { margin: 8px 0; font-size: 12px; }
 .comparison-axis-key > span { display: inline-flex; align-items: center; gap: 4px; }
 .chart-comparison-note { color: var(--text-secondary); font-size: 12px; line-height: 1.5; margin: 6px 0; }

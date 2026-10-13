@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { UNITS, type Quantity, type UnitSelection } from './units.js';
 import { normalizePrinter } from './printers.js';
 import { normalizeDragAnalysis } from './dragAnalysis.js';
+import { normalizeFlightPlots } from './flightPlots.js';
 import { normalizeFlightAdvisories } from './flightAdvisories.js';
 import { DEFAULT_PREFS, type Preferences } from './preferences.js';
 import type { AeroChoice } from './aeroChoice.js';
@@ -72,6 +73,7 @@ function load(): Preferences {
     else delete parsed.runColumns;
     if (parsed.flightExportLayouts !== undefined) parsed.flightExportLayouts = normalizeExportLayouts(parsed.flightExportLayouts);
     if (!parsed.flightExportLayouts?.some(l => l.id === parsed.flightExportLayoutId)) delete parsed.flightExportLayoutId;
+    if (parsed.flightPlots !== undefined) parsed.flightPlots = normalizeFlightPlots(parsed.flightPlots);
     const flightAdvisories = normalizeFlightAdvisories(parsed.flightAdvisories);
     if (flightAdvisories) parsed.flightAdvisories = flightAdvisories;
     else delete parsed.flightAdvisories;

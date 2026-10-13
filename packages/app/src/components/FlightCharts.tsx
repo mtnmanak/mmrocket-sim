@@ -4,7 +4,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { boosterBranches, type FlightResult, type FlightSeries } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { seriesCatalog, PRESETS, usableSeries, type SeriesDef } from '../flightChartModel.js';
+import { seriesCatalog, PRESETS, usableSeries, withStabilityPercent, type SeriesDef } from '../flightChartModel.js';
 import { ComparisonChart } from './ComparisonChart.js';
 import { chartInk, seriesPalette } from '../chartTheme.js';
 import {
@@ -18,6 +18,7 @@ import { flightXlsx } from '../services/flightXlsx.js';
 import { CSV_BOM, downloadBlob, stampedName } from '../services/fileName.js';
 import { XLSX_MIME } from '../services/xlsx.js';
 import { FlightExportLayoutDialog } from './FlightExportLayoutDialog.js';
+import { SavedFlightPlots } from './SavedFlightPlots.js';
 import { emphasizeSeries } from '../chartEmphasis.js';
 
 /**
@@ -254,7 +255,9 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   const branch = boosters[branchIndex - 1];
   const branchName = branch ? `Booster ${branchIndex}: ${branch.name}` : 'Sustainer stack';
   const plotIdentity = boosters.length > 0 ? `${flightName} · ${branchName}` : flightName;
-  const shown = useMemo(() => branch ? { ...result, series: branch.series } : result, [result, branch]);
+  const shown = useMemo(() => ({ ...result,
+    series: withStabilityPercent(branch?.series ?? result.series, branch?.events ?? result.events),
+  }), [result, branch]);
   const panelKey = `${branchChoice.generation}-${branchIndex}`;
   const preset = PRESETS.find((p) => p.id === comparison);
   const [selected, setSelected] = useState<Set<keyof FlightSeries>>(new Set(DEFAULT_SELECTED));
@@ -459,6 +462,14 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
       {onFullSeries && <p className="chart-comparison-note">{exportLayout
         ? `Downloads use layout “${exportLayout.name}” for all flight branches. Missing series stay blank; a missing selected event leaves that branch without samples.`
         : 'Downloads include every recorded series and all flight branches.'} The comparison choice and zoom do not change the files.</p>}
+      <SavedFlightPlots current={{ panels: [...selected].map(String), comparison }} onApply={layout => {
+        setSelected(new Set(layout.panels)); setComparison(layout.comparison);
+      }} />
+      {selected.has('stabilityPercent') && <Note as="p" tier="information" className="chart-comparison-note">
+        Stability percentage uses the aerodynamic length of the stages flying at each recorded sample.
+        It is not shown where CP, CG or that length is missing, or after recovery deployment or tumbling.
+        The flight CP depends on speed and angle of attack, so it can differ from the static design value.
+      </Note>}
       {(visible.length > 0 || preset?.x === 'time') && (
         <div className="chart-toolbar">
           <GestureHints />
