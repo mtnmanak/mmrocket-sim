@@ -124,6 +124,68 @@ it('allows one download at a time and enables retry when it finishes', async () 
   await vi.waitFor(() => expect(download.disabled).toBe(false));
 });
 
+it.each(['replacement', 'dismissal'])('keeps one download pending through bar %s, then enables the current button', async transition => {
+  let downloads = 0;
+  let finish: () => void = () => {};
+  stop = installFatalErrorBar({ downloadSessionDebugLog: () => {
+    downloads++;
+    return new Promise<void>(resolve => { finish = resolve; });
+  } });
+  error('First failure');
+  const original = bar()!;
+  original.querySelector<HTMLButtonElement>('[data-debug-log]')!.click();
+  await vi.waitFor(() => expect(downloads).toBe(1));
+  const finishFirst = finish;
+  try {
+    if (transition === 'dismissal') original.querySelector<HTMLButtonElement>('[aria-label="Dismiss error"]')!.click();
+    const event = new Event('unhandledrejection');
+    Object.defineProperty(event, 'reason', { value: new Error('Latest failure') });
+    window.dispatchEvent(event);
+    const current = bar()!;
+    const download = current.querySelector<HTMLButtonElement>('[data-debug-log]')!;
+    expect(current).not.toBe(original);
+    download.click();
+    await Promise.resolve();
+    expect(downloads).toBe(1);
+    expect(download.disabled).toBe(true);
+    finish();
+    await vi.waitFor(() => expect(download.disabled).toBe(false));
+    expect(current.textContent).toContain('Latest failure');
+    download.click();
+    await vi.waitFor(() => expect(downloads).toBe(2));
+  } finally { finishFirst(); finish(); }
+});
+
+it.each(['replacement', 'dismissal'])('shows a pending download failure on the current bar after %s and allows retry', async transition => {
+  let fail: (error: Error) => void = () => {};
+  let finish: () => void = () => {};
+  let downloads = 0;
+  stop = installFatalErrorBar({ downloadSessionDebugLog: () => {
+    downloads++;
+    if (downloads > 1) return;
+    return new Promise<void>((resolve, reject) => { finish = resolve; fail = reject; });
+  } });
+  error('First failure');
+  const original = bar()!;
+  original.querySelector<HTMLButtonElement>('[data-debug-log]')!.click();
+  await vi.waitFor(() => expect(downloads).toBe(1));
+  try {
+    if (transition === 'dismissal') original.querySelector<HTMLButtonElement>('[aria-label="Dismiss error"]')!.click();
+    error('Latest failure');
+    const current = bar()!;
+    const download = current.querySelector<HTMLButtonElement>('[data-debug-log]')!;
+    fail(new Error('Download blocked'));
+    await vi.waitFor(() => expect(current.querySelector('[role="status"]')?.textContent).toContain('Download blocked'));
+    expect(original.querySelector('[role="status"]')?.textContent).toBe('');
+    expect(current.textContent).toContain('Latest failure');
+    await vi.waitFor(() => expect(download.disabled).toBe(false));
+    download.click();
+    await vi.waitFor(() => expect(downloads).toBe(2));
+    await vi.waitFor(() => expect(download.disabled).toBe(false));
+    expect(current.querySelector('[role="status"]')?.textContent).toBe('');
+  } finally { finish(); }
+});
+
 it('restores pre-error focus after replacement errors, while respecting focus moved elsewhere', () => {
   const opener = document.createElement('button');
   const other = document.createElement('button');

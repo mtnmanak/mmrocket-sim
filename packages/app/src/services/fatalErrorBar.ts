@@ -18,6 +18,8 @@ function shortMessage(reason: unknown): string {
 export function installFatalErrorBar(options: FatalErrorBarOptions = {}): (() => void) & { report: (reason: unknown) => void } {
   let bar: HTMLElement | null = null;
   let returnFocus: HTMLElement | null = null;
+  // W3-DIAG: replacing or dismissing the bar must not start a second download.
+  let downloadPending = false;
   const notifyDialogs = () => document.dispatchEvent(new Event(FATAL_ERROR_BAR_CHANGE));
   const removeBar = () => {
     if (!bar) return;
@@ -50,18 +52,26 @@ export function installFatalErrorBar(options: FatalErrorBarOptions = {}): (() =>
     download.type = 'button';
     download.textContent = 'Download session debug log';
     download.setAttribute('data-debug-log', '');
-    download.disabled = !options.downloadSessionDebugLog;
+    download.disabled = downloadPending || !options.downloadSessionDebugLog;
     const detail = document.createElement('p');
     detail.setAttribute('role', 'status');
     if (!options.downloadSessionDebugLog) {
       detail.textContent = 'Session debug-log download is not available in this build. Keep the error message with your bug report.';
     }
     download.addEventListener('click', () => {
+      if (downloadPending || !options.downloadSessionDebugLog) return;
+      downloadPending = true;
       download.disabled = true;
+      detail.textContent = '';
       // Catch the download's own failure here, without an unhandled-rejection loop.
       void Promise.resolve().then(() => options.downloadSessionDebugLog?.()).catch((error: unknown) => {
-        detail.textContent = `Debug-log download failed: ${shortMessage(error)}`;
-      }).finally(() => { download.disabled = !options.downloadSessionDebugLog; });
+        const currentDetail = bar?.querySelector<HTMLElement>('[role="status"]');
+        if (currentDetail) currentDetail.textContent = `Debug-log download failed: ${shortMessage(error)}`;
+      }).finally(() => {
+        downloadPending = false;
+        const currentDownload = bar?.querySelector<HTMLButtonElement>('[data-debug-log]');
+        if (currentDownload) currentDownload.disabled = !options.downloadSessionDebugLog;
+      });
     });
     const dismiss = document.createElement('button');
     dismiss.type = 'button';
