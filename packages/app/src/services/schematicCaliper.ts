@@ -25,21 +25,38 @@ export function snapCaliperPoint(p: CaliperPoint, targets: readonly CaliperPoint
   return best;
 }
 
-/** Use actual instance vertices, rather than the union of a cluster's bounds. */
+/** N044: use displayed instance corners, respecting each shape's airframe clip. */
 export function schematicSnapTargets(layout: SchematicLayout, ctx: { scale: number; x0: number; cy: number }): CaliperPoint[] {
   const out: CaliperPoint[] = [];
   for (const s of layout.shapes) {
     if ((!s.part && !s.attrs['data-wall']) || s.part?.hit) continue;
     const a = s.attrs;
     let points: number[][] = [];
+    let outline: number[][] = [];
     if (s.tag === 'rect') {
       const x = Number(a['x']), y = Number(a['y']), w = Number(a['width']), h = Number(a['height']);
       points = [[x, y], [x + w, y], [x, y + h], [x + w, y + h], [x, y + h / 2], [x + w, y + h / 2]];
+      outline = [points[0]!, points[1]!, points[3]!, points[2]!];
     } else if (s.tag === 'polygon' || (s.tag === 'path' && !/[CQASTHV]/i.test(String(a['d'])))) {
       const nums = String(a[s.tag === 'polygon' ? 'points' : 'd']).match(/[-+]?(?:\d*\.\d+|\d+\.?\d*)(?:e[-+]?\d+)?/gi)?.map(Number) ?? [];
       for (let i = 0; i + 1 < nums.length; i += 2) points.push([nums[i]!, nums[i + 1]!]);
+      if (s.tag === 'polygon') outline = points.slice();
+    }
+    const clip = layout.clips.find(c => a['clipPath'] === `url(#${c.id})`);
+    if (clip) {
+      // Clipping creates visible corners on polygon/rect edges; raw hidden roots must not attract picks.
+      for (let i = 0; i < outline.length; i++) {
+        const [x1, y1] = outline[i]!;
+        const [x2, y2] = outline[(i + 1) % outline.length]!;
+        for (const y of [clip.top, clip.bottom]) {
+          if ((y1! < y && y2! > y) || (y2! < y && y1! > y)) {
+            points.push([x1! + (x2! - x1!) * (y - y1!) / (y2! - y1!), y]);
+          }
+        }
+      }
     }
     for (const [x, y] of points) {
+      if (clip && y! > clip.top && y! < clip.bottom) continue;
       if (Number.isFinite(x) && Number.isFinite(y)) out.push({ x: (x! - ctx.x0) / ctx.scale, y: (ctx.cy - y!) / ctx.scale });
     }
   }
