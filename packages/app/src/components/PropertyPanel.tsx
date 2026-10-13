@@ -981,6 +981,14 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         <input id={idFor('name')} aria-label="Component name"
           value={node.name ?? ''} onChange={(e) => onPatch({ name: e.target.value })} />
       </div>
+      <div className="field" style={{ marginTop: 8 }}>
+        <label htmlFor={idFor('comment')}>Comment</label>
+        <textarea id={idFor('comment')} aria-label="Part comment"
+          rows={Math.max(4, Math.min(16, typeof node['comment'] === 'string' ? node['comment'].split('\n').length : 4))}
+          value={typeof node['comment'] === 'string' ? node['comment'] : ''}
+          onChange={(e) => onPatch({ comment: e.target.value || undefined })} />
+        <p className="hint">Saved with this part in .ork. Comments do not affect a flight.</p>
+      </div>
       {KIND_FOR_TYPE[node.type] && (
         <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
           onClick={() => setShowPresets(true)}>

@@ -139,6 +139,9 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     const found = nodes.filter(predicate);
     if (found.length) losses.push(`${text}: ${found.map(named).join(', ')}.`);
   };
+  // C-B8: neither foreign writer has a per-component comment field.
+  parts(n => typeof n['comment'] === 'string' && n['comment'].length > 0,
+    'Part comments are not saved; use .ork to keep them');
   const launchFields = lostLaunchFields(format, input.launch);
   add(launchFields.length > 0, `Launch settings (${launchFields.join(', ')}) are not saved; another reader opens with its own defaults.`);
   const active = input.configs.find(c => c.id === input.activeConfigId);

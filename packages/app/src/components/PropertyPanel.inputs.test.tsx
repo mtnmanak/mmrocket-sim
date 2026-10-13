@@ -140,7 +140,7 @@ describe('PropertyPanel — every field label names its own control', () => {
     expect(all).toEqual([{ finish: 'smooth' }]);
   });
 
-  it('points each field label at its own input or select, never at a unit chip or a button', () => {
+  it('points each field label at its own input, select or textarea, never at a unit chip or a button', () => {
     const a = tube('A');
     show(treeOf(a), a, infoOf(0.05), { onPatchAll: () => {} });
     const labels = [...host.querySelectorAll('label')]
@@ -151,7 +151,7 @@ describe('PropertyPanel — every field label names its own control', () => {
       const target = l.htmlFor ? document.getElementById(l.htmlFor) : null;
       expect(target, `"${l.textContent}" has no control`).not.toBeNull();
       expect(target!.classList.contains('unit-chip'), l.textContent ?? '').toBe(false);
-      expect(['INPUT', 'SELECT'], l.textContent ?? '').toContain(target!.tagName);
+      expect(['INPUT', 'SELECT', 'TEXTAREA'], l.textContent ?? '').toContain(target!.tagName);
     }
     // The DOM's own resolution agrees: the label's control is the typed box.
     expect(labelStarting('Length').control).toBe(inputNamed('Length (mm)'));

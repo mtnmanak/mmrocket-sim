@@ -28,6 +28,13 @@ import { MOTOR_DB, setCatalogueOverlay } from './services/motorDb.js';
 import type { SimRun } from './services/simReport.js';
 import { decodeShareFragment, encodeShareFragment } from './services/shareLink.js';
 import { downloadImage } from './services/schematicExport.js';
+import * as recentDesigns from './services/recentDesigns.js';
+
+vi.mock('./services/recentDesigns.js', () => ({
+  rememberRecentDesign: vi.fn(async (): Promise<string | null> => null),
+  listRecentDesigns: vi.fn(async (): Promise<recentDesigns.RecentDesign[]> => []),
+  recentDesignFile: vi.fn(), clearRecentDesigns: vi.fn(async () => {}),
+}));
 import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
 
@@ -585,6 +592,86 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline (test)'); }));
   vi.mocked(saveFile).mockClear();
   vi.mocked(exportOrk).mockClear();
+  vi.mocked(recentDesigns.rememberRecentDesign).mockClear().mockResolvedValue(null);
+  vi.mocked(recentDesigns.listRecentDesigns).mockClear().mockResolvedValue([]);
+  vi.mocked(recentDesigns.recentDesignFile).mockReset();
+});
+
+describe('C-A2 and C-B8 file workflow', () => {
+  it('Recent uses the same file door and unsaved-work prompt, and keeps the original import bytes', async () => {
+    const file = new File([fixture(RKT)], 'Recent.rkt');
+    vi.mocked(recentDesigns.listRecentDesigns).mockResolvedValue([{ name: file.name, openedAt: 1, size: file.size }]);
+    vi.mocked(recentDesigns.recentDesignFile).mockResolvedValue(file);
+    const host = await mountApp();
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Unsaved current design');
+    await act(async () => { button(host, 'Recent…').click(); });
+    await act(async () => { button(host, 'Recent.rkt').click(); });
+    expect(host.textContent).toContain('Save');
+    expect(vi.mocked(recentDesigns.rememberRecentDesign)).not.toHaveBeenCalled();
+    await act(async () => { button(host.querySelector('[role="dialog"]')!, 'Cancel').click(); });
+    expect(host.querySelector<HTMLInputElement>('#rocket-name')!.value).toBe('Unsaved current design');
+    await act(async () => { button(host, 'Recent…').click(); });
+    await act(async () => { button(host, 'Recent.rkt').click(); });
+    await act(async () => { button(host, 'Open without saving').click(); });
+    await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.length === 1, 'recent copy');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.tree.name).toBe(RKT_NAME);
+    const [name, bytes] = vi.mocked(recentDesigns.rememberRecentDesign).mock.calls[0]!;
+    expect(name).toBe('Recent.rkt');
+    expect(new TextDecoder().decode(bytes)).toBe(fixture(RKT));
+    expect(host.querySelector('.notice-bar')?.textContent).toContain('states its launch site as latitude 43°');
+  });
+
+  it('copies successful saved bytes but never a cancelled or failed save; storage failure leaves Save successful', async () => {
+    const host = await mountApp();
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Recent save');
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'cancelled' });
+    await saveAs(host, 'Save .ork');
+    expect(recentDesigns.rememberRecentDesign).not.toHaveBeenCalled();
+    vi.mocked(exportOrk).mockImplementationOnce(() => { throw new Error('writer failed'); });
+    await saveAs(host, 'Save .ork');
+    expect(recentDesigns.rememberRecentDesign).not.toHaveBeenCalled();
+    vi.mocked(recentDesigns.rememberRecentDesign).mockResolvedValue('The app could not keep a copy in Recent.');
+    await saveAs(host, 'Save .ork');
+    await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.length === 1, 'saved copy');
+    const [name, bytes] = vi.mocked(recentDesigns.rememberRecentDesign).mock.calls[0]!;
+    expect(name).toBe('Recent_save.ork');
+    expect(new TextDecoder().decode(bytes)).toBe(vi.mocked(exportOrk).mock.results.at(-1)!.value);
+    expect(host.textContent).toContain('No unsaved changes');
+    expect(host.textContent).toContain('could not keep a copy in Recent');
+  });
+
+  it.each(['.rkt', '.CDX1'])('Recent keeps exactly the saved %s bytes, including that format’s limits', async ext => {
+    const host = await mountApp();
+    await saveAs(host, `Save ${ext}`);
+    await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.length === 1, 'foreign saved copy');
+    const [name, bytes] = vi.mocked(recentDesigns.rememberRecentDesign).mock.calls[0]!;
+    expect(name.endsWith(ext)).toBe(true);
+    const blob = vi.mocked(saveFile).mock.calls.at(-1)![0];
+    expect(new TextDecoder().decode(bytes)).toBe(await new Blob([blob]).text());
+  });
+
+  it('part comment edits survive undo/redo, autosave reload and .ork save', async () => {
+    let host = await mountApp();
+    const row = [...host.querySelectorAll<HTMLElement>('.tree-row')].find(r => r.querySelector('.tree-label')?.textContent === 'Sustainer')!;
+    await act(async () => { row.click(); });
+    const textarea = host.querySelector<HTMLTextAreaElement>('[aria-label="Part comment"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'As built\n钛 & <epoxy>');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.tree.components[0]!['comment']).toBe('As built\n钛 & <epoxy>');
+    await act(async () => { button(host, 'Undo').click(); });
+    window.dispatchEvent(new Event('pagehide')); expect(storedSession()!.tree.components[0]!['comment']).toBeUndefined();
+    await act(async () => { button(host, 'Redo').click(); });
+    await saveAs(host, 'Save .ork');
+    expect(importOrk(vi.mocked(exportOrk).mock.results.at(-1)!.value as string).tree.components[0]!['comment'])
+      .toBe('As built\n钛 & <epoxy>');
+    await unmountAll(); host = await mountApp(); window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.tree.components[0]!['comment']).toBe('As built\n钛 & <epoxy>');
+    expect([...host.querySelectorAll('.tree-badge')].some(e => e.textContent === 'note')).toBe(true);
+  });
 });
 
 afterEach(async () => {

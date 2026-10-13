@@ -2,6 +2,8 @@ import { LaunchOverrideWarning } from './components/LaunchOverrideWarning.js';
 import { describeFlightOverrides, recordFlightOverrides, type FlightOverrideSummary } from './services/flightOverrideSummary.js';
 import { flightVitals } from './services/flightVitals.js';
 import { DesignConfirms } from './components/DesignConfirms.js';
+import { RecentDesignsDialog } from './components/RecentDesignsDialog.js';
+import { rememberRecentDesign } from './services/recentDesigns.js';
 import { assignMotorRecords, planMotorAssignment, retireLoadoutNote } from './services/motorAssignment.js';
 import { exportConfigs as assembleExportConfigs, exportMotorsMap as assembleExportMotors,
   flightExportInput as assembleFlightExportInput } from './services/exportAssembly.js';
@@ -863,6 +865,8 @@ export function App() {
 
   /** The file the user picked while there was unsaved work — held for the prompt. */
   const [pendingOpen, setPendingOpen] = useState<File | null>(null);
+  const [showRecent, setShowRecent] = useState(false);
+  const [recentNote, setRecentNote] = useState<string | null>(null);
   /**
    * Which OPEN is current. Opening a design is asynchronous — a file read, the
    * preset catalogue, and one thrustcurve.org fetch per unmatched motor with
@@ -2328,6 +2332,12 @@ export function App() {
       extensions: [`.${ext}`],
       description: info.description,
     });
+    if (suffix === '' && ['ork', 'rkt', 'cdx1'].includes(ext.toLowerCase())
+        && (out.kind === 'saved' || out.kind === 'downloaded')) {
+      // C-A2: keep the exact bytes written, including lossy formats' own limits.
+      void new Blob(parts).arrayBuffer().then(bytes => rememberRecentDesign(out.name, bytes))
+        .then(setRecentNote, () => setRecentNote('The app could not keep a copy in Recent. Save a file to keep this design.'));
+    }
     // Where it went, and what it could not carry (saveOutcomeNote); a
     // cancelled dialog says nothing.
     const said = saveOutcomeNote(out, losses);
@@ -2883,6 +2893,10 @@ export function App() {
       // panel on Motors & Configuration switches between them (motors AND recovery
       // deployment, since applyConfig applies both now).
       await applyImported(imported, openId, { name: file.name, via: 'opened', format: imported.sourceFormat! });
+      if (openSeq.isCurrent(openId)) {
+        const note = await rememberRecentDesign(file.name, buffer);
+        if (openSeq.isCurrent(openId)) setRecentNote(note);
+      }
     } catch (e) {
       // A superseded open must not shout about a design nobody is waiting for.
       if (!openSeq.isCurrent(openId)) return;
@@ -3284,6 +3298,7 @@ export function App() {
               )}
             </span>
           </div>
+          <div className="recent-open-controls">
           <label className="file-btn" title="Open an OpenRocket (.ork), RockSim (.rkt), or RASAero II (.CDX1) design">
             <Icon name="folder" /> Open…
             {/* Visually hidden, NOT display:none — the input must stay in the
@@ -3302,6 +3317,8 @@ export function App() {
                 e.target.value = '';
               }} />
           </label>
+          <button className="file-btn" onClick={() => setShowRecent(true)}>Recent…</button>
+          </div>
           <div className="file-menu-wrap">
             {/* A DISCLOSURE button, not a menu button. It used to carry
                 aria-haspopup="menu" over a container of plain <button>
@@ -3521,6 +3538,9 @@ export function App() {
             back to their defaults when you reload.
           </div>
         )}
+        {recentNote && <Note tier="caution" role="status" className="recent-storage-note">
+          {recentNote} <button className="file-btn" onClick={() => setRecentNote(null)} aria-label="Dismiss recent storage note">Dismiss</button>
+        </Note>}
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
       {showGuide && (
@@ -3662,6 +3682,10 @@ export function App() {
           onClose={() => setShowBatch(false)}
         />
       )}
+      {showRecent && <RecentDesignsDialog onClose={() => setShowRecent(false)} onOpen={file => {
+        setShowRecent(false);
+        if (dirty) setPendingOpen(file); else void onOpenOrk(file);
+      }} />}
       <DesignConfirms tree={tree} lossDialog={lossDialog} setLossDialog={setLossDialog} saveLossy={saveLossy}
         unprotected={dirty || flownSinceSave.current} confirmNew={confirmNew} setConfirmNew={setConfirmNew} replaceLoss={replaceLoss} startNewDesign={startNewDesign}
         onSaveOrk={onSaveOrk} pendingOpen={pendingOpen} setPendingOpen={setPendingOpen} onOpenOrk={onOpenOrk}

@@ -853,6 +853,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       }
       const nm = text(el, ':scope > name');
       if (nm) node.name = nm;
+      // C-B8: desktop RocketComponent comments preserve whitespace and line breaks.
+      const comment = el.querySelector(':scope > comment')?.textContent;
+      if (comment) node['comment'] = comment;
       // <preset type manufacturer partno digest/> - desktop's RocketComponentSaver
       // writes it on any part picked from its catalogue, and writes every
       // explicit value AFTER it, so on load the explicit values win. We keep
@@ -1369,6 +1372,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
       name: text(stageEl, ':scope > name') ?? (i === 0 ? 'Sustainer' : `Booster ${i}`),
     };
     stageIds.set(stageEl, stage.id!);
+    const comment = stageEl.querySelector(':scope > comment')?.textContent;
+    if (comment) stage['comment'] = comment;
     // A stage carries mass/CG/Cd overrides like any other component. NOT via
     // base(), which would clobber the Sustainer/Booster name fallback above and
     // pull <material>/<finish> onto a stage that has neither.
@@ -2677,6 +2682,7 @@ export function exportOrk({
   const header = (depth: number, node: ComponentNode, fallback: string) => {
     emit(depth, `<name>${escapeXml(node.name ?? fallback)}</name>`);
     emit(depth, `<id>${uuid()}</id>`);
+    if (typeof node['comment'] === 'string' && node['comment']) emit(depth, `<comment>${escapeXml(node['comment'])}</comment>`);
     presetLink(depth, node);
     overrides(depth, node);
   };
@@ -3483,6 +3489,7 @@ export function exportOrk({
     emit(3, '<stage>');
     emit(4, `<name>${escapeXml(st.name ?? (i === 0 ? 'Sustainer' : `Booster ${i}`))}</name>`);
     emit(4, `<id>${uuid()}</id>`);
+    if (typeof st['comment'] === 'string' && st['comment']) emit(4, `<comment>${escapeXml(st['comment'])}</comment>`);
     // The stage's own overrides, in the desktop's element order. Emits nothing
     // when none are set, so a plain design round-trips byte-identically — but
     // without this a whole-stage Cd or weighed mass typed in the app was
