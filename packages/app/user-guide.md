@@ -1385,6 +1385,8 @@ Because the whole app is a self-contained static build, the same files can also 
 
 This section is what the app computes, what it defaults to, and where its honest limits are.
 
+For the current **Supersonic** model and **Hybrid** blend, see [the component equations, source references and validation limits](https://github.com/mtnmanak/mmrocket-sim/blob/main/validation/supersonic-model.md).
+
 **Start with what you fly.** Until you change it in Preferences, a new design starts on **Rogers Modified Barrowman (Kbf)**, and so does a file you open — nothing in an `.ork`, `.rkt` or `.CDX1` chooses the aerodynamics model. On that setting these terms are live, and none of them is in the OpenRocket 24.12 kernel underneath:
 
 - the **Kbf body carryover** — the lift the fins induce on the body — which raises total CNα and moves CP aft;
