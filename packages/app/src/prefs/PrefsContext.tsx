@@ -47,6 +47,7 @@ function load(): Preferences {
     if (!['radius', 'diameter'].includes(parsed.radiusMode!)) delete parsed.radiusMode;
     if (!['both', 'callout', 'axis', 'off'].includes(parsed.markers3d!)) delete parsed.markers3d;
     if (!['cal', 'pct', 'both'].includes(parsed.stabilityUnit!)) delete parsed.stabilityUnit;
+    if (typeof parsed.walls2d !== 'boolean') delete parsed.walls2d;
     // A stored printer that isn't three positive numbers is dropped, not
     // repaired — planning cuts for a half-parsed machine is worse than not
     // offering to split at all. Absent stays absent (no printer configured).

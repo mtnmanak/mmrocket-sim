@@ -1,4 +1,5 @@
-import { pxToGuide, type GuideAxis } from '../services/rulerGuides.js';
+import { guideToPx, pxToGuide, type GuideAxis } from '../services/rulerGuides.js';
+import { caliperReadout, schematicSnapTargets, snapCaliperPoint, type CaliperPoint } from '../services/schematicCaliper.js';
 import { createElement, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ComponentNode, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { arrowPan, releasedDuring, startsGesture, wheelNotches } from '../chartPanZoom.js';
@@ -191,11 +192,18 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // Hovered component (S5): accent wash + name tag drawn topmost. Enter/
   // leave never fire from touch, so phones skip hover naturally.
   const [hoverId, setHoverId] = useState<string | null>(null);
+  const [caliper, setCaliper] = useState<{
+    tree: RocketTree; roll: number; points: CaliperPoint[]; cursor: CaliperPoint; edit?: number;
+  } | null>(null);
+  const [caliperSnap, setCaliperSnap] = useState(true);
   // View transform (zoom & pan) in viewBox px; identity = whole rocket fits.
   const [zoom, setZoom] = useState({ k: 1, x: 0, y: 0 });
   // Roll, when the caller doesn't own it. See the `roll` prop.
   const [rollLocal, setRollLocal] = useState(0);
   const roll = rollProp ?? rollLocal;
+  const measuring = !vertical && caliper?.tree === tree && caliper.roll === roll;
+  if (caliper && (caliper.tree !== tree || caliper.roll !== roll || vertical)) setCaliper(null);
+  const walls = prefs.walls2d ?? false;
   const setRoll = onRoll ?? setRollLocal;
   // `active` only becomes true once the pointer has travelled past PAN_SLOP —
   // see beginPan for why a press must not pan until then. `captured` is the
@@ -227,7 +235,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // drag needs the frame's scale before it can say where the part is.
   const frame = useMemo(() => schematicFrame(tree, {
     cw, chPx, vertical, fillHeight, maxHeight, rulers, rollW, rollBar, lanes: hasInfo, topReserve,
-  }), [tree, cw, chPx, vertical, fillHeight, maxHeight, rulers, rollW, rollBar, hasInfo, topReserve]);
+    bottomReserve: measuring ? 80 : 0,
+  }), [tree, cw, chPx, vertical, fillHeight, maxHeight, rulers, rollW, rollBar, hasInfo, topReserve, measuring]);
   const { w, h, gutX, gutY, scale, vHalf, naturalH } = frame;
   const ctx = { scale, cy: frame.cy, x0: frame.x0 };
 
@@ -299,6 +308,12 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   };
 
   const onMove = (e: React.PointerEvent) => {
+    if (measuring) {
+      if (!e.isPrimary) return;
+      const p = caliperAt(e);
+      if (p) setCaliper(c => c ? { ...c, cursor: p } : c);
+      return;
+    }
     // A live axial drag owns the move — every pointer's, not just its own, so
     // a second finger cannot pan the drawing out from under it.
     const dragged = axial.move(e);
@@ -435,6 +450,29 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * zoom; the Fit button then appears to put it back.
    */
   const onKeyPan = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { setCaliper(null); return; }
+    if (measuring && caliper) {
+      const d = arrowPan(e.key);
+      if (d) {
+        e.preventDefault();
+        if (e.altKey) {
+          setZoom(z => ({ ...z, x: z.x + d[0] * 0.1 * w, y: z.y + d[1] * 0.1 * h }));
+          return;
+        }
+        const step = uiToSi('length', prefs.units.length, e.shiftKey ? 10 : 1);
+        setCaliper(c => {
+          if (!c) return c;
+          const index = c.edit ?? (c.points.length === 2 ? 1 : undefined);
+          const p = index === undefined ? c.cursor : c.points[index] ?? c.cursor;
+          const cursor = { x: p.x - d[0] * step, y: p.y + d[1] * step };
+          return { ...c, cursor, points: index === undefined ? c.points : c.points.map((p, i) => i === index ? cursor : p) };
+        });
+      } else if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault(); pickCaliper(caliper.cursor);
+      }
+      e.stopPropagation();
+      return;
+    }
     const d = arrowPan(e.key);
     if (!d) return;
     e.preventDefault();
@@ -454,8 +492,24 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // offset — a walk of the design, never a kernel rebuild.
   const shown = axial.shown;
   const layout = useMemo(() => layoutSchematic(shown, {
-    scale, cy: frame.cy, x0: frame.x0, roll, motors, vertical, idPrefix: uid,
-  }), [shown, scale, frame.cy, frame.x0, roll, motors, vertical, uid]);
+    scale, cy: frame.cy, x0: frame.x0, roll, motors, vertical, idPrefix: uid, walls,
+  }), [shown, scale, frame.cy, frame.x0, roll, motors, vertical, uid, walls]);
+  const snapTargets = useMemo(() => schematicSnapTargets(layout, { scale, cy: frame.cy, x0: frame.x0 }), [layout, scale, frame.cy, frame.x0]);
+  const caliperAt = (e: { clientX: number; clientY: number }): CaliperPoint | null => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect || rect.width === 0 || rect.height === 0) return null;
+    const x = (e.clientX - rect.left) * w / rect.width, y = (e.clientY - rect.top) * h / rect.height;
+    if (x < gutX || y < gutY || x > w || y > h) return null;
+    const p = { x: pxToGuide(guideView, 'x', x), y: pxToGuide(guideView, 'y', y) };
+    return caliperSnap ? snapCaliperPoint(p, snapTargets, 8 * w / rect.width / (scale * zoom.k)) : p;
+  };
+  const pickCaliper = (p: CaliperPoint) => setCaliper(c => {
+    if (!c) return c;
+    const point = caliperSnap ? snapCaliperPoint(p, snapTargets, 8 / (scale * zoom.k)) : p;
+    const points = c.edit === undefined ? (c.points.length === 2 ? [point] : [...c.points, point])
+      : c.points.map((old, i) => i === c.edit ? point : old);
+    return { ...c, cursor: point, points, edit: undefined };
+  });
 
   /**
    * The pointer and keyboard half of one drawn shape: what makes it a hover,
@@ -478,6 +532,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    * really a drag.
    */
   const interaction = (part: ShapePart, stop: boolean): Record<string, unknown> => {
+    if (measuring) return {};
     const out: Record<string, unknown> = {
       onPointerEnter: () => setHoverId(part.id),
       onPointerLeave: () => setHoverId((cur) => (cur === part.id ? null : cur)),
@@ -624,7 +679,9 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   }
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative', ...(vertical || fillHeight ? { height: '100%' } : null) }}>
+    <div ref={wrapRef} onKeyDown={e => { if (e.key === 'Escape' && measuring) { e.stopPropagation(); setCaliper(null); } }}
+      style={{ position: 'relative', ...(vertical || fillHeight ? { height: '100%' } : null),
+        ...(measuring && fillHeight ? { minHeight: 280 } : null) }}>
       <svg ref={svgRef} viewBox={vertical ? `0 0 ${h} ${w}` : `0 0 ${w} ${h}`}
           style={vertical
             ? { height: '100%', maxWidth: '100%', display: 'block', margin: '0 auto' }
@@ -649,7 +706,16 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           // nose-up drawing neither pans nor zooms, so it takes no keys.
           tabIndex={vertical ? undefined : 0}
           onKeyDown={vertical ? undefined : onKeyPan}
-          onPointerDownCapture={resetDragLatch}
+          onPointerDownCapture={e => {
+            resetDragLatch();
+            if (!measuring) return;
+            e.stopPropagation(); e.preventDefault();
+            if (!startsGesture(e)) return;
+            const p = caliperAt(e);
+            if (p) pickCaliper(p);
+            svgRef.current?.focus();
+          }}
+          onClickCapture={e => { if (measuring) { e.stopPropagation(); e.preventDefault(); } }}
           onPointerDown={vertical ? undefined : beginPan}
           onPointerMove={vertical ? undefined : onMove}
           onPointerUp={vertical ? undefined : endDrag}
@@ -749,7 +815,37 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
             onCreate={(axis, e) => guides.create(axis, guideView, e)} onGrab={guides.grab}
             onMoveTo={guides.moveTo} onRemove={guides.remove} />
         )}
+        {measuring && caliper && <g data-caliper="" pointerEvents="none" stroke="var(--text-primary)" fill="var(--surface-1)">
+          {caliper.points.length > 0 && (() => {
+            const a = caliper.points[0]!, b = caliper.points[1] ?? caliper.cursor;
+            const ax = guideToPx(guideView, 'x', a.x), ay = guideToPx(guideView, 'y', a.y);
+            const bx = guideToPx(guideView, 'x', b.x), by = guideToPx(guideView, 'y', b.y);
+            return <>
+              <path d={`M ${ax} ${ay} L ${bx} ${ay} L ${bx} ${by}`} fill="none" strokeDasharray="4 3" />
+              <line x1={ax} y1={ay} x2={bx} y2={by} strokeWidth="2" />
+            </>;
+          })()}
+          {caliper.points.map((p, i) => <g key={i} data-caliper-point={i + 1}>
+            <circle cx={guideToPx(guideView, 'x', p.x)} cy={guideToPx(guideView, 'y', p.y)} r="5" strokeWidth="2" />
+            <text x={guideToPx(guideView, 'x', p.x) + 8} y={guideToPx(guideView, 'y', p.y) - 8}
+              fill="var(--text-primary)" stroke="none" fontSize="12">{i + 1}</text>
+          </g>)}
+          {caliper.points.length < 2 && <path d={`M ${guideToPx(guideView, 'x', caliper.cursor.x) - 6} ${guideToPx(guideView, 'y', caliper.cursor.y)} h 12 m -6 -6 v 12`} fill="none" />}
+        </g>}
       </svg>
+      {(walls || measuring) && <div className="schematic-tool-notes">
+        {walls && <span>Schematic cutaway · wall bands show thickness</span>}
+        {measuring && caliper && <>
+          <span title="Pick two points; arrows move a point, Enter places it, Alt + arrows pan, Escape clears">Projected in this view plane</span>
+          <label><input type="checkbox" checked={caliperSnap} onChange={e => setCaliperSnap(e.target.checked)} /> Snap to edges</label>
+          {caliper.points.length === 2 && <>
+            <span data-caliper-readout="" role="status">{caliperReadout(caliper.points[0]!, caliper.points[1]!, prefs.units.length)}</span>
+            {[0, 1].map(i => <button key={i} className="file-btn" onClick={() => {
+              setCaliper(c => c ? { ...c, edit: i, cursor: c.points[i]! } : c); svgRef.current?.focus();
+            }}>Move point {i + 1}</button>)}
+          </>}
+        </>}
+      </div>}
       {/* ⟳90° keeps the roll control — laid out along the bottom, tracking
           the axis the rocket is not drawn along — but no other controls. */}
       <RollControl roll={roll} onRoll={setRoll} top={gutY}
@@ -758,7 +854,19 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           exports assume the horizontal drawing (identity view transform), so
           the whole strip hides rather than export a sideways page. */}
       {!vertical && <div className="schematic-controls" style={gutY ? { top: gutY + 6 } : undefined}>
-        {exportData && (
+        <button className="file-btn" aria-label={walls ? 'Hide schematic walls' : 'Show schematic walls'}
+          aria-pressed={walls} title="Show wall thickness as a schematic cutaway"
+          onClick={() => setPrefs({ ...prefs, walls2d: !walls })}>Walls</button>
+        <button className="file-btn" aria-label={measuring ? 'Clear caliper' : 'Measure two points'} aria-pressed={measuring}
+          title="Measure projected distances between two points"
+          onClick={() => {
+            setHoverId(null);
+            setCaliper(measuring ? null : { tree, roll, points: [], cursor: {
+              x: pxToGuide(guideView, 'x', (gutX + w) / 2), y: pxToGuide(guideView, 'y', (gutY + h) / 2),
+            } });
+            svgRef.current?.focus();
+          }}>{measuring ? 'Clear caliper' : 'Caliper'}</button>
+        {!measuring && exportData && (
           <>
             <button className="file-btn"
               title="True-scale 2D drawing (SVG) with design data — physical mm size, prints at 100% scale"
@@ -793,12 +901,12 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
               }} />
           </>
         )}
-        <button className="file-btn"
+        {!measuring && <button className="file-btn"
           title={rulers ? 'Hide the dimensional rulers' : 'Show dimensional rulers along the top and left'}
           aria-label={rulers ? 'Hide rulers' : 'Show rulers'} aria-pressed={rulers}
-          onClick={() => setPrefs({ ...prefs, rulers2d: !rulersPref })}>📏</button>
+          onClick={() => setPrefs({ ...prefs, rulers2d: !rulersPref })}>📏</button>}
         {/* Create both guide axes from the keyboard (audit 2026-10-11, S3a-4). */}
-        {rulers && (['x', 'y'] as GuideAxis[]).map((axis) => (
+        {!measuring && rulers && (['x', 'y'] as GuideAxis[]).map((axis) => (
           <button key={axis} className="file-btn" aria-label={axis === 'x' ? 'Add station guide' : 'Add offset guide'}
             title="Add a measuring guide; arrows move it, Delete removes it"
             onClick={() => {
@@ -806,7 +914,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
               guideFocus.current = guides.add(axis, pxToGuide(guideView, axis, centre));
             }}>+ {axis === 'x' ? 'Station' : 'Offset'}</button>
         ))}
-        {rulers && guides.guides.length > 0 && (
+        {!measuring && rulers && guides.guides.length > 0 && (
           <button className="file-btn" title="Remove every measuring guide"
             onClick={guides.clear}>✕ Guides</button>
         )}

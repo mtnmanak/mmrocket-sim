@@ -691,6 +691,10 @@ shown. (To be offered there at all, a canopy needs a diameter and a drag coeffic
 
 ## Visualizing the Design
 
+In the **2D schematic**, **Walls** shows tube walls as bands at their thickness, including inner tubes, couplers, transitions and shoulders. This is a schematic cutaway, rather than a physical section of the rocket. It starts off to keep nested parts readable at fit scale; the app remembers the setting for the 2D viewer. SVG and image exports include the bands only while **Walls** is on. Very thin walls may need zooming to see.
+
+**Caliper** measures between two points in the standard side view. Tap or click twice to place the points; **Snap to edges** pulls a nearby pick to a drawn corner, profile point or tube-end station, including bore edges when walls are shown. Turn snapping off to pick anywhere. The readout shows **Horizontal**, **Vertical** and **Straight** distances in Preferences → Units of measure → **Rocket dimensions**. These are distances projected in the current view plane; they do not measure depth around the rocket. From the keyboard, **Caliper** focuses the drawing: use arrow keys to move the cursor, **Enter** to place each point, and **Move point 1** or **Move point 2** to adjust an endpoint. Arrows move by one selected length unit; Shift moves by ten. **Alt + arrow keys** pan while measuring. A third pick starts a new measurement. **Escape** or **Clear caliper** clears it. Zoom and pan preserve its model-space distances; changing the design or rolling to another view plane clears it. The caliper stays out of the design file and image exports.
+
 As you build, five views show you the design — a scale side view, an end-on aft view, a rotatable 3D shell, printable 1:1 fin templates, and a drag-analysis chart.
 
 ## The 2D schematic

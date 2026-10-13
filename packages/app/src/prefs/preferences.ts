@@ -100,6 +100,8 @@ export interface Preferences {
    * gutters back.
    */
   rulers2d?: boolean;
+  /** N033: opt-in schematic cutaway; the design and .ork are unchanged. */
+  walls2d?: boolean;
   /**
    * The user's 3D printer, in METRES (see prefs/printers.ts for why metres and
    * not the millimetres a slicer quotes). Absent = no printer configured, and

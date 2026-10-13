@@ -2837,8 +2837,30 @@ html {
   right: 6px;
   z-index: 2;
   display: flex;
+  flex-wrap: wrap;
+  max-width: calc(100% - 80px);
+  justify-content: flex-end;
   gap: 4px;
 }
+
+.schematic-tool-notes {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px 8px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-size: 12px;
+  max-height: 80px;
+  overflow: auto;
+}
+
+.schematic-tool-notes label { display: flex; align-items: center; gap: 4px; }
 
 .schematic-controls .file-btn {
   padding: 2px 8px;
