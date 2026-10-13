@@ -2442,6 +2442,9 @@ function readDesktopPredictions(simEls: XmlElement[], creator: string | null | u
   return simEls.flatMap((sim): DesktopStoredPrediction[] => {
     // Even an unrecognised app tag must not become a desktop result.
     if (sim.querySelector(':scope > aeromodel')) return [];
+    const status = sim.getAttribute('status')?.trim();
+    // W3-IMPORT: external data was imported into desktop, not computed there.
+    if (status === 'external') return [];
     const summary = sim.querySelector(':scope > flightdata');
     if (!summary) return [];
     const data: DesktopStoredPrediction['data'] = {};
@@ -2450,7 +2453,6 @@ function readDesktopPredictions(simEls: XmlElement[], creator: string | null | u
       if (Number.isFinite(value)) data[key] = value;
     }
     if (!Object.keys(data).length) return [];
-    const status = sim.getAttribute('status')?.trim();
     return [{ name: text(sim, ':scope > name') ?? '', configId: simulationConfigId(sim),
       ...(status ? { status } : {}), ...(desktop?.[1] ? { sourceVersion: desktop[1] } : {}), data }];
   });

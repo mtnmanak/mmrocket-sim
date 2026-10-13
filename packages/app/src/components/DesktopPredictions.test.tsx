@@ -15,6 +15,44 @@ const predictions: DesktopStoredPrediction[] = [
 ];
 
 describe('desktop prediction comparison', () => {
+  it('excludes external summaries even from a previously saved session', () => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const external: DesktopStoredPrediction = {
+      name: 'Measured flight', configId: 'a', status: 'external', sourceVersion: '24.12', data: { maxAltitude: 456 },
+    };
+    act(() => root.render(<PrefsProvider><DesktopPredictions predictions={[external]} configId="a" /></PrefsProvider>));
+    expect(host.textContent).toBe('');
+    act(() => root.render(<PrefsProvider><DesktopPredictions predictions={[external, ...predictions]} configId="a" /></PrefsProvider>));
+    expect(host.textContent).not.toContain('Measured flight');
+    expect(host.textContent).not.toContain('456');
+    expect(host.querySelectorAll('details')).toHaveLength(2);
+    act(() => root.unmount());
+  });
+
+  it.each([false, true])('keeps unidentified history visible with configuration a and shown run %s', shownRun => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const unknown: DesktopStoredPrediction = { name: 'Legacy', configId: null, data: { maxAltitude: 456 } };
+    const run = shownRun ? { flightConfigId: 'a', maxAltitude: 120 } as SimRun : undefined;
+    for (const summaries of [[unknown], [...predictions, unknown]]) {
+      act(() => root.render(<PrefsProvider><DesktopPredictions predictions={summaries} configId="a" run={run} /></PrefsProvider>));
+      const legacy = [...host.querySelectorAll('details')].find(detail => detail.querySelector('summary')?.textContent?.includes('Legacy'));
+      expect(legacy).toBeDefined();
+      expect(legacy!.textContent).toContain('Configuration identity was not recorded');
+      expect(legacy!.textContent).not.toContain('configuration ID is the same');
+      expect(legacy!.querySelector('tbody tr td')?.textContent).toContain('456');
+      for (const cell of legacy!.querySelectorAll('tbody tr td:last-child')) expect(cell.textContent).toBe('—');
+      if (summaries.length > 1) {
+        const first = host.querySelector('details')!;
+        expect(first.textContent).toContain('configuration ID is the same');
+        expect(first.querySelector('tbody tr td:last-child')?.textContent).toBe(shownRun ? '120 m' : '—');
+        expect(host.textContent).not.toContain('Second');
+      }
+    }
+    act(() => root.unmount());
+  });
+
   it('compares only the same configuration, labels provenance and carries its caveat', () => {
     const host = document.createElement('div');
     const root = createRoot(host);

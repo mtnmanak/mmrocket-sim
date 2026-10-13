@@ -12,6 +12,16 @@ const sim = (id: string, attrs: string, extra = '') =>
   `<simulation status="outdated"><name>Flight ${id}</name><conditions><configid>${id}</configid></conditions>${extra}<flightdata ${attrs}/></simulation>`;
 
 describe('desktop stored predictions', () => {
+  it('excludes external data rather than claiming desktop computed it', () => {
+    const external = '<simulation status="external"><name>Measured flight</name><conditions><configid>a</configid></conditions><flightdata maxaltitude="456"/></simulation>';
+    expect(importOrk(file(external)).desktopPredictions).toBeUndefined();
+    const imported = importOrk(file(external + sim('a', 'maxaltitude="123"')));
+    expect(imported.desktopPredictions).toEqual([
+      { name: 'Flight a', configId: 'a', status: 'outdated', sourceVersion: '24.12', data: { maxAltitude: 123 } },
+    ]);
+    expect(importedSummaryRuns(imported)).toEqual([]);
+  });
+
   it('reads each finite summary independently, with configuration and writer version', () => {
     const imported = importOrk(file(sim('a', 'maxaltitude="123.4" maxvelocity="56" maxmach="NaN"')
       + sim('b', 'maxaltitude="789" flighttime="90" maxacceleration="Infinity"')
