@@ -454,7 +454,9 @@ Rroll = dy*sum(chordLength_i*(rFront+yi)^2)
 
 Source: desktop OR numerical geometry, `FC:417`, `FC:533`; 48 stations.
 Outline edges are intersected with station lines; x is clamped to edge endpoint
-bounds; nearly horizontal edges (1 mm y equality) are skipped. Lead/trail are
+bounds; nearly horizontal edges are skipped when `MathUtil.equals(y1, y2, 0.001)`
+holds — a RELATIVE test, |y1 − y2| < 0.001·|y2| (both ends within 0.0005 m of zero when
+y2 is that small; inherited `MathUtil.java`), not a fixed 1 mm distance. Lead/trail are
 the extreme intersections, while signed crossings build chordLength for roll.
 Invalid intersections and negative chord lengths are zeroed; chordLength is
 capped at trail-lead. MAC uses envelope li; planform S is the component's area,
