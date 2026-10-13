@@ -88,6 +88,15 @@ describe('preflight design advice (N028)', () => {
     expect(kinds(updateNode(tree, 'payload', { overrideMass: undefined }))).toEqual([]);
   });
 
+  it.each(['fairing', 'protuberance'] as const)('ignores a legacy %s override when counting nested mass overrides', type => {
+    const appendage = { type, id: 'legacy', name: 'Appendage', mass: 0.03, overrideMass: 1 } as unknown as ComponentNode;
+    const tree = design(part({ overrideMass: 0.1, children: [appendage] }));
+    expect(preflightAudit(tree, masses).findings).toEqual([]);
+    const build = vi.fn(() => { throw new Error('No mass comparison is applicable'); });
+    expect(readAuditMasses(design(part({ children: [appendage] })), build)).toEqual({});
+    expect(build).not.toHaveBeenCalled();
+  });
+
   it.each([
     [part({ materialName: 'Balsa', density: 10000 }), 'density', 'kg/m³'],
     [part({ children: [chute({ surfaceMaterialName: 'Ripstop nylon', surfaceDensity: 10 })] }), 'surfaceDensity', 'kg/m²'],
@@ -112,6 +121,14 @@ describe('preflight design advice (N028)', () => {
     expect(preflightAudit(tree, masses).unknownMaterialCount).toBe(1);
     expect(kinds(design(part({ materialName: 'Balsa', density: 170 })))).toEqual([]);
   });
+
+  it.each(['fairing', 'protuberance', 'masscomponent', 'stage', 'parachute', 'streamer', 'shockcord'] as const)(
+    'does not screen inert bulk material fields on %s', type => {
+      const node = { ...part({ materialName: 'Balsa', density: 10000 }), type } as unknown as ComponentNode;
+      const result = preflightAudit(design(node), {});
+      expect(result.findings).toEqual([]);
+      expect(result.unknownMaterialCount).toBe(0);
+    });
 
   it('flags both sides of the density screening range, leaving its endpoints unflagged', () => {
     for (const density of [16, 7551]) {

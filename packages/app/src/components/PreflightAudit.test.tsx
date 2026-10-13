@@ -3,8 +3,10 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { findNode } from '../tree/treeModel.js';
+import { findNode, normalizeTree } from '../tree/treeModel.js';
 import { preflightAudit } from '../services/preflightAudit.js';
+import { importOrk } from '../services/orkFile.js';
+import { PropertyPanel } from './PropertyPanel.js';
 import { PreflightAudit } from './PreflightAudit.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -16,6 +18,66 @@ describe('PreflightAudit part navigation', () => {
     host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
   });
   afterEach(() => { act(() => root.unmount()); host.remove(); });
+
+  it.each([
+    ['launchlug', 'Balsa', 10000, 170, 17, 7550],
+    ['railbutton', 'Delrin', 30000, 1420, 105, 14200],
+  ])('screens imported %s bulk material and selects its editor without changing inputs',
+    (type, material, badDensity, goodDensity, min, max) => {
+      const xml = (density: number) => `<openrocket version="1.10"><rocket><name>Material audit</name>
+        <subcomponents><stage><subcomponents><bodytube><name>Body</name><length>0.4</length>
+        <radius>0.025</radius><thickness>0.001</thickness><subcomponents>
+        <${type}><name>Imported guide</name><material type="bulk" density="${density}">${material}</material></${type}>
+        <parachute><name>Main</name><deployevent>apogee</deployevent></parachute>
+        </subcomponents></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`;
+      const tree = importOrk(xml(badDensity)).tree;
+      const guide = tree.components[0]!.children![0]!.children!.find(n => n.type === type)!;
+      expect(guide).toMatchObject({ density: badDensity, materialName: material });
+      const before = structuredClone(tree);
+      const result = preflightAudit(tree, {});
+      expect(result.findings).toEqual([expect.objectContaining({
+        kind: 'material-density', part: { id: guide.id, name: 'Imported guide' },
+        density: { field: 'density', unit: 'kg/m³', value: badDensity, min, max },
+      })]);
+      expect(result.unknownMaterialCount).toBe(0);
+      act(() => root.render(<PreflightAudit result={result} onSelectPart={id => {
+        root.render(<PropertyPanel tree={tree} node={findNode(tree, id)!} onPatch={() => {}} />);
+      }} />));
+      act(() => host.querySelector<HTMLButtonElement>('.preflight-select')!.click());
+      expect(host.querySelector<HTMLInputElement>('input[aria-label="Component name"]')?.value).toBe('Imported guide');
+      expect(tree).toEqual(before);
+      expect(preflightAudit(importOrk(xml(goodDensity)).tree, {}).findings).toEqual([]);
+    });
+
+  it.each(['fairing', 'protuberance'] as const)(
+    'does not offer an absent mass note for a restored legacy %s override', type => {
+      const tree = normalizeTree({ components: [{ type: 'stage', id: 'stage', name: 'Airframe',
+        overrideMass: 0.5, overrideSubcomponentsMass: true, overrideCGX: 0.2,
+        children: [{ type: 'bodytube', id: 'body', length: 0.4, outerRadius: 0.025, children: [
+          { type, id: 'legacy', name: 'Legacy appendage', mass: 0.03, overrideMass: 1 } as unknown as ComponentNode,
+          { type: 'masscomponent', id: 'payload', name: 'Payload', overrideMass: 0.01 },
+          { type: 'parachute', id: 'main', deployEvent: 'apogee' },
+        ] }] }] });
+      const legacy = findNode(tree, 'legacy')!;
+      expect(legacy.overrideMass).toBe(1);
+      const before = structuredClone(tree);
+      act(() => root.render(<PropertyPanel tree={tree} node={legacy} onPatch={() => {}} />));
+      expect(host.querySelector('.override-suppressed')).toBeNull();
+      expect(host.querySelector('input[aria-label="Mass override"]')).toBeNull();
+      if (type === 'fairing') expect(host.textContent).toContain('overrides do not apply to camera shrouds');
+      const result = preflightAudit(tree, {});
+      expect(result.findings).toEqual([expect.objectContaining({
+        kind: 'covered-mass', part: { id: 'payload', name: 'Payload' }, target: 'mass-note',
+      })]);
+      expect(result.uncheckedMassParts).toEqual([]);
+      act(() => root.render(<PreflightAudit result={result} onSelectPart={id => {
+        root.render(<PropertyPanel tree={tree} node={findNode(tree, id)!} onPatch={() => {}} />);
+      }} />));
+      act(() => host.querySelector<HTMLButtonElement>('.preflight-select')!.click());
+      expect(host.querySelector('.override-suppressed')?.textContent).toContain('Airframe');
+      expect(host.querySelector('.override-suppressed')?.textContent).toMatch(/mass/i);
+      expect(tree).toEqual(before);
+    });
 
   it.each([
     [{ type: 'bodytube', id: 'bad', name: 'Light tube', overrideMass: 0.001 }, {}, 'bad', 'caution'],

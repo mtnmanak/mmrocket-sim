@@ -3,7 +3,7 @@ import type { NoteTier } from '../components/Note.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { numOpt } from '../tree/nodeNum.js';
-import { DISPLAY_NAME, FIELDS } from '../tree/schema.js';
+import { DISPLAY_NAME } from '../tree/schema.js';
 import { engineTree, suppressingAncestor } from '../tree/treeModel.js';
 
 // N028: tenfold differences catch likely unit/decimal slips without treating a
@@ -34,6 +34,8 @@ export interface PreflightAuditResult {
 }
 
 const CONTAINERS = new Set(['stage', 'podset', 'parallelstage']);
+// N028: engineTree replaces stored overrides on these carriers with their own mass fields.
+const IGNORED_MASS_OVERRIDES = new Set(['fairing', 'protuberance']);
 const recoveryDevice = (node: ComponentNode) => node.type === 'parachute' || node.type === 'streamer';
 const namedPart = (node: ComponentNode): AuditPart => ({
   id: node.id!, name: node.name || DISPLAY_NAME[node.type] || node.type,
@@ -48,7 +50,7 @@ function allParts(tree: RocketTree): ComponentNode[] {
 }
 function comparableMass(tree: RocketTree, node: ComponentNode): boolean {
   return !!node.id && numOpt(node, 'overrideMass') !== undefined
-    && !CONTAINERS.has(node.type) && !['fairing', 'protuberance'].includes(node.type)
+    && !CONTAINERS.has(node.type) && !IGNORED_MASS_OVERRIDES.has(node.type)
     && !(node['overrideSubcomponentsMass'] === true && (node.children?.length ?? 0) > 0)
     && !suppressingAncestor(tree, node.id, 'overrideSubcomponentsMass', 'overrideMass');
 }
@@ -86,9 +88,15 @@ const BULK: DensityField = { name: 'materialName', field: 'density', unit: 'kg/m
 const SURFACE: DensityField = { name: 'surfaceMaterialName', field: 'surfaceDensity', unit: 'kg/m²', list: SURFACE_MATERIALS };
 const LINE: DensityField = { name: 'lineMaterialName', field: 'lineDensity', unit: 'kg/m', list: LINE_MATERIALS };
 const FILLET: DensityField = { name: 'filletMaterialName', field: 'filletDensity', unit: 'kg/m³', list: BULK_MATERIALS };
+// N028: ComponentFactory applies bulk materials to External/StructuralComponent,
+// including guides without a density editor. App-only synthesized carriers are excluded.
+const BULK_PARTS = new Set([
+  'nosecone', 'transition', 'bodytube', 'trapezoidfinset', 'ellipticalfinset', 'freeformfinset',
+  'tubefinset', 'innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock', 'launchlug', 'railbutton',
+]);
 function densityFields(node: ComponentNode): DensityField[] {
   const fields: DensityField[] = [];
-  if (FIELDS[node.type]?.some(f => f.key === 'density')) fields.push(BULK);
+  if (BULK_PARTS.has(node.type)) fields.push(BULK);
   if (recoveryDevice(node)) fields.push(SURFACE);
   if (node.type === 'parachute' || node.type === 'shockcord') fields.push(LINE);
   if (['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'].includes(node.type)
@@ -109,7 +117,7 @@ export function preflightAudit(
   };
   for (const node of parts) {
     const mass = numOpt(node, 'overrideMass');
-    if (mass !== undefined && node.id) {
+    if (mass !== undefined && node.id && !IGNORED_MASS_OVERRIDES.has(node.type)) {
       const ancestor = suppressingAncestor(tree, node.id, 'overrideSubcomponentsMass', 'overrideMass');
       if (ancestor) {
         add(node, { kind: 'covered-mass', tier: 'information', target: 'mass-note',
@@ -126,10 +134,10 @@ export function preflightAudit(
               + 'a wrong weight changes the balance point and stability margin.' });
         }
       }
-      if (!ancestor && !CONTAINERS.has(node.type) && !['fairing', 'protuberance'].includes(node.type)
+      if (!ancestor && !CONTAINERS.has(node.type)
         && node['overrideSubcomponentsMass'] !== true) {
         const overriddenChildren = allParts({ components: node.children ?? [] })
-          .filter(child => numOpt(child, 'overrideMass') !== undefined);
+          .filter(child => !IGNORED_MASS_OVERRIDES.has(child.type) && numOpt(child, 'overrideMass') !== undefined);
         if (overriddenChildren.length) add(node, { kind: 'nested-mass', tier: 'information',
           reason: `This part and ${overriddenChildren.length} part${overriddenChildren.length === 1 ? '' : 's'} inside it carry mass overrides. `
             + 'This override replaces only this part’s own weight; the contents still count. '
