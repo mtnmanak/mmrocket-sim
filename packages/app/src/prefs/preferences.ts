@@ -100,6 +100,13 @@ export interface Preferences {
    * gutters back.
    */
   rulers2d?: boolean;
+  /** N005: resting numeric fields only; absent/auto retains the existing formatter. */
+  fieldPrecision?: 'auto' | 3 | 4;
+  /** N009/N013: viewer settings, never design or simulation inputs. Offset is SI metres. */
+  grid2d?: boolean;
+  rulerReference2d?: 'nose' | 'aft' | 'offset';
+  rulerOffset2dM?: number;
+  rulerReversed2d?: boolean;
   /**
    * The user's 3D printer, in METRES (see prefs/printers.ts for why metres and
    * not the millimetres a slicer quotes). Absent = no printer configured, and

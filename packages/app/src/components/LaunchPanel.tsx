@@ -24,6 +24,7 @@ import {
 } from '../services/launchConditions.js';
 import { editProfileSurface } from '../services/windProfile.js';
 import { WindProfile } from './WindProfile.js';
+import { LaunchCompass } from './LaunchCompass.js';
 
 // The launch conditions themselves — the stored shape, kernelSimOptions, the
 // bounds, the rod-aim and longitude rules, the import clamp — are domain logic
@@ -562,6 +563,8 @@ export function LaunchPanel({
         {onGetWeather && <WeatherButton onClick={onGetWeather} />}
       </div>
       <p className="comp-stats">Shared by every flight configuration.</p>
+      <LaunchCompass value={value} weatherFromDeg={weather?.fetched.windFromDeg
+        ?? (value.windProfileSource?.kind === 'open-meteo' ? value.windProfileSource.surfaceFromDeg : undefined)} />
       <div className="field-grid">
         {/* THE ORDER IS THE LAYOUT. `.field-grid` is a fixed two columns, so
             cells pair off in the order written here (weather build, spec §0.4,

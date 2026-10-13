@@ -881,6 +881,35 @@ describe('applied weather in the Launch panel', () => {
     });
   }
   const strip = () => host.querySelector('[data-weather="strip"]');
+  it.each([0, 90, 180, 270, 450])('N014 labels weather from %s degrees without changing launch inputs', (bearing) => {
+    const value = { ...APPLIED, launchRodAngleDeg: 5, launchRodAimDeg: 90 };
+    const before = kernelSimOptions(value);
+    renderWeather(value, { ...SNAP, fetched: { ...SNAP.fetched, windFromDeg: bearing } });
+    const compass = host.querySelector('[data-launch-compass]')!;
+    expect(compass).not.toBeNull();
+    expect(compass.querySelector('[data-direction="weather"]')!.getAttribute('transform'))
+      .toBe(`rotate(${bearing % 360} 50 50)`);
+    expect(compass.querySelector('[data-direction="rod"]')!.getAttribute('transform')).toBe('rotate(90 50 50)');
+    expect(compass.textContent).toContain('Weather wind from');
+    expect(compass.textContent).toContain('display only');
+    expect(compass.textContent).toContain('relative to wind');
+    expect(lastLaunch).toBeNull();
+    expect(kernelSimOptions(value)).toEqual(before);
+  });
+
+  it('N014 reverses negative tilt and marks a vertical rod without inventing a north bearing', () => {
+    renderWeather({ ...APPLIED, launchRodAngleDeg: -5, launchRodAimDeg: -90 }, null);
+    let compass = host.querySelector('[data-launch-compass]')!;
+    expect(compass.querySelector('[data-direction="rod"]')!.getAttribute('transform')).toBe('rotate(90 50 50)');
+    expect(compass.querySelector('[data-direction="weather"]')).toBeNull();
+    expect(compass.textContent).toContain('Weather wind bearing unavailable');
+    expect(compass.textContent).toContain('negative Rod angle');
+    renderWeather({ ...APPLIED, launchRodAngleDeg: 0 }, { ...SNAP, fetched: { ...SNAP.fetched, windFromDeg: null } });
+    compass = host.querySelector('[data-launch-compass]')!;
+    expect(compass.querySelector('[data-direction="rod"]')).toBeNull();
+    expect(compass.textContent).toContain('Vertical rod: no lean direction');
+    expect(lastLaunch).toBeNull();
+  });
   const provenance = (field: string) => host.querySelector(`[data-provenance="${field}"]`)?.textContent ?? null;
   const btn = (text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
 

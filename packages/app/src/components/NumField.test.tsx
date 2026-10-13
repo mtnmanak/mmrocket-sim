@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NumField } from './NumField.js';
 import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
+import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 
 /**
  * NumField is the single numeric input every dimension in the app passes
@@ -101,6 +102,27 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
+});
+
+it('N005 changes resting precision without committing or truncating focused text', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ fieldPrecision: 4 }));
+  let choose!: (p: 3 | 4) => void;
+  function Field() {
+    const { prefs, setPrefs } = usePrefs();
+    choose = (fieldPrecision) => setPrefs({ ...prefs, fieldPrecision });
+    return <NumField value={1.0625123456789} onCommit={(v) => commits.push(v)} />;
+  }
+  commits = [];
+  act(() => root.render(<PrefsProvider><Field /></PrefsProvider>));
+  expect(input().value).toBe('1.0625');
+  focus();
+  expect(input().value).toBe('1.0625123456789');
+  act(() => choose(3));
+  expect(input().value).toBe('1.0625123456789');
+  blur();
+  expect(input().value).toBe('1.063');
+  expect(commits).toEqual([]);
+  localStorage.clear();
 });
 
 afterEach(() => {

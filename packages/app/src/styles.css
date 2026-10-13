@@ -1768,10 +1768,6 @@ html {
 /* The rocket viewport gets a stage: a whisper of dusk launch sky, so the
    vehicle reads as the lit subject rather than floating on panel gray. */
 .rocket-stage {
-  /* Drafting-table grid (v0.076, owner-approved): the sky reads as a drawing
-     surface instead of a void. Cosmetic only — no snapping, no measuring;
-     real rulers stay a backlog item. Daylight's own .rocket-stage rule uses
-     the background SHORTHAND, which clears these layers — intended. */
   background-image:
     linear-gradient(rgba(82, 81, 78, 0.06) 1px, transparent 1px),
     linear-gradient(90deg, rgba(82, 81, 78, 0.06) 1px, transparent 1px),
@@ -1780,6 +1776,12 @@ html {
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 4px;
+}
+
+/* N009: replace decoration only in the 2D viewer, including when its grid is off. */
+.rocket-stage:has(.tree-schematic) {
+  background-image: linear-gradient(180deg, #f2f4f8 0%, #e9edf4 60%, #e4e7ee 100%);
+  background-size: 100% 100%;
 }
 
 /* The hero stage is the containing block for the canvas overlays (stats chip,
@@ -2858,7 +2860,36 @@ html {
   z-index: 2;
   display: flex;
   gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: calc(100% - 72px);
 }
+
+.schematic-ruler-settings { position: static; }
+.schematic-ruler-settings summary { cursor: pointer; }
+.schematic-ruler-settings summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.schematic-ruler-card {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  width: min(260px, 70vw);
+  padding: 10px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.schematic-ruler-card label { display: block; margin-bottom: 8px; }
+.schematic-ruler-card select { display: block; width: 100%; }
+.schematic-ruler-card p { margin: 0; }
+
+.launch-compass { grid-column: 1 / -1; min-width: 0; }
+.launch-compass-frames { display: flex; gap: 12px; align-items: center; }
+.launch-compass figure { margin: 0; flex: 1; min-width: 0; text-align: center; font-size: 12px; }
+.launch-compass svg { width: 100px; max-width: 100%; color: var(--text-primary); }
+.launch-compass svg circle, .launch-compass svg path { fill: none; stroke: currentColor; stroke-width: 2; }
+.launch-compass svg text { fill: currentColor; text-anchor: middle; font-size: 10px; }
 
 .schematic-controls .file-btn {
   padding: 2px 8px;

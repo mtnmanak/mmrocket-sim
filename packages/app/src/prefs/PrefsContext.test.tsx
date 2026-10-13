@@ -44,6 +44,25 @@ afterEach(() => {
 });
 
 describe('storage hardening: result tiles', () => {
+  it('W2-UI drops invalid display choices without discarding independent preferences', () => {
+    localStorage.setItem(STORAGE_KEY, '{"fieldPrecision":"4","grid2d":"off","rulerReference2d":"bad","rulerOffset2dM":1e999,"rulerReversed2d":1,"radiusMode":"radius"}');
+    mount();
+    for (const key of ['fieldPrecision', 'grid2d', 'rulerReference2d', 'rulerOffset2dM', 'rulerReversed2d'] as const) {
+      expect(seen.prefs[key], key).toBeUndefined();
+    }
+    expect(seen.prefs.radiusMode).toBe('radius');
+  });
+
+  it('W2-UI retains and persists display settings across remounts', () => {
+    mount();
+    act(() => seen.setPrefs({ ...seen.prefs, fieldPrecision: 4, grid2d: false,
+      rulerReference2d: 'offset', rulerOffset2dM: -0.0254, rulerReversed2d: true }));
+    act(() => root.unmount());
+    root = createRoot(host);
+    mount();
+    expect(seen.prefs).toMatchObject({ fieldPrecision: 4, grid2d: false,
+      rulerReference2d: 'offset', rulerOffset2dM: -0.0254, rulerReversed2d: true });
+  });
   it('S7d-3 drops unknown preference unions and keeps valid independent choices', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ aeroModel: 'unknown', theme: 'unknown', themeExplicit: true,
       radiusMode: 'unknown', markers3d: 'unknown', stabilityUnit: 'unknown', rogersKbf: false }));

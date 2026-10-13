@@ -114,6 +114,16 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         <h3 className="prefs-section">Display</h3>
         <div className="field-grid">
           <div className="field">
+            <label htmlFor={idFor('field-precision')}>Displayed decimals</label>
+            <select id={idFor('field-precision')} value={prefs.fieldPrecision ?? 'auto'}
+              onChange={(e) => setPrefs({ ...prefs,
+                fieldPrecision: e.target.value === 'auto' ? 'auto' : e.target.value === '4' ? 4 : 3 })}>
+              <option value="auto">Auto (up to 3)</option>
+              <option value="3">Up to 3</option>
+              <option value="4">Up to 4</option>
+            </select>
+          </div>
+          <div className="field">
             <label htmlFor={idFor('radius-mode')}>Round components entered as</label>
             <select
               id={idFor('radius-mode')}
@@ -204,6 +214,11 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
             </select>
           </div>
         </div>
+        <p className="prefs-hint">
+          <strong>Displayed decimals</strong> controls resting numeric fields. Small values keep
+          at least three significant figures. Focus a field to read its full stored precision;
+          changing this setting does not round stored values.
+        </p>
         <p className="prefs-hint">
           <strong>Daylight</strong> is the launch-site mode: black on white at maximum
           contrast, with heavier borders, bolder small type, and darker, thicker chart lines,
