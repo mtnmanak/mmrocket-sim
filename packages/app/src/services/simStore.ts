@@ -58,6 +58,8 @@ export function loadRuns(): SimRun[] {
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
       if (r.windSigma !== undefined && (!Number.isFinite(r.windSigma) || r.windSigma < 0)) delete r.windSigma;
+      if (r.lastBurnoutOptimalDelayS !== undefined && r.lastBurnoutOptimalDelayS !== null
+        && !Number.isFinite(r.lastBurnoutOptimalDelayS)) delete r.lastBurnoutOptimalDelayS;
       if (r.lastDeploymentGroundSpeed !== undefined && r.lastDeploymentGroundSpeed !== null
         && (!Number.isFinite(r.lastDeploymentGroundSpeed) || r.lastDeploymentGroundSpeed < 0)) delete r.lastDeploymentGroundSpeed;
       const advice = normalizeFlightAdvisories(r.advisoryLimits);

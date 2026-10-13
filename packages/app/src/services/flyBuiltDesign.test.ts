@@ -302,6 +302,7 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
       expect(runArg().launch.windStdDev).toBe(input.launch.windStdDev);
       // W3: retain the untouched kernel summary for the separate desktop comparison value.
       expect(runArg().result.summary.deploymentVelocity).toBe(flight.result.summary.deploymentVelocity);
+      expect(runArg().result.summary.optimumDelay).toBe(flight.result.summary.optimumDelay);
       // The pieces a stub would most easily get wrong, named.
       expect(runArg().aeroModel).toBe(mach > 0.9 ? 'auto-supersonic' : 'classic');
       expect(runArg().meta?.motorCount).toBe(2);
@@ -458,6 +459,8 @@ async function bothWays(state: DesignState, aero: AeroState) {
   expect(ref.run.windSigma).toBe(state.launch.windStdDev);
   expect(out.run.lastDeploymentGroundSpeed).toBe(out.flight.result.summary.deploymentVelocity);
   expect(ref.run.lastDeploymentGroundSpeed).toBe(ref.res.summary.deploymentVelocity);
+  expect(out.run.lastBurnoutOptimalDelayS).toBe(out.flight.result.summary.optimumDelay);
+  expect(ref.run.lastBurnoutOptimalDelayS).toBe(ref.res.summary.optimumDelay);
   // The frozen Launch must catch lost series and branches too (2026-10-01).
   // Both builds use the same tree, so no node id needs normalising here.
   expect(out.flight.result).toStrictEqual(ref.res);

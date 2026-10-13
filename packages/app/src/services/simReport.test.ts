@@ -1,5 +1,5 @@
-import { testMotor, testResolution } from './autoDelay.testSupport.js';
-import { delayMountsOf } from './autoDelaySolver.js';
+import { probeFlight, testMotor, testResolution } from './autoDelay.testSupport.js';
+import { delayMountsOf, solveAutoDelays } from './autoDelaySolver.js';
 import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import {
@@ -67,6 +67,35 @@ const motor = {
   times: [0, 2], thrusts: [10, 0], masses: [0.024, 0.013],
   cgX: 0.035, ejectionDelay: 5,
 };
+
+it('records the last-burnout summary separately from the two-motor primary Auto delay', async () => {
+  // Synthetic ballistic peak 10 s; mount burnouts 2/5 s => primary 8 s, last 5 s.
+  const assigned: [string, ReturnType<typeof testMotor>][] = [['a', testMotor()], ['b', testMotor()]];
+  const solved = await solveAutoDelays({ mounts: delayMountsOf(assigned), budget: { probes: 0 },
+    probe: () => probeFlight(['a', 'b'], 10) });
+  expect(solved.mounts.map(m => [m.burnoutTime, m.rawOptimum])).toEqual([[2, 8], [5, 5]]);
+  const result = fakeResult();
+  result.summary.optimumDelay = 5;
+  result.events = [...result.events.filter(e => e.type !== 'BURNOUT'),
+    { type: 'BURNOUT', time: 2, motorMountId: 'a' }, { type: 'BURNOUT', time: 5, motorMountId: 'b' }];
+  const before = structuredClone(result);
+  const run = buildSimRun({ result, info, motor: { ...motor, ejectionDelay: 8 }, launch: DEFAULT_CONDITIONS,
+    rocketName: 'Two motors', execMs: 1, primaryMountId: 'a', delayResolution: solved });
+  expect(run.lastBurnoutOptimalDelayS).toBe(5);
+  expect(run.optimumDelayS).toBe(8);
+  expect(run.recommendedDelayS).toBe(8);
+  expect(result).toEqual(before);
+  result.summary.optimumDelay = 99;
+  expect(run.lastBurnoutOptimalDelayS).toBe(5);
+});
+
+it.each([[0, 0], [-1, -1], [null, null], [undefined, null], [NaN, null], [Infinity, null]])(
+  'records only finite last-burnout optimal delay %s', (optimumDelay, expected) => {
+  const result = fakeResult();
+  result.summary.optimumDelay = optimumDelay as number | null;
+  const run = buildSimRun({ result, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Delay', execMs: 1 });
+  expect(run.lastBurnoutOptimalDelayS).toBe(expected);
+});
 
 it.each([0, 1.25])('records flown gust sigma %s without changing calculated flight values', windStdDev => {
   const launch = { ...DEFAULT_CONDITIONS, windStdDev };

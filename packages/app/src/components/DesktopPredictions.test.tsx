@@ -15,6 +15,35 @@ const predictions: DesktopStoredPrediction[] = [
 ];
 
 describe('desktop prediction comparison', () => {
+  it.each([5, 0, -1])('compares the kernel last-burnout delay %s rather than primary Auto delay', lastBurnoutOptimalDelayS => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const run = { flightConfigId: 'a', optimumDelayS: 8, lastBurnoutOptimalDelayS } as SimRun;
+    act(() => root.render(<PrefsProvider><DesktopPredictions
+      predictions={[{ name: 'Two motors', configId: 'a', data: { optimumDelay: lastBurnoutOptimalDelayS } }]}
+      configId="a" run={run} /></PrefsProvider>));
+    const row = [...host.querySelectorAll('tbody tr')].find(tr => tr.querySelector('th')?.textContent?.startsWith('Optimal delay'))!;
+    expect(row.querySelector('th')?.textContent).toContain('last burnout');
+    expect([...row.querySelectorAll('td')].map(td => td.textContent)).toEqual([
+      lastBurnoutOptimalDelayS.toFixed(2), lastBurnoutOptimalDelayS.toFixed(2),
+    ]);
+    expect(host.textContent).toContain("primary mount's Auto delay");
+    expect(run.optimumDelayS).toBe(8);
+    act(() => root.unmount());
+  });
+
+  it.each([undefined, null, NaN, Infinity])('keeps missing or invalid last-burnout delay %s blank without falling back to Auto', lastBurnoutOptimalDelayS => {
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const run = { flightConfigId: 'a', optimumDelayS: 8, lastBurnoutOptimalDelayS } as SimRun;
+    act(() => root.render(<PrefsProvider><DesktopPredictions
+      predictions={[{ name: 'Legacy', configId: 'a', data: { optimumDelay: 5 } }]}
+      configId="a" run={run} /></PrefsProvider>));
+    const row = [...host.querySelectorAll('tbody tr')].find(tr => tr.querySelector('th')?.textContent?.startsWith('Optimal delay'))!;
+    expect(row.querySelector('td:last-child')?.textContent).toBe('—');
+    act(() => root.unmount());
+  });
+
   it.each([0, 5])('compares the last deployment ground speed for dual deployment with %s m/s drift', wind => {
     const host = document.createElement('div');
     const root = createRoot(host);

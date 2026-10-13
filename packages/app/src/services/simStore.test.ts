@@ -24,6 +24,26 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     ...over,
   }) as SimRun;
 
+it('persists last-burnout optimal delay including zero and negative values without backfilling old Auto runs', () => {
+  localStorage.clear();
+  addRuns([mkRun('last', { lastBurnoutOptimalDelayS: 5, optimumDelayS: 8 }),
+    mkRun('zero', { lastBurnoutOptimalDelayS: 0 }), mkRun('late', { lastBurnoutOptimalDelayS: -1 }),
+    mkRun('unknown', { lastBurnoutOptimalDelayS: null }), mkRun('legacy', { optimumDelayS: 8 })]);
+  expect(loadRuns().map(r => r.lastBurnoutOptimalDelayS)).toEqual([5, 0, -1, null, undefined]);
+});
+
+it.each(['5', {}, [], true, Infinity, NaN])('invalid stored last-burnout optimal delay %j becomes unknown', delay => {
+  const rows = [{ ...mkRun('bad', { optimumDelayS: 8 }), lastBurnoutOptimalDelayS: delay }, mkRun('legacy')];
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify(rows));
+  // JSON cannot encode nonfinite numbers; exercise that corruption at the parser boundary.
+  if (typeof delay === 'number') vi.spyOn(JSON, 'parse').mockReturnValueOnce(rows);
+  const loaded = loadRuns();
+  expect(loaded).toHaveLength(2);
+  expect(loaded[0]).not.toHaveProperty('lastBurnoutOptimalDelayS');
+  expect(loaded[1]).not.toHaveProperty('lastBurnoutOptimalDelayS');
+  expect(loaded[0]?.optimumDelayS).toBe(8);
+});
+
 it('persists the last deployment ground speed without backfilling legacy runs', () => {
   localStorage.clear();
   addRuns([mkRun('zero', { lastDeploymentGroundSpeed: 0 }), mkRun('main', { lastDeploymentGroundSpeed: 20.1 }),

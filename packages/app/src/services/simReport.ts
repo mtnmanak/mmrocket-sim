@@ -563,6 +563,9 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   groundHitVelocity: number;
   totalFlightTime: number;
   optimumDelayS: number | null;
+  /** W3 desktop comparison: kernel optimum-apogee time minus LAST burnout (s).
+   * Independent of primary-mount Auto advice; absent on older saved runs. */
+  lastBurnoutOptimalDelayS?: number | null;
   /** Optimum rounded to the nearest whole second (drill-to-fit rule). */
   recommendedDelayS: number | null;
 
@@ -2447,6 +2450,7 @@ export function buildSimRun(input: {
     groundHitVelocity: summary.groundHitVelocity,
     totalFlightTime: summary.flightTime,
     optimumDelayS,
+    lastBurnoutOptimalDelayS: Number.isFinite(summary.optimumDelay) ? summary.optimumDelay : null,
     recommendedDelayS,
     safeLiftoffSpeed,
     safeThrustToWeight,

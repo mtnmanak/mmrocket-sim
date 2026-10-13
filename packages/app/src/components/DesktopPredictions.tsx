@@ -14,7 +14,7 @@ const SUMMARY_FIELDS: [keyof DesktopStoredPrediction['data'], keyof SimRun, stri
   ['groundHitVelocity', 'groundHitVelocity', 'Ground hit velocity', 'velocity'],
   ['launchRodVelocity', 'rodExitVelocity', 'Rod exit velocity', 'velocity'],
   ['deploymentVelocity', 'lastDeploymentGroundSpeed', 'Last deployment ground speed', 'velocity'],
-  ['optimumDelay', 'optimumDelayS', 'Optimal delay (s)', null],
+  ['optimumDelay', 'lastBurnoutOptimalDelayS', 'Optimal delay from last burnout (s)', null],
 ];
 
 /** File-owned history, grouped by configuration identity rather than names. */
@@ -35,6 +35,7 @@ export function DesktopPredictions({ predictions, configId, run }: {
     <Note as="p" tier="information" className="download-caption">
       These stored predictions may describe older settings. They are not used as simulation inputs.
       {' '}Last deployment ground speed compares the final deployment in each simulation, rather than the first opening speed in the app's recovery report. Older app runs without this recorded value show a blank.
+      {' '}Optimal delay from last burnout compares the time from the last motor burnout to apogee with recovery disabled. It can differ from the primary mount's Auto delay, which starts at that mount's burnout. Older app runs without the separately recorded value show a blank.
     </Note>
     {matching.map((prediction, index) => {
       const app = prediction.configId !== null && run && !run.importedSummary && run.flightConfigId === prediction.configId ? run : null;
