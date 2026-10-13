@@ -545,9 +545,14 @@ describe('winds aloft through app launch conditions', () => {
     expect(uniform.run.windLevels).toEqual(levels);
     expect(uniform.run.windLevels).not.toBe(levels);
     expect(runsToCsv([uniform.run]).split('\n')[0]!.split(',')).toContain('Winds aloft (levels)');
-    expect(runsToCsv([uniform.run]).split('\n')[0]!.trim().split(',').slice(-5)).toEqual([
+    expect(runsToCsv([uniform.run]).split('\n')[0]!.trim().split(',').slice(-6)).toEqual([
       'Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status',
+      'Wind gusts σ at pad (m/s)',
     ]);
+    expect(uniform.run.windSigma).toBe(0);
+    expect(one.run.windSigma).toBe(0.6);
+    expect(runsToCsv([uniform.run]).split('\n')[1]!.trim().split(',').at(-1)).toBe('0');
+    expect(runsToCsv([one.run]).split('\n')[1]!.trim().split(',').at(-1)).toBe('0.6');
     const again = fly({ ...launch, windLevels: uniform.run.windLevels!.map((l) => ({ ...l, standardDeviation: l.standardDeviation ?? 0 })) });
     expect(again.result.series).toEqual(uniform.result.series);
   }, 60000);

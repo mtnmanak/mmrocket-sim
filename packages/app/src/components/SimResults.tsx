@@ -596,10 +596,19 @@ export function SimHistory({
           <h2>Delete all {runs.length} saved runs?</h2>
           <p>
             This deletes every run in the table — the comparison history, and the
-            flights a later Save .ork would write into the file. Results that came
-            from the .ork file you opened stay with that file and are written back
-            when you save it. It cannot be undone: download the run table first to
-            keep the numbers.
+            flights a later Save .ork would write into the file. Imported app
+            summaries stay with the opened design and are written back when you
+            save it for configurations still in the design.
+          </p>
+          <p>
+            Desktop OpenRocket predictions stay in the current session but are
+            omitted from .ork files saved by the app. Keep the original desktop
+            file to preserve those predictions.
+          </p>
+          <p>
+            Deleting all saved runs cannot be undone: download the run table first
+            to keep the saved runs' numbers. The run table does not include desktop
+            predictions.
           </p>
           <div className="modal-actions">
             <button className="file-btn modal-danger"

@@ -731,6 +731,19 @@ describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-
     expect(host.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it('explains which opened-file results survive saving before deleting saved runs', () => {
+    render(<Wired />);
+    act(() => { byText('Clear all').click(); });
+    const copy = host.querySelector('[role="dialog"]')!.textContent!.replace(/\s+/g, ' ');
+    expect(copy).toContain('Imported app summaries stay with the opened design and are written back when you save it');
+    expect(copy).toContain('Desktop OpenRocket predictions stay in the current session but are omitted from .ork files saved by the app');
+    expect(copy).toContain('Keep the original desktop file to preserve those predictions');
+    expect(copy).toContain('download the run table first to keep the saved runs\' numbers');
+    expect(copy).toContain('The run table does not include desktop predictions');
+    expect(copy).not.toContain('Results that came from the .ork file you opened');
+    expect(loadRuns()).toHaveLength(3);
+  });
+
   it('a row\'s ✕ deletes at once and offers Undo, which puts it back where it was', () => {
     render(<Wired />);
     openTable();
