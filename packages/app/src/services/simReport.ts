@@ -6,7 +6,7 @@ import { APP_HYBRID_BAND, validHybridBand, type AeroProvenance } from './aeroPro
 import { delayMountsOf, resolutionMatchesPolicy, validDelayResolution, type DelayMount, type DelayResolution } from './autoDelaySolver.js';
 import { installedMounts } from './flightRunner.js';
 import { railProfileFromFlight, type RailProfile } from './railNeeded.js';
-import type { WindProfileConditions } from './windProfile.js';
+import { profileSurface, type WindProfileConditions } from './windProfile.js';
 import type { ComponentNode, EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S } from '@online-openrocket/engine';
 import { flownGeodeticMethod, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
@@ -565,6 +565,8 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   loads?: FlightLoads;
 
   windAvg: number;
+  /** Gust sigma at the pad (m/s), frozen at launch; absent on old runs. */
+  windSigma?: number;
   /**
    * Integration time step this flight actually used (s); absent = the engine
    * default. Recorded because it is the one launch setting that changes how
@@ -2416,6 +2418,7 @@ export function buildSimRun(input: {
     maxRollRateRadS,
     loads: flightLoads(result),
     windAvg: launch.windAverage,
+    windSigma: launch.windLevels?.length ? profileSurface(launch.windLevels).windStdDev : launch.windStdDev,
     ...(launch.windLevels?.length ? { windLevels: launch.windLevels.map((l) => ({ ...l })),
       windProfileSource: launch.windProfileSource } : {}),
     ...(launch.timeStepS != null ? { timeStepS: launch.timeStepS } : {}),

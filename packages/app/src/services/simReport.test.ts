@@ -67,6 +67,28 @@ const motor = {
   cgX: 0.035, ejectionDelay: 5,
 };
 
+it.each([0, 1.25])('records flown gust sigma %s without changing calculated flight values', windStdDev => {
+  const launch = { ...DEFAULT_CONDITIONS, windStdDev };
+  const make = () => buildSimRun({ result: fakeResult(), info, motor, launch, rocketName: 'sigma', execMs: 1 });
+  const run = make();
+  expect(run.windSigma).toBe(windStdDev);
+  expect(run.maxAltitude).toBe(fakeResult().summary.maxAltitude);
+  launch.windStdDev = 99;
+  expect(run.windSigma).toBe(windStdDev);
+});
+
+it('records the profile sigma at the pad, not the unused single-level scalar', () => {
+  const launch = { ...DEFAULT_CONDITIONS, windStdDev: 99, windLevels: [
+    { altitude: -100, speed: 2, direction: 0, standardDeviation: 0.5 },
+    { altitude: 100, speed: 4, direction: 0, standardDeviation: 1.5 },
+  ] };
+  const run = buildSimRun({ result: fakeResult(), info, motor, launch, rocketName: 'profile', execMs: 1 });
+  expect(run.windSigma).toBe(1);
+  launch.windLevels[0]!.standardDeviation = 30;
+  expect(run.windLevels?.[0]?.standardDeviation).toBe(0.5);
+  expect(run.windSigma).toBe(1);
+});
+
 it('R7: scalar reports cannot distinguish Auto from fixed at the same flown delay', () => {
   // This is the pre-vector buildSimRun input shape: meta was an input only,
   // not part of the persisted report, from ee5ac71 through 9855bb63^.
@@ -1217,8 +1239,8 @@ describe('runsToCsv', () => {
     expect(hc[configAt + 2]).toBe('Winds aloft (levels)');
     expect(hc[configAt + 3]).toBe('Rail for 15.0 m/s (m)');
     expect(hc[configAt + 4]).toBe('Max dynamic pressure (Pa)');
-    expect(hc.slice(-5)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status']);
-    expect(cells(row!).slice(-2)).toEqual(['not recorded', 'Unknown']);
+    expect(hc.slice(-6)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status', 'Wind gusts σ at pad (m/s)']);
+    expect(cells(row!).slice(-3)).toEqual(['not recorded', 'Unknown', '0']);
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({

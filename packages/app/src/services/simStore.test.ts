@@ -24,6 +24,30 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     ...over,
   }) as SimRun;
 
+it('appends gust sigma to CSV/XLSX headers in wind units, leaving legacy cells blank', () => {
+  const list = [mkRun('calm', { windSigma: 0 }), mkRun('gusty', { windSigma: 1 }), mkRun('old', { conditionsKey: '{"windStdDev":9}' })];
+  const table = runsToTable(list, IMPERIAL_UNITS);
+  expect(table.headers.at(-1)).toBe('Wind gusts σ at pad (mph)');
+  expect(table.rows.map(row => row.at(-1))).toEqual([0, 2.2, '']);
+  const csv = runsToCsv(list, IMPERIAL_UNITS).split('\n');
+  expect(csv[0]?.endsWith('Wind gusts σ at pad (mph)')).toBe(true);
+  expect(csv[2]?.endsWith(',2.2')).toBe(true);
+  expect(csv[3]?.endsWith(',')).toBe(true);
+});
+
+it.each([null, -1, '2', {}, Infinity])('invalid stored gust sigma %j becomes unknown', windSigma => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([mkRun('bad', { windSigma: windSigma as number })]));
+  expect(loadRuns()[0]).not.toHaveProperty('windSigma');
+  expect(runsToTable(loadRuns()).rows[0]?.at(-1)).toBe('');
+});
+
+it('persists recorded sigma and keeps old runs unknown', () => {
+  localStorage.clear();
+  const saved = addRuns([mkRun('calm', { windSigma: 0 }), mkRun('gusty', { windSigma: 1.25 }), mkRun('old')]);
+  expect(saved.map(r => r.windSigma)).toEqual([0, 1.25, undefined]);
+  expect(loadRuns().map(r => r.windSigma)).toEqual([0, 1.25, undefined]);
+});
+
 it.each(['Hybrid', 'none'])('RES-1b exports no configuration attribution for stored imported simulation %s', flightConfig => {
   for (const flightConfigId of [undefined, 'unmatched']) {
     localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([

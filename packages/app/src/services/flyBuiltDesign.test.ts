@@ -287,6 +287,8 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
       const { flight } = await flyBuiltDesign(input);
       expect(flight.usedSupersonic).toBe(mach > 0.9);
       expect(runArg()).toStrictEqual(expected(input, flight));
+      // W3: sigma is report metadata; the kernel options remain pinned above.
+      expect(runArg().launch.windStdDev).toBe(input.launch.windStdDev);
       // The pieces a stub would most easily get wrong, named.
       expect(runArg().aeroModel).toBe(mach > 0.9 ? 'auto-supersonic' : 'classic');
       expect(runArg().meta?.motorCount).toBe(2);
@@ -435,6 +437,9 @@ async function bothWays(state: DesignState, aero: AeroState) {
   });
   expect(upgraded).toBe(refUpgraded);
   expect(comparable(out.run)).toStrictEqual(comparable(ref.run));
+  // W3: both independently flown reports retain the launch's gust sigma.
+  expect(out.run.windSigma).toBe(state.launch.windStdDev);
+  expect(ref.run.windSigma).toBe(state.launch.windStdDev);
   // The frozen Launch must catch lost series and branches too (2026-10-01).
   // Both builds use the same tree, so no node id needs normalising here.
   expect(out.flight.result).toStrictEqual(ref.res);

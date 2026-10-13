@@ -59,6 +59,7 @@ export const XML_JS_SUITES = [
   'src/services/orkFileHardening.test.ts',
   'src/services/orkLongitude.test.ts',
   'src/services/orkFlightData.test.ts',
+  'src/services/orkDesktopPredictions.test.ts',
   'src/services/warningImport.test.ts',
   'src/services/warningUnits.kernel.test.ts',
   'src/services/warningUnits.test.ts',

@@ -444,6 +444,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                 bad={run.weathercockRisk === 'high'} />
               <Row label="Winds aloft" value={run.windLevels?.length ? windProfileSummary(run.windLevels) : run.importedSummary ? '—' : "Surface wind only"} />
               <Row label="Wind average" value={fmtSi('windspeed', prefs.units.windspeed, run.windAvg)} quantity="windspeed" />
+              <Row label="Wind gusts σ at pad" value={fmtSi('windspeed', prefs.units.windspeed, run.windSigma ?? NaN)} quantity="windspeed" />
               {/* The air this run flew, as the Launch panel's readout showed it at
                   launch (SimRun.densityAltitudeM). Stored runs are untrusted
                   JSON and older ones lack the field: no number, no row. */}
@@ -625,6 +626,7 @@ export function SimHistory({
                 <th scope="col">Safe</th>
                 <th scope="col">Status</th>
                 <th scope="col">Winds aloft</th>
+                <th scope="col">Wind gusts σ at pad (<UnitChip quantity="windspeed" />)</th>
                 <th scope="col">When</th>
                 <th scope="col"></th>
               </tr>
@@ -679,6 +681,7 @@ export function SimHistory({
                     </td>
                     <td title={status.title}>{status.label}</td>
                     <td>{r.windLevels?.length ? `${r.windLevels.length} levels` : r.importedSummary ? '—' : "No"}</td>
+                    <td>{fmtSi('windspeed', prefs.units.windspeed, r.windSigma ?? NaN)}</td>
                     {/* Date AND time once it is not today's run: the time alone
                         made a three-day-old row identical to a fresh one. */}
                     <td style={{ whiteSpace: 'nowrap' }}>{formatRunWhen(r.when)}</td>

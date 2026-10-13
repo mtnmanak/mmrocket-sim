@@ -202,6 +202,31 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+it.each([360, 1200])('shows file-owned desktop predictions on Results at %i px without requiring an app flight', async width => {
+  viewport(width);
+  localStorage.setItem('online-openrocket.workspace.v1', 'results');
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), launch: DEFAULT_CONDITIONS,
+    savedConfigs: [{ id: 'desktop-config', name: 'Imported', isDefault: true, motors: {} }],
+    activeConfigId: 'desktop-config', emptyConfigVersion: 1, configLayers: 1,
+    importedDocument: { name: 'Desktop file', storedSimulations: [], desktopPredictions: [
+      { name: 'Desktop flight', configId: 'desktop-config', sourceVersion: '24.12', data: { maxAltitude: 123 } },
+      { name: 'Different configuration', configId: 'other', data: { maxAltitude: 987 } },
+    ] }, savedAt: Date.now() }));
+  const host = await mountApp();
+  const panel = host.querySelector('.desktop-predictions')!;
+  expect(panel).not.toBeNull();
+  expect(panel.textContent).toContain('Desktop OpenRocket 24.12');
+  expect(panel.textContent).not.toContain('Different configuration');
+  expect(panel.querySelector('tbody tr td:last-child')?.textContent).toBe('—');
+  await act(async () => {
+    const summary = panel.querySelector('summary')!;
+    summary.focus();
+    summary.click();
+  });
+  expect(document.activeElement).toBe(panel.querySelector('summary'));
+  expect(panel.querySelector('details')?.open).toBe(true);
+});
+
 /**
  * THE ROCKET NAME IS NOT PHYSICS (audit 2026-09-22, row 513). The name field
  * does `setTree({ ...tree, name })` on every keystroke — a fresh `tree` around

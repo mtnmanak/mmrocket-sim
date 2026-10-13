@@ -1,0 +1,54 @@
+import type { DesktopStoredPrediction } from '../services/orkFile.js';
+import type { SimRun } from '../services/simReport.js';
+import { usePrefs } from '../prefs/PrefsContext.js';
+import { fmtSi, type Quantity } from '../prefs/units.js';
+import { Note } from './Note.js';
+
+const SUMMARY_FIELDS: [keyof DesktopStoredPrediction['data'], keyof SimRun, string, Quantity | null][] = [
+  ['maxAltitude', 'maxAltitude', 'Max altitude', 'distance'],
+  ['maxVelocity', 'maxVelocity', 'Max velocity', 'velocity'],
+  ['maxAcceleration', 'maxAcceleration', 'Max acceleration', 'acceleration'],
+  ['maxMach', 'maxMach', 'Max Mach', null],
+  ['timeToApogee', 'timeToApogee', 'Time to apogee (s)', null],
+  ['flightTime', 'totalFlightTime', 'Total flight time (s)', null],
+  ['groundHitVelocity', 'groundHitVelocity', 'Ground hit velocity', 'velocity'],
+  ['launchRodVelocity', 'rodExitVelocity', 'Rod exit velocity', 'velocity'],
+  ['deploymentVelocity', 'velocityAtDeployment', 'Deployment velocity', 'velocity'],
+  ['optimumDelay', 'optimumDelayS', 'Optimal delay (s)', null],
+];
+
+/** File-owned history, grouped by configuration identity rather than names. */
+export function DesktopPredictions({ predictions, configId, run }: {
+  predictions?: readonly DesktopStoredPrediction[];
+  configId: string | null;
+  run?: SimRun | null;
+}) {
+  const { prefs } = usePrefs();
+  const matching = predictions?.filter(p => p.configId === configId) ?? [];
+  if (!matching.length) return null;
+  const app = configId !== null && run && !run.importedSummary && run.flightConfigId === configId ? run : null;
+  const format = (value: unknown, quantity: Quantity | null) => {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+    return quantity ? `${fmtSi(quantity, prefs.units[quantity], value)} ${prefs.units[quantity]}` : value.toFixed(2);
+  };
+  return <section className="panel comparison-panel desktop-predictions" aria-label="Desktop OpenRocket stored predictions">
+    <div className="panel-head"><h2>Desktop OpenRocket stored predictions</h2></div>
+    <Note as="p" tier="information" className="download-caption">
+      These stored predictions may describe older settings.{' '}
+      {configId === null ? 'Configuration identity was not recorded; no app comparison is available.'
+        : 'The configuration ID is the same; the design, motors and launch conditions may differ.'}
+      {' '}They are not used as simulation inputs.
+    </Note>
+    {matching.map((prediction, index) => <details key={index}>
+      <summary>{prediction.name || `Simulation ${index + 1}`} · Desktop OpenRocket{prediction.sourceVersion ? ` ${prediction.sourceVersion}` : ' (version not recorded)'}</summary>
+      <div className="comparison-table-scroll" tabIndex={0} role="region" aria-label={`Stored prediction ${prediction.name || index + 1}`}>
+        <table>
+          <thead><tr><th scope="col">Summary</th><th scope="col">Desktop OpenRocket</th><th scope="col">The app{app ? ' (shown run)' : ' (no run shown)'}</th></tr></thead>
+          <tbody>{SUMMARY_FIELDS.map(([desktopKey, appKey, label, quantity]) => <tr key={desktopKey}>
+            <th scope="row">{label}</th><td>{format(prediction.data[desktopKey], quantity)}</td><td>{format(app?.[appKey], quantity)}</td>
+          </tr>)}</tbody>
+        </table>
+      </div>
+    </details>)}
+  </section>;
+}

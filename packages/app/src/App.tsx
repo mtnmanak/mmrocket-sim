@@ -51,6 +51,7 @@ import { useMenuPopup } from './components/useDialog.js';
 import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
+import { DesktopPredictions } from './components/DesktopPredictions.js';
 import {
   CD_REFERENCE_MACH, DesignStats, FlightStats, StatsChip, stabilityGlyphClass,
 } from './components/StatTiles.js';
@@ -4724,6 +4725,10 @@ export function App() {
               own boundary (audit 2026-09-22): a throw in one says so in place,
               and the rest of the tab — the run table included, where a bad
               run can be deleted — keeps working instead of the app going down. */}
+          <PanelBoundary what="The desktop stored predictions" resetKey={importedDocument}>
+            <DesktopPredictions predictions={importedDocument?.desktopPredictions}
+              configId={reportRun?.flightConfigId ?? activeConfigId} run={reportRun} />
+          </PanelBoundary>
           {!inspectedSummary && shownResult && lastRun ? (
             <>
               <PanelBoundary what="This flight's report" resetKey={lastRun}>

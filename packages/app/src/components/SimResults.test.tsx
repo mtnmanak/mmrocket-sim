@@ -94,6 +94,22 @@ const render = (node: React.ReactNode) => act(() => root.render(
   <PrefsProvider>{node}</PrefsProvider>,
 ));
 
+it.each([0, 1.25, undefined])('shows recorded gust sigma %s in details and saved-run row', windSigma => {
+  const stored = { ...run(), windSigma };
+  render(<SimRunDetails run={stored} />);
+  act(() => (Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Show all details')!).click());
+  const row = Array.from(host.querySelectorAll('tr')).find(r => r.cells[0]?.textContent === 'Wind gusts σ at pad')!;
+  expect(row).toBeDefined();
+  expect(row.cells[1]?.textContent).toContain(windSigma === undefined ? '—' : fmtSi('windspeed', units.INITIAL_UNITS.windspeed, windSigma));
+  render(<SimHistory runs={[stored]} onRunsChange={() => {}} />);
+  act(() => (Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Show')!).click());
+  const headers = Array.from(host.querySelectorAll('th')).map(h => h.textContent);
+  const at = headers.findIndex(h => h?.startsWith('Wind gusts σ'));
+  expect(at).toBeGreaterThan(-1);
+  expect(host.querySelector('tbody tr')?.querySelectorAll('td')[at]?.textContent)
+    .toBe(windSigma === undefined ? '—' : fmtSi('windspeed', units.INITIAL_UNITS.windspeed, windSigma));
+});
+
 it('groups failed flight comments and consequential kernel events once, retaining quiet numeric bands', () => {
   render(<SimRunDetails run={{ ...run(),
     comments: 'Rod exit failed. | Landing failed. | Fast opening, caution band.',

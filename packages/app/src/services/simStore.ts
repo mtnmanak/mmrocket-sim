@@ -56,6 +56,7 @@ export function loadRuns(): SimRun[] {
       typeof r === 'object' && r !== null && !Array.isArray(r)
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
+      if (r.windSigma !== undefined && (!Number.isFinite(r.windSigma) || r.windSigma < 0)) delete r.windSigma;
       // A malformed historical record means unknown, never "no overrides".
       if (r.flightOverrides !== undefined && (!Array.isArray(r.flightOverrides) || !r.flightOverrides.every(record => {
         if (!record || typeof record !== 'object' || typeof record.partName !== 'string') return false;
@@ -490,6 +491,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm'), 'travel'), (r) => railExportCell(r, 'travel')],
   ['Overrides', (r) => runOverrideText(r, u?.distance ?? 'm')],
   ['Status', (r) => runStatus(r, provenance).label],
+  [`Wind gusts σ at pad (${sym('windspeed', 'm/s')})`, (r) => cv('windspeed', r.windSigma, 1)],
   ];
 }
 
