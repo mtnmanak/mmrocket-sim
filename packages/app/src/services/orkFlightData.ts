@@ -13,12 +13,14 @@ import { MAX_RUNS } from './simStore.js';
  * Keep this snapshot with the opened design, including across edits/reloads;
  * replace it on every Open and clear it on New. Never infer it from history.
  */
-export type ImportedSummaryDocument = Required<Pick<OrkImportResult, 'name' | 'storedSimulations'>>;
+export type ImportedSummaryDocument = Required<Pick<OrkImportResult, 'name' | 'storedSimulations'>>
+  & Pick<OrkImportResult, 'desktopPredictions'>;
 
 export function summaryDocument(imported: Pick<OrkImportResult, 'name'>
-  & Partial<Pick<OrkImportResult, 'storedSimulations'>>): ImportedSummaryDocument | undefined {
-  return imported.storedSimulations?.length
-    ? structuredClone({ name: imported.name, storedSimulations: imported.storedSimulations }) : undefined;
+  & Partial<Pick<OrkImportResult, 'storedSimulations' | 'desktopPredictions'>>): ImportedSummaryDocument | undefined {
+  return imported.storedSimulations?.length || imported.desktopPredictions?.length
+    ? structuredClone({ name: imported.name, storedSimulations: imported.storedSimulations ?? [],
+      ...(imported.desktopPredictions?.length ? { desktopPredictions: imported.desktopPredictions } : {}) }) : undefined;
 }
 
 /**

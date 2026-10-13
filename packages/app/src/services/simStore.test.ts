@@ -24,6 +24,69 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     ...over,
   }) as SimRun;
 
+it('persists last-burnout optimal delay including zero and negative values without backfilling old Auto runs', () => {
+  localStorage.clear();
+  addRuns([mkRun('last', { lastBurnoutOptimalDelayS: 5, optimumDelayS: 8 }),
+    mkRun('zero', { lastBurnoutOptimalDelayS: 0 }), mkRun('late', { lastBurnoutOptimalDelayS: -1 }),
+    mkRun('unknown', { lastBurnoutOptimalDelayS: null }), mkRun('legacy', { optimumDelayS: 8 })]);
+  expect(loadRuns().map(r => r.lastBurnoutOptimalDelayS)).toEqual([5, 0, -1, null, undefined]);
+});
+
+it.each(['5', {}, [], true, Infinity, NaN])('invalid stored last-burnout optimal delay %j becomes unknown', delay => {
+  const rows = [{ ...mkRun('bad', { optimumDelayS: 8 }), lastBurnoutOptimalDelayS: delay }, mkRun('legacy')];
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify(rows));
+  // JSON cannot encode nonfinite numbers; exercise that corruption at the parser boundary.
+  if (typeof delay === 'number') vi.spyOn(JSON, 'parse').mockReturnValueOnce(rows);
+  const loaded = loadRuns();
+  expect(loaded).toHaveLength(2);
+  expect(loaded[0]).not.toHaveProperty('lastBurnoutOptimalDelayS');
+  expect(loaded[1]).not.toHaveProperty('lastBurnoutOptimalDelayS');
+  expect(loaded[0]?.optimumDelayS).toBe(8);
+});
+
+it('persists the last deployment ground speed without backfilling legacy runs', () => {
+  localStorage.clear();
+  addRuns([mkRun('zero', { lastDeploymentGroundSpeed: 0 }), mkRun('main', { lastDeploymentGroundSpeed: 20.1 }),
+    mkRun('unknown', { lastDeploymentGroundSpeed: null }), mkRun('legacy', { velocityAtDeployment: 2 })]);
+  expect(loadRuns().map(r => r.lastDeploymentGroundSpeed)).toEqual([0, 20.1, null, undefined]);
+});
+
+it.each([-1, '2', {}, Infinity])('invalid stored last deployment ground speed %j becomes unknown', speed => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+    { ...mkRun('bad'), lastDeploymentGroundSpeed: speed }, mkRun('legacy'),
+  ]));
+  // JSON cannot carry Infinity; exercise that corrupt in-memory value through the parser boundary.
+  if (speed === Infinity) vi.spyOn(JSON, 'parse').mockReturnValueOnce([{ ...mkRun('bad'), lastDeploymentGroundSpeed: speed }, mkRun('legacy')]);
+  const loaded = loadRuns();
+  expect(loaded).toHaveLength(2);
+  expect(loaded[0]).not.toHaveProperty('lastDeploymentGroundSpeed');
+  expect(loaded[1]).not.toHaveProperty('lastDeploymentGroundSpeed');
+});
+
+it('appends gust sigma to CSV/XLSX headers in wind units, leaving legacy cells blank', () => {
+  const list = [mkRun('calm', { windSigma: 0 }), mkRun('gusty', { windSigma: 1 }), mkRun('old', { conditionsKey: '{"windStdDev":9}' })];
+  const table = runsToTable(list, IMPERIAL_UNITS);
+  expect(table.headers.at(-1)).toBe('Wind gusts σ at pad (mph)');
+  expect(table.rows.map(row => row.at(-1))).toEqual([0, 2.2, '']);
+  const csv = runsToCsv(list, IMPERIAL_UNITS).split('\n');
+  expect(csv[0]?.endsWith('Wind gusts σ at pad (mph)')).toBe(true);
+  expect(csv[2]?.endsWith(',2.2')).toBe(true);
+  expect(csv[3]?.endsWith(',')).toBe(true);
+});
+
+it.each([null, -1, '2', {}, Infinity])('invalid stored gust sigma %j becomes unknown', windSigma => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([mkRun('bad', { windSigma: windSigma as number })]));
+  expect(loadRuns()[0]).not.toHaveProperty('windSigma');
+  expect(runsToTable(loadRuns()).rows[0]?.at(-1)).toBe('');
+});
+
+it('persists recorded sigma and keeps old runs unknown', () => {
+  localStorage.clear();
+  const saved = addRuns([mkRun('calm', { windSigma: 0 }), mkRun('gusty', { windSigma: 1.25 }), mkRun('old')]);
+  expect(saved.map(r => r.windSigma)).toEqual([0, 1.25, undefined]);
+  expect(loadRuns().map(r => r.windSigma)).toEqual([0, 1.25, undefined]);
+});
+
 it('W2-WARN round-trips frozen limits and drops corrupt advice without losing the run', () => {
   const limits = { maxAirspeedMs: 100, armingAltitudeM: 200, armingCautionBandM: 10 };
   addRun(mkRun('advice', { advisoryLimits: limits, maxAirspeedMs: 101 }));
@@ -36,6 +99,28 @@ it('W2-WARN round-trips frozen limits and drops corrupt advice without losing th
   expect(loaded.advisoryLimits).toBeUndefined();
   expect(loaded.maxAirspeedMs).toBeUndefined();
   expect(loaded.deployments?.[0]?.role).toBe('unknown');
+});
+
+it('retains gust sigma and frozen flight advice together while normalizing corrupt fields independently', () => {
+  const advisoryLimits = { maxAirspeedMs: 100, armingAltitudeM: 200, armingCautionBandM: 10 };
+  addRun(mkRun('both', { windSigma: 1.25, advisoryLimits, maxAirspeedMs: 101 }));
+  expect(loadRuns()[0]).toMatchObject({ windSigma: 1.25, advisoryLimits, maxAirspeedMs: 101 });
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+    { ...mkRun('bad-sigma'), windSigma: 'gusty', advisoryLimits, maxAirspeedMs: 101 },
+    { ...mkRun('bad-advice'), windSigma: 0, advisoryLimits: [], maxAirspeedMs: 'fast',
+      deployments: [{ role: 'bogus', isLanding: true }] },
+    mkRun('legacy'),
+  ]));
+  const loaded = loadRuns();
+  expect(loaded.map(r => r.id)).toEqual(['bad-sigma', 'bad-advice', 'legacy']);
+  expect(loaded[0]).not.toHaveProperty('windSigma');
+  expect(loaded[0]).toMatchObject({ advisoryLimits, maxAirspeedMs: 101 });
+  expect(loaded[1]).toMatchObject({ windSigma: 0, deployments: [{ role: 'unknown', isLanding: true }] });
+  expect(loaded[1]).not.toHaveProperty('advisoryLimits');
+  expect(loaded[1]).not.toHaveProperty('maxAirspeedMs');
+  expect(loaded[2]).not.toHaveProperty('windSigma');
+  expect(loaded[2]).not.toHaveProperty('advisoryLimits');
+  expect(runsToTable(loaded).rows.map(row => row.at(-1))).toEqual(['', 0, '']);
 });
 
 it.each(['Hybrid', 'none'])('RES-1b exports no configuration attribution for stored imported simulation %s', flightConfig => {

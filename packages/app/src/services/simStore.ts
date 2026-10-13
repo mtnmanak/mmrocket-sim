@@ -57,6 +57,11 @@ export function loadRuns(): SimRun[] {
       typeof r === 'object' && r !== null && !Array.isArray(r)
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
+      if (r.windSigma !== undefined && (!Number.isFinite(r.windSigma) || r.windSigma < 0)) delete r.windSigma;
+      if (r.lastBurnoutOptimalDelayS !== undefined && r.lastBurnoutOptimalDelayS !== null
+        && !Number.isFinite(r.lastBurnoutOptimalDelayS)) delete r.lastBurnoutOptimalDelayS;
+      if (r.lastDeploymentGroundSpeed !== undefined && r.lastDeploymentGroundSpeed !== null
+        && (!Number.isFinite(r.lastDeploymentGroundSpeed) || r.lastDeploymentGroundSpeed < 0)) delete r.lastDeploymentGroundSpeed;
       const advice = normalizeFlightAdvisories(r.advisoryLimits);
       if (advice) r.advisoryLimits = advice;
       else delete r.advisoryLimits;
@@ -499,6 +504,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm'), 'travel'), (r) => railExportCell(r, 'travel')],
   ['Overrides', (r) => runOverrideText(r, u?.distance ?? 'm')],
   ['Status', (r) => runStatus(r, provenance).label],
+  [`Wind gusts σ at pad (${sym('windspeed', 'm/s')})`, (r) => cv('windspeed', r.windSigma, 1)],
   ];
 }
 

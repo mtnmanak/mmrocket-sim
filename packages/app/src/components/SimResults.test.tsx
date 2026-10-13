@@ -108,6 +108,22 @@ const render = (node: React.ReactNode) => act(() => root.render(
   <PrefsProvider>{node}</PrefsProvider>,
 ));
 
+it.each([0, 1.25, undefined])('shows recorded gust sigma %s in details and saved-run row', windSigma => {
+  const stored = { ...run(), windSigma };
+  render(<SimRunDetails run={stored} />);
+  act(() => (Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Show all details')!).click());
+  const row = Array.from(host.querySelectorAll('tr')).find(r => r.cells[0]?.textContent === 'Wind gusts σ at pad')!;
+  expect(row).toBeDefined();
+  expect(row.cells[1]?.textContent).toContain(windSigma === undefined ? '—' : fmtSi('windspeed', units.INITIAL_UNITS.windspeed, windSigma));
+  render(<SimHistory runs={[stored]} onRunsChange={() => {}} />);
+  act(() => (Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Show')!).click());
+  const headers = Array.from(host.querySelectorAll('th')).map(h => h.textContent);
+  const at = headers.findIndex(h => h?.startsWith('Wind gusts σ'));
+  expect(at).toBeGreaterThan(-1);
+  expect(host.querySelector('tbody tr')?.querySelectorAll('td')[at]?.textContent)
+    .toBe(windSigma === undefined ? '—' : fmtSi('windspeed', units.INITIAL_UNITS.windspeed, windSigma));
+});
+
 it('W2-WARN renders personal advice in the Caution tier with frozen limits in current units', () => {
   const r = run();
   r.comments = 'Exceeded your maximum speed.';
@@ -798,6 +814,19 @@ describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-
     act(() => { byText('Delete all 3').click(); });
     expect(loadRuns()).toEqual([]);
     expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('explains which opened-file results survive saving before deleting saved runs', () => {
+    render(<Wired />);
+    act(() => { byText('Clear all').click(); });
+    const copy = host.querySelector('[role="dialog"]')!.textContent!.replace(/\s+/g, ' ');
+    expect(copy).toContain('Imported app summaries stay with the opened design and are written back when you save it');
+    expect(copy).toContain('Desktop OpenRocket predictions stay in the current session but are omitted from .ork files saved by the app');
+    expect(copy).toContain('Keep the original desktop file to preserve those predictions');
+    expect(copy).toContain('download the run table first to keep the saved runs\' numbers');
+    expect(copy).toContain('The run table does not include desktop predictions');
+    expect(copy).not.toContain('Results that came from the .ork file you opened');
+    expect(loadRuns()).toHaveLength(3);
   });
 
   it('a row\'s ✕ deletes at once and offers Undo, which puts it back where it was', () => {

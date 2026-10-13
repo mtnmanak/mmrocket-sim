@@ -5,7 +5,7 @@ import type { LaunchConditions } from './launchConditions.js';
 import type { FlightTree, FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
 import { shortHash, type MotorMeta } from './simReport.js';
 import { APP_VERSION } from '../version.js';
-import { MIN_IMPORTED_TIME_STEP_S, type MeasuredFigures, type OrkMotorRef } from './orkFile.js';
+import { MIN_IMPORTED_TIME_STEP_S, validDesktopPredictions, type MeasuredFigures, type OrkMotorRef } from './orkFile.js';
 import { validWeatherSnapshot, type WeatherSnapshot } from './weatherSnapshot.js';
 import { lookupTable } from './xmlUtil.js';
 import type { ImportedSummaryDocument } from './orkFlightData.js';
@@ -374,6 +374,8 @@ function readSession(restoreRoot: boolean): SessionState | null {
       return null;
     }
     delete s.treeRestoreNotes;
+    if (s.importedDocument?.desktopPredictions !== undefined
+      && !validDesktopPredictions(s.importedDocument.desktopPredictions)) delete s.importedDocument.desktopPredictions;
     if (!isTable(s.tree)) {
       // A recovery download must keep the original bytes, not export a substitute.
       if (!restoreRoot) return null;

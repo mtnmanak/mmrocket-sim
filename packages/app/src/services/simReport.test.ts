@@ -1,5 +1,5 @@
-import { testMotor, testResolution } from './autoDelay.testSupport.js';
-import { delayMountsOf } from './autoDelaySolver.js';
+import { probeFlight, testMotor, testResolution } from './autoDelay.testSupport.js';
+import { delayMountsOf, solveAutoDelays } from './autoDelaySolver.js';
 import { describe, expect, it } from 'vitest';
 import type { FlightResult, FlightSeries, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import {
@@ -67,6 +67,57 @@ const motor = {
   times: [0, 2], thrusts: [10, 0], masses: [0.024, 0.013],
   cgX: 0.035, ejectionDelay: 5,
 };
+
+it('records the last-burnout summary separately from the two-motor primary Auto delay', async () => {
+  // Synthetic ballistic peak 10 s; mount burnouts 2/5 s => primary 8 s, last 5 s.
+  const assigned: [string, ReturnType<typeof testMotor>][] = [['a', testMotor()], ['b', testMotor()]];
+  const solved = await solveAutoDelays({ mounts: delayMountsOf(assigned), budget: { probes: 0 },
+    probe: () => probeFlight(['a', 'b'], 10) });
+  expect(solved.mounts.map(m => [m.burnoutTime, m.rawOptimum])).toEqual([[2, 8], [5, 5]]);
+  const result = fakeResult();
+  result.summary.optimumDelay = 5;
+  result.events = [...result.events.filter(e => e.type !== 'BURNOUT'),
+    { type: 'BURNOUT', time: 2, motorMountId: 'a' }, { type: 'BURNOUT', time: 5, motorMountId: 'b' }];
+  const before = structuredClone(result);
+  const run = buildSimRun({ result, info, motor: { ...motor, ejectionDelay: 8 }, launch: DEFAULT_CONDITIONS,
+    rocketName: 'Two motors', execMs: 1, primaryMountId: 'a', delayResolution: solved });
+  expect(run.lastBurnoutOptimalDelayS).toBe(5);
+  expect(run.optimumDelayS).toBe(8);
+  expect(run.recommendedDelayS).toBe(8);
+  expect(result).toEqual(before);
+  result.summary.optimumDelay = 99;
+  expect(run.lastBurnoutOptimalDelayS).toBe(5);
+});
+
+it.each([[0, 0], [-1, -1], [null, null], [undefined, null], [NaN, null], [Infinity, null]])(
+  'records only finite last-burnout optimal delay %s', (optimumDelay, expected) => {
+  const result = fakeResult();
+  result.summary.optimumDelay = optimumDelay as number | null;
+  const run = buildSimRun({ result, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Delay', execMs: 1 });
+  expect(run.lastBurnoutOptimalDelayS).toBe(expected);
+});
+
+it.each([0, 1.25])('records flown gust sigma %s without changing calculated flight values', windStdDev => {
+  const launch = { ...DEFAULT_CONDITIONS, windStdDev };
+  const make = () => buildSimRun({ result: fakeResult(), info, motor, launch, rocketName: 'sigma', execMs: 1 });
+  const run = make();
+  expect(run.windSigma).toBe(windStdDev);
+  expect(run.maxAltitude).toBe(fakeResult().summary.maxAltitude);
+  launch.windStdDev = 99;
+  expect(run.windSigma).toBe(windStdDev);
+});
+
+it('records the profile sigma at the pad, not the unused single-level scalar', () => {
+  const launch = { ...DEFAULT_CONDITIONS, windStdDev: 99, windLevels: [
+    { altitude: -100, speed: 2, direction: 0, standardDeviation: 0.5 },
+    { altitude: 100, speed: 4, direction: 0, standardDeviation: 1.5 },
+  ] };
+  const run = buildSimRun({ result: fakeResult(), info, motor, launch, rocketName: 'profile', execMs: 1 });
+  expect(run.windSigma).toBe(1);
+  launch.windLevels[0]!.standardDeviation = 30;
+  expect(run.windLevels?.[0]?.standardDeviation).toBe(0.5);
+  expect(run.windSigma).toBe(1);
+});
 
 describe('W2-WARN personal limits and frozen flight evidence', () => {
   const build = (extra: Partial<Parameters<typeof buildSimRun>[0]> = {}) => buildSimRun({
@@ -1488,8 +1539,8 @@ describe('runsToCsv', () => {
     expect(hc[configAt + 2]).toBe('Winds aloft (levels)');
     expect(hc[configAt + 3]).toBe('Rail for 15.0 m/s (m)');
     expect(hc[configAt + 4]).toBe('Max dynamic pressure (Pa)');
-    expect(hc.slice(-5)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status']);
-    expect(cells(row!).slice(-2)).toEqual(['not recorded', 'Unknown']);
+    expect(hc.slice(-6)).toEqual(['Hybrid band lower (Mach)', 'Hybrid band upper (Mach)', 'Travel for 15.0 m/s (m)', 'Overrides', 'Status', 'Wind gusts σ at pad (m/s)']);
+    expect(cells(row!).slice(-3)).toEqual(['not recorded', 'Unknown', '0']);
     expect(cells(row!)[hc.indexOf('Flight config')]).toBe('Club field C6');
     // A run stored before the field existed exports an empty trailing cell.
     const old = buildSimRun({
@@ -2067,6 +2118,28 @@ describe('WIND IS NOT AN OPENING SHOCK (services-rest-1)', () => {
 });
 
 describe('SimRun.velocityAtDeployment names the FIRST deployment', () => {
+  it.each([0, 5])('records the kernel last-deployment ground speed separately with %s m/s drift', wind => {
+    const r = dualDeployResult(19.5, 5.5, wind);
+    const groundSpeed = Math.hypot(19.5, wind);
+    r.summary.deploymentVelocity = groundSpeed;
+    const run = buildSimRun({
+      result: r, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+    });
+    expect(run.lastDeploymentGroundSpeed).toBeCloseTo(groundSpeed, 6);
+    expect(run.velocityAtDeployment).toBeCloseTo(2, 1);
+    expect(run.deployments[1]!.velocityAtDeployment).toBeCloseTo(19.5, 1);
+  });
+
+  it('does not invent a desktop-compatible deployment speed when the kernel summary is unknown', () => {
+    const r = dualDeployResult(19.5, 5.5);
+    r.summary.deploymentVelocity = null;
+    const run = buildSimRun({
+      result: r, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'DD', execMs: 1,
+    });
+    expect(run.lastDeploymentGroundSpeed).toBeNull();
+    expect(run.velocityAtDeployment).toBeCloseTo(2, 1);
+  });
+
   it('does not take the summary figure, which is the LAST device', () => {
     // FlightData.java:240-243 assigns deploymentVelocity inside a loop over
     // EVERY flight event, so on a dual-deploy rocket the last one wins. The

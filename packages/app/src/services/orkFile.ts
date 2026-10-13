@@ -284,6 +284,8 @@ export interface OrkImportResult extends OrkTreeImportResult {
   newerFormat?: boolean;
   /** Only simulations carrying a recognised app provenance tag and summary. */
   storedSimulations?: OrkStoredSimulation[];
+  /** Desktop summaries are comparison data only, never app replay/export evidence. */
+  desktopPredictions?: DesktopStoredPrediction[];
   /** Declared flight configurations in file order (empty when none). */
   configs: OrkFlightConfig[];
   /**
@@ -1690,6 +1692,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   const tree: FlightTree = { ...preserveSimulationExtensions(placedTree, rawExtensions, simEls, chosenConfigId, configs.length > 0, notes),
     ...(Object.keys(ignitionDefaults).length ? { ignitionDefaults } : {}) };
   const storedSimulations = readStoredSimulations(simEls, notes);
+  const desktopPredictions = readDesktopPredictions(simEls, root?.getAttribute('creator'));
   // Dry saves need a simulation to carry launch conditions, not a panel row.
   // Keep configurations owning extensions too, including the untagged fallback.
   const emptyDefault = isLoneEmptyConfig(configs, id => {
@@ -1719,6 +1722,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     chosenConfigId: emptyDefault ? null : chosenConfigId,
     ...(exIds.size ? { embeddedExMotors: [...exIds.values()] } : {}),
     ...(storedSimulations.length ? { storedSimulations } : {}),
+    ...(desktopPredictions.length ? { desktopPredictions } : {}),
     ignored: [...ignored], notes, noteTiers: noteFlags(notes), ...(launch ? { launch } : {}),
     ...(measured ? { measured } : {}),
     ...(longitudeCheck ? { longitudeCheck } : {}),
@@ -2416,6 +2420,48 @@ const FLIGHTDATA_ATTRS: [string, Exclude<keyof OrkExportFlightData, keyof AeroPr
   ['deploymentvelocity', 'deploymentVelocity'],
   ['optimumdelay', 'optimumDelay'],
 ];
+
+export interface DesktopStoredPrediction {
+  name: string;
+  configId: string | null;
+  status?: string;
+  /** Creator's desktop version, not the .ork format version. */
+  sourceVersion?: string;
+  data: Omit<OrkExportFlightData, keyof AeroProvenance | 'runId' | 'importedSummary' | 'simWarnings'>;
+}
+
+export function validDesktopPredictions(value: unknown): value is DesktopStoredPrediction[] {
+  return Array.isArray(value) && value.every(p => p !== null && typeof p === 'object' && !Array.isArray(p)
+    && typeof p.name === 'string' && (p.configId === null || typeof p.configId === 'string')
+    && (p.status === undefined || typeof p.status === 'string')
+    && (p.sourceVersion === undefined || typeof p.sourceVersion === 'string')
+    && p.data !== null && typeof p.data === 'object' && !Array.isArray(p.data)
+    && FLIGHTDATA_ATTRS.every(([, key]) => p.data[key] === undefined || Number.isFinite(p.data[key]))
+    && FLIGHTDATA_ATTRS.some(([, key]) => Number.isFinite(p.data[key])));
+}
+
+/** Tier 3 stored predictions: no provenance stamps or simulation inputs. */
+function readDesktopPredictions(simEls: XmlElement[], creator: string | null | undefined): DesktopStoredPrediction[] {
+  const desktop = creator?.trim().match(/^OpenRocket(?:\s+(.+))?$/);
+  if (creator && !desktop) return [];
+  return simEls.flatMap((sim): DesktopStoredPrediction[] => {
+    // Even an unrecognised app tag must not become a desktop result.
+    if (sim.querySelector(':scope > aeromodel')) return [];
+    const status = sim.getAttribute('status')?.trim();
+    // W3-IMPORT: external data was imported into desktop, not computed there.
+    if (status === 'external') return [];
+    const summary = sim.querySelector(':scope > flightdata');
+    if (!summary) return [];
+    const data: DesktopStoredPrediction['data'] = {};
+    for (const [attr, key] of FLIGHTDATA_ATTRS) {
+      const value = parseDecimal(summary.getAttribute(attr));
+      if (Number.isFinite(value)) data[key] = value;
+    }
+    if (!Object.keys(data).length) return [];
+    return [{ name: text(sim, ':scope > name') ?? '', configId: simulationConfigId(sim),
+      ...(status ? { status } : {}), ...(desktop?.[1] ? { sourceVersion: desktop[1] } : {}), data }];
+  });
+}
 
 export interface OrkStoredSimulation {
   name: string;
