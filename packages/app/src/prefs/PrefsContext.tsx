@@ -50,6 +50,12 @@ function load(): Preferences {
     if (!['both', 'callout', 'axis', 'off'].includes(parsed.markers3d!)) delete parsed.markers3d;
     if (!['cal', 'pct', 'both'].includes(parsed.stabilityUnit!)) delete parsed.stabilityUnit;
     if (!['creation', 'name', 'name-desc', 'motor', 'motor-desc'].includes(parsed.configurationSort!)) delete parsed.configurationSort;
+    if (parsed.fieldPrecision !== 'auto' && parsed.fieldPrecision !== 3 && parsed.fieldPrecision !== 4) delete parsed.fieldPrecision;
+    if (!['nose', 'aft', 'offset'].includes(parsed.rulerReference2d!)) delete parsed.rulerReference2d;
+    if (typeof parsed.rulerOffset2dM !== 'number' || !Number.isFinite(parsed.rulerOffset2dM)) delete parsed.rulerOffset2dM;
+    for (const key of ['grid2d', 'rulerReversed2d'] as const) {
+      if (typeof parsed[key] !== 'boolean') delete parsed[key];
+    }
     // A stored printer that isn't three positive numbers is dropped, not
     // repaired — planning cuts for a half-parsed machine is worse than not
     // offering to split at all. Absent stays absent (no printer configured).

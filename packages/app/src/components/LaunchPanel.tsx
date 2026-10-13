@@ -27,6 +27,7 @@ import {
 import { editProfileSurface } from '../services/windProfile.js';
 import { WindProfile } from './WindProfile.js';
 import { GroundWindNote } from './GroundWindNote.js';
+import { LaunchCompass } from './LaunchCompass.js';
 
 // The launch conditions themselves — the stored shape, kernelSimOptions, the
 // bounds, the rod-aim and longitude rules, the import clamp — are domain logic
@@ -143,10 +144,13 @@ export function LaunchField({
    */
   const storedToSi = (stored: number) =>
     stored * (spec?.storedToSI ?? 1) + (spec?.storedOffset ?? 0) * (spec?.storedToSI ?? 1);
-  const toUi = (stored: number) => spec && symbol
+  // N005: Celsius is already stored in the displayed unit; a kelvin round
+  // trip loses small fractional digits before the user even edits them.
+  const storedUnit = field === 'temperatureC' && symbol === '°C';
+  const toUi = (stored: number) => !storedUnit && spec && symbol
     ? siToUi(spec.quantity, symbol, storedToSi(stored))
     : stored;
-  const fromUi = (ui: number) => spec && symbol
+  const fromUi = (ui: number) => !storedUnit && spec && symbol
     ? (uiToSi(spec.quantity, symbol, ui) - (spec.storedOffset ?? 0) * spec.storedToSI) / spec.storedToSI
     : ui;
   const step = spec && symbol ? niceStep(toUi(stepStored) - toUi(0)) : stepStored;
@@ -557,7 +561,7 @@ export function LaunchPanel({
       stepStored={stepStored} min={min} max={max} nullable={nullable}
       autoStored={autoStored} absentStored={absentStored} help={help}
       provenance={weather && (APPLY_KEYS as readonly string[]).includes(key)
-        ? provenanceText(value, weather, key as ApplyKey, prefs.units) : undefined} />
+        ? provenanceText(value, weather, key as ApplyKey, prefs.units, prefs.fieldPrecision) : undefined} />
   );
 
   return (
@@ -567,6 +571,8 @@ export function LaunchPanel({
         {onGetWeather && <WeatherButton onClick={onGetWeather} />}
       </div>
       <p className="comp-stats">Shared by every flight configuration.</p>
+      <LaunchCompass value={value} weatherFromDeg={weather?.fetched.windFromDeg
+        ?? (value.windProfileSource?.kind === 'open-meteo' ? value.windProfileSource.surfaceFromDeg : undefined)} />
       <div className="field-grid">
         {/* THE ORDER IS THE LAYOUT. `.field-grid` is a fixed two columns, so
             cells pair off in the order written here (weather build, spec §0.4,

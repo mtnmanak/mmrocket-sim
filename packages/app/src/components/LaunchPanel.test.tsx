@@ -367,6 +367,74 @@ describe('kernelSimOptions fills a blank atmosphere field from the site altitude
 });
 
 describe('the site-temperature field', () => {
+  it.each([0, 0.1, 1.1, 5.1, 10.1, 20.1, -0.1, -5.1, 0.100000000123])(
+    'N005 preserves a stored Celsius draft %s and commits only the edited value', (temperatureC) => {
+      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { temperature: '°C' } }));
+      const changes: LaunchConditions[] = [];
+      const value = { ...DEFAULT_CONDITIONS, temperatureC };
+      const options = kernelSimOptions(value);
+      try {
+        act(() => root.render(<PrefsProvider><LaunchField label="Temperature" field="temperatureC"
+          value={value} onChange={v => changes.push(v)} stepStored={1} nullable /></PrefsProvider>));
+        const input = launchBox('Temperature')!;
+        act(() => input.focus());
+        expect(input.value).toBe(String(temperatureC));
+        act(() => input.blur());
+        expect(changes).toEqual([]);
+        expect(kernelSimOptions(value)).toEqual(options);
+        act(() => input.focus());
+        const edited = input.value.slice(0, -1);
+        act(() => {
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, edited);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        if (edited === '') expect(changes.at(-1)?.temperatureC).toBeNull();
+        else expect(changes.at(-1)?.temperatureC).toBe(Number(edited));
+      } finally { localStorage.clear(); }
+    },
+  );
+  it.each(['0.1', '1.1', '5.1', '-0.1', '-40', '98.6', '15.2', '0.0625', '0.01', '0.001', '-0.001', '0.0001',
+    '1.23456789012', '0.123456789012'])(
+    'N005 Fahrenheit refocus and Backspace edit the typed digits: %s', text => {
+      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { temperature: '°F' } }));
+      const changes: LaunchConditions[] = [];
+      let value = { ...DEFAULT_CONDITIONS, temperatureC: null as number | null };
+      const draw = () => root.render(<PrefsProvider><LaunchField label="Temperature" field="temperatureC"
+        value={value} onChange={v => { changes.push(v); value = v; draw(); }} stepStored={1} nullable
+      /></PrefsProvider>);
+      try {
+        act(draw);
+        const input = launchBox('Temperature')!;
+        const type = (draft: string) => act(() => {
+          Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, draft);
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        act(() => input.focus());
+        type(text);
+        expect(input.value).toBe(text);
+        expect(changes).toHaveLength(1);
+        // Independent Fahrenheit/Celsius formula; 10 decimals allow affine roundoff.
+        expect(value.temperatureC).toBeCloseTo((Number(text) - 32) * 5 / 9, 10);
+        const stored = value.temperatureC;
+        const options = kernelSimOptions(value);
+        act(() => input.blur());
+        act(() => input.focus());
+        expect(input.value).toBe(text);
+        expect(changes).toHaveLength(1);
+        expect(value.temperatureC).toBe(stored);
+        expect(kernelSimOptions(value)).toEqual(options);
+        act(() => {
+          input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true }));
+        });
+        type(input.value.slice(0, -1));
+        expect(input.value).toBe(text.slice(0, -1));
+        expect(changes).toHaveLength(2);
+        expect(value.temperatureC).toBeCloseTo((Number(text.slice(0, -1)) - 32) * 5 / 9, 10);
+        act(() => input.blur());
+      } finally { localStorage.clear(); }
+    },
+  );
   it('says the field fills itself in from the site altitude', () => {
     renderConditions({});
     const help = [...host.querySelectorAll('.field')]
@@ -890,6 +958,75 @@ describe('applied weather in the Launch panel', () => {
     });
   }
   const strip = () => host.querySelector('[data-weather="strip"]');
+  it('N005 weather provenance quotes the four-decimal wind field', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ fieldPrecision: 4, units: { windspeed: 'm/s' } }));
+    try {
+      renderWeather({ ...APPLIED, windAverage: 2 }, {
+        ...SNAP, fetched: { ...SNAP.fetched, windSpeedMs: 1.0625 },
+        applied: { ...SNAP.applied, windAverage: 1.0625 },
+      });
+      expect(launchBox('Wind avg')!.closest('.field')!.textContent).toContain('edited — forecast said 1.0625 m/s');
+      expect(lastLaunch).toBeNull();
+    } finally { localStorage.clear(); }
+  });
+  it.each([0.1, 5.1, 33.3])('N014 prints clean fractional bearings: %s degrees', (aim) => {
+    const value = { ...APPLIED, launchRodAngleDeg: 5, launchRodAimDeg: aim };
+    const before = kernelSimOptions(value);
+    renderWeather(value, { ...SNAP, fetched: { ...SNAP.fetched, windFromDeg: aim } });
+    const compass = host.querySelector('[data-launch-compass]')!;
+    const rodText = `Rod lean ${aim}° clockwise relative to wind`;
+    expect(compass.querySelector('figcaption')!.textContent).toBe(rodText);
+    expect(compass.querySelector('svg')!.getAttribute('aria-label')).toBe(rodText);
+    expect(compass.querySelector('[data-direction="rod"]')!.getAttribute('transform')).toBe(`rotate(${aim} 50 50)`);
+    expect(compass.querySelector('[data-direction="weather"]')!.getAttribute('transform')).toBe(`rotate(${aim} 50 50)`);
+    expect(compass.querySelectorAll('figcaption')[1]!.textContent).toContain(`Weather wind from ${aim}°`);
+    expect(compass.querySelectorAll('svg')[1]!.getAttribute('aria-label')).toContain(`Weather wind from ${aim}°`);
+    expect(lastLaunch).toBeNull();
+    expect(kernelSimOptions(value)).toEqual(before);
+  });
+
+  it('N014 formats a radian-derived aim using the selected field precision', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ fieldPrecision: 4, units: { angle: 'rad' } }));
+    const value = { ...APPLIED, launchRodAngleDeg: -5, launchRodAimDeg: 0.1 * 180 / Math.PI };
+    renderWeather(value, { ...SNAP, fetched: { ...SNAP.fetched, windFromDeg: 359.9999999999 } });
+    const compass = host.querySelector('[data-launch-compass]')!;
+    const rodText = 'Rod lean 185.7296° clockwise relative to wind (negative Rod angle reverses the aim)';
+    expect(compass.querySelector('figcaption')!.textContent).toBe(rodText);
+    expect(compass.querySelector('svg')!.getAttribute('aria-label')).toBe(rodText);
+    expect(compass.querySelector('[data-direction="weather"]')!.getAttribute('transform')).toBe('rotate(0 50 50)');
+    expect(lastLaunch).toBeNull();
+    localStorage.clear();
+  });
+
+  it.each([0, 90, 180, 270, 450])('N014 labels weather from %s degrees without changing launch inputs', (bearing) => {
+    const value = { ...APPLIED, launchRodAngleDeg: 5, launchRodAimDeg: 90 };
+    const before = kernelSimOptions(value);
+    renderWeather(value, { ...SNAP, fetched: { ...SNAP.fetched, windFromDeg: bearing } });
+    const compass = host.querySelector('[data-launch-compass]')!;
+    expect(compass).not.toBeNull();
+    expect(compass.querySelector('[data-direction="weather"]')!.getAttribute('transform'))
+      .toBe(`rotate(${bearing % 360} 50 50)`);
+    expect(compass.querySelector('[data-direction="rod"]')!.getAttribute('transform')).toBe('rotate(90 50 50)');
+    expect(compass.textContent).toContain('Weather wind from');
+    expect(compass.textContent).toContain('display only');
+    expect(compass.textContent).toContain('relative to wind');
+    expect(lastLaunch).toBeNull();
+    expect(kernelSimOptions(value)).toEqual(before);
+  });
+
+  it('N014 reverses negative tilt and marks a vertical rod without inventing a north bearing', () => {
+    renderWeather({ ...APPLIED, launchRodAngleDeg: -5, launchRodAimDeg: -90 }, null);
+    let compass = host.querySelector('[data-launch-compass]')!;
+    expect(compass.querySelector('[data-direction="rod"]')!.getAttribute('transform')).toBe('rotate(90 50 50)');
+    expect(compass.querySelector('[data-direction="weather"]')).toBeNull();
+    expect(compass.textContent).toContain('Weather wind bearing unavailable');
+    expect(compass.textContent).toContain('negative Rod angle');
+    renderWeather({ ...APPLIED, launchRodAngleDeg: 0 }, { ...SNAP, fetched: { ...SNAP.fetched, windFromDeg: null } });
+    compass = host.querySelector('[data-launch-compass]')!;
+    expect(compass.querySelector('[data-direction="rod"]')).toBeNull();
+    expect(compass.textContent).toContain('Vertical rod: no lean direction');
+    expect(lastLaunch).toBeNull();
+  });
   const provenance = (field: string) => host.querySelector(`[data-provenance="${field}"]`)?.textContent ?? null;
   const btn = (text: string) => [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === text);
 

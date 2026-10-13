@@ -82,7 +82,7 @@ export function MotorLengthReadout({ mountName, value, onOpenDesign, noBore }: {
   const { prefs } = usePrefs();
   const unit = prefs.units.motorDimensions;
   return <p className="comp-stats motor-length-readout" style={{ margin: '0 0 8px' }}>
-    Max motor length: {value === null ? 'no limit' : `${fmtFieldValue(siToUi('motorDimensions', unit, value))} ${unit}`}
+    Max motor length: {value === null ? 'no limit' : `${fmtFieldValue(siToUi('motorDimensions', unit, value), prefs.fieldPrecision)} ${unit}`}
     {/* The accessible name CONTAINS the visible words (WCAG 2.5.3, label in
         name), so a speech-input user can say what they see. */}
     {' — '}<button type="button" className="file-btn" aria-label={`Max motor length for ${mountName}: set on Design`}

@@ -90,7 +90,7 @@ export function DesignNozzleSetting({ node, context }: { node: ComponentNode; co
   const unit = prefs.units.motorDimensions;
   // The same reading Motors & Configuration's field takes (App: numOrNull).
   const value = numOrNull(node, 'nozzleExitDiameter');
-  const text = value === null ? 'automatic' : value === 0 ? 'off (0)' : `${fmtFieldValue(siToUi('motorDimensions', unit, value))} ${unit}`;
+  const text = value === null ? 'automatic' : value === 0 ? 'off (0)' : `${fmtFieldValue(siToUi('motorDimensions', unit, value), prefs.fieldPrecision)} ${unit}`;
   const editable = !!node.id && !!context?.onOpenNozzle && (context.nozzleEditable?.has(node.id) ?? false);
   return <div className="design-flight-setting" role="group" aria-label="Nozzle exit">
     <p className="comp-stats">

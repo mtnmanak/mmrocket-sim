@@ -67,6 +67,17 @@ const mount = () => act(() => root.render(
   <PrefsProvider><PreferencesDialog onClose={() => {}} /></PrefsProvider>,
 ));
 
+it('N005 offers displayed decimals as a persisted, labelled preference', () => {
+  mount();
+  const precision = byLabel('Displayed decimals') as HTMLSelectElement;
+  expect(precision).not.toBeNull();
+  expect(precision.value).toBe('auto');
+  pick(precision, '4');
+  expect(stored().fieldPrecision).toBe(4);
+  pick(precision, 'auto');
+  expect(stored().fieldPrecision).toBe('auto');
+});
+
 // audit 2026-10-11, CR-2: check live paths against the controls people can find.
 // Releases through 0.180 are frozen history, allow-listed by version; never
 // excuse the newest entry, even when it is correcting an older release.
@@ -278,6 +289,7 @@ describe('Preferences → every label names its own control', () => {
    * default), and where that pick lands.
    */
   const SETTINGS: [string, string, (p: Preferences) => unknown][] = [
+    ['Displayed decimals', '4', (p) => String(p.fieldPrecision ?? 'auto')],
     ['Round components entered as', 'radius', (p) => p.radiusMode],
     ['Stability shown as', 'pct', (p) => p.stabilityUnit],
     ['CG / CP markers in 3D', 'callout', (p) => p.markers3d],

@@ -422,6 +422,27 @@ async function reviewGerlach(launch?: LaunchConditions) {
   choose(q('.weather-when select'), String(SAT_2PM));
 }
 
+it('N005 weather review and gust note keep four-decimal wind digits', async () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ fieldPrecision: 4, units: { windspeed: 'm/s' } }));
+  render({ initialPlace: GERLACH_PLACE, launch: { ...DEFAULT_CONDITIONS, windAverage: 1.0625 }, route: async u => {
+    const response = await GERLACH(u);
+    if (u.startsWith('https://api.open-meteo.com/v1/forecast?')) {
+      for (const entry of (Array.isArray(response.body) ? response.body : [response.body])) {
+        const hourly = (entry as { hourly: Record<string, number[]> }).hourly;
+        hourly.wind_speed_10m = hourly.wind_speed_10m!.map(() => 1.0625);
+        hourly.wind_gusts_10m = hourly.wind_gusts_10m!.map(() => 8.25);
+      }
+    }
+    return response;
+  } });
+  typeInto(q('input[type="date"]'), '2026-09-26');
+  await click(button('Fetch'));
+  choose(q('.weather-when select'), String(SAT_2PM));
+  expect(row('windAverage')!.textContent).toContain('1.0625 m/s');
+  expect(q('.weather-context')!.textContent).toContain('σ from this gust ≈ 1.0625 m/s');
+  expect(applied).toEqual([]);
+});
+
 describe('the highlighted button follows the next step (issues-2026-10-13a.md)', () => {
   const lit = () => [...host.querySelectorAll('button.file-btn-primary')].map((b) => b.textContent?.trim());
 

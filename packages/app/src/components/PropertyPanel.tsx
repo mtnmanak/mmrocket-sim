@@ -553,7 +553,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
     return d ? { diff: d, row: rowName, onUse: () => onPatch(limitCatalogue(d.patch)) } : undefined;
   };
   /** A length as the length boxes show one. */
-  const lengthFigure = (si: number): string => `${fmtFieldValue(siToUi('length', prefs.units.length, si))} ${prefs.units.length}`;
+  const lengthFigure = (si: number): string => `${fmtFieldValue(siToUi('length', prefs.units.length, si), prefs.fieldPrecision)} ${prefs.units.length}`;
   /**
    * The tooltip for a marker. A canopy's Cd and spill hole are one figure (the
    * maker's Cd is measured against the vented canopy), so either half's marker
@@ -563,9 +563,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
     if (node.type === 'parachute' && (d.key === 'cd' || d.key === 'spillHoleDiameter')) {
       const vent = (v: number | undefined) => (v !== undefined && v > 0 ? `a ${lengthFigure(v)} spill hole` : 'no spill hole');
       const cdNow = numOpt(node, 'cd');
-      return `${rowName} in the catalogue: Cd ${fmtFieldValue(d.patch['cd'] as number)} with `
+      return `${rowName} in the catalogue: Cd ${fmtFieldValue(d.patch['cd'] as number, prefs.fieldPrecision)} with `
         + `${vent(numOpt(d.patch, 'spillHoleDiameter'))}. This part flies `
-        + `${cdNow === undefined ? 'the automatic Cd' : `Cd ${fmtFieldValue(cdNow)}`} with `
+        + `${cdNow === undefined ? 'the automatic Cd' : `Cd ${fmtFieldValue(cdNow, prefs.fieldPrecision)}`} with `
         + `${vent(numOpt(node, 'spillHoleDiameter'))}. The maker measures the Cd against the vented `
         + 'canopy, so the two are one figure: “use” sets both.';
     }
@@ -847,7 +847,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
     const diff = diffFor(f.key);
     const shownFigure = (si: number): string => (f.unit === 'count'
       ? String(si)
-      : `${fmtFieldValue(toDisplay(si))}${symbol ? ` ${symbol}` : plainSuffix ? ` ${plainSuffix}` : ''}`);
+      : `${fmtFieldValue(toDisplay(si), prefs.fieldPrecision)}${symbol ? ` ${symbol}` : plainSuffix ? ` ${plainSuffix}` : ''}`);
     // The figure "use" writes: the row's, as this field flies it. Not the edit's
     // own value for the field, which is blank where the row's figure is the
     // field's blank — an unvented row's spill hole, the shape of 188 shipped
@@ -1018,9 +1018,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                 const fig = (v: unknown): string => {
                   if (typeof v !== 'number') return String(v);
                   if (d.key === 'density') {
-                    return `${fmtFieldValue(siToUi('density', prefs.units.density, v))} ${prefs.units.density}`;
+                    return `${fmtFieldValue(siToUi('density', prefs.units.density, v), prefs.fieldPrecision)} ${prefs.units.density}`;
                   }
-                  return /Radius$|^length$|Length$|^thickness$/.test(d.key) ? lengthFigure(asDia ? v * 2 : v) : fmtFieldValue(v);
+                  return /Radius$|^length$|Length$|^thickness$/.test(d.key) ? lengthFigure(asDia ? v * 2 : v) : fmtFieldValue(v, prefs.fieldPrecision);
                 };
                 const figure = fig(d.want);
                 return (
@@ -1729,7 +1729,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
               const md = diffFor('overrideMass');
               const want = md ? numOpt(md.patch, 'overrideMass') : undefined;
               if (!md) return null;
-              const fig = (v: number) => `${fmtFieldValue(siToUi('mass', massSym, v))} ${massSym}`;
+              const fig = (v: number) => `${fmtFieldValue(siToUi('mass', massSym, v), prefs.fieldPrecision)} ${massSym}`;
               const have = markerNumber(md.have);
               const figure = want === undefined ? 'computed mass' : fig(want);
               return (

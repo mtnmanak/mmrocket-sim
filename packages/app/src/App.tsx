@@ -4119,6 +4119,7 @@ export function App() {
                 the user is on 3D/Aft — where the taller cap would just be
                 letterbox. */}
             <div className="rocket-stage hero-stage" data-tour="canvas"
+              data-view={view}
               ref={hero.stageRef}
               data-vert={view === '2d' && vert2d ? 'on' : undefined}
               // Fit-to-content sizing for a horizontal 2D drawing only — 3D and
@@ -4315,7 +4316,7 @@ export function App() {
             onResetOverrides={() => commitActiveOverrides({ deployments: {}, separations: {}, ignitions: {} })} />
           <div className="panel motors-schematic">
             <h2>Rocket — motors drawn to scale</h2>
-            <div className="rocket-stage">
+            <div className="rocket-stage" data-view="2d">
               <TreeSchematic
                 tree={tree}
                 info={built?.info ?? null}

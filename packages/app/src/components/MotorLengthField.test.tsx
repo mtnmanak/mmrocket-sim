@@ -8,6 +8,25 @@ import { MotorLengthField, MotorLengthReadout } from './MotorLengthField.js';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 describe('mount length field estimates and units', () => {
+  it.each(['auto', 3, 4] as const)('N005 quotes the same motor length as its field with precision %s', precision => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
+      fieldPrecision: precision, units: { motorDimensions: 'in' },
+    }));
+    const host = document.createElement('div');
+    const root = createRoot(host);
+    const value = 1.0625 * 0.0254;
+    const commits: unknown[] = [];
+    try {
+      act(() => root.render(<PrefsProvider>
+        <MotorLengthField mountName="Core" value={value} onCommit={v => commits.push(v)} />
+        <MotorLengthReadout mountName="Core" value={value} onOpenDesign={() => {}} />
+      </PrefsProvider>));
+      const digits = precision === 4 ? '1.0625' : '1.063';
+      expect(host.querySelector('input')!.value).toBe(digits);
+      expect(host.querySelector('.motor-length-readout')!.textContent).toContain(`Max motor length: ${digits} in`);
+      expect(commits).toEqual([]);
+    } finally { act(() => root.unmount()); localStorage.clear(); }
+  });
   it('updates the displayed room without overwriting a saved limit, and disables unavailable estimates', () => {
     localStorage.clear();
     const host = document.createElement('div');
