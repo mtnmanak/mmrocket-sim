@@ -50,7 +50,7 @@ export function GustEstimate({ value, onChange, onEstimate, forecastWind }: {
   // Every speed with the digits its box shows (weatherText.windNumber): the σ
   // offered is the number the Wind gusts σ box then reads, and the average in
   // the arithmetic is the Wind avg box's.
-  const num = (ms: number) => windNumber(sym, ms);
+  const num = (ms: number) => windNumber(sym, ms, prefs.fieldPrecision);
   const speed = (ms: number) => `${num(ms)} ${sym}`;
   const gust = speed(forecastWind.gustMs);
   const warn = est.convective;

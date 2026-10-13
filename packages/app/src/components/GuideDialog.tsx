@@ -15,8 +15,10 @@ const GuideHtml = memo(function GuideHtml({ html }: { html: string }) {
  * static HTML. App.tsx lazy-loads it, and with it data/userGuide.ts, which
  * nothing else in the app imports (audit 2026-09-22, row 510).
  */
-export function GuideDialog({ onClose }: { onClose: () => void }) {
-  const [active, setActive] = useState(GUIDE_SECTIONS[0]?.id ?? '');
+export function GuideDialog({ onClose, initialAnchor }: { onClose: () => void; initialAnchor?: string }) {
+  const [active, setActive] = useState(() => initialAnchor
+    ? GUIDE_SECTIONS.find(s => s.html.includes(`id="${initialAnchor}"`))?.id ?? GUIDE_SECTIONS[0]?.id ?? ''
+    : GUIDE_SECTIONS[0]?.id ?? '');
   const [index] = useState(() => indexGuide(GUIDE_SECTIONS));
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<{ query: string; matches: GuideMatch[] }>({ query: '', matches: [] });
@@ -32,6 +34,13 @@ export function GuideDialog({ onClose }: { onClose: () => void }) {
   const pending = query.trim() !== results.query;
 
   useEffect(() => () => clearTimeout(timer.current), []);
+
+  useEffect(() => {
+    if (!initialAnchor) return;
+    const target = contentRef.current?.querySelector<HTMLElement>(`#${initialAnchor}`);
+    target?.focus({ preventScroll: true });
+    target?.scrollIntoView({ block: 'start' });
+  }, [initialAnchor]);
 
   useLayoutEffect(() => {
     const content = contentRef.current;

@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { CONFIG_DELETE_LOSS, ConfigPanel } from './ConfigPanel.js';
 import type { SavedConfig } from '../model/design.js';
 import { renameConfig } from '../services/configSync.js';
+import { PrefsProvider } from '../prefs/PrefsContext.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -28,6 +29,7 @@ describe('ConfigPanel', () => {
   let root: Root;
 
   beforeEach(() => {
+    localStorage.clear();
     host = document.createElement('div');
     document.body.appendChild(host);
     root = createRoot(host);
@@ -36,6 +38,7 @@ describe('ConfigPanel', () => {
   afterEach(() => {
     act(() => root.unmount());
     host.remove();
+    localStorage.clear();
   });
 
   it.each([false, true])('fills deletion only when the configuration has unprotected work: %s', deletionUnprotected => {
@@ -90,6 +93,41 @@ describe('ConfigPanel', () => {
 
 
   const chooser = () => host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]')!;
+  it('N011 sorts only display order, keeps selection, motors and stable ties, and persists on remount', () => {
+    const configs: SavedConfig[] = [
+      { ...CONFIGS[0]!, name: 'Zulu', motors: { m1: mm('B6-4') } },
+      { ...CONFIGS[1]!, name: 'Alpha', motors: { m1: mm('J1026-CT') } },
+      { ...CONFIGS[2]!, name: 'Alpha', motors: { m1: mm('A8-3') } },
+      CONFIGS[3]!,
+    ];
+    const before = JSON.stringify(configs);
+    const applied = vi.fn(); const cleared = vi.fn();
+    const render = (activeConfigId: string | null = 'cfg-a') => act(() => root.render(<PrefsProvider>
+      <ConfigPanel configs={configs} activeConfigId={activeConfigId} hasMotors onApply={applied} onClear={cleared}
+        onCreate={() => null} onRename={() => {}} onDelete={() => {}} />
+    </PrefsProvider>));
+    render();
+    const ids = () => [...chooser().options].map(o => o.value);
+    expect(ids()).toEqual(['cfg-a', 'cfg-b', 'cfg-c', 'cfg-d', '']);
+    const sort = (value: string) => act(() => {
+      const control = host.querySelector<HTMLSelectElement>('[aria-label="Sort configurations"]')!;
+      expect(control).not.toBeNull();
+      control.value = value; control.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    sort('name'); expect(ids()).toEqual(['cfg-d', 'cfg-b', 'cfg-c', 'cfg-a', '']);
+    sort('name-desc'); expect(ids()).toEqual(['cfg-a', 'cfg-b', 'cfg-c', 'cfg-d', '']);
+    sort('motor'); expect(ids()).toEqual(['cfg-c', 'cfg-a', 'cfg-b', 'cfg-d', '']);
+    sort('motor-desc'); expect(ids()).toEqual(['cfg-d', 'cfg-b', 'cfg-a', 'cfg-c', '']);
+    expect(chooser().value).toBe('cfg-a');
+    expect(chooser().selectedOptions[0]!.textContent).toContain('file default');
+    expect(applied).not.toHaveBeenCalled(); expect(cleared).not.toHaveBeenCalled();
+    expect(JSON.stringify(configs)).toBe(before);
+    act(() => root.unmount()); root = createRoot(host); render(null);
+    expect(ids()).toEqual(['cfg-d', 'cfg-b', 'cfg-a', 'cfg-c', '__working__', '']);
+    expect(chooser().value).toBe('__working__');
+    choose('cfg-c'); expect(applied).toHaveBeenCalledWith(configs[2]);
+    sort('creation'); expect(ids()).toEqual(['cfg-a', 'cfg-b', 'cfg-c', 'cfg-d', '__working__', '']);
+  });
   it('CFG-1b treats empty override maps as None and offers no reset', () => {
     mount({ activeConfigId: null, hasMotors: false,
       detachedOverrides: { deployments: {}, separations: {}, ignitions: {} } });

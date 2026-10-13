@@ -1,3 +1,4 @@
+import { GlossaryHelp } from './GlossaryHelp.js';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
@@ -422,7 +423,7 @@ export function FinPointsEditor({ points, onChange }: {
 
   return (
     <div style={{ marginTop: 10 }}>
-      <h2>Fin planform</h2>
+      <h2 className="field-label-help">Fin planform <GlossaryHelp term="fin-outline-coordinates" label="Fin planform" /></h2>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
         <button className="file-btn" onClick={() => zoomView(1 / wheelZoomFactor({ deltaY: -100 }))}>Zoom in</button>
         <button className="file-btn" onClick={() => zoomView(wheelZoomFactor({ deltaY: -100 }))}>Zoom out</button>
@@ -489,8 +490,8 @@ export function FinPointsEditor({ points, onChange }: {
         <thead>
           <tr>
             <th scope="col">#</th>
-            <th scope="col">x <UnitChip quantity="length" /></th>
-            <th scope="col">y <UnitChip quantity="length" /></th>
+            <th scope="col">x <UnitChip quantity="length" /> <GlossaryHelp term="fin-outline-coordinates" label="Fin point x" /></th>
+            <th scope="col">y <UnitChip quantity="length" /> <GlossaryHelp term="fin-outline-coordinates" label="Fin point y" /></th>
             <th scope="col"></th>
           </tr>
         </thead>

@@ -1,5 +1,5 @@
 {
-  "version": "0.187",
+  "version": "0.188",
   "released": "2026-10-13",
-  "note": "Geopotential ISA for the non-Classic models; parachute comparison columns; freeform-fin pan and zoom; a clearer Get weather dialog."
+  "note": "Recovery cautions and personal flight limits; stability diagnostics; display controls; tube marking wraps; a session debug log."
 }

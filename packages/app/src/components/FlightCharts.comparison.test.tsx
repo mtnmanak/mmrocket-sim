@@ -10,6 +10,10 @@ import { METRIC_UNITS } from '../prefs/units.js';
 import { strFromU8, unzipSync } from 'fflate';
 import { flightXlsx } from '../services/flightXlsx.js';
 import * as fileName from '../services/fileName.js';
+import { SERIES_DAYLIGHT } from '../chartTheme.js';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const registry = vi.hoisted(() => ({ plots: [] as Plot[] }));
 interface Plot {
@@ -39,6 +43,7 @@ vi.mock('uplot', () => ({ default: class {
   valToPos(v: number) { return v; }
   posToVal(v: number) { return v; }
   setSize() {}
+  redraw() {}
   destroy() { this.dead = true; this.over.parentElement?.replaceChildren(); }
 } }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -59,7 +64,8 @@ const data = (offset = 0): FlightSeries => ({
 const result = (): FlightResult => ({ series: data(), events: [], summary: {} }) as unknown as FlightResult;
 function ThemeControl() {
   const { prefs, setPrefs } = usePrefs();
-  return <button onClick={() => setPrefs({ ...prefs, theme: 'light', themeExplicit: true })}>Light</button>;
+  return <><button onClick={() => setPrefs({ ...prefs, theme: 'light', themeExplicit: true })}>Light</button>
+    <button onClick={() => setPrefs({ ...prefs, daylight: true })}>Sun</button></>;
 }
 const render = (flight: FlightResult, full?: () => Promise<FlightResult>, flightName = 'Test rocket · C6 (Estes)') => act(() => root.render(
   <PrefsProvider><ThemeControl /><FlightCharts result={flight} onFullSeries={full} flightName={flightName} /></PrefsProvider>,
@@ -79,6 +85,7 @@ describe('flight comparisons wiring', () => {
     const before = structuredClone(flight);
     render(flight);
     select('Comparison chart', 'phase');
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Emphasize Velocity"]')!.click());
     act(() => button('Velocity').click());
     const input = host.querySelector('.saved-flight-plots input') as HTMLInputElement;
     act(() => {
@@ -91,8 +98,10 @@ describe('flight comparisons wiring', () => {
     select('Flight branch', '1');
     act(() => button('Apply').click());
     expect(host.textContent).toContain('This flight branch has no usable data for this comparison.');
+    expect(host.querySelector('[aria-label="Emphasize Velocity"]')).toBeNull();
     select('Flight branch', '0');
     expect(overlay().series[1]!.label).toContain('Velocity');
+    expect(overlay().series.slice(1).every(s => s.alpha === 1 && s.width === 3)).toBe(true);
     expect(host.querySelectorAll('.charts-grid .chart-panel')).toHaveLength(2);
     act(() => {
       const unit = host.querySelector<HTMLSelectElement>('[aria-label="Velocity unit"]')!;
@@ -100,6 +109,7 @@ describe('flight comparisons wiring', () => {
     });
     act(() => button('Apply').click());
     expect(overlay().series[1]!.label).toContain('ft/s');
+    expect(overlay().series.slice(1).every(s => s.alpha === 1 && s.width === 3)).toBe(true);
     expect(flight).toEqual(before);
     const stored = JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!);
     expect(stored.flightPlots[0]).toMatchObject({ name: 'My coast', panels: ['altitude', 'acceleration'], comparison: 'phase' });
@@ -113,12 +123,89 @@ describe('flight comparisons wiring', () => {
     act(() => button('Stability margin (% of active length)').click());
     const percent = () => live().find(p => String(p.series[1]?.label).includes('% of active length'))!;
     expect(percent().data[1]![2]).toBeCloseTo(20, 12);
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Emphasize Stability margin (% of active length)"]')!.click());
+    expect(percent().series[1]!.alpha).toBe(1);
+    expect(live().find(p => String(p.series[1]?.label).startsWith('Altitude'))!.series[1]!.alpha).toBe(0.35);
     select('Flight branch', '1');
     expect(percent().data[1]![2]).toBeCloseTo(40, 12);
+    expect(percent().series[1]!.alpha).toBe(1);
+    expect(live().find(p => String(p.series[1]?.label).startsWith('Altitude'))!.series[1]!.alpha).toBe(0.35);
     act(() => button('Stability margin').click());
     expect(live().find(p => p.series[1]?.label === 'Stability margin (cal)')!.data[1]).toEqual([2, 2, 2, 2, 2]);
     expect(host.textContent).toContain('after recovery deployment or tumbling');
     expect(flight).toEqual(before);
+  });
+  it('N012 keeps Emphasize swatches at full opacity in sun mode without filling plot-selection chips', () => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../styles.css'), 'utf8');
+    document.head.append(style);
+    host.className = 'viz-root';
+    host.dataset['contrast'] = 'high';
+    try {
+      render(result());
+      act(() => button('Sun').click());
+      const dots = host.querySelectorAll('.flight-series-legend .series-dot');
+      expect(dots.length).toBeGreaterThan(1);
+      for (const dot of dots) expect(getComputedStyle(dot).opacity).toBe('1');
+      const offDot = host.querySelector('[aria-label="Plot series"] .series-chip:not(.series-chip-on) .series-dot')!;
+      expect(offDot).not.toBeNull();
+      expect(getComputedStyle(offDot).opacity).toBe('0.55');
+      act(() => host.querySelector<HTMLButtonElement>('[aria-label="Emphasize Velocity"]')!.click());
+      for (const dot of dots) expect(getComputedStyle(dot).opacity).toBe('1');
+    } finally {
+      style.remove();
+      host.className = '';
+      delete host.dataset['contrast'];
+    }
+  });
+  it('N012 emphasizes on hover, focus and tap without changing selection, data or zoom', () => {
+    render(result()); select('Comparison chart', 'altitude-velocity'); wheel(overlay());
+    const plots = live();
+    const before = plots.map((p) => ({ data: structuredClone(p.data), scales: structuredClone(p.scales) }));
+    const selected = [...host.querySelectorAll('[aria-label="Plot series"] button')].map((b) => b.getAttribute('aria-pressed'));
+    const entry = () => host.querySelector<HTMLButtonElement>('[aria-label="Emphasize Velocity"]')!;
+    expect(entry()).not.toBeNull();
+    act(() => { entry().dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    expect(overlay().series[1]!.alpha).toBeLessThan(1);
+    expect(overlay().series[2]!.alpha).toBe(1);
+    expect(overlay().series[2]!.width).toBeGreaterThan(overlay().series[1]!.width!);
+    act(() => { entry().dispatchEvent(new MouseEvent('mouseout', { bubbles: true })); });
+    expect(overlay().series.slice(1).every((s) => s.alpha === 1)).toBe(true);
+    const altitudeEntry = host.querySelector<HTMLButtonElement>('[aria-label="Emphasize Altitude"]')!;
+    act(() => { altitudeEntry.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    expect(overlay().series[2]!.alpha).toBeLessThan(1);
+    act(() => entry().focus());
+    expect(overlay().series[1]!.alpha).toBeLessThan(1);
+    expect(overlay().series[2]!.alpha).toBe(1);
+    act(() => entry().blur());
+    act(() => entry().click());
+    expect(entry().getAttribute('aria-pressed')).toBe('true');
+    expect(overlay().series[1]!.alpha).toBeLessThan(1);
+    act(() => entry().click());
+    expect(entry().getAttribute('aria-pressed')).toBe('false');
+    expect(overlay().series.slice(1).every((s) => s.alpha === 1)).toBe(true);
+    act(() => entry().click());
+    act(() => { entry().dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+    expect(entry().getAttribute('aria-pressed')).toBe('false');
+    expect(overlay().series.slice(1).every((s) => s.alpha === 1)).toBe(true);
+    expect(live()).toEqual(plots);
+    plots.forEach((p, i) => { expect(p.data).toEqual(before[i]!.data); expect(p.scales).toEqual(before[i]!.scales); });
+    expect([...host.querySelectorAll('[aria-label="Plot series"] button')].map((b) => b.getAttribute('aria-pressed'))).toEqual(selected);
+  });
+  it('N012 keeps emphasis through theme changes and applies it to every phase segment', () => {
+    render(result()); select('Comparison chart', 'phase');
+    const velocity = host.querySelector<HTMLButtonElement>('[aria-label="Emphasize Velocity"]')!;
+    act(() => velocity.click());
+    expect(overlay().series.slice(1).every((s) => s.alpha === 1 && s.width === 3)).toBe(true);
+    act(() => button('Light').click());
+    expect(overlay().series.slice(1).every((s) => s.alpha === 1 && s.width === 3)).toBe(true);
+    act(() => button('Sun').click());
+    expect(overlay().series.slice(1).every((s) => s.alpha === 1 && s.width === 3)).toBe(true);
+    expect(overlay().series[1]!.stroke).toBe(SERIES_DAYLIGHT[1]);
+    expect(velocity.querySelector<HTMLElement>('.series-emphasis-mark')!.style.visibility).toBe('visible');
+    const altitude = host.querySelector<HTMLButtonElement>('[aria-label="Emphasize Altitude"]')!;
+    act(() => altitude.click());
+    expect(overlay().series.slice(1).every((s) => s.alpha === 0.35)).toBe(true);
   });
   it('identifies every single-stage plot in normal, expanded and zoomed views', () => {
     render(result());
