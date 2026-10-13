@@ -240,6 +240,19 @@ describe('GuideDialog search and glossary navigation', () => {
 const open = () => act(() => { root.render(<GuideDialog onClose={() => {}} />); });
 const article = () => host.querySelector<HTMLElement>('.guide-content')!;
 const tocButtons = () => [...host.querySelectorAll<HTMLButtonElement>('.guide-toc-item')];
+
+it('keeps all four fin families together before the planform instructions (N019)', () => {
+  open();
+  act(() => { tocButtons().find((b) => b.textContent === 'Designing the Rocket')!.click(); });
+  const introduction = [...article().querySelectorAll('p')]
+    .find((p) => p.textContent === 'Four fin families are supported:')!;
+  const list = introduction.nextElementSibling!;
+  expect(list.tagName).toBe('UL');
+  expect([...list.querySelectorAll(':scope > li > strong:first-child')].map((el) => el.textContent))
+    .toEqual(['Trapezoidal', 'Elliptical', 'Freeform', 'Tube fins']);
+  expect(list.nextElementSibling!.tagName).toBe('P');
+  expect(list.nextElementSibling!.textContent).toContain('In Fin planform,');
+});
 /** Tab as the document sees it, reporting whether the trap took the key. */
 const tab = (): boolean => {
   const e = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });

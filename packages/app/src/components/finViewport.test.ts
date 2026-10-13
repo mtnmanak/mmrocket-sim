@@ -29,4 +29,26 @@ describe('the freeform fin view (N019)', () => {
       expect(zoomFin(fit, [106, 22], factor, fit.scale)).toEqual(fit);
     }
   });
+
+  it('never reverses zoom in after a larger outline lowers the fit scale', () => {
+    const fit = fitFin(points);
+    const view = zoomFin(fit, [106, 22], 50, fit.scale);
+    const largerFit = fitFin(points.map(([x, y]) => [x * 2, y * 2]));
+    expect(zoomFin(view, [106, 22], 1.1, largerFit.scale)).toEqual(view);
+    expect(zoomFin(view, [106, 22], 1, largerFit.scale)).toEqual(view);
+    const out = zoomFin(view, [106, 22], 0.8, largerFit.scale);
+    expect(out.scale).toBe(168000);
+    expect(finToScreen(out, points[1]!)).toEqual([106, 22]);
+  });
+
+  it('never reverses zoom out after a smaller outline raises the fit scale', () => {
+    const fit = fitFin(points);
+    const view = zoomFin(fit, [106, 22], 0.25, fit.scale);
+    const smallerFit = fitFin(points.map(([x, y]) => [x / 2, y / 2]));
+    expect(zoomFin(view, [106, 22], 0.9, smallerFit.scale)).toEqual(view);
+    expect(zoomFin(view, [106, 22], 1, smallerFit.scale)).toEqual(view);
+    const inside = zoomFin(view, [106, 22], 1.2, smallerFit.scale);
+    expect(inside.scale).toBe(1260);
+    expect(finToScreen(inside, points[1]!)).toEqual([106, 22]);
+  });
 });

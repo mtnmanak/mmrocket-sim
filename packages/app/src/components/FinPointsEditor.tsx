@@ -58,6 +58,7 @@ interface Press {
   kind: 'point' | 'empty' | 'pan';
   screen: FinPoint;
   transform: Transform;
+  capture: Element;
 }
 
 // Point edits follow startsGesture, the drawings' primary-pointer/button rule.
@@ -196,15 +197,16 @@ export function FinPointsEditor({ points, onChange }: {
     frozenTransform.current = transform;
     dragIndex.current = index;
     press.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, active: false,
-      kind: 'point', screen: clientToSvg(e), transform };
+      kind: 'point', screen: clientToSvg(e), transform, capture: e.currentTarget };
     showLive(start);
-    svgRef.current!.setPointerCapture?.(e.pointerId);
+    // N019: keep an unmoved press/release on the point so dblclick reaches it.
+    e.currentTarget.setPointerCapture?.(e.pointerId);
   };
 
   const beginViewPress = (kind: 'pan' | 'empty', e: React.PointerEvent) => {
     setPanning(kind === 'pan');
     press.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, active: false,
-      kind, screen: clientToSvg(e), transform: currentView() };
+      kind, screen: clientToSvg(e), transform: currentView(), capture: svgRef.current! };
     svgRef.current!.setPointerCapture?.(e.pointerId);
   };
 
@@ -218,13 +220,13 @@ export function FinPointsEditor({ points, onChange }: {
   const onPointerDownCapture = (e: React.PointerEvent) => {
     if (e.pointerType !== 'touch' || e.button !== 0) return;
     touches.current.set(e.pointerId, clientToSvg(e));
-    svgRef.current!.setPointerCapture?.(e.pointerId);
     if (touches.current.size !== 2) return;
     // N019: a second finger cancels a tentative point edit, never drops it.
     clearPress(false);
     const pair = touchPair()!;
     pinch.current = { ...pair, transform: currentView() };
     touchView.current = true;
+    for (const id of touches.current.keys()) svgRef.current!.setPointerCapture?.(id);
   };
 
   const onPointerDownPoint = (index: number) => (e: React.PointerEvent) => {
@@ -293,13 +295,14 @@ export function FinPointsEditor({ points, onChange }: {
   /** Drops the press without committing; the canvas snaps back to `committed`. */
   const clearPress = (releaseCapture = true) => {
     const pointerId = press.current?.pointerId;
+    const capture = press.current?.capture;
     press.current = null;
     setPanning(false);
     dragIndex.current = null;
     frozenTransform.current = null;
     showLive(null);
-    if (releaseCapture && pointerId != null && svgRef.current?.hasPointerCapture?.(pointerId)) {
-      svgRef.current.releasePointerCapture(pointerId);
+    if (releaseCapture && pointerId != null && capture?.hasPointerCapture?.(pointerId)) {
+      capture.releasePointerCapture(pointerId);
     }
   };
 
@@ -440,7 +443,11 @@ export function FinPointsEditor({ points, onChange }: {
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
           onPointerCancel={cancelDrag}
-          onLostPointerCapture={cancelDrag}>
+          onLostPointerCapture={(e) => {
+            // N019: transferring a point's capture to the pinch surface is not cancellation.
+            if (e.target !== svgRef.current && touchView.current) return;
+            cancelDrag(e);
+          }}>
         {/* body surface line */}
         <line x1={0} y1={bodyY} x2={VIEW_W} y2={bodyY} stroke="#9a978f" strokeWidth="3" />
         <text x={4} y={bodyY + 12} fontSize="9" fill="var(--text-muted)">body tube</text>

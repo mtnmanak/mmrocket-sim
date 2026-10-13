@@ -30,7 +30,10 @@ export function panFin(t: FinTransform, [dx, dy]: ViewPoint): FinTransform {
 /** N019: only the view changes; anchor zoom at the pointer, even at a limit. */
 export function zoomFin(t: FinTransform, [x, y]: ViewPoint, factor: number, fitScale: number): FinTransform {
   if (!(factor > 0) || !Number.isFinite(factor)) return t;
-  const scale = Math.max(fitScale / 4, Math.min(fitScale * 50, t.scale * factor));
+  // N019: coordinate edits change the fit limits; zoom must never reverse direction.
+  const scale = factor >= 1
+    ? Math.max(t.scale, Math.min(fitScale * 50, t.scale * factor))
+    : Math.min(t.scale, Math.max(fitScale / 4, t.scale * factor));
   const ratio = scale / t.scale;
   return { scale, x: x + (t.x - x) * ratio, y: y + (t.y - y) * ratio };
 }

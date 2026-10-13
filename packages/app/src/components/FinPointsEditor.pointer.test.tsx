@@ -77,6 +77,32 @@ const event = (type: string, p: Ptr) => new PointerEvent(type, {
 });
 const pointer = (el: Element, type: string, p: Ptr) => act(() => { el.dispatchEvent(event(type, p)); });
 
+/** happy-dom does not retarget captured events or emit capture-transfer loss. */
+const capturePointers = () => {
+  const owners = new Map<number, Element>();
+  for (const el of [svgEl(), ...host.querySelectorAll('circle[r="12"]')]) {
+    el.setPointerCapture = (id) => {
+      const previous = owners.get(id);
+      owners.set(id, el);
+      if (previous && previous !== el) {
+        previous.dispatchEvent(event('lostpointercapture', { id, x: 0, y: 0, touch: true }));
+      }
+    };
+    el.hasPointerCapture = (id) => owners.get(id) === el;
+    el.releasePointerCapture = (id) => {
+      if (owners.get(id) !== el) return;
+      owners.delete(id);
+      el.dispatchEvent(event('lostpointercapture', { id, x: 0, y: 0, touch: true }));
+    };
+  }
+  return (id: number, hit: Element) => owners.get(id) ?? hit;
+};
+const commonAncestor = (down: Element, up: Element): Element => {
+  let target = down;
+  while (!target.contains(up)) target = target.parentElement!;
+  return target;
+};
+
 const wheel = (x = 106, y = 22, deltaY = -100) => {
   const e = new WheelEvent('wheel', { bubbles: true, cancelable: true, clientX: x, clientY: y, deltaY });
   // happy-dom's WheelEvent extends UIEvent, omitting the browser's mouse coordinates.
@@ -125,22 +151,50 @@ describe('view gestures preserve fin coordinates (N019)', () => {
     expect(commits).toEqual([]);
   });
 
+  it.each(['wheel', 'button', 'keyboard'])('holds zoom in beyond a changed fit limit (%s)', (input) => {
+    for (let i = 0; i < 15; i++) wheel(150, 85, -300);
+    const larger = GOOD.map(([x, y]) => [x * 2, y * 2] as FinPoint);
+    act(() => root.render(<PrefsProvider><FinPointsEditor points={larger}
+      onChange={(next) => commits.push(next)} /></PrefsProvider>));
+    const before = location(2);
+    if (input === 'wheel') expect(wheel(150, 85).defaultPrevented).toBe(false);
+    else if (input === 'keyboard') key('+');
+    else act(() => { [...host.querySelectorAll('button')].find((b) => b.textContent === 'Zoom in')!.click(); });
+    expect(location(2)).toEqual(before);
+    wheel(150, 85, 100);
+    // New top edge is 0.05 m at 210000 px/m, then one 0.9 zoom-out step.
+    expect(location(2)[0]! - location(1)[0]!).toBeCloseTo(9450, 9);
+    expect(commits).toEqual([]);
+  });
+
+  it.each(['wheel', 'button', 'keyboard'])('holds zoom out beyond a changed fit limit (%s)', (input) => {
+    for (let i = 0; i < 15; i++) wheel(150, 85, 300);
+    const smaller = GOOD.map(([x, y]) => [x / 2, y / 2] as FinPoint);
+    act(() => root.render(<PrefsProvider><FinPointsEditor points={smaller}
+      onChange={(next) => commits.push(next)} /></PrefsProvider>));
+    const before = location(2);
+    if (input === 'wheel') expect(wheel(150, 85, 100).defaultPrevented).toBe(false);
+    else if (input === 'keyboard') key('-');
+    else act(() => { [...host.querySelectorAll('button')].find((b) => b.textContent === 'Zoom out')!.click(); });
+    expect(location(2)).toEqual(before);
+    wheel(150, 85);
+    // New top edge is 0.0125 m at 1050 px/m, then one reciprocal-0.9 step.
+    expect(location(2)[0]! - location(1)[0]!).toBeCloseTo(13.125 / 0.9, 9);
+    expect(commits).toEqual([]);
+  });
+
   it('keeps both fingers captured when a second finger takes over a point drag', () => {
     const svg = svgEl();
-    const captured = new Set<number>();
-    svg.setPointerCapture = (id) => { captured.add(id); };
-    svg.hasPointerCapture = (id) => captured.has(id);
-    svg.releasePointerCapture = (id) => {
-      captured.delete(id);
-      svg.dispatchEvent(event('lostpointercapture', { id, x: 0, y: 0, touch: true }));
-    };
+    const target = capturePointers();
     pointer(handle(1), 'pointerdown', { x: 106, y: 22, touch: true });
     pointer(svg, 'pointerdown', { x: 206, y: 22, touch: true, id: 2, primary: false });
-    pointer(svg, 'pointermove', { x: 306, y: 22, touch: true, id: 2, primary: false });
+    pointer(target(2, document.body), 'pointermove', { x: 306, y: 22, touch: true, id: 2, primary: false });
     expect(location(2)[0]).toBeCloseTo(316, 9);
     expect(commits).toEqual([]);
-    pointer(svg, 'pointerup', { x: 106, y: 22, touch: true });
-    pointer(svg, 'pointerup', { x: 306, y: 22, touch: true, id: 2, primary: false });
+    pointer(target(1, document.body), 'pointermove', { x: 116, y: 32, touch: true });
+    expect(location(2)[1]).toBeCloseTo(27, 9);
+    pointer(target(1, document.body), 'pointerup', { x: 116, y: 32, touch: true });
+    pointer(target(2, document.body), 'pointerup', { x: 306, y: 22, touch: true, id: 2, primary: false });
     expect(commits).toEqual([]);
   });
 
@@ -275,14 +329,30 @@ describe('a click on a point is not an edit', () => {
     expect(host.querySelector<HTMLInputElement>('input[aria-label="Point 2 x"]')!.value).toBe('20');
   });
 
-  it('a double-click delete is ONE undo step, not three', () => {
+  it.each([false, true])('a capture-adjusted double-click delete is ONE edit (touch=%s)', (touch) => {
+    const target = capturePointers();
+    let clickTarget: Element;
     // Both clicks of a double-click press and release a point first.
     for (let k = 0; k < 2; k++) {
-      pointer(handle(2), 'pointerdown', { x: 211, y: 22 });
-      pointer(svgEl(), 'pointerup', { x: 211, y: 22 });
+      const down = handle(2);
+      pointer(down, 'pointerdown', { x: 211, y: 22, touch });
+      const up = target(1, down);
+      pointer(up, 'pointerup', { x: 211, y: 22, touch });
+      clickTarget = commonAncestor(down, up);
+      act(() => { clickTarget.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: k + 1 })); });
     }
-    act(() => { handle(2).dispatchEvent(new MouseEvent('dblclick', { bubbles: true })); });
+    act(() => { clickTarget!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true, detail: 2 })); });
     expect(commits).toEqual([[[0, 0], [0.020, 0.030], [0.060, 0]]]);
+  });
+
+  it('losing a single point capture cancels the edit instead of dropping it', () => {
+    const target = capturePointers();
+    pointer(handle(1), 'pointerdown', { x: 106, y: 22 });
+    pointer(target(1, document.body), 'pointermove', { x: 136, y: 22 });
+    act(() => { target(1, document.body).releasePointerCapture(1); });
+    expect(location(1)).toEqual([106, 22]);
+    pointer(svgEl(), 'pointerup', { x: 136, y: 22 });
+    expect(commits).toEqual([]);
   });
 
   it('a real drag moves the point and commits once', () => {
