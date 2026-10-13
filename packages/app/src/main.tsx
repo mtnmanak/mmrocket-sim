@@ -10,6 +10,11 @@ import { AppRoot } from './root.js';
 import { guardPrecache } from './services/precacheGuard.js';
 import { setSwRegistration } from './services/versionCheck.js';
 import { offlineStatus } from './services/offlineStatus.js';
+import { installFatalErrorBar } from './services/fatalErrorBar.js';
+
+// C-H3 supplies downloadSessionDebugLog here when its tools lane is integrated.
+const fatalErrors = installFatalErrorBar();
+import.meta.hot?.dispose(fatalErrors);
 
 // Offline-first. autoUpdate: a new build takes over and reloads the page by
 // itself. What it does NOT do is go looking — the browser checks for a new
@@ -26,28 +31,8 @@ offlineStatus.start(registerSW, (_url, reg) => {
   void guardPrecache(reg).catch(() => { /* Offline diagnostics must not prevent startup. */ });
 });
 
-// Never a silently-blank page: uncaught errors paint into the root. A throw
-// while RENDERING is caught by AppBoundary (root.tsx), which keeps the root
-// filled and offers the autosaved design and a fresh start (audit
-// 2026-09-22); this paints only into an EMPTY root, so it is the last resort
-// for what no boundary sees (the root failing to mount at all). What fails
-// before this body can run — a chunk that would not load, a module that threw
-// while evaluating — is painted by index.html's startup painter, which stands
-// down once the app has drawn (audit 2026-09-30).
-function showFatal(message: string) {
-  const root = document.getElementById('root');
-  if (root && !root.childElementCount) {
-    root.innerHTML = `<div style="font-family:system-ui;padding:24px;color:#ffffff;background:#970f21;border:2px solid currentColor">
-      <h2><span aria-hidden="true">⛔</span> Danger: Something went wrong</h2>
-      <pre style="white-space:pre-wrap">${message
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')}</pre>
-    </div>`;
-  }
-}
-window.addEventListener('error', (e) => showFatal(String(e.error?.stack ?? e.message)));
-window.addEventListener('unhandledrejection', (e) => showFatal(String(e.reason)));
-
+// AppBoundary still offers design recovery for render failures. index.html's
+// startup painter covers failures before this module can install the handlers.
 try {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
@@ -55,5 +40,5 @@ try {
     </StrictMode>,
   );
 } catch (e) {
-  showFatal(String((e as Error).stack ?? e));
+  fatalErrors.report(e);
 }

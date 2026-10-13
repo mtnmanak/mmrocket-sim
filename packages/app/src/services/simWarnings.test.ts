@@ -15,6 +15,12 @@ describe('D7 visual consequence, independent of kernel priority', () => {
 });
 
 describe('formatWarning', () => {
+  it('N046 preserves known and future warning codes without changing their presentation', () => {
+    expect(formatWarning({ key: 'NO_RECOVERY_DEVICE', message: '[Warning.NO_RECOVERY_DEVICE]', priority: 'HIGH' }))
+      .toMatchObject({ code: 'NO_RECOVERY_DEVICE', label: 'No recovery device — the rocket comes down ballistic', tier: 'danger', high: true });
+    expect(formatWarning({ key: 'FutureWarning', message: 'Original message' }))
+      .toMatchObject({ code: 'FutureWarning', label: 'Original message', tier: 'information' });
+  });
   it('maps a known key to its plain-language label (no detail when the message is bare)', () => {
     const f = formatWarning({
       key: 'NO_RECOVERY_DEVICE',

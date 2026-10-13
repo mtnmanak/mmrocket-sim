@@ -4760,6 +4760,55 @@ select.unit-chip:hover {
   color: inherit;
 }
 .message-label { font-weight: 700; }
+
+/* N046: codes borrow their note's ink, including the filled consequence tiers. */
+.warning-code {
+  box-sizing: border-box;
+  min-height: 24px;
+  font: 0.8em ui-monospace, monospace;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 4px 6px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.warning-code:hover { text-decoration: underline; }
+.warning-code:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.warning-lookup { box-sizing: border-box; min-width: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+.warning-lookup-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.warning-lookup-header h2 { flex: 1; margin: 0; }
+.warning-lookup h3 { margin-bottom: 4px; }
+.warning-lookup-code { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.warning-lookup label { display: block; }
+.warning-lookup input { display: block; box-sizing: border-box; width: 100%; margin: 6px 0; }
+.warning-lookup-list { list-style: none; padding: 0; max-height: 180px; overflow-y: auto; }
+.warning-lookup-list .file-btn { box-sizing: border-box; width: 100%; white-space: normal; text-align: left; margin-bottom: 4px; }
+.warning-lookup :is(button, input):focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+
+/* W3-DIAG: normal document flow reserves its actual height on a phone too.
+   Outside React's root, the tier fallbacks also work if startup never draws. */
+.fatal-error-bar { font: 13px/1.5 system-ui, sans-serif; margin: 0; }
+.fatal-error-bar p { margin: 0 0 6px; }
+.fatal-error-bar p:empty { display: none; }
+.fatal-error-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.fatal-error-actions button {
+  box-sizing: border-box;
+  font: inherit;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  padding: 8px 10px;
+  cursor: pointer;
+  max-width: 100%;
+  white-space: normal;
+}
+.fatal-error-actions button:hover { text-decoration: underline; }
+.fatal-error-actions button:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.fatal-error-actions button:disabled { cursor: default; text-decoration: none; }
 .message-tier.message-tier .simdet-comments,
 .message-tier.message-tier .comp-stats { color: inherit; }
 /* Children that carry their own ink take the fill's instead (review of

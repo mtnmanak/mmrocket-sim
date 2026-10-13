@@ -39,6 +39,20 @@ const info: StaticInfo = {
   warnings: 0, warningTexts: [],
 };
 
+it('N046 opens a flight warning explanation from its unchanged code and keeps the tier', () => {
+  const saved = run();
+  saved.simWarnings = [{ key: 'NO_RECOVERY_DEVICE', message: '[Warning.NO_RECOVERY_DEVICE]' }];
+  render(<SimRunDetails run={saved} />);
+  const code = host.querySelector<HTMLButtonElement>('button[aria-label="Explain note NO_RECOVERY_DEVICE"]');
+  expect(code).not.toBeNull();
+  expect(code!.closest('.message-danger')).not.toBeNull();
+  act(() => code!.click());
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog.textContent).toContain('What it means');
+  expect(dialog.textContent).toContain('What to do');
+  expect(dialog.textContent).toContain('ballistic');
+});
+
 /** The same self-consistent flight simReport.test.ts uses. */
 function fakeResult(): FlightResult {
   const time = [0, 0.15, 1, 2, 6.8, 7.0, 104];

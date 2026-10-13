@@ -8,6 +8,7 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { EXPORT_VARS } from '../services/schematicExport.js';
 import { NoticeBar, type Notice } from './NoticeBar.js';
+import { installFatalErrorBar } from '../services/fatalErrorBar.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -221,13 +222,23 @@ describe('NOTES-1 supporting text and startup contrast', () => {
       }
     }
   });
-  it('the empty-root fallback supplies its own 7:1 fill outside the theme subtree', () => {
-    const source = read('../main.tsx');
-    const pair = /padding:24px;color:(#[0-9a-f]{6});background:(#[0-9a-f]{6})/.exec(source)!;
-    expect(pair).not.toBeNull();
-    expect(ratio(rgb(pair[1]!), rgb(pair[2]!))).toBeGreaterThanOrEqual(7);
-    expect(source).toContain('aria-hidden="true"');
-    expect(source).toContain('Danger: Something went wrong');
+  it('the fatal bar supplies its own 7:1 fill outside the theme subtree', () => {
+    const stop = installFatalErrorBar();
+    try {
+      stop.report('Startup error');
+      const bar = document.querySelector('.fatal-error-bar')!;
+      expect(bar.textContent).toContain('Danger: Something went wrong');
+      expect(bar.closest('.viz-root')).toBeNull();
+      const foreground = resolveVars(winning(bar, ['color'])!.value, {});
+      const background = resolveVars(winning(bar, ['background', 'background-color'])!.value, {});
+      expect(ratio(rgb(foreground), rgb(background))).toBeGreaterThanOrEqual(7);
+      for (const theme of Object.values(THEMES)) {
+        for (const element of [bar, ...bar.querySelectorAll('p, strong, button')]) {
+          const colours = ink(element, theme, new Map());
+          expect(ratio(colours.colour.slice(0, 3) as RGB, colours.bg.slice(0, 3) as RGB)).toBeGreaterThanOrEqual(7);
+        }
+      }
+    } finally { stop(); }
   });
   it('filled blocks defeat supporting prose in Daylight and retain a forced-colors border', () => {
     expect(rule('.message-tier.message-tier.message-danger')).toContain('color: var(--callout-danger-fg');

@@ -1015,6 +1015,12 @@ Launch conditions also travel inside your `.ork` file (and in share links), so a
 
 ## Simulating and Reading Results
 
+### Note codes and explanations
+
+Simulation warnings and recognized design warnings show a small code beside the note. File-open notes with a recorded code, such as **I03.left-out**, show it when the notices bar is expanded. Select the code to open **Note explanations**: **What it means** explains the note, and **What to do** suggests checks. **Find a note code** searches the codes and their meanings; **Clear** clears the search. Escape or **Close** returns to the note.
+
+Older plain-text notes may have no code. An unknown code remains visible, with a message that this version has no explanation for it. Keep that code and the original details with a bug report. Codes do not change a note’s wording or severity. Notes are advice: they do not block Launch or certify a flight.
+
 With a motor assigned and conditions set, press **Launch**. This section covers the single-flight run, the plots, the safety-graded report, saved runs, and batch simulation.
 
 ## Running a single flight
@@ -1558,6 +1564,10 @@ One of those differences is worth spelling out, because it is the one you can se
 <a id="feedback"></a>
 
 ## Feedback & Bug Reports
+
+If an unexpected error or an unhandled background failure reaches the page, a bar at the top says **Something went wrong** and shows the short error message. **Dismiss** closes the bar; it does not fix the error. Keep the message with your bug report. The bar leaves the phone’s tabs and Launch controls uncovered. Benign ResizeObserver loop notifications do not open it.
+
+The bar includes **Download session debug log**. In builds without session-log support, that action is disabled and the bar says the download is unavailable. When session-log support is connected, the action downloads the current session log; it does not send a report. The separate recovery screen for a rendering failure still offers to download the autosaved design.
 
 Found something broken, or want the app to do something it doesn't? Both are genuinely wanted — beta reports directly shape what gets built next. The **Feedback** button in the header offers every route, or use these links directly:
 

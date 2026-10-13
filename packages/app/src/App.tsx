@@ -126,7 +126,8 @@ import {
   type DesignMatchKey, type MotorMeta, type SimRun,
 } from './services/simReport.js';
 import { Note, type NoteTier } from './components/Note.js';
-import { formatWarning, formatWarningText, staticWarningTier } from './services/simWarnings.js';
+import { formatWarning, staticWarningTier } from './services/simWarnings.js';
+import { StaticWarning } from './components/WarningCode.js';
 import { railInterferenceFindings } from './tree/mountAngle.js';
 import {
   addRun, appendImportedRuns, loadRuns, MAX_RUNS, persistFailed, runsEvictedByLastWrite, runsUnsavedByLastWrite, runsEvictedForUndoByLastWrite,
@@ -4189,7 +4190,7 @@ export function App() {
                 {(['caution', 'information'] as const).map(tier => {
                   const texts = rest.filter(t => staticWarningTier(t) === tier);
                   return texts.length ? <Note key={tier} tier={tier} className="file-note" role="alert">
-                    {texts.map(formatWarningText).join('\n')}
+                    {texts.map((text, i) => <div key={i}><StaticWarning text={text} /></div>)}
                   </Note> : null;
                 })}
                 {railFindings.length > 0 && (
