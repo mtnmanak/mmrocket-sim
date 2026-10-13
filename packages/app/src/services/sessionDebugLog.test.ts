@@ -1,9 +1,55 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSessionDebugLog, MAX_DEBUG_LOG_BYTES, MAX_DEBUG_LOG_EVENTS, startSessionDebugCapture } from './sessionDebugLog.js';
 import { DEFAULT_PREFS } from '../prefs/preferences.js';
 
+const context = vi.hoisted(() => ({ version: 'test-version' }));
+vi.mock('../version.js', () => ({ get APP_VERSION() { return context.version; } }));
+afterEach(() => { context.version = 'test-version'; vi.restoreAllMocks(); });
+
 describe('C-H3 session diagnostics', () => {
+  it('serializes only the browser UA value that was checked when its getter changes', () => {
+    const log = createSessionDebugLog();
+    vi.spyOn(navigator, 'userAgent', 'get').mockReturnValueOnce('Test browser').mockReturnValue('Private design 61.234 Fairbanks');
+    const text = log.text();
+    expect(text).toContain('Browser UA: Test browser');
+    for (const secret of ['Private', '61.234', 'Fairbanks']) expect(text).not.toContain(secret);
+  });
+
+  it('serializes only the error name that was validated, even when its getter changes', () => {
+    const log = createSessionDebugLog();
+    let reads = 0;
+    const error = new Error('No stage found');
+    Object.defineProperty(error, 'name', { get: () => ++reads === 1 ? 'Error' : 'Private design 61.234 Fairbanks' });
+    log.record('uncaught-error', error);
+    expect(log.text()).toContain('uncaught-error: Error: No stage found');
+    for (const secret of ['Private', '61.234', 'Fairbanks']) expect(log.text()).not.toContain(secret);
+  });
+
+  it.each(['daylight', 'rogersKbf', 'rulers2d', 'tourOff'] as const)('serializes only the validated %s preference when its getter changes', key => {
+    const log = createSessionDebugLog();
+    const prefs = { ...DEFAULT_PREFS };
+    let reads = 0;
+    Object.defineProperty(prefs, key, { get: () => ++reads === 1 ? true : 'Private design 61.234 Fairbanks'.repeat(4000) });
+    log.preferences(prefs);
+    const text = log.text();
+    expect(text).toContain(`"${key}":true`);
+    for (const secret of ['Private', '61.234', 'Fairbanks']) expect(text).not.toContain(secret);
+    expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(MAX_DEBUG_LOG_BYTES);
+  });
+
+  it('caps the complete UTF-8 export when context alone exceeds the limit, retaining events', () => {
+    const log = createSessionDebugLog();
+    // Oversized public build metadata must not bypass the export budget.
+    context.version = '🛰'.repeat(24000);
+    for (let i = 0; i < MAX_DEBUG_LOG_EVENTS; i++) log.record('import-failed', new Error('No stage found'));
+    const text = log.text();
+    expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(MAX_DEBUG_LOG_BYTES);
+    expect(text).toContain('Context omitted: export size limit.');
+    expect(text.match(/import-failed/g)).toHaveLength(MAX_DEBUG_LOG_EVENTS);
+    expect(text).not.toContain('�');
+  });
+
   it('retains the newest events, drops old ones, and caps the UTF-8 download', () => {
     const log = createSessionDebugLog();
     log.record('import-start');

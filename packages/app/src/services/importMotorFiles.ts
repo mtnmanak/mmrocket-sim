@@ -36,6 +36,8 @@ export async function importMotorFiles(files: File[]) {
   const write = parsed.length ? addExMotors(parsed) : null;
   const unsaved = write !== null && !write.stored;
   if (parsed.length > 0) sessionDebugLog.record('import-complete');
+  if (unsaved) sessionDebugLog.record('import-storage-failed',
+    'Motor storage is full or blocked; imported motors are available only for this session.');
   const some = (names: string[]) => `${names.slice(0, 6).join(', ')}${names.length > 6 ? ', …' : ''}`;
   if (write?.duplicates.length) {
     said.push(`${some(write.duplicates)}: listed more than once with different data — each copy is kept `

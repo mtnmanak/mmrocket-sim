@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest';
 import { zipSync } from 'fflate';
-import { createSessionDebugLog } from './sessionDebugLog.js';
+import { createSessionDebugLog, sessionDebugLog } from './sessionDebugLog.js';
+import { importMotorFiles } from './importMotorFiles.js';
 import { importOrk } from './orkFile.js';
 import { importRkt } from './rocksimFile.js';
 import { importCdx1 } from './rasaeroFile.js';
@@ -28,6 +29,55 @@ function logged(error: Error): string {
 }
 
 describe('C-H3 real import diagnostics', () => {
+  it.each([
+    ['.rse', '<engine code="Private 61.234 Fairbanks" dia="18" len="70"/>', 'initial mass missing or zero'],
+    ['.rse', '<engine code="Private 61.234 Fairbanks" initWt="20" propWt="0"/>', 'invalid propellant mass'],
+    ['.rse', '<engine code="Private 61.234 Fairbanks" initWt="20" propWt="61.234"/>', 'propellant exceeds loaded mass'],
+    ['.rse', '<engine code="Private 61.234 Fairbanks" initWt="20" propWt="10" len="70"/>', 'invalid diameter'],
+    ['.rse', '<engine code="Private 61.234 Fairbanks" initWt="20" propWt="10" dia="18"/>', 'invalid length'],
+    ['.rse', '<engine code="Private 61.234 Fairbanks" initWt="20" propWt="10" dia="18" len="70"/>', 'no thrust data'],
+    ['.rse', '<engine code="Private 61.234 Fairbanks" initWt="20" propWt="10" dia="18" len="70"><data><eng-data t="0" f="Fairbanks"/></data></engine>', 'unreadable thrust data'],
+    ['.rse', '<engine code="Private 61.234 Fairbanks" initWt="20" propWt="10" dia="18" len="70"><data><eng-data t="0" f="-61.234"/></data></engine>', 'negative time or thrust'],
+    ['.eng', 'Private 18 70 P 0.01 0 PrivateMaker\n0 0\n1 0', 'invalid loaded mass'],
+    ['.eng', 'Private 18 70 P 0 0.02 PrivateMaker\n0 0\n1 0', 'invalid propellant mass'],
+    ['.eng', 'Private 18 70 P 61.234 0.02 PrivateMaker\n0 0\n1 0', 'propellant exceeds loaded mass'],
+    ['.eng', 'Private 0 70 P 0.01 0.02 PrivateMaker\n0 0\n1 0', 'invalid diameter/length'],
+    ['.eng', 'Private 18 70 P Fairbanks 0.02 PrivateMaker\n0 0\n1 0', 'nonnumeric mass'],
+    ['.eng', 'Private 18 70 P 0.01 0.02 PrivateMaker\n0 0\n1 -61.234', 'negative time or thrust'],
+    ['.eng', 'Private 18 70 P 0.01 0.02 PrivateMaker', 'No motors found in .eng file'],
+  ])('retains the safe %s motor refusal category: %s', async (extension, source, safe) => {
+    const contents = extension === '.rse' ? `<engine-database><engine-list>${source}</engine-list></engine-database>` : source;
+    const out = await importMotorFiles([new File([contents], `Private Fairbanks 61.234${extension}`)]);
+    expect(out.parsed).toHaveLength(0);
+    expect(out.error).toContain('Private');
+    const event = sessionDebugLog.text().trim().split('\n').at(-1)!;
+    expect(event).toContain('import-failed: Error:');
+    expect(event).toContain(safe);
+    for (const secret of ['Private', '61.234', 'Fairbanks', '<engine', 'PrivateMaker']) expect(event).not.toContain(secret);
+  });
+
+  it('preserves distinct safe refusal categories from a multi-motor file without its names', async () => {
+    const out = await importMotorFiles([new File([
+      '<engine-database><engine-list><engine code="Private"/><engine code="Fairbanks" initWt="20" propWt="10" dia="18" len="70"/></engine-list></engine-database>',
+    ], 'Private.rse')]);
+    expect(out.parsed).toHaveLength(0);
+    const event = sessionDebugLog.text().trim().split('\n').at(-1)!;
+    expect(event).toContain('initial mass missing or zero');
+    expect(event).toContain('no thrust data');
+    expect(event).not.toContain('Private');
+    expect(event).not.toContain('Fairbanks');
+  });
+
+  it.each([
+    'Motor Private: unknown reason Fairbanks 61.234',
+    'Motor Private: no thrust data Fairbanks 61.234',
+    'Motor Private: data point Fairbanks has negative time or thrust (61.234, private)',
+  ])('omits unknown motor refusals and malformed lookalikes: %s', message => {
+    const text = logged(new Error(message));
+    expect(text).toContain('Message omitted for privacy');
+    for (const secret of ['Private', '61.234', 'Fairbanks']) expect(text).not.toContain(secret);
+  });
+
   it.each([
     ['.ork', importOrk, 'Not a valid .ork file (XML parse error)'],
     ['.rkt', importRkt, 'Not a valid RockSim file (XML parse error)'],

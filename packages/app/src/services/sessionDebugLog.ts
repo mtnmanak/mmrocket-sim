@@ -9,10 +9,10 @@ const EVENT_BYTES = 48 * 1024;
 
 type DebugEvent = 'session-start' | 'preferences-changed' | 'uncaught-error' | 'unhandled-rejection'
   | 'worker-error' | 'worker-message-error' | 'app-error' | 'panel-error' | 'import-start' | 'import-failed'
-  | 'import-complete' | 'launch-start' | 'launch-complete' | 'launch-failed' | 'debug-log-download';
+  | 'import-complete' | 'import-storage-failed' | 'launch-start' | 'launch-complete' | 'launch-failed' | 'debug-log-download';
 const EVENTS: readonly DebugEvent[] = ['session-start', 'preferences-changed', 'uncaught-error', 'unhandled-rejection',
   'worker-error', 'worker-message-error', 'app-error', 'panel-error', 'import-start', 'import-failed',
-  'import-complete', 'launch-start', 'launch-complete', 'launch-failed', 'debug-log-download'];
+  'import-complete', 'import-storage-failed', 'launch-start', 'launch-complete', 'launch-failed', 'debug-log-download'];
 
 // C-H3: error text can contain the entire imported XML or a weather query.
 // Retain only known diagnostic sentences; never stringify objects or stacks.
@@ -24,6 +24,7 @@ const SAFE_MESSAGES = new Set(['No stage found', 'Failed to fetch', 'Load failed
   'Cache Storage is unavailable.', 'Empty .ork archive', 'Empty .rkt archive', 'Empty .CDX1 archive',
   'File exceeds the design-file size limit.',
   'No .eng or .rse files found in that selection.', 'No motors found in .eng file', 'No <engine> entries in .rse file',
+  'Motor storage is full or blocked; imported motors are available only for this session.',
   'No presets found in that CSV.', 'No valid preset rows found.', 'Preset storage refused the import.',
   'not a share link (missing the d=<version>.<data> payload)', 'the compressed data is corrupt or cut short',
   'the link is far longer than any real design — refusing to decode it',
@@ -43,12 +44,29 @@ const SAFE_IMPORT_MESSAGES = [
   /^This file would open as more than [0-9]+ flight configurations, past the [0-9]+ the app will open\. Reduce the simulations in (RockSim|RASAero) and save it again\.$/,
 ];
 
+// C-H3: motor parsers name refused motors and may quote raw values. Return fixed categories only.
+const MOTOR_NUMBER = '(?:NaN|-?Infinity|-?[0-9]+(?:\\.[0-9]+)?(?:e[+-]?[0-9]+)?)';
+const SAFE_MOTOR_REFUSALS: readonly [RegExp, string][] = [
+  [/^[\s\S]+: initial mass \(initWt\) missing or zero$/, 'initial mass missing or zero'],
+  [new RegExp(`^[\\s\\S]+: loaded mass ${MOTOR_NUMBER} g is not a mass$`), 'invalid loaded mass'],
+  [new RegExp(`^[\\s\\S]+: propellant mass ${MOTOR_NUMBER} g is not a mass$`), 'invalid propellant mass'],
+  [new RegExp(`^[\\s\\S]+: more propellant \\(${MOTOR_NUMBER} g\\) than loaded mass \\(${MOTOR_NUMBER} g\\)$`), 'propellant exceeds loaded mass'],
+  [/^Propellant and total mass must be numbers in "[\s\S]*" — read "[\s\S]*" and "[\s\S]*"\.$/, 'nonnumeric mass'],
+  [/^[\s\S]+: diameter\/length missing or not a positive number$/, 'invalid diameter/length'],
+  [/^[\s\S]+: diameter \(dia\) missing or not a positive number$/, 'invalid diameter'],
+  [/^[\s\S]+: length \(len\) missing or not a positive number$/, 'invalid length'],
+  [/^[\s\S]+: no thrust data$/, 'no thrust data'],
+  [/^[\s\S]+: data point [0-9]+ of [0-9]+ cannot be read \([\s\S]*\)$/, 'unreadable thrust data'],
+  [new RegExp(`^[\\s\\S]+: data point [0-9]+ has negative time or thrust \\(${MOTOR_NUMBER}, ${MOTOR_NUMBER}\\)$`), 'negative time or thrust'],
+];
+
 function diagnosticMessage(value: unknown): string {
   let name = ''; let message: unknown = value;
   try {
     if (value instanceof Error || value instanceof DOMException) {
+      const errorName = value.name;
       if (['Error', 'TypeError', 'ReferenceError', 'RangeError', 'SyntaxError', 'SecurityError', 'QuotaExceededError',
-        'NotAllowedError', 'AbortError', 'NetworkError'].includes(value.name)) name = `${value.name}: `;
+        'NotAllowedError', 'AbortError', 'NetworkError'].includes(errorName)) name = `${errorName}: `;
       message = value.message;
     }
     if (typeof message !== 'string' || message.length > 8192) return `${name}Message omitted for privacy`;
@@ -68,6 +86,12 @@ function diagnosticMessage(value: unknown): string {
     if (message.startsWith('This file starts with a DOCTYPE')) return `${name}XML DOCTYPE refused (file detail omitted)`;
     if (message.startsWith('Not a RASP header line:')) return `${name}Not a RASP header line (file detail omitted)`;
     if (message.startsWith('Bad data line:')) return `${name}Bad data line (file detail omitted)`;
+    const motorRefusals = new Set<string>();
+    for (const part of message.split(' · ')) {
+      const refusal = SAFE_MOTOR_REFUSALS.find(([pattern]) => pattern.test(part));
+      if (refusal) motorRefusals.add(refusal[1]);
+    }
+    if (motorRefusals.size) return `${name}Motor import refused: ${[...motorRefusals].join('; ')} (file detail omitted)`;
     return `${name}Message omitted for privacy`;
   } catch { return 'Message omitted for privacy'; }
 }
@@ -91,7 +115,8 @@ function diagnosticPreferences(prefs: Preferences, aeroOverride: AeroChoice | nu
     if (typeof value === 'string' && choices.includes(value)) out[key] = value;
   }
   for (const key of ['daylight', 'rogersKbf', 'rulers2d', 'tourOff'] as const) {
-    if (typeof prefs[key] === 'boolean') out[key] = prefs[key];
+    const value = prefs[key];
+    if (typeof value === 'boolean') out[key] = value;
   }
   if (aeroOverride === null || ['classic', 'supersonic', 'auto', 'hybrid'].includes(aeroOverride)) out['aeroOverride'] = aeroOverride;
   out['units'] = Object.fromEntries((Object.keys(UNITS) as Quantity[]).flatMap(q => {
@@ -142,14 +167,20 @@ export function createSessionDebugLog() {
       return () => { worker.removeEventListener('error', error); worker.removeEventListener('messageerror', messageError); };
     },
     text(): string {
-      const ua = typeof navigator === 'undefined' || typeof navigator.userAgent !== 'string' ? 'Unavailable'
-        : navigator.userAgent.slice(0, 1024).replace(/[\r\n]/g, ' ');
+      const userAgent = typeof navigator === 'undefined' ? undefined : navigator.userAgent;
+      const ua = typeof userAgent !== 'string' ? 'Unavailable' : userAgent.slice(0, 1024).replace(/[\r\n]/g, ' ');
       const viewport = typeof window === 'undefined' ? 'Unavailable' : `${window.innerWidth} x ${window.innerHeight}`;
-      return `MMRocket Sim session debug log\nApp version: ${APP_VERSION}\nBrowser UA: ${ua}\nViewport (CSS px): ${viewport}\n`
+      const events = Array.from({ length: count }, (_, i) => rows[(head + i) % MAX_DEBUG_LOG_EVENTS]!.text).join('');
+      const text = `MMRocket Sim session debug log\nApp version: ${APP_VERSION}\nBrowser UA: ${ua}\nViewport (CSS px): ${viewport}\n`
         + `Preferences (allowlisted): ${preferences}\nLimits: ${MAX_DEBUG_LOG_EVENTS} events, ${MAX_DEBUG_LOG_BYTES} UTF-8 bytes\n`
         + `Older events dropped: ${dropped}\nElapsed times since capture began; no design, files, locations or weather search text.\n`
         + `Unknown error messages and stack traces are omitted for privacy. Errors before capture loaded are unavailable.\n\n`
-        + Array.from({ length: count }, (_, i) => rows[(head + i) % MAX_DEBUG_LOG_EVENTS]!.text).join('');
+        + events;
+      // C-H3: context is outside the event budget; keep its growth inside the export cap too.
+      if (encoder.encode(text).byteLength > MAX_DEBUG_LOG_BYTES) {
+        return `MMRocket Sim session debug log\nContext omitted: export size limit.\nOlder events dropped: ${dropped}\n\n${events}`;
+      }
+      return text;
     },
   };
 }
