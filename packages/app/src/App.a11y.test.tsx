@@ -9,6 +9,7 @@ import { flyLaunch } from './services/flightRunner.js';
 import { loadCatalogueMotor } from './services/motorMatch.js';
 import { addStage, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
+import { sessionDebugLog } from './services/sessionDebugLog.js';
 
 /**
  * App-level accessibility from the 2026-09-22 audit (rows 443, 444, 445, 453,
@@ -88,6 +89,8 @@ async function launch(host: HTMLElement, n = 1): Promise<void> {
   await waitFor(() => (JSON.parse(localStorage.getItem(RUNS_KEY) ?? '[]') as unknown[]).length >= n,
     `flight ${n} to be saved`);
   await settle(0);
+  expect(sessionDebugLog.text()).toContain('launch-start');
+  expect(sessionDebugLog.text()).toContain('launch-complete');
 }
 
 /** The polite region that says a flight is done (the notices have their own). */
@@ -120,6 +123,22 @@ afterEach(async () => {
 });
 
 describe('App — accessibility, as rendered', () => {
+  it('C-H3 keeps diagnostic privacy copy beside Feedback and captures a refused design import', async () => {
+    const host = await mountApp();
+    const feedback = [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Feedback')!;
+    await act(async () => { feedback.click(); });
+    const group = host.querySelector('[aria-label="Feedback"]')!;
+    const download = [...group.querySelectorAll('button')].find(b => b.textContent === 'Download session debug log')!;
+    expect(download).toBeDefined();
+    expect(document.getElementById(download.getAttribute('aria-describedby')!)?.textContent).toContain('No design');
+    const input = host.querySelector<HTMLInputElement>('input[type="file"][accept*=".ork"]')!;
+    Object.defineProperty(input, 'files', { configurable: true, value: [new File(['<private/>'], 'Private-design.ork')] });
+    await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+    await waitFor(() => sessionDebugLog.text().includes('import-failed'), 'a failed import in the debug log');
+    expect(sessionDebugLog.text()).toContain('Not a .ork file (root must be <openrocket>)');
+    expect(sessionDebugLog.text()).not.toContain('Private-design');
+    expect(sessionDebugLog.text()).not.toContain('<private/>');
+  }, 30000);
   it('keeps HIGH warning announcements even when an unknown event has Information styling', async () => {
     const real = await vi.importActual<typeof import('./services/flightRunner.js')>('./services/flightRunner.js');
     vi.mocked(flyLaunch).mockImplementationOnce(async (...args) => {

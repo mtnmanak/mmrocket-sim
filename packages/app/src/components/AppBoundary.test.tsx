@@ -7,6 +7,7 @@ import { defaultTree } from '../tree/treeModel.js';
 import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
 import { discardSession, saveSessionDebounced, watchOtherTabs } from '../services/session.js';
 import { saveFile } from '../services/saveFile.js';
+import { sessionDebugLog } from '../services/sessionDebugLog.js';
 
 /**
  * THE ROOT BOUNDARY (audit 2026-09-22). A throw while rendering used to take
@@ -65,6 +66,12 @@ afterEach(() => {
 });
 
 describe('AppBoundary', () => {
+  it('C-H3 records caught rendering errors and offers a debug log beside recovery actions', async () => {
+    renderCrashed();
+    expect(sessionDebugLog.text()).toContain('app-error: Error: Cannot read properties of undefined (property omitted)');
+    await act(async () => { button('Download session debug log').click(); });
+    expect(vi.mocked(saveFile).mock.calls.at(-1)?.[1].suggestedName).toBe('mmrocket-sim-session-debug.txt');
+  });
   it('fills actual reset loss, then keeps a downloaded backup receipt and reset quiet', async () => {
     renderCrashed();
     expect(host.querySelectorAll('.message-danger')).toHaveLength(1);

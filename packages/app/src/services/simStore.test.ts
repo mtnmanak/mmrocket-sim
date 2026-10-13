@@ -48,6 +48,42 @@ it('persists recorded sigma and keeps old runs unknown', () => {
   expect(loadRuns().map(r => r.windSigma)).toEqual([0, 1.25, undefined]);
 });
 
+it('W2-WARN round-trips frozen limits and drops corrupt advice without losing the run', () => {
+  const limits = { maxAirspeedMs: 100, armingAltitudeM: 200, armingCautionBandM: 10 };
+  addRun(mkRun('advice', { advisoryLimits: limits, maxAirspeedMs: 101 }));
+  expect(loadRuns()[0]?.advisoryLimits).toEqual(limits);
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+    { ...mkRun('bad'), advisoryLimits: [], maxAirspeedMs: 'fast', deployments: [{ role: 'bogus', isLanding: true }] },
+  ]));
+  const loaded = loadRuns()[0]!;
+  expect(loaded.id).toBe('bad');
+  expect(loaded.advisoryLimits).toBeUndefined();
+  expect(loaded.maxAirspeedMs).toBeUndefined();
+  expect(loaded.deployments?.[0]?.role).toBe('unknown');
+});
+
+it('retains gust sigma and frozen flight advice together while normalizing corrupt fields independently', () => {
+  const advisoryLimits = { maxAirspeedMs: 100, armingAltitudeM: 200, armingCautionBandM: 10 };
+  addRun(mkRun('both', { windSigma: 1.25, advisoryLimits, maxAirspeedMs: 101 }));
+  expect(loadRuns()[0]).toMatchObject({ windSigma: 1.25, advisoryLimits, maxAirspeedMs: 101 });
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+    { ...mkRun('bad-sigma'), windSigma: 'gusty', advisoryLimits, maxAirspeedMs: 101 },
+    { ...mkRun('bad-advice'), windSigma: 0, advisoryLimits: [], maxAirspeedMs: 'fast',
+      deployments: [{ role: 'bogus', isLanding: true }] },
+    mkRun('legacy'),
+  ]));
+  const loaded = loadRuns();
+  expect(loaded.map(r => r.id)).toEqual(['bad-sigma', 'bad-advice', 'legacy']);
+  expect(loaded[0]).not.toHaveProperty('windSigma');
+  expect(loaded[0]).toMatchObject({ advisoryLimits, maxAirspeedMs: 101 });
+  expect(loaded[1]).toMatchObject({ windSigma: 0, deployments: [{ role: 'unknown', isLanding: true }] });
+  expect(loaded[1]).not.toHaveProperty('advisoryLimits');
+  expect(loaded[1]).not.toHaveProperty('maxAirspeedMs');
+  expect(loaded[2]).not.toHaveProperty('windSigma');
+  expect(loaded[2]).not.toHaveProperty('advisoryLimits');
+  expect(runsToTable(loaded).rows.map(row => row.at(-1))).toEqual(['', 0, '']);
+});
+
 it.each(['Hybrid', 'none'])('RES-1b exports no configuration attribution for stored imported simulation %s', flightConfig => {
   for (const flightConfigId of [undefined, 'unmatched']) {
     localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([

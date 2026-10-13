@@ -21,6 +21,9 @@ import { flightLoads, type FlightLoads } from './flightLoads.js';
 import { affectsRollInertia, hasRecoveryRadialOffset, hasRollForcing } from './revisionInertia.js';
 import { affectsPodsOnlyBase, affectsStrapOnNozzle } from './revisionNozzle.js';
 import { completedRecoveryEvents, type RecoveryEvent } from './recoveryMass.js';
+import { flightLimitAdvice, groundWindAdvice, peakAirspeed, zeroDelayRecoveryAdvice } from './flightAdvisories.js';
+import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
+import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 
 /**
  * Post-simulation report: every attribute the owner's flight-day workflow needs,
@@ -267,11 +270,28 @@ const fps = (v: number) => `${(v * FPS).toFixed(0)} ft/s`;
 /** K16 (open-items.md): every opening-speed readout uses the comment's tiers. */
 export type DeploymentVerdict = boolean | 'caution' | null;
 
-export function openingVerdict(velocity: number | null | undefined): DeploymentVerdict {
+export type RecoveryRole = 'drogue' | 'main' | 'unknown';
+export function deploymentRole(d: Pick<DeploymentReport, 'role' | 'isLanding'>): RecoveryRole {
+  if (d.role === 'drogue' || d.role === 'main' || d.role === 'unknown') return d.role;
+  return d.isLanding === true ? 'main' : d.isLanding === false ? 'drogue' : 'unknown';
+}
+
+/** N027: Eric's 2026-09-07 opening-speed ruling (SAFETY), not manufacturer
+ * strength. Role labels describe opening order; neither checks apogee timing.
+ * Opening limits are independent of the drogue descent-rate band. */
+export function openingPolicy(role: RecoveryRole) {
+  return { preferred: SAFETY.maxDeploymentVelocity, upper: SAFETY.warnDeploymentVelocity,
+    expectation: role === 'unknown' ? 'Recovery role unknown: using the generic opening-speed limits.'
+      : `${role === 'drogue' ? 'Drogue' : 'Main'} role, inferred from opening order: using the owner's shared opening-speed limits for drogue and main. `
+        + 'The app does not check near-apogee timing or apply separate drogue opening limits.' };
+}
+
+export function openingVerdict(velocity: number | null | undefined, role: RecoveryRole = 'unknown'): DeploymentVerdict {
   if (velocity == null || !Number.isFinite(velocity)) return null;
   const speed = Math.abs(velocity);
-  return speed <= SAFETY.maxDeploymentVelocity ? true
-    : speed <= SAFETY.warnDeploymentVelocity ? 'caution' : false;
+  const policy = openingPolicy(role);
+  return speed <= policy.preferred ? true
+    : speed <= policy.upper ? 'caution' : false;
 }
 
 /** Re-grade recorded speeds so saved runs also follow K16, including boosters. */
@@ -280,10 +300,10 @@ export function deploymentVerdict(run: Pick<SimRun, 'deployments' | 'branches' |
   // It cannot establish an aggregate verdict, even when that speed is safe.
   if (run.importedSummary) return null;
   const states = (run.deployments?.length
-    ? run.deployments.map((d) => openingVerdict(d.velocityAtDeployment))
+    ? run.deployments.map((d) => openingVerdict(d.velocityAtDeployment, deploymentRole(d)))
     : [openingVerdict(run.velocityAtDeployment)])
     .concat((run.branches ?? []).flatMap((b) => (b.deployments ?? [])
-      .map((d) => openingVerdict(d.velocityAtDeployment))));
+      .map((d) => openingVerdict(d.velocityAtDeployment, deploymentRole(d)))));
   if (states.includes(false)) return false;
   if (states.includes('caution')) return 'caution';
   return states.includes(null) ? null : true;
@@ -308,6 +328,8 @@ export function runStoppedEarly(run: Pick<SimRun, 'simWarnings'>): boolean {
 
 /** One recovery-device deployment (dual deploy: drogue + main = two rows). */
 export interface DeploymentReport {
+  /** N027: inferred from flown opening groups, not a hardware strength rating. */
+  role?: 'drogue' | 'main' | 'unknown';
   /** Device name from the design tree (e.g. "Drogue", "Main Parachute"). */
   device: string;
   time: number;
@@ -418,6 +440,10 @@ export interface BranchReport {
 }
 
 export interface SimRun extends WindProfileConditions, AeroProvenance {
+  /** N007/N010: frozen limits; later preference edits cannot rewrite this flight. */
+  advisoryLimits?: FlightAdvisories;
+  /** Air-relative peak from Mach × local sound speed; absent on old/summary runs. */
+  maxAirspeedMs?: number | null;
   /** Imported summary only: no series, safety assessment or replay stamps. */
   importedSummary?: boolean;
   /** File-supplied identity, retained when a collision requires a new local ID. */
@@ -1670,12 +1696,13 @@ function extractDeployments(
       descentRate,
       groundSpeed,
       isLanding,
+      role: isLanding ? 'main' : 'drogue',
       cd: f?.cd ?? null,
       cdNominal: f?.cdNominal ?? null,
       cdAutomatic: f?.cdAutomatic ?? false,
       diameter: f?.diameter ?? null,
       spillHoleDiameter: f?.spillHoleDiameter ?? null,
-      openingOk: openingVerdict(vDeploy),
+      openingOk: openingVerdict(vDeploy, isLanding ? 'main' : 'drogue'),
       // abs like openingOk — descent velocities are magnitudes today, but a
       // signed series would make an unsigned ≤ check pass vacuously.
       descentOk: descentRate === null ? null
@@ -1899,6 +1926,10 @@ export function extractMaxRollRate(series: FlightSeries): number | null {
 }
 
 export function buildSimRun(input: {
+  units?: UnitSelection;
+  advisoryLimits?: FlightAdvisories;
+  advisoryTree?: RocketTree;
+  advisoryMotors?: readonly (readonly [string, MountMotor])[];
   delayResolution?: DelayResolution;
   /** SimRun.refusedMountIds: stamped only when the build refused a mount. */
   refusedMountIds?: readonly string[];
@@ -1947,6 +1978,8 @@ export function buildSimRun(input: {
   const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey, flownRecovery, nozzleStages, recoveryStages } = input;
   const da = densityAltitudeM(launch, { ...(aeroModel ? { aeroMode: aeroModel } : {}), effectiveKbf: rogersKbf === true });
   const { summary, series } = result;
+  const advisoryLimits = normalizeFlightAdvisories(input.advisoryLimits);
+  const maxAirspeedMs = peakAirspeed(series).value;
 
   const tRod = eventTime(result, 'LAUNCHROD');
   const tBurnout = eventTime(result, 'BURNOUT');
@@ -2169,6 +2202,17 @@ export function buildSimRun(input: {
     comments.push(text.replace(/\|/g, '/'));
     levels.push(level);
   };
+  const units = input.units ?? INITIAL_UNITS;
+  const windAdvice = groundWindAdvice(launch.windAverage, units);
+  if (windAdvice) say(windAdvice, 'caution');
+  for (const note of flightLimitAdvice(result, advisoryLimits, flightConfig ?? 'Working settings', input.advisoryTree, units)) say(note.text, note.level);
+  if (input.advisoryTree) for (const [id, mm] of input.advisoryMotors ?? []) {
+    if (mm.ignition?.event === 'never' || input.refusedMountIds?.includes(id)) continue;
+    const flown = input.delayResolution?.mounts.find(m => m.mountId === id)?.flownDelay;
+    const delay = flown === 'plugged' ? Infinity : typeof flown === 'number' ? flown : mm.spec.ejectionDelay;
+    const note = zeroDelayRecoveryAdvice(input.advisoryTree, id, delay, mm.meta.autoDelay && flown === undefined);
+    if (note) say(`${flightConfig ?? 'Working settings'} — ${mm.label}: Configuration caution: ${note}`, 'caution');
+  }
   // Format the kernel's static warnings into the app's voice here too: this
   // blob becomes the launch report AND the Comments column of the saved-runs
   // CSV/XLSX, where a raw "[Warning.DISCONTINUITY]" token is just noise. They
@@ -2267,7 +2311,7 @@ export function buildSimRun(input: {
         + (hard
           ? `hard opening, past the ${fps(SAFETY.warnDeploymentVelocity)} limit.`
           : `fast opening, above the preferred ${fps(SAFETY.maxDeploymentVelocity)}; watch for a zippered tube.`)
-        + over, hard ? 'warning' : 'caution');
+        + over + ` ${openingPolicy(deploymentRole(d)).expectation} These speed limits do not rate your recovery hardware.`, hard ? 'warning' : 'caution');
     }
     sayDrogueDescent(d);
     if (d.descentOk === false && d.isLanding) {
@@ -2341,7 +2385,8 @@ export function buildSimRun(input: {
         const v = Math.abs(d.velocityAtDeployment!);
         const hard = d.openingOk === false;
         sayDevice(d.device, (who, many) => `${b.name}: ${who} ${many ? 'open' : 'opens'} at ${v.toFixed(1)} m/s (${fps(v)}) — `
-          + (hard ? 'hard opening.' : `fast opening, above the preferred ${fps(SAFETY.maxDeploymentVelocity)}; watch for a zippered tube.`),
+          + (hard ? 'hard opening.' : `fast opening, above the preferred ${fps(SAFETY.maxDeploymentVelocity)}; watch for a zippered tube.`)
+          + ` ${openingPolicy(deploymentRole(d)).expectation} These speed limits do not rate your recovery hardware.`,
         hard ? 'warning' : 'caution');
       }
     }
@@ -2364,6 +2409,7 @@ export function buildSimRun(input: {
     ...(input.delayResolution ? { delayResolution: input.delayResolution } : {}),
     ...(input.refusedMountIds?.length ? { refusedMountIds: [...input.refusedMountIds] } : {}),
     maxAltitude: summary.maxAltitude,
+    ...(advisoryLimits ? { advisoryLimits: { ...advisoryLimits }, maxAirspeedMs } : {}),
     maxVelocity: summary.maxVelocity,
     maxMach: summary.maxMachNumber,
     maxAcceleration: summary.maxAcceleration,

@@ -15,8 +15,9 @@ import { ImageExportMenu } from './ImageExportMenu.js';
 import { RulerGuides } from './RulerGuides.js';
 import { ROLL_BAR, ROLL_COL, RollControl } from './RollControl.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { uiToSi } from '../prefs/units.js';
+import { siToUi, uiToSi } from '../prefs/units.js';
 import { rulerLayout } from '../services/rulerTicks.js';
+import { NumField } from './NumField.js';
 import {
   formatStability, hasAerodynamicForce, shownCp, shownStability, stabilityState,
   type StabilityState,
@@ -215,6 +216,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    */
   const rulersPref = prefs.rulers2d ?? true;
   const rulers = !vertical && rulersPref;
+  const grid = !vertical && (prefs.grid2d ?? true);
   // The roll slider's column (⟳90°: its bar across the bottom). Both are
   // surrendered by the DRAWING — schematicFrame fits the rocket to what is
   // left, and every pointer↔model conversion is unaffected, because they move
@@ -553,7 +555,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
 
   /**
    * The ruler gutters: a horizontal scale along the top reading axial
-   * distance from the nose tip, and a vertical one down the left reading
+   * distance from the chosen reference, and a vertical one down the left reading
    * distance from the centreline, both in the Preferences length unit. The
    * tick ladder is the desktop's own (services/rulerTicks).
    *
@@ -563,9 +565,35 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
    */
   const lenUnit = prefs.units.length;
   const pxPerUnit = scale * uiToSi('length', lenUnit, 1);
+  const rulerReference = prefs.rulerReference2d ?? 'nose';
+  const rulerZeroM = rulerReference === 'aft' ? frame.axialLen
+    : rulerReference === 'offset' ? (prefs.rulerOffset2dM ?? 0) : 0;
+  const rulerDirection = (rulerReference === 'aft' ? -1 : 1) * (prefs.rulerReversed2d ? -1 : 1);
+  const acrossMarks = (view: { k: number; x: number }) => rulerLayout(
+    view.x + view.k * (ctx.x0 + rulerZeroM * scale),
+    view.k * pxPerUnit * rulerDirection, gutX, w, RULER_TOP,
+  );
+  const downMarks = (view: { k: number; y: number }) => rulerLayout(
+    view.y + view.k * ctx.cy, -view.k * pxPerUnit, gutY, h, RULER_LEFT,
+  );
+  // N009: grid divisions use the labelled ruler ladder in display units.
+  // Coordinates return to drawing space so the same export transform fits both.
+  const gridLines = (view: { k: number; x: number; y: number }, forExport: boolean) => (
+    <g data-grid={forExport ? 'fit' : 'view'} display={forExport ? 'none' : undefined}
+      pointerEvents="none" stroke="var(--border)" strokeWidth={1 / view.k}>
+      {acrossMarks(view).filter(t => t.label !== null).map((t, i) => (
+        <line key={`x${i}`} data-axis="x" x1={(t.px - view.x) / view.k} x2={(t.px - view.x) / view.k}
+          y1={(gutY - view.y) / view.k} y2={(h - view.y) / view.k} />
+      ))}
+      {downMarks(view).filter(t => t.label !== null).map((t, i) => (
+        <line key={`y${i}`} data-axis="y" y1={(t.px - view.y) / view.k} y2={(t.px - view.y) / view.k}
+          x1={(gutX - view.x) / view.k} x2={(w - view.x) / view.k} />
+      ))}
+    </g>
+  );
   const rulerGutters = (view: { k: number; x: number; y: number }, forExport: boolean) => {
-    const across = rulerLayout(view.x + view.k * ctx.x0, view.k * pxPerUnit, gutX, w, RULER_TOP);
-    const down = rulerLayout(view.y + view.k * ctx.cy, -view.k * pxPerUnit, gutY, h, RULER_LEFT);
+    const across = acrossMarks(view);
+    const down = downMarks(view);
     const band = 'var(--surface-2)';
     const edge = 'var(--border)';
     const ink = 'var(--text-secondary)';
@@ -624,7 +652,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   }
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative', ...(vertical || fillHeight ? { height: '100%' } : null) }}>
+    <div ref={wrapRef} className="tree-schematic" style={{ position: 'relative', ...(vertical || fillHeight ? { height: '100%' } : null) }}>
       <svg ref={svgRef} viewBox={vertical ? `0 0 ${h} ${w}` : `0 0 ${w} ${h}`}
           style={vertical
             ? { height: '100%', maxWidth: '100%', display: 'block', margin: '0 auto' }
@@ -672,6 +700,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         <g transform={vertical
           ? `rotate(90 ${h / 2} ${h / 2})`
           : `translate(${zoom.x} ${zoom.y}) scale(${zoom.k})`}>
+          {grid && gridLines(zoom, false)}
+          {grid && !viewIsFit && gridLines({ k: 1, x: 0, y: 0 }, true)}
           {drawn}
           {/* pointerEvents none on BOTH marker groups: they are decoration
               drawn on the centreline — precisely where you click to select a
@@ -797,6 +827,30 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
           title={rulers ? 'Hide the dimensional rulers' : 'Show dimensional rulers along the top and left'}
           aria-label={rulers ? 'Hide rulers' : 'Show rulers'} aria-pressed={rulers}
           onClick={() => setPrefs({ ...prefs, rulers2d: !rulersPref })}>📏</button>
+        <button className="file-btn" aria-label={grid ? 'Hide grid' : 'Show grid'} aria-pressed={grid}
+          title="Grid in ruler units" onClick={() => setPrefs({ ...prefs, grid2d: !grid })}>Grid</button>
+        <details className="schematic-ruler-settings">
+          <summary className="file-btn">Ruler: {rulerReference === 'nose' ? 'Nose' : rulerReference === 'aft' ? 'Aft' : 'Offset'}{prefs.rulerReversed2d ? ' (reversed)' : ''}</summary>
+          <div className="schematic-ruler-card">
+            <div className="field">
+              <label htmlFor={`${uid}-ruler-reference`}>Ruler reference</label>
+              <select id={`${uid}-ruler-reference`} aria-label="Ruler reference" value={rulerReference}
+                onChange={(e) => setPrefs({ ...prefs, rulerReference2d: e.target.value as 'nose' | 'aft' | 'offset' })}>
+                <option value="nose">Nose tip</option><option value="aft">Aft end</option><option value="offset">User offset</option>
+              </select>
+            </div>
+            {rulerReference === 'offset' && <div className="field">
+              <label htmlFor={`${uid}-ruler-offset`}>Ruler zero from nose ({lenUnit})</label>
+              <NumField id={`${uid}-ruler-offset`} ariaLabel={`Ruler zero from nose (${lenUnit})`}
+                value={siToUi('length', lenUnit, prefs.rulerOffset2dM ?? 0)} allowNegative
+                step={1} validate={(v) => Number.isFinite(uiToSi('length', lenUnit, v))}
+                onCommit={(v) => { if (v !== null) setPrefs({ ...prefs, rulerOffset2dM: uiToSi('length', lenUnit, v) }); }} />
+            </div>}
+            <label><input type="checkbox" checked={prefs.rulerReversed2d ?? false}
+              onChange={(e) => setPrefs({ ...prefs, rulerReversed2d: e.target.checked })} /> Reverse ruler direction</label>
+            <p>{rulerDirection > 0 ? 'Values increase toward the aft end.' : 'Values increase toward the nose.'} Measuring guides still read from the nose tip and centreline.</p>
+          </div>
+        </details>
         {/* Create both guide axes from the keyboard (audit 2026-10-11, S3a-4). */}
         {rulers && (['x', 'y'] as GuideAxis[]).map((axis) => (
           <button key={axis} className="file-btn" aria-label={axis === 'x' ? 'Add station guide' : 'Add offset guide'}

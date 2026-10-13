@@ -10,6 +10,7 @@ import {
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSig, siToUi } from '../prefs/units.js';
 import { downloadBlob } from '../services/saveFile.js';
+import { sessionDebugLog } from '../services/sessionDebugLog.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { canopyCdA } from '../services/recoverySizing.js';
 
@@ -174,10 +175,12 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
 
   /** Reports every failure itself (setNote), so callers fire it with `void`. */
   const importCsv = async (file: File) => {
+    sessionDebugLog.record('import-start');
     setNoteTier('information');
     try {
       const parsed = csvToPresets(await file.text());
       if (parsed.length === 0) {
+        sessionDebugLog.record('import-failed', new Error('No presets found in that CSV.'));
         setNote('No presets found in that CSV.');
         return;
       }
@@ -189,6 +192,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
           + ` (first: ${parsed.find((p) => !rowIsSound(p))!.partNo}).`
         : '';
       if (good.length === 0) {
+        sessionDebugLog.record('import-failed', new Error('No valid preset rows found.'));
         setNote(`Nothing imported.${droppedNote}`);
         return;
       }
@@ -204,6 +208,8 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
       // reloads the OLD rows while the note claims the new ones were stored.
       const stored = new Set(loadCustomPresets().map((p) => JSON.stringify(p)));
       const missing = good.filter((p) => !stored.has(JSON.stringify(p))).length;
+      sessionDebugLog.record(missing > 0 ? 'import-failed' : 'import-complete',
+        missing > 0 ? new Error('Preset storage refused the import.') : undefined);
       setNoteTier(dropped > 0 || missing > 0 ? 'caution' : 'information');
       const imported = missing > 0
         ? `Could not store ${missing} of ${good.length} preset(s) — this browser's storage`
@@ -222,6 +228,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
       });
       setNote(imported);
     } catch (e) {
+      sessionDebugLog.record('import-failed', e);
       setNote(`CSV import failed: ${e instanceof Error ? e.message : String(e)}`);
     }
   };

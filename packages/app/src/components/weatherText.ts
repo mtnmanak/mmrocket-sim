@@ -81,22 +81,23 @@ export function visibilityText(sym: string, m: number): string {
  * and 1.75). The gust, which has no box, prints the same way, so the
  * arithmetic adds up in any unit.
  */
-export function windNumber(sym: string, ms: number): string {
-  return Number.isFinite(ms) ? fmtFieldValue(siToUi('windspeed', sym, ms)) : '—';
+export function windNumber(sym: string, ms: number, precision: Parameters<typeof fmtFieldValue>[1] = 'auto'): string {
+  return Number.isFinite(ms) ? fmtFieldValue(siToUi('windspeed', sym, ms), precision) : '—';
 }
 
 /** `windNumber` with its unit: "0.95 m/s". */
-export const windText = (sym: string, ms: number): string => `${windNumber(sym, ms)} ${sym}`;
+export const windText = (sym: string, ms: number, precision: Parameters<typeof fmtFieldValue>[1] = 'auto'): string =>
+  `${windNumber(sym, ms, precision)} ${sym}`;
 
 /** One weather field's stored value, as the user reads it, with its unit. */
-export function fieldText(key: ApplyKey, stored: number, units: UnitSelection): string {
+export function fieldText(key: ApplyKey, stored: number, units: UnitSelection, precision: Parameters<typeof fmtFieldValue>[1] = 'auto'): string {
   switch (key) {
     case 'temperatureC':
       return `${fmtSi('temperature', units.temperature, stored + 273.15, 1)} ${units.temperature}`;
     case 'pressureHPa':
       return `${pressureNumber(units.pressure, stored * 100)} ${units.pressure}`;
     case 'windAverage':
-      return windText(units.windspeed, stored);
+      return windText(units.windspeed, stored, precision);
     case 'launchAltitudeM':
       return altitudeText(units.distance, stored);
     case 'latitudeDeg':

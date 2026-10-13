@@ -87,6 +87,13 @@ describe('FlyScreen', () => {
     expect(host.textContent).toContain('Not recorded');
   });
 
+  it('W2-WARN shows the same surface-wind Caution on phone Fly without disabling Launch', () => {
+    mount({ launch: { ...DEFAULT_CONDITIONS, windAverage: 9 } });
+    expect(host.querySelector('.message-caution')?.textContent).toContain('Surface wind average');
+    const launch = [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Launch');
+    expect(launch?.disabled).toBe(false);
+  });
+
   it('K1 marks an unflown recovery weight as an estimate', () => {
     mount({ recovery: { state: 'ok', mass: 1, multiStage: true, estimate: true, note: 'Separation is assumed; confirm with a flight.' } });
     expect(host.textContent).toContain('Recovery weight (estimate)');

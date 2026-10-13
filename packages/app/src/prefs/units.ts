@@ -242,13 +242,14 @@ export function fmtSig(v: number, sig: number, places = 0): string {
 
 /**
  * A value ALREADY IN ITS DISPLAY UNIT, exactly as a NumField box shows it:
- * three decimals, or three significant figures where three decimals would
- * round it away. NumField's own display formatter, exported so that text
+ * the selected decimals (auto keeps three), or three significant figures
+ * where those decimals would round it away. Exported so that text
  * quoting a box's value prints the digits the box does — the weather UI's
  * wind and σ lines (review of 2026-09-23: the gust chip printed "0.9 m/s"
  * under a Wind gusts σ box reading 0.95, the value the chip had just written).
  */
-export const fmtFieldValue = (v: number): string => fmtSig(v, 3, 3);
+export const fmtFieldValue = (v: number, precision: 'auto' | 3 | 4 = 'auto'): string =>
+  fmtSig(v, 3, precision === 4 ? 4 : 3);
 
 /**
  * Whether this browser's own locale writes 1.5 as "1,5". Read once; any
