@@ -58,6 +58,14 @@ const mount = (id: string, flight?: DesignFlightContext) => act(() => root.rende
 ));
 const group = (label: string) => host.querySelector<HTMLElement>(`[role="group"][aria-label="${label}"]`);
 
+it('offers definitions for read-only deployment, separation and nozzle settings on Design', () => {
+  mount('ribbon', context());
+  expect(group('Deployment')?.querySelector('button[aria-label="Definition: Deployment"]')).not.toBeNull();
+  mount('booster', context());
+  expect(group('Separation')?.querySelector('button[aria-label="Definition: Separation"]')).not.toBeNull();
+  expect(group('Nozzle exit')?.querySelector('button[aria-label="Definition: Nozzle exit"]')).not.toBeNull();
+});
+
 beforeEach(() => {
   localStorage.clear();
   patches = [];
@@ -98,7 +106,7 @@ describe('Design shows separation read-only', () => {
     mount('top', context());
     const block = group('Separation')!;
     expect(block.textContent).toContain('The top stage never separates');
-    expect(block.querySelector('button')).toBeNull();
+    expect(block.querySelector('button[aria-label="Separation: set on Motors & Configuration"]')).toBeNull();
     expect(host.querySelector('select[aria-label^="Separate at"]')).toBeNull();
   });
 
@@ -130,7 +138,7 @@ describe('Design shows the nozzle exit read-only (A4)', () => {
     const block = group('Nozzle exit')!;
     expect(block.textContent).toContain('Nozzle exit: automatic');
     expect(block.textContent).toContain('once this stage has a motor mount');
-    expect(block.querySelector('button')).toBeNull();
+    expect(block.querySelector('button[aria-label="Nozzle exit: edit on Motors & Configuration"]')).toBeNull();
   });
 
   it('lists a stage for the motors-tab field when it has a mount or already carries a value', () => {
