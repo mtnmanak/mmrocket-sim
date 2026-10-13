@@ -60,6 +60,8 @@ import { FIN_TEMPLATE_DPI, finTemplatePixelSize, finTemplateSvg } from '../servi
 import { svgToImage } from '../services/schematicExport.js';
 import { withDpi } from '../services/rasterDpi.js';
 import { FinTemplateMenu, type FinTemplateFormat } from './FinTemplateMenu.js';
+import { TubeWrapMenu } from './TubeWrapMenu.js';
+import { WRAP_FINS } from '../services/tubeWrapGuide.js';
 import { safeName } from '../services/fileName.js';
 import { downloadBlob } from '../services/saveFile.js';
 
@@ -577,6 +579,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
   if (node.type === 'parachute' || node.type === 'streamer') placed.add('surfaceDensity');
   if (node.type === 'parachute' || node.type === 'shockcord') placed.add('lineDensity');
   const parent = findParent(tree, node.id!);
+  const wrapTube = node.type === 'bodytube' ? node
+    : WRAP_FINS.has(node.type) && parent && parent !== 'stage' && parent.type === 'bodytube' ? parent : null;
   const positionable = POSITIONABLE.has(node.type) && parent !== 'stage';
   // Where the kernel flies it: a part with no position is NOT at Top, 0.
   const pos = positionOf(node);
@@ -1073,6 +1077,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
               + ' — the SVG options still work.');
           }
         }} />
+      )}
+      {wrapTube && (
+        <TubeWrapMenu key={node.id} tree={tree} tube={wrapTube} />
       )}
       {DXF_CUTTABLE.has(node.type) && (
         // Scissors, NOT the 📐 the fin-template button above already owns. The

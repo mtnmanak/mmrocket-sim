@@ -1,0 +1,212 @@
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { finCountOf, lineInstanceCount } from '../tree/counts.js';
+import { finRootChord, finTabSpan } from '../tree/finTab.js';
+import { kernelNum, KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
+import { num } from '../tree/nodeNum.js';
+import { absoluteStations, axialLength, axialStart } from '../tree/position.js';
+import { fmtSi, type UnitSelection } from '../prefs/units.js';
+import type { FinTemplateBackground } from './finTemplate.js';
+import { escapeXml } from './xmlUtil.js';
+
+export const WRAP_FINS: ReadonlySet<string> = new Set(['trapezoidfinset', 'ellipticalfinset', 'freeformfinset']);
+
+interface Span { start: number; end: number }
+export interface TubeWrapLine {
+  label: string;
+  kind: 'fin' | 'guide';
+  angle: number;
+  x: number;
+  root: Span;
+  slot: (Span & { width: number }) | null;
+}
+export interface TubeWrapGeometry {
+  name: string;
+  diameter: number;
+  circumference: number;
+  length: number;
+  lines: TubeWrapLine[];
+  notes: string[];
+}
+
+/** C-A8/R09: fabrication only, in the selected straight tube's own angular frame. */
+export function tubeWrapGeometry(tree: RocketTree, tube: ComponentNode): TubeWrapGeometry {
+  if (tube.type !== 'bodytube') throw new Error('Select a straight round body tube.');
+  const radius = kernelNum(tube, 'outerRadius');
+  const length = axialLength(tube);
+  if (!(radius > 0 && length > 0 && Number.isFinite(radius) && Number.isFinite(length))) {
+    throw new Error('Check the tube dimensions before exporting.');
+  }
+  const circumference = 2 * Math.PI * radius;
+  const stations = absoluteStations(tree);
+  const tubeStart = stations.get(tube.id!)?.start;
+  if (tubeStart === undefined) throw new Error('This tube is not in the design.');
+  const lines: TubeWrapLine[] = [];
+  const notes: string[] = [];
+  for (let child of tube.children ?? []) {
+    const isFin = WRAP_FINS.has(child.type);
+    if (!isFin && child.type !== 'launchlug' && child.type !== 'railbutton') continue;
+    if (child.type === 'freeformfinset' && child['points'] == null) {
+      child = { ...child, points: KERNEL_DEFAULT_FIN_POINTS.map(p => [...p]) };
+    }
+    const rootLength = isFin ? finRootChord(child) : axialLength(child);
+    // A closed freeform list repeats its origin; finRootChord drops that repeat (as cut templates do).
+    const start = axialStart(child, rootLength, tubeStart, length) - tubeStart;
+    const root = { start, end: start + rootLength };
+    const cant = isFin && Math.abs(num(child, 'cant', 0)) > 1e-9;
+    if (cant) notes.push(`${child.name ?? 'Fin set'} has cant: lines show the reference angles; slot outlines are omitted. Check the fitted fin before cutting.`);
+    const tab = isFin && !cant && tube['filled'] !== true ? finTabSpan(child, rootLength, radius) : null;
+    const thickness = isFin ? kernelNum(child, 'thickness') : 0;
+    if (tab && !(thickness > 0)) notes.push(`${child.name ?? 'Fin set'} has no positive thickness: slot outlines are omitted.`);
+    const slot = tab && thickness > 0
+      ? { start: start + tab.x0, end: start + tab.x1, width: thickness } : null;
+    const count = isFin ? finCountOf(child) : lineInstanceCount(child);
+    for (let i = 0; i < count; i++) {
+      const rawAngle = isFin ? num(child, 'rotation', 0) + 2 * Math.PI * i / count
+        : num(child, 'angleOffset', Math.PI);
+      const angle = ((rawAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
+      const instanceStart = isFin ? 0 : i * num(child, 'instanceSeparation', 0);
+      lines.push({
+        label: `${child.name ?? (isFin ? 'Fin set' : child.type === 'launchlug' ? 'Launch lug' : 'Rail button')} ${i + 1}`,
+        kind: isFin ? 'fin' : 'guide', angle, x: radius * angle,
+        root: { start: root.start + instanceStart, end: root.end + instanceStart }, slot,
+      });
+    }
+  }
+  if (lines.some(l => l.root.start < -1e-9 || l.root.end > length + 1e-9)) {
+    notes.push('Some parts extend past this tube. The wrap stops at the tube ends; check the fitted parts before cutting.');
+  }
+  return { name: tube.name ?? 'Body tube', diameter: radius * 2, circumference, length, lines, notes: [...new Set(notes)] };
+}
+
+export interface TubeWrapPage {
+  column: number;
+  row: number;
+  /** Tile origin, metres around the tube and aft of its front. */
+  x: number;
+  y: number;
+  svg: string;
+}
+
+/** 210 x 279 mm fits A4 and US Letter; every sheet repeats the ruler and instructions. */
+export function tubeWrapPages(
+  guide: TubeWrapGeometry, rocketName: string, units: Pick<UnitSelection, 'length' | 'angle'>,
+  background: FinTemplateBackground = 'white',
+): TubeWrapPage[] {
+  const printedNotes = guide.notes.flatMap(note => {
+    const result: string[] = [];
+    let line = 'Caution:';
+    for (const word of note.split(/\s+/)) {
+      if (line.length + word.length > 95) { result.push(line); line = ''; }
+      line += `${line ? ' ' : ''}${word}`;
+    }
+    if (line) result.push(line);
+    return result;
+  });
+  if (printedNotes.length > 24) throw new Error('Too many notes to fit on a wrap page. Check the fin and tube dimensions.');
+  const width = 180, height = 200 - printedNotes.length * 5, overlap = 10, left = 15, top = 65 + printedNotes.length * 5;
+  const circumference = guide.circumference * 1000, length = guide.length * 1000;
+  const columns = Math.max(1, Math.ceil((circumference - overlap) / (width - overlap)));
+  const rows = Math.max(1, Math.ceil((length - overlap) / (height - overlap)));
+  if (!Number.isFinite(columns * rows) || columns * rows > 100) {
+    throw new Error('This wrap needs more than 100 pages. Check the tube dimensions before exporting.');
+  }
+  const dim = (m: number) => `${fmtSi('length', units.length, m, 3)} ${units.length}`;
+  const inches = units.length === 'in' || units.length === 'ft';
+  const ruler = inches ? 50.8 : 50;
+  const rulerCaption = inches ? '2 in' : dim(0.05);
+  const pages: TubeWrapPage[] = [];
+  const f = (v: number) => v.toFixed(4);
+  const clockKey = (line: TubeWrapLine) => f(line.x * 1000);
+  const finClocks = new Set(guide.lines.filter(line => line.kind === 'fin').map(clockKey));
+  const labels = new Map<string, string[]>();
+  for (const line of guide.lines) {
+    const key = clockKey(line);
+    labels.set(key, [...(labels.get(key) ?? []), line.label]);
+  }
+  for (let row = 0; row < rows; row++) {
+    for (let column = 0; column < columns; column++) {
+      const x = column * (width - overlap), y = row * (height - overlap);
+      const endX = Math.min(x + width, circumference), endY = Math.min(y + height, length);
+      const text = (words: string, ty: number, size = 3.2) =>
+        `<text x="15" y="${ty}" font-size="${size}" textLength="${Math.min(180, words.length * size * 0.55)}" lengthAdjust="spacingAndGlyphs">${escapeXml(words)}</text>`;
+      const svg = [
+        `<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="279mm" viewBox="0 0 210 279"${background === 'white' ? ' style="background:#fff"' : ''}>`,
+        '<g font-family="sans-serif" fill="#000">',
+        text(`${rocketName} — ${guide.name}: tube wrap`, 12, 3.8),
+        text(`Scale 1:1 — print at 100%, no fit to page. Check the ruler on every page.`, 18),
+        text(`OD ${dim(guide.diameter)} · circumference ${dim(guide.circumference)} · length ${dim(guide.length)}`, 24),
+        text(`Page ${pages.length + 1}/${rows * columns}: column ${column + 1}/${columns}, row ${row + 1}/${rows}. Around ${dim(x / 1000)}; aft ${dim(y / 1000)}.`, 30),
+        text(`Join matching coordinates with ${dim(overlap / 1000)} overlap. Trim at the tube outline; wrap printed side out.`, 36),
+        text('Front of tube at top; aft at bottom. Solid: fins; dashed: lug/button. Boxes: tab slots.', 42),
+        text('Slots use fin thickness, with no cutting allowance. Measure the tube and check the fit before cutting.', 48),
+        `<text x="${left + ruler + 3}" y="58" font-size="3.2">${escapeXml(rulerCaption)}</text>`,
+        '</g>',
+        `<g fill="none" stroke="#000" stroke-width="0.2"><line id="calibration-ruler" x1="15" y1="58" x2="${left + ruler}" y2="58"/>`,
+      ];
+      for (let i = 0; i <= 5; i++) {
+        const rx = left + ruler * i / 5;
+        svg.push(`<line x1="${rx}" y1="55" x2="${rx}" y2="58"/>`);
+      }
+      svg.push('</g>', '<g font-family="sans-serif" fill="#000">',
+        ...printedNotes.map((note, i) => text(note, 65 + i * 5, 3)), '</g>',
+        `<g transform="translate(${f(left - x)} ${f(top - y)})" fill="none" stroke="#000" stroke-width="0.2">`);
+      // Clip coordinates, not SVG clipPaths: some downstream SVG readers ignore clipping paths.
+      const segment = (x1: number, y1: number, x2: number, y2: number) =>
+        `<line x1="${f(x1)}" y1="${f(y1)}" x2="${f(x2)}" y2="${f(y2)}"/>`;
+      if (column === 0) svg.push(segment(0, y, 0, endY));
+      if (endX === circumference) svg.push(segment(circumference, y, circumference, endY));
+      if (row === 0) svg.push(segment(x, 0, endX, 0));
+      if (endY === length) svg.push(segment(x, length, endX, length));
+      // Grid coordinates repeat on overlapping sheets so they can be joined without rescaling.
+      for (let gx = Math.ceil(x / 10) * 10; gx <= endX; gx += 10) {
+        svg.push(`<line x1="${gx}" y1="${y}" x2="${gx}" y2="${endY}" stroke="#888" stroke-dasharray="0.5 2" stroke-width="0.1"/>`);
+        if (gx % 20 === 0 && gx + 15 < endX && endY - y > 4) {
+          svg.push(`<text x="${gx + 1}" y="${y + 4}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gx / 1000))}</text>`);
+        }
+      }
+      for (let gy = Math.ceil(y / 10) * 10; gy <= endY; gy += 10) {
+        svg.push(`<line x1="${x}" y1="${gy}" x2="${endX}" y2="${gy}" stroke="#888" stroke-dasharray="0.5 2" stroke-width="0.1"/>`);
+        if (gy % 20 === 0 && gy > y + 5 && gy + 3 < endY) {
+          svg.push(`<text x="${x + 1}" y="${gy + 3}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gy / 1000))}</text>`);
+        }
+      }
+      const drawnMarks = new Set<string>();
+      for (const line of guide.lines) {
+        const lx = line.x * 1000;
+        // Repeat the zero-angle line at the seam's far edge, including half-slots.
+        const copies = [lx - circumference, lx, lx + circumference];
+        for (const cx of copies) {
+          if (cx >= x && cx <= endX) {
+            const markKey = f(cx);
+            if (!drawnMarks.has(markKey)) {
+              svg.push(`<line class="marking-line" x1="${f(cx)}" y1="${f(y)}" x2="${f(cx)}" y2="${f(endY)}"${!finClocks.has(clockKey(line)) ? ' stroke-dasharray="3 2"' : ''}/>`);
+            }
+            if (!drawnMarks.has(markKey) && cx + 5 < endX && endY - y > 20) {
+              const name = labels.get(clockKey(line))!.join(' / ');
+              const label = `${name.slice(0, 36)}${name.length > 36 ? '…' : ''} · ${fmtSi('angle', units.angle, line.angle, 2)} ${units.angle}`;
+              svg.push(`<text transform="translate(${f(cx + 2)} ${f(y + 10)}) rotate(90)" fill="#000" stroke="none" font-size="3" font-family="sans-serif" textLength="${f(Math.min(label.length * 1.65, endY - y - 12))}" lengthAdjust="spacingAndGlyphs">${escapeXml(label)}</text>`);
+            }
+            drawnMarks.add(markKey);
+            for (const station of [line.root.start, line.root.end]) {
+              if (station * 1000 >= y && station * 1000 <= endY) {
+                svg.push(`<line x1="${f(Math.max(x, cx - 2))}" y1="${f(station * 1000)}" x2="${f(Math.min(endX, cx + 2))}" y2="${f(station * 1000)}" stroke-width="0.5"/>`);
+              }
+            }
+          }
+          if (line.slot) {
+            const sx = Math.max(x, cx - line.slot.width * 500);
+            const ex = Math.min(endX, cx + line.slot.width * 500);
+            const sy = Math.max(y, line.slot.start * 1000), ey = Math.min(endY, line.slot.end * 1000);
+            if (ex > sx && ey > sy) {
+              svg.push(`<rect class="tab-slot" x="${f(sx)}" y="${f(sy)}" width="${f(ex - sx)}" height="${f(ey - sy)}" stroke-width="0.35"/>`);
+            }
+          }
+        }
+      }
+      svg.push('</g>', '<g font-family="sans-serif" fill="#000" font-size="3">',
+        text('Left/right tube edges meet at the 0-angle seam. Keep the front and aft directions aligned.', 274, 2.8), '</g>', '</svg>');
+      pages.push({ column: column + 1, row: row + 1, x: x / 1000, y: y / 1000, svg: svg.join('\n') });
+    }
+  }
+  return pages;
+}
