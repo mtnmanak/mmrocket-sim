@@ -535,6 +535,7 @@ def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIO
     join = dict(JOIN if join is None else join)
     cert_docs = os.path.join(source, 'Cert Docs')
     reviewed, unread = checked_transcriptions(cert_docs, transcriptions)
+    unread_paths = {entry['document'] for entry in unread}
     for rel, (entry, _delays) in reviewed.items():
         target = (entry['manufacturer'], entry['designation'])
         if rel in join and tuple(join[rel]) != target:
@@ -558,6 +559,8 @@ def read_all(source, motors_path, join=None, transcriptions=DEFAULT_TRANSCRIPTIO
                 form, delays, facts = read_document(os.path.join(folder, name), rel)
                 if rel in reviewed:
                     form, delays = 'scan-reviewed', reviewed[rel][1]
+                if form == 'scan' and rel not in unread_paths:
+                    raise SystemExit(f'{rel}: scan has no unread review entry')
                 forms[form] += 1
                 if delays is None:
                     continue

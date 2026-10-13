@@ -48,9 +48,27 @@ describe('AeroTech published delay source watch (offline)', () => {
   it('returns MOVED for an added PDF, a removed PDF and a changed linked URL', async () => {
     const result = await watch(page.replace(urls[0], 'https://example.test/revised.pdf'));
     expect(result.status).toBe(1);
+    expect(result.output).toContain('1 of 1 watched value(s) MOVED:');
     expect(result.output).toContain('ADDED https://example.test/revised.pdf');
     expect(result.output).toContain(`REMOVED ${urls[0]}`);
     expect(result.getBytes).not.toHaveBeenCalled();
+  });
+
+  it('includes index-link drift in the final MOVED summary', async () => {
+    const result = await watch(page.replace(urls[0], 'https://example.test/revised.pdf'));
+    const summary = result.output.slice(result.output.indexOf('watched value(s) MOVED:'));
+    expect(summary).toContain('\n  - AeroTech certification index changed: 1 added, 1 removed');
+  });
+
+  it.each([
+    ['added', `${page}<a href="https://example.test/new.pdf">New certificate</a>`, 'ADDED https://example.test/new.pdf', '1 of 2'],
+    ['removed', page.replace(urls[0], 'https://example.test/navigation'), `REMOVED ${urls[0]}`, '1 of 1'],
+  ])('counts an index with only %s links as one moved value', async (_kind, html, detail, counts) => {
+    const result = await watch(html);
+    expect(result.status).toBe(1);
+    expect(result.output).toContain(`${counts} watched value(s) MOVED:`);
+    expect(result.output).toContain(detail);
+    expect(result.output).toContain('\n  - AeroTech certification index changed:');
   });
 
   it('returns MOVED when a PDF changes at the same URL', async () => {
@@ -115,6 +133,7 @@ describe('AeroTech published delay source watch (offline)', () => {
     expect(delays.scanReview.reviewed).toBe(review.documents.length + review.unread.length);
     expect(delays.scanReview.accepted).toBe(review.documents.length);
     expect(delays.scanReview.unreadForMerge).toBe(review.unread.length);
+    expect(delays.scanReview.unreadForMerge).toBe(delays.documents.scan);
     const shippedPaths = new Set(Object.values(delays.motors).map((m) => m.document));
     for (const entry of review.unread) {
       expect(entry.reason.length).toBeGreaterThan(0);

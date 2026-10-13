@@ -82,7 +82,7 @@ function report(edit = {}) {
 let dir;
 afterEach(() => { if (dir) rmSync(dir, { recursive: true, force: true }); dir = undefined; });
 
-/** A Cert Docs folder holding `docs` (NAR/... paths -> lines), a one-motor catalogue, and a JOIN naming every doc. */
+/** A Cert Docs folder holding `docs`, a one-motor catalogue, and a JOIN naming text-layer docs. */
 function run(docs, transcriptions = { documents: [], unread: [] }) {
   dir = mkdtempSync(join(tmpdir(), 'delay-docs-'));
   const certDocs = join(dir, 'Cert Docs');
@@ -90,7 +90,7 @@ function run(docs, transcriptions = { documents: [], unread: [] }) {
   writeFileSync(join(dir, 'spec.json'), JSON.stringify(spec));
   const made = spawnSync(python, ['-c', MAKE_PDFS, join(dir, 'spec.json')], { encoding: 'utf8' });
   expect(made.status, made.stderr).toBe(0);
-  for (const entry of transcriptions.documents) {
+  for (const entry of [...transcriptions.documents, ...transcriptions.unread]) {
     entry.sha256 ??= createHash('sha256').update(readFileSync(join(certDocs, entry.document))).digest('hex');
   }
   writeFileSync(join(dir, 'transcriptions.json'), JSON.stringify(transcriptions));
@@ -103,7 +103,8 @@ function run(docs, transcriptions = { documents: [], unread: [] }) {
     generated: '2026-10-11',
     motors: [{ motorId: 'id-e99w', manufacturerAbbrev: 'AeroTech', designation: 'E99W' }],
   }));
-  writeFileSync(join(dir, 'join.json'), JSON.stringify(Object.fromEntries(Object.keys(docs).map((p) => [p, ['AeroTech', 'E99W']]))));
+  writeFileSync(join(dir, 'join.json'), JSON.stringify(Object.fromEntries(Object.entries(docs)
+    .filter(([_path, lines]) => !lines.scan).map(([p]) => [p, ['AeroTech', 'E99W']]))));
   const out = join(dir, 'out.json');
   const res = spawnSync(python, [extractor, '--source', dir, '--motors', join(dir, 'motors.json'),
     '--join', join(dir, 'join.json'), '--transcriptions', join(dir, 'transcriptions.json'), '--out', out],
@@ -183,6 +184,32 @@ function transcription() {
 }
 
 describe.skipIf(!hasPyMuPDF)('reviewed scan transcriptions', { timeout: 30_000 }, () => {
+  it.each([
+    ['a new scan without any inventory', []],
+    ['a scan omitted from a partial inventory', [{ document: 'TRA/Test/Listed.pdf', reason: 'No agreeing delay summary' }]],
+  ])('refuses %s without writing output', (_name, unread) => {
+    const docs = { [scanPath]: { scan: report() } };
+    for (const entry of unread) docs[entry.document] = { scan: report() };
+    const result = run(docs, { documents: [], unread });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain(`${scanPath}: scan has no unread review entry`);
+    expect(result.json).toBeNull();
+  });
+
+  it('accounts separately for accepted and unread scans in a complete inventory', () => {
+    const unreadPath = 'TRA/Test/Unread.pdf';
+    const data = transcription();
+    data.unread.push({ document: unreadPath, reason: 'No agreeing delay summary' });
+    const result = run({ [scanPath]: { scan: report() }, [unreadPath]: { scan: report() } }, data);
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.json).toMatchObject({
+      motorCount: 1, pairCount: 1,
+      documents: { 'scan-reviewed': 1, scan: 1 },
+      scanReview: { reviewed: 2, accepted: 1, unreadForMerge: 1 },
+    });
+    expect(Object.values(result.json.motors).map((m) => m.document)).toEqual([scanPath]);
+  });
+
   it('merges source-positioned measurements from a scan only after its own average and summary agree', () => {
     const result = run({ [scanPath]: { scan: report() } }, transcription());
     expect(result.status, result.stderr).toBe(0);

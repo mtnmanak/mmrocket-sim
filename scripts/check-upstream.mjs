@@ -588,9 +588,13 @@ export async function checkAerotechDelays(getText = text, getBytes = pdfBytes,
   checked++;
   const added = [...current].filter((url) => !expected.has(url));
   const removed = [...expected].filter((url) => !current.has(url));
-  for (const url of added) flag(`certification index ADDED ${url} — inspect for new delay measurements`);
-  for (const url of removed) flag(`certification index REMOVED ${url} — re-read the delay source/join`);
-  if (added.length === 0 && removed.length === 0) say(`  ok   ${current.size} certification PDF links unchanged`);
+  if (added.length || removed.length) {
+    const note = `AeroTech certification index changed: ${added.length} added, ${removed.length} removed PDF links — re-read the delay sources`;
+    flag(note);
+    notes.push(note);
+    for (const url of added) say(`  ** certification index ADDED ${url} — inspect for new delay measurements`);
+    for (const url of removed) say(`  ** certification index REMOVED ${url} — re-read the delay source/join`);
+  } else say(`  ok   ${current.size} certification PDF links unchanged`);
   for (const doc of snapshot.documents) {
     // A removed link was already reported; do not keep downloading its stale URL.
     if (!current.has(doc.url)) continue;
