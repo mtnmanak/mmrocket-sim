@@ -148,6 +148,26 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
 
+it('W2-WARN freezes advisory limits on single and mixed rows without changing their flight numbers', async () => {
+  const tree = clusterRocket('4-ring');
+  const split = splitClusterTree(tree, 'mount')!;
+  const baseline = input(tree, { autoDelay: false, splits: [split],
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')] });
+  const deps = { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) };
+  const plain = await sweep(baseline, deps);
+  const limits = { maxMach: 0.001 };
+  const advised = await sweep({ ...baseline, advisoryLimits: limits }, deps);
+  limits.maxMach = 99;
+  expect(advised.rows).toHaveLength(3);
+  for (const [i, row] of advised.rows.entries()) {
+    expect(row.run?.advisoryLimits).toEqual({ maxMach: 0.001 });
+    expect(row.run?.comments).toContain('your maximum');
+    // Same runtime and same inputs: advisory data must not move even the last bit.
+    expect(row.run?.maxAltitude).toBe(plain.rows[i]?.run?.maxAltitude);
+    expect(row.run?.maxVelocity).toBe(plain.rows[i]?.run?.maxVelocity);
+  }
+}, 30_000);
+
 it('RES-1 freezes base configuration and overrides on single and mixed batch rows', async () => {
   const tree = clusterRocket('4-ring');
   const split = splitClusterTree(tree, 'mount')!;

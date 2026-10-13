@@ -4,6 +4,7 @@ import { clearTourDone, markTourDone } from './FirstRunTour.js';
 import { NumField } from './NumField.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import { UnitChip } from './UnitChip.js';
+import type { FlightAdvisories } from '../prefs/flightAdvisories.js';
 import { AERO_NAME, aeroChoiceOf, aeroOptionLabel, prefsForAeroChoice, usePrefs, type AeroChoice } from '../prefs/PrefsContext.js';
 import {
   CUSTOM_PRESET, DEFAULT_PRINT_CLEARANCE, DEFAULT_PRINT_MARGIN, PRINTER_PRESETS,
@@ -37,6 +38,24 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
    */
   const uid = useId();
   const idFor = (key: string) => `${uid}-${key}`;
+  const adviceField = (key: keyof FlightAdvisories, label: string, quantity?: 'velocity' | 'distance') => {
+    const value = prefs.flightAdvisories?.[key];
+    const symbol = quantity ? prefs.units[quantity] : '';
+    return <div className="field" key={key}>
+      <label htmlFor={idFor(key)}>{label}{quantity && <> <UnitChip quantity={quantity} /></>}</label>
+      <NumField id={idFor(key)} nullable placeholder="Off" min={0}
+        validate={v => (key !== 'maxAirspeedMs' && key !== 'maxMach') || v > 0}
+        value={value === undefined ? undefined : quantity ? siToUi(quantity, symbol, value) : value}
+        step={key === 'maxMach' ? 0.1 : 1}
+        describedBy={idFor('advice-help')}
+        onCommit={v => {
+          const next = { ...prefs.flightAdvisories };
+          if (v === null) delete next[key];
+          else next[key] = quantity ? uiToSi(quantity, symbol, v) : v;
+          setPrefs({ ...prefs, flightAdvisories: Object.keys(next).length ? next : undefined });
+        }} />
+    </div>;
+  };
 
   // Build volumes are stored in metres and edited through the same
   // siToUi/uiToSi plumbing as every other length (prefs/printers.ts explains
@@ -218,6 +237,24 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           that repeats them with the stability margin. They are separable because a clean shell
           for a photo and a shell with the numbers are different requests. The
           <strong> ◉ CG/CP</strong> button on the 3D view itself is the same switch, on and off.
+        </p>
+
+        <h3 className="prefs-section">Flight advice</h3>
+        <div className="field-grid">
+          {adviceField('maxAirspeedMs', 'Maximum airspeed', 'velocity')}
+          {adviceField('maxMach', 'Maximum Mach')}
+          {adviceField('armingAltitudeM', 'Electronics arming altitude (AGL)', 'distance')}
+          {adviceField('armingCautionBandM', 'Arming caution band', 'distance')}
+        </div>
+        <p className="prefs-hint" id={idFor('advice-help')}>
+          Use positive speed and Mach limits, or leave them blank to turn the advice off.
+          These are your limits, not a structural rating. The report names
+          the flight configuration and keeps the limits used for that flight. The arming band
+          extends above your arming altitude; a blank band means zero. With no arming altitude,
+          the band is off. The app checks apogee and independently triggered recovery deployments,
+          assuming they need your electronics armed. If the rocket does not reach the arming
+          altitude, recovery may fail. Reaching it does not prove the electronics armed.
+          Advice never blocks Launch.
         </p>
 
         <h3 className="prefs-section">Aerodynamics</h3>

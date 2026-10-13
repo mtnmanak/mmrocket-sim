@@ -199,6 +199,14 @@ function renderConditions(over: Partial<typeof DEFAULT_CONDITIONS>) {
   return host.querySelector('[data-caution="pad-pressure"]');
 }
 
+it('W2-WARN shows surface-wind Caution above 20 mph and leaves Launch enabled', () => {
+  renderConditions({ windAverage: 8.9408 });
+  expect(host.textContent).not.toContain('exceeds 20 mph');
+  renderConditions({ windAverage: 9 });
+  expect(host.querySelector('.message-caution')?.textContent).toContain('Surface wind average');
+  expect(host.querySelector<HTMLButtonElement>('.launch-btn')?.disabled).toBe(false);
+});
+
 describe('the station-pressure field', () => {
   it('names what it wants: the pressure AT THE PAD, not "Pressure"', () => {
     renderConditions({});

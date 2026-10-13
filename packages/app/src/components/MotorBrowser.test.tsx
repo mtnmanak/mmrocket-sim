@@ -112,7 +112,8 @@ interface Harness {
   motors: MountMotor[];
 }
 
-function openBrowser(props: { mountDiameterMm: number; maxMotorLengthM?: number | null; filters?: Record<string, unknown> }): Harness {
+function openBrowser(props: { mountDiameterMm: number; maxMotorLengthM?: number | null; filters?: Record<string, unknown>;
+  recoveryAdviceFor?: (delay: number, auto: boolean) => string | null }): Harness {
   if (props.filters) localStorage.setItem(FILTERS_KEY, JSON.stringify(props.filters));
   const host = document.createElement('div');
   document.body.appendChild(host);
@@ -123,6 +124,7 @@ function openBrowser(props: { mountDiameterMm: number; maxMotorLengthM?: number 
   act(() => root.render(
     <PrefsProvider>
       <MotorBrowser mountDiameterMm={props.mountDiameterMm} maxMotorLengthM={props.maxMotorLengthM ?? null}
+        recoveryAdviceFor={props.recoveryAdviceFor}
         onSelect={(label, spec, meta) => {
           selected.push({ label, ejectionDelay: spec.ejectionDelay });
           specs.push(spec);
@@ -160,6 +162,26 @@ const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 const settle = async (ms = 0) => { await act(async () => { await new Promise((r) => setTimeout(r, ms)); }); };
 const loadButton = (h: Harness) => Array.from(h.host.querySelectorAll('button'))
   .find((b) => /Load motor|Loading/.test(b.textContent ?? ''));
+
+it('W2-WARN previews catalogue and custom zero-delay recovery as Caution while allowing selection', () => {
+  const h = openBrowser({ mountDiameterMm: 24, recoveryAdviceFor: (delay, auto) => delay === 0 && !auto ? 'Zero delay triggers recovery at burnout.' : null });
+  onTestFinished(() => closeBrowser(h));
+  search(h, 'C6');
+  click(rowFor(h, 'Estes', 'C6')!);
+  const setDelay = (value: string) => act(() => {
+    delaySelect(h)!.value = value;
+    delaySelect(h)!.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  setDelay('0');
+  expect(h.host.querySelector('.message-caution')?.textContent).toContain('burnout');
+  expect(loadButton(h)?.hasAttribute('disabled')).toBe(false);
+  setDelay('auto');
+  expect(h.host.textContent).not.toContain('Zero delay');
+  setDelay('custom');
+  const field = h.host.querySelector<HTMLInputElement>('input[aria-label="Custom delay (s)"]')!;
+  typeInto(field, '0');
+  expect(h.host.querySelector('.message-caution')?.textContent).toContain('burnout');
+});
 
 describe('storage hardening: motor filters', () => {
   it('round-trips every valid stored filter', () => {

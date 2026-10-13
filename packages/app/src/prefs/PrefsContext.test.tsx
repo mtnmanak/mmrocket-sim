@@ -44,6 +44,12 @@ afterEach(() => {
 });
 
 describe('storage hardening: result tiles', () => {
+  it('W2-WARN validates flight advice independently of other stored preferences', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ flightAdvisories: { maxMach: 0.8, maxAirspeedMs: 'fast', armingAltitudeM: -1 }, radiusMode: 'radius' }));
+    mount();
+    expect(seen.prefs.flightAdvisories).toEqual({ maxMach: 0.8 });
+    expect(seen.prefs.radiusMode).toBe('radius');
+  });
   it('S7d-3 drops unknown preference unions and keeps valid independent choices', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ aeroModel: 'unknown', theme: 'unknown', themeExplicit: true,
       radiusMode: 'unknown', markers3d: 'unknown', stabilityUnit: 'unknown', rogersKbf: false }));

@@ -1,6 +1,7 @@
 import { INITIAL_UNITS, type UnitSelection } from './units.js';
 import type { PrinterPrefs } from './printers.js';
 import type { DragAnalysisPrefs } from './dragAnalysis.js';
+import type { FlightAdvisories } from './flightAdvisories.js';
 
 /**
  * Persisted user preferences: per-quantity units (desktop UnitGroup style),
@@ -13,6 +14,7 @@ import type { DragAnalysisPrefs } from './dragAnalysis.js';
  * re-exports both, so every existing importer gets the same bindings.
  */
 export interface Preferences {
+  flightAdvisories?: FlightAdvisories;
   units: UnitSelection;
   /** How round components are entered/displayed. Engine always stores radius (SI). */
   radiusMode: 'radius' | 'diameter';

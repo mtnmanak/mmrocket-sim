@@ -172,6 +172,14 @@ const flyArg = () => vi.mocked(flyLaunch).mock.calls[0]![1];
 const runArg = () => vi.mocked(buildSimRun).mock.calls[0]![0];
 
 describe('flyBuiltDesign hands flyLaunch what onLaunch handed it', () => {
+  it('W2-WARN passes frozen limits only to reporting, never to flight options', async () => {
+    const input = recorded({});
+    input.advisoryLimits = { maxMach: 0.5 };
+    await flyBuiltDesign(input);
+    expect(runArg().advisoryLimits).toEqual({ maxMach: 0.5 });
+    expect(flyArg()).not.toHaveProperty('advisoryLimits');
+    expect(flyArg().simOptions).toEqual(kernelSimOptions(input.launch));
+  });
   // The recording handle's flight is not one the report can read: stubbed.
   beforeEach(() => { vi.mocked(buildSimRun).mockImplementation(() => ({ id: 'stub' }) as FreshSimRun); });
 
@@ -241,6 +249,9 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
     const primary = assigned.find(([id]) => id === primaryMountId)![1];
     const activeConfig = activeConfigId === null ? undefined : savedConfigs.find((c) => c.id === activeConfigId);
     return {
+      advisoryLimits: input.advisoryLimits,
+      advisoryTree: tree,
+      advisoryMotors: assigned,
       result: flight.result,
       delayResolution: flight.delayResolution, primaryMountId,
       refusedMountIds: refusedMountIdsOf(built.motorFailures),
@@ -349,6 +360,9 @@ async function referenceLaunch(x: {
   const activeConfig = activeConfigId === null ? undefined
     : savedConfigs.find((c) => c.id === activeConfigId);
   const run = buildSimRun({
+    advisoryLimits: undefined,
+    advisoryTree: tree,
+    advisoryMotors: assigned,
     result: res,
     delayResolution, primaryMountId,
     info: built.info,

@@ -15,6 +15,7 @@ import { motorLabelEntry } from './motorLabels.js';
 import { defaultDelay, delayOptions, fetchMotorSpec, type TcMotor } from './thrustcurve.js';
 import { motorIdentity, shiftMotorMass } from './hardwareMass.js';
 import { buildSimRun, type MotorMeta, type SimRun } from './simReport.js';
+import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
 import { aeroModelFor, rogersKbfFor, type AeroMode } from './flightPipeline.js';
 import type { MountMotor } from '../model/design.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
@@ -395,6 +396,7 @@ export interface BatchRow {
 }
 
 export interface BatchSweepInput {
+  advisoryLimits?: FlightAdvisories;
   /** Base setup, already excluding the swept mount's ignition. */
   configuration?: Pick<SimRun, 'flightConfig' | 'flightConfigId' | 'flightOverrides'>;
   /** The editing tree — the sweep builds its OWN engine handles from it, so
@@ -459,6 +461,7 @@ export async function runBatchSweep(
   deps: Partial<BatchSweepDeps> = {},
 ): Promise<{ rows: BatchRow[]; stopped: boolean }> {
   const configuration = input.configuration === undefined ? undefined : structuredClone(input.configuration);
+  const advisoryLimits = normalizeFlightAdvisories(input.advisoryLimits);
   const {
     fetchSpec = fetchMotorSpec,
     nozzleFor = nozzleForMotorId,
@@ -735,6 +738,7 @@ export async function runBatchSweep(
         aero,
       });
       const run = buildSimRun({
+        advisoryLimits, advisoryTree: keyTree, advisoryMotors: f.assigned,
         ...configuration, batch: true,
         result: f.res,
         delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,
@@ -881,6 +885,7 @@ export async function runBatchSweep(
           aero,
         });
         const run = buildSimRun({
+          advisoryLimits, advisoryTree: keyTree, advisoryMotors: f.assigned,
           ...configuration, batch: true,
           result: f.res,
           delayResolution: f.delayResolution, primaryMountId: f.primaryMountId,

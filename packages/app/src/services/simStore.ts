@@ -7,6 +7,7 @@ import { railNeeded, railNeededResultCell, railNeededHeader } from './railNeeded
 import { mergeStoredWarnings, sameStoredFlight, verifiesStoredRow } from './storedRunIdentity.js';
 import { warningKeysCell } from './simWarnings.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
+import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
 
 /**
  * Persisted simulation-run history (localStorage). the owner's flight-day flow:
@@ -56,6 +57,11 @@ export function loadRuns(): SimRun[] {
       typeof r === 'object' && r !== null && !Array.isArray(r)
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
+      const advice = normalizeFlightAdvisories(r.advisoryLimits);
+      if (advice) r.advisoryLimits = advice;
+      else delete r.advisoryLimits;
+      if (r.maxAirspeedMs !== undefined && r.maxAirspeedMs !== null
+        && (typeof r.maxAirspeedMs !== 'number' || !Number.isFinite(r.maxAirspeedMs) || r.maxAirspeedMs < 0)) delete r.maxAirspeedMs;
       // A malformed historical record means unknown, never "no overrides".
       if (r.flightOverrides !== undefined && (!Array.isArray(r.flightOverrides) || !r.flightOverrides.every(record => {
         if (!record || typeof record !== 'object' || typeof record.partName !== 'string') return false;
@@ -94,6 +100,9 @@ export function loadRuns(): SimRun[] {
       for (const b of r.branches ?? []) {
         if (!Array.isArray(b.deployments)) b.deployments = [];
         else b.deployments = b.deployments.filter((d) => d !== null && typeof d === 'object' && !Array.isArray(d));
+      }
+      for (const d of [...(r.deployments ?? []), ...(r.branches ?? []).flatMap(b => b.deployments)]) {
+        if (d.role !== undefined && !['main', 'drogue', 'unknown'].includes(d.role)) d.role = 'unknown';
       }
       // Revive plugged delays (persisted as the string "Infinity" — see persist).
       // Runs saved before that fix came back as null; treat those as plugged too

@@ -77,6 +77,17 @@ describe('APP_DEFAULT_AERO', () => {
 });
 
 describe('simulateDesign flies the design', () => {
+  it('W2-WARN personal advice leaves the entire real-kernel flight unchanged', async () => {
+    const s = await starter();
+    const plain = await simulateDesign(s);
+    const advised = await simulateDesign(s, { advisoryLimits: { maxAirspeedMs: 1, maxMach: 0.01,
+      armingAltitudeM: 1000, armingCautionBandM: 100 } });
+    // Differential comparison in one Node runtime, not a hard-coded kernel float.
+    expect(advised.result).toEqual(plain.result);
+    expect(advised.provenance).toEqual(plain.provenance);
+    expect(advised.run.advisoryLimits?.armingAltitudeM).toBe(1000);
+    expect(advised.run.comments).toContain('your maximum');
+  });
   it.each([false, true])('R7: Launch and headless keep a legacy motor identity with Auto=%s', async (autoDelay) => {
     const s = await starter();
     const [id, mm] = Object.entries(s.mountMotors)[0]!;
