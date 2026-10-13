@@ -1,4 +1,6 @@
 import { Note } from './Note.js';
+import { DebugLogDownload } from './DebugLogDownload.js';
+import { sessionDebugLog } from '../services/sessionDebugLog.js';
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { autosavedDesignFile } from '../services/autosaveBackup.js';
 import { saveFile, saveOutcomeNote } from '../services/saveFile.js';
@@ -61,6 +63,7 @@ export class AppBoundary extends Component<
   }
 
   override componentDidCatch(err: Error, info: ErrorInfo) {
+    sessionDebugLog.record('app-error', err);
     // Logged in full: the component stack is what a bug report needs.
     console.error('The app stopped on an error:', err, info.componentStack);
     if (this.unsubscribe === null) {
@@ -153,6 +156,7 @@ export class AppBoundary extends Component<
           ⬇ Download the autosaved design
         </button>
         {this.state.note && <p role="status">{this.state.note}</p>}
+        <DebugLogDownload />
         {this.state.confirming ? (
           <>
             <Note tier={resetLoses ? 'danger' : 'information'}>

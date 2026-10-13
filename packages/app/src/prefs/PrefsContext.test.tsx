@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PrefsProvider, usePrefs, type Preferences } from './PrefsContext.js';
 import { printerFromPreset } from './printers.js';
 import { INITIAL_UNITS, UNITS, type Quantity } from './units.js';
+import { sessionDebugLog } from '../services/sessionDebugLog.js';
 
 /**
  * Loading stored preferences. The one that matters is MIGRATION SAFETY: a
@@ -21,7 +22,7 @@ const STORAGE_KEY = 'online-openrocket.prefs.v1';
 
 let host: HTMLDivElement;
 let root: Root;
-let seen: { prefs: Preferences; setPrefs: (p: Preferences) => void };
+let seen: ReturnType<typeof usePrefs>;
 
 function Probe() {
   seen = usePrefs();
@@ -44,6 +45,52 @@ afterEach(() => {
 });
 
 describe('storage hardening: result tiles', () => {
+  it.each(['eb', 'kbf', 'auto', 'supersonic', 'hybrid'] as const)('C-H3 exports the provider session aero override %s without persisting it', aeroOverride => {
+    const stored = JSON.stringify({ aeroModel: 'supersonic', rogersKbf: false });
+    localStorage.setItem(STORAGE_KEY, stored);
+    mount();
+    act(() => seen.setAeroOverride(aeroOverride));
+    expect(sessionDebugLog.text()).toContain(`"aeroOverride":"${aeroOverride}"`);
+    expect(sessionDebugLog.text()).toContain('"aeroModel":"supersonic"');
+    expect(sessionDebugLog.text()).toContain('"rogersKbf":false');
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(stored);
+    act(() => seen.setAeroOverride(null));
+    expect(sessionDebugLog.text()).toContain('"aeroOverride":null');
+    expect(localStorage.getItem(STORAGE_KEY)).toBe(stored);
+  });
+
+  it('C-H3 records a provider eb to kbf transition with unchanged stored preferences', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ aeroModel: 'supersonic' }));
+    mount();
+    act(() => seen.setAeroOverride('eb'));
+    expect(sessionDebugLog.text()).toContain('"aeroOverride":"eb"');
+    const before = sessionDebugLog.text().match(/preferences-changed/g)!.length;
+    act(() => seen.setAeroOverride('kbf'));
+    expect(sessionDebugLog.text()).toContain('"aeroOverride":"kbf"');
+    expect(sessionDebugLog.text().match(/preferences-changed/g)).toHaveLength(before + 1);
+    expect(seen.prefs.aeroModel).toBe('supersonic');
+  });
+
+  it('C-H3 follows current validated preferences without capturing unrelated stored fields', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ configurationSort: 'name', theme: 'light', themeExplicit: true,
+      weatherSearch: 'Private weather place', latitude: 61.234 }));
+    mount();
+    expect(sessionDebugLog.text()).toContain('"configurationSort":"name"');
+    act(() => seen.setPrefs({ ...seen.prefs, configurationSort: 'motor' }));
+    expect(sessionDebugLog.text()).toContain('"configurationSort":"motor"');
+    expect(sessionDebugLog.text()).not.toContain('Private');
+    expect(sessionDebugLog.text()).not.toContain('61.234');
+  });
+  it.each(['creation', 'name', 'name-desc', 'motor', 'motor-desc'])('N011 retains configuration sort %s', configurationSort => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ configurationSort }));
+    mount();
+    expect(seen.prefs.configurationSort).toBe(configurationSort);
+  });
+  it.each([null, [], {}, 'unknown', 5])('N011 drops malformed configuration sort %j', configurationSort => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ configurationSort }));
+    mount();
+    expect(seen.prefs.configurationSort).toBeUndefined();
+  });
   it('S7d-3 drops unknown preference unions and keeps valid independent choices', () => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ aeroModel: 'unknown', theme: 'unknown', themeExplicit: true,
       radiusMode: 'unknown', markers3d: 'unknown', stabilityUnit: 'unknown', rogersKbf: false }));
