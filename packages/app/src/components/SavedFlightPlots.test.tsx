@@ -17,7 +17,7 @@ const name = (value: string) => act(() => {
   input.dispatchEvent(new Event('input', { bubbles: true }));
 });
 beforeEach(() => { localStorage.clear(); apply.mockClear(); host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
-afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
+afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 it('saves, reloads, recalls, renames and deletes a viewer layout with undo', () => {
   render(); name(' Coast '); click('Save current plots');
@@ -29,6 +29,27 @@ it('saves, reloads, recalls, renames and deletes a viewer layout with undo', () 
   expect(host.querySelector('option:last-child')!.textContent).toBe('Landing');
   click('Delete'); expect(host.querySelectorAll('option')).toHaveLength(1);
   click('Undo delete'); expect(host.querySelector('option:last-child')!.textContent).toBe('Landing');
+});
+it.each(['randomUUID', 'crypto'])('saves distinct layouts, reloads and applies them without %s', missing => {
+  vi.stubGlobal('crypto', missing === 'crypto' ? undefined : { getRandomValues: crypto.getRandomValues.bind(crypto) });
+  render(); name('Coast'); click('Save current plots');
+  expect(host.textContent).toContain('Saved Coast.');
+  name('Landing'); click('Save current plots');
+  expect(host.textContent).toContain('Saved Landing.');
+  const ids = Array.from(host.querySelectorAll('option')).slice(1).map(option => option.value);
+  expect(ids).toHaveLength(2);
+  expect(ids.every(id => id.length > 0 && id.length <= 100)).toBe(true);
+  expect(new Set(ids).size).toBe(2);
+  expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!)).toMatchObject({
+    flightPlots: [{ ...current, name: 'Coast', id: ids[0] }, { ...current, name: 'Landing', id: ids[1] }],
+  });
+  act(() => root.unmount()); root = createRoot(host); render();
+  expect(Array.from(host.querySelectorAll('option')).slice(1).map(option => option.value)).toEqual(ids);
+  for (const id of ids) {
+    act(() => { const select = host.querySelector('select')!; select.value = id; select.dispatchEvent(new Event('change', { bubbles: true })); });
+    click('Apply'); expect(apply).toHaveBeenLastCalledWith(current);
+  }
+  expect(apply).toHaveBeenCalledTimes(2);
 });
 it('rejects blank and duplicate names, preserves the original, and loads corrupt preferences safely', () => {
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ flightPlots: [null, { panels: 'bad' }] }));

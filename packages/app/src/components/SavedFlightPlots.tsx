@@ -59,7 +59,10 @@ export function SavedFlightPlots({ current, onApply }: { current: Layout; onAppl
         setError('That name is already used. Enter a different name.'); return;
       }
       if (plots.length >= MAX_FLIGHT_PLOTS) { setError('Delete a saved plot before adding another (limit 50).'); return; }
-      const plot = { ...current, panels: [...current.panels], name: title, id: crypto.randomUUID() };
+      // N041: supported older browsers lack randomUUID; match configuration IDs' fallback.
+      const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID()
+        : 'xxxxxxxx-xxxx-4xxx-8xxx-xxxxxxxxxxxx'.replace(/x/g, () => Math.floor(Math.random() * 16).toString(16));
+      const plot = { ...current, panels: [...current.panels], name: title, id };
       write([...plots, plot]); setChosen(plot.id); setName(title); setStatus(`Saved ${title}.`);
     }}>
       <label htmlFor={inputId}>Plot name</label>
