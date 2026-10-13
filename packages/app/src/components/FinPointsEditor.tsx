@@ -1,8 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
-import { startsGesture } from '../chartPanZoom.js';
+import { arrowPan, startsGesture, wheelZoomFactor } from '../chartPanZoom.js';
+import { FIN_VIEW_W as VIEW_W, FIN_VIEW_H as VIEW_H, fitFin as makeTransform,
+  finToScreen as toScreen, screenToFin as toModel, panFin, zoomFin,
+  type FinTransform as Transform } from './finViewport.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 
@@ -14,8 +17,9 @@ import { UnitChip } from './UnitChip.js';
  * Interactions:
  *  - drag a point to move it (updates live once past a few px of click
  *    jitter; commits one undo step on release, and none if nothing moved)
- *  - click/drag on empty canvas: inserts a point into the nearest edge and
- *    immediately drags it (rough placement by click, refine in the table)
+ *  - click empty canvas: inserts a point into the nearest edge
+ *  - drag empty canvas or shift-drag anywhere: pans the view
+ *  - wheel or two-finger pinch/pan: zooms/moves the view, never the points
  *  - double-click a point to delete it
  *  - the table edits the same points; both views always agree
  *
@@ -27,9 +31,6 @@ import { UnitChip } from './UnitChip.js';
 
 export type FinPoint = [number, number];
 
-const VIEW_W = 300;
-const VIEW_H = 170;
-const PAD = 22;
 const HIT_RADIUS = 12; // screen px, generous grab target
 /** Client px a press may wander before it moves a point: a physical click
  *  jitters 1-3 px. The same 4 px the 2D side view gives a click (its PAN_SLOP). */
@@ -54,41 +55,16 @@ interface Press {
   y: number;
   /** Past PRESS_SLOP yet. Until then the point stays exactly where it was. */
   active: boolean;
+  kind: 'point' | 'empty' | 'pan';
+  screen: FinPoint;
+  transform: Transform;
 }
 
-// Primary button of the primary pointer only — a right-press or a second finger
-// starts nothing here: `startsGesture` (chartPanZoom.ts), the drawings' one rule.
+// Point edits follow startsGesture, the drawings' primary-pointer/button rule.
+// A second touch pointer belongs only to the view gesture (N019).
 
 const samePoints = (a: FinPoint[], b: FinPoint[]): boolean =>
   a.length === b.length && a.every((p, i) => p[0] === b[i]![0] && p[1] === b[i]![1]);
-
-interface Transform {
-  scale: number;
-  minX: number;
-  minY: number;
-}
-
-function makeTransform(pts: FinPoint[]): Transform {
-  const xs = pts.map((p) => p[0]);
-  const ys = pts.map((p) => p[1]);
-  const minX = Math.min(0, ...xs);
-  const maxX = Math.max(0.01, ...xs);
-  const minY = Math.min(0, ...ys);
-  const maxY = Math.max(0.01, ...ys);
-  const scale = Math.min(
-    (VIEW_W - 2 * PAD) / (maxX - minX),
-    (VIEW_H - 2 * PAD) / (maxY - minY),
-  );
-  return { scale, minX, minY };
-}
-
-function toScreen(t: Transform, [x, y]: FinPoint): [number, number] {
-  return [PAD + (x - t.minX) * t.scale, VIEW_H - PAD - (y - t.minY) * t.scale];
-}
-
-function toModel(t: Transform, [sx, sy]: [number, number]): FinPoint {
-  return [(sx - PAD) / t.scale + t.minX, (VIEW_H - PAD - sy) / t.scale + t.minY];
-}
 
 /** Index of the edge (segment i -> i+1) closest to screen point s. */
 function nearestEdge(t: Transform, pts: FinPoint[], s: [number, number]): number {
@@ -140,12 +116,26 @@ export function FinPointsEditor({ points, onChange }: {
     setLivePts(next);
   };
   const press = useRef<Press | null>(null);
+  const [panning, setPanning] = useState(false);
 
   // The transform follows committed points but FREEZES during a drag so the
   // canvas doesn't rescale under the pointer.
   const layoutTransform = useMemo(() => makeTransform(committed), [committed]);
   const frozenTransform = useRef<Transform | null>(null);
-  const t = frozenTransform.current ?? layoutTransform;
+  const [view, setView] = useState<Transform | null>(null);
+  const viewRef = useRef<Transform | null>(null);
+  const currentView = () => viewRef.current ?? layoutTransform;
+  const showView = (next: Transform | null) => {
+    viewRef.current = next;
+    setView(next);
+  };
+  const t = frozenTransform.current ?? view ?? layoutTransform;
+  const helpId = useId();
+
+  const touches = useRef(new Map<number, FinPoint>());
+  const pinch = useRef<{ transform: Transform; center: FinPoint; distance: number } | null>(null);
+  // After a pinch ends, the remaining finger must lift before it can edit.
+  const touchView = useRef(false);
 
   const svgRef = useRef<SVGSVGElement>(null);
   const dragIndex = useRef<number | null>(null);
@@ -202,37 +192,60 @@ export function FinPointsEditor({ points, onChange }: {
 
   /** Starts following a press of point `index`, showing `start` meanwhile. */
   const beginDrag = (index: number, start: FinPoint[], e: React.PointerEvent) => {
-    frozenTransform.current = layoutTransform;
+    const transform = currentView();
+    frozenTransform.current = transform;
     dragIndex.current = index;
-    press.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, active: false };
+    press.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, active: false,
+      kind: 'point', screen: clientToSvg(e), transform };
     showLive(start);
-    (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+    svgRef.current!.setPointerCapture?.(e.pointerId);
+  };
+
+  const beginViewPress = (kind: 'pan' | 'empty', e: React.PointerEvent) => {
+    setPanning(kind === 'pan');
+    press.current = { pointerId: e.pointerId, x: e.clientX, y: e.clientY, active: false,
+      kind, screen: clientToSvg(e), transform: currentView() };
+    svgRef.current!.setPointerCapture?.(e.pointerId);
+  };
+
+  const touchPair = () => {
+    const [a, b] = [...touches.current.values()];
+    if (!a || !b) return null;
+    return { center: [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] as FinPoint,
+      distance: Math.hypot(b[0] - a[0], b[1] - a[1]) };
+  };
+
+  const onPointerDownCapture = (e: React.PointerEvent) => {
+    if (e.pointerType !== 'touch' || e.button !== 0) return;
+    touches.current.set(e.pointerId, clientToSvg(e));
+    svgRef.current!.setPointerCapture?.(e.pointerId);
+    if (touches.current.size !== 2) return;
+    // N019: a second finger cancels a tentative point edit, never drops it.
+    clearPress(false);
+    const pair = touchPair()!;
+    pinch.current = { ...pair, transform: currentView() };
+    touchView.current = true;
   };
 
   const onPointerDownPoint = (index: number) => (e: React.PointerEvent) => {
-    if (index === 0) return; // locked origin
-    if (!startsGesture(e) || press.current) return;
+    if (touchView.current || !startsGesture(e) || press.current) return;
     e.stopPropagation();
+    if (e.shiftKey) { beginViewPress('pan', e); return; }
+    if (index === 0) return; // locked origin
     beginDrag(index, committed.map((p) => [...p] as FinPoint), e);
   };
 
   const onPointerDownCanvas = (e: React.PointerEvent) => {
-    if (!startsGesture(e) || press.current) return;
-    // Insert a new point into the nearest edge, then drag it.
+    if (touchView.current || !startsGesture(e) || press.current) return;
+    if (e.shiftKey) { beginViewPress('pan', e); return; }
     const s = clientToSvg(e);
     // Ignore clicks that land on an existing point (their handler runs instead).
     for (let i = 0; i < committed.length; i++) {
-      const [sx, sy] = toScreen(layoutTransform, committed[i]!);
+      const [sx, sy] = toScreen(currentView(), committed[i]!);
       if (Math.hypot(s[0] - sx, s[1] - sy) < HIT_RADIUS) return;
     }
-    const edge = nearestEdge(layoutTransform, committed, s);
-    const model = constrain(edge + 1, toModel(layoutTransform, s), committed.length + 1);
-    const inserted = [
-      ...committed.slice(0, edge + 1),
-      model,
-      ...committed.slice(edge + 1),
-    ];
-    beginDrag(edge + 1, inserted, e);
+    // Wait for release to insert: movement past click slop means view pan.
+    beginViewPress('empty', e);
   };
 
   /**
@@ -242,9 +255,20 @@ export function FinPointsEditor({ points, onChange }: {
    * committed that as an edit.
    */
   const onPointerMove = (e: React.PointerEvent) => {
+    if (touches.current.has(e.pointerId)) {
+      touches.current.set(e.pointerId, clientToSvg(e));
+      const start = pinch.current;
+      const pair = touchPair();
+      if (start && pair) {
+        const zoomed = zoomFin(start.transform, start.center,
+          start.distance > 0 ? pair.distance / start.distance : 1, layoutTransform.scale);
+        showView(panFin(zoomed, [pair.center[0] - start.center[0], pair.center[1] - start.center[1]]));
+        return;
+      }
+      if (touchView.current) return;
+    }
     const p = press.current;
     if (!p || e.pointerId !== p.pointerId) return;
-    if (dragIndex.current === null || !frozenTransform.current) return;
     // Primary button up mid-drag: a release this editor never saw (the macOS
     // context menu swallows it). End it as the release it was.
     if ((e.buttons & 1) === 0) { endDrag(e); return; }
@@ -252,6 +276,14 @@ export function FinPointsEditor({ points, onChange }: {
       if (Math.abs(e.clientX - p.x) <= PRESS_SLOP && Math.abs(e.clientY - p.y) <= PRESS_SLOP) return;
       p.active = true;
     }
+    if (p.kind !== 'point') {
+      p.kind = 'pan';
+      setPanning(true);
+      const s = clientToSvg(e);
+      showView(panFin(p.transform, [s[0] - p.screen[0], s[1] - p.screen[1]]));
+      return;
+    }
+    if (dragIndex.current === null || !frozenTransform.current) return;
     const i = dragIndex.current;
     const model = toModel(frozenTransform.current, clientToSvg(e));
     const base = liveRef.current ?? committed;
@@ -259,15 +291,36 @@ export function FinPointsEditor({ points, onChange }: {
   };
 
   /** Drops the press without committing; the canvas snaps back to `committed`. */
-  const clearPress = () => {
+  const clearPress = (releaseCapture = true) => {
+    const pointerId = press.current?.pointerId;
     press.current = null;
+    setPanning(false);
     dragIndex.current = null;
     frozenTransform.current = null;
     showLive(null);
+    if (releaseCapture && pointerId != null && svgRef.current?.hasPointerCapture?.(pointerId)) {
+      svgRef.current.releasePointerCapture(pointerId);
+    }
+  };
+
+  const finishTouch = (e: React.PointerEvent): boolean => {
+    if (!touches.current.delete(e.pointerId)) return false;
+    const consumed = touchView.current;
+    pinch.current = null;
+    if (touches.current.size === 0) touchView.current = false;
+    if (consumed && svgRef.current?.hasPointerCapture?.(e.pointerId)) svgRef.current.releasePointerCapture(e.pointerId);
+    return consumed;
   };
 
   const endDrag = (e: React.PointerEvent) => {
+    if (finishTouch(e)) return;
     if (press.current?.pointerId !== e.pointerId) return;
+    const p = press.current;
+    if (p.kind === 'empty') {
+      const edge = nearestEdge(p.transform, committed, p.screen);
+      const model = constrain(edge + 1, toModel(p.transform, p.screen), committed.length + 1);
+      commit([...committed.slice(0, edge + 1), model, ...committed.slice(edge + 1)]);
+    }
     // A refused commit leaves `committed` alone and clearPress() below snaps
     // the canvas back to it — the "restore the previous array" half of the
     // guard, so a crossing outline never reaches buildTree.
@@ -286,8 +339,45 @@ export function FinPointsEditor({ points, onChange }: {
   /** The browser took the gesture over (pointercancel, lost capture). A
    *  cancelled drag is not a drop: nothing commits. */
   const cancelDrag = (e: React.PointerEvent) => {
+    if (finishTouch(e)) return;
     if (press.current?.pointerId !== e.pointerId) return;
     clearPress();
+  };
+
+  const viewBusy = () => press.current !== null || touches.current.size > 0;
+  const zoomView = (factor: number, focus: FinPoint = [VIEW_W / 2, VIEW_H / 2]) => {
+    if (viewBusy()) return;
+    showView(zoomFin(currentView(), focus, factor, layoutTransform.scale));
+  };
+  const fitView = () => { if (!viewBusy()) showView(null); };
+
+  // Like the other drawings, own wheel scrolling only when the view changes.
+  // React's delegated wheel listener is passive in browsers, so use a local one.
+  useEffect(() => {
+    const svg = svgRef.current!;
+    const onWheel = (e: WheelEvent) => {
+      if (viewBusy()) return;
+      const before = currentView();
+      const next = zoomFin(before, clientToSvg(e), 1 / wheelZoomFactor(e), layoutTransform.scale);
+      if (next.scale === before.scale) return;
+      e.preventDefault();
+      showView(next);
+    };
+    svg.addEventListener('wheel', onWheel, { passive: false });
+    return () => svg.removeEventListener('wheel', onWheel);
+  });
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { pinch.current = null; clearPress(); return; }
+    if (viewBusy() || e.ctrlKey || e.metaKey || e.altKey) return;
+    const delta = arrowPan(e.key);
+    if (delta) showView(panFin(currentView(), [delta[0] * 20, delta[1] * 20]));
+    else if (e.key === '+' || e.key === '=') zoomView(1 / wheelZoomFactor({ deltaY: -100 }));
+    else if (e.key === '-') zoomView(wheelZoomFactor({ deltaY: -100 }));
+    else if (e.key === '0' || e.key === 'Home') fitView();
+    else return;
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   const removePoint = (i: number) => {
@@ -327,8 +417,13 @@ export function FinPointsEditor({ points, onChange }: {
   return (
     <div style={{ marginTop: 10 }}>
       <h2>Fin planform</h2>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+        <button className="file-btn" onClick={() => zoomView(1 / wheelZoomFactor({ deltaY: -100 }))}>Zoom in</button>
+        <button className="file-btn" onClick={() => zoomView(wheelZoomFactor({ deltaY: -100 }))}>Zoom out</button>
+        <button className="file-btn" onClick={fitView}>Fit view</button>
+      </div>
       <svg ref={svgRef} viewBox={`0 0 ${VIEW_W} ${VIEW_H}`}
-          style={{ width: '100%', height: 'auto', background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 6, touchAction: 'none', cursor: 'crosshair' }}
+          style={{ width: '100%', height: 'auto', background: 'var(--surface-1)', border: '1px solid var(--border)', borderRadius: 6, touchAction: 'none', cursor: panning ? 'grabbing' : 'crosshair' }}
           // role="group", not "img" — the fix TreeSchematic's interactive <svg> `role` documents
           // and applies to its own interactive variant. role="img" makes the
           // WHOLE subtree presentational, so this label was promising a reader
@@ -336,11 +431,14 @@ export function FinPointsEditor({ points, onChange }: {
           // assistive tech could not reach, on an element whose own children
           // are the shapes being described (2026-09-08 audit).
           role="group"
-          aria-label="Fin planform, drawn. Points are edited in the coordinate table below this drawing."
+          tabIndex={0}
+          aria-label="Fin planform, drawn. Arrow keys pan; plus and minus zoom; 0 fits the view. Points are edited in the coordinate table below this drawing."
+          aria-describedby={helpId}
+          onKeyDown={onKeyDown}
+          onPointerDownCapture={onPointerDownCapture}
           onPointerDown={onPointerDownCanvas}
           onPointerMove={onPointerMove}
           onPointerUp={endDrag}
-          onPointerLeave={endDrag}
           onPointerCancel={cancelDrag}
           onLostPointerCapture={cancelDrag}>
         {/* body surface line */}
@@ -362,7 +460,7 @@ export function FinPointsEditor({ points, onChange }: {
               <circle cx={sx} cy={sy} r={HIT_RADIUS} fill="transparent"
                 style={{ cursor: locked ? 'not-allowed' : 'grab' }}
                 onPointerDown={onPointerDownPoint(i)}
-                onDoubleClick={() => removePoint(i)} />
+                onDoubleClick={(e) => { if (!e.shiftKey && !touchView.current) removePoint(i); }} />
               {hot && (
                 <circle cx={sx} cy={sy} r={9} fill="none" stroke="#e3a008"
                   strokeWidth="2" style={{ pointerEvents: 'none' }} />
@@ -433,8 +531,11 @@ export function FinPointsEditor({ points, onChange }: {
           {refused}{committedProblem ? '' : ' The fin is unchanged.'}
         </p>
       )}
-      <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '6px 0 0' }}>
-        Click the canvas to add a point on the nearest edge · drag points to move
+      <p id={helpId} style={{ fontSize: 11, color: 'var(--text-muted)', margin: '6px 0 0' }}>
+        Drag empty space or Shift-drag to pan. Use the wheel or pinch with two fingers
+        to zoom; move two fingers together to pan. Use arrow keys to pan, + / − to
+        zoom, and 0 to fit the view. These change the view only. Scroll the page
+        outside the drawing. Click the canvas to add a point on the nearest edge · drag points to move
         them · double-click a point to delete it · refine exact values in the
         table. Point 1 is fixed at the origin; the last point stays on the body.
       </p>
