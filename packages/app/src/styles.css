@@ -2490,6 +2490,37 @@ html {
 }
 
 /* --- Component tree --- */
+.preflight-audit {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.5;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.preflight-audit h3 { margin: 0; }
+.preflight-audit p { margin: 6px 0; }
+.preflight-findings { margin: 8px 0; padding: 0; list-style: none; }
+.preflight-findings .file-note { padding: 8px 10px; }
+.preflight-select {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+.preflight-select:focus-visible,
+.preflight-limits summary:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+.preflight-select:active { transform: translateY(1px); }
+.preflight-limits summary { cursor: pointer; }
+.preflight-limits summary:hover { text-decoration: underline; }
+
 .tree-box {
   background: var(--surface-1);
   border: 1px solid var(--border);
