@@ -530,47 +530,45 @@ html {
   z-index: 61;
 }
 
-/* Below 980px the header row wraps (.app-header-row), and a menu
-   right-anchored to its own BUTTON clips off the left edge of a phone
-   screen whenever that button lands in the row's left half (`right: 0`
-   grows the 240px menu leftward — measured left:-55px at 412px). Re-anchor
-   to the ROW: the wrap goes static so the row becomes the containing block,
-   and the menu drops below the whole button row hugging its right edge —
-   fully on-screen at any viewport ≥ 288px (240px menu + 16px header padding
-   and 8px body margin per side). ≥980px never wraps and keeps the
-   per-button anchor. */
-@media (max-width: 979px) {
-  .app-header-row {
-    position: relative;
-  }
-  .app-header-row .file-menu-wrap {
-    position: static;
-  }
-  .app-header-row .file-menu {
-    max-width: calc(100vw - 32px);
-  }
+/* Anchor both disclosures to the row: wrapping can leave either trigger
+   near the left edge. Bound the OUTER menu to the row, including its padding
+   and border, so long entries wrap without widening the page on phones. */
+.app-header-row .file-menu-wrap {
+  position: static;
+}
+.app-header-row .file-menu {
+  box-sizing: border-box;
+  min-width: min(240px, 100%);
+  max-width: 100%;
 }
 
 .app-header {
   padding: 16px clamp(16px, 2vw, 40px) 0;
 }
 
-/* The header button row WRAPS at phone widths (decided over sideways
-   scroll): every control stays visible, nothing hides behind a swipe —
-   Guide and Feedback are the two buttons the beta invite points testers at.
-   The wrap is gated to <980px so wider layouts keep the exact pre-class
-   behavior (one nowrap line; 980–1059px squeezes button labels a few px,
-   just as the inline-style row always did). */
+/* Tier 2 header overflow (11 October 2026 docs audit): the old <980px gate
+   squeezed Save As and let the row overflow near 1024px. Wrap whenever the
+   current controls need it, including longer version/offline status text. */
 .app-header-row {
+  position: relative;
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
+}
+
+.app-header-row > .file-btn, .app-header-row > .file-menu-wrap {
+  flex: 0 0 auto;
+}
+.app-header-row .file-btn {
+  white-space: nowrap;
 }
 
 /* Outside the crowded toolbar, including on the phone's Fly tab. Keep the
    status readable while a long rocket name yields the available width. */
 .design-file {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 12px;
   margin-top: 6px;
@@ -579,6 +577,7 @@ html {
 
 .design-file-name {
   min-width: 0;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -593,6 +592,7 @@ html {
   background: transparent;
   border: 1px solid currentColor;
   border-radius: 4px;
+  max-width: 100%;
   padding: 2px 6px;
   cursor: pointer;
   white-space: normal;
@@ -604,41 +604,21 @@ html {
   color: var(--text-muted);
 }
 
-/* Wordmark + version badge move as one unit when the row wraps. The auto
-   margin (formerly inline on the badge) splits brand from buttons whenever
-   they share a line. */
+/* Keep the brand together when it fits; let its badge and status use more
+   lines on phones. The auto margin splits brand from controls on a shared
+   line without changing their DOM or keyboard order. */
 .app-header-brand {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   gap: 8px;
   margin-right: auto;
-  /* Never shrinks on wide screens: Chrome will squeeze this nested flex box
-     BELOW its content minimum in the 980-1059px band, sliding the badge 14px
-     under the Open button. The buttons absorb the deficit instead — exactly
-     what the old flat h1/badge structure did. */
-  flex: 0 0 auto;
+  flex: 0 1 auto;
 }
 
-/* The badge never shrinks (formerly inline flex: 0 0 auto) — in the
-   980–1059px squeeze band the deficit must keep coming out of the buttons,
-   not wrap "v0.045 beta" onto two lines. */
+/* A complete version badge moves to the next line instead of squeezing. */
 .app-header-brand .version-badge {
   flex: 0 0 auto;
-}
-
-@media (max-width: 979px) {
-  .app-header-row {
-    flex-wrap: wrap;
-  }
-  /* The cluster itself may wrap INTERNALLY — the pair is 314px against a
-     312px row at 375px (257px at 320px), so the badge drops under the
-     wordmark rather than pushing the page sideways. Shrink must come back
-     on for that: a flex item only wraps its content once it is allowed
-     below its base size. */
-  .app-header-brand {
-    flex-shrink: 1;
-    flex-wrap: wrap;
-  }
 }
 
 /* Motor-mount size readout in the Rocket panel. */
@@ -2736,14 +2716,9 @@ html {
   cursor: pointer;
 }
 
-/* "Am I on the current version?" — sits beside the badge, inside the brand
-   cluster. The cluster is pinned `flex: 0 0 auto` in the header row and the
-   badge is pinned inside it, so at ≥980px the squeeze still comes out of the
-   header BUTTONS, exactly as before; `min-width: 0` here plus the chip's own
-   ellipsis is what keeps this element from being the thing that forces a wrap
-   once the cluster itself wraps below 980px. It stays on phones: the header
-   row wraps there, and an 11px chip that answers "am I on the current
-   version?" is worth its line — that question is a support conversation. */
+/* "Am I on the current version?" stays inside the wrapping brand cluster.
+   The offline detail yields width with ellipsis on phones; the version
+   control keeps its own label and can move to a new line. */
 .version-check {
   display: inline-flex;
   flex-direction: column;
