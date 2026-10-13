@@ -75,6 +75,9 @@ function serialize(el: Element, depth = 0): string {
     return `${lines[0]} ${el.children.length} children, fnv1a ${hash(ticks)}`;
   }
   for (const c of el.childNodes) {
+    // N009: the optional dimensional grid is pinned by the ruler suite.
+    // Preserve the existing attribute-by-attribute geometry oracle beneath it.
+    if (c.nodeType === 1 && (c as Element).hasAttribute('data-grid')) continue;
     if (c.nodeType === 1) lines.push(serialize(c as Element, depth + 1));
     else if (c.nodeType === 3 && (c.textContent ?? '') !== '') lines.push(`${pad}  ${JSON.stringify(c.textContent)}`);
   }

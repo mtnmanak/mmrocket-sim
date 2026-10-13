@@ -196,6 +196,21 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline (test)'); }));
 });
 
+it('N009 marks only schematic stages as 2D as the viewer and tab change', async () => {
+  const host = await mountApp();
+  const stage = () => host.querySelector<HTMLElement>('.hero-stage')!;
+  expect(stage().dataset.view).toBe('2d');
+  await act(async () => { button(host, 'Aft').click(); });
+  expect(stage().dataset.view).toBe('aft');
+  await act(async () => { button(host, '2D').click(); });
+  expect(stage().dataset.view).toBe('2d');
+  await act(async () => { button(host, 'Motors & Configuration').click(); });
+  expect(host.querySelector<HTMLElement>('.motors-schematic .rocket-stage')!.dataset.view).toBe('2d');
+  const motorStages = host.querySelectorAll<HTMLElement>('.motors-schematic .rocket-stage');
+  expect(motorStages).toHaveLength(2);
+  expect(motorStages[1]!.dataset.view).toBeUndefined();
+});
+
 afterEach(async () => {
   await unmountAll();
   discardCatalogueOverlay();

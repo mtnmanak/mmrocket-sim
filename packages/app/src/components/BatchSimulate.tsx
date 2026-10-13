@@ -323,6 +323,8 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
     // (audit 2026-09-22). Now it ends the sweep and says why.
     try {
       const { rows: out, stopped } = await runBatchSweep({
+        units: prefs.units,
+        advisoryLimits: prefs.flightAdvisories,
         tree, info, mounts, target: sel, candidates, splits,
         configuration: configurationForMount?.(sel.id),
         assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware,

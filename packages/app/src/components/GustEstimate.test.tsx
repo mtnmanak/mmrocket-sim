@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { GustEstimate } from './GustEstimate.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './LaunchPanel.js';
+import { LaunchField } from './LaunchPanel.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -47,6 +48,21 @@ const button = () => host.querySelector<HTMLButtonElement>('.gust-estimate butto
 const text = () => chip()?.textContent ?? '';
 
 describe('the gust-to-σ chip', () => {
+  it('N005 quotes four-decimal wind and sigma fields in the gust arithmetic without changing them', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
+      fieldPrecision: 4, units: { windspeed: 'm/s' },
+    }));
+    const value = { ...FIVE, windAverage: 1.0625, windStdDev: 1.0625 };
+    act(() => root.render(<PrefsProvider>
+      <LaunchField label="Wind avg" field="windAverage" value={value} onChange={v => changes.push(v)} stepStored={1} />
+      <LaunchField label="Wind gusts σ" field="windStdDev" value={value} onChange={v => changes.push(v)} stepStored={1} />
+      <GustEstimate value={value} onChange={v => changes.push(v)} forecastWind={{ meanMs: 1.0625, gustMs: 8.25 }} />
+    </PrefsProvider>));
+    expect([...host.querySelectorAll('input')].map(x => x.value)).toEqual(['1.0625', '1.0625']);
+    expect(text()).toContain('(8.25 − 1.0625 m/s)');
+    expect(text()).toContain('= 2.3958 m/s, capped at 1.0625 m/s');
+    expect(changes).toEqual([]);
+  });
   it('writes nothing by rendering', () => {
     render(FIVE);
     expect(chip()).toBeTruthy();

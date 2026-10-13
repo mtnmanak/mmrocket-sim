@@ -3,7 +3,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { NumField } from './NumField.js';
-import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
+import { LOCALE_DECIMAL_COMMA, siToUi, uiToSi, UNITS, type Quantity } from '../prefs/units.js';
+import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 
 /**
  * NumField is the single numeric input every dimension in the app passes
@@ -103,12 +104,143 @@ beforeEach(() => {
   root = createRoot(host);
 });
 
+it('N005 changes resting precision without committing or truncating focused text', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ fieldPrecision: 4 }));
+  let choose!: (p: 3 | 4) => void;
+  function Field() {
+    const { prefs, setPrefs } = usePrefs();
+    choose = (fieldPrecision) => setPrefs({ ...prefs, fieldPrecision });
+    return <NumField value={1.06251234567} onCommit={(v) => commits.push(v)} />;
+  }
+  commits = [];
+  act(() => root.render(<PrefsProvider><Field /></PrefsProvider>));
+  expect(input().value).toBe('1.0625');
+  focus();
+  expect(input().value).toBe('1.06251234567');
+  act(() => choose(3));
+  expect(input().value).toBe('1.06251234567');
+  blur();
+  expect(input().value).toBe('1.063');
+  expect(commits).toEqual([]);
+  localStorage.clear();
+});
+
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
 });
 
 describe('NumField — typing', () => {
+  const unitCases = (Object.keys(UNITS) as Quantity[]).flatMap(quantity =>
+    UNITS[quantity].map(unit => [quantity, unit.symbol] as const));
+
+  it.each(unitCases)('N005 round-trip editing in %s %s removes the intended digit', (quantity, symbol) => {
+    let storedSi: number | undefined;
+    commits = [];
+    const draw = () => root.render(<NumField
+      value={storedSi === undefined ? undefined : siToUi(quantity, symbol, storedSi)}
+      allowNegative
+      onCommit={v => {
+        commits.push(v);
+        if (v !== null) storedSi = uiToSi(quantity, symbol, v);
+        draw();
+      }}
+    />);
+    act(draw);
+    for (const text of ['0.1', '1.1', '15.2', '0.0625', '-40', '98.6', '101.325', '-0.1', '0.01', '0.001', '-0.001',
+      '1.23456789012', '0.123456789012']) {
+      commits = [];
+      type(text);
+      expect(input().value).toBe(text);
+      expect(commits).toEqual([Number(text)]);
+      const stored = storedSi;
+      blur();
+      focus();
+      expect(input().value, text).toBe(text);
+      expect(input().getAttribute('aria-invalid')).toBeNull();
+      expect(commits).toEqual([Number(text)]);
+      expect(storedSi).toBe(stored);
+      // happy-dom dispatches keys but does not apply the browser's text deletion.
+      key('Backspace');
+      type(input().value.slice(0, -1));
+      expect(input().value).toBe(text.slice(0, -1));
+      expect(commits).toEqual([Number(text), Number(text.slice(0, -1))]);
+      blur();
+    }
+  });
+
+  it.each([
+    [70.00000000000001, '70'],
+    [0.30000000000000004, '0.3'],
+    [0.7000000000000001, '0.7'],
+  ])('N005 strips supplied conversion noise on focus: %s', (value, text) => {
+    render({ value });
+    focus();
+    expect(input().value).toBe(text);
+    blur();
+    expect(commits).toEqual([]);
+  });
+
+  it.each([
+    ['length', 'mm', 0.07, '70'],
+    ['length', 'mm', 0.0003, '0.3'],
+    ['length', 'cm', 0.07, '7'],
+    ['length', 'in', 0.7 * 0.0254, '0.7'],
+    ['length', 'in', 1.4 * 0.0254, '1.4'],
+    ['temperature', '°C', 15.2 + 273.15, '15.2'],
+  ] as const)('N005 strips conversion noise on focus: %s %s %s', (quantity, symbol, si, text) => {
+    render({ value: siToUi(quantity, symbol, si) });
+    focus();
+    expect(input().value).toBe(text);
+    expect(input().getAttribute('aria-invalid')).toBeNull();
+    blur();
+    expect(commits).toEqual([]);
+  });
+
+  it.each([
+    [1.4210854715202004e-14, '0'],
+    [0.009999999999990905, '0.01'],
+    [-0.0009999999999763531, '-0.001'],
+  ])('N005 strips affine noise near zero on focus (°F round trips): %s', (value, text) => {
+    render({ value });
+    focus();
+    expect(input().value).toBe(text);
+    blur();
+    expect(commits).toEqual([]);
+  });
+
+  it.each([1.06251234567, 1.23456789012, 0.000000667, 1.5e-6])(
+    'N005 retains meaningful focused precision and small values: %s', (value) => {
+      render({ value });
+      focus();
+      expect(input().value).toBe(String(value));
+      blur();
+      expect(commits).toEqual([]);
+    });
+
+  it('N005 backspace after focusing a converted 70 mm edits the intended digit', () => {
+    render({ value: 70.00000000000001 }, { controlled: true });
+    focus();
+    type(input().value.slice(0, -1));
+    expect(input().value).toBe('7');
+    expect(commits).toEqual([7]);
+  });
+
+  it('N005 keeps longer typed drafts exact and never commits focus formatting', () => {
+    render({ value: 1 }, { controlled: true });
+    const text = '1.2345678901234567';
+    type(text);
+    expect(input().value).toBe(text);
+    expect(commits).toEqual([Number(text)]);
+    blur();
+    focus();
+    // Refocusing what was just typed shows it as typed, all its digits.
+    expect(input().value).toBe(text);
+    blur();
+    expect(current.value).toBe(Number(text));
+    expect(commits).toEqual([Number(text)]);
+  });
+
   it('fixup3: ordinary live-commit fields retain their Escape and blur behavior', () => {
     let ended = 0;
     render({ value: 1, onEditEnd: () => { ended++; } }, { controlled: true });
@@ -133,6 +265,25 @@ describe('NumField — typing', () => {
     key('Enter');
     expect(input().value).toBe('3');
     expect(ended).toBe(1);
+  });
+
+  it('N005 review: a cancelled nearby edit is not remembered on refocus', () => {
+    render({ value: 1.23456789, onEditCancel: () => rerender({ value: 1.23456789 }) }, { controlled: true });
+    type('1.234567891');
+    key('Escape');
+    focus();
+    expect(input().value).toBe('1.23456789');
+    blur();
+  });
+
+  it('N005 review: a nearby value supplied from elsewhere is not shown as the typed one', () => {
+    render({ value: 1 }, { controlled: true });
+    type('1.234567891');
+    blur();
+    rerender({ value: 1.23456789 });
+    focus();
+    expect(input().value).toBe('1.23456789');
+    blur();
   });
 
   it('flags and refuses a conversion overflow, including with clampToMax', () => {
