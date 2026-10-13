@@ -318,6 +318,15 @@ node validation/score.mjs > validation/scorecard.md
 - `anchors.json` — machine-readable anchor tables (units/conventions in its
   `_readme`; `gate: false` series are informational; a point may carry its own
   tolerance as a third element)
+  - `arcas-long` / `cd-rasaero-parity` (revised 2026-10-13) — the existing 13 Mach
+    samples now use RASAero II's exported cells from `docs/User files/arcas-long-2.xlsx`,
+    sheet `drag-analysis`, first `RAII` sweep `E3:F2502`, in place of printed-curve
+    reads. The series' `source` lists each sampled cell pair. Mach and CD are
+    dimensionless; whole-rocket **power-off**, **base-included** CD on the maximum
+    body cross-section, compared at the fixture's Reynolds-matched `machAlt` conditions.
+    Later unlabeled sweeps restart at `E2503` and `E5003`; column B is an old MMR
+    sweep. This is a cross-code prediction, not a measurement: `gate: false` and
+    the informational ±0.02 parity band are retained. No measured anchor or gate changes.
 - `score.mjs` — builds each fixture, runs `dragSweep` (which emits CD
   power-off/on + CP + CNα per Mach), interpolates at anchor Machs, grades.
   `cdDelta` subtracts a `referenceFixture` swept under the same model

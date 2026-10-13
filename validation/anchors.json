@@ -140,8 +140,8 @@
       },
       {
         "id": "cd-rasaero-parity", "quantity": "cd", "base": "included", "gate": false, "tol": 0.02,
-        "source": "RASAero II curve reads p19 - parity tracking only",
-        "points": [[0.3, 0.342], [0.5, 0.349], [0.8, 0.363], [0.9, 0.380], [1.15, 0.628], [1.5, 0.514], [2.0, 0.41], [2.5, 0.365], [3.0, 0.325], [3.5, 0.291], [4.0, 0.263], [4.63, 0.229], [5.0, 0.22]]
+        "source": "RASAero II exported values in docs/User files/arcas-long-2.xlsx (Kenneth Karbon, created 2026-08-25T01:07:42Z), sheet drag-analysis, first RAII sweep E3:F2502; E1=RAII, E2=Mach, F2=CD Power-Off. Existing 13 Mach samples retained, copied directly from E32:F32, E52:F52, E82:F82, E92:F92, E117:F117, E152:F152, E202:F202, E252:F252, E302:F302, E352:F352, E402:F402, E465:F465, E502:F502 (no curve reads, rounding or interpolation). Mach and CD are dimensionless; whole-rocket power-off CD, base included, referenced to the maximum body cross-section (refAreaScale=1). The scorer uses power-off total CD at the fixture's machAlt Reynolds-matched conditions. Later unlabeled sweeps restart at E2503 and E5003 and are not mixed into this series; column B is an old MMR sweep, not RASAero. Informational cross-code prediction, not a measurement; gate=false and tol=0.02 retained for parity tracking only. Replaced printed-curve reads on 2026-10-13.",
+        "points": [[0.3, 0.332241433858866], [0.5, 0.334494494294857], [0.8, 0.342000934230327], [0.9, 0.345077567608984], [1.15, 0.612501376290819], [1.5, 0.502116676438983], [2.0, 0.409710402528259], [2.5, 0.353367148647384], [3.0, 0.310145811846079], [3.5, 0.274128183353839], [4.0, 0.244654766463335], [4.63, 0.217306711731247], [5.0, 0.203926177917697]]
       },
       {
         "id": "cp-subsonic-tunnel-deckread", "quantity": "cpPctL", "gate": false, "tol": 0.5,
