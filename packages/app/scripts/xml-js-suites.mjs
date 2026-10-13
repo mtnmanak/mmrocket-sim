@@ -50,6 +50,7 @@ export const XML_JS_SUITES = [
   'src/services/nozzleWiring.test.ts',
   'src/services/deployOverrideNote.test.ts',
   'src/services/orkFile.test.ts',
+  'src/services/partComments.test.ts',
   'src/services/orkFile.layers.test.ts',
   'src/services/orkFile.audit-fidelity.test.ts',
   'src/services/orkExtensions.test.ts',
@@ -124,6 +125,8 @@ export const XML_JS_SUITES = [
 
 /** Files that call an importer but are NOT run twice, each with the reason. */
 export const XML_JS_EXCLUDED = {
+  'src/components/RecentDesignsDialog.test.tsx': 'passes mocked File objects through the chooser callback '
+    + 'without calling an importer or parsing XML',
   'src/App.simulate.test.tsx': 'holds the mounted app and the headless Launch to the same flight; BOTH sides '
     + 'parse with the same parser, so a second run tests nothing the importer suites and simulateFile.test.ts '
     + '(above) do not, at the cost of a full app mount per case',
