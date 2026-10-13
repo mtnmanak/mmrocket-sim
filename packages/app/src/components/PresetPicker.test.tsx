@@ -25,7 +25,7 @@ import { loadCustomPresets, loadPresets, presetPatch, saveCustomPresets, type Pr
  * table shows nothing but what these tests import.
  */
 vi.mock('../data/presets.json', () => ({ default: { presets: [] } }));
-// Passed through unchanged; one test makes a single reload fail.
+// Passed through by default; individual tests override one load or reload.
 vi.mock('../services/presets.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../services/presets.js')>();
   return { ...real, loadPresets: vi.fn(real.loadPresets) };
@@ -196,9 +196,19 @@ describe('N026 parachute preset comparisons', () => {
   });
 
   it.each(['mass', 'packedDiameter', 'packedLength', 'diameter', 'dragCoefficient'])(
-    'leaves invalid %s blank instead of inventing a zero or default', async (field) => {
+    'leaves invalid stored %s blank (nonfinite values become null)', async (field) => {
       const invalid = [0, -1, NaN, Infinity, '0.1', null].map((v, i) => ({ ...CHUTES[0]!, partNo: `BAD-${i}`, [field]: v }));
       await open(invalid);
+      const col = { mass: 5, packedDiameter: 6, packedLength: 7, diameter: 8, dragCoefficient: 8 }[field]!;
+      for (const p of invalid) expect(cells(p.partNo)[col]).toBe('');
+    });
+
+  it.each(['mass', 'packedDiameter', 'packedLength', 'diameter', 'dragCoefficient'])(
+    'leaves in-memory nonfinite %s blank instead of showing a formatting placeholder', async (field) => {
+      const invalid = [NaN, Infinity, -Infinity].map((v, i) => ({ ...CHUTES[0]!, partNo: `NONFINITE-${i}`, [field]: v }));
+      // N026 review F1: bypass JSON storage so the picker receives nonfinite numbers.
+      vi.mocked(loadPresets).mockResolvedValueOnce(invalid);
+      await open();
       const col = { mass: 5, packedDiameter: 6, packedLength: 7, diameter: 8, dragCoefficient: 8 }[field]!;
       for (const p of invalid) expect(cells(p.partNo)[col]).toBe('');
     });
