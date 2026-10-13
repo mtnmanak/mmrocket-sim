@@ -2,9 +2,12 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { findNode, normalizeTree } from '../tree/treeModel.js';
+import { OrkRocket, type ComponentNode, type RocketTree } from '@online-openrocket/engine';
+import { engineTree, findNode, normalizeTree } from '../tree/treeModel.js';
 import { preflightAudit } from '../services/preflightAudit.js';
+import { loadSession } from '../services/session.js';
+import { designStateFromSession } from '../services/sessionRestore.js';
+import { DEFAULT_CONDITIONS } from '../services/launchConditions.js';
 import { importOrk } from '../services/orkFile.js';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PreflightAudit } from './PreflightAudit.js';
@@ -18,6 +21,52 @@ describe('PreflightAudit part navigation', () => {
     host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
   });
   afterEach(() => { act(() => root.unmount()); host.remove(); });
+
+  it.each([
+    ['parachute', 'surfaceDensity', 0.067, Math.PI * 0.15 ** 2 * 0.067 + 6 * 0.3 * 0.0003, 6 * 0.3 * 0.0003],
+    ['parachute', 'lineDensity', 0.0003, Math.PI * 0.15 ** 2 * 0.067 + 6 * 0.3 * 0.0003, Math.PI * 0.15 ** 2 * 0.067],
+    ['streamer', 'surfaceDensity', 0.067, 0.5 * 0.05 * 0.067, 0],
+    ['shockcord', 'lineDensity', 0.0003, 0.3 * 0.0003, 0],
+  ] as const)('screens restored %s %s at zero and selects its unchanged kernel-backed part',
+    (type, field, positiveDensity, positiveMass, zeroMass) => {
+      for (const density of [positiveDensity, 0]) {
+        const recovery: ComponentNode = { type, id: 'recovery', name: 'Restored recovery', deployEvent: 'apogee',
+          diameter: 0.3, lineCount: 6, lineLength: 0.3, stripLength: 0.5, stripWidth: 0.05, cordLength: 0.3,
+          surfaceMaterialName: 'Ripstop nylon', surfaceDensity: 0.067,
+          lineMaterialName: 'Thread (heavy-duty)', lineDensity: 0.0003, [field]: density };
+        const storedTree: RocketTree = { components: [{ type: 'stage', id: 'stage', children: [
+          { type: 'bodytube', id: 'body', length: 0.4, outerRadius: 0.025, thickness: 0.001,
+            materialName: 'Cardboard', density: 680, children: [recovery,
+              ...(type === 'shockcord' ? [{ type: 'parachute', id: 'main', deployEvent: 'apogee' } as ComponentNode] : [])] },
+        ] }] };
+        localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ tree: storedTree,
+          mountMotors: {}, launch: DEFAULT_CONDITIONS, configLayers: 1, savedConfigs: [], savedAt: Date.now() }));
+        const session = loadSession();
+        localStorage.removeItem('online-openrocket.session.v1');
+        expect(session).not.toBeNull();
+        const tree = designStateFromSession(session, { legacyMaxMotorLengthM: null }).state.tree;
+        expect(findNode(tree, 'recovery')![field]).toBe(density);
+        const before = structuredClone(tree);
+        const flown = OrkRocket.buildTree(engineTree(tree));
+        const expectedMass = density === 0 ? zeroMass : positiveMass;
+        // Geometry times SI density, within 0.5 micrograms across kernel runtimes.
+        expect(flown.componentInfo('recovery').mass).toBeCloseTo(expectedMass, 9);
+        const result = preflightAudit(tree, {});
+        expect(result.unknownMaterialCount).toBe(0);
+        if (density === 0) {
+          expect(result.findings).toEqual([expect.objectContaining({ kind: 'material-density',
+            part: { id: 'recovery', name: 'Restored recovery' }, density: expect.objectContaining({ field, value: 0 }),
+          })]);
+          act(() => root.render(<PreflightAudit result={result} onSelectPart={id => {
+            root.render(<PropertyPanel tree={tree} node={findNode(tree, id)!} onPatch={() => {}} />);
+          }} />));
+          act(() => host.querySelector<HTMLButtonElement>('.preflight-select')!.click());
+          expect(host.querySelector<HTMLInputElement>('input[aria-label="Component name"]')?.value).toBe('Restored recovery');
+        } else expect(result.findings).toEqual([]);
+        expect(flown.componentInfo('recovery').mass).toBeCloseTo(expectedMass, 9);
+        expect(tree).toEqual(before);
+      }
+    });
 
   it.each([
     ['launchlug', 'Balsa', 10000, 170, 17, 7550],

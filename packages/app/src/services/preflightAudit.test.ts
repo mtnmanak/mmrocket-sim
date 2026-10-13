@@ -122,6 +122,24 @@ describe('preflight design advice (N028)', () => {
     expect(kinds(design(part({ materialName: 'Balsa', density: 170 })))).toEqual([]);
   });
 
+  it.each([undefined, 'Custom recovery fabric'])('counts applicable zero recovery densities with unknown name %s as unchecked', name => {
+    const tree = design(part({ materialName: 'Cardboard', children: [
+      chute({ surfaceMaterialName: name, surfaceDensity: 0, lineMaterialName: name, lineDensity: 0 }),
+      { type: 'streamer', id: 'streamer', surfaceMaterialName: name, surfaceDensity: 0, deployEvent: 'apogee' },
+      { type: 'shockcord', id: 'cord', lineMaterialName: name, lineDensity: 0 },
+    ] }));
+    expect(preflightAudit(tree, {})).toEqual({ findings: [], uncheckedMassParts: [], unknownMaterialCount: 4 });
+  });
+
+  it('leaves absent recovery densities and nonpositive bulk/fillet densities at kernel defaults', () => {
+    const tree = design(part({ materialName: 'Balsa', density: 0, children: [
+      chute({ surfaceMaterialName: 'Ripstop nylon', lineMaterialName: 'Thread (heavy-duty)' }),
+      { type: 'freeformfinset', id: 'fin', materialName: 'Balsa', density: -1, filletRadius: 0.01,
+        filletMaterialName: 'Epoxy, unfilled (cured)', filletDensity: 0 },
+    ] }));
+    expect(preflightAudit(tree, {})).toEqual({ findings: [], uncheckedMassParts: [], unknownMaterialCount: 0 });
+  });
+
   it.each(['fairing', 'protuberance', 'masscomponent', 'stage', 'parachute', 'streamer', 'shockcord'] as const)(
     'does not screen inert bulk material fields on %s', type => {
       const node = { ...part({ materialName: 'Balsa', density: 10000 }), type } as unknown as ComponentNode;
@@ -211,6 +229,10 @@ describe('computed mass evidence is read-only', () => {
     const flown = OrkRocket.buildTree(engineTree(tree));
     const before = flown.staticInfo();
     const baseline = readAuditMasses(tree);
+    const unoverridden = OrkRocket.buildTree(engineTree(updateNode(tree, 'free', { overrideMass: undefined })));
+    const fullSetMass = unoverridden.componentInfo('free').mass;
+    // Independent public-handle read, within 0.5 micrograms across kernel runtimes.
+    expect(baseline.free).toBeCloseTo(fullSetMass, 9);
     expect(baseline.free).toBeGreaterThan(0);
     expect(baseline.free).toBeLessThan(0.5);
     expect(preflightAudit(tree, baseline).findings).toContainEqual(expect.objectContaining({ kind: 'mass-ratio', part: { id: 'free', name: 'Freeform fins' } }));
@@ -218,6 +240,17 @@ describe('computed mass evidence is read-only', () => {
     expect(flown.staticInfo()).toEqual(before);
     expect(flown.componentInfo('free').mass).toBeCloseTo(0.5, 9); // Sub-microgram tolerance on a stated 500 g mass.
     expect(fins.overrideMass).toBe(0.5);
+  });
+
+  it.each(['rounded', 'airfoil'])('allows a moderate full-set freeform-fin override with %s profile', profile => {
+    const tree = defaultTree();
+    const body = tree.components[0]!.children!.find(n => n.type === 'bodytube')!;
+    body.children!.push({ type: 'freeformfinset', id: 'free', name: 'Freeform fins', finCount: 3,
+      crossSection: profile, thickness: 0.003, density: 630, overrideMass: 0.1,
+      points: [[0, 0], [0.02, 0.055], [0.07, 0.045], [0.12, 0]] });
+    expect(preflightAudit(tree, readAuditMasses(tree)).findings).not.toContainEqual(
+      expect.objectContaining({ kind: 'mass-ratio', part: { id: 'free', name: 'Freeform fins' } }),
+    );
   });
 
   it('leaves a seeded C6 flight byte-identical before and after the audit', () => {

@@ -146,9 +146,9 @@ export function preflightAudit(
     }
     for (const field of densityFields(node)) {
       const value = numOpt(node, field.field);
-      // ComponentFactory applies only positive densities. An absent/zero value
-      // uses the kernel default and is not evidence of a named material mismatch.
-      if (value === undefined || value <= 0) continue;
+      // N028: the bridge only applies positive bulk/fillet densities, but accepts
+      // every finite recovery surface/line value, including explicit zero.
+      if (value === undefined || ((field === BULK || field === FILLET) && value <= 0)) continue;
       const material = field.list.find(m => m.name === node[field.name]);
       if (!material) { result.unknownMaterialCount++; continue; }
       const family = field.list.filter(m => m.group === material.group);
