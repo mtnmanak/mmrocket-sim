@@ -67,6 +67,17 @@ const mount = () => act(() => root.render(
   <PrefsProvider><PreferencesDialog onClose={() => {}} /></PrefsProvider>,
 ));
 
+it('N005 offers displayed decimals as a persisted, labelled preference', () => {
+  mount();
+  const precision = byLabel('Displayed decimals') as HTMLSelectElement;
+  expect(precision).not.toBeNull();
+  expect(precision.value).toBe('auto');
+  pick(precision, '4');
+  expect(stored().fieldPrecision).toBe(4);
+  pick(precision, 'auto');
+  expect(stored().fieldPrecision).toBe('auto');
+});
+
 // audit 2026-10-11, CR-2: check live paths against the controls people can find.
 // Releases through 0.180 are frozen history, allow-listed by version; never
 // excuse the newest entry, even when it is correcting an older release.
@@ -136,6 +147,25 @@ beforeEach(() => {
   host = document.createElement('div');
   document.body.appendChild(host);
   root = createRoot(host);
+});
+
+describe('Preferences → Flight advice (N007/N010)', () => {
+  it('starts blank, stores SI through the selected units and clearing turns advice off', () => {
+    mount();
+    for (const name of ['Maximum airspeed', 'Maximum Mach', 'Electronics arming altitude (AGL)', 'Arming caution band']) {
+      expect(axis(name)?.value).toBe('');
+    }
+    const velocity = byLabel('Velocity') as HTMLSelectElement;
+    pick(velocity, 'ft/s');
+    type(axis('Maximum airspeed')!, '100');
+    expect(stored().flightAdvisories?.maxAirspeedMs).toBeCloseTo(30.48, 10);
+    pick(byLabel(QUANTITY_LABEL.distance) as HTMLSelectElement, 'ft');
+    type(axis('Electronics arming altitude (AGL)')!, '100');
+    expect(stored().flightAdvisories?.armingAltitudeM).toBeCloseTo(30.48, 10);
+    type(axis('Maximum airspeed')!, '');
+    expect(stored().flightAdvisories?.maxAirspeedMs).toBeUndefined();
+    expect(host.textContent).toContain('structural rating');
+  });
 });
 
 afterEach(() => {
@@ -259,6 +289,7 @@ describe('Preferences → every label names its own control', () => {
    * default), and where that pick lands.
    */
   const SETTINGS: [string, string, (p: Preferences) => unknown][] = [
+    ['Displayed decimals', '4', (p) => String(p.fieldPrecision ?? 'auto')],
     ['Round components entered as', 'radius', (p) => p.radiusMode],
     ['Stability shown as', 'pct', (p) => p.stabilityUnit],
     ['CG / CP markers in 3D', 'callout', (p) => p.markers3d],
@@ -304,7 +335,7 @@ describe('Preferences → every label names its own control', () => {
     mount();
     pick(printerSelect(), 'bambu-h2d'); // every field on screen
     const labels = [...host.querySelectorAll('label')];
-    expect(labels).toHaveLength(QUANTITIES.length + SETTINGS.length + 4);
+    expect(labels).toHaveLength(QUANTITIES.length + SETTINGS.length + 8);
     for (const l of labels) {
       const control = l.control;
       expect(control, `"${labelWords(l)}" labels nothing`).not.toBeNull();

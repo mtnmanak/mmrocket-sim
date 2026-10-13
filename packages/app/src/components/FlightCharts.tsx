@@ -17,6 +17,7 @@ import { flightDataCsv } from '../services/flightDataCsv.js';
 import { flightXlsx } from '../services/flightXlsx.js';
 import { CSV_BOM, downloadBlob, stampedName } from '../services/fileName.js';
 import { XLSX_MIME } from '../services/xlsx.js';
+import { emphasizeSeries } from '../chartEmphasis.js';
 
 /**
  * Separate panels remain the default; optional comparisons use explicit
@@ -56,7 +57,8 @@ export function GestureHints() {
   );
 }
 
-function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoomChange, csvNote }: {
+function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoomChange, csvNote, emphasis }: {
+  emphasis: keyof FlightSeries | null;
   result: FlightResult;
   def: SeriesDef;
   flightName: string;
@@ -75,6 +77,7 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
   onZoomChange: (zoomed: boolean, percent: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const plotRef = useRef<uPlot | null>(null);
   const { resolvedTheme, daylight } = usePrefs();
   // Read through a ref inside the plugin closure so a parent re-render can't
   // force a plot recreate (the effect below deliberately omits it from deps).
@@ -142,6 +145,7 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
       ],
     };
     const plot = new uPlot(opts, data, el);
+    plotRef.current = plot;
     nameChartCanvas(el, summaryRef.current);
     const t = result.series.time;
     const x0 = t[0];
@@ -169,10 +173,15 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
         ? { min: sc.min, max: sc.max, x0, x1 }
         : null;
       plot.destroy();
+      plotRef.current = null;
     };
     // `expanded` recreates the plot the same way a theme change does — the
     // group window survives via the peer registry / savedWin restore above.
   }, [result, def, values, resolvedTheme, daylight, plots, expanded]);
+
+  useEffect(() => {
+    if (plotRef.current && ref.current) emphasizeSeries(plotRef.current, [def.key], emphasis, ref.current);
+  }, [emphasis, result, def, values, resolvedTheme, daylight, expanded]);
 
   return (
     <div className={expanded ? 'chart-panel chart-panel-expanded' : 'chart-panel'}>
@@ -246,6 +255,9 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   const panelKey = `${branchChoice.generation}-${branchIndex}`;
   const preset = PRESETS.find((p) => p.id === comparison);
   const [selected, setSelected] = useState<Set<keyof FlightSeries>>(new Set(DEFAULT_SELECTED));
+  const [hovered, setHovered] = useState<keyof FlightSeries | null>(null);
+  const [focused, setFocused] = useState<keyof FlightSeries | null>(null);
+  const [pinned, setPinned] = useState<keyof FlightSeries | null>(null);
   // Which panels are ⤢-expanded. Lives here (not in Panel) so toggling a
   // series chip off and on doesn't forget the choice. Deliberately NOT
   // persisted — per-session UI state only.
@@ -282,6 +294,10 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   };
 
   const visible = catalog.filter((d) => selected.has(d.key) && usableSeries(shown.series, [String(d.key)]));
+  const legend = catalog.filter((d) => (visible.some((v) => v.key === d.key)
+    || preset?.left.includes(String(d.key)) || preset?.right.includes(String(d.key))) && usableSeries(shown.series, [String(d.key)]));
+  const requested = hovered ?? focused ?? pinned;
+  const emphasis = legend.some((d) => d.key === requested) ? requested : null;
 
   // The raw flight-data downloads live HERE, beside the plots they belong to.
   // They used to sit in the launch report's header, where the pair read as
@@ -407,6 +423,18 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           </select>
         </label>}
       </div>
+      {legend.length > 0 && <div className="flight-series-legend" role="group" aria-label="Emphasize plotted series">
+        <span className="chart-comparison-note">Emphasize: hover, focus or tap. Tap again or press Escape to clear.</span>
+        {legend.map((d) => <button key={String(d.key)} className={`series-chip ${emphasis === d.key ? 'series-emphasized' : ''}`}
+          aria-label={`Emphasize ${d.title}`} aria-pressed={pinned === d.key}
+          onMouseEnter={() => setHovered(d.key)} onMouseLeave={() => setHovered(null)}
+          onFocus={() => { setHovered(null); setFocused(d.key); }} onBlur={() => setFocused(null)}
+          onClick={() => { setHovered(null); setFocused(null); setPinned(pinned === d.key ? null : d.key); }}
+          onKeyDown={(e) => { if (e.key === 'Escape') { setHovered(null); setFocused(null); setPinned(null); } }}>
+          <span className="series-dot" style={{ background: d.color }} />{d.title}
+          <span className="series-emphasis-mark" aria-hidden="true" style={{ visibility: emphasis === d.key ? 'visible' : 'hidden' }}>✓</span>
+        </button>)}
+      </div>}
       {onFullSeries && <p className="chart-comparison-note">Downloads include every recorded series and all flight branches. The comparison choice and zoom do not change the files.</p>}
       {(visible.length > 0 || preset?.x === 'time') && (
         <div className="chart-toolbar">
@@ -430,12 +458,14 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
         </div>
       )}
       {preset && <ComparisonChart key={`${panelKey}-${preset.id}`} series={shown.series} preset={preset}
+        emphasis={emphasis}
         flightName={plotIdentity} catalog={catalog} plots={plotsRef.current}
         onZoomChange={(z, pct) => { setZoomed(z); setZoomPct(pct); }}
         csvNote={onFullSeries && !staleReason ? 'The Flight data (.csv) download above holds every timestep.' : undefined} />}
       <div className="charts-grid">
         {visible.map((d) => (
           <Panel key={`${panelKey}-${String(d.key)}`} result={shown} def={d} flightName={plotIdentity} plots={plotsRef.current}
+            emphasis={emphasis}
             csvNote={onFullSeries && !staleReason
               ? 'The Flight data (.csv) download above holds every timestep.' : undefined}
             expanded={expandedKeys.has(d.key)} onToggleExpand={() => toggleExpand(d.key)}

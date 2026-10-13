@@ -106,7 +106,7 @@ function sourceOf(key: ApplyKey, weather: WeatherSnapshot): string {
  * undefined for a field the weather did not set.
  */
 export function provenanceText(launch: LaunchConditions, weather: WeatherSnapshot | null | undefined, key: ApplyKey,
-    units: Parameters<typeof fieldText>[2]): string | undefined {
+    units: Parameters<typeof fieldText>[2], precision: Parameters<typeof fieldText>[3] = 'auto'): string | undefined {
   const p = fieldProvenance(launch, weather ?? null, key);
   if (p === null || !weather) return undefined;
   const source = sourceOf(key, weather);
@@ -116,5 +116,5 @@ export function provenanceText(launch: LaunchConditions, weather: WeatherSnapsho
     const stale = staleness(launch, weather);
     if (stale) return `${source} for the previous altitude, ${altitudeText(units.distance, stale.forAltitudeM)}`;
   }
-  return p.kind === 'forecast' ? source : `edited — ${source} said ${fieldText(key, p.said, units)}`;
+  return p.kind === 'forecast' ? source : `edited — ${source} said ${fieldText(key, p.said, units, precision)}`;
 }

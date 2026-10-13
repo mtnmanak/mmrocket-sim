@@ -29,7 +29,8 @@ afterEach(() => {
   localStorage.clear();
 });
 
-const render = (props: { boreMm: number; showQuickPicks: boolean; selectedLabel?: string }) => {
+const render = (props: { boreMm: number; showQuickPicks: boolean; selectedLabel?: string;
+  recoveryAdviceFor?: (delay: number, auto: boolean) => string | null }) => {
   act(() => root.render(
     <PrefsProvider>
       <MotorPicker
@@ -38,6 +39,7 @@ const render = (props: { boreMm: number; showQuickPicks: boolean; selectedLabel?
         selectedLabel={props.selectedLabel ?? ''}
         onSelect={() => {}}
         showQuickPicks={props.showQuickPicks}
+        recoveryAdviceFor={props.recoveryAdviceFor}
       />
     </PrefsProvider>,
   ));
@@ -49,6 +51,18 @@ const quickPicks = (): HTMLSelectElement | null =>
     HTMLSelectElement | null;
 
 const options = (): string[] => [...(quickPicks()?.options ?? [])].map((o) => o.textContent ?? '');
+
+it('W2-WARN keeps recovery ownership advice when opening the motor browser', () => {
+  render({ boreMm: 18, showQuickPicks: true, recoveryAdviceFor: (delay, auto) => delay === 0 && !auto ? 'Recovery at burnout.' : null });
+  act(() => { [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Browse motors'))!.click(); });
+  const row = [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')]
+    .find(tr => tr.cells[1]?.textContent === 'Estes' && tr.cells[0]?.textContent?.trim() === 'C6')!;
+  expect(row).toBeTruthy();
+  act(() => row.click());
+  const delay = host.querySelector<HTMLSelectElement>('.motor-load-row select')!;
+  act(() => { delay.value = '0'; delay.dispatchEvent(new Event('change', { bubbles: true })); });
+  expect(host.querySelector('.message-caution')?.textContent).toContain('Recovery at burnout.');
+});
 
 describe('Quick Picks — offered only on the untouched starter rocket', () => {
   it('lists picks when the design is still pristine', () => {

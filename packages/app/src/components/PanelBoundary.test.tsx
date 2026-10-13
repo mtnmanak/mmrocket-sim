@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PanelBoundary } from './PanelBoundary.js';
+import { sessionDebugLog } from '../services/sessionDebugLog.js';
 
 /**
  * One panel's boundary (audit 2026-09-22): a throw in the report, the plots,
@@ -47,6 +48,8 @@ describe('PanelBoundary', () => {
       .toContain('The flight plots could not be drawn.');
     expect(host.textContent).toContain('no series for run A');
     expect(host.textContent).toContain('the run table');
+    expect(sessionDebugLog.text()).toContain('panel-error: Error: Message omitted for privacy');
+    expect(host.textContent).toContain('Download session debug log');
   });
 
   it('tries again when the data it draws changes', () => {
