@@ -2,6 +2,7 @@ import { APP_VERSION } from '../version.js';
 import type { Preferences } from '../prefs/preferences.js';
 import type { AeroChoice } from '../prefs/aeroChoice.js';
 import { UNITS, type Quantity } from '../prefs/units.js';
+import { MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 
 export const MAX_DEBUG_LOG_BYTES = 64 * 1024;
 export const MAX_DEBUG_LOG_EVENTS = 200;
@@ -47,6 +48,7 @@ const SAFE_IMPORT_MESSAGES = [
 // C-H3: motor parsers name refused motors and may quote raw values. Return fixed categories only.
 const MOTOR_NUMBER = '(?:NaN|-?Infinity|-?[0-9]+(?:\\.[0-9]+)?(?:e[+-]?[0-9]+)?)';
 const SAFE_MOTOR_REFUSALS: readonly [RegExp, string][] = [
+  [new RegExp(`^[\\s\\S]+: more than ${MAX_EX_MOTOR_SAMPLES} thrust samples$`), 'thrust sample limit exceeded'],
   [/^[\s\S]+: initial mass \(initWt\) missing or zero$/, 'initial mass missing or zero'],
   [new RegExp(`^[\\s\\S]+: loaded mass ${MOTOR_NUMBER} g is not a mass$`), 'invalid loaded mass'],
   [new RegExp(`^[\\s\\S]+: propellant mass ${MOTOR_NUMBER} g is not a mass$`), 'invalid propellant mass'],

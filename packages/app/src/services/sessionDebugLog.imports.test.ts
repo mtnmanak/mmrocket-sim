@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest';
 import { zipSync } from 'fflate';
-import { createSessionDebugLog, sessionDebugLog } from './sessionDebugLog.js';
+import { createSessionDebugLog, MAX_DEBUG_LOG_BYTES, sessionDebugLog } from './sessionDebugLog.js';
 import { importMotorFiles } from './importMotorFiles.js';
+import { EX_SAMPLE_LIMIT_NOTE, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 import { importOrk } from './orkFile.js';
 import { importRkt } from './rocksimFile.js';
 import { importCdx1 } from './rasaeroFile.js';
@@ -10,6 +11,7 @@ import { parseRse } from './exMotors.js';
 import { decodeShareFragment } from './shareLink.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
 import { currentXmlParser, setXmlParser, XmlParseError } from './xmlParse.js';
+import { jsXmlParser } from './xmlParseJs.js';
 
 const parser = currentXmlParser();
 afterEach(() => setXmlParser(parser));
@@ -29,6 +31,27 @@ function logged(error: Error): string {
 }
 
 describe('C-H3 real import diagnostics', () => {
+  it.each(['.eng', '.rse'])('retains the %s thrust sample-limit refusal without private fields', async extension => {
+    // Happy-dom's selector truncates 100,001 siblings to 65,536; use the real JS parser to reach the cap.
+    if (extension === '.rse') setXmlParser(jsXmlParser);
+    const samples = Array.from({ length: MAX_EX_MOTOR_SAMPLES + 1 }, (_, i) => extension === '.eng'
+      ? `${i} 61.234` : `<eng-data t="${i}" f="61.234"/>`).join('\n');
+    const source = extension === '.eng'
+      ? `Private 18 70 P 0.01 0.02 PrivateMaker\n${samples}`
+      : `<engine-database><engine-list><engine code="Private Fairbanks" mfg="PrivateMaker" initWt="20" propWt="10" dia="18" len="70"><data>${samples}</data></engine></engine-list></engine-database>`;
+    const out = await importMotorFiles([new File([source], `Private Fairbanks 61.234${extension}`)]);
+    expect(out.parsed).toHaveLength(0);
+    expect(out.write).toBeNull();
+    expect(out.error).toContain(EX_SAMPLE_LIMIT_NOTE);
+    const text = sessionDebugLog.text();
+    const event = text.trim().split('\n').at(-1)!;
+    for (const secret of ['Private', 'Fairbanks', '61.234', 'PrivateMaker', '<engine', '<eng-data', '.eng', '.rse']) {
+      expect(text).not.toContain(secret);
+    }
+    expect(event).toContain('import-failed: Error: Motor import refused: thrust sample limit exceeded (file detail omitted)');
+    expect(new TextEncoder().encode(text).byteLength).toBeLessThanOrEqual(MAX_DEBUG_LOG_BYTES);
+  });
+
   it.each([
     ['.rse', '<engine code="Private 61.234 Fairbanks" dia="18" len="70"/>', 'initial mass missing or zero'],
     ['.rse', '<engine code="Private 61.234 Fairbanks" initWt="20" propWt="0"/>', 'invalid propellant mass'],
@@ -72,6 +95,9 @@ describe('C-H3 real import diagnostics', () => {
     'Motor Private: unknown reason Fairbanks 61.234',
     'Motor Private: no thrust data Fairbanks 61.234',
     'Motor Private: data point Fairbanks has negative time or thrust (61.234, private)',
+    `Motor Private: ${EX_SAMPLE_LIMIT_NOTE} Fairbanks 61.234`,
+    `Motor Private: more than ${MAX_EX_MOTOR_SAMPLES + 1} thrust samples`,
+    'Motor Private: more than Fairbanks 61.234 thrust samples',
   ])('omits unknown motor refusals and malformed lookalikes: %s', message => {
     const text = logged(new Error(message));
     expect(text).toContain('Message omitted for privacy');
