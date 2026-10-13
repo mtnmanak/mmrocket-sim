@@ -12,6 +12,7 @@ import { simulateFile } from './simulateFile.js';
 import { SimulateDesignError } from './simulateDesign.js';
 import { countParts, MAX_DESIGN_PARTS, TOO_MANY_PARTS_ERROR_NAME } from '../tree/sanitize.js';
 import { makeNode } from '../tree/treeModel.js';
+import { browserXmlParser, currentXmlParser, setXmlParser } from './xmlParse.js';
 
 /**
  * THE PART LIMIT (board Tier 0 row 84, ruled by Eric 2026-10-11, option c):
@@ -51,6 +52,99 @@ const refusal = (fn: () => unknown): Error => {
   try { fn(); } catch (e) { return e as Error; }
   throw new Error('not refused');
 };
+
+describe('foreign-format pre-count (board Tier 2 part-cap early refusal)', () => {
+  it.each([['.rkt', importRkt, rktOf], ['.CDX1', importCdx1, cdxOf]] as const)(
+    '%s refuses provably retained 2,001 parts before the XML parser', (_format, read, input) => {
+      const parser = currentXmlParser();
+      let parsed = false;
+      setXmlParser(xml => { parsed = true; return parser(xml); });
+      try {
+        expect(refusal(() => read(input(2001))).message).toBe(SENTENCE('2,001'));
+        expect(parsed).toBe(false);
+      } finally { setXmlParser(parser); }
+    }, 30_000);
+
+  it('RockSim does not count unsupported, incompatible, inactive-stage or fin-attached parts', () => {
+    const ignored = '<Unknown><MassObject/></Unknown>'.repeat(2001);
+    const fins = '<FinSet><Name>Wing</Name><AttachedParts>' + '<ExternalPod/>'.repeat(2001) + '</AttachedParts></FinSet>';
+    const xml = rktOf(2).replace('<AttachedParts>', `<AttachedParts>${ignored}${fins}<Transition/>`)
+      .replace('</Stage3Parts>', '</Stage3Parts><Stage2Parts>' + '<BodyTube/>'.repeat(2001) + '</Stage2Parts>');
+    expect(countParts(importRkt(xml).tree.components)).toBe(3);
+  }, 30_000);
+
+  it('RockSim does not count fins on inner tubes or attachments of leaf handlers', () => {
+    const xml = rktOf(2).replace('<AttachedParts>', '<IsInsideTube>1</IsInsideTube><AttachedParts>'
+      + '<FinSet/>'.repeat(2001) + '<Ring><AttachedParts>' + '<MassObject/>'.repeat(2001) + '</AttachedParts></Ring>');
+    expect(countParts(importRkt(xml).tree.components)).toBe(3);
+  }, 30_000);
+
+  it('RockSim counts only the first AttachedParts wrapper and clamps stage count as the importer does', () => {
+    const xml = rktOf(2).replace('<StageCount>1', '<StageCount>1.5')
+      .replace('</AttachedParts>', '</AttachedParts><AttachedParts>' + '<MassObject/>'.repeat(2001) + '</AttachedParts>');
+    expect(countParts(importRkt(xml).tree.components)).toBe(2);
+  }, 30_000);
+
+  it.each(['rkt', 'CDX1'] as const)('%s uncertain retention falls back and still enforces the late cap', format => {
+    const xml = format === 'rkt' ? rktOf(2000).replace('<AttachedParts>', '<AttachedParts><SubAssembly><AttachedParts>'
+      + '<MassObject/><MassObject/></AttachedParts></SubAssembly>')
+      : cdxOf(2000).replace('</RASAeroDocument>', '<Recovery><Event1>true</Event1><EventType1>Apogee</EventType1>'
+        + '<Event2>true</Event2><EventType2>Apogee</EventType2></Recovery></RASAeroDocument>');
+    const parser = currentXmlParser();
+    let parsed = false;
+    setXmlParser(input => { parsed = true; return parser(input); });
+    try {
+      expect(refusal(() => (format === 'rkt' ? importRkt : importCdx1)(xml)).message).toBe(SENTENCE('2,002'));
+      expect(parsed).toBe(true);
+    } finally { setXmlParser(parser); }
+  }, 30_000);
+
+  it('RASAero conditional lugs and protuberances retain the exact late refusal', () => {
+    const xml = cdxOf(2000).replace('</BodyTube>', '<LaunchLugDiameter>0.2</LaunchLugDiameter>'
+      + '<LaunchLugLength>1</LaunchLugLength><Protuberance><StreamlinedNoBaseDrag>0.1</StreamlinedNoBaseDrag>'
+      + '</Protuberance></BodyTube>');
+    expect(refusal(() => importCdx1(xml)).message).toBe(SENTENCE('2,002'));
+  }, 30_000);
+
+  it('unclosed XML with enough apparent parts keeps the parse refusal', () => {
+    expect(() => importRkt(rktOf(2001).replace('</RockSimDocument>', ''))).toThrow('XML parse error');
+    expect(() => importCdx1(cdxOf(2001).replace('</RASAeroDocument>', ''))).toThrow('XML parse error');
+  });
+
+  it('RASAero counts only the first direct Fin and ignores unsupported subtrees and text', () => {
+    const xml = cdxOf(2).replace('</BodyTube>', '<Fin/>'.repeat(2001) + '</BodyTube>')
+      .replace('</RocketDesign>', '<Unknown><BodyTube/></Unknown>'.repeat(2001) + '</RocketDesign>');
+    expect(countParts(importCdx1(xml).tree.components)).toBe(3);
+  }, 30_000);
+
+  it('fake tags in comments, CDATA and quoted attributes never create a new refusal', () => {
+    const fake = '<BodyTube/>'.repeat(2001);
+    const xml = cdxOf(2).replace('<RASAeroDocument>', `<RASAeroDocument note='${fake}'>`)
+      .replace('<RocketDesign>', `<RocketDesign><!--${fake}--><Comments><![CDATA[${fake}]]></Comments>`);
+    // A literal '<' in an attribute is malformed: use XML's escaped spelling.
+    const escaped = xml.replace(`note='${fake}'`, `note='${fake.replaceAll('<', '&lt;')}'`);
+    if (currentXmlParser() === browserXmlParser) {
+      // happy-dom rejects valid CDATA; preserve that existing refusal, never a part-limit refusal.
+      expect(() => importCdx1(escaped)).toThrow('XML parse error');
+    } else expect(countParts(importCdx1(escaped).tree.components)).toBe(2);
+  }, 30_000);
+
+  it.skipIf(!process.env.B10_IMPORT_BENCH)('times the 8,000-fin crafted workload', () => {
+    const workloads = [
+      ['rkt', importRkt, rktOf(2).replace('<AttachedParts>', '<AttachedParts>' + '<FinSet/>'.repeat(8000))],
+      ['CDX1', importCdx1, cdxOf(8001).replaceAll('</BodyTube>', '<Fin/></BodyTube>')],
+    ] as const;
+    for (const [format, read, xml] of workloads) {
+      const times = [];
+      for (let i = 0; i < 3; i++) {
+        const start = performance.now();
+        expect(refusal(() => read(xml)).name).toBe(TOO_MANY_PARTS_ERROR_NAME);
+        times.push(performance.now() - start);
+      }
+      console.log(`${format}: ${xml.length} chars, milliseconds ${times.map(t => t.toFixed(3)).join(', ')}`);
+    }
+  }, 120_000);
+});
 
 describe('the part limit at open (board row 84)', () => {
   it('counts every node: stages, boosters, pods and parts at any depth', () => {

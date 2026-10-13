@@ -43,6 +43,7 @@ import type { LayeredOrkFlightConfig, LayeredOrkImportResult } from './orkFile.j
 import { sparsify } from './flightState.js';
 import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import { refuseOversizedForeignXml } from './foreignPartPrecount.js';
 
 /**
  * RockSim (.rkt) design import/export — Phase 3 "file imports and exports".
@@ -287,6 +288,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     }
     xml = rebuilt + xml.slice(at);
   }
+  refuseOversizedForeignXml(xml, 'rkt');
   // Through the parser seam (xmlParse.ts); same message as before it.
   const doc = parseXml(xml, 'Not a valid RockSim file (XML parse error)');
   const design = doc.querySelector('RockSimDocument > DesignInformation > RocketDesign');
@@ -1160,6 +1162,29 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       children: [],
     };
     const slotEl = design.querySelector(`:scope > ${slot}`);
+    // Tier 2 fin-attached pod note: disclose even under a fin/host that is
+    // itself left out. Keep desktop-parity trees; moving a pod is Eric's row 92.
+    for (const tag of ['FinSet', 'CustomFinSet', 'TubeFinSet']) {
+      for (const fin of Array.from(slotEl?.querySelectorAll(tag) ?? [])) {
+        const wrap = fin.querySelector(':scope > AttachedParts');
+        if (!wrap?.children.length) continue;
+        const parts = Array.from(wrap.children);
+        const names: string[] = [];
+        for (let at = 0; at < parts.length; at++) {
+          const part = parts[at]!;
+          const word = PART_KIND[part.tagName]?.word ?? part.tagName;
+          const partName = text(part, ':scope > Name');
+          names.push(partName ? `the ${word} “${partName}”` : `an unnamed ${word}`);
+          for (const c of Array.from(part.children)) {
+            if (c.tagName === 'AttachedParts') for (const attached of Array.from(c.children)) parts.push(attached);
+            else if (part.tagName === 'ExternalPod' && ['NoseCone', 'BodyTube', 'Transition'].includes(c.tagName)) parts.push(c);
+          }
+        }
+        cautionNote(notes, 'I03.fin-attached', `Left out the parts attached to the fin set “${text(fin, ':scope > Name') ?? 'unnamed'}”: `
+          + `${names.join('; ')}. The app, like desktop OR, leaves out every part attached to a fin set.`,
+        { part: text(fin, ':scope > Name') ?? 'unnamed' });
+      }
+    }
     stageBeingRead = stage.name ?? '';
     for (const el of Array.from(slotEl?.children ?? [])) {
       if (el.tagName === 'SubAssembly') {
