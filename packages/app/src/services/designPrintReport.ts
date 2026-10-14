@@ -4,7 +4,8 @@ import { layoutSchematic, schematicFrame, type SchematicShape } from '../tree/sc
 import { componentTable } from './componentTable.js';
 import { asStageNodes } from '../tree/treeModel.js';
 import { solidContextFor } from '../tree/solidContext.js';
-import { centeringRingBore, ringOuterRadius } from '../tree/solidMesh.js';
+import { paperRingDimensions } from './paperTemplates.js';
+import { validDelayResolution } from './autoDelaySolver.js';
 import { formatWarning } from './simWarnings.js';
 import { recordedConfiguration, runConfigurationHeading } from './runConfiguration.js';
 import { dataHeaderLines, EXPORT_VARS } from './schematicExport.js';
@@ -58,16 +59,20 @@ export function designPrintHtml(input: DesignPrintInput): string {
       .filter(i => row[i] !== '').map(i => `${String(table.headers[i])}: ${String(row[i])}`).join('; ');
     const n = nodes[index];
     const ringDimensions: string[] = [];
+    let ringCaution = '';
     if (n && (n.type === 'centeringring' || n.type === 'bulkhead')) {
-      const ctx = solidContextFor(tree, n), outer = ringOuterRadius(n, ctx);
-      ringDimensions.push(`Outside diameter: ${val('length', outer.assumed ? null : 2 * outer.r, 3)}`);
-      if (n.type === 'centeringring') {
-        const bore = centeringRingBore(n, ctx, outer.r);
-        ringDimensions.push(`Opening diameter: ${val('length', !outer.assumed && bore !== undefined && bore > 0 && bore < outer.r ? 2 * bore : null, 3)}`);
+      try {
+        const { outer, bore } = paperRingDimensions(n, solidContextFor(tree, n));
+        ringDimensions.push(`Outside diameter: ${val('length', 2 * outer, 3)}`);
+        if (bore !== undefined) ringDimensions.push(`Opening diameter: ${val('length', 2 * bore, 3)}`);
+      } catch (error) {
+        ringDimensions.push('Outside diameter: Unknown');
+        if (n.type === 'centeringring') ringDimensions.push('Opening diameter: Unknown');
+        ringCaution = note(`${error instanceof Error ? error.message : 'Ring dimensions unavailable.'} Do not cut from unresolved dimensions.`, 'caution');
       }
     }
     return `<tr><td>${e(row[0])}<br>${e(row[1])}<br>${e(row[2])}</td><td>${e(row[4] || 'Unknown')}</td>
-<td>${e([dimensions, ...ringDimensions].filter(Boolean).join('; ') || 'Unknown')}</td><td>${e(row[7])}</td><td>${e(row[8] === '' ? 'Unknown' : row[8])}</td></tr>`;
+<td>${e([dimensions, ...ringDimensions].filter(Boolean).join('; ') || 'Unknown')}${ringCaution}</td><td>${e(row[7])}</td><td>${e(row[8] === '' ? 'Unknown' : row[8])}</td></tr>`;
   }).join('');
   const header = dataHeaderLines({ name: tree.name ?? 'Rocket', info, units: u, withMotors: input.withMotors, appVersion: input.appVersion });
   if (info && hasAerodynamicForce(info)) header[3] = header[3]!.replace(/margin .*/, `margin ${formatStability(info, input.stabilityUnit)}`);
@@ -85,13 +90,34 @@ export function designPrintHtml(input: DesignPrintInput): string {
     body.push(p(`${run.rocket} — ${run.manufacturer} ${run.motor} — flown ${formatRunWhenProse(run.when)}`), p(`Run ID: ${run.id}`),
       p(`Configuration: ${recordedConfiguration(run) ?? 'Unknown'}${run.motorConfig ? ` (${run.motorConfig})` : ''}`),
       p(runConfigurationHeading(run, u.distance)),
-      p(`Motor count: ${run.motorCount ?? (run.importedSummary ? 'Unknown' : 1)}; ejection delay flown: ${sec(run.delayS)}`),
+      p(`Motor count: ${run.motorCount ?? (run.importedSummary ? 'Unknown' : 1)}`),
       ...((run.boosterMotors ?? []).map(m => p(`Other motor: ${m}`))),
       p(`Aerodynamics: ${aeroModelLabel(run.aeroModel, run.rogersKbf)}`));
     if (run.importedSummary) body.push(note('Imported summary. Design match and safety are unknown; only the file’s recorded predictions are shown.', 'caution'));
     else if (input.changedSince === null) body.push(note('Design match unknown. These stored results cannot establish a match with the current design.', 'caution'));
     else if (input.changedSince.length) body.push(note(`${listAnd(input.changedSince)} changed since this flight. Its results describe the earlier rocket and conditions.`, 'caution'));
     else body.push(p('This flight matches the current design, motors, conditions and model.'));
+    if (validDelayResolution(run.delayResolution)) {
+      const rows = run.delayResolution.mounts.map(m => {
+        const flown = m.flownDelay === 'plugged' ? 'plugged — no ejection charge' : sec(m.flownDelay);
+        const marks = (m.exception === 'plugged-on-charge' ? ' · hypothetical charge (motor sold plugged)' : '')
+          + (m.mode === 'auto' && m.rawOptimum !== null && m.rawOptimum < 0 ? ' · limited by burnout' : '');
+        return `<tr><th scope="row">${e(`${m.mountName} (${m.mountId})`)}</th><td>${e(m.motorIdentity)}</td>
+<td>${e(m.branchName === null || m.branchId === null ? 'Unknown' : `${m.branchName} (${m.branchId})`)}</td>
+<td>${e(m.exception ? 'plugged → Auto (charge recovery)' : m.mode)}</td><td>${e(sec(m.rawOptimum))}</td>
+<td>${e(sec(m.recommendedDelay))}</td><td>${e(flown + marks)}${m.caution ? note(m.caution, 'caution') : ''}</td></tr>`;
+      }).join('');
+      body.push(p('Auto targets each mount’s recovery-free branch apogee, rounded to a whole second.'),
+        `<table aria-label="Per-mount ejection delays"><caption>Ejection delays by mount — selected flight</caption>
+<thead><tr><th scope="col">Mount</th><th scope="col">Recorded motor identity</th><th scope="col">Branch</th><th scope="col">Mode</th>
+<th scope="col">Ballistic optimum</th><th scope="col">Recommended</th><th scope="col">Flown delay</th></tr></thead><tbody>${rows}</tbody></table>`);
+    } else {
+      body.push(note(run.delayResolution === undefined
+        ? 'Legacy scalar delay evidence. Other mounts’ delays are not recorded; do not apply the primary motor’s recommendation to them.'
+        : 'Per-mount delay evidence is invalid or incomplete. Only the recorded primary motor scalar is shown; other mounts’ delays cannot be established.', 'caution'),
+      p(`Primary motor ejection delay flown: ${run.delayS === Infinity ? 'plugged — no ejection charge' : sec(run.delayS)}`),
+      p(`${run.delayS === Infinity ? 'Hypothetical primary motor-eject recommendation (motor has no ejection charge). ' : ''}Primary motor optimal delay: ${sec(run.optimumDelayS)}; recommended drill-to-fit delay: ${sec(run.recommendedDelayS)}`));
+    }
     const results = [
       `Apogee: ${val('distance', run.maxAltitude)}; time to apogee: ${sec(run.timeToApogee)}`,
       `Peak ground speed: ${val('velocity', run.maxVelocity)}; Mach: ${Number.isFinite(run.maxMach) ? run.maxMach : 'Unknown'}`,
@@ -103,7 +129,6 @@ export function designPrintHtml(input: DesignPrintInput): string {
       `Wind: ${val('windspeed', run.windAvg)}; density altitude: ${val('distance', run.densityAltitudeM)}`,
       `Descent rate at landing: ${val('velocity', run.landingRate)}; impact ground speed: ${val('velocity', run.groundHitVelocity)}`,
       `Flight time: ${sec(run.totalFlightTime)}; landing distance: ${val('distance', run.landingDistanceM)}`,
-      `Optimal delay: ${sec(run.optimumDelayS)}; recommended drill-to-fit delay: ${sec(run.recommendedDelayS)}`,
     ];
     body.push(`<div class="summary">${results.map(p).join('')}</div>`, '<h2>Recovery</h2>');
     const deployment = (d: DeploymentReport) => p(`${d.device}: opens at ${sec(d.time)}, ${val('distance', d.altitude)}; opening speed ${val('velocity', d.velocityAtDeployment)}; descent ${val('velocity', d.descentRate)}; ground speed ${val('velocity', d.groundSpeed)}; Cd ${d.cd ?? 'Unknown'}; diameter ${val('length', d.diameter, 3)}.`);

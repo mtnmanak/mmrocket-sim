@@ -23,6 +23,23 @@ export interface PaperTemplateGeometry {
 }
 const f = (m: number) => (m * 1000).toFixed(4);
 
+/** C-A6/C-A7: display helpers may substitute invalid radii; fabrication must not. */
+export function paperRingDimensions(node: ComponentNode, ctx: SolidContext): { outer: number; bore?: number } {
+  const statedOuter = node['outerRadius'] != null;
+  const resolved = ringOuterRadius(node, ctx);
+  const outer = statedOuter ? numOpt(node, 'outerRadius') : resolved.assumed ? undefined : resolved.r;
+  if (outer === undefined || !Number.isFinite(outer) || outer <= 0) {
+    throw new Error('The outside diameter is unknown or invalid. State a positive diameter or fit the part inside a tube.');
+  }
+  if (node.type !== 'centeringring') return { outer };
+  const statedBore = node['innerRadius'] != null;
+  const bore = statedBore ? numOpt(node, 'innerRadius') : centeringRingBore(node, ctx, outer);
+  if (bore === undefined || !Number.isFinite(bore) || bore < 0 || bore >= outer || (!statedBore && bore === 0)) {
+    throw new Error('The ring bore is unknown or does not fit inside the ring. Check its ID and the overlapping motor mount.');
+  }
+  return { outer, bore };
+}
+
 /** C-A7: fabrication only; never invent dimensions or modify the design. */
 export function paperTemplateGeometry(node: ComponentNode, ctx: SolidContext): PaperTemplateGeometry {
   for (const key of ['length', 'outerRadius', 'innerRadius', 'foreRadius', 'aftRadius']) {
@@ -32,19 +49,15 @@ export function paperTemplateGeometry(node: ComponentNode, ctx: SolidContext): P
   const g: PaperTemplateGeometry = { name: node.name ?? node.type, kind: 'disc', width: 0, height: 0,
     path: '', circles: [], stations: [], dimensions: [], notes: [] };
   if (node.type === 'centeringring' || node.type === 'bulkhead') {
-    const { r, assumed } = ringOuterRadius(node, ctx);
-    if (assumed || !Number.isFinite(r)) throw new Error('The outside diameter is unknown. State a diameter or fit the part inside a tube.');
+    const { outer: r, bore } = paperRingDimensions(node, ctx);
     g.width = 2 * r; g.height = 2 * r;
     g.circles = [r];
     g.dimensions.push(['Outside diameter', 2 * r]);
-    if (node.type === 'centeringring') {
-      const bore = centeringRingBore(node, ctx, r);
-      if (bore === undefined || !Number.isFinite(bore) || bore <= 0 || bore >= r) {
-        throw new Error('The ring bore is unknown or does not fit inside the ring. Check its ID and the overlapping motor mount.');
-      }
-      g.circles.push(bore);
+    if (bore !== undefined) {
+      if (bore > 0) g.circles.push(bore);
       g.dimensions.push(['Opening diameter', 2 * bore]);
       g.notes.push('The centre opening uses the stated ring ID, else the overlapping mount tube OD.');
+      if (bore === 0) g.notes.push('The stated zero ID makes a solid disc with no centre opening.');
     }
     g.notes.push('No cutting allowance. The design has no additional drilling-hole fields; no holes are invented.');
     return g;

@@ -22,6 +22,22 @@ describe('C-A7 paper geometry', () => {
     expect(() => paperTemplateGeometry(node('centeringring', { outerRadius: 0.04 }), {})).toThrow(/bore/);
     expect(() => paperTemplateGeometry(node('centeringring', { outerRadius: 0.04 }), { mountOuterRadius: 0.05 })).toThrow(/bore/);
   });
+  it('preserves an explicit zero bore as a solid disc even with an overlapping mount', () => {
+    const g = paperTemplateGeometry(node('centeringring', { outerRadius: 0.04, innerRadius: 0 }),
+      { parentInnerRadius: 0.03, mountOuterRadius: 0.01 });
+    expect(g.circles).toEqual([0.04]);
+    expect(g.dimensions).toContainEqual(['Opening diameter', 0]);
+  });
+  it.each([0, -0.02, NaN, Infinity])('refuses stated outside radius %s despite available context', outerRadius => {
+    for (const type of ['centeringring', 'bulkhead']) {
+      expect(() => paperTemplateGeometry(node(type, { outerRadius, innerRadius: 0.01 }),
+        { parentInnerRadius: 0.03, mountOuterRadius: 0.01 })).toThrow(/diameter|finite/);
+    }
+  });
+  it.each([-0.01, 0.04, 0.05, NaN, Infinity])('refuses stated bore %s despite an overlapping mount', innerRadius => {
+    expect(() => paperTemplateGeometry(node('centeringring', { outerRadius: 0.04, innerRadius }),
+      { mountOuterRadius: 0.01 })).toThrow(/bore|finite/);
+  });
   it('develops a frustum with exact circumference at BOTH ends in either orientation', () => {
     for (const [foreRadius, aftRadius] of [[0.02, 0.05], [0.05, 0.02]]) {
       const g = paperTemplateGeometry(node('transition', { shape: 'conical', length: 0.12, foreRadius, aftRadius }), {});
