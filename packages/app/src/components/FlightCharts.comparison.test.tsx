@@ -78,6 +78,109 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
 describe('flight comparisons wiring', () => {
+  it('C-E7 custom axes and ground tracks preserve chronology, isolated zoom, emphasis and saved choices', () => {
+    const flight = result(); flight.series.Px = [0, 1, 1, -1, 0]; flight.series.Py = [0, 2, 3, 4, 5];
+    const before = structuredClone(flight);
+    render(flight); select('Comparison chart', 'custom');
+    select('Custom X axis', 'Px'); select('Custom Y axis', 'Py');
+    expect(overlay().series[0]!.label).toBe('Position East of launch (m)');
+    expect(overlay().opts.cursor?.sync).toBeUndefined();
+    const windows = timePlots().map(p => ({ ...p.scales['x'] }));
+    wheel(overlay());
+    expect(timePlots().map(p => p.scales['x'])).toEqual(windows);
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Emphasize Position North of launch"]')!.click());
+    expect(overlay().series.slice(1).every(s => s.alpha === 1)).toBe(true);
+    const input = host.querySelector('.saved-flight-plots input') as HTMLInputElement;
+    act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Track');
+      input.dispatchEvent(new Event('input', { bubbles: true })); });
+    act(() => button('Save current plots').click()); select('Comparison chart', '');
+    act(() => button('Apply').click());
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="Custom X axis"]')!.value).toBe('Px');
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="Custom Y axis"]')!.value).toBe('Py');
+    expect(overlay().series[1]!.label).toContain('Position North');
+    select('Comparison chart', 'ground-track');
+    expect(host.textContent).toContain('Ground track');
+    expect(host.textContent).toContain('axes can have different scales');
+    expect(flight).toEqual(before);
+  });
+  it('C-E7 events belong to the selected branch, toggle separately from quantities, and never mark phase charts', () => {
+    const flight = result(); flight.events = [{ type: 'LAUNCH', time: 0 }, { type: 'APOGEE', time: 2 }];
+    flight.branches = [{ name: 'Core', series: flight.series, events: flight.events },
+      { name: 'Booster', series: data(), events: [{ type: 'BURNOUT', time: 0.5 }] }];
+    render(flight); select('Comparison chart', 'altitude-velocity');
+    const drawnTimes = (plot: Plot) => {
+      const ctx = { save() {}, restore() {}, beginPath() {}, moveTo: vi.fn(), lineTo() {}, stroke() {}, setLineDash() {}, fillText() {} };
+      for (const plugin of plot.opts.plugins ?? []) {
+        const draw = plugin.hooks?.draw;
+        if (typeof draw === 'function') draw({ ...plot, ctx, bbox: { left: 0, top: 0, width: 200, height: 100 },
+          valToPos: (t: number) => t } as unknown as uPlot);
+      }
+      return ctx.moveTo.mock.calls.map(call => call[0]);
+    };
+    for (const plot of timePlots()) expect(drawnTimes(plot)).toEqual([0, 2]);
+    expect(host.querySelectorAll('[aria-label="Flight event key"]')).toHaveLength(4);
+    expect(host.querySelector('[aria-label="Flight event key"]')!.textContent).toContain('Apogee at 2 s');
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Show event: Apogee"]')!.click());
+    expect(host.querySelector('[aria-label="Flight event key"]')!.textContent).not.toContain('Apogee');
+    expect(timePlots()).toHaveLength(4);
+    select('Flight branch', '1');
+    for (const plot of timePlots()) expect(drawnTimes(plot)).toEqual([0.5]);
+    expect(host.querySelector('[aria-label="Flight event key"]')!.textContent).toContain('Burnout at 0.5 s');
+    expect(host.querySelector('[aria-label="Flight event key"]')!.textContent).not.toContain('Launch');
+    select('Comparison chart', 'phase');
+    expect(host.querySelector('.comparison-panel [aria-label="Flight event key"]')).toBeNull();
+    expect(host.querySelectorAll('.chart-panel button[aria-label^="Save image:"]')).toHaveLength(4);
+  });
+  it('C-E7 loads full plot quantities only on request, reports failure, and shares export busy protection', async () => {
+    const flight = result(); const full = { ...flight, series: { ...flight.series, Cd: [0.3, 0.4, 0.5, 0.4, 0.3] } };
+    const load = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue(full);
+    render(flight, load); select('Comparison chart', 'custom');
+    expect(load).not.toHaveBeenCalled();
+    await act(async () => button('Load all plot series').click());
+    expect(host.textContent).toContain('offline');
+    await act(async () => button('Load all plot series').click());
+    select('Custom Y axis', 'Cd');
+    expect(overlay().series[1]!.label).toBe('Drag coefficient');
+    expect(overlay().data[1]).toEqual(full.series.Cd);
+    expect(flight.series.Cd).toBeUndefined();
+    render(result(), load); select('Comparison chart', 'custom');
+    expect(host.textContent).toContain('no usable data');
+  });
+  it('C-E7 custom time charts join time zoom; changing X starts an independent window', () => {
+    render(result()); select('Comparison chart', 'custom');
+    expect(timePlots()).toHaveLength(4); wheel(overlay());
+    expect(timePlots().every(p => p.scales['x']!.max < 4)).toBe(true);
+    select('Custom X axis', 'altitude');
+    expect(overlay().scales['x']).toEqual({ min: -2, max: 20 });
+    expect(timePlots()).toHaveLength(3);
+    select('Custom X axis', 'time');
+    expect(overlay().scales['x']).toEqual(timePlots()[0]!.scales['x']);
+  });
+  it.each(['stale', 'running'])('C-E7 refuses to load extra quantities while %s', condition => {
+    const load = vi.fn();
+    act(() => root.render(<PrefsProvider><FlightCharts result={result()} flightName="Protected flight" onFullSeries={load}
+      staleReason={condition === 'stale' ? 'the weighed pad mass' : null} flightRunning={condition === 'running'} /></PrefsProvider>));
+    select('Comparison chart', 'custom');
+    expect(button('Load all plot series').disabled).toBe(true);
+    act(() => button('Load all plot series').click()); expect(load).not.toHaveBeenCalled();
+  });
+  it('C-E7 extra-series loading disables downloads until it settles', async () => {
+    let finish!: (flight: FlightResult) => void;
+    render(result(), () => new Promise(resolve => { finish = resolve; }));
+    select('Comparison chart', 'custom'); act(() => button('Load all plot series').click());
+    expect(button('⬇ Flight data (.csv)').disabled).toBe(true);
+    expect(button('Re-flying…').disabled).toBe(true);
+    await act(async () => finish(result()));
+    expect(button('⬇ Flight data (.csv)').disabled).toBe(false);
+  });
+  it('C-E7 identical custom axes retain chronological samples without duplicate table keys', () => {
+    render(result()); select('Comparison chart', 'custom'); select('Custom X axis', 'velocity'); select('Custom Y axis', 'velocity');
+    const error = vi.spyOn(console, 'error');
+    const details = host.querySelector<HTMLDetailsElement>('.comparison-panel details')!;
+    act(() => { details.open = true; details.dispatchEvent(new Event('toggle')); });
+    expect(host.querySelectorAll('.comparison-panel th')).toHaveLength(3);
+    expect(error).not.toHaveBeenCalled();
+  });
   it('recalls panel and comparison selections across units and missing branch data without changing the flight', () => {
     const flight = result();
     flight.branches = [{ name: 'Core', series: flight.series, events: [] },
@@ -249,7 +352,7 @@ describe('flight comparisons wiring', () => {
   it('keeps three separate defaults and all five optional presets with summary Vz', () => {
     render(result()); expect(live()).toHaveLength(3); expect(host.querySelector('.comparison-panel')).toBeNull();
     expect([...host.querySelector('.comparison-controls select')!.querySelectorAll('option')].map((o) => o.textContent)).toEqual([
-      'None', 'Altitude + velocity', 'Altitude + vertical velocity', 'Velocity + acceleration', 'Stability + CP + CG', 'Velocity vs altitude',
+      'None', 'Altitude + velocity', 'Altitude + vertical velocity', 'Velocity + acceleration', 'Stability + CP + CG', 'Velocity vs altitude', 'Custom plot', 'Ground track',
     ]);
     select('Comparison chart', 'altitude-vertical'); expect(live()).toHaveLength(4);
     expect(overlay().data[2]).toEqual([0, 10, 0, -10, -2]); expect(overlay().series[2]!.label).toBe('Vertical velocity (m/s)');

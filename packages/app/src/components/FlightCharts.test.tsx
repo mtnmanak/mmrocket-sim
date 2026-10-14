@@ -308,6 +308,8 @@ it('constructs all comparisons with real uPlot options (canvas calls stubbed)', 
   flight.series.cpLocation = [1, 1, 1];
   flight.series.cgLocation = [0.8, 0.8, 0.8];
   flight.series.altitude = [0, 100, 30];
+  flight.series.Px = [0, 20, 10];
+  flight.series.Py = [0, 10, 30];
   await act(async () => { root.render(<PrefsProvider><FlightCharts flightName="Big Dog 4in · C6 (Estes)" result={flight} /></PrefsProvider>); });
   const chooser = host.querySelector('.comparison-controls select') as HTMLSelectElement;
   for (const option of [...chooser.options].slice(1)) {
@@ -317,7 +319,8 @@ it('constructs all comparisons with real uPlot options (canvas calls stubbed)', 
     });
     const panel = host.querySelector('.comparison-panel')!;
     expect(panel.querySelector('canvas[role="img"]')?.getAttribute('aria-label')).toContain(option.textContent);
-    expect(panel.querySelectorAll('.u-series').length).toBeGreaterThanOrEqual(3);
+    // Custom time/X plots can have one Y curve; the named comparisons have two or more.
+    expect(panel.querySelectorAll('.u-series').length).toBeGreaterThanOrEqual(option.value === 'custom' ? 2 : 3);
   }
 });
 

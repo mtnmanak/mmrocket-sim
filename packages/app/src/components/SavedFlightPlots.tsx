@@ -3,7 +3,7 @@ import { usePrefs } from '../prefs/PrefsContext.js';
 import { MAX_FLIGHT_PLOTS, type SavedFlightPlot } from '../prefs/flightPlots.js';
 import { Note } from './Note.js';
 
-type Layout = Pick<SavedFlightPlot, 'panels' | 'comparison'>;
+type Layout = Pick<SavedFlightPlot, 'panels' | 'comparison' | 'custom' | 'events'>;
 
 // Native selects match the existing comparison and branch pickers; the
 // platform owns their popup geometry and keyboard interaction.
@@ -38,7 +38,9 @@ export function SavedFlightPlots({ current, onApply }: { current: Layout; onAppl
         </select>
       </label>
       <button className="chart-btn" disabled={!selected} onClick={() => {
-        if (selected) { onApply({ panels: [...selected.panels], comparison: selected.comparison }); setStatus(`Applied ${selected.name}.`); }
+        if (selected) { onApply({ panels: [...selected.panels], comparison: selected.comparison,
+          ...(selected.custom ? { custom: { ...selected.custom } } : {}),
+          ...(selected.events ? { events: [...selected.events] } : {}) }); setStatus(`Applied ${selected.name}.`); }
       }}>Apply</button>
       <button className="chart-btn" disabled={!selected} onClick={() => {
         if (!selected) return;

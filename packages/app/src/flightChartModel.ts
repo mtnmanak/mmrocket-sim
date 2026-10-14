@@ -1,6 +1,7 @@
 import type { FlightEvent, FlightSeries } from '@online-openrocket/engine';
 import type { Preferences } from './prefs/PrefsContext.js';
 import { siToUi, type Quantity } from './prefs/units.js';
+import { exportColumnCatalog } from './services/flightDataCsv.js';
 
 export interface SeriesDef {
   key: keyof FlightSeries;
@@ -43,7 +44,7 @@ export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: string[]): S
 export interface ComparisonPreset {
   id: string;
   title: string;
-  x: 'time' | 'altitude';
+  x: string;
   left: string[];
   right: string[];
 }
@@ -58,13 +59,30 @@ export const PRESETS: ComparisonPreset[] = [
 
 export function comparisonMembers(preset: ComparisonPreset, catalog: SeriesDef[]) {
   return (['left', 'right'] as const).flatMap((axis) => preset[axis].map((key, i) => ({
-    ...catalog.find((d) => d.key === key)!, axis,
+    ...(catalog.find((d) => d.key === key) ?? { key, title: key, unit: 'unit unknown', color: catalog[0]?.color ?? '#000' }), axis,
     // Redundant encoding for CVD readers, without changing identity colours.
     dash: axis === 'right' ? (i === 0 ? [6, 4] : [2, 3]) : undefined,
   })));
 }
 
 export const finiteSample = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/** C-E7: share export metadata; unknown future symbols must not acquire guessed units. */
+export function arbitraryCatalog(series: FlightSeries, prefs: Pick<Preferences, 'units'>, colors: string[]): SeriesDef[] {
+  const known = seriesCatalog(prefs, colors);
+  const columns = new Map(exportColumnCatalog().map(c => [c.key, c]));
+  for (const key of Object.keys(series)) {
+    if (key === 'tc' || known.some(d => d.key === key)) continue;
+    const spec = columns.get(key);
+    const quantity = spec?.quantity;
+    const unit = quantity ? prefs.units[quantity] : spec?.si ?? 'unit unknown';
+    known.push({ key, title: spec?.name ?? key, unit: unit + (spec?.suffix ?? ''),
+      quantity, color: colors[known.length % colors.length]!,
+      f: quantity ? v => siToUi(quantity, unit, v) : undefined });
+  }
+  if (!known.some(d => d.key === 'time')) known.unshift({ key: 'time', title: 'Time', unit: 's', color: colors[0]! });
+  return known.filter(d => d.key !== 'tc' && usableSeries(series, [String(d.key)]));
+}
 
 /** N042: the branch's recorded geometry, never the edited design's length.
  * Recovery/tumble CP no longer describes aerodynamic stability. */
@@ -102,7 +120,7 @@ export interface PhaseRun {
 
 /** Strictly monotonic runs. Equal x starts a new run, preserving every sample.
  * Real gaps terminate a run; only alignment holes may later be spanned. */
-export function phaseRuns(series: FlightSeries): PhaseRun[] {
+export function phaseRuns(series: FlightSeries, x = 'altitude', y = 'velocity'): PhaseRun[] {
   const runs: PhaseRun[] = [];
   let samples: PhaseSample[] = [];
   let direction = 0;
@@ -112,8 +130,8 @@ export function phaseRuns(series: FlightSeries): PhaseRun[] {
     direction = 0;
   };
   series.time.forEach((time, index) => {
-    const altitude = series.altitude[index];
-    const velocity = series.velocity[index];
+    const altitude = series[x]?.[index];
+    const velocity = series[y]?.[index];
     if (!finiteSample(time) || !finiteSample(altitude) || !finiteSample(velocity)) { flush(); return; }
     const next = { index, time, altitude, velocity };
     const prev = samples[samples.length - 1];
@@ -132,7 +150,7 @@ export function phaseRuns(series: FlightSeries): PhaseRun[] {
 /** No uPlot.join: it overwrites repeated x-values within a member. Runs have
  * unique x; separate members preserve collisions and their original times. */
 export function phaseData(series: FlightSeries, altitude: SeriesDef, velocity: SeriesDef) {
-  const runs = phaseRuns(series);
+  const runs = phaseRuns(series, String(altitude.key), String(velocity.key));
   const xs = [...new Set(runs.flatMap((r) => r.samples.map((s) => s.altitude)))].sort((a, b) => a - b);
   const positions = new Map(xs.map((x, i) => [x, i]));
   const values = runs.map((run) => {
@@ -145,8 +163,8 @@ export function phaseData(series: FlightSeries, altitude: SeriesDef, velocity: S
       times[i] = sample.time;
       // Equal-altitude boundaries can be ends of two nontrivial runs. Mark
       // both samples explicitly rather than relying on an unmarked line end.
-      if (run.samples.length === 1 || series.altitude[sample.index - 1] === sample.altitude
-        || series.altitude[sample.index + 1] === sample.altitude) points.push(i);
+      if (run.samples.length === 1 || series[altitude.key]?.[sample.index - 1] === sample.altitude
+        || series[altitude.key]?.[sample.index + 1] === sample.altitude) points.push(i);
     }
     return { row, times, points };
   });

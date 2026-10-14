@@ -4853,6 +4853,11 @@ select.unit-chip:hover {
 .comparison-panel .u-legend { white-space: normal; }
 .flight-series-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
 .flight-series-legend > span { flex-basis: 100%; }
+.flight-event-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
+.flight-event-picker button { min-height: 36px; }
+.flight-event-picker button:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.plot-event-key, .plot-image-control { overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
+.plot-image-control .chart-btn { min-height: 36px; }
 .flight-series-legend .series-emphasized { outline: 2px solid currentColor; outline-offset: 1px; }
 .flight-series-legend .series-emphasis-mark { width: 1em; }
 .flight-series-legend .series-dot { opacity: 1; }

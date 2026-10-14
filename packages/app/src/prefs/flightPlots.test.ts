@@ -4,6 +4,15 @@ import { normalizeFlightPlots } from './flightPlots.js';
 const plot = { id: 'one', name: 'Coast', panels: ['altitude', 'stabilityPercent'], comparison: 'stability' };
 
 describe('stored flight plots', () => {
+  it('validates custom axes and event selection while accepting older layouts', () => {
+    const custom = { ...plot, comparison: 'custom', custom: { x: 'Px', y: 'Py' }, events: ['BURNOUT'] };
+    expect(normalizeFlightPlots([custom])).toEqual([custom]);
+    for (const bad of [null, { x: 'tc', y: 'Py' }, { x: {}, y: 'Py' }]) {
+      expect(normalizeFlightPlots([{ ...custom, custom: bad }])).toEqual([]);
+    }
+    expect(normalizeFlightPlots([{ ...custom, events: ['not-an-event'] }])).toEqual([]);
+    expect(normalizeFlightPlots([plot])).toEqual([plot]);
+  });
   it('copies a valid selection, including an empty panel list and phase axes', () => {
     expect(normalizeFlightPlots([plot, { ...plot, id: 'two', name: 'Phase', panels: [], comparison: 'phase' }]))
       .toEqual([plot, { ...plot, id: 'two', name: 'Phase', panels: [], comparison: 'phase' }]);
