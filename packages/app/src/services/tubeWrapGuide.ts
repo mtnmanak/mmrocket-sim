@@ -181,7 +181,7 @@ export function tubeWrapPages(
       }
       for (let gy = Math.ceil(y / 10) * 10; gy <= endY; gy += 10) {
         svg.push(`<line x1="${x}" y1="${gy}" x2="${endX}" y2="${gy}" stroke="#888" stroke-dasharray="0.5 2" stroke-width="0.1"/>`);
-        if (gy % 20 === 0 && gy > y + 5 && gy + 3 < endY) {
+        if (gy % 20 === 0 && gy > y + 5 && gy + 3 < endY && x + 1 + dim(gy / 1000).length * 2.4 <= endX) {
           svg.push(`<text x="${x + 1}" y="${gy + 3}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gy / 1000))}</text>`);
           occupiedText.push({ left: x + 1, right: x + 1 + dim(gy / 1000).length * 2.4, top: gy + 0.6, bottom: gy + 3.6 });
         }
@@ -214,51 +214,63 @@ export function tubeWrapPages(
         }
       }
       const drawnMarks = new Set<string>();
+      const visibleHoles = guide.holes.flatMap(hole => {
+        const hy = hole.station * 1000, hr = hole.diameter * 500;
+        if (hy < y || hy > endY) return [];
+        return [hole.x * 1000 - circumference, hole.x * 1000, hole.x * 1000 + circumference]
+          .filter(hx => hx >= x && hx <= endX).map(hx => ({ hole, hx, hy, hr,
+            circleFits: hx - hr >= x && hx + hr <= endX && hy - hr >= y && hy + hr <= endY }));
+      });
+      // N045: reserve every visible cross/circle, including later holes and seam/overlap copies.
+      occupiedText.push(...visibleHoles.map(({ hx, hy, hr, circleFits }) => {
+        const radius = Math.max(2, circleFits ? hr : 0);
+        return { left: Math.max(x, hx - radius) - 0.1, right: Math.min(endX, hx + radius) + 0.1,
+          top: Math.max(y, hy - radius) - 0.1, bottom: Math.min(endY, hy + radius) + 0.1 };
+      }));
       // N045: a cross locates the drill centre; the dashed circle states the diameter.
       // Repeat seam and overlap centres, without introducing cutting edges at page joins.
-      for (const hole of guide.holes) {
-        const hy = hole.station * 1000;
-        if (hy < y || hy > endY) continue;
-        for (const hx of [hole.x * 1000 - circumference, hole.x * 1000, hole.x * 1000 + circumference]) {
-          if (hx < x || hx > endX) continue;
-          const cross = 2;
-          // A diameter circle is drawn only when it fits the tile; the cross always marks its centre.
-          const hr = hole.diameter * 500;
-          svg.push(`<g class="drilling-mark"><title>${escapeXml(`${hole.label}: diameter ${dim(hole.diameter)}; fabrication only`)}</title>`);
-          if (hx - hr >= x && hx + hr <= endX && hy - hr >= y && hy + hr <= endY) {
-            svg.push(`<circle cx="${f(hx)}" cy="${f(hy)}" r="${f(hr)}" stroke-dasharray="1 1"/>`);
-          }
-          svg.push(segment(Math.max(x, hx - cross), hy, Math.min(endX, hx + cross), hy),
-            segment(hx, Math.max(y, hy - cross), hx, Math.min(endY, hy + cross)), '</g>');
-          const caption = `${hole.label.slice(0, 24)}: ${dim(hole.diameter)}`;
-          // N045: edge and overlap centres still need a printed diameter, not just a title.
-          const captionLength = Math.min(Math.max(1, endX - x - 2), caption.length * 1.3);
-          const captionX = Math.max(x + 1, Math.min(hx + 3, endX - captionLength - 1));
-          const preferredY = Math.max(y + 3, hy + 5 < endY ? hy + 4 : hy - 3);
-          // N045: allocate whole caption rectangles, including repeated seam/overlap centres
-          // and rotated fin/guide text. Keep the font size; do not crush collisions to fit.
-          const baselines = [preferredY];
-          for (let offset = 4; offset <= endY - y; offset += 4) baselines.push(preferredY + offset, preferredY - offset);
-          baselines.push(y + 3, endY - 1);
-          const starts = [captionX, x + 1, endX - captionLength - 1];
-          for (let start = x + 1; start + captionLength < endX; start += 4) starts.push(start);
-          let placement: { x: number; y: number } | undefined;
-          for (const start of starts) {
-            for (const baseline of baselines) {
-              const box = { left: start, right: start + captionLength, top: baseline - 2.4, bottom: baseline + 0.6 };
-              if (box.left < x || box.right > endX || box.top < y || box.bottom > endY) continue;
-              if (occupiedText.some(other => box.left < other.right + 0.8 && other.left < box.right + 0.8
-                && box.top < other.bottom + 0.8 && other.top < box.bottom + 0.8)) continue;
-              occupiedText.push(box);
-              placement = { x: start, y: baseline };
-              break;
-            }
-            if (placement) break;
-          }
-          if (!placement) throw new Error('Hole captions do not fit on this wrap page. Reduce the number of marks or shorten their names before exporting.');
-          svg.push(`<line class="hole-caption-leader" x1="${f(hx)}" y1="${f(hy)}" x2="${f(placement.x)}" y2="${f(placement.y - 1.2)}" stroke-width="0.1" stroke-dasharray="0.5 1"/>`,
-            `<text x="${f(placement.x)}" y="${f(placement.y)}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif" textLength="${f(captionLength)}" lengthAdjust="spacingAndGlyphs">${escapeXml(caption)}</text>`);
+      for (const { hole, hx, hy, hr, circleFits } of visibleHoles) {
+        const cross = 2;
+        // A diameter circle is drawn only when it fits the tile; the cross always marks its centre.
+        svg.push(`<g class="drilling-mark"><title>${escapeXml(`${hole.label}: diameter ${dim(hole.diameter)}; fabrication only`)}</title>`);
+        if (circleFits) {
+          svg.push(`<circle cx="${f(hx)}" cy="${f(hy)}" r="${f(hr)}" stroke-dasharray="1 1"/>`);
         }
+        svg.push(segment(Math.max(x, hx - cross), hy, Math.min(endX, hx + cross), hy),
+          segment(hx, Math.max(y, hy - cross), hx, Math.min(endY, hy + cross)), '</g>');
+        const caption = `${hole.label.slice(0, 24)}: ${dim(hole.diameter)}`;
+        // N045: edge and overlap centres still need a printed diameter, not just a title.
+        // N045: narrow final columns turn the caption instead of squeezing its glyphs.
+        const captionLength = caption.length * 1.3;
+        const rotated = captionLength > endX - x - 2;
+        const minX = x + (rotated ? 1.6 : 1), maxX = endX - (rotated ? 3.4 : captionLength + 1);
+        const captionX = Math.max(minX, Math.min(hx + 3, maxX));
+        const preferredY = Math.max(y + 3, hy + 5 < endY ? hy + 4 : hy - 3);
+        // N045: allocate whole caption rectangles, including repeated seam/overlap centres
+        // and rotated fin/guide text. Keep the font size; do not crush collisions to fit.
+        const baselines = [preferredY];
+        for (let offset = 4; offset <= endY - y; offset += 4) baselines.push(preferredY + offset, preferredY - offset);
+        baselines.push(rotated ? y + 1 : y + 3, rotated ? endY - captionLength - 1 : endY - 1);
+        const starts = [captionX, minX, maxX];
+        for (let start = minX; start <= maxX; start += 4) starts.push(start);
+        let placement: { x: number; y: number } | undefined;
+        for (const start of starts) {
+          for (const baseline of baselines) {
+            const box = rotated
+              ? { left: start - 0.6, right: start + 2.4, top: baseline, bottom: baseline + captionLength }
+              : { left: start, right: start + captionLength, top: baseline - 2.4, bottom: baseline + 0.6 };
+            if (box.left < x || box.right > endX || box.top < y || box.bottom > endY) continue;
+            if (occupiedText.some(other => box.left < other.right + 0.8 && other.left < box.right + 0.8
+              && box.top < other.bottom + 0.8 && other.top < box.bottom + 0.8)) continue;
+            occupiedText.push(box);
+            placement = { x: start, y: baseline };
+            break;
+          }
+          if (placement) break;
+        }
+        if (!placement) throw new Error('Hole captions do not fit on this wrap page. Reduce the number of marks or shorten their names before exporting.');
+        svg.push(`<line class="hole-caption-leader" x1="${f(hx)}" y1="${f(hy)}" x2="${f(placement.x + (rotated ? 1.2 : 0))}" y2="${f(placement.y - (rotated ? 0 : 1.2))}" stroke-width="0.1" stroke-dasharray="0.5 1"/>`,
+          `<text x="${f(placement.x)}" y="${f(placement.y)}"${rotated ? ` transform="rotate(90 ${f(placement.x)} ${f(placement.y)})"` : ''} fill="#000" stroke="none" font-size="2.4" font-family="sans-serif" textLength="${f(captionLength)}" lengthAdjust="spacingAndGlyphs">${escapeXml(caption)}</text>`);
       }
       for (const line of guide.lines) {
         const lx = line.x * 1000;
