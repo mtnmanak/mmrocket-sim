@@ -2,6 +2,7 @@ import { cautionNote } from '../services/importNotes.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { finOutlineProblem, type FinOutlinePoint } from './finOutline.js';
+import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
 import {
   applyFieldLimit, canonicalEnum, DISPLAY_NAME, ENUM_LIMITS, FIELDS, fieldLimit, MAX_DIMENSION_M, SEPARATION_EVENT_VALUES,
   type EnumLimit, type FieldDef, type FieldLimit, type LimitKind,
@@ -140,6 +141,15 @@ const ENUM_LABEL: Record<string, string> = {
 function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
   let next: ComponentNode | null = null;
   const edit = (): ComponentNode => (next ??= { ...n });
+  if ((n.type as string) === 'tubehole') {
+    for (const [key, fallback] of Object.entries(TUBE_HOLE_DEFAULTS)) {
+      const raw = n[key];
+      if (raw !== undefined && !(typeof raw === 'number' && Number.isFinite(raw))) {
+        edit()[key] = fallback;
+        found.push({ problem: `${partName(n)}: ${fieldLabel(n.type, key)} could not be read`, repair: 'set to its starting value' });
+      }
+    }
+  }
   for (const [key, raw] of Object.entries(n)) {
     if (typeof raw !== 'number') continue;
     const limit = fieldLimit(n.type, key);

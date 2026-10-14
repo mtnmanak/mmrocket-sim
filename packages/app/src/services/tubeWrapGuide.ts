@@ -7,6 +7,7 @@ import { absoluteStations, axialLength, axialStart } from '../tree/position.js';
 import { fmtSi, type UnitSelection } from '../prefs/units.js';
 import type { FinTemplateBackground } from './finTemplate.js';
 import { escapeXml } from './xmlUtil.js';
+import { tubeHoleMarks, TUBE_HOLE_ADVICE, type TubeHoleMark } from '../tree/tubeHoles.js';
 
 export const WRAP_FINS: ReadonlySet<string> = new Set(['trapezoidfinset', 'ellipticalfinset', 'freeformfinset']);
 
@@ -25,6 +26,7 @@ export interface TubeWrapGeometry {
   circumference: number;
   length: number;
   lines: TubeWrapLine[];
+  holes: (TubeHoleMark & { x: number; label: string })[];
   notes: string[];
 }
 
@@ -42,7 +44,12 @@ export function tubeWrapGeometry(tree: RocketTree, tube: ComponentNode): TubeWra
   if (tubeStart === undefined) throw new Error('This tube is not in the design.');
   const lines: TubeWrapLine[] = [];
   const notes: string[] = [];
+  const holes: TubeWrapGeometry['holes'] = [];
   for (let child of tube.children ?? []) {
+    if ((child.type as string) === 'tubehole') {
+      for (const mark of tubeHoleMarks(child)) holes.push({ ...mark, x: radius * mark.angle, label: child.name ?? 'Vent / marking hole' });
+      continue;
+    }
     const isFin = WRAP_FINS.has(child.type);
     if (!isFin && child.type !== 'launchlug' && child.type !== 'railbutton') continue;
     if (child.type === 'freeformfinset' && child['points'] == null) {
@@ -77,7 +84,11 @@ export function tubeWrapGeometry(tree: RocketTree, tube: ComponentNode): TubeWra
   if (lines.some(l => l.root.start < -1e-9 || l.root.end > length + 1e-9)) {
     notes.push('Some parts extend past this tube. The wrap stops at the tube ends; check the fitted parts before cutting.');
   }
-  return { name: tube.name ?? 'Body tube', diameter: radius * 2, circumference, length, lines, notes: [...new Set(notes)] };
+  if (holes.length) notes.push(TUBE_HOLE_ADVICE);
+  if (holes.some(hole => hole.station - hole.diameter / 2 < 0 || hole.station + hole.diameter / 2 > length)) {
+    notes.push('Some hole marks extend past this tube. Check their position and diameter before drilling.');
+  }
+  return { name: tube.name ?? 'Body tube', diameter: radius * 2, circumference, length, lines, holes, notes: [...new Set(notes)] };
 }
 
 export interface TubeWrapPage {
@@ -96,7 +107,7 @@ export function tubeWrapPages(
 ): TubeWrapPage[] {
   const printedNotes = guide.notes.flatMap(note => {
     const result: string[] = [];
-    let line = 'Caution:';
+    let line = note === TUBE_HOLE_ADVICE ? '' : 'Caution:';
     for (const word of note.split(/\s+/)) {
       if (line.length + word.length > 95) { result.push(line); line = ''; }
       line += `${line ? ' ' : ''}${word}`;
@@ -195,6 +206,26 @@ export function tubeWrapPages(
         i = next;
       }
       const drawnMarks = new Set<string>();
+      // N045: a cross locates the drill centre; the dashed circle states the diameter.
+      // Repeat seam and overlap centres, without introducing cutting edges at page joins.
+      for (const hole of guide.holes) {
+        const hy = hole.station * 1000;
+        if (hy < y || hy > endY) continue;
+        for (const hx of [hole.x * 1000 - circumference, hole.x * 1000, hole.x * 1000 + circumference]) {
+          if (hx < x || hx > endX) continue;
+          const cross = 2;
+          // A diameter circle is drawn only when it fits the tile; the cross always marks its centre.
+          const hr = hole.diameter * 500;
+          svg.push(`<g class="drilling-mark"><title>${escapeXml(`${hole.label}: diameter ${dim(hole.diameter)}; fabrication only`)}</title>`);
+          if (hx - hr >= x && hx + hr <= endX && hy - hr >= y && hy + hr <= endY) {
+            svg.push(`<circle cx="${f(hx)}" cy="${f(hy)}" r="${f(hr)}" stroke-dasharray="1 1"/>`);
+          }
+          svg.push(segment(Math.max(x, hx - cross), hy, Math.min(endX, hx + cross), hy),
+            segment(hx, Math.max(y, hy - cross), hx, Math.min(endY, hy + cross)), '</g>');
+          const caption = `${hole.label.slice(0, 24)}: ${dim(hole.diameter)}`;
+          if (hx + 5 < endX && hy + 5 < endY) svg.push(`<text x="${f(hx + 3)}" y="${f(hy + 4)}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif" textLength="${f(Math.min(endX - hx - 4, caption.length * 1.3))}" lengthAdjust="spacingAndGlyphs">${escapeXml(caption)}</text>`);
+        }
+      }
       for (const line of guide.lines) {
         const lx = line.x * 1000;
         // Repeat the zero-angle line at the seam's far edge, including half-slots.

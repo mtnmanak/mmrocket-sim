@@ -3,6 +3,7 @@ import { CANOPY_DIAMETER_FALLBACK } from './canopyVent.js';
 import { CLUSTER_OPTIONS } from './cluster.js';
 import { lookupTable } from '../services/xmlUtil.js';
 import { num } from './nodeNum.js';
+import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
 
 /**
  * Editor schema: display names, containment rules, default nodes, and the
@@ -13,7 +14,7 @@ import { num } from './nodeNum.js';
 /**
  * The editor's component types: the engine's `ComponentType` plus the app-level
  * parts the KERNEL never sees, which `treeModel.engineTree` lowers onto kernel
- * constructs before `buildTree`.
+ * constructs or removes (fabrication annotations) before `buildTree`.
  *
  * `fairing` predates this alias and still sits in the engine package's union
  * (with a comment there saying the kernel never sees it); `protuberance` is
@@ -26,7 +27,7 @@ import { num } from './nodeNum.js';
  * typecheck unchanged. `allowedChildren` deliberately keeps returning
  * `ComponentType[]` so the Add menu's callback signature is untouched.
  */
-export type EditorComponentType = ComponentType | 'protuberance';
+export type EditorComponentType = ComponentType | 'protuberance' | 'tubehole';
 
 /** The app-level types, cast for the tables typed in engine terms. */
 const APP_ONLY = (t: EditorComponentType): ComponentType => t as ComponentType;
@@ -62,6 +63,7 @@ export const DISPLAY_NAME = lookupTable<string>({
   masscomponent: 'Mass component',
   fairing: 'Camera shroud / fairing',
   protuberance: 'Protuberance (drag bump)',
+  tubehole: 'Vent / marking hole',
   podset: 'Pod set',
   parallelstage: 'Booster (parallel stage)',
 } satisfies Record<EditorComponentType, string>) as Record<EditorComponentType, string>;
@@ -71,7 +73,7 @@ const STAGE_CHILDREN: ComponentType[] = ['nosecone', 'bodytube', 'transition'];
 const INTERNAL: ComponentType[] = ['parachute', 'streamer', 'shockcord', 'masscomponent'];
 const BODY_CHILDREN: ComponentType[] = [
   'trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset', 'launchlug', 'railbutton',
-  'fairing', APP_ONLY('protuberance'),
+  'fairing', APP_ONLY('protuberance'), APP_ONLY('tubehole'),
   'innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock', ...INTERNAL,
 ];
 
@@ -435,6 +437,10 @@ const LIMITS_BY_KEY: Record<string, FieldLimit> = lookupTable<FieldLimit>({
  * same reason: a restored session's `type` is whatever string it saved.
  */
 const LIMITS_BY_TYPE: Record<string, Record<string, FieldLimit>> = lookupTable<Record<string, FieldLimit>>({
+  tubehole: {
+    holeCount: { kind: 'count', hmin: 1, hmax: 64, why: 'the most drilling marks in one group' },
+    holeDiameter: POSITIVE_LEN, holePosition: LEN,
+  },
   trapezoidfinset: { finCount: FINS },
   ellipticalfinset: { finCount: FINS },
   freeformfinset: { finCount: FINS },
@@ -763,6 +769,13 @@ const PACKED: FieldDef[] = [
 ];
 
 export const FIELDS = lookupTable<FieldDef[]>({
+  tubehole: [
+    { ...lenMM('holeDiameter', 'Hole diameter', 0.1, 20), help: 'Diameter of each drilling mark.' },
+    { ...lenMM('holePosition', 'Axial position from tube front', 1, 1000), help: 'Distance from the front of this body tube to the hole centre.' },
+    { key: 'angleOffset', label: 'First angle around tube', unit: 'deg', step: 5, smin: 0, smax: 360,
+      help: 'Zero is the top of the unrotated 2D view. Additional holes are evenly spaced around the tube. Add another component for a different pattern.' },
+    { key: 'holeCount', label: 'Hole count (evenly spaced)', unit: 'count', step: 1, smin: 1, smax: 64 },
+  ],
   // Separation applies to lower stages (the booster separates FROM the stack
   // above); the top stage ignores it — same as the desktop.
   stage: [
@@ -1106,6 +1119,7 @@ export const POSITIONABLE: Set<EditorComponentType> = new Set([
 /** Sensible starting parameters for a freshly added component (SI). */
 export function defaultParams(type: EditorComponentType): Partial<ComponentNode> {
   switch (type) {
+    case 'tubehole': return { ...TUBE_HOLE_DEFAULTS };
     case 'stage': return {};
     case 'nosecone': return { length: 0.07, aftRadius: 0.012, thickness: 0.002, shape: 'ogive' };
     case 'transition': return { length: 0.04, foreRadius: 0.012, aftRadius: 0.009, thickness: 0.002, shape: 'conical' };
@@ -1249,6 +1263,7 @@ const BLANK_BY_KEY: Record<string, number> = lookupTable<number>({
 
 /** Type-specific blanks, which win over BLANK_BY_KEY. */
 const BLANK_BY_TYPE: Record<string, Record<string, number>> = lookupTable<Record<string, number>>({
+  tubehole: TUBE_HOLE_DEFAULTS,
   trapezoidfinset: { finCount: finCountDefault('trapezoidfinset') },
   ellipticalfinset: { finCount: finCountDefault('ellipticalfinset') },
   freeformfinset: { finCount: finCountDefault('freeformfinset') },

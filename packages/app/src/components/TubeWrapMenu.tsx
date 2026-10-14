@@ -11,6 +11,7 @@ import { withDpi } from '../services/rasterDpi.js';
 import { downloadBlob } from '../services/saveFile.js';
 import { FinTemplateMenu, type FinTemplateFormat } from './FinTemplateMenu.js';
 import { Note } from './Note.js';
+import { TUBE_HOLE_ADVICE } from '../tree/tubeHoles.js';
 
 export function TubeWrapMenu({ tree, tube }: { tree: RocketTree; tube: ComponentNode }) {
   const { prefs } = usePrefs();
@@ -52,8 +53,9 @@ export function TubeWrapMenu({ tree, tube }: { tree: RocketTree; tube: Component
           + 'Pages fit both A4 and US Letter. Match the printed coordinates in the overlap, keeping the rows and columns in order.\n'
           + 'Trim at the tube outline and join its two seam edges, printed side out. The front of the tube is at the top.\n'
           + 'Solid lines mark fins; dashed lines mark lugs/buttons. Heavy ticks mark root ends or guide stations.\n'
+          + 'Crosses mark hole centres; dashed circles show hole diameters where they fit on the page. Holes are fabrication only.\n'
           + 'Slot boxes use fin thickness, with no cutting allowance. Measure the tube and check the fit before cutting.\n'
-          + geometry.notes.map(n => `Caution: ${n}\n`).join(''));
+          + geometry.notes.map(n => `${n === TUBE_HOLE_ADVICE ? '' : 'Caution: '}${n}\n`).join(''));
         const zip = zipSync(files);
         downloadBlob(new Blob([zip as BlobPart], { type: 'application/zip' }),
           `${stem}-${pages.length}-pages.zip`, 'Tube marking wrap pages');
@@ -70,7 +72,7 @@ export function TubeWrapMenu({ tree, tube }: { tree: RocketTree; tube: Component
     <FinTemplateMenu template="tube-wrap" disabled={busy} onPick={exportWrap} />
     <Note as="p" tier="information" className="hint">{printAdvice} Larger wraps download as a ZIP of pages.</Note>
     <Note as="p" tier="caution" className="hint">Slots use fin thickness, with no cutting allowance. Measure the tube and check the fit before cutting.</Note>
-    {guide?.notes.map(note => <Note as="p" key={note} tier="caution" className="hint">{note}</Note>)}
+    {guide?.notes.map(note => <Note as="p" key={note} tier={note === TUBE_HOLE_ADVICE ? 'information' : 'caution'} className="hint">{note}</Note>)}
     {invalid && <Note as="p" tier="caution" className="hint">{invalid}</Note>}
     <div role="status">{status && <p className="hint">{status}</p>}</div>
     {error && <Note as="p" tier="caution" className="hint" role="alert">{error}</Note>}

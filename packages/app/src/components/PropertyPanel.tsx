@@ -63,6 +63,8 @@ import { svgToImage } from '../services/schematicExport.js';
 import { withDpi } from '../services/rasterDpi.js';
 import { FinTemplateMenu, type FinTemplateFormat } from './FinTemplateMenu.js';
 import { TubeWrapMenu } from './TubeWrapMenu.js';
+import { FinAlignmentJigMenu } from './FinAlignmentJigMenu.js';
+import { TUBE_HOLE_ADVICE } from '../tree/tubeHoles.js';
 import { WRAP_FINS } from '../services/tubeWrapGuide.js';
 import { safeName } from '../services/fileName.js';
 import { downloadBlob } from '../services/saveFile.js';
@@ -1093,6 +1095,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
       {wrapTube && (
         <TubeWrapMenu key={node.id} tree={tree} tube={wrapTube} />
       )}
+      {wrapTube && WRAP_FINS.has(node.type) && (
+        <FinAlignmentJigMenu key={`jig-${node.id ?? ''}`} tree={tree} tube={wrapTube} fin={node} />
+      )}
       {DXF_CUTTABLE.has(node.type) && (
         // Scissors, NOT the 📐 the fin-template button above already owns. The
         // two sit adjacent, and with a shared glyph a user scanning for the
@@ -1233,7 +1238,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           setPickerCloses((n) => n + 1);
         }} />
       )}
-      <div className="field" style={{ marginTop: 6 }}>
+      {/* N045 construction marks use fixed black ink on white backing, rather than a paint colour. */}
+      {(node.type as string) !== 'tubehole' && <div className="field" style={{ marginTop: 6 }}>
         <div className="field-label-help"><label htmlFor={idFor('color')}>Color (2D/3D display)</label>{definition('color', 'Color')}</div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <input type="color" id={idFor('color')} aria-label="Component color" style={{ width: 44, padding: 2, height: 26 }}
@@ -1248,7 +1254,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             <button className="file-btn" onClick={() => onPatch({ color: undefined })}>reset</button>
           )}
         </div>
-      </div>
+      </div>}
+      {(node.type as string) === 'tubehole' && (
+        <Note as="p" tier="information" className="hint">{TUBE_HOLE_ADVICE} Saved as app data in .ork. Desktop OpenRocket ignores these marks and may drop them when saving.</Note>
+      )}
       <div className="field-grid" style={{ marginTop: 8 }}>
         {fields.map((f) => {
           if (f.key === 'maxMotorLength') {
@@ -1685,7 +1694,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           )}
         </div>
       )}
-      {(node.type as string) !== 'protuberance' && node.type !== 'fairing' && (
+      {(node.type as string) !== 'protuberance' && (node.type as string) !== 'tubehole' && node.type !== 'fairing' && (
       <div style={{ marginTop: 10 }}>
         <h3 style={{ marginTop: 0 }}>
           Overrides (blank = calculated)

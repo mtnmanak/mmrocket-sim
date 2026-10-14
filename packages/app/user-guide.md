@@ -765,6 +765,14 @@ From any fin set, **📐 Fin template (1:1)** exports a **true-scale printable c
 
 The SVGs use physical millimeter units and a 0.2 mm hairline, so they feed a laser cutter directly. For CNC or laser cutting from CAD geometry rather than a drawing, use **✂ DXF (CNC/laser, 1:1)** (see *Files, Units, and Offline Use → File formats*).
 
+## Vent / marking holes (fabrication only)
+
+Select a **Body tube**, then add a **Vent / marking hole**. Set **Hole diameter**, **Axial position from tube front** (to the hole centre), **First angle around tube**, and **Hole count (evenly spaced)**. Zero angle is the top of the unrotated 2D view. Multiple holes share one axial station and are evenly spaced around the tube; add another hole component for a different station or pattern. The 2D view shows circles with centre crosses; marks on the far side are dashed.
+
+**Fabrication only:** These marks do not change mass, CG, drag or any flight number. The app does not calculate vent pressure or remove tube material from the simulation. The app saves them as tube metadata in **.ork**; desktop OpenRocket ignores that metadata, so it adds no desktop component or mass. Desktop may report an unknown parameter and will not preserve the marks when it saves the file.
+
+**Tube wrap (1:1)** prints the hole centres as crosses, with diameter labels and dashed diameter circles where the circles fit on a sheet. Seam centres repeat at both edges, and centres in page overlaps repeat on both sheets. **Caution:** Check the positions and diameters against the actual tube before drilling. Marks extending past the tube ends are noted; this is advice and does not prevent simulation.
+
 ## 1:1 tube marking wraps (SVG, PNG, JPG)
 
 Select a straight round **Body tube**, or a trapezoidal, elliptical or freeform fin set attached to it, and choose **Tube wrap (1:1)**. The wrap uses the tube's outer circumference and each fin set's rotation and fin count. Solid lines mark fin positions; dashed lines mark launch lugs and rail buttons on that tube. Heavy ticks mark fin-root ends and guide positions. Tab-slot boxes show the tab's front and aft extents along the tube and use the fin thickness as their width, with no cutting allowance. Slot extents follow **Tab offset** and **Tab offset from**, clamped to the fin root, as in the individual fin template.
@@ -774,6 +782,14 @@ Choose white or transparent **SVG**, or white **PNG/JPG at 300 dpi**, as for fin
 Larger wraps download as a **ZIP of pages**, each sized to fit A4 or US Letter. Arrange the numbered rows and columns, match the printed coordinates in the overlap, then trim at the tube outline. The front of the tube is at the top; the aft end is at the bottom. Join the two edges at the zero-angle seam with the printed side facing out, and align the front edge with the front of the body tube. The wrap covers this tube's own fins, lugs and buttons; it does not carry lines from another tube or a pod onto this one.
 
 **Caution:** Measure the actual tube and check the fitted fins before cutting. The wrap includes no allowance for glue, cutting width, or paper thickness. Canted fins get reference-angle lines and a note, with slot outlines omitted; their fitted slots are not rectangular. Filled tubes have no through-the-wall slots. Parts extending beyond a tube are clipped at its ends and noted. This is a marking aid, separate from a fin alignment jig, and it changes no simulation setting.
+
+## 1:1 fin alignment jigs (SVG, PNG, JPG)
+
+Select a trapezoidal, elliptical or freeform fin set attached to a straight round **Body tube**, then choose **Fin alignment jig (1:1)**. The flat template holds the tube at its outside diameter and places one radial slot at each fin's angle, including the fin set's rotation. It is viewed from aft, with a dashed zero-angle reference at the top. Each slot uses **fin thickness + Slot clearance**. Clearance is the total added width across both sides, starting at **0.2 mm**; it is only for the jig and is not saved with the design. Rounded and airfoil fins use the stock thickness. The slot depth is half the fin span, up to 20 mm; choose a station where every fin fills that depth.
+
+Choose white or transparent **SVG**, or white **PNG/JPG at 300 dpi**, as for the other templates. Large jigs may require SVG because the app limits image size instead of reducing print resolution. Print at **100% with no fit to page**, using paper large enough for the whole jig. Measure the calibration ruler: it must be **50 mm** (shown in your **Rocket dimensions** unit) or **2 in** when using inches or feet. If the ruler is wrong, the tube cut-out and fin slots are wrong too. In a program that ignores image resolution, scale the image until the ruler has that length.
+
+**Caution:** Measure the actual tube and fin stock, and check the fit before cutting. The clearance does not account for cutting width, glue or printer error. A flat jig cannot hold canted fins; the app explains this beside the control and leaves the fin template and tube wrap available. The jig does not change any simulation setting.
 
 ## Drag analysis (CD vs Mach)
 
