@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
+import { strFromU8, unzipSync } from 'fflate';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
@@ -617,9 +618,65 @@ const fixture = (name: string) => new Uint8Array(readFileSync(join(FIXTURES, nam
 
 const c6 = async () => (await loadCatalogueMotor('Estes', 'C6', 5))!;
 
+it('exports the selected saved summary as a local bundle without launching or marking the design saved', async () => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  const saved = await simulateDesign({ tree, mountMotors: { [motorMounts(tree)[0]!.id!]: await c6() }, launch: DEFAULT_CONDITIONS,
+    measured: { massKg: null, cgM: null }, activeConfigId: null, savedConfigs: [] });
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+    measured: { massKg: null, cgM: null }, savedAt: 1, appVersion: APP_VERSION }));
+  localStorage.setItem(RUNS_KEY, JSON.stringify([{ ...saved.run, id: 'bundle-selected' }]));
+  const host = await mountApp();
+  await waitFor(() => shownName(host) === tree.name, 'bundle design');
+  await act(async () => { [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Results')!.click(); });
+  const history = [...host.querySelectorAll('.panel')].find(p => p.querySelector('h2')?.textContent?.startsWith('Saved simulations'))!;
+  await act(async () => { [...history.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click(); });
+  await act(async () => { host.querySelector<HTMLElement>('.motor-row')!.click(); });
+  await waitFor(() => !![...host.querySelectorAll('button')].find(b => b.textContent === 'Export flight-data bundle'), 'bundle entry');
+  window.dispatchEvent(new Event('pagehide'));
+  const savedBefore = peekSession()?.savedMark;
+  const historyBefore = localStorage.getItem(RUNS_KEY);
+  vi.mocked(saveFile).mockClear();
+  await act(async () => { [...host.querySelectorAll('button')].find(b => b.textContent === 'Export flight-data bundle')!.click(); });
+  const dialog = host.querySelector('[role=dialog][aria-label="Export flight-data bundle"]')!;
+  expect(dialog).not.toBeNull();
+  await act(async () => { [...dialog.querySelectorAll('button')].find(b => b.textContent === 'Download ZIP')!.click(); });
+  const zip = unzipSync(new Uint8Array(await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).arrayBuffer()));
+  expect(JSON.parse(strFromU8(zip['run.json']!)).id).toBe('bundle-selected');
+  expect(vi.mocked(flyBuiltDesign)).not.toHaveBeenCalled();
+  expect(localStorage.getItem(RUNS_KEY)).toBe(historyBefore);
+  window.dispatchEvent(new Event('pagehide'));
+  expect(peekSession()?.savedMark).toBe(savedBefore);
+}, 30000);
+
 /** The pad mass that carries 20 g of hardware over `motor` on `tree` with a 100 g Measured dry mass. */
 const weighed = (tree: RocketTree, mount: string, motor: Awaited<ReturnType<typeof c6>>) =>
   0.1 + catalogueMotorMass(tree, [[mount, motor]])! + 0.02;
+
+it('bundle metadata retains the applied weather receipt from Launch in the saved run', async () => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  const weather = {
+    v: 1, provider: 'open-meteo', endpoint: 'forecast', model: 'best_match',
+    place: { label: 'Test site', latitudeDeg: 61.234567, longitudeDeg: -149.765432, method: 'coordinates' },
+    grid: { latitudeDeg: 61.2, longitudeDeg: -149.7 }, demElevationM: 100, forAltitudeM: 100,
+    timezone: 'America/Anchorage', validUnix: 1700000000, retrievedAt: '2026-10-13T00:00:00Z',
+    fetched: { temperatureC: 12, pressureHPa: 1000, windSpeedMs: 4, windGustMs: 7, windFromDeg: 20 },
+    applied: { temperatureC: 12 }, before: { temperatureC: null },
+  };
+  const launchSettings = { ...DEFAULT_CONDITIONS, latitudeDeg: 61.234567, longitudeDeg: -149.765432, temperatureC: 12 };
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree,
+    mountMotors: { [motorMounts(tree)[0]!.id!]: await c6() }, launch: launchSettings, weather,
+    measured: { massKg: null, cgM: null }, savedAt: 1, appVersion: APP_VERSION }));
+  const host = await mountApp();
+  await waitFor(() => shownName(host) === tree.name, 'weather bundle design');
+  await launch(host);
+  await waitFor(() => runs() === 1, 'weather receipt saved with run');
+  const saved = (JSON.parse(localStorage.getItem(RUNS_KEY)!) as FreshSimRun[])[0]!;
+  expect(saved.exportContext?.weather).toEqual(weather);
+  expect(saved.exportContext?.launch.latitudeDeg).toBe(61.234567);
+  expect(saved.exportContext?.appVersion).toBe(APP_VERSION);
+}, 30000);
 
 describe('the Launch button and simulateDesign fly a stored design the same', () => {
   it('C1: the starter rocket on a first visit', async () => {

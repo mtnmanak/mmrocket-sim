@@ -263,6 +263,7 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
     const primary = assigned.find(([id]) => id === primaryMountId)![1];
     const activeConfig = activeConfigId === null ? undefined : savedConfigs.find((c) => c.id === activeConfigId);
     return {
+      weatherSnapshot: input.weatherSnapshot ?? null,
       advisoryLimits: input.advisoryLimits,
       advisoryTree: tree,
       advisoryMotors: assigned,
@@ -338,6 +339,16 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
     expect(runArg().flightOverrides).toEqual(expected);
     expect(runArg().flightConfig).toBe('Windy day');
   });
+
+  it('freezes launch and weather metadata before the flight yields', async () => {
+    const input = recorded({ mach: 1.2, aeroMode: 'auto' });
+    input.launch.longitudeDeg = -149.765432;
+    const launchBefore = structuredClone(input.launch);
+    input.onSupersonicUpgrade = () => { input.launch.longitudeDeg = 0; };
+    await flyBuiltDesign(input);
+    expect(runArg().launch).toEqual(launchBefore);
+    expect(runArg().weatherSnapshot).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -379,6 +390,7 @@ async function referenceLaunch(x: {
   const activeConfig = activeConfigId === null ? undefined
     : savedConfigs.find((c) => c.id === activeConfigId);
   const run = buildSimRun({
+    weatherSnapshot: null,
     advisoryLimits: undefined,
     advisoryTree: tree,
     advisoryMotors: assigned,
@@ -454,6 +466,7 @@ async function bothWays(state: DesignState, aero: AeroState) {
   });
   expect(upgraded).toBe(refUpgraded);
   expect(comparable(out.run)).toStrictEqual(comparable(ref.run));
+  expect(out.run.exportContext).toMatchObject({ launch: state.launch, weather: null });
   // W3: both independently flown reports retain the launch's gust sigma.
   expect(out.run.windSigma).toBe(state.launch.windStdDev);
   expect(ref.run.windSigma).toBe(state.launch.windStdDev);

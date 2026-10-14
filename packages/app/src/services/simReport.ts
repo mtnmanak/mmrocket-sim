@@ -11,6 +11,8 @@ import type { ComponentNode, EngineWarning, FlightEvent, FlightResult, FlightSer
 import { boosterBranches, DEFAULT_TIME_STEP_S } from '@online-openrocket/engine';
 import { flownGeodeticMethod, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MountMotor } from '../model/design.js';
+import { runExportContext, type RunExportContext } from './runExportContext.js';
+import type { WeatherSnapshot } from './weatherSnapshot.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
 import { formatWarningText } from './simWarnings.js';
@@ -440,6 +442,8 @@ export interface BranchReport {
 }
 
 export interface SimRun extends WindProfileConditions, AeroProvenance {
+  /** Optional on older runs. Metadata for local flight-data bundles, never a replay input. */
+  exportContext?: RunExportContext;
   /** N007/N010: frozen limits; later preference edits cannot rewrite this flight. */
   advisoryLimits?: FlightAdvisories;
   /** Air-relative peak from Mach × local sound speed; absent on old/summary runs. */
@@ -1932,6 +1936,7 @@ export function extractMaxRollRate(series: FlightSeries): number | null {
 }
 
 export function buildSimRun(input: {
+  weatherSnapshot?: WeatherSnapshot | null;
   units?: UnitSelection;
   advisoryLimits?: FlightAdvisories;
   advisoryTree?: RocketTree;
@@ -2499,6 +2504,7 @@ export function buildSimRun(input: {
     // does not, so a matching run of a nozzle design always carries it.
     ...(nozzleStages && nozzleStages.length > 0 ? { nozzleStages } : {}),
     conditionsKey: conditionsKeyOf(launch),
+    exportContext: runExportContext(launch, input.weatherSnapshot ?? null),
     physicsRevision: PHYSICS_REVISION,
     // Only when finite — a NaN would reach localStorage as null and read back
     // as "no figure" anyway; absent says that honestly from the start.

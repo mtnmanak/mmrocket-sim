@@ -68,6 +68,17 @@ const motor = {
   cgX: 0.035, ejectionDelay: 5,
 };
 
+it('records detached launch metadata for later flight-data collection without changing results', () => {
+  const launch = { ...DEFAULT_CONDITIONS, longitudeDeg: -149.765432 };
+  const result = fakeResult();
+  const before = structuredClone(result);
+  const run = buildSimRun({ result, info, motor, launch, rocketName: 'Test', execMs: 1 });
+  expect(run.exportContext).toMatchObject({ launch, weather: null });
+  launch.longitudeDeg = 0;
+  expect(run.exportContext?.launch.longitudeDeg).toBe(-149.765432);
+  expect(result).toEqual(before);
+});
+
 it('records the last-burnout summary separately from the two-motor primary Auto delay', async () => {
   // Synthetic ballistic peak 10 s; mount burnouts 2/5 s => primary 8 s, last 5 s.
   const assigned: [string, ReturnType<typeof testMotor>][] = [['a', testMotor()], ['b', testMotor()]];
