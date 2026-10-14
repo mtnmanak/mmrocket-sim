@@ -1,4 +1,5 @@
 import { storedWarnings } from './storedWarnings.js';
+import { readDesignProvenance, writeDesignProvenance } from './designProvenance.js';
 import { extensionXmlBySimulation, hasSimulationExtensions, preserveSimulationExtensions, preservedSimulationExtensions } from './orkExtensions.js';
 import { captureStageMass, completeStageMass, replaceStageMass } from './stageMassOverrides.js';
 import { configUuid as uuid, MAX_ORK_CONFIGURATIONS, snapshotLoadedConfig } from './configSnapshot.js';
@@ -1680,7 +1681,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
     || root?.getAttribute('creator') === 'Online OpenRocket';
   // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
   refuseTooManyParts(components);
-  const importedTree = sanitizeTree({ name, components }, notes);
+  const provenance = readDesignProvenance(rocketEl, notes);
+  const importedTree = sanitizeTree({ name, components, ...(provenance ? { provenance } : {}) }, notes);
   // Desktop/current imports retain their placement origin through autosave.
   // A clean unknown file needs no XML stamp, but its checked state must follow
   // future edits. Legacy writer versions never establish a clean origin.
@@ -3439,7 +3441,7 @@ export function exportOrk({
   emit(2, `<id>${uuid()}</id>`);
   emit(2, '<axialoffset method="absolute">0.0</axialoffset>');
   emit(2, '<position type="absolute">0.0</position>');
-  emit(2, '<designtype>original</designtype>');
+  writeDesignProvenance(tree, xml => emit(2, xml), escapeXml, notes);
   // Desktop 24.12 ComponentParameterHandler gives unknown rocket children to
   // PlainTextHandler, then warns and ignores their contents. MotorHandler has
   // no native embedded-curve form; it resolves references with MotorFinder.

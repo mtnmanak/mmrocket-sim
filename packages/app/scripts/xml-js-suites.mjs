@@ -56,6 +56,8 @@ export const XML_JS_SUITES = [
   'src/services/deployOverrideNote.test.ts',
   'src/services/orkFile.test.ts',
   'src/services/partComments.test.ts',
+  // C-A9: root metadata, foreign comments and sharing use both XML parsers.
+  'src/services/designProvenance.test.ts',
   // C-A2: recent copies reopen through the real file door, including nonstandard names.
   'src/services/recentDesigns.test.ts',
   'src/services/orkFile.layers.test.ts',

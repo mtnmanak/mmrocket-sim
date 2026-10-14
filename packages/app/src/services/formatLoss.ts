@@ -13,6 +13,7 @@ import { exportRkt, rktPackedChuteSize } from './rocksimFile.js';
 import { cdx1RecoveryDelayNote, cdx1RodAimNote, cdx1WrittenParts, exportCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 import { nozzleExportNotes } from './nozzleExport.js';
 import { windProfileSaveNotes } from './windProfile.js';
+import { designProvenanceLossNotes } from './designProvenance.js';
 
 export type LossyFormat = 'rkt' | 'cdx1';
 export interface FormatLossReport {
@@ -112,6 +113,7 @@ function nodesOf(tree: RocketTree): ComponentNode[] {
 /** Shared assembly for preview, header and post-save notice; never reads the engine or storage. */
 export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): FormatLossReport {
   const losses: string[] = [];
+  losses.push(...designProvenanceLossNotes(input.tree, format));
   let refused: string | null = null;
   try {
     // Geometry/motor refusals and the writer's existing notes stay owned by the

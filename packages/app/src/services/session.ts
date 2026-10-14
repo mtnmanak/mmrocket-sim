@@ -1,5 +1,6 @@
 import { carryFlags, cautionNote, noteFlags } from './importNotes.js';
 import { storedWarnings } from './storedWarnings.js';
+import { sanitizeDesignProvenance } from './designProvenance.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { LaunchConditions } from './launchConditions.js';
 import type { FlightTree, FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
@@ -390,6 +391,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
       cautionNote(s.treeRestoreNotes!, 'G04.root-replaced', 'The autosaved design root could not be read. The starter design was opened. '
         + 'The old design\'s motors, configurations, and measurements were not applied.');
     }
+    s.tree = sanitizeDesignProvenance(s.tree, s.treeRestoreNotes ??= []);
     // Keep the readable design when only its configurations are corrupt.
     // Restore needs an identity and object maps, not just an object entry
     // (audit 2026-10-11, S1d-2).
