@@ -1114,6 +1114,18 @@ html {
   background: var(--surface-1);
 }
 
+.example-design-list { max-height: 35vh; }
+.example-design-dialog {
+  box-sizing: border-box;
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
+.example-design-list small { margin-top: 4px; }
+.example-load-status { min-height: 1.5em; font-size: 13px; }
+.example-design-list .file-btn:disabled { cursor: wait; }
+
 /* A READOUT in a field grid (the Launch panel's density altitude): the same box
    metrics as an input, so the grid rows line up, but visibly not editable — a
    dashed outline on the plain panel surface rather than an input's filled box.
