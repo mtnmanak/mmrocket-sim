@@ -11,7 +11,8 @@
 export type Quantity =
   | 'length'          // rocket dimensions (UNITS_LENGTH)
   | 'motorDimensions' // motor diameters/lengths (UNITS_MOTOR_DIMENSIONS)
-  | 'distance'        // altitudes, apogee (UNITS_DISTANCE)
+  | 'altitude'        // vertical heights, including site elevation (N032)
+  | 'distance'        // horizontal range and drift (UNITS_DISTANCE)
   | 'mass'            // UNITS_MASS
   | 'velocity'        // UNITS_VELOCITY
   | 'windspeed'       // UNITS_WINDSPEED
@@ -28,6 +29,14 @@ export interface UnitDef {
   /** Added to the UI value before scaling (temperature only). */
   offset?: number;
 }
+
+const DISTANCE_UNITS: UnitDef[] = [
+  { symbol: 'm', toSI: 1 },
+  { symbol: 'km', toSI: 1000 },
+  { symbol: 'ft', toSI: 0.3048 },
+  { symbol: 'yd', toSI: 0.9144 },
+  { symbol: 'mi', toSI: 1609.344 },
+];
 
 const VELOCITY_UNITS: UnitDef[] = [
   { symbol: 'm/s', toSI: 1 },
@@ -50,13 +59,8 @@ export const UNITS: Record<Quantity, UnitDef[]> = {
     { symbol: 'cm', toSI: 0.01 },
     { symbol: 'in', toSI: 0.0254 },
   ],
-  distance: [
-    { symbol: 'm', toSI: 1 },
-    { symbol: 'km', toSI: 1000 },
-    { symbol: 'ft', toSI: 0.3048 },
-    { symbol: 'yd', toSI: 0.9144 },
-    { symbol: 'mi', toSI: 1609.344 },
-  ],
+  altitude: DISTANCE_UNITS,
+  distance: DISTANCE_UNITS,
   mass: [
     { symbol: 'g', toSI: 0.001 },
     { symbol: 'kg', toSI: 1 },
@@ -102,6 +106,7 @@ export type UnitSelection = Record<Quantity, string>;
 export const INITIAL_UNITS: UnitSelection = {
   length: 'mm',
   motorDimensions: 'mm',
+  altitude: 'm',
   distance: 'm',
   mass: 'g',
   velocity: 'm/s',
@@ -117,6 +122,7 @@ export const INITIAL_UNITS: UnitSelection = {
 export const METRIC_UNITS: UnitSelection = {
   length: 'cm',
   motorDimensions: 'mm',
+  altitude: 'm',
   distance: 'm',
   mass: 'g',
   velocity: 'm/s',
@@ -132,6 +138,7 @@ export const METRIC_UNITS: UnitSelection = {
 export const IMPERIAL_UNITS: UnitSelection = {
   length: 'in',
   motorDimensions: 'in',
+  altitude: 'ft',
   distance: 'ft',
   mass: 'oz',
   velocity: 'ft/s',
@@ -146,7 +153,8 @@ export const IMPERIAL_UNITS: UnitSelection = {
 export const QUANTITY_LABEL: Record<Quantity, string> = {
   length: 'Rocket dimensions',
   motorDimensions: 'Motor dimensions',
-  distance: 'Altitude / distance',
+  altitude: 'Altitude',
+  distance: 'Horizontal distance',
   mass: 'Mass',
   velocity: 'Velocity',
   windspeed: 'Wind speed',
@@ -211,7 +219,7 @@ export function fmtSi(quantity: Quantity, symbol: string, si: number, digits?: n
  * a plain "0"; a non-finite value is "—", as everywhere.
  */
 export function fmtAltitude(symbol: string, si: number): string {
-  return fmtSi('distance', symbol, si, symbol === 'km' || symbol === 'mi' ? 2 : 0);
+  return fmtSi('altitude', symbol, si, symbol === 'km' || symbol === 'mi' ? 2 : 0);
 }
 
 /**

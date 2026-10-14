@@ -66,9 +66,9 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
     const el = ref.current;
     if (!el || !available) return;
     const ink = chartInk(el);
-    const distanceUnit = prefs.units.distance;
-    const fromSI = (x: number) => phase ? siToUi('distance', distanceUnit, x) : x;
-    const toSI = (x: number) => phase ? uiToSi('distance', distanceUnit, x) : x;
+    const altitudeUnit = prefs.units.altitude;
+    const fromSI = (x: number) => phase ? siToUi('altitude', altitudeUnit, x) : x;
+    const toSI = (x: number) => phase ? uiToSi('altitude', altitudeUnit, x) : x;
     const height = () => Math.max(300, panelHeight(el.clientWidth || 640, expanded));
     const phaseLabel = (seriesIndex: number, idx: number) => {
       const run = prepared!.runs[seriesIndex - 1]!;
@@ -131,12 +131,12 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
       plotRef.current = null;
       plot.destroy();
     };
-  }, [available, phase, series, values, prepared, members, altitude, preset, prefs.units.distance, daylight, resolvedTheme, expanded, plots]);
+  }, [available, phase, series, values, prepared, members, altitude, preset, prefs.units.altitude, daylight, resolvedTheme, expanded, plots]);
 
   useEffect(() => {
     if (plotRef.current && ref.current) emphasizeSeries(plotRef.current,
       prepared ? prepared.runs.map(() => members[0]!.key) : members.map((d) => d.key), emphasis, ref.current);
-  }, [emphasis, available, phase, series, values, prepared, members, altitude, preset, prefs.units.distance, daylight, resolvedTheme, expanded]);
+  }, [emphasis, available, phase, series, values, prepared, members, altitude, preset, prefs.units.altitude, daylight, resolvedTheme, expanded]);
 
   const tableMembers = phase ? [altitude, ...members] : members;
   const tableValues = phase ? [altitudeValues, ...values] : values;
@@ -149,7 +149,7 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
         aria-label={`${expanded ? 'Restore' : 'Expand'} ${preset.title} chart`}>{expanded ? 'Restore size' : 'Expand'}</button>
     </div>
     <div className="comparison-axis-keys">
-      {phase && <span>Horizontal: Altitude <UnitChip quantity="distance" /></span>}
+      {phase && <span>Horizontal: Altitude <UnitChip quantity="altitude" /></span>}
       {(['left', 'right'] as const).filter((side) => members.some((d) => d.axis === side)).map((side) =>
         <span className="comparison-axis-key" key={side}>
           {side === 'left' ? 'Left' : 'Right'}:

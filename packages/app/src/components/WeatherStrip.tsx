@@ -36,7 +36,7 @@ export function WeatherStrip({ weather, launch, onUndo, onDismiss, onFetchAgain,
   // fails offline — so it greys out with the same reason (review of
   // 2026-09-23: it was the one way into the dialog that stayed live offline).
   const online = useOnline();
-  const alt = (m: number) => altitudeText(prefs.units.distance, m);
+  const alt = (m: number) => altitudeText(prefs.units.altitude, m);
   const stale = weather ? staleness(launch, weather) : null;
   // Both dates in ONE format (formatDay), and both with their year for an
   // ERA5 answer: the valid time in the site's zone, the fetch in yours.
@@ -114,7 +114,7 @@ export function provenanceText(launch: LaunchConditions, weather: WeatherSnapsho
     // The air was fetched for a Site altitude that has since changed: say so
     // WITH the number it qualifies, not only in the strip (D7 §5, L12).
     const stale = staleness(launch, weather);
-    if (stale) return `${source} for the previous altitude, ${altitudeText(units.distance, stale.forAltitudeM)}`;
+    if (stale) return `${source} for the previous altitude, ${altitudeText(units.altitude, stale.forAltitudeM)}`;
   }
   return p.kind === 'forecast' ? source : `edited — ${source} said ${fieldText(key, p.said, units, precision)}`;
 }

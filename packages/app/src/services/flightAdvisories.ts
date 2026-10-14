@@ -87,12 +87,12 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
   const limits = normalizeFlightAdvisories(rawLimits);
   if (!limits) return [];
   const notes: { text: string; level: 'info' | 'caution' }[] = [];
-  const quantity = (kind: 'velocity' | 'distance', si: number, digits = 1): string => {
+  const quantity = (kind: 'velocity' | 'altitude', si: number, digits = 1): string => {
     const symbol = units[kind], siSymbol = kind === 'velocity' ? 'm/s' : 'm';
     return symbol === siSymbol ? `${si.toFixed(digits)} ${siSymbol}`
       : `${fmtSi(kind, symbol, si, 3)} ${symbol} [${si.toFixed(digits)} ${siSymbol}]`;
   };
-  const comparison = (kind: 'velocity' | 'distance', actual: number, limit: number) => {
+  const comparison = (kind: 'velocity' | 'altitude', actual: number, limit: number) => {
     // N007/N010: neither the selected unit nor its SI companion may show a
     // false equality. Keep tiny differences explicit when three decimals cannot.
     const sameDisplay = (digits: number): boolean => Number(actual.toFixed(digits)) === Number(limit.toFixed(digits))
@@ -143,10 +143,10 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
         notes.push({ text: `${context}: the app cannot check ${label} against your electronics arming altitude; ${unavailable}.`, level: 'info' });
       } else if (altitude <= height + band) {
         const below = altitude < height;
-        const pair = below ? comparison('distance', altitude, height) : null;
+        const pair = below ? comparison('altitude', altitude, height) : null;
         const measurement = pair?.indistinguishable ? 'is just below your arming altitude'
-          : `at ${pair?.actual ?? quantity('distance', altitude)} AGL is ${below ? 'below your arming altitude' : 'within your arming caution band'}`;
-        notes.push({ text: `${context}: ${label} ${measurement} (arming ${pair?.limit ?? quantity('distance', height)} AGL, band ${quantity('distance', band)}). `
+          : `at ${pair?.actual ?? quantity('altitude', altitude)} AGL is ${below ? 'below your arming altitude' : 'within your arming caution band'}`;
+        notes.push({ text: `${context}: ${label} ${measurement} (arming ${pair?.limit ?? quantity('altitude', height)} AGL, band ${quantity('altitude', band)}). `
           + 'If recovery depends on these electronics, they may not be armed when needed and recovery may fail. This comparison does not prove the electronics armed.', level: 'caution' });
       }
     };

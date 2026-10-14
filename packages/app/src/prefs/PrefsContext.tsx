@@ -34,6 +34,9 @@ function knownUnits(stored: Partial<UnitSelection> | undefined): UnitSelection {
     const sym: unknown = stored?.[q];
     if (typeof sym === 'string' && UNITS[q].some((u) => u.symbol === sym)) out[q] = sym;
   }
+  // N032: an older store's shared distance choice starts both groups.
+  // Validate distance first; an explicit but invalid altitude takes its default.
+  if (stored?.altitude === undefined) out.altitude = out.distance;
   return out;
 }
 

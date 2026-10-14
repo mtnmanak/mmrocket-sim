@@ -74,7 +74,7 @@ export function ConfigPanel({ configs, activeConfigId, hasMotors, tree, motors, 
   const working = isWorkingSettings({ active: !!active, hasMotors,
     hasUnmatched: Object.keys(unmatchedRefs ?? {}).length > 0, hasOverrides });
   const summary = tree ? describeFlightOverrides(tree, overrides, motors ?? active?.motors ?? {},
-    active ? savedConfigLabel(active) : null, prefs.units.distance) : null;
+    active ? savedConfigLabel(active) : null, prefs.units.altitude) : null;
   const noSaved = noSavedConfigurationsText({ configs: configs.length, working, hasMotors });
   const labelOf = (c: SavedConfig) => `${savedConfigLabel(c)} — configuration ${configs.indexOf(c) + 1}`;
   const editingConfig = configs.find(c => c.id === editing);

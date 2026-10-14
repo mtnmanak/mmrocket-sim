@@ -1,5 +1,6 @@
 import { KERNEL_WIND_FROM_RAD, type WindLevel } from '@online-openrocket/engine';
 import type { PlaceMethod } from './openMeteo.js';
+import { fmtAltitude } from '../prefs/units.js';
 
 /** AGL metres, m/s, and FROM radians clockwise relative to the surface wind. */
 export type RelativeWindLevel = WindLevel & {
@@ -150,9 +151,10 @@ export function validWindLevels(x: unknown): x is RelativeWindLevel[] {
   });
 }
 
-export function windProfileSummary(levels: readonly RelativeWindLevel[]): string {
+export function windProfileSummary(levels: readonly RelativeWindLevel[], altitudeUnit = 'm'): string {
   const top = Math.max(...levels.map((l) => l.altitude));
-  return `${levels.length} levels to ${Math.round(top / 0.3048).toLocaleString('en-US')} ft (${Math.round(top).toLocaleString('en-US')} m) above ground`;
+  const height = fmtAltitude(altitudeUnit, top);
+  return `${levels.length} levels to ${height === '—' ? height : Number(height).toLocaleString('en-US')} ${altitudeUnit} above ground`;
 }
 
 export function windProfileSaveNotes(l: WindProfileConditions, format: '.rkt' | '.CDX1'): string[] {

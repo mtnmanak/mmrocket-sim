@@ -2281,7 +2281,7 @@ describe('a RockSim import note in the user’s distance unit', () => {
     + '</SimulationResults></SimulationResultsList></RockSimDocument>';
 
   it('quotes the main’s deployment altitude in feet to a user who set feet', async () => {
-    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { altitude: 'ft', distance: 'km' } }));
     const host = await mountApp();
     await waitFor(starterStored, 'the starter motor to be autosaved');
     await pick(host, new File([RKT_MAIN_400FT], 'Altitude_Main.rkt'));
@@ -2301,7 +2301,7 @@ describe('a RockSim import note in the user’s distance unit', () => {
  * "152.4 m".
  */
 it('Save .rkt quotes a refused altitude deployment in the user’s distance unit', async () => {
-  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { altitude: 'ft', distance: 'km' } }));
   await mountApp();
   await waitFor(starterStored, 'starter session');
   await unmountAll();

@@ -144,6 +144,16 @@ const start = () => act(async () => { primary().click(); });
 const candidateCount = () => Number(/(\d+) candidate motors/.exec(host.textContent ?? '')![1]);
 
 describe('the candidates', () => {
+  it('N032 batch criteria and apogee cells use Altitude with mixed horizontal units', async () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
+    sweep.mockResolvedValue({ rows: [row('split', 'Split', 304.8)], stopped: false });
+    mount();
+    type(host.querySelector<HTMLInputElement>('#batch-min')!, '500');
+    expect(JSON.parse(localStorage.getItem('online-openrocket.batch-criteria.v1')!).minApogee).toBeCloseTo(152.4, 10);
+    await start();
+    const index = [...host.querySelectorAll('thead th')].findIndex(th => th.textContent?.startsWith('Apogee'));
+    expect(bodyRows()[0]!.querySelectorAll('td')[index]?.textContent).toBe('1000');
+  });
   it.each([undefined, '5', null, {}, Infinity])('storage hardening: draws unavailable optimum delay (%j)', async (optimumDelayS) => {
     const bad = row('bad', 'Bad', 100);
     bad.run = { ...bad.run, optimumDelayS } as SimRun;

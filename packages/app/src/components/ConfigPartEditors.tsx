@@ -124,7 +124,7 @@ function PartRow({ node, family, stageName, override, configLabel, overrideLabel
   const [chosen, setScope] = useState<FlightEditScope>(() => defaultFlightScope(overrideLabel !== null, !!override));
   // Without an override owner there is nothing but the own setting to edit.
   const scope: FlightEditScope = overrideLabel === null ? 'own' : chosen;
-  const unit = prefs.units.distance;
+  const unit = prefs.units.altitude;
   const recovery = family === 'recovery';
   const own: ComponentFlightTuple = recovery ? deploymentTuple(node) : separationTuple(node);
   const describe = (t: ComponentFlightTuple) => 'deployEvent' in t ? describeFlownDeployment(t, unit) : describeFlownSeparation(t, unit);
@@ -190,9 +190,9 @@ function PartRow({ node, family, stageName, override, configLabel, overrideLabel
           <label htmlFor={`${uid}-altitude`}>{recovery ? 'Deploy' : 'Separation'} altitude ({unit})</label>
           <NumField id={`${uid}-altitude`} ariaLabel={`${name} ${verb} altitude (${unit})`}
             onEditStart={onEditStart} onEditEnd={() => onEditEnd(node, scope, shown)} onEditCancel={onEditCancel}
-            value={siToUi('distance', unit, values.altitude)}
-            validate={v => Number.isFinite(uiToSi('distance', unit, v))}
-            onCommit={(v, typing) => { if (v !== null) edit('altitude', uiToSi('distance', unit, v), typing); }} />
+            value={siToUi('altitude', unit, values.altitude)}
+            validate={v => Number.isFinite(uiToSi('altitude', unit, v))}
+            onCommit={(v, typing) => { if (v !== null) edit('altitude', uiToSi('altitude', unit, v), typing); }} />
         </div>
         <div className="field">
           <label htmlFor={`${uid}-delay`}>{recovery ? 'Deploy' : 'Separation'} delay (s)</label>

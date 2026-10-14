@@ -96,7 +96,7 @@ export function designFormatOf(fileName: string): DesignFormat {
  * part the file names by manufacturer + part number (.rkt <PartMfg>/<PartNo>,
  * .ork <preset>) is linked to its row and takes the catalogue's values for
  * whatever the file left unset — a RockSim chute's "auto" Cd, above all. The
- * user's distance unit goes to the .rkt reader alone: it holds no unit
+ * user's altitude unit goes to the .rkt reader alone: it holds no unit
  * preference, and its note quotes each configuration's deployment altitude.
  * Motor rows travel with it too (2026-10-01): headless imports must settle
  * delays and motor moments on the shipped rows, while App keeps live defaults.

@@ -99,7 +99,7 @@ export function fieldText(key: ApplyKey, stored: number, units: UnitSelection, p
     case 'windAverage':
       return windText(units.windspeed, stored, precision);
     case 'launchAltitudeM':
-      return altitudeText(units.distance, stored);
+      return altitudeText(units.altitude, stored);
     case 'latitudeDeg':
       return coordinateLabel(stored, 'latitude', 5);
     case 'longitudeDeg':

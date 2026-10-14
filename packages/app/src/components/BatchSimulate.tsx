@@ -164,7 +164,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   onClose: () => void;
 }) {
   const { prefs } = usePrefs();
-  const dist = prefs.units.distance;
+  const alt = prefs.units.altitude;
   const vel = prefs.units.velocity;
   const len = prefs.units.length;
   const massSym = prefs.units.mass;
@@ -420,7 +420,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   };
 
   const velUi = (si: number | null) => (si === null ? undefined : siToUi('velocity', vel, si));
-  const distUi = (si: number | null) => (si === null ? undefined : siToUi('distance', dist, si));
+  const altUi = (si: number | null) => (si === null ? undefined : siToUi('altitude', alt, si));
 
   // Escape must NOT close a sweep that is running. The ✕ is disabled={running}
   // and the backdrop's close is guarded on the same ref below, but
@@ -561,18 +561,18 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                 onCommit={(v) => setCriteria({ ...criteria, minThrustToWeight: v })} />
             </label>
             <label className="motor-inline-label" htmlFor="batch-min">
-              Apogee min <UnitChip quantity="distance" />
-              <NumField id="batch-min" value={distUi(criteria.minApogee)} step={10} nullable placeholder="—"
-                ariaLabel={`Minimum apogee (${dist})`}
-                validate={(v) => Number.isFinite(uiToSi('distance', dist, v))}
-                onCommit={(v) => setCriteria({ ...criteria, minApogee: v === null ? null : uiToSi('distance', dist, v) })} />
+              Apogee min <UnitChip quantity="altitude" />
+              <NumField id="batch-min" value={altUi(criteria.minApogee)} step={10} nullable placeholder="—"
+                ariaLabel={`Minimum apogee (${alt})`}
+                validate={(v) => Number.isFinite(uiToSi('altitude', alt, v))}
+                onCommit={(v) => setCriteria({ ...criteria, minApogee: v === null ? null : uiToSi('altitude', alt, v) })} />
             </label>
             <label className="motor-inline-label" htmlFor="batch-max">
-              max <UnitChip quantity="distance" />
-              <NumField id="batch-max" value={distUi(criteria.maxApogee)} step={10} nullable placeholder="—"
-                ariaLabel={`Maximum apogee (${dist})`}
-                validate={(v) => Number.isFinite(uiToSi('distance', dist, v))}
-                onCommit={(v) => setCriteria({ ...criteria, maxApogee: v === null ? null : uiToSi('distance', dist, v) })} />
+              max <UnitChip quantity="altitude" />
+              <NumField id="batch-max" value={altUi(criteria.maxApogee)} step={10} nullable placeholder="—"
+                ariaLabel={`Maximum apogee (${alt})`}
+                validate={(v) => Number.isFinite(uiToSi('altitude', alt, v))}
+                onCommit={(v) => setCriteria({ ...criteria, maxApogee: v === null ? null : uiToSi('altitude', alt, v) })} />
             </label>
             <label className="motor-inline-label" title="Which physics model the batch flies. Auto is recommended: candidates often straddle Mach 1, and each motor gets the model its own flight calls for.">
               aero model
@@ -822,7 +822,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                 <tr>
                   <th scope="col">Motor</th>
                   <th scope="col">Delay</th>
-                  <th scope="col">Apogee (<UnitChip quantity="distance" />)</th>
+                  <th scope="col">Apogee (<UnitChip quantity="altitude" />)</th>
                   <th scope="col">Rod exit (<UnitChip quantity="velocity" />)</th>
                   <th scope="col">{railNeededHeader(railThreshold, vel, len, 'travel')}</th>
                   <th scope="col">{railNeededHeader(railThreshold, vel, len)}</th>
@@ -859,7 +859,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
                         && <span className="motor-db-meta"> · nozzle</span>}
                     </td>
                     <td>{batchDelayCell(run, optimumForPlugged)}</td>
-                    <td>{run ? fmtSi('distance', dist, run.maxAltitude) : '—'}</td>
+                    <td>{run ? fmtSi('altitude', alt, run.maxAltitude) : '—'}</td>
                     <td>{run?.rodExitVelocity != null ? fmtSi('velocity', vel, run.rodExitVelocity) : '—'}</td>
                     <td>{run && !run.importedSummary ? railNeededCell(run.railProfile, railThreshold, len, 'travel') : ''}</td>
                     <td>{run && !run.importedSummary ? railNeededCell(run.railProfile, railThreshold, len) : ''}</td>

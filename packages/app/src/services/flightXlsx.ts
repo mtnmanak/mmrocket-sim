@@ -99,7 +99,8 @@ const GROUPED_CHARTS: { tab: string; axis: string; members: string[] }[] = [
   { tab: 'Damping coefficients', axis: 'Coefficient', members: ['CfΦ', 'CζΦ', 'Cζθ', 'CζΨ'] },
   { tab: 'Angular rates', axis: 'Rate', members: ['dΦ', 'dθ', 'dΨ'] },
   { tab: 'Orientation', axis: 'Angle', members: ['Θ', 'Φ', 'θl', 'θw'] },
-  { tab: 'Position', axis: 'Distance', members: ['ha', 'Px', 'Py', 'Pl'] },
+  // N032: sea-level altitude gets its own chart; a position axis follows horizontal units.
+  { tab: 'Position', axis: 'Distance', members: ['Px', 'Py', 'Pl'] },
   { tab: 'Velocity components', axis: 'Velocity', members: ['Vz', 'Vl', 'Vs'] },
   { tab: 'Accelerations', axis: 'Acceleration', members: ['Az', 'Al', 'g'] },
   { tab: 'Moments of inertia', axis: 'Moment of inertia', members: ['Il', 'Ir'] },

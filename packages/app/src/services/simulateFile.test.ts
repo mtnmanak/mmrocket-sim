@@ -96,11 +96,23 @@ describe('simulateFile flies a design file offline, on the shipped data', () => 
         (_all, tag: string) => `<${tag}>${event}</${tag}>`);
     expect(xml).toContain(event);
     const data = new TextEncoder().encode(xml);
-    const feet = await simulateFile(data, 'TubeFins2.rkt', { units: { ...INITIAL_UNITS, distance: 'ft' } });
-    const metres = await simulateFile(data, 'TubeFins2.rkt', { units: { ...INITIAL_UNITS, distance: 'm' } });
+    const feet = await simulateFile(data, 'TubeFins2.rkt', { units: { ...INITIAL_UNITS, altitude: 'ft', distance: 'km' } });
+    const metres = await simulateFile(data, 'TubeFins2.rkt', { units: { ...INITIAL_UNITS, altitude: 'm', distance: 'ft' } });
     expect(feet.importNote.text).toContain('Parachute at 400 ft descending');
     expect(metres.importNote.text).toContain('Parachute at 121.92 m descending');
     expect(feet.importNote.text).not.toBe(metres.importNote.text);
+    // Same runtime and identical inputs: this compares kernel outputs directly,
+    // with no hard-coded float oracle or tolerance across different Node versions.
+    expect(feet.result.summary).toEqual(metres.result.summary);
+    expect(feet.result.series).toEqual(metres.result.series);
+    expect(feet.result.branches?.map(branch => branch.series)).toEqual(metres.result.branches?.map(branch => branch.series));
+    expect(idFree(feet.run)).toEqual(idFree(metres.run));
+    console.info('N032 mixed units SI comparison', {
+      series: Object.keys(feet.result.series).length, timeSamples: feet.result.series.time.length,
+      maxAltitudeDeltaM: feet.result.summary.maxAltitude - metres.result.summary.maxAltitude,
+      landingDistanceDeltaM: feet.run.landingDistanceM == null || metres.run.landingDistanceM == null
+        ? null : feet.run.landingDistanceM - metres.run.landingDistanceM,
+    });
   }, 60000);
 
   it.each(['reference.ork', 'rocksimTestRocket1.rkt', 'Show-off.CDX1'])('%s, without the network', async (name) => {

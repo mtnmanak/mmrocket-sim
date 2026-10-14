@@ -55,6 +55,26 @@ function singleFlight(): FlightResult {
   return { summary, events: [], series: fakeSeries() };
 }
 
+it('N032 keeps altitude and horizontal position on separate unit-labelled Excel axes', () => {
+  const result = singleFlight();
+  result.series.ha = [304.8, 609.6, 914.4];
+  result.series.Px = [0, 1000, 2000];
+  result.series.Py = [0, 1000, 2000];
+  result.series.Pl = [0, 1000, 2000];
+  const before = structuredClone(result);
+  const files = unzipSync(flightXlsx(result, { ...IMPERIAL_UNITS, altitude: 'ft', distance: 'km' }));
+  const data = strFromU8(files['xl/worksheets/sheet1.xml']!);
+  expect(data).toContain('Altitude (ft)');
+  expect(data).toContain('Altitude above sea level (ft)');
+  expect(data).toContain('Lateral distance (km)');
+  const charts = Object.entries(files).filter(([p]) => p.startsWith('xl/charts/chart')).map(([, b]) => strFromU8(b));
+  const position = charts.find(c => c.includes('Position East of launch'))!;
+  expect(position).toContain('Distance (km)');
+  expect(position).not.toContain('Altitude above sea level');
+  expect(charts.some(c => c.includes('Altitude above sea level (ft)'))).toBe(true);
+  expect(result).toEqual(before);
+});
+
 describe('N038 saved workbook layout', () => {
   const layout: FlightExportLayout = { id: 'chosen', name: 'Chosen', columns: [
     { key: 'altitude', unit: 'ft' }, { key: 'time', unit: 's' }, { key: 'velocity', unit: 'mph' },

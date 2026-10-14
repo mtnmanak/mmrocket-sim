@@ -5,7 +5,7 @@ import { fmtSi, type Quantity } from '../prefs/units.js';
 import { Note } from './Note.js';
 
 const SUMMARY_FIELDS: [keyof DesktopStoredPrediction['data'], keyof SimRun, string, Quantity | null][] = [
-  ['maxAltitude', 'maxAltitude', 'Max altitude', 'distance'],
+  ['maxAltitude', 'maxAltitude', 'Max altitude', 'altitude'],
   ['maxVelocity', 'maxVelocity', 'Max velocity', 'velocity'],
   ['maxAcceleration', 'maxAcceleration', 'Max acceleration', 'acceleration'],
   ['maxMach', 'maxMach', 'Max Mach', null],

@@ -2,7 +2,7 @@ import { estimatedCloudBaseM, type HourSample } from '../services/openMeteo.js';
 import { altitudeText, visibilityText } from './weatherText.js';
 
 /** Display only: no apply controls, thresholds, verdicts or persistence. */
-export function WeatherSkyInfo({ sample, distanceUnit }: { sample: HourSample; distanceUnit: string }) {
+export function WeatherSkyInfo({ sample, distanceUnit, altitudeUnit = distanceUnit }: { sample: HourSample; distanceUnit: string; altitudeUnit?: string }) {
   const base = estimatedCloudBaseM(sample.temperatureC, sample.dewPointC);
   if (sample.cloudCoverPct == null && sample.cloudCoverLowPct == null && sample.visibilityM == null && base === null) return null;
   return (
@@ -12,7 +12,7 @@ export function WeatherSkyInfo({ sample, distanceUnit }: { sample: HourSample; d
         {sample.cloudCoverPct != null && <li>Cloud cover (total): {sample.cloudCoverPct}%</li>}
         {sample.cloudCoverLowPct != null && <li>Cloud cover (low): {sample.cloudCoverLowPct}%</li>}
         {sample.visibilityM != null && <li>Visibility: {visibilityText(distanceUnit, sample.visibilityM)}</li>}
-        {base !== null && <li>Cloud base (estimate): {altitudeText(distanceUnit, base)} above the site.</li>}
+        {base !== null && <li>Cloud base (estimate): {altitudeText(altitudeUnit, base)} above the site.</li>}
       </ul>
       {base !== null && <p className="weather-small">The estimate uses the surface temperature/dew-point spread for lifted air.
         It is not an observed ceiling and does not establish whether clouds are present.</p>}

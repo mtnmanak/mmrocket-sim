@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { nozzleEditableStageIds } from '../tree/treeModel.js';
-import { DesignNozzleSetting, type DesignFlightContext } from './DesignFlightSetting.js';
+import { DesignFlightSetting, DesignNozzleSetting, type DesignFlightContext } from './DesignFlightSetting.js';
 import { NumField } from './NumField.js';
 
 import { MotorLengthReadout } from './MotorLengthField.js';
@@ -59,6 +59,16 @@ const mount = (id: string, flight?: DesignFlightContext) => act(() => root.rende
   </PrefsProvider>,
 ));
 const group = (label: string) => host.querySelector<HTMLElement>(`[role="group"][aria-label="${label}"]`);
+
+it('N032 Design reads deployment and separation heights using Altitude', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
+  const chute = { ...node('ribbon'), deployEvent: 'altitude', deployAltitude: 152.4 };
+  const booster = { ...node('booster'), separationEvent: 'altitudedescending', separationAltitude: 304.8 };
+  act(() => root.render(<PrefsProvider><DesignFlightSetting tree={tree} node={chute} />
+    <DesignFlightSetting tree={tree} node={booster} /></PrefsProvider>));
+  expect(group('Deployment')?.textContent).toContain('500 ft');
+  expect(group('Separation')?.textContent).toContain('1000 ft');
+});
 
 it('offers definitions for read-only deployment, separation and nozzle settings on Design', () => {
   mount('ribbon', context());

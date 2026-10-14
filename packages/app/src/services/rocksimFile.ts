@@ -201,7 +201,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   /** Every-delay must use the same rows as the later match (2026-10-01); App defaults to live rows. */
   catalogue?: MotorDbEntry[];
   /**
-   * The user's distance unit (`prefs.units.distance`), for the recovery line's
+   * The user's altitude unit (`prefs.units.altitude`), for the recovery line's
    * deployment altitudes. This module holds no unit preference, so App hands it
    * over; without it the line writes metres, the unit the file stores.
    */
@@ -2637,7 +2637,7 @@ export interface RktExportInput {
    */
   dryRun?: boolean;
   /**
-   * The user's distance unit (`prefs.units.distance`), for a refused altitude
+   * The user's altitude unit (`prefs.units.altitude`), for a refused altitude
    * deployment's altitude. This module holds no unit preference, so App hands
    * it over, as it does to importRkt; without it the refusal writes metres.
    */

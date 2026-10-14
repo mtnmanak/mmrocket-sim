@@ -17,7 +17,7 @@ export interface SeriesDef {
 export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: string[]): SeriesDef[] {
   const u = prefs.units;
   return [
-    { key: 'altitude', title: 'Altitude', unit: u.distance, quantity: 'distance', color: C[0]!, f: (v) => siToUi('distance', u.distance, v) },
+    { key: 'altitude', title: 'Altitude', unit: u.altitude, quantity: 'altitude', color: C[0]!, f: (v) => siToUi('altitude', u.altitude, v) },
     { key: 'velocity', title: 'Velocity', unit: u.velocity, quantity: 'velocity', color: C[1]!, f: (v) => siToUi('velocity', u.velocity, v) },
     // Vertical velocity: the kernel's Vz, in every summary run. It goes through
     // zero at apogee and turns negative on the way down — desktop OR's default

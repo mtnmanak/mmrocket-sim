@@ -31,7 +31,7 @@ interface ColSpec {
 /** The friendly-named arrays the engine emits first. */
 const FRIENDLY: [key: string, spec: ColSpec][] = [
   ['time', { name: 'Time', si: 's' }],
-  ['altitude', { name: 'Altitude', si: 'm', quantity: 'distance' }],
+  ['altitude', { name: 'Altitude', si: 'm', quantity: 'altitude' }],
   ['velocity', { name: 'Velocity', si: 'm/s', quantity: 'velocity' }],
   ['acceleration', { name: 'Acceleration', si: 'm/s²', quantity: 'acceleration' }],
   ['mass', { name: 'Mass', si: 'kg', quantity: 'mass' }],
@@ -68,7 +68,7 @@ const DUPLICATE_SYMBOLS = new Set([
  * the header is then just the symbol.
  */
 const SYMBOL_SPEC: Record<string, ColSpec> = {
-  ha: { name: 'Altitude above sea level', si: 'm', quantity: 'distance' },
+  ha: { name: 'Altitude above sea level', si: 'm', quantity: 'altitude' },
   Vz: { name: 'Vertical velocity', si: 'm/s', quantity: 'velocity' },
   Az: { name: 'Vertical acceleration', si: 'm/s²', quantity: 'acceleration' },
   Px: { name: 'Position East of launch', si: 'm', quantity: 'distance' },

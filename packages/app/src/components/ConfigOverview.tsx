@@ -70,7 +70,7 @@ export function ConfigOverview({ configs, activeConfigId, tree, onApply, onShowP
                 {active && <span className="config-active-tag"> — active</span>}
               </th>
               {parts.map(part => {
-                const value = partValue(part, config, tree, prefs.units.distance);
+                const value = partValue(part, config, tree, prefs.units.altitude);
                 const what = `${part.node.name || part.node.type}: ${value.text}${value.override ? ' — override' : ''}`;
                 return <td key={part.node.id}><button className="file-btn" onClick={() => {
                   if (!active) onApply(config);

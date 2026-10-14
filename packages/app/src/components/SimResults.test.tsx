@@ -108,6 +108,24 @@ const render = (node: React.ReactNode) => act(() => root.render(
   <PrefsProvider>{node}</PrefsProvider>,
 ));
 
+it('N032 reads all report altitudes in feet and landing drift in kilometres without changing the run', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
+  const saved = { ...run(), maxAltitude: 304.8, altitudeAtDeployment: 152.4, landingDistanceM: 2000,
+    densityAltitudeM: 609.6, deployments: [], advisoryLimits: { armingAltitudeM: 30.48, armingCautionBandM: 3.048 } };
+  const before = structuredClone(saved);
+  render(<SimRunDetails run={saved} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+  const row = (label: string) => [...host.querySelectorAll('tr')].find(r => r.cells[0]?.textContent === label)!;
+  expect(row('Max altitude').cells[1]?.textContent).toContain('1000');
+  expect(row('Altitude at deployment').cells[1]?.textContent).toContain('500');
+  expect(row('Landing distance from pad').cells[1]?.textContent).toContain('2.00');
+  expect(row('Landing distance from pad').querySelector('select')?.value).toBe('km');
+  expect(row('Density altitude').cells[1]?.textContent).toContain('2000');
+  expect(host.textContent).toContain('arming 100 ft AGL');
+  expect(host.querySelector('select[aria-label="Altitude unit"]')?.getAttribute('title')).toBeTruthy();
+  expect(saved).toEqual(before);
+});
+
 it.each([0, 1.25, undefined])('shows recorded gust sigma %s in details and saved-run row', windSigma => {
   const stored = { ...run(), windSigma };
   render(<SimRunDetails run={stored} />);
@@ -1007,7 +1025,7 @@ it('names winds aloft in the report and the saved-run table', () => {
   const flown = { ...run(), windLevels: [{ altitude: 10, speed: 4, direction: 0 }, { altitude: 500, speed: 10, direction: 0.2 }] };
   render(<SimRunDetails run={flown} />);
   act(() => [...host.querySelectorAll('button')].find((b) => b.textContent === 'Show all details')!.click());
-  expect(host.textContent).toContain('Winds aloft2 levels to 1,640 ft');
+  expect(host.textContent).toContain('Winds aloft2 levels to 500 m');
   render(<SimHistory runs={[flown]} onRunsChange={() => {}} />);
   openTable();
   expect([...host.querySelectorAll('th')].some((th) => th.textContent === 'Winds aloft')).toBe(true);

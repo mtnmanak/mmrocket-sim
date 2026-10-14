@@ -383,7 +383,7 @@ export function WeatherDialog({
     onClose();
   };
 
-  const alt = (m: number) => altitudeText(units.distance, m);
+  const alt = (m: number) => altitudeText(units.altitude, m);
   const fmt = (k: ProposalRow['key'], v: number) => fieldText(k, v, units, prefs.fieldPrecision);
   const offerSite = launch.latitudeDeg !== DEFAULT_CONDITIONS.latitudeDeg && flownLongitudeDeg(launch) !== null;
   const siteKey = place ? `${place.latitudeDeg},${place.longitudeDeg}` : '';
@@ -573,7 +573,7 @@ export function WeatherDialog({
               </tbody>
             </table>
 
-            <WeatherSkyInfo sample={proposal.sample} distanceUnit={units.distance} />
+            <WeatherSkyInfo sample={proposal.sample} distanceUnit={units.distance} altitudeUnit={units.altitude} />
 
             {checkLongitude && (
               <div className="weather-note" role="status">
@@ -604,7 +604,7 @@ export function WeatherDialog({
                 <label><input type="checkbox" aria-label="Apply Winds aloft"
                   checked={aloftTicked && applyingWind} disabled={!applyingWind}
                   onChange={(e) => setAloftTicked(e.target.checked)} /> Winds aloft</label>
-                <p>{windProfileSummary(proposal.windLevels)}, strongest{' '}
+                <p>{windProfileSummary(proposal.windLevels, units.altitude)}, strongest{' '}
                   {fieldText('windAverage', Math.max(...proposal.windLevels.map((l) => l.speed)), units, prefs.fieldPrecision)} at{' '}
                   {alt(proposal.windLevels.reduce((a, b) => b.speed > a.speed ? b : a).altitude)}.</p>
                 <details><summary>View wind levels</summary>

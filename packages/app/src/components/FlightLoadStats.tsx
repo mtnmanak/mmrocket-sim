@@ -9,7 +9,7 @@ export function FlightLoadStats({ run }: { run: SimRun }) {
   const { prefs } = usePrefs();
   const u = prefs.units;
   const digits = (v: number | null, places: number) => v != null && Number.isFinite(v) ? v.toFixed(places) : '—';
-  const at = (p: LoadPeak) => `${digits(p.time, 3)} s; ${p.altitude == null ? '—' : fmtSi('distance', u.distance, p.altitude)} ${u.distance} AGL`;
+  const at = (p: LoadPeak) => `${digits(p.time, 3)} s; ${p.altitude == null ? '—' : fmtSi('altitude', u.altitude, p.altitude)} ${u.altitude} AGL`;
   const pressure = (v: number) => Number.isFinite(v) ? fmtSig(siToUi('pressure', u.pressure, v), 4, 3) : '—';
   const q = run.loads?.maxQ, qa = run.loads?.maxQAlpha;
   const unavailable = run.loads ? 'Unavailable in this flight window' : 'Unavailable — launch again';

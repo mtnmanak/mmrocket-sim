@@ -553,7 +553,7 @@ interface TileSpec {
   /** null value → tile renders an em-dash. */
   render: (
     run: SimRun,
-    u: { dist: string; vel: string; acc: string; mass: string; stability?: StabilityUnit },
+    u: { alt: string; vel: string; acc: string; mass: string; stability?: StabilityUnit },
   ) => { value: string; quantity?: Quantity; unit?: string };
 }
 
@@ -602,7 +602,7 @@ function tileFixed(v: number | null | undefined, digits: number): string {
 
 /** Every metric the highlighted tiles can show, in display order. */
 export const RESULT_TILE_METRICS: TileSpec[] = [
-  { id: 'apogee', label: 'Apogee', render: (r, u) => ({ value: tileSi('distance', u.dist, r.maxAltitude), quantity: 'distance' }) },
+  { id: 'apogee', label: 'Apogee', render: (r, u) => ({ value: tileSi('altitude', u.alt, r.maxAltitude), quantity: 'altitude' }) },
   { id: 'maxVelocity', label: 'Max velocity', render: (r, u) => ({ value: tileSi('velocity', u.vel, r.maxVelocity), quantity: 'velocity' }) },
   { id: 'maxMach', label: 'Max Mach', render: (r) => ({ value: tileFixed(r.maxMach, 2) }) },
   { id: 'maxAccel', label: 'Max accel', render: (r, u) => ({ value: tileSi('acceleration', u.acc, r.maxAcceleration), quantity: 'acceleration' }) },
@@ -680,7 +680,7 @@ export function FlightStats({ run }: { run: SimRun }) {
   const { prefs, setPrefs } = usePrefs();
   const [picking, setPicking] = useState(false);
   const u = {
-    dist: prefs.units.distance, vel: prefs.units.velocity,
+    alt: prefs.units.altitude, vel: prefs.units.velocity,
     acc: prefs.units.acceleration, mass: prefs.units.mass,
     stability: prefs.stabilityUnit,
   };

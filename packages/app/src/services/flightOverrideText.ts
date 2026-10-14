@@ -19,7 +19,7 @@ export function describeComponentFlightTuple(tuple: ComponentFlightTuple, unit: 
   const delay = recovery ? tuple.deployDelay : tuple.separationDelay;
   const options = recovery ? DEPLOY_EVENTS : SEPARATION_EVENTS;
   const label = options.find(([key]) => key === event.toLowerCase())?.[1] ?? event;
-  const height = `${fmtFieldValue(siToUi('distance', unit, altitude))} ${unit}`;
+  const height = `${fmtFieldValue(siToUi('altitude', unit, altitude))} ${unit}`;
   if (mode === 'warning') {
     return `${label}${event.toLowerCase().startsWith('altitude') ? `, ${height}` : ''}${delay !== 0 ? `, delay ${fmtFieldValue(delay)} s` : ''}`;
   }

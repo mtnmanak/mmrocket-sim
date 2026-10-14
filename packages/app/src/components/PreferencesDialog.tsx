@@ -38,7 +38,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
    */
   const uid = useId();
   const idFor = (key: string) => `${uid}-${key}`;
-  const adviceField = (key: keyof FlightAdvisories, label: string, quantity?: 'velocity' | 'distance') => {
+  const adviceField = (key: keyof FlightAdvisories, label: string, quantity?: 'velocity' | 'altitude') => {
     const value = prefs.flightAdvisories?.[key];
     const symbol = quantity ? prefs.units[quantity] : '';
     return <div className="field" key={key}>
@@ -258,8 +258,8 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         <div className="field-grid">
           {adviceField('maxAirspeedMs', 'Maximum airspeed', 'velocity')}
           {adviceField('maxMach', 'Maximum Mach')}
-          {adviceField('armingAltitudeM', 'Electronics arming altitude (AGL)', 'distance')}
-          {adviceField('armingCautionBandM', 'Arming caution band', 'distance')}
+          {adviceField('armingAltitudeM', 'Electronics arming altitude (AGL)', 'altitude')}
+          {adviceField('armingCautionBandM', 'Arming caution band', 'altitude')}
         </div>
         <p className="prefs-hint" id={idFor('advice-help')}>
           Use positive speed and Mach limits, or leave them blank to turn the advice off.

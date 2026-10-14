@@ -46,7 +46,7 @@ describe('saved flight export layouts (N038)', () => {
 
   // Every unit offered by the editor must have a numeric/header oracle. These
   // are unit arithmetic, not kernel float baselines (10 digits allows rounding).
-  const siByQuantity = { distance: 10, velocity: 5, acceleration: 9.80665, mass: 1, length: 1,
+  const siByQuantity = { altitude: 10, distance: 10, velocity: 5, acceleration: 9.80665, mass: 1, length: 1,
     angle: Math.PI, pressure: 101325, windspeed: 5, temperature: 288.15, density: 1.225 };
   for (const column of exportColumnCatalog()) {
     if (!column.quantity) continue;

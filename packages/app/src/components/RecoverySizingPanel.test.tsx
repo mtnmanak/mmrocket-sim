@@ -42,7 +42,7 @@ describe('RecoverySizingPanel', () => {
     root = createRoot(host);
     // Inches and ft/s, so the copy can be read against the owner's own numbers.
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
-      units: { length: 'in', velocity: 'ft/s', mass: 'kg', distance: 'ft' },
+      units: { length: 'in', velocity: 'ft/s', mass: 'kg', altitude: 'ft', distance: 'km' },
     }));
   });
 

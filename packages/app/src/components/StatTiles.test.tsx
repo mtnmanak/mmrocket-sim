@@ -25,7 +25,7 @@ import type { DeploymentReport, SimRun } from '../services/simReport.js';
  */
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const U = { dist: 'ft', vel: 'ft/s', acc: 'G', mass: 'oz', stability: 'cal' as const };
+const U = { alt: 'ft', dist: 'km', vel: 'ft/s', acc: 'G', mass: 'oz', stability: 'cal' as const };
 
 const deployment = (over: Partial<DeploymentReport>): DeploymentReport => ({
   device: 'Drogue', time: 6.8, altitude: 331, velocityAtDeployment: 4.2,

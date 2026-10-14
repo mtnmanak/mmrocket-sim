@@ -62,7 +62,7 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
   const lenSym = prefs.units.length;
   const velSym = prefs.units.velocity;
   const massSym = prefs.units.mass;
-  const distSym = prefs.units.distance;
+  const altSym = prefs.units.altitude;
 
   /**
    * The parts catalogue is ~1.3 MB and lazily imported. It is fetched ONLY
@@ -148,7 +148,7 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
     + ` · drogue ~${roughLength(sustainer.drogue.diameter)} ${lenSym}`
     + (objects.length > 1 ? ` · +${objects.length - 1} stage${objects.length > 2 ? 's' : ''}` : '');
 
-  const fmt = { roughLength, rate, lenSym, velSym, massSym, distSym };
+  const fmt = { roughLength, rate, lenSym, velSym, massSym, altSym };
 
   return (
     <Shell summary={summary}>
@@ -185,7 +185,7 @@ function ObjectSection({ label, sizing, note, catalogueReady, catalogueFailed, f
   catalogueFailed: boolean;
   fmt: Fmt;
 }) {
-  const { roughLength, rate, lenSym, velSym, massSym, distSym } = fmt;
+  const { roughLength, rate, lenSym, velSym, massSym, altSym } = fmt;
   const heading = label !== null && (
     <h3 className="recovery-object">{label}</h3>
   );
@@ -219,7 +219,7 @@ function ObjectSection({ label, sizing, note, catalogueReady, catalogueFailed, f
         Sized for <strong>{fmtSi('mass', massSym, sizing.massKg)} {massSym}</strong> coming down
         {sizing.elevationM > 0 && (
           <>
-            {' '}at <strong>{fmtSi('distance', distSym, sizing.elevationM, 0)} {distSym}</strong>
+            {' '}at <strong>{fmtSi('altitude', altSym, sizing.elevationM, 0)} {altSym}</strong>
             {/* The ELEVATION is always named — every rate on this panel was
                 computed at its density. The "% faster" clause is not: ISA
                 density falls ~1.16 % per 100 m, so siteRateFactor only reaches
@@ -257,7 +257,7 @@ interface Fmt {
   lenSym: string;
   velSym: string;
   massSym: string;
-  distSym: string;
+  altSym: string;
 }
 
 /**

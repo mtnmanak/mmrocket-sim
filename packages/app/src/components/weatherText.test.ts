@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { farText, visibilityText, windNumber, windText, fieldText } from './weatherText.js';
 import { fmtFieldValue, INITIAL_UNITS } from '../prefs/units.js';
 
+it('N032 weather altitude follows Altitude while location distance retains its own family', () => {
+  const units = { ...INITIAL_UNITS, altitude: 'ft', distance: 'km' };
+  expect(fieldText('launchAltitudeM', 304.8, units)).toBe('1,000 ft');
+  expect(farText(units.distance, 1000)).toBe('1.0 km');
+});
+
 it.each(['auto', 3, 4] as const)('N005 wind text follows field precision %s', precision => {
   const digits = precision === 4 ? '1.0625' : '1.063';
   expect(fmtFieldValue(1.0625, precision)).toBe(digits);

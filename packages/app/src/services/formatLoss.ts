@@ -32,7 +32,7 @@ export interface FormatLossInput {
   measured: MeasuredFigures;
   /** Only summaries eligible for the .ork, not the whole Saved runs library. */
   flightData: Record<string, OrkExportFlightData>;
-  /** The user's distance unit, for the writer's refusals (RktExportInput.distanceUnit); metres when absent. */
+  /** The user's altitude unit, for the writer's refusals (RktExportInput.distanceUnit); metres when absent. */
   distanceUnit?: string;
 }
 export const formatExtension = (format: LossyFormat): '.rkt' | '.CDX1' => format === 'rkt' ? '.rkt' : '.CDX1';

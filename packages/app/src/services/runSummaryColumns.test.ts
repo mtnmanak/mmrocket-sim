@@ -4,6 +4,18 @@ import type { SimRun } from './simReport.js';
 import { DEFAULT_RUN_COLUMNS, normalizeRunColumns, RUN_SUMMARY_COLUMNS, summaryCell } from './runSummaryColumns.js';
 
 describe('saved-run summary columns (N058)', () => {
+  it('N032 separates apogee, deployment and load heights from landing drift', () => {
+    const units = { ...INITIAL_UNITS, altitude: 'ft', distance: 'km' };
+    const peak = { value: 1, time: 1, altitude: 304.8, mach: 0.1, aoa: 0.01 };
+    const run = { maxAltitude: 304.8, altitudeAtDeployment: 304.8, landingDistanceM: 2000,
+      loads: { maxQ: peak, maxQAlpha: peak } } as SimRun;
+    for (const id of ['maxAltitude', 'altitudeAtDeployment', 'maxQAltitude', 'maxQAlphaAltitude']) {
+      const column = RUN_SUMMARY_COLUMNS.find(c => c.id === id)!;
+      expect(column.quantity).toBe('altitude');
+      expect(summaryCell(column, run, units)).toBe('1000');
+    }
+    expect(summaryCell(RUN_SUMMARY_COLUMNS.find(c => c.id === 'landingDistanceM')!, run, units)).toBe('2.00');
+  });
   it('defaults to today’s four metrics and preserves valid viewer order', () => {
     expect(DEFAULT_RUN_COLUMNS).toEqual(['maxAltitude', 'maxVelocity', 'optimumDelayS', 'rodExitVelocity']);
     expect(normalizeRunColumns(undefined)).toBeUndefined();

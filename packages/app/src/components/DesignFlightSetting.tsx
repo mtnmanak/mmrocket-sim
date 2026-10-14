@@ -44,7 +44,7 @@ export function DesignFlightSetting({ tree, node, context }: {
   tree: RocketTree; node: ComponentNode; context?: DesignFlightContext;
 }) {
   const { prefs } = usePrefs();
-  const unit = prefs.units.distance;
+  const unit = prefs.units.altitude;
   const recovery = node.type === 'parachute' || node.type === 'streamer';
   const heading = recovery ? 'Deployment' : 'Separation';
   const top = stages(tree)[0];

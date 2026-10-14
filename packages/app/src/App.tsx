@@ -1192,8 +1192,8 @@ export function App() {
   const overrideScopeLabel = overrideScopeText(overrideConfigLabel, detachedOwnsOverrides);
   const flightOwnerKey = activeLayer?.id ?? 'working';
   const launchOverrideSummary = useMemo(() => describeFlightOverrides(
-    tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance,
-  ), [tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.distance]);
+    tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.altitude,
+  ), [tree, activeOverrides, mountMotors, overrideConfigLabel, prefs.units.altitude]);
   // `edit`: the Launch warning's Show lands on the row's Edit… button (CFG-SPEC A2);
   // the All configurations table lands on the row itself.
   // `nozzle`: Design's read-only Nozzle exit line lands on that stage's field (CFG-SPEC A4).
@@ -2014,8 +2014,8 @@ export function App() {
         setSimError(null);
         setFlightSaid((prev) => ({
           seq: prev.seq + 1,
-          text: `Flight complete — apogee ${fmtSi('distance', prefs.units.distance, res.summary.maxAltitude)}`
-            + ` ${prefs.units.distance}.`,
+          text: `Flight complete — apogee ${fmtSi('altitude', prefs.units.altitude, res.summary.maxAltitude)}`
+            + ` ${prefs.units.altitude}.`,
         }));
       } catch (e) {
         // The error is the launched design's, and dies with it like the rest.
@@ -2062,16 +2062,16 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- Show charts fills the ref-backed cache before clearing reflying
   [runs, provenanceKey, result, reflightCache, reflying]);
   const recovery = useMemo((): RecoveryMass => (
-    recoveryInput ? recoveryMass({ ...recoveryInput, flightEvents: recoveryEvents, distanceUnit: prefs.units.distance }) : { state: 'no-motor' }
-  ), [recoveryInput, recoveryEvents, prefs.units.distance]);
+    recoveryInput ? recoveryMass({ ...recoveryInput, flightEvents: recoveryEvents, distanceUnit: prefs.units.altitude }) : { state: 'no-motor' }
+  ), [recoveryInput, recoveryEvents, prefs.units.altitude]);
   /**
    * One weight per object that comes down (v0.112 arithmetic; v0.115 panel).
    * Same input, same partition, so the panel's per-stage sections can never
    * disagree with the tile above them about the sustainer.
    */
   const recoveryByStage = useMemo((): RecoveryByStage => (
-    recoveryInput ? recoveryMassByStage({ ...recoveryInput, flightEvents: recoveryEvents, distanceUnit: prefs.units.distance }) : { state: 'no-motor' }
-  ), [recoveryInput, recoveryEvents, prefs.units.distance]);
+    recoveryInput ? recoveryMassByStage({ ...recoveryInput, flightEvents: recoveryEvents, distanceUnit: prefs.units.altitude }) : { state: 'no-motor' }
+  ), [recoveryInput, recoveryEvents, prefs.units.altitude]);
 
   /** The same key, only when there is a rocket and a motor to re-fly it on. */
   const currentMatchKey = useMemo<DesignMatchKey | null>(
@@ -2451,7 +2451,7 @@ export function App() {
   const lossInput = (format: LossyFormat): FormatLossInput => ({
     tree, overrides: activeOverrides, launch, measured, configs: savedConfigs, activeConfigId,
     motors: exportMotorsMap(format === 'rkt' ? flownForAutosave : {}), flightData: flightDataNow,
-    distanceUnit: prefs.units.distance,
+    distanceUnit: prefs.units.altitude,
   });
   const lossyExportFailed = (format: LossyFormat, e: unknown) =>
     setFileNote(`${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
@@ -2472,7 +2472,7 @@ export function App() {
     }, 500);
     return () => window.clearTimeout(timer);
   }, [designFile, designSnapshot, unmatchedRefs, runs, importedDocument, simulating, reflying, flightExportInput,
-    prefs.units.distance]);
+    prefs.units.altitude]);
   // The Open, ✕ New and share confirms say what the .rkt or .CDX1 on disk does
   // not keep. Computed now, from the design on screen, while one is open: the
   // header's debounced preview may not have run yet (just after an Open or an
@@ -2486,7 +2486,7 @@ export function App() {
   // Keyed on what lossInput reads (through designSnapshot and the two memoized
   // export values), not on lossInput itself, which is rebuilt every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on lossInput's inputs, not its per-render identity
-  }, [replacing, designFile, designSnapshot, unmatchedRefs, flownForAutosave, flightDataNow, prefs.units.distance]);
+  }, [replacing, designFile, designSnapshot, unmatchedRefs, flownForAutosave, flightDataNow, prefs.units.altitude]);
   const replaceLoss = replacementLossNote(designFile, replaceReport);
 
   const saveLossy = (format: LossyFormat, accepted?: FormatLossReport) => {
@@ -2909,13 +2909,13 @@ export function App() {
       // manufacturer + part number (.rkt <PartMfg>/<PartNo>, .ork <preset>) is
       // linked to its row and takes the catalogue's values for whatever the
       // file left unset - a RockSim chute's "auto" Cd, above all. The importer
-      // the extension names reads it (the user's distance unit to the .rkt
+      // the extension names reads it (the user's altitude unit to the .rkt
       // reader, whose note quotes each configuration's deployment altitude),
       // and a generically-named design takes its file's name.
       const presets = await loadPresets();
       // A .CDX1's stated launch weight is backed out with the curve the motor
       // match below will fly (`fetchMotorSpec`, its default), loaded here first.
-      const imported = await openDesignFile(buffer, file.name, { presets, distanceUnit: prefs.units.distance,
+      const imported = await openDesignFile(buffer, file.name, { presets, distanceUnit: prefs.units.altitude,
         aeroChoice: aeroOverride ?? aeroChoiceOf(prefs), flownSpec: fetchMotorSpec });
       // A multi-configuration .ork used to stop here and ask which one to
       // open. Two testers found that modal the worst moment in the app — it
@@ -3662,7 +3662,7 @@ export function App() {
           })}
           overrideSummaryForMount={targetId => describeFlightOverrides(tree, activeOverrides,
             Object.fromEntries(Object.entries(mountMotors).filter(([id]) => id !== targetId)),
-            overrideConfigLabel, prefs.units.distance)}
+            overrideConfigLabel, prefs.units.altitude)}
           onShowOverride={showFlightOverride}
           // The Saved simulations export's key, so both exports agree on Status.
           provenance={provenanceKey}
@@ -3895,7 +3895,7 @@ export function App() {
               title={apogeeStaleWhy ?? 'Apogee of the most recent flight'}>
               <span className="vitals-label">Apogee</span>
               <span className="vitals-value">
-                {fmtSi('distance', prefs.units.distance, lastApogee)}&nbsp;<UnitChip quantity="distance" />
+                {fmtSi('altitude', prefs.units.altitude, lastApogee)}&nbsp;<UnitChip quantity="altitude" />
                 {/* A model switch no longer throws the flight away — so the
                     number has to say when it belongs to a different model,
                     rather than being silently re-labelled under the new one. */}

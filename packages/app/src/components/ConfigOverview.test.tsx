@@ -8,6 +8,7 @@ import { ConfigPanel } from './ConfigPanel.js';
 import type { FlightOverrides, FlightTree, SavedConfig } from '../model/design.js';
 import { describeFlightOverrides } from '../services/flightOverrideSummary.js';
 import { activeFlightOverrides } from '../services/flightState.js';
+import { PrefsProvider } from '../prefs/PrefsContext.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const noop = () => {};
@@ -34,6 +35,18 @@ const config: SavedConfig = { id: 'a', name: 'Flight A', isDefault: true,
 };
 
 describe('CFG-1 comparison and summary', () => {
+  it('N032 All configurations quotes deployment altitude using Altitude', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
+    const host = document.createElement('div'), root = createRoot(host);
+    const copy = structuredClone(tree);
+    copy.components[0]!.children![1]!.deployAltitude = 152.4;
+    try {
+      act(() => root.render(<PrefsProvider><ConfigOverview tree={copy}
+        configs={[{ ...config, deployments: {} }]} activeConfigId="a" onApply={noop} onShowPart={noop} /></PrefsProvider>));
+      expect(host.textContent).toContain('500 ft');
+      expect(copy.components[0]!.children![1]!.deployAltitude).toBe(152.4);
+    } finally { act(() => root.unmount()); localStorage.clear(); }
+  });
   it.each([
     ['lowerstageseparation', "Motor ejection charge, delay 2 s (the file's 'lower stage separation' is not supported here)"],
     ['foreign-event', "Motor ejection charge, delay 2 s (the file's 'foreign-event' is not supported here)"],

@@ -36,6 +36,15 @@ describe('N042 percent of active aerodynamic length', () => {
 });
 
 describe('comparison definitions and SI copies', () => {
+  it('N032 charts altitude in its own unit and keeps the recorded SI series', () => {
+    const input = series([0, 304.8, null]);
+    const before = structuredClone(input);
+    const altitude = seriesCatalog({ units: { ...METRIC_UNITS, altitude: 'ft', distance: 'km' } }, SERIES).find(d => d.key === 'altitude')!;
+    expect(altitude.unit).toBe('ft');
+    expect(altitude.quantity).toBe('altitude');
+    expect(convertedValues(input, altitude)).toEqual([0, 1000, null]);
+    expect(input).toEqual(before);
+  });
   it('uses only summary quantities on explicitly compatible axes', () => {
     const expected = [
       [['altitude'], ['velocity']], [['altitude'], ['Vz']], [['velocity'], ['acceleration']],

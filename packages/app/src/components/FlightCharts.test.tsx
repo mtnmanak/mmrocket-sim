@@ -345,7 +345,7 @@ it('S3b-2: retains plots for unrelated preferences, rebuilds for units', () => {
     const { prefs, setPrefs } = usePrefs();
     return <>
       <button id="metric-pref" onClick={() => setPrefs({ ...prefs, stabilityUnit: prefs.stabilityUnit === 'cal' ? 'pct' : 'cal' })}>Metric</button>
-      <button id="unit-pref" onClick={() => setPrefs({ ...prefs, units: { ...prefs.units, distance: prefs.units.distance === 'm' ? 'ft' : 'm' } })}>Unit</button>
+      <button id="unit-pref" onClick={() => setPrefs({ ...prefs, units: { ...prefs.units, altitude: prefs.units.altitude === 'm' ? 'ft' : 'm' } })}>Unit</button>
       <FlightCharts result={result} flightName="Preference test" />
     </>;
   }

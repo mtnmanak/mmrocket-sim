@@ -70,6 +70,18 @@ function render(timeStepS?: number | null, lastRun?: { ms: number; timeStepS?: n
   return host.querySelector('.field-caution');
 }
 
+it('N032 Site altitude and density altitude use Altitude without changing launch SI options', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
+  const value = { ...DEFAULT_CONDITIONS, launchAltitudeM: 304.8 };
+  const before = kernelSimOptions(value);
+  act(() => root.render(<PrefsProvider><LaunchPanel value={value} onChange={() => {}}
+    onLaunch={() => {}} simulating={false} canLaunch /></PrefsProvider>));
+  expect(launchBox('Site altitude')?.value).toBe('1000');
+  expect(host.querySelector('[data-readout="density-altitude"] output')?.textContent).toBe('1000');
+  expect(kernelSimOptions(value)).toEqual(before);
+  localStorage.clear();
+});
+
 /**
  * EVERY LAUNCH CONDITIONS LABEL IS ITS BOX'S (board Tier 2, v0.148). The .field
  * idiom put a bare <label> beside the box: eight wrapped a unit chip, so the

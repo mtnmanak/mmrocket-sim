@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { LaunchConditions } from './LaunchPanel.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi } from '../prefs/units.js';
+import { fmtAltitude, fmtSi } from '../prefs/units.js';
+import { UnitChip } from './UnitChip.js';
 import { compassPoint, formatValidTime, parseCoordinates } from '../services/openMeteo.js';
 import {
   windProfileSummary, type RelativeWindLevel, type WindProfileConditions, type WindProfileSource,
@@ -27,12 +28,12 @@ export function WindProfileTable({ levels, surfaceFromDeg }: {
   const { prefs } = usePrefs();
   return <div className="wind-profile-table" tabIndex={0} role="region" aria-label="Wind levels">
     <table>
-      <thead><tr><th scope="col">Height AGL (ft / m)</th><th scope="col">Speed ({prefs.units.windspeed})</th>
+      <thead><tr><th scope="col">Height AGL (<UnitChip quantity="altitude" />)</th><th scope="col">Speed ({prefs.units.windspeed})</th>
         <th scope="col">From relative to surface</th>{surfaceFromDeg !== undefined && <th scope="col">Compass from</th>}</tr></thead>
       <tbody>{levels.map((l) => {
         const relative = l.direction * 180 / Math.PI;
         const bearing = ((relative + (surfaceFromDeg ?? 0)) % 360 + 360) % 360;
-        return <tr key={l.altitude}><td>{Math.round(l.altitude / 0.3048)} / {Math.round(l.altitude)}</td>
+        return <tr key={l.altitude}><td>{fmtAltitude(prefs.units.altitude, l.altitude)}</td>
           <td>{fmtSi('windspeed', prefs.units.windspeed, l.speed)}</td><td>{relative.toFixed(1)}°</td>
           {surfaceFromDeg !== undefined && <td>{bearing.toFixed(1)}° {compassPoint(bearing)}</td>}</tr>;
       })}</tbody>
@@ -41,6 +42,7 @@ export function WindProfileTable({ levels, surfaceFromDeg }: {
 }
 
 export function WindProfile({ value, onChange }: { value: LaunchConditions; onChange: (v: LaunchConditions) => void }) {
+  const { prefs } = usePrefs();
   const [cleared, setCleared] = useState<{ profile: WindProfileConditions; after: LaunchConditions } | null>(null);
   const levels = value.windLevels;
   if (!levels?.length) return cleared && cleared.after === value ? <div className="wind-profile">
@@ -50,7 +52,7 @@ export function WindProfile({ value, onChange }: { value: LaunchConditions; onCh
   </div> : null;
   const source = value.windProfileSource;
   return <div className="wind-profile">
-    <span>Winds aloft: {windProfileSummary(levels)} · </span>
+    <span>Winds aloft: {windProfileSummary(levels, prefs.units.altitude)} · </span>
     <button type="button" className="file-btn" onClick={() => {
       const next = { ...value };
       delete next.windLevels; delete next.windProfileSource;
