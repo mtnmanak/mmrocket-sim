@@ -49,7 +49,17 @@ export function paperTemplateGeometry(node: ComponentNode, ctx: SolidContext): P
   const g: PaperTemplateGeometry = { name: node.name ?? node.type, kind: 'disc', width: 0, height: 0,
     path: '', circles: [], stations: [], dimensions: [], notes: [] };
   if (node.type === 'centeringring' || node.type === 'bulkhead') {
+    // The kernel's bore is the widest overlapping tube, centred; a cutting template must not stand that in for a
+    // cluster's or an off-centre tube's holes (release claim check, 2026-10-13).
+    const clusterRing = node.type === 'centeringring' && ctx.mountLayoutUnresolved === true;
+    if (clusterRing && node['innerRadius'] == null) {
+      throw new Error('This ring surrounds a cluster, an off-centre tube or several tubes. The app cannot lay out their '
+        + 'holes, so it prints no template with one centred opening. Lay the holes out by hand, or state the ring ID '
+        + 'if one centred opening is right.');
+    }
     const { outer: r, bore } = paperRingDimensions(node, ctx);
+    if (clusterRing) g.notes.push('Caution: this ring surrounds a cluster, an off-centre tube or several tubes; '
+      + 'the template has only the stated centred opening. Lay out the other holes by hand.');
     g.width = 2 * r; g.height = 2 * r;
     g.circles = [r];
     g.dimensions.push(['Outside diameter', 2 * r]);

@@ -367,3 +367,20 @@ describe('massObjectParentRadius', () => {
     expect(massObjectParentRadius(tree(), 'c')).toBe(0);
   });
 });
+
+describe('C-A7: a ring around more than one centred tube', () => {
+  const ringIn = (...tubes: Record<string, unknown>[]) => {
+    const t = tree({ id: 'bt', type: 'bodytube', length: 0.3, outerRadius: 0.03, thickness: 0.001, children: [
+      ...tubes.map((f, i) => ({ id: `mmt${i}`, type: 'innertube', length: 0.1, outerRadius: 0.01, thickness: 0.0005, ...f })),
+      { id: 'cr', type: 'centeringring', length: 0.003 },
+    ] });
+    return solidContextFor(t, find(t, 'cr'));
+  };
+  it('flags a cluster, an off-centre tube or several tubes, and not one centred tube', () => {
+    expect(ringIn({}).mountLayoutUnresolved).toBeUndefined();
+    expect(ringIn({}).mountOuterRadius).toBe(0.01);
+    expect(ringIn({ cluster: '3-ring' }).mountLayoutUnresolved).toBe(true);
+    expect(ringIn({ radialPosition: 0.012 }).mountLayoutUnresolved).toBe(true);
+    expect(ringIn({}, { outerRadius: 0.008 }).mountLayoutUnresolved).toBe(true);
+  });
+});

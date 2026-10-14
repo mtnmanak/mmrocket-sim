@@ -44,6 +44,12 @@ export interface SolidContext {
    * states none of its own (centeringRingBore); unset when no tube overlaps
    */
   mountOuterRadius?: number;
+  /**
+   * C-A7: true when the tubes through that ring are not one centred tube (a
+   * cluster, an off-centre tube, or several tubes), so one centred bore cannot
+   * stand for its holes on a cutting template.
+   */
+  mountLayoutUnresolved?: boolean;
   /** parent body outer radius (m) — tube-fin auto sizing */
   bodyRadius?: number;
   /** parent body's resolved wall (m), inherited by tube fins */

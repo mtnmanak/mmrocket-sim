@@ -110,7 +110,7 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
           <label className="bundle-coordinate-choice"><input type="checkbox" checked={includeCoordinates}
             onChange={e => setIncludeCoordinates(e.target.checked)} /> Include launch site coordinates</label>
           <p>{includeCoordinates ? 'Latitude and longitude are included in the design, recorded launch/weather data and available flight series.'
-            : 'Structured latitude, longitude and weather place labels are left out of all bundle files. The design file then lacks its original site coordinates; enter them again before using it for another simulation.'}
+            : 'Structured latitude, longitude and weather place labels are left out of all bundle files. The design file then lacks its original site coordinates; enter them again before using it for another simulation. The site altitude stays in, because the flight depends on it, and so does any weather time zone.'}
             {' '}Design names, comments, your notes, and attachment contents are unchanged. Check them for location or personal details before sharing.</p>
         </fieldset>
         <h3>Inside this ZIP</h3>

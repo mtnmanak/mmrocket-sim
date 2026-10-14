@@ -9,6 +9,7 @@ import { kernelDefault } from './kernelDefaults.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
 import { flatMount } from './finRoot.js';
 import { profileMountOf } from './schematicLayout.js';
+import { clusterCount } from './cluster.js';
 
 /**
  * Parent-derived diameters for the printable (STL) and cuttable (DXF) exports
@@ -71,8 +72,9 @@ export function solidContextFor(tree: RocketTree, node: ComponentNode): SolidCon
   if (bore !== undefined) ctx.parentInnerRadius = bore;
   const pOuter = numOpt(parent, 'outerRadius');
   if (pOuter !== undefined) ctx.bodyRadius = pOuter;
-  const mountOuter = overlappingTubeRadius(parent, node);
+  const { widest: mountOuter, unresolved } = overlappingTubes(parent, node);
   if (mountOuter !== undefined) ctx.mountOuterRadius = mountOuter;
+  if (unresolved) ctx.mountLayoutUnresolved = true;
   if (TABBED_FINS.has(node.type)) {
     const depth = tabMaxDepth(parent, node);
     if (depth !== undefined) ctx.tabMaxDepth = depth;
@@ -131,7 +133,7 @@ export function massObjectParentRadius(tree: RocketTree, id: string): number {
  * with the bore of the 29 mm motor mount listed before it — and `.ork` writes
  * `auto` for every automatic ring, so that was the common case.
  */
-function overlappingTubeRadius(parent: ComponentNode, node: ComponentNode): number | undefined {
+function overlappingTubes(parent: ComponentNode, node: ComponentNode): { widest?: number; unresolved: boolean } {
   const pLen = axialLength(parent);
   const span = (n: ComponentNode): [number, number] => {
     const len = axialLength(n);
@@ -140,14 +142,18 @@ function overlappingTubeRadius(parent: ComponentNode, node: ComponentNode): numb
   };
   const [fore, aft] = span(node);
   let widest: number | undefined;
+  let count = 0, unresolved = false;
   for (const tube of parent.children ?? []) {
     if (tube.type !== 'innertube' || tube === node) continue;
     const [tubeFore, tubeAft] = span(tube);
     if (aft < tubeFore || fore > tubeAft) continue;
+    count++;
+    const cluster = typeof tube['cluster'] === 'string' ? tube['cluster'] : undefined;
+    if (clusterCount(cluster) > 1 || Math.abs(numOpt(tube, 'radialPosition') ?? 0) > 1e-9) unresolved = true;
     const r = numOpt(tube, 'outerRadius');
     if (r !== undefined) widest = Math.max(widest ?? r, r);
   }
-  return widest;
+  return { widest, unresolved: unresolved || count > 1 };
 }
 
 /** The node's ancestors, nearest first (stage last), or null if it is not in the tree. */
