@@ -83,6 +83,17 @@ describe('comparison definitions and SI copies', () => {
 });
 
 describe('phase runs preserve physical chronology', () => {
+  it.each([1000, 4000])('bounds phase storage by recorded samples for %s alternating unique X values', count => {
+    const input = series(Array.from({ length: count }, (_, i) => i));
+    input.Cd = Array.from({ length: count }, (_, i) => i % 2 ? 1 + i / count / 10 : i / count / 10);
+    const data = phaseData(input, { key: 'Cd', title: 'Drag coefficient', unit: '', color: 'blue' }, catalog()[0]!);
+    const cells = data.xs.length + data.values.reduce((total, v) => total + v.row.length + v.times.length + v.points.length, 0);
+    expect(cells).toBeLessThanOrEqual(count * 10);
+    expect(data.values.length).toBeLessThanOrEqual(3);
+    expect(data.runs).toHaveLength(count - 1);
+    expect(data.runs[0]!.samples.map(s => s.index)).toEqual([0, 1]);
+    expect(data.runs.at(-1)!.samples.map(s => s.index)).toEqual([count - 2, count - 1]);
+  });
   it('splits interleaved ascent/descent and local reversals without sorting a connected flight', () => {
     const runs = phaseRuns(series([0, 10, 20, 15, 5, 8, -2]));
     expect(runs.map((r) => r.direction)).toEqual(['Rising', 'Falling', 'Rising', 'Falling']);
@@ -101,16 +112,17 @@ describe('phase runs preserve physical chronology', () => {
     input.time[6] = NaN;
     expect(phaseRuns(input).map((r) => r.samples.map((s) => s.index))).toEqual([[0, 1], [3], [5], [7]]);
   });
-  it('aligns each run on increasing altitude with holes but no collision overwrites', () => {
+  it('aligns samples by X while retaining separate path segments and collision timestamps', () => {
     const c = catalog();
     const data = phaseData(series([0, 0, 10, 20, 15, 5, -2]), c[0]!, c[1]!);
-    expect(data.xs).toEqual([-2, 0, 5, 10, 15, 20]);
+    expect(data.xs).toEqual([-2, 0, 0, 5, 10, 15, 20]);
     expect(data.values.map((v) => v.row)).toEqual([
-      [null, 10, null, null, null, null],
-      [null, 11, null, 12, null, 13],
-      [16, null, 15, null, 14, 13],
+      [null, 10, null, null, null, null, null],
+      [null, null, 11, null, 12, null, 13],
+      [16, null, null, 15, null, 14, 13],
     ]);
-    expect(data.values[2]!.times).toEqual([6, null, 5, null, 4, 3]);
+    expect(data.values[2]!.times).toEqual([6, null, null, 5, null, 4, 3]);
+    expect(data.values.map(v => v.segments)).toEqual([[[1]], [[2, 4, 6]], [[6, 5, 3, 0]]]);
     const imperial = catalog(true);
     const converted = phaseData(series([0, 10, -2]), imperial[0]!, imperial[1]!);
     expect(converted.xs[0]).toBeCloseTo(-2 / 0.3048, 10);
@@ -125,8 +137,9 @@ describe('phase runs preserve physical chronology', () => {
 it('marks both repeated-altitude samples even at the boundary of nontrivial runs', () => {
   const c = catalog();
   const data = phaseData(series([0, 1, 1, 2]), c[0]!, c[1]!);
-  expect(data.values.map((v) => v.points)).toEqual([[1], [1]]);
-  expect(data.values.map((v) => v.times[1])).toEqual([1, 2]);
+  expect(data.values.map((v) => v.points)).toEqual([[1, 2]]);
+  expect(data.values[0]!.times).toEqual([0, 1, 2, 3]);
+  expect(data.values[0]!.segments).toEqual([[0, 1], [2, 3]]);
   expect(phaseData(series([0, 1, 2]), c[0]!, c[1]!).values[0]!.points).toEqual([]);
 });
 

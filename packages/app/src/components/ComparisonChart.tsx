@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import type { FlightEvent, FlightSeries } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { siToUi, uiToSi } from '../prefs/units.js';
 import { chartInk } from '../chartTheme.js';
 import { chartSummary, nameChartCanvas } from '../chartSummary.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
@@ -76,21 +75,33 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
     const el = ref.current;
     if (!el || !available) return;
     const ink = chartInk(el);
-    const fromSI = (x: number) => phase && altitude.quantity ? siToUi(altitude.quantity, prefs.units[altitude.quantity], x) : x;
-    const toSI = (x: number) => phase && altitude.quantity ? uiToSi(altitude.quantity, prefs.units[altitude.quantity], x) : x;
+    const fromSI = (x: number) => phase ? altitude.f?.(x) ?? x : x;
+    const toSI = (x: number) => phase ? altitude.toSI?.(x) ?? x : x;
     const height = () => Math.max(300, panelHeight(el.clientWidth || 640, expanded));
     const phaseLabel = (seriesIndex: number, idx: number) => {
-      const run = prepared!.runs[seriesIndex - 1]!;
-      return `${run.direction} ${seriesIndex}, t = ${formatReadout(prepared!.values[seriesIndex - 1]?.times[idx])} s`;
+      const group = prepared!.values[seriesIndex - 1]!;
+      return `${group.direction}, t = ${formatReadout(group.times[idx])} s`;
     };
     const data: uPlot.AlignedData = prepared
       ? [prepared.xs, ...prepared.values.map((v) => v.row)] : [series.time, ...values];
-    const ySeries: uPlot.Series[] = prepared ? prepared.runs.map((run, i) => ({
-      label: `${labelled(members[0]!)} - ${run.direction} ${i + 1}`,
+    const ySeries: uPlot.Series[] = prepared ? prepared.values.map((group) => ({
+      label: `${labelled(members[0]!)} - ${group.direction}`,
       scale: 'left', stroke: members[0]!.color, width: ink.strokeWidth,
-      dash: run.direction === 'Falling' ? [6, 4] : undefined,
-      spanGaps: true,
-      points: { show: true, filter: prepared.values[i]!.points, size: 6 },
+      dash: group.direction === 'Falling' ? [6, 4] : undefined,
+      paths: (u) => {
+        const stroke = new Path2D();
+        // C-E7: independent subpaths preserve gaps even when many runs share ink.
+        for (const segment of group.segments) {
+          segment.forEach((idx, i) => {
+            const x = u.valToPos(prepared.xs[idx]!, 'x', true);
+            const y = u.valToPos(group.row[idx]!, 'left', true);
+            if (i === 0) stroke.moveTo(x, y);
+            else stroke.lineTo(x, y);
+          });
+        }
+        return { stroke };
+      },
+      points: { show: true, filter: group.points, size: 6 },
       value: (_u, v, si, idx) => idx == null || v == null ? formatReadout(v)
         : `${formatReadout(v)} (${phaseLabel(si, idx)})`,
     })) : members.map((d) => ({
@@ -106,8 +117,45 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
     };
     const opts: uPlot.Options = {
       width: el.clientWidth || 640, height: height(),
-      cursor: { ...(phase ? {} : { sync: { key: 'flight', scales: ['x', null] } }), points: { size: 7 }, bind: { click: () => null } },
-      scales: { x: { time: false }, left: { auto: true }, ...(preset.right.length ? { right: { auto: true } } : {}) },
+      cursor: { ...(prepared ? { dataIdx: (u: uPlot, si: number, idx: number) => {
+        if (idx == null) return null;
+        if (si === 0) {
+          // Equal X can have distinct Y and times. Choose the sample under the
+          // pointer rather than making the other samples unreachable.
+          let first = idx, last = idx, nearest = idx, distance = Infinity;
+          while (first > 0 && prepared.xs[first - 1] === prepared.xs[idx]) first--;
+          while (last + 1 < prepared.xs.length && prepared.xs[last + 1] === prepared.xs[idx]) last++;
+          for (let i = first; i <= last; i++) {
+            const y = prepared.values.find(g => g.row[i] != null)?.row[i];
+            if (y == null) continue;
+            const d = Math.abs(u.valToPos(y, 'left') - (u.cursor.top ?? 0));
+            if (d < distance) { distance = d; nearest = i; }
+          }
+          u.cursor.idx = nearest;
+        }
+        return u.cursor.idx ?? idx;
+      } } : { sync: { key: 'flight', scales: ['x', null] } }), points: { size: 7 }, bind: { click: () => null } },
+      scales: { x: { time: false }, left: { auto: true, range: prepared ? (u, min, max) => {
+        // Sorted duplicate X slots alone can omit a crossing run's Y extrema
+        // during zoom. Fit every intersecting segment, including its endpoints.
+        const xMin = u.scales['x']!.min ?? prepared.xs[0]!;
+        const xMax = u.scales['x']!.max ?? prepared.xs.at(-1)!;
+        let low = Infinity, high = -Infinity;
+        const include = (y: number) => { low = Math.min(low, y); high = Math.max(high, y); };
+        for (const group of prepared.values) for (const segment of group.segments) {
+          segment.forEach((idx, i) => {
+            const x = prepared.xs[idx]!, y = group.row[idx]!;
+            if (x >= xMin && x <= xMax) include(y);
+            if (i > 0) {
+              const prev = segment[i - 1]!, prevX = prepared.xs[prev]!;
+              if (Math.max(x, prevX) >= xMin && Math.min(x, prevX) <= xMax) {
+                include(y); include(group.row[prev]!);
+              }
+            }
+          });
+        }
+        return uPlot.rangeNum(low === Infinity ? min : low, high === -Infinity ? max : high, 0.1, true);
+      } : undefined }, ...(preset.right.length ? { right: { auto: true } } : {}) },
       legend: { live: true },
       series: [{ label: phase ? labelled(altitude) : 't (s)', value: (_u, v) => formatReadout(v) }, ...ySeries],
       axes: [
@@ -145,7 +193,7 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
 
   useEffect(() => {
     if (plotRef.current && ref.current) emphasizeSeries(plotRef.current,
-      prepared ? prepared.runs.map(() => members[0]!.key) : members.map((d) => d.key), emphasis, ref.current);
+      prepared ? prepared.values.map(() => members[0]!.key) : members.map((d) => d.key), emphasis, ref.current);
   }, [emphasis, available, phase, series, values, prepared, members, altitude, preset, prefs.units, daylight, resolvedTheme, expanded, events, selectedEvents]);
 
   const tableMembers = phase ? [altitude, ...members] : members;

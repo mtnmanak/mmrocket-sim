@@ -1,6 +1,6 @@
 import type { FlightEvent, FlightSeries } from '@online-openrocket/engine';
 import type { Preferences } from './prefs/PrefsContext.js';
-import { siToUi, type Quantity } from './prefs/units.js';
+import { siToUi, uiToSi, type Quantity } from './prefs/units.js';
 import { exportColumnCatalog } from './services/flightDataCsv.js';
 
 export interface SeriesDef {
@@ -12,12 +12,14 @@ export interface SeriesDef {
   quantity?: Quantity;
   /** display transform (SI -> UI unit) */
   f?: (v: number) => number;
+  /** inverse display transform, including compound units without a unit chip */
+  toSI?: (v: number) => number;
 }
 
 /** Series defs in the user's units — the engine data underneath stays SI. */
 export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: string[]): SeriesDef[] {
   const u = prefs.units;
-  return [
+  const defs: SeriesDef[] = [
     { key: 'altitude', title: 'Altitude', unit: u.distance, quantity: 'distance', color: C[0]!, f: (v) => siToUi('distance', u.distance, v) },
     { key: 'velocity', title: 'Velocity', unit: u.velocity, quantity: 'velocity', color: C[1]!, f: (v) => siToUi('velocity', u.velocity, v) },
     // Vertical velocity: the kernel's Vz, in every summary run. It goes through
@@ -35,10 +37,11 @@ export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: string[]): S
     { key: 'stabilityPercent', title: 'Stability margin (% of active length)', unit: '%', color: C[7]! },
     { key: 'cpLocation', title: 'CP location', unit: u.length, quantity: 'length', color: C[0]!, f: (v) => siToUi('length', u.length, v) },
     { key: 'cgLocation', title: 'CG location', unit: u.length, quantity: 'length', color: C[1]!, f: (v) => siToUi('length', u.length, v) },
-    { key: 'aoa', title: 'Angle of attack', unit: '°', color: C[2]!, f: (v) => (v * 180) / Math.PI },
+    { key: 'aoa', title: 'Angle of attack', unit: '°', color: C[2]!, f: (v) => (v * 180) / Math.PI, toSI: (v) => v * Math.PI / 180 },
     { key: 'dynamicPressure', title: 'Dynamic pressure', unit: u.pressure, quantity: 'pressure', color: C[3]!, f: (v) => siToUi('pressure', u.pressure, v) },
-    { key: 'qAlpha', title: 'q·α', unit: `${u.pressure}·rad`, color: C[4]!, f: (v) => siToUi('pressure', u.pressure, v) },
+    { key: 'qAlpha', title: 'q·α', unit: `${u.pressure}·rad`, color: C[4]!, f: (v) => siToUi('pressure', u.pressure, v), toSI: (v) => uiToSi('pressure', u.pressure, v) },
   ];
+  return defs.map(d => ({ ...d, toSI: d.quantity ? v => uiToSi(d.quantity!, u[d.quantity!], v) : d.toSI }));
 }
 
 export interface ComparisonPreset {
@@ -78,7 +81,8 @@ export function arbitraryCatalog(series: FlightSeries, prefs: Pick<Preferences, 
     const unit = quantity ? prefs.units[quantity] : spec?.si ?? 'unit unknown';
     known.push({ key, title: spec?.name ?? key, unit: unit + (spec?.suffix ?? ''),
       quantity, color: colors[known.length % colors.length]!,
-      f: quantity ? v => siToUi(quantity, unit, v) : undefined });
+      f: quantity ? v => siToUi(quantity, unit, v) : undefined,
+      toSI: quantity ? v => uiToSi(quantity, unit, v) : undefined });
   }
   if (!known.some(d => d.key === 'time')) known.unshift({ key: 'time', title: 'Time', unit: 's', color: colors[0]! });
   return known.filter(d => d.key !== 'tc' && usableSeries(series, [String(d.key)]));
@@ -147,26 +151,27 @@ export function phaseRuns(series: FlightSeries, x = 'altitude', y = 'velocity'):
   return runs;
 }
 
-/** No uPlot.join: it overwrites repeated x-values within a member. Runs have
- * unique x; separate members preserve collisions and their original times. */
+/** C-E7: bound storage and legend series by direction, not reversal count.
+ * Sorted sample slots retain equal X at different times; chronological segments
+ * draw each run separately so grouping cannot bridge a gap or plateau. */
 export function phaseData(series: FlightSeries, altitude: SeriesDef, velocity: SeriesDef) {
   const runs = phaseRuns(series, String(altitude.key), String(velocity.key));
-  const xs = [...new Set(runs.flatMap((r) => r.samples.map((s) => s.altitude)))].sort((a, b) => a - b);
-  const positions = new Map(xs.map((x, i) => [x, i]));
-  const values = runs.map((run) => {
-    const row: (number | null)[] = Array(xs.length).fill(null);
-    const times: (number | null)[] = Array(xs.length).fill(null);
-    const points: number[] = [];
-    for (const sample of run.samples) {
-      const i = positions.get(sample.altitude)!;
+  const samples = [...new Map(runs.flatMap(r => r.samples.map(s => [s.index, s] as const))).values()]
+    .sort((a, b) => a.altitude - b.altitude || a.index - b.index);
+  const positions = new Map(samples.map((s, i) => [s.index, i]));
+  const values = [...new Set(runs.map(r => r.direction))].map(direction => {
+    const row: (number | null)[] = Array(samples.length).fill(null);
+    const times: (number | null)[] = Array(samples.length).fill(null);
+    const points = new Set<number>();
+    const segments = runs.filter(r => r.direction === direction).map(run => run.samples.map(sample => {
+      const i = positions.get(sample.index)!;
       row[i] = velocity.f ? velocity.f(sample.velocity) : sample.velocity;
       times[i] = sample.time;
-      // Equal-altitude boundaries can be ends of two nontrivial runs. Mark
-      // both samples explicitly rather than relying on an unmarked line end.
       if (run.samples.length === 1 || series[altitude.key]?.[sample.index - 1] === sample.altitude
-        || series[altitude.key]?.[sample.index + 1] === sample.altitude) points.push(i);
-    }
-    return { row, times, points };
+        || series[altitude.key]?.[sample.index + 1] === sample.altitude) points.add(i);
+      return i;
+    }));
+    return { direction, row, times, points: [...points], segments };
   });
-  return { runs, xs: xs.map((v) => altitude.f ? altitude.f(v) : v), values };
+  return { runs, xs: samples.map(s => altitude.f ? altitude.f(s.altitude) : s.altitude), values };
 }

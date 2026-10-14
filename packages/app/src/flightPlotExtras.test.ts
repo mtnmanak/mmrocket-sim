@@ -18,14 +18,25 @@ describe('C-E7 recorded axes', () => {
     expect(defs.some(d => d.key === 'tc')).toBe(false);
     expect(defs.find(d => d.key === 'future')?.unit).toBe('unit unknown');
   });
+  it.each([METRIC_UNITS, IMPERIAL_UNITS])('reverses every converted custom axis, including compound and offset units', units => {
+    const input = { ...series, qAlpha: [100, 200], aoa: [1, 2], T: [273.15, 300], P: [100, 200], 'θl': [1, 2] };
+    const defs = arbitraryCatalog(input, { units }, SERIES);
+    for (const def of defs.filter(d => d.f)) {
+      expect(def.toSI, String(def.key)).toBeTypeOf('function');
+      for (const sample of [0, 1, 273.15]) expect(def.toSI!(def.f!(sample))).toBeCloseTo(sample, 10); // unit arithmetic only
+    }
+    expect(defs.find(d => d.key === 'qAlpha')!.unit).toBe(`${units.pressure}·rad`);
+    expect(defs.find(d => d.key === 'θl')!.unit).toBe(units.angle);
+  });
   it('preserves repeated X, reversals, gaps and timestamps for a ground track without mutating SI', () => {
     const before = structuredClone(series);
     const defs = arbitraryCatalog(series, { units: METRIC_UNITS }, SERIES);
     const data = phaseData(series, defs.find(d => d.key === 'Px')!, defs.find(d => d.key === 'Py')!);
-    expect(data.xs).toEqual([-1, 0, 1, 2]);
+    expect(data.xs).toEqual([-1, 0, 1, 1, 2]);
     expect(data.runs.map(r => r.samples.map(s => s.index))).toEqual([[0, 1], [2, 3], [5]]);
-    expect(data.values.map(v => v.times)).toEqual([[null, 0, 1, null], [3, null, 2, null], [null, null, null, 5]]);
-    expect(data.values.map(v => v.row)).toEqual([[null, 0, 2, null], [4, null, 3, null], [null, null, null, 6]]);
+    expect(data.values.map(v => v.times)).toEqual([[null, 0, 1, null, null], [3, null, null, 2, null], [null, null, null, null, 5]]);
+    expect(data.values.map(v => v.row)).toEqual([[null, 0, 2, null, null], [4, null, null, 3, null], [null, null, null, null, 6]]);
+    expect(data.values.map(v => v.segments)).toEqual([[[1, 2]], [[3, 0]], [[4]]]);
     expect(series).toEqual(before);
   });
 });

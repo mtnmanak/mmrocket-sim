@@ -379,7 +379,7 @@ describe('flight comparisons wiring', () => {
     expect(new Set(timePlots().map((p) => JSON.stringify(p.scales['x']))).size).toBe(1);
     expect(timePlots()[0]!.scales['x']!.max).toBeLessThan(4);
     select('Comparison chart', 'phase'); const phase = overlay();
-    expect(phase.opts.cursor?.sync).toBeUndefined(); expect(phase.series.slice(1).every((s) => s.spanGaps === true)).toBe(true);
+    expect(phase.opts.cursor?.sync).toBeUndefined(); expect(phase.series.slice(1).every((s) => typeof s.paths === 'function')).toBe(true);
     expect(phase.series[1]!.dash).toBeUndefined(); expect(phase.series[2]!.dash).toEqual([6, 4]);
     const before = JSON.stringify(timePlots().map((p) => p.scales['x'])); wheel(phase);
     expect(JSON.stringify(timePlots().map((p) => p.scales['x']))).toBe(before);
@@ -482,9 +482,13 @@ it('pages comparison samples without truncating the recording', () => {
 it('renders constant-altitude samples as separate points and retains their times', () => {
   const flight = result(); flight.series.altitude = [0, 0, 0, 0, 0];
   render(flight); select('Comparison chart', 'phase');
-  expect(overlay().series).toHaveLength(6);
+  expect(overlay().series).toHaveLength(2);
   expect(overlay().series.slice(1).every((s) => s.points?.show === true)).toBe(true);
-  expect(overlay().data.slice(1)).toEqual([[0], [11], [22], [13], [4]]);
+  expect(overlay().data).toEqual([[0, 0, 0, 0, 0], [0, 11, 22, 13, 4]]);
+  const plot = overlay();
+  const value = plot.series[1]!.value as (u: uPlot, v: number, si: number, idx: number) => string;
+  expect(Array.from(plot.data[1]!).map((v, i) => value(plot as unknown as uPlot, v!, 1, i)))
+    .toEqual(['0 (Point, t = 0 s)', '11 (Point, t = 1 s)', '22 (Point, t = 2 s)', '13 (Point, t = 3 s)', '4 (Point, t = 4 s)']);
 });
 
 it('time comparisons preserve the current group window across theme and expansion', () => {
@@ -518,5 +522,5 @@ it('synchronizes only x across time charts with incompatible vertical dimensions
 it('passes explicit collision marker indices to uPlot without marking every sample', () => {
   const flight = result(); flight.series.altitude = [0, 1, 1, 2, 3];
   render(flight); select('Comparison chart', 'phase');
-  expect(overlay().series.slice(1).map((s) => s.points?.filter)).toEqual([[1], [1]]);
+  expect(overlay().series.slice(1).map((s) => s.points?.filter)).toEqual([[1, 2]]);
 });
