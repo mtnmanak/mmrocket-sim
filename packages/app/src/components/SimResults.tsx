@@ -146,9 +146,9 @@ function DeploymentRoleNote({ deployments }: { deployments: readonly DeploymentR
   </p>;
 }
 
-function DeploymentTable({ deployments, dist, vel }: {
+function DeploymentTable({ deployments, alt, vel }: {
   deployments: readonly DeploymentReport[];
-  dist: string;
+  alt: string;
   vel: string;
 }) {
   return (
@@ -157,7 +157,7 @@ function DeploymentTable({ deployments, dist, vel }: {
         <tr>
           <th scope="col">Recovery device</th>
           <th scope="col">Deploys at</th>
-          <th scope="col">Altitude (<UnitChip quantity="distance" />)</th>
+          <th scope="col">Altitude (<UnitChip quantity="altitude" />)</th>
           <th scope="col">Opens at (<UnitChip quantity="velocity" />)</th>
           {/* The coefficient the descent verdict rests on. Naming the device
               without it made two landing-rate reports (2026-09-03) take a round
@@ -185,7 +185,7 @@ function DeploymentTable({ deployments, dist, vel }: {
             <tr key={i}>
               <td data-recovery-role={deploymentRole(d)}>{d.device}{d.isLanding ? ' (landing)' : ''}</td>
               <td>{Number.isFinite(d.time) ? `${d.time.toFixed(1)} s` : '—'}</td>
-              <td>{typeof d.altitude !== 'number' || !Number.isFinite(d.altitude) ? '\u2014' : fmtSi('distance', dist, d.altitude)}</td>
+              <td>{typeof d.altitude !== 'number' || !Number.isFinite(d.altitude) ? '\u2014' : fmtSi('altitude', alt, d.altitude)}</td>
               <td className={opening === false ? 'stability-bad' : opening === 'caution' ? 'stability-warn' : undefined}>
                 {typeof d.velocityAtDeployment !== 'number' || !Number.isFinite(d.velocityAtDeployment) ? '\u2014' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
               </td>
@@ -218,7 +218,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
 }) {
   const { prefs } = usePrefs();
   const [open, setOpen] = useState(false);
-  const dist = prefs.units.distance;
+  const alt = prefs.units.altitude;
   const vel = prefs.units.velocity;
   const len = prefs.units.length;
   const mass = prefs.units.mass;
@@ -256,7 +256,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           {open ? 'Hide details' : 'Show all details'}
         </button>
       </div>
-      <p className="comp-stats">{runConfigurationHeading(run, prefs.units.distance)}</p>
+      <p className="comp-stats">{runConfigurationHeading(run, prefs.units.altitude)}</p>
       {/* The pair of raw flight-data buttons used to sit in this header. They
           vanished exactly when a user went hunting for them — selecting a
           saved run nulled the result they were gated on — leaving only the
@@ -288,8 +288,8 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
         {[
           limits.maxAirspeedMs !== undefined ? `maximum airspeed ${fmtSi('velocity', vel, limits.maxAirspeedMs)} ${vel}` : null,
           limits.maxMach !== undefined ? `maximum Mach ${limits.maxMach}` : null,
-          limits.armingAltitudeM !== undefined ? `arming ${fmtSi('distance', dist, limits.armingAltitudeM)} ${dist} AGL, caution band ${fmtSi('distance', dist, limits.armingCautionBandM ?? 0)} ${dist}` : null,
-          limits.armingAltitudeM === undefined && limits.armingCautionBandM !== undefined ? `arming band ${fmtSi('distance', dist, limits.armingCautionBandM)} ${dist} (off without an arming altitude)` : null,
+          limits.armingAltitudeM !== undefined ? `arming ${fmtSi('altitude', alt, limits.armingAltitudeM)} ${alt} AGL, caution band ${fmtSi('altitude', alt, limits.armingCautionBandM ?? 0)} ${alt}` : null,
+          limits.armingAltitudeM === undefined && limits.armingCautionBandM !== undefined ? `arming band ${fmtSi('altitude', alt, limits.armingCautionBandM)} ${alt} (off without an arming altitude)` : null,
         ].filter(Boolean).join('; ')}. Your limits are not a structural rating or proof that electronics armed.
       </p>}
       {(['danger', 'caution', 'information'] as const).map(tier => {
@@ -307,7 +307,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
       })}
       {(run.deployments ?? []).length > 0 && (
         <div className="motor-table-wrap" style={{ marginTop: 8 }}>
-          <DeploymentTable deployments={run.deployments ?? []} dist={dist} vel={vel} />
+          <DeploymentTable deployments={run.deployments ?? []} alt={alt} vel={vel} />
           <DeploymentRoleNote deployments={run.deployments ?? []} />
         </div>
       )}
@@ -317,7 +317,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           <div key={b.name} style={{ marginTop: 10 }}>
             <p style={{ margin: '4px 0', fontWeight: 600 }}>
               {b.name}{b.motorLabel ? ` (${b.motorLabel})` : ''} — separate flight:
-              {' '}apogee {b.apogee === null ? '—' : fmtSi('distance', dist, b.apogee)} <UnitChip quantity="distance" />
+              {' '}apogee {b.apogee === null ? '—' : fmtSi('altitude', alt, b.apogee)} <UnitChip quantity="altitude" />
               {' '}· lands at{' '}
               <span className={landBad ? 'stability-bad' : undefined}>
                 {b.landingRate === null ? '—' : fmtSi('velocity', vel, b.landingRate)} <UnitChip quantity="velocity" />
@@ -331,7 +331,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
             </p>
             {b.deployments.length > 0 && (
               <div className="motor-table-wrap">
-                <DeploymentTable deployments={b.deployments} dist={dist} vel={vel} />
+                <DeploymentTable deployments={b.deployments} alt={alt} vel={vel} />
                 <DeploymentRoleNote deployments={b.deployments} />
               </div>
             )}
@@ -345,7 +345,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           <h3>Flight</h3>
           <table className="fin-table">
             <tbody>
-              <Row label="Max altitude" value={fmtSi('distance', dist, run.maxAltitude)} quantity="distance" />
+              <Row label="Max altitude" value={fmtSi('altitude', alt, run.maxAltitude)} quantity="altitude" />
               <Row label="Max velocity" value={fmtSi('velocity', vel, run.maxVelocity)} quantity="velocity" />
               <Row label="Max Mach" value={s(run.maxMach, 3)} />
               <Row label="Max acceleration" value={fmtSi('acceleration', acc, run.maxAcceleration)} quantity="acceleration" />
@@ -413,8 +413,8 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               {(run.deployments ?? []).length === 0 && (
                 <>
                   <Row label="Altitude at deployment"
-                    value={run.altitudeAtDeployment === null ? '—' : fmtSi('distance', dist, run.altitudeAtDeployment)}
-                    quantity="distance" />
+                    value={run.altitudeAtDeployment === null ? '—' : fmtSi('altitude', alt, run.altitudeAtDeployment)}
+                    quantity="altitude" />
                   <Row label="Velocity at deployment"
                     value={typeof run.velocityAtDeployment !== 'number' || !Number.isFinite(run.velocityAtDeployment) ? '—' : fmtSi('velocity', vel, Math.abs(run.velocityAtDeployment))}
                     quantity="velocity" bad={openingVerdict(run.velocityAtDeployment) === false} warn={openingVerdict(run.velocityAtDeployment) === 'caution'} />
@@ -432,7 +432,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               )}
               {run.landingDistanceM != null && (
                 <Row label="Landing distance from pad"
-                  value={fmtSi('distance', dist, run.landingDistanceM)} quantity="distance" />
+                  value={fmtSi('distance', prefs.units.distance, run.landingDistanceM)} quantity="distance" />
               )}
               {/* A corrupt stored bearing is unavailable, not NaN degrees (audit 2026-10-11, S3b-3). */}
               {run.landingDistanceM != null && run.landingBearingDeg != null && Number.isFinite(run.landingBearingDeg) && (
@@ -468,15 +468,15 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               })()} />
               <Row label="Weathercocking" value={run.weathercockRisk ?? '—'}
                 bad={run.weathercockRisk === 'high'} />
-              <Row label="Winds aloft" value={run.windLevels?.length ? windProfileSummary(run.windLevels) : run.importedSummary ? '—' : "Surface wind only"} />
+              <Row label="Winds aloft" value={run.windLevels?.length ? windProfileSummary(run.windLevels, alt) : run.importedSummary ? '—' : "Surface wind only"} />
               <Row label="Wind average" value={fmtSi('windspeed', prefs.units.windspeed, run.windAvg)} quantity="windspeed" />
               <Row label="Wind gusts σ at pad" value={fmtSi('windspeed', prefs.units.windspeed, run.windSigma ?? NaN)} quantity="windspeed" />
               {/* The air this run flew, as the Launch panel's readout showed it at
                   launch (SimRun.densityAltitudeM). Stored runs are untrusted
                   JSON and older ones lack the field: no number, no row. */}
               {typeof run.densityAltitudeM === 'number' && Number.isFinite(run.densityAltitudeM) && (
-                <Row label="Density altitude" value={fmtAltitude(prefs.units.distance, run.densityAltitudeM)}
-                  quantity="distance" />
+                <Row label="Density altitude" value={fmtAltitude(prefs.units.altitude, run.densityAltitudeM)}
+                  quantity="altitude" />
               )}
               <Row label="Motor diameter" value={Number.isFinite(run.motorDiameterMm) ? `${run.motorDiameterMm} mm` : '—'} />
               <Row label="Manufacturer" value={run.manufacturer || '—'} />

@@ -1,0 +1,19 @@
+<openrocket version="1.10" creator="OpenRocket 24.12">
+  <rocket><name>Unit site notes</name>
+    <motorconfiguration configid="east" default="true"/>
+    <motorconfiguration configid="west"/>
+    <subcomponents><stage><subcomponents><bodytube><name>Body</name>
+      <length>0.5</length><radius>0.03</radius><thickness>0.001</thickness>
+    </bodytube></subcomponents></stage></subcomponents>
+  </rocket>
+  <simulations>
+    <simulation><name>East</name><conditions><configid>east</configid>
+      <launchlatitude>26.380273</launchlatitude><launchlongitude>80.126879</launchlongitude>
+      <launchaltitude>20000</launchaltitude>
+    </conditions></simulation>
+    <simulation><name>West</name><conditions><configid>west</configid>
+      <launchlatitude>28.1</launchlatitude><launchlongitude>-80.63</launchlongitude>
+      <launchaltitude>100</launchaltitude>
+    </conditions></simulation>
+  </simulations>
+</openrocket>

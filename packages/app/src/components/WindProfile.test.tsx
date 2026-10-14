@@ -4,10 +4,26 @@ import { createRoot } from 'react-dom/client';
 import { expect, it } from 'vitest';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { DEFAULT_CONDITIONS, LaunchField, type LaunchConditions } from './LaunchPanel.js';
-import { WindProfile } from './WindProfile.js';
+import { WindProfile, WindProfileTable } from './WindProfile.js';
 import { editProfileSurface } from '../services/windProfile.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+it('N032 winds-aloft heights follow Altitude while leaving stored SI levels untouched', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'km', distance: 'ft' } }));
+  const levels = [{ altitude: 1000, speed: 4, direction: 0 }];
+  const before = structuredClone(levels);
+  const host = document.createElement('div'), root = createRoot(host);
+  try {
+    act(() => root.render(<PrefsProvider><WindProfileTable levels={levels} />
+      <WindProfile value={{ ...DEFAULT_CONDITIONS, windLevels: levels }} onChange={() => {}} /></PrefsProvider>));
+    expect(host.querySelector('th')?.textContent).toContain('Height AGL');
+    expect(host.querySelector<HTMLSelectElement>('th select')?.value).toBe('km');
+    expect(host.querySelector('tbody td')?.textContent).toBe('1');
+    expect(host.textContent).toContain('1 levels to 1 km above ground');
+    expect(levels).toEqual(before);
+  } finally { act(() => root.unmount()); localStorage.clear(); }
+});
 
 it.each(['0.5', '0,5'])('keeps the aloft profile while typing %s character by character', (draft) => {
   const host = document.createElement('div'); document.body.appendChild(host);
@@ -56,7 +72,7 @@ it.each([false, true])('offers a keyboard disclosure and Clear/Undo without an o
   const render = () => root.render(<PrefsProvider><WindProfile value={value} onChange={(next) => { value = next; render(); }} /></PrefsProvider>);
   try {
     act(render);
-    expect(host.textContent).toContain('Winds aloft: 2 levels to 3,281 ft');
+    expect(host.textContent).toContain('Winds aloft: 2 levels to 1,000 m');
     expect(host.querySelector('details > summary')!.textContent).toBe('View winds aloft');
     expect(host.querySelector('[role="region"]')!.getAttribute('tabindex')).toBe('0');
     expect(host.querySelectorAll('a')).toHaveLength(2);

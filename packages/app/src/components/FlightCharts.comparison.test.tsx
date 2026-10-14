@@ -181,6 +181,22 @@ describe('flight comparisons wiring', () => {
     expect(host.querySelectorAll('.comparison-panel th')).toHaveLength(3);
     expect(error).not.toHaveBeenCalled();
   });
+  it('N032 time and phase altitude axes follow Altitude and keep SI samples', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { ...METRIC_UNITS, altitude: 'ft', distance: 'km' } }));
+    const flight = result(), before = structuredClone(flight);
+    render(flight);
+    const height = live().find(p => String(p.series[1]?.label).startsWith('Altitude'))!;
+    expect(height.series[1]?.label).toContain('(ft)');
+    expect(height.data[1]?.[1]).toBeCloseTo(10 / 0.3048, 12); // conversion arithmetic only
+    select('Comparison chart', 'phase');
+    expect(overlay().data[0].some(v => Math.abs(v - 20 / 0.3048) < 1e-10)).toBe(true);
+    expect(host.querySelector<HTMLSelectElement>('[aria-label="Altitude unit"]')?.value).toBe('ft');
+    const chip = host.querySelector<HTMLSelectElement>('[aria-label="Altitude unit"]')!;
+    act(() => { chip.value = 'm'; chip.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(overlay().data[0]).toContain(20);
+    expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).units.distance).toBe('km');
+    expect(flight).toEqual(before);
+  });
   it('recalls panel and comparison selections across units and missing branch data without changing the flight', () => {
     const flight = result();
     flight.branches = [{ name: 'Core', series: flight.series, events: [] },
@@ -390,7 +406,7 @@ describe('flight comparisons wiring', () => {
   });
   it('preserves phase bounds physically across units, theme and expansion', () => {
     render(result()); select('Comparison chart', 'phase'); act(() => overlay().setScale('x', { min: 2, max: 8 }));
-    const distance = host.querySelector('.comparison-panel select[aria-label="Altitude / distance unit"]') as HTMLSelectElement;
+    const distance = host.querySelector('.comparison-panel select[aria-label="Altitude unit"]') as HTMLSelectElement;
     act(() => { distance.value = 'ft'; distance.dispatchEvent(new Event('change', { bubbles: true })); });
     expect(overlay().scales['x']!.min).toBeCloseTo(2 / 0.3048, 10); expect(overlay().scales['x']!.max).toBeCloseTo(8 / 0.3048, 10);
     act(() => button('Light').click()); act(() => button('Expand').click());

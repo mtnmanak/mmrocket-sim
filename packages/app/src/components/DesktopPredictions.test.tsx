@@ -15,6 +15,17 @@ const predictions: DesktopStoredPrediction[] = [
 ];
 
 describe('desktop prediction comparison', () => {
+  it('N032 imported and app apogee comparisons follow Altitude', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
+    const host = document.createElement('div'), root = createRoot(host);
+    try {
+      act(() => root.render(<PrefsProvider><DesktopPredictions configId="a"
+        predictions={[{ name: 'First', configId: 'a', data: { maxAltitude: 304.8 } }]}
+        run={{ flightConfigId: 'a', maxAltitude: 609.6 } as SimRun} /></PrefsProvider>));
+      const row = [...host.querySelectorAll('tbody tr')].find(tr => tr.querySelector('th')?.textContent?.startsWith('Max altitude'))!;
+      expect([...row.querySelectorAll('td')].map(td => td.textContent)).toEqual(['1000 ft', '2000 ft']);
+    } finally { act(() => root.unmount()); localStorage.clear(); }
+  });
   it.each([5, 0, -1])('compares the kernel last-burnout delay %s rather than primary Auto delay', lastBurnoutOptimalDelayS => {
     const host = document.createElement('div');
     const root = createRoot(host);

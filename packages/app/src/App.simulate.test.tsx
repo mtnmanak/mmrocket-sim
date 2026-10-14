@@ -8,6 +8,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
+import { fmtSi, INITIAL_UNITS } from './prefs/units.js';
 import { diffCatalogue, OVERLAY_KEY } from './services/catalogueOverlay.js';
 import { padMassSetKey } from './services/configSync.js';
 import { applyDesignNameFallback } from './services/designFile.js';
@@ -439,7 +440,7 @@ interface AppSide {
  * comparison needs about the LAST one, then unmount. A second press flies what
  * App holds after the first: on Auto, the upgraded model.
  */
-async function launchInApp(host: HTMLElement, presses = 1): Promise<AppSide> {
+async function launchInApp(host: HTMLElement, presses = 1, onShown?: (side: AppSide) => void): Promise<AppSide> {
   const held = notes;
   for (let n = 1; n <= presses; n++) {
     await launch(host);
@@ -469,6 +470,7 @@ async function launchInApp(host: HTMLElement, presses = 1): Promise<AppSide> {
     fileNote: held.fileNote,
     padMassNote: held.padMassNote,
   };
+  onShown?.(side);
   await unmountAll();
   return side;
 }
@@ -569,7 +571,7 @@ async function sessionCase(seed: object | null, aero: AeroState, opts: { presses
 async function fileCase(bytes: Uint8Array, name: string, aero: AeroState,
   beforeLaunch?: (host: HTMLElement) => Promise<void>, feet = false) {
   prefs(aero);
-  if (feet) localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
+  if (feet) localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { altitude: 'ft', distance: 'km' } }));
   const host = await mountApp();
   await waitFor(starterStored, 'the starter motor to land');
   await settle(50);
@@ -599,7 +601,8 @@ async function fileCase(bytes: Uint8Array, name: string, aero: AeroState,
   expect(out.importNote).toStrictEqual(originalImportNote);
   expectSameLaunch(app, out, aero);
   // The bytes door: its own parse, its own presets, its own unit words.
-  const viaBytes = await simulateFile(bytes, name, { aero });
+  const viaBytes = await simulateFile(bytes, name, { aero,
+    units: feet ? { ...INITIAL_UNITS, altitude: 'ft', distance: 'km' } : INITIAL_UNITS });
   expect(plain(idFree(viaBytes.run))).toStrictEqual(plain(idFree(app.persistedRun)));
   expect(renumbered(viaBytes.result, positions(viaBytes.state.tree)))
     .toStrictEqual(renumbered(app.out.flight.result, positions(app.args.tree)));
@@ -618,6 +621,22 @@ async function fileCase(bytes: Uint8Array, name: string, aero: AeroState,
 }
 
 const fixture = (name: string) => new Uint8Array(readFileSync(join(FIXTURES, name)));
+
+it('N032 header apogee and flight announcement follow Altitude with independent horizontal units', async () => {
+  prefs(CLASSIC);
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { altitude: 'ft', distance: 'km' } }));
+  const host = await mountApp();
+  await waitFor(starterStored, 'the starter motor to land');
+  await launchInApp(host, 1, app => {
+    const height = fmtSi('altitude', 'ft', app.persistedRun.maxAltitude);
+    const chip = host.querySelector<HTMLSelectElement>('.vitals-value select[aria-label="Altitude unit"]');
+    expect(chip?.value).toBe('ft');
+    expect(chip?.parentElement?.textContent).toContain(height);
+    const statuses = [...host.querySelectorAll('[role="status"]')].map(el => el.textContent).join(' ');
+    expect(statuses).toContain(`Flight complete — apogee ${height} ft.`);
+    expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).units.distance).toBe('km');
+  });
+}, 60000);
 
 // ---------------------------------------------------------------------------
 
@@ -1283,7 +1302,7 @@ it('FC-4 fixup None preserves history for the saved owner while keeping working 
 
 it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('FC-5 LEM banners, expanded notice, Reset kernel input, Undo, Use everywhere and equal edit', async () => {
   prefs(CLASSIC);
-  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { altitude: 'ft', distance: 'km' } }));
   const host = await mountApp();
   await waitFor(starterStored, 'starter motor');
   await pick(host, new File([readFileSync(corpus('atestani files/LEM-1-2026_2.ork'))], 'LEM-1-2026_2.ork'));
@@ -1429,7 +1448,7 @@ describe('the Launch button and simulateFile fly a real design the same (local c
 
 it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM import warns below every launch site and Show focuses its parachute row on Motors & Configuration', async () => {
   prefs(CLASSIC);
-  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { altitude: 'ft', distance: 'km' } }));
   const host = await mountApp();
   await waitFor(starterStored, 'starter motor');
   const click = async (text: string) => act(async () => {
@@ -1506,7 +1525,7 @@ it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('LW real LEM i
 
 it.skipIf(!existsSync(corpus('atestani files/LEM-1-2026_2.ork')))('CFG-2 LEM rows show both chutes overridden; one bulk reset flies both at 300 ft and undoes in one step', async () => {
   prefs(CLASSIC);
-  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { distance: 'ft' } }));
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { altitude: 'ft', distance: 'km' } }));
   const host = await mountApp();
   await waitFor(starterStored, 'starter motor');
   await pick(host, new File([readFileSync(corpus('atestani files/LEM-1-2026_2.ork'))], 'LEM-1-2026_2.ork'));

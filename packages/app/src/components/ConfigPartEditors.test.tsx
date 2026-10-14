@@ -176,7 +176,7 @@ describe('CFG-3 ports from the Design deployment fields (ruling D2a moved their 
 
   it('flags a deployment-altitude overflow even without a density ceiling', () => {
     // Was PropertyPanel.limits: 1e306 km is finite as typed and infinite in SI.
-    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'km' } }));
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'km', distance: 'ft' } }));
     const host = document.createElement('div');
     document.body.append(host);
     const root = createRoot(host);

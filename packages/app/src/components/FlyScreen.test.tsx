@@ -67,6 +67,16 @@ describe('FlyScreen', () => {
     localStorage.clear();
   });
 
+  it('N032 phone apogee follows Altitude independently of horizontal distance', () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ daylight: true, units: { altitude: 'ft', distance: 'km' } }));
+    const run = { ...RUN, maxAltitude: 304.8 };
+    const before = structuredClone(run);
+    mount({ run });
+    expect(host.textContent).toContain('1000');
+    expect(host.textContent).not.toContain('0.305');
+    expect(run).toEqual(before);
+  });
+
   it('RES-1 names the selected historical flight and applies configurations or None once', () => {
     const config = { id: 'club', name: 'Club day', isDefault: true, motors: {} };
     const onApplyConfig = vi.fn();
@@ -167,7 +177,7 @@ describe('FlyScreen', () => {
 
   it('shows the winds aloft summary on the phone', () => {
     mount({ launch: { ...DEFAULT_CONDITIONS, windLevels: [{ altitude: 10, speed: 4, direction: 0 }, { altitude: 500, speed: 10, direction: 0.2 }] } });
-    expect(host.textContent).toContain('Winds aloft: 2 levels to 1,640 ft (500 m) above ground');
+    expect(host.textContent).toContain('Winds aloft: 2 levels to 500 m above ground');
     expect(host.textContent).toContain('Wind avg is the surface wind');
   });
 

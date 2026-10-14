@@ -50,7 +50,7 @@ const FIELD_SPEC: Partial<Record<keyof LaunchConditions, { quantity: Quantity; s
   launchRodAimDeg: { quantity: 'angle', storedToSI: Math.PI / 180 },
   windAverage: { quantity: 'windspeed', storedToSI: 1 },
   windStdDev: { quantity: 'windspeed', storedToSI: 1 },
-  launchAltitudeM: { quantity: 'distance', storedToSI: 1 },
+  launchAltitudeM: { quantity: 'altitude', storedToSI: 1 },
   temperatureC: { quantity: 'temperature', storedToSI: 1, storedOffset: 273.15 },
   pressureHPa: { quantity: 'pressure', storedToSI: 100 },
 };
@@ -425,13 +425,13 @@ function DensityAltitudeReadout({ value, atmosphereModel }: { value: LaunchCondi
   const id = useId();
   const labelId = `${id}-label`;
   const helpId = `${id}-help`;
-  const sym = prefs.units.distance;
+  const sym = prefs.units.altitude;
   const air = padAir(value, atmosphereModel);
   const da = densityAltitudeM(value, atmosphereModel);
   const delta = fmtAltitude(sym, da - air.altitudeM);
   return (
     <div className="field field-readout" title={DENSITY_ALTITUDE_HELP} data-readout="density-altitude">
-      <label id={labelId} htmlFor={id}>Density altitude <UnitChip quantity="distance" /></label>
+      <label id={labelId} htmlFor={id}>Density altitude <UnitChip quantity="altitude" /></label>
       <span id={helpId} className="sr-only">{DENSITY_ALTITUDE_HELP}</span>
       <output id={id} aria-labelledby={labelId} aria-describedby={helpId} aria-live="off"
         className={air.standard ? 'readout-muted' : undefined}>
@@ -465,11 +465,11 @@ function PadPressureCaution({ value, atmosphereModel }: { value: LaunchCondition
   const issue = padPressureIssue(value, atmosphereModel);
   if (!issue) return null;
   const sym = prefs.units.pressure;
-  const altSym = prefs.units.distance;
+  const altSym = prefs.units.altitude;
   // The site the flight flies (`padAir` clamps the stored one into its range),
   // so "Clear the field and the app uses …" names the pressure it really would.
   const siteM = padAir(value, atmosphereModel).altitudeM;
-  const site = fmtSi('distance', altSym, siteM);
+  const site = fmtSi('altitude', altSym, siteM);
   const standing = `${fmtSi('pressure', sym, isaPressurePa(siteM, atmosphereModel))} ${sym}`;
   return (
     <p className="field-caution" role="status" data-caution="pad-pressure">

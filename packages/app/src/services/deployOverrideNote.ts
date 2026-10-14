@@ -1,6 +1,7 @@
 import { DEPLOY_EVENTS, FIELDS } from '../tree/schema.js';
 import { foldDeployEvent } from '../tree/deployEvent.js';
 import type { IgnitionTuple, SeparationTuple } from '../model/design.js';
+import { deployAltitudeText } from '../components/recoveryContext.js';
 
 /**
  * A recovery device whose flight configuration OVERRIDES its own deployment
@@ -50,12 +51,13 @@ export function sameDeployment(a: DeploySetting, b: DeploySetting): boolean {
 
 const LABEL = new Map(DEPLOY_EVENTS);
 
-/** "Altitude (descending), 91.4 m (300 ft)" / "Motor ejection charge + 1 s". */
-export function describeDeployment(d: DeploySetting): string {
+/** N032: quote the altitude box's units/digits; callers without preferences keep the legacy readout. */
+export function describeDeployment(d: DeploySetting, altitudeUnit?: string): string {
   const event = foldDeployEvent(d.deployEvent);
   let s = LABEL.get(event) ?? event;
   if (event === 'altitude') {
-    s += `, ${d.deployAltitude.toFixed(1)} m (${Math.round(d.deployAltitude / 0.3048)} ft)`;
+    s += `, ${altitudeUnit !== undefined ? deployAltitudeText(d.deployAltitude, altitudeUnit)
+      : `${d.deployAltitude.toFixed(1)} m (${Math.round(d.deployAltitude / 0.3048)} ft)`}`;
   }
   if (d.deployDelay > 1e-9) s += ` + ${Number(d.deployDelay.toFixed(2))} s`;
   return s;
@@ -66,7 +68,7 @@ export function describeDeployment(d: DeploySetting): string {
  * the same two settings are listed once with a count, the way the launch
  * report counts them ("Parachute (×2)").
  */
-export function deployOverrideNote(overrides: readonly DeployOverride[], configName: string | null): string | null {
+export function deployOverrideNote(overrides: readonly DeployOverride[], configName: string | null, altitudeUnit?: string): string | null {
   if (overrides.length === 0) return null;
   const groups = new Map<string, { o: DeployOverride; n: number }>();
   for (const o of overrides) {
@@ -76,8 +78,8 @@ export function deployOverrideNote(overrides: readonly DeployOverride[], configN
   }
   const where = configName ? `Flight configuration “${configName}”` : 'The flight configuration this file opens with';
   const lines = [...groups.values()].map(({ o, n }) =>
-    `${o.name}${n > 1 ? ` (×${n})` : ''} flies at ${describeDeployment(o.flown)}, `
-    + `not at its own setting (${describeDeployment(o.own)})`);
+    `${o.name}${n > 1 ? ` (×${n})` : ''} flies at ${describeDeployment(o.flown, altitudeUnit)}, `
+    + `not at its own setting (${describeDeployment(o.own, altitudeUnit)})`);
   // Both settings are shown, and edited, in the Recovery section of Motors &
   // Configuration since CFG-3 (ruling D2a); Design shows them read-only.
   return `Recovery: ${where} overrides the deployment setting — ${lines.join('; ')}. `
@@ -87,14 +89,15 @@ export function deployOverrideNote(overrides: readonly DeployOverride[], configN
 /** The other two parameter families use the same own-setting/override explanation. */
 export function flightParameterOverrideNote(
   kind: 'separation' | 'ignition', name: string, own: SeparationTuple | IgnitionTuple,
-  flown: SeparationTuple | IgnitionTuple, configName: string | null,
+  flown: SeparationTuple | IgnitionTuple, configName: string | null, altitudeUnit?: string,
 ): string {
   const describe = (tuple: SeparationTuple | IgnitionTuple) => {
     if ('separationEvent' in tuple) {
       const labels = new Map(FIELDS.stage?.find(f => f.key === 'separationEvent')?.options ?? []);
       const event = tuple.separationEvent;
       return (labels.get(event) ?? event)
-        + (event.startsWith('altitude') ? `, ${tuple.separationAltitude} m` : '')
+        + (event.startsWith('altitude') ? `, ${altitudeUnit !== undefined ? deployAltitudeText(tuple.separationAltitude, altitudeUnit)
+          : `${tuple.separationAltitude} m`}` : '')
         + (tuple.separationDelay ? ` + ${tuple.separationDelay} s` : '');
     }
     const labels: Record<IgnitionTuple['event'], string> = {

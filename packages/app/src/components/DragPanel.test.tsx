@@ -327,7 +327,7 @@ describe('DragPanel — sweep conditions', () => {
   });
 
   it('converts a typed altitude from the display unit', () => {
-    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'ft' } }));
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
     mount();
     openPanel();
     setSelect(condSelect(), 'altitude');
@@ -463,7 +463,7 @@ describe('DragPanel — sweep conditions', () => {
     const lastAlt = () => (calls[calls.length - 1] as { machAlt?: [number, number][] }).machAlt?.[0]?.[1];
 
     beforeEach(() => {
-      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { distance: 'ft' } }));
+      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
     });
 
     it('five keystrokes are no sweep; the blur is one, at the whole number', () => {

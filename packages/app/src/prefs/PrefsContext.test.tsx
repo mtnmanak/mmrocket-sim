@@ -31,6 +31,34 @@ function Probe() {
 
 const mount = () => act(() => root.render(<PrefsProvider><Probe /></PrefsProvider>));
 
+describe('N032 altitude preference migration', () => {
+  it.each(['m', 'km', 'ft', 'yd', 'mi'])('inherits legacy distance %s and persists the split on the next write', distance => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ units: { distance } }));
+    mount();
+    expect(seen.prefs.units).toMatchObject({ distance, altitude: distance });
+    act(() => seen.setPrefs({ ...seen.prefs, units: { ...seen.prefs.units, distance: distance === 'km' ? 'm' : 'km' } }));
+    act(() => root.unmount());
+    root = createRoot(host);
+    mount();
+    expect(seen.prefs.units.altitude).toBe(distance);
+  });
+  it.each([null, 42, 'furlong', {}, []].map(value => [value]))('rejects an invalid stored altitude %j without inheriting distance', altitude => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ units: { distance: 'ft', altitude } }));
+    mount();
+    expect(seen.prefs.units).toMatchObject({ distance: 'ft', altitude: 'm' });
+  });
+  it('keeps an explicit altitude and defaults invalid legacy distance before migration', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ units: { distance: 'km', altitude: 'ft' } }));
+    mount();
+    expect(seen.prefs.units).toMatchObject({ distance: 'km', altitude: 'ft' });
+    act(() => root.unmount());
+    root = createRoot(host);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ units: { distance: 'furlong' } }));
+    mount();
+    expect(seen.prefs.units).toMatchObject({ distance: 'm', altitude: 'm' });
+  });
+});
+
 it('N038/N058 validates viewer choices and preserves a saved layout across remounts', () => {
   const layout = { id: 'ascent', name: 'Ascent', columns: [{ key: 'altitude', unit: 'ft' }], events: { to: 'APOGEE' } };
   localStorage.setItem(STORAGE_KEY, JSON.stringify({ runColumns: ['maxMach', 'unknown', 'maxAltitude'],

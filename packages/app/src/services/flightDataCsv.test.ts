@@ -38,6 +38,22 @@ function fakeSeries(): FlightSeries {
 }
 
 describe('seriesColumns', () => {
+  it('N032 separates AGL and ASL altitude from horizontal columns without changing SI samples', () => {
+    const input = { ...fakeSeries(), ha: [304.8, 609.6, null], Px: [1000, 2000, null], Py: [1000, 2000, null], Pl: [1000, 2000, null] };
+    const before = structuredClone(input);
+    const columns = seriesColumns(input, '', { ...IMPERIAL_UNITS, altitude: 'ft', distance: 'km' });
+    const column = (name: string) => columns.find(c => c.header.startsWith(name))!;
+    expect(column('Altitude').header).toBe('Altitude (ft)');
+    expect(column('Altitude').values[1]).toBeCloseTo(1 / 0.3048, 12); // conversion arithmetic only
+    expect(column('ha').header).toContain('(ft)');
+    expect(column('ha').values).toEqual([1000, 2000, null]);
+    for (const key of ['Px', 'Py', 'Pl']) {
+      expect(column(key).header).toContain('(km)');
+      expect(column(key).values).toEqual([1, 2, null]);
+    }
+    expect(input).toEqual(before);
+    expect(seriesColumns(input).find(c => c.header === 'Altitude (m)')!.values).toEqual(input.altitude);
+  });
   it('labels recorded active aerodynamic length and converts it with rocket dimensions', () => {
     const input = { ...fakeSeries(), activeLength: [0.49, 0.37, null] };
     const before = structuredClone(input);

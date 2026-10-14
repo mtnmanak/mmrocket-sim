@@ -312,20 +312,20 @@ type MachAlt = [number, number][];
  * its typography folded to ASCII (services/dragTable.ts) — the same words, "20 degC" for
  * "20 °C" — so the file opens clean in Excel.
  */
-function conditionsText(mode: Conditions, altM: number, table: MachAlt | undefined, distUnit: string): string {
+function conditionsText(mode: Conditions, altM: number, table: MachAlt | undefined, altUnit: string): string {
   // fmtSi's precision ladder gives sub-1 values three decimals, so a sea-level
   // row would print as "0.000". Zero is just zero.
   const ceilingNote = (max: number) => max > 84500
     ? ' (atmosphere conditions above 84.5 km are held at that layer)' : '';
-  const fmtAlt = (v: number) => (v === 0 ? '0' : fmtSi('distance', distUnit, v));
+  const fmtAlt = (v: number) => (v === 0 ? '0' : fmtSi('altitude', altUnit, v));
   if (mode === 'file' && table && table.length > 0) {
     const machs = table.map(([m]) => m);
     const alts = table.map(([, a]) => a);
     return `file Mach-Alt table — ${table.length} points from Mach ${Math.min(...machs)} to ${Math.max(...machs)}`
-      + ` (${fmtAlt(Math.min(...alts))}–${fmtAlt(Math.max(...alts))} ${distUnit} ISA)` + ceilingNote(Math.max(...alts));
+      + ` (${fmtAlt(Math.min(...alts))}–${fmtAlt(Math.max(...alts))} ${altUnit} ISA)` + ceilingNote(Math.max(...alts));
   }
   if (mode === 'altitude' && altM > 0) {
-    return `ISA at ${fmtAlt(altM)} ${distUnit}` + ceilingNote(altM);
+    return `ISA at ${fmtAlt(altM)} ${altUnit}` + ceilingNote(altM);
   }
   return 'sea level (101325 Pa; 20 °C — the kernel default)';
 }
@@ -420,10 +420,10 @@ const CLASSIC_MACH_MAX = 5;
  * focused takes its unfinished edit with it rather than leaving it to surface
  * later.
  */
-function SweepAltitudeBox({ altM, distUnit, onCommit }: {
+function SweepAltitudeBox({ altM, altUnit, onCommit }: {
   /** The altitude being swept (m); 0 is sea level. */
   altM: number;
-  distUnit: string;
+  altUnit: string;
   onCommit: (altM: number) => void;
 }) {
   const [held, setHeld] = useState<number | null>(null);
@@ -431,7 +431,7 @@ function SweepAltitudeBox({ altM, distUnit, onCommit }: {
   /** True only while the input's change event is being handled (see above). */
   const typing = useRef(false);
   // Blank IS sea level: blank, 0 and anything below it sweep the default.
-  const toSi = (v: number | null) => (v !== null && v > 0 ? uiToSi('distance', distUnit, v) : 0);
+  const toSi = (v: number | null) => (v !== null && v > 0 ? uiToSi('altitude', altUnit, v) : 0);
   return (
     // `inline-numfield` makes the input fill this 96 px wrapper (styles.css);
     // outside a `.field` nothing else sizes it. React's onBlur is focusout,
@@ -445,10 +445,10 @@ function SweepAltitudeBox({ altM, distUnit, onCommit }: {
         onCommit(held);
       }}>
       <NumField
-        ariaLabel={`Sweep altitude (${distUnit})`}
+        ariaLabel={`Sweep altitude (${altUnit})`}
         validate={(v) => Number.isFinite(toSi(v))}
-        value={altM > 0 ? siToUi('distance', distUnit, altM) : undefined}
-        step={niceStep(siToUi('distance', distUnit, 100))}
+        value={altM > 0 ? siToUi('altitude', altUnit, altM) : undefined}
+        step={niceStep(siToUi('altitude', altUnit, 100))}
         nullable
         // Blank IS sea level, so a spinner on the blank box steps
         // from 0 (NumField reads the base out of the placeholder).
@@ -543,7 +543,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
   };
   const C = seriesPalette(daylight, resolvedTheme);
   const lenUnit = prefs.units.length;
-  const distUnit = prefs.units.distance;
+  const altUnit = prefs.units.altitude;
 
   // High-Mach ranges only make sense with the supersonic model on. The range
   // the sweep runs to is DERIVED, here in render (audit 2026-09-22). Clamped by
@@ -649,7 +649,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
   }, [open, cpAoa, sweepRocket, machTop, machAlt]);
   const aoaCpSweep = aoaSweep && !('error' in aoaSweep) ? aoaSweep : null;
 
-  const condText = conditionsText(conditions, altM, fileMachAlt, distUnit);
+  const condText = conditionsText(conditions, altM, fileMachAlt, altUnit);
 
   // The design's static figures, read only while a sweep is showing: the CP
   // chart needs the length to scale by, and the roll note below needs the
@@ -762,7 +762,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
                 name the wrong one. Each carries its own aria-label instead. */}
             {conditions === 'altitude' && (
               <span className="motor-inline-label" style={{ whiteSpace: 'nowrap' }}>
-                Altitude <UnitChip quantity="distance" />
+                Altitude <UnitChip quantity="altitude" />
                 {/* A NumField, not a bare input (audit 2026-09-22): the bare
                     box read "10,000" as NaN and silently swept at SEA LEVEL
                     while still showing 10,000 — only the caption under the
@@ -770,7 +770,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
                     invalid and commits nothing, as in every other field.
                     What it does commit waits for the box to let go
                     (SweepAltitudeBox). */}
-                <SweepAltitudeBox altM={altM} distUnit={distUnit} onCommit={(altM) => updateSettings({ altM })} />
+                <SweepAltitudeBox altM={altM} altUnit={altUnit} onCommit={(altM) => updateSettings({ altM })} />
               </span>
             )}
             <span style={{ flex: 1 }} />

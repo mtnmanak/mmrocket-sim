@@ -76,7 +76,10 @@ export type DesignFormat = 'ork' | 'rkt' | 'cdx1';
 /** What the file door reads a design with; see {@link parseDesignFile}. */
 export interface DesignFileOptions {
   presets: readonly Preset[];
+  /** Legacy option name: the caller's Altitude selection for new height notes. */
   distanceUnit?: string;
+  /** Horizontal distance selection for geographic distance notes (N032); separate from Altitude. */
+  horizontalDistanceUnit?: string;
   catalogue?: MotorDbEntry[];
   aeroChoice?: AeroChoice;
   /** The curve load the flight's motor match uses, for a .CDX1's stated weight. */
@@ -96,8 +99,10 @@ export function designFormatOf(fileName: string): DesignFormat {
  * part the file names by manufacturer + part number (.rkt <PartMfg>/<PartNo>,
  * .ork <preset>) is linked to its row and takes the catalogue's values for
  * whatever the file left unset — a RockSim chute's "auto" Cd, above all. The
- * user's distance unit goes to the .rkt reader alone: it holds no unit
- * preference, and its note quotes each configuration's deployment altitude.
+ * user's altitude unit goes to the readers for new height notes: deployment
+ * and separation overrides in .ork, deployment in .rkt, and site/table heights
+ * in .CDX1. Site-altitude clamp readouts also use Altitude; longitude-check
+ * distances use the separate Horizontal distance selection (N032).
  * Motor rows travel with it too (2026-10-01): headless imports must settle
  * delays and motor moments on the shipped rows, while App keeps live defaults.
  *
@@ -113,12 +118,16 @@ export async function parseDesignFile(
   switch (designFormatOf(fileName)) {
     case 'rkt':
       return { ...importRkt(data, { presets: opts.presets, catalogue: opts.catalogue,
+        ...(opts.horizontalDistanceUnit !== undefined ? { horizontalDistanceUnit: opts.horizontalDistanceUnit } : {}),
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) }), sourceFormat: 'rkt' };
     case 'cdx1':
       return { ...await importCdx1Flown(data, { catalogue: opts.catalogue, aeroChoice: opts.aeroChoice,
+        ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}),
         ...(opts.flownSpec ? { flownSpec: opts.flownSpec } : {}) }), sourceFormat: 'cdx1' };
     case 'ork':
-      return { ...importOrk(data, { presets: opts.presets }), sourceFormat: 'ork' };
+      return { ...importOrk(data, { presets: opts.presets,
+        ...(opts.horizontalDistanceUnit !== undefined ? { horizontalDistanceUnit: opts.horizontalDistanceUnit } : {}),
+        ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) }), sourceFormat: 'ork' };
   }
 }
 

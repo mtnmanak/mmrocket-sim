@@ -356,8 +356,9 @@ const G_MS2 = 9.80665;
 
 /**
  * CSV columns: label + SimRun key + formatter. The first 14 columns are
- * the owner's flight-day comparison set, in his order and units — those NEVER
- * follow the unit preferences. The detail columns after them convert to the
+ * the owner's flight-day comparison set, in his order and units. N032 routes
+ * its apogee through Altitude too; the other comparison units stay fixed.
+ * The detail columns after them convert to the
  * user's selected units (with the unit in each header) when a UnitSelection
  * is passed; without one they stay SI (tests, back-compat).
  */
@@ -369,6 +370,12 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
     return Number(v.toFixed(digits));
   };
   const sym = (quantity: Quantity, siLabel: string) => (u ? u[quantity] : siLabel);
+  const apogee = (si: number | null): string | number => {
+    if (si == null || !Number.isFinite(si)) return '';
+    // N032: large altitude units need significant digits so short flights do not export as zero.
+    if (u?.altitude === 'km' || u?.altitude === 'mi') return Number(siToUi('altitude', u.altitude, si).toPrecision(6));
+    return u ? cv('altitude', si, 0) : round(scaled(si, FT), 0);
+  };
   // Pressure-times-angle can be very small in bar/atm. A fixed decimal count
   // would turn a real nonzero load into zero; retain the converted value.
   const loadPressure = (si: number | null | undefined): string | number =>
@@ -381,7 +388,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   };
   return [
   ['Designation', (r) => r.motor],
-  ['Apogee (ft)', (r) => round(scaled(r.maxAltitude, FT), 0)],
+  [`Apogee (${sym('altitude', 'ft')})`, (r) => apogee(r.maxAltitude)],
   ['Velocity (mph)', (r) => round(scaled(r.maxVelocity, MPH), 1)],
   ['Manufacturer', (r) => r.manufacturer],
   ['Diameter (mm)', (r) => Number.isFinite(r.motorDiameterMm) ? r.motorDiameterMm : ''],
@@ -409,7 +416,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
     return Number.isFinite(r.when) && !Number.isNaN(d.getTime()) ? d.toISOString() : '';
   }],
   ['Rocket', (r) => r.rocket],
-  [`Max altitude (${sym('distance', 'm')})`, (r) => cv('distance', r.maxAltitude)],
+  [`Max altitude (${sym('altitude', 'm')})`, (r) => cv('altitude', r.maxAltitude)],
   [`Max velocity (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.maxVelocity)],
   ['Max Mach', (r) => round(r.maxMach, 3)],
   [`Max acceleration (${sym('acceleration', 'm/s2')})`, (r) => cv('acceleration', r.maxAcceleration)],
@@ -435,7 +442,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   [`CG at launch guide exit (${sym('length', 'm')})`, (r) => cv('length', r.launchCG, 4)],
   [`CP at launch guide exit (${sym('length', 'm')})`, (r) => cv('length', r.launchCP, 4)],
   ['Static margin at launch guide exit (cal)', (r) => round(r.launchStaticMarginCal)],
-  [`Altitude at deployment (${sym('distance', 'm')})`, (r) => cv('distance', r.altitudeAtDeployment)],
+  [`Altitude at deployment (${sym('altitude', 'm')})`, (r) => cv('altitude', r.altitudeAtDeployment)],
   [`Velocity at deployment (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.velocityAtDeployment)],
   ['Deployments', (r) => (r.deployments ?? [])
     .map((d) => `${d.device}@${Number.isFinite(d.time) ? `${d.time.toFixed(1)}s` : '?'} opens ${Number.isFinite(d.velocityAtDeployment) ? d.velocityAtDeployment!.toFixed(1) : '?'}m/s descent ${Number.isFinite(d.descentRate) ? d.descentRate!.toFixed(1) : '?'}m/s${openingVerdict(d.velocityAtDeployment) === false || d.descentOk === false ? ' (!)' : openingVerdict(d.velocityAtDeployment) === 'caution' ? ' (caution)' : ''}`)
@@ -460,7 +467,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Motors (cluster)', (r) => r.motorCount ?? (r.importedSummary ? '' : 1)],
   ['Motor config', (r) => r.motorConfig ?? ''],
   ['Booster motors', (r) => (r.boosterMotors ?? []).join('; ')],
-  [`Booster apogee (${sym('distance', 'm')})`, (r) => cv('distance', r.branches?.[0]?.apogee ?? null)],
+  [`Booster apogee (${sym('altitude', 'm')})`, (r) => cv('altitude', r.branches?.[0]?.apogee ?? null)],
   [`Booster landing rate (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.branches?.[0]?.landingRate ?? null)],
   ['Booster landing OK', (r) => flag(r.branches?.[0]?.safeLandingRate ?? null)],
   [`Wind avg (${sym('windspeed', 'm/s')})`, (r) => cv('windspeed', r.windAvg, 1)],
@@ -485,18 +492,18 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   // empty cell: `cv`'s own Number.isFinite test is the check, and it refuses a
   // string or an object as it refuses NaN (audit row 522 took the typeof test
   // that stood in front of it, the shape eslint.config.mjs now refuses).
-  [`Density altitude (${sym('distance', 'm')})`,
-    (r) => cv('distance', r.densityAltitudeM)],
+  [`Density altitude (${sym('altitude', 'm')})`,
+    (r) => cv('altitude', r.densityAltitudeM)],
   ['Winds aloft (levels)', (r) => r.windLevels?.length ?? ''],
   // Append to preserve existing spreadsheet column positions.
   [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm')), (r) => railExportCell(r, 'rail')],
   [`Max dynamic pressure (${sym('pressure', 'Pa')})`, r => loadPressure(r.loads?.maxQ?.value)],
   ['Time at max Q (s)', r => round(r.loads?.maxQ?.time ?? null, 4)],
-  [`Altitude at max Q (${sym('distance', 'm')})`, r => cv('distance', r.loads?.maxQ?.altitude)],
+  [`Altitude at max Q (${sym('altitude', 'm')})`, r => cv('altitude', r.loads?.maxQ?.altitude)],
   [`Max q·α (${sym('pressure', 'Pa')}·rad)`, r => loadPressure(r.loads?.maxQAlpha?.value)],
   [`Max q·α (${sym('pressure', 'Pa')}·deg)`, r => loadPressure(r.loads?.maxQAlpha ? r.loads.maxQAlpha.value * 180 / Math.PI : null)],
   ['Time at max q·α (s)', r => round(r.loads?.maxQAlpha?.time ?? null, 4)],
-  [`Altitude at max q·α (${sym('distance', 'm')})`, r => cv('distance', r.loads?.maxQAlpha?.altitude)],
+  [`Altitude at max q·α (${sym('altitude', 'm')})`, r => cv('altitude', r.loads?.maxQAlpha?.altitude)],
   ['Mach at max q·α', r => round(r.loads?.maxQAlpha?.mach ?? null, 4)],
   ['Angle of attack at max q·α (rad)', r => round(r.loads?.maxQAlpha?.aoa ?? null, 6)],
   ['Angle of attack at max q·α (deg)', r => round(r.loads?.maxQAlpha?.aoa == null ? null : r.loads.maxQAlpha.aoa * 180 / Math.PI, 4)],
@@ -504,7 +511,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Hybrid band upper (Mach)', (r) => round(r.hybridBand?.[1] ?? null, 3)],
   // Append travel too, keeping all previously exported column positions stable.
   [railNeededHeader(railThreshold, sym('velocity', 'm/s'), sym('length', 'm'), 'travel'), (r) => railExportCell(r, 'travel')],
-  ['Overrides', (r) => runOverrideText(r, u?.distance ?? 'm')],
+  ['Overrides', (r) => runOverrideText(r, u?.altitude ?? 'm')],
   ['Status', (r) => runStatus(r, provenance).label],
   [`Wind gusts σ at pad (${sym('windspeed', 'm/s')})`, (r) => cv('windspeed', r.windSigma, 1)],
   ];
@@ -533,7 +540,7 @@ function flag(v: boolean | null): string {
 /**
  * Pass the user's UnitSelection so the detail columns come out in their
  * preferred units (headers carry the unit); omitted = SI detail columns.
- * The 14 flight-day lead columns are fixed ft/mph/Gs/g either way.
+ * Lead apogee follows Altitude; the other flight-day comparison units stay fixed.
  */
 export function runsToCsv(runs: SimRun[], units?: UnitSelection, railThreshold: number = SAFETY.minRodExitVelocity, provenance: DesignMatchKey | null = null): string {
   const cols = buildColumns(units, railThreshold, provenance);

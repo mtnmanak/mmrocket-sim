@@ -7,6 +7,9 @@ import {
   MAX_DESIGN_FILE_BYTES, openDesignFile, parseDesignFile,
 } from './designFile.js';
 import type { ImportedDesign } from './importApply.js';
+import { exportCdx1 } from './rasaeroFile.js';
+import { exportOrk } from './orkFile.js';
+import { resolveFlightState } from './flightState.js';
 import { gzipSync, zipSync } from 'fflate';
 
 /**
@@ -89,6 +92,190 @@ describe('designFileOpenFailure', () => {
 });
 
 describe('parseDesignFile and openDesignFile', () => {
+  const siteFile = (format: string, altitude: number, sibling = false): ArrayBuffer => {
+    const sites = [[26.380273, 80.126879], ...(sibling ? [[28.1, -80.63]] : [])];
+    const xml = format === 'ork'
+      ? `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket><name>Site</name>
+        ${sites.map((_, i) => `<motorconfiguration configid="c${i}" default="${i === 0}"/>`).join('')}
+        <subcomponents><stage><subcomponents><bodytube><length>0.5</length><radius>0.03</radius>
+        </bodytube></subcomponents></stage></subcomponents></rocket><simulations>
+        ${sites.map(([lat, lon], i) => `<simulation><name>Site ${i}</name><conditions><configid>c${i}</configid>
+        <launchlatitude>${lat}</launchlatitude><launchlongitude>${lon}</launchlongitude>
+        <launchaltitude>${altitude}</launchaltitude></conditions></simulation>`).join('')}</simulations></openrocket>`
+      : format === 'rkt'
+        ? `<RockSimDocument><DesignInformation><RocketDesign><Name>Site</Name><StageCount>1</StageCount>
+          <Stage3Parts><BodyTube><Name>Body</Name><OD>54</OD><ID>52</ID><Len>300</Len>
+          <IsMotorMount>1</IsMotorMount><SerialNo>1</SerialNo></BodyTube></Stage3Parts></RocketDesign></DesignInformation>
+          <SimulationResultsList>${sites.map(([lat, lon], i) => `<SimulationResults>
+          <LaunchLatitude>${lat}</LaunchLatitude><LaunchLongitude>${lon}</LaunchLongitude><LaunchAltitude>${altitude}</LaunchAltitude>
+          <Stage3Engines><EngineSet><EngineCode>F${20 + i}W</EngineCode><MountSerialNo>1</MountSerialNo>
+          <EjectionDelay>6</EjectionDelay></EngineSet></Stage3Engines></SimulationResults>`).join('')}</SimulationResultsList></RockSimDocument>`
+        : `<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>
+          </RocketDesign><LaunchSite><Altitude>${altitude}</Altitude></LaunchSite></RASAeroDocument>`;
+    return new TextEncoder().encode(xml).buffer;
+  };
+
+  it.each(['ork', 'rkt', 'CDX1'])('N032 clamped %s site notes quote file evidence but read field bounds in Altitude', async format => {
+    for (const [altitude, upper] of [['km', '10 km'], ['ft', '32808.399 ft']]) {
+      for (const high of [true, false]) {
+        const source = format === 'CDX1' ? (high ? 150000 : -1000) : (high ? 20000 : -100);
+        const data = siteFile(format, source);
+        const baseline = await parseDesignFile(data, `site.${format}`, { presets: [] });
+        const imported = await parseDesignFile(data, `site.${format}`, { presets: [], distanceUnit: altitude,
+          horizontalDistanceUnit: altitude === 'km' ? 'ft' : 'km' });
+        const note = imported.notes.find(n => n.includes('Site altitude field'));
+        expect.soft(note).toContain(`altitude is ${source} ${format === 'CDX1' ? 'ft' : 'm'}`);
+        expect.soft(note).toContain(`accepts 0 ${altitude} to ${upper}`);
+        expect.soft(note).toContain(`imported as ${high ? upper : `0 ${altitude}`}`);
+        expect(imported.launch).toEqual(baseline.launch);
+        expect(imported.launch!.launchAltitudeM).toBe(high ? 10000 : 0);
+        expect(imported.noteTiers?.filter(n => n.kind === 'I25.clamped').map(n => n.tier)).toEqual(['caution']);
+        expect(data).toEqual(siteFile(format, source));
+      }
+    }
+  });
+
+  it.each(['ork', 'rkt'])('N032 new %s longitude distances follow Horizontal distance independently of Altitude', async format => {
+    const data = siteFile(format, 100, true);
+    const baseline = await parseDesignFile(data, `site.${format}`, { presets: [] });
+    for (const [altitude, horizontalDistanceUnit, away, nearby] of [
+      ['ft', 'mi', '8,500 mi', '100 mi'], ['km', 'yd', '8,500 mi', '100 mi'],
+      ['mi', 'm', '13,600 km', '200 km'], ['ft', 'km', '13,600 km', '200 km'],
+    ]) {
+      const imported = await parseDesignFile(data, `site.${format}`, { presets: [], distanceUnit: altitude, horizontalDistanceUnit });
+      const note = imported.notes.find(n => n.includes('sign flipped'));
+      expect.soft(note).toContain(`${away} away. With the sign flipped it is ${nearby} from them.`);
+      expect(note).toContain('26.380273, 80.126879 (east)');
+      expect(note).toContain('28.1, -80.63 (west)');
+      expect(imported.launch).toEqual(baseline.launch);
+      expect(imported.longitudeCheck).toEqual(baseline.longitudeCheck);
+      expect(imported.launch).toMatchObject({ latitudeDeg: 26.380273, longitudeDeg: 80.126879 });
+      // Synthetic coordinate evidence, unchanged by display units; not a flown trajectory.
+      expect(imported.longitudeCheck!.distanceKm).toBeCloseTo(13618, 0);
+      expect(imported.longitudeCheck!.flippedDistanceKm).toBeCloseTo(198, 0);
+    }
+  });
+
+  it.each([
+    ['m', '152.4 m', '91.44 m'], ['km', '0.152 km', '0.0914 km'],
+    ['ft', '500 ft', '300 ft'], ['yd', '166.667 yd', '100 yd'], ['mi', '0.0947 mi', '0.0568 mi'],
+  ])('N032 new .ork override heights follow Altitude %s without changing SI or the file', async (altitude, flown, own) => {
+    const recovery = (kind: string) => `<${kind}><name>${kind}</name>
+      <deployevent>altitude</deployevent><deployaltitude>91.44</deployaltitude><deploydelay>0</deploydelay>
+      <deploymentconfiguration configid="cfg-a"><deployevent>altitude</deployevent>
+        <deployaltitude>152.4</deployaltitude><deploydelay>0</deploydelay></deploymentconfiguration></${kind}>`;
+    const booster = (event: string) => `<stage><name>${event}</name>
+      <separationevent>${event}</separationevent><separationaltitude>91.44</separationaltitude><separationdelay>0</separationdelay>
+      <separationconfiguration configid="cfg-a"><separationevent>${event}</separationevent>
+        <separationaltitude>152.4</separationaltitude><separationdelay>0</separationdelay></separationconfiguration>
+      <subcomponents><bodytube><length>0.2</length><radius>0.02</radius></bodytube></subcomponents></stage>`;
+    const xml = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket><name>Heights</name>
+      <motorconfiguration configid="cfg-a" default="true"><name>Height overrides</name>
+        <stage number="0" active="true"/><stage number="1" active="true"/><stage number="2" active="true"/></motorconfiguration>
+      <subcomponents><stage><name>Sustainer</name><subcomponents><bodytube><length>0.4</length><radius>0.02</radius>
+        <subcomponents>${recovery('parachute')}${recovery('streamer')}</subcomponents></bodytube></subcomponents></stage>
+        ${booster('altitudeascending')}${booster('altitudedescending')}</subcomponents></rocket></openrocket>`;
+    const data = new TextEncoder().encode(xml).buffer;
+    const units = { altitude, distance: altitude === 'km' ? 'ft' : 'km' };
+    const baseline = await parseDesignFile(data, 'heights.ork', { presets: [] });
+    const imported = await parseDesignFile(data, 'heights.ork', { presets: [], distanceUnit: units.altitude });
+    const note = imported.notes.find(n => n.startsWith('Recovery:'));
+    for (const kind of ['parachute', 'streamer']) {
+      expect.soft(note).toContain(`${kind} flies at Altitude (descending), ${flown}, not at its own setting (Altitude (descending), ${own})`);
+    }
+    for (const direction of ['ascending', 'descending']) {
+      const separation = imported.notes.find(n => n.includes(`overrides separation for altitude${direction}:`));
+      expect.soft(separation).toContain(`it uses Altitude (${direction}), ${flown}, not the stage's own setting (Altitude (${direction}), ${own})`);
+    }
+    expect(imported.noteTiers?.filter(n => n.kind === 'I10.config-override').map(n => n.tier))
+      .toEqual(['caution', 'caution', 'caution']);
+    expect(imported.configLabelNotes?.map(n => n.text))
+      .toEqual(imported.notes.filter(n => n.startsWith('Recovery:') || n.includes('overrides separation for')));
+    const settings = (d: ImportedDesign) => {
+      const devices = d.tree.components[0]!.children![0]!.children!;
+      return { ownDeployments: devices.map(n => [n['deployEvent'], n['deployAltitude'], n['deployDelay']]),
+        ownSeparations: d.tree.components.slice(1).map(n => [n['separationEvent'], n['separationAltitude'], n['separationDelay'] ?? 0]),
+        deployments: Object.values(d.configs![0]!.deployments), separations: Object.values(d.configs![0]!.separations) };
+    };
+    expect(settings(imported)).toEqual(settings(baseline));
+    expect(settings(imported).ownDeployments).toEqual([['altitude', 91.44, 0], ['altitude', 91.44, 0]]);
+    expect(settings(imported).ownSeparations).toEqual([['altitudeascending', 91.44, 0], ['altitudedescending', 91.44, 0]]);
+    expect(settings(imported).deployments).toEqual([
+      { deployEvent: 'altitude', deployAltitude: 152.4, deployDelay: 0 },
+      { deployEvent: 'altitude', deployAltitude: 152.4, deployDelay: 0 },
+    ]);
+    expect(settings(imported).separations).toEqual([
+      { separationEvent: 'altitudeascending', separationAltitude: 152.4, separationDelay: 0 },
+      { separationEvent: 'altitudedescending', separationAltitude: 152.4, separationDelay: 0 },
+    ]);
+    const effective = (d: ImportedDesign) => resolveFlightState(d.tree,
+      d.configs!.map(c => ({ ...c, motors: {} })), d.chosenConfigId!, {}, {}).tree;
+    expect(effective(imported).components[0]!.children![0]!.children!.map(n => n['deployAltitude'])).toEqual([152.4, 152.4]);
+    expect(effective(imported).components.slice(1).map(n => n['separationAltitude'])).toEqual([152.4, 152.4]);
+    // The writer mints component UUIDs on each save; only those identities differ.
+    const written = (d: ImportedDesign) => exportOrk({ name: d.name, tree: d.tree, motors: d.motors,
+      configs: d.configs, activeConfigId: d.chosenConfigId }).replace(/<id>[^<]*<\/id>/g, '<id/>');
+    expect(written(imported)).toBe(written(baseline));
+  });
+
+  it.each([
+    ['m', '305 m', '1189 m'], ['km', '0.3 km', '1.19 km'],
+    ['ft', '1000 ft', '3900 ft'], ['yd', '333 yd', '1300 yd'], ['mi', '0.19 mi', '0.74 mi'],
+  ])('N032 new RASAero height notes follow Altitude %s without changing SI or the file', async (distanceUnit, top, pad) => {
+    const xml = '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>'
+      + '</RocketDesign><MachAlt><Item>0, 0</Item><Item>1, 1000</Item><Item>2, 500</Item></MachAlt>'
+      + '<LaunchSite><Altitude>3900</Altitude><Pressure>30</Pressure><Temperature>90</Temperature></LaunchSite>'
+      + '</RASAeroDocument>';
+    const data = new TextEncoder().encode(xml).buffer;
+    const baseline = await parseDesignFile(data, 'heights.CDX1', { presets: [] });
+    const imported = await parseDesignFile(data, 'heights.CDX1', { presets: [], distanceUnit });
+    expect(imported.notes.find(note => note.includes('Mach-Alt conditions table'))).toContain(`3 points, to ${top})`);
+    expect(imported.notes.find(note => note.startsWith('Launch site:'))).toContain(`the pad is at ${pad} where`);
+    expect(baseline.notes.find(note => note.includes('Mach-Alt conditions table'))).toContain('to 1000 ft)');
+    expect(baseline.notes.find(note => note.startsWith('Launch site:'))).toContain('at 3900 ft where');
+    expect(imported.machAlt).toEqual(baseline.machAlt);
+    expect(imported.launch).toEqual(baseline.launch);
+    // RASAero's existing approximate feet conversion differs by under 0.1 mm.
+    expect(imported.machAlt![1]![1]).toBeCloseTo(304.8, 4);
+    expect(imported.launch!.launchAltitudeM).toBeCloseTo(1188.72, 3);
+    const written = (d: ImportedDesign) => exportCdx1({ name: d.name, tree: d.tree, motors: d.motors,
+      launch: d.launch, machAlt: d.machAlt });
+    expect(written(imported)).toBe(written(baseline));
+  });
+
+  it.each([
+    ['m', '1326 m'], ['km', '1.33 km'], ['ft', '4352 ft'], ['yd', '1451 yd'], ['mi', '0.82 mi'],
+  ])('N032 stored RASAero apogee follows Altitude %s independently of Horizontal distance', async (distanceUnit, apogee) => {
+    const data = fixture('Complex.Two-Stage.CDX1');
+    const original = data.slice(0);
+    const baseline = await parseDesignFile(data, 'Complex.Two-Stage.CDX1', { presets: [] });
+    const prediction = (d: ImportedDesign) => d.notes.find(n => n.startsWith('RASAero\u2019s stored prediction'));
+    const legacy = prediction(baseline);
+    expect(legacy).toContain('simulation 1, as last run in RASAero');
+    expect(legacy).toContain('apogee 4,352 ft, maximum velocity 578 ft/s');
+    expect(legacy).toContain('prediction, not a measurement');
+    expect(legacy).not.toContain('(file:');
+    const flightInputs = (d: ImportedDesign) => {
+      // Each import mints fresh c<number> identities; retain their reference relationships.
+      const ids = new Map<string, string>();
+      return JSON.stringify({ tree: d.tree, motors: d.motors, configs: d.configs,
+        chosenConfigId: d.chosenConfigId, launch: d.launch, machAlt: d.machAlt }).replace(/"c\d+"/g, id => {
+        if (!ids.has(id)) ids.set(id, `"part${ids.size}"`);
+        return ids.get(id)!;
+      });
+    };
+    for (const horizontalDistanceUnit of ['m', 'mi']) {
+      const imported = await parseDesignFile(data, 'Complex.Two-Stage.CDX1', { presets: [], distanceUnit, horizontalDistanceUnit });
+      // MaxAltitude is 4351.988 ft in the fixture; display expectations are hand-converted.
+      // Only the apogee readout changes: attribution, motors, velocity and caveat stay intact.
+      expect(prediction(imported)).toBe(legacy!.replace('apogee 4,352 ft', `apogee ${apogee} (file: 4351.988 ft)`));
+      expect(imported.launch).toEqual(baseline.launch);
+      expect(imported.machAlt).toEqual(baseline.machAlt);
+      expect(flightInputs(imported)).toBe(flightInputs(baseline));
+      expect(data).toEqual(original);
+    }
+  });
+
   it('passes the selected aero model to the RASAero import note', async () => {
     const xml = '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>'
       + '<ModifiedBarrowman>False</ModifiedBarrowman></RocketDesign></RASAeroDocument>';

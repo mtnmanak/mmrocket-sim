@@ -75,7 +75,7 @@ import { downloadBlob } from '../services/saveFile.js';
  */
 const LEGACY: Record<FieldDef['unit'], { quantity: Quantity | null; toSI: number }> = {
   mm: { quantity: 'length', toSI: 0.001 },
-  m: { quantity: 'distance', toSI: 1 },
+  m: { quantity: 'altitude', toSI: 1 },
   deg: { quantity: 'angle', toSI: Math.PI / 180 },
   g: { quantity: 'mass', toSI: 0.001 },
   'kg/m3': { quantity: 'density', toSI: 1 },

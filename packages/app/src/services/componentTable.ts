@@ -37,7 +37,7 @@ export interface ComponentTablePrefs {
 /** Field units (schema "legacy" authoring units) → preference quantity. */
 const QUANTITY: Partial<Record<FieldDef['unit'], Quantity>> = {
   mm: 'length',
-  m: 'distance',
+  m: 'altitude',
   deg: 'angle',
   g: 'mass',
   'kg/m3': 'density',

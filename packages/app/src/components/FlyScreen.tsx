@@ -161,8 +161,8 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
             </p>
           )}
           <div className="fly-stats">
-            {stat('Apogee', run ? fmtSi('distance', prefs.units.distance, run.maxAltitude) : '—',
-              run ? prefs.units.distance : undefined)}
+            {stat('Apogee', run ? fmtSi('altitude', prefs.units.altitude, run.maxAltitude) : '—',
+              run ? prefs.units.altitude : undefined)}
             {stat('Optimum delay', typeof run?.optimumDelayS === 'number' && Number.isFinite(run.optimumDelayS) ? run.optimumDelayS.toFixed(1) : '—',
               Number.isFinite(run?.optimumDelayS) ? 's' : undefined)}
             {stat('Descent', descent != null ? fmtSi('velocity', prefs.units.velocity, descent) : '—',
@@ -245,7 +245,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
           <p className="weather-small">{hasLaunchGuides(tree)
             ? `Lug and rail-button allowance ${launch.launchGuideAllowance === false ? 'off: the full entered length is used' : 'on: enter the real rod or rail length'}. Change it under Launch conditions.`
             : rodLengthHelp(false)}</p>
-          {!!launch.windLevels?.length && <p className="weather-small">Winds aloft: {windProfileSummary(launch.windLevels)}. Wind avg is the surface wind.</p>}
+          {!!launch.windLevels?.length && <p className="weather-small">Winds aloft: {windProfileSummary(launch.windLevels, prefs.units.altitude)}. Wind avg is the surface wind.</p>}
           {(onGetWeather || weather) && (
             <div className="fly-weather">
               {onGetWeather && <WeatherButton onClick={onGetWeather} />}

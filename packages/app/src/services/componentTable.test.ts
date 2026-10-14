@@ -31,6 +31,20 @@ const infoFor = (id: string): ComponentInfo | null => (id === 'n' ? {
 const prefs = { units: INITIAL_UNITS, radiusMode: 'diameter' as const };
 
 describe('componentTable', () => {
+  it('N032 labels component deployment and separation heights with Altitude', () => {
+    const input: RocketTree = { name: 'Heights', components: [{ type: 'parallelstage', name: 'Booster',
+      separationEvent: 'altitudedescending', separationAltitude: 304.8,
+      children: [{ type: 'parachute', name: 'Main', deployEvent: 'altitude', deployAltitude: 152.4 }] }] };
+    const before = structuredClone(input);
+    const table = componentTable(input, { ...prefs, units: { ...INITIAL_UNITS, altitude: 'ft', distance: 'km' } });
+    const separation = table.headers.indexOf('Separation altitude (AGL) (ft)');
+    const deployment = table.headers.indexOf('Deploy altitude (AGL) (ft)');
+    expect(separation).toBeGreaterThan(-1);
+    expect(deployment).toBeGreaterThan(-1);
+    expect(table.rows[0]![separation]).toBe(1000);
+    expect(table.rows[1]![deployment]).toBe(500);
+    expect(input).toEqual(before);
+  });
   it('B5b S7bg-5 exports per-type defaults and migrated shroud ends without filling unrelated cells', () => {
     const imported = importRkt(`<RockSimDocument><DesignInformation><RocketDesign><StageCount>1</StageCount>
       <Stage3Parts><BodyTube><Name>Imported</Name><Len>100</Len><OD>24</OD><ID>22</ID>

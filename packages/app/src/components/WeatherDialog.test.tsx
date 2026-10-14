@@ -1072,6 +1072,11 @@ describe('partial cloud and visibility information', () => {
 
   const sample = { unix: SAT_2PM, temperatureC: 20, pressureHPa: 900, windSpeedMs: 1, windGustMs: 2, windFromDeg: 0,
     cloudCoverPct: 65, cloudCoverLowPct: 20, visibilityM: 8000, dewPointC: 12 };
+  it('N032 cloud-base altitude is independent of horizontal visibility units', () => {
+    const html = renderToStaticMarkup(<WeatherSkyInfo sample={sample} distanceUnit="km" altitudeUnit="ft" />);
+    expect(html).toContain('Visibility: 8.00 km');
+    expect(html).toContain('Cloud base (estimate): 3,281 ft');
+  });
   it.each([
     ['mi', 8000, '4.97 mi'], ['km', 8000, '8.00 km'],
     ['mi', 8046.72, '5.00 mi'], ['km', 8046.72, '8.05 km'],
@@ -1280,7 +1285,7 @@ describe('winds aloft review', () => {
   it('defaults to ticked, shows levels, strongest wind and compass bearings, and applies and undoes the profile', async () => {
     await review();
     expect(q<HTMLInputElement>('input[aria-label="Apply Winds aloft"]')!.checked).toBe(true);
-    expect(q('.wind-profile')!.textContent).toContain('2 levels to 262 ft (80 m) above ground, strongest');
+    expect(q('.wind-profile')!.textContent).toContain('2 levels to 80 m above ground, strongest');
     expect(q('.wind-profile-table')!.textContent).toContain('10.0° N');
     expect(urls).toHaveLength(2);
     await click(button('Apply'));

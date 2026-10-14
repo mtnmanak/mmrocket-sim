@@ -159,9 +159,11 @@ describe('Preferences → Flight advice (N007/N010)', () => {
     pick(velocity, 'ft/s');
     type(axis('Maximum airspeed')!, '100');
     expect(stored().flightAdvisories?.maxAirspeedMs).toBeCloseTo(30.48, 10);
-    pick(byLabel(QUANTITY_LABEL.distance) as HTMLSelectElement, 'ft');
+    pick(byLabel(QUANTITY_LABEL.distance) as HTMLSelectElement, 'km');
+    pick(byLabel(QUANTITY_LABEL.altitude) as HTMLSelectElement, 'ft');
     type(axis('Electronics arming altitude (AGL)')!, '100');
     expect(stored().flightAdvisories?.armingAltitudeM).toBeCloseTo(30.48, 10);
+    expect(stored().units.distance).toBe('km');
     type(axis('Maximum airspeed')!, '');
     expect(stored().flightAdvisories?.maxAirspeedMs).toBeUndefined();
     expect(host.textContent).toContain('structural rating');

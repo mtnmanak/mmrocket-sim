@@ -24,6 +24,42 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     ...over,
   }) as SimRun;
 
+it('N032 summary CSV/table use altitude units for heights and distance units for landing drift', () => {
+  const run = mkRun('split', { maxAltitude: 304.8, altitudeAtDeployment: 152.4,
+    landingDistanceM: 2000, densityAltitudeM: 609.6 });
+  const before = structuredClone(run);
+  const units = { ...IMPERIAL_UNITS, altitude: 'ft', distance: 'km' };
+  const table = runsToTable([run], units);
+  const cell = (name: string) => table.rows[0]![table.headers.indexOf(name)];
+  expect(cell('Max altitude (ft)')).toBe(1000);
+  expect(cell('Altitude at deployment (ft)')).toBe(500);
+  expect(cell('Density altitude (ft)')).toBe(2000);
+  expect(cell('Landing distance (km)')).toBe(2);
+  expect(runsToCsv([run], units)).toContain('Max altitude (ft)');
+  const metric = runsToTable([run], { ...units, altitude: 'm' });
+  expect(metric.rows[0]![metric.headers.indexOf('Apogee (m)')]).toBe(305);
+  expect(run).toEqual(before);
+});
+
+it.each([
+  ['km', [0.3048, 0.3058, 0.0001]],
+  ['mi', [0.189394, 0.190015, 0.0000621371]],
+] as const)('N032 lead apogee exports preserve sub-unit heights in %s', (altitude, expected) => {
+  const runs = [mkRun('first', { maxAltitude: 304.8 }), mkRun('second', { maxAltitude: 305.8 }),
+    mkRun('small', { maxAltitude: 0.1 }), mkRun('zero', { maxAltitude: 0 }),
+    { ...mkRun('unknown'), maxAltitude: null } as unknown as SimRun, mkRun('invalid', { maxAltitude: Infinity })];
+  const before = structuredClone(runs);
+  const units = { ...IMPERIAL_UNITS, altitude, distance: 'ft' };
+  const table = runsToTable(runs, units);
+  const column = table.headers.indexOf(`Apogee (${altitude})`);
+  expect(column).toBeGreaterThanOrEqual(0);
+  expect(table.rows.map(row => row[column])).toEqual([...expected, 0, '', '']);
+  const csv = runsToCsv(runs, units).split('\n');
+  expect(csv[0]!.split(',')[column]).toBe(`Apogee (${altitude})`);
+  expect(csv.slice(1).map(row => row.split(',')[column])).toEqual([...expected.map(String), '0', '', '']);
+  expect(runs).toEqual(before);
+});
+
 it('persists last-burnout optimal delay including zero and negative values without backfilling old Auto runs', () => {
   localStorage.clear();
   addRuns([mkRun('last', { lastBurnoutOptimalDelayS: 5, optimumDelayS: 8 }),

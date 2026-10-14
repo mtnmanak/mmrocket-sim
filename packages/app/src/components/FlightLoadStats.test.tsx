@@ -9,13 +9,13 @@ import { FlightLoadStats } from './FlightLoadStats.js';
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 it('shows the flight window, both angle units, sample details and unavailable old runs', () => {
-  localStorage.clear();
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
   const host = document.createElement('div'), root = createRoot(host);
   const peak = { value: 2000, time: 2, altitude: 100, mach: 0.5, aoa: 0.1 };
   const run = { when: 0, loads: { maxQ: peak, maxQAlpha: { ...peak, value: 200 } } } as SimRun;
   try {
     act(() => root.render(<PrefsProvider><FlightLoadStats run={run} /></PrefsProvider>));
-    expect(host.textContent).toContain('20 mbar at 2.000 s; 100 m AGL');
+    expect(host.textContent).toContain('20 mbar at 2.000 s; 328 ft AGL');
     expect(host.textContent).toContain('2 mbar·rad (114.592 mbar·°)');
     expect(host.textContent).toContain('Mach 0.500; α 0.1000 rad (5.73°)');
     expect(host.textContent).toContain('stopping before recovery deployment');
