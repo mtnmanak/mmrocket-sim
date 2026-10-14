@@ -62,7 +62,7 @@ describe('desktop prediction comparison', () => {
     const cells = row.querySelectorAll('td');
     expect(cells[0]!.textContent).toBe(cells[1]!.textContent);
     expect(cells[1]!.textContent).toBe(`${groundSpeed.toFixed(1)} m/s`);
-    expect(host.textContent).toContain('Older app runs without this recorded value show a blank');
+    expect(host.textContent).toContain('Older app runs without this recorded value show —');
     expect(run.velocityAtDeployment).toBe(2);
     act(() => root.unmount());
   });

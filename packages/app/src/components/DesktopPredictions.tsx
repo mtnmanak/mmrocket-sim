@@ -34,8 +34,8 @@ export function DesktopPredictions({ predictions, configId, run }: {
     <div className="panel-head"><h2>Desktop OpenRocket stored predictions</h2></div>
     <Note as="p" tier="information" className="download-caption">
       These stored predictions may describe older settings. They are not used as simulation inputs.
-      {' '}Last deployment ground speed compares the final deployment in each simulation, rather than the first opening speed in the app's recovery report. Older app runs without this recorded value show a blank.
-      {' '}Optimal delay from last burnout compares the time from the last motor burnout to apogee with recovery disabled. It can differ from the primary mount's Auto delay, which starts at that mount's burnout. Older app runs without the separately recorded value show a blank.
+      {' '}Last deployment ground speed compares the final deployment in each simulation, rather than the first opening speed in the app's recovery report. Older app runs without this recorded value show —.
+      {' '}Optimal delay from last burnout compares the time from the last motor burnout to apogee with recovery disabled. It can differ from the primary mount's Auto delay, which starts at that mount's burnout. Older app runs without the separately recorded value show —.
     </Note>
     {matching.map((prediction, index) => {
       const app = prediction.configId !== null && run && !run.importedSummary && run.flightConfigId === prediction.configId ? run : null;
