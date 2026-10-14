@@ -346,7 +346,11 @@ export interface LayeredOrkImportResult extends OrkImportResult {
   configs: LayeredOrkFlightConfig[];
 }
 
-export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string; presets?: readonly Preset[] }): LayeredOrkImportResult {
+export function importOrk(data: ArrayBuffer | string, opts?: {
+  configId?: string; presets?: readonly Preset[];
+  /** N032: the caller's Altitude selection, for newly composed override notes. */
+  distanceUnit?: string;
+}): LayeredOrkImportResult {
   let xml: string;
   // Set when the bytes were not valid UTF-8 and named no other encoding (see
   // decodeXml): the first import note, once there are notes.
@@ -1439,7 +1443,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
   if (tooDeep) cautionNote(notes, 'I03.too-deep', TOO_DEEP_NESTING);
   const noteConfig = configs.find(cf => cf.id === chosenConfigId);
   const noteName = noteConfig ? configLabel(noteConfig) : null;
-  const overrideNotes = [deployOverrideNote(deployOverrides, noteName)].filter((s): s is string => s !== null);
+  const overrideNotes = [deployOverrideNote(deployOverrides, noteName, opts?.distanceUnit)].filter((s): s is string => s !== null);
   // The deployment note lists only devices whose flown setting differs
   // (sameDeployment), so it is Caution whenever it exists (D7 I10). A stored
   // separation/ignition tuple that flies the same as the component's own is
@@ -1453,7 +1457,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: { configId?: string
           separationEvent: separationEventOf(String(node['separationEvent'] ?? 'ejection')) ?? 'ejection',
           separationDelay: nodeNum(node, 'separationDelay', 0), separationAltitude: nodeNum(node, 'separationAltitude', 200),
         };
-        const t = flightParameterOverrideNote('separation', String(node['name'] ?? 'Stage'), own, separation, noteName);
+        const t = flightParameterOverrideNote('separation', String(node['name'] ?? 'Stage'), own, separation, noteName, opts?.distanceUnit);
         overrideNotes.push(t);
         overrideTiers.set(t, !sparsify(flownSeparation(own), flownSeparation(separation)) ? 'information' : 'caution');
       }

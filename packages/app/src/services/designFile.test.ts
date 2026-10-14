@@ -8,6 +8,8 @@ import {
 } from './designFile.js';
 import type { ImportedDesign } from './importApply.js';
 import { exportCdx1 } from './rasaeroFile.js';
+import { exportOrk } from './orkFile.js';
+import { resolveFlightState } from './flightState.js';
 import { gzipSync, zipSync } from 'fflate';
 
 /**
@@ -90,6 +92,68 @@ describe('designFileOpenFailure', () => {
 });
 
 describe('parseDesignFile and openDesignFile', () => {
+  it.each([
+    ['m', '152.4 m', '91.44 m'], ['km', '0.152 km', '0.0914 km'],
+    ['ft', '500 ft', '300 ft'], ['yd', '166.667 yd', '100 yd'], ['mi', '0.0947 mi', '0.0568 mi'],
+  ])('N032 new .ork override heights follow Altitude %s without changing SI or the file', async (altitude, flown, own) => {
+    const recovery = (kind: string) => `<${kind}><name>${kind}</name>
+      <deployevent>altitude</deployevent><deployaltitude>91.44</deployaltitude><deploydelay>0</deploydelay>
+      <deploymentconfiguration configid="cfg-a"><deployevent>altitude</deployevent>
+        <deployaltitude>152.4</deployaltitude><deploydelay>0</deploydelay></deploymentconfiguration></${kind}>`;
+    const booster = (event: string) => `<stage><name>${event}</name>
+      <separationevent>${event}</separationevent><separationaltitude>91.44</separationaltitude><separationdelay>0</separationdelay>
+      <separationconfiguration configid="cfg-a"><separationevent>${event}</separationevent>
+        <separationaltitude>152.4</separationaltitude><separationdelay>0</separationdelay></separationconfiguration>
+      <subcomponents><bodytube><length>0.2</length><radius>0.02</radius></bodytube></subcomponents></stage>`;
+    const xml = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket><name>Heights</name>
+      <motorconfiguration configid="cfg-a" default="true"><name>Height overrides</name>
+        <stage number="0" active="true"/><stage number="1" active="true"/><stage number="2" active="true"/></motorconfiguration>
+      <subcomponents><stage><name>Sustainer</name><subcomponents><bodytube><length>0.4</length><radius>0.02</radius>
+        <subcomponents>${recovery('parachute')}${recovery('streamer')}</subcomponents></bodytube></subcomponents></stage>
+        ${booster('altitudeascending')}${booster('altitudedescending')}</subcomponents></rocket></openrocket>`;
+    const data = new TextEncoder().encode(xml).buffer;
+    const units = { altitude, distance: altitude === 'km' ? 'ft' : 'km' };
+    const baseline = await parseDesignFile(data, 'heights.ork', { presets: [] });
+    const imported = await parseDesignFile(data, 'heights.ork', { presets: [], distanceUnit: units.altitude });
+    const note = imported.notes.find(n => n.startsWith('Recovery:'));
+    for (const kind of ['parachute', 'streamer']) {
+      expect.soft(note).toContain(`${kind} flies at Altitude (descending), ${flown}, not at its own setting (Altitude (descending), ${own})`);
+    }
+    for (const direction of ['ascending', 'descending']) {
+      const separation = imported.notes.find(n => n.includes(`overrides separation for altitude${direction}:`));
+      expect.soft(separation).toContain(`it uses Altitude (${direction}), ${flown}, not the stage's own setting (Altitude (${direction}), ${own})`);
+    }
+    expect(imported.noteTiers?.filter(n => n.kind === 'I10.config-override').map(n => n.tier))
+      .toEqual(['caution', 'caution', 'caution']);
+    expect(imported.configLabelNotes?.map(n => n.text))
+      .toEqual(imported.notes.filter(n => n.startsWith('Recovery:') || n.includes('overrides separation for')));
+    const settings = (d: ImportedDesign) => {
+      const devices = d.tree.components[0]!.children![0]!.children!;
+      return { ownDeployments: devices.map(n => [n['deployEvent'], n['deployAltitude'], n['deployDelay']]),
+        ownSeparations: d.tree.components.slice(1).map(n => [n['separationEvent'], n['separationAltitude'], n['separationDelay'] ?? 0]),
+        deployments: Object.values(d.configs![0]!.deployments), separations: Object.values(d.configs![0]!.separations) };
+    };
+    expect(settings(imported)).toEqual(settings(baseline));
+    expect(settings(imported).ownDeployments).toEqual([['altitude', 91.44, 0], ['altitude', 91.44, 0]]);
+    expect(settings(imported).ownSeparations).toEqual([['altitudeascending', 91.44, 0], ['altitudedescending', 91.44, 0]]);
+    expect(settings(imported).deployments).toEqual([
+      { deployEvent: 'altitude', deployAltitude: 152.4, deployDelay: 0 },
+      { deployEvent: 'altitude', deployAltitude: 152.4, deployDelay: 0 },
+    ]);
+    expect(settings(imported).separations).toEqual([
+      { separationEvent: 'altitudeascending', separationAltitude: 152.4, separationDelay: 0 },
+      { separationEvent: 'altitudedescending', separationAltitude: 152.4, separationDelay: 0 },
+    ]);
+    const effective = (d: ImportedDesign) => resolveFlightState(d.tree,
+      d.configs!.map(c => ({ ...c, motors: {} })), d.chosenConfigId!, {}, {}).tree;
+    expect(effective(imported).components[0]!.children![0]!.children!.map(n => n['deployAltitude'])).toEqual([152.4, 152.4]);
+    expect(effective(imported).components.slice(1).map(n => n['separationAltitude'])).toEqual([152.4, 152.4]);
+    // The writer mints component UUIDs on each save; only those identities differ.
+    const written = (d: ImportedDesign) => exportOrk({ name: d.name, tree: d.tree, motors: d.motors,
+      configs: d.configs, activeConfigId: d.chosenConfigId }).replace(/<id>[^<]*<\/id>/g, '<id/>');
+    expect(written(imported)).toBe(written(baseline));
+  });
+
   it.each([
     ['m', '305 m', '1189 m'], ['km', '0.3 km', '1.19 km'],
     ['ft', '1000 ft', '3900 ft'], ['yd', '333 yd', '1300 yd'], ['mi', '0.19 mi', '0.74 mi'],

@@ -76,6 +76,7 @@ export type DesignFormat = 'ork' | 'rkt' | 'cdx1';
 /** What the file door reads a design with; see {@link parseDesignFile}. */
 export interface DesignFileOptions {
   presets: readonly Preset[];
+  /** Legacy option name: the caller's Altitude selection for new height notes. */
   distanceUnit?: string;
   catalogue?: MotorDbEntry[];
   aeroChoice?: AeroChoice;
@@ -96,8 +97,9 @@ export function designFormatOf(fileName: string): DesignFormat {
  * part the file names by manufacturer + part number (.rkt <PartMfg>/<PartNo>,
  * .ork <preset>) is linked to its row and takes the catalogue's values for
  * whatever the file left unset — a RockSim chute's "auto" Cd, above all. The
- * user's altitude unit goes to the foreign readers for new height notes:
- * deployment altitudes in .rkt, and site/table heights in .CDX1 (N032).
+ * user's altitude unit goes to the readers for new height notes: deployment
+ * and separation overrides in .ork, deployment in .rkt, and site/table heights
+ * in .CDX1 (N032).
  * Motor rows travel with it too (2026-10-01): headless imports must settle
  * delays and motor moments on the shipped rows, while App keeps live defaults.
  *
@@ -119,7 +121,8 @@ export async function parseDesignFile(
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}),
         ...(opts.flownSpec ? { flownSpec: opts.flownSpec } : {}) }), sourceFormat: 'cdx1' };
     case 'ork':
-      return { ...importOrk(data, { presets: opts.presets }), sourceFormat: 'ork' };
+      return { ...importOrk(data, { presets: opts.presets,
+        ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) }), sourceFormat: 'ork' };
   }
 }
 

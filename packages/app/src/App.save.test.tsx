@@ -2430,6 +2430,31 @@ it('a flight completed behind the Save-As picker remains unsaved', async () => {
   expect(await guarded(host)).toBe(true);
 }, 30000);
 
+it('N032 new .ork share override notes use Altitude independently of Horizontal distance', async () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { altitude: 'km', distance: 'ft' } }));
+  const xml = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket><name>Linked heights</name>
+    <motorconfiguration configid="cfg-a" default="true"><name>Height overrides</name>
+      <stage number="0" active="true"/><stage number="1" active="true"/></motorconfiguration>
+    <subcomponents><stage><name>Sustainer</name><subcomponents><bodytube><length>0.4</length><radius>0.02</radius>
+      <subcomponents><parachute><name>Main</name><diameter>0.5</diameter>
+        <deployevent>altitude</deployevent><deployaltitude>91.44</deployaltitude><deploydelay>0</deploydelay>
+        <deploymentconfiguration configid="cfg-a"><deployevent>altitude</deployevent><deployaltitude>152.4</deployaltitude>
+          <deploydelay>0</deploydelay></deploymentconfiguration></parachute></subcomponents></bodytube></subcomponents></stage>
+    <stage><name>Booster</name><separationevent>altitudedescending</separationevent><separationaltitude>91.44</separationaltitude>
+      <separationconfiguration configid="cfg-a"><separationevent>altitudedescending</separationevent>
+        <separationaltitude>152.4</separationaltitude></separationconfiguration>
+      <subcomponents><bodytube><length>0.2</length><radius>0.02</radius></bodytube></subcomponents></stage>
+    </subcomponents></rocket></openrocket>`;
+  window.location.hash = (await encodeShareFragment(xml)).replace(/^#/, '');
+  const host = await mountApp();
+  await waitFor(() => shownName(host) === 'Linked heights', 'the share link to open');
+  const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+  if (toggle) await act(async () => { toggle.click(); });
+  const notes = host.querySelector('[aria-label="Notices"]')?.textContent ?? '';
+  expect(notes).toContain('Main flies at Altitude (descending), 0.152 km, not at its own setting (Altitude (descending), 0.0914 km)');
+  expect(notes).toContain("it uses Altitude (descending), 0.152 km, not the stage's own setting (Altitude (descending), 0.0914 km)");
+}, 30000);
+
 it('a first-visit share link applies without an offer dialog', async () => {
   expect(localStorage.getItem(SESSION_KEY)).toBeNull();
   const xml = exportOrk({ name: 'First linked design', tree: { ...defaultTree(), name: 'First linked design' } });

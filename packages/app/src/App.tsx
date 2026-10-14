@@ -2981,7 +2981,7 @@ export function App() {
         if (h.length > MAX_FRAGMENT_CHARS) {
           throw new Error('the link is far longer than any real design — refusing to decode it');
         }
-        return importOrk(await decodeShareFragment(h), { presets: await loadPresets() });
+        return importOrk(await decodeShareFragment(h), { presets: await loadPresets(), distanceUnit: prefs.units.altitude });
       },
       // Include non-tree edits and work done while the link was decoding.
       shouldOffer: () => shareShouldOffer.current,
