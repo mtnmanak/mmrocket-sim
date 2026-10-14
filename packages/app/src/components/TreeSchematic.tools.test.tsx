@@ -34,6 +34,44 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); document.querySelector('[data-tools-test-style]')?.remove(); localStorage.clear(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('N033 and N044 view tools', () => {
+  it.each([false, true].flatMap(walls2d => ['mm', 'in'].flatMap(unit => [
+    { walls2d, unit, angleOffset: Math.PI / 3, roll: 0 },
+    { walls2d, unit, angleOffset: 0, roll: Math.PI / 3 },
+  ])))('touch measures a rotated lug in $unit with walls $walls2d, angle $angleOffset, roll $roll', ({ walls2d, unit, angleOffset, roll }) => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(640);
+    vi.stubGlobal('ResizeObserver', class {
+      callback: () => void;
+      constructor(callback: () => void) { this.callback = callback; }
+      observe() { this.callback(); }
+      disconnect() {}
+    });
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ walls2d, units: { length: unit } }));
+    const lug = { name: 'Rotated lug', components: [{ id: 'b', type: 'bodytube', length: 2, outerRadius: 0.02,
+      children: [{ id: 'lug', type: 'launchlug', length: 0.05, outerRadius: 0.0022, angleOffset,
+        position: { method: 'top', offset: 0.1 } }] }] } as RocketTree;
+    const before = JSON.stringify(lug);
+    act(() => root.render(<PrefsProvider><TreeSchematic tree={lug} info={null} roll={roll}
+      onSelect={select} onPatchNode={patch} /></PrefsProvider>));
+    click('Caliper: measure two points');
+    const body = svg().querySelector<SVGRectElement>('rect[fill="rgba(127,127,127,0.001)"], rect[fill="#e7e5e0"]')!;
+    const x0 = Number(body.getAttribute('x')), scale = Number(body.getAttribute('width')) / 2;
+    const cy = Number(body.getAttribute('y')) + Number(body.getAttribute('height')) / 2;
+    const h = Number(svg().getAttribute('viewBox')!.split(' ')[3]);
+    const effectiveLug = svg().querySelector<SVGRectElement>('rect[fill="#c8c5be"]')!;
+    expect(Number(effectiveLug.getAttribute('y'))).toBeCloseTo(cy - 0.0133 * scale, 10);
+    expect(Number(effectiveLug.getAttribute('height'))).toBeCloseTo(0.0044 * scale, 10);
+    expect(Number(effectiveLug.getAttribute('width'))).toBeCloseTo(0.05 * scale, 10);
+    // Independent physical stations: (20 + 2.2)*cos(60) +/- 2.2 mm.
+    pointer(x0 + 0.1 * scale, (cy - 0.0089 * scale) * 240 / h);
+    pointer(x0 + 0.1 * scale, (cy - 0.0133 * scale) * 240 / h);
+    expect(host.querySelector('[data-caliper-readout]')!.textContent).toBe(unit === 'mm'
+      ? 'Horizontal 0 mm · Vertical 4.4 mm · Straight 4.4 mm'
+      : 'Horizontal 0 in · Vertical 0.173 in · Straight 0.173 in');
+    expect(select).not.toHaveBeenCalled(); expect(patch).not.toHaveBeenCalled();
+    expect(JSON.stringify(lug)).toBe(before);
+    key(svg(), 'Escape'); expect(svg().querySelector('[data-caliper]')).toBeNull();
+  });
+
   it('keeps the visible Caliper label in the inactive accessible name', () => {
     mount();
     const caliper = Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Caliper')!;

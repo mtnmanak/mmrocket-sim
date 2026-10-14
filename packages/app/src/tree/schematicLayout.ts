@@ -13,10 +13,11 @@ import {
   resolveAssemblyRadius, ringInstanceOffsets,
 } from './assembly.js';
 import { outerProfile } from './shapeProfile.js';
-import { shroudEnds } from './shroud.js';
+import { isConformal, shroudEnds, shroudHalfWidth } from './shroud.js';
 import { isTailCone, noseEnds } from './tailCone.js';
 import { num, numOpt } from './nodeNum.js';
 import { lookupTable } from '../services/xmlUtil.js';
+import { projectSchematicGeometry } from './schematicGeometry.js';
 
 /**
  * THE 2D SIDE VIEW'S LAYOUT — pure, and apart from the component that draws it
@@ -432,6 +433,7 @@ export interface SchematicLayoutOptions {
  * painting, and the sort order changes with the roll.
  */
 interface FinInstance {
+  angle: number;
   p: number;
   near: boolean;
   i: number;
@@ -469,19 +471,12 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
   const extents = new Map<string, PartExtent>();
   const grips = new Map<string, Grip>();
 
-  const snapGeometry = (points: [number, number][], centre: number, hiddenRadius?: number, outline = true): SchematicSnap => {
-    const projected = points.map(([x, y]): [number, number] => [x, centre + y]);
-    return { points: projected, outline: outline ? projected : undefined,
-      hiddenBand: hiddenRadius === undefined ? undefined : [centre - hiddenRadius, centre + hiddenRadius] };
-  };
-  const snapRect = (start: number, len: number, lo: number, hi: number, centre: number, hiddenRadius?: number): SchematicSnap => {
-    const snap = snapGeometry([[start, hi], [start + len, hi], [start + len, lo], [start, lo]], centre, hiddenRadius);
-    return { ...snap, points: [...snap.points, [start, centre + (lo + hi) / 2],
-      [start + len, centre + (lo + hi) / 2]] };
-  };
+  const snapGeometry = (points: [number, number][], centre: number, hiddenRadius?: number, outline = true, angle = 0): SchematicSnap =>
+    projectSchematicGeometry({ kind: 'outline', points, closed: outline }, centre, angle, hiddenRadius);
+  const snapCylinder = (start: number, len: number, radius: number, centre: number, offset = 0, angle = 0, hiddenRadius?: number): SchematicSnap =>
+    projectSchematicGeometry({ kind: 'sections', sections: [[start, radius], [start + len, radius]], offset, endCentres: true }, centre, angle, hiddenRadius);
   const snapProfile = (start: number, profile: [number, number][], centre: number): SchematicSnap =>
-    snapGeometry([...profile.map(([x, r]): [number, number] => [start + x, r]),
-      ...profile.slice().reverse().map(([x, r]): [number, number] => [start + x, -r])], centre);
+    projectSchematicGeometry({ kind: 'sections', sections: profile.map(([x, r]) => [start + x, r]) }, centre);
 
   const wallBand = (list: SchematicShape[], key: string, id: string, start: number, len: number,
     radius: number, thickness: number, baseY: number, filled = false, profile?: [number, number][], cap?: 'fore' | 'aft', centre = 0) => {
@@ -683,9 +678,9 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
    * Same projection as a fin: a surface point at radius r lands at r·cos θ,
    * and sin θ ≥ 0 puts it in FRONT of the airframe.
    */
-  const surfaceAt = (n: ComponentNode, frameRoll: number): { p: number; near: boolean } => {
+  const surfaceAt = (n: ComponentNode, frameRoll: number): { p: number; near: boolean; angle: number } => {
     const a = num(n, 'angleOffset', 0) + frameRoll;
-    return { p: Math.cos(a), near: Math.sin(a) >= 0 };
+    return { p: Math.cos(a), near: Math.sin(a) >= 0, angle: a };
   };
 
   /**
@@ -710,7 +705,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
     const out: FinInstance[] = [];
     for (let i = 0; i < count; i++) {
       const a = base + (2 * Math.PI * i) / count;
-      out.push({ p: Math.cos(a), near: Math.sin(a) >= 0, i });
+      out.push({ p: Math.cos(a), near: Math.sin(a) >= 0, i, angle: a });
     }
     // Furthest-out last. Same-colored fins overlap once a set is rolled off
     // its symmetry, and the one that reaches past the others reads best on top.
@@ -847,9 +842,9 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           noteHoverFins(child, ctx.x0 + start * ctx.scale, ctx.x0 + (start + chord) * ctx.scale,
             baseY, reach, rootR, wallR, projections);
           const clip = airframeClip(baseY, wallR);
-          for (const { p, near, i } of projections) {
-            const snap = snapGeometry(outline.map(([x, y]): [number, number] => [start + x, (r0 + y) * p]),
-              centre, wire || near ? undefined : wallR);
+          for (const { p, near, i, angle } of projections) {
+            const snap = snapGeometry(outline.map(([x, y]): [number, number] => [start + x, r0 + y]),
+              centre, wire || near ? undefined : wallR, true, angle);
             const ptsStr = outline
               .map(([px, py]) => `${ctx.x0 + (start + px) * ctx.scale},${baseY - (r0 + py) * p * ctx.scale}`)
               .join(' ');
@@ -896,11 +891,11 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           ctx.x0 + (start + Math.max(root, sweep + tip)) * ctx.scale,
           baseY, reach, r0, r0, projections);
         const finClip = airframeClip(baseY, r0);
-        for (const { p, near, i } of projections) {
+        for (const { p, near, i, angle } of projections) {
           const snap = snapGeometry(t === 'trapezoidfinset'
-            ? [[start, r0 * p], [start + sweep, reach * p], [start + sweep + tip, reach * p], [start + root, r0 * p]]
-            : [[start, r0 * p], [start + root / 2, reach * p], [start + root, r0 * p]],
-          centre, wire || near ? undefined : r0, t === 'trapezoidfinset');
+            ? [[start, r0], [start + sweep, reach], [start + sweep + tip, reach], [start + root, r0]]
+            : [[start, r0], [start + root / 2, reach], [start + root, r0]],
+          centre, wire || near ? undefined : r0, t === 'trapezoidfinset', angle);
           const y0 = baseY - r0 * p * ctx.scale;
           const yh = baseY - reach * p * ctx.scale;
           const X = ctx.x0 + start * ctx.scale;
@@ -953,9 +948,8 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           X + len * ctx.scale, baseY + (pRadius + 2 * rt) * ctx.scale);
         const tubes = finFactors(child, frameRoll);
         const tubeClip = airframeClip(baseY, pRadius);
-        for (const { p, near, i } of tubes) {
-          const tubeCentre = (pRadius + rt) * p;
-          const snap = snapRect(start, len, tubeCentre - rt, tubeCentre + rt, centre, wire || near ? undefined : pRadius);
+        for (const { p, near, i, angle } of tubes) {
+          const snap = snapCylinder(start, len, rt, centre, pRadius + rt, angle, wire || near ? undefined : pRadius);
           const yc = baseY - (pRadius + rt) * p * ctx.scale;
           const half = rt * ctx.scale;
           const w2 = Math.max(2, len * ctx.scale);
@@ -995,7 +989,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const hgt = kernelNum(child, 'height');
         const ends = shroudEnds(child);
         const start = axialStart(child, len, pStart, pLen);
-        const { p: sp, near: snear } = surfaceAt(child, frameRoll);
+        const { p: sp, near: snear, angle } = surfaceAt(child, frameRoll);
         const X = ctx.x0 + start * ctx.scale;
         const y0 = baseY - pRadius * sp * ctx.scale;
         const yh = baseY - (pRadius + hgt) * sp * ctx.scale;
@@ -1036,8 +1030,9 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // opaque solid and the tube really does hide it.
         shapes.push({
           key: `${key}:shroud`, layer: 'base', tag: 'path', part, sel: true,
-          snap: snapGeometry([[start, pRadius * sp], [start + len / 2, (pRadius + hgt) * sp],
-            [start + len, pRadius * sp]], centre, snear ? undefined : pRadius, false),
+          snap: projectSchematicGeometry({ kind: 'seatedPrism', start, length: len, radius: pRadius, height: hgt,
+            halfWidth: shroudHalfWidth(pRadius, kernelNum(child, 'width'), isConformal(child)),
+            curvedBase: isConformal(child), shapedRoof: true }, centre, angle, snear ? undefined : pRadius),
           attrs: {
             'data-part': 'shroud',
             d: `M ${X},${y0} `
@@ -1058,7 +1053,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const hgt = kernelNum(child, 'height');
         const cls = String(child['dragClass'] ?? 'streamlinedbase');
         const start = axialStart(child, len, pStart, pLen);
-        const { p: pp, near: pnear } = surfaceAt(child, frameRoll);
+        const { p: pp, near: pnear, angle } = surfaceAt(child, frameRoll);
         const X = ctx.x0 + start * ctx.scale;
         const y0 = baseY - pRadius * pp * ctx.scale;
         const yh = baseY - (pRadius + hgt) * pp * ctx.scale;
@@ -1067,9 +1062,8 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const nose = Math.min(0.35 * (Xe - X), Math.max(2, Math.abs(y0 - yh)));
         shapes.push({
           key: `${key}:bump`, layer: 'base', tag: 'polygon', part, sel: true,
-          snap: snapGeometry([[start, pRadius * pp], [start + len, pRadius * pp],
-            [start + (cls === 'streamlined' ? len / 2 : len), (pRadius + hgt) * pp]],
-          centre, pnear ? undefined : pRadius, false),
+          snap: projectSchematicGeometry({ kind: 'seatedPrism', start, length: len, radius: pRadius, height: hgt,
+            halfWidth: kernelNum(child, 'width') / 2, curvedBase: false }, centre, angle, pnear ? undefined : pRadius),
           attrs: {
             points: cls === 'plate'
               ? `${X},${y0} ${Xe},${yh} ${Xe},${y0}`
@@ -1109,9 +1103,15 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           : axialStart(child, len, pStart, pLen);
         // Its own mounting angle places it (v0.087); the view roll turns it
         // from there. Solid at every roll — a button is a lump, not a line.
-        const { p: lp, near: lnear } = surfaceAt(child, frameRoll);
-        const ySurf = baseY - pRadius * lp * ctx.scale;
-        const yOut = baseY - (pRadius + btnH) * lp * ctx.scale;
+        const { p: lp, near: lnear, angle } = surfaceAt(child, frameRoll);
+        const physical = (x0: number) => t === 'launchlug'
+          ? snapCylinder(x0, len, r, centre, pRadius + r, angle, lnear ? undefined : pRadius)
+          : projectSchematicGeometry({ kind: 'radialCylinder', station: x0 + len / 2,
+            radius: len / 2, surface: pRadius, height: btnH }, centre, angle, lnear ? undefined : pRadius);
+        const bounds = physical(start).points.map(([, y]) => y - centre);
+        const effective = o.measuring && t === 'launchlug';
+        const ySurf = baseY - (effective ? Math.min(...bounds) : pRadius * lp) * ctx.scale;
+        const yOut = baseY - (effective ? Math.max(...bounds) : (pRadius + btnH) * lp) * ctx.scale;
         // LINE INSTANCES (v0.089): one node is N collinear copies at the same
         // clock angle, instance 0 forward and the rest marching AFT at
         // `instanceSeparation` spacing — the kernel's own convention
@@ -1124,12 +1124,12 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           const x0 = start + li * liSep;
           shapes.push({
             key: `${key}:${t === 'railbutton' ? 'button' : 'lug'}${li}`, layer: 'base', tag: 'rect', part, sel: true,
-            snap: snapRect(x0, len, Math.min(pRadius * lp, (pRadius + btnH) * lp),
-              Math.max(pRadius * lp, (pRadius + btnH) * lp), centre, lnear ? undefined : pRadius),
+            snap: physical(x0),
             attrs: {
               x: ctx.x0 + x0 * ctx.scale,
               y: Math.min(ySurf, yOut),
-              width: Math.max(2, len * ctx.scale), height: Math.max(2, Math.abs(ySurf - yOut)),
+              width: effective ? len * ctx.scale : Math.max(2, len * ctx.scale),
+              height: effective ? Math.abs(ySurf - yOut) : Math.max(2, Math.abs(ySurf - yOut)),
               fill: fillOf(child, '#c8c5be'), stroke: '#7a786f', strokeWidth: 1,
               ...(lnear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
             },
@@ -1206,7 +1206,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
             ctx.x0 + (start + len) * ctx.scale, oy + r * ctx.scale);
           overlay.push({
             key: `${key}:inner${j}`, layer: 'overlay', tag: 'rect', part, sel: true,
-            snap: snapRect(start, len, -physicalR, physicalR, centre + physicalRadY + off.y),
+            snap: snapCylinder(start, len, physicalR, centre + physicalRadY + off.y),
             title: child.name ?? DISPLAY_NAME[child.type],
             attrs: {
               x: ctx.x0 + start * ctx.scale,
@@ -1312,7 +1312,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
     if (lenSi <= 0 || rSi <= 0) return;
     overlay.push({
       key, layer: 'overlay', tag: 'rect',
-      snap: snapRect(startX, lenSi, -rSi, rSi, centre),
+      snap: snapCylinder(startX, lenSi, rSi, centre),
       attrs: {
         x: ctx.x0 + startX * scale, y: baseY - rSi * scale,
         width: lenSi * scale, height: 2 * rSi * scale,
@@ -1354,7 +1354,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         noteHover(n, ctx.x0 + cx * scale, baseY - r * scale, ctx.x0 + (cx + len) * scale, baseY + r * scale);
         shapes.push({
           key: `${key}:body`, layer: 'base', tag: 'rect', part, sel: true,
-          snap: snapRect(cx, len, -r, r, centre),
+          snap: snapCylinder(cx, len, r, centre),
           attrs: {
             x: ctx.x0 + cx * scale, y: baseY - r * scale,
             width: len * scale, height: 2 * r * scale,
