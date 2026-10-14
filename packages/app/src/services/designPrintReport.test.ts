@@ -313,3 +313,16 @@ it('refuses an invalid stored delay vector without borrowing today’s assignmen
   expect(d.textContent).toContain('Per-mount delay evidence is invalid or incomplete');
   expect(d.textContent).toContain('Primary motor ejection delay flown: 5 s');
 });
+
+it('N032: prints heights in the Altitude unit and ground distance in Horizontal distance', () => {
+  const units = { ...INITIAL_UNITS, altitude: 'ft', distance: 'km' };
+  const flown = { ...run, landingDistanceM: 1500, densityAltitudeM: 152.4,
+    branches: [{ name: 'Booster', motorLabel: 'F40', apogee: 304.8, recoveryMass: 0.02, deployments: [] }] } as unknown as SimRun;
+  const text = doc(designPrintHtml({ ...input, units, run: flown })).textContent!.replace(/\s+/g, ' ');
+  expect(text).toMatch(/Apogee: 1,?000 ft/);
+  expect(text).toMatch(/density altitude: 500 ft/);
+  expect(text).toMatch(/Main: opens at 7 s, 1,?000 ft/);
+  expect(text).toMatch(/Booster: F40; apogee 1,?000 ft/);
+  expect(text).toMatch(/landing distance: 1\.50? km/);
+  expect(text).not.toMatch(/0\.3048? km|0\.15 km/);
+});

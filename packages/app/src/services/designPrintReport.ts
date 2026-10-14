@@ -111,7 +111,7 @@ export function designPrintHtml(input: DesignPrintInput): string {
       : run.batch || run.motorConfig ? 'candidate group' : 'primary mount/group';
     body.push(p(`${run.rocket} — ${run.manufacturer} ${run.motor} — flown ${formatRunWhenProse(run.when)}`), p(`Run ID: ${run.id}`),
       p(`Configuration: ${recordedConfiguration(run) ?? 'Unknown'}${run.motorConfig ? ` (${run.motorConfig})` : ''}`),
-      p(runConfigurationHeading(run, u.distance)),
+      p(runConfigurationHeading(run, u.altitude)),
       p(`Motor count (${motorCountScope}): ${run.motorCount ?? 'Unknown'}`),
       p('Complete flight motor count: Unknown (not recorded).'),
       ...((run.boosterMotors ?? []).map(m => p(`Other motor: ${m}`))),
@@ -142,23 +142,23 @@ export function designPrintHtml(input: DesignPrintInput): string {
       p(`${run.delayS === Infinity ? 'Hypothetical primary motor-eject recommendation (motor has no ejection charge). ' : ''}Primary motor optimal delay: ${sec(run.optimumDelayS)}; recommended drill-to-fit delay: ${sec(run.recommendedDelayS)}`));
     }
     const results = [
-      `Apogee: ${val('distance', run.maxAltitude)}; time to apogee: ${sec(run.timeToApogee)}`,
+      `Apogee: ${val('altitude', run.maxAltitude)}; time to apogee: ${sec(run.timeToApogee)}`,
       `Peak ground speed: ${val('velocity', run.maxVelocity)}; Mach: ${Number.isFinite(run.maxMach) ? run.maxMach : 'Unknown'}`,
       `Peak acceleration: ${val('acceleration', run.maxAcceleration)}`,
       `Launch mass: ${val('mass', run.launchMass)}; recovery mass: ${val('mass', run.burnoutMassSettled ? run.burnoutMass : null)}`,
       `Launch CG: ${val('length', run.launchCG, 3)}; launch CP: ${val('length', run.launchCP, 3)}`,
       `Launch stability: ${stability.value} ${stability.unit}`,
       `Guide exit speed: ${val('velocity', run.rodExitVelocity)}; thrust : weight: ${run.thrustToWeightAtRod ?? 'Unknown'}`,
-      `Wind: ${val('windspeed', run.windAvg)}; density altitude: ${val('distance', run.densityAltitudeM)}`,
+      `Wind: ${val('windspeed', run.windAvg)}; density altitude: ${val('altitude', run.densityAltitudeM)}`,
       `Descent rate at landing: ${val('velocity', run.landingRate)}; impact ground speed: ${val('velocity', run.groundHitVelocity)}`,
       `Flight time: ${sec(run.totalFlightTime)}; landing distance: ${val('distance', run.landingDistanceM)}`,
     ];
     body.push(`<div class="summary">${results.map(p).join('')}</div>`, '<h2>Recovery</h2>');
-    const deployment = (d: DeploymentReport) => p(`${d.device}: opens at ${sec(d.time)}, ${val('distance', d.altitude)}; opening speed ${val('velocity', d.velocityAtDeployment)}; descent ${val('velocity', d.descentRate)}; ground speed ${val('velocity', d.groundSpeed)}; Cd ${d.cd ?? 'Unknown'}; diameter ${val('length', d.diameter, 3)}.`);
+    const deployment = (d: DeploymentReport) => p(`${d.device}: opens at ${sec(d.time)}, ${val('altitude', d.altitude)}; opening speed ${val('velocity', d.velocityAtDeployment)}; descent ${val('velocity', d.descentRate)}; ground speed ${val('velocity', d.groundSpeed)}; Cd ${d.cd ?? 'Unknown'}; diameter ${val('length', d.diameter, 3)}.`);
     if (run.deployments?.length) body.push(...run.deployments.map(deployment));
     else if (run.importedSummary) body.push(p(`Recorded summary deployment ground speed: ${val('velocity', run.velocityAtDeployment)}; device and opening order not recorded. This cannot establish a device's air-relative opening speed.`));
-    else body.push(p(`Recovery device details unavailable. First recorded deployment: ${val('distance', run.altitudeAtDeployment)}; opening speed ${val('velocity', run.velocityAtDeployment)}.`));
-    for (const branch of run.branches ?? []) body.push(p(`${branch.name}: ${branch.motorLabel ?? 'motor unknown'}; apogee ${val('distance', branch.apogee)}; recovery mass ${val('mass', branch.recoveryMass)}; landing descent ${val('velocity', branch.landingRate)}${branch.tumbles ? '; tumble recovery' : ''}.`), ...branch.deployments.map(deployment));
+    else body.push(p(`Recovery device details unavailable. First recorded deployment: ${val('altitude', run.altitudeAtDeployment)}; opening speed ${val('velocity', run.velocityAtDeployment)}.`));
+    for (const branch of run.branches ?? []) body.push(p(`${branch.name}: ${branch.motorLabel ?? 'motor unknown'}; apogee ${val('altitude', branch.apogee)}; recovery mass ${val('mass', branch.recoveryMass)}; landing descent ${val('velocity', branch.landingRate)}${branch.tumbles ? '; tumble recovery' : ''}.`), ...branch.deployments.map(deployment));
     body.push(...commentsOf(run).map(c => note(c.text, c.level === 'warning' ? 'danger' : c.level === 'caution' ? 'caution' : 'information')));
     for (const warning of run.simWarnings ?? []) {
       const w = formatWarning(warning, u);
