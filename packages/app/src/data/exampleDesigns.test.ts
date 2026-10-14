@@ -15,6 +15,7 @@ import { planImport, resolveImportMotors } from '../services/importApply.js';
 import { DEFAULT_CONDITIONS } from '../services/launchConditions.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
 import { statedWeightTextFor } from '../services/unitText.js';
+import { shownStability, stabilityState } from '../services/simReport.js';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 const assetPath = (name: string) => resolve('src/data/examples', name);
@@ -206,6 +207,8 @@ it.each(['eb', 'kbf', 'auto', 'supersonic', 'hybrid'] as const)('flies every exa
     expect(out.plan.unmatchedRefs, example.id).toEqual({});
     expect(out.build.motorFailures, example.id).toEqual([]);
     expect(out.build.info.warningTexts, example.id).toEqual([]);
+    // C-A3: Design's tier is separate from kernel warnings and guide-exit margin.
+    expect(stabilityState(shownStability(out.build.info)), `${example.id}: loaded Design stability`).toBe('ok');
     expect(out.run.simWarnings, example.id).toEqual([]);
     expect(out.run.commentLevels?.filter(l => l !== 'info'), `${example.id}: ${out.run.comments}`).toEqual([]);
     expect(out.result.summary.maxAltitude, example.id).toBeGreaterThan(100);
