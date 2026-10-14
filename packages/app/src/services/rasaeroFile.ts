@@ -1765,7 +1765,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     else cautionNote(notes, 'I03.ignored-elements', text);
   }
 
-  const comment = design.querySelector(':scope > Comments')?.textContent ?? '';
+  // XML line ends are LF; happy-dom keeps a raw CR that Chrome and the JS parser normalise.
+  const comment = (design.querySelector(':scope > Comments')?.textContent ?? '').replace(/\r\n?/g, '\n');
   const name = comment.trim().split('\n')[0]?.trim()
     || 'Imported RASAero rocket';
   // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.

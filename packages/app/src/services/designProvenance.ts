@@ -65,7 +65,8 @@ export function sanitizeDesignProvenance<T extends RocketTree>(tree: T, notes?: 
 export function readDesignProvenance(rocket: XmlElement, notes: string[]): DesignProvenance | undefined {
   const raw: DesignProvenance = {};
   for (const [key, tag] of Object.entries(NATIVE_FIELDS)) {
-    const value = rocket.querySelector(`:scope > ${tag}`)?.textContent;
+    // XML line ends are LF; happy-dom keeps a raw CR that Chrome and the JS parser normalise.
+    const value = rocket.querySelector(`:scope > ${tag}`)?.textContent?.replace(/\r\n?/g, '\n');
     if (value) Object.assign(raw, { [key]: value });
   }
   const extra = rocket.querySelector(`:scope > ${PROVENANCE_TAG}`);

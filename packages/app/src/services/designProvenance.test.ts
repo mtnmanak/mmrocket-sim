@@ -160,6 +160,14 @@ it('uses RASAero native Comments verbatim and warns when they also determine the
   expect(exportCdx1({ name: 'Notes', tree: without })).toContain('<Comments>Notes</Comments>');
 });
 
+it('reads CRLF design notes as LF under every XML parser, as the XML spec and Chrome do', () => {
+  // happy-dom keeps a raw CR that Chrome and the JS parser normalise; the corpus parity test caught the difference.
+  const desktop = xml().replace(/<comment>([^<]*)<\/comment>/, '<comment>One\r\nTwo\rThree</comment>');
+  expect(importOrk(bytes(desktop)).tree.provenance?.comment).toBe('One\nTwo\nThree');
+  const saved = exportCdx1({ name: 'One', tree: { ...tree(), provenance: { comment: 'One\nTwo' } } }).replace('One\nTwo', 'One\r\nTwo');
+  expect(importCdx1(saved).tree.provenance?.comment).toBe('One\nTwo');
+});
+
 it('keeps the existing CDX1 name rule with leading blank lines while retaining untrimmed comments', () => {
   const t: FlightTree = { ...tree(), name: 'First line', provenance: { comment: '\n  First line\nKeep trailing spaces  ' } };
   const reopened = importCdx1(exportCdx1({ name: t.name!, tree: t }));

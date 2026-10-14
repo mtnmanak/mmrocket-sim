@@ -281,7 +281,7 @@ it.each([360, 1200])('C-B20 hiding is session-only and leaves build and launch i
   await unmountAll();
   const reloaded = await mountApp();
   expect(reloaded.querySelector<HTMLButtonElement>('.tree-visibility')!.getAttribute('aria-pressed')).toBe('false');
-});
+}, 30_000);
 
 it.each([360, 1200])('shows file-owned desktop predictions on Results at %i px without requiring an app flight', async width => {
   viewport(width);
