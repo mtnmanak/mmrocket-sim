@@ -4,7 +4,7 @@ import { Modal } from './Modal.js';
 import { Note } from './Note.js';
 import { WeatherCredit } from './WeatherCredit.js';
 import { formatRunLabel } from '../services/simReport.js';
-import { flightDataBundleContents, flightDataBundleFiles, flightDataBundleWeatherCredit, type FlightDataBundleInput } from '../services/flightDataBundle.js';
+import { flightDataBundleContents, flightDataBundleFiles, flightDataBundleLongitudeComparison, flightDataBundleWeatherCredit, type FlightDataBundleInput } from '../services/flightDataBundle.js';
 import { saveFile } from '../services/saveFile.js';
 
 export type FlightDataBundleSource = Omit<FlightDataBundleInput, 'includeCoordinates' | 'measurements' | 'attachment'>;
@@ -29,6 +29,7 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
   const saving = useRef(false);
   const firstInvalid = useRef<HTMLInputElement | null>(null);
   const weatherCredit = flightDataBundleWeatherCredit(source);
+  const longitudeComparison = flightDataBundleLongitudeComparison(source);
   const preview = useMemo(() => {
     try {
       return { ...flightDataBundleContents({ ...source, includeCoordinates, measurements: {
@@ -63,11 +64,12 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
       <h2>Export flight-data bundle</h2>
       <p>Selected run: <strong>{formatRunLabel(source.run)}</strong>. Nothing is sent anywhere.
         Download one ZIP to attach to a message or forum post for the app owner.</p>
-      <Note tier={source.changedSince?.length ? 'caution' : 'information'} as="p">
+      <Note tier={source.changedSince?.length || longitudeComparison === 'different' ? 'caution' : 'information'} as="p">
         The design file is the current design.
-        {source.changedSince === null ? ' Whether it matches this run is unknown.' : source.changedSince.length
+        {source.changedSince === null ? ' Whether its simulation-relevant inputs match this run is unknown.' : source.changedSince.length
           ? ` ${source.changedSince.join(', ')} changed since this run; its results describe the earlier rocket.`
-          : ' It matches the selected run.'}
+          : ' Simulation-relevant inputs match the selected run; this comparison excludes site longitude and design names or appearance.'}
+        {longitudeComparison === 'different' && " The current design's site longitude differs from the selected run's recorded site."}
         {' '}The app does not retain an earlier design file with each run.
       </Note>
       <p>{source.run.exportContext ? 'Launch settings and the weather receipt are from the selected run. The receipt may differ from the launch settings after manual edits. A null weather receipt means none was recorded.'

@@ -8,6 +8,7 @@ import { flightDataCsv } from './flightDataCsv.js';
 import { CSV_BOM, stampedName } from './fileName.js';
 import { validRunExportContext } from './runExportContext.js';
 import { WEATHER_CREDIT } from './weatherSnapshot.js';
+import { flownLongitudeDeg } from './launchConditions.js';
 
 export interface FlightMeasurements {
   altimeterType: string;
@@ -40,9 +41,17 @@ export function flightDataBundleFiles(hasSeries: boolean, attachmentName?: strin
     { path: 'run.csv', description: 'Existing run-table export, one selected row; fixed flight-day columns and SI detail columns, with units in headers' },
     { path: 'launch-and-weather.json', description: 'Launch settings and applied weather receipt recorded with this run, or null if unavailable' },
     { path: 'measurements.json', description: 'Your measured values and notes; blank values are null' },
-    ...(hasSeries ? [{ path: 'flight-data.csv', description: 'Available per-step simulation data, SI units; may be sampled' }] : []),
+    ...(hasSeries ? [{ path: 'flight-data.csv', description: 'Available per-step simulation data; units in each column header; may be sampled' }] : []),
     ...(attachmentName !== undefined ? [{ path: attachmentPath(attachmentName), description: 'Your chosen data-log file, unchanged' }] : []),
   ];
+}
+
+export function flightDataBundleLongitudeComparison(input: Pick<FlightDataBundleInput, 'run' | 'design'>): 'same' | 'different' | 'unknown' {
+  const context = input.run.exportContext;
+  if (!validRunExportContext(context) || !input.design.launch) return 'unknown';
+  // Longitude is intentionally outside the physics key (empirical collection,
+  // open-items §4); compare the recorded site separately without exposing it.
+  return flownLongitudeDeg(context.launch) === flownLongitudeDeg(input.design.launch) ? 'same' : 'different';
 }
 
 export function flightDataBundleWeatherCredit(input: Pick<FlightDataBundleInput, 'run' | 'design'>) {
@@ -105,12 +114,31 @@ export function flightDataBundleContents(input: FlightDataBundleInput): { files:
     appVersionAtRun: context?.appVersion ?? null,
     selectedRunId: input.run.id, runTimeUnixMs: input.run.when,
     design: 'current design at export', changedSince: input.changedSince,
+    changedSinceScope: 'simulation-relevant inputs; excludes site longitude and design presentation',
+    siteLongitudeComparison: flightDataBundleLongitudeComparison(input),
     designExportNotes: [...new Set(designExportNotes)],
     runSource: input.run.importedSummary ? 'imported summary' : 'saved simulation',
     series: result ? 'available in memory; may be sampled' : 'not available',
     launchAndWeather: context ? 'recorded with selected run' : 'not recorded',
     coordinatesIncluded: includeCoordinates,
-    units: 'JSON and flight-data.csv: SI (m, kg, s, N, rad), except field names ending Deg (degrees), temperatureC (Celsius), pressureHPa (hPa). run.csv retains the existing fixed ft/mph/G/g flight-day columns and SI detail columns; every CSV header names its unit.',
+    units: 'JSON retains the existing schemas and mixed units documented in jsonUnits; no values are converted. CSV headers govern each column, including coordinate degrees and dimensionless columns. run.csv retains the existing fixed ft/mph/G/g flight-day columns and SI detail columns.',
+    jsonUnits: {
+      scope: 'Numeric physical quantities in run.json, launch-and-weather.json and measurements.json; field entries override suffix conventions. Nested fields use the same conventions.',
+      defaults: 'Lengths and altitudes m; masses kg; durations s; speeds m/s; accelerations m/s^2; forces N; angles rad; pressures Pa. Counts, ratios, coefficients and Mach numbers are dimensionless. IDs, schema/revision numbers and provenance keys are not physical quantities.',
+      suffixes: { M: 'm', Mm: 'mm', Kg: 'kg', S: 's', Ms: 'm/s (except execMs and elapsedMs)', Deg: 'degrees',
+        RadS: 'rad/s', Pct: '%', Cal: 'calibers (body diameters)' },
+      fields: { motorDiameterMm: 'mm', execMs: 'ms', elapsedMs: 'ms', when: 'Unix epoch ms', runTimeUnixMs: 'Unix epoch ms',
+        validUnix: 'Unix epoch s', exportedAt: 'ISO 8601 UTC timestamp', retrievedAt: 'ISO 8601 timestamp',
+        temperatureC: 'degrees Celsius', pressureHPa: 'hPa',
+        launchStaticMarginCal: 'calibers (body diameters)', launchStaticMarginPct: '%',
+        maxMach: 'dimensionless', thrustToWeightAtRod: 'dimensionless', cd: 'dimensionless', cdNominal: 'dimensionless',
+        'windLevels[].altitude': 'm above launch', 'windLevels[].speed': 'm/s',
+        'windLevels[].standardDeviation': 'm/s', 'windLevels[].direction': 'rad relative to surface wind',
+        'windLevels[].calmSpeedRatio': 'dimensionless',
+        'railProfile.segments[]': '[initial speed m/s, final speed m/s, initial travel m, final travel m]',
+        'loads.maxQ.value': 'Pa', 'loads.maxQAlpha.value': 'Pa·rad',
+        'loads.*.time': 's', 'loads.*.altitude': 'm', 'loads.*.mach': 'dimensionless', 'loads.*.aoa': 'rad' },
+    },
     measurements: 'User measurements, separate from simulation predictions; null means unknown',
     privacy: 'User text and attachment contents are unchanged and may contain location or other personal details.',
     weatherCredit: flightDataBundleWeatherCredit(input).openMeteo ? WEATHER_CREDIT : null,

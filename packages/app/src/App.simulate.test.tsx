@@ -649,6 +649,12 @@ it.each([-149.765432, null])('bundle chart replay keeps the saved longitude %s a
   await waitFor(() => !!host.querySelector('.chart-panel'), 'replayed charts');
   await click('Export flight-data bundle');
   const dialog = host.querySelector('[role=dialog][aria-label="Export flight-data bundle"]')!;
+  const comparison = [...dialog.querySelectorAll('p')].find(p => p.textContent?.includes('The design file is the current design'))!;
+  expect(comparison.textContent).toContain('Simulation-relevant inputs match the selected run');
+  expect(comparison.textContent).toContain("The current design's site longitude differs from the selected run's recorded site");
+  expect(comparison.textContent).not.toContain('It matches the selected run');
+  // Explaining a site mismatch must not disclose coordinates without consent.
+  expect(dialog.textContent).not.toContain('-149.765432');
   await act(async () => dialog.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
   vi.mocked(saveFile).mockClear();
   await click('Download ZIP');
@@ -660,6 +666,10 @@ it.each([-149.765432, null])('bundle chart replay keeps the saved longitude %s a
   // Kernel coordinates are converted back to degrees; tolerate roundoff only.
   expect(Number(first!.split(',')[column])).toBeCloseTo(longitudeDeg ?? -80.6, 6);
   expect(JSON.parse(strFromU8(files['manifest.json']!)).changedSince).toEqual([]);
+  expect(JSON.parse(strFromU8(files['manifest.json']!))).toMatchObject({
+    changedSinceScope: 'simulation-relevant inputs; excludes site longitude and design presentation',
+    siteLongitudeComparison: 'different',
+  });
   expect(strFromU8(files['design.ork']!)).toContain('<launchlongitude>10</launchlongitude>');
   expect(localStorage.getItem(RUNS_KEY)).toBe(historyBefore);
 }, 30000);

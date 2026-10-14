@@ -25,6 +25,58 @@ const filesOf = (x = input()) => unzipSync(buildFlightDataBundle(x).bytes);
 
 describe('flight-data bundle', () => {
   it.each([
+    { recorded: -149.765432, current: 10, expected: 'different' },
+    { recorded: -149.765432, current: -149.765432, expected: 'same' },
+    { recorded: null, current: 10, expected: 'different' },
+    { recorded: null, current: -80.6, expected: 'same' },
+    { recorded: undefined, current: -80.6, expected: 'same' },
+  ])('separates site longitude from the physics comparison ($recorded / $current)', ({ recorded, current, expected }) => {
+    const x = input();
+    const files = unzipSync(buildFlightDataBundle({ ...x, changedSince: [],
+      design: { ...x.design, launch: { ...x.design.launch, longitudeDeg: current } },
+      run: { ...run, exportContext: runExportContext({ ...x.design.launch, longitudeDeg: recorded }) },
+    }).bytes);
+    expect(JSON.parse(strFromU8(files['manifest.json']!))).toMatchObject({ changedSince: [],
+      changedSinceScope: 'simulation-relevant inputs; excludes site longitude and design presentation',
+      siteLongitudeComparison: expected, coordinatesIncluded: false });
+    const all = Object.values(files).map(f => strFromU8(f)).join('\n');
+    expect(all).not.toContain('-149.765432');
+    expect(all).not.toContain('61.234567');
+  });
+
+  it('marks the site longitude comparison unknown without recorded launch context', () => {
+    expect(JSON.parse(strFromU8(filesOf()['manifest.json']!)).siteLongitudeComparison).toBe('unknown');
+  });
+
+  it('documents mixed JSON units and CSV column units without converting saved values', () => {
+    const x = input();
+    const selected = { ...run, motorDiameterMm: 18, execMs: 411.25, when: 1700000000123,
+      launchStaticMarginCal: 1.5, launchStaticMarginPct: 12, maxMach: 0.2,
+      delayResolution: { policy: 'carrier-ballistic-v1' as const, mounts: [{ mountId: 'mount', mountName: 'Motor mount',
+        motorIdentity: 'Estes C6', mode: 'manual' as const, flownDelay: 5, rawOptimum: null, recommendedDelay: null,
+        burnoutTime: null, apogeeTime: null, branchId: null, branchName: null, status: 'fixed' as const }], probes: 0, elapsedMs: 25.5 },
+      exportContext: runExportContext({ ...x.design.launch, temperatureC: 12, pressureHPa: 1000 }) };
+    const result = { summary: {}, events: [], series: { time: [0], altitude: [123], velocity: [45],
+      'φ': [61.234567], 'λ': [-149.765432] } } as unknown as FlightResult;
+    const files = unzipSync(buildFlightDataBundle({ ...x, run: selected, result, includeCoordinates: true }).bytes);
+    const manifest = JSON.parse(strFromU8(files['manifest.json']!));
+    expect(manifest).toHaveProperty('jsonUnits');
+    expect(manifest.jsonUnits.fields).toMatchObject({ motorDiameterMm: 'mm', execMs: 'ms', elapsedMs: 'ms',
+      when: 'Unix epoch ms', runTimeUnixMs: 'Unix epoch ms', validUnix: 'Unix epoch s',
+      temperatureC: 'degrees Celsius', pressureHPa: 'hPa',
+      launchStaticMarginCal: 'calibers (body diameters)', launchStaticMarginPct: '%', maxMach: 'dimensionless' });
+    expect(manifest.jsonUnits.suffixes).toMatchObject({ Mm: 'mm', Deg: 'degrees', Pct: '%', Cal: 'calibers (body diameters)' });
+    expect(manifest.units).toContain('CSV headers govern each column');
+    expect(manifest.units).toContain('coordinate degrees');
+    expect(JSON.parse(strFromU8(files['run.json']!))).toMatchObject({ motorDiameterMm: 18, execMs: 411.25,
+      when: 1700000000123, launchStaticMarginCal: 1.5, launchStaticMarginPct: 12, maxMach: 0.2,
+      delayResolution: { elapsedMs: 25.5 } });
+    expect(manifest.runTimeUnixMs).toBe(1700000000123);
+    expect(JSON.parse(strFromU8(files['launch-and-weather.json']!)).launch).toMatchObject({ temperatureC: 12, pressureHPa: 1000 });
+    expect(strFromU8(files['flight-data.csv']!)).toContain('Longitude (°)');
+  });
+
+  it.each([
     { includeCoordinates: false, imported: false }, { includeCoordinates: true, imported: false },
     { includeCoordinates: false, imported: true }, { includeCoordinates: true, imported: true },
   ])('retains profile-only forecast provenance with coordinate consent $includeCoordinates (imported $imported)', ({ includeCoordinates, imported }) => {
