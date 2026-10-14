@@ -99,6 +99,14 @@ Everything below is organized by the order of a typical workflow: design the roc
 
 The **Design** workspace's left column is a **stage-rooted tree** of components. Each stage holds an axial chain of external body parts (nose cone → body tubes → transitions), and those in turn hold internal or external parts (fins, motor mounts, recovery gear, mass). Click a part to select it and its property panel opens in the column to the right of the rocket view; selecting it also puts that part's action buttons on its row — **move up, move down, duplicate, copy, cut and delete**, described just below. The tree enforces containment rules — you can only add children a parent legally accepts (for example, fins and inner tubes go inside a body tube, a parachute goes inside any body part, and an engine block goes inside an inner tube).
 
+### Design notes and revision log
+
+In the **Design** workspace, open **Design notes** below **Rocket name** for the whole design's **Designer**, **Kit name**, **Kit manufacturer**, **Kit part number**, **Design comments**, and **Revision**. These notes follow undo, browser autosave, and share links; they do not affect flight numbers. Comments on individual parts stay in each part's property panel.
+
+For a dated history, choose **Entry date**, type a **Revision note**, and press **Add revision**. The date starts at today on your device; you can choose an earlier day. Only added entries become part of the design, and each addition can be undone. **Revision** remains separate free text for desktop OpenRocket's revision field.
+
+Save **.ork** to keep all design notes. Designer, kit name, design comments, and revision use desktop OpenRocket 24.12's own fields. Kit manufacturer, kit part number, and the dated revision log use app-specific data: desktop OpenRocket ignores them and does not keep them when saving again. Saving **.rkt** loses design notes. **.CDX1** keeps design comments in its native Comments field and loses the other notes; the app uses the first line of comment text as the rocket name when reopening. The save warning lists the losses and any name change. Use **.ork** to keep the name and comments separately.
+
 ### Comments on parts
 
 Select a part or stage and use **Comment** below its name to keep as-built notes or replacement details. The tree shows a small **note** marker beside parts with comments. Comments follow duplicate, copy, undo and browser autosave; they do not affect flight numbers. Save **.ork** to keep them in desktop OpenRocket's own per-component comment field. Saving **.rkt** or **.CDX1** loses part comments, and the save warning lists the affected parts.

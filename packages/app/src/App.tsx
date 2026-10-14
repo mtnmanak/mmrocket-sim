@@ -203,6 +203,7 @@ import { ScaleDialog } from './components/ScaleDialog.js';
 import { WeatherDialog } from './components/WeatherDialog.js';
 import { applyProposal, carrySigmaEstimate, undoApply, withSigmaEstimate, type WeatherSnapshot } from './services/weatherSnapshot.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
+import { DesignNotesPanel } from './components/DesignNotesPanel.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
 import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
 import { useDesignDirty, type PreRankRestore } from './hooks/useDesignDirty.js';
@@ -4030,6 +4031,7 @@ export function App() {
               <label htmlFor="rocket-name">Rocket name</label>
               <input id="rocket-name" value={tree.name ?? ''} onChange={(e) => setTree({ ...tree, name: e.target.value })} />
             </div>
+            <DesignNotesPanel key={tree.components[0]?.id} tree={tree} onChange={setTree} onAddRevision={commitTreeStep} />
             <ComponentTree
               treeElementRef={treeElementRef}
               tree={tree}

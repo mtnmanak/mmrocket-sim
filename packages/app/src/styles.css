@@ -1084,6 +1084,18 @@ html {
   resize: none;
 }
 
+.design-notes { margin-bottom: 8px; min-width: 0; }
+.design-notes summary { cursor: pointer; color: var(--text-primary); }
+.design-notes summary:hover { color: var(--accent); }
+.design-notes summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.design-notes-fields { display: grid; gap: 8px; padding-top: 8px; min-width: 0; }
+.design-notes-fields h3, .design-notes-fields p { margin: 0; }
+.design-notes-fields p { font-size: 12px; overflow-wrap: anywhere; }
+.design-notes-fields .file-btn { justify-self: start; }
+.design-revision-log { max-height: 18em; overflow-y: auto; padding-left: 24px; margin: 0; }
+.design-revision-log li { margin-bottom: 8px; overflow-wrap: anywhere; }
+.design-revision-log li p { white-space: pre-wrap; }
+
 .recent-open-controls {
   display: flex;
   flex-direction: column;

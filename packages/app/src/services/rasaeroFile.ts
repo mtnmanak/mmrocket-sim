@@ -1,4 +1,5 @@
 import { cautionNote, noteFlags } from './importNotes.js';
+import { cleanDesignProvenance } from './designProvenance.js';
 import { captureStageMass } from './stageMassOverrides.js';
 import { filletExportNotes } from './filletExport.js';
 import { simulationExtensionLossNotes } from './orkExtensions.js';
@@ -1764,11 +1765,12 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     else cautionNote(notes, 'I03.ignored-elements', text);
   }
 
-  const name = (text(design, ':scope > Comments') ?? '').split('\n')[0]?.trim()
+  const comment = design.querySelector(':scope > Comments')?.textContent ?? '';
+  const name = comment.trim().split('\n')[0]?.trim()
     || 'Imported RASAero rocket';
   // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
   refuseTooManyParts(stages);
-  const tree: FlightTree = { ...sanitizeTree({ name, components: stages }, notes),
+  const tree: FlightTree = { ...sanitizeTree({ name, components: stages, ...(comment ? { provenance: { comment } } : {}) }, notes),
     ...(Object.keys(ignitionDefaults).length ? { ignitionDefaults } : {}) };
   retainBaseDragDeclaration(tree, text(design, ':scope > Comments') ?? '');
   return {
@@ -2654,7 +2656,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   emit(`<Booster2Nozzle>${stageEngines[2] ? stageNozzleIn(2) : '0'}</Booster2Nozzle>`);
   emit(`<UseBooster1>${stagesIn.length >= 2 ? 'True' : 'False'}</UseBooster1>`);
   emit(`<UseBooster2>${stagesIn.length === 3 ? 'True' : 'False'}</UseBooster2>`);
-  emit(`<Comments>${esc(name)}</Comments>`);
+  emit(`<Comments>${esc(cleanDesignProvenance(tree.provenance)?.comment ?? name)}</Comments>`);
   emit('</RocketDesign>');
 
   // Launch site back to RASAero units (feet / °F / in-Hg / mph). Pressure 0 is

@@ -30,6 +30,21 @@ export interface FlightOverrides {
  */
 export interface FlightTree extends RocketTree {
   ignitionDefaults?: Record<string, IgnitionTuple>;
+  /** C-A9: design notes travel with the root, outside the physical component tree. */
+  provenance?: DesignProvenance;
+}
+
+export interface DesignRevision { date: string; text: string }
+export interface DesignProvenance {
+  designer?: string;
+  kitName?: string;
+  kitManufacturer?: string;
+  kitPartNumber?: string;
+  comment?: string;
+  /** Desktop OR's free-text revision is separate from the app's dated log. */
+  revision?: string;
+  designType?: string;
+  revisions?: DesignRevision[];
 }
 
 /**
