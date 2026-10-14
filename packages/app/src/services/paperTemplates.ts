@@ -135,7 +135,7 @@ ${text('Scale 1:1 — print at 100%, no fit to page. Check the ruler on every pa
 ${text(`Page ${index}/${columns * rows}: column ${column + 1}/${columns}, row ${row + 1}/${rows}. Right ${dim(x / 1000)}; down ${dim(y / 1000)}.`, 22)}
 ${text('Join matching coordinates with 10 mm overlap. Solid outlines: part; grid: reference.', 28)}
 ${g.notes.map((s, i) => text(`${i === 0 && g.kind === 'profile' ? 'Caution: ' : ''}${s}`, 34 + i * 5)).join('')}
-${text(g.dimensions.map(([label, value]) => `${label} ${dim(value)}`).join('; '), 44)}
+${text(g.dimensions.map(([label, value]) => `${label} ${dim(value)}`).join('; '), Math.max(44, 34 + g.notes.length * 5))}
 ${stationText.join('')}<text x="${18 + ruler}" y="72" font-size="3.2">${inches ? '2 in' : escapeXml(dim(0.05))}</text></g>
 <g fill="none" stroke="#000" stroke-width="0.2"><line id="calibration-ruler" x1="15" y1="72" x2="${15 + ruler}" y2="72"/>
 <line x1="15" y1="69" x2="15" y2="73"/><line x1="${15 + ruler}" y1="69" x2="${15 + ruler}" y2="73"/></g>

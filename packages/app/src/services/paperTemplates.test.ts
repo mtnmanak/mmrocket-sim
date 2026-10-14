@@ -72,6 +72,40 @@ describe('C-A7 paper geometry', () => {
 });
 
 describe('C-A7 physical pages', () => {
+  it.each([
+    ['zero-ID ring', 'centeringring', { outerRadius: 0.04, innerRadius: 0 }],
+    ['tiled zero-ID ring', 'centeringring', { outerRadius: 0.2, innerRadius: 0 }],
+    ['open ring', 'centeringring', { outerRadius: 0.04, innerRadius: 0.01 }],
+    ['bulkhead', 'bulkhead', { outerRadius: 0.04 }],
+    ['conical wrap', 'transition', { length: 0.1, foreRadius: 0.02, aftRadius: 0.04 }],
+    ['curved profile', 'nosecone', { shape: 'ellipsoid', length: 0.1, aftRadius: 0.03 }],
+  ])('keeps %s annotations separate and clear of the ruler and geometry', (_label, type, fields) => {
+    const g = paperTemplateGeometry(node(type, fields), {});
+    for (const units of [INITIAL_UNITS, IMPERIAL_UNITS]) {
+      for (const page of paperTemplatePages(g, 'Rocket', units)) {
+        const header = page.svg.split('</g>')[0]!;
+        const annotations = [...header.matchAll(/<text\b[^>]*\by="([\d.]+)"[^>]*>([^<]*)<\/text>/g)]
+          .map(match => ({ y: Number(match[1]), text: match[2]! }));
+        const dimensions = annotations.find(a => a.text.startsWith(g.dimensions[0]![0]))!;
+        expect(dimensions).toBeDefined();
+        for (const note of g.notes) {
+          const annotation = annotations.find(a => a.text.endsWith(note))!;
+          expect(annotation).toBeDefined();
+          // A 5 mm baseline gap leaves space for the 3.2 mm annotation font.
+          expect(dimensions.y - annotation.y).toBeGreaterThanOrEqual(5);
+        }
+        // The ruler label is at 72 mm, below all notes, dimensions and stations.
+        const beforeRuler = annotations.filter(a => a.y >= 34 && a.y < 72);
+        expect(beforeRuler).toHaveLength(g.notes.length + 1 + (g.stations.length ? 4 : 0));
+        for (let i = 1; i < beforeRuler.length; i++) {
+          expect(beforeRuler[i]!.y - beforeRuler[i - 1]!.y).toBeGreaterThanOrEqual(5);
+        }
+        expect(69 - beforeRuler.at(-1)!.y).toBeGreaterThanOrEqual(5);
+        expect(page.svg).toContain('y1="69"');
+        expect(page.svg).toContain('<rect x="15" y="80" width="180" height="180"/>');
+      }
+    }
+  });
   it('keeps true millimetre dimensions, escapes labels, and changes ruler and station units with preferences', () => {
     const g = paperTemplateGeometry(node('nosecone', { shape: 'ellipsoid', length: 0.1, aftRadius: 0.03 }), {});
     const metric = paperTemplatePages(g, 'Rocket <&>', INITIAL_UNITS);
