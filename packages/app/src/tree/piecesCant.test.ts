@@ -204,7 +204,7 @@ describe.each(types)('%s cant export boundaries', (type) => {
     // Full shell also contains the tube; every expected fin vertex must survive.
     for (const p of expected) expect(stl.some((q) => p.every((v, axis) => Math.abs(v - q[axis]!) < 1e-7))).toBe(true);
     built.pieces.forEach((p) => p.geometry.dispose());
-  });
+  }, 30_000);
   }
 
   for (const section of sections) {

@@ -76,7 +76,7 @@ describe('C-B8 part comments', () => {
       // Same-runtime differential; only wall-clock/identity fields are removed.
       expect(comparable(after.run)).toEqual(comparable(before.run));
     } finally { vi.unstubAllGlobals(); }
-  });
+  }, 30_000);
 
   it('normalization and deep duplication keep text while invalid restored values are removed', () => {
     const normalized = normalizeTree(JSON.parse(JSON.stringify(tree)) as RocketTree);

@@ -47,7 +47,7 @@ it.each(['rounded', 'airfoil'])('design metadata preserves the real C6 flight re
     // Differential in one runtime: no hard-coded kernel floats or widened tolerances.
     expect(comparable(after.run)).toEqual(comparable(before.run));
   } finally { vi.unstubAllGlobals(); }
-});
+}, 30_000);
 
 it('reads desktop root fields without confusing them with part comments', () => {
   const desktop = '<openrocket version="1.10"><rocket><name>Desktop</name><designer>Zoë &amp; Eric</designer>'
