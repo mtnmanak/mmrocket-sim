@@ -83,11 +83,30 @@ const oracle = (type: typeof types[number], section: string, cant: number, clock
 
 function expectVertices(actual: Point[], expected: Point[]) {
   // Float32 geometry (and STL mm conversion): 0.1 micrometre in these <1 m fixtures.
-  const has = (list: Point[], p: Point) => list.some((q) =>
-    p.every((v, axis) => Math.abs(v - q[axis]!) < 1e-7));
+  // Same per-axis tolerance as a pairwise scan, through a grid of 1 µm cells: a match within
+  // 1e-7 on every axis lies in the same cell or a neighbouring one. Shaped (N062) meshes made
+  // the pairwise scan quadratic in thousands of vertices and slow enough to time out.
+  const CELL = 1e-6;
+  const index = (list: Point[]) => {
+    const grid = new Map<string, Point[]>();
+    for (const q of list) {
+      const key = q.map((v) => Math.floor(v / CELL)).join(',');
+      (grid.get(key) ?? grid.set(key, []).get(key)!).push(q);
+    }
+    return grid;
+  };
+  const has = (grid: Map<string, Point[]>, p: Point) => {
+    const [i, j, k] = p.map((v) => Math.floor(v / CELL));
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) {
+      if (grid.get(`${i! + a},${j! + b},${k! + c}`)?.some((q) =>
+        p.every((v, axis) => Math.abs(v - q[axis]!) < 1e-7))) return true;
+    }
+    return false;
+  };
   expect(actual.length).toBeGreaterThan(0);
-  expect(expected.every((p) => has(actual, p))).toBe(true);
-  expect(actual.every((p) => has(expected, p))).toBe(true);
+  const actualGrid = index(actual), expectedGrid = index(expected);
+  expect(expected.every((p) => has(actualGrid, p))).toBe(true);
+  expect(actual.every((p) => has(expectedGrid, p))).toBe(true);
 }
 
 describe.each(types)('%s assembled cant', (type) => {
@@ -160,7 +179,7 @@ describe.each(types)('%s assembled cant', (type) => {
       expectVertices(vertices(p.geometry.getAttribute('position').array), expected);
     });
     built.pieces.forEach((p) => p.geometry.dispose());
-  });
+  }, 30_000);
   }
 });
 
