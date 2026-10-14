@@ -13,8 +13,10 @@ export function tubeHoleMarks(node: ComponentNode): TubeHoleMark[] {
   const station = Math.max(0, Math.min(1000, num(node, 'holePosition', TUBE_HOLE_DEFAULTS.holePosition)));
   const diameter = Math.max(0.0001, Math.min(1000, num(node, 'holeDiameter', TUBE_HOLE_DEFAULTS.holeDiameter)));
   const rotation = num(node, 'angleOffset', 0);
-  return Array.from({ length: count }, (_, i) => ({
-    angle: ((rotation + i * 2 * Math.PI / count) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI),
-    station, diameter,
-  }));
+  return Array.from({ length: count }, (_, i) => {
+    let angle = ((rotation + i * 2 * Math.PI / count) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+    // N045: negative rounding noise must repeat the zero-angle drilling centre at both wrap edges.
+    if (2 * Math.PI - angle < 1e-9) angle = 0;
+    return { angle, station, diameter };
+  });
 }

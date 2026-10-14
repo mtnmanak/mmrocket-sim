@@ -59,6 +59,42 @@ describe('N045 fabrication-only tube holes', () => {
       .every(p => p.svg.includes('class="drilling-mark"'))).toBe(true);
   });
 
+  it.each([['browser', browserXmlParser], ['JavaScript', jsXmlParser]] as const)('prints both seam centres after a seven-hole negative-angle .ork round-trip with the %s parser', (_, parser) => {
+    setXmlParser(parser);
+    try {
+      const design = tree([hole({ holePosition: 0.05, holeCount: 7, angleOffset: -257.1428571428572 * Math.PI / 180 })]);
+      design.components[0]!.children![1]!['length'] = 0.1;
+      const reopened = importOrk(exportOrk({ tree: design, name: 'Seam marks' })).tree;
+      const body = reopened.components[0]!.children![1]!;
+      const g = tubeWrapGeometry(reopened, body);
+      const pages = tubeWrapPages(g, 'Seam marks', { length: 'mm', angle: '°' });
+      expect(pages).toHaveLength(1);
+      const doc = new DOMParser().parseFromString(pages[0]!.svg, 'image/svg+xml');
+      const marks = [...doc.querySelectorAll('.drilling-mark')];
+      expect(marks).toHaveLength(8); // Seven holes, with the zero-angle centre at both edges.
+      const centres = marks.map(mark => mark.querySelectorAll('line')[1]!.getAttribute('x1'));
+      expect(centres.filter(x => x === '0.0000')).toHaveLength(1);
+      expect(centres.filter(x => x === '75.3982')).toHaveLength(1); // 24 mm OD * pi, serialized to 0.0001 mm.
+      expect(g.holes[5]!.angle).toBe(0);
+      expect(g.holes[5]!.x).toBe(0);
+    } finally { setXmlParser(browserXmlParser); }
+  });
+
+  it.each([['browser', browserXmlParser], ['JavaScript', jsXmlParser]] as const)('keeps a real near-seam hole distinct after a .ork round-trip with the %s parser', (_, parser) => {
+    setXmlParser(parser);
+    try {
+      const reopened = importOrk(exportOrk({ tree: tree([hole({ holeCount: 1, angleOffset: -1e-6 })]), name: 'Near seam' })).tree;
+      const g = tubeWrapGeometry(reopened, reopened.components[0]!.children![1]!);
+      // Pure angular arithmetic: 1e-12 rad tolerance is well below this genuine 1e-6 rad offset.
+      expect(g.holes[0]!.angle).toBeCloseTo(2 * Math.PI - 1e-6, 12);
+      expect(g.holes[0]!.x).toBeGreaterThan(0);
+      expect(g.holes[0]!.x).toBeLessThan(g.circumference);
+      const pages = tubeWrapPages(g, 'Near seam', { length: 'mm', angle: '°' });
+      const copies = pages.flatMap(page => [...new DOMParser().parseFromString(page.svg, 'image/svg+xml').querySelectorAll('.drilling-mark')]);
+      expect(copies).toHaveLength(1);
+    } finally { setXmlParser(browserXmlParser); }
+  });
+
   it.each([['browser', browserXmlParser], ['JavaScript', jsXmlParser]] as const)('round-trips metadata outside desktop subcomponents with the %s parser', (_, parser) => {
     setXmlParser(parser);
     try {
