@@ -15,7 +15,7 @@ const fixture = (children: ComponentNode[], props: Record<string, unknown> = {})
   return { tube, tree };
 };
 
-const expectCaptionsClearOfMarks = (doc: ReturnType<DOMParser['parseFromString']>) => {
+const expectTextClearOfMarks = (doc: ReturnType<DOMParser['parseFromString']>) => {
   const marks = [...doc.getElementsByTagName('g')].filter(g => g.getAttribute('class') === 'drilling-mark');
   const markBoxes = marks.map(mark => {
     const lines = [...mark.getElementsByTagName('line')];
@@ -34,15 +34,21 @@ const expectCaptionsClearOfMarks = (doc: ReturnType<DOMParser['parseFromString']
   const captions = [...doc.getElementsByTagName('text')].filter(text => text.getAttribute('font-size') === '2.4'
     && text.textContent!.includes(': '));
   expect(captions).toHaveLength(marks.length);
-  for (const caption of captions) {
-    const x = Number(caption.getAttribute('x')), y = Number(caption.getAttribute('y'));
-    const length = Number(caption.getAttribute('textLength'));
-    const box = caption.getAttribute('transform') === `rotate(90 ${caption.getAttribute('x')} ${caption.getAttribute('y')})`
-      ? { left: x - 0.6, right: x + 2.4, top: y, bottom: y + length }
-      : { left: x, right: x + length, top: y - 2.4, bottom: y + 0.6 };
+  const wrap = [...doc.getElementsByTagName('g')].find(g => g.hasAttribute('transform')
+    && g.getAttribute('stroke-width') === '0.2')!;
+  for (const text of [...wrap.getElementsByTagName('text')]) {
+    const size = Number(text.getAttribute('font-size'));
+    const length = text.hasAttribute('textLength') ? Number(text.getAttribute('textLength')) : text.textContent!.length * size;
+    const transform = text.getAttribute('transform') ?? '';
+    const translated = transform.match(/translate\(([-\d.]+) ([-\d.]+)\) rotate\(90\)/);
+    const x = translated ? Number(translated[1]) : Number(text.getAttribute('x'));
+    const y = translated ? Number(translated[2]) : Number(text.getAttribute('y'));
+    const box = translated || transform.startsWith('rotate(90 ')
+      ? { left: x - size / 4, right: x + size, top: y, bottom: y + length }
+      : { left: x, right: x + length, top: y - size, bottom: y + size / 4 };
     for (const other of markBoxes) {
       expect(box.left < other.right && other.left < box.right && box.top < other.bottom && other.top < box.bottom,
-        `caption ${JSON.stringify(box)} intersects drilling geometry ${JSON.stringify(other)}`).toBe(false);
+        `text ${JSON.stringify(text.textContent)} ${JSON.stringify(box)} intersects drilling geometry ${JSON.stringify(other)}`).toBe(false);
     }
   }
 };
@@ -179,6 +185,68 @@ describe('tube wrap geometry (SI, hand-computed)', () => {
 });
 
 describe('print pages', () => {
+  it.each([
+    ['axial coordinate', 5, 22, 3, 1],
+    ['circumference coordinate', 24, 4, 3, 1],
+    ['large diameter circle', 11, 27, 12, 1],
+    ['axial overlap copy', 5, 182, 3, 2],
+    ['circumference overlap copy', 175, 22, 3, 2],
+    ['seam copies', 0, 22, 3, 2],
+  ] as const)('keeps all wrap text clear of a single drilling mark at the %s', (_case, x, station, diameter, expectedCopies) => {
+    const { tree, tube } = fixture([node('tubehole', { name: 'Vent', holeDiameter: diameter / 1000,
+      holeCount: 1, holePosition: station / 1000, angleOffset: x / 50,
+    })], { outerRadius: 0.05 });
+    const pages = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
+    let copies = 0;
+    for (const page of pages) {
+      const doc = new DOMParser().parseFromString(page.svg, 'image/svg+xml');
+      expectTextClearOfMarks(doc);
+      const leaders = [...doc.getElementsByTagName('line')].filter(line => line.getAttribute('class') === 'hole-caption-leader');
+      for (const leader of leaders) {
+        // At zero angle the second centre repeats at the analytically derived 100 mm OD seam.
+        expect(Number(leader.getAttribute('x1'))).toBeCloseTo(x === 0 && page.column === 2 ? 314.1593 : x, 4);
+        expect(Number(leader.getAttribute('y1'))).toBe(station);
+      }
+      copies += leaders.length;
+      expect([...doc.getElementsByTagName('line')].some(line => line.getAttribute('stroke') === '#888')).toBe(true);
+      expect([...doc.getElementsByTagName('text')].some(text => text.getAttribute('font-size') === '2.4'
+        && !text.textContent!.includes(': '))).toBe(true);
+    }
+    expect(copies).toBe(expectedCopies);
+  });
+
+  it('keeps the 24 mm tube reproduction clear while preserving the drilling centre', () => {
+    const { tree, tube } = fixture([node('tubehole', { name: 'Vent', holeDiameter: 0.003,
+      holeCount: 1, holePosition: 0.022, angleOffset: 0.005 / 0.012,
+    })], { outerRadius: 0.012 });
+    const [page] = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
+    const doc = new DOMParser().parseFromString(page!.svg, 'image/svg+xml');
+    expectTextClearOfMarks(doc);
+    const mark = [...doc.getElementsByTagName('g')].find(g => g.getAttribute('class') === 'drilling-mark')!;
+    const cross = [...mark.getElementsByTagName('line')];
+    expect(cross.map(line => ['x1', 'y1', 'x2', 'y2'].map(attr => Number(line.getAttribute(attr)))))
+      .toEqual([[3, 22, 7, 22], [5, 20, 5, 24]]);
+    const circle = mark.getElementsByTagName('circle')[0]!;
+    expect(['cx', 'cy', 'r'].map(attr => Number(circle.getAttribute(attr)))).toEqual([5, 22, 1.5]);
+  });
+
+  it.each(['trapezoidfinset', 'freeformfinset', 'launchlug', 'railbutton'])('keeps %s labels clear of drilling marks without removing its clock line', type => {
+    const { tree, tube } = fixture([
+      node(type, { name: 'Part', finCount: 1, rotation: 1, angleOffset: 1 }),
+      node('launchlug', { id: 'clear', name: 'Clear', angleOffset: Math.PI }),
+      node('tubehole', { name: 'Vent', holeDiameter: 0.003, holeCount: 1, holePosition: 0.025, angleOffset: 1.08 }),
+    ]);
+    const [page] = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
+    const doc = new DOMParser().parseFromString(page!.svg, 'image/svg+xml');
+    expectTextClearOfMarks(doc);
+    const clock = [...doc.getElementsByTagName('line')].find(line => line.getAttribute('class') === 'marking-line'
+      && Number(line.getAttribute('x1')) === 25)!;
+    expect(['x1', 'y1', 'x2', 'y2'].map(attr => Number(clock.getAttribute(attr)))).toEqual([25, 0, 25, 190]);
+    expect([...doc.getElementsByTagName('text')].some(text => text.textContent!.startsWith('Clear 1'))).toBe(true);
+    const leader = [...doc.getElementsByTagName('line')].find(line => line.getAttribute('class') === 'hole-caption-leader')!;
+    expect(['x1', 'y1'].map(attr => Number(leader.getAttribute(attr)))).toEqual([27, 25]);
+  });
+
   it('omits grid captions that extend beyond a narrow circumference tile', () => {
     const { tree, tube } = fixture([], { outerRadius: 0.0288, length: 0.1 });
     const pages = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
@@ -197,7 +265,7 @@ describe('print pages', () => {
     expect(pages).toHaveLength(2);
     for (const page of pages) {
       const doc = new DOMParser().parseFromString(page.svg, 'image/svg+xml');
-      expectCaptionsClearOfMarks(doc);
+      expectTextClearOfMarks(doc);
       const caption = [...doc.getElementsByTagName('text')].find(text => text.textContent === 'Vent / marking hole: 3 mm')!;
       expect(Number(caption.getAttribute('textLength'))).toBeGreaterThanOrEqual(31); // Physical baseline width, also after rotation.
       expect(Number(caption.getAttribute('font-size'))).toBe(2.4);
@@ -230,7 +298,7 @@ describe('print pages', () => {
       holeDiameter: 0.012, holeCount: 4, holePosition: 0.025,
     })], { outerRadius: 0.012 });
     const [page] = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
-    expectCaptionsClearOfMarks(new DOMParser().parseFromString(page!.svg, 'image/svg+xml'));
+    expectTextClearOfMarks(new DOMParser().parseFromString(page!.svg, 'image/svg+xml'));
   });
 
   it('keeps captions clear of drilling marks at two nearby axial stations', () => {
@@ -240,7 +308,7 @@ describe('print pages', () => {
     ], { outerRadius: 0.012 });
     const [page] = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' });
     const doc = new DOMParser().parseFromString(page!.svg, 'image/svg+xml');
-    expectCaptionsClearOfMarks(doc);
+    expectTextClearOfMarks(doc);
     const leaders = [...doc.getElementsByTagName('line')].filter(line => line.getAttribute('class') === 'hole-caption-leader');
     expect(leaders.map(line => [Number(line.getAttribute('x1')), Number(line.getAttribute('y1'))]))
       .toEqual([[0, 25], [75.3982, 25], [18.8496, 29]]); // 24 mm OD seam copies and quarter circumference.
@@ -269,7 +337,7 @@ describe('print pages', () => {
     let total = 0;
     for (const page of pages) {
       const doc = new DOMParser().parseFromString(page.svg, 'image/svg+xml');
-      expectCaptionsClearOfMarks(doc);
+      expectTextClearOfMarks(doc);
       const texts = [...doc.getElementsByTagName('text')];
       const captions = texts.filter(t => t.textContent === 'Vent / marking hole: 3 mm');
       const marks = [...doc.getElementsByTagName('g')].filter(g => g.getAttribute('class') === 'drilling-mark');

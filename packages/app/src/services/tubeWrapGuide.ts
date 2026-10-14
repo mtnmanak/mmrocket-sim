@@ -170,20 +170,42 @@ export function tubeWrapPages(
       if (endX === circumference) svg.push(segment(circumference, y, circumference, endY));
       if (row === 0) svg.push(segment(x, 0, endX, 0));
       if (endY === length) svg.push(segment(x, length, endX, length));
-      const occupiedText: { left: number; right: number; top: number; bottom: number }[] = [];
+      const visibleHoles = guide.holes.flatMap(hole => {
+        const hy = hole.station * 1000, hr = hole.diameter * 500;
+        if (hy < y || hy > endY) return [];
+        return [hole.x * 1000 - circumference, hole.x * 1000, hole.x * 1000 + circumference]
+          .filter(hx => hx >= x && hx <= endX).map(hx => ({ hole, hx, hy, hr,
+            circleFits: hx - hr >= x && hx + hr <= endX && hy - hr >= y && hy + hr <= endY }));
+      });
+      // N045: drilling geometry takes priority over every text category, including grid and clock labels.
+      const drillingBoxes = visibleHoles.map(({ hx, hy, hr, circleFits }) => {
+        const radius = Math.max(2, circleFits ? hr : 0);
+        return { left: Math.max(x, hx - radius) - 0.1, right: Math.min(endX, hx + radius) + 0.1,
+          top: Math.max(y, hy - radius) - 0.1, bottom: Math.min(endY, hy + radius) + 0.1 };
+      });
+      const occupiedText = [...drillingBoxes];
+      const overlaps = (box: typeof occupiedText[number], other: typeof occupiedText[number]) =>
+        box.left < other.right + 0.8 && other.left < box.right + 0.8
+        && box.top < other.bottom + 0.8 && other.top < box.bottom + 0.8;
       // Grid coordinates repeat on overlapping sheets so they can be joined without rescaling.
       for (let gx = Math.ceil(x / 10) * 10; gx <= endX; gx += 10) {
         svg.push(`<line x1="${gx}" y1="${y}" x2="${gx}" y2="${endY}" stroke="#888" stroke-dasharray="0.5 2" stroke-width="0.1"/>`);
         if (gx % 20 === 0 && gx + 15 < endX && endY - y > 4) {
-          svg.push(`<text x="${gx + 1}" y="${y + 4}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gx / 1000))}</text>`);
-          occupiedText.push({ left: gx + 1, right: gx + 1 + dim(gx / 1000).length * 2.4, top: y + 1.6, bottom: y + 4.6 });
+          const box = { left: gx + 1, right: gx + 1 + dim(gx / 1000).length * 2.4, top: y + 1.6, bottom: y + 4.6 };
+          if (!drillingBoxes.some(mark => overlaps(box, mark))) {
+            svg.push(`<text x="${gx + 1}" y="${y + 4}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gx / 1000))}</text>`);
+            occupiedText.push(box);
+          }
         }
       }
       for (let gy = Math.ceil(y / 10) * 10; gy <= endY; gy += 10) {
         svg.push(`<line x1="${x}" y1="${gy}" x2="${endX}" y2="${gy}" stroke="#888" stroke-dasharray="0.5 2" stroke-width="0.1"/>`);
         if (gy % 20 === 0 && gy > y + 5 && gy + 3 < endY && x + 1 + dim(gy / 1000).length * 2.4 <= endX) {
-          svg.push(`<text x="${x + 1}" y="${gy + 3}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gy / 1000))}</text>`);
-          occupiedText.push({ left: x + 1, right: x + 1 + dim(gy / 1000).length * 2.4, top: gy + 0.6, bottom: gy + 3.6 });
+          const box = { left: x + 1, right: x + 1 + dim(gy / 1000).length * 2.4, top: gy + 0.6, bottom: gy + 3.6 };
+          if (!drillingBoxes.some(mark => overlaps(box, mark))) {
+            svg.push(`<text x="${x + 1}" y="${gy + 3}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gy / 1000))}</text>`);
+            occupiedText.push(box);
+          }
         }
       }
       const labelPlacements = new Map<string, { x: number; y: number; length: number; text: string }>();
@@ -209,24 +231,13 @@ export function tubeWrapPages(
         i = next;
       }
       if (endY - y > 6) {
-        for (const label of labelPlacements.values()) {
-          occupiedText.push({ left: label.x - 0.75, right: label.x + 3, top: label.y, bottom: label.y + label.length });
+        for (const [key, label] of labelPlacements) {
+          const box = { left: label.x - 0.75, right: label.x + 3, top: label.y, bottom: label.y + label.length };
+          if (drillingBoxes.some(mark => overlaps(box, mark))) labelPlacements.delete(key);
+          else occupiedText.push(box);
         }
       }
       const drawnMarks = new Set<string>();
-      const visibleHoles = guide.holes.flatMap(hole => {
-        const hy = hole.station * 1000, hr = hole.diameter * 500;
-        if (hy < y || hy > endY) return [];
-        return [hole.x * 1000 - circumference, hole.x * 1000, hole.x * 1000 + circumference]
-          .filter(hx => hx >= x && hx <= endX).map(hx => ({ hole, hx, hy, hr,
-            circleFits: hx - hr >= x && hx + hr <= endX && hy - hr >= y && hy + hr <= endY }));
-      });
-      // N045: reserve every visible cross/circle, including later holes and seam/overlap copies.
-      occupiedText.push(...visibleHoles.map(({ hx, hy, hr, circleFits }) => {
-        const radius = Math.max(2, circleFits ? hr : 0);
-        return { left: Math.max(x, hx - radius) - 0.1, right: Math.min(endX, hx + radius) + 0.1,
-          top: Math.max(y, hy - radius) - 0.1, bottom: Math.min(endY, hy + radius) + 0.1 };
-      }));
       // N045: a cross locates the drill centre; the dashed circle states the diameter.
       // Repeat seam and overlap centres, without introducing cutting edges at page joins.
       for (const { hole, hx, hy, hr, circleFits } of visibleHoles) {
@@ -260,8 +271,7 @@ export function tubeWrapPages(
               ? { left: start - 0.6, right: start + 2.4, top: baseline, bottom: baseline + captionLength }
               : { left: start, right: start + captionLength, top: baseline - 2.4, bottom: baseline + 0.6 };
             if (box.left < x || box.right > endX || box.top < y || box.bottom > endY) continue;
-            if (occupiedText.some(other => box.left < other.right + 0.8 && other.left < box.right + 0.8
-              && box.top < other.bottom + 0.8 && other.top < box.bottom + 0.8)) continue;
+            if (occupiedText.some(other => overlaps(box, other))) continue;
             occupiedText.push(box);
             placement = { x: start, y: baseline };
             break;
@@ -283,8 +293,8 @@ export function tubeWrapPages(
               svg.push(`<line class="marking-line" x1="${f(cx)}" y1="${f(y)}" x2="${f(cx)}" y2="${f(endY)}"${!finClocks.has(clockKey(line)) ? ' stroke-dasharray="3 2"' : ''}/>`);
             }
             if (!drawnMarks.has(markKey) && cx < circumference - 1e-6 && endY - y > 6) {
-              const label = labelPlacements.get(clockKey(line))!;
-              svg.push(`<text transform="translate(${f(label.x)} ${f(label.y)}) rotate(90)" fill="#000" stroke="none" font-size="3" font-family="sans-serif" textLength="${f(label.length)}" lengthAdjust="spacingAndGlyphs">${escapeXml(label.text)}</text>`);
+              const label = labelPlacements.get(clockKey(line));
+              if (label) svg.push(`<text transform="translate(${f(label.x)} ${f(label.y)}) rotate(90)" fill="#000" stroke="none" font-size="3" font-family="sans-serif" textLength="${f(label.length)}" lengthAdjust="spacingAndGlyphs">${escapeXml(label.text)}</text>`);
             }
             drawnMarks.add(markKey);
             for (const station of [line.root.start, line.root.end]) {
