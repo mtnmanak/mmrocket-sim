@@ -147,6 +147,72 @@ describe('tube wrap geometry (SI, hand-computed)', () => {
 });
 
 describe('print pages', () => {
+  it('refuses a page too crowded for readable hole captions', () => {
+    const { tree, tube } = fixture([node('tubehole', {
+      name: 'Vent / marking hole', holeDiameter: 0.003, holeCount: 64, holePosition: 0.005,
+    })], { outerRadius: 0.012, length: 0.01 });
+    expect(() => tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length: 'mm', angle: '°' }))
+      .toThrow(/hole captions.*fit.*reduce.*marks.*shorten.*names/i);
+  });
+
+  it.each([
+    ['default four-hole pattern', 0.012, 0.025, 0, false, 5],
+    ['four holes with fin and guide labels', 0.012, 0.025, 0, true, 5],
+    ['four holes at both tile overlaps', 0.05, 0.188, 3.56, true, 10],
+  ] as const)('keeps printable diameter captions separate for %s', (_case, outerRadius, holePosition, angleOffset, withLines, copies) => {
+    const { tree, tube } = fixture([
+      node('tubehole', { name: 'Vent / marking hole', holeDiameter: 0.003, holeCount: 4, holePosition, angleOffset }),
+      ...(withLines ? [fin({ finCount: 4 }), node('launchlug', { name: 'Lug', angleOffset: Math.PI / 4 }),
+        node('railbutton', { name: 'Button', angleOffset: Math.PI / 2 })] : []),
+    ], { outerRadius });
+    const guide = tubeWrapGeometry(tree, tube);
+    const pages = tubeWrapPages(guide, 'Rocket', { length: 'mm', angle: '°' });
+    let total = 0;
+    for (const page of pages) {
+      const doc = new DOMParser().parseFromString(page.svg, 'image/svg+xml');
+      const texts = [...doc.getElementsByTagName('text')];
+      const captions = texts.filter(t => t.textContent === 'Vent / marking hole: 3 mm');
+      const marks = [...doc.getElementsByTagName('g')].filter(g => g.getAttribute('class') === 'drilling-mark');
+      expect(captions).toHaveLength(marks.length);
+      const leaders = [...doc.getElementsByTagName('line')].filter(l => l.getAttribute('class') === 'hole-caption-leader');
+      expect(leaders).toHaveLength(marks.length);
+      for (const [i, mark] of marks.entries()) {
+        const cross = [...mark.getElementsByTagName('line')];
+        expect(leaders[i]!.getAttribute('x1')).toBe(cross[1]!.getAttribute('x1'));
+        expect(leaders[i]!.getAttribute('y1')).toBe(cross[0]!.getAttribute('y1'));
+        expect(leaders[i]!.getAttribute('x2')).toBe(captions[i]!.getAttribute('x'));
+        expect(Number(leaders[i]!.getAttribute('y2'))).toBeCloseTo(Number(captions[i]!.getAttribute('y')) - 1.2, 4);
+      }
+      total += captions.length;
+      // Include ascent and descenders; rotation(90) turns ascent toward positive x.
+      const boxes = captions.map(t => ({ x: Number(t.getAttribute('x')), y: Number(t.getAttribute('y')) - 2.4,
+        width: Number(t.getAttribute('textLength')), height: 3 }));
+      const lineLabels = texts.filter(t => t.hasAttribute('transform')).map(t => {
+        const [, x, y] = t.getAttribute('transform')!.match(/translate\(([-\d.]+) ([-\d.]+)\)/)!;
+        return { x: Number(x) - 0.75, y: Number(y), width: 3.75, height: Number(t.getAttribute('textLength')) };
+      });
+      const gridLabels = texts.filter(t => !t.hasAttribute('textLength') && !t.hasAttribute('transform')
+        && t.getAttribute('font-size') === '2.4').map(t => ({ x: Number(t.getAttribute('x')),
+        y: Number(t.getAttribute('y')) - 2.4, width: t.textContent!.length * 2.4, height: 3 }));
+      const intersects = (a: typeof boxes[number], b: typeof boxes[number]) =>
+        a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+      for (const [i, box] of boxes.entries()) {
+        expect(box.width).toBeGreaterThanOrEqual(31); // Full default caption stays readable on these tiles.
+        expect(Number(captions[i]!.getAttribute('font-size'))).toBe(2.4);
+        expect(box.x).toBeGreaterThanOrEqual(page.x * 1000);
+        expect(box.x + box.width).toBeLessThanOrEqual(Math.min(page.x * 1000 + 180, guide.circumference * 1000) + 0.0001);
+        expect(box.y).toBeGreaterThanOrEqual(page.y * 1000);
+        expect(box.y + box.height).toBeLessThanOrEqual(Math.min(page.y * 1000 + 190, 300) + 0.0001);
+        if (!withLines && captions.length) {
+          // This ordinary pattern has empty bands beside its 25 mm station.
+          expect(Math.abs(Number(captions[i]!.getAttribute('y')) - 25)).toBeLessThan(20);
+        }
+        for (const other of [...boxes.slice(i + 1), ...lineLabels, ...gridLabels]) expect(intersects(box, other)).toBe(false);
+      }
+    }
+    expect(total).toBe(copies);
+  });
+
   it.each([
     ['aft tube edge', 0.012, 0.3, 0.298, Math.PI, 1],
     ['right tube edge', 0.012, 0.1, 0.05, 2 * Math.PI - 0.002 / 0.012, 1],

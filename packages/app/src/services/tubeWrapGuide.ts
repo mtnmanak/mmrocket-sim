@@ -170,17 +170,20 @@ export function tubeWrapPages(
       if (endX === circumference) svg.push(segment(circumference, y, circumference, endY));
       if (row === 0) svg.push(segment(x, 0, endX, 0));
       if (endY === length) svg.push(segment(x, length, endX, length));
+      const occupiedText: { left: number; right: number; top: number; bottom: number }[] = [];
       // Grid coordinates repeat on overlapping sheets so they can be joined without rescaling.
       for (let gx = Math.ceil(x / 10) * 10; gx <= endX; gx += 10) {
         svg.push(`<line x1="${gx}" y1="${y}" x2="${gx}" y2="${endY}" stroke="#888" stroke-dasharray="0.5 2" stroke-width="0.1"/>`);
         if (gx % 20 === 0 && gx + 15 < endX && endY - y > 4) {
           svg.push(`<text x="${gx + 1}" y="${y + 4}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gx / 1000))}</text>`);
+          occupiedText.push({ left: gx + 1, right: gx + 1 + dim(gx / 1000).length * 2.4, top: y + 1.6, bottom: y + 4.6 });
         }
       }
       for (let gy = Math.ceil(y / 10) * 10; gy <= endY; gy += 10) {
         svg.push(`<line x1="${x}" y1="${gy}" x2="${endX}" y2="${gy}" stroke="#888" stroke-dasharray="0.5 2" stroke-width="0.1"/>`);
         if (gy % 20 === 0 && gy > y + 5 && gy + 3 < endY) {
           svg.push(`<text x="${x + 1}" y="${gy + 3}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gy / 1000))}</text>`);
+          occupiedText.push({ left: x + 1, right: x + 1 + dim(gy / 1000).length * 2.4, top: gy + 0.6, bottom: gy + 3.6 });
         }
       }
       const labelPlacements = new Map<string, { x: number; y: number; length: number; text: string }>();
@@ -205,6 +208,11 @@ export function tubeWrapPages(
         }
         i = next;
       }
+      if (endY - y > 6) {
+        for (const label of labelPlacements.values()) {
+          occupiedText.push({ left: label.x - 0.75, right: label.x + 3, top: label.y, bottom: label.y + label.length });
+        }
+      }
       const drawnMarks = new Set<string>();
       // N045: a cross locates the drill centre; the dashed circle states the diameter.
       // Repeat seam and overlap centres, without introducing cutting edges at page joins.
@@ -226,8 +234,30 @@ export function tubeWrapPages(
           // N045: edge and overlap centres still need a printed diameter, not just a title.
           const captionLength = Math.min(Math.max(1, endX - x - 2), caption.length * 1.3);
           const captionX = Math.max(x + 1, Math.min(hx + 3, endX - captionLength - 1));
-          const captionY = Math.max(y + 3, hy + 5 < endY ? hy + 4 : hy - 3);
-          svg.push(`<text x="${f(captionX)}" y="${f(captionY)}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif" textLength="${f(captionLength)}" lengthAdjust="spacingAndGlyphs">${escapeXml(caption)}</text>`);
+          const preferredY = Math.max(y + 3, hy + 5 < endY ? hy + 4 : hy - 3);
+          // N045: allocate whole caption rectangles, including repeated seam/overlap centres
+          // and rotated fin/guide text. Keep the font size; do not crush collisions to fit.
+          const baselines = [preferredY];
+          for (let offset = 4; offset <= endY - y; offset += 4) baselines.push(preferredY + offset, preferredY - offset);
+          baselines.push(y + 3, endY - 1);
+          const starts = [captionX, x + 1, endX - captionLength - 1];
+          for (let start = x + 1; start + captionLength < endX; start += 4) starts.push(start);
+          let placement: { x: number; y: number } | undefined;
+          for (const start of starts) {
+            for (const baseline of baselines) {
+              const box = { left: start, right: start + captionLength, top: baseline - 2.4, bottom: baseline + 0.6 };
+              if (box.left < x || box.right > endX || box.top < y || box.bottom > endY) continue;
+              if (occupiedText.some(other => box.left < other.right + 0.8 && other.left < box.right + 0.8
+                && box.top < other.bottom + 0.8 && other.top < box.bottom + 0.8)) continue;
+              occupiedText.push(box);
+              placement = { x: start, y: baseline };
+              break;
+            }
+            if (placement) break;
+          }
+          if (!placement) throw new Error('Hole captions do not fit on this wrap page. Reduce the number of marks or shorten their names before exporting.');
+          svg.push(`<line class="hole-caption-leader" x1="${f(hx)}" y1="${f(hy)}" x2="${f(placement.x)}" y2="${f(placement.y - 1.2)}" stroke-width="0.1" stroke-dasharray="0.5 1"/>`,
+            `<text x="${f(placement.x)}" y="${f(placement.y)}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif" textLength="${f(captionLength)}" lengthAdjust="spacingAndGlyphs">${escapeXml(caption)}</text>`);
         }
       }
       for (const line of guide.lines) {
