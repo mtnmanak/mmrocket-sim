@@ -1,5 +1,6 @@
 import { resolveTransitionRadii } from './transitionRadii.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { tubeHoleMarks } from './tubeHoles.js';
 import { axialLength, axialStart } from './position.js';
 import { finTabFront } from './finTab.js';
 import { finOnMount, flatMount, profileMount, type MountSurface } from './finRoot.js';
@@ -983,6 +984,28 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
             );
           }
         }
+      } else if ((t as string) === 'tubehole') {
+        // N045: surface annotations, not removed material or a vent-pressure model.
+        tubeHoleMarks(child).forEach((hole, i) => {
+          const angle = hole.angle + frameRoll;
+          const cx = ctx.x0 + (pStart + hole.station) * ctx.scale;
+          const cy = baseY - pRadius * Math.cos(angle) * ctx.scale;
+          const rx = Math.max(2, hole.diameter * ctx.scale / 2);
+          const ry = Math.max(1, rx * Math.abs(Math.sin(angle)));
+          noteHover(child, cx - rx, cy - ry, cx + rx, cy + ry);
+          overlay.push({ key: `${key}:hole${i}`, layer: 'overlay', tag: 'g', part: part && { ...part, grip: false }, sel: true,
+            title: `${child.name ?? 'Vent / marking hole'} — fabrication only`,
+            attrs: { 'data-part': 'tube-hole', cx, cy, fill: 'none', stroke: '#000', strokeWidth: 1,
+              ...(Math.sin(angle) < 0 ? { strokeDasharray: '2 2' } : {}) },
+            children: [{ key: `${key}:hole${i}:ring`, layer: 'overlay', tag: 'path', attrs: {
+              // Paper-like backing keeps the construction mark readable over a user-painted tube in either theme.
+              fill: '#fff',
+              d: `M ${cx - rx},${cy} a ${rx},${ry} 0 1 0 ${2 * rx},0 a ${rx},${ry} 0 1 0 ${-2 * rx},0`,
+            } }, { key: `${key}:hole${i}:cross`, layer: 'overlay', tag: 'path', attrs: {
+              d: `M ${cx - 3},${cy} h 6 M ${cx},${cy - 3} v 6`,
+            } }],
+          });
+        });
       } else if (t === 'fairing') {
         // External shroud: SOLID, at its own mounting angle (v0.087), turned
         // from there by the view roll. It stays solid EVEN WHILE ROLLED — see

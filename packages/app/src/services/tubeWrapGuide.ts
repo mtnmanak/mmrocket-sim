@@ -7,6 +7,7 @@ import { absoluteStations, axialLength, axialStart } from '../tree/position.js';
 import { fmtSi, type UnitSelection } from '../prefs/units.js';
 import type { FinTemplateBackground } from './finTemplate.js';
 import { escapeXml } from './xmlUtil.js';
+import { tubeHoleMarks, TUBE_HOLE_ADVICE, type TubeHoleMark } from '../tree/tubeHoles.js';
 
 export const WRAP_FINS: ReadonlySet<string> = new Set(['trapezoidfinset', 'ellipticalfinset', 'freeformfinset']);
 
@@ -25,6 +26,7 @@ export interface TubeWrapGeometry {
   circumference: number;
   length: number;
   lines: TubeWrapLine[];
+  holes: (TubeHoleMark & { x: number; label: string })[];
   notes: string[];
 }
 
@@ -42,7 +44,12 @@ export function tubeWrapGeometry(tree: RocketTree, tube: ComponentNode): TubeWra
   if (tubeStart === undefined) throw new Error('This tube is not in the design.');
   const lines: TubeWrapLine[] = [];
   const notes: string[] = [];
+  const holes: TubeWrapGeometry['holes'] = [];
   for (let child of tube.children ?? []) {
+    if ((child.type as string) === 'tubehole') {
+      for (const mark of tubeHoleMarks(child)) holes.push({ ...mark, x: radius * mark.angle, label: child.name ?? 'Vent / marking hole' });
+      continue;
+    }
     const isFin = WRAP_FINS.has(child.type);
     if (!isFin && child.type !== 'launchlug' && child.type !== 'railbutton') continue;
     if (child.type === 'freeformfinset' && child['points'] == null) {
@@ -77,7 +84,11 @@ export function tubeWrapGeometry(tree: RocketTree, tube: ComponentNode): TubeWra
   if (lines.some(l => l.root.start < -1e-9 || l.root.end > length + 1e-9)) {
     notes.push('Some parts extend past this tube. The wrap stops at the tube ends; check the fitted parts before cutting.');
   }
-  return { name: tube.name ?? 'Body tube', diameter: radius * 2, circumference, length, lines, notes: [...new Set(notes)] };
+  if (holes.length) notes.push(TUBE_HOLE_ADVICE);
+  if (holes.some(hole => hole.station - hole.diameter / 2 < 0 || hole.station + hole.diameter / 2 > length)) {
+    notes.push('Some hole marks extend past this tube. Check their position and diameter before drilling.');
+  }
+  return { name: tube.name ?? 'Body tube', diameter: radius * 2, circumference, length, lines, holes, notes: [...new Set(notes)] };
 }
 
 export interface TubeWrapPage {
@@ -96,7 +107,7 @@ export function tubeWrapPages(
 ): TubeWrapPage[] {
   const printedNotes = guide.notes.flatMap(note => {
     const result: string[] = [];
-    let line = 'Caution:';
+    let line = note === TUBE_HOLE_ADVICE ? '' : 'Caution:';
     for (const word of note.split(/\s+/)) {
       if (line.length + word.length > 95) { result.push(line); line = ''; }
       line += `${line ? ' ' : ''}${word}`;
@@ -159,17 +170,42 @@ export function tubeWrapPages(
       if (endX === circumference) svg.push(segment(circumference, y, circumference, endY));
       if (row === 0) svg.push(segment(x, 0, endX, 0));
       if (endY === length) svg.push(segment(x, length, endX, length));
+      const visibleHoles = guide.holes.flatMap(hole => {
+        const hy = hole.station * 1000, hr = hole.diameter * 500;
+        if (hy < y || hy > endY) return [];
+        return [hole.x * 1000 - circumference, hole.x * 1000, hole.x * 1000 + circumference]
+          .filter(hx => hx >= x && hx <= endX).map(hx => ({ hole, hx, hy, hr,
+            circleFits: hx - hr >= x && hx + hr <= endX && hy - hr >= y && hy + hr <= endY }));
+      });
+      // N045: drilling geometry takes priority over every text category, including grid and clock labels.
+      const drillingBoxes = visibleHoles.map(({ hx, hy, hr, circleFits }) => {
+        const radius = Math.max(2, circleFits ? hr : 0);
+        return { left: Math.max(x, hx - radius) - 0.1, right: Math.min(endX, hx + radius) + 0.1,
+          top: Math.max(y, hy - radius) - 0.1, bottom: Math.min(endY, hy + radius) + 0.1 };
+      });
+      const occupiedText = [...drillingBoxes];
+      const overlaps = (box: typeof occupiedText[number], other: typeof occupiedText[number]) =>
+        box.left < other.right + 0.8 && other.left < box.right + 0.8
+        && box.top < other.bottom + 0.8 && other.top < box.bottom + 0.8;
       // Grid coordinates repeat on overlapping sheets so they can be joined without rescaling.
       for (let gx = Math.ceil(x / 10) * 10; gx <= endX; gx += 10) {
         svg.push(`<line x1="${gx}" y1="${y}" x2="${gx}" y2="${endY}" stroke="#888" stroke-dasharray="0.5 2" stroke-width="0.1"/>`);
         if (gx % 20 === 0 && gx + 15 < endX && endY - y > 4) {
-          svg.push(`<text x="${gx + 1}" y="${y + 4}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gx / 1000))}</text>`);
+          const box = { left: gx + 1, right: gx + 1 + dim(gx / 1000).length * 2.4, top: y + 1.6, bottom: y + 4.6 };
+          if (!drillingBoxes.some(mark => overlaps(box, mark))) {
+            svg.push(`<text x="${gx + 1}" y="${y + 4}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gx / 1000))}</text>`);
+            occupiedText.push(box);
+          }
         }
       }
       for (let gy = Math.ceil(y / 10) * 10; gy <= endY; gy += 10) {
         svg.push(`<line x1="${x}" y1="${gy}" x2="${endX}" y2="${gy}" stroke="#888" stroke-dasharray="0.5 2" stroke-width="0.1"/>`);
-        if (gy % 20 === 0 && gy > y + 5 && gy + 3 < endY) {
-          svg.push(`<text x="${x + 1}" y="${gy + 3}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gy / 1000))}</text>`);
+        if (gy % 20 === 0 && gy > y + 5 && gy + 3 < endY && x + 1 + dim(gy / 1000).length * 2.4 <= endX) {
+          const box = { left: x + 1, right: x + 1 + dim(gy / 1000).length * 2.4, top: gy + 0.6, bottom: gy + 3.6 };
+          if (!drillingBoxes.some(mark => overlaps(box, mark))) {
+            svg.push(`<text x="${x + 1}" y="${gy + 3}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif">${escapeXml(dim(gy / 1000))}</text>`);
+            occupiedText.push(box);
+          }
         }
       }
       const labelPlacements = new Map<string, { x: number; y: number; length: number; text: string }>();
@@ -194,7 +230,58 @@ export function tubeWrapPages(
         }
         i = next;
       }
+      if (endY - y > 6) {
+        for (const [key, label] of labelPlacements) {
+          const box = { left: label.x - 0.75, right: label.x + 3, top: label.y, bottom: label.y + label.length };
+          if (drillingBoxes.some(mark => overlaps(box, mark))) labelPlacements.delete(key);
+          else occupiedText.push(box);
+        }
+      }
       const drawnMarks = new Set<string>();
+      // N045: a cross locates the drill centre; the dashed circle states the diameter.
+      // Repeat seam and overlap centres, without introducing cutting edges at page joins.
+      for (const { hole, hx, hy, hr, circleFits } of visibleHoles) {
+        const cross = 2;
+        // A diameter circle is drawn only when it fits the tile; the cross always marks its centre.
+        svg.push(`<g class="drilling-mark"><title>${escapeXml(`${hole.label}: diameter ${dim(hole.diameter)}; fabrication only`)}</title>`);
+        if (circleFits) {
+          svg.push(`<circle cx="${f(hx)}" cy="${f(hy)}" r="${f(hr)}" stroke-dasharray="1 1"/>`);
+        }
+        svg.push(segment(Math.max(x, hx - cross), hy, Math.min(endX, hx + cross), hy),
+          segment(hx, Math.max(y, hy - cross), hx, Math.min(endY, hy + cross)), '</g>');
+        const caption = `${hole.label.slice(0, 24)}: ${dim(hole.diameter)}`;
+        // N045: edge and overlap centres still need a printed diameter, not just a title.
+        // N045: narrow final columns turn the caption instead of squeezing its glyphs.
+        const captionLength = caption.length * 1.3;
+        const rotated = captionLength > endX - x - 2;
+        const minX = x + (rotated ? 1.6 : 1), maxX = endX - (rotated ? 3.4 : captionLength + 1);
+        const captionX = Math.max(minX, Math.min(hx + 3, maxX));
+        const preferredY = Math.max(y + 3, hy + 5 < endY ? hy + 4 : hy - 3);
+        // N045: allocate whole caption rectangles, including repeated seam/overlap centres
+        // and rotated fin/guide text. Keep the font size; do not crush collisions to fit.
+        const baselines = [preferredY];
+        for (let offset = 4; offset <= endY - y; offset += 4) baselines.push(preferredY + offset, preferredY - offset);
+        baselines.push(rotated ? y + 1 : y + 3, rotated ? endY - captionLength - 1 : endY - 1);
+        const starts = [captionX, minX, maxX];
+        for (let start = minX; start <= maxX; start += 4) starts.push(start);
+        let placement: { x: number; y: number } | undefined;
+        for (const start of starts) {
+          for (const baseline of baselines) {
+            const box = rotated
+              ? { left: start - 0.6, right: start + 2.4, top: baseline, bottom: baseline + captionLength }
+              : { left: start, right: start + captionLength, top: baseline - 2.4, bottom: baseline + 0.6 };
+            if (box.left < x || box.right > endX || box.top < y || box.bottom > endY) continue;
+            if (occupiedText.some(other => overlaps(box, other))) continue;
+            occupiedText.push(box);
+            placement = { x: start, y: baseline };
+            break;
+          }
+          if (placement) break;
+        }
+        if (!placement) throw new Error('Hole captions do not fit on this wrap page. Reduce the number of marks or shorten their names before exporting.');
+        svg.push(`<line class="hole-caption-leader" x1="${f(hx)}" y1="${f(hy)}" x2="${f(placement.x + (rotated ? 1.2 : 0))}" y2="${f(placement.y - (rotated ? 0 : 1.2))}" stroke-width="0.1" stroke-dasharray="0.5 1"/>`,
+          `<text x="${f(placement.x)}" y="${f(placement.y)}"${rotated ? ` transform="rotate(90 ${f(placement.x)} ${f(placement.y)})"` : ''} fill="#000" stroke="none" font-size="2.4" font-family="sans-serif" textLength="${f(captionLength)}" lengthAdjust="spacingAndGlyphs">${escapeXml(caption)}</text>`);
+      }
       for (const line of guide.lines) {
         const lx = line.x * 1000;
         // Repeat the zero-angle line at the seam's far edge, including half-slots.
@@ -206,8 +293,8 @@ export function tubeWrapPages(
               svg.push(`<line class="marking-line" x1="${f(cx)}" y1="${f(y)}" x2="${f(cx)}" y2="${f(endY)}"${!finClocks.has(clockKey(line)) ? ' stroke-dasharray="3 2"' : ''}/>`);
             }
             if (!drawnMarks.has(markKey) && cx < circumference - 1e-6 && endY - y > 6) {
-              const label = labelPlacements.get(clockKey(line))!;
-              svg.push(`<text transform="translate(${f(label.x)} ${f(label.y)}) rotate(90)" fill="#000" stroke="none" font-size="3" font-family="sans-serif" textLength="${f(label.length)}" lengthAdjust="spacingAndGlyphs">${escapeXml(label.text)}</text>`);
+              const label = labelPlacements.get(clockKey(line));
+              if (label) svg.push(`<text transform="translate(${f(label.x)} ${f(label.y)}) rotate(90)" fill="#000" stroke="none" font-size="3" font-family="sans-serif" textLength="${f(label.length)}" lengthAdjust="spacingAndGlyphs">${escapeXml(label.text)}</text>`);
             }
             drawnMarks.add(markKey);
             for (const station of [line.root.start, line.root.end]) {

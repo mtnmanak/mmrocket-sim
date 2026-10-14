@@ -1548,6 +1548,11 @@ export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): 
 export { KERNEL_DEFAULT_CD };
 
 export function engineTree(tree: RocketTree): RocketTree {
+  // N045: remove annotations before reference-area and body-CD probes as well as the kernel build.
+  // A malformed saved mark carrying children must not resize another part's drag reference.
+  const withoutMarks = (nodes: ComponentNode[]): ComponentNode[] => nodes.filter(n => (n.type as string) !== 'tubehole').map(n =>
+    n.children ? { ...n, children: withoutMarks(n.children) } : n);
+  tree = { ...tree, components: withoutMarks(tree.components) };
   // Rocket reference diameter = the airframe's max diameter (kernel rule).
   const aRef = referenceArea(tree);
 

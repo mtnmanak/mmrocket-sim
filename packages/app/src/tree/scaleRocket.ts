@@ -8,6 +8,7 @@ import { finOutlineProblem, kernelFinPoints, type FinOutlinePoint } from './finO
 import { findParent, motorMounts, mountName } from './treeModel.js';
 import { axialLength } from './position.js';
 import { lookupTable } from '../services/xmlUtil.js';
+import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
 // Under its old local name: this module's field walk carried a private copy
 // of numOrNull until 2026-09-22, and ten call sites read it as `num`.
 import { numOrNull as num } from './nodeNum.js';
@@ -99,6 +100,8 @@ const LENGTH_KEYS: Record<string, readonly string[]> = lookupTable<readonly stri
   // motorOverhang is how far the MOTOR protrudes past the tube — retention
   // practice (~6 mm), referenced to the motor, not the airframe. Not scaled.
   bodytube: ['length', 'outerRadius', 'thickness', 'maxMotorLength'],
+  // N045: fabrication dimensions follow the tube's geometric scale; clocks and count stay put.
+  tubehole: ['holeDiameter', 'holePosition'],
   trapezoidfinset: ['rootChord', 'tipChord', 'sweep', 'height', 'thickness',
     'airfoilLeDiamond', 'airfoilTeDiamond', 'finLeRadius',
     'tabHeight', 'tabLength', 'tabOffset', 'filletRadius'],
@@ -600,7 +603,8 @@ function scaleNode(n: ComponentNode, k: number): ComponentNode {
   // tube with no radius, a fin with no chord were the same case, missed until
   // the audit of 2026-09-30.
   for (const key of LENGTH_KEYS[type] ?? []) {
-    const v = num(n, key) ?? kernelDefault(type, key) ?? null;
+    const v = num(n, key) ?? kernelDefault(type, key)
+      ?? (type === 'tubehole' ? TUBE_HOLE_DEFAULTS[key as keyof typeof TUBE_HOLE_DEFAULTS] : null);
     if (v !== null) out[key] = round(v * k);
   }
 

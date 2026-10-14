@@ -1,6 +1,7 @@
 import { storedWarnings } from './storedWarnings.js';
 import { readDesignProvenance, writeDesignProvenance } from './designProvenance.js';
 import { extensionXmlBySimulation, hasSimulationExtensions, preserveSimulationExtensions, preservedSimulationExtensions } from './orkExtensions.js';
+import { tubeHoleMarks } from '../tree/tubeHoles.js';
 import { captureStageMass, completeStageMass, replaceStageMass } from './stageMassOverrides.js';
 import { configUuid as uuid, MAX_ORK_CONFIGURATIONS, snapshotLoadedConfig } from './configSnapshot.js';
 import { isLoneEmptyConfig } from './emptyConfig.js';
@@ -1353,6 +1354,20 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   let tooDeep = false;
   const convertChildren = (parentEl: XmlElement, depth = 1): ComponentNode[] => {
     const out: ComponentNode[] = [];
+    // N045: metadata lives on the tube, never in desktop's component list.
+    if (parentEl.tagName === 'bodytube') {
+      for (const el of Array.from(parentEl.querySelectorAll(':scope > mmrsim-tube-holes > hole'))) {
+        out.push({ type: 'tubehole' as ComponentType, id: freshId(),
+          name: text(el, ':scope > name') ?? 'Vent / marking hole',
+          holeDiameter: num(el, 'diameter', 0.003, notes),
+          holePosition: num(el, 'axialposition', 0.025, notes),
+          angleOffset: num(el, 'angle', 0, notes) * Math.PI / 180,
+          holeCount: num(el, 'count', 1, notes),
+          ...(text(el, ':scope > comment') ? { comment: text(el, ':scope > comment') } : {}),
+          ...(text(el, ':scope > color') ? { color: text(el, ':scope > color') } : {}),
+        } as ComponentNode);
+      }
+    }
     const wrap = parentEl.querySelector(':scope > subcomponents');
     if (!wrap) return out;
     if (depth > MAX_NESTING) {
@@ -2960,7 +2975,7 @@ export function exportOrk({
   };
 
   const emitChildren = (node: ComponentNode, depth: number) => {
-    const kids = node.children ?? [];
+    const kids = (node.children ?? []).filter(kid => (kid.type as string) !== 'tubehole');
     if (kids.length === 0) return;
     emit(depth, '<subcomponents>');
     for (const kid of kids) {
@@ -3049,6 +3064,25 @@ export function exportOrk({
       }
       case 'bodytube': {
         open('bodytube');
+        const holes = (node.children ?? []).filter(child => (child.type as string) === 'tubehole');
+        if (holes.length) {
+          emit(depth + 1, '<mmrsim-tube-holes>');
+          for (const hole of holes) {
+            const marks = tubeHoleMarks(hole);
+            const mark = marks[0]!;
+            emit(depth + 2, '<hole>');
+            emit(depth + 3, `<name>${escapeXml(hole.name ?? 'Vent / marking hole')}</name>`);
+            emit(depth + 3, `<diameter>${mark.diameter}</diameter>`);
+            emit(depth + 3, `<axialposition>${mark.station}</axialposition>`);
+            emit(depth + 3, `<angle>${n(hole, 'angleOffset', 0) * 180 / Math.PI}</angle>`);
+            emit(depth + 3, `<count>${marks.length}</count>`);
+            for (const key of ['comment', 'color']) {
+              if (typeof hole[key] === 'string') emit(depth + 3, `<${key}>${escapeXml(hole[key] as string)}</${key}>`);
+            }
+            emit(depth + 2, '</hole>');
+          }
+          emit(depth + 1, '</mmrsim-tube-holes>');
+        }
         header(depth + 1, node, 'Body Tube');
         finishXml(depth + 1, node);
         material(depth + 1, node);

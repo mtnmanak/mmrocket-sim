@@ -36,6 +36,7 @@ const kitchenSink = (): RocketTree => ({
         type: 'bodytube', id: 'bt', length: 0.9, outerRadius: 0.05, thickness: 0.0015,
         motorOverhang: 0.006, density: 1850, finish: 'normal',
         children: [
+          { type: 'tubehole', id: 'holes', holeDiameter: 0.003, holePosition: 0.1, holeCount: 4, angleOffset: 0.3 } as unknown as ComponentNode,
           {
             type: 'trapezoidfinset', id: 'tf', finCount: 4, rootChord: 0.2, tipChord: 0.08,
             sweep: 0.12, height: 0.11, thickness: 0.004, cant: 0.02, rotation: 0.5,
@@ -264,6 +265,7 @@ describe('scaleRocket — the completeness guard', () => {
    * configuration cannot catch a wrong entry in it.
    */
   const SCALED = new Set([
+    'holes.holeDiameter', 'holes.holePosition',
     'nc.length', 'nc.aftRadius', 'nc.thickness',
     'nc.shoulderRadius', 'nc.shoulderLength', 'nc.shoulderThickness',
     'nc.overrideCGX',
