@@ -358,6 +358,8 @@ export function App() {
   const [restored] = useState(() => designStateFromSession(session, { legacyMaxMotorLengthM: legacyMaxMotorLength() }));
   const { restoreNotes, restoreNoteTiers, preLengthRestore } = restored;
   const initialTree = restored.state.tree;
+  // C-A9: drafts belong to this design, independent of stage order and history.
+  const [designNotesEpoch, setDesignNotesEpoch] = useState(0);
   // Only crossing a Scale step restores configuration snapshots. An ordinary
   // tree undo (especially after Apply None) must not undo saved configuration edits.
   const scaleRevision = useRef<object>({});
@@ -1008,6 +1010,7 @@ export function App() {
     // confirmation the comment on the New button warns about. Handing it the
     // open sequence supersedes any Open still in flight (audit 2026-09-22).
     const { snapshot: fresh, mark } = planNewDesign({ launch, measured: { massKg: null, cgM: null } }, openSeq);
+    setDesignNotesEpoch(epoch => epoch + 1);
     setTree(fresh.tree);
     setMountMotors({});
     setUnmatchedRefs({});
@@ -2630,6 +2633,7 @@ export function App() {
       // eslint-disable-next-line no-restricted-syntax -- an import: the design on screen IS the file on disk
       markSaved,
     });
+    setDesignNotesEpoch(epoch => epoch + 1);
     const identities = collectOpenMotorIdentities(imported, resolved, plan.snapshot);
     setOpenMotorQuestion(identities.length ? {
       identities, openId, acceptedLines,
@@ -4031,7 +4035,7 @@ export function App() {
               <label htmlFor="rocket-name">Rocket name</label>
               <input id="rocket-name" value={tree.name ?? ''} onChange={(e) => setTree({ ...tree, name: e.target.value })} />
             </div>
-            <DesignNotesPanel key={tree.components[0]?.id} tree={tree} onChange={setTree} onAddRevision={commitTreeStep} />
+            <DesignNotesPanel key={designNotesEpoch} tree={tree} onChange={setTree} onAddRevision={commitTreeStep} />
             <ComponentTree
               treeElementRef={treeElementRef}
               tree={tree}

@@ -123,6 +123,69 @@ afterEach(async () => {
 });
 
 describe('App — accessibility, as rendered', () => {
+  it.each(['reorder', 'delete'] as const)('C-A9 keeps a revision draft through stage %s and undo, then resets it on design replacement', async edit => {
+    const tree = addStage(defaultTree()).tree;
+    const mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      tree, mountMotors: { [mount]: c6 }, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+    }));
+    const host = await mountApp();
+    const panel = () => host.querySelector<HTMLDetailsElement>('.design-notes')!;
+    const draft = () => panel().querySelector<HTMLTextAreaElement>('[aria-label="Revision note"]')!;
+    const date = () => panel().querySelector<HTMLInputElement>('input[type="date"]')!;
+    const initialDate = date().value;
+    const enter = async (el: HTMLInputElement | HTMLTextAreaElement, value: string) => {
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype, 'value')!.set!.call(el, value);
+        el.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+    };
+    const click = async (selector: string) => {
+      const button = host.querySelector<HTMLButtonElement>(selector)!;
+      expect(button).not.toBeNull();
+      await act(async () => { button.click(); });
+    };
+    const stageRows = () => [...host.querySelectorAll<HTMLElement>('.tree-row')]
+      .filter(row => row.querySelector('.tree-badge')?.textContent === 'stage');
+    const stageNames = () => stageRows().map(row => row.querySelector('.tree-label')!.textContent);
+    const originalNames = stageNames();
+    await act(async () => { panel().open = true; });
+    await enter(draft(), 'Measured fin alignment before editing stages');
+    await enter(date(), '2024-02-29');
+    await act(async () => { stageRows()[0]!.click(); });
+    await click(edit === 'reorder' ? '.tree-actions [title="Move down"]' : '.tree-actions [title="Delete"]');
+    expect(stageNames()).toEqual(edit === 'reorder' ? [...originalNames].reverse() : originalNames.slice(1));
+    const retained = () => {
+      expect(draft().value).toBe('Measured fin alignment before editing stages');
+      expect(date().value).toBe('2024-02-29');
+      expect(panel().open).toBe(true);
+    };
+    retained();
+    await click('button[title^="Undo the last design-tree change"]');
+    expect(stageNames()).toEqual(originalNames);
+    retained();
+    if (edit === 'reorder') {
+      const input = host.querySelector<HTMLInputElement>('input[type="file"][accept*=".ork"]')!;
+      const desktop = '<openrocket version="1.10"><rocket><name>Replacement</name><subcomponents>'
+        + '<stage><name>Replacement stage</name><subcomponents><bodytube><name>Body</name>'
+        + '<length>0.3</length><radius>0.02</radius></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>';
+      Object.defineProperty(input, 'files', { configurable: true, value: [new File([desktop], 'Replacement.ork')] });
+      await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+      const discard = host.querySelector<HTMLButtonElement>('.modal-danger');
+      if (discard) await act(async () => { discard.click(); });
+      await waitFor(() => host.querySelector<HTMLInputElement>('#rocket-name')?.value === 'Replacement', 'the replacement design to open');
+    } else {
+      await click('button[title="Clear all components and start from scratch"]');
+      const discard = host.querySelector<HTMLButtonElement>('.modal-danger');
+      if (discard) await act(async () => { discard.click(); });
+      expect(stageNames()).toHaveLength(1);
+    }
+    expect(draft().value).toBe('');
+    expect(date().value).toBe(initialDate);
+    expect(panel().open).toBe(false);
+  }, 30000);
+
   it('C-H3 keeps diagnostic privacy copy beside Feedback and captures a refused design import', async () => {
     const host = await mountApp();
     const feedback = [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Feedback')!;

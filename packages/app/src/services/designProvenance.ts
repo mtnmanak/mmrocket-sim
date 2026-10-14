@@ -8,7 +8,7 @@ export const PROVENANCE_FIELDS = {
   comment: 'Design comments', revision: 'Revision',
 } as const;
 const NATIVE_FIELDS = { designer: 'designer', kitName: 'kitname', comment: 'comment', revision: 'revision', designType: 'designtype' } as const;
-const DESIGN_TYPES = ['original', 'commercialkit', 'clonekit', 'upscalekit', 'downscalekit', 'modifiedkit', 'kitbashkit'];
+const DESIGN_TYPES = ['original', 'commercialkit', 'clonekit', 'upscalekit', 'downscalekit', 'modifiedkit', 'kitbash'];
 
 /** Stored JSON key order is not evidence that a note was repaired. */
 function sameData(a: unknown, b: unknown): boolean {

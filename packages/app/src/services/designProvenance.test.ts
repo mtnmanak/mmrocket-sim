@@ -51,15 +51,34 @@ it.each(['rounded', 'airfoil'])('design metadata preserves the real C6 flight re
 
 it('reads desktop root fields without confusing them with part comments', () => {
   const desktop = '<openrocket version="1.10"><rocket><name>Desktop</name><designer>Zoë &amp; Eric</designer>'
-    + '<kitname>Kit &lt;A&gt;</kitname><designtype>kitbashkit</designtype><revision>R1\nR2  </revision>'
+    + '<kitname>Kit &lt;A&gt;</kitname><designtype>kitbash</designtype><revision>R1\nR2  </revision>'
     + '<comment>Design\ncomment  </comment><subcomponents><stage><name>S</name><comment>Stage</comment>'
     + '<subcomponents><bodytube><name>Body</name><comment>Part</comment></bodytube></subcomponents></stage></subcomponents>'
     + '</rocket></openrocket>';
   const opened = importOrk(bytes(desktop));
-  expect(opened.tree.provenance).toEqual({ designer: 'Zoë & Eric', kitName: 'Kit <A>', designType: 'kitbashkit',
+  expect(opened.tree.provenance).toEqual({ designer: 'Zoë & Eric', kitName: 'Kit <A>', designType: 'kitbash',
     revision: 'R1\nR2  ', comment: 'Design\ncomment  ' });
   expect(opened.tree.components[0]!.comment).toBe('Stage');
   expect(opened.tree.components[0]!.children![0]!.comment).toBe('Part');
+});
+
+it.each(['original', 'commercialkit', 'clonekit', 'upscalekit', 'downscalekit', 'modifiedkit', 'kitbash'])(
+  'preserves desktop 24.12 design type %s on import and repeated save', designType => {
+    const desktop = xml().replace('<designtype>commercialkit</designtype>', `<designtype>${designType}</designtype>`);
+    const opened = importOrk(bytes(desktop));
+    expect(opened.tree.provenance?.designType ?? 'original').toBe(designType);
+    expect(opened.notes).toEqual([]);
+    const saved = xml(opened.tree);
+    expect(saved).toContain(`<designtype>${designType}</designtype>`);
+    expect(xml(importOrk(bytes(saved)).tree)).toContain(`<designtype>${designType}</designtype>`);
+  },
+);
+
+it('does not emit the unrecognized kitbashkit design type', () => {
+  const damaged = { ...tree(), provenance: { ...provenance, designType: 'kitbashkit' } };
+  const saved = xml(damaged);
+  expect(saved).toContain('<designtype>original</designtype>');
+  expect(saved).not.toContain('<designtype>kitbashkit</designtype>');
 });
 
 it('writes native desktop fields, escapes metadata, and round-trips every note unchanged', () => {
