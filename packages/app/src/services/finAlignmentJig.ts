@@ -36,9 +36,8 @@ export function finAlignmentJigGeometry(tube: ComponentNode, fin: ComponentNode,
     ? Array.isArray(points) ? points.reduce((max: number, p: unknown) => Math.max(max, Array.isArray(p) && Number.isFinite(p[1]) ? Number(p[1]) : 0), 0) : 0.05
     : kernelNum(fin, 'height');
   if (!(span > 0)) throw new Error('The fins need a positive span to fit a jig.');
-  // Short engagement leaves room for taper. The builder checks the actual axial station before cutting.
-  const depth = Math.min(0.02, span / 2);
-  const end = radius + depth;
+  // N049: a closed slot must clear the full span, including rectangular freeform fins.
+  const end = radius + span;
   const start = Math.sqrt(radius ** 2 - half ** 2);
   const slots = Array.from({ length: count }, (_, i) => {
     const raw = num(fin, 'rotation', 0) + i * 2 * Math.PI / count;
@@ -50,7 +49,7 @@ export function finAlignmentJigGeometry(tube: ComponentNode, fin: ComponentNode,
     return { angle, inner: [point(start, -half), point(start, half)] as [Point, Point],
       outer: [point(end, -half), point(end, half)] as [Point, Point] };
   });
-  return { tubeRadius: radius, outerRadius: end + 0.01, slotWidth, clearance, slots };
+  return { tubeRadius: radius, outerRadius: Math.hypot(end, half) + 0.01, slotWidth, clearance, slots };
 }
 
 export function finAlignmentJigSvg(
@@ -66,7 +65,7 @@ export function finAlignmentJigSvg(
     `Viewed from aft · zero angle at top · first fin ${fmtSi('angle', units.angle, g.slots[0]!.angle, 2)} ${units.angle}`,
     'Scale 1:1 — print at 100%, no fit to page. Measure the calibration ruler.',
     'Caution: measure the actual tube and fin stock; check the fit before cutting.',
-    'Place the jig where every fin fills the slot depth. It does not set fin cant.',
+    'Place the jig where every fin engages its slot. It does not set fin cant.',
   ];
   const width = Math.max(g.outerRadius * 2000 + 20, ...labels.map(l => l.length * 1.65 + 20));
   const height = g.outerRadius * 2000 + 75;

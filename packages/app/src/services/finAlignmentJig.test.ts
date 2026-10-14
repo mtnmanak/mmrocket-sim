@@ -11,6 +11,67 @@ const fins = (finCount = 3, type = 'freeformfinset') => ({
 }) as ComponentNode;
 
 describe('N049 fin alignment jig', () => {
+  it.each([3, 4])('contains the full rectangular freeform fin section in all %i closed slots', count => {
+    for (const crossSection of ['rounded', 'airfoil']) {
+      const fin = { ...fins(count), crossSection,
+        points: [[0, 0], [0, 0.04], [0.08, 0.04], [0.08, 0]] };
+      const g = finAlignmentJigGeometry(tube, fin, 0.0002);
+      for (const slot of g.slots) {
+        const radial = ([x, y]: [number, number]) => x * Math.sin(slot.angle) - y * Math.cos(slot.angle);
+        const lateral = ([x, y]: [number, number]) => x * Math.cos(slot.angle) + y * Math.sin(slot.angle);
+        // This rectangular outline has a 40 mm section at every station of its 80 mm chord.
+        // Sample both stock faces from the tube surface through the tip: none may meet jig material.
+        for (const span of [0, 0.01, 0.02, 0.03, 0.04]) {
+          for (const face of [-0.0015, 0.0015]) {
+            expect(0.025 + span).toBeGreaterThanOrEqual(radial(slot.inner[0]) - 1e-12);
+            expect(0.025 + span).toBeLessThanOrEqual(radial(slot.outer[0]) + 1e-12);
+            expect(face).toBeGreaterThanOrEqual(lateral(slot.outer[0]) - 1e-12);
+            expect(face).toBeLessThanOrEqual(lateral(slot.outer[1]) + 1e-12);
+          }
+        }
+      }
+      const doc = new DOMParser().parseFromString(
+        finAlignmentJigSvg(tube, fin, 0.0002, 'Rocket', { length: 'mm', angle: '°' }), 'image/svg+xml');
+      const edge = doc.querySelector('#jig-outer-edge')!;
+      const cx = Number(edge.getAttribute('cx')), cy = Number(edge.getAttribute('cy'));
+      const path = doc.querySelector('#tube-and-slots')!.getAttribute('d')!;
+      const ends = [...path.matchAll(/L ([-\d.]+) ([-\d.]+) L ([-\d.]+) ([-\d.]+) L /g)];
+      expect(ends).toHaveLength(count);
+      ends.forEach((end, i) => {
+        const angle = g.slots[i]!.angle;
+        const depth = (Number(end[1]) - cx) * Math.sin(angle) - (Number(end[2]) - cy) * Math.cos(angle);
+        // Two serialized coordinates round to 0.0001 mm, allowing 0.00015 mm projection error.
+        expect(depth).toBeGreaterThanOrEqual(65 - 0.00015);
+      });
+    }
+  });
+
+  it.each([0.003, 0.15])('leaves at least 10 mm of material beyond every corner with %s m fin stock', thickness => {
+    const wideTube = { ...tube, outerRadius: 0.1 };
+    const wideFin = { ...fins(3, 'trapezoidfinset'), height: 0.2, thickness };
+    const g = finAlignmentJigGeometry(wideTube, wideFin, 0);
+    for (const slot of g.slots) {
+      for (const corner of slot.outer) {
+        // Pure SI geometry; 1e-12 m allows rotation arithmetic roundoff, not a fit allowance.
+        expect(g.outerRadius - Math.hypot(...corner)).toBeGreaterThanOrEqual(0.01 - 1e-12);
+      }
+    }
+    const doc = new DOMParser().parseFromString(
+      finAlignmentJigSvg(wideTube, wideFin, 0, 'Rocket', { length: 'mm', angle: '°' }), 'image/svg+xml');
+    const edge = doc.querySelector('#jig-outer-edge')!;
+    const cx = Number(edge.getAttribute('cx')), cy = Number(edge.getAttribute('cy'));
+    const radius = Number(edge.getAttribute('r'));
+    const path = doc.querySelector('#tube-and-slots')!.getAttribute('d')!;
+    const ends = [...path.matchAll(/L ([-\d.]+) ([-\d.]+) L ([-\d.]+) ([-\d.]+) L /g)];
+    expect(ends).toHaveLength(3);
+    for (const end of ends) {
+      for (const index of [1, 3]) {
+        // Radius, centre and corner each round to 0.0001 mm: allow 0.0002 mm total error.
+        expect(radius - Math.hypot(Number(end[index]) - cx, Number(end[index + 1]) - cy)).toBeGreaterThanOrEqual(10 - 0.0002);
+      }
+    }
+  });
+
   it.each([3, 4])('places %i slots at the fin clocks, with thickness plus total clearance', count => {
     const g = finAlignmentJigGeometry(tube, fins(count), 0.0002);
     expect(g.tubeRadius).toBe(0.025);

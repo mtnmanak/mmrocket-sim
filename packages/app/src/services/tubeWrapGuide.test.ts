@@ -147,6 +147,42 @@ describe('tube wrap geometry (SI, hand-computed)', () => {
 });
 
 describe('print pages', () => {
+  it.each([
+    ['aft tube edge', 0.012, 0.3, 0.298, Math.PI, 1],
+    ['right tube edge', 0.012, 0.1, 0.05, 2 * Math.PI - 0.002 / 0.012, 1],
+    ['axial tile overlap', 0.012, 0.3, 0.188, Math.PI, 2],
+    ['circumference tile overlap', 0.05, 0.1, 0.05, 3.56, 2],
+    ['tile corner overlap', 0.05, 0.3, 0.188, 3.56, 4],
+    ['front seam', 0.012, 0.1, 0.002, 0, 2],
+  ] as const)('prints a diameter caption beside every hole centre at the %s', (_edge, outerRadius, length, holePosition, angleOffset, copies) => {
+    const { tree, tube } = fixture([node('tubehole', {
+      name: 'Vent', holeDiameter: 0.003, holeCount: 1, holePosition, angleOffset,
+    })], { outerRadius, length });
+    const guide = tubeWrapGeometry(tree, tube);
+    const pages = tubeWrapPages(guide, 'Rocket', { length: 'mm', angle: '°' });
+    let total = 0;
+    for (const page of pages) {
+      const doc = new DOMParser().parseFromString(page.svg, 'image/svg+xml');
+      const marks = [...doc.getElementsByTagName('g')].filter(g => g.getAttribute('class') === 'drilling-mark');
+      // Inspect printable text nodes, never the nonprinting title or the complete SVG string.
+      const captions = [...doc.getElementsByTagName('text')].filter(t => t.textContent === 'Vent: 3 mm');
+      expect(captions).toHaveLength(marks.length);
+      total += marks.length;
+      for (const caption of captions) {
+        const tx = Number(caption.getAttribute('x')), ty = Number(caption.getAttribute('y'));
+        const textLength = Number(caption.getAttribute('textLength'));
+        expect(textLength).toBeGreaterThanOrEqual(9); // Do not satisfy presence by crushing the dimension.
+        // The fixture's fabrication advice uses two 5 mm note lines: a 190 mm tile height.
+        // Serialized coordinates round to 0.0001 mm.
+        expect(tx).toBeGreaterThanOrEqual(page.x * 1000);
+        expect(tx + textLength).toBeLessThanOrEqual(Math.min(page.x * 1000 + 180, guide.circumference * 1000) + 0.0001);
+        expect(ty - 2.4).toBeGreaterThanOrEqual(page.y * 1000);
+        expect(ty).toBeLessThanOrEqual(Math.min(page.y * 1000 + 190, length * 1000));
+      }
+    }
+    expect(total).toBe(copies);
+  });
+
   it('labels rotated fins, lugs and buttons within 5 mm of the right seam', () => {
     const { tree, tube } = fixture([
       fin({ rotation: -15 * Math.PI / 180 }),

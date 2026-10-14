@@ -223,7 +223,11 @@ export function tubeWrapPages(
           svg.push(segment(Math.max(x, hx - cross), hy, Math.min(endX, hx + cross), hy),
             segment(hx, Math.max(y, hy - cross), hx, Math.min(endY, hy + cross)), '</g>');
           const caption = `${hole.label.slice(0, 24)}: ${dim(hole.diameter)}`;
-          if (hx + 5 < endX && hy + 5 < endY) svg.push(`<text x="${f(hx + 3)}" y="${f(hy + 4)}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif" textLength="${f(Math.min(endX - hx - 4, caption.length * 1.3))}" lengthAdjust="spacingAndGlyphs">${escapeXml(caption)}</text>`);
+          // N045: edge and overlap centres still need a printed diameter, not just a title.
+          const captionLength = Math.min(Math.max(1, endX - x - 2), caption.length * 1.3);
+          const captionX = Math.max(x + 1, Math.min(hx + 3, endX - captionLength - 1));
+          const captionY = Math.max(y + 3, hy + 5 < endY ? hy + 4 : hy - 3);
+          svg.push(`<text x="${f(captionX)}" y="${f(captionY)}" fill="#000" stroke="none" font-size="2.4" font-family="sans-serif" textLength="${f(captionLength)}" lengthAdjust="spacingAndGlyphs">${escapeXml(caption)}</text>`);
         }
       }
       for (const line of guide.lines) {
