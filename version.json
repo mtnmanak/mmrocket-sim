@@ -1,5 +1,5 @@
 {
-  "version": "0.189",
+  "version": "0.190",
   "released": "2026-10-13",
-  "note": "Preflight design check; saved table, export and plot choices; recent designs and part comments; desktop prediction comparison."
+  "note": "Separate altitude units; printable report, templates and fin jig; example designs, design notes, hide parts, custom plots, flight-data bundle."
 }
