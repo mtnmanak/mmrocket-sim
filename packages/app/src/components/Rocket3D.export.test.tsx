@@ -31,6 +31,7 @@ import { Rocket3D } from './Rocket3D.js';
 let log: string[] = [];
 /** The recording renderer `onCreated` receives — one per test. */
 let r3fState: unknown = null;
+let canvasChildren: ReactNode;
 const fakeRenderer = () => {
   const canvas = { clientWidth: 800, clientHeight: 400, width: 1600, height: 800 };
   let ratio = 2;
@@ -58,6 +59,7 @@ vi.mock('@react-three/fiber', async (importOriginal) => {
   const Canvas = ({ onCreated, children, camera: _cam, gl: _gl, ...html }: {
     onCreated?: (s: unknown) => void; children?: ReactNode; camera?: unknown; gl?: unknown;
   } & Record<string, unknown>) => {
+    canvasChildren = children;
     useEffect(() => { onCreated?.(r3fState); }, [onCreated]);
     return <div data-r3f="" {...html}>{Children.toArray(children).filter((child) => isValidElement(child) && child.type === OrbitControls)}</div>;
   };
@@ -137,6 +139,21 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+});
+
+it('C-B20 removes hidden parts from the actual mesh list passed to the 3D canvas', () => {
+  const meshCount = (children: ReactNode): number => Children.toArray(children).reduce<number>((sum, child) => {
+    if (!isValidElement<{ geometry?: unknown; children?: ReactNode }>(child)) return sum;
+    return sum + (child.type === 'mesh' && child.props.geometry ? 1 : 0) + meshCount(child.props.children);
+  }, 0);
+  mount(false);
+  expect(meshCount(canvasChildren)).toBe(2);
+  act(() => root.render(<PrefsProvider><Rocket3D tree={TREE} info={null} hiddenIds={new Set(['n1'])} /></PrefsProvider>));
+  expect(meshCount(canvasChildren)).toBe(1);
+  act(() => root.render(<PrefsProvider><Rocket3D tree={TREE} info={null} hiddenIds={new Set(['s1'])} /></PrefsProvider>));
+  expect(meshCount(canvasChildren)).toBe(0);
+  act(() => root.render(<PrefsProvider><Rocket3D tree={TREE} info={null} /></PrefsProvider>));
+  expect(meshCount(canvasChildren)).toBe(2);
 });
 
 /** Starts an 8K export and returns it, the encode still running. */

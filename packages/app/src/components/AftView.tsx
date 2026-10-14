@@ -35,7 +35,8 @@ function clientToView(svg: SVGSVGElement, clientX: number, clientY: number, exte
   };
 }
 
-export function AftView({ tree, motors, roll: rollProp, onRoll }: {
+export function AftView({ tree, motors, hiddenIds, roll: rollProp, onRoll }: {
+  hiddenIds?: ReadonlySet<string>;
   tree: RocketTree;
   /** Loaded motor dimensions per mount node id (real case sizes). */
   motors?: Record<string, MotorDims>;
@@ -91,7 +92,7 @@ export function AftView({ tree, motors, roll: rollProp, onRoll }: {
   // Memoised on exactly what the walk reads (audit 2026-09-22): a pan move or a
   // wheel notch changes only `zoom`, and must not re-walk the tree.
   const { hulls, inner, outer, extent } = useMemo(
-    () => aftLayout(tree, roll, motors), [tree, roll, motors]);
+    () => aftLayout(tree, roll, motors, hiddenIds), [tree, roll, motors, hiddenIds]);
 
   const E = extent * 1.12;
   // Written in an EFFECT, not in the render body (2026-09-08 audit). A ref

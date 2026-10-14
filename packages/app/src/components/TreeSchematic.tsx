@@ -110,7 +110,8 @@ export function calloutLayout(
   return { cg, cp, margin };
 }
 
-export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, onError, vertical, fillHeight, onNaturalHeight, topReserve = 0, roll: rollProp, onRoll }: {
+export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxHeight = 480, selectedId, onSelect, exportData, onError, vertical, fillHeight, onNaturalHeight, topReserve = 0, roll: rollProp, onRoll }: {
+  hiddenIds?: ReadonlySet<string>;
   tree: RocketTree;
   info: StaticInfo | null;
   /** Loaded motor case dimensions (m) keyed by mount node id — drawn to
@@ -497,8 +498,8 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
   // offset — a walk of the design, never a kernel rebuild.
   const shown = axial.shown;
   const layout = useMemo(() => layoutSchematic(shown, {
-    scale, cy: frame.cy, x0: frame.x0, roll, motors, vertical, idPrefix: uid, walls, measuring,
-  }), [shown, scale, frame.cy, frame.x0, roll, motors, vertical, uid, walls, measuring]);
+    scale, cy: frame.cy, x0: frame.x0, roll, motors, hiddenIds, vertical, idPrefix: uid, walls, measuring,
+  }), [shown, scale, frame.cy, frame.x0, roll, motors, hiddenIds, vertical, uid, walls, measuring]);
   const snapTargets = useMemo(() => schematicSnapTargets(layout), [layout]);
   const caliperAt = (e: { clientX: number; clientY: number }): CaliperPoint | null => {
     const rect = svgRef.current?.getBoundingClientRect();

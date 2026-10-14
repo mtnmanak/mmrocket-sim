@@ -717,13 +717,19 @@ shown. (To be offered there at all, a canopy needs a diameter and a drag coeffic
 
 ## Visualizing the Design
 
+As you build, five views show you the design — a scale side view, an end-on aft view, a rotatable 3D shell, printable 1:1 fin templates, and a drag-analysis chart.
+
+### Hide and show parts
+
+Use the eye button beside a part in the component tree to hide it and its children from the **2D**, **3D** and **Aft** views. A crossed-out eye and **hidden** label mark parts hidden from the views. You can still select and edit a hidden part from the tree. Showing a child also shows its hidden parents; separately hidden siblings stay hidden. **Show all** restores every part.
+
+Hiding changes the views only. Hidden parts still count in mass, CG, aerodynamics and every flight number, and the CG and CP markers describe the complete rocket. The choice lasts until you reload or open a design, is shared across the app's views, and is not saved in a design file. Drawing and image exports follow the visible parts; 3D model and printing exports keep their usual parts.
+
+## The 2D schematic
+
 In the **2D schematic**, **Walls** shows tube walls as bands at their thickness, including inner tubes, couplers, transitions and shoulders. This is a schematic cutaway, rather than a physical section of the rocket. It starts off to keep nested parts readable at fit scale; the app remembers the setting for the 2D viewer. SVG and image exports include the bands only while **Walls** is on. Very thin walls may need zooming to see.
 
 **Caliper** measures between two points in the standard side view. Tap or click twice to place the points. **Snap to edges** is on by default. Caliper snaps to the outside of the airframe and to fin outlines; elsewhere it measures the points you pick. Airframe targets follow the outer nose-cone, body-tube, transition and tail-cone profiles. Fin targets follow the drawn root, tip and outline of each fin instance. Internal parts, bore edges, shoulders, launch lugs, rail buttons, camera shrouds, bumps, pod sets, mass objects and recovery parts do not supply snap targets. While measuring, inner tubes and couplers use their effective outer dimensions even with **Walls** off; other symbols may be widened for visibility. Turn snapping off to pick anywhere, including close to an airframe or fin target. The readout shows **Horizontal**, **Vertical** and **Straight** distances in Preferences → Units of measure → **Rocket dimensions**. These are distances projected in the current view plane; they do not measure depth around the rocket. From the keyboard, **Caliper** focuses the drawing: use arrow keys to move the cursor, **Enter** to place each point, and **Move point 1** or **Move point 2** to adjust an endpoint. Arrows move by one selected length unit; Shift moves by ten. **Alt + arrow keys** pan while measuring. A third pick starts a new measurement. **Escape** or **Clear caliper** clears it. Zoom and pan preserve its model-space distances; changing the design or rolling to another view plane clears it. The caliper stays out of the design file and image exports.
-
-As you build, five views show you the design — a scale side view, an end-on aft view, a rotatable 3D shell, printable 1:1 fin templates, and a drag-analysis chart.
-
-## The 2D schematic
 
 **Ruler: Nose**, on the canvas, opens the **Ruler reference** controls. **Nose tip** reads zero at the nose and increases aft; **Aft end** reads zero at the aft end of the body and increases toward the nose. **User offset** places zero at **Ruler zero from nose**, in your **Rocket dimensions** unit, with positive offsets aft of the nose and negative offsets ahead of it. **Reverse ruler direction** reverses the values on that scale. The button shows the chosen reference and whether it is reversed. These settings change the top ruler's labels and the grid; the rocket and measuring guides keep their positions. Guides still read station from the nose tip and distance from the centreline, even with another ruler reference selected. The reference is remembered and travels into the drawing exports.
 

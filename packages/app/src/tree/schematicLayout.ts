@@ -18,6 +18,7 @@ import { isTailCone, noseEnds } from './tailCone.js';
 import { num, numOpt } from './nodeNum.js';
 import { lookupTable } from '../services/xmlUtil.js';
 import { projectSchematicGeometry } from './schematicGeometry.js';
+import { hiddenPartIds } from './partVisibility.js';
 
 /**
  * THE 2D SIDE VIEW'S LAYOUT — pure, and apart from the component that draws it
@@ -392,6 +393,7 @@ export interface SchematicLayout {
 }
 
 export interface SchematicLayoutOptions {
+  hiddenIds?: ReadonlySet<string>;
   /** From schematicFrame. */
   scale: number;
   cy: number;
@@ -454,6 +456,7 @@ const TYPE_STYLE: Partial<Record<string, { stroke: string; tag: string }>> = loo
 export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): SchematicLayout {
   tree = resolveTransitionRadii(tree);
   const { scale, roll, motors, vertical } = o;
+  const hidden = hiddenPartIds(tree, o.hiddenIds);
   const ctx = { scale, cy: o.cy, x0: o.x0 };
   // Three paint layers, concatenated at the end.
   const shapes: SchematicShape[] = [];
@@ -741,6 +744,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
     mount: MountSurface = flatMount(pRadius, pLen), frameRoll = roll, physicalMount: MountSurface = mount, centre = 0,
   ) => {
     for (const child of parent.children ?? []) {
+      if (child.id && hidden.has(child.id)) continue;
       const t = child.type;
       // Off-axis assembly: draw its whole chain once per ring instance at the
       // instance's projected baseline (side view projects y, ignores depth z).
@@ -1312,6 +1316,10 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
       // The kernel's length, as the frame above reads it and every child's
       // drag resolves against (Grip.pLen) — never 0 for a cleared one.
       const len = axialLength(n);
+      if (n.id && hidden.has(n.id)) {
+        if (n.type === 'nosecone' || n.type === 'bodytube' || n.type === 'transition') cx += len;
+        continue;
+      }
       const key = n.type === 'nosecone' || n.type === 'bodytube' || n.type === 'transition'
         ? partKey(n, scope) : '';
       const part = partOf(n, false);
