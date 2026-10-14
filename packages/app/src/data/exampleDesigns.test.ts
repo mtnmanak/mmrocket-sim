@@ -9,6 +9,7 @@ import { openDesignFile } from '../services/designFile.js';
 import { loadBundledPresets, linkedPreset } from '../services/presets.js';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { findParent, motorMounts, mountMotorCount } from '../tree/treeModel.js';
+import { absoluteStations } from '../tree/position.js';
 import { simulateFile } from '../services/simulateFile.js';
 import { planImport, resolveImportMotors } from '../services/importApply.js';
 import { DEFAULT_CONDITIONS } from '../services/launchConditions.js';
@@ -63,6 +64,51 @@ it('ships six small archives and imports their explanations and catalogue parts'
     }
   }
   expect(total).toBeLessThan(24000);
+});
+
+it.each([
+  ['minimum-diameter.ork', 1], ['freeform.ork', 1], ['two-stage.ork', 2],
+] as const)('fits the packed recovery in %s ahead of its motors', async (fileName, count) => {
+  const data = bytes(fileName);
+  const imported = await openDesignFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), fileName, { presets: await loadBundledPresets() });
+  const stations = [...absoluteStations(imported.tree).values()];
+  const recovery = stations.filter(s => s.node.type === 'parachute');
+  expect(recovery).toHaveLength(count);
+  for (const packed of recovery) {
+    const parent = packed.parent!;
+    expect(parent.type).toBe('bodytube');
+    const body = stations.find(s => s.node === parent)!;
+    const radius = Number(packed.node['packedRadius']);
+    const length = Number(packed.node['packedLength']);
+    expect(radius).toBeGreaterThan(0);
+    expect(length).toBeGreaterThan(0);
+    expect(radius + Math.abs(Number(packed.node['radialPosition'] ?? 0)), 'packed radius clears the bore').toBeLessThanOrEqual(Number(parent['outerRadius']) - Number(parent['thickness']));
+    // C-A3: reshape the original 12.5 mm radius x 25 mm bundle, not its volume.
+    // Absolute tolerance 5e-13 m³ allows decimal serialization of the cylinder.
+    expect(Math.PI * radius ** 2 * length).toBeCloseTo(Math.PI * 0.0125 ** 2 * 0.025, 12);
+    expect(packed.start, 'packed front stays in the tube').toBeGreaterThanOrEqual(body.start);
+    expect(packed.end, 'packed rear stays in the tube').toBeLessThanOrEqual(body.end);
+    for (const obstacle of stations.filter(s => s.parent === parent && ['masscomponent', 'innertube'].includes(s.node.type))) {
+      expect(packed.end <= obstacle.start || packed.start >= obstacle.end, `packed recovery clears ${obstacle.node.name}`).toBe(true);
+    }
+    const nose = stations.find(s => s.node.type === 'nosecone' && Math.abs(s.end - body.start) < 1e-9);
+    if (nose) expect(packed.start, 'packed front clears the nose shoulder').toBeGreaterThanOrEqual(nose.end + Number(nose.node['shoulderLength']));
+    for (const mount of motorMounts(imported.tree).filter(n => n === parent || parent.children?.includes(n))) {
+      const motor = imported.motors[mount.id!]!;
+      const station = stations.find(s => s.node === mount)!;
+      expect(motor.length).toBeGreaterThan(0);
+      expect(packed.end, 'packed rear clears the loaded motor').toBeLessThanOrEqual(station.end + Number(mount['motorOverhang'] ?? 0) - motor.length);
+    }
+  }
+});
+
+it('imports the dual-deploy fins as custom plywood at their assumed density', async () => {
+  const data = bytes('dual-deploy.ork');
+  const imported = await openDesignFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), 'dual-deploy.ork', { presets: await loadBundledPresets() });
+  const fins = flatten(imported.tree.components).find(n => n.type === 'trapezoidfinset')!;
+  expect(fins.name).toBe('Rounded plywood fins');
+  expect(fins['materialName']).toBe('Plywood (assumed)');
+  expect(fins['density']).toBe(600);
 });
 
 it('loads only the selected asset and preserves its bytes for the file door', async () => {
