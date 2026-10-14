@@ -1623,9 +1623,12 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       : flown.length === 1 && flown[0]![0] === 'the sustainer' ? ` with the ${flown[0]![1]}`
         : ` with ${flown.map(([stage, e]) => `the ${e} on ${stage}`).join(' and ')}`;
     const ft = (v: number) => Math.round(v).toLocaleString('en-US');
+    // N032: the new readout follows Altitude; keep the file's stored feet as evidence.
+    const apogee = opts?.distanceUnit === undefined ? `${ft(storedApogeeFt)} ft`
+      : `${fmtAltitude(altitudeUnit, storedApogeeFt / FT)} ${altitudeUnit} (file: ${storedApogeeFt} ft)`;
     const vFps = xmlNum(storedSim, 'MaxVelocity', 0);
     notes.push(`RASAero’s stored prediction for simulation ${chosenSimNr}, as last run in RASAero`
-      + `${withMotors}: apogee ${ft(storedApogeeFt)} ft`
+      + `${withMotors}: apogee ${apogee}`
       + `${vFps > 0 ? `, maximum velocity ${ft(vFps)} ft/s` : ''}. It is RASAero’s prediction, not a `
       + 'measurement; the app flies the design with its own models.');
   }

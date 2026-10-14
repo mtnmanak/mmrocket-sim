@@ -243,6 +243,39 @@ describe('parseDesignFile and openDesignFile', () => {
     expect(written(imported)).toBe(written(baseline));
   });
 
+  it.each([
+    ['m', '1326 m'], ['km', '1.33 km'], ['ft', '4352 ft'], ['yd', '1451 yd'], ['mi', '0.82 mi'],
+  ])('N032 stored RASAero apogee follows Altitude %s independently of Horizontal distance', async (distanceUnit, apogee) => {
+    const data = fixture('Complex.Two-Stage.CDX1');
+    const original = data.slice(0);
+    const baseline = await parseDesignFile(data, 'Complex.Two-Stage.CDX1', { presets: [] });
+    const prediction = (d: ImportedDesign) => d.notes.find(n => n.startsWith('RASAero\u2019s stored prediction'));
+    const legacy = prediction(baseline);
+    expect(legacy).toContain('simulation 1, as last run in RASAero');
+    expect(legacy).toContain('apogee 4,352 ft, maximum velocity 578 ft/s');
+    expect(legacy).toContain('prediction, not a measurement');
+    expect(legacy).not.toContain('(file:');
+    const flightInputs = (d: ImportedDesign) => {
+      // Each import mints fresh c<number> identities; retain their reference relationships.
+      const ids = new Map<string, string>();
+      return JSON.stringify({ tree: d.tree, motors: d.motors, configs: d.configs,
+        chosenConfigId: d.chosenConfigId, launch: d.launch, machAlt: d.machAlt }).replace(/"c\d+"/g, id => {
+        if (!ids.has(id)) ids.set(id, `"part${ids.size}"`);
+        return ids.get(id)!;
+      });
+    };
+    for (const horizontalDistanceUnit of ['m', 'mi']) {
+      const imported = await parseDesignFile(data, 'Complex.Two-Stage.CDX1', { presets: [], distanceUnit, horizontalDistanceUnit });
+      // MaxAltitude is 4351.988 ft in the fixture; display expectations are hand-converted.
+      // Only the apogee readout changes: attribution, motors, velocity and caveat stay intact.
+      expect(prediction(imported)).toBe(legacy!.replace('apogee 4,352 ft', `apogee ${apogee} (file: 4351.988 ft)`));
+      expect(imported.launch).toEqual(baseline.launch);
+      expect(imported.machAlt).toEqual(baseline.machAlt);
+      expect(flightInputs(imported)).toBe(flightInputs(baseline));
+      expect(data).toEqual(original);
+    }
+  });
+
   it('passes the selected aero model to the RASAero import note', async () => {
     const xml = '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>'
       + '<ModifiedBarrowman>False</ModifiedBarrowman></RocketDesign></RASAeroDocument>';
