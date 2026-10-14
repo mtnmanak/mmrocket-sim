@@ -67,13 +67,15 @@ it('ships six small archives and imports their explanations and catalogue parts'
 });
 
 it.each([
-  ['minimum-diameter.ork', 1], ['freeform.ork', 1], ['two-stage.ork', 2],
-] as const)('fits the packed recovery in %s ahead of its motors', async (fileName, count) => {
+  ['minimum-diameter.ork', 1, [0.003]], ['freeform.ork', 1, [0.003]], ['two-stage.ork', 2, [0.01, 0.005]],
+  ['dual-deploy.ork', 2, [0.15]], ['cluster.ork', 1, []], ['boattail.ork', 1, [0.025]],
+] as const)('fits the packed recovery in %s ahead of its motors', async (fileName, count, masses) => {
   const data = bytes(fileName);
   const imported = await openDesignFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), fileName, { presets: await loadBundledPresets() });
   const stations = [...absoluteStations(imported.tree).values()];
   const recovery = stations.filter(s => s.node.type === 'parachute');
   expect(recovery).toHaveLength(count);
+  expect(stations.filter(s => s.node.type === 'masscomponent').map(s => s.node['mass']), 'placement preserves the assumed masses in kg').toEqual(masses);
   for (const packed of recovery) {
     const parent = packed.parent!;
     expect(parent.type).toBe('bodytube');
@@ -88,7 +90,7 @@ it.each([
     expect(Math.PI * radius ** 2 * length).toBeCloseTo(Math.PI * 0.0125 ** 2 * 0.025, 12);
     expect(packed.start, 'packed front stays in the tube').toBeGreaterThanOrEqual(body.start);
     expect(packed.end, 'packed rear stays in the tube').toBeLessThanOrEqual(body.end);
-    for (const obstacle of stations.filter(s => s.parent === parent && ['masscomponent', 'innertube'].includes(s.node.type))) {
+    for (const obstacle of stations.filter(s => s !== packed && s.parent === parent && ['masscomponent', 'innertube', 'parachute'].includes(s.node.type))) {
       expect(packed.end <= obstacle.start || packed.start >= obstacle.end, `packed recovery clears ${obstacle.node.name}`).toBe(true);
     }
     const nose = stations.find(s => s.node.type === 'nosecone' && Math.abs(s.end - body.start) < 1e-9);
@@ -98,6 +100,43 @@ it.each([
       const station = stations.find(s => s.node === mount)!;
       expect(motor.length).toBeGreaterThan(0);
       expect(packed.end, 'packed rear clears the loaded motor').toBeLessThanOrEqual(station.end + Number(mount['motorOverhang'] ?? 0) - motor.length);
+    }
+  }
+  for (const ballast of stations.filter(s => s.node.type === 'masscomponent')) {
+    const body = stations.find(s => s.node === ballast.parent)!;
+    expect(ballast.start, 'ballast front stays in the tube').toBeGreaterThanOrEqual(body.start);
+    expect(ballast.end, 'ballast rear stays in the tube').toBeLessThanOrEqual(body.end);
+    const nose = stations.find(s => s.node.type === 'nosecone' && Math.abs(s.end - body.start) < 1e-9);
+    if (nose && Number(nose.node['shoulderThickness']) >= Number(nose.node['shoulderRadius'])) {
+      expect(ballast.start, 'ballast clears the solid nose shoulder').toBeGreaterThanOrEqual(nose.end + Number(nose.node['shoulderLength']));
+    }
+  }
+});
+
+it.each(EXAMPLE_DESIGNS)('uses cuttable stock or explains the extended airframe in $id', async example => {
+  const data = bytes(example.fileName);
+  const presets = await loadBundledPresets();
+  const imported = await openDesignFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), example.fileName, { presets });
+  for (const tube of flatten(imported.tree.components).filter(n => ['bodytube', 'innertube'].includes(n.type))) {
+    const stock = linkedPreset(tube, presets)!;
+    expect(stock, `${example.id}: tube has bundled stock`).toBeDefined();
+    // Catalogue dimensions are SI decimals; allow their serialization rounding.
+    expect(Number(tube['outerRadius']) * 2).toBeCloseTo(Number(stock.outsideDiameter), 9);
+    expect((Number(tube['outerRadius']) - Number(tube['thickness'])) * 2).toBeCloseTo(Number(stock.insideDiameter), 9);
+    expect(tube['density']).toBe(stock.material?.density);
+    if (Number(tube['length']) > Number(stock.length) + 1e-9) {
+      expect(example.id).toBe('dual-deploy');
+      expect(tube.type).toBe('bodytube');
+      expect(stock.manufacturer).toBe('Estes');
+      expect(stock.partNo).toBe('30615');
+      expect(tube['length']).toBe(0.55);
+      expect(stock.length).toBe(0.3429);
+      expect(tube['comment']).toContain('Assumed 550 mm continuous airframe');
+      expect(tube['comment']).toContain('342.9 mm stock length');
+      expect(tube['comment']).toContain('cannot be cut from that stock');
+      expect(tube['comment']).toContain('No joining coupler is modeled');
+    } else {
+      expect(Number(tube['length']), `${example.id}: tube can be cut from its linked stock`).toBeLessThanOrEqual(Number(stock.length) + 1e-9);
     }
   }
 });
