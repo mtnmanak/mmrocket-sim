@@ -4,7 +4,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { boosterBranches, type FlightResult, type FlightSeries } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { seriesCatalog, PRESETS, usableSeries, withStabilityPercent, type SeriesDef } from '../flightChartModel.js';
+import { arbitraryCatalog, seriesCatalog, PRESETS, usableSeries, withStabilityPercent, type ComparisonPreset, type SeriesDef } from '../flightChartModel.js';
 import { ComparisonChart } from './ComparisonChart.js';
 import { chartInk, seriesPalette } from '../chartTheme.js';
 import {
@@ -20,6 +20,9 @@ import { XLSX_MIME } from '../services/xlsx.js';
 import { FlightExportLayoutDialog } from './FlightExportLayoutDialog.js';
 import { SavedFlightPlots } from './SavedFlightPlots.js';
 import { emphasizeSeries } from '../chartEmphasis.js';
+import { DEFAULT_PLOT_EVENTS, PLOT_EVENTS, eventPlugin } from '../flightPlotEvents.js';
+import { PlotEventKey, eventCaptions } from './PlotEventKey.js';
+import { PlotImage } from './PlotImage.js';
 
 /**
  * Separate panels remain the default; optional comparisons use explicit
@@ -59,7 +62,8 @@ export function GestureHints() {
   );
 }
 
-function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoomChange, csvNote, emphasis }: {
+function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoomChange, csvNote, emphasis, selectedEvents }: {
+  selectedEvents: readonly string[];
   emphasis: keyof FlightSeries | null;
   result: FlightResult;
   def: SeriesDef;
@@ -144,6 +148,7 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
         panZoomPlugin(() => plots,
           (u) => onZoomChangeRef.current(plotIsZoomed(u), zoomPercent(u))),
         tooltipPlugin(),
+        eventPlugin(result.events, selectedEvents, ink.axis),
       ],
     };
     const plot = new uPlot(opts, data, el);
@@ -179,11 +184,11 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
     };
     // `expanded` recreates the plot the same way a theme change does — the
     // group window survives via the peer registry / savedWin restore above.
-  }, [result, def, values, resolvedTheme, daylight, plots, expanded]);
+  }, [result, def, values, resolvedTheme, daylight, plots, expanded, selectedEvents]);
 
   useEffect(() => {
     if (plotRef.current && ref.current) emphasizeSeries(plotRef.current, [def.key], emphasis, ref.current);
-  }, [emphasis, result, def, values, resolvedTheme, daylight, expanded]);
+  }, [emphasis, result, def, values, resolvedTheme, daylight, expanded, selectedEvents]);
 
   return (
     <div className={expanded ? 'chart-panel chart-panel-expanded' : 'chart-panel'}>
@@ -195,6 +200,8 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
             : def.unit ? ` (${def.unit})` : ''}
           {' — '}{flightName}
         </h3>
+        <PlotImage container={ref} title={`${def.title}${def.unit ? ` (${def.unit})` : ''} over Time (s) — ${flightName}`}
+          captions={eventCaptions(result.events, selectedEvents)} />
         <button className="chart-btn" onClick={onToggleExpand} aria-pressed={expanded}
           title={expanded ? 'Restore chart size' : 'Expand chart (full width, taller)'}
           aria-label={expanded ? `Restore ${def.title} chart size` : `Expand ${def.title} chart`}>
@@ -202,6 +209,7 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
         </button>
       </div>
       <div ref={ref} className="chart-legend-locked" />
+      <PlotEventKey events={result.events} selected={selectedEvents} />
     </div>
   );
 }
@@ -246,20 +254,31 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
     [prefs.units, daylight, resolvedTheme],
   );
   const [comparison, setComparison] = useState('');
+  const [custom, setCustom] = useState({ x: 'time', y: 'altitude' });
+  const [selectedEvents, setSelectedEvents] = useState<string[]>(DEFAULT_PLOT_EVENTS);
+  const [fullRecording, setFullRecording] = useState<{ original: FlightResult; full: FlightResult } | null>(null);
+  const [plotError, setPlotError] = useState<string | null>(null);
+  const recording = fullRecording?.original === result ? fullRecording.full : result;
   const [branchChoice, setBranchChoice] = useState({ result, index: 0, generation: 0 });
   if (branchChoice.result !== result) {
     setBranchChoice({ result, index: 0, generation: branchChoice.generation + 1 });
   }
-  const boosters = boosterBranches(result);
+  const boosters = boosterBranches(recording);
   const branchIndex = branchChoice.result === result ? branchChoice.index : 0;
   const branch = boosters[branchIndex - 1];
   const branchName = branch ? `Booster ${branchIndex}: ${branch.name}` : 'Sustainer stack';
   const plotIdentity = boosters.length > 0 ? `${flightName} · ${branchName}` : flightName;
-  const shown = useMemo(() => ({ ...result,
-    series: withStabilityPercent(branch?.series ?? result.series, branch?.events ?? result.events),
-  }), [result, branch]);
+  const shown = useMemo(() => ({ ...recording, events: branch?.events ?? recording.events,
+    series: withStabilityPercent(branch?.series ?? recording.series, branch?.events ?? recording.events),
+  }), [recording, branch]);
+  const axesCatalog = useMemo(() => arbitraryCatalog(shown.series, { units: prefs.units }, seriesPalette(daylight, resolvedTheme)),
+    [shown.series, prefs.units, daylight, resolvedTheme]);
+  const plotCatalog = useMemo(() => [...catalog, ...axesCatalog.filter(d => !catalog.some(c => c.key === d.key))], [catalog, axesCatalog]);
   const panelKey = `${branchChoice.generation}-${branchIndex}`;
-  const preset = PRESETS.find((p) => p.id === comparison);
+  const preset = useMemo<ComparisonPreset | undefined>(() => comparison === 'custom'
+    ? { id: 'custom', title: 'Custom plot', x: custom.x, left: [custom.y], right: [] }
+    : comparison === 'ground-track' ? { id: 'ground-track', title: 'Ground track', x: 'Px', left: ['Py'], right: [] }
+      : PRESETS.find(p => p.id === comparison), [comparison, custom]);
   const [selected, setSelected] = useState<Set<keyof FlightSeries>>(new Set(DEFAULT_SELECTED));
   const [hovered, setHovered] = useState<keyof FlightSeries | null>(null);
   const [focused, setFocused] = useState<keyof FlightSeries | null>(null);
@@ -300,7 +319,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   };
 
   const visible = catalog.filter((d) => selected.has(d.key) && usableSeries(shown.series, [String(d.key)]));
-  const legend = catalog.filter((d) => (visible.some((v) => v.key === d.key)
+  const legend = plotCatalog.filter((d) => (visible.some((v) => v.key === d.key)
     || preset?.left.includes(String(d.key)) || preset?.right.includes(String(d.key))) && usableSeries(shown.series, [String(d.key)]));
   const requested = hovered ?? focused ?? pinned;
   const emphasis = legend.some((d) => d.key === requested) ? requested : null;
@@ -312,7 +331,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   // export on the page. That one is gone: it was a lossless subset of this
   // CSV, through the same unit conversion, minus the BOM and minus every
   // booster branch.
-  const [exportBusy, setExportBusy] = useState<null | 'csv' | 'xlsx'>(null);
+  const [exportBusy, setExportBusy] = useState<null | 'csv' | 'xlsx' | 'plots'>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
   /**
@@ -434,6 +453,8 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           <select value={comparison} onChange={(e) => setComparison(e.target.value)}>
             <option value="">None</option>
             {PRESETS.map((p) => <option key={p.id} value={p.id}>{p.title}</option>)}
+            <option value="custom">Custom plot</option>
+            <option value="ground-track">Ground track</option>
           </select>
         </label>
         <span className="chart-comparison-note">Add a comparison above the separate charts.</span>
@@ -446,6 +467,32 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
             {boosters.map((b, i) => <option key={i + 1} value={i + 1}>Booster {i + 1}: {b.name}</option>)}
           </select>
         </label>}
+      </div>
+      {comparison === 'custom' && <div className="comparison-controls">
+        {(['x', 'y'] as const).map(axis => <label key={axis}>Custom {axis.toUpperCase()} axis
+          <select aria-label={`Custom ${axis.toUpperCase()} axis`} value={custom[axis]}
+            onChange={e => setCustom({ ...custom, [axis]: e.target.value })}>
+            {!axesCatalog.some(d => d.key === custom[axis]) && <option value={custom[axis]}>{custom[axis]} (no recorded data)</option>}
+            {axesCatalog.map(d => <option key={String(d.key)} value={String(d.key)}>{d.title}{d.unit ? ` (${d.unit})` : ''}</option>)}
+          </select>
+        </label>)}
+        {onFullSeries && <button className="chart-btn" disabled={exportBusy !== null || !!staleReason || !!flightRunning}
+          aria-describedby={staleReason || flightRunning ? 'flight-data-stale' : undefined}
+          onClick={() => {
+            setExportBusy('plots'); setPlotError(null);
+            onFullSeries().then(full => { if (mounted.current) setFullRecording({ original: result, full }); })
+              .catch((e: unknown) => { if (mounted.current) setPlotError(e instanceof Error ? e.message : String(e)); })
+              .finally(() => { if (mounted.current) setExportBusy(null); });
+          }}>{exportBusy === 'plots' ? 'Re-flying…' : 'Load all plot series'}</button>}
+        <span className="chart-comparison-note">Choose from this branch's recorded series.{onFullSeries ? ' Load all plot series re-flies the shown flight for additional quantities.' : ''}</span>
+        {plotError && <Note as="p" tier="information" role="alert">Plot series could not be loaded: {plotError}</Note>}
+      </div>}
+      <div className="flight-event-picker" role="group" aria-label="Plot flight events">
+        <span className="chart-comparison-note">Events on time charts:</span>
+        {PLOT_EVENTS.map(([type, title]) => <button key={type} className="series-chip"
+          aria-label={`Show event: ${title}`} aria-pressed={selectedEvents.includes(type)} onClick={() => {
+            setSelectedEvents(prev => prev.includes(type) ? prev.filter(e => e !== type) : [...prev, type]);
+          }}>{selectedEvents.includes(type) ? '✓ ' : ''}{title}</button>)}
       </div>
       {legend.length > 0 && <div className="flight-series-legend" role="group" aria-label="Emphasize plotted series">
         <span className="chart-comparison-note">Emphasize: hover, focus or tap. Tap again or press Escape to clear.</span>
@@ -462,8 +509,9 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
       {onFullSeries && <p className="chart-comparison-note">{exportLayout
         ? `Downloads use layout “${exportLayout.name}” for all flight branches. Missing series stay blank; a missing selected event leaves that branch without samples.`
         : 'Downloads include every recorded series and all flight branches.'} The comparison choice and zoom do not change the files.</p>}
-      <SavedFlightPlots current={{ panels: [...selected].map(String), comparison }} onApply={layout => {
-        setSelected(new Set(layout.panels)); setComparison(layout.comparison);
+      <SavedFlightPlots current={{ panels: [...selected].map(String), comparison, custom, events: selectedEvents }} onApply={layout => {
+        setSelected(new Set(layout.panels)); setComparison(layout.comparison); setCustom(layout.custom ?? { x: 'time', y: 'altitude' });
+        setSelectedEvents(layout.events ?? DEFAULT_PLOT_EVENTS);
       }} />
       {selected.has('stabilityPercent') && <Note as="p" tier="information" className="chart-comparison-note">
         Stability percentage uses the aerodynamic length of the stages flying at each recorded sample.
@@ -491,15 +539,17 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           </span>
         </div>
       )}
-      {preset && <ComparisonChart key={`${panelKey}-${preset.id}`} series={shown.series} preset={preset}
+      {preset && <ComparisonChart key={`${panelKey}-${preset.id}-${preset.x}-${preset.left.join(',')}`} series={shown.series} preset={preset}
         emphasis={emphasis}
-        flightName={plotIdentity} catalog={catalog} plots={plotsRef.current}
+        flightName={plotIdentity} catalog={plotCatalog} plots={plotsRef.current}
+        events={shown.events} selectedEvents={selectedEvents}
         onZoomChange={(z, pct) => { setZoomed(z); setZoomPct(pct); }}
         csvNote={onFullSeries && !staleReason ? exportLayout ? 'Choose Full export for every timestep in the Flight data (.csv) download.'
           : 'The Flight data (.csv) download above holds every timestep.' : undefined} />}
       <div className="charts-grid">
         {visible.map((d) => (
           <Panel key={`${panelKey}-${String(d.key)}`} result={shown} def={d} flightName={plotIdentity} plots={plotsRef.current}
+            selectedEvents={selectedEvents}
             emphasis={emphasis}
             csvNote={onFullSeries && !staleReason
               ? exportLayout ? 'Choose Full export for every timestep in the Flight data (.csv) download.'
