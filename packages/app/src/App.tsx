@@ -3724,6 +3724,7 @@ export function App() {
           weighed={batchWeighed}
           retainedHardware={batchRetainedHardware}
           launch={launch}
+          weatherSnapshot={weather}
           rocketName={tree.name ?? 'Rocket'}
           onRunsChange={recordRuns}
           onClose={() => setShowBatch(false)}

@@ -760,6 +760,70 @@ it('bundle metadata retains the applied weather receipt from Launch in the saved
   expect(saved.exportContext?.appVersion).toBe(APP_VERSION);
 }, 30000);
 
+it('bundle metadata retains scalar applied weather through Batch simulate and saved-run export', async () => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  const motor = await c6();
+  const weather = {
+    v: 1, provider: 'open-meteo', endpoint: 'forecast', model: 'best_match',
+    place: { label: '61.234567, -149.765432', latitudeDeg: 61.234567, longitudeDeg: -149.765432, method: 'coordinates' },
+    grid: { latitudeDeg: 61.2, longitudeDeg: -149.7 }, demElevationM: 100, forAltitudeM: 100,
+    timezone: 'America/Anchorage', validUnix: 1700000000, retrievedAt: '2026-10-13T00:00:00Z',
+    fetched: { temperatureC: 12, pressureHPa: 1000, windSpeedMs: 4, windGustMs: 7, windFromDeg: 20 },
+    applied: { temperatureC: 12, pressureHPa: 1000, windAverage: 4 },
+    before: { temperatureC: null, pressureHPa: null, windAverage: 0 },
+  };
+  const launchSettings = { ...DEFAULT_CONDITIONS, latitudeDeg: 61.234567, longitudeDeg: -149.765432,
+    temperatureC: 12, pressureHPa: 1000, windAverage: 4 };
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: launchSettings, weather,
+    measured: { massKg: null, cgM: null }, savedAt: 1, appVersion: APP_VERSION }));
+  const realSweep = batchSweep.runBatchSweep;
+  // One candidate keeps this wiring test small; the sweep, kernel, store and ZIP writer stay real.
+  const sweep = vi.spyOn(batchSweep, 'runBatchSweep').mockImplementation((input, hooks) =>
+    realSweep({ ...input, candidates: [MOTOR_DB.find(m => m.manufacturerAbbrev === 'Estes' && m.designation === 'C6')!] }, hooks,
+      { fetchSpec: async (_entry, delay) => ({ ...motor.spec, ejectionDelay: delay }), nozzleFor: async () => null }));
+  try {
+    const host = await mountApp();
+    await waitFor(() => shownName(host) === tree.name, 'batch weather design');
+    const click = async (text: string) => act(async () => {
+      [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!.click();
+    });
+    await click('Motors & Configuration');
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Batch simulate motors'))!.click());
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="Batch simulate motors"] .launch-btn')!;
+    await waitFor(() => !button.disabled, 'batch weather candidates');
+    await act(async () => button.click());
+    await waitFor(() => runs() === 1, 'batch weather run persisted');
+    const saved = (JSON.parse(localStorage.getItem(RUNS_KEY)!) as FreshSimRun[])[0]!;
+    expect(saved.batch).toBe(true);
+    expect(saved.exportContext?.weather).toEqual(weather);
+    expect(saved.exportContext?.launch).toEqual(launchSettings);
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await click('Results');
+    const history = [...host.querySelectorAll('.panel')].find(p => p.querySelector('h2')?.textContent?.startsWith('Saved simulations'))!;
+    await act(async () => [...history.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click());
+    await act(async () => host.querySelector<HTMLElement>('.motor-row')!.click());
+    await click('Export flight-data bundle');
+    vi.mocked(saveFile).mockClear();
+    await click('Download ZIP');
+    const zip = unzipSync(new Uint8Array(await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).arrayBuffer()));
+    expect(JSON.parse(strFromU8(zip['run.json']!)).id).toBe(saved.id);
+    const context = JSON.parse(strFromU8(zip['launch-and-weather.json']!));
+    expect(context.weather.fetched.windSpeedMs).toBe(4);
+    expect(context.launch).toMatchObject({ temperatureC: 12, pressureHPa: 1000, windAverage: 4 });
+    expect(context.weather.place).toBeUndefined();
+    expect(context.weather.grid).toBeUndefined();
+    expect(JSON.parse(strFromU8(zip['manifest.json']!)).weatherCredit.source.href).toBe('https://open-meteo.com/');
+    const all = Object.values(zip).map(file => strFromU8(file)).join('\n');
+    expect(all).not.toContain('61.234567');
+    expect(all).not.toContain('-149.765432');
+    expect(vi.mocked(flyBuiltDesign)).not.toHaveBeenCalled();
+    expect(runs()).toBe(1);
+  } finally {
+    sweep.mockRestore();
+  }
+}, 30_000);
+
 describe('the Launch button and simulateDesign fly a stored design the same', () => {
   it('C1: the starter rocket on a first visit', async () => {
     const { out } = await sessionCase(null, CLASSIC);
