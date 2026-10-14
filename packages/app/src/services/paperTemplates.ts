@@ -92,12 +92,18 @@ export function paperTemplateGeometry(node: ComponentNode, ctx: SolidContext): P
   g.kind = 'wrap';
   g.notes.unshift('Exact conical flat wrap of the exterior surface. Check material fit before cutting.');
   const small = Math.min(fore, aft), large = Math.max(fore, aft), delta = large - small;
-  if (delta === 0) {
+  const slant = Math.hypot(length, delta);
+  // C-A7: bound circumference and outline errors below the SVG's 0.0001 mm precision;
+  // subtracting almost equal sector radii can otherwise make a 120 mm seam 125 mm long.
+  const precision = 1e-7;
+  const cylinderError = Math.PI ** 2 * large * delta / (2 * slant) + delta ** 2 / (slant + length);
+  if (delta === 0 || (2 * Math.PI * delta <= precision && cylinderError <= precision)) {
+    if (delta > 0) g.notes[0] = 'Near-cylinder rectangular approximation: circumference and outline errors below 0.0001 mm. Check material fit before cutting.';
     g.width = 2 * Math.PI * large; g.height = length;
     g.path = `M 0 0 H ${f(g.width)} V ${f(length)} H 0 Z`;
     return g;
   }
-  const slant = Math.hypot(length, delta), outer = slant * large / delta, inner = slant * small / delta;
+  const outer = slant * large / delta, inner = slant * small / delta;
   const angle = 2 * Math.PI * delta / slant, half = angle / 2;
   g.sector = { outer, inner, angle };
   const left = Math.min(inner * Math.cos(half), outer * Math.cos(half));

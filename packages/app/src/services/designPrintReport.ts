@@ -2,7 +2,7 @@ import type { ComponentInfo, ComponentNode, RocketTree, StaticInfo } from '@onli
 import { fmtSi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import { layoutSchematic, schematicFrame, type SchematicShape } from '../tree/schematicLayout.js';
 import { componentTable } from './componentTable.js';
-import { asStageNodes } from '../tree/treeModel.js';
+import { asStageNodes, mountName } from '../tree/treeModel.js';
 import { solidContextFor } from '../tree/solidContext.js';
 import { paperRingDimensions } from './paperTemplates.js';
 import { validDelayResolution } from './autoDelaySolver.js';
@@ -19,6 +19,7 @@ export interface DesignPrintInput {
   radiusMode: 'radius' | 'diameter'; stabilityUnit?: StabilityUnit;
   withMotors: boolean; appVersion: string;
   currentLoadout?: string;
+  motorFailures?: readonly { mountId: string; text: string }[];
   infoFor?: (id: string) => ComponentInfo | null;
   run: SimRun | null; changedSince: readonly string[] | null;
 }
@@ -76,9 +77,18 @@ export function designPrintHtml(input: DesignPrintInput): string {
   }).join('');
   const header = dataHeaderLines({ name: tree.name ?? 'Rocket', info, units: u, withMotors: input.withMotors, appVersion: input.appVersion });
   if (info && hasAerodynamicForce(info)) header[3] = header[3]!.replace(/margin .*/, `margin ${formatStability(info, input.stabilityUnit)}`);
+  const failures = input.motorFailures ?? [];
+  const omitted = (id: string) => `${mountName(nodes.find(n => n.id === id))} (${id})`;
+  // C-A6: a partial build is valid, but cannot describe the complete assigned loadout.
+  if (info && failures.length) {
+    header[2] = `Dry mass ${val('mass', info.massEmpty)}; loaded mass for the complete assigned loadout: Unknown`;
+    header[3] = 'CG, CP and stability for the complete assigned loadout: Unknown';
+  }
   const body = [`<main class="report"><h1>${e(tree.name ?? 'Rocket')}</h1><h2>Current design</h2>`,
     ...header.slice(1).map(p),
+    ...(failures.length ? [note(`The current build omits motors on ${failures.map(f => omitted(f.mountId)).join('; ')}. Its mass, CG and stability do not describe the complete assigned loadout. With all assigned motors, the rocket can have more mass and less stability margin.`, 'caution')] : []),
     p(`Current configuration and motor assignments: ${input.currentLoadout ?? 'Unknown'}`),
+    ...failures.map(f => note(`Motor omitted from build on ${omitted(f.mountId)}: ${f.text}`, 'caution')),
     ...(info ? [] : [note('Design summary unavailable: the current design has no completed build.', 'caution')]),
     schematic(tree), p('Schematic is fitted to the report, not a 1:1 cutting template.'),
     '<h2>Parts in the current design</h2>', p('Mass counts all copies of each part, including all fins of a fin set; parent mass excludes children. Unknown means no computed figure is available.'),

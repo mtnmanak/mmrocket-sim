@@ -3210,9 +3210,10 @@ export function App() {
   );
   const preparePrintReport = () => designPrintHtml({
     tree, info: built?.info ?? null, units: prefs.units, radiusMode: prefs.radiusMode,
-    stabilityUnit: prefs.stabilityUnit, withMotors: assigned.length > 0, appVersion: APP_VERSION,
+    stabilityUnit: prefs.stabilityUnit, withMotors: installedMounts(assigned, refusedMountIds).length > 0, appVersion: APP_VERSION,
+    motorFailures,
     currentLoadout: `${liveActiveLayer ? savedConfigLabel(liveActiveLayer) : flightWorking ? 'Working settings (not saved)' : 'None'}; `
-      + (assigned.length ? assigned.map(([id, mm]) => `${mountName(mounts.find(m => m.id === id)!)}: ${mm.label} ×${mountMotorCount(tree, id)}`).join('; ') : 'no motor assigned'),
+      + (assigned.length ? assigned.map(([id, mm]) => `${mountName(mounts.find(m => m.id === id)!)}: ${mm.label} ×${mountMotorCount(tree, id)} (${!built ? 'build unavailable' : refusedMountIds.includes(id) ? 'omitted from build' : 'installed in build'})`).join('; ') : 'no motor assigned'),
     infoFor: built ? id => { try { return built.rocket.componentInfo(id); } catch { return null; } } : undefined,
     run: reportRun, changedSince: reportRun ? changedSinceRun(reportRun, provenanceKey) : null,
   });

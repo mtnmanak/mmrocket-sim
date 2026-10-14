@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { paperTemplateGeometry, paperTemplatePages } from './paperTemplates.js';
-import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS, siToUi, uiToSi } from '../prefs/units.js';
 
 const node = (type: string, fields = {}): ComponentNode => ({ type, name: 'Part <&>', ...fields } as ComponentNode);
 
@@ -55,6 +55,40 @@ describe('C-A7 paper geometry', () => {
     expect(cylinder.height).toBe(0.1);
     expect(paperTemplateGeometry(node('transition'), { foreRadius: 0.02, aftRadius: 0.03 }).kind).toBe('wrap');
     expect(() => paperTemplateGeometry(node('transition'), {})).toThrow(/radii/);
+  });
+  it('keeps emitted near-cylinder seams at 120 mm after an inch round-trip in either orientation', () => {
+    const roundTrip = uiToSi('length', 'in', siToUi('length', 'in', 0.03));
+    expect(roundTrip).not.toBe(0.03);
+    for (const other of [roundTrip, 0.03 - 1e-9]) {
+      for (const [foreRadius, aftRadius] of [[0.03, other], [other, 0.03]]) {
+        const part = node('transition', { length: 0.12, foreRadius, aftRadius, shape: 'conical' });
+        const before = JSON.stringify(part);
+        const g = paperTemplateGeometry(part, {});
+        // The circumference and seam are independently 188.4956 mm and 120 mm at SVG precision.
+        expect(g.width).toBeCloseTo(0.1884955592, 10);
+        expect(g.height).toBeCloseTo(0.12, 12);
+        expect(g.sector).toBeUndefined();
+        expect(g.path).toBe('M 0 0 H 188.4956 V 120.0000 H 0 Z');
+        for (const page of paperTemplatePages(g, 'Rocket', INITIAL_UNITS)) {
+          expect(page.svg).toContain('<path d="M 0 0 H 188.4956 V 120.0000 H 0 Z"/>');
+          expect(page.svg).toContain('approximation');
+          expect(page.svg).not.toContain('Exact conical flat wrap');
+          expect(page.svg).toContain('0.0001 mm');
+        }
+        expect(JSON.stringify(part)).toBe(before);
+      }
+    }
+  });
+  it('keeps an analytic sector when a cylinder approximation exceeds SVG precision', () => {
+    const g = paperTemplateGeometry(node('transition', { length: 0.12, foreRadius: 0.03, aftRadius: 0.0299999 }), {});
+    expect(g.sector).toBeDefined();
+    expect(g.sector!.outer * g.sector!.angle).toBeCloseTo(0.18849555921538758, 12);
+    expect(g.sector!.inner * g.sector!.angle).toBeCloseTo(0.18849493089685687, 12);
+    expect(g.sector!.outer - g.sector!.inner).toBeCloseTo(0.12, 9);
+    expect(g.notes[0]).toContain('Exact conical flat wrap');
+    // Even sub-precision circumference differences must not hide an appreciable arc bow.
+    const bowed = paperTemplateGeometry(node('transition', { length: 0.01, foreRadius: 1, aftRadius: 1 - 1e-9 }), {});
+    expect(bowed.sector).toBeDefined();
   });
   it('uses curved profiles and fore-to-aft stations, including flipped noses, instead of false flat wraps', () => {
     const n = node('nosecone', { shape: 'ellipsoid', length: 0.1, aftRadius: 0.03 });

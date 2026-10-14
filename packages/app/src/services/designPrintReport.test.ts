@@ -6,6 +6,9 @@ import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 import type { SimRun } from './simReport.js';
 import { testMotor, testResolution } from './autoDelay.testSupport.js';
 import { LATE_BURNOUT_CAUTION, validDelayResolution } from './autoDelaySolver.js';
+import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
+import { defaultTree, motorMounts } from '../tree/treeModel.js';
+import type { MountMotor } from '../model/design.js';
 
 const tree: RocketTree = { name: 'Current <script>rocket</script>', components: [
   { type: 'stage', id: 'stage', children: [{ type: 'bodytube', id: 'tube', name: 'Tube', length: 0.254, outerRadius: 0.0254, materialName: 'Paper' }] },
@@ -22,6 +25,51 @@ const run = { id: 'selected', rocket: 'Earlier design', motor: 'F40', manufactur
 const input = { tree, info, units: IMPERIAL_UNITS, radiusMode: 'diameter' as const,
   stabilityUnit: 'both' as const, withMotors: true, appVersion: 'test', run, changedSince: ['the design'], };
 function doc(html: string) { return new DOMParser().parseFromString(html, 'text/html').body; }
+
+it.each(['curve', 'ignition', 'partial'] as const)('withholds current launch figures for a %s motor refusal from a real build', refusal => {
+  const tree = defaultTree();
+  const mount = motorMounts(tree)[0]!;
+  mount.name = 'Refused <mount>';
+  const motor: MountMotor = { label: 'C6-5', meta: { label: 'C6-5', manufacturer: 'Estes' },
+    ignition: { event: 'automatic', delay: 0 }, spec: { designation: 'C6', diameter: 0.018,
+      length: 0.07, cgX: 0.035, ejectionDelay: 5, times: [0, 0.2, 1.8],
+      thrusts: [0, 14, 0], masses: [0.024, 0.02, 0.0122] } };
+  const rejected = refusal === 'ignition'
+    ? { ...motor, ignition: { event: 'bogus' as MountMotor['ignition']['event'], delay: 0 } }
+    : { ...motor, spec: { ...motor.spec, thrusts: [0, 14] } };
+  const assigned: [string, MountMotor][] = [[mount.id!, rejected]];
+  if (refusal === 'partial') {
+    const accepted = { ...mount, id: 'accepted-print-mount', name: 'Accepted mount' };
+    const parent = tree.components[0]!.children!.find(n => n.children?.includes(mount))!;
+    parent.children!.push(accepted);
+    assigned.push([accepted.id, motor]);
+  }
+  const built = buildDesign({ tree, assigned, kbf: false, supersonic: false,
+    measuredDryMassKg: null, primaryMountId: mount.id!, currentSetKey: '' }, KERNEL_HANDLES);
+  if ('error' in built) throw new Error(built.error);
+  expect(built.motorFailures).toHaveLength(1);
+  expect(built.motorFailures[0]!.mountId).toBe(mount.id);
+  // A 0.05 g tolerance allows last-bit differences while detecting the missing 24 g motor.
+  expect(built.info.mass - built.info.massEmpty).toBeCloseTo(refusal === 'partial' ? 0.024 : 0, 4);
+  const d = doc(designPrintHtml({ ...input, tree, info: built.info, units: INITIAL_UNITS,
+    withMotors: refusal === 'partial', motorFailures: built.motorFailures,
+    currentLoadout: `Refused <mount>: C6-5${refusal === 'partial' ? '; Accepted mount: C6-5' : ''}`, run: null }));
+  expect(d.textContent).toContain('Length');
+  expect(d.textContent).toContain('Dry mass');
+  expect(d.textContent).not.toContain('Launch mass');
+  expect(d.textContent).not.toMatch(/CG \d|margin \d/);
+  expect(d.querySelector('.caution')?.textContent).toContain('Refused <mount>');
+  expect(d.querySelector('.caution')?.textContent).toContain(mount.id!);
+  expect(d.textContent).toContain(built.motorFailures[0]!.text);
+  expect(d.textContent).toContain('do not describe the complete assigned loadout');
+  const loadout = [...d.querySelectorAll('p')].find(p => p.textContent!.startsWith('Current configuration'))!;
+  expect(loadout.nextElementSibling?.textContent).toContain('Refused <mount>');
+  expect(d.querySelector('script')).toBeNull();
+  const selected = doc(designPrintHtml({ ...input, tree, info: built.info, motorFailures: built.motorFailures,
+    run: { ...run, launchMass: 0.0566990462, launchCG: 0.1, launchCP: 0.2 } }));
+  expect(selected.querySelector('.summary')!.textContent).toContain('Launch mass: 2.00 oz');
+  expect(selected.querySelector('.summary')!.textContent).toContain('Launch CG:');
+});
 
 it('C-A6 composes current dimensions and parts separately from the SELECTED flight, in preferences', () => {
   const d = doc(designPrintHtml(input));
