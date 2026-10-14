@@ -1,0 +1,176 @@
+import { describe, expect, it } from 'vitest';
+import type { ComponentNode } from '@online-openrocket/engine';
+import { paperTemplateGeometry, paperTemplatePages } from './paperTemplates.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS, siToUi, uiToSi } from '../prefs/units.js';
+
+const node = (type: string, fields = {}): ComponentNode => ({ type, name: 'Part <&>', ...fields } as ComponentNode);
+
+describe('C-A7 paper geometry', () => {
+  it('uses the stated ring ID before the adjacent mount OD, without changing the node', () => {
+    const ring = node('centeringring', { outerRadius: 0.05, innerRadius: 0.015 });
+    const before = JSON.stringify(ring);
+    const g = paperTemplateGeometry(ring, { mountOuterRadius: 0.02 });
+    expect(g.kind).toBe('disc');
+    expect(g.circles).toEqual([0.05, 0.015]);
+    expect(JSON.stringify(ring)).toBe(before);
+    expect(paperTemplateGeometry(node('centeringring'), { parentInnerRadius: 0.05, mountOuterRadius: 0.02 }).circles)
+      .toEqual([0.05, 0.02]);
+  });
+  it('prints solid bulkheads and refuses unknown or impossible ring bores and outside diameters', () => {
+    expect(paperTemplateGeometry(node('bulkhead'), { parentInnerRadius: 0.04 }).circles).toEqual([0.04]);
+    expect(() => paperTemplateGeometry(node('bulkhead'), {})).toThrow(/diameter/);
+    expect(() => paperTemplateGeometry(node('centeringring', { outerRadius: 0.04 }), {})).toThrow(/bore/);
+    expect(() => paperTemplateGeometry(node('centeringring', { outerRadius: 0.04 }), { mountOuterRadius: 0.05 })).toThrow(/bore/);
+  });
+  it('preserves an explicit zero bore as a solid disc even with an overlapping mount', () => {
+    const g = paperTemplateGeometry(node('centeringring', { outerRadius: 0.04, innerRadius: 0 }),
+      { parentInnerRadius: 0.03, mountOuterRadius: 0.01 });
+    expect(g.circles).toEqual([0.04]);
+    expect(g.dimensions).toContainEqual(['Opening diameter', 0]);
+  });
+  it.each([0, -0.02, NaN, Infinity])('refuses stated outside radius %s despite available context', outerRadius => {
+    for (const type of ['centeringring', 'bulkhead']) {
+      expect(() => paperTemplateGeometry(node(type, { outerRadius, innerRadius: 0.01 }),
+        { parentInnerRadius: 0.03, mountOuterRadius: 0.01 })).toThrow(/diameter|finite/);
+    }
+  });
+  it.each([-0.01, 0.04, 0.05, NaN, Infinity])('refuses stated bore %s despite an overlapping mount', innerRadius => {
+    expect(() => paperTemplateGeometry(node('centeringring', { outerRadius: 0.04, innerRadius }),
+      { mountOuterRadius: 0.01 })).toThrow(/bore|finite/);
+  });
+  it('develops a frustum with exact circumference at BOTH ends in either orientation', () => {
+    for (const [foreRadius, aftRadius] of [[0.02, 0.05], [0.05, 0.02]]) {
+      const g = paperTemplateGeometry(node('transition', { shape: 'conical', length: 0.12, foreRadius, aftRadius }), {});
+      expect(g.kind).toBe('wrap');
+      // Pure geometry: 12 digits is comfortably above SVG's 0.0001 mm resolution.
+      expect(g.sector!.outer * g.sector!.angle).toBeCloseTo(2 * Math.PI * 0.05, 12);
+      expect(g.sector!.inner * g.sector!.angle).toBeCloseTo(2 * Math.PI * 0.02, 12);
+      expect(g.sector!.outer - g.sector!.inner).toBeCloseTo(Math.hypot(0.12, 0.03), 12);
+    }
+  });
+  it('handles a conical tip, an equal-radius cylinder, and resolved automatic ends', () => {
+    expect(paperTemplateGeometry(node('nosecone', { shape: 'conical', length: 0.1, aftRadius: 0.03 }), {}).sector!.inner).toBe(0);
+    const cylinder = paperTemplateGeometry(node('transition', { shape: 'conical', length: 0.1, foreRadius: 0.03, aftRadius: 0.03 }), {});
+    expect(cylinder.width).toBeCloseTo(2 * Math.PI * 0.03, 12);
+    expect(cylinder.height).toBe(0.1);
+    expect(paperTemplateGeometry(node('transition'), { foreRadius: 0.02, aftRadius: 0.03 }).kind).toBe('wrap');
+    expect(() => paperTemplateGeometry(node('transition'), {})).toThrow(/radii/);
+  });
+  it('keeps emitted near-cylinder seams at 120 mm after an inch round-trip in either orientation', () => {
+    const roundTrip = uiToSi('length', 'in', siToUi('length', 'in', 0.03));
+    expect(roundTrip).not.toBe(0.03);
+    for (const other of [roundTrip, 0.03 - 1e-9]) {
+      for (const [foreRadius, aftRadius] of [[0.03, other], [other, 0.03]]) {
+        const part = node('transition', { length: 0.12, foreRadius, aftRadius, shape: 'conical' });
+        const before = JSON.stringify(part);
+        const g = paperTemplateGeometry(part, {});
+        // The circumference and seam are independently 188.4956 mm and 120 mm at SVG precision.
+        expect(g.width).toBeCloseTo(0.1884955592, 10);
+        expect(g.height).toBeCloseTo(0.12, 12);
+        expect(g.sector).toBeUndefined();
+        expect(g.path).toBe('M 0 0 H 188.4956 V 120.0000 H 0 Z');
+        for (const page of paperTemplatePages(g, 'Rocket', INITIAL_UNITS)) {
+          expect(page.svg).toContain('<path d="M 0 0 H 188.4956 V 120.0000 H 0 Z"/>');
+          expect(page.svg).toContain('approximation');
+          expect(page.svg).not.toContain('Exact conical flat wrap');
+          expect(page.svg).toContain('0.0001 mm');
+        }
+        expect(JSON.stringify(part)).toBe(before);
+      }
+    }
+  });
+  it('keeps an analytic sector when a cylinder approximation exceeds SVG precision', () => {
+    const g = paperTemplateGeometry(node('transition', { length: 0.12, foreRadius: 0.03, aftRadius: 0.0299999 }), {});
+    expect(g.sector).toBeDefined();
+    expect(g.sector!.outer * g.sector!.angle).toBeCloseTo(0.18849555921538758, 12);
+    expect(g.sector!.inner * g.sector!.angle).toBeCloseTo(0.18849493089685687, 12);
+    expect(g.sector!.outer - g.sector!.inner).toBeCloseTo(0.12, 9);
+    expect(g.notes[0]).toContain('Exact conical flat wrap');
+    // Even sub-precision circumference differences must not hide an appreciable arc bow.
+    const bowed = paperTemplateGeometry(node('transition', { length: 0.01, foreRadius: 1, aftRadius: 1 - 1e-9 }), {});
+    expect(bowed.sector).toBeDefined();
+  });
+  it('uses curved profiles and fore-to-aft stations, including flipped noses, instead of false flat wraps', () => {
+    const n = node('nosecone', { shape: 'ellipsoid', length: 0.1, aftRadius: 0.03 });
+    const g = paperTemplateGeometry(n, {});
+    expect(g.kind).toBe('profile');
+    expect(g.stations[0]).toEqual([0, 0]);
+    expect(g.stations.at(-1)).toEqual([0.1, 0.03]);
+    expect(g.stations[4]![1]).toBeCloseTo(0.03 * Math.sqrt(0.75), 12);
+    const tail = paperTemplateGeometry({ ...n, flipped: true }, {});
+    expect(tail.stations[0]).toEqual([0, 0.03]);
+    expect(tail.stations.at(-1)).toEqual([0.1, 0]);
+    expect(g.notes.join(' ')).toMatch(/not a flat wrap/);
+    expect(() => paperTemplateGeometry(node('nosecone', { length: Infinity }), {})).toThrow();
+  });
+});
+
+describe('C-A7 physical pages', () => {
+  it.each([
+    ['zero-ID ring', 'centeringring', { outerRadius: 0.04, innerRadius: 0 }],
+    ['tiled zero-ID ring', 'centeringring', { outerRadius: 0.2, innerRadius: 0 }],
+    ['open ring', 'centeringring', { outerRadius: 0.04, innerRadius: 0.01 }],
+    ['bulkhead', 'bulkhead', { outerRadius: 0.04 }],
+    ['conical wrap', 'transition', { length: 0.1, foreRadius: 0.02, aftRadius: 0.04 }],
+    ['curved profile', 'nosecone', { shape: 'ellipsoid', length: 0.1, aftRadius: 0.03 }],
+  ])('keeps %s annotations separate and clear of the ruler and geometry', (_label, type, fields) => {
+    const g = paperTemplateGeometry(node(type, fields), {});
+    for (const units of [INITIAL_UNITS, IMPERIAL_UNITS]) {
+      for (const page of paperTemplatePages(g, 'Rocket', units)) {
+        const header = page.svg.split('</g>')[0]!;
+        const annotations = [...header.matchAll(/<text\b[^>]*\by="([\d.]+)"[^>]*>([^<]*)<\/text>/g)]
+          .map(match => ({ y: Number(match[1]), text: match[2]! }));
+        const dimensions = annotations.find(a => a.text.startsWith(g.dimensions[0]![0]))!;
+        expect(dimensions).toBeDefined();
+        for (const note of g.notes) {
+          const annotation = annotations.find(a => a.text.endsWith(note))!;
+          expect(annotation).toBeDefined();
+          // A 5 mm baseline gap leaves space for the 3.2 mm annotation font.
+          expect(dimensions.y - annotation.y).toBeGreaterThanOrEqual(5);
+        }
+        // The ruler label is at 72 mm, below all notes, dimensions and stations.
+        const beforeRuler = annotations.filter(a => a.y >= 34 && a.y < 72);
+        expect(beforeRuler).toHaveLength(g.notes.length + 1 + (g.stations.length ? 4 : 0));
+        for (let i = 1; i < beforeRuler.length; i++) {
+          expect(beforeRuler[i]!.y - beforeRuler[i - 1]!.y).toBeGreaterThanOrEqual(5);
+        }
+        expect(69 - beforeRuler.at(-1)!.y).toBeGreaterThanOrEqual(5);
+        expect(page.svg).toContain('y1="69"');
+        expect(page.svg).toContain('<rect x="15" y="80" width="180" height="180"/>');
+      }
+    }
+  });
+  it('keeps true millimetre dimensions, escapes labels, and changes ruler and station units with preferences', () => {
+    const g = paperTemplateGeometry(node('nosecone', { shape: 'ellipsoid', length: 0.1, aftRadius: 0.03 }), {});
+    const metric = paperTemplatePages(g, 'Rocket <&>', INITIAL_UNITS);
+    const imperial = paperTemplatePages(g, 'Rocket <&>', IMPERIAL_UNITS);
+    expect(metric[0]!.svg).toContain('width="210mm" height="279mm"');
+    expect(metric[0]!.svg).toContain('x2="65"');
+    expect(imperial[0]!.svg).toContain('x2="65.8"');
+    expect(imperial[0]!.svg).toContain('2 in');
+    expect(metric[0]!.svg).toContain('Rocket &lt;&amp;&gt;');
+    expect(imperial[0]!.svg).toContain('3.937 in');
+    expect(metric[0]!.svg).toContain('100%, no fit to page');
+  });
+  it('tiles large parts without scaling, with overlaps and a ruler on every sheet, and bounds page count', () => {
+    const g = paperTemplateGeometry(node('bulkhead', { outerRadius: 0.2 }), {});
+    const pages = paperTemplatePages(g, 'Rocket', INITIAL_UNITS);
+    expect(pages).toHaveLength(9);
+    expect(pages[1]!.x - pages[0]!.x).toBeCloseTo(0.17, 12);
+    for (const p of pages) {
+      expect(p.svg).toContain('calibration-ruler');
+      expect(p.svg).toContain('r="200.0000"');
+      expect(p.svg).toContain('10 mm overlap');
+    }
+    // Adjacent sheets must repeat GLOBAL grid coordinates in the overlap.
+    expect(pages[0]!.svg).toContain('x="194" y="84"');
+    expect(pages[1]!.svg).toContain('x="24" y="84"');
+    expect(() => paperTemplatePages({ ...g, width: 1e8 }, 'Rocket', INITIAL_UNITS)).toThrow(/100 pages/);
+  });
+});
+it('labels the fore/aft wrap diameters and ring opening in the selected unit', () => {
+  const transition = paperTemplateGeometry(node('transition', { length: 0.1, foreRadius: 0.02, aftRadius: 0.05 }), {});
+  expect(paperTemplatePages(transition, 'Rocket', INITIAL_UNITS)[0]!.svg).toContain('Fore diameter 40 mm; Aft diameter 100 mm');
+  const ring = paperTemplateGeometry(node('centeringring', { outerRadius: 0.05, innerRadius: 0.02 }), {});
+  expect(paperTemplatePages(ring, 'Rocket', INITIAL_UNITS)[0]!.svg).toContain('Outside diameter 100 mm; Opening diameter 40 mm');
+});

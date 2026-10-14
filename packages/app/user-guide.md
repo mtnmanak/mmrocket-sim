@@ -791,6 +791,14 @@ Select a **Body tube**, then add a **Vent / marking hole**. Set **Hole diameter*
 
 **Tube wrap (1:1)** prints the hole centres as crosses, with diameter labels and dashed diameter circles where the circles fit on a sheet. Diameter labels move above or left near a sheet edge and into separate bands to stay clear of drilling marks and other hole, fin or guide labels. On narrow sheets, diameter labels turn along the tube instead of squeezing the text; grid coordinates print where their labels fit. Grid coordinates and fin/guide labels are omitted where their text would cover a drilling mark; the grid and marking lines stay in place. Dotted leaders connect each diameter label to its hole centre. If the diameter labels cannot fit, the export asks you to reduce the number of marks or shorten their names. Seam centres repeat at both edges, and centres in page overlaps repeat on both sheets. **Caution:** Check the positions and diameters against the actual tube before drilling. Marks extending past the tube ends are noted; this is advice and does not prevent simulation.
 
+## 1:1 rings, bulkheads, and shaped parts
+
+Select a **Centering ring**, **Bulkhead**, **Transition**, or **Nose cone**, then choose **Paper template (1:1)…**. A browser preview opens; choose **Print / Save as PDF** to print it or keep a PDF. Use A4 or US Letter, **100%**, **no fit to page**, and **no margins**. Measure the ruler on every sheet: **50 mm**, or **2 in** for inches or feet. If the ruler is wrong, the part dimensions are wrong too. Larger parts use numbered rows and columns with **10 mm overlap**; match their printed coordinates before trimming.
+
+Rings and bulkheads use their stated outside diameter, else the bore of their containing tube. A centering ring's opening uses its stated ID, else the overlapping mount tube's **outside** diameter so the tube can fit through it. A stated zero ID makes a solid disc with no centre opening. Context is used only when a dimension is absent: the preview refuses a stated nonpositive outside diameter, negative ID, or ID at or beyond the outside diameter, even when a containing tube or mount is available. Unknown or invalid dimensions are marked with a Caution in the design report; do not cut from unresolved dimensions. Bulkheads are solid discs: the design has no additional drilling-hole fields, so the template invents no holes. There is no cutting allowance; measure the actual parts before cutting.
+
+Conical transitions and conical noses have exact flat wraps of the **exterior surface**, with fore/aft diameters labeled. Equal-radius transitions give rectangular wraps. Almost equal end radii also give a rectangular wrap when the circumference and outline errors are below the SVG's 0.0001 mm precision; the page labels this approximation. **Caution:** Curved noses and curved transitions give a **sampled side profile and a station table**, not a flat wrap: their surfaces cannot be flattened exactly. Stations run aft from the part's front and list its radius in **Preferences → Units of measure → Rocket dimensions**. Flipped noses have their base at the front. All these shaped-part templates omit shoulders, wall thickness, seam tabs, and cutting allowance; check material fit before cutting. They change no simulation setting.
+
 ## 1:1 tube marking wraps (SVG, PNG, JPG)
 
 Select a straight round **Body tube**, or a trapezoidal, elliptical or freeform fin set attached to it, and choose **Tube wrap (1:1)**. The wrap uses the tube's outer circumference and each fin set's rotation and fin count. Solid lines mark fin positions; dashed lines mark launch lugs and rail buttons on that tube. Heavy ticks mark fin-root ends and guide positions. Tab-slot boxes show the tab's front and aft extents along the tube and use the fin thickness as their width, with no cutting allowance. Slot extents follow **Tab offset** and **Tab offset from**, clamped to the fin root, as in the individual fin template.
@@ -1341,6 +1349,26 @@ Three things it deliberately does not touch:
 <a id="files-and-formats"></a>
 
 ## Files, Units, and Offline Use
+
+### Print a design and flight report
+
+Choose **Save As / Export → Print design / flight report…**, or the same button on **Results**. The browser preview contains the current design summary and fitted schematic, a parts list with dimensions, stated materials and computed masses, and the **selected** flight's motor, configuration, key results, recovery figures, and range card. Units follow Preferences. Select a row in **Saved simulations** before printing to include that flight; with no selection, the report says so. The current design and selected flight are labeled separately. Stale results name what changed, missing match evidence stays unknown, and imported summaries make no design-match or safety claim. Recorded flight notes keep their Caution or Danger labels.
+
+If the current build refuses an assigned motor, the report marks that assignment as **omitted from build**, names the mount beside the summary, and gives the refusal reason beside the assignments. **Caution:** The incomplete build's mass, CG and stability do not describe the complete assigned loadout; with all assigned motors, the rocket can have more mass and less stability margin. The current summary keeps dry mass and dimensions, but shows loaded mass, CG, CP and stability for the complete loadout as **Unknown**. The selected flight keeps its recorded figures separately.
+
+An unresolved imported motor on a mount still in the design appears with its recorded manufacturer and designation as **unresolved; omitted from build**. It receives the same incomplete-loadout Caution and unknown current figures, including after a browser session is restored. The app has no loaded curve for that motor, so its contribution to mass and stability cannot be established.
+
+The current configuration and motor assignments appear even with no selected flight. They are separate from the selected flight's recorded motors and results.
+
+Freeform fin dimensions include root chord, span from the root, and axial extent in your preferred Rocket dimensions units. Axial extent includes any tip overhang and can be longer than the root chord.
+
+The selected flight's motor count is labeled **primary mount/group** for ordinary runs or **candidate group** for batch rows. It does not establish the complete flight loadout; the complete flight motor count stays **Unknown** because it is not recorded. Other recorded motor labels do not supply their copy counts, and missing counts stay unknown.
+
+An imported summary's deployment scalar is labeled **deployment ground speed**, with device and opening order not recorded. It cannot establish a device's air-relative opening speed; do not use it as the first device's opening speed when assessing recovery loads.
+
+When the selected flight has valid per-mount delay records, **Ejection delays by mount** lists each recorded mount, motor identity, branch, mode, ballistic optimum, recommendation, and flown delay. Plugged means no ejection charge. Hypothetical-charge and burnout cautions stay beside the affected delay. Older scalar-only records are labeled legacy and apply only to the primary motor; other mounts' delays are not recorded. Do not apply the primary motor's recommendation to another mount: its charge would fire at a different time from the recorded flight. Invalid or incomplete per-mount records are flagged, and the report uses no delay from today's assignments to fill missing flight evidence.
+
+In the preview choose **Print / Save as PDF**, then the browser's **Save as PDF** destination. Short reports fit one page where possible; longer parts lists continue, with repeated column headings. The schematic is fitted to the report and is not a cutting template. These figures are simulated predictions, not measurements or certification. If preparing or opening the report fails, the error appears beside the print action and **Save As / Export** stays open so you can read it and retry. If the preview is blocked, allow pop-ups for the app and try again. Printing changes no design, saved run, or simulation setting.
 
 Finally, save your work, move it between tools, and use the app with no network.
 
