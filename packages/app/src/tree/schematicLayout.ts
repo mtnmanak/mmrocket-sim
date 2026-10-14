@@ -1188,7 +1188,10 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // cluster spread out end-on and stacked on the axis from the side.
         // Only the +y component projects into a side view; the view roll turns
         // the pair, same as every other radial part here.
-        const physicalRadY = num(child, 'radialPosition', 0) * Math.cos(num(child, 'radialDirection', 0) + frameRoll);
+        // N044: preserved ring offsets do not move kernel instances (I21.radial-offset).
+        const physicalRadY = ['innertube', 'masscomponent', 'parachute', 'streamer', 'shockcord'].includes(child.type)
+          ? num(child, 'radialPosition', 0) * Math.cos(num(child, 'radialDirection', 0) + frameRoll)
+          : 0;
         const radY = child.type === 'innertube'
           ? num(child, 'radialPosition', 0) * Math.cos(num(child, 'radialDirection', 0) + frameRoll)
           : 0;

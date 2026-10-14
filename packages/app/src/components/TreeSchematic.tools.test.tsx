@@ -40,6 +40,34 @@ describe('N033 and N044 view tools', () => {
     expect(caliper.getAttribute('aria-label') ?? caliper.textContent).toMatch(/Caliper/i);
   });
 
+  it.each([false, true])('touch measures the centred 10 mm bulkhead diameter with radial fields and walls %s', walls2d => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(640);
+    vi.stubGlobal('ResizeObserver', class {
+      callback: () => void;
+      constructor(callback: () => void) { this.callback = callback; }
+      observe() { this.callback(); }
+      disconnect() {}
+    });
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ walls2d }));
+    const centred = { name: 'Centred bulkhead', components: [{ id: 'b', type: 'bodytube', length: 2, outerRadius: 0.02,
+      children: [{ id: 'r', type: 'bulkhead', length: 0.005, outerRadius: 0.005, radialPosition: 0.01,
+        radialDirection: 0, position: { method: 'top', offset: 0.1 } }] }] } as RocketTree;
+    act(() => root.render(<PrefsProvider><TreeSchematic tree={centred} info={null} roll={Math.PI / 3}
+      onSelect={select} onPatchNode={patch} /></PrefsProvider>));
+    click('Caliper: measure two points');
+    expect(host.querySelector<HTMLInputElement>('.schematic-tool-notes input[type="checkbox"]')!.checked).toBe(true);
+    const part = svg().querySelector<SVGRectElement>('rect[stroke-dasharray="3 2"]')!;
+    const x = Number(part.getAttribute('x')), y = Number(part.getAttribute('y'));
+    const height = Number(part.getAttribute('height'));
+    const h = Number(svg().getAttribute('viewBox')!.split(' ')[3]);
+    pointer(x, y * 240 / h); pointer(x, (y + height) * 240 / h);
+    expect(host.querySelector('[data-caliper-readout]')!.textContent)
+      .toBe('Horizontal 0 mm · Vertical 10 mm · Straight 10 mm');
+    expect(select).not.toHaveBeenCalled(); expect(patch).not.toHaveBeenCalled();
+    key(svg(), 'Escape');
+    expect(svg().querySelector('[data-caliper]')).toBeNull();
+  });
+
   it.each([false, true])('touch measures a 5 mm engine block at 360 px with walls %s', walls2d => {
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(360);
     vi.stubGlobal('ResizeObserver', class {

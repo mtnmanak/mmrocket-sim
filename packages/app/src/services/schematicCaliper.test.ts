@@ -82,17 +82,62 @@ describe('N044 projected caliper geometry', () => {
     expect(targets.every(p => p.y <= 0.021)).toBe(true);
   });
 
-  it.each(['engineblock', 'centeringring', 'bulkhead'])('projects %s radial placement from the model even when its symbol is centred', type => {
+  it.each(['engineblock', 'centeringring', 'bulkhead', 'tubecoupler'])('keeps %s stations centred despite preserved radial fields', type => {
     const tree = { name: 'Offset ring', components: [{ id: 'b', type: 'bodytube', length: 2, outerRadius: 0.02,
       children: [{ id: 'r', type, length: 0.005, outerRadius: 0.005, radialPosition: 0.01, radialDirection: 0,
         position: { method: 'top', offset: 0.1 } }] }] } as RocketTree;
-    const ctx = { scale: 126, x0: 50, cy: 100, roll: Math.PI / 3, idPrefix: 'radial' };
+    for (const scale of [126, 1000]) for (const walls of [false, true]) {
+      const ctx = { scale, x0: 50, cy: 100, roll: Math.PI / 3, walls, idPrefix: 'radial' };
+      const layout = layoutSchematic(tree, ctx);
+      const ring = { ...layout, shapes: layout.shapes.filter(s => s.part?.id === 'r' && !s.part.hit) };
+      const targets = schematicSnapTargets(ring);
+      for (const x of [0.1, 0.105]) for (const y of [-0.005, 0, 0.005]) {
+        expect(targets.some(p => Math.hypot(p.x - x, p.y - y) < 1e-12)).toBe(true);
+      }
+      expect(targets.every(p => Math.abs(p.y) <= 0.005)).toBe(true);
+    }
+  });
+
+  it.each(['innertube', 'masscomponent', 'parachute', 'streamer', 'shockcord'])('retains the real projected radial offset of %s', type => {
+    const tree = { name: 'Displaced internal', components: [{ id: 'b', type: 'bodytube', length: 2, outerRadius: 0.02,
+      children: [{ id: 'i', type, length: 0.005, outerRadius: 0.002, radius: 0.002, packedRadius: 0.002,
+        radialPosition: 0.01, radialDirection: Math.PI / 6, position: { method: 'top', offset: 0.1 } }] }] } as RocketTree;
+    // 10 mm at direction PI/6 plus roll PI/6 projects to a 5 mm baseline.
+    const ctx = { scale: 126, x0: 50, cy: 100, roll: Math.PI / 6, idPrefix: 'displaced' };
     const layout = layoutSchematic(tree, ctx);
-    const ring = { ...layout, shapes: layout.shapes.filter(s => s.part?.id === 'r') };
-    const targets = schematicSnapTargets(ring);
-    for (const x of [0.1, 0.105]) for (const y of [0, 0.005, 0.01]) {
+    const targets = schematicSnapTargets({ ...layout, shapes: layout.shapes.filter(s => s.part?.id === 'i') });
+    for (const x of [0.1, 0.105]) for (const y of [0.003, 0.005, 0.007]) {
       expect(targets.some(p => Math.hypot(p.x - x, p.y - y) < 1e-12)).toBe(true);
     }
+  });
+
+  it.each([false, true])('keeps coupler bores and descendants on the inherited baseline with walls %s', walls => {
+    const tree = { name: 'Offset mount with centred rings', components: [{ id: 'b', type: 'bodytube', length: 2,
+      outerRadius: 0.04, children: [{ id: 'i', type: 'innertube', length: 0.3, outerRadius: 0.02, thickness: 0.002,
+        radialPosition: 0.02, position: { method: 'top', offset: 0.1 }, children: [
+          { id: 'c', type: 'tubecoupler', length: 0.1, thickness: 0.001, radialPosition: 0.01,
+            position: { method: 'top', offset: 0.01 }, children: [{ id: 'r', type: 'bulkhead', length: 0.002,
+              radialPosition: 0.01, position: { method: 'top', offset: 0.01 } }] },
+        ] }] }] } as RocketTree;
+    const before = JSON.stringify(tree);
+    const ctx = { scale: 1000, x0: 50, cy: 100, roll: Math.PI / 3, walls, idPrefix: 'coupler' };
+    const layout = layoutSchematic(tree, ctx);
+    const targets = schematicSnapTargets({ ...layout, shapes: layout.shapes.filter(s => s.part?.id === 'c') });
+    // Inherited 10 mm baseline, 18 mm coupler radius, 17 mm bore/automatic bulkhead radius.
+    for (const x of [0.11, 0.21]) for (const y of [-0.008, 0.01, 0.028]) {
+      expect(targets.some(p => Math.hypot(p.x - x, p.y - y) < 1e-12)).toBe(true);
+    }
+    const wallShapes = layout.shapes.filter(s => s.attrs['data-wall'] === 'c');
+    expect(wallShapes).toHaveLength(walls ? 1 : 0);
+    const bore = schematicSnapTargets({ ...layout, shapes: wallShapes });
+    if (walls) for (const x of [0.11, 0.21]) for (const y of [-0.007, 0.027]) {
+      expect(bore.some(p => Math.hypot(p.x - x, p.y - y) < 1e-12)).toBe(true);
+    }
+    const descendant = schematicSnapTargets({ ...layout, shapes: layout.shapes.filter(s => s.part?.id === 'r') });
+    for (const x of [0.12, 0.122]) for (const y of [-0.007, 0.01, 0.027]) {
+      expect(descendant.some(p => Math.hypot(p.x - x, p.y - y) < 1e-12)).toBe(true);
+    }
+    expect(JSON.stringify(tree)).toBe(before);
   });
 
   it('carries the model pod baseline into capped shoulder bore stations', () => {
