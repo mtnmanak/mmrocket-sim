@@ -80,7 +80,7 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, hidden, visibilit
           <button type="button" className="tree-visibility"
             aria-label={`${isHidden ? 'Show' : 'Hide'} ${label} in views`}
             aria-pressed={isHidden} aria-describedby={visibilityNoteId}
-            title={`${isHidden ? 'Show' : 'Hide'} ${label} and its children in views`}
+            title={isHidden ? `Show ${label} in views` : `Hide ${label} and its children in views`}
             onClick={e => { e.stopPropagation(); onToggleVisibility(node.id!); }}>
             <Icon name={isHidden ? 'eye-off' : 'eye'} size={16} />
           </button>

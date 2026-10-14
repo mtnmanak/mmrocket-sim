@@ -31,6 +31,11 @@ const tree = {
   ] }],
 } as unknown as RocketTree;
 const motors = { mount: { length: 0.08, diameter: 0.013, label: 'C6-5' } };
+function withCluster(cluster: string): RocketTree {
+  const fixture = structuredClone(tree);
+  fixture.components[0]!.children![1]!.children![1]!['cluster'] = cluster;
+  return fixture;
+}
 let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => { host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host); });
@@ -103,16 +108,75 @@ describe('C-B20 view-only hiding', () => {
     expect(after.shapes.filter(s => s.part?.id === 'fins')).toEqual(before.shapes.filter(s => s.part?.id === 'fins'));
   });
 
-  it('removes child fin meshes, clustered mount motors and pod copies from 3D without hiding the airframe', () => {
-    const full = buildPieces(tree, motors);
-    const hidden = buildPieces(tree, motors, new Set(['fins', 'mount', 'pod']));
+  it.each([
+    ['single', 10, 1],
+    ['3-ring', 14, 3],
+  ] as const)('removes child fin meshes, %s mount motors and pod copies from 3D without hiding the airframe', (cluster, meshCount, motorCount) => {
+    const fixture = withCluster(cluster);
+    const full = buildPieces(fixture, motors);
+    const hidden = buildPieces(fixture, motors, new Set(['fins', 'mount', 'pod']));
     try {
-      expect(full.pieces).toHaveLength(10);
+      expect(full.pieces).toHaveLength(meshCount);
+      expect(full.pieces.filter(p => p.key.startsWith('inner'))).toHaveLength(motorCount);
+      expect(full.pieces.filter(p => p.key.startsWith('motor'))).toHaveLength(motorCount);
       expect(hidden.pieces).toHaveLength(3);
+      expect(hidden.pieces.filter(p => p.key.startsWith('inner') || p.key.startsWith('motor'))).toHaveLength(0);
       expect(hidden.pieces.map(p => p.color)).toEqual([full.pieces[0]!.color, full.pieces[1]!.color, full.pieces.at(-1)!.color]);
     } finally {
       for (const p of [...full.pieces, ...hidden.pieces]) p.geometry.dispose();
     }
+  });
+
+  it('removes every three-motor cluster case, designation and mount target from the 2D view', () => {
+    const fixture = withCluster('3-ring');
+    const options = { scale: 1000, cy: 100, x0: 20, roll: 0, idPrefix: 'test', motors };
+    const cases = (hiddenIds?: ReadonlySet<string>) => layoutSchematic(fixture, { ...options, hiddenIds })
+      .shapes.filter(s => s.tag === 'rect' && s.key.includes(':motor'));
+    expect(cases()).toHaveLength(3);
+    act(() => root.render(<TreeSchematic tree={fixture} info={null} motors={motors}
+      selectedId={null} onSelect={() => {}} />));
+    expect([...host.querySelectorAll('svg text')].filter(e => e.textContent === 'C6-5')).toHaveLength(3);
+    expect(host.querySelector('[aria-label="Select Mount"]')).not.toBeNull();
+    act(() => root.render(<TreeSchematic tree={fixture} info={null} motors={motors}
+      hiddenIds={new Set(['mount'])} selectedId={null} onSelect={() => {}} />));
+    expect(cases(new Set(['mount']))).toHaveLength(0);
+    expect(host.textContent).not.toContain('C6-5');
+    expect(host.querySelector('[aria-label="Select Mount"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Select Ring"]')).toBeNull();
+    expect(host.querySelector('[aria-label="Select Airframe"]')).not.toBeNull();
+  });
+
+  it('removes every three-motor cluster mount, motor and nested ring from the aft view', () => {
+    const fixture = withCluster('3-ring');
+    const titles = () => [...host.querySelectorAll('svg title')].map(e => e.textContent);
+    act(() => root.render(<AftView tree={fixture} motors={motors} />));
+    for (const title of ['Mount', 'Motor', 'Ring']) {
+      expect(titles().filter(t => t === title)).toHaveLength(3);
+    }
+    act(() => root.render(<AftView tree={fixture} motors={motors} hiddenIds={new Set(['mount'])} />));
+    for (const title of ['Mount', 'Motor', 'Ring']) expect(titles()).not.toContain(title);
+    expect(titles()).toContain('Freeform fins ×3');
+  });
+
+  it('describes parent restoration without promising to show independently hidden descendants', () => {
+    function Harness() {
+      const [hiddenIds, setHiddenIds] = useState<ReadonlySet<string>>(new Set());
+      return <ComponentTree tree={tree} selectedId={null} onSelect={() => {}}
+        hiddenIds={hiddenIds} onToggleVisibility={id => setHiddenIds(ids => togglePartVisibility(tree, ids, id))}
+        onShowAll={() => setHiddenIds(new Set())} onMove={() => {}} onDelete={() => {}}
+        onDuplicate={() => {}} onAdd={() => {}} onAddStage={() => {}} clipboard={null}
+        onCopy={() => {}} onCut={() => {}} onPaste={() => {}} />;
+    }
+    act(() => root.render(<Harness />));
+    const eye = (label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!;
+    expect(eye('Hide Airframe in views').title).toBe('Hide Airframe and its children in views');
+    act(() => eye('Hide Freeform fins in views').click());
+    act(() => eye('Hide Airframe in views').click());
+    expect(eye('Show Airframe in views').title).toBe('Show Airframe in views');
+    act(() => eye('Show Airframe in views').click());
+    expect(eye('Hide Airframe in views').getAttribute('aria-pressed')).toBe('false');
+    expect(eye('Show Freeform fins in views').getAttribute('aria-pressed')).toBe('true');
+    expect(eye('Show Freeform fins in views').title).toBe('Show Freeform fins in views');
   });
 
   it('exposes an eye control on every row, retains hidden selection, and offers Show all with adjacent advice', () => {
