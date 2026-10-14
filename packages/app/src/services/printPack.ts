@@ -206,8 +206,9 @@ export function printOffer(
   const single = (note: string | null, tone: PrintTone): PrintOffer =>
     ({ kind: 'single', button: SINGLE_BUTTON, note, tone, split: null });
 
-  // Fins are flat prisms, not revolves — componentLoop() returns null and the
-  // splitter has nothing to say about them. Nothing changes for those.
+  // Fins are plates (a flat prism or a shaped section), not revolves —
+  // componentLoop() returns null and the splitter has nothing to say about
+  // them. Nothing changes for those.
   const base = componentLoop(node, ctx);
   if (!base) return single(null, 'none');
   const od = 2 * Math.max(0, ...base.loop.map(([, r]) => r));

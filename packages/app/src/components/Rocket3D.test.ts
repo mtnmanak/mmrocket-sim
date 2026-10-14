@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import type { ComponentNode, RocketTree, StaticInfo } from '@online-openrocket/engine';
@@ -753,5 +755,25 @@ describe('buildPieces — rail button standoff is its own total height', () => {
 
   it('keeps the kernel constructor value when the button states no height', () => {
     expect(drawnHeight(btnTree())).toBeCloseTo(0.0097, 9);
+  });
+});
+
+describe('the view draws each part with its surface finish (N062)', () => {
+  it('takes roughness and metalness from pieceMaterial, the map the GLB shares', () => {
+    // The material is JSX, which this suite does not mount: hold the source to
+    // the shared map, so the view and the .glb cannot drift apart again.
+    const src = readFileSync(resolve('src/components/Rocket3D.tsx'), 'utf8');
+    expect(src).toMatch(/<meshStandardMaterial color=\{p\.color\} \{\.\.\.pieceMaterial\(p\)\}/);
+    expect(src).not.toMatch(/roughness=\{0\.6\}/);
+  });
+
+  it('a fin with a shaped section and fillets still frames by maxR', () => {
+    const { pieces, maxR } = buildPieces(base([{
+      type: 'trapezoidfinset', id: 'f', finCount: 3, rootChord: 0.04, tipChord: 0.02, sweep: 0.02,
+      height: 0.03, crossSection: 'airfoil', filletRadius: 0.004, position: { method: 'bottom', offset: 0 },
+    } as ComponentNode]));
+    expect(pieces.filter((p) => p.key.startsWith('fin'))).toHaveLength(3);
+    const box = piecesBounds(pieces);
+    expect(box.max.y).toBeCloseTo(maxR, 4);
   });
 });

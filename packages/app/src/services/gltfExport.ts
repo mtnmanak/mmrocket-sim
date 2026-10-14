@@ -1,13 +1,14 @@
 import * as THREE from 'three';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
 import type { RocketTree } from '@online-openrocket/engine';
-import { buildPieces, isShellPiece } from '../tree/pieces.js';
+import { buildPieces, isShellPiece, pieceMaterial } from '../tree/pieces.js';
 
 /**
  * Binary glTF (.glb) export of the rocket's EXTERNAL 3D geometry — the 3D
  * view's own meshes less the inner tubes it draws through its translucent
- * shell (isShellPiece), each carrying its app color as a
- * MeshStandardMaterial (the advantage over .obj, which is geometry-only).
+ * shell (isShellPiece), each carrying its app color, and the roughness and
+ * metalness of its surface finish (pieceMaterial), as a MeshStandardMaterial
+ * (the advantage over .obj, which is geometry-only).
  * glTF is METERS by spec, so our SI geometry passes through unscaled; the
  * rocket axis = +X with the nose tip at the origin, matching the .obj export
  * (viewers show the rocket lying on its side — that is fine). The MIME type a
@@ -26,8 +27,9 @@ export function rocketToGlb(tree: RocketTree, name: string): Promise<ArrayBuffer
     const group = new THREE.Group();
     group.name = name;
     for (const p of pieces) {
+      // Roughness/metalness from the part's surface finish — the 3D view's map.
       const mesh = new THREE.Mesh(p.geometry, new THREE.MeshStandardMaterial({
-        color: p.color, roughness: 0.6, metalness: 0.05,
+        color: p.color, ...pieceMaterial(p),
       }));
       mesh.name = p.key;
       if (p.position) mesh.position.set(...p.position);

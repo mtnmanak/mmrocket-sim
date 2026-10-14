@@ -710,8 +710,8 @@ function placeCuts(
 
 /**
  * End-to-end: plan a component's split and produce the segment loops. Returns
- * null for anything that is not a revolved part (fins are flat prisms; they
- * are split by nothing here).
+ * null for anything that is not a revolved part (fins are plates — a flat
+ * prism or a shaped section — not revolves; they are split by nothing here).
  *
  * Deliberately two-pass. The first pass builds the loop to measure the part,
  * the second REBUILDS it with the cut planes handed to outerProfile() as

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { componentSolid, isWatertight, solidVolume } from './solidMesh.js';
+import { componentSolid, finPrintShape, isWatertight, solidVolume } from './solidMesh.js';
 import { solidContextFor } from './solidContext.js';
 import { componentDxf } from '../services/dxfExport.js';
 import { finTemplateSvg } from '../services/finTemplate.js';
@@ -59,7 +59,11 @@ const cases = [
 ];
 
 for (const shape of ['conical', 'ogive']) {
-  for (const crossSection of ['rounded', 'airfoil']) {
+  // N062: a square section is the flat prism, whose volume is exact; a rounded
+  // or airfoil one prints its cross-section (shaped below), except where a
+  // horizontal line crosses the outline more than twice — the two-lobe M — which
+  // keeps the flat prism and says so.
+  for (const crossSection of ['square', 'rounded', 'airfoil']) {
     for (const scenario of cases) {
       const fin: ComponentNode = { id: 'f', type: 'freeformfinset', crossSection, thickness: 0.003,
         points: scenario.multiple
@@ -76,13 +80,29 @@ for (const shape of ['conical', 'ogive']) {
         expect(solid).not.toBeNull();
         expect(isWatertight(solid!.mesh)).toBe(true);
         expect(solidVolume(solid!.mesh)).toBeGreaterThan(0);
+        const flat = crossSection === 'square' || scenario.multiple === true;
+        expect(finPrintShape(fin, ctx)).toEqual(crossSection === 'square' ? { kind: 'flat' }
+          : scenario.multiple ? { kind: 'fallback', law: crossSection === 'rounded' ? 'rounded' : 'naca', reason: 'chords' }
+            : { kind: 'shaped', law: crossSection === 'rounded' ? 'rounded' : 'naca', minEdge: 0.0004,
+              tab: 'tabLength' in scenario.tab });
         if (shape === 'conical') {
           // Shoelace areas of the seated triangles, plus the tab's trapezoid
           // below a root rising 12.5 mm over 80 mm. No lobe may disappear.
           const lobeArea = scenario.multiple ? 0.00074765625 : 0.00080625;
           const tabLength = scenario.tab.tabLength ?? 0;
           const tabArea = tabLength * 0.005 + (0.0125 / 0.08) * tabLength ** 2 / 2;
-          expect(Math.abs(solidVolume(solid!.mesh) - (lobeArea + tabArea) * 0.003)).toBeLessThan(1e-15);
+          if (flat) {
+            expect(Math.abs(solidVolume(solid!.mesh) - (lobeArea + tabArea) * 0.003)).toBeLessThan(1e-15);
+          } else {
+            // Shaped: thinner than the stock everywhere on the lobe, never below
+            // the 0.4 mm printable edge, and the tab still full stock.
+            expect(solidVolume(solid!.mesh)).toBeLessThan((lobeArea + tabArea) * 0.003);
+            expect(solidVolume(solid!.mesh)).toBeGreaterThan(lobeArea * 0.0004 + tabArea * 0.003);
+          }
+        }
+        if (!flat) {
+          const square = await componentSolid({ ...fin, crossSection: 'square' }, ctx);
+          expect(solidVolume(solid!.mesh)).toBeLessThan(solidVolume(square!.mesh));
         }
         const stl = solidToStl(solid!.mesh, 'rising mount');
         expect(new DataView(stl.buffer).getUint32(80, true)).toBe(solid!.mesh.triangles.length / 3);

@@ -19,14 +19,22 @@ import { noseEnds } from './tailCone.js';
 import { axialLength, axialStart } from './position.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
 import { hiddenPartIds } from './partVisibility.js';
+import {
+  cantRootY, cantMesh, filletMesh, finGeometry, onRoot, planformReach, rootRuns, shapedFin,
+  type FinPlacement,
+} from './finSurface.js';
+import { seatedChordPoints } from './finChords.js';
 
 /**
  * THE APP'S 3D GEOMETRY, and nothing else.
  *
  * This is `buildPieces` and the helpers it needs: three.js BufferGeometry
  * built from the component tree — lathe profiles for nose cones and
- * transitions (kernel-exact shape math), cylinders for tubes, extruded shapes
- * for fins at their instance angles. No React, no hooks, no renderer.
+ * transitions (kernel-exact shape math), cylinders for tubes, fins at their
+ * instance angles — a square section as the extruded prism, a rounded or
+ * airfoil one shaped by its section law, with any root fillets
+ * (tree/finSurface.ts) — and each part's surface finish as a material.
+ * No React, no hooks, no renderer.
  *
  * It lives here rather than in `components/Rocket3D.tsx` because FOUR
  * consumers are not the 3D view: File > Save STL, the OBJ exporter, the glTF
@@ -77,7 +85,44 @@ export interface Piece {
   /** Inner tubes — glassier still, so the loaded motor INSIDE them shows
    *  (batch 08-21d: an opaque mount hid the motor entirely). */
   innerGlass?: boolean;
+  /** The part's surface finish (the node's `finish`), for its material only —
+   *  `pieceMaterial` maps it. Absent on parts with no finish field. */
+  finish?: string;
 }
+
+/**
+ * Surface finish → material, for the 3D view and the GLB: the ONE map.
+ * Desktop OR's 3D Figure view shows finish as OpenGL shininess
+ * (FigureRenderer.getShine, FigureRenderer.java:131-142); its intent — the
+ * rougher the finish, the duller the part — is kept, its quirk is not (any
+ * finish it does not list falls to 100, so "Rough unfinished" drew shinier
+ * than "Smooth paint"). Here roughness falls and metalness rises monotonically
+ * from Rough (500 µm) to Mirror (0 µm). "Regular paint", the default, is the
+ * 0.6 / 0.05 every part drew with before, and so is a part with no finish.
+ * Metalness stays low: the view has no environment map, and a metallic
+ * surface with nothing to reflect renders dark. Appearance only — the finish
+ * feeds skin-friction drag through the kernel, as before.
+ */
+export const FINISH_MATERIAL: Readonly<Record<string, { roughness: number; metalness: number }>> = {
+  rough: { roughness: 0.95, metalness: 0 },
+  roughunfinished: { roughness: 0.88, metalness: 0 },
+  unfinished: { roughness: 0.78, metalness: 0.02 },
+  normal: { roughness: 0.6, metalness: 0.05 },
+  smooth: { roughness: 0.45, metalness: 0.05 },
+  optimum: { roughness: 0.35, metalness: 0.06 },
+  polished: { roughness: 0.25, metalness: 0.15 },
+  finishpolished: { roughness: 0.15, metalness: 0.2 },
+  mirror: { roughness: 0.08, metalness: 0.25 },
+};
+
+/** The material a piece draws with: its finish's, else Regular paint's. */
+export function pieceMaterial(p: Pick<Piece, 'finish'>): { roughness: number; metalness: number } {
+  return (p.finish !== undefined ? FINISH_MATERIAL[p.finish] : undefined) ?? FINISH_MATERIAL['normal']!;
+}
+
+/** A node's finish, when it carries one. */
+const finishOf = (n: ComponentNode): string | undefined =>
+  typeof n['finish'] === 'string' && n['finish'] in FINISH_MATERIAL ? (n['finish'] as string) : undefined;
 
 /**
  * Whether a piece belongs in a whole-rocket FILE export — the .obj, the .glb
@@ -118,11 +163,13 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
   const place = (
     key: string, geometry: THREE.BufferGeometry, color: string,
     position?: [number, number, number], rotation?: [number, number, number],
-    xform?: THREE.Matrix4, translucent?: boolean | 'glass',
+    xform?: THREE.Matrix4, translucent?: boolean | 'glass', node?: ComponentNode,
   ) => {
+    const finish = node ? finishOf(node) : undefined;
     const flags = {
       translucent: translucent === true || undefined,
       innerGlass: translucent === 'glass' || undefined,
+      ...(finish !== undefined ? { finish } : {}),
     };
     if (!xform) { pieces.push({ key, geometry, color, position, rotation, ...flags }); return; }
     const g = geometry.clone();
@@ -279,37 +326,75 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
     // (2026-09-08 audit). Skip the set rather than draw a fin with no
     // thickness — the same answer the >= 3 point guard above gives.
     if (!(thickness > 0)) return;
-    const geo = new THREE.ExtrudeGeometry(shapes, { depth: thickness, bevelEnabled: false });
-    geo.translate(0, 0, -thickness / 2);
 
     // FinSet.getInstanceOffsets (FinSet.java:1762-1770) cants about length/2
     // before clocking. Use the ROOT chord, not a freeform tip's max-x. Our
     // frame matches the kernel's +Z, so rotate_y has the same positive sign.
     // Match setCantAngle's +/-15 degree clamp (FinSet.java:239).
     const cant = Math.max(-Math.PI / 12, Math.min(Math.PI / 12, num(child, 'cant', 0)));
-    if (cant !== 0) {
-      const halfChord = axialLength(child) / 2;
-      // Extend root vertices to the tube before canting, as FinSet's
-      // getFinCantYOffset does (audit 2026-10-11, S4b-3). Tips stay put.
-      const vertices = geo.getAttribute('position');
-      const front = start - pStart;
-      for (let j = 0; j < vertices.count; j++) {
-        const x = vertices.getX(j);
-        const radius = mount.radiusAt(front + x);
-        if (Math.abs(vertices.getY(j) - (radius - r0)) > 1e-7) continue;
-        const dx = Math.max(0, Math.min(mount.length, front + x)) - (front + halfChord);
-        const rotatedRadius = mount.radiusAt(front + halfChord + dx * Math.cos(cant));
-        const dz = dx * Math.sin(cant);
-        if (Math.abs(dz) < rotatedRadius) {
-          vertices.setY(j, vertices.getY(j) - rotatedRadius + Math.sqrt(rotatedRadius ** 2 - dz ** 2));
+    const front = start - pStart;
+    const placement: FinPlacement = {
+      front, r0, mount, seated: mounted !== null, cant, halfChord: axialLength(child) / 2,
+      ...(mounted ? { rootLine: mounted.root } : {}),
+    };
+    const areaLoops = loops.filter((l) => enclosesArea(l));
+    // Root fillets meet the fin's side and the body. A trapezoidal or
+    // elliptical root is still drawn straight at the leading edge's radius
+    // (only a freeform root is seated on the mount — finRoot.ts; a limit
+    // older than N062), so on a transition its fillet would hang above a
+    // boat tail or sink into a flare: such a set draws none (N062 review,
+    // round 4). The flight counts the fillet's mass either way.
+    const filletR = mounted !== null || mount.flat ? num(child, 'filletRadius', 0) : 0;
+
+    // A rounded or airfoil section is drawn by its section law (finSurface.ts);
+    // the thickness at each point comes from the fin's OWN leading and trailing
+    // edges AS SEATED (finChords.ts's seatedChordPoints: root corners on the
+    // body, as the kernel flies the fin; root closing edge left out), not from
+    // where a seated lobe is clipped — so a last point typed at y = 0 and one
+    // stored on the body draw one mesh. Square — and a shaped section with no
+    // single chord at some height, as seated on these lobes (finChords.ts's
+    // sectionChordProblem, the predicate the print and the panel's note
+    // share) — keeps the flat prism below, unchanged.
+    const own = child.type === 'freeformfinset' ? seatedChordPoints(ffPoints, start - pStart, mount) : loops[0]!;
+    const shaped = shapedFin(child, own, areaLoops, thickness);
+    let geo: THREE.BufferGeometry;
+    if (shaped) {
+      cantMesh(shaped.mesh, placement);
+      const fillet = filletR > 0
+        ? filletMesh(placement, rootRuns(placement, areaLoops, shaped.rootStations), filletR, shaped.halfAt, shaped.reach)
+        : null;
+      geo = finGeometry([shaped.mesh, fillet]);
+    } else {
+      geo = new THREE.ExtrudeGeometry(shapes, { depth: thickness, bevelEnabled: false });
+      geo.translate(0, 0, -thickness / 2);
+
+      if (cant !== 0) {
+        const halfChord = placement.halfChord;
+        // Extend root vertices to the tube before canting, as FinSet's
+        // getFinCantYOffset does (audit 2026-10-11, S4b-3). Tips stay put.
+        const vertices = geo.getAttribute('position');
+        for (let j = 0; j < vertices.count; j++) {
+          const x = vertices.getX(j);
+          if (!onRoot(placement, x, vertices.getY(j))) continue;
+          vertices.setY(j, cantRootY(placement, x, vertices.getY(j)));
         }
+        geo.translate(-halfChord, 0, 0);
+        geo.rotateY(cant);
+        geo.translate(halfChord, 0, 0);
+        geo.computeVertexNormals();
       }
-      geo.translate(-halfChord, 0, 0);
-      geo.rotateY(cant);
-      geo.translate(halfChord, 0, 0);
-      geo.computeVertexNormals();
+      // Root fillets against the prism's flat sides.
+      const fillet = filletR > 0
+        ? filletMesh(placement, rootRuns(placement, areaLoops), filletR, () => thickness / 2, planformReach(areaLoops))
+        : null;
+      if (fillet) {
+        const merged = finGeometry([fillet], geo);
+        geo.dispose();
+        geo = merged;
+      }
     }
 
+    const finish = finishOf(child);
     for (let i = 0; i < count; i++) {
       const angle = num(child, 'rotation', 0) + (2 * Math.PI * i) / count;
       // Fin lies in the XY plane, root on the surface (+Y), then rotate about X.
@@ -317,7 +402,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
       g.translate(start, r0, 0);
       g.applyMatrix4(new THREE.Matrix4().makeRotationX(angle));
       if (xform) g.applyMatrix4(xform); // off-axis pod instance
-      pieces.push({ key: `fin${k++}`, geometry: g, color: nodeColor(child, MAT.fin) });
+      pieces.push({ key: `fin${k++}`, geometry: g, color: nodeColor(child, MAT.fin), ...(finish !== undefined ? { finish } : {}) });
     }
     geo.dispose();
   };
@@ -359,7 +444,11 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
           geo.translate(start, pRadius + rt, 0);
           geo.applyMatrix4(new THREE.Matrix4().makeRotationX(angle));
           if (xform) geo.applyMatrix4(xform);
-          pieces.push({ key: `tubefin${k++}`, geometry: geo, color: nodeColor(child, MAT.fin) });
+          const tubeFinish = finishOf(child);
+          pieces.push({
+            key: `tubefin${k++}`, geometry: geo, color: nodeColor(child, MAT.fin),
+            ...(tubeFinish !== undefined ? { finish: tubeFinish } : {}),
+          });
         }
       } else if (child.type === 'fairing') {
         // External shroud — a real shell now (v0.088), not a box: its two ends
@@ -378,7 +467,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
           conformal: isConformal(child), fore: ends.fore, aft: ends.aft,
         });
         place(`fairing${k++}`, geo, nodeColor(child, MAT.lug),
-          [start, 0, 0], [num(child, 'angleOffset', 0), 0, 0], xform);
+          [start, 0, 0], [num(child, 'angleOffset', 0), 0, 0], xform, undefined, child);
       } else if ((child.type as string) === 'protuberance') {
         // Drag bump, drawn as the frontal box it IS aerodynamically — width x
         // height — so what the eye reads is the area feeding the drag. It sits
@@ -530,14 +619,14 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         const shapeName = typeof n['shape'] === 'string' ? (n['shape'] as string) : 'ogive';
         const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, fore, aft);
         place(`nose${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.nose),
-          [x, 0, 0], [0, 0, -Math.PI / 2], xform, true);
+          [x, 0, 0], [0, 0, -Math.PI / 2], xform, true, n);
         reach(R);
         addChildren(n, x, len, R, xform, profileMount(shapeName, numOpt(n, 'shapeParameter'), len, fore, aft));
         x += len;
       } else if (n.type === 'bodytube') {
         const R = kernelNum(n, 'outerRadius');
         place(`body${k++}`, new THREE.CylinderGeometry(R, R, len, 48), nodeColor(n, MAT.body),
-          [x + len / 2, 0, 0], [0, 0, -Math.PI / 2], xform, true);
+          [x + len / 2, 0, 0], [0, 0, -Math.PI / 2], xform, true, n);
         reach(R);
         // Min-diameter mount: a motor loaded directly in this body tube.
         const tubeMotor = n.id ? motors?.[n.id] : undefined;
@@ -560,7 +649,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         const clipped = typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined;
         const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, rf, ra, clipped);
         place(`trans${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.transition),
-          [x, 0, 0], [0, 0, -Math.PI / 2], xform, true);
+          [x, 0, 0], [0, 0, -Math.PI / 2], xform, true, n);
         reach(Math.max(rf, ra));
         // A fin roots on the profile it is drawn on, not at the larger end.
         addChildren(n, x, len, Math.max(rf, ra), xform,

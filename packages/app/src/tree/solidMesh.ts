@@ -3,22 +3,31 @@
  * component maps to a closed, outward-wound triangle mesh in meters (pure
  * SI — the STL writer alone converts to mm). Revolved parts reuse the
  * kernel-exact outerProfile() curves so the printed part is the geometry the
- * engine flies; fins are flat extruded prisms (cant and airfoil cross
- * sections are deliberately dropped — the UI labels that). Slicers require
- * watertightness, so everything routes through two primitives
- * (revolveProfile / extrudePolygon) that guarantee it by construction, and
- * isWatertight()/solidVolume() exist so tests can prove it.
+ * engine flies. Fins: a square (or unset) section is a flat extruded prism;
+ * a rounded or airfoil section prints with its cross-section on the exposed
+ * fin (tree/finSection.ts; sharp edges floored at a printable minimum edge)
+ * and a flat full-thickness tab — see "THE SHAPED PRINTABLE FIN" below. Cant
+ * is never baked in and fillets are not printed on the lone fin. Slicers
+ * require watertightness, so everything routes through primitives
+ * (revolveProfile / extrudePolygon / shapedFinSolid) that guarantee it by
+ * construction or refuse, and isWatertight()/solidVolume() exist so tests can
+ * prove it — the shaped fin also checks itself with them before it is used.
  */
 import type { ComponentNode } from '@online-openrocket/engine';
 import { kernelNum } from './kernelDefaults.js';
 import { num, numOpt } from './nodeNum.js';
 import { axialLength } from './position.js';
-import { signedArea } from './polygon.js';
+import { enclosesArea, signedArea } from './polygon.js';
 import { outerProfile } from './shapeProfile.js';
 import { tubeFinRadius, tubeFinWall } from './tubefins.js';
 import { finRootChord, finTabSpan } from './finTab.js';
 import { isTailCone, noseEnds } from './tailCone.js';
 import { finOnMount, type MountedFin, type MountSurface } from './finRoot.js';
+import {
+  finMacFromOutline, finSectionLaw, finSectionSpec, printableHalf, PRINT_MIN_EDGE, sectionHalfThickness,
+  sectionProfile, type FinSectionLaw, type FinSectionSpec,
+} from './finSection.js';
+import { chordOutline, chordRatioStations, finSectionFlatReason, seatedChordPoints } from './finChords.js';
 
 export interface SolidMesh {
   /** xyz triples, meters */
@@ -470,19 +479,12 @@ function mountedCutContours(
 }
 
 /**
- * Fin planforms in (x = chordwise aft+, y = span), root edge on y = 0. The
- * tab merges into the outline along the closing root edge; for freeform fins
- * that edge only exists when both endpoints sit on y = 0.
- *
- * Exported because the DXF cut profile and SVG template need the same merged
- * contours the extruded prisms use: a separate overlapping tab box cuts a
- * slot through the root. A seated fin split into lobes has one closed contour
- * per disconnected region, unless its tab joins those regions.
- *
- * `ctx` carries the body radius at the tab (`tabMaxDepth`), which the tab's
- * depth is clamped to; both exporters pass solidContextFor's.
+ * The fin's own planform points (x aft of the leading root corner, y outward,
+ * root on y = 0), BEFORE any seating or tab: the outline finCutContours cuts,
+ * and the outline the shaped printable fin (shapedFinSolid) takes its chords
+ * from. Null when the outline is unreadable or has fewer than three points.
  */
-export function finCutContours(node: ComponentNode, ctx: SolidContext = {}): Array<Array<[number, number]>> | null {
+export function finPlanformPoints(node: ComponentNode): Array<[number, number]> | null {
   let pts: Array<[number, number]>;
   // An absent dimension is the kernel's (tree/kernelDefaults.ts): the tip here
   // was 25 mm where the kernel, the 3D view and the paper template had 30
@@ -541,6 +543,26 @@ export function finCutContours(node: ComponentNode, ctx: SolidContext = {}): Arr
     else break;
   }
   if (pts.length < 3) return null;
+  return pts;
+}
+
+/**
+ * Fin planforms in (x = chordwise aft+, y = span), root edge on y = 0. The
+ * tab merges into the outline along the closing root edge; for freeform fins
+ * that edge only exists when both endpoints sit on y = 0.
+ *
+ * Exported because the DXF cut profile and SVG template need the same merged
+ * contours the extruded prisms use: a separate overlapping tab box cuts a
+ * slot through the root. A seated fin split into lobes has one closed contour
+ * per disconnected region, unless its tab joins those regions.
+ *
+ * `ctx` carries the body radius at the tab (`tabMaxDepth`), which the tab's
+ * depth is clamped to; both exporters pass solidContextFor's.
+ */
+export function finCutContours(node: ComponentNode, ctx: SolidContext = {}): Array<Array<[number, number]>> | null {
+  const planform = finPlanformPoints(node);
+  if (!planform) return null;
+  let pts = planform;
 
   // Seat printable and cuttable freeform roots too, including the tab's flat
   // floor below its lower surface endpoint (audit 2026-10-11, S4b-1).
@@ -585,6 +607,674 @@ export function finCutContours(node: ComponentNode, ctx: SolidContext = {}): Arr
 export function finCutOutline(node: ComponentNode, ctx: SolidContext = {}): Array<[number, number]> | null {
   const contours = finCutContours(node, ctx);
   return contours?.length === 1 ? contours[0]! : null;
+}
+
+// ---------------------------------------------------------------------------
+// N062 §3 — THE SHAPED PRINTABLE FIN
+//
+// A rounded or airfoil fin prints with its cross-section (tree/finSection.ts,
+// the one section law every view and export shares). What is built:
+//
+//  - The EXPOSED fin is a "thickened planform": the planform (each seated lobe,
+//    exactly the region finCutContours cuts above the root) is triangulated in
+//    horizontal bands — one station at every outline vertex height, at every
+//    height where the fin's own outline turns, and enough more that no band is
+//    taller than 1/PRINT_SPAN_STEPS of the fin, plus the 3D view's own rows
+//    where the chord collapses to a pointed tip, whose vertex carries the
+//    law's thickest value (finChords.ts's chordRatioStations; N062 review,
+//    round 4) — and each station carries the
+//    section's own chordwise samples (finSection's sectionProfile, resolution
+//    PRINT_SECTION_RESOLUTION). Every planar vertex is lifted to ±half, where
+//    half is the section's half-thickness at that point, floored at the
+//    printable minimum edge (finSection's PRINT_MIN_EDGE, 0.4 mm full
+//    thickness, never thicker than the stock) so a slicer gets an edge it can
+//    print instead of a knife edge it drops. Vertical walls of that floored
+//    height close the outline. The top and bottom are graphs over one planar
+//    triangulation and the walls stand on its boundary, so the solid cannot
+//    cross itself; vertices are welded by index, so isWatertight holds.
+//  - The chord at a point comes from the fin's OWN outline at that height,
+//    AS SEATED (finChords.ts's seatedChordPoints: finPlanformPoints with its
+//    root corners on the body, as the kernel flies it, so a last point typed
+//    at y = 0 and one desktop OR stored on the body print one solid), its
+//    root closing edge left out (finChords.ts's chordOutline: that sloped
+//    edge is never the section's leading or trailing edge), widened to the
+//    seated lobe where the
+//    mount adds planform, never narrowed where the mount clips it, and taken at
+//    the root chord below the root line (a boat-tail root). So the body does
+//    not invent a sharp edge where it cuts a lobe.
+//  - The TAB stays a flat full-thickness prism (it goes into a slot). It is
+//    welded to the fin in ONE closed shell: where the shaped root is thinner
+//    than the stock, a small step face (the tab's shoulder) closes the gap.
+//  - No fillet is printed on the lone fin (a fillet is formed on the assembled
+//    rocket) and the cant is not baked in, as before.
+//  - Square (and unset) sections never reach this code: they keep the flat
+//    prism vertex for vertex. Any fin this cannot shape exactly — a planform a
+//    horizontal line crosses more than twice, as typed or as seated on the
+//    body (finChords.ts's finSectionFlatReason, the one predicate the 3D view
+//    and the panel share), a step in the outline at mid-height, stock no
+//    thicker than the printable minimum edge, or a mesh that fails its own
+//    watertight check — keeps the flat prism, and finPrintShape() says so, so
+//    the panel can tell the user.
+//
+// The drawn and printed section's volume is NOT the mass the app flies: the
+// kernel's relative volume (FinSet.java:48-54, 1.00 / 0.99 / 0.85) is
+// separate, and nothing here feeds the flight path.
+// ---------------------------------------------------------------------------
+
+type Pt = [number, number];
+
+/** Chordwise section samples across a full curved chord on the printed fin. */
+const PRINT_SECTION_RESOLUTION = 32;
+/** No spanwise band is taller than this fraction of the fin's height. */
+const PRINT_SPAN_STEPS = 16;
+/** A local chord at or below this (m) is a point — a pointed tip. */
+const CHORD_EPS = 1e-9;
+/** Rows added where the chord changes stand at least this far (m) apart and from a band's ends (the view's MIN_ROW_GAP). */
+const PRINT_MIN_ROW_GAP = 2e-6;
+
+/** Why a rounded/airfoil fin prints as the flat prism instead of its section. */
+export type FinPrintFallback =
+  /** a horizontal line crosses the outline as typed more than twice, or the outline steps at mid-height */
+  | 'chords'
+  /** the outline as typed has one chord at every height, but AS SEATED ON THE BODY it does not */
+  | 'seated'
+  /** the stock is no thicker than the printable minimum edge: no section survives the floor */
+  | 'thin'
+  /** the shaped mesh failed its own watertight / volume check */
+  | 'mesh'
+  /** nothing of the planform stands above the mount (all of it lies along the body) */
+  | 'no-planform';
+
+export type FinPrintShape =
+  | { kind: 'flat' }
+  /** `tab`: whether the printed fin carries a tab (it stays flat at full stock) */
+  | { kind: 'shaped'; law: FinSectionLaw; minEdge: number; tab: boolean }
+  | { kind: 'fallback'; law: FinSectionLaw; reason: FinPrintFallback }
+  /** no STL at all: componentSolid declines this outline (it crosses itself, or encloses no area) */
+  | { kind: 'refused' };
+
+interface Band { left: [Pt, Pt]; right: [Pt, Pt] }
+interface Slabs { ys: number[]; bands: Band[]; ymin: number; ymax: number }
+
+/** x of an edge at height y — exact at its own endpoints, so two bands sharing a vertex agree bit for bit. */
+function edgeX(e: [Pt, Pt], y: number): number {
+  const [p, q] = e;
+  if (y === p[1]) return p[0];
+  if (y === q[1]) return q[0];
+  return p[0] + ((q[0] - p[0]) * (y - p[1])) / (q[1] - p[1]);
+}
+
+/**
+ * Cut a closed polygon into horizontal bands at every vertex height (plus
+ * `extra` heights). Null unless every band meets the outline in exactly ONE
+ * interval — two edges, left of right at both ends.
+ */
+function slabsOf(poly: Pt[], extra: readonly number[] = []): Slabs | null {
+  const n = poly.length;
+  if (n < 3) return null;
+  let ymin = Infinity;
+  let ymax = -Infinity;
+  for (const [, y] of poly) {
+    ymin = Math.min(ymin, y);
+    ymax = Math.max(ymax, y);
+  }
+  if (!(ymax > ymin)) return null;
+  const ys = [...new Set(poly.map((p) => p[1]))].sort((a, b) => a - b);
+  const tol = (ymax - ymin) * 1e-6;
+  for (const y of extra) {
+    if (y > ymin + tol && y < ymax - tol && ys.every((v) => Math.abs(v - y) > tol)) ys.push(y);
+  }
+  ys.sort((a, b) => a - b);
+  const bands: Band[] = [];
+  for (let k = 0; k + 1 < ys.length; k++) {
+    const y0 = ys[k]!;
+    const y1 = ys[k + 1]!;
+    const mid = (y0 + y1) / 2;
+    const crossing: Array<[Pt, Pt]> = [];
+    for (let i = 0; i < n; i++) {
+      const p = poly[i]!;
+      const q = poly[(i + 1) % n]!;
+      if ((p[1] < mid) !== (q[1] < mid)) crossing.push([p, q]);
+    }
+    if (crossing.length !== 2) return null;
+    let [left, right] = crossing as [[Pt, Pt], [Pt, Pt]];
+    if (edgeX(left, mid) > edgeX(right, mid)) [left, right] = [right, left];
+    if (!(edgeX(right, mid) - edgeX(left, mid) > 0)) return null;
+    // Edges that swap order inside the band cross each other.
+    if (edgeX(left, y0) > edgeX(right, y0) + EPS || edgeX(left, y1) > edgeX(right, y1) + EPS) return null;
+    bands.push({ left, right });
+  }
+  return { ys, bands, ymin, ymax };
+}
+
+/** The fin's own outline as a chord field: [leading x, trailing x] at any height. */
+interface ChordField { slabs: Slabs }
+
+function chordField(pts: Pt[]): ChordField | null {
+  const slabs = slabsOf(pts);
+  if (!slabs) return null;
+  // A horizontal edge strictly inside the span is a step in the leading or
+  // trailing edge: the chord jumps there, and one drawn section cannot follow.
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i]!;
+    const q = pts[(i + 1) % pts.length]!;
+    if (p[1] === q[1] && p[1] > slabs.ymin && p[1] < slabs.ymax && p[0] !== q[0]) return null;
+  }
+  return { slabs };
+}
+
+/** Chord interval at height y, clamped into the outline's own span (the root chord below it). */
+function chordAt(field: ChordField, y: number): [number, number] {
+  const { ys, bands, ymin, ymax } = field.slabs;
+  const yc = Math.min(ymax, Math.max(ymin, y));
+  let k = 0;
+  while (k < bands.length - 1 && ys[k + 1]! < yc) k++;
+  const band = bands[k]!;
+  return [edgeX(band.left, yc), edgeX(band.right, yc)];
+}
+
+/** Fractional index of xi in a sorted sample list — the zipper's pairing key. */
+function sampleKey(xis: readonly number[], xi: number): number {
+  const last = xis.length - 1;
+  if (xi <= xis[0]!) return 0;
+  if (xi >= xis[last]!) return last;
+  let lo = 0;
+  let hi = last;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (xis[mid]! <= xi) lo = mid; else hi = mid;
+  }
+  const span = xis[hi]! - xis[lo]!;
+  return span > 0 ? lo + (xi - xis[lo]!) / span : lo;
+}
+
+/**
+ * Triangulate the strip between two chains (P below / Q above, or two wall
+ * columns) by advancing whichever next vertex has the smaller key. Any
+ * monotone advance tiles the strip between two parallel lines without overlap;
+ * the keys only choose the diagonals. Emits (p_i, p_i+1, q_j) and
+ * (p_i, q_j+1, q_j) — counter-clockwise for P below Q, left to right.
+ */
+function zip<T>(P: readonly T[], Q: readonly T[], key: (v: T) => number, emit: (a: T, b: T, c: T) => void): void {
+  let i = 0;
+  let j = 0;
+  while (i < P.length - 1 || j < Q.length - 1) {
+    const advanceP = j >= Q.length - 1 || (i < P.length - 1 && key(P[i + 1]!) <= key(Q[j + 1]!));
+    if (advanceP) {
+      emit(P[i]!, P[i + 1]!, Q[j]!);
+      i++;
+    } else {
+      emit(P[i]!, Q[j + 1]!, Q[j]!);
+      j++;
+    }
+  }
+}
+
+/**
+ * Where the section crosses the printable floor between two samples. The floor
+ * is a kink the section's own samples do not carry: without a vertex there, a
+ * straight chamfer interpolated from the floored edge to its first breakpoint
+ * printed ~6% too fat (measured on a hexagonal trapezoid).
+ */
+function floorCrossings(
+  spec: FinSectionSpec, chord: number, xi: readonly number[], half: readonly number[], floorHalf: number,
+): number[] {
+  const out: number[] = [];
+  for (let j = 0; j + 1 < xi.length; j++) {
+    if ((half[j]! < floorHalf) === (half[j + 1]! < floorHalf)) continue;
+    let lo = xi[j]!;
+    let hi = xi[j + 1]!;
+    const below = half[j]! < floorHalf;
+    for (let i = 0; i < 60; i++) {
+      const mid = (lo + hi) / 2;
+      if ((sectionHalfThickness(spec, chord, mid) < floorHalf) === below) lo = mid; else hi = mid;
+    }
+    out.push((lo + hi) / 2);
+  }
+  return out;
+}
+
+/**
+ * Even chordwise fill inside any SLOPED gap wider than 1/PRINT_CHORD_FILL of
+ * the chord. A straight chamfer needs no vertex to be straight across one
+ * station, but between two stations of different chord a triangle spanning
+ * it interpolates the wrong thickness: a single-wedge trapezoid printed 0.5%
+ * thin with its breakpoints alone. Flat runs at full thickness are left alone.
+ */
+const PRINT_CHORD_FILL = 16;
+
+function chordFill(xi: readonly number[], half: readonly number[], H: number): number[] {
+  const out: number[] = [];
+  for (let j = 0; j + 1 < xi.length; j++) {
+    const gap = xi[j + 1]! - xi[j]!;
+    if (half[j] === H && half[j + 1] === H) continue;
+    const parts = Math.ceil(gap * PRINT_CHORD_FILL - 1e-9);
+    for (let s = 1; s < parts; s++) out.push(xi[j]! + (gap * s) / parts);
+  }
+  return out;
+}
+
+/** A planar vertex of the exposed fin. */
+interface PV {
+  id: number;
+  lobe: number;
+  x: number;
+  y: number;
+  /** printable half-thickness here, m */
+  half: number;
+  /** pairing key along its station */
+  key: number;
+  /** on the tab's shoulder: welded to the tab's vertices */
+  junction: boolean;
+}
+
+interface LobePlanar { tris: Array<[PV, PV, PV]>; boundary: Array<[PV, PV]> }
+
+/**
+ * One lobe's planar band triangulation with each vertex's printable
+ * half-thickness. Null when the lobe is not one interval at every height.
+ */
+function lobePlanar(
+  poly: Pt[], field: ChordField, spec: FinSectionSpec, lobe: number, ids: { next: number },
+): LobePlanar | null {
+  // Stations: the lobe's own vertices, the outline's turning heights (so the
+  // chord field is linear inside every band) and an even spanwise subdivision.
+  let ymin = Infinity;
+  let ymax = -Infinity;
+  for (const [, y] of poly) {
+    ymin = Math.min(ymin, y);
+    ymax = Math.max(ymax, y);
+  }
+  const extra = field.slabs.ys.slice();
+  const coarse = slabsOf(poly, extra);
+  if (!coarse) return null;
+  const maxBand = (ymax - ymin) / PRINT_SPAN_STEPS;
+  for (let k = 0; k + 1 < coarse.ys.length; k++) {
+    const ya = coarse.ys[k]!;
+    const yb = coarse.ys[k + 1]!;
+    const gap = yb - ya;
+    const parts = Math.ceil(gap / maxBand - 1e-9);
+    for (let s = 1; s < parts; s++) extra.push(ya + (gap * s) / parts);
+    // And where the fin's own chord collapses to a point (a pointed tip), the
+    // rows the 3D view puts there (finChords.ts's chordRatioStations, the one
+    // rule both paths share), so the print follows the law up to the view's
+    // last row. The chord field is linear inside every coarse band. Elsewhere
+    // the even subdivision above keeps the print within 2 % of the law.
+    const [la, ra] = chordAt(field, ya);
+    const [lb, rb] = chordAt(field, yb);
+    if (Math.min(ra - la, rb - lb) <= CHORD_EPS) {
+      extra.push(...chordRatioStations(ya, yb, ra - la, rb - lb, PRINT_MIN_ROW_GAP));
+    }
+  }
+  const slabs = slabsOf(poly, extra);
+  if (!slabs) return null;
+  const { ys, bands } = slabs;
+  const t = spec.thickness;
+  const H = t / 2;
+  // A station whose chord has collapsed to a point (a pointed tip): every
+  // chord fraction of the section meets there, so it carries the law's
+  // thickest value at that chord — as the view's tip row does — floored
+  // (below) only where the law itself is below the printable edge. Until
+  // N062's fourth review it carried the section's EDGE value, floored to
+  // 0.4 mm, and the whole top band tapered from full stock down to it.
+  const tipHalf = Math.max(...sectionProfile(spec, 0, PRINT_SECTION_RESOLUTION).half);
+  const floorHalf = Math.min(PRINT_MIN_EDGE, t) / 2;
+
+  const stations: PV[][] = [];
+  for (let k = 0; k < ys.length; k++) {
+    const y = ys[k]!;
+    const exact: number[] = [];
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const band of [k > 0 ? bands[k - 1] : undefined, k < bands.length ? bands[k] : undefined]) {
+      if (!band) continue;
+      const l = edgeX(band.left, y);
+      const r = edgeX(band.right, y);
+      exact.push(l, r);
+      lo = Math.min(lo, l);
+      hi = Math.max(hi, r);
+    }
+    for (const [vx, vy] of poly) if (vy === y && vx >= lo - EPS && vx <= hi + EPS) exact.push(vx);
+    const [uL, uR] = chordAt(field, y);
+    const L = Math.min(uL, lo);
+    const c = Math.max(uR, hi) - L;
+    const profile = c > CHORD_EPS ? sectionProfile(spec, c, PRINT_SECTION_RESOLUTION) : null;
+    const cand: Array<{ x: number; exact: boolean }> = exact.map((x) => ({ x, exact: true }));
+    if (profile) {
+      const extraXi = [...floorCrossings(spec, c, profile.xi, profile.half, floorHalf),
+        ...chordFill(profile.xi, profile.half, H)];
+      for (const xi of [...profile.xi, ...extraXi]) {
+        const x = L + xi * c;
+        if (x > lo + EPS && x < hi - EPS) cand.push({ x, exact: false });
+      }
+    }
+    cand.sort((a, b) => a.x - b.x);
+    const merged: Array<{ x: number; exact: boolean }> = [];
+    for (const p of cand) {
+      const prev = merged[merged.length - 1];
+      if (prev && p.x - prev.x <= EPS) {
+        if (p.exact && !prev.exact) merged[merged.length - 1] = p;
+        continue;
+      }
+      merged.push(p);
+    }
+    stations.push(merged.map(({ x }) => {
+      let half = tipHalf;
+      let key = 0;
+      if (profile) {
+        const xi = Math.min(1, Math.max(0, (x - L) / c));
+        half = sectionHalfThickness(spec, c, xi);
+        key = sampleKey(profile.xi, xi);
+      }
+      half = printableHalf(half, t);
+      if (H - half <= 1e-9 * H) half = H;
+      return { id: ids.next++, lobe, x, y, half, key, junction: false };
+    }));
+  }
+
+  const tris: Array<[PV, PV, PV]> = [];
+  for (let k = 0; k < bands.length; k++) {
+    const band = bands[k]!;
+    const y0 = ys[k]!;
+    const y1 = ys[k + 1]!;
+    const pick = (row: PV[], l: number, r: number): PV[] => row.filter((p) => p.x >= l - EPS && p.x <= r + EPS);
+    const lower = pick(stations[k]!, edgeX(band.left, y0), edgeX(band.right, y0));
+    const upper = pick(stations[k + 1]!, edgeX(band.left, y1), edgeX(band.right, y1));
+    if (lower.length === 0 || upper.length === 0 || (lower.length === 1 && upper.length === 1)) return null;
+    zip(lower, upper, (p) => p.key, (a, b, c) => tris.push([a, b, c]));
+  }
+
+  // Boundary: the directed edges whose reverse no triangle uses.
+  const edges = new Set<string>();
+  for (const [a, b, c] of tris) for (const [u, v] of [[a, b], [b, c], [c, a]] as const) edges.add(`${u.id}>${v.id}`);
+  const boundary: Array<[PV, PV]> = [];
+  for (const [a, b, c] of tris) {
+    for (const [u, v] of [[a, b], [b, c], [c, a]] as const) {
+      if (!edges.has(`${v.id}>${u.id}`)) boundary.push([u, v]);
+    }
+  }
+  return { tris, boundary };
+}
+
+function distToSegment(x: number, y: number, p: Pt, q: Pt): number {
+  const dx = q[0] - p[0];
+  const dy = q[1] - p[1];
+  const len2 = dx * dx + dy * dy;
+  const s = len2 > 0 ? Math.min(1, Math.max(0, ((x - p[0]) * dx + (y - p[1]) * dy) / len2)) : 0;
+  return Math.hypot(x - (p[0] + s * dx), y - (p[1] + s * dy));
+}
+
+/** Insert stations x0/x1 into the flagged (root) edges they fall strictly inside. */
+function splitRootEdges(poly: Pt[], root: boolean[], xs: readonly number[], at: (x: number) => Pt): { poly: Pt[]; root: boolean[] } {
+  const out: Pt[] = [];
+  const flags: boolean[] = [];
+  for (let i = 0; i < poly.length; i++) {
+    const p = poly[i]!;
+    const q = poly[(i + 1) % poly.length]!;
+    out.push(p);
+    flags.push(root[i]!);
+    if (!root[i]) continue;
+    const inside = xs.filter((x) => x > Math.min(p[0], q[0]) + EPS && x < Math.max(p[0], q[0]) - EPS);
+    inside.sort((a, b) => (q[0] >= p[0] ? a - b : b - a));
+    for (const x of inside) {
+      out.push(at(x));
+      flags.push(true);
+    }
+  }
+  return { poly: out, root: flags };
+}
+
+type ShapedResult = { mesh: SolidMesh; tab: boolean } | { fail: FinPrintFallback };
+
+/**
+ * The shaped printable solid of one fin (see the block comment above), or why
+ * it cannot be built. Callers have already sent square sections, a zero
+ * thickness and an unreadable outline down the flat-prism path.
+ */
+function shapedFinSolid(
+  node: ComponentNode, ctx: SolidContext, pts: Pt[], chordPts: Pt[], spec: FinSectionSpec,
+): ShapedResult {
+  const t = spec.thickness;
+  const H = t / 2;
+  const field = chordField(chordOutline(chordPts));
+  if (!field) return { fail: 'chords' };
+
+  // The exposed region (lobes, with their root edges flagged), the tab, and
+  // the body surface the tab's top follows — exactly as finCutContours cuts.
+  let lobes: Array<{ poly: Pt[]; root: boolean[] }>;
+  let tab: ReturnType<typeof finTabSpan> = null;
+  let floorY = 0;
+  let surface: (x: number) => Pt = (x) => [x, 0];
+  let rootPts: Pt[] = [];
+  if (node.type === 'freeformfinset' && ctx.finMount) {
+    const front = ctx.finFront ?? 0;
+    const mount = ctx.finMount;
+    const mounted = finOnMount(pts, front, mount);
+    const bodyY = (x: number): number => mount.radiusAt(front + x) - mounted.r0;
+    surface = (x) => [x, bodyY(x)];
+    rootPts = mounted.root;
+    lobes = mounted.lobes.map((lobe) => {
+      // A lobe runs from a body point along its exposed edge to the next body
+      // point, then back along the body: the edges from there on are root.
+      const end = lobe.findIndex(([x, y], i) => i > 0 && Math.abs(y - bodyY(x)) <= EPS);
+      return { poly: lobe.map(([x, y]) => [x, y] as Pt), root: lobe.map((_, i) => end > 0 && i >= end) };
+    });
+    tab = finTabSpan(node, finRootChord(node), ctx.tabMaxDepth);
+    if (tab) floorY = Math.min(bodyY(tab.x0), bodyY(tab.x1)) - tab.depth;
+  } else {
+    const poly = pts.map(([x, y]) => [x, y] as Pt);
+    const first = poly[0]!;
+    const last = poly[poly.length - 1]!;
+    // finCutContours' own test for a root on y = 0 (and the only case it hangs the tab on).
+    const rooted = Math.abs(first[1]) <= 1e-7 && Math.abs(last[1]) <= 1e-7;
+    if (rooted) {
+      first[1] = 0;
+      last[1] = 0;
+      tab = finTabSpan(node, finRootChord(node), ctx.tabMaxDepth);
+      if (tab) floorY = -tab.depth;
+    }
+    lobes = [{ poly, root: poly.map((_, i) => rooted && i === poly.length - 1) }];
+  }
+  if (lobes.length === 0) return { fail: 'no-planform' };
+  if (tab) lobes = lobes.map((l) => splitRootEdges(l.poly, l.root, [tab!.x0, tab!.x1], surface));
+
+  // Planar meshes, and the tab's shoulder (junction) edges on each.
+  const ids = { next: 0 };
+  const planar: LobePlanar[] = [];
+  const junctionEdges = new Set<string>();
+  const jkey = (p: { x: number; y: number }): string => `J${p.x},${p.y}`;
+  for (let l = 0; l < lobes.length; l++) {
+    const { poly, root } = lobes[l]!;
+    const mesh = lobePlanar(poly, field, spec, l, ids);
+    if (!mesh) return { fail: 'chords' };
+    planar.push(mesh);
+    if (!tab) continue;
+    const segs: Array<[Pt, Pt]> = [];
+    for (let i = 0; i < poly.length; i++) if (root[i]) segs.push([poly[i]!, poly[(i + 1) % poly.length]!]);
+    const onRoot = (x: number, y: number): boolean => segs.some(([p, q]) => distToSegment(x, y, p, q) <= EPS);
+    for (const [u, v] of mesh.boundary) {
+      if (Math.min(u.x, v.x) < tab.x0 - EPS || Math.max(u.x, v.x) > tab.x1 + EPS) continue;
+      if (!onRoot(u.x, u.y) || !onRoot(v.x, v.y) || !onRoot((u.x + v.x) / 2, (u.y + v.y) / 2)) continue;
+      u.junction = true;
+      v.junction = true;
+      junctionEdges.add(`${jkey(u)}>${jkey(v)}`);
+    }
+  }
+
+  // Lifted vertices, welded by identity and height: a junction vertex is one
+  // planar point the fin and the tab share, so where the fin is full stock
+  // there its top IS the tab's top.
+  const pos: number[] = [];
+  const index = new Map<string, number>();
+  const vertex = (id: string, x: number, y: number, z: number): number => {
+    const k = `${id}|${z}`;
+    let i = index.get(k);
+    if (i === undefined) {
+      i = pos.length / 3;
+      pos.push(x, y, z);
+      index.set(k, i);
+    }
+    return i;
+  };
+  const fid = (p: PV): string => (p.junction ? jkey(p) : `L${p.lobe}:${p.id}`);
+  const ft = (p: PV): number => vertex(fid(p), p.x, p.y, p.half);
+  const fb = (p: PV): number => vertex(fid(p), p.x, p.y, -p.half);
+  const tris: number[] = [];
+  const tri = (a: number, b: number, c: number): void => {
+    if (a !== b && b !== c && a !== c) tris.push(a, b, c);
+  };
+  const z = (i: number): number => pos[i * 3 + 2]!;
+  const dedup = (col: number[]): number[] => col.filter((v, i) => i === 0 || v !== col[i - 1]);
+  /** The wall over boundary edge s -> e (solid on its left), columns bottom to top. */
+  const wall = (colS: number[], colE: number[]): void => zip(dedup(colE), dedup(colS), z, tri);
+
+  for (const mesh of planar) {
+    for (const [a, b, c] of mesh.tris) {
+      tri(ft(a), ft(b), ft(c));
+      tri(fb(a), fb(c), fb(b));
+    }
+    for (const [u, v] of mesh.boundary) {
+      if (u.junction && v.junction && junctionEdges.has(`${jkey(u)}>${jkey(v)}`)) continue;
+      wall([fb(u), ft(u)], [fb(v), ft(v)]);
+    }
+  }
+
+  if (tab) {
+    // The tab's top: the shoulder points the fin shares, and the body surface
+    // (its ends, and the root stations between) wherever no lobe stands.
+    const junctionPV = new Map<string, PV>();
+    for (const mesh of planar) for (const [u, v] of mesh.boundary) for (const p of [u, v]) if (p.junction) junctionPV.set(jkey(p), p);
+    const cand: Array<{ x: number; y: number; pv?: PV }> = [...junctionPV.values()].map((pv) => ({ x: pv.x, y: pv.y, pv }));
+    for (const [x, y] of [surface(tab.x0), surface(tab.x1), ...rootPts.filter(([x]) => x > tab!.x0 + EPS && x < tab!.x1 - EPS)]) {
+      cand.push({ x, y });
+    }
+    cand.sort((a, b) => a.x - b.x || (a.pv ? -1 : 1));
+    const top: Array<{ x: number; y: number; pv?: PV }> = [];
+    for (const p of cand) {
+      const prev = top[top.length - 1];
+      if (prev && p.x - prev.x <= EPS) {
+        if (p.pv && !prev.pv) top[top.length - 1] = p;
+        continue;
+      }
+      top.push(p);
+    }
+    if (top.length < 2 || top.some((p) => !(p.y > floorY + EPS))) return { fail: 'mesh' };
+    const tid = (i: number): string => (top[i]!.pv ? jkey(top[i]!.pv!) : `T${i}`);
+    const tt = (i: number): number => vertex(tid(i), top[i]!.x, top[i]!.y, H);
+    const tb = (i: number): number => vertex(tid(i), top[i]!.x, top[i]!.y, -H);
+    const flt = (i: number): number => vertex(`F${i}`, top[i]!.x, floorY, H);
+    const flb = (i: number): number => vertex(`F${i}`, top[i]!.x, floorY, -H);
+    /** A tab column: split at the fin's own edge heights where the fin stands on it. */
+    const tcol = (i: number): number[] => {
+      const pv = top[i]!.pv;
+      return pv ? [tb(i), fb(pv), ft(pv), tt(i)] : [tb(i), tt(i)];
+    };
+    const K = top.length - 1;
+    for (let i = 0; i < K; i++) {
+      // Planar strip (floor_i, floor_i+1, top_i+1, top_i), lifted to ±t/2.
+      tri(flt(i), flt(i + 1), tt(i + 1));
+      tri(flt(i), tt(i + 1), tt(i));
+      tri(flb(i), tb(i + 1), flb(i + 1));
+      tri(flb(i), tb(i), tb(i + 1));
+      wall([flb(i), flt(i)], [flb(i + 1), flt(i + 1)]);
+      // The top edge, walked as the tab walks it (right to left).
+      const s = i + 1;
+      const e = i;
+      const ps = top[s]!.pv;
+      const pe = top[e]!.pv;
+      if (ps && pe && junctionEdges.has(`${jkey(pe)}>${jkey(ps)}`)) {
+        // The fin stands on this edge: only the shoulder steps remain.
+        wall([ft(ps), tt(s)], [ft(pe), tt(e)]);
+        wall([tb(s), fb(ps)], [tb(e), fb(pe)]);
+      } else {
+        wall(tcol(s), tcol(e));
+      }
+    }
+    wall([flb(K), flt(K)], tcol(K));
+    wall(tcol(0), [flb(0), flt(0)]);
+  }
+
+  const mesh: SolidMesh = { positions: Float64Array.from(pos), triangles: Uint32Array.from(tris) };
+  if (!isWatertight(mesh) || !(solidVolume(mesh) > 0)) return { fail: 'mesh' };
+  return { mesh, tab: tab !== null };
+}
+
+/** The section law and the shaped build for a fin node, or the reason it stays flat. */
+function shapedFinFor(node: ComponentNode, ctx: SolidContext): { shape: FinPrintShape; mesh?: SolidMesh } {
+  const pts = finPlanformPoints(node);
+  const law = finSectionLaw(node);
+  const t = kernelNum(node, 'thickness');
+  if (law === 'square' || !pts || !(t > 0)) return { shape: { kind: 'flat' } };
+  // Stock no thicker than the printable minimum edge is floored flat at every
+  // point: the "section" would be a uniform slab, so say it is the prism.
+  if (t <= PRINT_MIN_EDGE) return { shape: { kind: 'fallback', law, reason: 'thin' } };
+  // The one chord predicate the 3D view and the panel's note share, on the
+  // same seat (finChords.ts).
+  const flat = finSectionFlatReason(node, node.type === 'freeformfinset' ? ctx.finMount : undefined, ctx.finFront ?? 0);
+  if (flat) return { shape: { kind: 'fallback', law, reason: flat === 'seated' ? 'seated' : 'chords' } };
+  // The chords — and the MAC that sets the chamfer fractions — of the fin AS
+  // SEATED, as the 3D view reads them (finChords.ts's seatedChordPoints).
+  const chordPts = node.type === 'freeformfinset' && ctx.finMount
+    ? seatedChordPoints(pts, ctx.finFront ?? 0, ctx.finMount)
+    : pts;
+  const spec = finSectionSpec(node, finMacFromOutline(chordPts));
+  const built = shapedFinSolid(node, ctx, pts, chordPts, spec);
+  if ('fail' in built) return { shape: { kind: 'fallback', law, reason: built.fail } };
+  return { shape: { kind: 'shaped', law, minEdge: PRINT_MIN_EDGE, tab: built.tab }, mesh: built.mesh };
+}
+
+/** Whether two segments cross at a point strictly inside both (touching does not count). */
+function properCross(a: Pt, b: Pt, c: Pt, d: Pt): boolean {
+  const o = (p: Pt, q: Pt, r: Pt): number => Math.sign((q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0]));
+  const o1 = o(a, b, c);
+  const o2 = o(a, b, d);
+  const o3 = o(c, d, a);
+  const o4 = o(c, d, b);
+  return o1 !== 0 && o2 !== 0 && o3 !== 0 && o4 !== 0 && o1 !== o2 && o3 !== o4;
+}
+
+/**
+ * Whether componentSolid declines this fin set's STL — synchronously, for the
+ * panel, on the outlines extrudePolygon is handed: no stock, no cut contour,
+ * or a contour that, after the same clean-up extrudePolygon runs, has fewer
+ * than three points, encloses no area, or crosses itself. (extrudePolygon's
+ * own test is three's ear-clipper, loaded on demand; a crossing that only
+ * touches can still fail it at export, where the panel's export note says so.)
+ */
+function finPrintRefused(node: ComponentNode, ctx: SolidContext): boolean {
+  if (!(kernelNum(node, 'thickness') > 0)) return true;
+  const contours = finCutContours(node, ctx);
+  if (!contours?.length) return true;
+  return contours.some((c) => {
+    const loop = dropCollinear(collapseLoop(c.map(([x, y]) => [x, y] as Pt)));
+    if (loop.length < 3 || !enclosesArea(loop)) return true;
+    const n = loop.length;
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 2; j < n; j++) {
+        if (i === 0 && j === n - 1) continue; // neighbours across the wrap
+        if (properCross(loop[i]!, loop[(i + 1) % n]!, loop[j]!, loop[(j + 1) % n]!)) return true;
+      }
+    }
+    return false;
+  });
+}
+
+/**
+ * What the per-part 🖨 STL of this fin set holds — synchronous, for the panel:
+ *  - `refused`: no STL — the outline crosses itself or encloses no area;
+ *  - `flat`: a square (or unset) section, the flat prism as always;
+ *  - `shaped`: the fin's cross-section, sharp edges floored at `minEdge` (m),
+ *    with a flat full-stock tab when `tab`;
+ *  - `fallback`: a rounded/airfoil fin this cannot shape (see FinPrintFallback),
+ *    printed as the flat prism instead — say so where the user looks.
+ * Non-fin nodes read `flat`.
+ */
+export function finPrintShape(node: ComponentNode, ctx: SolidContext = {}): FinPrintShape {
+  if (node.type !== 'trapezoidfinset' && node.type !== 'ellipticalfinset' && node.type !== 'freeformfinset') {
+    return { kind: 'flat' };
+  }
+  if (finPrintRefused(node, ctx)) return { kind: 'refused' };
+  return shapedFinFor(node, ctx).shape;
 }
 
 /**
@@ -842,6 +1532,14 @@ export async function componentSolid(
       // outline). Report that the same way an unprintable type reports it —
       // null — so the caller declines instead of writing a non-manifold STL.
       if (meshes.some(mesh => mesh.triangles.length === 0)) return null;
+      const label = node.type === 'trapezoidfinset' ? 'Trapezoidal fin'
+        : node.type === 'ellipticalfinset' ? 'Elliptical fin' : 'Freeform fin';
+      // N062: a rounded or airfoil fin prints with its cross-section. The flat
+      // prisms above still run first, so every outline the flat path refuses
+      // (crossing edges, no area) is refused here too; a fin the shaped path
+      // cannot build keeps the flat prism (finPrintShape says so).
+      const shaped = shapedFinFor(node, ctx);
+      if (shaped.mesh) return { mesh: shaped.mesh, label };
       const mesh: SolidMesh = {
         positions: new Float64Array(meshes.reduce((n, m) => n + m.positions.length, 0)),
         triangles: new Uint32Array(meshes.reduce((n, m) => n + m.triangles.length, 0)),
@@ -853,8 +1551,6 @@ export async function componentSolid(
         positionOffset += part.positions.length;
         triangleOffset += part.triangles.length;
       }
-      const label = node.type === 'trapezoidfinset' ? 'Trapezoidal fin'
-        : node.type === 'ellipticalfinset' ? 'Elliptical fin' : 'Freeform fin';
       return { mesh, label };
     }
     default:

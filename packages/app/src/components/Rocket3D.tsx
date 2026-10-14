@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
-import { buildPieces, type MotorDims, type Piece } from '../tree/pieces.js';
+import { buildPieces, pieceMaterial, type MotorDims, type Piece } from '../tree/pieces.js';
 import {
   downloadImage, IMAGE_FORMAT_EXT, snapshotWithHeader,
   type ExportData, type ImageFormat,
@@ -20,8 +20,9 @@ import { ImageExportMenu, type ImageExportOptions } from './ImageExportMenu.js';
 /**
  * 3D rocket view (react-three-fiber). Geometry is generated from the
  * component tree: lathe profiles for nose cones and transitions (kernel-exact
- * shape math), cylinders for tubes, extruded shapes for fins placed at their
- * instance angles. The external shell is slightly translucent so motor mounts
+ * shape math), cylinders for tubes, fins placed at their instance angles —
+ * shaped by their cross-section, with any root fillets (tree/finSurface.ts) —
+ * each part's material following its surface finish. The external shell is slightly translucent so motor mounts
  * and loaded motors read inside (S5), and a floating CG/CP callout hangs
  * beside the hull (2026-08-21c).
  * Rocket axis = +X (nose tip at x=0, aft increasing), matching the engine.
@@ -573,7 +574,9 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
                   first, then glassy inner tubes, then the shell — depth writes
                   off for both see-through tiers so each layer shows through
                   the ones over it; DoubleSide draws far walls for depth. */}
-              <meshStandardMaterial color={p.color} roughness={0.6} metalness={0.05}
+              {/* Roughness and metalness follow the part's surface finish
+                  (pieceMaterial, the one map the GLB shares). */}
+              <meshStandardMaterial color={p.color} {...pieceMaterial(p)}
                 transparent={!!p.translucent || !!p.innerGlass}
                 opacity={p.translucent ? 0.55 : p.innerGlass ? 0.5 : 1}
                 depthWrite={!p.translucent && !p.innerGlass}

@@ -45,10 +45,15 @@ const RESOLVE_SELECT: Record<string, (n: ComponentNode) => string | undefined> =
   fairingAftShape: (n) => shroudEnds(n).aft,
 };
 import { shapeUsesParameter } from '../tree/shapeProfile.js';
-import { componentSolid } from '../tree/solidMesh.js';
+import { componentSolid, finPrintShape, type FinPrintFallback } from '../tree/solidMesh.js';
+import { finSectionLaw, type FinSectionLaw } from '../tree/finSection.js';
+import { finSectionFlatReason } from '../tree/finChords.js';
+import { finOutlineProblem } from '../tree/finOutline.js';
+import { finRootChord, finTabSpan } from '../tree/finTab.js';
 import { massObjectParentRadius, solidContextFor } from '../tree/solidContext.js';
 import { componentDxf, DXF_CUTTABLE, DXF_MIME, dxfUnitFor, dxfUnitWord } from '../services/dxfExport.js';
 import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services/printPack.js';
+import { AERO_NAME } from '../prefs/aeroChoice.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { printerName, toPrinterVolume } from '../prefs/printers.js';
 import { fmtFieldValue, fmtSi, fmtSig, niceStep, QUANTITY_LABEL, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
@@ -402,6 +407,150 @@ function SubcomponentsToggle({ tree, node, quantity, valueKey, flagKey, onPatch,
       />
       Use instead of everything inside
     </label><GlossaryHelp term={fieldTerm(node.type, flagKey)} label={`Use ${quantity} instead of everything inside`} /></div>
+  );
+}
+
+/**
+ * The section a rounded or airfoil fin is drawn and printed with, in words
+ * (tree/finSection.ts is the law). A plain Airfoil is drawn as a symmetric
+ * NACA 4-digit section, so the hint says which shape the file holds.
+ */
+function finSectionWords(node: ComponentNode, law: FinSectionLaw): string {
+  switch (law) {
+    case 'rounded': return 'rounded cross-section';
+    case 'naca': return node['airfoilSection'] === 'naca'
+      ? 'NACA section'
+      : 'airfoil cross-section, as a symmetric NACA 4-digit section thickest at 30% of the chord';
+    case 'hexagonal': return 'hexagonal section';
+    case 'doublewedge': return 'double-wedge section';
+    case 'biconvex': return 'biconvex section';
+    case 'hexbluntbase': return 'blunt-base hexagonal section';
+    case 'singlewedge': return 'single-wedge section';
+    default: return 'cross-section';
+  }
+}
+
+/** Why the printed fin fell back to the flat prism, as the end of a sentence. */
+const PRINT_FALLBACK_WHY: Record<FinPrintFallback, string> = {
+  chords: 'its outline has more than one chord at some height, or a step in its leading or trailing edge, which one printed section cannot follow',
+  seated: 'as seated on the body, its outline has more than one chord at some height, which one printed section cannot follow',
+  thin: 'the stock is no thicker than the printable minimum edge, so no section survives it',
+  mesh: 'the shaped fin did not close into a watertight solid',
+  'no-planform': 'none of the fin stands clear of the body',
+};
+
+/**
+ * What the per-part 🖨 STL of a planar fin set holds (N062 §3–4): the hint
+ * under the button. finPrintShape is the print path's own answer, so the
+ * words follow what the file holds — no file at all, the section, the flat
+ * prism, or the flat prism as a stated fallback — and the tab is named only
+ * when the fin has one. Memoised: it builds the fin's mesh.
+ */
+function FinPrintScope({ tree, node, lengthSym }: { tree: RocketTree; node: ComponentNode; lengthSym: string }) {
+  const { shape, tab } = useMemo(() => {
+    const ctx = solidContextFor(tree, node);
+    const printed = finPrintShape(node, ctx);
+    return {
+      shape: printed,
+      tab: printed.kind === 'shaped' ? printed.tab : finTabSpan(node, finRootChord(node), ctx.tabMaxDepth) !== null,
+    };
+  }, [tree, node]);
+  const fillets = typeof node['filletRadius'] === 'number' && node['filletRadius'] > 0;
+  const withTab = tab ? ' with its tab' : '';
+  if (shape.kind === 'refused') {
+    return (
+      <p className="hint fin-print-scope">
+        <strong>This fin cannot be exported as an STL</strong>: its outline crosses itself or encloses no area, so
+        there is no solid to print. Fix the outline first.
+      </p>
+    );
+  }
+  if (shape.kind === 'shaped') {
+    const edge = `${fmtSig(siToUi('length', lengthSym, shape.minEdge), 2, 1)} ${lengthSym}`;
+    return (
+      <p className="hint fin-print-scope">
+        The STL is ONE fin{withTab}. The fin carries this fin&rsquo;s <strong>{finSectionWords(node, shape.law)}</strong>,
+        with its sharp edges thickened to a printable {edge}{tab ? <>; the tab stays flat at full thickness to fit its slot</> : null}.
+        Cant is not baked in{fillets ? <>, and the root fillets are not printed (they are formed on the assembled rocket)</> : null}.
+        Check the fit before a long print.
+      </p>
+    );
+  }
+  if (shape.kind === 'fallback') {
+    return (
+      <p className="hint fin-print-scope">
+        The STL is ONE fin as a flat prism{withTab}: this fin&rsquo;s <strong>{shape.law === 'rounded' ? 'rounded' : 'airfoil'} cross-section
+        is not in it</strong>, because {PRINT_FALLBACK_WHY[shape.reason]}. Shape it by sanding; cant is not baked
+        in{fillets ? <>, and the root fillets are not printed</> : null}. Check the fit before a long print.
+      </p>
+    );
+  }
+  return (
+    <p className="hint fin-print-scope">
+      The STL is ONE fin as a flat prism{withTab}; any edge shaping is left to sanding,{' '}
+      {fillets ? <>cant is not baked in, and the root fillets are not printed</> : <>and cant is not baked in</>}.
+      Check the fit before a long print.
+    </p>
+  );
+}
+
+/** The Supersonic airfoil menu's own labels (tree/schema.ts AIRFOIL_SECTIONS). */
+const AIRFOIL_SECTION_LABEL: Readonly<Record<string, string>> = {
+  hexagonal: 'Hexagonal',
+  naca: 'NACA (round LE)',
+  doublewedge: 'Double wedge (diamond)',
+  biconvex: 'Biconvex',
+  hexbluntbase: 'Hexagonal, blunt base',
+  singlewedge: 'Single wedge (blunt base)',
+};
+
+/** The Cross section menu's own labels for a fin the drawing keeps on its own section. */
+const CROSS_SECTION_LABEL: Readonly<Record<string, string>> = { rounded: 'Rounded', square: 'Square' };
+
+/**
+ * Beside the Cross section select (N062 §2, never silent):
+ *  - a rounded or airfoil FREEFORM fin with no single chord at some height —
+ *    as typed, or as seated on the body — is drawn and printed as the flat
+ *    prism. tree/finChords.ts's finSectionFlatReason is the ONE predicate the
+ *    3D view and the print ask, on the seat solidContextFor gives (the one
+ *    pieces.ts draws).
+ *  - a named Supersonic airfoil on a Square or Rounded fin: the flight reads
+ *    the named section under the models that read it (the kernel gate,
+ *    FinSetCalc:1161, does not check the cross-section), but the drawing and
+ *    the print follow Cross section — a named section is drawn only on an
+ *    Airfoil (pointed) fin (tree/finSection.ts).
+ */
+function FinSectionNotes({ tree, node }: { tree: RocketTree; node: ComponentNode }) {
+  const flat = useMemo(() => {
+    if (node.type !== 'freeformfinset' || finSectionLaw(node) === 'square') return null;
+    // An outline the app refuses is not drawn at all; its own error says so.
+    if (finOutlineProblem(node['points'] as Parameters<typeof finOutlineProblem>[0]) !== null) return null;
+    const ctx = solidContextFor(tree, node);
+    return finSectionFlatReason(node, ctx.finMount, ctx.finFront ?? 0);
+  }, [tree, node]);
+  const cross = typeof node['crossSection'] === 'string' ? node['crossSection'] : 'square';
+  const named = typeof node['airfoilSection'] === 'string' ? AIRFOIL_SECTION_LABEL[node['airfoilSection']] : undefined;
+  const drawnAs = cross === 'airfoil' ? undefined : CROSS_SECTION_LABEL[cross] ?? 'Square';
+  return (
+    <>
+      {flat && (
+        <p className="hint fin-section-flat">
+          {flat === 'seated' ? 'As seated on the body, this outline' : 'This outline'} crosses some horizontal line more
+          than twice, so the 3D view and the OBJ, GLB and shell STL draw these fins as flat prisms, without
+          their {cross === 'rounded' ? 'rounded' : 'airfoil'} section; the 🖨 STL prints them flat too.
+          The flight uses the section either way.
+        </p>
+      )}
+      {named && drawnAs && (
+        <p className="hint fin-section-named">
+          {/* Each model by its ONE name (prefs/aeroChoice.ts AERO_NAME), as Preferences and the Aero selector show it. */}
+          Under <strong>{AERO_NAME.kbf}</strong>, <strong>{AERO_NAME.auto}</strong>, <strong>{AERO_NAME.supersonic}</strong>{' '}
+          and <strong>{AERO_NAME.hybrid}</strong> the flight uses the named <strong>{named}</strong> section, but the 3D view, its
+          exports and the 🖨 STL draw the <strong>{drawnAs}</strong> cross-section you picked: a named section is drawn
+          only on an <strong>Airfoil (pointed)</strong> fin.
+        </p>
+      )}
+    </>
   );
 }
 
@@ -1133,7 +1282,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
             title={offer?.kind === 'split'
               ? 'This part is taller than your printer, so it exports as a ZIP: one STL per segment plus a README with the print orientation, the glue, and the shrinkage rule that decides whether the halves fit each other. Each cut adds a tapered spigot and a flat land — the land sets the assembled length, so nothing is lost at the joint.'
-              : 'Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin as a flat prism with its tab (airfoil/cross-section shaping is left to sanding, cant not baked); rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (a warning appears under this button when neither can be found). Verify fit before a long print.'}
+              : 'Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin with its tab — a rounded or airfoil fin carries its cross-section with sharp edges thickened to a printable 0.4 mm and a flat tab, except that an outline with more than one chord at some height (a W or hook, as drawn or as seated on the body), a step in its leading or trailing edge, or stock no thicker than 0.4 mm prints as the flat prism, as the note under this button says; a square fin is a flat prism, and neither bakes in cant or prints root fillets; rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (a warning appears under this button when neither can be found). Verify fit before a long print.'}
             // eslint-disable-next-line @typescript-eslint/no-misused-promises -- every await is inside the try below, whose catch reports into exportNote, so the promise React drops cannot reject
             onClick={async () => {
               // Every await below can reject — the mesher, the print-pack
@@ -1186,17 +1335,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
               {offer.note}
             </p>
           )}
-          {/* The fin print's limitation sits WITH the export choice, readable,
-              not only in the button's tooltip (D7 §5, P11) — most of all for a
-              rounded or airfoil section, which the flat prism does not have. */}
+          {/* What the fin print holds sits WITH the export choice, readable,
+              not only in the button's tooltip (D7 §5, P11): the section it
+              carries and its printable edge, or — when the section cannot be
+              printed — that it is the flat prism, and why (N062 §3). */}
           {node.type.endsWith('finset') && node.type !== 'tubefinset' && (
-            <p className="hint fin-print-scope">
-              The STL is ONE fin as a flat prism with its tab
-              {node['crossSection'] === 'rounded' || node['crossSection'] === 'airfoil'
-                ? <>: this fin&rsquo;s <strong>{node['crossSection'] === 'rounded' ? 'rounded' : 'airfoil'} cross-section
-                  is not in it</strong>, so shape it by sanding, and</>
-                : <>; any edge shaping is left to sanding, and</>} cant is not baked in. Check the fit before a long print.
-            </p>
+            <FinPrintScope tree={tree} node={node} lengthSym={lengthSym} />
           )}
           {exportNote && (
             <Note as="p" tier="danger" className="print-note print-note-warn" role="alert">{exportNote}</Note>
@@ -1382,6 +1526,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                       onUse={() => onPatch(limitCatalogue(sdiff.patch))} />
                   );
                 })()}
+                {f.key === 'crossSection' && <FinSectionNotes tree={tree} node={node} />}
               </div>
               </Fragment>
             );
