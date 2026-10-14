@@ -84,6 +84,7 @@ export async function simulateFile(
     // The curve load the default match below flies, so a .CDX1's stated launch
     // weight is backed out with the mass that flight carries.
     imported = await openDesignFile(buffer, fileName, { presets, distanceUnit: (opts.units ?? INITIAL_UNITS).altitude,
+      horizontalDistanceUnit: (opts.units ?? INITIAL_UNITS).distance,
       aeroChoice: aero.aeroMode === 'classic' ? (aero.effectiveKbf ? 'kbf' : 'eb') : aero.aeroMode,
       catalogue: opts.network === 'allow' ? undefined : MOTOR_DB,
       flownSpec: opts.network === 'allow' ? (m, d) => fetchMotorSpec(m, d, opts.signal) : bundledOnlyFetchSpec });

@@ -68,6 +68,18 @@ const buffer = (name: string): ArrayBuffer => {
 };
 
 describe('simulateFile flies a design file offline, on the shipped data', () => {
+  it('N032 site note units reach the headless bytes door', async () => {
+    // No motor: the normal refusal retains the completed import note.
+    const error: unknown = await simulateFile(bytes('unit-site-notes.ork'), 'unit-site-notes.ork', {
+      presets: [], units: { ...INITIAL_UNITS, altitude: 'km', distance: 'mi' },
+    }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SimulateDesignError);
+    const failed = error as SimulateDesignError;
+    expect.soft(failed.importNote?.text).toContain('accepts 0 km to 10 km');
+    expect.soft(failed.importNote?.text).toContain('imported as 10 km');
+    expect.soft(failed.importNote?.text).toContain('8,500 mi away. With the sign flipped it is 100 mi from them.');
+  });
+
   it.each([
     { aeroMode: 'classic', effectiveKbf: true, label: 'Rogers Modified Barrowman (Kbf)' },
     { aeroMode: 'classic', effectiveKbf: false, label: null },

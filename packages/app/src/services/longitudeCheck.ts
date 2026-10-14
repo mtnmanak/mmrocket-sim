@@ -1,4 +1,5 @@
 import { distanceM, ELEVATION_AGREE_M } from './openMeteo.js';
+import { siToUi } from '../prefs/units.js';
 
 export interface CoordinateSite { latitudeDeg: number; longitudeDeg: number }
 export interface FileLongitudeCheck {
@@ -36,14 +37,16 @@ export function checkFileLongitude(
   return undefined;
 }
 
-export function fileLongitudeNote(check: FileLongitudeCheck, simulationName: string): string {
+export function fileLongitudeNote(check: FileLongitudeCheck, simulationName: string, horizontalDistanceUnit = 'km'): string {
   const { opened, sibling, siblingCount, distanceKm, flippedDistanceKm } = check;
   const side = (lon: number) => lon < 0 ? 'west' : 'east';
-  const km = (n: number) => (Math.round(n / 100) * 100).toLocaleString('en-US');
+  // N032: geographic distances use km/mi families, retaining the coarse evidence rounding.
+  const unit = ['ft', 'yd', 'mi'].includes(horizontalDistanceUnit) ? 'mi' : 'km';
+  const distance = (km: number) => `${(Math.round(siToUi('distance', unit, km * 1000) / 100) * 100).toLocaleString('en-US')} ${unit}`;
   return `This file states two sites that look like one site with the longitude’s sign flipped: the opened simulation “${simulationName}”`
     + ` is at ${opened.latitudeDeg}, ${opened.longitudeDeg} (${side(opened.longitudeDeg)}); ${siblingCount} of its other simulations`
     + ` ${siblingCount === 1 ? 'is' : 'are'} at ${sibling.latitudeDeg}, ${sibling.longitudeDeg} (${side(sibling.longitudeDeg)}),`
-    + ` ${km(distanceKm)} km away. With the sign flipped it is ${km(flippedDistanceKm)} km from them. The file’s value was kept.`;
+    + ` ${distance(distanceKm)} away. With the sign flipped it is ${distance(flippedDistanceKm)} from them. The file’s value was kept.`;
 }
 
 /** Run only against the rounded fix chosen by the user's location-button click. */

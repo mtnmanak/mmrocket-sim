@@ -393,21 +393,22 @@ export function flownGeodeticMethod(
  * note when that moved it. `what` names the setting in prose and `field` is
  * the panel's own label, so the note names the box the user will look in;
  * `show` formats a value in the FILE's units, so the note quotes the number
- * its author typed.
+ * its author typed. `showField`, when supplied, reads bounds and the imported
+ * value in the field's selected unit instead (N032).
  */
 export function importLaunchValue(
   v: number,
   range: readonly [number, number],
-  say: { what: string; field: string; show: (x: number) => string },
+  say: { what: string; field: string; show: (x: number) => string; showField?: (x: number) => string },
   notes: string[],
 ): number {
   const [lo, hi] = range;
   const b = Math.min(hi, Math.max(lo, v));
   if (b !== v) {
-    const { what, field, show } = say;
-    const accepts = hi === Infinity ? `nothing below ${show(lo)}` : `${show(lo)} to ${show(hi)}`;
+    const { what, field, show, showField = show } = say;
+    const accepts = hi === Infinity ? `nothing below ${showField(lo)}` : `${showField(lo)} to ${showField(hi)}`;
     cautionNote(notes, 'I25.clamped', `The file's ${what} is ${show(v)}, and the ${field} field under Launch conditions `
-      + `accepts ${accepts} — imported as ${show(b)}. Change it there if you meant something else.`);
+      + `accepts ${accepts} — imported as ${showField(b)}. Change it there if you meant something else.`);
   }
   return b;
 }

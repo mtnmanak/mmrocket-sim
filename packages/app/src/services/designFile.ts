@@ -78,6 +78,8 @@ export interface DesignFileOptions {
   presets: readonly Preset[];
   /** Legacy option name: the caller's Altitude selection for new height notes. */
   distanceUnit?: string;
+  /** Horizontal distance selection for geographic distance notes (N032); separate from Altitude. */
+  horizontalDistanceUnit?: string;
   catalogue?: MotorDbEntry[];
   aeroChoice?: AeroChoice;
   /** The curve load the flight's motor match uses, for a .CDX1's stated weight. */
@@ -99,7 +101,8 @@ export function designFormatOf(fileName: string): DesignFormat {
  * whatever the file left unset — a RockSim chute's "auto" Cd, above all. The
  * user's altitude unit goes to the readers for new height notes: deployment
  * and separation overrides in .ork, deployment in .rkt, and site/table heights
- * in .CDX1 (N032).
+ * in .CDX1. Site-altitude clamp readouts also use Altitude; longitude-check
+ * distances use the separate Horizontal distance selection (N032).
  * Motor rows travel with it too (2026-10-01): headless imports must settle
  * delays and motor moments on the shipped rows, while App keeps live defaults.
  *
@@ -115,6 +118,7 @@ export async function parseDesignFile(
   switch (designFormatOf(fileName)) {
     case 'rkt':
       return { ...importRkt(data, { presets: opts.presets, catalogue: opts.catalogue,
+        ...(opts.horizontalDistanceUnit !== undefined ? { horizontalDistanceUnit: opts.horizontalDistanceUnit } : {}),
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) }), sourceFormat: 'rkt' };
     case 'cdx1':
       return { ...await importCdx1Flown(data, { catalogue: opts.catalogue, aeroChoice: opts.aeroChoice,
@@ -122,6 +126,7 @@ export async function parseDesignFile(
         ...(opts.flownSpec ? { flownSpec: opts.flownSpec } : {}) }), sourceFormat: 'cdx1' };
     case 'ork':
       return { ...importOrk(data, { presets: opts.presets,
+        ...(opts.horizontalDistanceUnit !== undefined ? { horizontalDistanceUnit: opts.horizontalDistanceUnit } : {}),
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) }), sourceFormat: 'ork' };
   }
 }

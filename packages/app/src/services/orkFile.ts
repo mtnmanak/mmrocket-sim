@@ -42,6 +42,7 @@ import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
 import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 import { checkFileLongitude, fileLongitudeNote, type FileLongitudeCheck } from './longitudeCheck.js';
+import { deployAltitudeText } from '../components/recoveryContext.js';
 import { deployOverrideNote, flightParameterOverrideNote, sameDeployment, type DeployOverride, type DeploySetting } from './deployOverrideNote.js';
 import { archiveExMotors, EX_MOTOR_ID_TAG, EX_MOTOR_NOTES_TAG, EX_MOTORS_TAG, readArchivedExMotors } from './exMotorArchive.js';
 import type { ExMotor } from './exMotors.js';
@@ -348,8 +349,9 @@ export interface LayeredOrkImportResult extends OrkImportResult {
 
 export function importOrk(data: ArrayBuffer | string, opts?: {
   configId?: string; presets?: readonly Preset[];
-  /** N032: the caller's Altitude selection, for newly composed override notes. */
+  /** N032: the caller's Altitude selection, for newly composed height notes. */
   distanceUnit?: string;
+  horizontalDistanceUnit?: string;
 }): LayeredOrkImportResult {
   let xml: string;
   // Set when the bytes were not valid UTF-8 and named no other encoding (see
@@ -1658,7 +1660,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   applyPresetLinks(pendingLinks, opts?.presets, notes, {
     ownFile: doc.documentElement?.getAttribute('creator') === ORK_CREATOR,
   });
-  const launch = readLaunchConditions(doc, notes, chosenConfigId);
+  const launch = readLaunchConditions(doc, notes, chosenConfigId, opts?.distanceUnit);
   const { simEls, simEl } = simulationForConfig(doc, chosenConfigId);
   const siteOf = (sim: XmlElement) => {
     const conditions = sim.querySelector(':scope > conditions');
@@ -1668,7 +1670,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     };
   };
   const longitudeCheck = simEl ? checkFileLongitude(siteOf(simEl), simEls.filter((s) => s !== simEl).map(siteOf)) : undefined;
-  if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck, text(simEl!, ':scope > name') || 'Unnamed simulation'));
+  if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck, text(simEl!, ':scope > name') || 'Unnamed simulation', opts?.horizontalDistanceUnit));
 
   // THE LIMITS TABLE, applied here where its notes still reach the import
   // banner (audit 2026-09-22): every count, dimension and enum string outside
@@ -1891,7 +1893,7 @@ function simulationForConfig(doc: XmlDocument, chosenConfigId?: string | null) {
 }
 
 function readLaunchConditions(
-  doc: XmlDocument, notes: string[], chosenConfigId?: string | null,
+  doc: XmlDocument, notes: string[], chosenConfigId?: string | null, altitudeUnit?: string,
 ): Partial<LaunchConditions> | undefined {
   const { simEl } = simulationForConfig(doc, chosenConfigId);
   const condEl = simEl?.querySelector(':scope > conditions');
@@ -1972,7 +1974,8 @@ function readLaunchConditions(
   const alt = num(condEl, 'launchaltitude', NaN, notes);
   if (!Number.isNaN(alt)) {
     launch.launchAltitudeM = importLaunchValue(alt, SITE_ALTITUDE_M_RANGE,
-      { what: 'site altitude', field: 'Site altitude', show: m }, notes);
+      { what: 'site altitude', field: 'Site altitude', show: m,
+        showField: altitudeUnit === undefined ? undefined : (x) => deployAltitudeText(x, altitudeUnit) }, notes);
   }
   const profileFrom = multilevel ? readWindProfile(condEl, launch, notes) : NaN;
 

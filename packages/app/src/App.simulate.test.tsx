@@ -7,7 +7,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
-import { fmtSi } from './prefs/units.js';
+import { fmtSi, INITIAL_UNITS } from './prefs/units.js';
 import { diffCatalogue, OVERLAY_KEY } from './services/catalogueOverlay.js';
 import { padMassSetKey } from './services/configSync.js';
 import { applyDesignNameFallback } from './services/designFile.js';
@@ -595,7 +595,8 @@ async function fileCase(bytes: Uint8Array, name: string, aero: AeroState,
   expect(out.importNote).toStrictEqual(originalImportNote);
   expectSameLaunch(app, out, aero);
   // The bytes door: its own parse, its own presets, its own unit words.
-  const viaBytes = await simulateFile(bytes, name, { aero });
+  const viaBytes = await simulateFile(bytes, name, { aero,
+    units: feet ? { ...INITIAL_UNITS, altitude: 'ft', distance: 'km' } : INITIAL_UNITS });
   expect(plain(idFree(viaBytes.run))).toStrictEqual(plain(idFree(app.persistedRun)));
   expect(renumbered(viaBytes.result, positions(viaBytes.state.tree)))
     .toStrictEqual(renumbered(app.out.flight.result, positions(app.args.tree)));

@@ -202,10 +202,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   catalogue?: MotorDbEntry[];
   /**
    * The user's altitude unit (`prefs.units.altitude`), for the recovery line's
-   * deployment altitudes. This module holds no unit preference, so App hands it
-   * over; without it the line writes metres, the unit the file stores.
+   * deployment altitudes and site-altitude clamp readouts. This module holds no
+   * unit preference, so App hands it over; without it the line writes metres,
+   * the unit the file stores.
    */
   distanceUnit?: string;
+  horizontalDistanceUnit?: string;
 }): LayeredOrkImportResult {
   let xml: string;
   // Set when the bytes were not valid UTF-8 and named no other encoding (see
@@ -2271,11 +2273,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       launch = { latitudeDeg: site.latitudeDeg, longitudeDeg: site.longitudeDeg };
       if (Number.isFinite(alt)) {
         launch.launchAltitudeM = importLaunchValue(alt, SITE_ALTITUDE_M_RANGE,
-          { what: 'site altitude', field: 'Site altitude', show: (x) => `${String(Number(x.toPrecision(6)))} m` }, notes);
+          { what: 'site altitude', field: 'Site altitude', show: (x) => `${String(Number(x.toPrecision(6)))} m`,
+            showField: opts?.distanceUnit === undefined ? undefined : (x) => deployAltitudeText(x, distanceUnit) }, notes);
       }
       // Row 44 A: the same offline check a .ork open runs on its simulations.
       longitudeCheck = checkFileLongitude(site, simEls.filter((s) => s !== siteSim).map(siteOf).filter(usableSite));
-      if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck, chosen ? simLabel(chosen) : 'Simulation 1'));
+      if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck, chosen ? simLabel(chosen) : 'Simulation 1', opts?.horizontalDistanceUnit));
     } else {
       const latRaw = text(siteSim, ':scope > LaunchLatitude');
       const lonRaw = text(siteSim, ':scope > LaunchLongitude');

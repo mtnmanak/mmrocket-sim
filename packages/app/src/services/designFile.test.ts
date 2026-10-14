@@ -92,6 +92,70 @@ describe('designFileOpenFailure', () => {
 });
 
 describe('parseDesignFile and openDesignFile', () => {
+  const siteFile = (format: string, altitude: number, sibling = false): ArrayBuffer => {
+    const sites = [[26.380273, 80.126879], ...(sibling ? [[28.1, -80.63]] : [])];
+    const xml = format === 'ork'
+      ? `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket><name>Site</name>
+        ${sites.map((_, i) => `<motorconfiguration configid="c${i}" default="${i === 0}"/>`).join('')}
+        <subcomponents><stage><subcomponents><bodytube><length>0.5</length><radius>0.03</radius>
+        </bodytube></subcomponents></stage></subcomponents></rocket><simulations>
+        ${sites.map(([lat, lon], i) => `<simulation><name>Site ${i}</name><conditions><configid>c${i}</configid>
+        <launchlatitude>${lat}</launchlatitude><launchlongitude>${lon}</launchlongitude>
+        <launchaltitude>${altitude}</launchaltitude></conditions></simulation>`).join('')}</simulations></openrocket>`
+      : format === 'rkt'
+        ? `<RockSimDocument><DesignInformation><RocketDesign><Name>Site</Name><StageCount>1</StageCount>
+          <Stage3Parts><BodyTube><Name>Body</Name><OD>54</OD><ID>52</ID><Len>300</Len>
+          <IsMotorMount>1</IsMotorMount><SerialNo>1</SerialNo></BodyTube></Stage3Parts></RocketDesign></DesignInformation>
+          <SimulationResultsList>${sites.map(([lat, lon], i) => `<SimulationResults>
+          <LaunchLatitude>${lat}</LaunchLatitude><LaunchLongitude>${lon}</LaunchLongitude><LaunchAltitude>${altitude}</LaunchAltitude>
+          <Stage3Engines><EngineSet><EngineCode>F${20 + i}W</EngineCode><MountSerialNo>1</MountSerialNo>
+          <EjectionDelay>6</EjectionDelay></EngineSet></Stage3Engines></SimulationResults>`).join('')}</SimulationResultsList></RockSimDocument>`
+        : `<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>
+          </RocketDesign><LaunchSite><Altitude>${altitude}</Altitude></LaunchSite></RASAeroDocument>`;
+    return new TextEncoder().encode(xml).buffer;
+  };
+
+  it.each(['ork', 'rkt', 'CDX1'])('N032 clamped %s site notes quote file evidence but read field bounds in Altitude', async format => {
+    for (const [altitude, upper] of [['km', '10 km'], ['ft', '32808.399 ft']]) {
+      for (const high of [true, false]) {
+        const source = format === 'CDX1' ? (high ? 150000 : -1000) : (high ? 20000 : -100);
+        const data = siteFile(format, source);
+        const baseline = await parseDesignFile(data, `site.${format}`, { presets: [] });
+        const imported = await parseDesignFile(data, `site.${format}`, { presets: [], distanceUnit: altitude,
+          horizontalDistanceUnit: altitude === 'km' ? 'ft' : 'km' });
+        const note = imported.notes.find(n => n.includes('Site altitude field'));
+        expect.soft(note).toContain(`altitude is ${source} ${format === 'CDX1' ? 'ft' : 'm'}`);
+        expect.soft(note).toContain(`accepts 0 ${altitude} to ${upper}`);
+        expect.soft(note).toContain(`imported as ${high ? upper : `0 ${altitude}`}`);
+        expect(imported.launch).toEqual(baseline.launch);
+        expect(imported.launch!.launchAltitudeM).toBe(high ? 10000 : 0);
+        expect(imported.noteTiers?.filter(n => n.kind === 'I25.clamped').map(n => n.tier)).toEqual(['caution']);
+        expect(data).toEqual(siteFile(format, source));
+      }
+    }
+  });
+
+  it.each(['ork', 'rkt'])('N032 new %s longitude distances follow Horizontal distance independently of Altitude', async format => {
+    const data = siteFile(format, 100, true);
+    const baseline = await parseDesignFile(data, `site.${format}`, { presets: [] });
+    for (const [altitude, horizontalDistanceUnit, away, nearby] of [
+      ['ft', 'mi', '8,500 mi', '100 mi'], ['km', 'yd', '8,500 mi', '100 mi'],
+      ['mi', 'm', '13,600 km', '200 km'], ['ft', 'km', '13,600 km', '200 km'],
+    ]) {
+      const imported = await parseDesignFile(data, `site.${format}`, { presets: [], distanceUnit: altitude, horizontalDistanceUnit });
+      const note = imported.notes.find(n => n.includes('sign flipped'));
+      expect.soft(note).toContain(`${away} away. With the sign flipped it is ${nearby} from them.`);
+      expect(note).toContain('26.380273, 80.126879 (east)');
+      expect(note).toContain('28.1, -80.63 (west)');
+      expect(imported.launch).toEqual(baseline.launch);
+      expect(imported.longitudeCheck).toEqual(baseline.longitudeCheck);
+      expect(imported.launch).toMatchObject({ latitudeDeg: 26.380273, longitudeDeg: 80.126879 });
+      // Synthetic coordinate evidence, unchanged by display units; not a flown trajectory.
+      expect(imported.longitudeCheck!.distanceKm).toBeCloseTo(13618, 0);
+      expect(imported.longitudeCheck!.flippedDistanceKm).toBeCloseTo(198, 0);
+    }
+  });
+
   it.each([
     ['m', '152.4 m', '91.44 m'], ['km', '0.152 km', '0.0914 km'],
     ['ft', '500 ft', '300 ft'], ['yd', '166.667 yd', '100 yd'], ['mi', '0.0947 mi', '0.0568 mi'],

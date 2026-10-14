@@ -2916,6 +2916,7 @@ export function App() {
       // A .CDX1's stated launch weight is backed out with the curve the motor
       // match below will fly (`fetchMotorSpec`, its default), loaded here first.
       const imported = await openDesignFile(buffer, file.name, { presets, distanceUnit: prefs.units.altitude,
+        horizontalDistanceUnit: prefs.units.distance,
         aeroChoice: aeroOverride ?? aeroChoiceOf(prefs), flownSpec: fetchMotorSpec });
       // A multi-configuration .ork used to stop here and ask which one to
       // open. Two testers found that modal the worst moment in the app — it
@@ -2981,7 +2982,8 @@ export function App() {
         if (h.length > MAX_FRAGMENT_CHARS) {
           throw new Error('the link is far longer than any real design — refusing to decode it');
         }
-        return importOrk(await decodeShareFragment(h), { presets: await loadPresets(), distanceUnit: prefs.units.altitude });
+        return importOrk(await decodeShareFragment(h), { presets: await loadPresets(), distanceUnit: prefs.units.altitude,
+          horizontalDistanceUnit: prefs.units.distance });
       },
       // Include non-tree edits and work done while the link was decoding.
       shouldOffer: () => shareShouldOffer.current,

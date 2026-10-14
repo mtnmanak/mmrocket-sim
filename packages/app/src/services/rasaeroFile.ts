@@ -4,6 +4,7 @@ import { filletExportNotes } from './filletExport.js';
 import { simulationExtensionLossNotes } from './orkExtensions.js';
 import { AERO_NAME, type AeroChoice } from '../prefs/aeroChoice.js';
 import { fmtAltitude } from '../prefs/units.js';
+import { deployAltitudeText } from '../components/recoveryContext.js';
 import { retainBaseDragDeclaration } from './baseDragImportNotes.js';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import {
@@ -911,7 +912,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     const alt = num(site, 'Altitude', NaN);
     if (!Number.isNaN(alt)) {
       launch.launchAltitudeM = importLaunchValue(alt / FT, SITE_ALTITUDE_M_RANGE,
-        { what: 'launch site altitude', field: 'Site altitude', show: ft }, notes);
+        { what: 'launch site altitude', field: 'Site altitude', show: ft,
+          showField: opts?.distanceUnit === undefined ? undefined : (x) => deployAltitudeText(x, altitudeUnit) }, notes);
     }
     // The pad's air is believed only inside the envelope the Temperature and
     // Station pressure fields enforce on a typed value (audit 2026-09-22) —

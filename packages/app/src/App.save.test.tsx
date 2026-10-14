@@ -2455,6 +2455,26 @@ it('N032 new .ork share override notes use Altitude independently of Horizontal 
   expect(notes).toContain("it uses Altitude (descending), 0.152 km, not the stage's own setting (Altitude (descending), 0.0914 km)");
 }, 30000);
 
+it.each(['file', 'share'])('N032 site note units reach the App %s door', async door => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { altitude: 'km', distance: 'mi' } }));
+  const xml = fixture('unit-site-notes.ork');
+  if (door === 'share') window.location.hash = (await encodeShareFragment(xml)).replace(/^#/, '');
+  const host = await mountApp();
+  if (door === 'file') {
+    await waitFor(starterStored, 'the starter motor');
+    await pick(host, new File([xml], 'unit-site-notes.ork'));
+  }
+  await waitFor(() => shownName(host) === 'Unit site notes', 'the site design to open');
+  const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+  if (toggle) await act(async () => { toggle.click(); });
+  const notes = host.querySelector('[aria-label="Notices"]')?.textContent ?? '';
+  expect.soft(notes).toContain('accepts 0 km to 10 km');
+  expect.soft(notes).toContain('imported as 10 km');
+  expect.soft(notes).toContain('8,500 mi away. With the sign flipped it is 100 mi from them.');
+  await waitFor(() => storedSession()?.launch?.launchAltitudeM === 10000, 'the imported launch conditions to be autosaved');
+  expect(storedSession()!.launch).toMatchObject({ launchAltitudeM: 10000, latitudeDeg: 26.380273, longitudeDeg: 80.126879 });
+}, 30000);
+
 it('a first-visit share link applies without an offer dialog', async () => {
   expect(localStorage.getItem(SESSION_KEY)).toBeNull();
   const xml = exportOrk({ name: 'First linked design', tree: { ...defaultTree(), name: 'First linked design' } });
