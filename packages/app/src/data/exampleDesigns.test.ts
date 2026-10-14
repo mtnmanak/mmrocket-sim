@@ -73,7 +73,8 @@ it.each([
   ['dual-deploy.ork', 2, [0.15]], ['cluster.ork', 1, []], ['boattail.ork', 1, [0.025]],
 ] as const)('fits the packed recovery in %s ahead of its motors', async (fileName, count, masses) => {
   const data = bytes(fileName);
-  const imported = await openDesignFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), fileName, { presets: await loadBundledPresets() });
+  const presets = await loadBundledPresets();
+  const imported = await openDesignFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), fileName, { presets });
   const stations = [...absoluteStations(imported.tree).values()];
   const recovery = stations.filter(s => s.node.type === 'parachute');
   expect(recovery).toHaveLength(count);
@@ -87,15 +88,18 @@ it.each([
     expect(radius).toBeGreaterThan(0);
     expect(length).toBeGreaterThan(0);
     expect(radius + Math.abs(Number(packed.node['radialPosition'] ?? 0)), 'packed radius clears the bore').toBeLessThanOrEqual(Number(parent['outerRadius']) - Number(parent['thickness']));
-    // C-A3: packing must at least contain the modeled canopy's solid nylon.
-    expect(packed.node['surfaceMaterialName']).toBe('Ripstop nylon');
-    const nylonDensity = BULK_MATERIALS.find(m => m.name === 'Nylon')!.density;
+    // C-A3: use the linked canopy material, with a conservative assumed LDPE
+    // bulk density of 900 kg/m3 for the educational solid-volume bound.
+    const stock = linkedPreset(packed.node, presets)!;
+    expect(packed.node['surfaceMaterialName']).toBe(stock.material?.name);
+    const solidDensity = stock.material?.name === 'Polyethylene LDPE'
+      ? 900 : BULK_MATERIALS.find(m => m.name === 'Nylon')!.density;
     const canopyMass = Math.PI * (Number(packed.node['diameter']) / 2) ** 2 * Number(packed.node['surfaceDensity']);
     const envelope = Math.PI * radius ** 2 * length;
-    expect(envelope, `${packed.node.name}: envelope contains the solid canopy`).toBeGreaterThanOrEqual(canopyMass / nylonDensity);
+    expect(envelope, `${packed.node.name}: envelope contains the solid canopy`).toBeGreaterThanOrEqual(canopyMass / solidDensity);
     if (packed.node['lineMaterialName'] === 'Braided nylon (2 mm, 1/16 in)') {
       const lineMass = Number(packed.node['lineCount']) * Number(packed.node['lineLength']) * Number(packed.node['lineDensity']);
-      const solidVolume = Math.max(canopyMass + lineMass, Number(packed.node['overrideMass'])) / nylonDensity;
+      const solidVolume = Math.max(canopyMass + lineMass, Number(packed.node['overrideMass'])) / solidDensity;
       // The main's educational packing assumption reserves at least 60% for voids.
       expect(solidVolume / envelope, `${packed.node.name}: main packing allows voids`).toBeLessThanOrEqual(0.4);
     }
