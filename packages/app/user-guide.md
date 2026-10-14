@@ -1310,6 +1310,12 @@ An unresolved imported motor on a mount still in the design appears with its rec
 
 The current configuration and motor assignments appear even with no selected flight. They are separate from the selected flight's recorded motors and results.
 
+Freeform fin dimensions include root chord, span from the root, and axial extent in your preferred Rocket dimensions units. Axial extent includes any tip overhang and can be longer than the root chord.
+
+The selected flight's motor count is labeled **primary mount/group** for ordinary runs or **candidate group** for batch rows. It does not establish the complete flight loadout; the complete flight motor count stays **Unknown** because it is not recorded. Other recorded motor labels do not supply their copy counts, and missing counts stay unknown.
+
+An imported summary's deployment scalar is labeled **deployment ground speed**, with device and opening order not recorded. It cannot establish a device's air-relative opening speed; do not use it as the first device's opening speed when assessing recovery loads.
+
 When the selected flight has valid per-mount delay records, **Ejection delays by mount** lists each recorded mount, motor identity, branch, mode, ballistic optimum, recommendation, and flown delay. Plugged means no ejection charge. Hypothetical-charge and burnout cautions stay beside the affected delay. Older scalar-only records are labeled legacy and apply only to the primary motor; other mounts' delays are not recorded. Do not apply the primary motor's recommendation to another mount: its charge would fire at a different time from the recorded flight. Invalid or incomplete per-mount records are flagged, and the report uses no delay from today's assignments to fill missing flight evidence.
 
 In the preview choose **Print / Save as PDF**, then the browser's **Save as PDF** destination. Short reports fit one page where possible; longer parts lists continue, with repeated column headings. The schematic is fitted to the report and is not a cutting template. These figures are simulated predictions, not measurements or certification. If preparing or opening the report fails, the error appears beside the print action and **Save As / Export** stays open so you can read it and retry. If the preview is blocked, allow pop-ups for the app and try again. Printing changes no design, saved run, or simulation setting.

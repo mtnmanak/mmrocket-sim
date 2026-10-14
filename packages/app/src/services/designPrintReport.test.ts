@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { expect, it } from 'vitest';
-import type { RocketTree, StaticInfo } from '@online-openrocket/engine';
+import type { ComponentNode, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { designPrintHtml } from './designPrintReport.js';
 import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 import type { SimRun } from './simReport.js';
@@ -9,6 +9,7 @@ import { LATE_BURNOUT_CAUTION, validDelayResolution } from './autoDelaySolver.js
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
 import { defaultTree, motorMounts } from '../tree/treeModel.js';
 import type { MountMotor } from '../model/design.js';
+import { importedSummaryRuns } from './orkFlightData.js';
 
 const tree: RocketTree = { name: 'Current <script>rocket</script>', components: [
   { type: 'stage', id: 'stage', children: [{ type: 'bodytube', id: 'tube', name: 'Tube', length: 0.254, outerRadius: 0.0254, materialName: 'Paper' }] },
@@ -25,6 +26,93 @@ const run = { id: 'selected', rocket: 'Earlier design', motor: 'F40', manufactur
 const input = { tree, info, units: IMPERIAL_UNITS, radiusMode: 'diameter' as const,
   stabilityUnit: 'both' as const, withMotors: true, appVersion: 'test', run, changedSince: ['the design'], };
 function doc(html: string) { return new DOMParser().parseFromString(html, 'text/html').body; }
+
+it.each([
+  [INITIAL_UNITS, '15.0 m/s'], [IMPERIAL_UNITS, '49.2 ft/s'],
+])('keeps imported deployment ground speed separate from first-device opening evidence in %s', (units, speed) => {
+  const [selected] = importedSummaryRuns({ name: 'Dual deployment', storedSimulations: [
+    { name: 'Imported flight', configId: null, windAverage: 0, data: { maxAltitude: 300, deploymentVelocity: 15 } },
+  ] });
+  const before = JSON.stringify(selected);
+  const d = doc(designPrintHtml({ ...input, units, run: selected! }));
+  const recovery = [...d.querySelectorAll('h2')].find(h => h.textContent === 'Recovery')!.nextElementSibling!;
+  expect(recovery.textContent).toContain(`Recorded summary deployment ground speed: ${speed}`);
+  expect(recovery.textContent).toContain('device and opening order not recorded');
+  expect(recovery.textContent).not.toMatch(/First recorded deployment|opening speed \d/);
+  expect(recovery.textContent).toContain("cannot establish a device's air-relative opening speed");
+  expect(JSON.stringify(selected)).toBe(before);
+});
+
+it('retains first-deployment evidence for ordinary scalar-only stored runs', () => {
+  const d = doc(designPrintHtml({ ...input, units: INITIAL_UNITS,
+    run: { ...run, deployments: undefined, altitudeAtDeployment: 100, velocityAtDeployment: 12 } }));
+  expect(d.textContent).toContain('First recorded deployment: 100 m; opening speed 12.0 m/s');
+});
+
+it.each([
+  [INITIAL_UNITS, 'rounded', '50 mm', '100 mm', '75 mm'],
+  [IMPERIAL_UNITS, 'rounded', '1.969 in', '3.937 in', '2.953 in'],
+  [INITIAL_UNITS, 'airfoil', '50 mm', '100 mm', '75 mm'],
+  [IMPERIAL_UNITS, 'airfoil', '1.969 in', '3.937 in', '2.953 in'],
+])('prints distinct freeform outline dimensions in %s with %s fins', (units, crossSection, short, tall, extent) => {
+  const dimensions = [0.05, 0.1].map(span => {
+    const fin: ComponentNode = { type: 'freeformfinset', id: 'fins', name: 'Freeform', finCount: 3, crossSection,
+      thickness: 0.003, points: [[0, 0], [0.025, span], [0.075, span], [0.05, 0]] };
+    const tree: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', id: 'tube',
+      length: 0.3, outerRadius: 0.025, thickness: 0.001, children: [fin] }] }] };
+    const before = JSON.stringify(tree);
+    const built = buildDesign({ tree, assigned: [], kbf: false, supersonic: false,
+      measuredDryMassKg: null, primaryMountId: '', currentSetKey: '' }, KERNEL_HANDLES);
+    if ('error' in built) throw new Error(built.error);
+    const d = doc(designPrintHtml({ ...input, tree, units, info: built.info,
+      infoFor: id => built.rocket.componentInfo(id), run: null }));
+    const cell = d.querySelectorAll('tbody tr')[1]!.querySelectorAll('td')[2]!.textContent!;
+    expect(cell).toContain(`Root chord: ${short}`);
+    expect(cell).toContain(`Axial extent: ${extent}`);
+    expect(JSON.stringify(tree)).toBe(before);
+    return cell;
+  });
+  expect(dimensions[0]).toContain(`Span from root: ${short}`);
+  expect(dimensions[1]).toContain(`Span from root: ${tall}`);
+  expect(dimensions[0]).not.toBe(dimensions[1]);
+});
+
+it('reads default and explicitly closed freeform outlines without treating extent as chord', () => {
+  const tree: RocketTree = { components: [{ type: 'stage', children: [
+    { type: 'freeformfinset', id: 'default', name: 'Default' },
+    { type: 'freeformfinset', id: 'closed', name: 'Closed',
+      points: [[0.01, 0.02], [0.035, 0.07], [0.085, 0.07], [0.06, 0.02], [0.01, 0.02]] },
+  ] }] };
+  const before = JSON.stringify(tree);
+  const d = doc(designPrintHtml({ ...input, tree, units: INITIAL_UNITS, run: null }));
+  const cells = [...d.querySelectorAll('tbody tr')].map(row => row.querySelectorAll('td')[2]!.textContent);
+  expect(cells[0]).toContain('Root chord: 50 mm; Span from root: 50 mm; Axial extent: 75 mm');
+  expect(cells[1]).toContain('Root chord: 50 mm; Span from root: 50 mm; Axial extent: 75 mm');
+  expect(JSON.stringify(tree)).toBe(before);
+});
+
+it.each([
+  [{}, 'primary mount/group'],
+  [{ batch: true }, 'candidate group'],
+  [{ batch: true, motorConfig: 'mixed 2+2' }, 'candidate group'],
+  [{ motorConfig: 'single' }, 'candidate group'],
+])('scopes multiple-mount recorded motor counts for %s', (provenance, scope) => {
+  const selected = { ...run, ...provenance, motor: 'C6-5', motorCount: 1, boosterMotors: ['C6-0'] };
+  const before = JSON.stringify(selected);
+  const d = doc(designPrintHtml({ ...input, run: selected, currentLoadout: 'Today: 12 motors' }));
+  const flight = [...d.querySelectorAll('p')].map(p => p.textContent).filter(t => t?.includes('motor count') || t?.includes('Motor count'));
+  expect(flight).toContain(`Motor count (${scope}): 1`);
+  expect(flight).toContain('Complete flight motor count: Unknown (not recorded).');
+  expect(flight).not.toContain('Motor count: 1');
+  expect(d.textContent).toContain('Other motor: C6-0');
+  expect(JSON.stringify(selected)).toBe(before);
+});
+
+it.each([false, true])('does not invent a missing motor count (imported=%s)', importedSummary => {
+  const d = doc(designPrintHtml({ ...input, run: { ...run, importedSummary, motorCount: undefined } }));
+  expect(d.textContent).toContain(`Motor count (${importedSummary ? 'scope not recorded' : 'primary mount/group'}): Unknown`);
+  expect(d.textContent).toContain('Complete flight motor count: Unknown (not recorded).');
+});
 
 it.each(['curve', 'ignition', 'partial'] as const)('withholds current launch figures for a %s motor refusal from a real build', refusal => {
   const tree = defaultTree();
@@ -174,7 +262,7 @@ it('prints the recorded delays for each mount and branch rather than one cluster
   const values = rows.map(row => [...row.querySelectorAll('th, td')].map(cell => cell.textContent));
   expect(values[0]).toEqual(['Primary mount (primary)', 'Recorded motor A', 'Core branch (core)', 'auto', '7 s', '7 s', '7 s']);
   expect(values[1]).toEqual(['Secondary <mount> (secondary)', 'Recorded motor B', 'Separated <branch> (detached)', 'auto', '3 s', '3 s', '3 s']);
-  expect(d.textContent).toContain('Motor count: 4');
+  expect(d.textContent).toContain('Motor count (primary mount/group): 4');
   expect(d.textContent).not.toContain('99 s');
   expect(delayTable!.textContent).not.toContain('Today');
   expect(JSON.stringify(selected)).toBe(before);

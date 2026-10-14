@@ -4,6 +4,9 @@ import { layoutSchematic, schematicFrame, type SchematicShape } from '../tree/sc
 import { componentTable } from './componentTable.js';
 import { asStageNodes, mountName } from '../tree/treeModel.js';
 import { solidContextFor } from '../tree/solidContext.js';
+import { kernelFinPoints } from '../tree/finOutline.js';
+import { finRootChord } from '../tree/finTab.js';
+import { finOutline } from './finTemplate.js';
 import { paperRingDimensions } from './paperTemplates.js';
 import { validDelayResolution } from './autoDelaySolver.js';
 import { formatWarning } from './simWarnings.js';
@@ -59,6 +62,13 @@ export function designPrintHtml(input: DesignPrintInput): string {
     const dimensions = [6, ...table.headers.map((_, i) => i).filter(i => i >= 11 && /\((?:mm|cm|m|in|ft|°|rad)\)/.test(table.headers[i]!))]
       .filter(i => row[i] !== '').map(i => `${String(table.headers[i])}: ${String(row[i])}`).join('; ');
     const n = nodes[index];
+    const finDimensions: string[] = [];
+    if (n?.type === 'freeformfinset') {
+      const points = kernelFinPoints(finOutline(n).map(({ x, y }) => [x, y]));
+      finDimensions.push(`Root chord: ${val('length', finRootChord({ ...n, points }), 3)}`,
+        `Span from root: ${val('length', Math.max(...points.map(([, y]) => y)), 3)}`,
+        `Axial extent: ${val('length', Math.max(...points.map(([x]) => x)) - Math.min(...points.map(([x]) => x)), 3)}`);
+    }
     const ringDimensions: string[] = [];
     let ringCaution = '';
     if (n && (n.type === 'centeringring' || n.type === 'bulkhead')) {
@@ -73,7 +83,7 @@ export function designPrintHtml(input: DesignPrintInput): string {
       }
     }
     return `<tr><td>${e(row[0])}<br>${e(row[1])}<br>${e(row[2])}</td><td>${e(row[4] || 'Unknown')}</td>
-<td>${e([dimensions, ...ringDimensions].filter(Boolean).join('; ') || 'Unknown')}${ringCaution}</td><td>${e(row[7])}</td><td>${e(row[8] === '' ? 'Unknown' : row[8])}</td></tr>`;
+<td>${e([dimensions, ...finDimensions, ...ringDimensions].filter(Boolean).join('; ') || 'Unknown')}${ringCaution}</td><td>${e(row[7])}</td><td>${e(row[8] === '' ? 'Unknown' : row[8])}</td></tr>`;
   }).join('');
   const header = dataHeaderLines({ name: tree.name ?? 'Rocket', info, units: u, withMotors: input.withMotors, appVersion: input.appVersion });
   if (info && hasAerodynamicForce(info)) header[3] = header[3]!.replace(/margin .*/, `margin ${formatStability(info, input.stabilityUnit)}`);
@@ -97,10 +107,13 @@ export function designPrintHtml(input: DesignPrintInput): string {
   if (!run) body.push(p('No flight selected. Open a saved simulation or launch a flight, then print again.'));
   else {
     const stability = formatRunStability(run.launchStaticMarginCal, run.launchStaticMarginPct, input.stabilityUnit);
+    const motorCountScope = run.importedSummary ? 'scope not recorded'
+      : run.batch || run.motorConfig ? 'candidate group' : 'primary mount/group';
     body.push(p(`${run.rocket} — ${run.manufacturer} ${run.motor} — flown ${formatRunWhenProse(run.when)}`), p(`Run ID: ${run.id}`),
       p(`Configuration: ${recordedConfiguration(run) ?? 'Unknown'}${run.motorConfig ? ` (${run.motorConfig})` : ''}`),
       p(runConfigurationHeading(run, u.distance)),
-      p(`Motor count: ${run.motorCount ?? (run.importedSummary ? 'Unknown' : 1)}`),
+      p(`Motor count (${motorCountScope}): ${run.motorCount ?? 'Unknown'}`),
+      p('Complete flight motor count: Unknown (not recorded).'),
       ...((run.boosterMotors ?? []).map(m => p(`Other motor: ${m}`))),
       p(`Aerodynamics: ${aeroModelLabel(run.aeroModel, run.rogersKbf)}`));
     if (run.importedSummary) body.push(note('Imported summary. Design match and safety are unknown; only the file’s recorded predictions are shown.', 'caution'));
@@ -143,6 +156,7 @@ export function designPrintHtml(input: DesignPrintInput): string {
     body.push(`<div class="summary">${results.map(p).join('')}</div>`, '<h2>Recovery</h2>');
     const deployment = (d: DeploymentReport) => p(`${d.device}: opens at ${sec(d.time)}, ${val('distance', d.altitude)}; opening speed ${val('velocity', d.velocityAtDeployment)}; descent ${val('velocity', d.descentRate)}; ground speed ${val('velocity', d.groundSpeed)}; Cd ${d.cd ?? 'Unknown'}; diameter ${val('length', d.diameter, 3)}.`);
     if (run.deployments?.length) body.push(...run.deployments.map(deployment));
+    else if (run.importedSummary) body.push(p(`Recorded summary deployment ground speed: ${val('velocity', run.velocityAtDeployment)}; device and opening order not recorded. This cannot establish a device's air-relative opening speed.`));
     else body.push(p(`Recovery device details unavailable. First recorded deployment: ${val('distance', run.altitudeAtDeployment)}; opening speed ${val('velocity', run.velocityAtDeployment)}.`));
     for (const branch of run.branches ?? []) body.push(p(`${branch.name}: ${branch.motorLabel ?? 'motor unknown'}; apogee ${val('distance', branch.apogee)}; recovery mass ${val('mass', branch.recoveryMass)}; landing descent ${val('velocity', branch.landingRate)}${branch.tumbles ? '; tumble recovery' : ''}.`), ...branch.deployments.map(deployment));
     body.push(...commentsOf(run).map(c => note(c.text, c.level === 'warning' ? 'danger' : c.level === 'caution' ? 'caution' : 'information')));
