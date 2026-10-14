@@ -22,7 +22,7 @@ import type { NoteTier } from '../components/Note.js';
  * occurrence, not a search for words.
  */
 export interface ImportNote {
-  /** Stable producer kind (R6 id plus a slug), for tests and grouping — never shown. */
+  /** Stable producer kind (R6 id plus a slug); N046 shows typed codes beside the line. */
   kind: string;
   tier: NoteTier;
   text: string;

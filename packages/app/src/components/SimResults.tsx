@@ -3,9 +3,11 @@ import type { DesignMatchKey } from '../services/simReport.js';
 import { deploymentRole, openingPolicy } from '../services/simReport.js';
 import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
 import { Note } from './Note.js';
+import { WarningCode } from './WarningCode.js';
 import { MountDelayReport } from './MountDelayReport.js';
 import { railNeededLine } from '../services/railNeeded.js';
 import { FlightLoadStats } from './FlightLoadStats.js';
+import { LOAD_WINDOW } from '../services/flightLoads.js';
 import { MACH_AUTO_THRESHOLD } from '../services/machProbe.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -23,6 +25,7 @@ import { clearRuns, deleteRun, restoreRun, runsToCsv, runsToTable } from '../ser
 import { formatWarning } from '../services/simWarnings.js';
 import { CSV_BOM, downloadBlob, stampedName } from '../services/fileName.js';
 import { tableToXlsx, XLSX_MIME } from '../services/xlsx.js';
+import { DEFAULT_RUN_COLUMNS, RUN_SUMMARY_COLUMNS, summaryCell } from '../services/runSummaryColumns.js';
 
 /**
  * Detailed launch report (the full attribute list from the owner's flight-day
@@ -295,7 +298,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
         if (!warnings.length && !comments.length) return null;
         return <Note key={tier} tier={tier} className="flight-notes">
           {warnings.map((f, i) => <p key={`warning-${i}`} className="simdet-comments" style={{ margin: '2px 0 0' }}>
-            {f.label}{f.detail && <span> — {f.detail}</span>}
+            {f.label}{f.detail && <span> — {f.detail}</span>}<WarningCode code={f.code} />
           </p>)}
           {comments.map(({ text, level }, i) => <p key={`comment-${i}`}
             className={level === 'warning' ? 'simdet-comments stability-bad' : level === 'caution' ? 'simdet-comments stability-warn' : 'simdet-comments'}
@@ -467,6 +470,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                 bad={run.weathercockRisk === 'high'} />
               <Row label="Winds aloft" value={run.windLevels?.length ? windProfileSummary(run.windLevels) : run.importedSummary ? '—' : "Surface wind only"} />
               <Row label="Wind average" value={fmtSi('windspeed', prefs.units.windspeed, run.windAvg)} quantity="windspeed" />
+              <Row label="Wind gusts σ at pad" value={fmtSi('windspeed', prefs.units.windspeed, run.windSigma ?? NaN)} quantity="windspeed" />
               {/* The air this run flew, as the Launch panel's readout showed it at
                   launch (SimRun.densityAltitudeM). Stored runs are untrusted
                   JSON and older ones lack the field: no number, no row. */}
@@ -541,10 +545,13 @@ export function SimHistory({
   /** Stamped into the export filenames, as every other export here does. */
   designName?: string;
 }) {
-  const { prefs } = usePrefs();
+  const { prefs, setPrefs } = usePrefs();
   const [open, setOpen] = useState(false);
-  const dist = prefs.units.distance;
-  const vel = prefs.units.velocity;
+  const columnIds = prefs.runColumns ?? DEFAULT_RUN_COLUMNS;
+  const columns = columnIds.flatMap(id => {
+    const column = RUN_SUMMARY_COLUMNS.find(c => c.id === id);
+    return column ? [column] : [];
+  });
   /*
    * NOTHING GOES ON ONE STRAY CLICK (audit 2026-09-22, WCAG 3.3.4). "Clear all"
    * removed up to 500 saved runs — the comparison history, and the flights a
@@ -613,15 +620,46 @@ export function SimHistory({
           onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'}</button>
       </div>
       {undoLine}
+      <details style={{ marginTop: 8 }}>
+        <summary>Summary columns</summary>
+        <p className="chart-comparison-note">Recorded summaries for the sustainer stack. Old runs leave unavailable values blank.
+          Run-table downloads keep their full set of summaries.</p>
+        <div className="series-picker" role="group" aria-label="Saved-run summary columns">
+          {RUN_SUMMARY_COLUMNS.map(column => <label key={column.id} className="series-chip">
+            <input type="checkbox" aria-label={`Show ${column.label}`} checked={columnIds.includes(column.id)}
+              onChange={e => setPrefs({ ...prefs, runColumns: e.target.checked
+                ? [...columnIds, column.id] : columnIds.filter(id => id !== column.id) })} />
+            {column.label}
+          </label>)}
+        </div>
+        <button className="file-btn" onClick={() => setPrefs({ ...prefs, runColumns: undefined })}>Default columns</button>
+      </details>
+      {/* N058 / D7 §5: load scope stays beside the values when the chooser is closed. */}
+      {columns.some(column => column.loadWindow) && <>
+        <Note tier="information" as="p" className="simdet-comments flight-loads-scope">
+          <strong>Inputs to a structural check; no structural verdict.</strong>{' '}
+          This is an input to a structural loads check, not a loads check.
+        </Note>
+        <p className="simdet-comments">{LOAD_WINDOW}.</p>
+      </>}
       {confirmClear && (
         <Modal label="Delete all saved runs" onClose={() => setConfirmClear(false)}>
           <h2>Delete all {runs.length} saved runs?</h2>
           <p>
             This deletes every run in the table — the comparison history, and the
-            flights a later Save .ork would write into the file. Results that came
-            from the .ork file you opened stay with that file and are written back
-            when you save it. It cannot be undone: download the run table first to
-            keep the numbers.
+            flights a later Save .ork would write into the file. Imported app
+            summaries stay with the opened design and are written back when you
+            save it for configurations still in the design.
+          </p>
+          <p>
+            Desktop OpenRocket predictions stay in the current session but are
+            omitted from .ork files saved by the app. Keep the original desktop
+            file to preserve those predictions.
+          </p>
+          <p>
+            Deleting all saved runs cannot be undone: download the run table first
+            to keep the saved runs' numbers. The run table does not include desktop
+            predictions.
           </p>
           <div className="modal-actions">
             <button className="file-btn modal-danger"
@@ -641,13 +679,14 @@ export function SimHistory({
                 <th scope="col">Motor</th>
                 <th scope="col">Configuration</th>
                 <th scope="col">Delay</th>
-                <th scope="col">Apogee (<UnitChip quantity="distance" />)</th>
-                <th scope="col">Max V (<UnitChip quantity="velocity" />)</th>
-                <th scope="col">Opt. delay</th>
-                <th scope="col">Rod exit (<UnitChip quantity="velocity" />)</th>
+                {columns.map(column => <th scope="col" key={column.id}>{column.label}
+                  {column.quantity ? <> (<UnitChip quantity={column.quantity} />{column.unit})</>
+                    : column.unit && column.id !== 'optimumDelayS' ? ` (${column.unit})` : ''}
+                </th>)}
                 <th scope="col">Safe</th>
                 <th scope="col">Status</th>
                 <th scope="col">Winds aloft</th>
+                <th scope="col">Wind gusts σ at pad (<UnitChip quantity="windspeed" />)</th>
                 <th scope="col">When</th>
                 <th scope="col"></th>
               </tr>
@@ -693,15 +732,13 @@ export function SimHistory({
                     <td title={recordedConfiguration(r) === undefined ? 'Not recorded' : undefined}>{runConfigurationLabel(r)}</td>
                     <td>{Number.isFinite(r.delayS) ? `${r.delayS}s`
                       : r.importedSummary && r.delayS !== Infinity ? '—' : 'P'}</td>
-                    <td>{fmtSi('distance', dist, r.maxAltitude)}</td>
-                    <td>{fmtSi('velocity', vel, r.maxVelocity)}</td>
-                    <td>{typeof r.optimumDelayS === 'number' && Number.isFinite(r.optimumDelayS) ? `${r.optimumDelayS.toFixed(1)}s` : '—'}</td>
-                    <td>{r.rodExitVelocity === null ? '—' : fmtSi('velocity', vel, r.rodExitVelocity)}</td>
+                    {columns.map(column => <td key={column.id}>{summaryCell(column, r, prefs.units)}</td>)}
                     <td className={r.importedSummary ? undefined : unsafe ? 'stability-bad' : caution ? 'stability-warn' : 'stability-good'}>
                       {r.importedSummary ? '—' : unsafe ? '⚠' : caution ? '△' : '✓'}
                     </td>
                     <td title={status.title}>{status.label}</td>
                     <td>{r.windLevels?.length ? `${r.windLevels.length} levels` : r.importedSummary ? '—' : "No"}</td>
+                    <td>{fmtSi('windspeed', prefs.units.windspeed, r.windSigma ?? NaN)}</td>
                     {/* Date AND time once it is not today's run: the time alone
                         made a three-day-old row identical to a fresh one. */}
                     <td style={{ whiteSpace: 'nowrap' }}>{formatRunWhen(r.when)}</td>

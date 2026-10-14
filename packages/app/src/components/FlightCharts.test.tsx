@@ -70,6 +70,45 @@ afterEach(() => {
 });
 
 describe('FlightCharts — the Flight plots block', () => {
+  it('N038 saves a named export layout, uses it for downloads, and restores full export in one click', async () => {
+    localStorage.clear();
+    const blobs: Blob[] = [];
+    vi.spyOn(URL, 'createObjectURL').mockImplementation(blob => { blobs.push(blob as Blob); return 'blob:x'; });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    mount(() => Promise.resolve(fakeResult()));
+    act(() => labelled('New layout')!.click());
+    const name = host.querySelector<HTMLInputElement>('input[aria-label="Layout name"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(name, 'Altitude only');
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    act(() => labelled('Clear columns')!.click());
+    act(() => host.querySelector<HTMLInputElement>('input[aria-label="Export Altitude"]')!.click());
+    const units = host.querySelector<HTMLSelectElement>('select[aria-label="Altitude unit"]')!;
+    act(() => { units.value = 'ft'; units.dispatchEvent(new Event('change', { bubbles: true })); });
+    act(() => labelled('Save layout')!.click());
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(host.querySelector<HTMLSelectElement>('select[aria-label="Export layout"]')!.selectedOptions[0]!.textContent).toBe('Altitude only');
+    const emphasize = host.querySelector<HTMLButtonElement>('[aria-label="Emphasize Velocity"]')!;
+    expect(emphasize).not.toBeNull();
+    await act(async () => emphasize.click());
+    expect(emphasize.getAttribute('aria-pressed')).toBe('true');
+    expect(emphasize.querySelector<HTMLElement>('.series-emphasis-mark')!.style.visibility).toBe('visible');
+    expect(host.textContent).toContain('Downloads use layout “Altitude only” for all flight branches.');
+    expect(host.textContent).not.toContain('Downloads include every recorded series and all flight branches.');
+    await act(async () => labelled('⬇ Flight data (.csv)')!.click());
+    const csv = await blobs[0]!.text();
+    expect(csv).toContain('Altitude (ft)\n0\n');
+    expect(csv).not.toContain('Time (s)');
+    expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).flightExportLayouts).toHaveLength(1);
+    act(() => labelled('Full export')!.click());
+    expect(emphasize.getAttribute('aria-pressed')).toBe('true');
+    expect(host.textContent).toContain('Downloads include every recorded series and all flight branches.');
+    await act(async () => labelled('⬇ Flight data (.csv)')!.click());
+    expect(await blobs[1]!.text()).toContain('Time (s),Altitude (m),Velocity (m/s)');
+    localStorage.clear();
+  });
   it('has a heading, so the block is named rather than floating', () => {
     mount(() => Promise.resolve(fakeResult()));
     expect(host.querySelector('h2')?.textContent).toBe('Flight plots');

@@ -49,7 +49,8 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove,
   const labelId = useId();
   const isStage = node.type === 'stage';
   const isMount = node['motorMount'] === true;
-  const labelledBy = [labelId, isStage && `${labelId}-stage`, isMount && `${labelId}-motor`]
+  const hasComment = typeof node['comment'] === 'string' && node['comment'].length > 0;
+  const labelledBy = [labelId, isStage && `${labelId}-stage`, isMount && `${labelId}-motor`, hasComment && `${labelId}-comment`]
     .filter(Boolean).join(' ');
   return (
     <>
@@ -73,6 +74,7 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove,
         <span className="tree-label" id={labelId}>{label}</span>
         {isStage && <span className="tree-badge" id={`${labelId}-stage`}>stage</span>}
         {isMount && <span className="tree-badge" id={`${labelId}-motor`}>motor</span>}
+        {hasComment && <span className="tree-badge" id={`${labelId}-comment`} title="This part has a comment">note</span>}
         {selected && (
           // Each aria-label names the COMPONENT as well as the action: the six
           // buttons repeat on every selected row, and a glyph alone announced

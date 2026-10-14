@@ -39,6 +39,20 @@ const info: StaticInfo = {
   warnings: 0, warningTexts: [],
 };
 
+it('N046 opens a flight warning explanation from its unchanged code and keeps the tier', () => {
+  const saved = run();
+  saved.simWarnings = [{ key: 'NO_RECOVERY_DEVICE', message: '[Warning.NO_RECOVERY_DEVICE]' }];
+  render(<SimRunDetails run={saved} />);
+  const code = host.querySelector<HTMLButtonElement>('button[aria-label="Explain note NO_RECOVERY_DEVICE"]');
+  expect(code).not.toBeNull();
+  expect(code!.closest('.message-danger')).not.toBeNull();
+  act(() => code!.click());
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog.textContent).toContain('What it means');
+  expect(dialog.textContent).toContain('What to do');
+  expect(dialog.textContent).toContain('ballistic');
+});
+
 /** The same self-consistent flight simReport.test.ts uses. */
 function fakeResult(): FlightResult {
   const time = [0, 0.15, 1, 2, 6.8, 7.0, 104];
@@ -94,6 +108,22 @@ const render = (node: React.ReactNode) => act(() => root.render(
   <PrefsProvider>{node}</PrefsProvider>,
 ));
 
+it.each([0, 1.25, undefined])('shows recorded gust sigma %s in details and saved-run row', windSigma => {
+  const stored = { ...run(), windSigma };
+  render(<SimRunDetails run={stored} />);
+  act(() => (Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Show all details')!).click());
+  const row = Array.from(host.querySelectorAll('tr')).find(r => r.cells[0]?.textContent === 'Wind gusts σ at pad')!;
+  expect(row).toBeDefined();
+  expect(row.cells[1]?.textContent).toContain(windSigma === undefined ? '—' : fmtSi('windspeed', units.INITIAL_UNITS.windspeed, windSigma));
+  render(<SimHistory runs={[stored]} onRunsChange={() => {}} />);
+  act(() => (Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Show')!).click());
+  const headers = Array.from(host.querySelectorAll('th')).map(h => h.textContent);
+  const at = headers.findIndex(h => h?.startsWith('Wind gusts σ'));
+  expect(at).toBeGreaterThan(-1);
+  expect(host.querySelector('tbody tr')?.querySelectorAll('td')[at]?.textContent)
+    .toBe(windSigma === undefined ? '—' : fmtSi('windspeed', units.INITIAL_UNITS.windspeed, windSigma));
+});
+
 it('W2-WARN renders personal advice in the Caution tier with frozen limits in current units', () => {
   const r = run();
   r.comments = 'Exceeded your maximum speed.';
@@ -140,6 +170,63 @@ const openTable = () => act(() => {
   Array.from(host.querySelectorAll('button'))
     .find((b) => (b.textContent ?? '') === 'Show')
     ?.click();
+});
+
+it('N058 persists the summary chooser, keeps default columns and blanks old unknown values', () => {
+  render(<SimHistory runs={[{ ...run(), landingDistanceM: undefined }]} onRunsChange={() => {}} />);
+  openTable();
+  expect(Array.from(host.querySelectorAll('th')).some(t => t.textContent?.startsWith('Max V (m/s'))).toBe(true);
+  const checkbox = host.querySelector<HTMLInputElement>('input[aria-label="Show Landing drift"]');
+  expect(checkbox).not.toBeNull();
+  act(() => checkbox!.click());
+  const headers = Array.from(host.querySelectorAll('th')).map(t => t.textContent);
+  const index = headers.findIndex(t => t?.startsWith('Landing drift (m'));
+  expect(index).toBeGreaterThan(0);
+  expect(host.querySelectorAll('tbody tr')[0]!.children[index]!.textContent).toBe('');
+  expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).runColumns).toContain('landingDistanceM');
+  act(() => root.unmount());
+  root = createRoot(host);
+  render(<SimHistory runs={[run()]} onRunsChange={() => {}} />);
+  openTable();
+  expect(host.querySelector<HTMLInputElement>('input[aria-label="Show Landing drift"]')!.checked).toBe(true);
+  act(() => Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Default columns')!.click());
+  expect(Array.from(host.querySelectorAll('th')).some(t => t.textContent?.startsWith('Landing drift'))).toBe(false);
+});
+
+it.each([
+  ['maxQ', 'Max dynamic pressure'], ['maxQAlpha', 'Max q·α'],
+  ['maxQTime', 'Time at max Q'], ['maxQAltitude', 'Altitude at max Q'],
+  ['maxQMach', 'Mach at max Q'], ['maxQAoa', 'Angle of attack at max Q'],
+  ['maxQAlphaTime', 'Time at max q·α'], ['maxQAlphaAltitude', 'Altitude at max q·α'],
+  ['maxQAlphaMach', 'Mach at max q·α'], ['maxQAlphaAoa', 'Angle of attack at max q·α'],
+])('N058 qualifies selected ascent load column %s before values outside the collapsed chooser', (id, label) => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ runColumns: [id], units: { pressure: 'Pa' } }));
+  const peak = { value: 50, time: 1, altitude: 10, mach: 1, aoa: 0.1 };
+  render(<SimHistory runs={[{ ...run(), loads: { maxQ: peak, maxQAlpha: { ...peak, value: 5 } } },
+    { ...run(), id: 'legacy', loads: undefined }]} onRunsChange={() => {}} />);
+  openTable();
+  const chooser = host.querySelector('details')!;
+  expect(chooser.open).toBe(false);
+  const table = host.querySelector('.motor-table')!;
+  const notes = [...host.querySelectorAll('p')].filter(p => !p.closest('details'));
+  const caveat = notes.find(p => p.textContent?.includes('Inputs to a structural check; no structural verdict.'));
+  const window = notes.find(p => p.textContent?.includes('Launch through apogee, stopping before recovery deployment or tumbling'));
+  expect(caveat).toBeDefined();
+  expect(window).toBeDefined();
+  expect(caveat!.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(window!.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  const index = [...table.querySelectorAll('th')].findIndex(th => th.textContent?.startsWith(`${label} (ascent)`));
+  expect(index).toBeGreaterThan(0);
+  expect(host.querySelector<HTMLInputElement>(`input[aria-label="Show ${label} (ascent)"]`)).not.toBeNull();
+  const rows = table.querySelectorAll('tbody tr');
+  expect(rows[1]!.children[index]!.textContent).toBe('');
+  if (id === 'maxQ') expect(rows[0]!.children[index]!.textContent).toBe('50.0');
+  if (id === 'maxQAlpha') expect(rows[0]!.children[index]!.textContent).toBe('5.00');
+  act(() => { chooser.open = true; });
+  expect(caveat!.closest('details')).toBeNull();
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Default columns')!.click());
+  expect(host.textContent).not.toContain('Inputs to a structural check; no structural verdict.');
+  expect(host.textContent).not.toContain('Launch through apogee, stopping before recovery deployment or tumbling');
 });
 
 it('RES-1 shows configuration and provenance status separately from Safe, lazily', () => {
@@ -590,7 +677,7 @@ describe('SimHistory — the run table names its data', () => {
     const index = [...table.querySelectorAll('thead th')].findIndex((th) => th.textContent?.includes('Opt. delay'));
     expect(index).toBeGreaterThanOrEqual(0);
     const rows = table.querySelectorAll('tbody tr');
-    expect(rows[0]!.querySelectorAll('td')[index]?.textContent).toBe('—');
+    expect(rows[0]!.querySelectorAll('td')[index]?.textContent).toBe('');
     expect(rows[1]!.querySelectorAll('td')[index]?.textContent).toBe('4.9s');
   });
   it('labels both exports as the run table, not as bare formats', () => {
@@ -727,6 +814,19 @@ describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-
     act(() => { byText('Delete all 3').click(); });
     expect(loadRuns()).toEqual([]);
     expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('explains which opened-file results survive saving before deleting saved runs', () => {
+    render(<Wired />);
+    act(() => { byText('Clear all').click(); });
+    const copy = host.querySelector('[role="dialog"]')!.textContent!.replace(/\s+/g, ' ');
+    expect(copy).toContain('Imported app summaries stay with the opened design and are written back when you save it');
+    expect(copy).toContain('Desktop OpenRocket predictions stay in the current session but are omitted from .ork files saved by the app');
+    expect(copy).toContain('Keep the original desktop file to preserve those predictions');
+    expect(copy).toContain('download the run table first to keep the saved runs\' numbers');
+    expect(copy).toContain('The run table does not include desktop predictions');
+    expect(copy).not.toContain('Results that came from the .ork file you opened');
+    expect(loadRuns()).toHaveLength(3);
   });
 
   it('a row\'s ✕ deletes at once and offers Undo, which puts it back where it was', () => {

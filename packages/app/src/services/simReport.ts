@@ -6,7 +6,7 @@ import { APP_HYBRID_BAND, validHybridBand, type AeroProvenance } from './aeroPro
 import { delayMountsOf, resolutionMatchesPolicy, validDelayResolution, type DelayMount, type DelayResolution } from './autoDelaySolver.js';
 import { installedMounts } from './flightRunner.js';
 import { railProfileFromFlight, type RailProfile } from './railNeeded.js';
-import type { WindProfileConditions } from './windProfile.js';
+import { profileSurface, type WindProfileConditions } from './windProfile.js';
 import type { ComponentNode, EngineWarning, FlightEvent, FlightResult, FlightSeries, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { boosterBranches, DEFAULT_TIME_STEP_S } from '@online-openrocket/engine';
 import { flownGeodeticMethod, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
@@ -539,6 +539,9 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   /** First deployment (kept for CSV/back-compat; see `deployments`). */
   altitudeAtDeployment: number | null;
   velocityAtDeployment: number | null;
+  /** W3 desktop comparison: kernel summary's LAST deployment ground speed (m/s).
+   * Separate from opening-speed advice; absent on older saved runs. */
+  lastDeploymentGroundSpeed?: number | null;
   /**
    * Every recovery deployment, in order — drogue first, main later.
    *
@@ -560,6 +563,9 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   groundHitVelocity: number;
   totalFlightTime: number;
   optimumDelayS: number | null;
+  /** W3 desktop comparison: kernel optimum-apogee time minus LAST burnout (s).
+   * Independent of primary-mount Auto advice; absent on older saved runs. */
+  lastBurnoutOptimalDelayS?: number | null;
   /** Optimum rounded to the nearest whole second (drill-to-fit rule). */
   recommendedDelayS: number | null;
 
@@ -591,6 +597,8 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
   loads?: FlightLoads;
 
   windAvg: number;
+  /** Gust sigma at the pad (m/s), frozen at launch; absent on old runs. */
+  windSigma?: number;
   /**
    * Integration time step this flight actually used (s); absent = the engine
    * default. Recorded because it is the one launch setting that changes how
@@ -2432,6 +2440,8 @@ export function buildSimRun(input: {
     launchStaticMarginPct,
     altitudeAtDeployment,
     velocityAtDeployment,
+    lastDeploymentGroundSpeed: summary.deploymentVelocity !== null && Number.isFinite(summary.deploymentVelocity)
+      && summary.deploymentVelocity >= 0 ? summary.deploymentVelocity : null,
     deployments,
     branches: branches.length > 0 ? branches : undefined,
     boosterMotors: boosterMotors && boosterMotors.length > 0 ? boosterMotors : undefined,
@@ -2440,6 +2450,7 @@ export function buildSimRun(input: {
     groundHitVelocity: summary.groundHitVelocity,
     totalFlightTime: summary.flightTime,
     optimumDelayS,
+    lastBurnoutOptimalDelayS: Number.isFinite(summary.optimumDelay) ? summary.optimumDelay : null,
     recommendedDelayS,
     safeLiftoffSpeed,
     safeThrustToWeight,
@@ -2462,6 +2473,7 @@ export function buildSimRun(input: {
     maxRollRateRadS,
     loads: flightLoads(result),
     windAvg: launch.windAverage,
+    windSigma: launch.windLevels?.length ? profileSurface(launch.windLevels).windStdDev : launch.windStdDev,
     ...(launch.windLevels?.length ? { windLevels: launch.windLevels.map((l) => ({ ...l })),
       windProfileSource: launch.windProfileSource } : {}),
     ...(launch.timeStepS != null ? { timeStepS: launch.timeStepS } : {}),

@@ -4,7 +4,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { boosterBranches, type FlightResult, type FlightSeries } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { seriesCatalog, PRESETS, usableSeries, type SeriesDef } from '../flightChartModel.js';
+import { seriesCatalog, PRESETS, usableSeries, withStabilityPercent, type SeriesDef } from '../flightChartModel.js';
 import { ComparisonChart } from './ComparisonChart.js';
 import { chartInk, seriesPalette } from '../chartTheme.js';
 import {
@@ -17,6 +17,8 @@ import { flightDataCsv } from '../services/flightDataCsv.js';
 import { flightXlsx } from '../services/flightXlsx.js';
 import { CSV_BOM, downloadBlob, stampedName } from '../services/fileName.js';
 import { XLSX_MIME } from '../services/xlsx.js';
+import { FlightExportLayoutDialog } from './FlightExportLayoutDialog.js';
+import { SavedFlightPlots } from './SavedFlightPlots.js';
 import { emphasizeSeries } from '../chartEmphasis.js';
 
 /**
@@ -235,7 +237,9 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
    */
   flightRunning?: boolean;
 }) {
-  const { prefs, daylight, resolvedTheme } = usePrefs();
+  const { prefs, setPrefs, daylight, resolvedTheme } = usePrefs();
+  const exportLayout = prefs.flightExportLayouts?.find(l => l.id === prefs.flightExportLayoutId);
+  const [layoutEditor, setLayoutEditor] = useState<null | 'new' | 'edit'>(null);
   const catalog = useMemo(
     () => seriesCatalog({ units: prefs.units }, seriesPalette(daylight, resolvedTheme)),
     // Other preferences do not change plotted series (audit 2026-10-11, S3b-2).
@@ -251,7 +255,9 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   const branch = boosters[branchIndex - 1];
   const branchName = branch ? `Booster ${branchIndex}: ${branch.name}` : 'Sustainer stack';
   const plotIdentity = boosters.length > 0 ? `${flightName} · ${branchName}` : flightName;
-  const shown = useMemo(() => branch ? { ...result, series: branch.series } : result, [result, branch]);
+  const shown = useMemo(() => ({ ...result,
+    series: withStabilityPercent(branch?.series ?? result.series, branch?.events ?? result.events),
+  }), [result, branch]);
   const panelKey = `${branchChoice.generation}-${branchIndex}`;
   const preset = PRESETS.find((p) => p.id === comparison);
   const [selected, setSelected] = useState<Set<keyof FlightSeries>>(new Set(DEFAULT_SELECTED));
@@ -329,8 +335,8 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
     onFullSeries()
       .then((full) => {
         const blob = kind === 'csv'
-          ? new Blob([CSV_BOM, flightDataCsv(full, prefs.units)], { type: 'text/csv;charset=utf-8' })
-          : new Blob([flightXlsx(full, prefs.units) as BlobPart], { type: XLSX_MIME });
+          ? new Blob([CSV_BOM, flightDataCsv(full, prefs.units, exportLayout)], { type: 'text/csv;charset=utf-8' })
+          : new Blob([flightXlsx(full, prefs.units, exportLayout) as BlobPart], { type: XLSX_MIME });
         downloadBlob(blob, stampedName(designName, 'flight-data', kind === 'csv' ? 'csv' : 'xlsx'));
       })
       .catch((e: unknown) => {
@@ -357,13 +363,14 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
                 ? `Not available — ${staleReason} changed since this flight. Press Launch to fly the current design, then export.`
                 : flightRunning
                   ? 'Not available while a flight is running.'
-                  : 'Download this flight, every timestep:'}
+                  : exportLayout ? `Download this flight using “${exportLayout.name}”:` : 'Download this flight, every timestep:'}
             </span>
             <button className="file-btn" disabled={exportBusy !== null || !!staleReason || !!flightRunning}
               aria-describedby={staleReason || flightRunning ? 'flight-data-stale' : undefined}
               title={staleReason
                 ? `Unavailable: ${staleReason} changed since this flight was flown. These files are produced by re-flying the design as it stands now, so this one would describe a different rocket from the plots above it. Press Launch to fly the current design.`
-                : 'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, in your preferred units (each header names its unit; thrust and drag stay in newtons). Booster stages append as name-prefixed column groups. Not stored with run history.'}
+                : exportLayout ? 'Re-flies the shown flight, then exports the saved columns, order, units and event interval for each branch.'
+                  : 'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, in your preferred units (each header names its unit; thrust and drag stay in newtons). Booster stages append as name-prefixed column groups. Not stored with run history.'}
               onClick={() => exportFlightData('csv')}>
               {exportBusy === 'csv' ? '⏳ Re-flying…' : '⬇ Flight data (.csv)'}
             </button>
@@ -371,7 +378,8 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
               aria-describedby={staleReason || flightRunning ? 'flight-data-stale' : undefined}
               title={staleReason
                 ? `Unavailable: ${staleReason} changed since this flight was flown. These files are produced by re-flying the design as it stands now, so this one would describe a different rocket from the plots above it. Press Launch to fly the current design.`
-                : 'Excel workbook of the same flight data: typed numeric cells under unit-labelled headers, plus a live Excel chart tab for every exported column — the headline quantities one per tab, the coefficient and rate families grouped — referencing the data sheet. Booster stages get their own data sheets and their own chart tabs.'}
+                : exportLayout ? 'The saved export layout as numeric cells, with a chart per selected quantity when Time and at least two samples are included. Each branch has its own data sheet.'
+                  : 'Excel workbook of the same flight data: typed numeric cells under unit-labelled headers, plus a live Excel chart tab for every exported column — the headline quantities one per tab, the coefficient and rate families grouped — referencing the data sheet. Booster stages get their own data sheets and their own chart tabs.'}
               onClick={() => exportFlightData('xlsx')}>
               {exportBusy === 'xlsx' ? '⏳ Re-flying…' : '⬇ Flight data + charts (.xlsx)'}
             </button>
@@ -380,6 +388,22 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
       </div>
       {/* Downloads cover the whole flight; branch identity belongs to each chart. */}
       <p className="flight-identity chart-comparison-note">{flightName}</p>
+      {onFullSeries && <div className="comparison-controls">
+        <label>Export layout <select aria-label="Export layout" value={exportLayout?.id ?? ''}
+          onChange={e => setPrefs({ ...prefs, flightExportLayoutId: e.target.value || undefined })}>
+          <option value="">Full export</option>
+          {prefs.flightExportLayouts?.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+        </select></label>
+        <button className="file-btn" onClick={() => setPrefs({ ...prefs, flightExportLayoutId: undefined })}>Full export</button>
+        <button className="file-btn" onClick={() => setLayoutEditor('new')}>New layout</button>
+        {exportLayout && <>
+          <button className="file-btn" onClick={() => setLayoutEditor('edit')}>Edit layout</button>
+          <button className="file-btn" onClick={() => setPrefs({ ...prefs, flightExportLayoutId: undefined,
+            flightExportLayouts: prefs.flightExportLayouts?.filter(l => l.id !== exportLayout.id) })}>Remove layout</button>
+        </>}
+      </div>}
+      {layoutEditor && <FlightExportLayoutDialog layout={layoutEditor === 'edit' ? exportLayout : undefined}
+        onClose={() => setLayoutEditor(null)} />}
       {exportError && (
         // role="alert" (2026-09-08 audit): this is the outcome of a re-fly the
         // user pressed a button for and waited several seconds on, and it was
@@ -435,7 +459,17 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           <span className="series-emphasis-mark" aria-hidden="true" style={{ visibility: emphasis === d.key ? 'visible' : 'hidden' }}>✓</span>
         </button>)}
       </div>}
-      {onFullSeries && <p className="chart-comparison-note">Downloads include every recorded series and all flight branches. The comparison choice and zoom do not change the files.</p>}
+      {onFullSeries && <p className="chart-comparison-note">{exportLayout
+        ? `Downloads use layout “${exportLayout.name}” for all flight branches. Missing series stay blank; a missing selected event leaves that branch without samples.`
+        : 'Downloads include every recorded series and all flight branches.'} The comparison choice and zoom do not change the files.</p>}
+      <SavedFlightPlots current={{ panels: [...selected].map(String), comparison }} onApply={layout => {
+        setSelected(new Set(layout.panels)); setComparison(layout.comparison);
+      }} />
+      {selected.has('stabilityPercent') && <Note as="p" tier="information" className="chart-comparison-note">
+        Stability percentage uses the aerodynamic length of the stages flying at each recorded sample.
+        It is not shown where CP, CG or that length is missing, or after recovery deployment or tumbling.
+        The flight CP depends on speed and angle of attack, so it can differ from the static design value.
+      </Note>}
       {(visible.length > 0 || preset?.x === 'time') && (
         <div className="chart-toolbar">
           <GestureHints />
@@ -461,13 +495,15 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
         emphasis={emphasis}
         flightName={plotIdentity} catalog={catalog} plots={plotsRef.current}
         onZoomChange={(z, pct) => { setZoomed(z); setZoomPct(pct); }}
-        csvNote={onFullSeries && !staleReason ? 'The Flight data (.csv) download above holds every timestep.' : undefined} />}
+        csvNote={onFullSeries && !staleReason ? exportLayout ? 'Choose Full export for every timestep in the Flight data (.csv) download.'
+          : 'The Flight data (.csv) download above holds every timestep.' : undefined} />}
       <div className="charts-grid">
         {visible.map((d) => (
           <Panel key={`${panelKey}-${String(d.key)}`} result={shown} def={d} flightName={plotIdentity} plots={plotsRef.current}
             emphasis={emphasis}
             csvNote={onFullSeries && !staleReason
-              ? 'The Flight data (.csv) download above holds every timestep.' : undefined}
+              ? exportLayout ? 'Choose Full export for every timestep in the Flight data (.csv) download.'
+                : 'The Flight data (.csv) download above holds every timestep.' : undefined}
             expanded={expandedKeys.has(d.key)} onToggleExpand={() => toggleExpand(d.key)}
             onZoomChange={(z, pct) => { setZoomed(z); setZoomPct(pct); }} />
         ))}

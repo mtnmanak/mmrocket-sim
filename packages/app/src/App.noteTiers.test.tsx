@@ -121,3 +121,21 @@ describe('the RASAero stated-weight reconcile on a motor pick and on Undo', () =
     expect(line!.textContent).toContain('Caution:');
   }, 30000);
 });
+
+it('N046 links a real static diameter warning on Design to its explanation', async () => {
+  const tree = defaultTree();
+  const nose = tree.components[0]!.children![0]!;
+  expect(nose.type).toBe('nosecone');
+  nose.aftRadius = 0.006;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({
+    tree, mountMotors: {}, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+  }));
+  const host = await mountApp();
+  await settle(50);
+  const code = host.querySelector<HTMLButtonElement>('[aria-label="Explain note DISCONTINUITY"]');
+  expect(code).not.toBeNull();
+  expect(code!.closest('.file-note')!.textContent).toContain('Airframe diameter steps abruptly');
+  expect(code!.closest('.message-tier')).toBeNull();
+  await act(async () => { code!.click(); });
+  expect(host.querySelector('[role="dialog"]')!.textContent).toContain('adjacent outside diameters');
+});

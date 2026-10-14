@@ -700,18 +700,80 @@ describe('OrkRocket (real OpenRocket kernel via TeaVM)', () => {
     // lateral drift (Pl, θl, Px, Py), roll rate (dΦ) and VERTICAL VELOCITY (Vz).
     const friendly = [
       'time', 'altitude', 'velocity', 'acceleration', 'mass', 'thrust',
-      'drag', 'mach', 'stability', 'cpLocation', 'cgLocation', 'aoa',
+      'drag', 'mach', 'stability', 'cpLocation', 'cgLocation', 'aoa', 'activeLength',
     ];
     const symbolKeys = Object.keys(result.series).filter((k) => !friendly.includes(k));
     expect(symbolKeys.sort()).toEqual(['Pl', 'Px', 'Py', 'Vz', 'dΦ', 'θl'].sort());
     expect(result.series['Pl']!.length).toBe(result.series.time.length);
     expect(result.series['Vz']!.length).toBe(result.series.time.length);
+    // N042 is friendly geometry, not an extra report symbol; 12 places allow arithmetic rounding.
+    expect(result.series.activeLength).toHaveLength(result.series.time.length);
+    for (const length of result.series.activeLength!) expect(length).toBeCloseTo(0.37, 12);
     // Summary is still not full: these two stay off the default path (~45% wall clock).
     expect(result.series['Cdf']).toBeUndefined();
     // …and tc is excluded at EVERY mode: it is wall-clock measurement noise and
     // dumping it makes same-seed outputs differ. Never re-add it.
     expect(result.series['tc']).toBeUndefined();
   });
+
+  it.each(['summary', 'full'] as const)('records active aerodynamic length through serial separation in %s series (N042)', (series) => {
+    const rocket = OrkRocket.buildTree({
+      components: [
+        {
+          type: 'stage', name: 'Same', children: [
+            { type: 'nosecone', length: 0.07, aftRadius: 0.012, thickness: 0.002 },
+            {
+              type: 'bodytube', length: 0.3, outerRadius: 0.012, thickness: 0.0003, density: 950,
+              children: [
+                { type: 'freeformfinset', finCount: 3, points: [[0, 0], [0.02, 0.025], [0.05, 0.025], [0.05, 0]], thickness: 0.003, crossSection: 'rounded' },
+                { type: 'innertube', id: 'smount', length: 0.07, outerRadius: 0.0095, thickness: 0.0005, motorMount: true, position: { method: 'bottom', offset: 0 } },
+                { type: 'parachute', diameter: 0.35 },
+              ],
+            },
+          ],
+        },
+        {
+          type: 'stage', name: 'Same', separationEvent: 'burnout', children: [
+            {
+              type: 'bodytube', length: 0.12, outerRadius: 0.012, thickness: 0.0003, density: 950,
+              children: [
+                { type: 'freeformfinset', finCount: 3, points: [[0, 0], [0.025, 0.035], [0.05, 0.035], [0.05, 0]], thickness: 0.003, crossSection: 'airfoil' },
+                { type: 'innertube', id: 'bmount', length: 0.07, outerRadius: 0.0095, thickness: 0.0005, motorMount: true, position: { method: 'bottom', offset: 0 } },
+                { type: 'parachute', diameter: 0.25 },
+              ],
+            },
+          ],
+        },
+      ],
+    });
+    rocket.setMotorById('smount', C6_MOTOR);
+    rocket.setMotorById('bmount', { ...C6_MOTOR, ejectionDelay: 0 });
+    rocket.setMotorIgnitionById('smount', 'burnout', 1);
+    const result = rocket.simulate({ series });
+    expect(result.branches).toHaveLength(2);
+    expect(result.series.activeLength).toBeDefined();
+    expect(result.series.activeLength).toEqual(result.branches![0]!.series.activeLength);
+    // N042 uses static aerodynamic bounds at launch; 12 places allow geometry arithmetic rounding.
+    expect(result.series.activeLength![0]).toBeCloseTo(rocket.staticInfo().lengthAerodynamic, 12);
+    for (const [index, branch] of result.branches!.entries()) {
+      const lengths = branch.series.activeLength;
+      expect(lengths).toBeDefined();
+      expect(lengths).toHaveLength(branch.series.time.length);
+      expect(lengths!.every((length) => length !== null && Number.isFinite(length) && length > 0)).toBe(true);
+      const separation = branch.events.find((event) => event.type === 'STAGE_SEPARATION');
+      expect(separation).toBeDefined();
+      expect(branch.series.time.some((time) => time < separation!.time)).toBe(true);
+      expect(branch.series.time.some((time) => time > separation!.time)).toBe(true);
+      expect(branch.events.some((event) => event.type === 'GROUND_HIT')).toBe(true);
+      // 70 + 300 + 120 mm attached; the detached spans are 370 and 120 mm.
+      expect(lengths![0]).toBeCloseTo(0.49, 12);
+      expect(lengths!.at(-1)).toBeCloseTo(index === 0 ? 0.37 : 0.12, 12);
+      branch.series.time.forEach((time, sample) => {
+        if (time < separation!.time) expect(lengths![sample]).toBeCloseTo(0.49, 12);
+        if (time > separation!.time) expect(lengths![sample]).toBeCloseTo(index === 0 ? 0.37 : 0.12, 12);
+      });
+    }
+  }, 60_000);
 
   it('the exported Vz IS the vertical rate the landing verdict is judged on', () => {
     // The point of exporting it: the friendly `velocity` series is

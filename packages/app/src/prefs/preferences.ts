@@ -1,6 +1,8 @@
 import { INITIAL_UNITS, type UnitSelection } from './units.js';
 import type { PrinterPrefs } from './printers.js';
 import type { DragAnalysisPrefs } from './dragAnalysis.js';
+import type { FlightExportLayout } from '../services/flightExportLayouts.js';
+import type { SavedFlightPlot } from './flightPlots.js';
 import type { FlightAdvisories } from './flightAdvisories.js';
 
 /**
@@ -62,8 +64,15 @@ export interface Preferences {
    * Absent = the default set. Unknown ids are ignored (forward compat).
    */
   resultTiles?: string[];
+  /** Saved simulations' visible numeric summaries, in viewer order. */
+  runColumns?: string[];
+  /** Local export layouts; never written into a rocket file. */
+  flightExportLayouts?: FlightExportLayout[];
+  flightExportLayoutId?: string;
   /** Drag analysis inputs retained across Results navigation and reloads. */
   dragAnalysis?: DragAnalysisPrefs;
+  /** Named flight-plot layouts for this viewer, independent of rocket files. */
+  flightPlots?: SavedFlightPlot[];
   /**
    * First-run tour opt-out. Absent = the tour may auto-show once (its own
    * localStorage flag limits it to a single showing); true = never auto-show.

@@ -105,7 +105,7 @@ export function effectiveSupersonicOf(aeroMode: AeroMode, autoSupersonic: boolea
  */
 export function physicsKeyOf(components: readonly ComponentNode[]): string {
   const strip = (n: ComponentNode): unknown => {
-    const { name: _n, color: _c, children, ...rest } = n as ComponentNode & { color?: string };
+    const { name: _n, color: _c, comment: _comment, children, ...rest } = n as ComponentNode & { color?: string };
     return { ...rest, children: (children ?? []).map(strip) };
   };
   return JSON.stringify(components.map(strip));

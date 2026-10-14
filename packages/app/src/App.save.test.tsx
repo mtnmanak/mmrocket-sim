@@ -28,6 +28,14 @@ import { MOTOR_DB, setCatalogueOverlay } from './services/motorDb.js';
 import type { SimRun } from './services/simReport.js';
 import { decodeShareFragment, encodeShareFragment } from './services/shareLink.js';
 import { downloadImage } from './services/schematicExport.js';
+import * as recentDesigns from './services/recentDesigns.js';
+import { sessionDebugLog } from './services/sessionDebugLog.js';
+
+vi.mock('./services/recentDesigns.js', () => ({
+  rememberRecentDesign: vi.fn(async (): Promise<string | null> => null),
+  listRecentDesigns: vi.fn(async (): Promise<recentDesigns.RecentDesign[]> => []),
+  recentDesignFile: vi.fn(), clearRecentDesigns: vi.fn(async () => {}),
+}));
 import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
 
@@ -585,6 +593,189 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline (test)'); }));
   vi.mocked(saveFile).mockClear();
   vi.mocked(exportOrk).mockClear();
+  vi.mocked(recentDesigns.rememberRecentDesign).mockClear().mockResolvedValue(null);
+  vi.mocked(recentDesigns.listRecentDesigns).mockClear().mockResolvedValue([]);
+  vi.mocked(recentDesigns.recentDesignFile).mockReset();
+});
+
+describe('C-A2 and C-B8 file workflow', () => {
+  it.each([null, 'The app could not keep a copy in Recent.'])('C-A2 / C-H3: logs the applied import before Recent storage settles with %s', async note => {
+    let finishStorage!: (note: string | null) => void;
+    vi.mocked(recentDesigns.rememberRecentDesign).mockImplementationOnce(() =>
+      new Promise<string | null>(resolve => { finishStorage = resolve; }));
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    const file = new File([fixture(RKT)], 'Private-recent.rkt');
+    const completeCount = () => sessionDebugLog.text().match(/ms import-complete\n/g)?.length ?? 0;
+    const before = completeCount();
+    await pick(host, file);
+    await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.length === 1, 'pending recent copy');
+    expect(shownName(host)).toBe(RKT_NAME);
+    expect(completeCount()).toBe(before + 1);
+    expect(sessionDebugLog.text()).not.toContain(file.name);
+    const [name, bytes] = vi.mocked(recentDesigns.rememberRecentDesign).mock.calls[0]!;
+    expect(name).toBe(file.name);
+    expect(new TextDecoder().decode(bytes)).toBe(fixture(RKT));
+    await act(async () => { finishStorage(note); });
+    expect(completeCount()).toBe(before + 1);
+    expect(host.querySelector('.notice-bar')?.textContent).toContain('states its launch site as latitude 43°');
+    expect(host.querySelector('.recent-storage-note')?.textContent ?? null).toEqual(note === null ? null : expect.stringContaining(note));
+  });
+
+  it.each(['Close', 'Escape'])('C-A2: %s cancels a pending Recent read without losing later edits or history', async dismissal => {
+    const file = new File([fixture(RKT)], 'pending.rkt');
+    let resolveRead!: (file: File) => void;
+    vi.mocked(recentDesigns.listRecentDesigns).mockResolvedValue([{ name: file.name, openedAt: 1, size: file.size }]);
+    vi.mocked(recentDesigns.recentDesignFile).mockImplementation(() => new Promise<File>(resolve => { resolveRead = resolve; }));
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await saveAs(host, 'Save .ork');
+    expect(host.textContent).toContain('No unsaved changes');
+    const savedName = host.querySelector<HTMLInputElement>('#rocket-name')!.value;
+    vi.mocked(recentDesigns.rememberRecentDesign).mockClear();
+    await act(async () => { button(host, 'Recent').click(); });
+    await act(async () => { button(host, 'pending.rkt').click(); });
+    await act(async () => {
+      if (dismissal === 'Close') button(host.querySelector('[role="dialog"]')!, 'Close').click();
+      else document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Unsaved edits after cancellation');
+    await act(async () => { resolveRead(file); });
+    await settle(50);
+    expect(host.querySelector<HTMLInputElement>('#rocket-name')!.value).toBe('Unsaved edits after cancellation');
+    expect(host.textContent).toContain('Unsaved changes');
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+    expect(recentDesigns.rememberRecentDesign).not.toHaveBeenCalled();
+    await act(async () => { button(host, 'Undo').click(); });
+    expect(host.querySelector<HTMLInputElement>('#rocket-name')!.value).toBe(savedName);
+    await act(async () => { button(host, 'Redo').click(); });
+    expect(host.querySelector<HTMLInputElement>('#rocket-name')!.value).toBe('Unsaved edits after cancellation');
+  });
+
+  it.each(['Recent', 'file picker'])('C-A2: a newer %s selection wins over a cancelled Recent read', async selection => {
+    const oldFile = new File([fixture(RKT)], 'old.rkt');
+    const newFile = new File([exportOrk({ name: 'Newer selection', tree: defaultTree(), launch: DEFAULT_CONDITIONS })], 'new.ork');
+    let resolveRead!: (file: File) => void;
+    vi.mocked(recentDesigns.listRecentDesigns).mockResolvedValue([oldFile, newFile].map(file => ({ name: file.name, openedAt: 1, size: file.size })));
+    vi.mocked(recentDesigns.recentDesignFile)
+      .mockImplementationOnce(() => new Promise<File>(resolve => { resolveRead = resolve; }))
+      .mockResolvedValueOnce(newFile);
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await saveAs(host, 'Save .ork');
+    vi.mocked(recentDesigns.rememberRecentDesign).mockClear();
+    await act(async () => { button(host, 'Recent').click(); });
+    await act(async () => { button(host, 'old.rkt').click(); });
+    await act(async () => { button(host.querySelector('[role="dialog"]')!, 'Close').click(); });
+    if (selection === 'Recent') {
+      await act(async () => { button(host, 'Recent').click(); });
+      await act(async () => { button(host, 'new.ork').click(); });
+    } else await pick(host, newFile);
+    await waitFor(() => host.querySelector<HTMLInputElement>('#rocket-name')!.value === 'Newer selection', 'newer import');
+    await act(async () => { resolveRead(oldFile); });
+    await settle(50);
+    expect(host.querySelector<HTMLInputElement>('#rocket-name')!.value).toBe('Newer selection');
+    expect(recentDesigns.rememberRecentDesign).toHaveBeenCalledOnce();
+    expect(vi.mocked(recentDesigns.rememberRecentDesign).mock.calls[0]![0]).toBe('new.ork');
+  });
+
+  it('C-A2: a pending Recent read checks current unsaved work when accepted', async () => {
+    const file = new File([fixture(RKT)], 'pending.rkt');
+    let resolveRead!: (file: File) => void;
+    vi.mocked(recentDesigns.listRecentDesigns).mockResolvedValue([{ name: file.name, openedAt: 1, size: file.size }]);
+    vi.mocked(recentDesigns.recentDesignFile).mockImplementation(() => new Promise<File>(resolve => { resolveRead = resolve; }));
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await saveAs(host, 'Save .ork');
+    expect(host.textContent).toContain('No unsaved changes');
+    vi.mocked(recentDesigns.rememberRecentDesign).mockClear();
+    await act(async () => { button(host, 'Recent').click(); });
+    await act(async () => { button(host, 'pending.rkt').click(); });
+    // A committed design change while storage is pending must reach the save guard.
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Current unsaved work');
+    await act(async () => { resolveRead(file); });
+    await settle(50);
+    expect(host.querySelector<HTMLInputElement>('#rocket-name')!.value).toBe('Current unsaved work');
+    expect(host.querySelector('[role="dialog"]')?.textContent).toContain('Open without saving');
+    expect(recentDesigns.rememberRecentDesign).not.toHaveBeenCalled();
+    await act(async () => { button(host.querySelector('[role="dialog"]')!, 'Cancel').click(); });
+    expect(host.querySelector<HTMLInputElement>('#rocket-name')!.value).toBe('Current unsaved work');
+  });
+
+  it('Recent uses the same file door and unsaved-work prompt, and keeps the original import bytes', async () => {
+    const file = new File([fixture(RKT)], 'Recent.rkt');
+    vi.mocked(recentDesigns.listRecentDesigns).mockResolvedValue([{ name: file.name, openedAt: 1, size: file.size }]);
+    vi.mocked(recentDesigns.recentDesignFile).mockResolvedValue(file);
+    const host = await mountApp();
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Unsaved current design');
+    await act(async () => { button(host, 'Recent…').click(); });
+    await act(async () => { button(host, 'Recent.rkt').click(); });
+    expect(host.textContent).toContain('Save');
+    expect(vi.mocked(recentDesigns.rememberRecentDesign)).not.toHaveBeenCalled();
+    await act(async () => { button(host.querySelector('[role="dialog"]')!, 'Cancel').click(); });
+    expect(host.querySelector<HTMLInputElement>('#rocket-name')!.value).toBe('Unsaved current design');
+    await act(async () => { button(host, 'Recent…').click(); });
+    await act(async () => { button(host, 'Recent.rkt').click(); });
+    await act(async () => { button(host, 'Open without saving').click(); });
+    await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.length === 1, 'recent copy');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.tree.name).toBe(RKT_NAME);
+    const [name, bytes] = vi.mocked(recentDesigns.rememberRecentDesign).mock.calls[0]!;
+    expect(name).toBe('Recent.rkt');
+    expect(new TextDecoder().decode(bytes)).toBe(fixture(RKT));
+    expect(host.querySelector('.notice-bar')?.textContent).toContain('states its launch site as latitude 43°');
+  });
+
+  it('copies successful saved bytes but never a cancelled or failed save; storage failure leaves Save successful', async () => {
+    const host = await mountApp();
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Recent save');
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'cancelled' });
+    await saveAs(host, 'Save .ork');
+    expect(recentDesigns.rememberRecentDesign).not.toHaveBeenCalled();
+    vi.mocked(exportOrk).mockImplementationOnce(() => { throw new Error('writer failed'); });
+    await saveAs(host, 'Save .ork');
+    expect(recentDesigns.rememberRecentDesign).not.toHaveBeenCalled();
+    vi.mocked(recentDesigns.rememberRecentDesign).mockResolvedValue('The app could not keep a copy in Recent.');
+    await saveAs(host, 'Save .ork');
+    await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.length === 1, 'saved copy');
+    const [name, bytes] = vi.mocked(recentDesigns.rememberRecentDesign).mock.calls[0]!;
+    expect(name).toBe('Recent_save.ork');
+    expect(new TextDecoder().decode(bytes)).toBe(vi.mocked(exportOrk).mock.results.at(-1)!.value);
+    expect(host.textContent).toContain('No unsaved changes');
+    expect(host.textContent).toContain('could not keep a copy in Recent');
+  });
+
+  it.each(['.rkt', '.CDX1'])('Recent keeps exactly the saved %s bytes, including that format’s limits', async ext => {
+    const host = await mountApp();
+    await saveAs(host, `Save ${ext}`);
+    await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.length === 1, 'foreign saved copy');
+    const [name, bytes] = vi.mocked(recentDesigns.rememberRecentDesign).mock.calls[0]!;
+    expect(name.endsWith(ext)).toBe(true);
+    const blob = vi.mocked(saveFile).mock.calls.at(-1)![0];
+    expect(new TextDecoder().decode(bytes)).toBe(await new Blob([blob]).text());
+  });
+
+  it('part comment edits survive undo/redo, autosave reload and .ork save', async () => {
+    let host = await mountApp();
+    const row = [...host.querySelectorAll<HTMLElement>('.tree-row')].find(r => r.querySelector('.tree-label')?.textContent === 'Sustainer')!;
+    await act(async () => { row.click(); });
+    const textarea = host.querySelector<HTMLTextAreaElement>('[aria-label="Part comment"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'As built\n钛 & <epoxy>');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.tree.components[0]!['comment']).toBe('As built\n钛 & <epoxy>');
+    await act(async () => { button(host, 'Undo').click(); });
+    window.dispatchEvent(new Event('pagehide')); expect(storedSession()!.tree.components[0]!['comment']).toBeUndefined();
+    await act(async () => { button(host, 'Redo').click(); });
+    await saveAs(host, 'Save .ork');
+    expect(importOrk(vi.mocked(exportOrk).mock.results.at(-1)!.value as string).tree.components[0]!['comment'])
+      .toBe('As built\n钛 & <epoxy>');
+    await unmountAll(); host = await mountApp(); window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.tree.components[0]!['comment']).toBe('As built\n钛 & <epoxy>');
+    expect([...host.querySelectorAll('.tree-badge')].some(e => e.textContent === 'note')).toBe(true);
+  });
 });
 
 afterEach(async () => {

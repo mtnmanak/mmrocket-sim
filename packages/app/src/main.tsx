@@ -10,7 +10,9 @@ import { AppRoot } from './root.js';
 import { guardPrecache } from './services/precacheGuard.js';
 import { setSwRegistration } from './services/versionCheck.js';
 import { offlineStatus } from './services/offlineStatus.js';
+import { installFatalErrorBar } from './services/fatalErrorBar.js';
 import { sessionDebugLog, startSessionDebugCapture } from './services/sessionDebugLog.js';
+import { saveFile } from './services/saveFile.js';
 
 const stopDebugCapture = startSessionDebugCapture();
 const stopWorkerDebug = (() => {
@@ -30,6 +32,16 @@ const stopOfflineDebug = offlineStatus.subscribe(() => {
 // The running app uses the page lifetime; development reloads remove old listeners.
 if (import.meta.hot) import.meta.hot.dispose(() => { stopDebugCapture(); stopWorkerDebug(); stopOfflineDebug(); });
 
+// C-H3 is now integrated: keep the global error action independent of React.
+const fatalErrors = installFatalErrorBar({ downloadSessionDebugLog: async () => {
+  sessionDebugLog.record('debug-log-download');
+  await saveFile(sessionDebugLog.text(), {
+    suggestedName: 'mmrocket-sim-session-debug.txt', mime: 'text/plain;charset=utf-8',
+    extensions: ['.txt'], description: 'Session debug log',
+  });
+} });
+import.meta.hot?.dispose(fatalErrors);
+
 // Offline-first. autoUpdate: a new build takes over and reloads the page by
 // itself. What it does NOT do is go looking — the browser checks for a new
 // worker when this registration runs, i.e. on a page load. Publishing the
@@ -45,28 +57,8 @@ offlineStatus.start(registerSW, (_url, reg) => {
   void guardPrecache(reg).catch(() => { /* Offline diagnostics must not prevent startup. */ });
 });
 
-// Never a silently-blank page: uncaught errors paint into the root. A throw
-// while RENDERING is caught by AppBoundary (root.tsx), which keeps the root
-// filled and offers the autosaved design and a fresh start (audit
-// 2026-09-22); this paints only into an EMPTY root, so it is the last resort
-// for what no boundary sees (the root failing to mount at all). What fails
-// before this body can run — a chunk that would not load, a module that threw
-// while evaluating — is painted by index.html's startup painter, which stands
-// down once the app has drawn (audit 2026-09-30).
-function showFatal(message: string) {
-  const root = document.getElementById('root');
-  if (root && !root.childElementCount) {
-    root.innerHTML = `<div style="font-family:system-ui;padding:24px;color:#ffffff;background:#970f21;border:2px solid currentColor">
-      <h2><span aria-hidden="true">⛔</span> Danger: Something went wrong</h2>
-      <pre style="white-space:pre-wrap">${message
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')}</pre>
-    </div>`;
-  }
-}
-window.addEventListener('error', (e) => showFatal(String(e.error?.stack ?? e.message)));
-window.addEventListener('unhandledrejection', (e) => showFatal(String(e.reason)));
-
+// AppBoundary still offers design recovery for render failures. index.html's
+// startup painter covers failures before this module can install the handlers.
 try {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
@@ -75,5 +67,5 @@ try {
   );
 } catch (e) {
   sessionDebugLog.record('app-error', e);
-  showFatal(String((e as Error).stack ?? e));
+  fatalErrors.report(e);
 }

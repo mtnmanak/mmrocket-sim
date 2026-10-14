@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FlightSeries } from '@online-openrocket/engine';
-import { PRESETS, comparisonMembers, convertedValues, phaseData, phaseRuns, seriesCatalog, usableSeries } from './flightChartModel.js';
+import { PRESETS, comparisonMembers, convertedValues, phaseData, phaseRuns, seriesCatalog, usableSeries, withStabilityPercent } from './flightChartModel.js';
+import { stabilityPercent } from './services/simReport.js';
 import { METRIC_UNITS, IMPERIAL_UNITS } from './prefs/units.js';
 import { SERIES } from './chartTheme.js';
 
@@ -10,6 +11,29 @@ const series = (altitude: (number | null)[], velocity = altitude.map((_, i) => i
   acceleration: altitude.map(() => 3), Vz: altitude.map(() => -2),
   stability: altitude.map(() => 2), cpLocation: altitude.map(() => 1), cgLocation: altitude.map(() => 0.8),
 }) as unknown as FlightSeries;
+
+describe('N042 percent of active aerodynamic length', () => {
+  it('agrees with the static percent definition at launch and follows active lengths without changing SI data', () => {
+    const info = { cp: 1, cg: 0.8, length: 2.8, lengthAerodynamic: 2 };
+    const input = { ...series([0, 2, 4]), activeLength: [2, 1, 0.5] };
+    const before = structuredClone(input);
+    const output = withStabilityPercent(input);
+    expect(output.stabilityPercent?.[0]).toBeCloseTo(stabilityPercent(info)!, 12); // arithmetic rounding only
+    expect(output.stabilityPercent?.[1]).toBeCloseTo(20, 12);
+    expect(output.stabilityPercent?.[2]).toBeCloseTo(40, 12);
+    expect(input).toEqual(before);
+    expect(output.stability).toBe(input.stability);
+    expect(catalog(true).find(d => d.key === 'stabilityPercent')?.unit).toBe('%');
+  });
+  it('keeps unknown legacy geometry and invalid samples missing, including recovery and tumbling', () => {
+    expect(withStabilityPercent(series([0])).stabilityPercent).toEqual([null]);
+    const input = { ...series([0, 1, 2, 3, 4, 5, 6, 7]), activeLength: [1, 0, -1, Infinity, null, 1, 1, 1],
+      cpLocation: [1, 1, 1, 1, 1, null, 1, 1] } as unknown as FlightSeries;
+    const output = withStabilityPercent(input, [{ type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 6 }]);
+    expect(output.stabilityPercent?.slice(1)).toEqual([null, null, null, null, null, null, null]);
+    expect(withStabilityPercent(input, [{ type: 'TUMBLE', time: 0 }]).stabilityPercent).toEqual(Array(8).fill(null));
+  });
+});
 
 describe('comparison definitions and SI copies', () => {
   it('uses only summary quantities on explicitly compatible axes', () => {

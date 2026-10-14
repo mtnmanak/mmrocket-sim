@@ -1,4 +1,6 @@
 import { NoteLabel, noteClass, type NoteTier } from './Note.js';
+import { WarningCode } from './WarningCode.js';
+import { importNoteCode } from '../services/noteExplanations.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { changesText, highestTier, orderedLines, tierRank, type NoteGroup } from '../services/importNotes.js';
 
@@ -289,7 +291,7 @@ export function NoticeBar({ notices: all }: { notices: Notice[] }) {
                         <ul className="notice-lines" aria-label={changesText(n.group.lines.length)}>
                           {groupLines(n).map((line, i) => (
                             <li key={i} className={`notice-line ${noteClass(line.tier)}`}>
-                              <NoteLabel tier={line.tier} />{line.text}
+                              <NoteLabel tier={line.tier} />{line.text}<WarningCode code={importNoteCode(line.kind)} />
                             </li>
                           ))}
                         </ul>

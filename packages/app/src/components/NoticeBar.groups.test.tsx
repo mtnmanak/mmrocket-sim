@@ -46,6 +46,15 @@ const open = (lines: ImportNote[], severity: Notice['severity'] = 'info'): Notic
   return { id: 'file-note', severity, text: [heading, ...lines.map(l => l.text)].join('\n'), group: { heading, lines } };
 };
 
+it('N046 shows producer codes beside import lines without changing their text or tier', () => {
+  draw([open([{ kind: 'I03.left-out', tier: 'caution', text: 'Left out the named part.' }], 'warn')]);
+  const code = host.querySelector<HTMLButtonElement>('button[aria-label="Explain note I03.left-out"]');
+  expect(code).not.toBeNull();
+  expect(code!.closest('.message-caution')?.textContent).toContain('Left out the named part.');
+  act(() => code!.click());
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('missing parts');
+});
+
 describe('the collapsed file-open group', () => {
   it('takes the highest line’s tier and leads with that line and "N changes", not "Loaded …"', () => {
     draw([open([line('information', 'Translated a pod.'), line('caution', 'A fin outline was replaced.'),

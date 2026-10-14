@@ -178,6 +178,11 @@ function walk(nodes: ComponentNode[], found: Finding[]): ComponentNode[] | null 
   let out: ComponentNode[] | null = null;
   nodes.forEach((n, i) => {
     let fixed = sanitizeOwn(n, found);
+    // C-B8: untrusted autosaves may contain a non-text comment.
+    if (n['comment'] !== undefined && typeof n['comment'] !== 'string') {
+      fixed = { ...fixed };
+      delete fixed['comment'];
+    }
     // Restored sessions can predate the importers writing the default outline.
     if (n.type === 'freeformfinset' && n['points'] == null) {
       fixed = { ...fixed, points: KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]) };

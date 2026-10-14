@@ -2,9 +2,12 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { UNITS, type Quantity, type UnitSelection } from './units.js';
 import { normalizePrinter } from './printers.js';
 import { normalizeDragAnalysis } from './dragAnalysis.js';
+import { normalizeFlightPlots } from './flightPlots.js';
 import { normalizeFlightAdvisories } from './flightAdvisories.js';
 import { DEFAULT_PREFS, type Preferences } from './preferences.js';
 import type { AeroChoice } from './aeroChoice.js';
+import { normalizeRunColumns } from '../services/runSummaryColumns.js';
+import { normalizeExportLayouts } from '../services/flightExportLayouts.js';
 import { sessionDebugLog } from '../services/sessionDebugLog.js';
 
 // The stored shape and its defaults, and the aero choice, live in React-free
@@ -66,6 +69,12 @@ function load(): Preferences {
     const dragAnalysis = normalizeDragAnalysis(parsed.dragAnalysis);
     if (dragAnalysis) parsed.dragAnalysis = dragAnalysis;
     else delete parsed.dragAnalysis;
+    const runColumns = normalizeRunColumns(parsed.runColumns);
+    if (runColumns) parsed.runColumns = runColumns;
+    else delete parsed.runColumns;
+    if (parsed.flightExportLayouts !== undefined) parsed.flightExportLayouts = normalizeExportLayouts(parsed.flightExportLayouts);
+    if (!parsed.flightExportLayouts?.some(l => l.id === parsed.flightExportLayoutId)) delete parsed.flightExportLayoutId;
+    if (parsed.flightPlots !== undefined) parsed.flightPlots = normalizeFlightPlots(parsed.flightPlots);
     const flightAdvisories = normalizeFlightAdvisories(parsed.flightAdvisories);
     if (flightAdvisories) parsed.flightAdvisories = flightAdvisories;
     else delete parsed.flightAdvisories;
