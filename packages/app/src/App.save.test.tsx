@@ -28,6 +28,7 @@ import { MOTOR_DB, setCatalogueOverlay } from './services/motorDb.js';
 import type { SimRun } from './services/simReport.js';
 import { decodeShareFragment, encodeShareFragment } from './services/shareLink.js';
 import { downloadImage } from './services/schematicExport.js';
+import { openPrintDocument } from './services/printDocument.js';
 import * as recentDesigns from './services/recentDesigns.js';
 import { sessionDebugLog } from './services/sessionDebugLog.js';
 
@@ -88,6 +89,11 @@ vi.mock('./services/schematicExport.js', async (importOriginal) => {
 vi.mock('./services/shareLink.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/shareLink.js')>();
   return { ...real, decodeShareFragment: vi.fn(real.decodeShareFragment) };
+});
+// C-A6: the print report opens a preview window rather than writing a file.
+vi.mock('./services/printDocument.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./services/printDocument.js')>();
+  return { ...real, openPrintDocument: vi.fn() };
 });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -1533,7 +1539,8 @@ describe('only a full-fidelity save clears the unsaved-work guard', () => {
       ]));
       let didLossySave = false;
       for (const entry of others) {
-        const wrote = () => vi.mocked(saveFile).mock.calls.length + writeText.mock.calls.length;
+        const wrote = () => vi.mocked(saveFile).mock.calls.length + writeText.mock.calls.length
+          + vi.mocked(openPrintDocument).mock.calls.length;
         const before = wrote();
         await saveAs(host, entry);
         // Each one really wrote (or copied) — a throw would pass vacuously.

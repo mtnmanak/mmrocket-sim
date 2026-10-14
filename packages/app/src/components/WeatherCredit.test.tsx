@@ -37,5 +37,7 @@ it('is the only module that renders the credit', () => {
   });
   const users = files(src).filter((f) => /\bWEATHER_CREDIT\b/.test(readFileSync(f, 'utf8')))
     .map((f) => relative(src, f).replace(/\\/g, '/')).sort();
-  expect(users).toEqual(['components/WeatherCredit.tsx', 'services/weatherSnapshot.ts']);
+  // flightDataBundle.ts copies the constant itself into the bundle's manifest.json as data attribution for
+  // forecast-derived settings; it renders no credit line of its own.
+  expect(users).toEqual(['components/WeatherCredit.tsx', 'services/flightDataBundle.ts', 'services/weatherSnapshot.ts']);
 });

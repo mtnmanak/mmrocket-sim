@@ -131,6 +131,14 @@ export const XML_JS_SUITES = [
   // Fin root fillets (C-B14): .ork reopen and the .rkt/.CDX1 loss notes.
   'src/components/PropertyPanel.fillets.test.tsx',
   'src/services/filletExport.test.ts',
+  // C-A3: the bundled example rockets open through importOrk.
+  'src/App.examples.test.tsx',
+  'src/components/ExampleDesignsDialog.test.tsx',
+  // Flight-data bundle: its design.ork is read back through the importer.
+  'src/components/FlightDataBundleDialog.test.tsx',
+  'src/services/flightDataBundle.test.ts',
+  // N045: vent / marking holes round-trip as .ork tube metadata.
+  'src/services/tubeHoles.test.ts',
 ];
 
 /** Files that call an importer but are NOT run twice, each with the reason. */

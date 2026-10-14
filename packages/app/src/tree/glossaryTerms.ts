@@ -9,6 +9,7 @@ const components: Record<string, string> = {
   parachute: 'Canopy', streamer: 'Streamer', shockcord: 'Shock cord / shroud lines',
   masscomponent: 'Mass component / mass object', fairing: 'Camera shroud / fairing',
   protuberance: 'Protuberance', podset: 'Pod set', parallelstage: 'Parallel booster / strap-on booster',
+  tubehole: 'Vent / marking hole',
 };
 const fields: Record<string, string> = {
   name: 'Component / part / component tree', color: 'Component display color',
@@ -56,6 +57,7 @@ const fields: Record<string, string> = {
   overrideSubcomponentsCG: 'Mass override / CG override', overrideSubcomponentsCD: 'Cd override',
   positionMethod: 'Position relative to / Offset', positionOffset: 'Position relative to / Offset',
   lineDensity: 'Material density', surfaceDensity: 'Material density',
+  holeDiameter: 'Vent / marking hole', holePosition: 'Vent / marking hole', holeCount: 'Vent / marking hole',
 };
 export function componentTerm(type: string): string | undefined {
   const title = components[type];
