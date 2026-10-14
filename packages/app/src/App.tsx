@@ -3208,15 +3208,28 @@ export function App() {
     () => (lastRun ? changedSinceRun(lastRun, provenanceKey) : null),
     [lastRun, provenanceKey],
   );
-  const preparePrintReport = () => designPrintHtml({
-    tree, info: built?.info ?? null, units: prefs.units, radiusMode: prefs.radiusMode,
-    stabilityUnit: prefs.stabilityUnit, withMotors: installedMounts(assigned, refusedMountIds).length > 0, appVersion: APP_VERSION,
-    motorFailures,
-    currentLoadout: `${liveActiveLayer ? savedConfigLabel(liveActiveLayer) : flightWorking ? 'Working settings (not saved)' : 'None'}; `
-      + (assigned.length ? assigned.map(([id, mm]) => `${mountName(mounts.find(m => m.id === id)!)}: ${mm.label} ×${mountMotorCount(tree, id)} (${!built ? 'build unavailable' : refusedMountIds.includes(id) ? 'omitted from build' : 'installed in build'})`).join('; ') : 'no motor assigned'),
-    infoFor: built ? id => { try { return built.rocket.componentInfo(id); } catch { return null; } } : undefined,
-    run: reportRun, changedSince: reportRun ? changedSinceRun(reportRun, provenanceKey) : null,
-  });
+  const preparePrintReport = () => {
+    // C-A6: imported references never reach installation, but still make the intended loadout incomplete.
+    const unresolved = mounts.flatMap(mount => {
+      const ref = mount.id ? unmatchedRefs[mount.id] : undefined;
+      return ref && !assigned.some(([id]) => id === mount.id)
+        ? [{ mount, identity: [ref.manufacturer, ref.designation].filter(Boolean).join(' ') }] : [];
+    });
+    const loadout = [
+      ...assigned.map(([id, mm]) => `${mountName(mounts.find(m => m.id === id)!)}: ${mm.label} ×${mountMotorCount(tree, id)} (${!built ? 'build unavailable' : refusedMountIds.includes(id) ? 'omitted from build' : 'installed in build'})`),
+      ...unresolved.map(({ mount, identity }) => `${mountName(mount)}: ${identity} ×${mountMotorCount(tree, mount.id!)} (unresolved; omitted from build)`),
+    ];
+    return designPrintHtml({
+      tree, info: built?.info ?? null, units: prefs.units, radiusMode: prefs.radiusMode,
+      stabilityUnit: prefs.stabilityUnit, withMotors: installedMounts(assigned, refusedMountIds).length > 0, appVersion: APP_VERSION,
+      motorFailures: [...motorFailures, ...unresolved.map(({ mount, identity }) => ({ mountId: mount.id!,
+        text: `Unresolved imported motor ${identity}: no motor curve is loaded.` }))],
+      currentLoadout: `${liveActiveLayer ? savedConfigLabel(liveActiveLayer) : flightWorking ? 'Working settings (not saved)' : 'None'}; `
+        + (loadout.length ? loadout.join('; ') : 'no motor assigned'),
+      infoFor: built ? id => { try { return built.rocket.componentInfo(id); } catch { return null; } } : undefined,
+      run: reportRun, changedSince: reportRun ? changedSinceRun(reportRun, provenanceKey) : null,
+    });
+  };
   /**
    * The non-model changes, which is what the new banner reports.
    *
