@@ -68,13 +68,12 @@ describe('N033 schematic walls', () => {
       const hit = lay.shapes.find(s => s.part?.id === id && s.part.hit)!;
       expect(Number(hit.attrs['width'])).toBe(2);
       expect(hit.part?.grip).toBe(true);
-      // A zoom changes the screen snap radius, not the end stations (rounding only).
+      // N044 round 8: internal tubes are freely picked, independent of zoom.
       for (const zoom of [1, 4]) {
         const a = snapCaliperPoint({ x: start, y: radius }, targets, 8 / (frame.scale * zoom));
         const b = snapCaliperPoint({ x: start + length, y: radius }, targets, 8 / (frame.scale * zoom));
         expect(caliperDistances(a, b).horizontal).toBeCloseTo(length, 12);
-        expect(targets.some(p => Math.abs(p.x - (start + 2 / frame.scale)) < 1e-12
-          && Math.abs(p.y - radius) < 1e-12)).toBe(false);
+        expect(outline.snap).toBeUndefined();
       }
       if (walls) {
         const coords = String(lay.shapes.find(s => s.attrs['data-wall'] === id)!.attrs['d']).match(/[-\d.]+/g)!.map(Number);
@@ -163,6 +162,76 @@ describe('N033 schematic walls', () => {
     expect(transition).toContain('100 80'); expect(transition).toContain('150.00000000000003 90');
     expect(cut.shapes.filter(s => s.attrs['data-wall'] && String(s.attrs['data-wall']).startsWith('t:shoulder'))).toHaveLength(2);
   });
+
+  it.each(['double', '3-ring'].flatMap(cluster => [0, Math.PI / 3].flatMap(direction =>
+    [0, Math.PI / 6, Math.PI / 2].flatMap(roll => [0, Math.PI / 5].flatMap(rotation =>
+      [0, 0.004].map(radialPosition => ({ cluster, direction, roll, rotation, radialPosition })))))))(
+    'inherits $cluster wall instances at direction $direction, roll $roll, cluster rotation $rotation, offset $radialPosition m',
+    ({ cluster, direction, roll, rotation, radialPosition }) => {
+      const nested = { name: 'Cluster descendants', components: [{ id: 'b', type: 'bodytube',
+        length: 1, outerRadius: 0.04, children: [{ id: 'i', type: 'innertube', length: 0.3,
+          outerRadius: 0.01, thickness: 0.001, cluster, clusterRotation: rotation,
+          radialPosition, radialDirection: direction, position: { method: 'top', offset: 0.1 }, children: [
+            { id: 'c', type: 'tubecoupler', length: 0.05, outerRadius: 0.009, thickness: 0.001,
+              position: { method: 'top', offset: 0.01 }, children: [
+                { id: 'nested', type: 'innertube', length: 0.02, outerRadius: 0.003, thickness: 0.0005,
+                  cluster: 'double', clusterRotation: Math.PI / 7, radialPosition: 0.001,
+                  radialDirection: Math.PI / 4, position: { method: 'top', offset: 0.005 }, children: [
+                    { id: 'last', type: 'tubecoupler', length: 0.01, thickness: 0.0005,
+                      position: { method: 'top', offset: 0.002 } },
+                  ] },
+              ] },
+          ] }] }] } as RocketTree;
+      const before = JSON.stringify(nested);
+      // Independent kernel pattern coordinates; never call the production cluster helper.
+      const unit = cluster === 'double' ? [[-0.5, 0], [0.5, 0]]
+        : [[-0.5, -1 / (2 * Math.sqrt(3))], [0.5, -1 / (2 * Math.sqrt(3))], [0, 1 / Math.sqrt(3)]];
+      const a = direction + roll - rotation;
+      const centres = unit.map(([y, z]) => radialPosition * Math.cos(direction + roll)
+        + 0.02 * (y! * Math.cos(a) - z! * Math.sin(a)));
+      const innerCentres = centres.flatMap(c => [-1, 1].map(sign => c
+        + 0.001 * Math.cos(Math.PI / 4 + roll)
+        + sign * 0.003 * Math.cos(Math.PI / 4 + roll - Math.PI / 7)));
+      for (const walls of [false, true]) for (const measuring of [false, true]) {
+        const layout = layoutSchematic(nested, { ...options, walls, measuring, roll });
+        expect(layout.shapes.every(s => !s.key.includes('~'))).toBe(true); // Distinct instance scopes, not duplicate-key fallback.
+        for (const [id, start, len, radius, thickness, expectedCentres] of [
+          ['c', 0.11, 0.05, 0.009, 0.001, centres],
+          ['nested', 0.115, 0.02, 0.003, 0.0005, innerCentres],
+          ['last', 0.117, 0.01, 0.0025, 0.0005, innerCentres],
+        ] as const) {
+          const outlines = layout.shapes.filter(s => s.part?.id === id && !s.part.hit && s.tag === 'rect');
+          expect(outlines).toHaveLength(expectedCentres.length);
+          const bands = layout.shapes.filter(s => s.attrs['data-wall'] === id);
+          expect(bands).toHaveLength(walls ? expectedCentres.length : 0);
+          const actualCentres = outlines.map(s => (100 - Number(s.attrs['y']) - Number(s.attrs['height']) / 2) / 1000).sort((a, b) => a - b);
+          const expected = expectedCentres.slice().sort((a, b) => a - b);
+          actualCentres.forEach((c, i) => expect(c).toBeCloseTo(expected[i]!, 12));
+          // Walls/measuring use the real bore-fitting diameters; ordinary symbols retain their cap.
+          if (walls || measuring) for (const outline of outlines) expect(Number(outline.attrs['height'])).toBeCloseTo(2 * radius * 1000, 10);
+          const bandCentres = bands.map(s => {
+            const coords = String(s.attrs['d']).match(/[-\d.]+/g)!.map(Number);
+            const c = (100 - (coords[1]! + coords[5]!) / 2) / 1000;
+            const want = [start * 1000, 100 - (c + radius) * 1000,
+              (start + len) * 1000, 100 - (c + radius) * 1000,
+              (start + len) * 1000, 100 - (c - radius) * 1000, start * 1000, 100 - (c - radius) * 1000,
+              start * 1000, 100 - (c + radius - thickness) * 1000,
+              (start + len) * 1000, 100 - (c + radius - thickness) * 1000,
+              (start + len) * 1000, 100 - (c - radius + thickness) * 1000, start * 1000, 100 - (c - radius + thickness) * 1000];
+            expect(coords).toHaveLength(want.length);
+            coords.forEach((v, i) => expect(v).toBeCloseTo(want[i]!, 10));
+            expect(s.snap).toBeUndefined();
+            return c;
+          }).sort((a, b) => a - b);
+          if (walls) bandCentres.forEach((c, i) => expect(c).toBeCloseTo(expected[i]!, 12));
+          const hover = layout.extents.get(id)!;
+          // Reconstructing the bottom from y + height changes last arithmetic bits.
+          expect(hover.y0).toBeCloseTo(Math.min(...outlines.map(s => Number(s.attrs['y']))), 10);
+          expect(hover.y1).toBeCloseTo(Math.max(...outlines.map(s => Number(s.attrs['y']) + Number(s.attrs['height']))), 10);
+        }
+      }
+      expect(JSON.stringify(nested)).toBe(before);
+    });
 
   it('draws every clustered and nested tube at its projected location and radius', () => {
     const nested = { name: 'Nested', components: [{ id: 'b', type: 'bodytube', length: 0.2, outerRadius: 0.02, thickness: 0.002, children: [

@@ -37,7 +37,7 @@ describe('N033 and N044 view tools', () => {
   it.each([false, true].flatMap(walls2d => ['mm', 'in'].flatMap(unit => [
     { walls2d, unit, angleOffset: Math.PI / 3, roll: 0 },
     { walls2d, unit, angleOffset: 0, roll: Math.PI / 3 },
-  ])))('touch measures a rotated lug in $unit with walls $walls2d, angle $angleOffset, roll $roll', ({ walls2d, unit, angleOffset, roll }) => {
+  ])))('touch freely measures a rotated lug in $unit with walls $walls2d, angle $angleOffset, roll $roll', ({ walls2d, unit, angleOffset, roll }) => {
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(640);
     vi.stubGlobal('ResizeObserver', class {
       callback: () => void;
@@ -57,10 +57,6 @@ describe('N033 and N044 view tools', () => {
     const x0 = Number(body.getAttribute('x')), scale = Number(body.getAttribute('width')) / 2;
     const cy = Number(body.getAttribute('y')) + Number(body.getAttribute('height')) / 2;
     const h = Number(svg().getAttribute('viewBox')!.split(' ')[3]);
-    const effectiveLug = svg().querySelector<SVGRectElement>('rect[fill="#c8c5be"]')!;
-    expect(Number(effectiveLug.getAttribute('y'))).toBeCloseTo(cy - 0.0133 * scale, 10);
-    expect(Number(effectiveLug.getAttribute('height'))).toBeCloseTo(0.0044 * scale, 10);
-    expect(Number(effectiveLug.getAttribute('width'))).toBeCloseTo(0.05 * scale, 10);
     // Independent physical stations: (20 + 2.2)*cos(60) +/- 2.2 mm.
     pointer(x0 + 0.1 * scale, (cy - 0.0089 * scale) * 240 / h);
     pointer(x0 + 0.1 * scale, (cy - 0.0133 * scale) * 240 / h);
@@ -69,6 +65,41 @@ describe('N033 and N044 view tools', () => {
       : 'Horizontal 0 in · Vertical 0.173 in · Straight 0.173 in');
     expect(select).not.toHaveBeenCalled(); expect(patch).not.toHaveBeenCalled();
     expect(JSON.stringify(lug)).toBe(before);
+    key(svg(), 'Escape'); expect(svg().querySelector('[data-caliper]')).toBeNull();
+  });
+
+  it.each([false, true].flatMap(walls2d => ['mm', 'in'].flatMap(unit => [
+    { walls2d, unit, fore: 'box', aft: 'box' }, { walls2d, unit, fore: 'box', aft: 'halfround' },
+  ])))('touch freely measures shroud ends at 360 px in $unit with walls $walls2d ($fore/$aft)', ({ walls2d, unit, fore, aft }) => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(360);
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, width: 360, height: 240 } as DOMRect);
+    vi.stubGlobal('ResizeObserver', class {
+      callback: () => void;
+      constructor(callback: () => void) { this.callback = callback; }
+      observe() { this.callback(); }
+      disconnect() {}
+    });
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ walls2d, units: { length: unit } }));
+    const shroud = { name: 'Box shroud', components: [{ id: 'b', type: 'bodytube', length: 2, outerRadius: 0.02,
+      children: [{ id: 's', type: 'fairing', length: 0.05, height: 0.03, width: 0.01, conformal: false,
+        fairingForeShape: fore, fairingAftShape: aft, position: { method: 'top', offset: 0.1 } }] }] } as RocketTree;
+    const before = JSON.stringify(shroud);
+    act(() => root.render(<PrefsProvider><TreeSchematic tree={shroud} info={null} onSelect={select} onPatchNode={patch} /></PrefsProvider>));
+    click('Caliper: measure two points');
+    expect(host.querySelector<HTMLInputElement>('.schematic-tool-notes input[type="checkbox"]')!.checked).toBe(true);
+    const body = svg().querySelector<SVGRectElement>('rect[fill="rgba(127,127,127,0.001)"], rect[fill="#e7e5e0"]')!;
+    const x0 = Number(body.getAttribute('x')), scale = Number(body.getAttribute('width')) / 2;
+    expect(scale).toBeCloseTo(126, 10); // Independently specified phone fit: 252 px for the 2 m airframe.
+    const cy = Number(body.getAttribute('y')) + Number(body.getAttribute('height')) / 2;
+    const h = Number(svg().getAttribute('viewBox')!.split(' ')[3]);
+    const rearY = aft === 'box' ? 0.05 : 0.0395; // Dome face is 35% below the top in the drawn profile.
+    pointer(x0 + 0.1 * scale, (cy - 0.05 * scale) * 240 / h);
+    pointer(x0 + 0.15 * scale, (cy - rearY * scale) * 240 / h);
+    expect(host.querySelector('[data-caliper-readout]')!.textContent).toBe(aft === 'box'
+      ? unit === 'mm' ? 'Horizontal 50 mm · Vertical 0 mm · Straight 50 mm' : 'Horizontal 1.969 in · Vertical 0 in · Straight 1.969 in'
+      : unit === 'mm' ? 'Horizontal 50 mm · Vertical 10.5 mm · Straight 51.1 mm' : 'Horizontal 1.969 in · Vertical 0.413 in · Straight 2.011 in');
+    expect(select).not.toHaveBeenCalled(); expect(patch).not.toHaveBeenCalled();
+    expect(JSON.stringify(shroud)).toBe(before);
     key(svg(), 'Escape'); expect(svg().querySelector('[data-caliper]')).toBeNull();
   });
 
@@ -106,7 +137,7 @@ describe('N033 and N044 view tools', () => {
     expect(svg().querySelector('[data-caliper]')).toBeNull();
   });
 
-  it.each([false, true])('touch measures a 5 mm engine block at 360 px with walls %s', walls2d => {
+  it.each([false, true])('touch freely measures 5 mm beside a symbolic engine block at 360 px with walls %s', walls2d => {
     vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(360);
     vi.stubGlobal('ResizeObserver', class {
       callback: () => void;
@@ -122,7 +153,8 @@ describe('N033 and N044 view tools', () => {
     click('Caliper: measure two points');
     const part = svg().querySelector<SVGRectElement>('rect[stroke-dasharray="3 2"]')!;
     const x = Number(part.getAttribute('x')), y = Number(part.getAttribute('y'));
-    const width = Number(part.getAttribute('width'));
+    const body = svg().querySelector<SVGRectElement>('rect[fill="rgba(127,127,127,0.001)"], rect[fill="#e7e5e0"]')!;
+    const width = 0.005 * Number(body.getAttribute('width')) / 2; // Free picks use SI positions, not the symbol's 2 px floor.
     const measure = () => {
       const [dx, dy, k] = svg().querySelector('g')!.getAttribute('transform')!.match(/[-\d.]+/g)!.map(Number);
       const h = Number(svg().getAttribute('viewBox')!.split(' ')[3]);
@@ -260,6 +292,7 @@ describe('N033 and N044 view tools', () => {
     expect(helpId).toBeTruthy();
     const help = document.getElementById(helpId!)!;
     expect(help?.textContent).toMatch(/arrows move.*Enter places.*Alt \+ arrows pan.*Escape clears/);
+    expect(help.textContent).toContain('Caliper snaps to the outside of the airframe and to fin outlines; elsewhere it measures the points you pick');
     key(svg(), 'Enter'); key(svg(), 'ArrowRight'); key(svg(), 'Enter');
     expect(host.querySelector('[data-caliper-readout]')!.textContent).toContain('Horizontal 1 mm');
     key(svg(), 'Escape');

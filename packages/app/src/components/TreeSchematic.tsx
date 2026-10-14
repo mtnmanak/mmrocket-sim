@@ -871,7 +871,7 @@ export function TreeSchematic({ tree, info, motors, onPatchNode, maxHeight = 480
         {walls && <span>Schematic cutaway · wall bands show thickness</span>}
         {measuring && caliper && <>
           <span>Projected in this view plane</span>
-          <span id={`${uid}-caliper-help`}>Pick two points; arrows move a point, Enter places it, Alt + arrows pan, Escape clears</span>
+          <span id={`${uid}-caliper-help`}>Pick two points; arrows move a point, Enter places it, Alt + arrows pan, Escape clears. Caliper snaps to the outside of the airframe and to fin outlines; elsewhere it measures the points you pick.</span>
           <label><input type="checkbox" checked={caliperSnap} onChange={e => setCaliperSnap(e.target.checked)} /> Snap to edges</label>
           {caliper.points.length === 2 && <>
             <span data-caliper-readout="" role="status">{caliperReadout(caliper.points[0]!, caliper.points[1]!, prefs.units.length)}</span>

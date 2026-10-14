@@ -13,7 +13,7 @@ import {
   resolveAssemblyRadius, ringInstanceOffsets,
 } from './assembly.js';
 import { outerProfile } from './shapeProfile.js';
-import { isConformal, shroudEnds, shroudHalfWidth } from './shroud.js';
+import { shroudEnds } from './shroud.js';
 import { isTailCone, noseEnds } from './tailCone.js';
 import { num, numOpt } from './nodeNum.js';
 import { lookupTable } from '../services/xmlUtil.js';
@@ -474,12 +474,12 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
   const snapGeometry = (points: [number, number][], centre: number, hiddenRadius?: number, outline = true, angle = 0): SchematicSnap =>
     projectSchematicGeometry({ kind: 'outline', points, closed: outline }, centre, angle, hiddenRadius);
   const snapCylinder = (start: number, len: number, radius: number, centre: number, offset = 0, angle = 0, hiddenRadius?: number): SchematicSnap =>
-    projectSchematicGeometry({ kind: 'sections', sections: [[start, radius], [start + len, radius]], offset, endCentres: true }, centre, angle, hiddenRadius);
+    projectSchematicGeometry({ kind: 'sections', sections: [[start, radius], [start + len, radius]], offset }, centre, angle, hiddenRadius);
   const snapProfile = (start: number, profile: [number, number][], centre: number): SchematicSnap =>
     projectSchematicGeometry({ kind: 'sections', sections: profile.map(([x, r]) => [start + x, r]) }, centre);
 
   const wallBand = (list: SchematicShape[], key: string, id: string, start: number, len: number,
-    radius: number, thickness: number, baseY: number, filled = false, profile?: [number, number][], cap?: 'fore' | 'aft', centre = 0) => {
+    radius: number, thickness: number, baseY: number, filled = false, profile?: [number, number][], cap?: 'fore' | 'aft') => {
     if (!o.walls || len <= 0 || radius <= 0 || (!filled && thickness <= 0)) return;
     const outer = profile ?? [[0, radius], [len, radius]];
     const contour = (pts: number[][]) => {
@@ -494,8 +494,6 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
       Math.max(0, r - thickness),
     ]);
     list.push({ key: `${key}:wall`, layer: list === shapes ? 'base' : 'overlay', tag: 'path',
-      snap: { points: [...snapProfile(start, outer, centre).points,
-        ...(filled || thickness >= radius || capThickness >= len ? [] : snapProfile(start, inner, centre).points)] },
       attrs: { d: contour(outer) + (filled || thickness >= radius || capThickness >= len ? '' : ` ${contour(inner)}`),
         fillRule: 'evenodd', fill: 'var(--text-secondary)', 'data-wall': id,
         style: { pointerEvents: 'none' } } });
@@ -989,7 +987,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const hgt = kernelNum(child, 'height');
         const ends = shroudEnds(child);
         const start = axialStart(child, len, pStart, pLen);
-        const { p: sp, near: snear, angle } = surfaceAt(child, frameRoll);
+        const { p: sp, near: snear } = surfaceAt(child, frameRoll);
         const X = ctx.x0 + start * ctx.scale;
         const y0 = baseY - pRadius * sp * ctx.scale;
         const yh = baseY - (pRadius + hgt) * sp * ctx.scale;
@@ -1030,9 +1028,6 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // opaque solid and the tube really does hide it.
         shapes.push({
           key: `${key}:shroud`, layer: 'base', tag: 'path', part, sel: true,
-          snap: projectSchematicGeometry({ kind: 'seatedPrism', start, length: len, radius: pRadius, height: hgt,
-            halfWidth: shroudHalfWidth(pRadius, kernelNum(child, 'width'), isConformal(child)),
-            curvedBase: isConformal(child), shapedRoof: true }, centre, angle, snear ? undefined : pRadius),
           attrs: {
             'data-part': 'shroud',
             d: `M ${X},${y0} `
@@ -1053,7 +1048,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const hgt = kernelNum(child, 'height');
         const cls = String(child['dragClass'] ?? 'streamlinedbase');
         const start = axialStart(child, len, pStart, pLen);
-        const { p: pp, near: pnear, angle } = surfaceAt(child, frameRoll);
+        const { p: pp, near: pnear } = surfaceAt(child, frameRoll);
         const X = ctx.x0 + start * ctx.scale;
         const y0 = baseY - pRadius * pp * ctx.scale;
         const yh = baseY - (pRadius + hgt) * pp * ctx.scale;
@@ -1062,8 +1057,6 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         const nose = Math.min(0.35 * (Xe - X), Math.max(2, Math.abs(y0 - yh)));
         shapes.push({
           key: `${key}:bump`, layer: 'base', tag: 'polygon', part, sel: true,
-          snap: projectSchematicGeometry({ kind: 'seatedPrism', start, length: len, radius: pRadius, height: hgt,
-            halfWidth: kernelNum(child, 'width') / 2, curvedBase: false }, centre, angle, pnear ? undefined : pRadius),
           attrs: {
             points: cls === 'plate'
               ? `${X},${y0} ${Xe},${yh} ${Xe},${y0}`
@@ -1103,15 +1096,9 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           : axialStart(child, len, pStart, pLen);
         // Its own mounting angle places it (v0.087); the view roll turns it
         // from there. Solid at every roll — a button is a lump, not a line.
-        const { p: lp, near: lnear, angle } = surfaceAt(child, frameRoll);
-        const physical = (x0: number) => t === 'launchlug'
-          ? snapCylinder(x0, len, r, centre, pRadius + r, angle, lnear ? undefined : pRadius)
-          : projectSchematicGeometry({ kind: 'radialCylinder', station: x0 + len / 2,
-            radius: len / 2, surface: pRadius, height: btnH }, centre, angle, lnear ? undefined : pRadius);
-        const bounds = physical(start).points.map(([, y]) => y - centre);
-        const effective = o.measuring && t === 'launchlug';
-        const ySurf = baseY - (effective ? Math.min(...bounds) : pRadius * lp) * ctx.scale;
-        const yOut = baseY - (effective ? Math.max(...bounds) : (pRadius + btnH) * lp) * ctx.scale;
+        const { p: lp, near: lnear } = surfaceAt(child, frameRoll);
+        const ySurf = baseY - pRadius * lp * ctx.scale;
+        const yOut = baseY - (pRadius + btnH) * lp * ctx.scale;
         // LINE INSTANCES (v0.089): one node is N collinear copies at the same
         // clock angle, instance 0 forward and the rest marching AFT at
         // `instanceSeparation` spacing — the kernel's own convention
@@ -1124,12 +1111,11 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           const x0 = start + li * liSep;
           shapes.push({
             key: `${key}:${t === 'railbutton' ? 'button' : 'lug'}${li}`, layer: 'base', tag: 'rect', part, sel: true,
-            snap: physical(x0),
             attrs: {
               x: ctx.x0 + x0 * ctx.scale,
               y: Math.min(ySurf, yOut),
-              width: effective ? len * ctx.scale : Math.max(2, len * ctx.scale),
-              height: effective ? Math.abs(ySurf - yOut) : Math.max(2, Math.abs(ySurf - yOut)),
+              width: Math.max(2, len * ctx.scale),
+              height: Math.max(2, Math.abs(ySurf - yOut)),
               fill: fillOf(child, '#c8c5be'), stroke: '#7a786f', strokeWidth: 1,
               ...(lnear ? {} : { clipPath: `url(#${airframeClip(baseY, pRadius)})` }),
             },
@@ -1159,7 +1145,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
               ?? num(child, 'packedRadius', kernelDefault(child.type, 'packedRadius') ?? pRadius * 0.7))),
         );
         const start = axialStart(child, len, pStart, pLen);
-        // N044: automatic ring radii use the parent's bore; the 85% display cap is symbolic.
+        // N033: automatic ring radii use the parent's bore; the 85% display cap is symbolic.
         const wall = Math.max(0, num(parent, 'thickness', kernelDefault(parent.type, 'thickness') ?? 0));
         const bore = parent['filled'] === true ? 0 : Math.max(0,
           Math.min(physicalMount.radiusAt(Math.max(0, Math.min(pLen, start - pStart))),
@@ -1188,10 +1174,6 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // cluster spread out end-on and stacked on the axis from the side.
         // Only the +y component projects into a side view; the view roll turns
         // the pair, same as every other radial part here.
-        // N044: preserved ring offsets do not move kernel instances (I21.radial-offset).
-        const physicalRadY = ['innertube', 'masscomponent', 'parachute', 'streamer', 'shockcord'].includes(child.type)
-          ? num(child, 'radialPosition', 0) * Math.cos(num(child, 'radialDirection', 0) + frameRoll)
-          : 0;
         const radY = child.type === 'innertube'
           ? num(child, 'radialPosition', 0) * Math.cos(num(child, 'radialDirection', 0) + frameRoll)
           : 0;
@@ -1206,7 +1188,6 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
             ctx.x0 + (start + len) * ctx.scale, oy + r * ctx.scale);
           overlay.push({
             key: `${key}:inner${j}`, layer: 'overlay', tag: 'rect', part, sel: true,
-            snap: snapCylinder(start, len, physicalR, centre + physicalRadY + off.y),
             title: child.name ?? DISPLAY_NAME[child.type],
             attrs: {
               x: ctx.x0 + start * ctx.scale,
@@ -1218,14 +1199,14 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
             },
           });
           if (child.type === 'innertube' || child.type === 'tubecoupler') {
-            // N044: keep short tube stations physical; only the pick surface gets a floor.
+            // N033: keep short tubes physical; only the pick surface gets a floor.
             if (len * ctx.scale < 2) overlay.push({
               key: `${key}:inner${j}-hit`, layer: 'overlay', tag: 'rect', part: part && { ...part, hit: true },
               attrs: { x: ctx.x0 + start * ctx.scale, y: oy - r * ctx.scale,
                 width: 2, height: 2 * r * ctx.scale, fill: 'transparent', stroke: 'none', 'data-tube-hit': '' },
             });
             wallBand(overlay, `${key}:inner${j}`, child.id ?? key, start, len, r,
-              kernelNum(child, 'thickness'), oy, child['filled'] === true, undefined, undefined, centre + physicalRadY + off.y);
+              kernelNum(child, 'thickness'), oy, child['filled'] === true);
           }
           // Miniature glyphs (the owner's pick, 2026-08-05b #21): a picture inside
           // the box for chutes, mass items, centering rings and shock cords,
@@ -1297,10 +1278,11 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
               motor, start + len - motor.length + num(child, 'motorOverhang', 0),
               oy));
           }
+          // N033: children inherit every physical cluster instance, including nested clusters.
+          const childScope = offsets.length > 1 ? `${key}#${j}/` : scope;
+          renderChildren(child, start, len, r, oy, childScope, undefined, frameRoll,
+            flatMount(physicalR, len), centre + radY + off.y);
         });
-        // This side projection combines the cluster's children at its radial
-        // offset; the aft view separates the children into individual tubes.
-        renderChildren(child, start, len, r, baseY - radY * ctx.scale, scope, undefined, frameRoll, flatMount(physicalR, len), centre + physicalRadY);
       }
     }
   };
@@ -1308,11 +1290,10 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
   // Dashed outline for a shoulder sliding inside the adjacent tube. Painted in
   // the overlay pass — an aft shoulder lives inside the NEXT tube, which is
   // drawn later and would otherwise cover it.
-  const shoulderRect = (key: string, startX: number, lenSi: number, rSi: number, color: string, baseY: number, thickness = 0, cap?: 'fore' | 'aft', centre = 0) => {
+  const shoulderRect = (key: string, startX: number, lenSi: number, rSi: number, color: string, baseY: number, thickness = 0, cap?: 'fore' | 'aft') => {
     if (lenSi <= 0 || rSi <= 0) return;
     overlay.push({
       key, layer: 'overlay', tag: 'rect',
-      snap: snapCylinder(startX, lenSi, rSi, centre),
       attrs: {
         x: ctx.x0 + startX * scale, y: baseY - rSi * scale,
         width: lenSi * scale, height: 2 * rSi * scale,
@@ -1320,7 +1301,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         strokeDasharray: '3 2', style: { pointerEvents: 'none' },
       },
     });
-    wallBand(overlay, key, key, startX, lenSi, rSi, thickness, baseY, false, undefined, cap, centre);
+    wallBand(overlay, key, key, startX, lenSi, rSi, thickness, baseY, false, undefined, cap);
   };
 
   // Draws an axial nose→tail chain with its centerline at screen `baseY`
@@ -1346,7 +1327,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           attrs: { d: profilePath(ctx, n, cx, len, fore, aft, baseY), fill: fillOf(n, '#d5d2cb'), stroke: '#7a786f', strokeWidth: 1 },
         });
         shoulderRect(`${key}:shoulder`, isTailCone(n) ? cx - shL : cx + len, shL, num(n, 'shoulderRadius', 0), '#9a978f', baseY, num(n, 'shoulderThickness', 0),
-          n['shoulderCapped'] === true ? isTailCone(n) ? 'fore' : 'aft' : undefined, centre);
+          n['shoulderCapped'] === true ? isTailCone(n) ? 'fore' : 'aft' : undefined);
         renderChildren(n, cx, len, r, baseY, scope, profileMountOf(n, len, fore, aft), frameRoll, undefined, centre);
         cx += len;
       } else if (n.type === 'bodytube') {
@@ -1361,7 +1342,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
             fill: o.walls ? 'rgba(127,127,127,0.001)' : fillOf(n, '#e7e5e0'), stroke: '#7a786f', strokeWidth: 1,
           },
         });
-        wallBand(shapes, key, n.id ?? key, cx, len, r, kernelNum(n, 'thickness'), baseY, n['filled'] === true, undefined, undefined, centre);
+        wallBand(shapes, key, n.id ?? key, cx, len, r, kernelNum(n, 'thickness'), baseY, n['filled'] === true);
         // Min-diameter: a motor loaded directly in this body tube draws at its
         // real case size, seated flush against the tube's aft end.
         const tubeMotor = n.id ? motors?.[n.id] : undefined;
@@ -1382,12 +1363,12 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           attrs: { d: profilePath(ctx, n, cx, len, rf, ra, baseY), fill: o.walls ? 'rgba(127,127,127,0.001)' : fillOf(n, '#d5d2cb'), stroke: '#7a786f', strokeWidth: 1 },
         });
         wallBand(shapes, key, n.id ?? key, cx, len, Math.max(rf, ra), kernelNum(n, 'thickness'), baseY,
-          n['filled'] === true, outerProfile(profileShape(n), numOpt(n, 'shapeParameter'), len, rf, ra, 24, undefined, clippedOf(n)), undefined, centre);
+          n['filled'] === true, outerProfile(profileShape(n), numOpt(n, 'shapeParameter'), len, rf, ra, 24, undefined, clippedOf(n)));
         const fsl = num(n, 'foreShoulderLength', 0);
         shoulderRect(`${key}:shoulder-fore`, cx - fsl, fsl, num(n, 'foreShoulderRadius', 0), '#9a978f', baseY, num(n, 'foreShoulderThickness', 0),
-          n['foreShoulderCapped'] === true ? 'fore' : undefined, centre);
+          n['foreShoulderCapped'] === true ? 'fore' : undefined);
         shoulderRect(`${key}:shoulder-aft`, cx + len, num(n, 'aftShoulderLength', 0), num(n, 'aftShoulderRadius', 0), '#9a978f', baseY, num(n, 'aftShoulderThickness', 0),
-          n['aftShoulderCapped'] === true ? 'aft' : undefined, centre);
+          n['aftShoulderCapped'] === true ? 'aft' : undefined);
         // A fin roots on the drawn profile, not at the larger end's radius.
         renderChildren(n, cx, len, Math.max(rf, ra), baseY, scope, profileMountOf(n, len, rf, ra), frameRoll, undefined, centre);
         cx += len;

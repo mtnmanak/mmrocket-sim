@@ -10,37 +10,38 @@ const finTree = { name: 'Rotated freeform fins', components: [{ id: 'b', type: '
 const finCtx = { scale: 1000, x0: 50, cy: 100, roll: 0, idPrefix: 'caliper' };
 
 describe('N044 projected caliper geometry', () => {
-  it.each([
-    { type: 'engineblock', length: 0.005, radius: 0.0197 },
-    { type: 'centeringring', length: 0.002, outerRadius: 0.019, radius: 0.019 },
-    { type: 'bulkhead', length: 0.002, radius: 0.0197 },
-    { type: 'masscomponent', length: 0.003, radius: 0.019, nodeRadius: 0.019 },
-    { type: 'launchlug', length: 0.01, outerRadius: 0.0005, radius: 0.021 },
-    { type: 'railbutton', length: 0.002, outerDiameter: 0.002, totalHeight: 0.001, radius: 0.021 },
-    { type: 'tubefinset', length: 0.005, outerRadius: 0.001, radius: 0.022 },
-  ])('uses model stations for small $type dimensions independently of decoration and scale', fixture => {
-    const child = { id: 'small', ...fixture, radius: fixture.nodeRadius,
-      position: { method: 'top', offset: 0.1 }, finCount: 3 } as ComponentNode;
-    const tree = { name: 'Physical stations', components: [{ id: 'b', type: 'bodytube', length: 2,
-      outerRadius: 0.02, thickness: 0.0003, children: [child] }] } as RocketTree;
-    for (const scale of [126, 1000]) for (const walls of [false, true]) {
-      const ctx = { scale, x0: 50, cy: 100, roll: 0, walls, idPrefix: 'physical' };
-      const layout = layoutSchematic(tree, ctx);
-      const targets = schematicSnapTargets(layout);
-      const start = fixture.type === 'railbutton' ? 0.099 : 0.1;
-      const bottom = ['launchlug', 'railbutton', 'tubefinset'].includes(fixture.type) ? 0.02 : -fixture.radius;
-      for (const x of [start, start + fixture.length]) for (const y of [bottom, fixture.radius]) {
-        expect(targets.some(p => Math.hypot(p.x - x, p.y - y) < 1e-12)).toBe(true);
-      }
-      expect(caliperDistances(
-        snapCaliperPoint({ x: start, y: fixture.radius }, targets, 8 / scale),
-        snapCaliperPoint({ x: start + fixture.length, y: fixture.radius }, targets, 8 / scale),
-      ).horizontal).toBeCloseTo(fixture.length, 12); // Analytic SI arithmetic, no kernel literal.
-      const decorated = { ...layout, shapes: layout.shapes.map(s => ({ ...s,
-        attrs: { ...s.attrs, x: -999, y: -999, width: 999, height: 999, points: '0,0 999,999', d: 'M 0 0 L 999 999 Z' },
-      })) };
-      expect(schematicSnapTargets(decorated)).toEqual(targets);
+  it.each(['innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock',
+    'masscomponent', 'parachute', 'streamer', 'shockcord', 'launchlug', 'railbutton', 'fairing', 'protuberance',
+    'podset', 'parallelstage'])('offers no snap targets for dropped type %s', type => {
+    const tree = { name: 'Free picks', components: [{ id: 'b', type: 'bodytube', length: 2,
+      outerRadius: 0.02, thickness: 0.002, children: [{ id: 'dropped', type, length: 0.05,
+        outerRadius: 0.009, radius: 0.009, packedRadius: 0.009, height: 0.03, width: 0.01,
+        outerDiameter: 0.0044, totalHeight: 0.006, instanceCount: 2,
+        fairingForeShape: 'box', fairingAftShape: 'box', thickness: 0.001,
+        position: { method: 'top', offset: 0.1 } } as ComponentNode] }] } as RocketTree;
+    for (const walls of [false, true]) for (const measuring of [false, true]) for (const scale of [126, 1000]) {
+      const layout = layoutSchematic(tree, { ...finCtx, walls, measuring, scale });
+      const dropped = layout.shapes.filter(s => s.part?.id === 'dropped' || s.attrs['data-wall'] === 'dropped');
+      if (!['podset', 'parallelstage'].includes(type)) expect(dropped.length).toBeGreaterThan(0);
+      expect(dropped.every(s => s.snap === undefined)).toBe(true);
+      expect(schematicSnapTargets({ ...layout, shapes: dropped })).toEqual([]);
     }
+  });
+
+  it('keeps walls, bores and shoulders out of the airframe outer-profile targets', () => {
+    const tree = { name: 'Outer only', components: [
+      { id: 'n', type: 'nosecone', length: 0.1, aftRadius: 0.02,
+        shoulderLength: 0.02, shoulderRadius: 0.018, shoulderThickness: 0.001 },
+      { id: 'b', type: 'bodytube', length: 0.2, outerRadius: 0.02, thickness: 0.002 },
+      { id: 't', type: 'transition', length: 0.05, foreRadius: 0.02, aftRadius: 0.01, thickness: 0.001,
+        foreShoulderLength: 0.01, foreShoulderRadius: 0.018, foreShoulderThickness: 0.001 },
+    ] } as RocketTree;
+    const plain = layoutSchematic(tree, { ...finCtx, walls: false });
+    const cut = layoutSchematic(tree, { ...finCtx, walls: true });
+    expect(schematicSnapTargets(cut)).toEqual(schematicSnapTargets(plain));
+    const inside = cut.shapes.filter(s => s.attrs['data-wall'] || s.key.includes('shoulder'));
+    expect(inside.length).toBeGreaterThan(0);
+    expect(inside.every(s => s.snap === undefined)).toBe(true);
   });
 
   it('reads absolute projected distances in mm and inches, including the diagonal', () => {
@@ -52,22 +53,6 @@ describe('N044 projected caliper geometry', () => {
     expect(caliperReadout(a, b, 'mm')).toBe('Horizontal 30 mm · Vertical 40 mm · Straight 50 mm');
     expect(caliperReadout(a, b, 'in')).toBe('Horizontal 1.181 in · Vertical 1.575 in · Straight 1.969 in');
     expect(caliperDistances(b, a)).toEqual(d);
-  });
-
-  it('retains physical nested automatic radii with symbolic outlines and walls off', () => {
-    const tree = { name: 'Nested rings', components: [{ id: 'b', type: 'bodytube', length: 2,
-      outerRadius: 0.02, thickness: 0.002, children: [{ id: 'c', type: 'tubecoupler', length: 0.1,
-        thickness: 0.001, position: { method: 'top', offset: 0.1 }, children: [{ id: 'r', type: 'bulkhead', length: 0.002,
-          position: { method: 'top', offset: 0.01 } }] }] }] } as RocketTree;
-    const before = JSON.stringify(tree);
-    const ctx = { scale: 126, x0: 50, cy: 100, roll: 0, idPrefix: 'nested' };
-    for (const walls of [false, true]) for (const measuring of [false, true]) {
-      const targets = schematicSnapTargets(layoutSchematic(tree, { ...ctx, walls, measuring }));
-      for (const x of [0.11, 0.112]) for (const y of [-0.017, 0.017]) {
-        expect(targets.some(p => Math.hypot(p.x - x, p.y - y) < 1e-12)).toBe(true);
-      }
-    }
-    expect(JSON.stringify(tree)).toBe(before);
   });
 
   it('offers physical elliptical root and tip stations without the display-height floor', () => {
@@ -82,77 +67,6 @@ describe('N044 projected caliper geometry', () => {
     expect(targets.every(p => p.y <= 0.021)).toBe(true);
   });
 
-  it.each(['engineblock', 'centeringring', 'bulkhead', 'tubecoupler'])('keeps %s stations centred despite preserved radial fields', type => {
-    const tree = { name: 'Offset ring', components: [{ id: 'b', type: 'bodytube', length: 2, outerRadius: 0.02,
-      children: [{ id: 'r', type, length: 0.005, outerRadius: 0.005, radialPosition: 0.01, radialDirection: 0,
-        position: { method: 'top', offset: 0.1 } }] }] } as RocketTree;
-    for (const scale of [126, 1000]) for (const walls of [false, true]) {
-      const ctx = { scale, x0: 50, cy: 100, roll: Math.PI / 3, walls, idPrefix: 'radial' };
-      const layout = layoutSchematic(tree, ctx);
-      const ring = { ...layout, shapes: layout.shapes.filter(s => s.part?.id === 'r' && !s.part.hit) };
-      const targets = schematicSnapTargets(ring);
-      for (const x of [0.1, 0.105]) for (const y of [-0.005, 0, 0.005]) {
-        expect(targets.some(p => Math.hypot(p.x - x, p.y - y) < 1e-12)).toBe(true);
-      }
-      expect(targets.every(p => Math.abs(p.y) <= 0.005)).toBe(true);
-    }
-  });
-
-  it.each(['innertube', 'masscomponent', 'parachute', 'streamer', 'shockcord'])('retains the real projected radial offset of %s', type => {
-    const tree = { name: 'Displaced internal', components: [{ id: 'b', type: 'bodytube', length: 2, outerRadius: 0.02,
-      children: [{ id: 'i', type, length: 0.005, outerRadius: 0.002, radius: 0.002, packedRadius: 0.002,
-        radialPosition: 0.01, radialDirection: Math.PI / 6, position: { method: 'top', offset: 0.1 } }] }] } as RocketTree;
-    // 10 mm at direction PI/6 plus roll PI/6 projects to a 5 mm baseline.
-    const ctx = { scale: 126, x0: 50, cy: 100, roll: Math.PI / 6, idPrefix: 'displaced' };
-    const layout = layoutSchematic(tree, ctx);
-    const targets = schematicSnapTargets({ ...layout, shapes: layout.shapes.filter(s => s.part?.id === 'i') });
-    for (const x of [0.1, 0.105]) for (const y of [0.003, 0.005, 0.007]) {
-      expect(targets.some(p => Math.hypot(p.x - x, p.y - y) < 1e-12)).toBe(true);
-    }
-  });
-
-  it.each([false, true])('keeps coupler bores and descendants on the inherited baseline with walls %s', walls => {
-    const tree = { name: 'Offset mount with centred rings', components: [{ id: 'b', type: 'bodytube', length: 2,
-      outerRadius: 0.04, children: [{ id: 'i', type: 'innertube', length: 0.3, outerRadius: 0.02, thickness: 0.002,
-        radialPosition: 0.02, position: { method: 'top', offset: 0.1 }, children: [
-          { id: 'c', type: 'tubecoupler', length: 0.1, thickness: 0.001, radialPosition: 0.01,
-            position: { method: 'top', offset: 0.01 }, children: [{ id: 'r', type: 'bulkhead', length: 0.002,
-              radialPosition: 0.01, position: { method: 'top', offset: 0.01 } }] },
-        ] }] }] } as RocketTree;
-    const before = JSON.stringify(tree);
-    const ctx = { scale: 1000, x0: 50, cy: 100, roll: Math.PI / 3, walls, idPrefix: 'coupler' };
-    const layout = layoutSchematic(tree, ctx);
-    const targets = schematicSnapTargets({ ...layout, shapes: layout.shapes.filter(s => s.part?.id === 'c') });
-    // Inherited 10 mm baseline, 18 mm coupler radius, 17 mm bore/automatic bulkhead radius.
-    for (const x of [0.11, 0.21]) for (const y of [-0.008, 0.01, 0.028]) {
-      expect(targets.some(p => Math.hypot(p.x - x, p.y - y) < 1e-12)).toBe(true);
-    }
-    const wallShapes = layout.shapes.filter(s => s.attrs['data-wall'] === 'c');
-    expect(wallShapes).toHaveLength(walls ? 1 : 0);
-    const bore = schematicSnapTargets({ ...layout, shapes: wallShapes });
-    if (walls) for (const x of [0.11, 0.21]) for (const y of [-0.007, 0.027]) {
-      expect(bore.some(p => Math.hypot(p.x - x, p.y - y) < 1e-12)).toBe(true);
-    }
-    const descendant = schematicSnapTargets({ ...layout, shapes: layout.shapes.filter(s => s.part?.id === 'r') });
-    for (const x of [0.12, 0.122]) for (const y of [-0.007, 0.01, 0.027]) {
-      expect(descendant.some(p => Math.hypot(p.x - x, p.y - y) < 1e-12)).toBe(true);
-    }
-    expect(JSON.stringify(tree)).toBe(before);
-  });
-
-  it('carries the model pod baseline into capped shoulder bore stations', () => {
-    const tree = { name: 'Pod shoulder', components: [{ id: 'b', type: 'bodytube', length: 2, outerRadius: 0.02,
-      children: [{ id: 'p', type: 'podset', instanceCount: 1, radiusMethod: 'free', radiusOffset: 0.06,
-        position: { method: 'top', offset: 0.1 }, children: [{ id: 'n', type: 'nosecone', length: 0.1, aftRadius: 0.01,
-          shoulderLength: 0.02, shoulderRadius: 0.009, shoulderThickness: 0.001, shoulderCapped: true }] }] }] } as RocketTree;
-    const ctx = { scale: 126, x0: 50, cy: 100, roll: 0, walls: true, idPrefix: 'pod' };
-    const layout = layoutSchematic(tree, ctx);
-    const shoulder = { ...layout, shapes: layout.shapes.filter(s => String(s.attrs['data-wall']).endsWith(':shoulder')) };
-    const targets = schematicSnapTargets(shoulder);
-    expect(targets.some(p => Math.hypot(p.x - 0.219, p.y - 0.068) < 1e-12)).toBe(true);
-    expect(targets.every(p => p.y > 0.05)).toBe(true);
-  });
-
   it('snaps only within a screen-sized radius and keeps arbitrary points otherwise', () => {
     const target = { x: 0.1, y: 0.02 };
     expect(snapCaliperPoint({ x: 0.103, y: 0.02 }, [target], 0.004)).toEqual(target);
@@ -160,24 +74,14 @@ describe('N044 projected caliper geometry', () => {
     expect(snapCaliperPoint({ x: 0, y: 0 }, [], 1)).toEqual({ x: 0, y: 0 });
   });
 
-  it('takes tube edges and centreline stations from each drawn instance in SI', () => {
+  it('takes only outer tube corners from each drawn instance in SI', () => {
     const tree = { name: 'T', components: [{ id: 'b', type: 'bodytube', length: 0.2, outerRadius: 0.01 }] } as RocketTree;
     const ctx = { scale: 1000, x0: 50, cy: 100 };
     const targets = schematicSnapTargets(layoutSchematic(tree, { ...ctx, roll: 0, idPrefix: 't' }));
-    for (const p of [{ x: 0, y: 0.01 }, { x: 0.2, y: -0.01 }, { x: 0.2, y: 0 }]) {
+    for (const p of [{ x: 0, y: 0.01 }, { x: 0.2, y: -0.01 }]) {
       expect(targets.some(t => Math.hypot(t.x - p.x, t.y - p.y) < 1e-12)).toBe(true);
     }
-  });
-
-  it('offers bore edges and rolled cluster vertices, rather than only a union bounding box', () => {
-    const tree = { name: 'T', components: [{ id: 'b', type: 'bodytube', length: 0.2, outerRadius: 0.02, thickness: 0.002,
-      children: [{ id: 'i', type: 'innertube', length: 0.1, outerRadius: 0.005, thickness: 0.001, cluster: '3-ring' }],
-    }] } as RocketTree;
-    const ctx = { scale: 1000, x0: 50, cy: 100 };
-    const atRoll = (roll: number) => schematicSnapTargets(layoutSchematic(tree, { ...ctx, roll, walls: true, idPrefix: 't' }));
-    expect(atRoll(0).some(p => Math.abs(p.x) < 1e-12 && Math.abs(p.y - 0.018) < 1e-12)).toBe(true);
-    expect(atRoll(0.4)).not.toEqual(atRoll(0));
-    expect(atRoll(0.4).filter(p => Math.abs(p.x - 0.1) < 1e-12).length).toBeGreaterThan(6);
+    expect(targets.some(p => p.y === 0)).toBe(false);
   });
 
   it('does not attract a pick to a freeform fin root hidden by the airframe clip', () => {

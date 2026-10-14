@@ -633,13 +633,19 @@ exports[`the side view draws what it drew before the layout extraction > an inne
     <rect aria-label="Select Motor tubes" fill="rgba(127,127,127,0.001)" height="9.528358208955225" role="button" stroke-dasharray="3 2" stroke-width="2" stroke="var(--accent)" style="cursor: grab;" tabindex="0" width="79.40298507462688" x="534.5970149253731" y="106.48205282279585">
       <title>
         "Motor tubes"
+    <rect aria-label="Select Inner block" fill="rgba(127,127,127,0.001)" height="7.940298507462687" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" tabindex="0" width="3.9701492537313436" x="534.5970149253731" y="107.27608267354212">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.528358208955225" stroke-dasharray="3 2" stroke-width="2" stroke="var(--accent)" style="cursor: grab;" width="79.40298507462688" x="534.5970149253731" y="97.73682442227496">
       <title>
         "Motor tubes"
+    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" width="3.9701492537313436" x="534.5970149253731" y="98.53085427302122">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.528358208955225" stroke-dasharray="3 2" stroke-width="2" stroke="var(--accent)" style="cursor: grab;" width="79.40298507462688" x="534.5970149253731" y="108.48858544149635">
       <title>
         "Motor tubes"
-    <rect aria-label="Select Inner block" fill="rgba(127,127,127,0.001)" height="7.940298507462687" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" tabindex="0" width="3.9701492537313436" x="534.5970149253731" y="105.02985074626865">
+    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" width="3.9701492537313436" x="534.5970149253731" y="109.28261529224261">
       <title>
         "Inner block"
     <rect aria-label="Select Split" fill="rgba(127,127,127,0.001)" height="6.35223880597015" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: grab;" tabindex="0" width="47.64179104477612" x="407.55223880597015" y="106.00936293569296">
@@ -785,13 +791,19 @@ exports[`the side view draws what it drew before the layout extraction > every p
     <rect fill="rgba(127,127,127,0.001)" height="9.528358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.40298507462688" x="534.5970149253731" y="110.49462800352586">
       <title>
         "Motor tubes"
+    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.9701492537313436" x="534.5970149253731" y="111.28865785427212">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.528358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.40298507462688" x="534.5970149253731" y="99.28851749677034">
       <title>
         "Motor tubes"
+    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.9701492537313436" x="534.5970149253731" y="100.08254734751661">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.528358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.40298507462688" x="534.5970149253731" y="102.92431718627097">
       <title>
         "Motor tubes"
-    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.9701492537313436" x="534.5970149253731" y="105.02985074626865">
+    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.9701492537313436" x="534.5970149253731" y="103.71834703701722">
       <title>
         "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="6.35223880597015" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="47.64179104477612" x="407.55223880597015" y="100.96542037450331">
@@ -869,13 +881,19 @@ exports[`the side view draws what it drew before the layout extraction > every p
     <rect fill="rgba(127,127,127,0.001)" height="9.526717557251908" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.38931297709924" x="534.5190839694656" y="112.21631435634819">
       <title>
         "Motor tubes"
+    <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.969465648854962" x="534.5190839694656" y="113.01020748611919">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.526717557251908" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.38931297709924" x="534.5190839694656" y="101.68668882490758">
       <title>
         "Motor tubes"
+    <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.969465648854962" x="534.5190839694656" y="102.48058195467857">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.526717557251908" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.38931297709924" x="534.5190839694656" y="110.80692048286636">
       <title>
         "Motor tubes"
-    <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.969465648854962" x="534.5190839694656" y="109.03053435114504">
+    <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.969465648854962" x="534.5190839694656" y="111.60081361263735">
       <title>
         "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="6.351145038167939" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="47.63358778625954" x="407.4961832061068" y="108.12550362278124">
@@ -1012,13 +1030,19 @@ exports[`the side view draws what it drew before the layout extraction > every p
     <rect fill="rgba(127,127,127,0.001)" height="9.528358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.40298507462688" x="534.5970149253731" y="98.85536692066404">
       <title>
         "Motor tubes"
+    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.9701492537313436" x="534.5970149253731" y="99.64939677141031">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.528358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.40298507462688" x="534.5970149253731" y="103.6136022720377">
       <title>
         "Motor tubes"
+    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.9701492537313436" x="534.5970149253731" y="104.40763212278397">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.528358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.40298507462688" x="534.5970149253731" y="110.2384934938654">
       <title>
         "Motor tubes"
-    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.9701492537313436" x="534.5970149253731" y="105.02985074626865">
+    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.9701492537313436" x="534.5970149253731" y="111.03252334461168">
       <title>
         "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="6.35223880597015" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="47.64179104477612" x="407.55223880597015" y="111.99163873265172">
@@ -1158,13 +1182,19 @@ exports[`the side view draws what it drew before the layout extraction > interac
     <rect aria-label="Select Motor tubes" fill="rgba(127,127,127,0.001)" height="9.526717557251908" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: grab;" tabindex="0" width="79.38931297709924" x="534.5190839694656" y="114.49437064922346">
       <title>
         "Motor tubes"
+    <rect aria-label="Select Inner block" fill="rgba(127,127,127,0.001)" height="7.938931297709924" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" tabindex="0" width="3.969465648854962" x="534.5190839694656" y="115.28826377899445">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.526717557251908" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: grab;" width="79.38931297709924" x="534.5190839694656" y="103.29018967994831">
       <title>
         "Motor tubes"
+    <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" width="3.969465648854962" x="534.5190839694656" y="104.0840828097193">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.526717557251908" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: grab;" width="79.38931297709924" x="534.5190839694656" y="106.92536333495036">
       <title>
         "Motor tubes"
-    <rect aria-label="Select Inner block" fill="rgba(127,127,127,0.001)" height="7.938931297709924" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" tabindex="0" width="3.969465648854962" x="534.5190839694656" y="109.03053435114504">
+    <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" width="3.969465648854962" x="534.5190839694656" y="107.71925646472135">
       <title>
         "Inner block"
     <rect aria-label="Select Split" fill="rgba(127,127,127,0.001)" height="6.351145038167939" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: grab;" tabindex="0" width="47.63358778625954" x="407.4961832061068" y="104.96680381816263">
@@ -1287,19 +1317,25 @@ exports[`the side view draws what it drew before the layout extraction > motors 
     <rect fill-opacity="0.85" fill="var(--launch)" height="8.732824427480915" rx="1" stroke-width="0.8" stroke="#e0764a" style="pointer-events: none;" width="55.57251908396947" x="561.5114503816792" y="114.89131721410895">
     <text dominant-baseline="central" fill="#ffffff" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="589.2977099236641" y="119.25772942784941">
       "D12-5"
+    <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.969465648854962" x="534.5190839694656" y="115.28826377899445">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.526717557251908" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.38931297709924" x="534.5190839694656" y="103.29018967994831">
       <title>
         "Motor tubes"
     <rect fill-opacity="0.85" fill="var(--launch)" height="8.732824427480915" rx="1" stroke-width="0.8" stroke="#e0764a" style="pointer-events: none;" width="55.57251908396947" x="561.5114503816792" y="103.68713624483381">
     <text dominant-baseline="central" fill="#ffffff" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="589.2977099236641" y="108.05354845857427">
       "D12-5"
+    <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.969465648854962" x="534.5190839694656" y="104.0840828097193">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.526717557251908" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.38931297709924" x="534.5190839694656" y="106.92536333495036">
       <title>
         "Motor tubes"
     <rect fill-opacity="0.85" fill="var(--launch)" height="8.732824427480915" rx="1" stroke-width="0.8" stroke="#e0764a" style="pointer-events: none;" width="55.57251908396947" x="561.5114503816792" y="107.32230989983586">
     <text dominant-baseline="central" fill="#ffffff" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="589.2977099236641" y="111.68872211357632">
       "D12-5"
-    <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.969465648854962" x="534.5190839694656" y="109.03053435114504">
+    <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.969465648854962" x="534.5190839694656" y="107.71925646472135">
       <title>
         "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="6.351145038167939" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="47.63358778625954" x="407.4961832061068" y="104.96680381816263">
@@ -1417,19 +1453,25 @@ exports[`the side view draws what it drew before the layout extraction > nose-up
     <rect fill-opacity="0.85" fill="var(--launch)" height="6.534328358208955" rx="1" stroke-width="0.8" stroke="#e0764a" style="pointer-events: none;" width="41.58208955223881" x="384.79402985074626" y="101.41517647688308">
     <text dominant-baseline="central" fill="#ffffff" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="405.58507462686566" y="104.68234065598756">
       "D12-5"
+    <rect aria-label="Select Inner block" fill="rgba(127,127,127,0.001)" height="5.940298507462687" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: pointer;" tabindex="0" width="2.9701492537313436" x="364.5970149253731" y="101.71219140225621">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="7.128358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: pointer;" width="59.402985074626876" x="364.5970149253731" y="92.73464278893721">
       <title>
         "Motor tubes"
     <rect fill-opacity="0.85" fill="var(--launch)" height="6.534328358208955" rx="1" stroke-width="0.8" stroke="#e0764a" style="pointer-events: none;" width="41.58208955223881" x="384.79402985074626" y="93.03165771431034">
     <text dominant-baseline="central" fill="#ffffff" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="405.58507462686566" y="96.29882189341483">
       "D12-5"
+    <rect fill="rgba(127,127,127,0.001)" height="5.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: pointer;" width="2.9701492537313436" x="364.5970149253731" y="93.32867263968348">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="7.128358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: pointer;" width="59.402985074626876" x="364.5970149253731" y="95.45465834612">
       <title>
         "Motor tubes"
     <rect fill-opacity="0.85" fill="var(--launch)" height="6.534328358208955" rx="1" stroke-width="0.8" stroke="#e0764a" style="pointer-events: none;" width="41.58208955223881" x="384.79402985074626" y="95.75167327149313">
     <text dominant-baseline="central" fill="#ffffff" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="405.58507462686566" y="99.01883745059762">
       "D12-5"
-    <rect aria-label="Select Inner block" fill="rgba(127,127,127,0.001)" height="5.940298507462687" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: pointer;" tabindex="0" width="2.9701492537313436" x="364.5970149253731" y="97.02985074626865">
+    <rect fill="rgba(127,127,127,0.001)" height="5.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: pointer;" width="2.9701492537313436" x="364.5970149253731" y="96.04868819686627">
       <title>
         "Inner block"
     <rect aria-label="Select Split" fill="rgba(127,127,127,0.001)" height="4.7522388059701495" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: pointer;" tabindex="0" width="35.64179104477612" x="269.55223880597015" y="93.9891678741585">
@@ -1676,13 +1718,19 @@ exports[`the side view draws what it drew before the layout extraction > the her
     <rect fill="rgba(127,127,127,0.001)" height="9.528358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.40298507462688" x="534.5970149253731" y="250.49462800352583">
       <title>
         "Motor tubes"
+    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.9701492537313436" x="534.5970149253731" y="251.28865785427212">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.528358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.40298507462688" x="534.5970149253731" y="239.28851749677034">
       <title>
         "Motor tubes"
+    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.9701492537313436" x="534.5970149253731" y="240.08254734751662">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.528358208955225" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="79.40298507462688" x="534.5970149253731" y="242.92431718627094">
       <title>
         "Motor tubes"
-    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.9701492537313436" x="534.5970149253731" y="245.02985074626866">
+    <rect fill="rgba(127,127,127,0.001)" height="7.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.9701492537313436" x="534.5970149253731" y="243.71834703701722">
       <title>
         "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="6.35223880597015" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" width="47.64179104477612" x="407.55223880597015" y="240.9654203745033">
@@ -1799,13 +1847,19 @@ exports[`the side view draws what it drew before the layout extraction > zoomed 
     <rect aria-label="Select Motor tubes" fill="rgba(127,127,127,0.001)" height="9.526717557251908" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: grab;" tabindex="0" width="79.38931297709924" x="534.5190839694656" y="114.49437064922346">
       <title>
         "Motor tubes"
+    <rect aria-label="Select Inner block" fill="rgba(127,127,127,0.001)" height="7.938931297709924" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" tabindex="0" width="3.969465648854962" x="534.5190839694656" y="115.28826377899445">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.526717557251908" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: grab;" width="79.38931297709924" x="534.5190839694656" y="103.29018967994831">
       <title>
         "Motor tubes"
+    <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" width="3.969465648854962" x="534.5190839694656" y="104.0840828097193">
+      <title>
+        "Inner block"
     <rect fill="rgba(127,127,127,0.001)" height="9.526717557251908" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: grab;" width="79.38931297709924" x="534.5190839694656" y="106.92536333495036">
       <title>
         "Motor tubes"
-    <rect aria-label="Select Inner block" fill="rgba(127,127,127,0.001)" height="7.938931297709924" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" tabindex="0" width="3.969465648854962" x="534.5190839694656" y="109.03053435114504">
+    <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: grab;" width="3.969465648854962" x="534.5190839694656" y="107.71925646472135">
       <title>
         "Inner block"
     <rect aria-label="Select Split" fill="rgba(127,127,127,0.001)" height="6.351145038167939" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#9a978f" style="cursor: grab;" tabindex="0" width="47.63358778625954" x="407.4961832061068" y="104.96680381816263">
