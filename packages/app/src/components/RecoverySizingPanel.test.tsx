@@ -581,6 +581,16 @@ describe('RecoverySizingPanel', () => {
     expect(text().replace(/\s+/g, ' ')).toContain('coming down at 150 ft.');
   });
 
+  it.each([['km', '0.3 km'], ['mi', '0.19 mi']])('names a sub-unit site height in %s rather than rounding it to sea level', async (unit, shown) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
+      units: { length: 'in', velocity: 'ft/s', mass: 'kg', altitude: unit, distance: 'ft' },
+    }));
+    await mount({ launch: { launchAltitudeM: 304.8 } });
+    const lede = text().replace(/\s+/g, ' ');
+    expect(lede).toContain(`coming down at ${shown}`);
+    expect(lede).not.toContain(`at 0 ${unit}`);
+  });
+
   it('says which Cd convention the size line quoted on a vented canopy', async () => {
     // The headline used to be computed with no vent term while the candidates
     // under it applied 1 − (d/D)². 2.2 × (1 − 0.176²) = 2.13, and the diameter

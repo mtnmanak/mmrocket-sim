@@ -3,7 +3,7 @@ import { effectiveAero } from '../prefs/aeroChoice.js';
 import { useEffect, useMemo, useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi, fmtSig, siToUi } from '../prefs/units.js';
+import { fmtAltitude, fmtSi, fmtSig, siToUi } from '../prefs/units.js';
 import { loadPresets, type Preset } from '../services/presets.js';
 import type { RecoveryByStage, RecoveryMass } from '../services/recoveryMass.js';
 import {
@@ -219,7 +219,7 @@ function ObjectSection({ label, sizing, note, catalogueReady, catalogueFailed, f
         Sized for <strong>{fmtSi('mass', massSym, sizing.massKg)} {massSym}</strong> coming down
         {sizing.elevationM > 0 && (
           <>
-            {' '}at <strong>{fmtSi('altitude', altSym, sizing.elevationM, 0)} {altSym}</strong>
+            {' '}at <strong>{fmtAltitude(altSym, sizing.elevationM)} {altSym}</strong>
             {/* The ELEVATION is always named — every rate on this panel was
                 computed at its density. The "% faster" clause is not: ISA
                 density falls ~1.16 % per 100 m, so siteRateFactor only reaches
