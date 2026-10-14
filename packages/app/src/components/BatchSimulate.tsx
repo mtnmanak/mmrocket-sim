@@ -11,6 +11,7 @@ import {
 export { batchUnavailableReason } from '../services/batchCriteria.js';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { MountMotor } from '../model/design.js';
+import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import type { IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { includedMotorOf } from '../services/statedLaunchWeight.js';
@@ -105,7 +106,7 @@ export function batchDelayCell(run: Pick<SimRun, 'delayS'> | undefined, optimumF
   </>;
 }
 
-export function BatchSimulate({ configurationForMount, overrideSummaryForMount, onShowOverride, provenance = null, info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, rocketName, onRunsChange, onClose }: {
+export function BatchSimulate({ configurationForMount, overrideSummaryForMount, onShowOverride, provenance = null, info, tree, mounts, initialMountId, assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware, launch, weatherSnapshot, rocketName, onRunsChange, onClose }: {
   /** The editing tree — the batch builds its OWN engine handles from it, so
    *  the design's shared handle is never touched (no restore, no stale
    *  motors left on unassigned mounts). */
@@ -159,6 +160,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   /** Accepted hardware already in the retained mounts' specs; separate from candidate eligibility. */
   retainedHardware?: Pick<BatchWeighed, 'mountId' | 'deltaKg'>;
   launch: LaunchConditions;
+  weatherSnapshot?: WeatherSnapshot | null;
   rocketName: string;
   onRunsChange: (runs: SimRun[]) => void;
   onClose: () => void;
@@ -328,7 +330,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
         tree, info, mounts, target: sel, candidates, splits,
         configuration: configurationForMount?.(sel.id),
         assignedMountMotors, assignedMotors, assignedMotorIds, assignedIgnitions, assignedAutoDelays, weighed, retainedHardware,
-        model: batchModel, autoDelay: criteria.autoDelay, launch, rocketName,
+        model: batchModel, autoDelay: criteria.autoDelay, launch, weatherSnapshot, rocketName,
       }, { signal: ctrl.signal, onProgress: setProgress, onRows: setRows });
       // The run ENDING used to be invisible: the progress bar and its
       // "simulating 173/226" line simply disappeared, the Stop button turned

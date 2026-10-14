@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
+import { strFromU8, unzipSync } from 'fflate';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
@@ -31,6 +32,7 @@ import { addChild, addStage, defaultTree, findNode, motorMounts, updateNode } fr
 import { resolveFlightState } from './services/flightState.js';
 import { APP_VERSION } from './version.js';
 import { saveFile } from './services/saveFile.js';
+import { downloadBlob } from './services/fileName.js';
 import { savedConfigLabel } from './model/design.js';
 import * as batchSweep from './services/batchSweep.js';
 
@@ -96,6 +98,10 @@ vi.mock('./services/saveFile.js', async importOriginal => ({
   ...await importOriginal<typeof import('./services/saveFile.js')>(),
   saveFile: vi.fn(async (_data: BlobPart, opts: { suggestedName: string }) =>
     ({ kind: 'downloaded', name: opts.suggestedName })),
+}));
+vi.mock('./services/fileName.js', async importOriginal => ({
+  ...await importOriginal<typeof import('./services/fileName.js')>(),
+  downloadBlob: vi.fn(),
 }));
 // Each importer's OWN output, cloned before App touches it (the name fallback
 // mutates it). Three literal calls: vitest hoists only top-level vi.mock.
@@ -617,9 +623,206 @@ const fixture = (name: string) => new Uint8Array(readFileSync(join(FIXTURES, nam
 
 const c6 = async () => (await loadCatalogueMotor('Estes', 'C6', 5))!;
 
+it.each([-149.765432, null, undefined])('bundle chart replay and full downloads keep the saved longitude %s after reload and a site edit', async longitudeDeg => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree,
+    mountMotors: { [motorMounts(tree)[0]!.id!]: await c6() },
+    launch: { ...DEFAULT_CONDITIONS, longitudeDeg },
+    measured: { massKg: null, cgM: null }, savedAt: 1, appVersion: APP_VERSION }));
+  let host = await mountApp();
+  await launch(host);
+  await waitFor(() => runs() === 1, 'saved flight');
+  const historyBefore = localStorage.getItem(RUNS_KEY);
+  await unmountAll();
+  host = await mountApp();
+  const click = async (text: string) => act(async () => {
+    [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();
+  });
+  await click('Motors & Configuration');
+  const longitude = [...host.querySelectorAll('label')].find(l => l.textContent?.startsWith('Longitude'))?.control as HTMLInputElement;
+  expect(longitude).not.toBeNull();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(longitude, '10');
+    longitude.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await click('Results');
+  const history = [...host.querySelectorAll('.panel')].find(p => p.querySelector('h2')?.textContent?.startsWith('Saved simulations'))!;
+  await act(async () => [...history.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click());
+  await act(async () => host.querySelector<HTMLElement>('.motor-row')!.click());
+  await click('Show charts');
+  await waitFor(() => !!host.querySelector('.chart-panel'), 'replayed charts');
+  await click('Export flight-data bundle');
+  const dialog = host.querySelector('[role=dialog][aria-label="Export flight-data bundle"]')!;
+  const comparison = [...dialog.querySelectorAll('p')].find(p => p.textContent?.includes('The design file is the current design'))!;
+  expect(comparison.textContent).toContain('Simulation-relevant inputs match the selected run');
+  expect(comparison.textContent).toContain("The current design's site longitude differs from the selected run's recorded site");
+  expect(comparison.textContent).not.toContain('It matches the selected run');
+  // Explaining a site mismatch must not disclose coordinates without consent.
+  expect(dialog.textContent).not.toContain('-149.765432');
+  await act(async () => dialog.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
+  vi.mocked(saveFile).mockClear();
+  await click('Download ZIP');
+  const files = unzipSync(new Uint8Array(await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).arrayBuffer()));
+  expect(JSON.parse(strFromU8(files['launch-and-weather.json']!)).launch.longitudeDeg).toBe(longitudeDeg);
+  const [header, first] = strFromU8(files['flight-data.csv']!).trim().split('\n');
+  const column = header!.split(',').findIndex(h => h.includes('Longitude'));
+  expect(column).toBeGreaterThan(-1);
+  // Kernel coordinates are converted back to degrees; tolerate roundoff only.
+  expect(Number(first!.split(',')[column])).toBeCloseTo(longitudeDeg ?? -80.6, 6);
+  expect(JSON.parse(strFromU8(files['manifest.json']!)).changedSince).toEqual([]);
+  expect(JSON.parse(strFromU8(files['manifest.json']!))).toMatchObject({
+    changedSinceScope: 'simulation-relevant inputs; excludes site longitude and design presentation',
+    siteLongitudeComparison: 'different',
+  });
+  expect(strFromU8(files['design.ork']!)).toContain('<launchlongitude>10</launchlongitude>');
+  await act(async () => [...dialog.querySelectorAll('button')].find(b => b.textContent === 'Close')!.click());
+  vi.mocked(downloadBlob).mockClear();
+  await click('Flight data (.csv)');
+  await waitFor(() => vi.mocked(downloadBlob).mock.calls.length === 1, 'full CSV download');
+  const fullCsv = await vi.mocked(downloadBlob).mock.calls[0]![0].text();
+  const [fullHeader, fullFirst] = fullCsv.trim().split('\n');
+  const fullColumn = fullHeader!.split(',').findIndex(h => h.includes('Longitude'));
+  expect(fullColumn).toBeGreaterThan(-1);
+  expect.soft(Number(fullFirst!.split(',')[fullColumn])).toBeCloseTo(longitudeDeg ?? -80.6, 6);
+  await waitFor(() => ![...host.querySelectorAll('button')].find(b => b.textContent?.includes('Flight data + charts'))!.disabled,
+    'full download buttons ready');
+  await click('Flight data + charts (.xlsx)');
+  await waitFor(() => vi.mocked(downloadBlob).mock.calls.length === 2, 'full XLSX download');
+  const workbook = unzipSync(new Uint8Array(await vi.mocked(downloadBlob).mock.calls[1]![0].arrayBuffer()));
+  const sheet = new DOMParser().parseFromString(strFromU8(workbook['xl/worksheets/sheet1.xml']!), 'application/xml');
+  const rows = sheet.querySelectorAll('sheetData row');
+  const longitudeHeader = [...rows[0]!.querySelectorAll('c')].find(c => c.textContent?.includes('Longitude'));
+  expect(longitudeHeader).toBeDefined();
+  const longitudeCell = [...rows[1]!.querySelectorAll('c')].find(c => c.getAttribute('r') === longitudeHeader!.getAttribute('r')!.replace(/1$/, '2'));
+  // As with CSV, only degree-conversion roundoff is tolerated.
+  expect.soft(Number(longitudeCell?.querySelector('v')?.textContent)).toBeCloseTo(longitudeDeg ?? -80.6, 6);
+  expect(localStorage.getItem(RUNS_KEY)).toBe(historyBefore);
+}, 30000);
+
+it('exports the selected saved summary as a local bundle without launching or marking the design saved', async () => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  const saved = await simulateDesign({ tree, mountMotors: { [motorMounts(tree)[0]!.id!]: await c6() }, launch: DEFAULT_CONDITIONS,
+    measured: { massKg: null, cgM: null }, activeConfigId: null, savedConfigs: [] });
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+    measured: { massKg: null, cgM: null }, savedAt: 1, appVersion: APP_VERSION }));
+  localStorage.setItem(RUNS_KEY, JSON.stringify([{ ...saved.run, id: 'bundle-selected' }]));
+  const host = await mountApp();
+  await waitFor(() => shownName(host) === tree.name, 'bundle design');
+  await act(async () => { [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Results')!.click(); });
+  const history = [...host.querySelectorAll('.panel')].find(p => p.querySelector('h2')?.textContent?.startsWith('Saved simulations'))!;
+  await act(async () => { [...history.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click(); });
+  await act(async () => { host.querySelector<HTMLElement>('.motor-row')!.click(); });
+  await waitFor(() => !![...host.querySelectorAll('button')].find(b => b.textContent === 'Export flight-data bundle'), 'bundle entry');
+  window.dispatchEvent(new Event('pagehide'));
+  const savedBefore = peekSession()?.savedMark;
+  const historyBefore = localStorage.getItem(RUNS_KEY);
+  vi.mocked(saveFile).mockClear();
+  await act(async () => { [...host.querySelectorAll('button')].find(b => b.textContent === 'Export flight-data bundle')!.click(); });
+  const dialog = host.querySelector('[role=dialog][aria-label="Export flight-data bundle"]')!;
+  expect(dialog).not.toBeNull();
+  await act(async () => { [...dialog.querySelectorAll('button')].find(b => b.textContent === 'Download ZIP')!.click(); });
+  const zip = unzipSync(new Uint8Array(await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).arrayBuffer()));
+  expect(JSON.parse(strFromU8(zip['run.json']!)).id).toBe('bundle-selected');
+  expect(vi.mocked(flyBuiltDesign)).not.toHaveBeenCalled();
+  expect(localStorage.getItem(RUNS_KEY)).toBe(historyBefore);
+  window.dispatchEvent(new Event('pagehide'));
+  expect(peekSession()?.savedMark).toBe(savedBefore);
+}, 30000);
+
 /** The pad mass that carries 20 g of hardware over `motor` on `tree` with a 100 g Measured dry mass. */
 const weighed = (tree: RocketTree, mount: string, motor: Awaited<ReturnType<typeof c6>>) =>
   0.1 + catalogueMotorMass(tree, [[mount, motor]])! + 0.02;
+
+it('bundle metadata retains the applied weather receipt from Launch in the saved run', async () => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  const weather = {
+    v: 1, provider: 'open-meteo', endpoint: 'forecast', model: 'best_match',
+    place: { label: 'Test site', latitudeDeg: 61.234567, longitudeDeg: -149.765432, method: 'coordinates' },
+    grid: { latitudeDeg: 61.2, longitudeDeg: -149.7 }, demElevationM: 100, forAltitudeM: 100,
+    timezone: 'America/Anchorage', validUnix: 1700000000, retrievedAt: '2026-10-13T00:00:00Z',
+    fetched: { temperatureC: 12, pressureHPa: 1000, windSpeedMs: 4, windGustMs: 7, windFromDeg: 20 },
+    applied: { temperatureC: 12 }, before: { temperatureC: null },
+  };
+  const launchSettings = { ...DEFAULT_CONDITIONS, latitudeDeg: 61.234567, longitudeDeg: -149.765432, temperatureC: 12 };
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree,
+    mountMotors: { [motorMounts(tree)[0]!.id!]: await c6() }, launch: launchSettings, weather,
+    measured: { massKg: null, cgM: null }, savedAt: 1, appVersion: APP_VERSION }));
+  const host = await mountApp();
+  await waitFor(() => shownName(host) === tree.name, 'weather bundle design');
+  await launch(host);
+  await waitFor(() => runs() === 1, 'weather receipt saved with run');
+  const saved = (JSON.parse(localStorage.getItem(RUNS_KEY)!) as FreshSimRun[])[0]!;
+  expect(saved.exportContext?.weather).toEqual(weather);
+  expect(saved.exportContext?.launch.latitudeDeg).toBe(61.234567);
+  expect(saved.exportContext?.appVersion).toBe(APP_VERSION);
+}, 30000);
+
+it('bundle metadata retains scalar applied weather through Batch simulate and saved-run export', async () => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  const motor = await c6();
+  const weather = {
+    v: 1, provider: 'open-meteo', endpoint: 'forecast', model: 'best_match',
+    place: { label: '61.234567, -149.765432', latitudeDeg: 61.234567, longitudeDeg: -149.765432, method: 'coordinates' },
+    grid: { latitudeDeg: 61.2, longitudeDeg: -149.7 }, demElevationM: 100, forAltitudeM: 100,
+    timezone: 'America/Anchorage', validUnix: 1700000000, retrievedAt: '2026-10-13T00:00:00Z',
+    fetched: { temperatureC: 12, pressureHPa: 1000, windSpeedMs: 4, windGustMs: 7, windFromDeg: 20 },
+    applied: { temperatureC: 12, pressureHPa: 1000, windAverage: 4 },
+    before: { temperatureC: null, pressureHPa: null, windAverage: 0 },
+  };
+  const launchSettings = { ...DEFAULT_CONDITIONS, latitudeDeg: 61.234567, longitudeDeg: -149.765432,
+    temperatureC: 12, pressureHPa: 1000, windAverage: 4 };
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: launchSettings, weather,
+    measured: { massKg: null, cgM: null }, savedAt: 1, appVersion: APP_VERSION }));
+  const realSweep = batchSweep.runBatchSweep;
+  // One candidate keeps this wiring test small; the sweep, kernel, store and ZIP writer stay real.
+  const sweep = vi.spyOn(batchSweep, 'runBatchSweep').mockImplementation((input, hooks) =>
+    realSweep({ ...input, candidates: [MOTOR_DB.find(m => m.manufacturerAbbrev === 'Estes' && m.designation === 'C6')!] }, hooks,
+      { fetchSpec: async (_entry, delay) => ({ ...motor.spec, ejectionDelay: delay }), nozzleFor: async () => null }));
+  try {
+    const host = await mountApp();
+    await waitFor(() => shownName(host) === tree.name, 'batch weather design');
+    const click = async (text: string) => act(async () => {
+      [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === text)!.click();
+    });
+    await click('Motors & Configuration');
+    await act(async () => [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Batch simulate motors'))!.click());
+    const button = host.querySelector<HTMLButtonElement>('[aria-label="Batch simulate motors"] .launch-btn')!;
+    await waitFor(() => !button.disabled, 'batch weather candidates');
+    await act(async () => button.click());
+    await waitFor(() => runs() === 1, 'batch weather run persisted');
+    const saved = (JSON.parse(localStorage.getItem(RUNS_KEY)!) as FreshSimRun[])[0]!;
+    expect(saved.batch).toBe(true);
+    expect(saved.exportContext?.weather).toEqual(weather);
+    expect(saved.exportContext?.launch).toEqual(launchSettings);
+    await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    await click('Results');
+    const history = [...host.querySelectorAll('.panel')].find(p => p.querySelector('h2')?.textContent?.startsWith('Saved simulations'))!;
+    await act(async () => [...history.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click());
+    await act(async () => host.querySelector<HTMLElement>('.motor-row')!.click());
+    await click('Export flight-data bundle');
+    vi.mocked(saveFile).mockClear();
+    await click('Download ZIP');
+    const zip = unzipSync(new Uint8Array(await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).arrayBuffer()));
+    expect(JSON.parse(strFromU8(zip['run.json']!)).id).toBe(saved.id);
+    const context = JSON.parse(strFromU8(zip['launch-and-weather.json']!));
+    expect(context.weather.fetched.windSpeedMs).toBe(4);
+    expect(context.launch).toMatchObject({ temperatureC: 12, pressureHPa: 1000, windAverage: 4 });
+    expect(context.weather.place).toBeUndefined();
+    expect(context.weather.grid).toBeUndefined();
+    expect(JSON.parse(strFromU8(zip['manifest.json']!)).weatherCredit.source.href).toBe('https://open-meteo.com/');
+    const all = Object.values(zip).map(file => strFromU8(file)).join('\n');
+    expect(all).not.toContain('61.234567');
+    expect(all).not.toContain('-149.765432');
+    expect(vi.mocked(flyBuiltDesign)).not.toHaveBeenCalled();
+    expect(runs()).toBe(1);
+  } finally {
+    sweep.mockRestore();
+  }
+}, 30_000);
 
 describe('the Launch button and simulateDesign fly a stored design the same', () => {
   it('C1: the starter rocket on a first visit', async () => {

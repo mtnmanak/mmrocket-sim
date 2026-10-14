@@ -1,4 +1,5 @@
 import { recordedConfiguration, runConfigurationLabel, runOverrideText, runStatus } from './runConfiguration.js';
+import { validRunExportContext } from './runExportContext.js';
 import type { DesignMatchKey } from './simReport.js';
 import { storedWarnings } from './storedWarnings.js';
 import { csvCell } from './csvUtil.js';
@@ -57,6 +58,7 @@ export function loadRuns(): SimRun[] {
       typeof r === 'object' && r !== null && !Array.isArray(r)
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
+      if (r.exportContext !== undefined && !validRunExportContext(r.exportContext)) delete r.exportContext;
       if (r.windSigma !== undefined && (!Number.isFinite(r.windSigma) || r.windSigma < 0)) delete r.windSigma;
       if (r.lastBurnoutOptimalDelayS !== undefined && r.lastBurnoutOptimalDelayS !== null
         && !Number.isFinite(r.lastBurnoutOptimalDelayS)) delete r.lastBurnoutOptimalDelayS;

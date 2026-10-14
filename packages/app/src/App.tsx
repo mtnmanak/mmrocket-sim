@@ -56,6 +56,7 @@ import { NumField } from './components/NumField.js';
 import { PropertyPanel } from './components/PropertyPanel.js';
 import { PreflightAudit } from './components/PreflightAudit.js';
 import { SimHistory, SimRunDetails } from './components/SimResults.js';
+import { FlightDataBundleDialog, type FlightDataBundleSource } from './components/FlightDataBundleDialog.js';
 import { DesktopPredictions } from './components/DesktopPredictions.js';
 import {
   CD_REFERENCE_MACH, DesignStats, FlightStats, StatsChip, stabilityGlyphClass,
@@ -299,6 +300,14 @@ function legacyMaxMotorLength(): number | null {
  */
 const afterPaint = (): Promise<void> =>
   new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+
+// Empirical flight-data collection (open-items §4): longitude is outside the
+// physics comparison key, but charts and downloads must share the recorded site.
+function replayLaunchFor(run: SimRun, launch: LaunchConditions): LaunchConditions {
+  return run.exportContext
+    ? { ...launch, longitudeDeg: run.exportContext.launch.longitudeDeg }
+    : launch;
+}
 
 export function App() {
   const {
@@ -599,6 +608,7 @@ export function App() {
    * (applyImported), since it would then describe numbers no longer there.
    */
   const [weather, setWeather] = useState<WeatherSnapshot | null>(session?.weather ?? null);
+  const [bundleSource, setBundleSource] = useState<FlightDataBundleSource | null>(null);
   const [longitudeReview, setLongitudeReview] = useState<LongitudeReview | null>(null);
   /**
    * The weather dialog, and which way in: ☁ Get weather opens on today; the
@@ -1980,6 +1990,7 @@ export function App() {
         // 78d3015. The lint gate keeps flyLaunch and buildSimRun out of this
         // file, so the Launch cannot grow a second copy here.
         const { flight: { result: res, execMs }, run } = await flyBuiltDesign({
+          weatherSnapshot: weather,
           units: prefs.units,
           advisoryLimits: prefs.flightAdvisories,
           built,
@@ -2164,7 +2175,7 @@ export function App() {
         assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
         delayS: run.delayS, delayResolution: run.delayResolution,
         motorIdentityVerified: true,
-        simOptions: kernelSimOptions(launch, { aeroMode: effectiveHybrid ? 'hybrid' : effectiveSupersonic ? 'supersonic' : 'classic', effectiveKbf }),
+        simOptions: kernelSimOptions(replayLaunchFor(run, launch), { aeroMode: effectiveHybrid ? 'hybrid' : effectiveSupersonic ? 'supersonic' : 'classic', effectiveKbf }),
         fly: current,
         restore: current,
       });
@@ -2216,7 +2227,7 @@ export function App() {
         // Auto delay flew the rounded optimum, recorded on the run.
         delayS: lastRun.delayS, delayResolution: lastRun.delayResolution,
         motorIdentityVerified: true,
-        simOptions: { ...kernelSimOptions(launch, { aeroMode: lastRun.aeroModel ?? 'classic', effectiveKbf: wasKbf }), series: 'full' },
+        simOptions: { ...kernelSimOptions(replayLaunchFor(lastRun, launch), { aeroMode: lastRun.aeroModel ?? 'classic', effectiveKbf: wasKbf }), series: 'full' },
         fly: { supersonic: wasSupersonic, kbf: wasKbf, hybrid: lastRun.aeroModel === 'hybrid' },
         // Hand the shared handle back on the CURRENT model: the drag panel and
         // the component table read it too.
@@ -3723,6 +3734,7 @@ export function App() {
           weighed={batchWeighed}
           retainedHardware={batchRetainedHardware}
           launch={launch}
+          weatherSnapshot={weather}
           rocketName={tree.name ?? 'Rocket'}
           onRunsChange={recordRuns}
           onClose={() => setShowBatch(false)}
@@ -4820,6 +4832,27 @@ export function App() {
             <DesktopPredictions predictions={importedDocument?.desktopPredictions}
               configId={reportRun?.flightConfigId ?? activeConfigId} run={reportRun} />
           </PanelBoundary>
+          {reportRun && <div className="panel">
+            <button className="file-btn" onClick={() => {
+              try {
+                const { savedConfigs: synced } = planOrkSave(snapshotNow(), unmatchedRefs);
+                const flown = flownAutoDelaysNow();
+                const motors = exportMotorsMap(flown);
+                const configs = exportConfigs(synced, flown);
+                const losses = [...new Set([...Object.values(motors), ...configs.flatMap(c => Object.values(c.motors))]
+                  .map(m => autoDelaySaveNote(m, '.ork')).filter((n): n is string => n !== null))];
+                setBundleSource({
+                  design: { name: tree.name ?? 'My Rocket', tree, motors, launch, configs, activeConfigId,
+                    measured, workingOverrides: detachedOverrides, flightData: flightDataForExport(), notes: losses },
+                  run: reportRun, changedSince: inspectedSummary ? null : changedSince,
+                  ...(!inspectedSummary && shownResult ? { result: shownResult } : {}),
+                });
+              } catch (e) {
+                setFileNote(`Flight-data bundle could not be prepared: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'information');
+              }
+            }}>Export flight-data bundle</button>
+            <p className="download-caption">Selected run, current design and your measurements in one ZIP for sharing with the app owner.</p>
+          </div>}
           {!inspectedSummary && shownResult && lastRun ? (
             <>
               <PanelBoundary what="This flight's report" resetKey={lastRun}>
@@ -4944,6 +4977,7 @@ export function App() {
         ].join(' ')}
       </div>
       <NoticeBar notices={notices} />
+      {bundleSource && <FlightDataBundleDialog source={bundleSource} onClose={() => setBundleSource(null)} />}
       {/* Always mounted, so the first "Flight complete" lands in a region that
           already exists — see resultsMainRef. */}
       <div className="sr-only" role="status" aria-live="polite">

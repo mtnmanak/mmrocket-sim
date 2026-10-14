@@ -1,0 +1,154 @@
+import { strToU8, zipSync } from 'fflate';
+import type { FlightResult } from '@online-openrocket/engine';
+import { APP_VERSION } from '../version.js';
+import { exportOrk, type OrkTreeExportInput } from './orkFile.js';
+import type { SimRun } from './simReport.js';
+import { runsToCsv } from './simStore.js';
+import { flightDataCsv } from './flightDataCsv.js';
+import { CSV_BOM, stampedName } from './fileName.js';
+import { validRunExportContext } from './runExportContext.js';
+import { WEATHER_CREDIT } from './weatherSnapshot.js';
+import { flownLongitudeDeg } from './launchConditions.js';
+
+export interface FlightMeasurements {
+  altimeterType: string;
+  apogeeM: number | null;
+  maxVelocityMs: number | null;
+  liftoffMassKg: number | null;
+  notes: string;
+}
+export interface FlightDataBundleInput {
+  design: OrkTreeExportInput;
+  run: SimRun;
+  changedSince: string[] | null;
+  /** Already held for this selected run; exporting never re-flies a rocket. */
+  result?: FlightResult;
+  includeCoordinates: boolean;
+  measurements: FlightMeasurements;
+  attachment?: { name: string; bytes: Uint8Array };
+}
+
+function attachmentPath(name: string): string {
+  const base = name.split(/[\\/]/).at(-1)?.replace(/[^A-Za-z0-9._-]/g, '_').replace(/^\.+/, '') || 'data-log';
+  return `attachment/${base}`;
+}
+
+export function flightDataBundleFiles(hasSeries: boolean, attachmentName?: string) {
+  return [
+    { path: 'manifest.json', description: 'App versions, selected run, design comparison, units and file list' },
+    { path: 'design.ork', description: 'Current design, motors and saved configurations, as the app writes them' },
+    { path: 'run.json', description: 'Selected saved run: recorded inputs, results, model and provenance' },
+    { path: 'run.csv', description: 'Existing run-table export, one selected row; fixed flight-day columns and SI detail columns, with units in headers' },
+    { path: 'launch-and-weather.json', description: 'Launch settings and applied weather receipt recorded with this run, or null if unavailable' },
+    { path: 'measurements.json', description: 'Your measured values and notes; blank values are null' },
+    ...(hasSeries ? [{ path: 'flight-data.csv', description: 'Available per-step simulation data; units in each column header; may be sampled' }] : []),
+    ...(attachmentName !== undefined ? [{ path: attachmentPath(attachmentName), description: 'Your chosen data-log file, unchanged' }] : []),
+  ];
+}
+
+export function flightDataBundleLongitudeComparison(input: Pick<FlightDataBundleInput, 'run' | 'design'>): 'same' | 'different' | 'unknown' {
+  const context = input.run.exportContext;
+  if (!validRunExportContext(context) || !input.design.launch) return 'unknown';
+  // Longitude is intentionally outside the physics key (empirical collection,
+  // open-items §4); compare the recorded site separately without exposing it.
+  return flownLongitudeDeg(context.launch) === flownLongitudeDeg(input.design.launch) ? 'same' : 'different';
+}
+
+export function flightDataBundleWeatherCredit(input: Pick<FlightDataBundleInput, 'run' | 'design'>) {
+  const context = validRunExportContext(input.run.exportContext) ? input.run.exportContext : null;
+  const profiles = [input.run.windProfileSource, context?.launch.windProfileSource, context?.weather?.before.windProfileSource,
+    context?.weather?.applied.windProfileSource, input.design.launch?.windProfileSource]
+    .filter(p => p?.kind === 'open-meteo');
+  return {
+    openMeteo: !!context?.weather || profiles.length > 0,
+    geoNames: context?.weather?.place.method === 'search' || profiles.some(p => p.method === 'search' && !!p.place),
+  };
+}
+
+// Coordinates can also live in weather receipts, profile place labels and keys.
+// Remove structured location data throughout; user-authored text/files stay intact.
+function withoutCoordinates(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutCoordinates);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).flatMap(([key, v]) => {
+    // A blank profile place keeps ordinary .ork provenance valid while
+    // withholding the label (empirical flight-data collection, open-items §4).
+    if (key === 'place' && typeof v === 'string') return [[key, '']];
+    if (/latitude|longitude/i.test(key) || ['φ', 'λ', 'place', 'grid'].includes(key)) return [];
+    if (key === 'conditionsKey' && typeof v === 'string') {
+      return [[key, v.split('|').filter(p => !/^(latitude|longitude)/i.test(p)).join('|')]];
+    }
+    return [[key, withoutCoordinates(v)]];
+  }));
+}
+
+export function flightDataBundleContents(input: FlightDataBundleInput): { files: Record<string, Uint8Array>; filename: string; notices: string[] } {
+  const { includeCoordinates, attachment, result } = input;
+  const context = validRunExportContext(input.run.exportContext) ? input.run.exportContext : null;
+  const clean = <T,>(v: T): T => includeCoordinates ? v : withoutCoordinates(v) as T;
+  // Only the ordinary writer receives the current design; no run is relabelled
+  // as that design's flight. Keep its normal flightdata guards at the caller.
+  const design = clean(input.design);
+  const designExportNotes = [...(design.notes ?? [])];
+  let xml = exportOrk({ ...design, notes: designExportNotes, onOmittedMotor: () => {
+    designExportNotes.push('A motor could not be included in the design file. Review its motor assignments before using the file for another simulation.');
+  } });
+  if (!includeCoordinates) xml = xml.replace(/<launch(?:latitude|longitude)\b[^>]*>[^<]*<\/launch(?:latitude|longitude)>\s*/g, '');
+  const files: Record<string, Uint8Array> = {};
+  const json = (path: string, value: unknown) => { files[path] = strToU8(JSON.stringify(value, (_key, v: unknown) => v === Infinity ? 'Infinity' : v, 2) + '\n'); };
+  files['design.ork'] = strToU8(xml);
+  const run = clean(input.run);
+  json('run.json', run);
+  files['run.csv'] = strToU8(CSV_BOM + runsToCsv([run]));
+  json('launch-and-weather.json', clean(context));
+  for (const key of ['apogeeM', 'maxVelocityMs', 'liftoffMassKg'] as const) {
+    const n = input.measurements[key];
+    if (n !== null && (!Number.isFinite(n) || n < 0)) throw new Error('Measured values must be zero or greater, or left blank.');
+  }
+  json('measurements.json', input.measurements);
+  if (result) files['flight-data.csv'] = strToU8(CSV_BOM + flightDataCsv(clean(result)));
+  if (attachment) files[attachmentPath(attachment.name)] = attachment.bytes;
+  json('manifest.json', {
+    format: 'mmrocket-flight-data-bundle', schemaVersion: 1,
+    exportedAt: new Date().toISOString(), appVersionAtExport: APP_VERSION,
+    appVersionAtRun: context?.appVersion ?? null,
+    selectedRunId: input.run.id, runTimeUnixMs: input.run.when,
+    design: 'current design at export', changedSince: input.changedSince,
+    changedSinceScope: 'simulation-relevant inputs; excludes site longitude and design presentation',
+    siteLongitudeComparison: flightDataBundleLongitudeComparison(input),
+    designExportNotes: [...new Set(designExportNotes)],
+    runSource: input.run.importedSummary ? 'imported summary' : 'saved simulation',
+    series: result ? 'available in memory; may be sampled' : 'not available',
+    launchAndWeather: context ? 'recorded with selected run' : 'not recorded',
+    coordinatesIncluded: includeCoordinates,
+    units: 'JSON retains the existing schemas and mixed units documented in jsonUnits; no values are converted. CSV headers govern each column, including coordinate degrees and dimensionless columns. run.csv retains the existing fixed ft/mph/G/g flight-day columns and SI detail columns.',
+    jsonUnits: {
+      scope: 'Numeric physical quantities in run.json, launch-and-weather.json and measurements.json; field entries override suffix conventions. Nested fields use the same conventions.',
+      defaults: 'Lengths and altitudes m; masses kg; durations s; speeds m/s; accelerations m/s^2; forces N; angles rad; pressures Pa. Counts, ratios, coefficients and Mach numbers are dimensionless. IDs, schema/revision numbers and provenance keys are not physical quantities.',
+      suffixes: { M: 'm', Mm: 'mm', Kg: 'kg', S: 's', Ms: 'm/s (except execMs and elapsedMs)', Deg: 'degrees',
+        RadS: 'rad/s', Pct: '%', Cal: 'calibers (body diameters)' },
+      fields: { motorDiameterMm: 'mm', execMs: 'ms', elapsedMs: 'ms', when: 'Unix epoch ms', runTimeUnixMs: 'Unix epoch ms',
+        validUnix: 'Unix epoch s', exportedAt: 'ISO 8601 UTC timestamp', retrievedAt: 'ISO 8601 timestamp',
+        temperatureC: 'degrees Celsius', pressureHPa: 'hPa',
+        launchStaticMarginCal: 'calibers (body diameters)', launchStaticMarginPct: '%',
+        maxMach: 'dimensionless', thrustToWeightAtRod: 'dimensionless', cd: 'dimensionless', cdNominal: 'dimensionless',
+        'windLevels[].altitude': 'm above launch', 'windLevels[].speed': 'm/s',
+        'windLevels[].standardDeviation': 'm/s', 'windLevels[].direction': 'rad relative to surface wind',
+        'windLevels[].calmSpeedRatio': 'dimensionless',
+        'railProfile.segments[]': '[initial speed m/s, final speed m/s, initial travel m, final travel m]',
+        'loads.maxQ.value': 'Pa', 'loads.maxQAlpha.value': 'Pa·rad',
+        'loads.*.time': 's', 'loads.*.altitude': 'm', 'loads.*.mach': 'dimensionless', 'loads.*.aoa': 'rad' },
+    },
+    measurements: 'User measurements, separate from simulation predictions; null means unknown',
+    privacy: 'User text and attachment contents are unchanged and may contain location or other personal details.',
+    weatherCredit: flightDataBundleWeatherCredit(input).openMeteo ? WEATHER_CREDIT : null,
+    attachment: attachment ? { path: attachmentPath(attachment.name), originalName: attachment.name, bytes: attachment.bytes.byteLength } : null,
+    files: flightDataBundleFiles(!!result, attachment?.name),
+  });
+  return { files, filename: stampedName(input.design.name, 'flight-data-bundle', 'zip'), notices: [...new Set(designExportNotes)] };
+}
+
+export function buildFlightDataBundle(input: FlightDataBundleInput): { bytes: Uint8Array; filename: string } {
+  const { files, filename } = flightDataBundleContents(input);
+  return { bytes: zipSync(files), filename };
+}

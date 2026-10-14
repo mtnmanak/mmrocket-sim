@@ -23,6 +23,7 @@ import type { HeldNote } from './notices.js';
 import { buildSimRun, type DesignMatchKey, type FreshSimRun } from './simReport.js';
 import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
 import { padMassTextFor } from './unitText.js';
+import type { WeatherSnapshot } from './weatherSnapshot.js';
 
 /**
  * THE LAUNCH, WITH NO REACT MOUNTED (2026-10-01; response-2026-10-01b § 3.2).
@@ -66,6 +67,7 @@ import { padMassTextFor } from './unitText.js';
 
 /** App's state as one Launch reads it, with the design already built. */
 export interface BuiltLaunchInput<R extends BuildHandle = OrkRocket> {
+  weatherSnapshot?: WeatherSnapshot | null;
   units?: UnitSelection;
   advisoryLimits?: FlightAdvisories;
   /** App: `built` (this render's). */
@@ -116,6 +118,8 @@ export async function flyBuiltDesign<R extends BuildHandle>(
 ): Promise<{ flight: LaunchFlight; run: FreshSimRun }> {
   const { built, tree, derived, launch, aero, activeConfigId, savedConfigs, provenance, signal, now } = input;
   const advisoryLimits = normalizeFlightAdvisories(input.advisoryLimits);
+  const weatherSnapshot = structuredClone(input.weatherSnapshot ?? null);
+  const launchForReport = structuredClone(launch);
   const units = { ...(input.units ?? INITIAL_UNITS) };
   const refusal = savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal;
   if (refusal) throw new Error(refusal);
@@ -163,6 +167,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   const branchMotors = stageMotorInfo(tree, assigned, stageList);
   // The configuration identity and override tuples were captured before flight.
   const run = buildSimRun({
+    weatherSnapshot,
     ...(input.units ? { units } : {}),
     advisoryLimits,
     advisoryTree: tree,
@@ -183,7 +188,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
       // 'Motors (cluster)' header so a sheet keyed on it still reads.
       motorCount: mountMotorCount(tree, primaryMountId),
     },
-    launch,
+    launch: launchForReport,
     rocketName: tree.name ?? 'Rocket',
     execMs,
     stageMotorInfo: branchMotors,

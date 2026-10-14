@@ -3281,6 +3281,25 @@ html {
   margin: 10px 0 14px;
 }
 
+/* Flight-data collection: exact-file previews scroll inside the existing modal. */
+.modal-card:has(.flight-bundle) { max-width: 760px; width: min(760px, 100%); }
+.flight-bundle { max-height: calc(100vh - 76px); max-height: calc(100dvh - 76px); overflow-y: auto; overflow-x: hidden; }
+.flight-bundle fieldset { min-width: 0; border: 1px solid var(--border); }
+.flight-bundle label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; color: var(--text-secondary); font-size: 13px; }
+.flight-bundle input, .flight-bundle textarea { min-width: 0; width: 100%; box-sizing: border-box; }
+.flight-bundle input:not([type='checkbox']), .flight-bundle textarea {
+  font: inherit; padding: 5px 7px; border: 1px solid var(--border); border-radius: 5px;
+  background: var(--surface-1); color: var(--text-primary);
+}
+.flight-bundle textarea.resize-none { resize: none; min-height: 7em; overflow-y: auto; }
+.flight-bundle input:focus-visible, .flight-bundle textarea:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.flight-bundle .bundle-coordinate-choice { flex-direction: row; align-items: center; }
+.flight-bundle input[type='checkbox'] { width: auto; }
+.flight-bundle p, .flight-bundle summary { overflow-wrap: anywhere; }
+.flight-bundle summary { cursor: pointer; padding: 8px 0; }
+.flight-bundle pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
+.flight-bundle summary:focus-visible, .flight-bundle pre:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+
 /* N038: keep all editor controls reachable on supported clients predating dvh. */
 .flight-export-layout-editor {
   width: min(400px, calc(100vw - 76px));

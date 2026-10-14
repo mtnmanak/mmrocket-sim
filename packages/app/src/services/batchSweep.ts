@@ -23,6 +23,7 @@ import { flownDeployEvent } from '../tree/deployEvent.js';
 import { flyLaunch, writeMountMotor } from './flightRunner.js';
 import { kernelSimOptions, type LaunchConditions } from './launchConditions.js';
 import { physicsKeyOf, provenanceKeyOf } from './designDerivation.js';
+import type { WeatherSnapshot } from './weatherSnapshot.js';
 
 /**
  * THE BATCH SWEEP — every flight Batch Simulate flies, out of the component.
@@ -427,6 +428,7 @@ export interface BatchSweepInput {
   model: BatchModel;
   autoDelay: boolean;
   launch: LaunchConditions;
+  weatherSnapshot?: WeatherSnapshot | null;
   rocketName: string;
 }
 
@@ -463,6 +465,8 @@ export async function runBatchSweep(
   deps: Partial<BatchSweepDeps> = {},
 ): Promise<{ rows: BatchRow[]; stopped: boolean }> {
   const configuration = input.configuration === undefined ? undefined : structuredClone(input.configuration);
+  // Empirical flight-data collection (open-items §4): keep the receipt from sweep start for both passes.
+  const weatherSnapshot = structuredClone(input.weatherSnapshot ?? null);
   const advisoryLimits = normalizeFlightAdvisories(input.advisoryLimits);
   const units = { ...(input.units ?? INITIAL_UNITS) };
   const {
@@ -744,6 +748,7 @@ export async function runBatchSweep(
       });
       const run = buildSimRun({
         units,
+        weatherSnapshot,
         advisoryLimits, advisoryTree: keyTree, advisoryMotors: f.assigned,
         ...configuration, batch: true,
         result: f.res,
@@ -892,6 +897,7 @@ export async function runBatchSweep(
         });
         const run = buildSimRun({
           units, advisoryLimits,
+          weatherSnapshot,
           advisoryTree: stageIdOfTarget !== '' && (exitM !== null || typedStageExitM !== null)
             ? applyStageNozzles(split.tree, { [stageIdOfTarget]: exitM }) : split.tree,
           advisoryMotors: f.assigned,

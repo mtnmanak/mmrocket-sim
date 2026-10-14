@@ -25,6 +25,9 @@ import { matchingRecoveryEvents } from './recoveryFlight.js';
 import { IMPERIAL_UNITS, uiToSi } from '../prefs/units.js';
 import type { MountMotor } from '../model/design.js';
 import { resolveFlightState } from './flightState.js';
+import { strFromU8, unzipSync } from 'fflate';
+import { buildFlightDataBundle } from './flightDataBundle.js';
+import type { WeatherSnapshot } from './weatherSnapshot.js';
 import {
   batchMotorIds, batchMotorNames, batchRowKey, batchSolverFlights, deploysOnEjectionCharge, listsNoDelay,
   provisionalDelay, runBatchSweep, type BatchMountOption, type BatchRow, type BatchSweepDeps, type BatchSweepInput,
@@ -148,6 +151,71 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
+
+it('bundle metadata freezes scalar weather before single and mixed batch flights without changing their numbers', async () => {
+  const tree = clusterRocket('4-ring');
+  const target = { ...MOUNT, motorCount: 4 };
+  const launch = { ...DEFAULT_CONDITIONS, latitudeDeg: 61.234567, longitudeDeg: -149.765432,
+    temperatureC: 12, pressureHPa: 1000, windAverage: 4 };
+  const weather: WeatherSnapshot = {
+    v: 1, provider: 'open-meteo', endpoint: 'forecast', model: 'best_match',
+    place: { label: '61.234567, -149.765432', latitudeDeg: 61.234567, longitudeDeg: -149.765432, method: 'coordinates' },
+    grid: { latitudeDeg: 61.2, longitudeDeg: -149.7 }, demElevationM: 100, forAltitudeM: 100,
+    timezone: 'America/Anchorage', validUnix: 1700000000, retrievedAt: '2026-10-13T00:00:00Z',
+    fetched: { temperatureC: 12, pressureHPa: 1000, windSpeedMs: 4, windGustMs: 7, windFromDeg: 20 },
+    applied: { temperatureC: 12, pressureHPa: 1000, windAverage: 4 },
+    before: { temperatureC: null, pressureHPa: null, windAverage: 0 },
+  };
+  const expected = structuredClone(weather);
+  const baseline = input(tree, { model: 'eb', autoDelay: false, launch, target, mounts: [target],
+    splits: [splitClusterTree(tree, 'mount')!],
+    candidates: [entry('a', 'Acme', 'E20', '5'), entry('b', 'Acme', 'E22', '5')] });
+  const deps = { fetchSpec: fetchFrom({ a: curve('E20'), b: curve('E22') }), nozzleFor: nozzles({}) };
+  const plain = await sweep(baseline, deps);
+  const withWeather = await sweep({ ...baseline, weatherSnapshot: weather }, { ...deps,
+    fetchSpec: async (...args) => {
+      // Edits after the sweep starts must not rewrite either pass's receipt.
+      weather.fetched.windSpeedMs = 99;
+      weather.applied.temperatureC = 99;
+      weather.before.windAverage = 99;
+      weather.place.label = 'Changed during sweep';
+      return deps.fetchSpec(...args);
+    },
+  });
+  expect(withWeather.rows).toHaveLength(3);
+  expect(withWeather.rows.map(row => row.combo)).toEqual([false, false, true]);
+  for (const [i, row] of withWeather.rows.entries()) {
+    expect(row.error).toBeUndefined();
+    const run = row.run!;
+    expect(run.exportContext?.weather).toEqual(expected);
+    expect(run.exportContext?.launch).toEqual(launch);
+    expect(run.windLevels).toBeUndefined();
+    expect(plain.rows[i]!.run!.exportContext?.weather).toBeNull();
+    // Same kernel/runtime/inputs: metadata must not move even the last bit.
+    expect(run.maxAltitude).toBe(plain.rows[i]!.run!.maxAltitude);
+    expect(run.maxVelocity).toBe(plain.rows[i]!.run!.maxVelocity);
+    expect(run.conditionsKey).toBe(plain.rows[i]!.run!.conditionsKey);
+    for (const includeCoordinates of [false, true]) {
+      const files = unzipSync(buildFlightDataBundle({ design: { name: tree.name!, tree, launch }, run,
+        changedSince: [], includeCoordinates,
+        measurements: { altimeterType: '', apogeeM: null, maxVelocityMs: null, liftoffMassKg: null, notes: '' },
+      }).bytes);
+      const context = JSON.parse(strFromU8(files['launch-and-weather.json']!));
+      expect(context.weather.fetched.windSpeedMs).toBe(4);
+      expect(context.weather.applied.temperatureC).toBe(12);
+      expect(context.weather.before.windAverage).toBe(0);
+      expect(JSON.parse(strFromU8(files['manifest.json']!)).weatherCredit.source.href).toBe('https://open-meteo.com/');
+      if (includeCoordinates) expect(context.weather).toEqual(expected);
+      else {
+        expect(context.weather.place).toBeUndefined();
+        expect(context.weather.grid).toBeUndefined();
+        const all = Object.values(files).map(file => strFromU8(file)).join('\n');
+        expect(all).not.toContain('61.234567');
+        expect(all).not.toContain('-149.765432');
+      }
+    }
+  }
+}, 30_000);
 
 it('N003 mixed zero-delay rows keep the recovery caution for both temporary group mounts', async () => {
   const tree = clusterRocket('4-ring', 'ejection');
