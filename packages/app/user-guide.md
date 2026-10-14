@@ -765,6 +765,14 @@ From any fin set, **📐 Fin template (1:1)** exports a **true-scale printable c
 
 The SVGs use physical millimeter units and a 0.2 mm hairline, so they feed a laser cutter directly. For CNC or laser cutting from CAD geometry rather than a drawing, use **✂ DXF (CNC/laser, 1:1)** (see *Files, Units, and Offline Use → File formats*).
 
+## 1:1 rings, bulkheads, and shaped parts
+
+Select a **Centering ring**, **Bulkhead**, **Transition**, or **Nose cone**, then choose **Paper template (1:1)…**. A browser preview opens; choose **Print / Save as PDF** to print it or keep a PDF. Use A4 or US Letter, **100%**, **no fit to page**, and **no margins**. Measure the ruler on every sheet: **50 mm**, or **2 in** for inches or feet. If the ruler is wrong, the part dimensions are wrong too. Larger parts use numbered rows and columns with **10 mm overlap**; match their printed coordinates before trimming.
+
+Rings and bulkheads use their stated outside diameter, else the bore of their containing tube. A centering ring's opening uses its stated ID, else the overlapping mount tube's **outside** diameter so the tube can fit through it. The preview refuses unknown outside diameters or unusable ring bores. Bulkheads are solid discs: the design has no additional drilling-hole fields, so the template invents no holes. There is no cutting allowance; measure the actual parts before cutting.
+
+Conical transitions and conical noses have exact flat wraps of the **exterior surface**, with fore/aft diameters labeled. Equal-radius transitions give rectangular wraps. **Caution:** Curved noses and curved transitions give a **sampled side profile and a station table**, not a flat wrap: their surfaces cannot be flattened exactly. Stations run aft from the part's front and list its radius in **Preferences → Units of measure → Rocket dimensions**. Flipped noses have their base at the front. All these shaped-part templates omit shoulders, wall thickness, seam tabs, and cutting allowance; check material fit before cutting. They change no simulation setting.
+
 ## 1:1 tube marking wraps (SVG, PNG, JPG)
 
 Select a straight round **Body tube**, or a trapezoidal, elliptical or freeform fin set attached to it, and choose **Tube wrap (1:1)**. The wrap uses the tube's outer circumference and each fin set's rotation and fin count. Solid lines mark fin positions; dashed lines mark launch lugs and rail buttons on that tube. Heavy ticks mark fin-root ends and guide positions. Tab-slot boxes show the tab's front and aft extents along the tube and use the fin thickness as their width, with no cutting allowance. Slot extents follow **Tab offset** and **Tab offset from**, clamped to the fin root, as in the individual fin template.
@@ -1291,6 +1299,14 @@ Three things it deliberately does not touch:
 <a id="files-and-formats"></a>
 
 ## Files, Units, and Offline Use
+
+### Print a design and flight report
+
+Choose **Save As / Export → Print design / flight report…**, or the same button on **Results**. The browser preview contains the current design summary and fitted schematic, a parts list with dimensions, stated materials and computed masses, and the **selected** flight's motor, configuration, key results, recovery figures, and range card. Units follow Preferences. Select a row in **Saved simulations** before printing to include that flight; with no selection, the report says so. The current design and selected flight are labeled separately. Stale results name what changed, missing match evidence stays unknown, and imported summaries make no design-match or safety claim. Recorded flight notes keep their Caution or Danger labels.
+
+The current configuration and motor assignments appear even with no selected flight. They are separate from the selected flight's recorded motors and results.
+
+In the preview choose **Print / Save as PDF**, then the browser's **Save as PDF** destination. Short reports fit one page where possible; longer parts lists continue, with repeated column headings. The schematic is fitted to the report and is not a cutting template. These figures are simulated predictions, not measurements or certification. If the preview is blocked, allow pop-ups for the app and try again. Printing changes no design, saved run, or simulation setting.
 
 Finally, save your work, move it between tools, and use the app with no network.
 

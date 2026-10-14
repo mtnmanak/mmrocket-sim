@@ -1,6 +1,8 @@
 import { GlossaryHelp } from './GlossaryHelp.js';
 import { componentTerm, fieldTerm } from '../tree/glossaryTerms.js';
 import { Note } from './Note.js';
+import { PaperTemplateButton } from './PaperTemplateButton.js';
+import { PAPER_TEMPLATE_TYPES } from '../services/paperTemplates.js';
 import { MotorLengthField } from './MotorLengthField.js';
 import { motorLengthLimit } from '../tree/motorLength.js';
 import { estimateMotorRoom, noBoreReason } from '../tree/motorRoom.js';
@@ -1093,6 +1095,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
       {wrapTube && (
         <TubeWrapMenu key={node.id} tree={tree} tube={wrapTube} />
       )}
+      {PAPER_TEMPLATE_TYPES.has(node.type) && <PaperTemplateButton key={node.id} tree={tree} node={node} />}
       {DXF_CUTTABLE.has(node.type) && (
         // Scissors, NOT the 📐 the fin-template button above already owns. The
         // two sit adjacent, and with a shared glyph a user scanning for the
