@@ -2155,11 +2155,16 @@ export function App() {
       // upgrade flag either way, and a handle rebuilt since the flag flipped
       // would otherwise be silently one model behind.
       const current = { supersonic: effectiveSupersonic, kbf: effectiveKbf, hybrid: effectiveHybrid };
+      // Empirical flight-data bundle: longitude does not change the physics
+      // comparison key, but replayed coordinates must use the recorded site.
+      const replayLaunch = run.exportContext
+        ? { ...launch, longitudeDeg: run.exportContext.launch.longitudeDeg }
+        : launch;
       const res = reflyRun(built.rocket, {
         assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
         delayS: run.delayS, delayResolution: run.delayResolution,
         motorIdentityVerified: true,
-        simOptions: kernelSimOptions(launch, { aeroMode: effectiveHybrid ? 'hybrid' : effectiveSupersonic ? 'supersonic' : 'classic', effectiveKbf }),
+        simOptions: kernelSimOptions(replayLaunch, { aeroMode: effectiveHybrid ? 'hybrid' : effectiveSupersonic ? 'supersonic' : 'classic', effectiveKbf }),
         fly: current,
         restore: current,
       });

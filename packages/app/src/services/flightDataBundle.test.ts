@@ -8,6 +8,8 @@ import type { SimRun } from './simReport.js';
 import { buildFlightDataBundle } from './flightDataBundle.js';
 import { runExportContext } from './runExportContext.js';
 import type { WeatherSnapshot } from './weatherSnapshot.js';
+import { exportOrk, importOrk } from './orkFile.js';
+import type { WindProfileSource } from './windProfile.js';
 
 const run = { id: 'selected', when: 1000, rocket: 'Test', motor: 'C6', manufacturer: 'Estes',
   maxAltitude: 123, maxVelocity: 45, maxAcceleration: 20, maxMach: 0.2, timeToApogee: 4,
@@ -22,6 +24,54 @@ const input = () => ({ design: { name: 'Test', tree: defaultTree(),
 const filesOf = (x = input()) => unzipSync(buildFlightDataBundle(x).bytes);
 
 describe('flight-data bundle', () => {
+  it.each([
+    { includeCoordinates: false, imported: false }, { includeCoordinates: true, imported: false },
+    { includeCoordinates: false, imported: true }, { includeCoordinates: true, imported: true },
+  ])('retains profile-only forecast provenance with coordinate consent $includeCoordinates (imported $imported)', ({ includeCoordinates, imported }) => {
+    const windProfileSource: WindProfileSource = { kind: 'open-meteo', place: '61.234567, -149.765432',
+      method: 'search', validUnix: 1700000000, surfaceFromDeg: 20 };
+    const appliedLaunch = { ...input().design.launch, windAverage: 4,
+      windLevels: [{ altitude: 0, speed: 4, direction: 0, standardDeviation: 0 }], windProfileSource };
+    const launch = imported
+      ? { ...DEFAULT_CONDITIONS, ...importOrk(exportOrk({ ...input().design, launch: appliedLaunch })).launch }
+      : appliedLaunch;
+    const context = runExportContext(launch);
+    const x = { ...input(), includeCoordinates, design: { ...input().design, launch }, run: { ...run, exportContext: context } };
+    const before = structuredClone(x);
+    const files = unzipSync(buildFlightDataBundle(x).bytes);
+    const expectedSource = { ...windProfileSource, place: includeCoordinates ? windProfileSource.place : '' };
+    expect(JSON.parse(strFromU8(files['launch-and-weather.json']!)).launch.windProfileSource).toEqual(expectedSource);
+    expect(JSON.parse(strFromU8(files['run.json']!)).exportContext.launch.windProfileSource).toEqual(expectedSource);
+    // Round-trip the ordinary writer's metadata, as an imported profile will be.
+    expect(importOrk(strFromU8(files['design.ork']!)).launch?.windProfileSource).toEqual(expectedSource);
+    expect(JSON.parse(strFromU8(files['manifest.json']!)).weatherCredit.source.href).toBe('https://open-meteo.com/');
+    if (!includeCoordinates) {
+      const all = Object.values(files).map(f => strFromU8(f)).join('\n');
+      expect(all).not.toContain('61.234567');
+      expect(all).not.toContain('-149.765432');
+    }
+    expect(x).toEqual(before);
+  });
+
+  it('credits an Open-Meteo profile retained only in the current design', () => {
+    const x = input();
+    const files = unzipSync(buildFlightDataBundle({ ...x, design: { ...x.design,
+      launch: { ...x.design.launch, windLevels: [{ altitude: 0, speed: 3, direction: 0 }],
+        windProfileSource: { kind: 'open-meteo', place: 'Test site', validUnix: 1700000000, surfaceFromDeg: 20 } } } }).bytes);
+    expect(JSON.parse(strFromU8(files['manifest.json']!)).weatherCredit.source.href).toBe('https://open-meteo.com/');
+  });
+
+  it.each([false, true])('credits a saved run profile without recorded launch context (coordinates %s)', includeCoordinates => {
+    const windProfileSource: WindProfileSource = { kind: 'open-meteo', place: 'Test site', method: 'search',
+      validUnix: 1700000000, surfaceFromDeg: 20 };
+    const files = unzipSync(buildFlightDataBundle({ ...input(), includeCoordinates,
+      run: { ...run, windLevels: [{ altitude: 0, speed: 3, direction: 0 }], windProfileSource } }).bytes);
+    expect(JSON.parse(strFromU8(files['run.json']!)).windProfileSource)
+      .toEqual({ ...windProfileSource, place: includeCoordinates ? 'Test site' : '' });
+    expect(JSON.parse(strFromU8(files['manifest.json']!)).weatherCredit.source.href).toBe('https://open-meteo.com/');
+    expect(JSON.parse(strFromU8(files['launch-and-weather.json']!))).toBeNull();
+  });
+
   it('exports only the selected summary and marks a current design with stale/unknown inputs honestly', () => {
     const files = filesOf();
     expect(Object.keys(files).sort()).toEqual(['design.ork', 'launch-and-weather.json', 'manifest.json', 'measurements.json', 'run.csv', 'run.json']);

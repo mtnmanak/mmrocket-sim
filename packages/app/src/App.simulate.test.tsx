@@ -618,6 +618,52 @@ const fixture = (name: string) => new Uint8Array(readFileSync(join(FIXTURES, nam
 
 const c6 = async () => (await loadCatalogueMotor('Estes', 'C6', 5))!;
 
+it.each([-149.765432, null])('bundle chart replay keeps the saved longitude %s after reload and a site edit', async longitudeDeg => {
+  prefs(CLASSIC);
+  const tree = defaultTree();
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree,
+    mountMotors: { [motorMounts(tree)[0]!.id!]: await c6() },
+    launch: { ...DEFAULT_CONDITIONS, longitudeDeg },
+    measured: { massKg: null, cgM: null }, savedAt: 1, appVersion: APP_VERSION }));
+  let host = await mountApp();
+  await launch(host);
+  await waitFor(() => runs() === 1, 'saved flight');
+  const historyBefore = localStorage.getItem(RUNS_KEY);
+  await unmountAll();
+  host = await mountApp();
+  const click = async (text: string) => act(async () => {
+    [...host.querySelectorAll('button')].find(b => b.textContent?.includes(text))!.click();
+  });
+  await click('Motors & Configuration');
+  const longitude = [...host.querySelectorAll('label')].find(l => l.textContent?.startsWith('Longitude'))?.control as HTMLInputElement;
+  expect(longitude).not.toBeNull();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(longitude, '10');
+    longitude.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await click('Results');
+  const history = [...host.querySelectorAll('.panel')].find(p => p.querySelector('h2')?.textContent?.startsWith('Saved simulations'))!;
+  await act(async () => [...history.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click());
+  await act(async () => host.querySelector<HTMLElement>('.motor-row')!.click());
+  await click('Show charts');
+  await waitFor(() => !!host.querySelector('.chart-panel'), 'replayed charts');
+  await click('Export flight-data bundle');
+  const dialog = host.querySelector('[role=dialog][aria-label="Export flight-data bundle"]')!;
+  await act(async () => dialog.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
+  vi.mocked(saveFile).mockClear();
+  await click('Download ZIP');
+  const files = unzipSync(new Uint8Array(await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).arrayBuffer()));
+  expect(JSON.parse(strFromU8(files['launch-and-weather.json']!)).launch.longitudeDeg).toBe(longitudeDeg);
+  const [header, first] = strFromU8(files['flight-data.csv']!).trim().split('\n');
+  const column = header!.split(',').findIndex(h => h.includes('Longitude'));
+  expect(column).toBeGreaterThan(-1);
+  // Kernel coordinates are converted back to degrees; tolerate roundoff only.
+  expect(Number(first!.split(',')[column])).toBeCloseTo(longitudeDeg ?? -80.6, 6);
+  expect(JSON.parse(strFromU8(files['manifest.json']!)).changedSince).toEqual([]);
+  expect(strFromU8(files['design.ork']!)).toContain('<launchlongitude>10</launchlongitude>');
+  expect(localStorage.getItem(RUNS_KEY)).toBe(historyBefore);
+}, 30000);
+
 it('exports the selected saved summary as a local bundle without launching or marking the design saved', async () => {
   prefs(CLASSIC);
   const tree = defaultTree();

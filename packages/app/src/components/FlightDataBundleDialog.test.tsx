@@ -8,6 +8,7 @@ import { defaultTree } from '../tree/treeModel.js';
 import { DEFAULT_CONDITIONS } from '../services/launchConditions.js';
 import type { SimRun } from '../services/simReport.js';
 import { saveFile } from '../services/saveFile.js';
+import { runExportContext } from '../services/runExportContext.js';
 vi.mock('../services/saveFile.js', () => ({ saveFile: vi.fn(async () => ({ kind: 'cancelled' })) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
@@ -23,6 +24,25 @@ const click = (text: string) => act(async () => { Array.from(host.querySelectorA
 const fill = (input: HTMLInputElement, value: string) => act(() => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
+});
+
+it.each(['run', 'summary', 'design'] as const)('credits profile-only weather in the %s with place credit governed by consent', location => {
+  const x = source();
+  const launch = { ...x.design.launch, windLevels: [{ altitude: 0, speed: 3, direction: 0 }],
+    windProfileSource: { kind: 'open-meteo' as const, place: 'Test site', method: 'search' as const,
+      validUnix: 1700000000, surfaceFromDeg: 20 } };
+  act(() => root.render(<FlightDataBundleDialog source={{ ...x,
+    ...(location === 'run' ? { run: { ...x.run, exportContext: runExportContext(launch) } }
+      : location === 'summary' ? { run: { ...x.run, windLevels: launch.windLevels, windProfileSource: launch.windProfileSource } }
+      : { design: { ...x.design, launch } }),
+  }} onClose={() => {}} />));
+  const credit = () => host.querySelector('a[href="https://open-meteo.com/"]');
+  const places = () => host.querySelector('a[href="https://www.geonames.org/"]');
+  expect(credit()).not.toBeNull();
+  expect(places()).toBeNull();
+  act(() => host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
+  expect(credit()).not.toBeNull();
+  expect(places()).not.toBeNull();
 });
 
 it('previews exact members, defaults coordinates off and exports the selected row without sending anything', async () => {
@@ -85,4 +105,29 @@ it('reads only the chosen attachment, previews it, and lets the flyer leave it o
   Object.defineProperty(input, 'files', { value: [{ name: 'unreadable.log', size: 1, arrayBuffer: () => Promise.reject(new Error('read failed')) }], configurable: true });
   await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
   expect(host.querySelector('[role=alert]')!.textContent).toContain('Could not read that file');
+});
+
+it('resets a failed native selection so the same file can be retried without losing measurements', async () => {
+  act(() => root.render(<FlightDataBundleDialog source={source()} onClose={() => {}} />));
+  const apogee = [...host.querySelectorAll('label')].find(l => l.textContent?.startsWith('Measured apogee'))!.control as HTMLInputElement;
+  fill(apogee, '111.5');
+  const input = host.querySelector<HTMLInputElement>('input[type=file]')!;
+  const file = new File([new Uint8Array([0, 255, 42])], 'flight.log');
+  const read = file.arrayBuffer.bind(file);
+  let unavailable = true;
+  Object.defineProperty(file, 'arrayBuffer', { value: () => unavailable ? Promise.reject(new Error('drive unavailable')) : read() });
+  Object.defineProperty(input, 'files', { value: [file], configurable: true });
+  // Emulate the browser-owned fake path; scripts cannot set a nonempty file value.
+  Object.defineProperty(input, 'value', { value: 'C:\\fakepath\\flight.log', writable: true, configurable: true });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  expect(host.querySelector('[role=alert]')!.textContent).toContain('Could not read that file');
+  expect(input.value).toBe('');
+  expect(apogee.value).toBe('111.5');
+  expect(input.disabled).toBe(false);
+  unavailable = false;
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  await click('Download ZIP');
+  const files = unzipSync(new Uint8Array(await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).arrayBuffer()));
+  expect(files['attachment/flight.log']).toEqual(new Uint8Array([0, 255, 42]));
+  expect(JSON.parse(strFromU8(files['measurements.json']!)).apogeeM).toBe(111.5);
 });

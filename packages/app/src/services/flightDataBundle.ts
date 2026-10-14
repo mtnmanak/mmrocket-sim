@@ -45,13 +45,27 @@ export function flightDataBundleFiles(hasSeries: boolean, attachmentName?: strin
   ];
 }
 
+export function flightDataBundleWeatherCredit(input: Pick<FlightDataBundleInput, 'run' | 'design'>) {
+  const context = validRunExportContext(input.run.exportContext) ? input.run.exportContext : null;
+  const profiles = [input.run.windProfileSource, context?.launch.windProfileSource, context?.weather?.before.windProfileSource,
+    context?.weather?.applied.windProfileSource, input.design.launch?.windProfileSource]
+    .filter(p => p?.kind === 'open-meteo');
+  return {
+    openMeteo: !!context?.weather || profiles.length > 0,
+    geoNames: context?.weather?.place.method === 'search' || profiles.some(p => p.method === 'search' && !!p.place),
+  };
+}
+
 // Coordinates can also live in weather receipts, profile place labels and keys.
 // Remove structured location data throughout; user-authored text/files stay intact.
 function withoutCoordinates(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(withoutCoordinates);
   if (value === null || typeof value !== 'object') return value;
   return Object.fromEntries(Object.entries(value).flatMap(([key, v]) => {
-    if (/latitude|longitude/i.test(key) || ['φ', 'λ', 'place', 'grid', 'windProfileSource'].includes(key)) return [];
+    // A blank profile place keeps ordinary .ork provenance valid while
+    // withholding the label (empirical flight-data collection, open-items §4).
+    if (key === 'place' && typeof v === 'string') return [[key, '']];
+    if (/latitude|longitude/i.test(key) || ['φ', 'λ', 'place', 'grid'].includes(key)) return [];
     if (key === 'conditionsKey' && typeof v === 'string') {
       return [[key, v.split('|').filter(p => !/^(latitude|longitude)/i.test(p)).join('|')]];
     }
@@ -99,7 +113,7 @@ export function flightDataBundleContents(input: FlightDataBundleInput): { files:
     units: 'JSON and flight-data.csv: SI (m, kg, s, N, rad), except field names ending Deg (degrees), temperatureC (Celsius), pressureHPa (hPa). run.csv retains the existing fixed ft/mph/G/g flight-day columns and SI detail columns; every CSV header names its unit.',
     measurements: 'User measurements, separate from simulation predictions; null means unknown',
     privacy: 'User text and attachment contents are unchanged and may contain location or other personal details.',
-    weatherCredit: context?.weather ? WEATHER_CREDIT : null,
+    weatherCredit: flightDataBundleWeatherCredit(input).openMeteo ? WEATHER_CREDIT : null,
     attachment: attachment ? { path: attachmentPath(attachment.name), originalName: attachment.name, bytes: attachment.bytes.byteLength } : null,
     files: flightDataBundleFiles(!!result, attachment?.name),
   });

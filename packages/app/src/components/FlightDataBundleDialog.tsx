@@ -4,7 +4,7 @@ import { Modal } from './Modal.js';
 import { Note } from './Note.js';
 import { WeatherCredit } from './WeatherCredit.js';
 import { formatRunLabel } from '../services/simReport.js';
-import { flightDataBundleContents, flightDataBundleFiles, type FlightDataBundleInput } from '../services/flightDataBundle.js';
+import { flightDataBundleContents, flightDataBundleFiles, flightDataBundleWeatherCredit, type FlightDataBundleInput } from '../services/flightDataBundle.js';
 import { saveFile } from '../services/saveFile.js';
 
 export type FlightDataBundleSource = Omit<FlightDataBundleInput, 'includeCoordinates' | 'measurements' | 'attachment'>;
@@ -28,6 +28,7 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
   const fileInput = useRef<HTMLInputElement>(null);
   const saving = useRef(false);
   const firstInvalid = useRef<HTMLInputElement | null>(null);
+  const weatherCredit = flightDataBundleWeatherCredit(source);
   const preview = useMemo(() => {
     try {
       return { ...flightDataBundleContents({ ...source, includeCoordinates, measurements: {
@@ -72,7 +73,7 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
       <p>{source.run.exportContext ? 'Launch settings and the weather receipt are from the selected run. The receipt may differ from the launch settings after manual edits. A null weather receipt means none was recorded.'
         : 'Launch settings and weather were not recorded with this older run. Their bundle entry is null; current settings remain in the current design file.'}
         {' '}{source.result ? 'Available per-step data may be sampled.' : 'Only the saved summary is available; raw time series are not saved in run history.'}</p>
-      {source.run.exportContext?.weather && <p><WeatherCredit geoNames={includeCoordinates && source.run.exportContext.weather.place.method === 'search'} /></p>}
+      {weatherCredit.openMeteo && <p><WeatherCredit geoNames={includeCoordinates && weatherCredit.geoNames} /></p>}
       <form noValidate onSubmit={e => { e.preventDefault(); void download(); }}>
         <fieldset disabled={busy}>
           <legend>What you measured (optional)</legend>
@@ -85,16 +86,20 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
           {fields.some(f => invalid(f.value)) && <p id="bundle-number-error">Enter zero or a positive number, or leave the value blank.</p>}
           <label>Notes<textarea className="resize-none" rows={5} value={notes} onChange={e => setNotes(e.target.value)} /></label>
           <label>Data-log file (optional, up to 25 MiB)<input ref={fileInput} type="file" disabled={reading} onChange={e => { void (async () => {
-            const file = e.target.files?.[0];
+            const input = e.currentTarget;
+            const file = input.files?.[0];
             const id = ++readId.current;
             setAttachment(undefined); setError('');
             if (!file) return;
-            if (file.size > MAX_ATTACHMENT_BYTES) { setError('Choose a data-log file no larger than 25 MiB.'); e.target.value = ''; return; }
+            if (file.size > MAX_ATTACHMENT_BYTES) { setError('Choose a data-log file no larger than 25 MiB.'); input.value = ''; return; }
             setReading(true);
             try {
               const bytes = new Uint8Array(await file.arrayBuffer());
               if (readId.current === id) setAttachment({ name: file.name, bytes });
-            } catch { if (readId.current === id) setError('Could not read that file. Choose it again or leave it out.'); }
+            } catch { if (readId.current === id) {
+              input.value = '';
+              setError('Could not read that file. Choose it again or leave it out.');
+            } }
             finally { if (readId.current === id) setReading(false); }
           })(); }} /></label>
           {reading && <p role="status">Reading the data-log file…</p>}
