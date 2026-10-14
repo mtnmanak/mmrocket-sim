@@ -32,6 +32,7 @@ import { addChild, addStage, defaultTree, findNode, motorMounts, updateNode } fr
 import { resolveFlightState } from './services/flightState.js';
 import { APP_VERSION } from './version.js';
 import { saveFile } from './services/saveFile.js';
+import { downloadBlob } from './services/fileName.js';
 import { savedConfigLabel } from './model/design.js';
 import * as batchSweep from './services/batchSweep.js';
 
@@ -97,6 +98,10 @@ vi.mock('./services/saveFile.js', async importOriginal => ({
   ...await importOriginal<typeof import('./services/saveFile.js')>(),
   saveFile: vi.fn(async (_data: BlobPart, opts: { suggestedName: string }) =>
     ({ kind: 'downloaded', name: opts.suggestedName })),
+}));
+vi.mock('./services/fileName.js', async importOriginal => ({
+  ...await importOriginal<typeof import('./services/fileName.js')>(),
+  downloadBlob: vi.fn(),
 }));
 // Each importer's OWN output, cloned before App touches it (the name fallback
 // mutates it). Three literal calls: vitest hoists only top-level vi.mock.
@@ -618,7 +623,7 @@ const fixture = (name: string) => new Uint8Array(readFileSync(join(FIXTURES, nam
 
 const c6 = async () => (await loadCatalogueMotor('Estes', 'C6', 5))!;
 
-it.each([-149.765432, null])('bundle chart replay keeps the saved longitude %s after reload and a site edit', async longitudeDeg => {
+it.each([-149.765432, null, undefined])('bundle chart replay and full downloads keep the saved longitude %s after reload and a site edit', async longitudeDeg => {
   prefs(CLASSIC);
   const tree = defaultTree();
   localStorage.setItem(SESSION_KEY, JSON.stringify({ tree,
@@ -671,6 +676,27 @@ it.each([-149.765432, null])('bundle chart replay keeps the saved longitude %s a
     siteLongitudeComparison: 'different',
   });
   expect(strFromU8(files['design.ork']!)).toContain('<launchlongitude>10</launchlongitude>');
+  await act(async () => [...dialog.querySelectorAll('button')].find(b => b.textContent === 'Close')!.click());
+  vi.mocked(downloadBlob).mockClear();
+  await click('Flight data (.csv)');
+  await waitFor(() => vi.mocked(downloadBlob).mock.calls.length === 1, 'full CSV download');
+  const fullCsv = await vi.mocked(downloadBlob).mock.calls[0]![0].text();
+  const [fullHeader, fullFirst] = fullCsv.trim().split('\n');
+  const fullColumn = fullHeader!.split(',').findIndex(h => h.includes('Longitude'));
+  expect(fullColumn).toBeGreaterThan(-1);
+  expect.soft(Number(fullFirst!.split(',')[fullColumn])).toBeCloseTo(longitudeDeg ?? -80.6, 6);
+  await waitFor(() => ![...host.querySelectorAll('button')].find(b => b.textContent?.includes('Flight data + charts'))!.disabled,
+    'full download buttons ready');
+  await click('Flight data + charts (.xlsx)');
+  await waitFor(() => vi.mocked(downloadBlob).mock.calls.length === 2, 'full XLSX download');
+  const workbook = unzipSync(new Uint8Array(await vi.mocked(downloadBlob).mock.calls[1]![0].arrayBuffer()));
+  const sheet = new DOMParser().parseFromString(strFromU8(workbook['xl/worksheets/sheet1.xml']!), 'application/xml');
+  const rows = sheet.querySelectorAll('sheetData row');
+  const longitudeHeader = [...rows[0]!.querySelectorAll('c')].find(c => c.textContent?.includes('Longitude'));
+  expect(longitudeHeader).toBeDefined();
+  const longitudeCell = [...rows[1]!.querySelectorAll('c')].find(c => c.getAttribute('r') === longitudeHeader!.getAttribute('r')!.replace(/1$/, '2'));
+  // As with CSV, only degree-conversion roundoff is tolerated.
+  expect.soft(Number(longitudeCell?.querySelector('v')?.textContent)).toBeCloseTo(longitudeDeg ?? -80.6, 6);
   expect(localStorage.getItem(RUNS_KEY)).toBe(historyBefore);
 }, 30000);
 

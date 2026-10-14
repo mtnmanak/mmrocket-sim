@@ -299,6 +299,14 @@ function legacyMaxMotorLength(): number | null {
 const afterPaint = (): Promise<void> =>
   new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
 
+// Empirical flight-data collection (open-items §4): longitude is outside the
+// physics comparison key, but charts and downloads must share the recorded site.
+function replayLaunchFor(run: SimRun, launch: LaunchConditions): LaunchConditions {
+  return run.exportContext
+    ? { ...launch, longitudeDeg: run.exportContext.launch.longitudeDeg }
+    : launch;
+}
+
 export function App() {
   const {
     prefs, setPrefs, resolvedTheme, daylight,
@@ -2155,16 +2163,11 @@ export function App() {
       // upgrade flag either way, and a handle rebuilt since the flag flipped
       // would otherwise be silently one model behind.
       const current = { supersonic: effectiveSupersonic, kbf: effectiveKbf, hybrid: effectiveHybrid };
-      // Empirical flight-data bundle: longitude does not change the physics
-      // comparison key, but replayed coordinates must use the recorded site.
-      const replayLaunch = run.exportContext
-        ? { ...launch, longitudeDeg: run.exportContext.launch.longitudeDeg }
-        : launch;
       const res = reflyRun(built.rocket, {
         assigned, hardware: built.hardware, refusedMountIds, primaryMountId,
         delayS: run.delayS, delayResolution: run.delayResolution,
         motorIdentityVerified: true,
-        simOptions: kernelSimOptions(replayLaunch, { aeroMode: effectiveHybrid ? 'hybrid' : effectiveSupersonic ? 'supersonic' : 'classic', effectiveKbf }),
+        simOptions: kernelSimOptions(replayLaunchFor(run, launch), { aeroMode: effectiveHybrid ? 'hybrid' : effectiveSupersonic ? 'supersonic' : 'classic', effectiveKbf }),
         fly: current,
         restore: current,
       });
@@ -2216,7 +2219,7 @@ export function App() {
         // Auto delay flew the rounded optimum, recorded on the run.
         delayS: lastRun.delayS, delayResolution: lastRun.delayResolution,
         motorIdentityVerified: true,
-        simOptions: { ...kernelSimOptions(launch, { aeroMode: lastRun.aeroModel ?? 'classic', effectiveKbf: wasKbf }), series: 'full' },
+        simOptions: { ...kernelSimOptions(replayLaunchFor(lastRun, launch), { aeroMode: lastRun.aeroModel ?? 'classic', effectiveKbf: wasKbf }), series: 'full' },
         fly: { supersonic: wasSupersonic, kbf: wasKbf, hybrid: lastRun.aeroModel === 'hybrid' },
         // Hand the shared handle back on the CURRENT model: the drag panel and
         // the component table read it too.
