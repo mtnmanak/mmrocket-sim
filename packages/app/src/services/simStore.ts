@@ -368,6 +368,12 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
     return Number(v.toFixed(digits));
   };
   const sym = (quantity: Quantity, siLabel: string) => (u ? u[quantity] : siLabel);
+  const apogee = (si: number | null): string | number => {
+    if (si == null || !Number.isFinite(si)) return '';
+    // N032: large altitude units need significant digits so short flights do not export as zero.
+    if (u?.altitude === 'km' || u?.altitude === 'mi') return Number(siToUi('altitude', u.altitude, si).toPrecision(6));
+    return u ? cv('altitude', si, 0) : round(scaled(si, FT), 0);
+  };
   // Pressure-times-angle can be very small in bar/atm. A fixed decimal count
   // would turn a real nonzero load into zero; retain the converted value.
   const loadPressure = (si: number | null | undefined): string | number =>
@@ -380,7 +386,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   };
   return [
   ['Designation', (r) => r.motor],
-  [`Apogee (${sym('altitude', 'ft')})`, (r) => u ? cv('altitude', r.maxAltitude, 0) : round(scaled(r.maxAltitude, FT), 0)],
+  [`Apogee (${sym('altitude', 'ft')})`, (r) => apogee(r.maxAltitude)],
   ['Velocity (mph)', (r) => round(scaled(r.maxVelocity, MPH), 1)],
   ['Manufacturer', (r) => r.manufacturer],
   ['Diameter (mm)', (r) => Number.isFinite(r.motorDiameterMm) ? r.motorDiameterMm : ''],
@@ -532,7 +538,7 @@ function flag(v: boolean | null): string {
 /**
  * Pass the user's UnitSelection so the detail columns come out in their
  * preferred units (headers carry the unit); omitted = SI detail columns.
- * The 14 flight-day lead columns are fixed ft/mph/Gs/g either way.
+ * Lead apogee follows Altitude; the other flight-day comparison units stay fixed.
  */
 export function runsToCsv(runs: SimRun[], units?: UnitSelection, railThreshold: number = SAFETY.minRodExitVelocity, provenance: DesignMatchKey | null = null): string {
   const cols = buildColumns(units, railThreshold, provenance);

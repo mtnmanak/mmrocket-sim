@@ -7,6 +7,7 @@ import {
   MAX_DESIGN_FILE_BYTES, openDesignFile, parseDesignFile,
 } from './designFile.js';
 import type { ImportedDesign } from './importApply.js';
+import { exportCdx1 } from './rasaeroFile.js';
 import { gzipSync, zipSync } from 'fflate';
 
 /**
@@ -89,6 +90,31 @@ describe('designFileOpenFailure', () => {
 });
 
 describe('parseDesignFile and openDesignFile', () => {
+  it.each([
+    ['m', '305 m', '1189 m'], ['km', '0.3 km', '1.19 km'],
+    ['ft', '1000 ft', '3900 ft'], ['yd', '333 yd', '1300 yd'], ['mi', '0.19 mi', '0.74 mi'],
+  ])('N032 new RASAero height notes follow Altitude %s without changing SI or the file', async (distanceUnit, top, pad) => {
+    const xml = '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>'
+      + '</RocketDesign><MachAlt><Item>0, 0</Item><Item>1, 1000</Item><Item>2, 500</Item></MachAlt>'
+      + '<LaunchSite><Altitude>3900</Altitude><Pressure>30</Pressure><Temperature>90</Temperature></LaunchSite>'
+      + '</RASAeroDocument>';
+    const data = new TextEncoder().encode(xml).buffer;
+    const baseline = await parseDesignFile(data, 'heights.CDX1', { presets: [] });
+    const imported = await parseDesignFile(data, 'heights.CDX1', { presets: [], distanceUnit });
+    expect(imported.notes.find(note => note.includes('Mach-Alt conditions table'))).toContain(`3 points, to ${top})`);
+    expect(imported.notes.find(note => note.startsWith('Launch site:'))).toContain(`the pad is at ${pad} where`);
+    expect(baseline.notes.find(note => note.includes('Mach-Alt conditions table'))).toContain('to 1000 ft)');
+    expect(baseline.notes.find(note => note.startsWith('Launch site:'))).toContain('at 3900 ft where');
+    expect(imported.machAlt).toEqual(baseline.machAlt);
+    expect(imported.launch).toEqual(baseline.launch);
+    // RASAero's existing approximate feet conversion differs by under 0.1 mm.
+    expect(imported.machAlt![1]![1]).toBeCloseTo(304.8, 4);
+    expect(imported.launch!.launchAltitudeM).toBeCloseTo(1188.72, 3);
+    const written = (d: ImportedDesign) => exportCdx1({ name: d.name, tree: d.tree, motors: d.motors,
+      launch: d.launch, machAlt: d.machAlt });
+    expect(written(imported)).toBe(written(baseline));
+  });
+
   it('passes the selected aero model to the RASAero import note', async () => {
     const xml = '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>'
       + '<ModifiedBarrowman>False</ModifiedBarrowman></RocketDesign></RASAeroDocument>';

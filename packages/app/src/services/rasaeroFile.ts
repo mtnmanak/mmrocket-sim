@@ -3,6 +3,7 @@ import { captureStageMass } from './stageMassOverrides.js';
 import { filletExportNotes } from './filletExport.js';
 import { simulationExtensionLossNotes } from './orkExtensions.js';
 import { AERO_NAME, type AeroChoice } from '../prefs/aeroChoice.js';
+import { fmtAltitude } from '../prefs/units.js';
 import { retainBaseDragDeclaration } from './baseDragImportNotes.js';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import {
@@ -348,6 +349,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   catalogue?: MotorDbEntry[];
   /** Choice when the import began, including a session override. Omit when unknown. */
   aeroChoice?: AeroChoice;
+  /** Altitude unit for new height notes (N032); legacy name matches the file door. */
+  distanceUnit?: string;
   /**
    * The figures the flight will load for a catalogue row — its curve file's
    * header mass, not the catalogue's (board Tier 0 row 81). `undefined`: not
@@ -380,6 +383,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   if (!design) throw new Error('Not a RASAero design file (missing RocketDesign)');
 
   const notes: string[] = decoded.note ? [decoded.note] : [];
+  const altitudeUnit = opts?.distanceUnit ?? 'ft';
   // Only an explicit False states the author's intent; missing or malformed
   // values must not be mistaken for switching the model off.
   if (text(design, ':scope > ModifiedBarrowman')?.toLowerCase() === 'false'
@@ -1673,21 +1677,21 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // is now a real fix rather than half of a "type both" instruction.
   if (launch?.launchAltitudeM !== undefined) {
     const issue = padPressureIssue(launch);
-    const ft = Math.round(launch.launchAltitudeM * FT);
+    const altitude = fmtAltitude(altitudeUnit, launch.launchAltitudeM);
     const standingMbar = isaPressurePa(launch.launchAltitudeM) / 100;
     const standing = `${standingMbar.toFixed(0)} mbar (${(standingMbar / INHG).toFixed(2)} in-Hg)`;
     if (issue === 'sea-level') {
       notes.push(`Launch site: this file's pressure, ${(launch.pressureHPa! / INHG).toFixed(2)} in-Hg, `
-        + `is about sea-level pressure, and the pad is at ${ft} ft where a barometer reads about `
+        + `is about sea-level pressure, and the pad is at ${altitude} ${altitudeUnit} where a barometer reads about `
         + `${standing}. That is an altimeter setting rather than the pressure at the pad. Clear the `
         + 'field under Launch conditions and the app uses the standing pressure for the site; left '
         + 'as it is, the air is too dense and the motor loses the extra thrust thin air gives it.');
     }
   }
   if (machAlt) {
-    const topFt = Math.round(Math.max(...machAlt.map(([, a]) => a)) * FT);
+    const top = fmtAltitude(altitudeUnit, Math.max(...machAlt.map(([, a]) => a)));
     notes.push(`This file carries a Mach-Alt conditions table (${machAlt.length} point${machAlt.length === 1 ? '' : 's'}, `
-      + `to ${topFt} ft) — pick it under Drag analysis → Conditions to sweep at the `
+      + `to ${top} ${altitudeUnit}) — pick it under Drag analysis → Conditions to sweep at the `
       + 'file’s altitudes instead of sea level.');
   }
   if (unattached.size) {
