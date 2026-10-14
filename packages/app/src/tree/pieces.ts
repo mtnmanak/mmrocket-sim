@@ -18,6 +18,7 @@ import { shroudGeometry } from './shroudMesh.js';
 import { noseEnds } from './tailCone.js';
 import { axialLength, axialStart } from './position.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
+import { hiddenPartIds } from './partVisibility.js';
 
 /**
  * THE APP'S 3D GEOMETRY, and nothing else.
@@ -94,7 +95,8 @@ export const isShellPiece = (p: Piece): boolean => !p.innerGlass;
 export type MotorDims = Record<string, { length: number; diameter: number; label?: string }>;
 
 /** Shared with the OBJ exporter — this IS the app's 3D geometry. */
-export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Piece[]; totalLen: number; maxR: number } {
+export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: ReadonlySet<string>): { pieces: Piece[]; totalLen: number; maxR: number } {
+  const hidden = hiddenPartIds(tree, hiddenIds);
   tree = resolveTransitionRadii(tree);
   const pieces: Piece[] = [];
   let maxR = 0.005;
@@ -327,6 +329,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
     mount: MountSurface = flatMount(pRadius, pLen),
   ) => {
     for (const child of parent.children ?? []) {
+      if (child.id && hidden.has(child.id)) continue;
       if (child.type === 'trapezoidfinset' || child.type === 'ellipticalfinset' || child.type === 'freeformfinset') {
         addFins(child, pStart, pLen, mount, xform);
       } else if (child.type === 'tubefinset') {
@@ -515,6 +518,11 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims): { pieces: Pie
       // The kernel's length — a cleared one is its type's default, not 0
       // (audit 2026-09-30, row 373 regressed: only position.ts had changed).
       const len = axialLength(n);
+      if (n.id && hidden.has(n.id)) {
+        // Keep the station of every following part even when this one is hidden (C-B20).
+        if (n.type === 'nosecone' || n.type === 'bodytube' || n.type === 'transition') x += len;
+        continue;
+      }
       if (n.type === 'nosecone') {
         const R = kernelNum(n, 'aftRadius');
         // A tail cone (flipped) points aft: base forward (tailCone.ts).

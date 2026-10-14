@@ -709,6 +709,12 @@ shown. (To be offered there at all, a canopy needs a diameter and a drag coeffic
 
 ## Visualizing the Design
 
+### Hide and show parts
+
+Use the eye button beside a part in the component tree to hide it and its children from the **2D**, **3D** and **Aft** views. A crossed-out eye and **hidden** label mark parts hidden from the views. You can still select and edit a hidden part from the tree. Showing a child also shows its hidden parents; separately hidden siblings stay hidden. **Show all** restores every part.
+
+Hiding changes the views only. Hidden parts still count in mass, CG, aerodynamics and every flight number, and the CG and CP markers describe the complete rocket. The choice lasts until you reload or open a design, is shared across the app's views, and is not saved in a design file. Drawing and image exports follow the visible parts; 3D model and printing exports keep their usual parts.
+
 As you build, five views show you the design — a scale side view, an end-on aft view, a rotatable 3D shell, printable 1:1 fin templates, and a drag-analysis chart.
 
 ## The 2D schematic

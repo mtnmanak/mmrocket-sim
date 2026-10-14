@@ -11,6 +11,7 @@ import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { findAllowance, solePinnedStage } from './services/buildAllowance.js';
 import { buildDesign, KERNEL_HANDLES } from './services/buildDesign.js';
+import { flyBuiltDesign } from './services/simulateDesign.js';
 import { catalogueMotorMass } from './services/hardwareMass.js';
 import { classLabel, MOTOR_DB, setCatalogueOverlay } from './services/motorDb.js';
 import { discardCatalogueOverlay } from './services/catalogueOverlay.js';
@@ -49,6 +50,14 @@ vi.mock('./services/buildAllowance.js', async (importOriginal) => {
     findAllowance: vi.fn(real.findAllowance),
     solePinnedStage: vi.fn(real.solePinnedStage),
   };
+});
+vi.mock('./services/buildDesign.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./services/buildDesign.js')>();
+  return { ...real, buildDesign: vi.fn(real.buildDesign) };
+});
+vi.mock('./services/simulateDesign.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./services/simulateDesign.js')>();
+  return { ...real, flyBuiltDesign: vi.fn(real.flyBuiltDesign) };
 });
 vi.mock('./services/nozzleCheck.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/nozzleCheck.js')>();
@@ -215,6 +224,63 @@ afterEach(async () => {
   await unmountAll();
   discardCatalogueOverlay();
   vi.unstubAllGlobals();
+});
+
+it.each([360, 1200])('C-B20 hiding is session-only and leaves build and launch inputs unchanged at %i px', async width => {
+  viewport(width);
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, daylight: width === 360 }));
+  const host = await mountApp();
+  expect(host.querySelector('.viz-root')?.getAttribute('data-contrast')).toBe(width === 360 ? 'high' : null);
+  await waitFor(starterStored, 'starter autosave');
+  await settle(500);
+  const sessionBefore = peekSession()!;
+  const launch = () => host.querySelector<HTMLButtonElement>('.vitals-launch')!;
+  await waitFor(() => launch()?.disabled === false, 'launch ready');
+  const fliesBefore = vi.mocked(flyBuiltDesign).mock.calls.length;
+  await act(async () => { launch().click(); });
+  await waitFor(() => vi.mocked(flyBuiltDesign).mock.calls.length > fliesBefore, 'first launch input');
+  await waitFor(() => host.textContent!.includes('Launch report'), 'first flight finished');
+  const first = vi.mocked(flyBuiltDesign).mock.calls.at(-1)![0];
+  await openTab(host, 'Design');
+  const buildCount = vi.mocked(buildDesign).mock.calls.length;
+  const buildInput = vi.mocked(buildDesign).mock.calls.at(-1)![0];
+  const stageRow = host.querySelectorAll<HTMLElement>('.tree-box [role="treeitem"]')[1]!;
+  const hide = stageRow.querySelector<HTMLButtonElement>('.tree-visibility')!;
+  expect(hide).not.toBeNull();
+  await act(async () => { hide.focus(); hide.click(); });
+  expect(vi.mocked(buildDesign).mock.calls.length).toBe(buildCount);
+  expect(hide.getAttribute('aria-pressed')).toBe('true');
+  expect(document.activeElement).toBe(hide);
+  expect(host.querySelectorAll('.tree-schematic [aria-label^="Select "]')).toHaveLength(0);
+  await act(async () => { button(host, 'Aft').click(); });
+  expect(host.querySelectorAll('.aft-svg circle, .aft-svg polygon, .aft-svg path')).toHaveLength(0);
+  await openTab(host, 'Motors & Configuration');
+  expect(host.querySelectorAll('.tree-schematic [aria-label^="Select "]')).toHaveLength(0);
+  expect(host.querySelectorAll('.aft-svg circle, .aft-svg polygon, .aft-svg path')).toHaveLength(0);
+  await openTab(host, 'Design');
+  await settle(500);
+  expect(vi.mocked(buildDesign).mock.calls.length).toBe(buildCount);
+  expect(vi.mocked(buildDesign).mock.calls.at(-1)![0]).toBe(buildInput);
+  expect(peekSession()!.tree).toEqual(sessionBefore.tree);
+  expect(peekSession()!.mountMotors).toEqual(sessionBefore.mountMotors);
+  expect(peekSession()!.launch).toEqual(sessionBefore.launch);
+  const count = vi.mocked(flyBuiltDesign).mock.calls.length;
+  await act(async () => { launch().click(); });
+  await waitFor(() => vi.mocked(flyBuiltDesign).mock.calls.length > count, 'hidden flight input');
+  await waitFor(() => host.textContent!.includes('Launch report'), 'hidden flight finished');
+  const hidden = vi.mocked(flyBuiltDesign).mock.calls.at(-1)![0];
+  for (const key of ['tree', 'derived', 'launch', 'aero', 'working', 'flightOverrides', 'provenance'] as const) {
+    expect(hidden[key], key).toEqual(first[key]);
+  }
+  expect(hidden.built).toBe(first.built);
+  await openTab(host, 'Design');
+  await act(async () => { button(host, 'Show all').click(); });
+  await act(async () => { button(host, '2D').click(); });
+  expect(host.querySelectorAll('.tree-schematic [aria-label^="Select "]').length).toBeGreaterThan(0);
+  await act(async () => { host.querySelector<HTMLButtonElement>('.tree-visibility')!.click(); });
+  await unmountAll();
+  const reloaded = await mountApp();
+  expect(reloaded.querySelector<HTMLButtonElement>('.tree-visibility')!.getAttribute('aria-pressed')).toBe('false');
 });
 
 it.each([360, 1200])('shows file-owned desktop predictions on Results at %i px without requiring an app flight', async width => {

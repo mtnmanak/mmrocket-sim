@@ -11,6 +11,7 @@ import { axialLength, axialStart } from './position.js';
 import { drawnRadius, profileMountOf } from './schematicLayout.js';
 import { noseEnds } from './tailCone.js';
 import { num } from './nodeNum.js';
+import { hiddenPartIds } from './partVisibility.js';
 
 
 // Keep the pure layout walk separate from interaction/rendering (audit 2026-10-11, S3b-4).
@@ -56,8 +57,9 @@ export interface AftLayout {
  * the whole tree to rebuild identical shapes: jank on pods and clusters.
  */
 export function aftLayout(
-  tree: RocketTree, roll: number, motors?: Record<string, MotorDims>,
+  tree: RocketTree, roll: number, motors?: Record<string, MotorDims>, hiddenIds?: ReadonlySet<string>,
 ): AftLayout {
+  const hidden = hiddenPartIds(tree, hiddenIds);
   tree = resolveTransitionRadii(tree);
   // Painter's layers: hulls (opaque, big→small), then internals, then externals.
   const hulls: Shape[] = [];
@@ -119,6 +121,7 @@ export function aftLayout(
     mount: MountSurface = flatMount(pRadius, pLen),
   ) => {
     for (const child of parent.children ?? []) {
+      if (child.id && hidden.has(child.id)) continue;
       const t = child.type;
       if (isAssembly(t)) {
         const podRadius = resolveAssemblyRadius(child, pRadius);
@@ -306,6 +309,7 @@ export function aftLayout(
         continue;
       }
       const len = axialLength(n);
+      if (n.id && hidden.has(n.id)) { x += len; continue; }
       const { r, mount } = chainSurface(n, len);
       if (r > 0) {
         hulls.push({

@@ -372,7 +372,8 @@ function CalloutLabel({ text, color, position, height, gap, place = 'right' }: {
   );
 }
 
-export function Rocket3D({ tree, info, motors, exportData, onError }: {
+export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }: {
+  hiddenIds?: ReadonlySet<string>;
   tree: RocketTree;
   info: StaticInfo | null;
   /** Loaded motor cases keyed by mount node id — rendered seated at the
@@ -385,7 +386,7 @@ export function Rocket3D({ tree, info, motors, exportData, onError }: {
 }) {
   const { prefs, setPrefs } = usePrefs();
   const markers = markerVisibility(prefs.markers3d);
-  const { pieces, totalLen, maxR } = useMemo(() => buildPieces(tree, motors), [tree, motors]);
+  const { pieces, totalLen, maxR } = useMemo(() => buildPieces(tree, motors, hiddenIds), [tree, motors, hiddenIds]);
   const r3f = useRef<{ gl: THREE.WebGLRenderer; scene: THREE.Scene; camera: THREE.Camera } | null>(null);
 
   // Hi-res snapshot (issue 2026-08-11b): re-render the SAME scene/camera at

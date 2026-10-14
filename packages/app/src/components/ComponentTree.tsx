@@ -4,8 +4,10 @@ import { clickable } from './clickable.js';
 import type { ComponentNode, ComponentType, RocketTree } from '@online-openrocket/engine';
 import { allowedChildren, DISPLAY_NAME } from '../tree/schema.js';
 import { Icon } from './Icon.js';
+import { Note } from './Note.js';
 import { findParent, stageIndexOf, type ParentId } from '../tree/treeModel.js';
 import { lookupTable } from '../services/xmlUtil.js';
+import { hiddenPartIds } from '../tree/partVisibility.js';
 
 const TYPE_ICON = lookupTable<string>({
   stage: '▤',
@@ -17,7 +19,10 @@ const TYPE_ICON = lookupTable<string>({
   fairing: '⌂',
 } satisfies Partial<Record<ComponentType, string>>) as Partial<Record<ComponentType, string>>;
 
-function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove, onDelete, onDuplicate, onCopy, onCut }: {
+function NodeRow({ node, depth, selectedId, soleStageId, rove, hidden, visibilityNoteId, onToggleVisibility, onSelect, onMove, onDelete, onDuplicate, onCopy, onCut }: {
+  hidden: ReadonlySet<string>;
+  visibilityNoteId: string;
+  onToggleVisibility?: (id: string) => void;
   node: ComponentNode;
   depth: number;
   selectedId: string | null;
@@ -42,6 +47,7 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove,
   onCut: (id: string) => void;
 }) {
   const selected = node.id === selectedId;
+  const isHidden = !!node.id && hidden.has(node.id);
   const label = node.name ?? DISPLAY_NAME[node.type];
   // Named by its label and badges, not by its content (audit 2026-09-22): a
   // treeitem takes its name from everything inside it, so the selected row
@@ -50,7 +56,7 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove,
   const isStage = node.type === 'stage';
   const isMount = node['motorMount'] === true;
   const hasComment = typeof node['comment'] === 'string' && node['comment'].length > 0;
-  const labelledBy = [labelId, isStage && `${labelId}-stage`, isMount && `${labelId}-motor`, hasComment && `${labelId}-comment`]
+  const labelledBy = [labelId, isStage && `${labelId}-stage`, isMount && `${labelId}-motor`, hasComment && `${labelId}-comment`, isHidden && `${labelId}-hidden`]
     .filter(Boolean).join(' ');
   return (
     <>
@@ -70,8 +76,18 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove,
         {...(node.children?.length ? { 'aria-expanded': true } : {})}
         {...rove(node.id!)}
       >
+        {onToggleVisibility && node.id && (
+          <button type="button" className="tree-visibility"
+            aria-label={`${isHidden ? 'Show' : 'Hide'} ${label} in views`}
+            aria-pressed={isHidden} aria-describedby={visibilityNoteId}
+            title={`${isHidden ? 'Show' : 'Hide'} ${label} and its children in views`}
+            onClick={e => { e.stopPropagation(); onToggleVisibility(node.id!); }}>
+            <Icon name={isHidden ? 'eye-off' : 'eye'} size={16} />
+          </button>
+        )}
         <span className="tree-icon">{TYPE_ICON[node.type] ?? '·'}</span>
         <span className="tree-label" id={labelId}>{label}</span>
+        {isHidden && <span className="tree-badge" id={`${labelId}-hidden`}>hidden</span>}
         {isStage && <span className="tree-badge" id={`${labelId}-stage`}>stage</span>}
         {isMount && <span className="tree-badge" id={`${labelId}-motor`}>motor</span>}
         {hasComment && <span className="tree-badge" id={`${labelId}-comment`} title="This part has a comment">note</span>}
@@ -106,6 +122,7 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove,
       </div>
       {(node.children ?? []).map((c) => (
         <NodeRow key={c.id} node={c} depth={depth + 1} selectedId={selectedId} soleStageId={soleStageId} rove={rove}
+          hidden={hidden} visibilityNoteId={visibilityNoteId} onToggleVisibility={onToggleVisibility}
           onSelect={onSelect} onMove={onMove} onDelete={onDelete} onDuplicate={onDuplicate}
           onCopy={onCopy} onCut={onCut} />
       ))}
@@ -116,7 +133,11 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, onSelect, onMove,
 export function ComponentTree({
   tree, selectedId, onSelect, onMove, onDelete, onDuplicate, onAdd, onAddStage,
   clipboard, onCopy, onCut, onPaste, treeElementRef,
+  hiddenIds, onToggleVisibility, onShowAll,
 }: {
+  hiddenIds?: ReadonlySet<string>;
+  onToggleVisibility?: (id: string) => void;
+  onShowAll?: () => void;
   /** Allows history to preserve keyboard focus when restoring selection. */
   treeElementRef?: RefObject<HTMLDivElement>;
   tree: RocketTree;
@@ -135,6 +156,8 @@ export function ComponentTree({
   /** Pastes the clipboard as a child of the given parent. */
   onPaste: (parentId: string) => void;
 }) {
+  const visibilityNoteId = useId();
+  const hidden = useMemo(() => hiddenPartIds(tree, hiddenIds), [tree, hiddenIds]);
   // Which add menu is open, keyed by the target parent's id ('stage' = first stage).
   const [addOpen, setAddOpen] = useState<string | null>(null);
   const [addSelection, setAddSelection] = useState(selectedId);
@@ -310,6 +333,12 @@ export function ComponentTree({
 
   return (
     <div>
+      {onToggleVisibility && (
+        <div className="tree-visibility-note">
+          <Note as="p" tier="information" id={visibilityNoteId}>Hide parts and their children in the views only. Hidden parts still count in mass, CG, aerodynamics and every flight number.</Note>
+          <button type="button" className="file-btn" onClick={onShowAll} disabled={hidden.size === 0}>Show all</button>
+        </div>
+      )}
       <div className="tree-box" role="tree" aria-label="Rocket components" ref={boxRef}>
         {/* The root row was a bare onClick div — no tab stop, no key handler —
             while every other row went through clickable(). It is the tree's
@@ -325,6 +354,7 @@ export function ComponentTree({
         </div>
         {tree.components.map((n) => (
           <NodeRow key={n.id} node={n} depth={1} selectedId={selectedId} rove={rove}
+            hidden={hidden} visibilityNoteId={visibilityNoteId} onToggleVisibility={onToggleVisibility}
             soleStageId={tree.components.length === 1 ? tree.components[0]!.id ?? null : null}
             onSelect={onSelect} onMove={onMove} onDelete={keepFocus(onDelete)}
             onDuplicate={keepFocus(onDuplicate)} onCopy={onCopy} onCut={keepFocus(onCut)} />

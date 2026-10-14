@@ -203,6 +203,7 @@ import { ScaleDialog } from './components/ScaleDialog.js';
 import { WeatherDialog } from './components/WeatherDialog.js';
 import { applyProposal, carrySigmaEstimate, undoApply, withSigmaEstimate, type WeatherSnapshot } from './services/weatherSnapshot.js';
 import { useTreeHistory } from './hooks/useTreeHistory.js';
+import { togglePartVisibility } from './tree/partVisibility.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
 import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
 import { useDesignDirty, type PreRankRestore } from './hooks/useDesignDirty.js';
@@ -796,6 +797,8 @@ export function App() {
    * preference — reload and the rocket is back at its own clock angles.
    */
   const [viewRoll, setViewRoll] = useState(0);
+  // C-B20: session view state, outside design history, autosave and flight inputs.
+  const [hiddenPartIds, setHiddenPartIds] = useState<ReadonlySet<string>>(() => new Set());
   const [confirmNew, setConfirmNew] = useState(false);
   /** A decoded share-link design waiting for the user's OK to replace theirs. */
   const [shareOffer, setShareOffer] = useState<ImportedDesign | null>(null);
@@ -1000,6 +1003,7 @@ export function App() {
    * exactly the shape of thing that gets fixed in one place only.
    */
   const startNewDesign = () => {
+    setHiddenPartIds(new Set());
     motorChoices.current.clear();
     // ONE emptyTree(), for BOTH the state and the mark (importApply's
     // planNewDesign says why that matters). Pressing ✕ New twice used to raise
@@ -2604,6 +2608,7 @@ export function App() {
     // never reaches the markSaved at the end, which is what made the loser's
     // work look saved.
     if (!openSeq.isCurrent(openId)) return;
+    setHiddenPartIds(new Set());
     // Only a winning open replaces the old parse on screen and its notice
     // (audit 2026-10-11, S2-4).
     setRestoredByOlderBuild(false);
@@ -4031,6 +4036,9 @@ export function App() {
               <input id="rocket-name" value={tree.name ?? ''} onChange={(e) => setTree({ ...tree, name: e.target.value })} />
             </div>
             <ComponentTree
+              hiddenIds={hiddenPartIds}
+              onToggleVisibility={id => setHiddenPartIds(ids => togglePartVisibility(tree, ids, id))}
+              onShowAll={() => setHiddenPartIds(new Set())}
               treeElementRef={treeElementRef}
               tree={tree}
               selectedId={selectedId}
@@ -4170,6 +4178,7 @@ export function App() {
                 {view === '2d'
                   ? (
                     <TreeSchematic
+                      hiddenIds={hiddenPartIds}
                       tree={tree}
                       info={built?.info ?? null}
                       motors={motorDims}
@@ -4196,12 +4205,12 @@ export function App() {
                     // makes a lazy chunk that fails to DOWNLOAD land here too.
                     <View3DBoundary onBack={() => setView('2d')}>
                       <Suspense fallback={<div className="hero-loading">Loading 3D view…</div>}>
-                        <Rocket3D tree={tree} info={built?.info ?? null} motors={motorDims} exportData={viewExportData}
+                        <Rocket3D tree={tree} hiddenIds={hiddenPartIds} info={built?.info ?? null} motors={motorDims} exportData={viewExportData}
                           onError={setHeroExportFailure} />
                       </Suspense>
                     </View3DBoundary>
                   )
-                  : <AftView tree={tree} motors={motorDims} roll={viewRoll} onRoll={setViewRoll} />}
+                  : <AftView tree={tree} hiddenIds={hiddenPartIds} motors={motorDims} roll={viewRoll} onRoll={setViewRoll} />}
               </div>
               {built && <StatsChip info={built.info} drawerOpen={hero.open} tight={hero.tight} />}
               {/* THE DRAWER IS AN OVERLAY ONLY WHERE IT CAN AFFORD TO BE
@@ -4356,6 +4365,7 @@ export function App() {
             <h2>Rocket — motors drawn to scale</h2>
             <div className="rocket-stage" data-view="2d">
               <TreeSchematic
+                hiddenIds={hiddenPartIds}
                 tree={tree}
                 info={built?.info ?? null}
                 motors={motorDims}
@@ -4380,7 +4390,7 @@ export function App() {
               return (
                 <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', marginTop: 8 }}>
                   <div className="rocket-stage" style={{ flex: '0 1 300px' }}>
-                    <AftView tree={tree} motors={motorDims} roll={viewRoll} onRoll={setViewRoll} />
+                    <AftView tree={tree} hiddenIds={hiddenPartIds} motors={motorDims} roll={viewRoll} onRoll={setViewRoll} />
                   </div>
                   <p className="comp-stats" style={{ margin: '4px 0', maxWidth: 260 }}>
                     {hasRadial(tree.components)

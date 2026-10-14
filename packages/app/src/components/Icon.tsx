@@ -8,9 +8,11 @@ import type { ReactNode } from 'react';
 
 export type IconName =
   | 'rocket' | 'wrench' | 'flame' | 'chart'
-  | 'folder' | 'save' | 'book' | 'sliders' | 'zap' | 'sun' | 'bug' | 'search';
+  | 'folder' | 'save' | 'book' | 'sliders' | 'zap' | 'sun' | 'bug' | 'search' | 'eye' | 'eye-off';
 
 const PATHS: Record<IconName, ReactNode> = {
+  eye: <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></>,
+  'eye-off': <><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /><path d="m3 3 18 18" /></>,
   bug: (
     <>
       <path d="m8 2 1.88 1.88" />
