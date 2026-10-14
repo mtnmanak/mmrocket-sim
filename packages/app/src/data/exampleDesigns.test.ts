@@ -16,6 +16,7 @@ import { DEFAULT_CONDITIONS } from '../services/launchConditions.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
 import { statedWeightTextFor } from '../services/unitText.js';
 import { shownStability, stabilityState } from '../services/simReport.js';
+import { BULK_MATERIALS } from './materials.js';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 const assetPath = (name: string) => resolve('src/data/examples', name);
@@ -86,9 +87,18 @@ it.each([
     expect(radius).toBeGreaterThan(0);
     expect(length).toBeGreaterThan(0);
     expect(radius + Math.abs(Number(packed.node['radialPosition'] ?? 0)), 'packed radius clears the bore').toBeLessThanOrEqual(Number(parent['outerRadius']) - Number(parent['thickness']));
-    // C-A3: reshape the original 12.5 mm radius x 25 mm bundle, not its volume.
-    // Absolute tolerance 5e-13 m³ allows decimal serialization of the cylinder.
-    expect(Math.PI * radius ** 2 * length).toBeCloseTo(Math.PI * 0.0125 ** 2 * 0.025, 12);
+    // C-A3: packing must at least contain the modeled canopy's solid nylon.
+    expect(packed.node['surfaceMaterialName']).toBe('Ripstop nylon');
+    const nylonDensity = BULK_MATERIALS.find(m => m.name === 'Nylon')!.density;
+    const canopyMass = Math.PI * (Number(packed.node['diameter']) / 2) ** 2 * Number(packed.node['surfaceDensity']);
+    const envelope = Math.PI * radius ** 2 * length;
+    expect(envelope, `${packed.node.name}: envelope contains the solid canopy`).toBeGreaterThanOrEqual(canopyMass / nylonDensity);
+    if (packed.node['lineMaterialName'] === 'Braided nylon (2 mm, 1/16 in)') {
+      const lineMass = Number(packed.node['lineCount']) * Number(packed.node['lineLength']) * Number(packed.node['lineDensity']);
+      const solidVolume = Math.max(canopyMass + lineMass, Number(packed.node['overrideMass'])) / nylonDensity;
+      // The main's educational packing assumption reserves at least 60% for voids.
+      expect(solidVolume / envelope, `${packed.node.name}: main packing allows voids`).toBeLessThanOrEqual(0.4);
+    }
     expect(packed.start, 'packed front stays in the tube').toBeGreaterThanOrEqual(body.start);
     expect(packed.end, 'packed rear stays in the tube').toBeLessThanOrEqual(body.end);
     for (const obstacle of stations.filter(s => s !== packed && s.parent === parent && ['masscomponent', 'innertube', 'parachute'].includes(s.node.type))) {
@@ -114,7 +124,7 @@ it.each([
   }
 });
 
-it.each(EXAMPLE_DESIGNS)('uses cuttable stock or explains the extended airframe in $id', async example => {
+it.each(EXAMPLE_DESIGNS)('uses cuttable bundled tube stock in $id', async example => {
   const data = bytes(example.fileName);
   const presets = await loadBundledPresets();
   const imported = await openDesignFile(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), example.fileName, { presets });
@@ -125,20 +135,23 @@ it.each(EXAMPLE_DESIGNS)('uses cuttable stock or explains the extended airframe 
     expect(Number(tube['outerRadius']) * 2).toBeCloseTo(Number(stock.outsideDiameter), 9);
     expect((Number(tube['outerRadius']) - Number(tube['thickness'])) * 2).toBeCloseTo(Number(stock.insideDiameter), 9);
     expect(tube['density']).toBe(stock.material?.density);
-    if (Number(tube['length']) > Number(stock.length) + 1e-9) {
-      expect(example.id).toBe('dual-deploy');
-      expect(tube.type).toBe('bodytube');
-      expect(stock.manufacturer).toBe('Estes');
-      expect(stock.partNo).toBe('30615');
-      expect(tube['length']).toBe(0.55);
-      expect(stock.length).toBe(0.3429);
-      expect(tube['comment']).toContain('Assumed 550 mm continuous airframe');
-      expect(tube['comment']).toContain('342.9 mm stock length');
-      expect(tube['comment']).toContain('cannot be cut from that stock');
-      expect(tube['comment']).toContain('No joining coupler is modeled');
-    } else {
-      expect(Number(tube['length']), `${example.id}: tube can be cut from its linked stock`).toBeLessThanOrEqual(Number(stock.length) + 1e-9);
-    }
+    expect(Number(tube['length']), `${example.id}: tube can be cut from its linked stock`).toBeLessThanOrEqual(Number(stock.length) + 1e-9);
+  }
+  if (example.id === 'dual-deploy') {
+    const nodes = flatten(imported.tree.components);
+    const nose = nodes.find(n => n.type === 'nosecone')!;
+    const body = nodes.find(n => n.type === 'bodytube')!;
+    const stock = linkedPreset(nose, presets)!;
+    expect(stock).toBeDefined();
+    expect(Number(nose['aftRadius']) * 2).toBeCloseTo(Number(stock.outsideDiameter), 9);
+    expect(Number(nose['shoulderRadius']) * 2).toBeCloseTo(Number(stock.shoulderDiameter), 9);
+    expect(nose['length']).toBe(stock.length);
+    expect(nose['shoulderLength']).toBe(stock.shoulderLength);
+    expect(nose['thickness']).toBe(stock.thickness);
+    expect(nose['density']).toBe(stock.material?.density);
+    if (stock.mass) expect(nose['overrideMass']).toBe(stock.mass);
+    expect(Number(nose['aftRadius'])).toBeCloseTo(Number(body['outerRadius']), 9);
+    expect(Number(nose['shoulderRadius']), 'nose shoulder fits the bundled tube bore').toBeLessThanOrEqual(Number(body['outerRadius']) - Number(body['thickness']));
   }
 });
 
