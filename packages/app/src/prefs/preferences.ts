@@ -113,6 +113,8 @@ export interface Preferences {
    * gutters back.
    */
   rulers2d?: boolean;
+  /** N033: opt-in schematic cutaway; the design and .ork are unchanged. */
+  walls2d?: boolean;
   /** N005: resting numeric fields only; absent/auto retains the existing formatter. */
   fieldPrecision?: 'auto' | 3 | 4;
   /** N009/N013: viewer settings, never design or simulation inputs. Offset is SI metres. */

@@ -52,6 +52,7 @@ function load(): Preferences {
     if (!['radius', 'diameter'].includes(parsed.radiusMode!)) delete parsed.radiusMode;
     if (!['both', 'callout', 'axis', 'off'].includes(parsed.markers3d!)) delete parsed.markers3d;
     if (!['cal', 'pct', 'both'].includes(parsed.stabilityUnit!)) delete parsed.stabilityUnit;
+    if (typeof parsed.walls2d !== 'boolean') delete parsed.walls2d;
     if (!['creation', 'name', 'name-desc', 'motor', 'motor-desc'].includes(parsed.configurationSort!)) delete parsed.configurationSort;
     if (parsed.fieldPrecision !== 'auto' && parsed.fieldPrecision !== 3 && parsed.fieldPrecision !== 4) delete parsed.fieldPrecision;
     if (!['nose', 'aft', 'offset'].includes(parsed.rulerReference2d!)) delete parsed.rulerReference2d;

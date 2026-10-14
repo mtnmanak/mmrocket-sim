@@ -119,6 +119,7 @@ export function schematicSvg(
   // drawing (components/RulerGuides.tsx) — and their positions, like the
   // on-screen ruler's, are resolved for the zoomed view.
   clone.querySelector('[data-guides]')?.remove();
+  clone.querySelector('[data-caliper]')?.remove();
 
   let inner = new XMLSerializer().serializeToString(clone);
   // The wrapper svg re-declares size/viewBox; keep only the content.
@@ -132,6 +133,7 @@ export function schematicSvg(
   const fs = Math.max(11, Math.round(viewW * 0.016));
   const lineH = Math.round(fs * 1.45);
   const lines = dataHeaderLines(d);
+  if (clone.querySelector('[data-wall]')) lines.push('Schematic cutaway: wall bands show thickness');
   const headerH = lineH * (lines.length + 1);
   const totalH = viewH + headerH;
 

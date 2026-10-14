@@ -2918,12 +2918,31 @@ html {
   right: 6px;
   z-index: 2;
   display: flex;
-  gap: 4px;
   flex-wrap: wrap;
+  max-width: calc(100% - 80px);
   justify-content: flex-end;
-  max-width: calc(100% - 72px);
+  gap: 4px;
 }
 
+.schematic-tool-notes {
+  box-sizing: border-box;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 6px 8px;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  font-size: 12px;
+  max-height: 80px;
+  overflow: auto;
+}
+
+.schematic-tool-notes label { display: flex; align-items: center; gap: 4px; }
 .schematic-ruler-settings { position: static; }
 .schematic-ruler-settings summary { cursor: pointer; }
 .schematic-ruler-settings summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
