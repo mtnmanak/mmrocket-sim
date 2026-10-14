@@ -70,6 +70,7 @@ import {
  * the design screen (and the launch field's cell signal) does not pay for it.
  */
 const Rocket3D = lazy(() => import('./components/Rocket3D.js').then((m) => ({ default: m.Rocket3D })));
+const ExampleDesignsDialog = lazy(() => import('./components/ExampleDesignsDialog.js').then(m => ({ default: m.ExampleDesignsDialog })));
 /**
  * The user guide (data/userGuide.ts) and the changelog (changelog.ts) are the
  * two biggest texts in the app — 270 KB and 461 KB of source at v0.140, and
@@ -892,6 +893,7 @@ export function App() {
   /** The file the user picked while there was unsaved work — held for the prompt. */
   const [pendingOpen, setPendingOpen] = useState<File | null>(null);
   const [showRecent, setShowRecent] = useState(false);
+  const [showExamples, setShowExamples] = useState(false);
   const [recentNote, setRecentNote] = useState<string | null>(null);
   /**
    * Which OPEN is current. Opening a design is asynchronous — a file read, the
@@ -3400,6 +3402,7 @@ export function App() {
               }} />
           </label>
           <button className="file-btn" onClick={() => setShowRecent(true)}>Recent…</button>
+          <button className="file-btn" onClick={() => setShowExamples(true)}>Examples…</button>
           </div>
           <div className="file-menu-wrap">
             {/* A DISCLOSURE button, not a menu button. It used to carry
@@ -3767,6 +3770,11 @@ export function App() {
           onClose={() => setShowBatch(false)}
         />
       )}
+      {showExamples && <LazyDialog label="Example designs" className="modal-card example-design-dialog" onClose={() => setShowExamples(false)}>
+        <ExampleDesignsDialog onClose={() => setShowExamples(false)} onOpen={file => {
+          setShowExamples(false);
+          if (dirty) setPendingOpen(file); else void onOpenOrk(file);
+        }} /></LazyDialog>}
       {showRecent && <RecentDesignsDialog onClose={() => setShowRecent(false)} onOpen={file => {
         setShowRecent(false);
         if (dirty) setPendingOpen(file); else void onOpenOrk(file);

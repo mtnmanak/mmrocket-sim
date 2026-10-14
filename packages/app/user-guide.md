@@ -79,6 +79,12 @@ If your first rocket flies stable and lands soft — congratulations, you're don
 
 ## Where to go next
 
+### Open an example design
+
+Choose **Examples…** beside **Open…** to open one of six layouts: minimum-diameter single stage, dual-deploy high power, two stages with recovery, a three-motor cluster, a boattail, or freeform rounded fins. Each is an ordinary `.ork` design with motors from the bundled catalogue; edit it and use **Save .ork** to keep your own copy. The app asks before replacing unsaved changes. Closing the chooser while an example loads keeps the current design.
+
+The chooser explains each layout. Select a stage in **Design** and read its **Comment** for the explanation and assumptions. These are educational layouts with assumed masses, a vertical 2 m launch guide, no wind, and sea-level standard air. Their apogee and descending-altitude recovery settings assume electronic deployment; the cluster assumes every motor ignites. An assumed mass or balance point can make the app show more stability margin than the built rocket has. Measure the built mass and balance point and set the actual launch conditions before using a flight result. The examples do not establish that a built rocket is safe to fly.
+
 Now that you've seen a flight end to end, the rest of this guide shows you how to make it *your* rocket:
 
 - **Build and edit components** — reshape the nose, resize the body, design custom fins (including freeform), and add stages using the component tree.

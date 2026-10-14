@@ -29,17 +29,18 @@ import { useDialog } from './useDialog.js';
  * Escape is enough, and it takes the same non-destructive branch each modal's
  * Cancel / Keep button already takes.
  */
-export function Modal({ label, onClose, children }: {
+export function Modal({ label, onClose, children, className = '' }: {
   /** The accessible name — what a screen reader announces on open. */
   label: string;
   /** The modal's non-destructive dismissal, run on Escape. */
   onClose: () => void;
   children: ReactNode;
+  className?: string;
 }) {
   const ref = useDialog<HTMLDivElement>(onClose);
   return (
     <div className="modal-backdrop">
-      <div className="modal-card" role="dialog" aria-modal="true" aria-label={label}
+      <div className={`modal-card ${className}`.trim()} role="dialog" aria-modal="true" aria-label={label}
         ref={ref} tabIndex={-1}>
         {children}
       </div>
