@@ -119,7 +119,8 @@ it('documents the material controls, browser-only storage, file boundary and sit
     'Typing a bulk or fillet density afterwards removes the name; set the density first.',
     "For canopy and line materials, the name applies to the part's current density, which the hint under the name field states.",
     'Canopy and line densities come only from the material picked; to set a custom value, edit a saved entry in **My materials**, then pick that entry again.',
-    'discard zero surface and line densities (canopies, streamers, parachute lines and shock cords)',
+    'An `.ork` keeps an explicit zero surface or line density (canopies, streamers, parachute lines and shock cords)',
+    "the app's `.rkt` importer still discards such zeros",
     "cannot read desktop OpenRocket's own material database"]) expect(section).toContain(words);
   expect(guide).not.toContain('names stay when');
   expect(section).not.toContain('choose **Custom**, enter its density');
