@@ -3898,3 +3898,26 @@ describe('.ork numeric field syntax', () => {
     expect(result.notes.join(' ')).toMatch(/invalid <rotation>/);
   });
 });
+
+
+describe('Round 1 catalogue-linked automatic rings', () => {
+  it.each(['centeringring', 'bulkhead'] as const)('S7c-1 imports desktop automatic %s without catalogue radii', async type => {
+    const rows = await loadPresets();
+    const row = rows.find(p => p.kind === (type === 'centeringring' ? 'CenteringRing' : 'BulkHead') && p.partNo === 'CR5060-W')
+      ?? rows.find(p => p.kind === (type === 'centeringring' ? 'CenteringRing' : 'BulkHead'))!;
+    const xml = '<openrocket version="1.10" creator="OpenRocket 24.12"><rocket><name>Auto</name>'
+      + '<subcomponents><stage><name>S</name><subcomponents><bodytube><name>B</name>'
+      + '<length>0.3</length><radius>0.03245</radius><thickness>0.0005</thickness><subcomponents>'
+      + '<' + type + '><name>Automatic ring</name><length>0.003175</length>'
+      + '<material type="bulk" density="680">Test</material>'
+      + '<preset manufacturer="' + row.manufacturer + '" partno="' + row.partNo + '" digest="test"/>'
+      + '<outerradius>auto</outerradius><innerradius>auto</innerradius></' + type + '>'
+      + '</subcomponents></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>';
+    const imported = importOrk(xml, { presets: rows });
+    const ring = flatten(imported.tree.components).find(n => n.type === type)!;
+    expect(ring['presetPartNo']).toBe(row.partNo);
+    expect(ring['outerRadius']).toBeUndefined();
+    expect(ring['innerRadius']).toBeUndefined();
+    expect(imported.notes.join(' ')).not.toMatch(/took [^.]*radius/);
+  });
+});

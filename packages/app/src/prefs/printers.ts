@@ -122,7 +122,7 @@ export function toPrinterVolume(p: PrinterPrefs | undefined): PrinterVolume | nu
     // gap"). The cost is a multi-hour print of parts that will not assemble, so
     // 0 is treated as unset and takes the 0.15 mm default.
     clearance: p.clearance > 0 ? p.clearance : DEFAULT_PRINT_CLEARANCE,
-    ...(p.spigot !== undefined ? { spigot: p.spigot } : {}),
+    ...(p.spigot === 0 || (typeof p.spigot === 'number' && Number.isFinite(p.spigot) && p.spigot > 0) ? { spigot: p.spigot } : {}),
   };
 }
 
@@ -137,7 +137,7 @@ export function normalizePrinter(raw: unknown): PrinterPrefs | undefined {
   const p = raw as Partial<PrinterPrefs>;
   const ok = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0;
   if (!ok(p.x) || !ok(p.y) || !ok(p.z)) return undefined;
-  return {
+  const out: PrinterPrefs = {
     ...(p as PrinterPrefs),
     preset: typeof p.preset === 'string' ? p.preset : presetMatching(p.x, p.y, p.z),
     margin: ok(p.margin) ? p.margin : DEFAULT_PRINT_MARGIN,
@@ -146,4 +146,6 @@ export function normalizePrinter(raw: unknown): PrinterPrefs | undefined {
     // is repaired to the default rather than carried forward.
     clearance: ok(p.clearance) ? p.clearance : DEFAULT_PRINT_CLEARANCE,
   };
+  if (out.spigot !== undefined && !ok(out.spigot) && out.spigot !== 0) delete out.spigot;
+  return out;
 }

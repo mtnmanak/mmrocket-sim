@@ -8,6 +8,7 @@ import { shortHash, type MotorMeta } from './simReport.js';
 import { APP_VERSION } from '../version.js';
 import { MIN_IMPORTED_TIME_STEP_S, validDesktopPredictions, type MeasuredFigures, type OrkMotorRef } from './orkFile.js';
 import { validWeatherSnapshot, type WeatherSnapshot } from './weatherSnapshot.js';
+import { validWindLevels, validWindProfileSource } from './windProfile.js';
 import { lookupTable } from './xmlUtil.js';
 import type { ImportedSummaryDocument } from './orkFlightData.js';
 import { defaultTree } from '../tree/treeModel.js';
@@ -427,6 +428,30 @@ function readSession(restoreRoot: boolean): SessionState | null {
       }
       s.nozzleModeVersion = 1;
     }
+    const validMotor = (mm: unknown): mm is MountMotor => isTable(mm) && isTable(mm['spec']) && isTable(mm['meta']);
+    let motorsRemoved = false;
+    if (s.mountMotors !== undefined) {
+      if (isTable(s.mountMotors)) {
+        const entries = Object.entries(s.mountMotors).filter(([, mm]) => validMotor(mm));
+        if (entries.length !== Object.keys(s.mountMotors).length) {
+          s.mountMotors = Object.fromEntries(entries);
+          motorsRemoved = true;
+        }
+      } else {
+        delete s.mountMotors;
+        motorsRemoved = true;
+      }
+    }
+    for (const cfg of s.savedConfigs ?? []) {
+      const entries = Object.entries(cfg.motors).filter(([, mm]) => validMotor(mm));
+      if (entries.length !== Object.keys(cfg.motors).length) {
+        cfg.motors = Object.fromEntries(entries);
+        motorsRemoved = true;
+      }
+    }
+    if (motorsRemoved) {
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.motors-removed', 'Unreadable motor records were removed.');
+    }
     // Revive plugged ejection delays (persisted as "Infinity" — JSON has no
     // Infinity literal; a plain stringify would have stored null). The
     // Stage B config presets carry the same MountMotor shape.
@@ -445,6 +470,22 @@ function readSession(restoreRoot: boolean): SessionState | null {
     for (const ref of Object.values(s.unmatchedRefs ?? {})) {
       const d = ref?.delay as unknown;
       if (d === 'Infinity' || d === null) ref.delay = Infinity;
+    }
+    if (isTable(s.launch)) {
+      if (s.launch.timeStepS != null
+          && (typeof s.launch.timeStepS !== 'number' || !Number.isFinite(s.launch.timeStepS) || s.launch.timeStepS <= 0)) {
+        delete s.launch.timeStepS;
+        cautionNote(s.treeRestoreNotes ??= [], 'G04.time-step-reset', 'An unreadable time step was reset to the default.');
+      }
+      if (s.launch.windLevels !== undefined && !validWindLevels(s.launch.windLevels)) {
+        delete s.launch.windLevels;
+        delete s.launch.windProfileSource;
+        cautionNote(s.treeRestoreNotes ??= [], 'G04.wind-profile-removed', 'Unreadable winds aloft were removed.');
+      } else if (s.launch.windProfileSource !== undefined
+          && (!s.launch.windLevels?.length || !validWindProfileSource(s.launch.windProfileSource))) {
+        delete s.launch.windProfileSource;
+        cautionNote(s.treeRestoreNotes ??= [], 'G04.wind-source-removed', 'Unreadable winds aloft source was removed.');
+      }
     }
     // Time-step migration (v0.071). Before this release the app took a design
     // file's own integration time step and MERGED it into the launch conditions

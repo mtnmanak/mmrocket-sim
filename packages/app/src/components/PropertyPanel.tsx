@@ -1,3 +1,4 @@
+import { ringFitFor } from './ringFit.js';
 import { GlossaryHelp } from './GlossaryHelp.js';
 import { componentTerm, fieldTerm } from '../tree/glossaryTerms.js';
 import { Note } from './Note.js';
@@ -23,7 +24,7 @@ import {
 import {
   bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
   mountName, mountRadiusOf, protuberanceCd, protuberanceClass, protuberanceDeliveredCd,
-  protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor,
+  protuberanceExplicitCd, protuberanceFrontalArea, suppressingAncestor, updateNode,
 } from '../tree/treeModel.js';
 import { anchorStarts, axialLength, offsetForStart, positionOf, snapStart, startFromPosition } from '../tree/position.js';
 import { filletMaterialPatch, numericFieldRules } from '../tree/numericFieldRules.js';
@@ -608,8 +609,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
   // What the limits table repaired in the last preset pick, and for WHICH
   // component — scoped like the export note above, for the same reason. The
   // picker has closed by the time the patch lands, so the panel says it.
-  const [presetNoteFor, setPresetNoteFor] = useState<{ id: string | undefined; text: string } | null>(null);
-  const presetNote = presetNoteFor !== null && presetNoteFor.id === node.id ? presetNoteFor.text : null;
+  const [presetNoteFor, setPresetNoteFor] = useState<{
+    id: string | undefined; text: string; values: Pick<ComponentNode, 'outerRadius' | 'innerRadius' | 'presetPartNo'>;
+  } | null>(null);
+  // Undo or a later edit can replace this part without changing its id.
+  const presetNote = presetNoteFor !== null && presetNoteFor.id === node.id
+    && node['outerRadius'] === presetNoteFor.values['outerRadius']
+    && node['innerRadius'] === presetNoteFor.values['innerRadius']
+    && node['presetPartNo'] === presetNoteFor.values['presetPartNo'] ? presetNoteFor.text : null;
+  useEffect(() => { setPresetNoteFor(null); }, [node.id]);
   /**
    * A preset pick, held to the limits table on its way in (seam review of audit
    * 2026-09-22). The table was enforced by the typed commit below and by the
@@ -617,10 +625,17 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
    * SEMROC HTC-11 stored a -10.668 mm wall and a CSV canopy of a million lines
    * a 540 kg chute, which a restored session then repaired with no word said.
    */
-  const applyPreset = (patch: Partial<ComponentNode>) => {
-    const notes: string[] = [];
-    onPatch(limitPatch(node, patch, notes));
-    setPresetNoteFor(notes.length > 0 ? { id: node.id, text: notes.join(' ') } : null);
+  const applyPreset = (patch: Partial<ComponentNode>, notes: string[] = []) => {
+    const limited = limitPatch(node, patch, notes);
+    const picked = { ...node, ...limited };
+    const wroteDiameter = limited['outerRadius'] !== undefined || limited['innerRadius'] !== undefined;
+    const fit = node.id && wroteDiameter ? ringFitFor(updateNode(tree, node.id, limited), picked, {
+      outside: limited['outerRadius'] !== undefined, inside: limited['innerRadius'] !== undefined,
+    }) : null;
+    if (fit) notes.push(...fit.notes);
+    onPatch(limited);
+    setPresetNoteFor(notes.length > 0 ? { id: node.id, text: notes.join(' '),
+      values: { outerRadius: picked['outerRadius'], innerRadius: picked['innerRadius'], presetPartNo: picked['presetPartNo'] } } : null);
   };
 
   /*
@@ -681,6 +696,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
    */
   const detach = () => {
     onPatch(detachPatch());
+    setPresetNoteFor(null);
     setDetachNoteFor({
       id: node.id,
       text: `Detached from ${rowName}. This part keeps every value it has; it is no longer compared `
@@ -1203,7 +1219,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         </>
       )}
       {presetNote && (
-        <Note as="p" tier="caution" className="print-note print-note-warn" role="status">{presetNote}</Note>
+        <Note as="p" tier="caution" className="print-note print-note-warn" role="status">
+          {presetNote}
+        </Note>
       )}
       {(node.type === 'trapezoidfinset' || node.type === 'ellipticalfinset'
         || node.type === 'freeformfinset') && (

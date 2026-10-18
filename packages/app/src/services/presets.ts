@@ -1,6 +1,6 @@
 import { cautionNote } from './importNotes.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
-import { csvCell } from './csvUtil.js';
+import { csvCell, FORMULA_LEAD } from './csvUtil.js';
 import { lookupTable, parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { blankValue } from '../tree/schema.js';
@@ -79,19 +79,45 @@ export async function loadBundledPresets(): Promise<readonly Preset[]> {
 }
 
 /** The shipped catalogue, then this browser's custom presets — what the app's Open… links against. */
-export async function loadPresets(): Promise<Preset[]> {
-  return [...await loadBundledPresets(), ...loadCustomPresets()];
+export async function loadPresets(notes?: string[]): Promise<Preset[]> {
+  return [...await loadBundledPresets(), ...loadCustomPresets(notes)];
 }
 
 const CUSTOM_KEY = 'online-openrocket.custom-presets.v1';
 
-export function loadCustomPresets(): Preset[] {
+const validMaterial = (m: unknown, wantType: string): boolean => {
+  if (m === undefined) return true;
+  if (m === null || typeof m !== 'object' || Array.isArray(m)) return false;
+  const { name, type, density } = m as Record<string, unknown>;
+  return typeof name === 'string' && name.trim() !== ''
+    && type === wantType
+    && typeof density === 'number' && Number.isFinite(density) && density > 0;
+};
+
+export function loadCustomPresets(notes?: string[]): Preset[] {
   try {
     const raw = localStorage.getItem(CUSTOM_KEY);
     const list: unknown = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list.filter((p): p is Preset =>
+    const repairedRows: string[] = [];
+    const presets = Array.isArray(list) ? list.filter((p): p is Preset =>
       p !== null && typeof p === 'object' && !Array.isArray(p)
-      && ['kind', 'partNo', 'manufacturer', 'description'].every((key) => typeof p[key] === 'string')) : [];
+      && ['kind', 'partNo', 'manufacturer', 'description'].every((key) => typeof p[key] === 'string'))
+      .map(p => {
+        const repaired = { ...p };
+        let removed = false;
+        for (const key of ['material', 'lineMaterial'] as const) {
+          const m = repaired[key];
+          if (m && typeof m.type === 'string') repaired[key] = { ...m, type: m.type.trim().toUpperCase() };
+          if (!validMaterial(repaired[key], key === 'material' ? materialTypeFor(p.kind) : 'LINE')) {
+            delete repaired[key];
+            removed = true;
+          }
+        }
+        if (removed) repairedRows.push(`${p.kind}: ${p.manufacturer} ${p.partNo}`);
+        return repaired;
+      }) : [];
+    if (repairedRows.length) notes?.push(`${repairedRows.length} stored preset(s) had unreadable material removed; first: ${repairedRows[0]!}. Their dimensions were kept. Check the part's material after applying it.`);
+    return presets;
   } catch {
     return [];
   }
@@ -151,6 +177,7 @@ export function presetPatch(
    * marker, so no stored or opened design moves.
    */
   place?: { parentRadius: number },
+  notes?: string[],
 ): Partial<ComponentNode> {
   const patch: Partial<ComponentNode> = { name: `${p.manufacturer} ${p.partNo}` };
   const half = (v: number | undefined) => (v === undefined ? undefined : v / 2);
@@ -284,6 +311,12 @@ export function presetPatch(
     case 'centeringring':
     case 'bulkhead':
       set('length', n(p, 'length'));
+      if (type === 'centeringring' && inn !== undefined && out !== undefined && inn >= out) {
+        notes?.push(`${p.manufacturer} ${p.partNo}: the catalogue's inside diameter is not smaller than its outside diameter. Both diameters were left unchanged; check the ring's fit before flying or cutting it.`);
+      } else {
+        set('outerRadius', half(out));
+        if (type === 'centeringring') set('innerRadius', half(inn));
+      }
       break;
     case 'engineblock':
       set('length', n(p, 'length'));
@@ -480,8 +513,13 @@ export function csvToPresets(csv: string): Preset[] {
     // csvCell prefixes ONE apostrophe to a cell a spreadsheet would read as a
     // formula (see csvUtil.ts). Strip exactly one back off, or a preset this app
     // exported and re-imported comes back with a literal ' on its part number.
-    // Numeric columns are unaffected: Number("'-1") is NaN either way.
-    header.forEach((h, i) => { row[h] = (cells[i] ?? '').replace(/^'/, ''); });
+    // Numeric cells also accept a spreadsheet/text-editor apostrophe prefix.
+    const textColumns = new Set(['manufacturer', 'partNo', 'description',
+      'materialName', 'lineMaterialName']);
+    header.forEach((h, i) => {
+      const c = cells[i] ?? '';
+      row[h] = c.startsWith("'") && (!textColumns.has(h) || FORMULA_LEAD.test(c.slice(1))) ? c.slice(1) : c;
+    });
     if (!row['kind'] || !row['partNo']) continue;
     const p: Preset = {
       kind: CANONICAL_KIND.get(row['kind']!.trim().toLowerCase()) ?? row['kind']!.trim(),
@@ -724,6 +762,7 @@ const CATALOGUE_FIELDS: Record<string, CatalogueField> = lookupTable<CatalogueFi
   foreShoulderLength: { words: 'fore shoulder length', differs: ALONG },
   aftShoulderLength: { words: 'aft shoulder length', differs: ALONG },
   outerRadius: { words: 'outer radius', differs: ACROSS },
+  innerRadius: { words: 'inner radius', differs: ACROSS },
   aftRadius: { words: 'base radius', differs: ACROSS },
   foreRadius: { words: 'fore radius', differs: ACROSS },
   thickness: { words: 'wall thickness', differs: ACROSS },
@@ -1151,6 +1190,10 @@ export function applyPresetLinks(
       // catalogue" would be a false note.
       if (key === 'filled' && value === false) continue;
       if (absentShoulders.some((shoulder) => key.startsWith(shoulder))) continue;
+      // A foreign ring's absent radius means desktop's automatic flag. Only a
+      // new catalogue pick may replace it; stated radii are still compared above.
+      if ((node.type === 'centeringring' || node.type === 'bulkhead')
+        && (key === 'outerRadius' || key === 'innerRadius')) continue;
       if (stated(key) === undefined) {
         node[key] = value;
         filled.add(wordsFor(node.type, key));

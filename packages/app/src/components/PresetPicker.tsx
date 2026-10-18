@@ -52,7 +52,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
    * pick leaves the packed size alone.
    */
   parentRadius?: number;
-  onApply: (patch: Partial<ComponentNode>) => void;
+  onApply: (patch: Partial<ComponentNode>, notes?: string[]) => void;
   onClose: () => void;
 }) {
   const { prefs } = usePrefs();
@@ -72,8 +72,16 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
     // Same `live` flag as RecoverySizingPanel and ScaleDialog: a ~1.3 MB load
     // behind a dialog the user can close (2026-09-08 audit).
     let live = true;
-    loadPresets()
-      .then((p) => { if (live) setAll(p); })
+    const restoreNotes: string[] = [];
+    loadPresets(restoreNotes)
+      .then((p) => {
+        if (!live) return;
+        setAll(p);
+        if (restoreNotes.length) {
+          setNoteTier('caution');
+          setNote(restoreNotes.join(' '));
+        }
+      })
       .catch((e: unknown) => { if (live) setNote(`Could not load presets: ${e instanceof Error ? e.message : String(e)}`); });
     return () => { live = false; };
   }, []);
@@ -323,8 +331,10 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
               {shownRows.map((p, i) => (
                 <tr key={`${p.manufacturer}|${p.partNo}|${i}`} className="motor-row" aria-describedby={hintId}
                   {...rove(i, () => {
-                    onApply(presetPatch(type, p, node && { node, presets: all ?? [] },
-                      parentRadius !== undefined ? { parentRadius } : undefined));
+                    const notes: string[] = [];
+                    const patch = presetPatch(type, p, node && { node, presets: all ?? [] },
+                      parentRadius !== undefined ? { parentRadius } : undefined, notes);
+                    if (notes.length) onApply(patch, notes); else onApply(patch);
                     onClose();
                   })}>
                   <td>{p.manufacturer}</td>

@@ -6,6 +6,7 @@ import {
 } from './presets.js';
 import presetsJson from '../data/presets.json';
 import { numOpt } from '../tree/nodeNum.js';
+import { centeringRingBore, ringOuterRadius } from '../tree/solidMesh.js';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
 
@@ -22,6 +23,55 @@ describe('storage hardening: custom presets', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  const baseTube: Preset = { kind: 'BodyTube', manufacturer: 'EX', partNo: 'BT-2+', description: 'Tube' };
+  const baseChute: Preset = { kind: 'Parachute', manufacturer: 'EX', partNo: 'P-12', description: 'Chute' };
+
+  it.each([
+    [{ ...baseTube, material: null }],
+    [{ ...baseTube, material: 'cardboard' }],
+    [{ ...baseTube, material: [] }],
+    [{ ...baseTube, material: { name: {}, type: 'BULK', density: 680 } }],
+    [{ ...baseTube, material: { name: '  ', type: 'BULK', density: 680 } }],
+    [{ ...baseTube, material: { name: 'Cardboard', type: 'SURFACE', density: 680 } }],
+    [{ ...baseTube, material: { name: 'Cardboard', type: 'BULK', density: 0 } }],
+    [{ ...baseTube, material: { name: 'Cardboard', type: 'BULK', density: -10 } }],
+    [{ ...baseTube, material: { name: 'Cardboard', type: 'BULK', density: '680' } }],
+    [{ ...baseChute, material: { name: 'Nylon', type: 'BULK', density: 0.067 } }],
+    [{ ...baseChute, lineMaterial: { name: {}, type: 'LINE', density: 0.001 } }],
+    [{ ...baseChute, lineMaterial: { name: 'Kevlar', type: 'BULK', density: 0.001 } }],
+    [{ ...baseChute, lineMaterial: { name: 'Kevlar', type: 'LINE', density: 0 } }],
+  ])('S7c-2 removes only malformed material (%j), retaining readable rows with a note', (bad) => {
+    const validTube: Preset = {
+      ...baseTube,
+      material: { name: 'Cardboard', type: 'BULK', density: 680 },
+    };
+    const validChute: Preset = {
+      ...baseChute,
+      material: { name: 'Ripstop nylon', type: 'SURFACE', density: 0.067 },
+      lineMaterial: { name: 'Kevlar', type: 'LINE', density: 0.001 },
+    };
+    vi.stubGlobal('localStorage', { getItem: () => JSON.stringify([bad, validTube, validChute]) });
+    try {
+      const notes: string[] = [];
+      const kept = { ...bad } as Record<string, unknown>;
+      delete kept['material'];
+      delete kept['lineMaterial'];
+      expect(loadCustomPresets(notes)).toEqual([kept, validTube, validChute]);
+      expect(notes).toHaveLength(1);
+      expect(notes[0]).toContain('dimensions were kept');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('S7c-2 normalizes legacy lowercase material types without losing density', () => {
+    const legacy = { ...baseTube, outsideDiameter: 0.024, material: { name: 'Cardboard', type: ' bulk ', density: 680 } };
+    vi.stubGlobal('localStorage', { getItem: () => JSON.stringify([legacy]) });
+    try {
+      expect(loadCustomPresets()).toEqual([{ ...legacy, material: { ...legacy.material, type: 'BULK' } }]);
+    } finally { vi.unstubAllGlobals(); }
   });
 });
 
@@ -269,6 +319,25 @@ describe('CSV round-trip', () => {
     expect(back).toHaveLength(1);
     expect(back[0]!.partNo).toBe('=cmd|calc');
     expect(back[0]!.description).toBe('@SUM(A1)');
+  });
+
+  it('S7c-3 preserves a literal leading apostrophe in partNo and description on import and round-trip', () => {
+    const quoted: Preset[] = [{
+      kind: 'BodyTube',
+      manufacturer: 'ACME',
+      partNo: "'67",
+      description: "'Classic' tube",
+      outsideDiameter: 0.024,
+    } as Preset];
+    const handCsv = "kind,manufacturer,partNo,description,outsideDiameter\nBodyTube,ACME,'67,'Classic' tube,0.024\n";
+    const fromHand = csvToPresets(handCsv);
+    expect(fromHand).toHaveLength(1);
+    expect(fromHand[0]!.partNo).toBe("'67");
+    expect(fromHand[0]!.description).toBe("'Classic' tube");
+    const back = csvToPresets(presetsToCsv(quoted));
+    expect(back).toHaveLength(1);
+    expect(back[0]!.partNo).toBe("'67");
+    expect(back[0]!.description).toBe("'Classic' tube");
   });
 
   it('export → import preserves the essentials', () => {
@@ -691,6 +760,53 @@ describe('presetPatch — a catalogue engine block carries its own outer radius'
     const patch = presetPatch('engineblock', bare) as Record<string, unknown>;
     expect(patch['outerRadius']).toBeUndefined();
     expect(patch['length']).toBeCloseTo(0.005, 12);
+  });
+});
+
+describe('presetPatch — catalogue centering rings and bulkheads carry their own radii (S7c-1)', () => {
+  const ringRows = db.filter((x) => x.kind === 'CenteringRing'
+    && numOpt(x, 'outsideDiameter') !== undefined && numOpt(x, 'insideDiameter') !== undefined);
+  const bulkheadRows = db.filter((x) => x.kind === 'BulkHead'
+    && numOpt(x, 'outsideDiameter') !== undefined);
+
+  it('is a populated catalogue for both centering rings and bulkheads', () => {
+    expect(ringRows.length).toBeGreaterThan(20);
+    expect(bulkheadRows.length).toBeGreaterThan(10);
+  });
+
+  it('applies outerRadius = OD/2 and innerRadius = ID/2 for every catalogued centering ring, and outerRadius = OD/2 for every bulkhead', () => {
+    for (const p of ringRows) {
+      const patch = presetPatch('centeringring', p) as Record<string, unknown>;
+      if ((p['insideDiameter'] as number) < (p['outsideDiameter'] as number)) {
+        expect(patch['outerRadius'], p.partNo).toBeCloseTo((p['outsideDiameter'] as number) / 2, 12);
+        expect(patch['innerRadius'], p.partNo).toBeCloseTo((p['insideDiameter'] as number) / 2, 12);
+      } else {
+        expect(patch).not.toHaveProperty('outerRadius');
+        expect(patch).not.toHaveProperty('innerRadius');
+      }
+    }
+    for (const p of bulkheadRows) {
+      const patch = presetPatch('bulkhead', p) as Record<string, unknown>;
+      expect(patch['outerRadius'], p.partNo).toBeCloseTo((p['outsideDiameter'] as number) / 2, 12);
+      expect(patch['innerRadius'], p.partNo).toBeUndefined();
+    }
+  });
+
+  it('picking a ring over stored radii updates ringOuterRadius and centeringRingBore, and flags differing radii via catalogueDifferences', () => {
+    const cr = ringRows.find((x) => x.partNo === 'CR5060-W') ?? ringRows[0]!;
+    const wantOuter = (cr['outsideDiameter'] as number) / 2;
+    const wantInner = (cr['insideDiameter'] as number) / 2;
+    const imported: ComponentNode = {
+      type: 'centeringring', id: 'cr1', length: 0.003175, outerRadius: 0.030, innerRadius: 0.019,
+    };
+    const picked: ComponentNode = { ...imported, ...presetPatch('centeringring', cr, { node: imported, presets: db }) };
+    const ctx = { parentInnerRadius: 0.03245, mountOuterRadius: 0.019 };
+    const outer = ringOuterRadius(picked, ctx);
+    expect(outer).toEqual({ r: wantOuter, assumed: false });
+    expect(centeringRingBore(picked, ctx, outer.r)).toBeCloseTo(wantInner, 12);
+    expect(catalogueDifferences(picked, cr)).toEqual([]);
+    const mismatched = { ...picked, outerRadius: 0.030, innerRadius: 0.019 };
+    expect(catalogueDifferences(mismatched, cr).map((d) => d.key)).toEqual(['outerRadius', 'innerRadius']);
   });
 });
 
@@ -1448,5 +1564,79 @@ describe('presetPatch — a picked canopy fills its packed size', () => {
     const patch = presetPatch('parachute', cl20);
     expect(patch).not.toHaveProperty('packedRadius');
     expect(patch).not.toHaveProperty('packedLength');
+  });
+});
+
+
+describe('Round 1 preset regressions', () => {
+  it('Round 2 strips spreadsheet apostrophes from enums but retains free text', () => {
+    const [p] = csvToPresets("kind,manufacturer,partNo,description,shape,materialName,materialType,materialDensity\n'NoseCone,EX,'67,'Classic','conical,'Wood','BULK,680\n");
+    expect(p).toMatchObject({ kind: 'NoseCone', partNo: "'67", description: "'Classic'", shape: 'CONICAL',
+      material: { name: "'Wood'", type: 'BULK', density: 680 } });
+    expect(presetPatch('nosecone', p!)['shape']).toBe('conical');
+    expect(csvToPresets("kind,manufacturer,partNo\n'BodyTube,EX,TUBE\n")[0]?.kind).toBe('BodyTube');
+  });
+  it('Round 2 applies a custom inside-only ring bore without an inverted-diameter note', () => {
+    const [p] = csvToPresets('kind,manufacturer,partNo,insideDiameter\nCenteringRing,EX,ID-ONLY,0.024\n');
+    const notes: string[] = [];
+    const patch = presetPatch('centeringring', p!, undefined, undefined, notes);
+    expect(patch['innerRadius']).toBeCloseTo(0.012, 12);
+    expect(patch).not.toHaveProperty('outerRadius');
+    expect(notes).toEqual([]);
+  });
+  it.each([undefined, { outerRadius: 0.03, innerRadius: 0.019 }])('Round 2 leaves both radii intact for an inverted row (%j)', radii => {
+    const row: Preset = { kind: 'CenteringRing', manufacturer: 'EX', partNo: 'INVERTED', description: '',
+      outsideDiameter: 0.025, insideDiameter: 0.029 };
+    const node: ComponentNode = { id: 'ring', type: 'centeringring', ...radii };
+    const notes: string[] = [];
+    const patch = presetPatch('centeringring', row, { node, presets: [row] }, undefined, notes);
+    expect({ ...node, ...patch }).toMatchObject(node);
+    expect(patch).not.toHaveProperty('outerRadius');
+    expect(patch).not.toHaveProperty('innerRadius');
+    expect(notes.join(' ')).toContain('Both diameters were left unchanged');
+  });
+  it('Round 2 summarizes repaired rows once, including kind and manufacturer', () => {
+    const rows = Array.from({ length: 300 }, (_, i) => ({ kind: 'Parachute', manufacturer: 'EX', partNo: `P-${i}`,
+      description: '', material: {}, lineMaterial: {} }));
+    vi.stubGlobal('localStorage', { getItem: () => JSON.stringify(rows) });
+    try {
+      const notes: string[] = [];
+      expect(loadCustomPresets(notes)).toHaveLength(300);
+      expect(notes).toHaveLength(1);
+      expect(notes[0]).toContain('300 stored preset(s)');
+      expect(notes[0]).toContain('first: Parachute: EX P-0');
+      expect(notes[0]).not.toContain('P-1');
+      expect(notes[0]).toContain("Check the part's material after applying it");
+    } finally { vi.unstubAllGlobals(); }
+  });
+  it('S7c-3 reads apostrophe-prefixed numeric cells and preserves literal text apostrophes', () => {
+    const [p] = csvToPresets("kind,manufacturer,partNo,description,outsideDiameter,length,materialName,materialType,materialDensity\nBodyTube,EX,'67,'Classic' tube,'0.024,'0.3,Cardboard,BULK,'680\n");
+    expect(p).toMatchObject({ partNo: "'67", description: "'Classic' tube", outsideDiameter: 0.024,
+      length: 0.3, material: { name: 'Cardboard', type: 'BULK', density: 680 } });
+  });
+  it.each(['CR2924, Q14022', 'RA-55-70'])('S7c-1 refuses inverted catalogue bore for %s with a note', partNo => {
+    const row = db.find(p => p.kind === 'CenteringRing' && p.partNo === partNo)!;
+    expect(row).toBeDefined();
+    const notes: string[] = [];
+    const patch = presetPatch('centeringring', row, undefined, undefined, notes);
+    expect(patch).not.toHaveProperty('outerRadius');
+    expect(patch).not.toHaveProperty('innerRadius');
+    expect(notes.join(' ')).toContain('inside diameter is not smaller');
+  });
+  it.each(['centeringring', 'bulkhead'] as const)('S7c-1 keeps automatic foreign %s radii while comparing stated radii', type => {
+    const row = db.find(p => p.kind === KIND_FOR_TYPE[type] && numOpt(p, 'outsideDiameter') !== undefined)!;
+    const node: ComponentNode = { type, name: 'Ring', ...presetPatch(type, row) };
+    delete node['outerRadius'];
+    delete node['innerRadius'];
+    const notes: string[] = [];
+    applyPresetLinks([{ node, manufacturer: row.manufacturer, partNo: row.partNo }], db, notes);
+    expect(node['outerRadius']).toBeUndefined();
+    expect(node['innerRadius']).toBeUndefined();
+    expect(notes.join(' ')).not.toMatch(/took [^.]*radius/);
+    node['outerRadius'] = 1;
+    const conflicts: string[] = [];
+    applyPresetLinks([{ node, manufacturer: row.manufacturer, partNo: row.partNo }], db, conflicts);
+    expect(node['outerRadius']).toBe(1);
+    expect(conflicts.join(' ')).toContain('outer radius');
   });
 });
