@@ -404,3 +404,17 @@ describe('ZIP member integrity', () => {
     expect(() => unzipMember(zip, '.ork', '.ork')).toThrow(/does not match its declared size/);
   });
 });
+
+
+it('S1a-2 caps empty gzip members before decoding the next payload', () => {
+  const empty = gzipSync(new Uint8Array(0));
+  const members = (count: number) => {
+    const bytes = new Uint8Array(empty.length * count);
+    for (let i = 0; i < count; i++) bytes.set(empty, empty.length * i);
+    return bytes;
+  };
+  expect(gunzipCapped(members(1000), '.ork')).toHaveLength(0);
+  for (const kind of ['.ork', '.rkt', '.CDX1']) {
+    expect(() => gunzipCapped(members(1001), kind)).toThrow(/^This compressed .*more than 1,000 gzip members/);
+  }
+});

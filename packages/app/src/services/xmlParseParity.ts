@@ -171,7 +171,8 @@ export const CONFORMANCE_DOCS: Readonly<Record<string, string>> = {
     + '</SimulationEventList><SimulationEvents><SimulationEvent n="3"/></SimulationEvents><x><SimulationEvents>'
     + '<SimulationEvent n="deep"/></SimulationEvents></x></d>',
   docChains: '<openrocket version="1.10"><rocket><subcomponents><stage n="1"/><stage n="2"/></subcomponents></rocket>'
-    + '<simulations><simulation n="a"/><simulation n="b"/></simulations></openrocket>',
+    + '<simulations><simulation n="a"><extension><openrocket><simulations><simulation n="nested"/>'
+    + '</simulations></openrocket></extension></simulation><simulation n="b"/></simulations></openrocket>',
   wind: '<conditions><windlevel altitude="0" speed="1" standarddeviation="0.5"/><windlevel altitude="100" speed="2"/>'
     + '<windlevel altitude="200" speed="3" standarddeviation=""/></conditions>',
   motors: '<rocket><motormount><motor configid="a"/></motormount><stage><motormount><motor configid="b"/>'
@@ -238,6 +239,7 @@ export const CONFORMANCE_QUERIES: readonly ConformanceQuery[] = [
   q('eventPair', [], 'qsa', 'SimulationEvent'),
   // document-level chains; `:scope` from the document is the root element
   q('docChains', null, 'qs', 'openrocket > rocket'), q('docChains', null, 'qsa', 'openrocket > simulations > simulation'),
+  q('docChains', [], 'qsa', ':scope > simulations > simulation'),
   q('docChains', null, 'qsa', 'rocket > subcomponents > stage'), q('docChains', null, 'qs', ':scope > rocket'),
   q('docChains', null, 'qs', 'rocket'), q('docChains', [0], 'qsa', ':scope > subcomponents > stage'),
   q('docChains', [0], 'qs', ':scope > subcomponents'), q('docChains', [], 'attr', 'version'),

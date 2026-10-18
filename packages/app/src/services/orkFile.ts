@@ -1,4 +1,4 @@
-import { storedWarnings } from './storedWarnings.js';
+import { boundedWarningEvidence, restoredWarnings, storedWarnings, validStoredWarnings, storedWarningLimitNote, wideStoredWarning } from './storedWarnings.js';
 import { readDesignProvenance, writeDesignProvenance } from './designProvenance.js';
 import { cleanDocumentMaterials, readDocumentMaterials } from './documentMaterials.js';
 import { extensionXmlBySimulation, hasSimulationExtensions, preserveSimulationExtensions, preservedSimulationExtensions } from './orkExtensions.js';
@@ -335,6 +335,9 @@ const DESKTOP_PRESET_TYPE: Partial<Record<ComponentType, string>> = lookupTable<
   launchlug: 'LAUNCH_LUG', railbutton: 'RAIL_BUTTON', parachute: 'PARACHUTE', streamer: 'STREAMER',
 });
 
+// Bound retained predictions, summaries, extensions and per-simulation diagnostics.
+export const MAX_ORK_SIMULATIONS = 1000;
+
 // Bound the dense configuration-by-component recovery and separation tables.
 export { MAX_ORK_CONFIGURATIONS } from './configSnapshot.js';
 
@@ -397,17 +400,27 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   // payloads are not design parts. Keep the existing named refusal and count.
   const partElements = Array.from(rocketEl.querySelector(':scope > subcomponents')?.children ?? []);
   let partCount = 0;
-  for (let i = 0; i < partElements.length; i++) {
-    partCount++;
-    const children = partElements[i]!.querySelector(':scope > subcomponents')?.children;
-    if (children) for (const child of Array.from(children)) partElements.push(child);
-  }
-  if (partCount > MAX_DESIGN_PARTS) {
+  const refusePartCount = () => {
+    if (partCount <= MAX_DESIGN_PARTS) return;
     const error = new Error(`This design has ${partCount.toLocaleString('en-US')} parts, past the `
       + `${MAX_DESIGN_PARTS.toLocaleString('en-US')} the app will open. Desktop OR has no such limit.`);
     error.name = TOO_MANY_PARTS_ERROR_NAME;
     throw error;
+  };
+  for (let i = 0; i < partElements.length; i++) {
+    partCount++;
+    if (partElements[i]!.tagName === 'bodytube') {
+      for (const child of partElements[i]!.children) {
+        if (child.tagName !== 'mmrsim-tube-holes') continue;
+        for (const hole of child.children) if (hole.tagName === 'hole') partCount++;
+      }
+    }
+    const children = partElements[i]!.querySelector(':scope > subcomponents')?.children;
+    if (children) for (const child of Array.from(children)) partElements.push(child);
   }
+  refusePartCount();
+
+  simulationForConfig(doc);
   const configEls = Array.from(rocketEl.querySelectorAll(':scope > motorconfiguration'));
   if (configEls.length > MAX_ORK_CONFIGURATIONS) {
     throw new Error(`This .ork file declares ${configEls.length} flight configurations, past the ${MAX_ORK_CONFIGURATIONS} the app will open. Reduce the configurations in OpenRocket and save it again.`);
@@ -1357,16 +1370,20 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     const out: ComponentNode[] = [];
     // N045: metadata lives on the tube, never in desktop's component list.
     if (parentEl.tagName === 'bodytube') {
-      for (const el of Array.from(parentEl.querySelectorAll(':scope > mmrsim-tube-holes > hole'))) {
-        out.push({ type: 'tubehole' as ComponentType, id: freshId(),
-          name: text(el, ':scope > name') ?? 'Vent / marking hole',
-          holeDiameter: num(el, 'diameter', 0.003, notes),
-          holePosition: num(el, 'axialposition', 0.025, notes),
-          angleOffset: num(el, 'angle', 0, notes) * Math.PI / 180,
-          holeCount: num(el, 'count', 1, notes),
-          ...(text(el, ':scope > comment') ? { comment: text(el, ':scope > comment') } : {}),
-          ...(text(el, ':scope > color') ? { color: text(el, ':scope > color') } : {}),
-        } as ComponentNode);
+      for (const child of parentEl.children) {
+        if (child.tagName !== 'mmrsim-tube-holes') continue;
+        for (const el of child.children) {
+          if (el.tagName !== 'hole') continue;
+          out.push({ type: 'tubehole' as ComponentType, id: freshId(),
+            name: text(el, ':scope > name') ?? 'Vent / marking hole',
+            holeDiameter: num(el, 'diameter', 0.003, notes),
+            holePosition: num(el, 'axialposition', 0.025, notes),
+            angleOffset: num(el, 'angle', 0, notes) * Math.PI / 180,
+            holeCount: num(el, 'count', 1, notes),
+            ...(text(el, ':scope > comment') ? { comment: text(el, ':scope > comment') } : {}),
+            ...(text(el, ':scope > color') ? { color: text(el, ':scope > color') } : {}),
+          } as ComponentNode);
+        }
       }
     }
     const wrap = parentEl.querySelector(':scope > subcomponents');
@@ -1904,7 +1921,10 @@ function simulationForConfig(doc: XmlDocument, chosenConfigId?: string | null) {
   // standard ISA at 3 m while its default declares a 24 °C Florida afternoon,
   // worth 1.15 % of apogee. Match the configuration actually being opened, and
   // keep the first as the fallback for files that name no configid.
-  const simEls = Array.from(doc.querySelectorAll('openrocket > simulations > simulation'));
+  const simEls = Array.from(doc.documentElement.querySelectorAll(':scope > simulations > simulation'));
+  if (simEls.length > MAX_ORK_SIMULATIONS) {
+    throw new Error(`This .ork file declares ${simEls.length.toLocaleString('en-US')} simulations, past the ${MAX_ORK_SIMULATIONS.toLocaleString('en-US')} the app will open. Reduce the simulations in OpenRocket and save it again.`);
+  }
   const forChosen = chosenConfigId
     ? simEls.find((s) => simulationConfigId(s) === chosenConfigId)
     : undefined;
@@ -2504,7 +2524,6 @@ export interface OrkStoredSimulation {
    */
   status?: string;
   data: OrkExportFlightData;
-  windAverage: number;
 }
 
 /** Untagged files keep their existing behaviour; unknown extensions are ignored. */
@@ -2535,10 +2554,16 @@ function readStoredSimulations(simEls: XmlElement[], notes: string[]): OrkStored
         // Reject a damaged array as a whole: filtering could report a clean
         // flight after silently losing its only warning. Optional new fields
         // are preserved; the display validates them before replacing text.
-        if (Array.isArray(parsed) && parsed.every(w => w !== null && typeof w === 'object'
-          && !Array.isArray(w) && typeof w.key === 'string' && typeof w.message === 'string')) {
+        if (validStoredWarnings(parsed)) {
           data.simWarnings = storedWarnings(parsed);
-        } else cautionNote(notes, 'I28.stored-warnings', unreadable);
+        } else {
+          // A too-wide warning never reaches matching. Keep a bounded, explicit
+          // unavailable record, including readable stop/HIGH evidence.
+          const tooWide = Array.isArray(parsed) && wideStoredWarning(parsed);
+          if (tooWide) data.simWarnings = restoredWarnings(parsed);
+          cautionNote(notes, 'I28.stored-warnings', Array.isArray(parsed) && !boundedWarningEvidence(parsed)
+            ? `${tooWide ? unreadable.replace('shows none', 'keeps only bounded warning evidence') : unreadable} ${storedWarningLimitNote}` : unreadable);
+        }
       } catch {
         cautionNote(notes, 'I28.stored-warnings', unreadable);
       }
@@ -2547,11 +2572,9 @@ function readStoredSimulations(simEls: XmlElement[], notes: string[]): OrkStored
     if (kbf === 'true' || kbf === 'false') data.rogersKbf = kbf === 'true';
     const band = tag.getAttribute('band')?.trim().split(/\s+/).map((v) => parseDecimal(v));
     if (aeroModel === 'hybrid' && validHybridBand(band)) data.hybridBand = band;
-    const cond = sim.querySelector(':scope > conditions');
     const status = sim.getAttribute('status')?.trim();
     stored.push({ name: text(sim, ':scope > name') ?? '',
-      configId: simulationConfigId(sim), ...(status ? { status } : {}), data,
-      windAverage: cond ? num(cond, 'wind > speed', num(cond, 'windaverage', NaN, notes), notes) : NaN });
+      configId: simulationConfigId(sim), ...(status ? { status } : {}), data });
   }
   return stored;
 }
@@ -3637,6 +3660,9 @@ export function exportOrk({
     for (const group of groups) if (launch) mappedExtensions.add(group);
     return groups.length ? groups.map(group => ({ config: c, group })) : [{ config: c, group: undefined }];
   });
+  if (launch && simulationWrites.length > MAX_ORK_SIMULATIONS) {
+    throw new Error(`This design would save ${simulationWrites.length.toLocaleString('en-US')} simulations, past the ${MAX_ORK_SIMULATIONS.toLocaleString('en-US')} the app will open. Reduce the simulations before saving or sharing.`);
+  }
   const droppedExtensions = preservedExtensions.filter(g => !mappedExtensions.has(g)).reduce((n, g) => n + g.xml.length, 0);
   if (droppedExtensions) notes?.push(`${droppedExtensions} simulation extension${droppedExtensions === 1 ? '' : 's'} `
     + 'not saved: the corresponding simulation is no longer present or cannot be mapped to a simulation in this .ork file.');
@@ -3690,7 +3716,7 @@ export function exportOrk({
         const runId = fd.runId ? ` runid="${escapeXmlAttr(fd.runId)}"` : '';
         emit(3, `<aeromodel${kbf}${band}${runId}>${fd.aeroModel}</aeromodel>`);
         if (fd.simWarnings !== undefined) {
-          emit(3, `<simwarnings version="1">${escapeXml(JSON.stringify(storedWarnings(fd.simWarnings)))}</simwarnings>`);
+          emit(3, `<simwarnings version="1">${escapeXml(JSON.stringify(restoredWarnings(fd.simWarnings)))}</simwarnings>`);
         }
       }
       emit(3, '<conditions>');
@@ -3851,6 +3877,11 @@ function readOverrides(el: XmlElement, node: ComponentNode, notes: string[]): vo
   }
 }
 
+/** Complete decimal grammar shared by ring nodes and packed-child sizing. */
+function ringRadiusNumber(value: string): number {
+  return parseDecimal(value.trim().replace(/^auto\s+/i, ''));
+}
+
 /**
  * A radius that OpenRocket may write as a number OR as the literal `auto`
  * (rings, couplers, bulkheads and engine blocks size themselves off the parent
@@ -3866,7 +3897,7 @@ function autoNum(el: XmlElement, tag: string, notes: string[]): number | undefin
   if (!field) return undefined;
   const t = (field.textContent ?? '').trim();
   if (t.toLowerCase() === 'auto') return undefined;
-  const v = parseDecimal(t.split(/\s+/).pop()); // decimal only, as num() below
+  const v = ringRadiusNumber(t);
   if (Number.isFinite(v)) return v;
   invalidNumberNote(el, tag, notes);
   return undefined;
@@ -3895,7 +3926,7 @@ function autoNum(el: XmlElement, tag: string, notes: string[]): number | undefin
  * fallback — 12 mm for a body tube, which is the defect this exists to fix.
  *
  * **OpenRocket 15.03 wrote all eight as a BARE `auto`**; 23.09+ append the last
- * resolved value, which autoDim/autoNum read from the trailing token.
+ * resolved value, which autoDim reads from the trailing token.
  * That is why only 15.03-era files were affected, and they are exactly the files
  * a long-standing builder has in their archive.
  */
@@ -4022,7 +4053,9 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
     if (t === null) return null;
     // parseDecimal, like num() below: the neighbour's radius must read the
     // way the neighbour's own node reads it.
-    const v = parseDecimal(t.trim().split(/\s+/).pop());
+    const ringRadius = (tag === 'outerradius' || tag === 'innerradius')
+      && ['centeringring', 'bulkhead', 'tubecoupler', 'engineblock'].includes(el.tagName);
+    const v = ringRadius ? ringRadiusNumber(t) : parseDecimal(t.trim().split(/\s+/).pop());
     return Number.isFinite(v) ? v : null;
   };
 
@@ -4205,11 +4238,23 @@ function readAutoCd(el: XmlElement, node: ComponentNode, notes: string[]): void 
   else invalidNumberNote(el, 'cd', notes);
 }
 
+const invalidNumberNotes = new WeakMap<string[], Set<string>>();
+function noteInvalidNumber(notes: string[], note: string): void {
+  let seen = invalidNumberNotes.get(notes);
+  if (!seen) {
+    seen = new Set<string>();
+    invalidNumberNotes.set(notes, seen);
+  }
+  if (seen.has(note)) return;
+  seen.add(note);
+  cautionNote(notes, 'I04.invalid-number', note);
+}
+
 /** Match num's diagnostics for values dropped outside it (audit 2026-10-11, S1a-3/S1a-4). */
 function invalidNumberNote(el: XmlElement, tag: string, notes: string[], action = 'the value was not used'): void {
   const label = text(el, ':scope > name') ?? el.tagName;
   const note = `“${label}”: invalid <${tag}> value; ${action}.`;
-  if (!notes.includes(note)) cautionNote(notes, 'I04.invalid-number', note);
+  noteInvalidNumber(notes, note);
 }
 
 function num(el: XmlElement, tag: string, fallback: number, notes: string[]): number {
@@ -4224,7 +4269,7 @@ function num(el: XmlElement, tag: string, fallback: number, notes: string[]): nu
   if (Number.isFinite(v)) return v;
   const label = text(el, ':scope > name') ?? el.tagName;
   const note = `“${label}”: invalid <${tag}> value; ${Number.isFinite(fallback) ? `using the default (${fallback})` : 'the value was not used'}.`;
-  if (!notes.includes(note)) cautionNote(notes, 'I04.invalid-number', note);
+  noteInvalidNumber(notes, note);
   return fallback;
 }
 
@@ -4249,7 +4294,7 @@ function readSoftMaterial(el: XmlElement, node: ComponentNode, kind: 'surface' |
   const m = el.querySelector(selector);
   if (!m || m.getAttribute('type') !== kind) return;
   const d = parseDecimal(m.getAttribute('density'));
-  if (Number.isFinite(d) && d > 0) node[densityKey] = d;
+  if (Number.isFinite(d) && d >= 0) node[densityKey] = d;
   const name = matName_(el, kind, selector);
   if (name) node[nameKey] = name;
 }

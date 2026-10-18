@@ -29,8 +29,8 @@ it.each([false, true])('C-A6 prints the inspected row, rather than the newest ro
   localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ tree: defaultTree(), launch: DEFAULT_CONDITIONS,
     savedConfigs: [], mountMotors: {}, savedAt: Date.now(), configLayers: 1, emptyConfigVersion: 1 }));
   const runs = importedSummaryRuns({ name: 'Imported file', configs: [], storedSimulations: [
-    { name: 'Newer', configId: null, windAverage: 0, data: { maxAltitude: 91.44 } },
-    { name: 'Selected older', configId: null, windAverage: 0, data: { maxAltitude: 304.8 } },
+    { name: 'Newer', configId: null, data: { maxAltitude: 91.44 } },
+    { name: 'Selected older', configId: null, data: { maxAltitude: 304.8 } },
   ] });
   localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify(runs));
   vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline (test)'); }));

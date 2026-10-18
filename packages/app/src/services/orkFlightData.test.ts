@@ -129,7 +129,7 @@ describe('Round 2 atmosphere export provenance', () => {
 it.each(['Hybrid', 'none'])('RES-1b imports only matched configuration labels, never simulation name %s', name => {
   for (const configId of [null, 'missing']) {
     const [run] = importedSummaryRuns({ name: 'Imported', configs: [], storedSimulations: [
-      { name, configId, windAverage: 0, data: { maxAltitude: 123 } },
+      { name, configId, data: { maxAltitude: 123 } },
     ] });
     expect(run!.flightConfig).toBeUndefined();
   }
@@ -139,7 +139,7 @@ it.each(['Club', 'none'])('RES-1b preserves verified imported configuration %s t
   localStorage.clear();
   try {
     const [run] = importedSummaryRuns({ name: 'Imported', configs: [{ id: 'c1', name, isDefault: true, motors: {}, deployments: {}, separations: {} }],
-      storedSimulations: [{ name: 'Simulation title', configId: 'c1', windAverage: 0, data: { maxAltitude: 123 } }] });
+      storedSimulations: [{ name: 'Simulation title', configId: 'c1', data: { maxAltitude: 123 } }] });
     addRuns([run!]);
     const saved = loadRuns()[0]!;
     expect(saved.importedConfigVerified).toBe(true);
@@ -154,7 +154,7 @@ describe('RES-1c imported configuration identity', () => {
   const ref = (designation: string) => ({ designation, manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5 });
   const unnamed = (motors: Record<string, ReturnType<typeof ref>>) =>
     ({ id: 'c1', name: null, isDefault: true, motors, deployments: {}, separations: {} });
-  const sim = (name: string, status?: string) => ({ name, configId: 'c1', windAverage: 0, data: { maxAltitude: 123 },
+  const sim = (name: string, status?: string) => ({ name, configId: 'c1', data: { maxAltitude: 123 },
     ...(status ? { status } : {}) });
 
   it('records an unnamed matched configuration under its motor-derived label, never the simulation name', () => {
@@ -228,7 +228,7 @@ describe('RES-1d an unnamed configuration is labelled only from an up-to-date si
 
   it('a preserved summary flown on a C6, resaved after c1 changed to a D12, carries no motor label', () => {
     // File A's c1 flew a C6 (run r1); its summary is now preserved, not reflown.
-    const importedDocument = { name: tree.name, storedSimulations: [{ name: 'Simulation 1', configId: 'c1', windAverage: 0,
+    const importedDocument = { name: tree.name, storedSimulations: [{ name: 'Simulation 1', configId: 'c1',
       status: 'uptodate', data: { runId: 'r1', maxAltitude: 321, aeroModel: 'classic' as const } }] };
     const changed = { id: 'c1', name: null, isDefault: true, motors: { mm: { label: 'Estes D12' } as MountMotor } } as SavedConfig;
     const flightData = flightDataForExport(base({ runs: [], savedConfigs: [changed], importedDocument }));
@@ -285,7 +285,7 @@ describe('flightDataForExport — the baseline qualifies', () => {
       { type: 'bodytube' as const, id: 'm1', motorMount: true, length: 0.3, outerRadius: 0.02, thickness: 0.001 },
     ] }] };
     const importedDocument = { name: tree.name, storedSimulations: [
-      { name: 'Deleted flight', configId: 'c1', windAverage: 0,
+      { name: 'Deleted flight', configId: 'c1',
         data: { ...summaryOf(RUN), importedSummary: true as const } },
     ] };
     for (const runs of [[RUN], []]) {
@@ -443,8 +443,8 @@ describe('flightDataForExport — the baseline qualifies', () => {
     const selected = flightDataForExport(base({ runs: before }));
     expect(selected['c1']!.maxAltitude).toBe(456);
     const imported = { name: 'File', storedSimulations: [
-      ...history.slice(1).map((r) => ({ name: 'Duplicate', configId: 'c1', windAverage: 0, data: summaryOf(r) })),
-      ...(count === 500 ? ['first-new'] : ['first-new', 'second-new']).map((runId) => ({ name: 'New', configId: 'c1', windAverage: 0,
+      ...history.slice(1).map((r) => ({ name: 'Duplicate', configId: 'c1', data: summaryOf(r) })),
+      ...(count === 500 ? ['first-new'] : ['first-new', 'second-new']).map((runId) => ({ name: 'New', configId: 'c1',
         data: { ...summaryOf(older), runId } })),
     ] };
     const plan = planSummaryImport(imported, before);

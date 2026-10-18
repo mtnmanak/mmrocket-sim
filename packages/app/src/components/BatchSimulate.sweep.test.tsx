@@ -573,7 +573,7 @@ describe('the table', () => {
     const ended = row('c', 'Acme E23', 100);
     ended.run!.railProfile = { ...short.run!.railProfile, thrustEnded: true };
     const imported = row('d', 'Acme imported', 50);
-    imported.run = importedSummaryRuns({ name: 'Imported', storedSimulations: [{ name: 'Stored', configId: null, windAverage: 0,
+    imported.run = importedSummaryRuns({ name: 'Imported', storedSimulations: [{ name: 'Stored', configId: null,
       data: { maxAltitude: 50 } }] })[0]!;
     // Even a stale/foreign profile must not turn a read-only summary into a measurement.
     imported.run.railProfile = reached.run!.railProfile;

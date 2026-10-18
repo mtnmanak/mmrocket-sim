@@ -13,6 +13,7 @@ import { designStateFromSession } from './sessionRestore.js';
 import { gzipSync, strToU8, zipSync } from 'fflate';
 import { preservedSimulationExtensions } from './orkExtensions.js';
 import { autosaveToOrk } from './autosaveBackup.js';
+import { CONFORMANCE_DOCS, CONFORMANCE_QUERIES } from './xmlParseParity.js';
 
 // Hand-written XML, deliberately unlike a serializer's output (CRLF, entities,
 // single quotes, CDATA, comments, and a > inside an attribute).
@@ -274,4 +275,33 @@ describe('opaque desktop simulation extensions', () => {
     expect(writer({ name: opened.name, tree: opened.tree, notes })).not.toContain('<extension');
     expect(notes.join(' ')).toContain(`Simulation extensions are not carried in ${format}`);
   });
+});
+
+
+it('S1a-5 keeps a nested openrocket inside an extension opaque on open and save', () => {
+  const opaque = '<extension extensionid="nested"><openrocket><simulations><simulation/></simulations></openrocket></extension>';
+  const r = importOrk(fixture(sim('A', opaque)));
+  expect(preservedSimulationExtensions(r.tree)).toHaveLength(1);
+  expect(preservedSimulationExtensions(r.tree)[0]!.xml).toEqual([opaque]);
+  expect(save(r)).toContain(opaque);
+  expect(preservedSimulationExtensions(importOrk(save(r)).tree)[0]!.xml).toEqual([opaque]);
+});
+
+it('Round 2 saves and reopens the simulation boundary and refuses one extra configuration', () => {
+  const extension = '<extension extensionid="test"/>';
+  const r = importOrk(fixture(sim('A', extension).repeat(1000)).replace('<motorconfiguration configid="B"><name>B</name></motorconfiguration>', ''));
+  const saved = save(r);
+  expect(preservedSimulationExtensions(importOrk(saved).tree)).toHaveLength(1000);
+  const configs = [...r.configs!, { id: 'extra', name: 'Extra', motors: {}, isDefault: false }];
+  expect(() => exportOrk({ ...r, configs, launch: { ...DEFAULT_CONDITIONS, ...r.launch },
+    activeConfigId: r.chosenConfigId }))
+    .toThrow(/^This design would save 1,001 simulations, past the 1,000 the app will open\./);
+});
+
+it('Round 2 parity fixture distinguishes root simulations from extension descendants', () => {
+  const doc = parseXml(CONFORMANCE_DOCS['docChains']!, 'Invalid parity fixture');
+  expect(doc.querySelectorAll('openrocket > simulations > simulation')).toHaveLength(3);
+  expect(doc.documentElement.querySelectorAll(':scope > simulations > simulation')).toHaveLength(2);
+  expect(CONFORMANCE_QUERIES).toContainEqual({ doc: 'docChains', from: [], op: 'qsa',
+    arg: ':scope > simulations > simulation' });
 });

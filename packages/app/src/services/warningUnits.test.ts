@@ -94,7 +94,7 @@ describe('saved warning units', () => {
       .toBe('(0 rad)');
   });
 
-  it.each(['invalid JSON', '{}', '[null]', '[{"key":"HighSpeedDeployment"}]'])('keeps a summary when its warning extension is corrupt (%s)', payload => {
+  it.each(['invalid JSON', '{}', '[null]', '[{"key":"HighSpeedDeployment","message":5}]'])('keeps a summary when its warning extension is corrupt (%s)', payload => {
     const xml = write(summaryOf(run())).replace(/<simwarnings[^>]*>.*?<\/simwarnings>/,
       `<simwarnings version="1">${payload}</simwarnings>`);
     const imported = importOrk(xml);

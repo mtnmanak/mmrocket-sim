@@ -6,6 +6,9 @@ import { currentXmlParser, parseXml, setXmlParser } from './xmlParse.js';
 import { jsXmlParser } from './xmlParseJs.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import * as xmlUtil from './xmlUtil.js';
+import { importRkt } from './rocksimFile.js';
+import { importCdx1 } from './rasaeroFile.js';
+import { gzipSync } from 'fflate';
 
 const tube = '<bodytube><name>Tube</name><length>0.3</length><radius>0.05</radius><thickness>0.001</thickness></bodytube>';
 const stage = (parts = tube, extra = '') => `<stage>${extra}<subcomponents>${parts}</subcomponents></stage>`;
@@ -163,7 +166,127 @@ describe('audit 2026-10-11 .ork fidelity and bounds', () => {
   });
   it('S1a-7 refuses excessive XML parts before converting any design numbers', () => {
     const numericReads = vi.spyOn(xmlUtil, 'parseDecimal');
-    expect(() => importOrk(fixture(tube.repeat(2000)))).toThrow(/2,001 parts/);
-    expect(numericReads.mock.calls.length).toBe(0);
+    try {
+      expect(() => importOrk(fixture(tube.repeat(2000)))).toThrow(/2,001 parts/);
+      expect(numericReads.mock.calls.length).toBe(0);
+    } finally { numericReads.mockRestore(); }
+  });
+});
+
+
+describe('lane A audit 2026-10-17 regression guards', () => {
+  it.each([['.ork', importOrk], ['.rkt', importRkt], ['.CDX1', importCdx1]] as const)('Round 2 refuses 1,001 gzip members at the %s importer door', (kind, importer) => {
+    const empty = gzipSync(new Uint8Array(0));
+    const bytes = new Uint8Array(empty.length * 1001);
+    for (let i = 0; i < 1001; i++) bytes.set(empty, i * empty.length);
+    expect(() => importer(bytes.buffer)).toThrow(`This compressed ${kind} file has more than 1,000 gzip members`);
+  });
+  const holes = (count: number) => '<bodytube><radius>0.05</radius><mmrsim-tube-holes>'
+    + Array.from({ length: count }, (_, i) => '<hole><name>Hole ' + i + '</name><diameter>bad</diameter></hole>').join('')
+    + '</mmrsim-tube-holes></bodytube>';
+  it('S1a-1 counts tube holes before any numeric conversion', () => {
+    const numericReads = vi.spyOn(xmlUtil, 'parseDecimal');
+    try {
+      expect(() => importOrk(fixture(holes(2001)))).toThrow(/2,003 parts.*2,000/);
+      expect(numericReads).not.toHaveBeenCalled();
+    } finally { numericReads.mockRestore(); }
+    // One stage + one tube + 1,998 holes is exactly 2,000 design parts.
+    expect(importOrk(fixture(holes(1998))).tree.components[0]!.children![0]!.children).toHaveLength(1998);
+    expect(() => importOrk(fixture(holes(1999)))).toThrow(/2,001 parts/);
+  });
+  it('Round 2 walks direct hole children without descendant queries in counting or conversion', () => {
+    const parser = currentXmlParser();
+    const queries: string[] = [];
+    const spies: { mockRestore(): void }[] = [];
+    setXmlParser(xml => {
+      const doc = parser(xml);
+      const pending = [doc.documentElement];
+      while (pending.length) {
+        const el = pending.pop()!;
+        pending.push(...el.children);
+        if (el.tagName !== 'bodytube') continue;
+        const query = el.querySelectorAll.bind(el);
+        spies.push(vi.spyOn(el, 'querySelectorAll').mockImplementation(selector => {
+          if (selector.includes('mmrsim-tube-holes')) queries.push(selector);
+          return query(selector);
+        }));
+      }
+      return doc;
+    });
+    try {
+      expect(() => importOrk(fixture(holes(2001)))).toThrow(/2,003 parts/);
+      const r = importOrk(fixture(holes(1).replace('</mmrsim-tube-holes>',
+        '<junk><hole/></junk></mmrsim-tube-holes>')));
+      expect(r.tree.components[0]!.children![0]!.children).toHaveLength(1);
+      expect(queries).toEqual([]);
+    } finally {
+      setXmlParser(parser);
+      for (const spy of spies) spy.mockRestore();
+    }
+  });
+  it('S1a-1 and S1a-g2 deduplicate invalid-number notes without linear array scans', () => {
+    const scans = [vi.spyOn(Array.prototype, 'includes'), vi.spyOn(Array.prototype, 'indexOf'),
+      vi.spyOn(Array.prototype, 'some'), vi.spyOn(Array.prototype, 'find'), vi.spyOn(Array.prototype, 'findIndex')];
+    let r: ReturnType<typeof importOrk>;
+    let contexts: unknown[][];
+    try {
+      r = importOrk(fixture('<centeringring><name>Same</name><length>bad</length><outerradius>bad</outerradius></centeringring>'.repeat(40)));
+      contexts = scans.map(spy => [...spy.mock.contexts]);
+    } finally { for (const spy of scans) spy.mockRestore(); }
+    for (const calls of contexts) expect(calls.some(context => context === r.notes)).toBe(false);
+    expect(r.notes.filter(note => note.includes('invalid <length>'))).toHaveLength(1);
+    expect(r.notes.filter(note => note.includes('invalid <outerradius>'))).toHaveLength(1);
+  });
+  it.each(['junk 0.02', '0.01 0.02'])('S1a-3 keeps malformed ring radius %s automatic', value => {
+    const r = importOrk(fixture('<centeringring><outerradius>' + value + '</outerradius></centeringring>'));
+    expect(r.tree.components[0]!.children![0]!['outerRadius']).toBeUndefined();
+    expect(r.notes.join('\n')).toContain('invalid <outerradius> value');
+    for (const valid of ['0.02', 'auto 0.02']) {
+      expect(importOrk(fixture('<centeringring><outerradius>' + valid + '</outerradius></centeringring>'))
+        .tree.components[0]!.children![0]!['outerRadius']).toBe(0.02);
+    }
+  });
+  it('S1a-4 round-trips zero surface and line densities without a fallback', () => {
+    const parts = '<parachute><material type="surface" density="0">Zero canopy</material>'
+      + '<linematerial type="line" density="0">Zero lines</linematerial></parachute>'
+      + '<streamer><material type="surface" density="0">Zero streamer</material></streamer>'
+      + '<shockcord><material type="line" density="0">Zero cord</material></shockcord>';
+    const first = importOrk(fixture(parts));
+    for (const r of [first, importOrk(save(first))]) {
+      const nodes = r.tree.components[0]!.children!;
+      expect(nodes[0]).toMatchObject({ surfaceDensity: 0, lineDensity: 0 });
+      expect(nodes[1]).toMatchObject({ surfaceDensity: 0 });
+      expect(nodes[2]).toMatchObject({ lineDensity: 0 });
+    }
+    for (const value of ['-1', 'NaN', 'Infinity']) {
+      expect(importOrk(fixture('<shockcord><material type="line" density="' + value + '">Bad</material></shockcord>'))
+        .tree.components[0]!.children![0]!['lineDensity']).toBeUndefined();
+    }
+  });
+  it.each(['junk 0.02', '0.01 0.02'])('Round 1 packs children using the same automatic ring grammar for %s', value => {
+    const children = '<subcomponents><parachute><packedradius>auto</packedradius></parachute></subcomponents>';
+    for (const tag of ['tubecoupler', 'engineblock', 'centeringring', 'bulkhead']) {
+      const ring = (radius: string) => `<${tag}><outerradius>${radius}</outerradius><innerradius>${radius}</innerradius>`
+        + `<thickness>0.001</thickness>${children}</${tag}>`;
+      const read = (radius: string) => importOrk(fixture(tube.replace('</bodytube>',
+        `<subcomponents>${ring(radius)}</subcomponents></bodytube>`))).tree.components[0]!.children![0]!.children![0]!.children![0]!;
+      expect(read(value)['packedRadius']).toEqual(read('auto')['packedRadius']);
+      expect(read(value)['packedRadius']).not.toEqual(read('0.02')['packedRadius']);
+    }
+  });
+  it('S1a-g2 refuses excessive simulations before conversion and accepts the boundary', () => {
+    const numericReads = vi.spyOn(xmlUtil, 'parseDecimal');
+    try {
+      expect(() => importOrk(fixture(tube, '', '<simulation/>'.repeat(1001)))).toThrow(/1,001 simulations.*1,000/);
+      expect(numericReads).not.toHaveBeenCalled();
+    } finally { numericReads.mockRestore(); }
+    expect(() => importOrk(fixture(tube, '', '<simulation/>'.repeat(1000)))).not.toThrow();
+  });
+  it('S1a-g3 drops unused stored wind data and its duplicate selector-shaped caution', () => {
+    const r = importOrk(fixture(tube, '', '<simulation><conditions><wind><speed>bad</speed></wind></conditions>'
+      + '<aeromodel>classic</aeromodel><flightdata maxaltitude="123"/></simulation>'));
+    expect(r.storedSimulations).toHaveLength(1);
+    expect(r.storedSimulations![0]).not.toHaveProperty('windAverage');
+    expect(r.notes.join('\n')).not.toContain('<wind > speed>');
   });
 });

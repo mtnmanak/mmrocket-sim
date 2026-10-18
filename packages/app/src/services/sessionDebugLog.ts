@@ -40,6 +40,8 @@ const SAFE_IMPORT_MESSAGES = [
   /^This RockSim file contains nested (simulations|motor loadouts), which the app cannot open\. Open it in RockSim and save it again\.$/,
   /^This file contains [0-9,]+ simulations, past the [0-9,]+ the app will open\. Remove simulations in RockSim and save it again\. Desktop OR has no such limit\.$/,
   /^This file's simulations list [0-9,]+ motor loadouts, past the [0-9,]+ the app will open\. Remove simulations in RockSim and save it again\. Desktop OR has no such limit\.$/,
+  /^This \.ork file declares [0-9,]+ simulations, past the [0-9,]+ the app will open\. Reduce the simulations in OpenRocket and save it again\.$/,
+  /^This compressed (\.ork|\.rkt|\.CDX1) file has more than [0-9,]+ gzip members, past the limit this app will open\.$/,
   /^this link was made by a newer version of the app \(format [0-9]+\)$/,
   /^this link expands past [0-9]+ MB — that is not a rocket design$/,
   /^This archive lists [0-9,]+ entries, past the [0-9,]+ this app will read — that is not a rocket design\.$/,

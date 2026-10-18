@@ -20,6 +20,7 @@ import { mountMotorFromDb } from './motorMatch.js';
 import { autosavedDesignFile } from './autosaveBackup.js';
 import { designStateFromSession } from './sessionRestore.js';
 import { findNode, normalizeTree } from '../tree/treeModel.js';
+import { MAX_STORED_WARNINGS } from './storedWarnings.js';
 import { tierLines } from './importNotes.js';
 
 const restoreTier = (restored: ReturnType<typeof designStateFromSession>, text: string) =>
@@ -38,6 +39,22 @@ const state = () => ({
     pressureHPa: null,
     latitudeDeg: 45,
   } as LaunchConditions,
+});
+
+it('Round 2 bounds saved and restored session warnings', () => {
+  localStorage.clear();
+  const warnings = Array.from({ length: MAX_STORED_WARNINGS + 1 }, () => ({ key: 'Joint', message: 'Gap' }));
+  const abort = { key: 'SIM_ABORT', message: 'Stopped', priority: 'HIGH' as const };
+  const snapshot = { ...state(), importedDocument: { storedSimulations: [{ data: { simWarnings: [...warnings, abort] } }] } };
+  // The warning reviver covers stored summaries anywhere in the session.
+  saveSessionDebounced(snapshot as unknown as Parameters<typeof saveSessionDebounced>[0]);
+  flushSession();
+  const raw = JSON.parse(localStorage.getItem('online-openrocket.session.v1')!);
+  expect(raw.importedDocument.storedSimulations[0].data.simWarnings).toEqual([abort, expect.objectContaining({ key: 'StoredWarningsUnavailable' })]);
+  for (const restored of [loadSession(), peekSession()]) {
+    expect(restored?.importedDocument?.storedSimulations?.[0]?.data.simWarnings)
+      .toEqual([abort, expect.objectContaining({ key: 'StoredWarningsUnavailable' })]);
+  }
 });
 
 describe('audit 2026-10-11 persisted state', () => {

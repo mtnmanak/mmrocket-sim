@@ -31,7 +31,7 @@ it.each([
   [INITIAL_UNITS, '15.0 m/s'], [IMPERIAL_UNITS, '49.2 ft/s'],
 ])('keeps imported deployment ground speed separate from first-device opening evidence in %s', (units, speed) => {
   const [selected] = importedSummaryRuns({ name: 'Dual deployment', storedSimulations: [
-    { name: 'Imported flight', configId: null, windAverage: 0, data: { maxAltitude: 300, deploymentVelocity: 15 } },
+    { name: 'Imported flight', configId: null, data: { maxAltitude: 300, deploymentVelocity: 15 } },
   ] });
   const before = JSON.stringify(selected);
   const d = doc(designPrintHtml({ ...input, units, run: selected! }));
