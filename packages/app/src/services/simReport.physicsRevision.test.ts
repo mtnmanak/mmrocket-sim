@@ -6,7 +6,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import {
-  changedSinceRun, designMatchKeyOf, KERNEL_PHYSICS_CHANGED, PHYSICS_REVISION,
+  AERO_MODEL_CHANGED, changedSinceRun, designMatchKeyOf, KERNEL_PHYSICS_CHANGED, PHYSICS_REVISION,
   physicsChangeLabels, physicsRevisionsFor, physicsRevisionsMissed, requiresPhysicsRevision,
   runCarriesPhysicsRevision, runMatchesDesign, type SimRun,
 } from './simReport.js';
@@ -20,6 +20,40 @@ const motor = {
 
 const treeWith = (node: ComponentNode): RocketTree => ({
   components: [{ type: 'stage', children: [{ type: 'bodytube', children: [node] }] }],
+});
+
+const classicModel = { aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false } as const;
+
+it.each([undefined, 'recovery-radial-mass-v6'])('Round 2 judges atmosphere provenance on both flown and current model: %s', physicsRevision => {
+  const key = designMatchKeyOf({ physicsKey: 'same', assigned: [['mount', motor]], hardwareDeltaKg: 0,
+    launch: DEFAULT_CONDITIONS, aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false,
+    hasNozzle: false, physicsRevisions: [] });
+  const stored = { ...key, physicsRevision, aeroModel: 'classic', rogersKbf: false,
+    delayResolution: testResolution([['mount', motor]], [5]), delayS: 5, recommendedDelayS: 5 } as unknown as SimRun;
+  expect(changedSinceRun(stored, key)).toEqual([AERO_MODEL_CHANGED]);
+  const kbf = { ...stored, rogersKbf: true };
+  expect(runMatchesDesign(kbf, key)).toBe(false);
+  expect(changedSinceRun(kbf, key)).toEqual(['the atmosphere physics']);
+  expect(physicsRevisionsMissed({ ...stored, aeroModel: undefined, rogersKbf: undefined }, key)
+    .map(r => r.id)).toEqual(['geopotential-isa-v7']);
+});
+
+it.each([
+  ['classic', false, false, true], ['classic', true, false, false],
+  ['supersonic', false, false, false], ['hybrid', false, false, false],
+  ['auto', false, true, false], ['auto', false, false, true], ['auto', true, false, false],
+] as const)('S7a-1 checks v6 atmosphere provenance for %s Kbf=%s supersonic=%s', (aeroMode, effectiveKbf, autoSupersonic, accepted) => {
+  const key = designMatchKeyOf({ physicsKey: 'same', assigned: [['mount', motor]], hardwareDeltaKg: 0,
+    launch: DEFAULT_CONDITIONS, aeroMode, effectiveKbf, autoSupersonic, hasNozzle: false, physicsRevisions: [] });
+  const stored = { ...key, physicsRevision: 'recovery-radial-mass-v6',
+    delayResolution: testResolution([['mount', motor]], [5]),
+    aeroModel: aeroMode === 'auto' ? autoSupersonic ? 'auto-supersonic' : 'classic' : aeroMode,
+    rogersKbf: effectiveKbf, delayS: 5, recommendedDelayS: 5,
+  } as unknown as SimRun;
+  expect(runMatchesDesign(stored, key)).toBe(accepted);
+  expect(runMatchesDesign(stored, { ...key, physicsRevisions: undefined, requiresPhysicsRevision: true })).toBe(accepted);
+  expect(physicsRevisionsMissed(stored, key).map(r => r.id)).toEqual(accepted ? [] : ['geopotential-isa-v7']);
+  expect(runMatchesDesign({ ...stored, physicsRevision: PHYSICS_REVISION }, key)).toBe(true);
 });
 
 describe('K9/K15 upgrade provenance', () => {
@@ -160,8 +194,8 @@ describe('ordered physics revision history', () => {
 });
 
 describe('K6 recovery radial placement revision', () => {
-  it('stamps new runs with the recovery placement revision', () => {
-    expect(PHYSICS_REVISION).toBe('recovery-radial-mass-v6');
+  it('stamps new runs with the atmosphere revision', () => {
+    expect(PHYSICS_REVISION).toBe('geopotential-isa-v7');
   });
 
   it.each((['parachute', 'streamer', 'shockcord'] as const).flatMap(type =>
@@ -174,7 +208,7 @@ describe('K6 recovery radial placement revision', () => {
             const tree = treeWith({ type: 'bodytube', children: [
               { type, radialPosition, radialDirection }, { type: 'freeformfinset', crossSection, cant },
             ] });
-            const cur = { physicsRevisions: physicsRevisionsFor(tree) };
+            const cur = { ...classicModel, physicsRevisions: physicsRevisionsFor(tree) };
             const missed = physicsRevisionsMissed(old, cur);
             const affected = radialPosition !== 0;
             expect(missed.map((r) => r.id)).toEqual(affected ? ['recovery-radial-mass-v6'] : []);
@@ -212,12 +246,12 @@ describe('v0.144 revisions: roll inertia, strap-on nozzle, pods-only base', () =
 
   it('names only the revisions a run missed, in order', () => {
     const tree = stage(lug, { type: 'railbutton' }, fin(0.05));
-    const cur = { physicsRevisions: physicsRevisionsFor(tree) };
+    const cur = { ...classicModel, physicsRevisions: physicsRevisionsFor(tree) };
     const missed = physicsRevisionsMissed({ physicsRevision: 'guide-clearance-transition-mass-v1' }, cur);
     expect(missed.map((r) => r.id)).toEqual(['two-button-guidance-v2', 'true-cg-roll-inertia-v3']);
     // One banner entry each, so a description's own "and" cannot run into the next.
     expect(physicsChangeLabels(missed)).toEqual(['the rail-button guidance physics', 'the roll-inertia physics']);
-    expect(physicsChangeLabels(physicsRevisionsMissed({}, { physicsRevisions: ['strap-on-nozzle-v4'] })))
+    expect(physicsChangeLabels(physicsRevisionsMissed({}, { ...classicModel, physicsRevisions: ['strap-on-nozzle-v4'] })))
       .toEqual(['the strap-on nozzle physics']);
     expect(physicsRevisionsMissed({ physicsRevision: PHYSICS_REVISION }, cur)).toEqual([]);
   });

@@ -22,6 +22,8 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  // S7b-3: a zero-Cd .ork canopy must reach sizing unchanged through either XML parser.
+  'src/services/recoverySizing.import.test.ts',
   // N028: the preflight check reads designs opened through importOrk.
   'src/components/PreflightAudit.test.tsx',
   // C-H3: diagnostic messages are taken from the real importer refusals.

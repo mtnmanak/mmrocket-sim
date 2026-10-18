@@ -6,7 +6,8 @@ import {
 } from './simStore.js';
 import { IMPERIAL_UNITS } from '../prefs/units.js';
 import { densityAltitudeM } from './atmosphere.js';
-import { deploymentVerdict, type SimRun } from './simReport.js';
+import { commentsOf, deploymentVerdict, type DesignMatchKey, type SimRun } from './simReport.js';
+import { runStatus } from './runConfiguration.js';
 
 /**
  * Store tests exercise the persistence round-trip, not simulation output —
@@ -23,6 +24,64 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     maxAltitude: 300,
     ...over,
   }) as SimRun;
+
+it.each(['', '0x10', true, null])('S1d-4 blanks nonnumeric lead and detail values: %j', value => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('bad'),
+    maxVelocity: value, rodExitVelocity: value, maxAcceleration: value,
+    thrustToWeightAtRod: value, launchMass: value, burnoutMass: value,
+    maxRollRateRadS: value, rodExitAoa: value, loads: { maxQAlpha: { aoa: value, value } } }]));
+  const runs = loadRuns();
+  const table = runsToTable(runs);
+  for (const header of ['Velocity (mph)', 'Guide (mph)', 'Accel (Gs)', 'T:W', 'Pad Weight (g)',
+    'Recovery Weight (g)', 'Max velocity (m/s)', 'Max acceleration (m/s2)', 'Max roll rate (r/s)',
+    'Angle of attack at launch guide exit (deg)', 'Angle of attack at max q·α (deg)',
+    'Max q·α (Pa·rad)', 'Max q·α (Pa·deg)']) {
+    expect(table.headers).toContain(header);
+    expect(table.rows[0]![table.headers.indexOf(header)], header).toBe('');
+  }
+  expect(runsToCsv(runs).split('\n')[1]).not.toContain('35.8');
+});
+
+it('S7a-2 keeps corrupt provenance and comments from killing history and exports', () => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+    { ...mkRun('bad'), motorSetKey: 123, designKey: {}, conditionsKey: true, comments: {}, commentLevels: ['warning'] },
+    { ...mkRun('good'), motorSetKey: 'm', designKey: 'd', conditionsKey: 'c', comments: 'kept', commentLevels: ['info'] },
+  ]));
+  const runs = loadRuns();
+  expect(runs.map(r => r.id)).toEqual(['bad', 'good']);
+  const current = { designKey: 'd', motorSetKey: 'm', conditionsKey: 'c' } as DesignMatchKey;
+  expect.soft(() => runStatus(runs[0]!, current)).not.toThrow();
+  expect.soft(() => commentsOf(runs[0]!)).not.toThrow();
+  expect.soft(() => runsToCsv(runs, undefined, undefined, current)).not.toThrow();
+  for (const key of ['motorSetKey', 'designKey', 'conditionsKey', 'commentLevels']) expect(runs[0]).not.toHaveProperty(key);
+  expect(runs[0]?.comments).toBe('');
+  expect(commentsOf(runs[0]!)).toEqual([]);
+  expect(commentsOf(runs[1]!)).toEqual([{ text: 'kept', level: 'info' }]);
+  expect(() => runsToCsv(runs, undefined, undefined, current)).not.toThrow();
+});
+
+it.each([NaN, Infinity, -Infinity])('S7a-g4 drops nonfinite time steps at the JSON boundary: %s', value => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', '[]');
+  const parse = vi.spyOn(JSON, 'parse').mockReturnValueOnce([{ ...mkRun('step'), timeStepS: value }]);
+  try { expect(loadRuns()[0]).not.toHaveProperty('timeStepS'); }
+  finally { parse.mockRestore(); }
+});
+
+it.each([0, -1, '0.01', true, null, {}, 0.01])('S7a-g4 only restores positive finite time steps: %j', value => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('step'), timeStepS: value }]));
+  const [run] = loadRuns();
+  expect(run).toBeDefined();
+  if (value === 0.01) expect(run?.timeStepS).toBe(0.01);
+  else expect(run).not.toHaveProperty('timeStepS');
+});
+
+it.each([[60, ''], [75, ' (caution)'], [95, ' (!)']] as const)('S3b-1 exports drogue descent at %s ft/s in its tier', (fps, suffix) => {
+  const d = { device: 'Drogue', time: 1, velocityAtDeployment: 5, descentRate: fps * 0.3048,
+    isLanding: false, descentOk: fps <= 70 } as NonNullable<SimRun['deployments']>[number];
+  const { headers, rows } = runsToTable([mkRun('drogue', { deployments: [d] })]);
+  const cell = rows[0]![headers.indexOf('Deployments')];
+  expect(cell).toBe(`Drogue@1.0s opens 5.0m/s descent ${(fps * 0.3048).toFixed(1)}m/s${suffix}`);
+});
 
 it('N032 summary CSV/table use altitude units for heights and distance units for landing drift', () => {
   const run = mkRun('split', { maxAltitude: 304.8, altitudeAtDeployment: 152.4,

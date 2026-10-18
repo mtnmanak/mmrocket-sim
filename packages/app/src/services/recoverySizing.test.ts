@@ -42,7 +42,8 @@ const tube = (bore: number, chutes: Partial<ComponentNode>[] = []): RocketTree =
 
 const ok = (r: ReturnType<typeof recoverySizing>) => {
   if (r.state !== 'ok') throw new Error(`expected ok, got ${r.state}`);
-  return r;
+  if (r.main.diameter === null || r.drogue.diameter === null) throw new Error('expected both size lines');
+  return { ...r, main: { ...r.main, diameter: r.main.diameter }, drogue: { ...r.drogue, diameter: r.drogue.diameter } };
 };
 
 const sizing = (over: Partial<Parameters<typeof recoverySizing>[0]> = {}) => recoverySizing({

@@ -17,7 +17,7 @@ import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
 import { formatWarningText } from './simWarnings.js';
 import { AERO_NAME, aeroOptionLabel } from '../prefs/aeroChoice.js';
-import { densityAltitudeM, padFieldsAsFlown } from './atmosphere.js';
+import { densityAltitudeM, padFieldsAsFlown, usesGeopotentialIsa, type AtmosphereModel } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { flightLoads, type FlightLoads } from './flightLoads.js';
 import { affectsRollInertia, hasRecoveryRadialOffset, hasRollForcing } from './revisionInertia.js';
@@ -294,6 +294,15 @@ export function openingVerdict(velocity: number | null | undefined, role: Recove
   const policy = openingPolicy(role);
   return speed <= policy.preferred ? true
     : speed <= policy.upper ? 'caution' : false;
+}
+
+/** Re-grade measured descent independently of the stored preferred-limit flag. */
+export function descentVerdict(d: Pick<DeploymentReport, 'descentRate' | 'isLanding'>): DeploymentVerdict {
+  if (!Number.isFinite(d.descentRate)) return null;
+  const speed = Math.abs(d.descentRate!);
+  if (d.isLanding) return speed <= SAFETY.maxLandingRate;
+  return speed <= SAFETY.maxDrogueDescentRate ? true
+    : speed <= SAFETY.warnDrogueDescentRate ? 'caution' : false;
 }
 
 /** Re-grade recorded speeds so saved runs also follow K16, including boosters. */
@@ -1041,6 +1050,7 @@ export function motorDataKeysMatch(saved: SimRun['motorDataKeys'], current: Desi
 
 export function changedSinceRun(
   run: SimRun, cur: DesignMatchKey | null,
+  options?: PhysicsRevisionOptions,
 ): string[] | null {
   if (!cur) return null;
   const changed: string[] = [];
@@ -1080,11 +1090,11 @@ export function changedSinceRun(
   // Legacy runs without a designKey cannot be attributed to this tree.
   // Current batch rows carry it and receive the same physics checks as Launch.
   if (run.designKey && !runCarriesNozzleStamp(run, cur)) changed.push(PRESSURE_THRUST_CHANGED);
-  if (run.designKey && !runCarriesPhysicsRevision(run, cur)) {
+  if (run.designKey && !runCarriesPhysicsRevision(run, cur, options)) {
     // Name only the revisions this run predates that reach this design; a caller
     // with the bare boolean cannot say which, and keeps the generic line.
     changed.push(...(cur.physicsRevisions
-      ? physicsChangeLabels(physicsRevisionsMissed(run, cur)) : [KERNEL_PHYSICS_CHANGED]));
+      ? physicsChangeLabels(physicsRevisionsMissed(run, cur, options)) : [KERNEL_PHYSICS_CHANGED]));
   }
   if (changed.length > 0) return changed;
 
@@ -1104,10 +1114,10 @@ export function listAnd(items: readonly string[]): string {
   return `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]!}`;
 }
 
-export function runMatchesDesign(run: SimRun, cur: DesignMatchKey): boolean {
+export function runMatchesDesign(run: SimRun, cur: DesignMatchKey, options?: PhysicsRevisionOptions): boolean {
   // One comparison owns both the report's claim and replay eligibility.
   // Unknown evidence (null) refuses a match just as a named change does.
-  return changedSinceRun(run, cur)?.length === 0;
+  return changedSinceRun(run, cur, options)?.length === 0;
 }
 
 /**
@@ -1221,10 +1231,11 @@ export interface PhysicsRevision {
   description: string;
   affects?: (n: ComponentNode) => boolean;
   affectsTree?: (tree: RocketTree) => boolean;
+  affectsModel?: (model: AtmosphereModel) => boolean;
 }
 
 /** Append revisions in flight order; each entry names only the designs it changes. */
-export const PHYSICS_REVISIONS: readonly PhysicsRevision[] = [
+const PHYSICS_REVISIONS: readonly PhysicsRevision[] = [
   { id: 'guide-clearance-transition-mass-v1', description: 'launch-guide and transition-shoulder', affects: (n) => n.type === 'launchlug' || n.type === 'railbutton' || (n.type === 'transition' && (Number(n['foreShoulderThickness']) > 0 || Number(n['aftShoulderThickness']) > 0)) },
   { id: 'two-button-guidance-v2', description: 'rail-button guidance', affects: (n) => n.type === 'railbutton' },
   // v0.144: roll inertia about the true CG axis. Only a design that can roll —
@@ -1238,6 +1249,7 @@ export const PHYSICS_REVISIONS: readonly PhysicsRevision[] = [
   // Sideways offsets change pitch/yaw inertia through RigidBody.rebase's Iyy,
   // even without fin cant; conservatively flag every nonzero recovery offset.
   { id: 'recovery-radial-mass-v6', description: 'recovery-part placement', affectsTree: hasRecoveryRadialOffset },
+  { id: 'geopotential-isa-v7', description: 'atmosphere', affectsModel: usesGeopotentialIsa },
 ];
 export const PHYSICS_REVISION = PHYSICS_REVISIONS[PHYSICS_REVISIONS.length - 1]!.id;
 
@@ -1260,16 +1272,27 @@ export function physicsRevisionsFor(tree: RocketTree): string[] {
   }).map(({ id }) => id);
 }
 
+interface PhysicsRevisionOptions {
+  /** Auto delays and recovery events retain their evidence across atmosphere-only changes. */
+  includeModelRevisions?: boolean;
+}
+
 /** The revisions a run predates that reach the current design, in flight order. */
 export function physicsRevisionsMissed(
-  run: Pick<SimRun, 'physicsRevision'>,
-  cur: { requiresPhysicsRevision?: boolean; physicsRevisions?: readonly string[] },
+  run: Pick<SimRun, 'physicsRevision' | 'aeroModel' | 'rogersKbf'>,
+  cur: Pick<DesignMatchKey, 'aeroMode' | 'effectiveKbf' | 'autoSupersonic'> & { requiresPhysicsRevision?: boolean; physicsRevisions?: readonly string[] },
+  options?: PhysicsRevisionOptions,
 ): PhysicsRevision[] {
-  // Older callers with only the boolean conservatively require the latest stamp.
+  // The legacy boolean describes tree revisions, not the aerodynamics model.
   const affected = cur.physicsRevisions
-    ?? (cur.requiresPhysicsRevision === true ? [PHYSICS_REVISION] : []);
+    ?? (cur.requiresPhysicsRevision === true
+      ? [PHYSICS_REVISIONS.filter(r => !r.affectsModel).at(-1)!.id] : []);
   const flownIndex = PHYSICS_REVISIONS.findIndex(({ id }) => id === run.physicsRevision);
-  return PHYSICS_REVISIONS.filter(({ id }, i) => i > flownIndex && affected.includes(id));
+  const runModel: AtmosphereModel = { aeroMode: run.aeroModel, effectiveKbf: run.rogersKbf };
+  const unknownModel = !run.aeroModel || (run.aeroModel === 'classic' && run.rogersKbf === undefined);
+  return PHYSICS_REVISIONS.filter(({ id, affectsModel }, i) => i > flownIndex
+    && (affectsModel ? options?.includeModelRevisions !== false
+      && affectsModel(cur) && (unknownModel || affectsModel(runModel)) : affected.includes(id)));
 }
 
 export function requiresPhysicsRevision(tree: RocketTree): boolean {
@@ -1277,10 +1300,11 @@ export function requiresPhysicsRevision(tree: RocketTree): boolean {
 }
 
 export function runCarriesPhysicsRevision(
-  run: Pick<SimRun, 'physicsRevision'>,
-  cur: { requiresPhysicsRevision?: boolean; physicsRevisions?: readonly string[] },
+  run: Pick<SimRun, 'physicsRevision' | 'aeroModel' | 'rogersKbf'>,
+  cur: Pick<DesignMatchKey, 'aeroMode' | 'effectiveKbf' | 'autoSupersonic'> & { requiresPhysicsRevision?: boolean; physicsRevisions?: readonly string[] },
+  options?: PhysicsRevisionOptions,
 ): boolean {
-  return physicsRevisionsMissed(run, cur).length === 0;
+  return physicsRevisionsMissed(run, cur, options).length === 0;
 }
 
 /**

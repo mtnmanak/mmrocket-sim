@@ -17,7 +17,7 @@ import { clickable } from './clickable.js';
 import { Modal } from './Modal.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  launchGuideExplanation, aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, formatRunLabel, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
+  launchGuideExplanation, aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, descentVerdict, formatRunLabel, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
   ROLL_RATE_MEANINGFUL_RAD_S, runStoppedEarly, SAFETY, stabilityState, WIND_BLOWS_TOWARD_DEG,
   type DeploymentReport, type DeploymentVerdict, type SimRun,
 } from '../services/simReport.js';
@@ -67,7 +67,7 @@ const s = (v: number | null, digits = 2) =>
  * Runs stored before v0.099 carry no coefficient; they show "—" rather than a
  * guess. "No coefficient" there means NO KEY — the row predates the fields, so
  * `cd`, `cdNominal` and `spillHoleDiameter` are undefined, not null, and the
- * guards below are `== null` for that reason. An `=== null` guard let an
+ * finite checks below cover absent and malformed values. An `=== null` guard let an
  * absent `cd` through to `.toFixed` and took the whole app down on a click in
  * Saved simulations (audit 2026-09-22).
  *
@@ -84,10 +84,10 @@ const s = (v: number | null, digits = 2) =>
  * material density, not a constant this can name.
  */
 function flownCd(d: DeploymentReport): string {
-  if (d.cd == null) return '—';
-  const flown = d.cd.toFixed(2);
-  const vented = d.spillHoleDiameter != null && d.spillHoleDiameter > 0
-    && d.cdNominal != null && Math.abs(d.cdNominal - d.cd) > 1e-9;
+  if (!Number.isFinite(d.cd)) return '—';
+  const flown = s(d.cd);
+  const vented = Number.isFinite(d.spillHoleDiameter) && d.spillHoleDiameter! > 0
+    && Number.isFinite(d.cdNominal) && Math.abs(d.cdNominal! - d.cd!) > 1e-9;
   if (!vented) return d.cdAutomatic ? `${flown} (auto)` : flown;
   // The TYPED vented string stays byte-identical — the guide and the v0.099
   // changelog both quote "1.44 (1.50 less a 122 mm vent)". Only the untyped
@@ -176,9 +176,11 @@ function DeploymentTable({ deployments, alt, vel }: {
         {deployments.map((d, i) => {
           const problems: string[] = [];
           const opening = openingVerdict(d.velocityAtDeployment, deploymentRole(d));
+          const descent = descentVerdict(d);
           if (opening === false) problems.push('hard opening');
           if (opening === 'caution') problems.push('fast opening — watch for a zippered tube');
-          if (d.descentOk === false) {
+          if (descent === 'caution') problems.push('drogue descent above preferred speed');
+          if (descent === false) {
             problems.push(d.isLanding ? 'landing too fast' : 'drogue descent too fast');
           }
           return (
@@ -190,12 +192,12 @@ function DeploymentTable({ deployments, alt, vel }: {
                 {typeof d.velocityAtDeployment !== 'number' || !Number.isFinite(d.velocityAtDeployment) ? '\u2014' : fmtSi('velocity', vel, Math.abs(d.velocityAtDeployment))}
               </td>
               <td>{flownCd(d)}</td>
-              <td className={d.descentOk === false ? 'stability-bad' : undefined}>
+              <td className={descent === false ? 'stability-bad' : descent === 'caution' ? 'stability-warn' : undefined}>
                 {typeof d.descentRate !== 'number' || !Number.isFinite(d.descentRate) ? '\u2014' : fmtSi('velocity', vel, d.descentRate)}
               </td>
               <td>{typeof d.groundSpeed !== 'number' || !Number.isFinite(d.groundSpeed) ? '\u2014' : fmtSi('velocity', vel, d.groundSpeed)}</td>
-              <td className={opening === false || d.descentOk === false ? 'stability-bad' : opening === 'caution' ? 'stability-warn' : opening === true && d.descentOk === true ? 'stability-good' : undefined}>
-                {problems.length ? `\u26a0 ${problems.join(', ')}` : opening === true && d.descentOk === true ? '\u2713 ok' : '\u2014 not measured'}
+              <td className={opening === false || descent === false ? 'stability-bad' : opening === 'caution' || descent === 'caution' ? 'stability-warn' : opening === true && descent === true ? 'stability-good' : undefined}>
+                {problems.length ? `${opening === false || descent === false ? '\u26a0' : '\u25b3'} ${problems.join(', ')}` : opening === true && descent === true ? '\u2713 ok' : '\u2014 not measured'}
               </td>
             </tr>
           );
@@ -705,10 +707,12 @@ export function SimHistory({
                   || stabilityState(r.launchStaticMarginCal) === 'under'
                   || r.safeThrustToWeight === false
                   || r.safeLandingRate === false
-                  || (r.deployments ?? []).some((d) => d.descentOk === false)
+                  || (r.deployments ?? []).some((d) => descentVerdict(d) === false)
                   || (r.branches ?? []).some((b) => b.safeLandingRate === false
-                    || b.deployments?.some((d) => d.descentOk === false));
+                    || b.deployments?.some((d) => descentVerdict(d) === false));
                 const caution = !unsafe && (deploymentVerdict(r) === 'caution'
+                  || (r.deployments ?? []).some((d) => descentVerdict(d) === 'caution')
+                  || (r.branches ?? []).some((b) => b.deployments?.some((d) => descentVerdict(d) === 'caution'))
                   || stabilityState(r.launchStaticMarginCal) === 'over');
                 // A tab stop and Enter/Space, not a bare onClick. `onSelect` is
                 // the ONLY path that loads a stored run into the launch report,
@@ -734,7 +738,8 @@ export function SimHistory({
                       : r.importedSummary && r.delayS !== Infinity ? '—' : 'P'}</td>
                     {columns.map(column => <td key={column.id}>{summaryCell(column, r, prefs.units)}</td>)}
                     <td className={r.importedSummary ? undefined : unsafe ? 'stability-bad' : caution ? 'stability-warn' : 'stability-good'}>
-                      {r.importedSummary ? '—' : unsafe ? '⚠' : caution ? '△' : '✓'}
+                      <span aria-hidden="true">{r.importedSummary ? '—' : unsafe ? '⚠' : caution ? '△' : '✓'}</span>
+                      <span className="sr-only">{r.importedSummary ? 'Checks unavailable' : unsafe ? 'Failed checks' : caution ? 'Caution' : 'Passed checks'}</span>
                     </td>
                     <td title={status.title}>{status.label}</td>
                     <td>{r.windLevels?.length ? `${r.windLevels.length} levels` : r.importedSummary ? '—' : "No"}</td>

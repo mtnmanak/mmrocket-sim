@@ -730,8 +730,10 @@ export interface BandAdvice {
   /** Bore of this device’s own bay (m), or null when unverified. */
   boreM: number | null;
   band: Band;
-  /** Diameter (m) that hits `band.target` at `cd`. THE size line. */
-  diameter: number;
+  /** Diameter (m) that hits `band.target` at `cd`, or null when its Cd is unusable. */
+  diameter: number | null;
+  /** Why this band's size line is unavailable; catalogue candidates remain usable. */
+  reason?: string;
   /**
    * The Cd the size line was computed at — never omitted from the copy, and
    * VENT-CORRECTED: it is `cdNominal * ventFactor`, so the diameter beside it
@@ -1046,12 +1048,13 @@ function bandAdvice(
     vent = 1;
   }
   const cd = cdNominal * vent;
+  const usableCd = cd > 0 && Number.isFinite(cd);
   // The size line uses the recovery weight AS THE DESIGN STANDS. A canopy that
   // has not been chosen has no mass to substitute, so there is nothing honest
   // to swap; the candidate list below is where the substitution belongs.
   // It is PER CANOPY: with `instances` of them open at once each carries its
   // share of the weight (see `deviceInstances`).
-  const diameter = diameterForRate(massKg / instances, cd, rho, band.target);
+  const diameter = usableCd ? diameterForRate(massKg / instances, cd, rho, band.target) : null;
 
   // --- the candidates ------------------------------------------------------
   interface Scored extends RecoveryFit { p: Preset; rate: number }
@@ -1146,8 +1149,12 @@ function bandAdvice(
     variants: count,
   }));
 
+  const otherRole = role === 'main' ? 'drogue' : 'main';
   return {
     role, boreM, band, diameter, cd, cdNominal, ventFactor: vent, cdSource, massKg, instances,
+    ...(usableCd ? {} : { reason: cdSource === 'the design’s other chute'
+      ? `there is no ${role} parachute in this design, and the Cd it borrows from the ${otherRole} canopy is not greater than zero after its spill hole; check the ${otherRole} canopy's Cd and spill hole`
+      : `the ${role} canopy needs an effective Cd greater than zero for sizing; check its Cd and spill hole` }),
     candidates, inBand, excludedForFit, mergedVariants,
     checkedFits: scored.filter((s) => s.checked).length,
     excludedFitReasons: [...new Set(scored.filter((s) => !s.fits).map((s) => s.reason))],
@@ -1182,6 +1189,19 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
 
   const canopies = presets.filter((p) => p.kind === 'Parachute');
 
+  const mainAdvice = bandAdvice('main', MAIN_BAND, {
+    massKg: recovery.mass, rho, boreM, device: main, otherDevice: drogue,
+    fitFor: (p) => recoveryFit(tree, main, p, scope),
+    currentMass: main ? deviceMass(main) : 0,
+    massPinned: slotMassPinned(tree, main, scope), instances: deviceInstances(tree, main), canopies,
+  });
+  const drogueAdvice = bandAdvice('drogue', DROGUE_BAND, {
+    massKg: recovery.mass, rho, boreM: drogueBoreM, device: drogue, otherDevice: main,
+    fitFor: (p) => recoveryFit(tree, drogue, p, scope),
+    currentMass: drogue ? deviceMass(drogue) : 0,
+    massPinned: slotMassPinned(tree, drogue, scope), instances: deviceInstances(tree, drogue), canopies,
+  });
+
   return {
     state: 'ok',
     massKg: recovery.mass,
@@ -1191,17 +1211,7 @@ export function recoverySizing(input: RecoverySizingInput): RecoverySizing {
     elevationM: padAir(launch).altitudeM,
     siteRateFactor: Math.sqrt(SEA_LEVEL_DENSITY / rho),
     boreM,
-    main: bandAdvice('main', MAIN_BAND, {
-      massKg: recovery.mass, rho, boreM, device: main, otherDevice: drogue,
-      fitFor: (p) => recoveryFit(tree, main, p, scope),
-      currentMass: main ? deviceMass(main) : 0,
-      massPinned: slotMassPinned(tree, main, scope), instances: deviceInstances(tree, main), canopies,
-    }),
-    drogue: bandAdvice('drogue', DROGUE_BAND, {
-      massKg: recovery.mass, rho, boreM: drogueBoreM, device: drogue, otherDevice: main,
-      fitFor: (p) => recoveryFit(tree, drogue, p, scope),
-      currentMass: drogue ? deviceMass(drogue) : 0,
-      massPinned: slotMassPinned(tree, drogue, scope), instances: deviceInstances(tree, drogue), canopies,
-    }),
+    main: mainAdvice,
+    drogue: drogueAdvice,
   };
 }
