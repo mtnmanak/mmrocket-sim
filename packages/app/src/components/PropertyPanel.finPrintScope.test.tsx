@@ -4,7 +4,10 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PropertyPanel } from './PropertyPanel.js';
+import { NoticeBar } from './NoticeBar.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { exportOrk, importOrk } from '../services/orkFile.js';
+import { tierLines } from '../services/importNotes.js';
 
 /**
  * D7 §5, P11: what the fin STL holds is read WITH the export choice, not only
@@ -41,6 +44,45 @@ const words = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' 
 /** Let any pending render settle (the Cross section notes are synchronous since the N062 review). */
 const settle = () => act(async () => { await new Promise(r => setTimeout(r, 0)); });
 const TAB = { tabHeight: 0.008, tabLength: 0.04 };
+
+// S3a-1 (audit 2026-10-17): inherited label-table keys must never become React children.
+it.each(['__proto__', 'constructor', 'toString'])('repairs an imported inherited cross-section %s to Square with a note and safe re-save', cross => {
+  const { tree, notes, noteTiers } = importOrk(`<openrocket version="1.10"><rocket><name>Untrusted section</name><subcomponents>
+    <stage><subcomponents><bodytube><length>0.3</length><radius>0.02</radius><thickness>0.001</thickness><subcomponents>
+    <freeformfinset><name>Fins</name><fincount>3</fincount><thickness>0.003</thickness>
+      <crosssection>${cross}</crosssection><airfoilsection>naca</airfoilsection>
+      <finpoints><point x="0" y="0"/><point x="0.02" y="0.03"/><point x="0.06" y="0"/></finpoints>
+    </freeformfinset></subcomponents></bodytube></subcomponents></stage>
+    </subcomponents></rocket></openrocket>`);
+  const fin = tree.components[0]!.children![0]!.children![0]!;
+  expect(fin).not.toHaveProperty('crossSection');
+  const repair = `“Fins”: Cross section “${cross}” is not one the simulation knows — it now uses`
+    + ' a square cross-section, which is what the simulation was already using.';
+  expect(notes.filter(n => n.includes('Cross section'))).toEqual([repair]);
+  expect(noteTiers).toContainEqual({ kind: 'I04.limits', tier: 'caution', text: repair });
+  const before = structuredClone(tree);
+  const patches: unknown[] = [];
+  act(() => root.render(<PrefsProvider>
+    <PropertyPanel tree={tree} node={fin} onPatch={p => patches.push(p)} />
+    <NoticeBar notices={[{ id: 'file-note', severity: 'info', text: notes.join('\n'),
+      group: { lines: tierLines(notes, noteTiers) } }]} />
+  </PrefsProvider>));
+  expect(words(host.querySelector('.notice-bar .message-caution'))).toContain(repair);
+  expect(words(host.querySelector('.fin-section-named'))).toMatch(/named NACA \(round LE\) section.*draw the Square cross-section/);
+  const select = host.querySelector<HTMLSelectElement>('select[aria-label="Cross section"]')!;
+  expect(select.value).toBe('square');
+  expect(select.selectedOptions[0]!.textContent).toBe('Square');
+  expect(tree).toEqual(before);
+  expect(patches).toEqual([]);
+  const saved = exportOrk({ name: tree.name ?? 'Rocket', tree });
+  expect(saved).toContain('<crosssection>square</crosssection>');
+  expect(saved).not.toContain(`<crosssection>${cross}</crosssection>`);
+});
+
+it.each(['__proto__', 'constructor', 'toString'])('safely labels an unsanitized inherited cross-section %s', cross => {
+  show(cross, { airfoilSection: 'naca' });
+  expect(words(host.querySelector('.fin-section-named'))).toMatch(/draw the Square cross-section/);
+});
 
 const stlButton = () => [...host.querySelectorAll('button')].find(b => /STL/.test(b.textContent ?? ''))!;
 

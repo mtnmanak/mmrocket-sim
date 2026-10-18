@@ -4,6 +4,7 @@ import {
   explainBuildFailure, limitPatch, partBlockingBuild, sanitizeTree, separationEventOrDefault, treeProblems,
 } from './sanitize.js';
 import { defaultTree, engineTree, normalizeTree } from './treeModel.js';
+import { noteFlags } from '../services/importNotes.js';
 import {
   FIELDS, fieldLimit, KERNEL_MAX_FINS, MAX_ASSEMBLY_INSTANCES, MAX_DIMENSION_M,
   MAX_SHROUD_LINES, MIN_POSITIVE_DIMENSION_M, MAX_BULK_DENSITY, type EditorComponentType,
@@ -162,6 +163,52 @@ describe('sanitizeTree — dimensions', () => {
 });
 
 describe('sanitizeTree — enum strings', () => {
+  // S3a-1 (audit 2026-10-17): preserve the kernel's section choice while repairing stored spellings.
+  const finTypes = ['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'];
+  const knownSections = ['square', 'rounded', 'airfoil', 'Rounded', 'ROUNDED', 'AirFoil'];
+  const unknownSections = ['round_ed', 'rounded ', ' airfoil', 'hex', '__proto__', 'constructor', 'toString'];
+  const kernelSection = (raw: unknown): string => {
+    const sections: Record<string, string> = { rounded: 'rounded', airfoil: 'airfoil' };
+    const key = String(raw).toLowerCase();
+    return Object.hasOwn(sections, key) ? sections[key]! : 'square';
+  };
+
+  it.each(finTypes)('preserves kernel cross-section semantics when repairing %s', type => {
+    for (const raw of [...knownSections, ...unknownSections]) {
+      const fixed = kid(sanitizeTree(rocket([{ id: 'f', type, crossSection: raw }])));
+      expect(kernelSection(fixed['crossSection'] ?? 'square'), raw).toBe(kernelSection(raw));
+      // The equivalence alone would also pass if the repair never ran.
+      if (knownSections.includes(raw)) expect(fixed['crossSection'], raw).toBe(raw.toLowerCase());
+      else expect(fixed, raw).not.toHaveProperty('crossSection');
+    }
+  });
+
+  it.each(finTypes)('silently canonicalizes known cross-sections and empty values on %s', type => {
+    for (const raw of [...knownSections, '', '  ']) {
+      const notes: string[] = [];
+      const fixed = kid(sanitizeTree(rocket([{ id: 'f', type, crossSection: raw }]), notes));
+      if (raw.trim() === '') expect(fixed).not.toHaveProperty('crossSection');
+      else expect(fixed['crossSection']).toBe(raw.toLowerCase());
+      expect(notes, raw).toEqual([]);
+      expect(noteFlags(notes), raw).toEqual([]);
+    }
+  });
+
+  it.each(finTypes)('reports each unknown cross-section once with the existing repair category on %s', type => {
+    for (const raw of unknownSections) {
+      const notes: string[] = [];
+      const fixed = sanitizeTree(rocket([{ id: 'f', type, name: 'Fins', crossSection: raw }]), notes);
+      expect(kid(fixed)).not.toHaveProperty('crossSection');
+      const text = `“Fins”: Cross section “${raw}” is not one the simulation knows — it now uses`
+        + ' a square cross-section, which is what the simulation was already using.';
+      expect(notes).toEqual([text]);
+      expect(noteFlags(notes)).toEqual([{ kind: 'I04.limits', tier: 'caution', text }]);
+      const again: string[] = [];
+      expect(sanitizeTree(fixed, again)).toBe(fixed);
+      expect(again).toEqual([]);
+    }
+  });
+
   it('drops a value the kernel refuses, with desktop\'s default and a note', () => {
     const notes: string[] = [];
     const t = sanitizeTree(rocket(

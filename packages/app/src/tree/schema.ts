@@ -522,6 +522,12 @@ export function canonicalEnum(values: readonly string[], raw: string): string | 
  */
 export interface EnumLimit {
   values: readonly string[];
+  /**
+   * Lowercase only, without trimming or removing underscores, to match
+   * ComponentFactory.crossSectionOf (engine-java/src/api/java/api/ComponentFactory.java:1032).
+   * Omit for the existing canonicalEnum matching.
+   */
+  match?: 'lowercase';
   /** What an absent key means, in words, for the note. */
   fallback: string;
 }
@@ -532,6 +538,11 @@ export const SEPARATION_EVENT_VALUES: readonly string[] = SEPARATION_EVENTS.map(
 const AIRFOIL: EnumLimit = {
   values: AIRFOIL_SECTIONS.map(([v]) => v).filter((v) => v !== ''),
   fallback: 'the classic cross-section drag',
+};
+const CROSS_SECTION: EnumLimit = {
+  values: CROSS_SECTIONS.map(([v]) => v),
+  match: 'lowercase',
+  fallback: 'a square cross-section, which is what the simulation was already using',
 };
 const SEPARATION: EnumLimit = {
   values: SEPARATION_EVENT_VALUES,
@@ -552,9 +563,9 @@ const SEPARATION: EnumLimit = {
  * wrote it, the way it always has.
  */
 export const ENUM_LIMITS: Record<string, Record<string, EnumLimit>> = lookupTable<Record<string, EnumLimit>>({
-  trapezoidfinset: { airfoilSection: AIRFOIL },
-  ellipticalfinset: { airfoilSection: AIRFOIL },
-  freeformfinset: { airfoilSection: AIRFOIL },
+  trapezoidfinset: { airfoilSection: AIRFOIL, crossSection: CROSS_SECTION },
+  ellipticalfinset: { airfoilSection: AIRFOIL, crossSection: CROSS_SECTION },
+  freeformfinset: { airfoilSection: AIRFOIL, crossSection: CROSS_SECTION },
   stage: { separationEvent: SEPARATION },
   parallelstage: { separationEvent: SEPARATION },
   innertube: { cluster: { values: CLUSTER_OPTIONS.map(([v]) => v), fallback: 'a single tube' } },

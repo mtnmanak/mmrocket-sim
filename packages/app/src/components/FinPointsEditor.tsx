@@ -145,6 +145,19 @@ export function FinPointsEditor({ points, onChange }: {
   const [hotRow, setHotRow] = useState<number | null>(null);
   // Why the last edit was refused, shown under the table (null = nothing wrong).
   const [refused, setRefused] = useState<string | null>(null);
+  const previousPoints = useRef(points);
+  const emittedPoints = useRef<FinPoint[] | null>(null);
+  useEffect(() => {
+    // Parent updates may clone our own edit or unchanged points. Only an
+    // external outline change (such as Undo/Redo) retires the explanation.
+    if (!samePoints(points, previousPoints.current)
+      && (!emittedPoints.current || !samePoints(points, emittedPoints.current))) {
+      setRefused(null);
+    }
+    previousPoints.current = points;
+    // Consume the echo so a later Undo to this outline is external again.
+    emittedPoints.current = null;
+  }, [points]);
 
   const committedProblem = useMemo(() => finOutlineProblem(committed), [committed]);
   // What is on screen right now — the live drag if there is one. Drives the red
@@ -172,6 +185,7 @@ export function FinPointsEditor({ points, onChange }: {
       return false;
     }
     setRefused(problem);
+    emittedPoints.current = next;
     onChange(next);
     return true;
   };

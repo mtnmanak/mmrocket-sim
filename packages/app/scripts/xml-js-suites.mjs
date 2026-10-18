@@ -135,6 +135,8 @@ export const XML_JS_SUITES = [
   // Fin root fillets (C-B14): .ork reopen and the .rkt/.CDX1 loss notes.
   'src/components/PropertyPanel.fillets.test.tsx',
   'src/services/filletExport.test.ts',
+  // S3a-1 (audit 2026-10-17): an unknown cross-section opens through importOrk into the panel.
+  'src/components/PropertyPanel.finPrintScope.test.tsx',
   // C-A3: the bundled example rockets open through importOrk.
   'src/App.examples.test.tsx',
   'src/components/ExampleDesignsDialog.test.tsx',

@@ -119,6 +119,8 @@ Select a part or stage and use **Comment** below its name to keep as-built notes
 
 ### Moving, copying and deleting parts
 
+Use the tree's arrow keys to select a part, then Tab to its action buttons.
+
 A button that cannot apply is left off rather than greyed out: a stage has no **Copy** or **Cut**, and a rocket's last remaining stage has no **Delete**.
 
 | Button | What it does |
@@ -338,6 +340,8 @@ Internally every size is stored in **pure SI** (meters, kilograms, seconds) and 
 
 **Definitions beside fields.** The ⓘ button beside a component name or property label opens its definition in the guide's existing Glossary. Tap it or focus it and press Enter or Space. Escape closes the guide and returns to the button; opening help does not change the part. Geometry help includes chords, sweep, cant, shoulders, root fillets, tabs and freeform point coordinates. Radius and diameter labels link to the same entry, which explains their relationship.
 
+While a definition loads, its dialog can be closed with Escape or **Close**. If the guide cannot be downloaded, the dialog offers **Reload the page**; close it to keep working on the design.
+
 **A blank field.** A blank field that stands for one known value shows that value in grey, in your display units (in the property panel as *default: N*) — a fin set's cant of 0, a new canopy's 6 shroud lines, a fin count of 3 on a fin set saved without one — and the spinner and the arrow keys step from it. A blank that shows a word instead of a number, such as *auto* on a Cd override, *standard* on the time step (which flies 0.05 s) or *plugged* on a plugged motor's delay, gives them nothing to step from: they change nothing and only put the cursor in the box. When a file omits wall thickness, the **Wall thickness** placeholder shows the kernel default. Unticking **Solid (filled)** uses that default for arrow-key steps and any inner-diameter control.
 
 ## Nose cones and transitions
@@ -372,9 +376,13 @@ Four fin families are supported:
 
 A tube-fin **Outer diameter** (**Outer radius** when entering radii) of zero is a set with no tubes: the simulation flies it with no tube fins (no drag or stability from them), the views draw none, and there is nothing to print. Leave the field blank for automatic sizing (see the table above).
 
+A refused point edit explains the outline problem and leaves the fin unchanged. Undo or Redo that changes the outline clears that edit's warning.
+
 In **Fin planform**, drag empty space or hold **Shift** while dragging anywhere to pan. Use the mouse wheel or a two-finger pinch to zoom around the pointer or between your fingers; move two fingers together to pan. **Zoom in**, **Zoom out** and **Fit view** also work from the keyboard. With the drawing focused, arrow keys pan, **+ / −** zoom, and **0** or **Home** fits the whole outline again. Pan and zoom change only the view: the saved point coordinates and flight numbers stay the same. A point drag still makes one edit to undo; adding a second finger cancels that edit and starts a view gesture. Click empty space to add a point, drag an existing point to move it, or type exact coordinates in the table. Touch gestures inside the drawing control its view; scroll the page outside it.
 
 Every flat-fin set also carries a **cant angle** (to induce roll), a **fin count** (1–8 — type more and the set gets 8, the most the simulation flies), and a **cross-section**: **Square**, **Rounded**, or **Airfoil (pointed)**. The cross-section is not cosmetic — a square edge produces markedly more pressure/skin drag than a streamlined airfoil, and the kernel models that difference, so choosing "Airfoil" on a carefully sanded fin gives you the lower drag of the fin you built.
+
+When opening a file or restoring a design, an unrecognized **Cross section** is cleared to **Square**, with a note naming the fin set. The simulation was already using Square for that value. Case-only variants such as "Rounded" are stored as the matching section without a note.
 
 For fast flights there is also an optional **supersonic airfoil** selection (RASAero-style): **hexagonal, NACA, double wedge (diamond), biconvex, hexagonal blunt-base, and single wedge**, plus **LE/TE chamfer lengths** and a **leading-edge bluntness radius**. Each shape gets its proper supersonic thickness wave drag, blunt-base shapes add fin base drag, and a blunt LE adds swept-cylinder drag. Leave this selector on its default, **"Classic"**, and the ordinary cross-section above drives the model instead. Two things are worth knowing, and both depend on which **aerodynamics model** you fly rather than on this selector: the **Classic Extended Barrowman** model ignores a named supersonic section outright — the three basic cross-sections are all it models; and the **Rogers Kbf**, **Auto**, **Supersonic** and **Hybrid (experimental)** models do not charge an **Airfoil** cross-section the classic blunt leading-edge drag (see *Aerodynamics* below). These choices also round-trip through `.ork` files (desktop OpenRocket ignores the extra tags with a warning).
 
@@ -737,6 +745,8 @@ As you build, five views show you the design — a scale side view, an end-on af
 
 Use the eye button beside a part in the component tree to hide it and its children from the **2D**, **3D** and **Aft** views. A crossed-out eye and **hidden** label mark parts hidden from the views. You can still select and edit a hidden part from the tree. Showing a child also shows its hidden parents; separately hidden siblings stay hidden. **Show all** restores every part.
 
+Use the tree's arrow keys to select a part, then Tab to its eye button. Eye buttons on other rows are reached by selecting those rows first.
+
 Hiding changes the views only. Hidden parts still count in mass, CG, aerodynamics and every flight number, and the CG and CP markers describe the complete rocket. The choice lasts until you reload or open a design, is shared across the app's views, and is not saved in a design file. Drawing and image exports follow the visible parts; 3D model and printing exports keep their usual parts.
 
 ## The 2D schematic
@@ -797,6 +807,8 @@ From any fin set, **📐 Fin template (1:1)** exports a **true-scale printable c
 - **SVG, transparent background** — the same file with no page colour, as the button wrote it before. Some viewers show the empty page grey, and converting it to JPG turns it black, hiding the black outline.
 - **PNG image, white, 300 dpi** and **JPG image, white, 300 dpi** — a picture of the template for a program that takes images rather than SVG. The 300 dpi is in the file name and written into the file, so a program that reads it places the image at true size; in one that does not, scale the image until the ruler measures 50 mm.
 
+If a fin-template PNG/JPG export fails, the app reports the reason. For a failed image above 16 million pixels in total or 8192 pixels on either side at 300 dpi, the message also gives the image dimensions and explains that many browsers cannot draw images that large. Larger images are still attempted and can succeed if the browser supports them. The SVG options remain available for larger pages.
+
 The SVGs use physical millimeter units and a 0.2 mm hairline, so they feed a laser cutter directly. For CNC or laser cutting from CAD geometry rather than a drawing, use **✂ DXF (CNC/laser, 1:1)** (see *Files, Units, and Offline Use → File formats*).
 
 ## Vent / marking holes (fabrication only)
@@ -829,7 +841,7 @@ Larger wraps download as a **ZIP of pages**, each sized to fit A4 or US Letter. 
 
 Select a trapezoidal, elliptical or freeform fin set attached to a straight round **Body tube**, then choose **Fin alignment jig (1:1)**. The flat template holds the tube at its outside diameter and places one radial slot at each fin's angle, including the fin set's rotation. It is viewed from aft, with a dashed zero-angle reference at the top. Each slot uses **fin thickness + Slot clearance**. Clearance is the total added width across both sides, starting at **0.2 mm**; it is only for the jig and is not saved with the design. Rounded and airfoil fins use the stock thickness. Closed slots extend through the full fin span, with at least 10 mm of jig material beyond their outer corners. Choose a station where every fin engages its slot.
 
-Choose white or transparent **SVG**, or white **PNG/JPG at 300 dpi**, as for the other templates. Large jigs may require SVG because the app limits image size instead of reducing print resolution. Print at **100% with no fit to page**, using paper large enough for the whole jig. Measure the calibration ruler: it must be **50 mm** (shown in your **Rocket dimensions** unit) or **2 in** when using inches or feet. If the ruler is wrong, the tube cut-out and fin slots are wrong too. In a program that ignores image resolution, scale the image until the ruler has that length.
+Choose white or transparent **SVG**, or white **PNG/JPG at 300 dpi**, as for the other templates. Jigs refuse PNG/JPG images above 16 million pixels or 8192 pixels on either side at 300 dpi, with a message naming those limits. Use an SVG option for a larger jig. Print at **100% with no fit to page**, using paper large enough for the whole jig. Measure the calibration ruler: it must be **50 mm** (shown in your **Rocket dimensions** unit) or **2 in** when using inches or feet. If the ruler is wrong, the tube cut-out and fin slots are wrong too. In a program that ignores image resolution, scale the image until the ruler has that length.
 
 **Caution:** Measure the actual tube and fin stock, and check the fit before cutting. The clearance does not account for cutting width, glue or printer error. A flat jig cannot hold canted fins; the app explains this beside the control and leaves the fin template and tube wrap available. The jig does not change any simulation setting.
 
@@ -936,6 +948,8 @@ MMRSim fills in the exit diameter, if it is stored in MMRSim's nozzle database. 
 Beside the **Makers**, **Diameter** and **Class** chips is a **search box that matches motor names**. Type any part of a designation or a common name — `C6`, `J350`, `I224` — and the list narrows to the rows that contain it. It is a plain substring, not a sentence: case does not matter, spaces do, there are no operators, and a second word is just more literal text, so `J350 AeroTech` finds nothing. It searches the tidied-up name the table shows as well as the raw one, which is how `I224` reaches Cesaroni's `381I224-15A`. And it narrows what the chips are already showing rather than searching the whole catalogue — maker, propellant and out-of-production are filters, not search terms.
 
 The results table (capped at 400 rows) sorts by designation, manufacturer, diameter, length, burn time, or total impulse (the default). Sorting the "Motor" column sorts by the cleaned-up *display* designation, so a Cesaroni motor like `381I224-15A` is ordered as `I224-15A` rather than by its impulse-prefix digits, while the raw designation stays the file identity.
+
+Changing the selected motor or its delay during **Loading…** cancels that load and makes **Load motor** available for the new choice. An EX import keeps sorting and **include out-of-production** changes made while files are being read; completing an import after closing the browser does not change the reopened browser's filters.
 
 ## Diameter-class fit (adapter-down)
 
@@ -1557,6 +1571,8 @@ When a new version ships, the browser picks it up the next time you open the app
 ### Your work, and where it is kept
 
 The header shows the last file opened or saved as `.ork`, `.rkt` or `.CDX1`, or *Not saved to a file*. RockSim and RASAero II files are labeled with their format. After a successful `.rkt` or `.CDX1` save, the status says **Saved as .rkt — N not kept** (or `.CDX1`), counting the loss lines shown before saving; with no detected losses it says **Saved as .rkt, not .ork**. If the app could not finish working out what the file loses, the dialog says so and still lets you choose, and after saving the status reads **Saved as .rkt — not fully checked** rather than a count. An edit or a new flight returns it to **Unsaved changes**, even when Undo reaches an earlier `.ork` save. Undo or Redo back to the lossy save's snapshot restores its **Saved as** status; an unchanged lossy save keeps that status after a reload. These saves do not clear the full-design unsaved-work guard: Open and New can still ask you to save an `.ork`. A successful **Save .ork** clears the changes it saved; edits or flights made while the picker was open can remain unsaved. Opening a file, an untouched starter rocket and a new empty design show **No unsaved changes**. The browser tab still shows the rocket name, the file name in brackets, and a `*` for unsaved work. Other exports, share links and autosave do not clear that mark.
+
+If you choose **Save .ork, then open**, then press **Cancel** or Escape while the save is still writing, the other file does not open; the save still finishes.
 
 When **Save .rkt** or **Save .CDX1** would lose something, a dialog lists those losses, with **Save .ork instead**, **Save .rkt anyway** (or **Save .CDX1 anyway**) and **Cancel**. A save with no detected losses goes straight to saving. If the exporter cannot write the design, it explains why and offers **Save .ork instead** or **Close**. While a RockSim or RASAero II filename is shown, the small warning button beside the status checks the current design after a short idle pause. Click it to see what that format cannot keep and to **Save .ork**. The successful-save notice repeats the losses. Opening these files can keep launch settings from the previous design where the file supplies none. The `.rkt` import notice says that the Launch panel keeps your settings — all of them, or all but the launch site when the file supplied a usable one; the `.CDX1` notice names the retained fields. This does not include every setting: time step, guide allowance, geodetic method and winds aloft reset when absent from the file.
 

@@ -8,6 +8,7 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { MountMotor } from '../model/design.js';
 import { withAuto, withDelay, withPlugged } from '../services/mountDelayEdits.js';
 import { parseEng } from '../services/exMotors.js';
+import * as thrustcurve from '../services/thrustcurve.js';
 
 /**
  * The motor database's sortable column headers.
@@ -244,6 +245,109 @@ async function importFiles(h: Harness, files: { name: string; text: string }[]):
   act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
   for (let i = 0; i < 20; i++) await settle(5);
 }
+
+// S3a-2 (audit 2026-10-17): import completion cannot overwrite current or reopened filters.
+it.each([false, true])('preserves current filters after a deferred EX import (reopen: %s)', async reopen => {
+  localStorage.clear();
+  let h = openBrowser({ mountDiameterMm: 29, filters: { showAll: true } });
+  onTestFinished(() => closeBrowser(h));
+  let finish!: (text: string) => void;
+  const reading = new Promise<string>(resolve => { finish = resolve; });
+  const file = new File([''], 'deferred.eng');
+  Object.defineProperty(file, 'text', { value: () => reading });
+  const input = h.host.querySelector<HTMLInputElement>('input[type="file"][accept=".eng,.rse,.txt"]')!;
+  Object.defineProperty(input, 'files', { value: [file], configurable: true });
+  act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+  if (reopen) {
+    // Close without clearing storage, then change filters in the new dialog.
+    act(() => h.root.unmount()); h.host.remove();
+    h = openBrowser({ mountDiameterMm: 29 });
+  }
+  click([...h.host.querySelectorAll('thead th')].find(th => th.textContent?.includes('Motor'))!);
+  click([...h.host.querySelectorAll('label')].find(label => label.textContent?.includes('include out-of-production'))!
+    .querySelector('input')!);
+  const current = JSON.parse(localStorage.getItem(FILTERS_KEY)!);
+  expect(current).toMatchObject({ sortKey: 'designation', includeOOP: true });
+  await act(async () => { finish('H99 29 200 6 0.15 0.3 Home\n0 0\n0.5 120\n1.5 0\n'); await reading; });
+  await settle();
+  expect(JSON.parse(localStorage.getItem(FILTERS_KEY)!)).toMatchObject(current);
+  expect(h.host.querySelector('thead th[aria-sort="ascending"]')?.textContent).toContain('Motor');
+  if (!reopen) expect(h.host.textContent).toContain('H99');
+});
+
+// S3a-g2 (audit 2026-10-17): changing the choice cancels the superseded download.
+it.each(['motor', 'delay', 'custom delay'])('aborts and unlocks a load when the %s changes', async change => {
+  localStorage.clear();
+  let signal: AbortSignal | undefined;
+  vi.stubGlobal('fetch', (_url: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    signal = init?.signal ?? undefined;
+    signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true });
+  }));
+  const h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true } });
+  onTestFinished(() => { closeBrowser(h); vi.unstubAllGlobals(); });
+  search(h, 'G80'); click(rowFor(h, 'Estes', 'G80')!);
+  const chooseDelay = (value: string) => act(() => {
+    delaySelect(h)!.value = value;
+    delaySelect(h)!.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  if (change === 'custom delay') chooseDelay('custom');
+  click(loadButton(h)!);
+  for (let i = 0; i < 300 && !signal; i++) await settle(10);
+  expect(signal).toBeDefined();
+  expect(loadButton(h)!.disabled).toBe(true);
+  if (change === 'motor') click(bodyRows(h).find(row => row !== rowFor(h, 'Estes', 'G80'))!);
+  if (change === 'delay') chooseDelay('custom');
+  if (change === 'custom delay') typeInto(h.host.querySelector<HTMLInputElement>('[aria-label="Custom delay (s)"]')!, '7');
+  await settle();
+  expect(signal!.aborted).toBe(true);
+  expect(loadButton(h)!.disabled).toBe(false);
+  expect(loadButton(h)!.textContent).toContain('Load motor');
+  expect(h.selected).toEqual([]);
+});
+
+// S3a-g2 (audit 2026-10-17): even abort-ignoring loads must release busy state safely.
+it.each([
+  ['motor', false], ['delay', false], ['custom delay', false],
+  ['motor', true], ['delay', true], ['custom delay', true],
+] as const)('unlocks an abort-ignoring load on %s change and ignores its later settlement (reject: %s)', async (change, rejects) => {
+  localStorage.clear();
+  // Bundled curve imports can keep waiting after abort. Control that boundary
+  // independently of fetch, and leave the newer load pending when the old settles.
+  const pending: { signal?: AbortSignal; finish: () => void; fail: () => void }[] = [];
+  const spy = vi.spyOn(thrustcurve, 'fetchMotorSpec').mockImplementation((motor, chosen, signal) => new Promise<MotorSpec>((resolve, reject) => {
+    pending.push({ signal, finish: () => resolve({
+      designation: motor.designation, diameter: motor.diameter / 1000, length: motor.length / 1000,
+      times: [0, 1], thrusts: [1, 0], masses: [0.1, 0.05], cgX: 0, ejectionDelay: chosen,
+    }), fail: () => reject(new Error('Old bundled curve failed')) });
+  }));
+  const h = openBrowser({ mountDiameterMm: 24 });
+  onTestFinished(() => { closeBrowser(h); spy.mockRestore(); });
+  search(h, 'C6'); click(rowFor(h, 'Estes', 'C6')!);
+  const chooseDelay = (value: string) => act(() => {
+    delaySelect(h)!.value = value;
+    delaySelect(h)!.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  if (change === 'custom delay') chooseDelay('custom');
+  click(loadButton(h)!);
+  expect(pending).toHaveLength(1);
+  expect(loadButton(h)!.disabled).toBe(true);
+  if (change === 'motor') click(bodyRows(h).find(row => row !== rowFor(h, 'Estes', 'C6'))!);
+  if (change === 'delay') chooseDelay('custom');
+  if (change === 'custom delay') typeInto(h.host.querySelector<HTMLInputElement>('[aria-label="Custom delay (s)"]')!, '7');
+  expect(pending[0]!.signal?.aborted).toBe(true);
+  expect(loadButton(h)!.disabled).toBe(false);
+  expect(loadButton(h)!.textContent).toContain('Load motor');
+  click(loadButton(h)!);
+  expect(pending).toHaveLength(2);
+  await act(async () => { if (rejects) pending[0]!.fail(); else pending[0]!.finish(); });
+  expect(h.selected).toEqual([]);
+  expect(h.host.textContent).not.toContain('Old bundled curve failed');
+  expect(loadButton(h)!.disabled).toBe(true);
+  expect(loadButton(h)!.textContent).toContain('Loading');
+  await act(async () => { pending[1]!.finish(); });
+  expect(h.selected).toHaveLength(1);
+  expect(loadButton(h)!.disabled).toBe(false);
+});
 
 /**
  * `vi.spyOn(localStorage, 'setItem')`, and `unspy` to take it off. Since

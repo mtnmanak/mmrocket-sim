@@ -257,6 +257,13 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const [busy, setBusy] = useState(false);
   const loadChoice = useRef({ picked, delay, customDelay });
   loadChoice.current = { picked, delay, customDelay };
+  useEffect(() => {
+    if (!loadAbort.current) return;
+    loadAbort.current.abort();
+    loadAbort.current = null;
+    // A bundled-curve chunk can ignore abort; release this choice immediately.
+    setBusy(false);
+  }, [picked, delay, customDelay]);
   const [error, setError] = useState<string | null>(null);
   // Say which legacy imports were refused once per opening, through the
   // existing import status region (audit 2026-10-11, S1c-5). Its tier is the
@@ -272,7 +279,15 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const [notice, setNotice] = useState<string | null>(initialEx.notice);
   const [exMotors, setExMotors] = useState(initialEx.motors);
 
-  const setFilters = (next: StoredFilters) => {
+  const filtersNow = useRef(filters);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const setFilters = (value: StoredFilters | ((current: StoredFilters) => StoredFilters)) => {
+    const next = typeof value === 'function' ? value(filtersNow.current) : value;
+    filtersNow.current = next;
     setFiltersRaw(next);
     try {
       localStorage.setItem(FILTERS_KEY, JSON.stringify(next));
@@ -385,6 +400,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     setError(null);
     setNotice(null);
     const { parsed, write, error, notice, tier, noticeTier: noticeOnly } = await readMotorFiles(files);
+    if (!mounted.current) return;
     setImportTier(tier);
     setNoticeTier(noticeOnly);
     setError(error);
@@ -402,10 +418,10 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       // off only when one of them is too long for it.
       const tooLongNow = maxMotorLengthM !== null
         && parsed.some((m) => m.length / 1000 > maxMotorLengthM);
-      setFilters({
-        ...filters, ...FOLDED_CLEAR, manufacturers: [], classes: [], impulse: [],
-        fitsOnly: filters.fitsOnly && !tooLongNow,
-      });
+      setFilters(current => ({
+        ...current, ...FOLDED_CLEAR, manufacturers: [], classes: [], impulse: [],
+        fitsOnly: current.fitsOnly && !tooLongNow,
+      }));
     }
   };
 
@@ -517,7 +533,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       if (superseded()) return;
       setError(String(e instanceof Error ? e.message : e));
     } finally {
-      setBusy(false);
+      if (loadAbort.current === ctrl) setBusy(false);
     }
   };
 

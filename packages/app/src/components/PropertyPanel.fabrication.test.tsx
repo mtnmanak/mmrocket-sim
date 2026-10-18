@@ -122,7 +122,7 @@ it('keeps oversized jigs at 1:1 in SVG and refuses a raster before allocating a 
   await pick('PNG');
   expect(svgToImage).not.toHaveBeenCalled();
   expect(downloadBlob).not.toHaveBeenCalled();
-  expect(host.querySelector('[role="alert"]')!.textContent).toMatch(/300 dpi.*SVG/);
+  expect(host.querySelector('[role="alert"]')!.textContent).toBe('⚠ Caution: Could not export the fin alignment jig: too large for a 300 dpi image (limits: 16 million pixels in total, 8192 pixels on either side) — try an SVG option.');
   await pick('SVG, white');
   expect(downloadBlob).toHaveBeenCalledTimes(1);
 });
