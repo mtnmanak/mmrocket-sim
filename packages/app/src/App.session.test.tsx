@@ -292,6 +292,17 @@ async function openSavedRuns(host: HTMLElement): Promise<void> {
 /** Starter motor present in the stored session — the async C6 has landed and been autosaved. */
 const starterStored = () => Object.keys(storedSession()?.mountMotors ?? {}).length > 0;
 
+it.each(['damaged-root', 'legacy'] as const)('Round 1 restores the starter motor for a %s autosave', async (kind) => {
+  const tree = kind === 'damaged-root' ? null
+    : { name: 'Legacy', components: [{ type: 'stage', id: 's', children: [
+      { type: 'bodytube', id: 'mount', length: 0.3, outerRadius: 0.0095, thickness: 0.0005, motorMount: true },
+    ] }] };
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, launch: DEFAULT_CONDITIONS, savedAt: Date.now() }));
+  await mountApp();
+  await waitFor(starterStored, 'restored starter motor');
+  expect(Object.values(storedSession()!.mountMotors!)[0]!.spec.designation).toBe('C6');
+}, 30_000);
+
 function input(host: HTMLElement, ariaLabelStart: string): HTMLInputElement {
   const el = [...host.querySelectorAll('input')]
     .find((i) => i.getAttribute('aria-label')?.startsWith(ariaLabelStart));

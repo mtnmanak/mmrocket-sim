@@ -76,6 +76,22 @@ const editApart = (h: { current: TreeHistory }, next: RocketTree) => {
   vi.advanceTimersByTime(HISTORY_COALESCE_MS + 1);
 };
 
+it.each(['setTree', 'commitStep', 'writeTree', 'reset'] as const)(
+  'S4a-1 refuses multiplied instance edits through %s without changing the tree or history', (writer) => {
+    const initial: RocketTree = { components: [{ type: 'stage', name: 'Original' }] };
+    const reason = vi.fn();
+    const h = renderHistory(initial, { onRefuse: reason });
+    let bad: RocketTree = { components: [{ type: 'bodytube' }] };
+    for (let i = 0; i < 4; i++) bad = { components: [{ type: 'podset', instanceCount: 32, children: bad.components }] };
+    act(() => h.current[writer](bad));
+    expect(reason).toHaveBeenCalledWith(expect.stringMatching(/^That change was not applied: it would give the design .*expanded component instances.*10,000/));
+    expect(h.current.tree).toBe(initial);
+    expect(h.current.treeRef.current).toBe(initial);
+    expect(h.current.canUndo).toBe(false);
+    expect(h.current.canRedo).toBe(false);
+  },
+);
+
 describe('useTreeHistory — selection', () => {
   const initial: RocketTree = {
     components: [{ type: 'stage', id: 'stage', children: [

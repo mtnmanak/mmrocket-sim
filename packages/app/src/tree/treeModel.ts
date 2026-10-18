@@ -41,6 +41,9 @@ import { resolveTransitionRadii } from './transitionRadii.js';
  */
 
 let counter = 1;
+// Leave ample exact-integer headroom; restored hostile IDs cannot advance it
+// near rollover. Minted IDs are monotonic and need no retained registry.
+const MAX_RESTORED_ID = 2 ** 50;
 
 export function freshId(): string {
   return `c${counter++}`;
@@ -55,7 +58,8 @@ export function freshId(): string {
 export function reserveNodeIds(ids: Iterable<string>): void {
   for (const id of ids) {
     const m = /^c(\d+)$/.exec(id);
-    if (m) counter = Math.max(counter, Number(m[1]) + 1);
+    const n = m ? Number(m[1]) : NaN;
+    if (Number.isSafeInteger(n) && n < MAX_RESTORED_ID) counter = Math.max(counter, n + 1);
   }
 }
 
@@ -2092,6 +2096,8 @@ export function inheritDefaults(
   // Tube walls: carry the previous tube's thickness — a finite one (audit row 522).
   const srcWall = numOpt(src, 'thickness');
   if (srcWall !== undefined
+      && ['bodytube', 'innertube', 'tubecoupler'].includes(src.type)
+      && srcWall < (numOpt(out, 'outerRadius') ?? Infinity)
       && (node.type === 'bodytube' || node.type === 'innertube' || node.type === 'tubecoupler')
       && fields.some((f) => f.key === 'thickness')) {
     out['thickness'] = srcWall;

@@ -180,6 +180,7 @@ import {
 } from './services/designDerivation.js';
 import { stageMotors } from './services/nozzleFollow.js';
 import { designFingerprint, stableJson, type DesignSnapshot } from './services/dirtyState.js';
+import { autosavedDesignFile } from './services/autosaveBackup.js';
 import { designStateFromSession, type RankedPadMass } from './services/sessionRestore.js';
 import { createSequencer } from './services/latestWins.js';
 import { designFileOpenFailure, designFileTooLarge, openDesignFile } from './services/designFile.js';
@@ -340,7 +341,10 @@ export function App() {
   // Restore the previous session (autosaved on every change) if one exists.
   // normalizeTree wraps pre-v0.009 flat trees in one stage. Lazy useState:
   // loadSession parses the whole tree — never re-run it on re-renders.
-  const [session] = useState(loadSession);
+  const [loadedSession] = useState(loadSession);
+  const [restored] = useState(() => designStateFromSession(loadedSession, { legacyMaxMotorLengthM: legacyMaxMotorLength() }));
+  const session = restored.refused ? null : loadedSession;
+  const [autosavePaused, setAutosavePaused] = useState(restored.refused);
   const [importedDocument, setImportedDocument] = useState(() => session?.importedDocument);
   // The autosave holds the PARSED design, not the file it came from, so a
   // design restored from a session another build wrote has never been through
@@ -368,7 +372,6 @@ export function App() {
   // unmatched references and the third `measured` key. Every initializer below
   // reads from this one value, so they all key onto the SAME tree — a second
   // normalizeTree would mint ids that are not in it.
-  const [restored] = useState(() => designStateFromSession(session, { legacyMaxMotorLengthM: legacyMaxMotorLength() }));
   const { restoreNotes, restoreNoteTiers, preLengthRestore } = restored;
   const initialTree = restored.state.tree;
   // C-A9: drafts belong to this design, independent of stage order and history.
@@ -395,6 +398,7 @@ export function App() {
     selectedId, setSelectedId, treeElementRef,
     reset: resetHistory, canUndo, canRedo,
   } = useTreeHistory(initialTree, {
+    onRefuse: (reason) => setFileNote(reason, 'warn', true, 'caution'),
     captureCompanion: (): { revision: object; configs: SavedConfig[]; motorRevision: object; motorState: OpenMotorState;
       layerRevision: object; detachedOverrides: FlightOverrides; activeConfigId: string | null; detachedEpoch: object } => ({
       detachedEpoch: detachedHistoryEpoch.current,
@@ -727,21 +731,8 @@ export function App() {
   // way, and cleared only by a choice in the banner.
   const [sessionConflict, setSessionConflict] = useState(() => sessionConflicted());
   useEffect(() => onSessionConflictChange(setSessionConflict), []);
-  // While it stands, closing this tab really would lose its changes — they are
-  // in no slot — so this is the one state that earns a leave-page prompt (the
-  // pagehide flush's comment explains why every other state does not).
   // "Load the other tab's design" reloads on purpose, and says so first.
   const leavingForOtherTab = useRef(false);
-  useEffect(() => {
-    if (!sessionConflict) return;
-    const onBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (leavingForOtherTab.current) return;
-      e.preventDefault();
-      e.returnValue = '';
-    };
-    window.addEventListener('beforeunload', onBeforeUnload);
-    return () => { window.removeEventListener('beforeunload', onBeforeUnload); };
-  }, [sessionConflict]);
   const [simulating, setSimulating] = useState(false);
   /**
    * The Results workspace's <main>, which Launch focuses, and what the polite
@@ -826,7 +817,7 @@ export function App() {
   // hooks/useWorkspaceTab.ts and hooks/useFirstRunTour.ts (audit 2026-09-22,
   // row 501), each tested there.
   const [tab, setTab] = useWorkspaceTab();
-  const tour = useFirstRunTour({ tourOff: prefs.tourOff ?? false, hasSession: session != null, setTab });
+  const tour = useFirstRunTour({ tourOff: prefs.tourOff ?? false, hasSession: loadedSession != null, setTab });
   const [showFileMenu, setShowFileMenu] = useState(false);
   const [showFeedback, setShowFeedback] = useState(false);
   // Escape closes whichever header popup is open and puts focus back on the
@@ -969,6 +960,18 @@ export function App() {
     // a non-edit rewrite (catalogue relabel, restore migration, starter landing)
     // moves it too, or a design identical to the saved file reads as unsaved.
     { onMarkMigrated: moveLossyMark });
+  // Conflicted changes and dirty edits while autosave is paused are in no
+  // storage slot, so closing this tab would lose them without a leave prompt.
+  useEffect(() => {
+    if (!sessionConflict && !(autosavePaused && dirty)) return;
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (leavingForOtherTab.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => { window.removeEventListener('beforeunload', onBeforeUnload); };
+  }, [sessionConflict, autosavePaused, dirty]);
   const currentMark = useMemo(() => designFingerprint(designSnapshot), [designSnapshot]);
   // The hook's counter is session-local; saved provenance carries its prior count.
   const lossyFlights = (session?.lossySaved?.flights ?? 0) + flightCount.current;
@@ -1020,6 +1023,7 @@ export function App() {
    * exactly the shape of thing that gets fixed in one place only.
    */
   const startNewDesign = () => {
+    setAutosavePaused(false);
     setHiddenPartIds(new Set());
     motorChoices.current.clear();
     // ONE emptyTree(), for BOTH the state and the mark (importApply's
@@ -2306,6 +2310,7 @@ export function App() {
   // Autosave the working state so a closed tab or crash never loses work.
   // Declared here, below the export input, for `flownForAutosave`.
   useEffect(() => {
+    if (autosavePaused) return;
     saveSessionDebounced({
       ...designSnapshot,
       configLayers: 1,
@@ -2342,7 +2347,16 @@ export function App() {
   // them costs no runs — and dirtyTick is how they announce a change. `weather`
   // (weather build, step 3) and `flownForAutosave` ride in the same payload,
   // outside the design snapshot, so they are dependencies too.
-  }, [designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt, designFile, lossySaved, currentMark, lossyFlights]);
+  }, [autosavePaused, designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt, designFile, lossySaved, currentMark, lossyFlights]);
+
+  const downloadAutosavedDesign = async () => {
+    const file = autosavedDesignFile();
+    if (!file) { setFileNote('There is no autosaved design to download.', 'warn', true, 'caution'); return; }
+    const out = await saveFile(file.data, { suggestedName: file.name, mime: file.mime,
+      extensions: [file.extension], description: file.description });
+    const note = saveOutcomeNote(out);
+    if (note) setFileNote(file.ork ? note.text : `${note.text} The design could not be written as an .ork; this file keeps the raw autosave as JSON.`, note.severity, true);
+  };
 
   /**
    * Stage B: the stored presets in exportOrk's shape. Stable ids ride
@@ -2645,6 +2659,7 @@ export function App() {
       { launch: launchRef.current, text: statedWeightText }).note.text.split('\n'));
     const acceptedLines = plan.note.text.split('\n').filter(line => !quietLines.has(line));
     motorChoices.current.clear();
+    setAutosavePaused(false);
     applyImportPlan(plan, {
       history: { reset: resetHistory },
       setMountMotors, setUnmatchedRefs, setSavedConfigs, setActiveConfigId, setDetachedOverrides, setLaunch, setMeasured,
@@ -2988,7 +3003,7 @@ export function App() {
    */
   const quickPicksOffered = useMemo(() => isPristineDefault(tree), [tree]);
   // Share and Quick picks use one memoized tree check (audit 2026-10-11, S2-9).
-  shareShouldOffer.current = dirty || !quickPicksOffered;
+  shareShouldOffer.current = dirty || !quickPicksOffered || autosavePaused;
   useEffect(() => {
     if (shareHandled.current || !hasSharePayload(window.location.hash)) return;
     shareHandled.current = true; // StrictMode double-invoke guard (the ref survives the remount)
@@ -3588,6 +3603,14 @@ export function App() {
             source&nbsp;(GPL)
           </a>
         </p>
+        {autosavePaused && (
+          <Note tier="caution" className="file-note autosave-warn" role="alert">
+            The autosaved design was not restored because it exceeds the 10,000 expanded component instance limit.
+            Autosave is paused to keep that original design. Download it before choosing New or opening another
+            design, which resumes autosave. Save edits to the starter design with Save As / Export.{' '}
+            <button className="file-btn" onClick={() => { void downloadAutosavedDesign(); }}>Download the autosaved design (.ork)</button>
+          </Note>
+        )}
         {autosaveFailing && (
           // Persistent (not dismissible) on purpose: while this shows, edits
           // do NOT survive a reload. It clears itself on the recovery edge.
@@ -4108,7 +4131,7 @@ export function App() {
               onDuplicate={(id) => {
                 const { tree: next, newId } = duplicateNode(tree, id);
                 setTree(next);
-                if (newId) setSelectedId(newId);
+                if (newId && findNode(treeRef.current, newId)) setSelectedId(newId);
               }}
               clipboard={clipboard}
               onCopy={(id) => {
@@ -4127,7 +4150,7 @@ export function App() {
                 // Fresh ids at every level — pasting twice must never collide.
                 const copy = cloneSubtree(clipboard);
                 setTree(addChild(tree, parentId, copy));
-                setSelectedId(copy.id!);
+                if (findNode(treeRef.current, copy.id!)) setSelectedId(copy.id!);
               }}
               onAdd={(parentId, type: ComponentType) => {
                 // services/addComponent.ts: inherited diameter/material/finish,
@@ -4155,12 +4178,12 @@ export function App() {
                 };
                 const { tree: next, node } = addNewComponent(tree, parentId, type, measure);
                 setTree(next);
-                setSelectedId(node.id!);
+                if (findNode(treeRef.current, node.id!)) setSelectedId(node.id!);
               }}
               onAddStage={() => {
                 const { tree: next, newId } = addStage(tree);
                 setTree(next);
-                setSelectedId(newId);
+                if (findNode(treeRef.current, newId)) setSelectedId(newId);
               }}
             />
           </div>

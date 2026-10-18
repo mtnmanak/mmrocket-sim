@@ -1,4 +1,4 @@
-import { carryFlags, flagNote, noteFlags, type ImportNote } from './importNotes.js';
+import { carryFlags, cautionNote, flagNote, noteFlags, type ImportNote } from './importNotes.js';
 import { migrateConfigLayers } from './configLayersMigration.js';
 import { designFingerprint, legacyDesignFingerprint } from './dirtyState.js';
 import type { RocketTree } from '@online-openrocket/engine';
@@ -15,6 +15,7 @@ import type { SessionState } from './session.js';
 import { restoreMotorLabels, restoreConfigLabels } from './motorLabels.js';
 import { checkLegacyPositions } from './legacyPositionCheck.js';
 import { isLoneEmptyConfig } from './emptyConfig.js';
+import { TOO_MANY_INSTANCES_ERROR_NAME } from '../tree/sanitize.js';
 
 /**
  * A STORED SESSION, TURNED INTO THE DESIGN THE APP RESTORES (2026-10-01).
@@ -42,6 +43,8 @@ export interface RankedPadMass { from?: string; to?: string; kg?: number }
 /** What a session restored to, and the bookkeeping App's notices and saved mark read once. */
 export interface RestoredDesign {
   session: SessionState | null;
+  /** The stored design exceeded the rendering limit; keep its recovery bytes. */
+  refused: boolean;
   /** The design as App's state initializers hold it before the first render. */
   state: Required<DesignState>;
   /** The repairs `normalizeTree` made — the restore's info note. */
@@ -88,7 +91,22 @@ export function designStateFromSession(
     ...[session?.mountMotors, ...(session?.savedConfigs ?? []).map(c => c.motors)]
       .flatMap(m => Object.values(m ?? {}).flatMap(mm =>
         mm.padMassWeighedWith ? (parseSetIdentity(mm.padMassWeighedWith) ?? []).map(([id]) => id) : []))]);
-  const storedTree = normalizeTree(session?.tree ?? defaultTree(), restoreNotes, { preserveAbsolutePositions: true });
+  let storedTree: RocketTree;
+  try {
+    storedTree = normalizeTree(session?.tree ?? defaultTree(), restoreNotes, { preserveAbsolutePositions: true });
+  } catch (error) {
+    if (!(error instanceof Error) || error.name !== TOO_MANY_INSTANCES_ERROR_NAME) throw error;
+    const fallback = designStateFromSession({
+      tree: defaultTree(), launch: session?.launch ?? DEFAULT_CONDITIONS,
+      savedAt: session?.savedAt ?? 0, appVersion: session?.appVersion,
+      motorLengthLimitsMigrated: true,
+    }, opts);
+    fallback.session = null;
+    cautionNote(fallback.restoreNotes, 'G04.root-replaced', `The autosaved design was not restored: ${error.message} The starter design was opened; the old design's motors, configurations, and measurements were not applied.`);
+    fallback.refused = true;
+    fallback.restoreNoteTiers = noteFlags(fallback.restoreNotes);
+    return fallback;
+  }
   const before = normalizeTree(checkLegacyPositions(storedTree, session !== null, restoreNotes), restoreNotes);
   const limits = legacyStageLimits(before, session, opts.legacyMaxMotorLengthM);
   const tree = migrateMotorLengths(before, limits);
@@ -211,6 +229,7 @@ export function designStateFromSession(
       mountMotors: migrated.state.mountMotors, activeConfigId: migrated.state.activeConfigId,
       configLayers: 1, detachedOverrides: migrated.state.detachedOverrides ?? {} },
     session: session ? migrated.state : null,
+    refused: false,
     restoreNotes,
     restoreNoteTiers: noteFlags(restoreNotes),
     preLengthRestore: { tree: before, maxMotorLengthByStage: limits },

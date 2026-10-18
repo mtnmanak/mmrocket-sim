@@ -4,6 +4,7 @@ import { CLUSTER_OPTIONS } from './cluster.js';
 import { lookupTable } from '../services/xmlUtil.js';
 import { num } from './nodeNum.js';
 import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
+import { kernelDefault } from './kernelDefaults.js';
 
 /**
  * Editor schema: display names, containment rules, default nodes, and the
@@ -1299,6 +1300,7 @@ const BLANK_BY_TYPE: Record<string, Record<string, number>> = lookupTable<Record
  * blank meant. Before the audit, ▴ on a new canopy's lines committed ONE line.
  */
 export function blankValue(type: EditorComponentType, key: string): number | undefined {
+  if (key === 'thickness') return kernelDefault(type, key);
   const byType = BLANK_BY_TYPE[type];
   if (byType && Object.hasOwn(byType, key)) return byType[key];
   return BLANK_BY_KEY[key];

@@ -1,10 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { OrkRocket } from '@online-openrocket/engine';
+import { mountBore } from './scaleRocket.js';
 import { addStage, bodyDragReference, clearStageNozzles, defaultTree, duplicateNode, engineTree, flownRecoveryDevices, isPristineDefault, stageDefaultName, fairingDeliveredCd, fairingFrontalArea, findNode, findParent, mountName, mountRadiusOf, mountsTie, hasParallelStage, inheritDefaults, isOnLaunchStage, makeNode, motorMounts, mountsIn, normalizeTree, primaryMountOf, protuberanceCd, protuberanceDeliveredCd, protuberanceFrontalArea, PROTUBERANCE_REF_MACH, referenceArea, resetBodyDragCache, splitClusterPairsTree, splitClusterTree, stageIdByNode, kernelStageIdByNode, motorisedStagesWithNozzle, stagesWithNozzle, stagesWithRecoveryDevice, updateAllNodes } from './treeModel.js';
+
 import { kernelDefault } from './kernelDefaults.js';
 import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
+
+describe('S4a-g2 new tube wall inheritance', () => {
+  it.each(['trapezoidfinset', 'engineblock', 'launchlug', 'nosecone', 'transition'] as const)(
+    'keeps the new inner tube wall after a %s', (type) => {
+      const tube = makeNode('innertube');
+      const next = inheritDefaults(tube, makeNode('bodytube'), { ...makeNode(type), thickness: 0.003 });
+      expect(next['thickness']).toBe(tube['thickness']);
+      expect(mountBore(next)).toBeCloseTo(0.018, 12);
+    },
+  );
+  it('inherits a tube wall only when it leaves a positive bore', () => {
+    const tube = makeNode('innertube');
+    expect(inheritDefaults(tube, null, { ...makeNode('bodytube'), thickness: 0.001 })['thickness']).toBe(0.001);
+    expect(inheritDefaults(tube, null, { ...makeNode('bodytube'), thickness: 0.0095 })['thickness']).toBe(tube['thickness']);
+  });
+});
 
 describe('normalizeTree repair notices', () => {
   it.each(['nodes', 'children', 'points', 'depth', 'components'])('deduplicates repeated %s repairs', (kind) => {

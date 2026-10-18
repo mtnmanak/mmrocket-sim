@@ -1,6 +1,6 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import {
-  classLabel, classesFittingMount, diameterClass, nearestCommonClass,
+  classLabel, fitsMount, nearestCommonClass,
 } from '../services/motorDb.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { kernelDefault, kernelNum, KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
@@ -9,6 +9,8 @@ import { findParent, motorMounts, mountName } from './treeModel.js';
 import { axialLength } from './position.js';
 import { lookupTable } from '../services/xmlUtil.js';
 import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
+import { limitPatch } from './sanitize.js';
+import { resolveTransitionRadii } from './transitionRadii.js';
 // Under its old local name: this module's field walk carried a private copy
 // of numOrNull until 2026-09-22, and ten call sites read it as `num`.
 import { numOrNull as num } from './nodeNum.js';
@@ -231,8 +233,8 @@ export function maxBodyDiameter(tree: RocketTree): number {
     for (const n of nodes) {
       const t = n.type as string;
       // The radius each flies: a tube or nose with none is the kernel's 12 mm,
-      // not 0. A transition's absent radius is AUTOMATIC — its neighbour's,
-      // which this walk reads where it is stated.
+      // not 0. Resolve automatic transition ends too, including the kernel's
+      // 25 mm fallback where there is no neighbour.
       if (t === 'bodytube') r = Math.max(r, kernelNum(n, 'outerRadius'));
       else if (t === 'nosecone') r = Math.max(r, kernelNum(n, 'aftRadius'));
       else if (t === 'transition') {
@@ -241,7 +243,7 @@ export function maxBodyDiameter(tree: RocketTree): number {
       walk(n.children ?? []);
     }
   };
-  walk(tree.components);
+  walk(resolveTransitionRadii(tree).components);
   return r * 2;
 }
 
@@ -522,7 +524,7 @@ export function previewMounts(
             : snapMounts && isAirframe ? 'airframe-left'
               : 'off-class';
     const fits = (boreMm2: number) => motorMm === null
-      || classesFittingMount(boreMm2).includes(diameterClass(motorMm));
+      || fitsMount(boreMm2, { diameter: motorMm });
     // The room inside the scaled tube around it, less this mount's own walls —
     // `outerRadiusForBore` at a zero bore IS the wall, case-airframe branch
     // included. Both through the real `scaleNode`, as the bore above is.
@@ -586,7 +588,7 @@ export function scaledFinProblems(tree: RocketTree, factor: number): string[] {
 }
 
 /** Scales one node's own fields. Children are handled by the caller. */
-function scaleNode(n: ComponentNode, k: number): ComponentNode {
+function scaleNode(n: ComponentNode, k: number, notes?: string[]): ComponentNode {
   const type = n.type as string;
   const fixed = FIXED_SIZE.has(type);
   const out: ComponentNode = { ...n };
@@ -602,11 +604,13 @@ function scaleNode(n: ComponentNode, k: number): ComponentNode {
   // Tier 1 row 31, 2026-09-24). A tube, nose or transition with no length, a
   // tube with no radius, a fin with no chord were the same case, missed until
   // the audit of 2026-09-30.
+  const lengths: Partial<ComponentNode> = {};
   for (const key of LENGTH_KEYS[type] ?? []) {
     const v = num(n, key) ?? kernelDefault(type, key)
       ?? (type === 'tubehole' ? TUBE_HOLE_DEFAULTS[key as keyof typeof TUBE_HOLE_DEFAULTS] : null);
-    if (v !== null) out[key] = round(v * k);
+    if (v !== null) lengths[key] = round(v * k);
   }
+  Object.assign(out, limitPatch(n, lengths, notes));
 
   // A freeform fin's planform lives entirely in `points` — [x along the body,
   // y off the surface], metres. Both coordinates scale. This is the path Eric
@@ -680,6 +684,12 @@ export function scaleRocket(
   let finSets = 0;
   let massPinned = 0;
   let recovery = false;
+  const limitNotes: string[] = [];
+  const defaultEnds = new Map<ComponentNode, Set<string>>();
+  resolveTransitionRadii(tree, (n, key) => {
+    if (!defaultEnds.has(n)) defaultEnds.set(n, new Set());
+    defaultEnds.get(n)!.add(key);
+  });
   /** Stages whose overrides were the file's stated LAUNCH weight — see below. */
   const statedLaunch: { name: string; motor: string; hadMass: boolean }[] = [];
 
@@ -709,8 +719,9 @@ export function scaleRocket(
     const marked = typeof n[OVERRIDE_INCLUDES_MOTOR] === 'string'
       && n[OVERRIDE_INCLUDES_MOTOR] !== '';
     if (!FIXED_SIZE.has(type) && !marked
-      && MASS_KEYS.some((key) => (num(n, key) ?? 0) !== 0)) massPinned++;
-    const scaled = scaleNode(n, k);
+      && MASS_KEYS.some((key) => (num(n, key) ?? kernelDefault(type, key) ?? 0) !== 0)) massPinned++;
+    const scaled = scaleNode(n, k, limitNotes);
+    for (const key of defaultEnds.get(n) ?? []) scaled[key] = round(0.025 * k);
     // A RASAero stage whose overrides are the file's stated LAUNCH figures,
     // motor still inside them (services/statedLaunchWeight.ts). Scaling has
     // just multiplied that motor's weight by k³ along with the airframe's,
@@ -843,6 +854,7 @@ export function scaleRocket(
     + ' the launch conditions.',
     'Mount Max motor length values scale with the airframe. Check them on Motors & Configuration before choosing motors.',
   ];
+  notes.push(...limitNotes);
   if (fixedSeen.size) {
     // Sorted so the sentence reads the same whatever order the tree holds
     // them in — a note that reorders itself is a note nobody can test.
@@ -910,7 +922,7 @@ export function scaleRocket(
   // A dropped stated launch weight joins them: the stage's mass just changed by
   // whatever the file stated, and that note has to be on screen rather than
   // folded into a collapsed bar.
-  const needsAttention = statedLaunch.length > 0 || mounts.some((m) => !m.motorStillFits
+  const needsAttention = limitNotes.length > 0 || statedLaunch.length > 0 || mounts.some((m) => !m.motorStillFits
     || m.verdict === 'airframe-left' || m.verdict === 'off-class' || m.verdict === 'solid');
   return { tree: next, factor, notes, needsAttention };
 }

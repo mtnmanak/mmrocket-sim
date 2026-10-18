@@ -1570,7 +1570,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           // wall's bore — 38 mm on a solid 40 mm rod with a 1 mm wall.
           const outerR = numOpt(node, 'outerRadius')
             ?? (node.type === 'nosecone' ? numOpt(node, 'aftRadius') : undefined);
-          const wall = numOpt(node, 'thickness');
+          const wall = numOpt(node, 'thickness') ?? blankValue(node.type, 'thickness');
           if (f.key === 'thickness' && outerR !== undefined && wall !== undefined && node['filled'] !== true) {
             const innerSi = Math.max(0, outerR - wall) * 2;
             const idQuantity: Quantity = 'length';

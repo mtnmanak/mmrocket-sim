@@ -17,7 +17,7 @@
  * tests run the identical code path.
  */
 
-import { TOO_MANY_PARTS_ERROR_NAME } from '../tree/sanitize.js';
+import { TOO_MANY_PARTS_ERROR_NAME, TOO_MANY_INSTANCES_ERROR_NAME } from '../tree/sanitize.js';
 
 const SHARE_PREFIX = '#d=';
 const VERSION = '1';
@@ -143,7 +143,7 @@ function canInflateDeflateRaw(): boolean {
  */
 export function shareLinkOpenFailure(e: unknown): string {
   // A design over the part limit (board row 84) decoded fine: not a damaged link either.
-  if (e instanceof Error && (e.name === UNSUPPORTED_ERROR_NAME || e.name === TOO_MANY_PARTS_ERROR_NAME)) {
+  if (e instanceof Error && [UNSUPPORTED_ERROR_NAME, TOO_MANY_PARTS_ERROR_NAME, TOO_MANY_INSTANCES_ERROR_NAME].includes(e.name)) {
     return `Couldn't open the design in this link: ${e.message}`;
   }
   return 'Couldn\'t open the design in this link — it looks damaged or cut short (chat apps sometimes'

@@ -67,7 +67,9 @@ export function autosaveToOrk(s: SessionState): string {
   if (!Array.isArray(s.tree?.components)) throw new Error('Unreadable autosave tree');
   // The crash path never mounts App; it must normalize and migrate independently.
   const restored = designStateFromSession(s, { legacyMaxMotorLengthM: null });
-  s = { ...restored.session!, ...restored.state };
+  // Refusal protects rendering, not recovery: export the stored logical tree
+  // without expanding instances or substituting the starter design.
+  if (!restored.refused) s = { ...restored.session!, ...restored.state };
   const active = s.savedConfigs?.find((c) => c.id === s.activeConfigId);
   return exportOrk({
     name: s.tree.name ?? 'My Rocket',

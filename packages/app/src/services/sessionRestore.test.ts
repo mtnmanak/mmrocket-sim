@@ -1,11 +1,11 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { savedConfigLabel } from '../model/design.js';
 import { restoreMotorLabels, motorTooltip } from './motorLabels.js';
 import { MOTOR_DB } from './motorDb.js';
 import { exToMotorSpec, parseEng } from './exMotors.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
-import { normalizeTree, freshId, addStage } from '../tree/treeModel.js';
+import { normalizeTree, freshId, addStage, reserveNodeIds } from '../tree/treeModel.js';
 import { applyStageMass, captureStageMass } from './stageMassOverrides.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import type { OrkMotorRef } from './orkFile.js';
@@ -26,6 +26,36 @@ import { designFingerprint, isDirty, legacyDesignFingerprint } from './dirtyStat
  */
 
 const NO_LIMIT = { legacyMaxMotorLengthM: null };
+it.each(['c9007199254740992', `c${'9'.repeat(400)}`, `c${Number.MAX_SAFE_INTEGER}`])(
+  'S4a-5 reserves an extreme restored id without freezing fresh ids: %s', (id) => {
+    const restored = designStateFromSession({ tree: { components: [{ type: 'stage', id }] } } as SessionState, NO_LIMIT);
+    expect(restored.state.tree.components[0]!.id).toBe(id);
+    const first = freshId();
+    const second = freshId();
+    expect(first).not.toBe(second);
+    expect([first, second]).not.toContain(id);
+    expect([first, second]).not.toContain('cInfinity');
+  },
+);
+it('Round 1 ignores restored IDs near rollover and keeps no lifetime ID registry', () => {
+  const ids = [`c${2 ** 50}`, `c${Number.MAX_SAFE_INTEGER - 1}`];
+  designStateFromSession({ tree: { components: [{ type: 'stage', id: ids[0], children: [
+    { type: 'bodytube', id: ids[1] },
+  ] }] } } as SessionState, NO_LIMIT);
+  const first = freshId();
+  const second = freshId();
+  expect(ids).not.toContain(first);
+  expect(ids).not.toContain(second);
+  expect(first).not.toBe(second);
+  expect(Number(first.slice(1))).toBeLessThan(2 ** 50);
+  const add = vi.spyOn(Set.prototype, 'add');
+  try {
+    // Fresh/default trees and repeated reseeding must not retain their IDs.
+    for (let i = 0; i < 100; i++) reserveNodeIds([freshId()]);
+    const retained = add.mock.calls.filter(([value]) => typeof value === 'string' && /^c\d+$/.test(value));
+    expect(retained).toHaveLength(0);
+  } finally { add.mockRestore(); }
+});
 const spec = (designation: string) => ({ designation, ejectionDelay: 5 } as MotorSpec);
 const motor = (designation: string, pad?: { kg: number; key: string }): MountMotor => ({
   label: `${designation}-5`, spec: spec(designation), meta: { label: `${designation}-5`, manufacturer: 'Estes' },
