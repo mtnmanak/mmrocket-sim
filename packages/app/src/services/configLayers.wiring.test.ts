@@ -14,6 +14,7 @@ import { loadCatalogueMotor } from './motorMatch.js';
 import { simulateDesign } from './simulateDesign.js';
 import { padMassTextFor } from './unitText.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
+import { restoreMotorLabels } from './motorLabels.js';
 
 const own = { deployEvent: 'altitude', deployAltitude: 91.44, deployDelay: 0 };
 const override = { deployEvent: 'ejection', deployAltitude: 200, deployDelay: 0 };
@@ -52,6 +53,10 @@ describe('FC-4 layer boundaries', () => {
   });
   it('New sparsely copies effective choices and Delete detaches them', () => {
     const { state, a, chute } = fixture();
+    // App restores catalogue labels before editing; a switch must not be the
+    // first label migration in this saved-mark regression.
+    state.mountMotors = restoreMotorLabels(state.mountMotors);
+    for (const config of state.savedConfigs) config.motors = state.mountMotors;
     const next = createLoadedConfig(state)!;
     expect(next.savedConfigs.at(-1)!.deployments).toEqual(a.deployments);
     expect(next.savedConfigs.at(-1)!.ignitions).toEqual(a.ignitions);
@@ -62,6 +67,14 @@ describe('FC-4 layer boundaries', () => {
       .toMatchObject(override);
     expect(findNode(resolveFlightState(state.tree, deleted.savedConfigs, null, {}, {}).tree, chute)).toMatchObject(own);
     expect(designFingerprint({ ...state, ...deleted })).not.toBe(designFingerprint({ ...state, ...deleted, detachedOverrides: {} }));
+    const created = { ...state, ...deleted, ...createLoadedConfig({ ...state, ...deleted })! };
+    expect(created.savedConfigs.at(-1)!.deployments).toEqual(a.deployments);
+    const mark = designFingerprint(created);
+    const text = { ...padMassTextFor(INITIAL_UNITS), length: (v: number) => String(v) };
+    const away = planConfigSwitch(created, created.savedConfigs[0]!, text);
+    const back = planConfigSwitch({ ...created, ...away }, created.savedConfigs.at(-1)!, text);
+    // applyConfigSwitchPlan clears the detached layer at each switch.
+    expect(designFingerprint({ ...created, ...back, detachedOverrides: {} })).toBe(mark);
   });
   it('restores legacy layers once and migrates the independent backup path', () => {
     const { state, a, b, chute } = fixture();

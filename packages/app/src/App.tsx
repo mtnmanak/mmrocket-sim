@@ -179,7 +179,7 @@ import {
   launchPrimaryOf, legacyPadMassStepOf, physicsKeyOf, provenanceKeyOf, refusedMountIdsOf,
 } from './services/designDerivation.js';
 import { stageMotors } from './services/nozzleFollow.js';
-import { designFingerprint, stableJson, type DesignSnapshot } from './services/dirtyState.js';
+import { stableJson, type DesignSnapshot } from './services/dirtyState.js';
 import { autosavedDesignFile } from './services/autosaveBackup.js';
 import { designStateFromSession, type RankedPadMass } from './services/sessionRestore.js';
 import { createSequencer } from './services/latestWins.js';
@@ -886,6 +886,12 @@ export function App() {
   const [showRecent, setShowRecent] = useState(false);
   const [showExamples, setShowExamples] = useState(false);
   const [recentNote, setRecentNote] = useState<string | null>(null);
+  const [earlierSaveNote, setEarlierSaveNote] = useState<{ text: string; tier: NoteTier } | null>(null);
+  const showEarlierSaveNote = (note: { text: string; tier: NoteTier }) => {
+    // Keep an unseen warning until dismissed rather than replace it with a plain receipt.
+    setEarlierSaveNote(previous => previous && previous.tier !== 'information' && note.tier === 'information'
+      ? previous : note);
+  };
   /**
    * Which OPEN is current. Opening a design is asynchronous — a file read, the
    * preset catalogue, and one thrustcurve.org fetch per unmatched motor with
@@ -896,6 +902,13 @@ export function App() {
    * touching state. See applyImported.
    */
   const openSeq = useRef(createSequencer()).current;
+  // File writes may finish after Open/New or a newer save has taken ownership.
+  const documentGeneration = useRef(0);
+  const saveCounter = useRef(0);
+  const appliedSave = useRef(0);
+  const appliedOrkSave = useRef(0);
+  const appliedSaveName = useRef<string | null>(null);
+  const appliedOrkSaveName = useRef<string | null>(null);
   /**
    * WHICH BUILD'S IMPORTER produced the tree now in state — not which build is
    * running.
@@ -954,7 +967,7 @@ export function App() {
    * (AUDIT row 477 — savedMarkSites.test.ts counted the sites in this text).
    */
   const {
-    dirty, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
+    dirty, currentMark, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
   } = useDesignDirty(designSnapshot, restored.session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore, restored.preConfigRestore,
     // A .rkt/.CDX1 save marks the design it wrote, apart from the .ork mark:
     // a non-edit rewrite (catalogue relabel, restore migration, starter landing)
@@ -972,7 +985,6 @@ export function App() {
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => { window.removeEventListener('beforeunload', onBeforeUnload); };
   }, [sessionConflict, autosavePaused, dirty]);
-  const currentMark = useMemo(() => designFingerprint(designSnapshot), [designSnapshot]);
   // The hook's counter is session-local; saved provenance carries its prior count.
   const lossyFlights = (session?.lossySaved?.flights ?? 0) + flightCount.current;
   const lossyStatus = designFile && (designFile.format === 'rkt' || designFile.format === 'cdx1')
@@ -1023,6 +1035,7 @@ export function App() {
    * exactly the shape of thing that gets fixed in one place only.
    */
   const startNewDesign = () => {
+    documentGeneration.current++;
     setAutosavePaused(false);
     setHiddenPartIds(new Set());
     motorChoices.current.clear();
@@ -1411,12 +1424,13 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- components deliberately: no rocket-name dependency
     [flightTree.components, auditMasses, built]);
   const stabilityRangeInput = useMemo(() => ({
-    tree,
+    tree: { components: tree.components, ignitionDefaults: (tree as FlightTree).ignitionDefaults },
     configs: syncActiveConfig(savedConfigs, activeConfigId, { tree, motors: mountMotors, unmatchedRefs }),
     ...(activeConfigId === null ? { workingMotors: mountMotors, workingUnmatchedRefs: unmatchedRefs } : {}),
     kbf: effectiveKbf, supersonic: effectiveSupersonic, hybrid: effectiveHybrid,
     measuredDryMassKg: measured.massKg,
-  }), [tree, savedConfigs, activeConfigId, mountMotors, unmatchedRefs, effectiveKbf, effectiveSupersonic,
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only components and ignition defaults affect physics; root metadata does not
+  }), [tree.components, (tree as FlightTree).ignitionDefaults, savedConfigs, activeConfigId, mountMotors, unmatchedRefs, effectiveKbf, effectiveSupersonic,
     effectiveHybrid, measured.massKg]);
 
   const buildError = 'error' in buildResult ? buildResult.error : simError;
@@ -2382,6 +2396,7 @@ export function App() {
     // then no file exists to have lost anything.
     losses: readonly string[] = [],
     lossTier: NoteTier = losses.length ? 'caution' : 'information',
+    generation = documentGeneration.current,
   ) => {
     // CSV gets a UTF-8 BOM: headers can carry non-ASCII (units, symbols), and
     // Excel's double-click open decodes BOM-less CSV as the ANSI codepage.
@@ -2400,16 +2415,30 @@ export function App() {
       extensions: [`.${ext}`],
       description: info.description,
     });
+    const said = saveOutcomeNote(out, losses);
+    const tier = out.kind === 'downloaded' && out.fellBack ? 'caution' : lossTier;
     if (suffix === '' && ['ork', 'rkt', 'cdx1'].includes(ext.toLowerCase())
         && (out.kind === 'saved' || out.kind === 'downloaded')) {
       // C-A2: keep the exact bytes written, including lossy formats' own limits.
+      const recentFinished = (note: string | null) => {
+        if (generation === documentGeneration.current) setRecentNote(note);
+        // Keep this save's destination warning and export losses with its Recent note.
+        else if (note) showEarlierSaveNote({ text: `${said ? said.text : `Saved “${out.name}”.`}\n${note}`, tier: 'caution' });
+      };
       void new Blob(parts).arrayBuffer().then(bytes => rememberRecentDesign(out.name, bytes))
-        .then(setRecentNote, () => setRecentNote('The app could not keep a copy in Recent. Save a file to keep this design.'));
+        .then(recentFinished, () => recentFinished('The app could not keep a copy in Recent. Save a file to keep this design.'));
     }
     // Where it went, and what it could not carry (saveOutcomeNote); a
     // cancelled dialog says nothing.
-    const said = saveOutcomeNote(out, losses);
-    if (said) setFileNote(said.text, said.severity, undefined, out.kind === 'downloaded' && out.fellBack ? 'caution' : lossTier);
+    if (said) {
+      if (generation === documentGeneration.current) {
+        setFileNote(said.text, said.severity, undefined, tier);
+      } else {
+        // A delayed write still needs a receipt, especially if the chosen
+        // folder failed. Keep the opened design's import notes intact.
+        showEarlierSaveNote({ ...said, tier });
+      }
+    }
     return out;
   };
 
@@ -2424,6 +2453,8 @@ export function App() {
   );
 
   const onSaveOrk = async (): Promise<SaveOutcome | { kind: 'failed' }> => {
+    const generation = documentGeneration.current;
+    const saveId = ++saveCounter.current;
     // Caught, like onSaveRkt and onSaveCdx1 below (audit 2026-09-22): the
     // writer can throw on a design it cannot represent, and none of this
     // handler's five callers catches, so a throw was an unhandled rejection —
@@ -2458,14 +2489,28 @@ export function App() {
         configs, activeConfigId, measured,
         flightData: flightDataForExport(),
         notes: losses,
-      }), 'ork', '', losses, omittedMotor ? 'caution' : 'information');
+      }), 'ork', '', losses, omittedMotor ? 'caution' : 'information', generation);
       // Only a real write counts. 'cancelled' means the user backed out of the
       // picker, and treating that as saved is how work gets discarded silently.
-      if (out.kind === 'saved' || out.kind === 'downloaded') {
-        // eslint-disable-next-line no-restricted-syntax -- a .ork is the one format that round-trips everything
-        markSaved(mark, flightsAtSnapshot);
-        setDesignFile({ name: out.name, via: out.kind === 'saved' ? 'saved' : 'downloaded', format: 'ork' });
-        setLossySaved(null);
+      if (generation === documentGeneration.current
+          && (out.kind === 'saved' || out.kind === 'downloaded')) {
+        // Full-design persistence is independent of the latest header format:
+        // a newer lossy write cannot supersede a successful .ork snapshot.
+        // For the same picked file, the last close determines its bytes, even
+        // when an older snapshot finishes last. Downloads may be renamed.
+        if (saveId > appliedOrkSave.current || (out.kind === 'saved' && out.name === appliedOrkSaveName.current)) {
+          appliedOrkSave.current = Math.max(appliedOrkSave.current, saveId);
+          appliedOrkSaveName.current = out.kind === 'saved' ? out.name : null;
+          // eslint-disable-next-line no-restricted-syntax -- a .ork is the one format that round-trips everything
+          markSaved(mark, flightsAtSnapshot);
+        }
+        if (saveId > appliedSave.current || (out.kind === 'saved' && out.name === appliedSaveName.current)) {
+          // A cancelled or failed newer attempt must not supersede a real write.
+          appliedSave.current = Math.max(appliedSave.current, saveId);
+          appliedSaveName.current = out.kind === 'saved' ? out.name : null;
+          setDesignFile({ name: out.name, via: out.kind === 'saved' ? 'saved' : 'downloaded', format: 'ork' });
+          setLossySaved(null);
+        }
       }
       return out;
     } catch (e) {
@@ -2541,6 +2586,8 @@ export function App() {
     // If the design changed behind a dialog, show the new losses before
     // writing. There is no await before download reaches the file picker.
     const write = async () => {
+      const generation = documentGeneration.current;
+      const saveId = ++saveCounter.current;
       const mark = currentMark;
       const flights = lossyFlights;
       setLossDialog(null);
@@ -2552,8 +2599,12 @@ export function App() {
           : exportCdx1({ name: tree.name ?? 'My Rocket', tree, overrides: activeOverrides, motors: data.motors, launch,
             launchMassKg: built?.info.mass, launchCgM: built?.info.cg,
             ...(fileMachAlt ? { machAlt: fileMachAlt } : {}) });
-        const out = await download(xml, format === 'rkt' ? 'rkt' : 'CDX1', '', report.losses);
-        if (out.kind === 'saved' || out.kind === 'downloaded') {
+        const out = await download(xml, format === 'rkt' ? 'rkt' : 'CDX1', '', report.losses, undefined, generation);
+        if (generation === documentGeneration.current
+            && (saveId > appliedSave.current || (out.kind === 'saved' && out.name === appliedSaveName.current))
+            && (out.kind === 'saved' || out.kind === 'downloaded')) {
+          appliedSave.current = Math.max(appliedSave.current, saveId);
+          appliedSaveName.current = out.kind === 'saved' ? out.name : null;
           const file: DesignFileRef = { name: out.name, via: out.kind, format };
           setDesignFile(file);
           setLossySaved({ mark, flights, format, lossCount: report.losses.length, ...(report.incomplete ? { incomplete: true } : {}) });
@@ -2576,31 +2627,34 @@ export function App() {
   // file, and is told where it went); the alternative is preloading three lazy
   // chunks on every page load to keep a dialog for three rarely-used exports.
   const onSaveObj = async () => {
+    const generation = documentGeneration.current;
     try {
       const { rocketToObj } = await import('./services/objExport.js');
-      await download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj');
+      await download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj', '', [], undefined, generation);
     } catch (e) {
       setFileNote(`OBJ export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
     }
   };
 
   const onSaveGlb = async () => {
+    const generation = documentGeneration.current;
     try {
       const { rocketToGlb } = await import('./services/gltfExport.js');
-      await download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb');
+      await download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb', '', [], undefined, generation);
     } catch (e) {
       setFileNote(`glTF export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
     }
   };
 
   const onSaveStl = async () => {
+    const generation = documentGeneration.current;
     try {
       const [{ buildPieces }, { piecesToStl }] = await Promise.all([
         import('./tree/pieces.js'),
         import('./services/stlExport.js'),
       ]);
       const { pieces } = buildPieces(tree);
-      await download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl');
+      await download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl', '', [], undefined, generation);
     } catch (e) {
       setFileNote(`STL export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
     }
@@ -2641,10 +2695,12 @@ export function App() {
     // never reaches the markSaved at the end, which is what made the loser's
     // work look saved.
     if (!openSeq.isCurrent(openId)) return;
+    documentGeneration.current++;
     setHiddenPartIds(new Set());
     // Only a winning open replaces the old parse on screen and its notice
     // (audit 2026-10-11, S2-4).
     setRestoredByOlderBuild(false);
+    setTimeStepMigrated(false);
     // The winning open owns the file name as well as the design. A share link
     // has no file, so its omitted argument clears the previous file's name.
     setDesignFile(file);
@@ -2874,6 +2930,7 @@ export function App() {
     resetHistory();
     setSavedConfigs(next.savedConfigs);
     setActiveConfigId(next.activeConfigId);
+    setDetachedOverrides(next.detachedOverrides);
     setFileNote('New flight configuration created from the loaded motors.');
     return next.activeConfigId;
   };
@@ -3650,6 +3707,11 @@ export function App() {
         )}
         {recentNote && <Note tier="caution" role="status" className="recent-storage-note">
           {recentNote} <button className="file-btn" onClick={() => setRecentNote(null)} aria-label="Dismiss recent storage note">Dismiss</button>
+        </Note>}
+        {earlierSaveNote && <Note tier={earlierSaveNote.tier}
+          role="status" className="file-note earlier-save-note">
+          An earlier export finished: {earlierSaveNote.text}
+          {' '}<button className="file-btn" onClick={() => setEarlierSaveNote(null)} aria-label="Dismiss earlier save note">Dismiss</button>
         </Note>}
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
@@ -4810,7 +4872,7 @@ export function App() {
             onWeatherFetchAgain={() => setShowWeather('again')}
             onWeatherUndo={undoWeather} onWeatherDismiss={() => setWeather(null)} onWeatherSigma={estimateSigma} />
 
-          <ConfigOverview configs={syncActiveConfig(savedConfigs, activeConfigId, { motors: mountMotors, unmatchedRefs, tree })}
+          <ConfigOverview configs={stabilityRangeInput.configs}
             activeConfigId={activeConfigId} tree={tree} onApply={applyConfig}
             onShowPart={(id, family) => setConfigPartTarget({ id, family })} />
         </main>
