@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { PrefsProvider, usePrefs, type Preferences } from './PrefsContext.js';
+import { DEFAULT_PREFS, PrefsProvider, usePrefs, type Preferences } from './PrefsContext.js';
 import { printerFromPreset } from './printers.js';
 import { INITIAL_UNITS, UNITS, type Quantity } from './units.js';
 import { sessionDebugLog } from '../services/sessionDebugLog.js';
@@ -205,6 +205,36 @@ describe('storage hardening: result tiles', () => {
       radiusMode: 'radius', markers3d: 'axis', stabilityUnit: 'both' }));
     mount();
     expect(seen.prefs).toMatchObject({ aeroModel, theme: 'system', radiusMode: 'radius', markers3d: 'axis', stabilityUnit: 'both' });
+  });
+
+  it.each([null, ['a', 'b'], 'prefs', 42, true].map((v) => [v]))('S7d-g2 returns DEFAULT_PREFS when stored JSON root is not a plain object (%j)', (rootValue) => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(rootValue));
+    mount();
+    expect(seen.prefs).toEqual(DEFAULT_PREFS);
+    expect('0' in seen.prefs).toBe(false);
+  });
+
+  it('S7d-g2 drops non-boolean values for rogersKbf, daylight, tourOff, rulers2d, themeExplicit, and supersonicAero while retaining valid booleans', () => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      rogersKbf: 'false',
+      daylight: 1,
+      tourOff: 'true',
+      rulers2d: 'off',
+      themeExplicit: 'false',
+      theme: 'light',
+      supersonicAero: 'false',
+      radiusMode: 'radius',
+    }));
+    mount();
+    expect(seen.prefs.rogersKbf).toBe(true);
+    expect(seen.prefs.daylight).toBeUndefined();
+    expect(seen.prefs.tourOff).toBeUndefined();
+    expect(seen.prefs.rulers2d).toBeUndefined();
+    expect(seen.prefs.themeExplicit).toBeUndefined();
+    expect(seen.prefs.theme).toBe('dark');
+    expect(seen.prefs.supersonicAero).toBeUndefined();
+    expect(seen.prefs.aeroModel).toBeUndefined();
+    expect(seen.prefs.radiusMode).toBe('radius');
   });
   it.each([{}, null, 3, 'apogee', ['apogee', null]].map((v) => [v]))('drops malformed tile choices (%j)', (resultTiles) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ resultTiles, radiusMode: 'radius' }));

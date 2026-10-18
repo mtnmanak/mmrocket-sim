@@ -74,6 +74,15 @@ describe('toPrinterVolume — the unset state is load-bearing', () => {
     const v = toPrinterVolume(printerFromPreset('bambu-h2d')!)!;
     expect(v).toEqual({ x: 0.350, y: 0.320, z: 0.325, margin: 0.008, clearance: DEFAULT_PRINT_CLEARANCE });
   });
+
+  it('rejects a non-finite spigot even when called without preference normalization', () => {
+    const printer = printerFromPreset('bambu-h2d')!;
+    for (const spigot of [NaN, Infinity, -1]) {
+      expect(toPrinterVolume({ ...printer, spigot })).not.toHaveProperty('spigot');
+    }
+    expect(toPrinterVolume({ ...printer, spigot: 0 })!.spigot).toBe(0);
+    expect(toPrinterVolume({ ...printer, spigot: 0.02 })!.spigot).toBe(0.02);
+  });
 });
 
 describe('normalizePrinter — stored blobs', () => {
@@ -89,6 +98,16 @@ describe('normalizePrinter — stored blobs', () => {
     expect(p.margin).toBe(DEFAULT_PRINT_MARGIN);
     expect(p.clearance).toBe(DEFAULT_PRINT_CLEARANCE);
     expect((p as unknown as { nozzle: number }).nozzle).toBe(0.6);
+  });
+
+  it('S7d-1 keeps spigot only when finite positive or zero, deleting invalid values', () => {
+    for (const bad of ['bad', -1, NaN, Infinity, null, false, {}]) {
+      const p = normalizePrinter({ x: 0.35, y: 0.32, z: 0.325, spigot: bad })!;
+      expect('spigot' in p, String(bad)).toBe(false);
+      expect(toPrinterVolume(p)!).not.toHaveProperty('spigot');
+    }
+    expect(normalizePrinter({ x: 0.35, y: 0.32, z: 0.325, spigot: 0.02 })!.spigot).toBe(0.02);
+    expect(normalizePrinter({ x: 0.35, y: 0.32, z: 0.325, spigot: 0 })!.spigot).toBe(0);
   });
 });
 

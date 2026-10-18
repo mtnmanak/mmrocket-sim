@@ -89,6 +89,35 @@ const importCsv = async (text: string) => {
 
 const text = () => host.textContent ?? '';
 
+it('restores readable custom preset dimensions and cautions about removed material', async () => {
+  localStorage.setItem('online-openrocket.custom-presets.v1', JSON.stringify([{
+    kind: 'BodyTube', manufacturer: 'EX', partNo: 'OLD-TUBE', description: 'Legacy tube',
+    outsideDiameter: 0.024, material: { name: {}, type: 'BULK', density: 680 },
+  }]));
+  await render();
+  expect(text()).toContain('OLD-TUBE');
+  expect(host.querySelector('.message-caution')?.textContent).toContain('dimensions were kept');
+  expect(host.querySelector('.message-caution')?.textContent).toContain('first: BodyTube: EX OLD-TUBE');
+  expect(host.querySelector('.message-caution')?.textContent).toContain("Check the part's material after applying it");
+});
+
+it('passes a Caution about an inverted catalogue bore to the part panel on pick', async () => {
+  localStorage.setItem('online-openrocket.custom-presets.v1', JSON.stringify([{
+    kind: 'CenteringRing', manufacturer: 'EX', partNo: 'INVERTED', description: 'Bad bore',
+    outsideDiameter: 0.025, insideDiameter: 0.029,
+  }]));
+  const onApply = vi.fn();
+  await act(async () => {
+    root.render(<PrefsProvider><PresetPicker type="centeringring" onApply={onApply} onClose={() => {}} /></PrefsProvider>);
+  });
+  await flush();
+  const row = [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')]
+    .find(r => r.cells[1]?.textContent === 'INVERTED')!;
+  act(() => { row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+  expect(onApply).toHaveBeenCalledWith(expect.not.objectContaining({ outerRadius: expect.anything() }),
+    [expect.stringContaining('inside diameter is not smaller')]);
+});
+
 it('C-H3 records a refused preset CSV without its text or file name', async () => {
   await render();
   await importCsv('Private weather place 61.234');

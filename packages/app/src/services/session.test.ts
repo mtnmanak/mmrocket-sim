@@ -20,6 +20,10 @@ import { mountMotorFromDb } from './motorMatch.js';
 import { autosavedDesignFile } from './autosaveBackup.js';
 import { designStateFromSession } from './sessionRestore.js';
 import { findNode, normalizeTree } from '../tree/treeModel.js';
+import { tierLines } from './importNotes.js';
+
+const restoreTier = (restored: ReturnType<typeof designStateFromSession>, text: string) =>
+  tierLines(restored.restoreNotes, restored.restoreNoteTiers).find(note => note.text === text)?.tier;
 
 /** Minimal but loadSession-valid state — the save path never inspects more. */
 const state = () => ({
@@ -119,6 +123,100 @@ describe('audit 2026-10-11 persisted state', () => {
     flushSession();
     expect(loadSession()?.launch.timeStepS).toBe(0.01);
     expect(loadSession()?.timeStepWasClamped).not.toBe(true);
+  });
+
+  const unreadableMotors = [null, false, 7, 'bad', [], {}, { spec: {} }, { meta: {} }, { spec: null, meta: {} }];
+
+  it.each(unreadableMotors.map(v => [v]))('S1d-2 drops unreadable motor record %j in mountMotors and savedConfigs through designStateFromSession', badMotor => {
+    const valid = {
+      label: 'C6-5',
+      spec: { designation: 'C6', ejectionDelay: 5 },
+      meta: { label: 'C6-5', manufacturer: 'Estes' },
+      ignition: { event: 'automatic', delay: 0 },
+    };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
+      ...state(),
+      mountMotors: { kept: valid, bad: badMotor },
+      savedConfigs: [{ id: 'c1', name: 'C1', motors: { kept: valid, bad: badMotor } }],
+      activeConfigId: 'c1',
+    }));
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    expect(loaded?.mountMotors).toEqual({ kept: valid });
+    expect(loaded?.savedConfigs?.[0]?.motors).toEqual({ kept: valid });
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(Object.keys(restored.state.mountMotors)).toEqual(['kept']);
+    expect(Object.keys(restored.state.savedConfigs[0]!.motors)).toEqual(['kept']);
+    expect(restored.restoreNotes.join(' ')).toContain('Unreadable motor records were removed.');
+    expect(restoreTier(restored, 'Unreadable motor records were removed.')).toBe('caution');
+  });
+
+  it.each([[[null]], ['bad'], [[{ altitude: -1, speed: 5, directionDeg: 0 }]]])('S7b-4 drops unreadable launch.windLevels %j with a caution note', windLevels => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
+      ...state(),
+      launch: { ...state().launch, windLevels, windProfileSource: 'forecast at launch site' },
+    }));
+    const loaded = loadSession();
+    expect(loaded?.launch.windLevels).toBeUndefined();
+    expect(loaded?.launch.windProfileSource).toBeUndefined();
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(restored.state.launch.windLevels).toBeUndefined();
+    expect(restored.state.launch.windProfileSource).toBeUndefined();
+    expect(restored.restoreNotes.join(' ')).toContain('Unreadable winds aloft were removed.');
+    expect(restoreTier(restored, 'Unreadable winds aloft were removed.')).toBe('caution');
+  });
+
+  it.each([0, -1, '0.01', false].map(v => [v]))('S7a-g4 drops non-positive or non-numeric launch.timeStepS (%j) on restore', timeStepS => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
+      ...state(),
+      appVersion: APP_VERSION,
+      launch: { ...state().launch, timeStepS },
+    }));
+    const loaded = loadSession();
+    expect(loaded?.launch.timeStepS).toBeUndefined();
+    expect(loaded?.timeStepWasClamped).toBeUndefined();
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(restoreTier(restored, 'An unreadable time step was reset to the default.')).toBe('caution');
+  });
+
+  it.each([undefined, []])('S7b-4 removes an orphaned source with levels %j', windLevels => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
+      ...state(), launch: { ...state().launch, windLevels, windProfileSource: { kind: 'ork' } },
+    }));
+    const restored = designStateFromSession(loadSession(), { legacyMaxMotorLengthM: null });
+    expect(restored.state.launch.windProfileSource).toBeUndefined();
+    expect(restoreTier(restored, 'Unreadable winds aloft source was removed.')).toBe('caution');
+  });
+
+  it('S7b-4 keeps valid levels while removing an unreadable source with a Caution', () => {
+    const windLevels = [{ altitude: 0, speed: 2, direction: 0, standardDeviation: 0.2 }];
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({
+      ...state(), launch: { ...state().launch, windLevels,
+        windProfileSource: { kind: 'open-meteo', place: {}, validUnix: 1, surfaceFromDeg: 0 } },
+    }));
+    const restored = designStateFromSession(loadSession(), { legacyMaxMotorLengthM: null });
+    expect(restored.state.launch.windLevels).toEqual(windLevels);
+    expect(restored.state.launch.windProfileSource).toBeUndefined();
+    expect(restoreTier(restored, 'Unreadable winds aloft source was removed.')).toBe('caution');
+  });
+
+  it('S7a-g4 preserves a blank time step and both saved marks through restore', () => {
+    const snapshot: DesignSnapshot = {
+      ...designStateFromSession(null, { legacyMaxMotorLengthM: null }).state,
+      launch: { ...state().launch, timeStepS: null }, mountMotors: {},
+      maxMotorLengthByStage: {}, savedConfigs: [], activeConfigId: null,
+      measured: { massKg: null, cgM: null },
+    };
+    const mark = designFingerprint(snapshot);
+    const lossySaved = { mark, flights: 3, format: 'rkt' as const, lossCount: 4 };
+    saveSessionDebounced({ ...snapshot, configLayers: 1, savedMark: mark, lossySaved,
+      designFile: { name: 'test.rkt', via: 'saved', format: 'rkt' } });
+    flushSession();
+    const loaded = loadSession()!;
+    expect(loaded.launch.timeStepS).toBeNull();
+    expect(loaded.lossySaved).toEqual(lossySaved);
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(isDirty(designFingerprint(restored.state), restored.session?.savedMark ?? null, false)).toBe(false);
   });
 });
 

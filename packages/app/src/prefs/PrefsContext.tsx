@@ -44,7 +44,12 @@ function load(): Preferences {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_PREFS;
-    const parsed = JSON.parse(raw) as Partial<Preferences>;
+    const rawParsed: unknown = JSON.parse(raw);
+    if (!rawParsed || typeof rawParsed !== 'object' || Array.isArray(rawParsed)) return DEFAULT_PREFS;
+    const parsed = rawParsed as Partial<Preferences>;
+    for (const key of ['walls2d', 'grid2d', 'rulerReversed2d', 'rogersKbf', 'daylight', 'tourOff', 'rulers2d', 'themeExplicit', 'supersonicAero'] as const) {
+      if (typeof parsed[key] !== 'boolean') delete parsed[key];
+    }
     if (!parsed.themeExplicit) delete parsed.theme;
     // v0.025 stored a boolean; migrate it into the three-way aeroModel.
     if (!parsed.aeroModel && parsed.supersonicAero) parsed.aeroModel = 'supersonic';
@@ -55,14 +60,10 @@ function load(): Preferences {
     if (!['radius', 'diameter'].includes(parsed.radiusMode!)) delete parsed.radiusMode;
     if (!['both', 'callout', 'axis', 'off'].includes(parsed.markers3d!)) delete parsed.markers3d;
     if (!['cal', 'pct', 'both'].includes(parsed.stabilityUnit!)) delete parsed.stabilityUnit;
-    if (typeof parsed.walls2d !== 'boolean') delete parsed.walls2d;
     if (!['creation', 'name', 'name-desc', 'motor', 'motor-desc'].includes(parsed.configurationSort!)) delete parsed.configurationSort;
     if (parsed.fieldPrecision !== 'auto' && parsed.fieldPrecision !== 3 && parsed.fieldPrecision !== 4) delete parsed.fieldPrecision;
     if (!['nose', 'aft', 'offset'].includes(parsed.rulerReference2d!)) delete parsed.rulerReference2d;
     if (typeof parsed.rulerOffset2dM !== 'number' || !Number.isFinite(parsed.rulerOffset2dM)) delete parsed.rulerOffset2dM;
-    for (const key of ['grid2d', 'rulerReversed2d'] as const) {
-      if (typeof parsed[key] !== 'boolean') delete parsed[key];
-    }
     // A stored printer that isn't three positive numbers is dropped, not
     // repaired — planning cuts for a half-parsed machine is worse than not
     // offering to split at all. Absent stays absent (no printer configured).
