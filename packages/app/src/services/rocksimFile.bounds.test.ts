@@ -54,7 +54,7 @@ describe('S1b-g2 bounds raw RockSim simulation work before folding', () => {
       .toThrow("This file's simulations list 4,097 motor loadouts, past the 4,096 the app will open. Remove simulations in RockSim and save it again. Desktop OR has no such limit.");
   }, 30_000);
 
-  it.each(['SimulationResults', 'EngineSet'])('Round 3 refuses nested %s before per-record subtree reads', tag => {
+  it.each(['SimulationResults', 'EngineSet'])('refuses nested %s before per-record subtree reads', tag => {
     const parser = currentXmlParser();
     let queries = 0;
     let records = 0;

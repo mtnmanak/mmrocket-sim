@@ -287,7 +287,7 @@ it('S1a-5 keeps a nested openrocket inside an extension opaque on open and save'
   expect(preservedSimulationExtensions(importOrk(save(r)).tree)[0]!.xml).toEqual([opaque]);
 });
 
-it('Round 2 saves and reopens the simulation boundary and refuses one extra configuration', () => {
+it('saves and reopens the simulation boundary and refuses one extra configuration', () => {
   const extension = '<extension extensionid="test"/>';
   const r = importOrk(fixture(sim('A', extension).repeat(1000)).replace('<motorconfiguration configid="B"><name>B</name></motorconfiguration>', ''));
   const saved = save(r);
@@ -298,7 +298,7 @@ it('Round 2 saves and reopens the simulation boundary and refuses one extra conf
     .toThrow(/^This design would save 1,001 simulations, past the 1,000 the app will open\./);
 });
 
-it('Round 2 parity fixture distinguishes root simulations from extension descendants', () => {
+it('parity fixture distinguishes root simulations from extension descendants', () => {
   const doc = parseXml(CONFORMANCE_DOCS['docChains']!, 'Invalid parity fixture');
   expect(doc.querySelectorAll('openrocket > simulations > simulation')).toHaveLength(3);
   expect(doc.documentElement.querySelectorAll(':scope > simulations > simulation')).toHaveLength(2);

@@ -85,7 +85,7 @@ it.each([[60, ''], [75, ' (caution)'], [95, ' (!)']] as const)('S3b-1 exports dr
 });
 
 
-it('Round 2 bounds saved and restored warnings, preserving abort and HIGH evidence', () => {
+it('bounds saved and restored warnings, preserving abort and HIGH evidence', () => {
   localStorage.clear();
   const warnings = Array.from({ length: MAX_STORED_WARNINGS + 1 }, () => ({ key: 'Joint', message: 'Gap' }));
   const critical = [{ key: 'SIM_ABORT', message: '' }, { key: 'Danger', message: 'Unsafe', priority: 'HIGH' as const }];

@@ -71,7 +71,7 @@ it('S4a-1 shows the refused edit as a caution while keeping the rendered design'
   expect(host.querySelector('.notice-bar .message-caution')).not.toBeNull();
 }, 30_000);
 
-it('Round 1 keeps a refused autosave intact, downloads the original and resumes only on New', async () => {
+it('keeps a refused autosave intact, downloads the original and resumes only on New', async () => {
   const key = 'online-openrocket.session.v1';
   const original = JSON.stringify({ tree: excessiveTree(), savedAt: Date.now() });
   localStorage.setItem(key, original);
@@ -93,7 +93,7 @@ it('Round 1 keeps a refused autosave intact, downloads the original and resumes 
   expect(host.textContent).not.toContain('Autosave is paused');
 }, 30_000);
 
-it.each(['duplicate', 'paste'] as const)('Round 1 keeps selection after a refused %s', async operation => {
+it.each(['duplicate', 'paste'] as const)('keeps selection after a refused %s', async operation => {
   await mount();
   const body = history.tree.components[0]!.children!.find(n => n.type === 'bodytube')!;
   await act(async () => history.setSelectedId(body.id!));
@@ -132,7 +132,7 @@ it('S4a-1 refuses an autosave before initializing its old file identity', async 
   expect(document.title).not.toContain('OldOversized');
 }, 30_000);
 
-it('Round 2 holds a refused autosave until the startup share offer is accepted', async () => {
+it('holds a refused autosave until the startup share offer is accepted', async () => {
   const key = 'online-openrocket.session.v1';
   const original = JSON.stringify({ tree: excessiveTree(), savedAt: Date.now() });
   localStorage.setItem(key, original);
@@ -154,7 +154,7 @@ it('Round 2 holds a refused autosave until the startup share offer is accepted',
   expect(host.textContent).not.toContain('Autosave is paused');
 }, 30_000);
 
-it('Round 2 prompts before leaving dirty starter edits while autosave is paused', async () => {
+it('prompts before leaving dirty starter edits while autosave is paused', async () => {
   const key = 'online-openrocket.session.v1';
   const original = JSON.stringify({ tree: excessiveTree(), savedAt: Date.now() });
   localStorage.setItem(key, original);

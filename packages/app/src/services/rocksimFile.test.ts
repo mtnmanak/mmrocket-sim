@@ -1109,7 +1109,7 @@ describe('RockSim export → import round trip of the two override flags', () =>
     expect(tube['overrideCGX']).toBeCloseTo(0.2, 9);
   });
 
-  it.each(['podset', 'parallelstage'] as const)('Round 2 discloses %s zero CG with or without a mass override', type => {
+  it.each(['podset', 'parallelstage'] as const)('discloses %s zero CG with or without a mass override', type => {
     for (const overrideMass of [undefined, 0.1]) {
       const node: ComponentNode = { type, id: 'pod', name: 'Pod', instanceCount: 1,
         overrideCGX: 0, ...(overrideMass !== undefined ? { overrideMass } : {}),

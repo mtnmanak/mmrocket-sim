@@ -12,7 +12,7 @@ const run = (over: Partial<SimRun> = {}): SimRun => ({ ...key, id: 'r', when: 1,
   delayResolution: testResolution([['m', testMotor()]], [5]),
   recoveryEvents: [{ type: 'STAGE_SEPARATION', time: 3, sourceId: 'booster' }], ...over } as SimRun);
 describe('K1 matching recovery evidence', () => {
-  it.each([undefined, 'recovery-radial-mass-v6'])('Round 2 retains atmosphere-only recovery evidence stamped %s', physicsRevision => {
+  it.each([undefined, 'recovery-radial-mass-v6'])('retains atmosphere-only recovery evidence stamped %s', physicsRevision => {
     const current = { ...key, effectiveKbf: true, physicsRevisions: [] };
     const stored = run({ rogersKbf: true, physicsRevision,
       recoveryEvents: [{ type: 'STAGE_SEPARATION', time: 3, sourceId: 'booster' },

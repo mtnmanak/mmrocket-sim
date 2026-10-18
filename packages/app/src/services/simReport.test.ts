@@ -1723,7 +1723,7 @@ describe('SIM_ABORT surfacing', () => {
   const abortedAt = (time: number, cause: string, events = fakeResult().events) =>
     [...events, { type: 'SIM_ABORT', time, cause }];
 
-  it('Round 1 retains every live warning beyond the stored-summary limit, including an abort', () => {
+  it('retains every live warning beyond the stored-summary limit, including an abort', () => {
     const warnings = Array.from({ length: 300 }, (_, i) => ({ key: 'Joint', message: 'Gap ' + i, priority: 'HIGH' as const }));
     const run = buildSimRun({ result: { ...fakeResult(), warnings, events: abortedAt(1, 'TUMBLE_UNDER_THRUST') },
       info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Many warnings', execMs: 1 });

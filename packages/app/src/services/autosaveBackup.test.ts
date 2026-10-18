@@ -42,7 +42,7 @@ afterEach(() => {
 });
 
 describe('autosavedDesignFile', () => {
-  it('Round 1 recovers the original over-limit tree as ork instead of the starter', () => {
+  it('recovers the original over-limit tree as ork instead of the starter', () => {
     let body: ComponentNode = { type: 'bodytube', name: 'Deep original', length: 0.1, outerRadius: 0.01 };
     for (let i = 0; i < 4; i++) body = { type: 'bodytube', length: 0.1, outerRadius: 0.02, children: [
       { type: 'podset', instanceCount: 32, children: [body] },

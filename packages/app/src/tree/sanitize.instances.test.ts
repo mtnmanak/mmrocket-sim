@@ -24,7 +24,7 @@ describe('S4a-1 total expanded instance limit', () => {
     expect(countExpandedInstances(tree.components)).toBe(2 + 2 * (32 + 32 ** 2 + 32 ** 3 + 32 ** 4));
     expect(() => normalizeTree(tree)).toThrow(/10,000.*Each fin, clustered tube, hole mark and repeated part counts.*pods and boosters/);
   });
-  it('Round 2 counts all hole marks within nested pods before accepting a tree', () => {
+  it('counts all hole marks within nested pods before accepting a tree', () => {
     let body: ComponentNode = { type: 'bodytube', children: Array.from({ length: 7 }, () => ({
       ...makeNode('tubehole'), holeCount: 64,
     })) };
@@ -36,14 +36,14 @@ describe('S4a-1 total expanded instance limit', () => {
     expect(() => normalizeTree(tree)).toThrow(/expanded component instances.*10,000/);
     expect(countExpandedInstances(tree.components)).toBe(2 + 2 * (32 + 32 ** 2) + 7 * 64 * 32 ** 2);
   });
-  it('Round 2 explains a refusal caused by repeated fins without pods or boosters', () => {
+  it('explains a refusal caused by repeated fins without pods or boosters', () => {
     const tree: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', children:
       Array.from({ length: 1300 }, () => ({ type: 'trapezoidfinset', finCount: 8 })),
     }] }] };
     expect(countParts(tree.components)).toBe(1302);
     expect(() => normalizeTree(tree)).toThrow(/10,000.*Each fin, clustered tube, hole mark and repeated part counts/);
   });
-  it('Round 2 preserves launch conditions but discards identity when an autosave is refused', () => {
+  it('preserves launch conditions but discards identity when an autosave is refused', () => {
     const launch = { ...DEFAULT_CONDITIONS, launchAltitudeM: 1234, launchRodLengthM: 2.4,
       launchRodAngleDeg: 8, windAverage: 7, windStdDev: 1.5, latitudeDeg: 45, longitudeDeg: -120 };
     const restored = designStateFromSession({ tree: nested(), launch, savedAt: 123,

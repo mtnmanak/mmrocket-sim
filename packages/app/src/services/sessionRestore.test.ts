@@ -37,7 +37,7 @@ it.each(['c9007199254740992', `c${'9'.repeat(400)}`, `c${Number.MAX_SAFE_INTEGER
     expect([first, second]).not.toContain('cInfinity');
   },
 );
-it('Round 1 ignores restored IDs near rollover and keeps no lifetime ID registry', () => {
+it('ignores restored IDs near rollover and keeps no lifetime ID registry', () => {
   const ids = [`c${2 ** 50}`, `c${Number.MAX_SAFE_INTEGER - 1}`];
   designStateFromSession({ tree: { components: [{ type: 'stage', id: ids[0], children: [
     { type: 'bodytube', id: ids[1] },

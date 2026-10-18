@@ -295,7 +295,7 @@ async function openSavedRuns(host: HTMLElement): Promise<void> {
 /** Starter motor present in the stored session — the async C6 has landed and been autosaved. */
 const starterStored = () => Object.keys(storedSession()?.mountMotors ?? {}).length > 0;
 
-it.each(['damaged-root', 'legacy'] as const)('Round 1 restores the starter motor for a %s autosave', async (kind) => {
+it.each(['damaged-root', 'legacy'] as const)('restores the starter motor for a %s autosave', async (kind) => {
   const tree = kind === 'damaged-root' ? null
     : { name: 'Legacy', components: [{ type: 'stage', id: 's', children: [
       { type: 'bodytube', id: 'mount', length: 0.3, outerRadius: 0.0095, thickness: 0.0005, motorMount: true },
@@ -609,7 +609,7 @@ describe('a SOLID motor mount on Motors & Configuration', () => {
     } finally { planning.mockRestore(); persistence.mockRestore(); }
   }, 30000);
 
-  it('Round 6 shows one import caution with the number of warning copies admission omitted', async () => {
+  it('shows one import caution with the number of warning copies admission omitted', async () => {
     const budget = warningImports.createWarningMergeBudget();
     budget.remaining = 0;
     const factory = vi.spyOn(warningImports, 'createWarningMergeBudget').mockReturnValue(budget);

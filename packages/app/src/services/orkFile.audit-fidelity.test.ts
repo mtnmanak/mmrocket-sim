@@ -175,7 +175,7 @@ describe('audit 2026-10-11 .ork fidelity and bounds', () => {
 
 
 describe('lane A audit 2026-10-17 regression guards', () => {
-  it.each([['.ork', importOrk], ['.rkt', importRkt], ['.CDX1', importCdx1]] as const)('Round 2 refuses 1,001 gzip members at the %s importer door', (kind, importer) => {
+  it.each([['.ork', importOrk], ['.rkt', importRkt], ['.CDX1', importCdx1]] as const)('refuses 1,001 gzip members at the %s importer door', (kind, importer) => {
     const empty = gzipSync(new Uint8Array(0));
     const bytes = new Uint8Array(empty.length * 1001);
     for (let i = 0; i < 1001; i++) bytes.set(empty, i * empty.length);
@@ -194,7 +194,7 @@ describe('lane A audit 2026-10-17 regression guards', () => {
     expect(importOrk(fixture(holes(1998))).tree.components[0]!.children![0]!.children).toHaveLength(1998);
     expect(() => importOrk(fixture(holes(1999)))).toThrow(/2,001 parts/);
   });
-  it('Round 2 walks direct hole children without descendant queries in counting or conversion', () => {
+  it('walks direct hole children without descendant queries in counting or conversion', () => {
     const parser = currentXmlParser();
     const queries: string[] = [];
     const spies: { mockRestore(): void }[] = [];
@@ -263,7 +263,7 @@ describe('lane A audit 2026-10-17 regression guards', () => {
         .tree.components[0]!.children![0]!['lineDensity']).toBeUndefined();
     }
   });
-  it.each(['junk 0.02', '0.01 0.02'])('Round 1 packs children using the same automatic ring grammar for %s', value => {
+  it.each(['junk 0.02', '0.01 0.02'])('packs children using the same automatic ring grammar for %s', value => {
     const children = '<subcomponents><parachute><packedradius>auto</packedradius></parachute></subcomponents>';
     for (const tag of ['tubecoupler', 'engineblock', 'centeringring', 'bulkhead']) {
       const ring = (radius: string) => `<${tag}><outerradius>${radius}</outerradius><innerradius>${radius}</innerradius>`

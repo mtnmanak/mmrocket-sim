@@ -41,7 +41,7 @@ const state = () => ({
   } as LaunchConditions,
 });
 
-it('Round 2 bounds saved and restored session warnings', () => {
+it('bounds saved and restored session warnings', () => {
   localStorage.clear();
   const warnings = Array.from({ length: MAX_STORED_WARNINGS + 1 }, () => ({ key: 'Joint', message: 'Gap' }));
   const abort = { key: 'SIM_ABORT', message: 'Stopped', priority: 'HIGH' as const };

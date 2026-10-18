@@ -255,7 +255,7 @@ const RKT = 'rocksimTestRocket1.rkt';
 const RKT_NAME = 'FooBar Test';
 
 describe('lane H regressions', () => {
-  it.each(['fallback', 'Auto delay'] as const)('Round 4: a late Recent warning keeps the same save\'s %s warning', async warning => {
+  it.each(['fallback', 'Auto delay'] as const)('a late Recent warning keeps the same save\'s %s warning', async warning => {
     if (warning === 'Auto delay') {
       const tree = defaultTree();
       const mount = motorMounts(tree)[0]!.id!;
@@ -297,7 +297,7 @@ describe('lane H regressions', () => {
     if (warning === 'fallback') expect(receipt.textContent).toContain("your browser's download folder instead");
   }, 30000);
 
-  it.each(['ork', 'rkt', 'cdx1'] as const)('Round 3: the last write to Same.%s owns the saved snapshot', async format => {
+  it.each(['ork', 'rkt', 'cdx1'] as const)('the last write to Same.%s owns the saved snapshot', async format => {
     const host = await mountApp();
     await waitFor(starterStored, 'starter motor');
     const entry = format === 'cdx1' ? 'Save .CDX1' : `Save .${format}`;
@@ -325,7 +325,7 @@ describe('lane H regressions', () => {
 
   it.each([
     ['downloaded', 'downloaded'], ['saved', 'downloaded'], ['downloaded', 'saved'],
-  ] as const)('Round 3: overlapping %s/%s outcomes with the same name treat downloads separately', async (older, newer) => {
+  ] as const)('overlapping %s/%s outcomes with the same name treat downloads separately', async (older, newer) => {
     const host = await mountApp();
     await waitFor(starterStored, 'starter motor');
     let finish!: (out: SaveOutcome) => void;
@@ -373,7 +373,7 @@ describe('lane H regressions', () => {
       }
     }, 30000);
 
-  it('Round 3: a delayed omitted-motor receipt retains its caution tier without loss lines', async () => {
+  it('a delayed omitted-motor receipt retains its caution tier without loss lines', async () => {
     const host = await mountApp();
     await waitFor(starterStored, 'starter motor');
     const real = vi.mocked(exportOrk).getMockImplementation()!;
@@ -388,7 +388,7 @@ describe('lane H regressions', () => {
     expect(host.querySelector('.earlier-save-note')?.textContent).toContain('Omitted.ork');
   }, 30000);
 
-  it('Round 3: a plain delayed receipt cannot replace an undismissed fallback warning', async () => {
+  it('a plain delayed receipt cannot replace an undismissed fallback warning', async () => {
     const host = await mountApp();
     await waitFor(starterStored, 'starter motor');
     const finishes: ((out: SaveOutcome) => void)[] = [];
@@ -408,7 +408,7 @@ describe('lane H regressions', () => {
     expect(host.querySelector('.earlier-save-note')).toBeNull();
   }, 30000);
 
-  it.each(['obj', 'glb', 'stl'] as const)('Round 3: a delayed %s chunk keeps the opened design import notices', async ext => {
+  it.each(['obj', 'glb', 'stl'] as const)('a delayed %s chunk keeps the opened design import notices', async ext => {
     const module = ext === 'obj' ? './services/objExport.js' : ext === 'glb' ? './services/gltfExport.js' : './services/stlExport.js';
     let release!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });

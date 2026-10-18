@@ -24,7 +24,7 @@ const treeWith = (node: ComponentNode): RocketTree => ({
 
 const classicModel = { aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false } as const;
 
-it.each([undefined, 'recovery-radial-mass-v6'])('Round 2 judges atmosphere provenance on both flown and current model: %s', physicsRevision => {
+it.each([undefined, 'recovery-radial-mass-v6'])('judges atmosphere provenance on both flown and current model: %s', physicsRevision => {
   const key = designMatchKeyOf({ physicsKey: 'same', assigned: [['mount', motor]], hardwareDeltaKg: 0,
     launch: DEFAULT_CONDITIONS, aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false,
     hasNozzle: false, physicsRevisions: [] });

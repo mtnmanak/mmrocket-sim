@@ -298,7 +298,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     expect(mergeStoredWarnings(stored, incoming)).toBe(stored);
     expect(reads).toBeLessThan(stored.length * 12);
   });
-  it('Round 6 accepts 32 own fields and repairs 33 with bounded evidence and the I28 note', () => {
+  it('accepts 32 own fields and repairs 33 with bounded evidence and the I28 note', () => {
     const fields = Object.fromEntries(Array.from({ length: MAX_WARNING_FIELDS - 2 }, (_, i) => ['k' + i, i]));
     const boundary = { key: 'X', message: 'm', ...fields };
     expect(Reflect.ownKeys(boundary)).toHaveLength(MAX_WARNING_FIELDS);
@@ -317,7 +317,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     ]);
   });
 
-  it('Round 6 copies enrichment once at the field limit with the internal counter disabled', () => {
+  it('copies enrichment once at the field limit with the internal counter disabled', () => {
     const plain = { key: 'X', message: 'm', ...Object.fromEntries([['__proto__', { kept: true }]]) };
     const enriched = { ...plain, ...Object.fromEntries(Array.from({ length: MAX_WARNING_FIELDS - 3 }, (_, i) => [i === 0 ? 'constructor' : 'k' + i, i])) };
     const original = Object.fromEntries;
@@ -340,7 +340,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     expect(copied).toBe(MAX_WARNING_FIELDS);
   });
 
-  it('Round 6 persists prepaid planner updates after a later duplicate exhausts admission', () => {
+  it('persists prepaid planner updates after a later duplicate exhausts admission', () => {
     open(write([text]));
     const before = loadRuns();
     const summary = importOrk(write([structured, structured])).storedSimulations![0]!;
@@ -360,7 +360,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     expect(budget.rowCounts.get('flight')).toBe(2);
     expect(warningMergeNotes(plan.warningMergeBudget)).toEqual([expect.stringContaining('1 later copy')]);
   });
-  it('Round 6 visits each dense candidate edge once without the internal counter', () => {
+  it('visits each dense candidate edge once without the internal counter', () => {
     const stored = Array.from({ length: 64 }, () => ({ key: 'X', message: 'm' }));
     const incoming = stored.map(w => ({ ...w, priority: 'HIGH' as const }));
     const filter = Array.prototype.filter;
@@ -385,7 +385,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     expect(visits).toBeLessThanOrEqual(limit);
   });
 
-  it('Round 6 canonicalizes nested fields once rather than reading them for every pair', () => {
+  it('canonicalizes nested fields once rather than reading them for every pair', () => {
     let reads = 0;
     const evidence = () => Object.fromEntries(Array.from({ length: 128 }, (_, i) => ['k' + i, 1]));
     const watched = () => new Proxy(evidence(), { get(target, key, receiver) {
@@ -401,7 +401,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     expect(result.filter(w => w.priority === 'HIGH')).toHaveLength(64);
     expect(reads).toBeGreaterThan(0);
   });
-  it('Round 6 encodes an accumulated long warning message once per import', () => {
+  it('encodes an accumulated long warning message once per import', () => {
     const summary = importOrk(write()).storedSimulations![0]!;
     const arrays = [[{ key: 'X', message: 'm'.repeat(65_536) }],
       ...Array.from({ length: 999 }, (_, i) => [{ key: 'Y' + i, message: 'm' }])];
@@ -424,7 +424,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     expect(characters).toBeLessThanOrEqual(limit);
     expect(plan.warningMergeBudget.skippedCopies.get('flight')).toBe(638);
   });
-  it('Round 2 preserves the original depth-first partial evidence choice', () => {
+  it('preserves the original depth-first partial evidence choice', () => {
     const q1 = { ...text, quantity: { kind: 'velocity' as const, value: 1 } };
     const q2 = { ...text, quantity: { kind: 'velocity' as const, value: 2 } };
     const broad = { key: text.key, message: text.message };
@@ -433,7 +433,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     expect(mergeStoredWarnings([broad, { ...q1, priority: undefined }, { ...q2, priority: undefined }], [first, second]))
       .toEqual([second, first, { ...q2, priority: undefined }]);
   });
-  it('Round 1 accepts key-only warnings through file import and re-export', () => {
+  it('accepts key-only warnings through file import and re-export', () => {
     const imported = importOrk(withRawWarnings([{ key: 'SIM_ABORT' }]));
     expect(imported.storedSimulations![0]!.data.simWarnings).toEqual([{ key: 'SIM_ABORT' }]);
     expect(imported.notes.join('\n')).not.toContain('Stored simulation warnings');
@@ -452,7 +452,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     expect(reads).toBeLessThan(8000);
     expect(merged!.every(w => w.priority === 'HIGH')).toBe(true);
   });
-  it('Round 2 compares each incompatible partial pair at most once', () => {
+  it('compares each incompatible partial pair at most once', () => {
     // 55 equal fields force the incompatible object comparison to reach its end.
     const x = (last: number) => ({ ...Object.fromEntries(Array.from({ length: 54 }, (_, i) => ['f' + i, 0])), last });
     const stored = [...Array.from({ length: 128 }, (_, i) => ({ key: 'Same', message: 'same', x: x(-i - 1) })),
@@ -478,7 +478,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     } finally { spy.mockRestore(); }
   });
 
-  it.each([false, true])('Round 3 bounds dense partial search at the warning cap (conflict=%s)', conflict => {
+  it.each([false, true])('bounds dense partial search at the warning cap (conflict=%s)', conflict => {
     const stored: EngineWarning[] = Array.from({ length: MAX_STORED_WARNINGS }, () => ({ key: 'X', message: 'm' }));
     if (conflict) stored[stored.length - 1] = { key: 'X', message: 'm', priority: 'LOW' };
     const incoming: EngineWarning[] = Array.from({ length: MAX_STORED_WARNINGS }, () => ({ key: 'X', message: 'm', priority: 'HIGH' }));
@@ -514,7 +514,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     } finally { spy.mockRestore(); }
   });
 
-  it('Round 2 keeps incoming stop and HIGH warnings when matching is over budget', () => {
+  it('keeps incoming stop and HIGH warnings when matching is over budget', () => {
     const many = Array.from({ length: MAX_STORED_WARNINGS + 1 }, (_, i) => ({ key: 'Joint', message: 'Gap ' + i }));
     const critical: EngineWarning[] = [{ key: 'SIM_ABORT', message: 'Stopped' },
       { key: 'Danger', message: 'Unsafe', priority: 'HIGH' }];
@@ -534,7 +534,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     expect(loadRuns()[0]!.simWarnings!.some(w => w.key === 'StoredWarningsUnavailable')).toBe(true);
   });
 
-  it.each([100, 1000])('Round 4 bounds duplicate-summary warning visits linearly (%i summaries)', count => {
+  it.each([100, 1000])('bounds duplicate-summary warning visits linearly (%i summaries)', count => {
     const summary = importOrk(write()).storedSimulations![0]!;
     const critical: EngineWarning[] = [
       { key: 'SIM_ABORT', message: 'First stopped' },
@@ -687,7 +687,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
       }
     });
 
-  it('Round 6 shares exhausted admission with persistence and retains each stored row', () => {
+  it('shares exhausted admission with persistence and retains each stored row', () => {
     open(write());
     const base = loadRuns()[0]!;
     const plain = { key: 'X', message: 'm' };
@@ -715,7 +715,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     } finally { factory.mockRestore(); }
   });
 
-  it('Round 5 charges recursive evidence and abandons an unfinished DFS path atomically', () => {
+  it('charges recursive evidence and abandons an unfinished DFS path atomically', () => {
     const broad = { key: 'X', message: 'm' };
     const stored = [broad, { ...broad, extra: { nested: [1, 2] } }];
     const incoming = [{ ...broad, extra: { nested: [1, 2] }, priority: 'HIGH' as const }];
@@ -740,7 +740,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     }
   });
 
-  it('Round 2 retains 300 live warnings through another flight, reload, export, reopen and Undo', () => {
+  it('retains 300 live warnings through another flight, reload, export, reopen and Undo', () => {
     open(write());
     const summary = loadRuns()[0]!;
     deleteRun(summary.id);
@@ -757,7 +757,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     expect(restoreRun(live, null).find(r => r.id === live.id)!.simWarnings).toEqual(warnings);
     expect(loadRuns().find(r => r.id === live.id)!.simWarnings).toEqual(warnings);
   });
-  it('Round 2 exports oversized warnings as readable critical evidence with an explicit note', () => {
+  it('exports oversized warnings as readable critical evidence with an explicit note', () => {
     const critical: EngineWarning[] = [{ key: 'SIM_ABORT', message: 'Stopped' },
       { key: 'Danger', message: 'Unsafe', priority: 'HIGH' }];
     const warnings = [...Array.from({ length: MAX_STORED_WARNINGS + 1 }, () => ({ key: 'Joint', message: 'Gap' })), ...critical];

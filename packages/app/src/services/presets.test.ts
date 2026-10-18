@@ -1409,7 +1409,7 @@ describe('the conflict marker — one table, per-field thresholds', () => {
     expect(mat[0]!.patch).toEqual({ density: 1050, materialName: 'Polystyrene PS' });
   });
 
-  it.each([undefined, 0.003])('Round 2 compares only solidity for a filled nose with wall %s', thickness => {
+  it.each([undefined, 0.003])('compares only solidity for a filled nose with wall %s', thickness => {
     const row: Preset = {
       kind: 'NoseCone', manufacturer: 'Test Cones', partNo: 'NC-solid', description: '',
       length: 0.2, outsideDiameter: 0.066, shape: 'OGIVE', thickness: 0.001,
@@ -1598,14 +1598,14 @@ describe('presetPatch — a picked canopy fills its packed size', () => {
 
 
 describe('Round 1 preset regressions', () => {
-  it('Round 2 strips spreadsheet apostrophes from enums but retains free text', () => {
+  it('strips spreadsheet apostrophes from enums but retains free text', () => {
     const [p] = csvToPresets("kind,manufacturer,partNo,description,shape,materialName,materialType,materialDensity\n'NoseCone,EX,'67,'Classic','conical,'Wood','BULK,680\n");
     expect(p).toMatchObject({ kind: 'NoseCone', partNo: "'67", description: "'Classic'", shape: 'CONICAL',
       material: { name: "'Wood'", type: 'BULK', density: 680 } });
     expect(presetPatch('nosecone', p!)['shape']).toBe('conical');
     expect(csvToPresets("kind,manufacturer,partNo\n'BodyTube,EX,TUBE\n")[0]?.kind).toBe('BodyTube');
   });
-  it('Round 2 applies a custom inside-only ring bore without an inverted-diameter note', () => {
+  it('applies a custom inside-only ring bore without an inverted-diameter note', () => {
     const [p] = csvToPresets('kind,manufacturer,partNo,insideDiameter\nCenteringRing,EX,ID-ONLY,0.024\n');
     const notes: string[] = [];
     const patch = presetPatch('centeringring', p!, undefined, undefined, { notes });
@@ -1613,7 +1613,7 @@ describe('Round 1 preset regressions', () => {
     expect(patch).not.toHaveProperty('outerRadius');
     expect(notes).toEqual([]);
   });
-  it.each([undefined, { outerRadius: 0.03, innerRadius: 0.019 }])('Round 2 leaves both radii intact for an inverted row (%j)', radii => {
+  it.each([undefined, { outerRadius: 0.03, innerRadius: 0.019 }])('leaves both radii intact for an inverted row (%j)', radii => {
     const row: Preset = { kind: 'CenteringRing', manufacturer: 'EX', partNo: 'INVERTED', description: '',
       outsideDiameter: 0.025, insideDiameter: 0.029 };
     const node: ComponentNode = { id: 'ring', type: 'centeringring', ...radii };
@@ -1624,7 +1624,7 @@ describe('Round 1 preset regressions', () => {
     expect(patch).not.toHaveProperty('innerRadius');
     expect(notes.join(' ')).toContain('Both diameters were left unchanged');
   });
-  it('Round 2 summarizes repaired rows once, including kind and manufacturer', () => {
+  it('summarizes repaired rows once, including kind and manufacturer', () => {
     const rows = Array.from({ length: 300 }, (_, i) => ({ kind: 'Parachute', manufacturer: 'EX', partNo: `P-${i}`,
       description: '', material: {}, lineMaterial: {} }));
     vi.stubGlobal('localStorage', { getItem: () => JSON.stringify(rows) });

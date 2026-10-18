@@ -97,7 +97,7 @@ describe('RecoverySizingPanel', () => {
     expect(design).toEqual(before);
   });
 
-  it.each(['main', 'drogue', 'both'] as const)('Round 2 keeps usable bands and candidates when %s Cd prevents sizing', async slot => {
+  it.each(['main', 'drogue', 'both'] as const)('keeps usable bands and candidates when %s Cd prevents sizing', async slot => {
     const design = tree([
       { cd: slot !== 'drogue' ? 0 : 2.2, diameter: 1, deployEvent: 'altitude' },
       { cd: slot !== 'main' ? 0 : 0.8, diameter: 0.2, deployEvent: 'apogee' },
@@ -314,7 +314,7 @@ describe('RecoverySizingPanel', () => {
       ],
     };
 
-    it('Round 2 keeps booster sections when the sustainer Cd is zero', async () => {
+    it('keeps booster sections when the sustainer Cd is zero', async () => {
       const design = structuredClone(twoStageTree);
       design.components[0]!.children![0]!.children![0]!['cd'] = 0;
       await mount({ tree: design, byStage: twoGroups });
