@@ -27,6 +27,8 @@ export const XML_JS_SUITES = [
   'src/components/PropertyPanel.filled.test.tsx',
   // S7b-3: a zero-Cd .ork canopy must reach sizing unchanged through either XML parser.
   'src/services/recoverySizing.import.test.ts',
+  // M1: custom materials named in the panel survive both file formats.
+  'src/components/PropertyPanel.materials.test.tsx',
   // N028: the preflight check reads designs opened through importOrk.
   'src/components/PreflightAudit.test.tsx',
   // C-H3: diagnostic messages are taken from the real importer refusals.

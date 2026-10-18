@@ -229,6 +229,8 @@ describe('fin root fillet editing', () => {
       filletRadius: 0.002, filletDensity: 1250, filletMaterialName: 'Imported epoxy', filletMaterialGroup: 'Custom' };
     show(node);
     expect(material().value).toBe('Imported epoxy');
+    expect(material().selectedOptions[0]!.textContent).toBe('Imported epoxy (1250 kg/m³) — from this design');
+    expect(material().selectedOptions[0]!.parentElement).toBe(material());
     expect(material().selectedOptions[0]!.textContent).not.toContain('parts database');
     expect([...material().options].filter((o) => BULK_MATERIALS.some((m) => m.name === o.value)))
       .toHaveLength(BULK_MATERIALS.length);
