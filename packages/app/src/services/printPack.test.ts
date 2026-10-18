@@ -146,6 +146,15 @@ describe('printOffer — no printer configured (the compatibility guarantee)', (
 });
 
 describe('printOffer — printer set, part fits', () => {
+  it.each([0.05, 0.4])('omits the print-size note for a zero-radius tube-fin set %s m long', length => {
+    const offer = printOffer(node('tubefinset', { outerRadius: 0, length }),
+      { bodyRadius: 0.027 }, { x: 0.256, y: 0.256, z: 0.256 }, 'P1S');
+    expect(offer.kind).toBe('single');
+    expect(offer.note).toBeNull();
+    expect(offer.tone).toBe('none');
+    expect(offer.split).toBeNull();
+  });
+
   it('confirms the fit quietly and still exports one STL', () => {
     const o = printOffer(tube(0.300), {}, H2D, 'Bambu H2D');
     expect(o.kind).toBe('single');

@@ -118,7 +118,7 @@ export function aftLayout(
   // place the children along the parent, as the 3D and side views place them.
   const walkChildren = (
     parent: ComponentNode, pRadius: number, cy: number, cz: number, pStart: number, pLen: number,
-    mount: MountSurface = flatMount(pRadius, pLen),
+    mount: MountSurface = flatMount(pRadius, pLen), frameRoll = roll,
   ) => {
     for (const child of parent.children ?? []) {
       if (child.id && hidden.has(child.id)) continue;
@@ -127,8 +127,8 @@ export function aftLayout(
         const podRadius = resolveAssemblyRadius(child, pRadius);
         const count = assemblyInstanceCount(child);
         const podStart = axialStart(child, axialLength(child), pStart, pLen);
-        for (const off of ringInstanceOffsets(count, podRadius, num(child, 'angleOffset', 0) + roll)) {
-          walkChain(child.children ?? [], cy + off.y, cz + off.z, podStart);
+        for (const off of ringInstanceOffsets(count, podRadius, num(child, 'angleOffset', 0) + frameRoll)) {
+          walkChain(child.children ?? [], cy + off.y, cz + off.z, podStart, off.angle);
         }
       } else if (t === 'trapezoidfinset' || t === 'ellipticalfinset' || t === 'freeformfinset') {
         const bar = finBar(child, pStart, pLen, mount);
@@ -139,7 +139,7 @@ export function aftLayout(
         for (let i = 0; i < count; i++) {
           // Angle 0 is +y — the kernel's own placement — and +y draws UP, so
           // an unrotated first fin still points straight up.
-          const angle = num(child, 'rotation', 0) + roll + (2 * Math.PI * i) / count;
+          const angle = num(child, 'rotation', 0) + frameRoll + (2 * Math.PI * i) / count;
           outer.push({
             key: keyFor(child), kind: 'fin', y: cy, z: cz, angle, from, to,
             thick, fill: colorOf(child, '#b9b7b0'), stroke: '#7a786f',
@@ -150,8 +150,9 @@ export function aftLayout(
       } else if (t === 'tubefinset') {
         const count = finCountOf(child);
         const rt = tubeFinRadius(child, pRadius);
+        if (!(rt > 0)) continue;
         for (let i = 0; i < count; i++) {
-          const angle = num(child, 'rotation', 0) + roll + (2 * Math.PI * i) / count;
+          const angle = num(child, 'rotation', 0) + frameRoll + (2 * Math.PI * i) / count;
           const d = pRadius + rt;
           outer.push({
             key: keyFor(child), kind: 'circle', y: cy + d * Math.cos(angle), z: cz + d * Math.sin(angle), r: rt,
@@ -166,7 +167,7 @@ export function aftLayout(
         const wid = num(child, 'width', 0.025);
         const hgt = num(child, 'height', 0.02);
         outer.push({
-          key: keyFor(child), kind: 'shroud', y: cy, z: cz, angle: num(child, 'angleOffset', 0) + roll,
+          key: keyFor(child), kind: 'shroud', y: cy, z: cz, angle: num(child, 'angleOffset', 0) + frameRoll,
           baseR: pRadius, height: hgt, width: wid, conformal: isConformal(child),
           fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
           title: child.name ?? 'Camera shroud',
@@ -186,7 +187,7 @@ export function aftLayout(
         const hgt = num(child, 'height', 0.01);
         const count = Math.max(1, Math.round(num(child, 'count', 1)));
         outer.push({
-          key: keyFor(child), kind: 'shroud', y: cy, z: cz, angle: num(child, 'angleOffset', 0) + roll,
+          key: keyFor(child), kind: 'shroud', y: cy, z: cz, angle: num(child, 'angleOffset', 0) + frameRoll,
           baseR: pRadius, height: hgt, width: wid, conformal: false,
           fill: colorOf(child, '#c8c5be'), stroke: '#7a786f',
           title: `${child.name ?? 'Protuberance'}${count > 1 ? ` ×${count}` : ''}`,
@@ -195,7 +196,7 @@ export function aftLayout(
       } else if (t === 'launchlug' || t === 'railbutton') {
         // Angle 0 is the top of the side view, and the aft frame's +y is up,
         // so a lug at 0 draws at 12 o'clock here too — the two views agree.
-        const a = num(child, 'angleOffset', 0) + roll;
+        const a = num(child, 'angleOffset', 0) + frameRoll;
         // Line instances stack in this end-on projection — one shape, so the
         // title carries the count instead.
         const stackTitle = `${child.name ?? t}${lineInstanceCount(child) > 1 ? ` ×${lineInstanceCount(child)}` : ''}`;
@@ -235,18 +236,18 @@ export function aftLayout(
         const r = num(child, 'outerRadius', 0.0095);
         // The roll goes in as the VIEW's turn, not added to the rotation:
         // the kernel turns a pattern by MINUS its rotation (cluster.ts), so
-        // `rotation + roll` would spin the tubes against the rest of the view.
+        // `rotation + frameRoll` would spin the tubes against the rest of the view.
         const offs = clusterOffsets(
           child['cluster'] as string | undefined, r,
           num(child, 'clusterScale', 1), num(child, 'clusterRotation', 0),
-          { radialDirection: num(child, 'radialDirection', 0), viewRoll: roll },
+          { radialDirection: num(child, 'radialDirection', 0), viewRoll: frameRoll },
         );
         // A tube can also sit OFF the centreline on its own (OpenRocket's
         // radial position/direction). Desktop's "split cluster" makes each
         // motor tube exactly that, so without this a split cluster draws as
         // one stack of tubes on the axis. Angle 0 is +y, like everything else.
         const rp = num(child, 'radialPosition', 0);
-        const rd = num(child, 'radialDirection', 0) + roll;
+        const rd = num(child, 'radialDirection', 0) + frameRoll;
         const oy = rp * Math.cos(rd);
         const oz = rp * Math.sin(rd);
         const motor = child.id ? motors?.[child.id] : undefined;
@@ -265,7 +266,7 @@ export function aftLayout(
           reach(cy + oy + off.y, cz + oz + off.z, r);
           // Children inherit every cluster instance (audit 2026-10-11, S3b-1).
           const len = axialLength(child);
-          walkChildren(child, r, cy + oy + off.y, cz + oz + off.z, axialStart(child, len, pStart, pLen), len);
+          walkChildren(child, r, cy + oy + off.y, cz + oz + off.z, axialStart(child, len, pStart, pLen), len, undefined, frameRoll);
         }
       } else if (t === 'tubecoupler' || t === 'centeringring' || t === 'engineblock' || t === 'bulkhead') {
         const r = Math.min(pRadius * 0.98, num(child, 'outerRadius', pRadius * 0.95));
@@ -274,6 +275,10 @@ export function aftLayout(
           fill: 'none', stroke: colorOf(child, '#9a978f'), dash: '2 3',
           title: child.name ?? t,
         });
+        if (t === 'tubecoupler') {
+          const len = axialLength(child);
+          walkChildren(child, r, cy, cz, axialStart(child, len, pStart, pLen), len, undefined, frameRoll);
+        }
       }
       // parachute/streamer/shockcord/mass: no meaningful cross-section here.
     }
@@ -301,11 +306,11 @@ export function aftLayout(
   };
 
   /** Walks a nose-to-tail chain from station `x0` (m); returns where it ends. */
-  const walkChain = (nodes: ComponentNode[], cy: number, cz: number, x0 = 0): number => {
+  const walkChain = (nodes: ComponentNode[], cy: number, cz: number, x0 = 0, frameRoll = roll): number => {
     let x = x0;
     for (const n of nodes) {
       if (n.type === 'stage') {
-        x = walkChain(n.children ?? [], cy, cz, x);
+        x = walkChain(n.children ?? [], cy, cz, x, frameRoll);
         continue;
       }
       const len = axialLength(n);
@@ -328,7 +333,7 @@ export function aftLayout(
             });
           }
         }
-        walkChildren(n, r, cy, cz, x, len, mount);
+        walkChildren(n, r, cy, cz, x, len, mount, frameRoll);
       }
       x += len;
     }

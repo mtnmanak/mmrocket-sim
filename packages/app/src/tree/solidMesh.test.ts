@@ -78,6 +78,10 @@ describe('collapseLoop', () => {
 });
 
 describe('componentSolid: tubes, rings, discs', () => {
+  it('S4a-2 declines a zero-radius tube fin rather than printing an automatic tube', async () => {
+    expect(await componentSolid(node('tubefinset', { outerRadius: 0, length: 0.05, finCount: 6 }),
+      { bodyRadius: 0.027, bodyThickness: 0.002 })).toBeNull();
+  });
   it('body tube annulus hits PI*(R^2-r^2)*L within 1%', async () => {
     const v = check((await solid(node('bodytube', { outerRadius: 0.02, thickness: 0.002, length: 0.3 }))).mesh);
     expect(relErr(v, Math.PI * (0.02 ** 2 - 0.018 ** 2) * 0.3)).toBeLessThan(0.01);

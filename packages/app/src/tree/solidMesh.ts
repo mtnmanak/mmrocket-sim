@@ -1478,6 +1478,7 @@ export function componentLoop(
     }
     case 'tubefinset': {
       const r = tubeFinRadius(node, ctx.bodyRadius ?? FALLBACK_RADIUS);
+      if (!(r > 0)) return null;
       // No kernel constant: an absent wall inherits the parent tube's.
       const wall = tubeFinWall(node, r, ctx.bodyThickness);
       const L = axialLength(node);

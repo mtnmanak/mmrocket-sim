@@ -113,6 +113,22 @@ describe('tube wrap geometry (SI, hand-computed)', () => {
     expect(tubeWrapGeometry(nearby.tree, nearby.tube).lines[0]!.angle).toBeCloseTo(2 * Math.PI - 1e-6, 10);
   });
 
+  it.each([0.01, 0.025, 0.1])('S7d-g1 snaps seam noise by arc length at radius %s m and keeps its label', radius => {
+    const { tree, tube } = fixture([fin({ finCount: 1, rotation: -0.5e-9 / radius }),
+      node('launchlug', { name: 'Lug', angleOffset: 0 }),
+    ], { outerRadius: radius, length: 0.1 });
+    const g = tubeWrapGeometry(tree, tube);
+    expect(g.lines[0]!.x).toBe(0);
+    expect(g.lines[0]!.angle).toBe(0);
+    const svg = tubeWrapPages(g, 'Test', { length: 'mm', angle: 'deg' })[0]!.svg;
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const seamMark = [...doc.getElementsByTagName('line')].find(l => l.getAttribute('class') === 'marking-line'
+      && l.getAttribute('x1') === '0.0000');
+    expect(seamMark).toBeDefined();
+    expect(seamMark!.hasAttribute('stroke-dasharray')).toBe(false);
+    expect(doc.documentElement!.textContent).toContain('Fins 1 / Lug 1');
+  });
+
   it('uses the freeform root rather than overhanging tip; clamps an offset tab', () => {
     const { tree, tube } = fixture([node('freeformfinset', {
       points: [[0, 0], [0.15, 0.06], [0.1, 0]], finCount: 3, thickness: 0.002,

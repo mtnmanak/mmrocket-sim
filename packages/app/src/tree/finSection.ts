@@ -512,9 +512,11 @@ export function sectionProfile(spec: FinSectionSpec, chord: number, resolution =
 }
 
 /**
- * The sampled section of a fin node at one spanwise station of local chord
- * `chord` (metres) — what the mesh code calls per fin and per station. Pass the
- * fin's MAC (`finMacFromOutline`) so the chamfer fractions match the flown ones.
+ * The base sampled section of a fin node at local `chord` (metres): a test
+ * convenience over sectionProfile(specFor(...)). Production mesh callers use
+ * sectionProfile directly; solidMesh.ts adds floor-crossing and chord-fill
+ * stations for the STL. Pass the fin's MAC (`finMacFromOutline`) so the chamfer
+ * fractions match the flown ones.
  */
 export function finSectionProfile(node: ComponentNode, chord: number, opts?: FinSectionOptions): FinSectionProfile {
   return sectionProfile(specFor(node, chord, opts), chord, opts?.resolution);
@@ -523,8 +525,9 @@ export function finSectionProfile(node: ComponentNode, chord: number, opts?: Fin
 /**
  * Mean aerodynamic chord of a fin outline exactly as FinSetCalc.calculateFinGeometry
  * computes it (:449-571): 48 spanwise strips, each strip's chord = trailing −
- * leading extent of the outline at that height (edges within 1 mm of horizontal
- * skipped, as the kernel does), MAC = Σc² / Σc. Points are the fin frame
+ * leading extent of the outline at that height (edges skipped by the kernel
+ * MathUtil.equals(y1, y2, 0.001) relative / near-zero rule), MAC = Σc² / Σc.
+ * Points are the fin frame
  * (x aft of the root LE, y outward, root at y = 0); the loop closes on itself.
  */
 export function finMacFromOutline(points: readonly (readonly [number, number])[]): number {
@@ -539,7 +542,8 @@ export function finMacFromOutline(points: readonly (readonly [number, number])[]
   for (let p = 1; p <= n; p++) {
     const [x1, y1] = points[p - 1]!;
     const [x2, y2] = points[p % n]!;
-    if (Math.abs(y1 - y2) <= 0.001) continue;
+    const absY2 = Math.abs(y2);
+    if (absY2 < 0.0005 ? Math.abs(y1) < 0.0005 : Math.abs(y1 - y2) < 0.001 * absY2) continue;
     let i1 = clamp(Math.trunc(y1 * 1.0001 / span * (DIVISIONS - 1)), 0, DIVISIONS - 1);
     let i2 = clamp(Math.trunc(y2 * 1.0001 / span * (DIVISIONS - 1)), 0, DIVISIONS - 1);
     if (i1 > i2) [i1, i2] = [i2, i1];

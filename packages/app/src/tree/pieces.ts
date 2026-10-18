@@ -117,12 +117,14 @@ export const FINISH_MATERIAL: Readonly<Record<string, { roughness: number; metal
 
 /** The material a piece draws with: its finish's, else Regular paint's. */
 export function pieceMaterial(p: Pick<Piece, 'finish'>): { roughness: number; metalness: number } {
-  return (p.finish !== undefined ? FINISH_MATERIAL[p.finish] : undefined) ?? FINISH_MATERIAL['normal']!;
+  return (p.finish !== undefined && Object.prototype.hasOwnProperty.call(FINISH_MATERIAL, p.finish)
+    ? FINISH_MATERIAL[p.finish] : undefined) ?? FINISH_MATERIAL['normal']!;
 }
 
 /** A node's finish, when it carries one. */
 const finishOf = (n: ComponentNode): string | undefined =>
-  typeof n['finish'] === 'string' && n['finish'] in FINISH_MATERIAL ? (n['finish'] as string) : undefined;
+  typeof n['finish'] === 'string' && Object.prototype.hasOwnProperty.call(FINISH_MATERIAL, n['finish'])
+    ? (n['finish'] as string) : undefined;
 
 /**
  * Whether a piece belongs in a whole-rocket FILE export — the .obj, the .glb
@@ -422,6 +424,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         const count = finCountOf(child);
         const len = axialLength(child);
         const rt = tubeFinRadius(child, pRadius);
+        if (!(rt > 0)) continue;
         // No kernel constant for the wall: an absent one inherits the tube's.
         const wall = tubeFinWall(child, rt,
           parent['filled'] === true ? pRadius : kernelNum(parent, 'thickness'));

@@ -54,6 +54,26 @@ const volumeOf = (loop: Array<[number, number]>): number => {
   return v;
 };
 
+/** Shared endpoints are fine; edges must not retrace any positive length. */
+const expectNoCollinearOverlaps = (loop: Array<[number, number]>): void => {
+  for (let i = 0; i < loop.length; i++) {
+    const a = loop[i]!, b = loop[(i + 1) % loop.length]!;
+    const dx = b[0] - a[0], dr = b[1] - a[1];
+    const length = Math.hypot(dx, dr);
+    if (length < 1e-12) continue;
+    for (let j = i + 1; j < loop.length; j++) {
+      const c = loop[j]!, d = loop[(j + 1) % loop.length]!;
+      const distance = (p: [number, number]): number =>
+        Math.abs(dx * (p[1] - a[1]) - dr * (p[0] - a[0])) / length;
+      if (distance(c) > 1e-10 || distance(d) > 1e-10) continue;
+      const along = (p: [number, number]): number =>
+        (dx * (p[0] - a[0]) + dr * (p[1] - a[1])) / length;
+      const overlap = Math.min(length, Math.max(along(c), along(d))) - Math.max(0, Math.min(along(c), along(d)));
+      expect(overlap, `edges ${i} and ${j} retrace each other (m)`).toBeLessThanOrEqual(1e-10);
+    }
+  }
+};
+
 const extentOf = (loop: Array<[number, number]>): [number, number] => [
   Math.min(...loop.map((p) => p[0])), Math.max(...loop.map((p) => p[0])),
 ];
@@ -389,6 +409,149 @@ describe('splitBodyLoop — the refusals', () => {
 });
 
 describe('solid parts have no bore — the on-axis stub-and-socket fallback', () => {
+  const solidCone: Array<[number, number]> = [[0, 0], [0, 0.03], [0.1, 0]];
+
+  it('moves a planned cut clear of a filled transition’s hollow aft shoulder', () => {
+    const transition = node('transition', { shape: 'conical', filled: true,
+      foreRadius: 0.01, aftRadius: 0.01, length: 0.06, thickness: 0.002,
+      aftShoulderRadius: 0.008, aftShoulderLength: 0.052, aftShoulderThickness: 0.002 });
+    const printer = { x: 0.2, y: 0.2, z: 0.08, margin: 0.008, lean: false };
+    // The even two-piece plan cuts at 56 mm, only 4 mm before the bore.
+    expect(planAxialSplit(0.112, 0.01, printer).cuts[0]).toBeCloseTo(0.056, 12);
+    const split = splitComponent(transition, {}, printer)!;
+    expect(split.plan.segments).toBe(2);
+    expect(split.loops).toHaveLength(2);
+    expect(split.plan.cuts[0]).toBeLessThanOrEqual(0.06 - 0.0073 + 1e-12);
+    expectFitsBuildVolume(split.loops, printer);
+    for (const loop of split.loops) {
+      expectNoCollinearOverlaps(loop);
+      volumeOf(loop);
+    }
+  });
+
+  it('backs a socket floor away from a sloped bore apex', () => {
+    const profile: Array<[number, number]> = [[0, 0], [0, 0.01], [0.1, 0.01],
+      [0.1, 0.006], [0.07, 0.004], [0.058, 0]];
+    const pieces = splitBodyLoop(profile, [0.05]);
+    for (const piece of pieces) expectNoCollinearOverlaps(piece);
+    const floor = Math.min(...pieces[1]!.filter(([x, r]) => x > 0.05 && r === 0).map(([x]) => x));
+    expect(0.058 - floor).toBeGreaterThanOrEqual(0.001 - 1e-12);
+  });
+
+  it.each([
+    ['bore', 0.00015], ['step', 0.00015], ['bore', 0.0015], ['step', 0.0015],
+  ] as const)('backs the floor before a %s just beyond the planned depth with %s m clearance', (kind, clearance) => {
+    const backing = Math.max(0.001, clearance);
+    const change = 0.05 + 0.012 + Math.max(clearance, 0.0003) + (kind === 'bore' ? 0.0001 : 0.0003);
+    const profile: Array<[number, number]> = kind === 'bore'
+      ? [[0, 0], [0, 0.01], [0.1, 0.01], [0.1, 0.002], [change, 0.002], [change, 0]]
+      : [[0, 0], [0, 0.01], [change, 0.01], [change, 0.003], [0.1, 0.003], [0.1, 0]];
+    const pieces = splitBodyLoop(profile, [0.05], { clearance });
+    for (const piece of pieces) expectNoCollinearOverlaps(piece);
+    const floor = Math.min(...pieces[1]!.filter(([x, r]) => x > 0.05 && r === 0).map(([x]) => x));
+    expect(change - floor).toBeGreaterThanOrEqual(backing - 1e-12);
+  });
+
+  it.each([0.00015, 0.0015])('backs a socket floor away from a bore opening with %s m clearance', clearance => {
+    const boreStart = 0.06, cut = 0.05;
+    const profile: Array<[number, number]> = [[0, 0], [0, 0.01], [0.1, 0.01],
+      [0.1, 0.002], [boreStart, 0.002], [boreStart, 0]];
+    const pieces = splitBodyLoop(profile, [cut], { clearance });
+    for (const piece of pieces) expectNoCollinearOverlaps(piece);
+    const floor = Math.min(...pieces[1]!.filter(([x, r]) => x > cut && r === 0).map(([x]) => x));
+    expect(boreStart - floor).toBeGreaterThanOrEqual(Math.max(0.001, clearance) - 1e-12);
+    expect(Math.max(...pieces[0]!.map(([x]) => x)) - cut).toBeGreaterThanOrEqual(0.006);
+  });
+
+  it('backs a socket floor away from a filled body’s hollow aft shoulder', () => {
+    const part = componentLoop(node('transition', { shape: 'conical', filled: true,
+      foreRadius: 0.01, aftRadius: 0.01, length: 0.06,
+      aftShoulderRadius: 0.008, aftShoulderLength: 0.02 }), {})!;
+    const pieces = splitBodyLoop(part.loop, [0.05], { bodySpan: part.bodySpan, wall: part.wall });
+    for (const piece of pieces) expectNoCollinearOverlaps(piece);
+    const floor = Math.min(...pieces[1]!.filter(([x, r]) => x > 0.05 && r === 0).map(([x]) => x));
+    expect(0.06 - floor).toBeGreaterThanOrEqual(0.001 - 1e-12);
+  });
+
+  it.each([0.0065, 0.0105])('keeps a backed socket floor or refuses a step down at %s m', step => {
+    const profile: Array<[number, number]> = [[-0.02, 0], [-0.02, 0.0104], [0, 0.0104],
+      [step, 0.01], [step, 0.003], [0.1, 0.003], [0.1, 0]];
+    if (step === 0.0065) {
+      expect(() => splitBodyLoop(profile, [0])).toThrow(/narrows too fast/);
+    } else {
+      const pieces = splitBodyLoop(profile, [0]);
+      for (const piece of pieces) expectNoCollinearOverlaps(piece);
+      const floor = Math.min(...pieces[1]!.filter(([x, r]) => x > 0 && r === 0).map(([x]) => x));
+      expect(step - floor).toBeGreaterThanOrEqual(0.001 - 1e-12);
+    }
+  });
+
+  it('keeps the full socket depth when the outgoing step still backs its wall', () => {
+    const profile: Array<[number, number]> = [[-0.02, 0], [-0.02, 0.0104], [0, 0.0104],
+      [0.0065, 0.01], [0.0065, 0.006], [0.1, 0.006], [0.1, 0]];
+    const pieces = splitBodyLoop(profile, [0]);
+    expect(pieces[1]).toContainEqual([0.0123, 0]);
+    for (const piece of pieces) expectNoCollinearOverlaps(piece);
+  });
+
+  it.each([0.002, 0.003])('S4b-2 refuses a %s m neck just before a step up', radius => {
+    const stepUp: Array<[number, number]> = [[0, 0], [0, 0.01], [0.052, 0.01],
+      [0.054, radius], [0.054, 0.01], [0.1, 0.01], [0.1, 0]];
+    expect(() => splitBodyLoop(stepUp, [0.05]))
+      .toThrow(/narrows too fast for an on-axis socket.*print it whole/);
+  });
+
+  it('refuses a step-down socket with less than 6 mm of stub after allowing for its floor', () => {
+    const stepDown: Array<[number, number]> = [[-0.02, 0], [-0.02, 0.0104], [0, 0.0104],
+      [0.0065, 0.01], [0.0065, 0.005], [0.1, 0.005], [0.1, 0]];
+    const sampled = [...stepDown];
+    sampled.splice(3, 0, [0.0064, 0.0104 + (0.01 - 0.0104) * 0.0064 / 0.0065]);
+    for (const profile of [stepDown, sampled]) {
+      expect(() => splitBodyLoop(profile, [0])).toThrow(/narrows too fast/);
+    }
+  });
+
+  it.each([
+    ['bore', [[0, 0], [0, 0.01], [0.1, 0.01], [0.1, 0.002], [0.054, 0.002], [0.054, 0]],
+      {}, /opens into a bore.*print it whole/],
+    ['crossings', [[0, 0], [0, 0.01], [0.1, 0.01], [0.1, 0.008],
+      [0.054, 0.008], [0.054, 0.006], [0.1, 0.006], [0.1, 0]],
+      {}, /changes shape \(a step, a second wall\).*print it whole/],
+    ['clearance', [[0, 0], [0, 0.01], [0.1, 0.01], [0.1, 0]],
+      { clearance: 0.006 }, /too little material at the cut.*lower the joint clearance in Preferences → 3D printing, or print it whole/],
+  ] as const)('names the %s socket refusal in plain language with its own remedy', (_name, profile, joint, message) => {
+    const split = () => splitBodyLoop(profile.map(([x, r]) => [x, r]), [0.05], joint);
+    expect(split).toThrow(message);
+    expect(split).not.toThrow(/hollow it out first|two-crossing/);
+  });
+
+  it('S4b-2 refuses a socket near the cone point before it crosses the skin', () => {
+    // Custom 42 mm Z case: 5 mm outer radius at the final cut, and only
+    // 1.31 mm at the old 12.3 mm-deep socket floor.
+    expect(() => splitBodyLoop(solidCone, [0.1 * 5 / 6]))
+      .toThrow(/solid at .* narrows too fast for an on-axis socket/);
+  });
+
+  it('S4b-2 shortens a socket when at least 6 mm of stub can still fit', () => {
+    const cut = 0.075;
+    const pieces = splitBodyLoop(solidCone, [cut]);
+    const stubTip = Math.max(...pieces[0]!.map(([x]) => x));
+    const socketFloor = Math.max(...pieces[1]!.filter(([, r]) => r === 0).map(([x]) => x < 0.1 ? x : 0));
+    const rs = 0.35 * 0.0075;
+    const widestSocket = rs + 0.00015 + 0.0005;
+    expect(stubTip - cut).toBeGreaterThanOrEqual(0.006);
+    expect(stubTip - cut).toBeLessThan(0.012);
+    expect(socketFloor - stubTip).toBeCloseTo(0.0003, 12);
+    // Linear outer skin is closest at the floor; the full depth keeps 1 mm.
+    expect(0.03 * (1 - socketFloor / 0.1) - widestSocket).toBeCloseTo(0.001, 12);
+    for (const p of pieces) volumeOf(p);
+  });
+
+  it('S4b-2 checks an interior narrowing even when the skin widens again at the floor', () => {
+    const neck: Array<[number, number]> = [[0, 0], [0, 0.01], [0.052, 0.01],
+      [0.054, 0.002], [0.056, 0.01], [0.1, 0.01], [0.1, 0]];
+    expect(() => splitBodyLoop(neck, [0.05])).toThrow(/narrows too fast for an on-axis socket/);
+  });
   it("filled: true splits on an axial stub, watertight, volume within 1%", () => {
     const n = nose3in({ filled: true, shoulderLength: 0 });
     const part = componentLoop(n, {})!;

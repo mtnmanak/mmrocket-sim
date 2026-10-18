@@ -56,6 +56,30 @@ afterEach(() => {
 });
 
 describe('PropertyPanel — the print button', () => {
+  it.each([
+    ['diameter', 0, 0.001, 'This tube-fin set has an Outer diameter of 0, so there is nothing to print — '
+      + 'clear the field for automatic sizing or enter a diameter.'],
+    ['radius', 0, 0.001, 'This tube-fin set has an Outer radius of 0, so there is nothing to print — '
+      + 'clear the field for automatic sizing or enter a radius.'],
+    ['diameter', 0.005, 0, 'Nothing to export for this component.'],
+  ])('S4a-2 explains a tube-fin STL refusal in %s mode at radius %s m, wall %s m', async (radiusMode, outerRadius, thickness, message) => {
+    if (radiusMode === 'radius') localStorage.setItem(STORAGE_KEY, JSON.stringify({ radiusMode }));
+    const tubes = { id: 'tf', type: 'tubefinset', name: 'Tube fins', outerRadius,
+      length: 0.05, thickness, finCount: 6 } as unknown as ComponentNode;
+    const tubeTree = { name: 'Rocket', components: [{ id: 's', type: 'stage', children: [
+      { id: 'b', type: 'bodytube', outerRadius: 0.027, length: 0.3, children: [tubes] },
+    ] }] } as unknown as RocketTree;
+    act(() => root.render(
+      <PrefsProvider>
+        <PropertyPanel tree={tubeTree} node={tubes} onPatch={() => {}} />
+      </PrefsProvider>,
+    ));
+    const label = radiusMode === 'diameter' ? 'Outer diameter' : 'Outer radius';
+    expect(host.textContent).toContain(label);
+    await act(async () => { printButton().click(); });
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain(message);
+  });
+
   it('with no printer configured: unchanged caption, one advisory line', () => {
     mount();
     expect(printButton().textContent).toBe('🖨 STL for printing (mm)');
