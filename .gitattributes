@@ -1,3 +1,9 @@
+# Default (2026-10-17, audit CR-2): text files are LF in the index AND the working tree, whatever a machine's
+# core.autocrlf says. Without it, line endings depended on each checkout (the laptop's system gitconfig says
+# input, its .git/config says false), and twelve working-tree files sat CRLF-dirty for weeks unseen.
+# Every -text rule below still wins: those files are kept byte for byte.
+* text=auto eol=lf
+
 # Carved OpenRocket sources must remain byte-identical to upstream:
 # no EOL conversion, ever (the carve script sha256-compares against upstream).
 # (See the README's Building section for the carve workflow.)
@@ -12,3 +18,7 @@ packages/app/src/services/__fixtures__/synthetic-ex-labs.rse -text
 # Simulator data files exactly as thrustcurve.org serves them (motor-digest.test.mjs
 # pins desktop OpenRocket's digests of them). Kept byte for byte; no EOL conversion.
 packages/app/scripts/fixtures/motor-digest/** -text
+
+# A RockSim design with CRLF line ends as committed: xml-parity/chrome-golden.json was recorded from these
+# bytes, so they stay as they are (2026-10-17, audit CR-2). No EOL conversion.
+packages/app/src/services/__fixtures__/ambiguous-motor-mounts.rkt -text
