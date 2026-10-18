@@ -32,6 +32,17 @@ const lay = (tree: RocketTree, roll = 0) => {
   return { f, l: layoutSchematic(tree, { scale: f.scale, cy: f.cy, x0: f.x0, roll, idPrefix: 't' }) };
 };
 
+it('S4a-2 omits zero-radius tube fins from the rolled side view', () => {
+  const tubes = { id: 'tf', type: 'tubefinset', outerRadius: 0, length: 0.05, finCount: 6 };
+  const { l } = lay(rocket([tubes]), 0.4);
+  expect(l.shapes.filter(s => s.key.startsWith('tf:'))).toEqual([]);
+  expect(l.extents.has('tf')).toBe(false);
+  // Positive tubes in the same wire mode really do produce tubes and axes.
+  const visible = lay(rocket([{ ...tubes, outerRadius: 0.005 }]), 0.4).l;
+  expect(visible.shapes.some(s => s.key.startsWith('tf:tube'))).toBe(true);
+  expect(visible.shapes.some(s => s.key.startsWith('tf:axis'))).toBe(true);
+});
+
 const busy = rocket([
   { id: 'f1', type: 'trapezoidfinset', finCount: 3, rootChord: 0.05, tipChord: 0.03, sweep: 0.02,
     height: 0.03, tabHeight: 0.004, tabLength: 0.03, position: { method: 'bottom', offset: 0 } },

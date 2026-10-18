@@ -1,7 +1,7 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import { finCountOf } from './counts.js';
 import { kernelDefault } from './kernelDefaults.js';
-import { num } from './nodeNum.js';
+import { num, numOpt } from './nodeNum.js';
 
 /** TubeFinSet inherits its body's wall; a wall reaching the axis is solid. */
 export function tubeFinWall(node: ComponentNode, radius: number, bodyThickness?: number): number {
@@ -15,8 +15,10 @@ export function tubeFinWall(node: ComponentNode, radius: number, bodyThickness?:
  * body — r = R·sin(π/N) / (1 − sin(π/N)) (TubeFinSet.getOuterRadius).
  */
 export function tubeFinRadius(node: ComponentNode, bodyRadius: number): number {
-  const explicit = node['outerRadius'];
-  if (typeof explicit === 'number' && explicit > 0) return explicit;
+  // Preserve the explicit in-memory value, as the fin-count field reader does.
+  if (node['outerRadius'] === Infinity) return Infinity;
+  const explicit = numOpt(node, 'outerRadius');
+  if (explicit !== undefined && explicit >= 0) return explicit;
   // The count the kernel flies (1..8), so the drawn and printed tube is the
   // flown one: a 12-tube set printed 8.66 mm OD while the kernel flew 8 tubes
   // at 15.37 mm (audit 2026-09-22).

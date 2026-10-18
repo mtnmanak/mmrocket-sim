@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { aftLayout } from './aftLayout.js';
 
 const finRocket = (extra: Record<string, unknown> = {}) => ({
@@ -15,6 +15,103 @@ const finRocket = (extra: Record<string, unknown> = {}) => ({
     }],
   }],
 } as unknown as RocketTree);
+
+describe('S4b-3 pod children inherit their instance roll', () => {
+  const podRocket = (children: ComponentNode[], type: 'podset' | 'parallelstage' = 'podset'): RocketTree => ({
+    components: [{ type: 'bodytube', id: 'core', length: 0.4, outerRadius: 0.025,
+      children: [{ type, id: 'pods', instanceCount: 2, radiusMethod: 'free', radiusOffset: 0.06,
+        angleOffset: 0.2, children: [{ type: 'bodytube', id: 'podtube', length: 0.1, outerRadius: 0.01, children }] }] }],
+  });
+  const fin: ComponentNode = { type: 'trapezoidfinset', id: 'podfin', finCount: 1, rotation: 0,
+    rootChord: 0.05, tipChord: 0.02, height: 0.03 };
+
+  it.each([0, 0.4])('opposite pod fins point away from the core at roll %s', roll => {
+    const fins = aftLayout(podRocket([fin]), roll).outer.filter(s => s.kind === 'fin');
+    expect(fins).toHaveLength(2);
+    for (const [i, f] of fins.entries()) {
+      if (f.kind !== 'fin') throw new Error('Expected fin');
+      const angle = roll + 0.2 + i * Math.PI;
+      expect(f.angle).toBeCloseTo(angle, 12);
+      expect(f.y * Math.cos(f.angle) + f.z * Math.sin(f.angle)).toBeCloseTo(0.06, 12);
+    }
+  });
+
+  it.each([0, 0.4])('nested pods accumulate both instance angles at roll %s', roll => {
+    const nested: ComponentNode = { type: 'podset', id: 'nested', instanceCount: 2,
+      radiusMethod: 'free', radiusOffset: 0.025, angleOffset: 0.3,
+      children: [{ type: 'bodytube', length: 0.08, outerRadius: 0.005, children: [fin] }] };
+    const fins = aftLayout(podRocket([nested]), roll).outer.filter(s => s.kind === 'fin');
+    expect(fins).toHaveLength(4);
+    for (const [i, f] of fins.entries()) {
+      if (f.kind !== 'fin') throw new Error('Expected fin');
+      const parentAngle = roll + 0.2 + Math.floor(i / 2) * Math.PI;
+      const angle = parentAngle + 0.3 + (i % 2) * Math.PI;
+      expect(f.angle).toBeCloseTo(angle, 12);
+      expect(f.y).toBeCloseTo(0.06 * Math.cos(parentAngle) + 0.025 * Math.cos(angle), 12);
+      expect(f.z).toBeCloseTo(0.06 * Math.sin(parentAngle) + 0.025 * Math.sin(angle), 12);
+    }
+  });
+
+  it.each(['podset', 'parallelstage'] as const)('rotates every angular child of a %s, including clustered-tube children', type => {
+    const children: ComponentNode[] = [
+      { type: 'tubefinset', id: 'tf', finCount: 1, outerRadius: 0.003, rotation: 0.3 },
+      { type: 'fairing', id: 'fairing', angleOffset: 0.3 },
+      { type: 'protuberance', id: 'bump', angleOffset: 0.3 } as unknown as ComponentNode,
+      { type: 'launchlug', id: 'lug', angleOffset: 0.3, outerRadius: 0.002 },
+      { type: 'railbutton', id: 'button', angleOffset: 0.3 },
+      { type: 'innertube', id: 'inner', outerRadius: 0.002, length: 0.08, cluster: 'double',
+        radialPosition: 0.004, radialDirection: 0.3, children: [fin] },
+    ];
+    const roll = 0.4;
+    const layout = aftLayout(podRocket(children, type), roll);
+    for (let i = 0; i < 2; i++) {
+      const angle = roll + 0.2 + i * Math.PI;
+      const cy = 0.06 * Math.cos(angle), cz = 0.06 * Math.sin(angle);
+      for (const id of ['fairing', 'bump', 'button']) {
+        const shape = layout.outer.filter(s => s.key.split('#')[0] === id)[i]!;
+        expect(shape.kind).toBe('shroud');
+        if (shape.kind !== 'shroud') throw new Error('Expected shroud');
+        expect(shape.angle).toBeCloseTo(angle + 0.3, 12);
+      }
+      for (const [id, d] of [['tf', 0.013], ['lug', 0.012]] as const) {
+        const shape = layout.outer.filter(s => s.key.split('#')[0] === id)[i]!;
+        expect(shape.y).toBeCloseTo(cy + d * Math.cos(angle + 0.3), 12);
+        expect(shape.z).toBeCloseTo(cz + d * Math.sin(angle + 0.3), 12);
+      }
+      const tubes = layout.inner.filter(s => s.key.split('#')[0] === 'inner').slice(i * 2, i * 2 + 2);
+      expect(tubes).toHaveLength(2);
+      // The cluster's mean is its independently clocked radial offset.
+      expect((tubes[0]!.y + tubes[1]!.y) / 2).toBeCloseTo(cy + 0.004 * Math.cos(angle + 0.3), 12);
+      expect((tubes[0]!.z + tubes[1]!.z) / 2).toBeCloseTo(cz + 0.004 * Math.sin(angle + 0.3), 12);
+      // Its pattern vector rotates with the pod too.
+      const dy = tubes[1]!.y - tubes[0]!.y, dz = tubes[1]!.z - tubes[0]!.z;
+      expect(dy * Math.sin(angle + 0.3) - dz * Math.cos(angle + 0.3)).toBeCloseTo(0, 12);
+      const fins = layout.outer.filter(s => s.kind === 'fin').slice(i * 2, i * 2 + 2);
+      expect(fins).toHaveLength(2);
+      for (const f of fins) if (f.kind === 'fin') expect(f.angle).toBeCloseTo(angle, 12);
+    }
+  });
+});
+
+it('S4b-g2 includes bulkheads and rings inside nested couplers in the aft view', () => {
+  const tree: RocketTree = { components: [{ type: 'bodytube', id: 'body', outerRadius: 0.027, length: 0.3,
+    children: [{ type: 'tubecoupler', id: 'coupler', length: 0.1, outerRadius: 0.025, children: [
+      { type: 'bulkhead', id: 'bulkhead', name: 'Av-bay bulkhead', length: 0.003, outerRadius: 0.024 },
+      { type: 'tubecoupler', id: 'nested', length: 0.06, outerRadius: 0.023, children: [
+        { type: 'centeringring', id: 'ring', name: 'Av-bay ring', length: 0.003, outerRadius: 0.022 },
+      ] },
+    ] }] }] };
+  const inner = aftLayout(tree, 0).inner;
+  expect(inner.map(s => s.title)).toEqual(['tubecoupler', 'Av-bay bulkhead', 'tubecoupler', 'Av-bay ring']);
+  expect(inner.find(s => s.title === 'Av-bay bulkhead')).toMatchObject({ kind: 'circle', r: 0.024 });
+  expect(aftLayout(tree, 0, undefined, new Set(['coupler'])).inner).toHaveLength(0);
+});
+
+it('S4a-2 draws no aft circles for a zero-radius tube-fin set', () => {
+  const tree: RocketTree = { components: [{ type: 'bodytube', id: 'body', length: 0.3, outerRadius: 0.027,
+    children: [{ type: 'tubefinset', id: 'tf', length: 0.05, finCount: 6, outerRadius: 0 }] }] };
+  expect(aftLayout(tree, 0).outer).toHaveLength(0);
+});
 
   it('keys every shape uniquely, pods and clusters included', () => {
     const tree = {

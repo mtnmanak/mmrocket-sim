@@ -387,6 +387,34 @@ describe('sampled profiles for meshing', () => {
 });
 
 describe('finMacFromOutline — FinSetCalc.calculateFinGeometry', () => {
+  it('S4b-1 skips an edge within the kernel near-root tolerance', () => {
+    // Metres; the 0.3 mm vertex exercises MathUtil.equals' near-zero branch.
+    expect(finMacFromOutline([[0, 0], [0.01, 0.0003], [0.05, 0.03], [0.1, 0]]))
+      .toBeCloseTo(0.0608883, 6);
+  });
+
+  it.each([0.02, 0.03])('S4b-1 dense ellipse at %s m span keeps its MAC and hexagonal chamfer', height => {
+    const root = 0.1;
+    const ellipse: [number, number][] = Array.from({ length: 65 }, (_, i) =>
+      [root / 2 * (1 - Math.cos(Math.PI * i / 64)), i === 64 ? 0 : height * Math.sin(Math.PI * i / 64)]);
+    const mac = finMacFromOutline(ellipse);
+    // Analytic half-ellipse MAC; 48-strip quadrature is within 1%.
+    expect(Math.abs(mac / ((8 / (3 * Math.PI)) * root) - 1)).toBeLessThan(0.01);
+    const spec = finSectionSpec(airfoil('hexagonal', { airfoilLeDiamond: 0.01 }), mac);
+    expect(spec.a1).toBeCloseTo(0.01 / mac, 12);
+    expect(spec.a1).not.toBeCloseTo(1 / 3, 3);
+  });
+
+  it('S4b-1 a 121-point freeform triangle agrees with the three-point outline', () => {
+    const triangle: [number, number][] = [[0, 0], [0.05, 0.05], [0.1, 0]];
+    const dense: [number, number][] = [[0, 0]];
+    for (let edge = 0; edge < 2; edge++) {
+      const a = triangle[edge]!, b = triangle[edge + 1]!;
+      for (let i = 1; i <= 60; i++) dense.push([a[0] + (b[0] - a[0]) * i / 60, a[1] + (b[1] - a[1]) * i / 60]);
+    }
+    expect(dense).toHaveLength(121);
+    expect(finMacFromOutline(dense)).toBeCloseTo(finMacFromOutline(triangle), 12);
+  });
   it('a rectangle’s MAC is its chord', () => {
     expect(finMacFromOutline([[0, 0], [0, 0.03], [0.05, 0.03], [0.05, 0]])).toBeCloseTo(0.05, 12);
   });

@@ -459,6 +459,21 @@ describe('surface finish -> material', () => {
     expect(pieceMaterial({ finish: 'chrome' })).toEqual({ roughness: 0.6, metalness: 0.05 });
   });
 
+  it.each(['constructor', '__proto__', 'toString'])('S4b-4 inherited finish %s uses Regular paint', finish => {
+    expect(pieceMaterial({ finish })).toEqual({ roughness: 0.6, metalness: 0.05 });
+  });
+
+  it.each(['constructor', '__proto__', 'toString'])('S4b-4 inherited node finish %s is not carried into a piece', finish => {
+    const tree: RocketTree = { components: [{ type: 'bodytube', id: 'body', length: 0.3, outerRadius: R, finish }] };
+    const pieces = buildPieces(tree).pieces;
+    expect(pieces.length).toBeGreaterThan(0);
+    for (const piece of pieces) {
+      expect(piece.finish).toBeUndefined();
+      expect(pieceMaterial(piece)).toEqual({ roughness: 0.6, metalness: 0.05 });
+      piece.geometry.dispose();
+    }
+  });
+
   it('rides on each part\'s piece, not on the node', () => {
     const tree: RocketTree = {
       name: 'R',
@@ -482,6 +497,14 @@ describe('surface finish -> material', () => {
     expect(finishOf('inner')).toEqual([undefined]);
     expect(tree).toEqual(before);
   });
+});
+
+it('S4a-2 zero-radius tube fins emit no 3D or shell-export pieces', () => {
+  const tree: RocketTree = { components: [{ type: 'bodytube', id: 'body', length: 0.3, outerRadius: 0.027,
+    children: [{ type: 'tubefinset', id: 'tf', length: 0.05, finCount: 6, outerRadius: 0 }] }] };
+  const pieces = buildPieces(tree).pieces;
+  expect(pieces.filter(p => p.key.startsWith('tubefin'))).toHaveLength(0);
+  for (const p of pieces) p.geometry.dispose();
 });
 describe('a freeform fin whose last point desktop OR stored on the body (N062 review)', () => {
   // Desktop OR saves a boat-tail or flare fin's last point ON the body

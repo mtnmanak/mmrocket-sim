@@ -945,6 +945,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         // shortcut, which drew exactly two tubes whatever the count.
         const len = axialLength(child);
         const rt = tubeFinRadius(child, pRadius);
+        if (!(rt > 0)) continue;
         const start = axialStart(child, len, pStart, pLen);
         const X = ctx.x0 + start * ctx.scale;
         noteHover(child, X, baseY - (pRadius + 2 * rt) * ctx.scale,

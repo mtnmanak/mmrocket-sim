@@ -20,6 +20,17 @@ describe('tube-fin collision geometry (issue 2026-08-05e)', () => {
     expect(tubeFinRadius(set({ finCount: 6, outerRadius: 0.02 }), 0.049)).toBe(0.02);
   });
 
+  it('S4a-2 honours an explicit finite zero instead of selecting automatic radius', () => {
+    expect(tubeFinRadius(set({ finCount: 6, outerRadius: 0 }), 0.027)).toBe(0);
+    for (const outerRadius of [undefined, Number.NaN]) {
+      expect(tubeFinRadius(set({ finCount: 6, outerRadius }), 0.027)).toBeCloseTo(0.027, 12);
+    }
+  });
+
+  it('preserves an explicit positive Infinity like the fin-count field reader', () => {
+    expect(tubeFinRadius(set({ finCount: 6, outerRadius: Infinity }), 0.027)).toBe(Infinity);
+  });
+
   it('touching radius is the ceiling for the explicit field', () => {
     expect(tubeFinMaxRadius(6, 0.049)).toBeCloseTo(0.049, 12);
     const r4 = tubeFinMaxRadius(4, 0.049)!;

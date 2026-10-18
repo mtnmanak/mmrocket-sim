@@ -72,7 +72,7 @@ export function tubeWrapGeometry(tree: RocketTree, tube: ComponentNode): TubeWra
         : num(child, 'angleOffset', 0);
       let angle = ((rawAngle % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI);
       // C-A8: a negative rounding residual must share the zero-angle seam's label and solid fin mark.
-      if (2 * Math.PI - angle < 1e-9) angle = 0;
+      if (circumference - radius * angle < 1e-9) angle = 0;
       const instanceStart = isFin ? 0 : i * num(child, 'instanceSeparation', 0);
       lines.push({
         label: `${child.name ?? (isFin ? 'Fin set' : child.type === 'launchlug' ? 'Launch lug' : 'Rail button')} ${i + 1}`,

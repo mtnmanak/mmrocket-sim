@@ -1310,7 +1310,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   // unusable as well as for a type that is not printable, and a
                   // button that silently does nothing reads as a broken button.
                   if (!solid) {
-                    setExportNote(node.type.endsWith('finset')
+                    setExportNote(node.type === 'tubefinset' && numOpt(node, 'outerRadius') === 0
+                      ? `This tube-fin set has an Outer ${prefs.radiusMode} of 0, so there is nothing to print — `
+                        + `clear the field for automatic sizing or enter a ${prefs.radiusMode}.`
+                      : node.type.endsWith('finset') && node.type !== 'tubefinset'
                       ? 'This fin outline crosses itself or encloses no area — fix the '
                         + 'fin points before exporting.'
                       : 'Nothing to export for this component.');

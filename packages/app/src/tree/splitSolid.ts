@@ -375,15 +375,19 @@ export function revolvedVolume(loop: ReadonlyArray<[number, number]>): number {
  * Half-open rule [px, qx): a vertex sitting exactly on the plane — which is
  * what outerProfile(..., extraX) deliberately produces at a cut — is counted
  * by exactly one of its two edges, so each wall still reports one crossing.
+ * fromFore uses (px, qx] instead, giving the incoming value at a vertical step.
  */
-function crossingsAt(loop: ReadonlyArray<[number, number]>, c: number): number[] {
+function crossingsAt(loop: ReadonlyArray<[number, number]>, c: number, fromFore = false): number[] {
   const out: number[] = [];
   const n = loop.length;
   for (let i = 0; i < n; i++) {
     const [px, pr] = loop[i]!;
     const [qx, qr] = loop[(i + 1) % n]!;
-    if (px <= c && qx > c) out.push(pr + ((qr - pr) * (c - px)) / (qx - px));
-    else if (qx <= c && px > c) out.push(qr + ((pr - qr) * (c - qx)) / (px - qx));
+    if (fromFore ? px < c && qx >= c : px <= c && qx > c) {
+      out.push(pr + ((qr - pr) * (c - px)) / (qx - px));
+    } else if (fromFore ? qx < c && px >= c : qx <= c && px > c) {
+      out.push(qr + ((pr - qr) * (c - qx)) / (px - qx));
+    }
   }
   return out.sort((a, b) => a - b);
 }
@@ -604,12 +608,99 @@ export function splitBodyLoop(
       // relief is a reservoir for it; the hollow-spigot path below needs
       // neither because its bore is open through.
       const relief = Math.max(clearance, 0.0003);
-      const depth = len + relief;
+      const floorBacking = Math.max(0.001, relief);
+      let depth = len + relief;
       // ...and a 45 deg lead-in at the mouth, which starts the stub straight
       // and gives squeezed-out epoxy a fillet to sit in instead of a wedge
-      // that levers the land open. rs <= 0.35 * outer keeps the chamfered
-      // mouth well inside the flat face, so the loop stays simple.
+      // that levers the land open. Check the skin along the socket as well
+      // as at its mouth so the loop stays simple on a reducing solid.
       const chamfer = Math.min(0.0005, 0.25 * rs);
+      // Keep at least 1 mm of skin even around the widest (chamfered) socket.
+      // Check every outer-profile breakpoint, not only the cut face: a solid
+      // reducing transition can run out of skin before the blind socket ends.
+      const minOuter = rs + clearance + chamfer + 0.001;
+      const xs = [...new Set([c, c + depth, ...src.map(([x]) => x)
+        .filter(x => x > c && x < c + depth)])].sort((a, b) => a - b);
+      let safeEnd = c;
+      let previousOuter = outer;
+      let reason = 'narrows too fast for an on-axis socket';
+      let remedy = 'print it whole, or hollow it out first';
+      for (const x of xs) {
+        // Check the incoming edge before the outgoing edge. A vertical step
+        // has two radii at one x; interpolating toward the outgoing one would
+        // miss a step-up neck or shorten a step-down joint unnecessarily.
+        if (x > c) {
+          const incoming = crossingsAt(src, x, true);
+          if (incoming.length !== 2) {
+            safeEnd -= floorBacking;
+            reason = 'changes shape (a step, a second wall) within the socket depth';
+            remedy = 'print it whole';
+            break;
+          }
+          if (incoming[0]! > EPS) {
+            safeEnd -= floorBacking;
+            reason = 'opens into a bore within the socket depth';
+            remedy = 'print it whole';
+            break;
+          }
+          const radius = incoming[1]!;
+          if (radius < minOuter) {
+            // Between breakpoints the incoming skin is linear.
+            if (previousOuter >= minOuter && previousOuter > radius) {
+              safeEnd += (x - safeEnd) * (previousOuter - minOuter) / (previousOuter - radius);
+            }
+            break;
+          }
+          safeEnd = x;
+        }
+        const cr = crossingsAt(src, x);
+        // At a step or bore opening, the socket needs a backed floor before
+        // that face; ending on the face itself can double the loop back.
+        if (x > c && (cr.length !== 2 || cr[0]! > EPS || cr[1]! < minOuter)) {
+          safeEnd = x - floorBacking;
+        }
+        if (cr.length !== 2) {
+          reason = 'changes shape (a step, a second wall) within the socket depth';
+          remedy = 'print it whole';
+          break;
+        }
+        if (cr[0]! > EPS) {
+          reason = 'opens into a bore within the socket depth';
+          remedy = 'print it whole';
+          break;
+        }
+        if (cr[1]! < minOuter) {
+          if (x === c) {
+            reason = 'has too little material at the cut for this socket clearance and a 1 mm wall';
+            remedy = 'lower the joint clearance in Preferences → 3D printing, or print it whole';
+          }
+          break;
+        }
+        safeEnd = x;
+        previousOuter = cr[1]!;
+      }
+      // A discontinuity just beyond the planned floor can still leave a
+      // membrane thinner than the required backing. Inspect that material too.
+      for (const [x] of src) {
+        if (x <= c + depth || x > c + depth + floorBacking) continue;
+        const cr = crossingsAt(src, x);
+        if (cr.length !== 2 || cr[0]! > EPS || cr[1]! < minOuter) {
+          safeEnd = Math.min(safeEnd, x - floorBacking);
+          if (cr.length !== 2 || cr[0]! > EPS) {
+            reason = cr.length !== 2
+              ? 'changes shape (a step, a second wall) within the socket depth'
+              : 'opens into a bore within the socket depth';
+            remedy = 'print it whole';
+          }
+        }
+      }
+      if (safeEnd < c + depth) {
+        depth = safeEnd - c;
+        len = Math.min(len, depth - relief);
+      }
+      if (len < MIN_SPIGOT) {
+        throw new SplitError(`The part is solid at ${mm(c)} mm and ${reason} — ${remedy}.`);
+      }
       // No ramp on either side: a stub and its socket both overlap the solid
       // face radially, so they are already attached to it.
       pieces[k] = spliceAtFace(pieces[k]!, c, [[c, rs], [c + len, rs], [c + len, 0]]);
@@ -747,7 +838,16 @@ export function splitComponent(
   // is one it will accept — plus room at each end for the joint itself.
   const inset = Math.min(Math.max(first.wall, 0), (b1 - b0) / 4);
   const lo = Math.max(b0 + inset, x0 + minPiece);
-  const hi = Math.min(b1 - inset, x1 - minPiece);
+  let hi = Math.min(b1 - inset, x1 - minPiece);
+  const beforeShoulder = crossingsAt(first.loop, b1, true);
+  const inShoulder = crossingsAt(first.loop, b1);
+  if (beforeShoulder.length === 2 && beforeShoulder[0]! <= EPS
+    && inShoulder.length === 2 && inShoulder[0]! > EPS) {
+    // A solid body needs a blind socket before the hollow shoulder, including
+    // its relief and backed floor. Leave EPS for rounding at MIN_SPIGOT.
+    const relief = Math.max(clearance, 0.0003);
+    hi = Math.min(hi, b1 - MIN_SPIGOT - relief - Math.max(0.001, relief) - EPS);
+  }
 
   const cap = printer.maxSegments ?? DEFAULT_MAX_SEGMENTS;
   let cuts: number[] | null = null;
