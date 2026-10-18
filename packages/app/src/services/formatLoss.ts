@@ -14,6 +14,8 @@ import { cdx1RecoveryDelayNote, cdx1RodAimNote, cdx1WrittenParts, exportCdx1, ra
 import { nozzleExportNotes } from './nozzleExport.js';
 import { windProfileSaveNotes } from './windProfile.js';
 import { designProvenanceLossNotes } from './designProvenance.js';
+import { cleanDocumentMaterials } from './documentMaterials.js';
+import type { FlightTree } from '../model/design.js';
 
 export type LossyFormat = 'rkt' | 'cdx1';
 export interface FormatLossReport {
@@ -114,6 +116,29 @@ function nodesOf(tree: RocketTree): ComponentNode[] {
 export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): FormatLossReport {
   const losses: string[] = [];
   losses.push(...designProvenanceLossNotes(input.tree, format));
+  const documentMaterials = cleanDocumentMaterials((input.tree as FlightTree).documentMaterials);
+  if (documentMaterials.length) {
+    // CDX1 carries no materials. RockSim carries part materials, but omits
+    // fillets, rail buttons and protuberances. Compare fields, not picker options.
+    const key = (kind: string, name: string, density: number) => JSON.stringify([kind, name.replaceAll('|', ' ').trim(), density]);
+    const carried = new Set<string>();
+    if (format === 'rkt') for (const node of nodesOf(input.tree)) {
+      if (['stage', 'railbutton', 'protuberance'].includes(node.type)) continue;
+      const slots: readonly (readonly [string, string, string])[] = node.type === 'parachute'
+        ? [['surface', 'surfaceMaterialName', 'surfaceDensity'], ['line', 'lineMaterialName', 'lineDensity']]
+        : node.type === 'streamer' ? [['surface', 'surfaceMaterialName', 'surfaceDensity']]
+          : node.type === 'shockcord' ? [['line', 'lineMaterialName', 'lineDensity']]
+            : [['bulk', 'materialName', 'density']];
+      for (const [kind, nameKey, densityKey] of slots) {
+        const name = node[nameKey], density = numOpt(node, densityKey);
+        if (typeof name === 'string' && density !== undefined) carried.add(key(kind, name, density));
+      }
+    }
+    const count = documentMaterials.filter(m => !carried.has(key(m.kind, m.name, m.density))).length;
+    if (count) losses.push(count === 1
+      ? '1 document material is not saved; use .ork to keep it.'
+      : `${count} document materials are not saved; use .ork to keep them.`);
+  }
   let refused: string | null = null;
   try {
     // Geometry/motor refusals and the writer's existing notes stay owned by the

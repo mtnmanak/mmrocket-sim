@@ -22,6 +22,8 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  // M3: desktop document materials and share-link restores use both parsers.
+  'src/services/documentMaterials.test.ts',
   // M1: custom materials named in the panel survive both file formats.
   'src/components/PropertyPanel.materials.test.tsx',
   // N028: the preflight check reads designs opened through importOrk.

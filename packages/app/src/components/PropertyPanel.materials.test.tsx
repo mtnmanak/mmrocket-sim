@@ -14,6 +14,7 @@ import { loadUserMaterials, saveUserMaterials, USER_MATERIALS_CHANGED, USER_MATE
 import { exportOrk, importOrk } from '../services/orkFile.js';
 import { exportRkt, importRkt } from '../services/rocksimFile.js';
 import { designMaterials } from '../services/designMaterials.js';
+import type { FlightTree } from '../model/design.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement, root: Root;
@@ -42,6 +43,49 @@ beforeEach(() => {
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); vi.restoreAllMocks(); });
+
+it.each([
+  ['bulk', 'bodytube', 'Material', 'materialName', 'density'],
+  ['surface', 'parachute', 'Canopy material', 'surfaceMaterialName', 'surfaceDensity'],
+  ['line', 'shockcord', 'Cord material', 'lineMaterialName', 'lineDensity'],
+  ['bulk', 'freeformfinset', 'Fillet material', 'filletMaterialName', 'filletDensity'],
+] as const)('offers compatible document %s materials once and applies their exact pair to %s',
+  (kind, partType, label, nameKey, densityKey) => {
+    const source = { type: partType, id: 'source', [nameKey]: 'Shared mix', [densityKey]: 2 } as ComponentNode;
+    const target = { type: partType, id: 'target', crossSection: 'rounded' } as ComponentNode;
+    const tree: FlightTree = { ...treeOf(source, target), documentMaterials: [
+      { kind, name: 'Shared mix', density: 2 }, { kind, name: 'Unused mix', density: 3.125 },
+      { kind: kind === 'bulk' ? 'surface' : 'bulk', name: 'Wrong kind', density: 4 },
+    ] };
+    show(target, tree);
+    const options = [...select(label).querySelectorAll<HTMLOptionElement>('optgroup[label="In this design"] option')];
+    expect(options).toHaveLength(2);
+    expect(options.filter(o => o.textContent?.includes('Shared mix'))).toHaveLength(1);
+    const unused = options.find(o => o.textContent?.includes('Unused mix'))!;
+    expect(unused).toBeDefined();
+    pick(select(label), unused.value);
+    expect(patches).toEqual([{ [nameKey]: 'Unused mix', [densityKey]: 3.125,
+      ...(nameKey === 'filletMaterialName' ? { filletMaterialGroup: undefined } : {}) }]);
+  });
+
+it.each([['Cardboard', 700], ['Balsa', 120]] as const)(
+  'Round2 built-in document name %s cannot offer a misleading density after remount', (name, density) => {
+    const target = tube('target');
+    const tree: FlightTree = { ...treeOf(target), documentMaterials: [{ kind: 'bulk', name, density }] };
+    show(target, tree);
+    expect([...select().querySelectorAll('optgroup[label="In this design"] option')]
+      .some(o => o.textContent?.includes(name))).toBe(false);
+    // Only the built-in pair can be picked; it still displays that pair on remount.
+    const builtIn = BULK_MATERIALS.find(m => m.name === name)!;
+    pick(select(), name);
+    expect(patches).toEqual([{ materialName: name, density: builtIn.density }]);
+    const patched = { ...target, ...patches[0] };
+    act(() => root.unmount());
+    root = createRoot(host);
+    show(patched, { ...tree, ...treeOf(patched) });
+    expect(select().selectedOptions[0]!.textContent).toContain(String(builtIn.density));
+    expect(tree.documentMaterials).toEqual([{ kind: 'bulk', name, density }]);
+  });
 
 it('shows design and browser groups; a pick writes the exact pair in one patch', () => {
   saveUserMaterials([{ kind: 'bulk', name: 'Saved mix', density: 1234 }]);

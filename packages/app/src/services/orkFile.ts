@@ -1,5 +1,6 @@
 import { storedWarnings } from './storedWarnings.js';
 import { readDesignProvenance, writeDesignProvenance } from './designProvenance.js';
+import { cleanDocumentMaterials, readDocumentMaterials } from './documentMaterials.js';
 import { extensionXmlBySimulation, hasSimulationExtensions, preserveSimulationExtensions, preservedSimulationExtensions } from './orkExtensions.js';
 import { tubeHoleMarks } from '../tree/tubeHoles.js';
 import { captureStageMass, completeStageMass, replaceStageMass } from './stageMassOverrides.js';
@@ -1703,7 +1704,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
   refuseTooManyParts(components);
   const provenance = readDesignProvenance(rocketEl, notes);
-  const importedTree = sanitizeTree({ name, components, ...(provenance ? { provenance } : {}) }, notes);
+  const documentMaterials = readDocumentMaterials(root!, notes);
+  const importedTree = sanitizeTree({ name, components, ...(provenance ? { provenance } : {}),
+    ...(documentMaterials.length ? { documentMaterials } : {}) }, notes);
   // Desktop/current imports retain their placement origin through autosave.
   // A clean unknown file needs no XML stamp, but its checked state must follow
   // future edits. Legacy writer versions never establish a clean origin.
@@ -3795,6 +3798,20 @@ export function exportOrk({
     });
   }
   emit(1, '</simulations>');
+  const storedMaterials = cleanDocumentMaterials((tree as FlightTree).documentMaterials, notes);
+  // Only preserve the document's list. Part materials remain on their parts.
+  // OR substitutes spaces for pipes; deduplicate on the resulting trimmed name.
+  const documentMaterials = cleanDocumentMaterials(storedMaterials.map(m => ({ ...m, name: m.name.replaceAll('|', ' ') })));
+  if (documentMaterials.length) {
+    emit(1, '<docprefs>');
+    emit(2, '<docmaterials>');
+    for (const m of documentMaterials) {
+      const value = `${m.kind.toUpperCase()}|${m.name}|${m.density}${m.group ? `|${m.group}` : ''}`;
+      emit(3, `<material>${escapeXml(value)}</material>`);
+    }
+    emit(2, '</docmaterials>');
+    emit(1, '</docprefs>');
+  }
   emit(0, '</openrocket>');
   return lines.join('\n') + '\n';
 }

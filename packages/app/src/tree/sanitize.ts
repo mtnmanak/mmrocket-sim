@@ -1,5 +1,6 @@
 import { cautionNote } from '../services/importNotes.js';
 import { sanitizeDesignProvenance } from '../services/designProvenance.js';
+import { sanitizeDocumentMaterials } from '../services/documentMaterials.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { finOutlineProblem, type FinOutlinePoint } from './finOutline.js';
@@ -264,6 +265,7 @@ export function refusePartCount(parts: number): void {
  */
 export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
   tree = sanitizeDesignProvenance(tree, notes);
+  tree = sanitizeDocumentMaterials(tree, notes);
   const found: Finding[] = [];
   const components = walk(tree.components, found);
   // D7 I04: a repaired value replaces what the file or session held — Caution.
