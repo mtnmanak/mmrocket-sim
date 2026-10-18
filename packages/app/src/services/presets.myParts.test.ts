@@ -177,3 +177,15 @@ it('documents the My part shape, mass, packing, keyboard and CSV exceptions', ()
   for (const term of ['My part', 'shape parameter', 'mass', 'packed size', 'Flip to tail cone', 'holed']) expect(glossary).toContain(term);
   for (const term of ['Backspace', 'My parts only', 'streamers', 'CSV']) expect(guide).toContain(term);
 });
+
+// Changelog claim check, 2026-10-18: a saved My part ring must obey the catalogue branch's inside-below-outside rule.
+it("leaves both diameters unchanged when a saved ring's inside diameter is not below its outside one", () => {
+  const row = componentToPreset({ type: 'centeringring', outerRadius: 0.02, innerRadius: 0.025, length: 0.005 });
+  const notes: string[] = [];
+  const patch = presetPatch('centeringring', row, undefined, undefined, { saved: true, notes });
+  expect(patch).not.toHaveProperty('outerRadius');
+  expect(patch).not.toHaveProperty('innerRadius');
+  expect(notes).toEqual([expect.stringContaining('inside diameter is not smaller than its outside diameter')]);
+  const good = componentToPreset({ type: 'centeringring', outerRadius: 0.02, innerRadius: 0.01, length: 0.005 });
+  expect(presetPatch('centeringring', good, undefined, undefined, { saved: true })).toMatchObject({ outerRadius: 0.02, innerRadius: 0.01 });
+});

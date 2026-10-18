@@ -303,6 +303,7 @@ export function presetPatch(
   options?: { saved?: boolean; notes?: string[] },
 ): Partial<ComponentNode> {
   const patch: Partial<ComponentNode> = { name: `${p.manufacturer} ${p.partNo}` };
+  let ringRefused = false;
   const half = (v: number | undefined) => (v === undefined ? undefined : v / 2);
   const set = (key: string, v: unknown) => {
     if (v !== undefined && v !== null) (patch as Record<string, unknown>)[key] = v;
@@ -435,6 +436,7 @@ export function presetPatch(
     case 'bulkhead':
       set('length', n(p, 'length'));
       if (type === 'centeringring' && inn !== undefined && out !== undefined && inn >= out) {
+        ringRefused = true;
         options?.notes?.push(`${p.manufacturer} ${p.partNo}: the catalogue's inside diameter is not smaller than its outside diameter. Both diameters were left unchanged; check the ring's fit before flying or cutting it.`);
       } else {
         set('outerRadius', half(out));
@@ -555,6 +557,17 @@ export function presetPatch(
       own('filled', typeof p['filled'] === 'boolean' ? p['filled'] : undefined);
     }
     if (type === 'transition') own('clipped', typeof p['clipped'] === 'boolean' ? p['clipped'] : undefined);
+    // The catalogue branch's ring rule holds for a saved My part too: an inside diameter that is not smaller than the
+    // outside one cannot be cut or flown, so neither is applied (integration of lanes E and M2, changelog claim check).
+    if (type === 'centeringring') {
+      const fields = patch as Record<string, unknown>;
+      const outer = fields['outerRadius'], inner = fields['innerRadius'];
+      if (Number.isFinite(outer) && Number.isFinite(inner) && (inner as number) >= (outer as number)) {
+        delete fields['outerRadius'];
+        delete fields['innerRadius'];
+        if (!ringRefused) options?.notes?.push(`${p.manufacturer} ${p.partNo}: the saved inside diameter is not smaller than its outside diameter. Both diameters were left unchanged; check the ring's fit before flying or cutting it.`);
+      }
+    }
     const surface = materialTypeFor(p.kind) === 'SURFACE';
     // A rigid row with no material keeps the receiving part's material.
     const materialWrite = surface ? own : set;
