@@ -16,7 +16,7 @@ import { findNode, motorMounts, mountMotorCount, primaryMountOf } from '../tree/
 export function createLoadedConfig(state: {
   savedConfigs: SavedConfig[]; activeConfigId: string | null; detachedOverrides?: FlightOverrides;
   tree: RocketTree; mountMotors: Record<string, MountMotor>; unmatchedRefs: Record<string, OrkMotorRef>;
-}): { savedConfigs: SavedConfig[]; activeConfigId: string } | null {
+}): { savedConfigs: SavedConfig[]; activeConfigId: string; detachedOverrides: FlightOverrides } | null {
   if (state.savedConfigs.length >= MAX_ORK_CONFIGURATIONS
       || !motorMounts(state.tree).some(m => m.id && state.mountMotors[m.id])) return null;
   // Acquire added stages before edits on the new configuration can reach old owners.
@@ -29,7 +29,7 @@ export function createLoadedConfig(state: {
     config.unmatchedRefs = state.unmatchedRefs;
     config.unmatched = Object.values(state.unmatchedRefs).map(r => r.designation);
   }
-  return { savedConfigs: [...existing, structuredClone(config)], activeConfigId: config.id };
+  return { savedConfigs: [...existing, structuredClone(config)], activeConfigId: config.id, detachedOverrides: {} };
 }
 
 export function renameConfig(configs: SavedConfig[], id: string, value: string): SavedConfig[] {

@@ -6,6 +6,7 @@ import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import type { MountMotor } from '../model/design.js';
 import { designFingerprint, type DesignSnapshot } from '../services/dirtyState.js';
+import * as dirtyState from '../services/dirtyState.js';
 import { MOTOR_DB } from '../services/motorDb.js';
 import { designStateFromSession } from '../services/sessionRestore.js';
 import { normalizeTree } from '../tree/treeModel.js';
@@ -231,6 +232,24 @@ describe('useDesignDirty — a restore that moved a pad mass onto the ranked pri
 });
 
 describe('useDesignDirty — a save and a flight', () => {
+  it('S2-g4: shares the current fingerprint without hashing again when only saved/flight refs move', () => {
+    const s = snap(tree('A'));
+    const h = mount(s, { savedMark: designFingerprint(s) });
+    const hash = vi.spyOn(dirtyState, 'designFingerprint');
+    const edited = { ...s, tree: tree('B') };
+    act(() => h.set(edited));
+    expect(hash).toHaveBeenCalledTimes(1);
+    const mark = h.current.currentMark;
+    expect(mark).toBe(hash.mock.results[0]!.value);
+    act(() => h.current.markSaved(mark));
+    expect(h.current.dirty).toBe(false);
+    act(() => h.current.markFlown());
+    expect(h.current.dirty).toBe(true);
+    expect(h.current.currentMark).toBe(mark);
+    expect(hash).toHaveBeenCalledTimes(1);
+    hash.mockRestore();
+  });
+
   it('markSaved makes the design on screen the one on disk, and announces it', () => {
     const h = mount(snap(tree('A')), {});
     const tick = h.current.dirtyTick;

@@ -40,6 +40,8 @@ export interface DirtySeed {
 export interface DesignDirty {
   /** The design on screen differs from the last save, or has flown since. */
   dirty: boolean;
+  /** The memoized fingerprint shared by dirty checks and the caller's save status. */
+  currentMark: string;
   /** Records that what is in the app right now is also what is on disk. */
   markSaved: (mark: string, flightsAtSnapshot?: number) => void;
   /** Move a matching saved mark across a display migration, retaining flight/dirty flags. */
@@ -169,15 +171,16 @@ export function useDesignDirty(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the starter's mount is fixed at mount
   }, [snapshot]);
 
+  const currentMark = useMemo(() => designFingerprint(snapshot), [snapshot]);
   const dirty = useMemo(
-    () => isDirty(designFingerprint(snapshot), savedMark.current, flownSinceSave.current),
+    () => isDirty(currentMark, savedMark.current, flownSinceSave.current),
     // dirtyTick is how the two REFS above announce a change — markSaved and
     // the flown-since-save flag do not re-render on their own. The rule sees a
     // dep the callback never reads and calls it unnecessary; removing it would
     // freeze `dirty` at its last value after a save or a flight, so the Open
     // prompt and the unsaved-work guard would read a stale answer.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- dirtyTick re-keys the memo on a ref write; see above
-    [snapshot, dirtyTick],
+    [currentMark, dirtyTick],
   );
 
   const markSaved = useCallback((mark: string, flightsAtSnapshot = flightCount.current) => {
@@ -199,5 +202,5 @@ export function useDesignDirty(
     bumpDirty();
   }, []);
 
-  return { dirty, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick };
+  return { dirty, currentMark, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick };
 }

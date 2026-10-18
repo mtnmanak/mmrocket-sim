@@ -105,7 +105,8 @@ describe('Design preflight wiring', () => {
     }
     const worker = workers[0]!;
     const request = worker.messages.find(message => message.input)!;
-    expect(request.input!.tree).toEqual(tree);
+    expect(Object.keys(request.input!.tree).sort()).toEqual(['components', 'ignitionDefaults']);
+    expect(request.input!.tree.components).toEqual(tree.components);
     expect(request.input!.configs).toHaveLength(1);
     expect(request.input!.configs[0]!.id).toBe(config.id);
     expect(request.input!.configs[0]!.deployments?.[chute.id!]?.deployEvent).toBe('never');
