@@ -158,6 +158,7 @@ describe('main', () => {
     try {
       expect(await w.go({ allowPartial: true })).toBe(0);
       expect(JSON.parse(readFileSync(w.outPath, 'utf8')).motors).toBe(BATCH + 3);
+      expect(JSON.parse(readFileSync(w.outPath, 'utf8')).complete).toBeUndefined();
     } finally {
       rmSync(w.dir, { recursive: true, force: true });
     }
@@ -167,6 +168,6 @@ describe('main', () => {
 describe('curvesDocument', () => {
   it('counts the motors it holds and records the catalogue it was keyed to', () => {
     const doc = curvesDocument({ curves: { a: [{}], b: [{}, {}] }, files: 3 }, '2026-09-21', '2026-09-22');
-    expect(doc).toMatchObject({ generated: '2026-09-22', catalogueGenerated: '2026-09-21', motors: 2, files: 3 });
+    expect(doc).toMatchObject({ generated: '2026-09-22', catalogueGenerated: '2026-09-21', complete: true, motors: 2, files: 3 });
   });
 });

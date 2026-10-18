@@ -779,6 +779,27 @@ describe('the design outranks a re-downloadable cache at quota (critic-3)', () =
     off();
   });
 
+  it('spends remembered empty-curve answers at quota before losing the design', () => {
+    const map = stubStore({ cacheEntries: 0 });
+    map.delete('tc:samples:v5:future');
+    const negativeKey = 'online-openrocket.no-curve.v1';
+    map.set(negativeKey, '{"motor":"2026-10-09"}');
+    const storage = localStorage;
+    vi.stubGlobal('localStorage', {
+      get length() { return map.size; },
+      key: storage.key, getItem: storage.getItem, removeItem: storage.removeItem,
+      setItem: (key: string, value: string) => {
+        if (map.has(negativeKey)) throw new DOMException('quota', 'QuotaExceededError');
+        map.set(key, value);
+      },
+    });
+    saveNow();
+    expect(map.has(negativeKey)).toBe(false);
+    expect(map.has(KEY)).toBe(true);
+    expect(map.has('online-openrocket.prefs.v1')).toBe(true);
+    expect(sessionSaveFailing()).toBe(false);
+  });
+
   it('the sweep is self-limiting: a second refused save frees nothing more', () => {
     const map = stubStore({ cacheEntries: 3, alwaysFull: true });
     saveNow();

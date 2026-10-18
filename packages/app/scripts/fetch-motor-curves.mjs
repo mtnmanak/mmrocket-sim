@@ -209,11 +209,12 @@ export async function fetchCurves(motors, {
 }
 
 /** motorCurves.json itself; `today` is an ISO date. */
-export function curvesDocument({ curves, files }, catalogueGenerated, today) {
+export function curvesDocument({ curves, files, failed = [] }, catalogueGenerated, today) {
   return {
     generated: today,
     source: 'thrustcurve.org API v1 download.json (data: both), every simulator file per motor',
     catalogueGenerated,
+    ...(failed.length === 0 ? { complete: true } : {}),
     motors: Object.keys(curves).length,
     files,
     curves,

@@ -18,6 +18,7 @@ import { comparable, idFree } from './simulate.testSupport.js';
 import { SimulateDesignError } from './simulateDesign.js';
 import { simulateFile, simulateImported } from './simulateFile.js';
 import { addExMotors, parseEng } from './exMotors.js';
+import { resetThrustcurveBackoffForTests } from './thrustcurveTraffic.js';
 import { bundledOnlyFetchSpec, bundleHasCurve } from './thrustcurve.js';
 
 /**
@@ -42,6 +43,7 @@ vi.mock('./presets.js', async (importOriginal) => {
 /** A fetch that fails the test if anything calls it. */
 const fetchSpy = vi.fn(async () => { throw new TypeError('the network was used'); });
 beforeEach(() => {
+  resetThrustcurveBackoffForTests();
   localStorage.clear();
   setCatalogueOverlay(null);
   fetchSpy.mockClear();
@@ -288,12 +290,17 @@ describe('simulateFile reads the shipped data only', () => {
 });
 
 /** The first catalogue motor the shipped bundle has no curve for, as a one-motor design on the starter rocket. */
-async function unbundledMotorDesign(): Promise<{ imported: ImportedDesign; designation: string }> {
+async function unbundledMotorDesign(network = false): Promise<{ imported: ImportedDesign; designation: string }> {
   let missing: (typeof MOTOR_DB)[number] | undefined;
   for (const m of MOTOR_DB) {
     if ((await bundleHasCurve(m.motorId)) === false) { missing = m; break; }
   }
   expect(missing, 'a catalogue motor with no bundled curve').toBeDefined();
+  if (network) {
+    missing = { ...missing!, motorId: 'overlay-signal-test', designation: 'G81NET', commonName: 'G81NET' };
+    setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: MOTOR_DB.length + 1,
+      added: [missing], changed: [], removed: [], rejected: [] });
+  }
   const tree = defaultTree();
   const mount = motorMounts(tree)[0]!.id!;
   const ref = {
@@ -334,7 +341,7 @@ describe('simulateFile stops when the caller cancels', () => {
   }, 60000);
 
   it("hands the caller's signal to a download when the network is allowed", async () => {
-    const { imported } = await unbundledMotorDesign();
+    const { imported } = await unbundledMotorDesign(true);
     const ac = new AbortController();
     let linked: boolean | null = null;
     fetchSpy.mockImplementation(async (...args: unknown[]) => {

@@ -555,7 +555,7 @@ let overwriting: string | null = null;
  * Key prefixes holding data the app can rebuild for free, in the order they may
  * be sacrificed to keep the user's design.
  *
- * Today that is exactly one family: `tc:samples:v<N>:<motorId>`, one entry per
+ * The curve family is `tc:samples:v<N>:<motorId>`, one entry per
  * downloaded thrust curve, its generation v<N> whichever one thrustcurve.ts's
  * CACHE_PREFIX names. Matched on the FAMILY prefix `tc:` rather than the
  * versioned one so the next bump is still swept without this file knowing the
@@ -568,12 +568,13 @@ let overwriting: string | null = null;
  * a design the user already has open — that motor is restored exactly as it
  * was saved. Re-picking the motor is what re-resolves it.
  *
- * Nothing else on the origin qualifies. The other ten keys (prefs, session,
+ * The remembered empty-curve answers (`online-openrocket.no-curve.v1`) can
+ * also be learned again. Other keys (prefs, session,
  * sim-runs, custom presets, external motors, motor filters, workspace, batch
  * criteria, tour flag, nav cache) are all `online-openrocket.*` or
  * `mmr-chrome:v1`, and every one of them is the only copy of something.
  */
-const DISPOSABLE_KEY_PREFIXES = ['tc:'] as const;
+const DISPOSABLE_KEY_PREFIXES = ['tc:', 'online-openrocket.no-curve.v1'] as const;
 
 /**
  * Free re-downloadable cache. Returns how many keys went, so the caller can

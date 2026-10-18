@@ -14,7 +14,7 @@ import { NETWORK_FEATURES, NETWORK_HOSTS } from './net.js';
  *
  * What counts as "named": a SCREAMING_CASE constant assigned an https URL
  * (`API`, `CONTRACT`, `FORECAST_API` …), or an https literal handed straight
- * to `fetch(` / `getJsonCapped(`, in any non-test module that makes a
+ * to `fetch(` / `getJsonCapped(` / `thrustcurveFetch(`, in any non-test module that makes a
  * request. Link hrefs (the feedback tracker, the source repository, the site
  * band's fallback menu) are not requests and are not listed.
  */
@@ -38,22 +38,32 @@ function sourceFiles(dir: string): string[] {
 
 const origin = (u: string) => new URL(u).origin;
 
+function originsInRequestingSource(text: string): string[] {
+  if (!/\b(?:fetch|getJsonCapped|thrustcurveFetch)\(/.test(text)) return [];
+  const found: string[] = [];
+  for (const m of text.matchAll(/\bconst\s+[A-Z][A-Z0-9_]*\s*(?::[^=]+)?=\s*['"`](https:\/\/[^'"`/?]+)/g)) {
+    found.push(origin(m[1]!));
+  }
+  for (const m of text.matchAll(/\b(?:fetch|getJsonCapped|thrustcurveFetch)\(\s*['"`](https:\/\/[^'"`/?]+)/g)) found.push(origin(m[1]!));
+  return found;
+}
+
 /** Every outside origin a requesting module names, and where. */
 function requestedOrigins(): Map<string, string[]> {
   const found = new Map<string, string[]>();
   const add = (o: string, file: string) => found.set(o, [...(found.get(o) ?? []), relative(src, file)]);
   for (const file of sourceFiles(src)) {
     const text = readFileSync(file, 'utf8');
-    if (!/\b(?:fetch|getJsonCapped)\(/.test(text)) continue;
-    for (const m of text.matchAll(/\bconst\s+[A-Z][A-Z0-9_]*\s*(?::[^=]+)?=\s*['"`](https:\/\/[^'"`/?]+)/g)) {
-      add(origin(m[1]!), file);
-    }
-    for (const m of text.matchAll(/\b(?:fetch|getJsonCapped)\(\s*['"`](https:\/\/[^'"`/?]+)/g)) add(origin(m[1]!), file);
+    for (const o of originsInRequestingSource(text)) add(o, file);
   }
   return found;
 }
 
 describe('the network surface', () => {
+  it('recognises the wrapped thrustcurve requester without a fetch comment', () => {
+    expect(originsInRequestingSource("const API = 'https://www.thrustcurve.org/api/v1'; thrustcurveFetch()(`${API}/download.json`);"))
+      .toEqual(['https://www.thrustcurve.org']);
+  });
   it('lists every outside origin the source requests from', () => {
     const requested = requestedOrigins();
     const unlisted = [...requested.entries()]
