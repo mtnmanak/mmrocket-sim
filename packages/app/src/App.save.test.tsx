@@ -424,7 +424,8 @@ describe('lane H regressions', () => {
       const host = await mountApp();
       await waitFor(starterStored, 'starter motor');
       await saveAs(host, `Export .${ext}`);
-      await waitFor(() => loading, 'chunk load');
+      // The chunk's first import can take well over 8 s when the whole suite runs at once.
+      await waitFor(() => loading, 'chunk load', 30000);
       expect(saveFile).not.toHaveBeenCalled();
       await pick(host, new File([fixture(RKT)], 'Replacement.rkt'));
       await waitFor(() => shownName(host) === RKT_NAME, 'opened design');
@@ -439,7 +440,7 @@ describe('lane H regressions', () => {
       expect(host.querySelector('.earlier-save-note')?.textContent).toContain(`.${ext}`);
       expect(host.querySelector('.design-file-name')?.textContent).toContain('Replacement.rkt');
     } finally { release(); vi.doUnmock(module); }
-  }, 30000);
+  }, 60000);
 
   it.each(['Save .ork', 'Save .rkt', 'Save .CDX1', 'Export .csv'].flatMap(entry =>
     ['Open', 'New'].flatMap(replacement =>

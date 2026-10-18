@@ -267,10 +267,12 @@ it.each([false, true])('preserves current filters after a deferred EX import (re
   localStorage.clear();
   let h = openBrowser({ mountDiameterMm: 29, filters: { showAll: true } });
   onTestFinished(() => closeBrowser(h));
-  let finish!: (text: string) => void;
-  const reading = new Promise<string>(resolve => { finish = resolve; });
-  const file = new File([''], 'deferred.eng');
-  Object.defineProperty(file, 'text', { value: () => reading });
+  const contents = 'H99 29 200 6 0.15 0.3 Home\n0 0\n0.5 120\n1.5 0\n';
+  let finish!: (bytes: ArrayBuffer) => void;
+  const reading = new Promise<ArrayBuffer>(resolve => { finish = resolve; });
+  const file = new File([contents], 'deferred.eng');
+  // The importer reads bytes so it can detect XML encodings; defer that boundary.
+  Object.defineProperty(file, 'arrayBuffer', { value: () => reading });
   const input = h.host.querySelector<HTMLInputElement>('input[type="file"][accept=".eng,.rse,.txt"]')!;
   Object.defineProperty(input, 'files', { value: [file], configurable: true });
   act(() => { input.dispatchEvent(new Event('change', { bubbles: true })); });
@@ -284,16 +286,21 @@ it.each([false, true])('preserves current filters after a deferred EX import (re
     .querySelector('input')!);
   const current = JSON.parse(localStorage.getItem(FILTERS_KEY)!);
   expect(current).toMatchObject({ sortKey: 'designation', includeOOP: true });
-  await act(async () => { finish('H99 29 200 6 0.15 0.3 Home\n0 0\n0.5 120\n1.5 0\n'); await reading; });
+  expect(localStorage.getItem('online-openrocket.ex-motors.v1')).toBeNull();
+  await act(async () => { finish(new TextEncoder().encode(contents).buffer); await reading; });
   await settle();
   expect(JSON.parse(localStorage.getItem(FILTERS_KEY)!)).toMatchObject(current);
   expect(h.host.querySelector('thead th[aria-sort="ascending"]')?.textContent).toContain('Motor');
-  if (!reopen) expect(h.host.textContent).toContain('H99');
+  if (!reopen) {
+    expect(h.host.querySelector('.motor-import-notes > [role="status"]')?.textContent).toContain('Imported 1 EX motor (H99)');
+    expect(rowFor(h, 'Home (EX)', 'H99')).toBeDefined();
+  }
 });
 
 // S3a-g2 (audit 2026-10-17): changing the choice cancels the superseded download.
 it.each(['motor', 'delay', 'custom delay'])('aborts and unlocks a load when the %s changes', async change => {
   localStorage.clear();
+  addNetworkMotor(); // An overlay-only motor legitimately downloads under the no-curve policy.
   let signal: AbortSignal | undefined;
   vi.stubGlobal('fetch', (_url: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
     signal = init?.signal ?? undefined;
@@ -301,7 +308,7 @@ it.each(['motor', 'delay', 'custom delay'])('aborts and unlocks a load when the 
   }));
   const h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true } });
   onTestFinished(() => { closeBrowser(h); vi.unstubAllGlobals(); });
-  search(h, 'G80'); click(rowFor(h, 'Estes', 'G80')!);
+  search(h, 'G81NET'); click(rowFor(h, 'Estes', 'G81NET')!);
   const chooseDelay = (value: string) => act(() => {
     delaySelect(h)!.value = value;
     delaySelect(h)!.dispatchEvent(new Event('change', { bubbles: true }));
@@ -311,7 +318,10 @@ it.each(['motor', 'delay', 'custom delay'])('aborts and unlocks a load when the 
   for (let i = 0; i < 300 && !signal; i++) await settle(10);
   expect(signal).toBeDefined();
   expect(loadButton(h)!.disabled).toBe(true);
-  if (change === 'motor') click(bodyRows(h).find(row => row !== rowFor(h, 'Estes', 'G80'))!);
+  if (change === 'motor') {
+    search(h, 'C6');
+    click(rowFor(h, 'Estes', 'C6')!);
+  }
   if (change === 'delay') chooseDelay('custom');
   if (change === 'custom delay') typeInto(h.host.querySelector<HTMLInputElement>('[aria-label="Custom delay (s)"]')!, '7');
   await settle();
