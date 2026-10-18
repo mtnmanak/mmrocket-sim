@@ -3,7 +3,7 @@ import { testResolution } from './autoDelay.testSupport.js';
 import { describe, expect, it } from 'vitest';
 import { flightDataForExport, flownAutoDelays, importedSummaryRuns, planSummaryImport, summaryImportCounts, summaryDocument, summaryOf, type FlightDataForExportInput } from './orkFlightData.js';
 import { addRuns, appendImportedRuns, deleteRun, restoreRun, loadRuns, runCapNote, runsEvictedByLastWrite, runsUnsavedByLastWrite } from './simStore.js';
-import { designMatchKeyOf, motorDataKeyOf, motorSetKeyOf, runMatchesDesign, type SimRun } from './simReport.js';
+import { designMatchKeyOf, motorDataKeyOf, motorSetKeyOf, PHYSICS_REVISION, runMatchesDesign, type SimRun } from './simReport.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { exportOrk, importOrk, type OrkExportFlightData, type OrkImportResult } from './orkFile.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
@@ -31,6 +31,7 @@ const MOTOR: MountMotor = {
 } as unknown as MountMotor;
 
 const RUN: SimRun = {
+  physicsRevision: PHYSICS_REVISION,
   delayResolution: testResolution([['m1', MOTOR]], [7]),
   id: 'r1',
   flightConfigId: 'c1',
@@ -77,6 +78,53 @@ const base = (over: Partial<FlightDataForExportInput> = {}): FlightDataForExport
 
 const ids = (over: Partial<FlightDataForExportInput> = {}) =>
   Object.keys(flightDataForExport(base(over)));
+
+describe('Round 2 atmosphere export provenance', () => {
+  it.each([
+    ['classic', false, false, true], ['classic', true, false, false],
+    ['supersonic', true, false, false], ['hybrid', false, false, false],
+    ['auto', true, false, false], ['auto', false, true, false], ['auto', false, false, true],
+  ] as const)('checks v6 runs on %s Kbf=%s Auto-supersonic=%s', (aeroMode, effectiveKbf, autoSupersonic, accepted) => {
+    const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } };
+    const assigned: [string, MountMotor][] = [['m1', auto]];
+    const saved: SimRun = { ...RUN, physicsRevision: 'recovery-radial-mass-v6',
+      aeroModel: aeroMode === 'auto' ? autoSupersonic ? 'auto-supersonic' : 'classic' : aeroMode,
+      rogersKbf: effectiveKbf, delayResolution: testResolution(assigned, [7]),
+    };
+    const state = base({ assigned, runs: [saved],
+      model: { aeroMode, effectiveKbf, autoSupersonic },
+      savedConfigs: [{ ...CONFIG, motors: Object.fromEntries(assigned) }],
+    });
+    // Exercise both the public fallback and the declared configurationState shape;
+    // neither carries undeclared model fields at the top level.
+    for (const configurationState of [undefined, () => ({ designKey: state.designKey, motors: assigned })]) {
+      const input = { ...state, configurationState };
+      expect(Object.keys(flightDataForExport(input))).toEqual(accepted ? ['c1'] : []);
+      expect(flownAutoDelays(input)).toEqual({ c1: { m1: 7 } });
+      // Exported motor inputs keep the flown optimum, even when it differs
+      // from the provisional spec and the old flight-data summary is refused.
+      const provisional = { ...auto, spec: { ...auto.spec, ejectionDelay: 3 } };
+      const motorInputs: [string, MountMotor][] = [['m1', provisional]];
+      const old = { ...input, assigned: motorInputs,
+        savedConfigs: [{ ...CONFIG, motors: Object.fromEntries(motorInputs) }],
+        configurationState: configurationState ? () => ({ designKey: state.designKey, motors: motorInputs }) : undefined };
+      const tree = { components: [{ type: 'stage' as const, id: 'stage', children: [
+        { type: 'bodytube' as const, id: 'm1', motorMount: true, length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+      ] }] };
+      const motors = orkMotorSet({ records: { m1: provisional }, refs: {}, tree,
+        flown: flownAutoDelays(old), configKey: 'c1', exLibrary: () => [], first: 'records' });
+      expect(motors['m1']?.delay).toBe(7);
+      const xml = exportOrk({ name: 'Old atmosphere', tree, launch: DEFAULT_CONDITIONS, motors,
+        configs: [{ ...CONFIG, motors }], activeConfigId: 'c1', flightData: flightDataForExport(old) });
+      expect(Object.values(importOrk(xml).configs[0]!.motors).map(m => m.delay)).toEqual([7]);
+      expect(flownAutoDelays({ ...old, activeConfigId: null, savedConfigs: [],
+        runs: [{ ...saved, flightConfigId: undefined }] })).toEqual({ '': { m1: 7 } });
+      const current = { ...input, runs: [{ ...saved, physicsRevision: PHYSICS_REVISION }] };
+      expect(Object.keys(flightDataForExport(current))).toEqual(['c1']);
+      expect(flownAutoDelays(current)).toEqual({ c1: { m1: 7 } });
+    }
+  });
+});
 
 it.each(['Hybrid', 'none'])('RES-1b imports only matched configuration labels, never simulation name %s', name => {
   for (const configId of [null, 'missing']) {

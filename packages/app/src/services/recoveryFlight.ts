@@ -7,7 +7,9 @@ export function matchingRecoveryEvents(
   runs: readonly SimRun[], key: DesignMatchKey,
   flightFor: (id: string) => FlightResult | undefined,
 ): readonly RecoveryEvent[] | undefined {
-  const run = runs.filter((r) => !r.importedSummary && runMatchesDesign(r, key))
+  // Keep recorded separations/burnouts across atmosphere-only revisions;
+  // all design, model, motor, delay, nozzle and tree-revision checks still apply.
+  const run = runs.filter((r) => !r.importedSummary && runMatchesDesign(r, key, { includeModelRevisions: false }))
     .reduce<SimRun | undefined>((latest, r) => !latest || r.when > latest.when ? r : latest, undefined);
   if (!run) return undefined;
   const flight = flightFor(run.id);

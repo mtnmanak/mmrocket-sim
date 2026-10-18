@@ -268,7 +268,7 @@ interface DescribedMotors {
  * describes the working set of a design that has none (`activeConfigId`
  * null); `flightDataForExport` writes no such run, `flownAutoDelays` reads one.
  */
-function describedMotors(r: SimRun, input: FlightDataForExportInput): DescribedMotors | null {
+function describedMotors(r: SimRun, input: FlightDataForExportInput, includeModelRevisions = false): DescribedMotors | null {
   const {
     savedConfigs, activeConfigId, assigned, mountIds, designKey, conditionsKey, model, hasNozzle,
     motorSetKeyOf, hardwareDeltaKg,
@@ -286,9 +286,11 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput): DescribedM
   if (runMatchesModel(r, model) !== true) return null;
   // And the kernel's own physics: the v0.119 nozzle stamp and the K9/K15
   // revision. None of the three input keys can see a kernel change. Both
-  // result export and Auto-delay reuse must pass these same guards.
+  // result export and Auto-delay reuse require tree and nozzle revisions.
+  // Atmosphere-only revisions refuse flight-data export, but keep the flown
+  // Auto delay rather than replacing a saved flight input with a provisional one.
   if (!runCarriesNozzleStamp(r, { hasNozzle: effective?.hasNozzle ?? hasNozzle, ...model })) return null;
-  if (!runCarriesPhysicsRevision(r, effective ?? input)) return null;
+  if (!runCarriesPhysicsRevision(r, { ...(effective ?? input), ...model }, { includeModelRevisions })) return null;
   // The motor set is compared against the CONFIGURATION's own motors, not the
   // live working set: a user who has since switched configurations must still
   // be able to export the results of the others.
@@ -349,7 +351,7 @@ export function flightDataForExport(input: FlightDataForExportInput): Record<str
   const out = lookupTable<OrkExportFlightData>({});
   for (const r of input.runs) {
     if (!r.flightConfigId || out[r.flightConfigId]) continue;
-    const described = describedMotors(r, input);
+    const described = describedMotors(r, input, true);
     if (!described) continue;
     const { motors, resolution } = described;
     // Against EVERY motor, not the ones that flew: the file names a refused

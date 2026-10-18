@@ -3,7 +3,7 @@ import { validRunExportContext } from './runExportContext.js';
 import type { DesignMatchKey } from './simReport.js';
 import { storedWarnings } from './storedWarnings.js';
 import { csvCell } from './csvUtil.js';
-import { deploymentVerdict, openingVerdict, SAFETY, type SimRun } from './simReport.js';
+import { deploymentVerdict, openingVerdict, descentVerdict, SAFETY, type SimRun } from './simReport.js';
 import { railNeeded, railNeededResultCell, railNeededHeader } from './railNeeded.js';
 import { mergeStoredWarnings, sameStoredFlight, verifiesStoredRow } from './storedRunIdentity.js';
 import { warningKeysCell } from './simWarnings.js';
@@ -50,7 +50,7 @@ export function loadRuns(): SimRun[] {
      * The bar is IDENTITY, not completeness: a row with no string `id` cannot
      * be shown, selected, deleted or exported, so it is not a row. Bad VALUES
      * inside an otherwise real row are left to the readers, which degrade on
-     * their own (`round`, `cv`, `flag`, the Date column below, and simReport's
+     * their own (finite checks before scaling, `round`, `cv`, `flag`, and simReport's
      * `formatRunWhen`) — dropping a whole saved flight over one unusable field
      * would be the same over-reaction this guard replaces, one level down.
      */
@@ -58,6 +58,14 @@ export function loadRuns(): SimRun[] {
       typeof r === 'object' && r !== null && !Array.isArray(r)
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
+      for (const key of ['motorSetKey', 'designKey', 'conditionsKey'] as const) {
+        if (typeof r[key] !== 'string') delete r[key];
+      }
+      if (typeof r.comments !== 'string') {
+        r.comments = '';
+        delete r.commentLevels;
+      }
+      if (r.timeStepS !== undefined && (!Number.isFinite(r.timeStepS) || !(r.timeStepS > 0))) delete r.timeStepS;
       if (r.exportContext !== undefined && !validRunExportContext(r.exportContext)) delete r.exportContext;
       if (r.windSigma !== undefined && (!Number.isFinite(r.windSigma) || r.windSigma < 0)) delete r.windSigma;
       if (r.lastBurnoutOptimalDelayS !== undefined && r.lastBurnoutOptimalDelayS !== null
@@ -396,12 +404,12 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Propellant', (r) => r.propellant ?? ''],
   ['Case', (r) => r.motorCase ?? ''],
   ['T:W', (r) => round(r.thrustToWeightAtRod, 1)],
-  ['Guide (mph)', (r) => round(r.rodExitVelocity === null ? null : r.rodExitVelocity * MPH, 1)],
+  ['Guide (mph)', (r) => round(scaled(r.rodExitVelocity, MPH), 1)],
   ['Accel (Gs)', (r) => round(scaled(r.maxAcceleration, 1 / G_MS2), 1)],
   ['Delay (s)', (r) => (Number.isFinite(r.delayS) ? r.delayS
     : r.importedSummary && r.delayS !== Infinity ? '' : 'P')],
-  ['Pad Weight (g)', (r) => round(r.launchMass === null ? null : r.launchMass * 1000, 1)],
-  ['Recovery Weight (g)', (r) => round(r.burnoutMass == null ? null : r.burnoutMass * 1000, 1)],
+  ['Pad Weight (g)', (r) => round(scaled(r.launchMass, 1000), 1)],
+  ['Recovery Weight (g)', (r) => round(scaled(r.burnoutMass, 1000), 1)],
   // `toISOString()` throws RangeError on an Invalid Date, and BOTH exports are
   // built in one pass inside a click handler with no try/catch (SimResults'
   // downloadCsv/downloadXlsx, BatchSimulate's pair) — so one corrupt `when`
@@ -421,7 +429,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Max Mach', (r) => round(r.maxMach, 3)],
   [`Max acceleration (${sym('acceleration', 'm/s2')})`, (r) => cv('acceleration', r.maxAcceleration)],
   // r/s (revolutions/second) matches the desktop's UNITS_ROLL default unit.
-  ['Max roll rate (r/s)', (r) => round(r.maxRollRateRadS == null ? null : r.maxRollRateRadS / (2 * Math.PI), 3)],
+  ['Max roll rate (r/s)', (r) => round(scaled(r.maxRollRateRadS, 1 / (2 * Math.PI)), 3)],
   ['Time to apogee (s)', (r) => round(r.timeToApogee)],
   ['Time to burnout (s)', (r) => round(r.timeToBurnout)],
   ['Time to launch guide exit (s)', (r) => round(r.timeToRodDeparture, 3)],
@@ -438,14 +446,14 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   // which is a different quantity (zero angle of attack, no crosswind) — the
   // angle of attack below is printed beside them as the reason they differ.
   ['Angle of attack at launch guide exit (deg)',
-    (r) => round(r.rodExitAoa == null ? null : (r.rodExitAoa * 180) / Math.PI, 2)],
+    (r) => round(scaled(r.rodExitAoa, 180 / Math.PI), 2)],
   [`CG at launch guide exit (${sym('length', 'm')})`, (r) => cv('length', r.launchCG, 4)],
   [`CP at launch guide exit (${sym('length', 'm')})`, (r) => cv('length', r.launchCP, 4)],
   ['Static margin at launch guide exit (cal)', (r) => round(r.launchStaticMarginCal)],
   [`Altitude at deployment (${sym('altitude', 'm')})`, (r) => cv('altitude', r.altitudeAtDeployment)],
   [`Velocity at deployment (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.velocityAtDeployment)],
   ['Deployments', (r) => (r.deployments ?? [])
-    .map((d) => `${d.device}@${Number.isFinite(d.time) ? `${d.time.toFixed(1)}s` : '?'} opens ${Number.isFinite(d.velocityAtDeployment) ? d.velocityAtDeployment!.toFixed(1) : '?'}m/s descent ${Number.isFinite(d.descentRate) ? d.descentRate!.toFixed(1) : '?'}m/s${openingVerdict(d.velocityAtDeployment) === false || d.descentOk === false ? ' (!)' : openingVerdict(d.velocityAtDeployment) === 'caution' ? ' (caution)' : ''}`)
+    .map((d) => `${d.device}@${Number.isFinite(d.time) ? `${d.time.toFixed(1)}s` : '?'} opens ${Number.isFinite(d.velocityAtDeployment) ? d.velocityAtDeployment!.toFixed(1) : '?'}m/s descent ${Number.isFinite(d.descentRate) ? d.descentRate!.toFixed(1) : '?'}m/s${openingVerdict(d.velocityAtDeployment) === false || descentVerdict(d) === false ? ' (!)' : openingVerdict(d.velocityAtDeployment) === 'caution' || descentVerdict(d) === 'caution' ? ' (caution)' : ''}`)
     .join('; ')],
   [`Drogue descent rate (${sym('velocity', 'm/s')})`, (r) => {
     const drogue = (r.deployments ?? []).find((d) => !d.isLanding);
@@ -501,12 +509,12 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Time at max Q (s)', r => round(r.loads?.maxQ?.time ?? null, 4)],
   [`Altitude at max Q (${sym('altitude', 'm')})`, r => cv('altitude', r.loads?.maxQ?.altitude)],
   [`Max q·α (${sym('pressure', 'Pa')}·rad)`, r => loadPressure(r.loads?.maxQAlpha?.value)],
-  [`Max q·α (${sym('pressure', 'Pa')}·deg)`, r => loadPressure(r.loads?.maxQAlpha ? r.loads.maxQAlpha.value * 180 / Math.PI : null)],
+  [`Max q·α (${sym('pressure', 'Pa')}·deg)`, r => loadPressure(scaled(r.loads?.maxQAlpha?.value, 180 / Math.PI))],
   ['Time at max q·α (s)', r => round(r.loads?.maxQAlpha?.time ?? null, 4)],
   [`Altitude at max q·α (${sym('altitude', 'm')})`, r => cv('altitude', r.loads?.maxQAlpha?.altitude)],
   ['Mach at max q·α', r => round(r.loads?.maxQAlpha?.mach ?? null, 4)],
   ['Angle of attack at max q·α (rad)', r => round(r.loads?.maxQAlpha?.aoa ?? null, 6)],
-  ['Angle of attack at max q·α (deg)', r => round(r.loads?.maxQAlpha?.aoa == null ? null : r.loads.maxQAlpha.aoa * 180 / Math.PI, 4)],
+  ['Angle of attack at max q·α (deg)', r => round(scaled(r.loads?.maxQAlpha?.aoa, 180 / Math.PI), 4)],
   ['Hybrid band lower (Mach)', (r) => round(r.hybridBand?.[0] ?? null, 3)],
   ['Hybrid band upper (Mach)', (r) => round(r.hybridBand?.[1] ?? null, 3)],
   // Append travel too, keeping all previously exported column positions stable.
@@ -530,7 +538,7 @@ function round(v: number | null, digits = 2): string | number {
  * run is JSON and says otherwise, which is why `cv` above guards it too.
  */
 function scaled(v: number | null | undefined, k: number): number | null {
-  return v == null ? null : v * k;
+  return !Number.isFinite(v) ? null : v! * k;
 }
 
 function flag(v: boolean | null): string {

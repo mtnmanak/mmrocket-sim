@@ -80,6 +80,55 @@ describe('RecoverySizingPanel', () => {
     }
   };
 
+  it('S7b-3 explains unavailable zero-Cd sizing without a NaN headline', async () => {
+    const design = tree([{ cd: 0, diameter: 1, deployEvent: 'apogee' }]);
+    const before = structuredClone(design);
+    await mount({ tree: design });
+    expect(host.textContent).toMatch(/no size recommendation/i);
+    expect(host.textContent).toContain('effective Cd greater than zero');
+    const bands = host.querySelectorAll('.recovery-band');
+    expect(bands).toHaveLength(2);
+    const drogueReason = bands[1]!.querySelector('.recovery-sizing-hint')?.textContent;
+    expect(drogueReason).toContain('there is no drogue parachute in this design');
+    expect(drogueReason).toContain('the Cd it borrows from the main canopy is not greater than zero after its spill hole');
+    expect(drogueReason).toContain("check the main canopy's Cd and spill hole");
+    expect(drogueReason).not.toContain('the drogue canopy needs');
+    expect(host.textContent).not.toContain('NaN');
+    expect(design).toEqual(before);
+  });
+
+  it.each(['main', 'drogue', 'both'] as const)('Round 2 keeps usable bands and candidates when %s Cd prevents sizing', async slot => {
+    const design = tree([
+      { cd: slot !== 'drogue' ? 0 : 2.2, diameter: 1, deployEvent: 'altitude' },
+      { cd: slot !== 'main' ? 0 : 0.8, diameter: 0.2, deployEvent: 'apogee' },
+    ]);
+    const before = structuredClone(design);
+    await mount({ tree: design });
+    const baseline = sizingService.recoverySizing({ tree: tree([
+      { cd: 2.2, diameter: 1, deployEvent: 'altitude' },
+      { cd: 0.8, diameter: 0.2, deployEvent: 'apogee' },
+    ]), recovery: WILDMAN, deviceMass: () => 0.25, presets: await loadPresets(), launch: DEFAULT_CONDITIONS });
+    expect(baseline.state).toBe('ok');
+    if (baseline.state !== 'ok') throw new Error('expected usable baseline');
+    const bands = [...host.querySelectorAll('.recovery-band')];
+    expect(bands).toHaveLength(2);
+    for (const [i, role] of (['main', 'drogue'] as const).entries()) {
+      const unusable = slot === role || slot === 'both';
+      expect(bands[i]!.querySelectorAll('.recovery-size-line')).toHaveLength(unusable ? 0 : 1);
+      if (unusable) expect(bands[i]!.textContent).toContain(`the ${role} canopy needs an effective Cd greater than zero`);
+      expect([...bands[i]!.querySelectorAll('.recovery-part-name')].map(n => n.textContent))
+        .toEqual(baseline[role].candidates.map(c => `${c.manufacturer} ${c.partNo}${c.variants > 1 ? ` +${c.variants - 1}` : ''}`));
+      expect(baseline[role].candidates.length).toBeGreaterThan(0);
+    }
+    expect(host.textContent).not.toContain('NaN');
+    expect(design).toEqual(before);
+    await act(async () => (host.querySelector('button[aria-expanded="true"]') as HTMLButtonElement).click());
+    const summary = host.querySelector('.recovery-sizing-summary')?.textContent;
+    if (slot !== 'drogue') expect(summary).toContain('main —');
+    if (slot !== 'main') expect(summary).toContain('drogue —');
+    expect(summary).not.toContain('NaN');
+  });
+
   it('K1 sizes attached stages together and displays the flight or estimate note', async () => {
     const t: RocketTree = { components: [{ type: 'stage', id: 'upper' },
       { type: 'stage', id: 'lower', separationEvent: 'altitudeascending' }] };
@@ -264,6 +313,17 @@ describe('RecoverySizingPanel', () => {
         { stageIds: ['s1'], stageNames: ['Booster'], isSustainer: false, mass: { state: 'ok', mass: 2.8, multiStage: true } },
       ],
     };
+
+    it('Round 2 keeps booster sections when the sustainer Cd is zero', async () => {
+      const design = structuredClone(twoStageTree);
+      design.components[0]!.children![0]!.children![0]!['cd'] = 0;
+      await mount({ tree: design, byStage: twoGroups });
+      expect([...host.querySelectorAll('.recovery-object')].map(h => h.textContent)).toEqual(['Sustainer', 'Booster']);
+      expect(bands()).toHaveLength(4);
+      expect(bands()[0]!.querySelector('.recovery-size-line')).toBeNull();
+      expect(bands()[2]!.querySelector('.recovery-size-line')?.textContent).toContain('Cd 1.5');
+      expect(text()).not.toContain('NaN');
+    });
 
     it.each(['bt0', 'bt1'])('R2 renders the missing-burnout note only beside the object retaining %s', async (missing) => {
       const t = structuredClone(twoStageTree);

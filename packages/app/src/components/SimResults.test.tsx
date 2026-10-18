@@ -444,7 +444,7 @@ describe('SimRunDetails — where the raw flight data went', () => {
     expect(row.querySelectorAll('td')[2]!.textContent).toBe('—');
     expect(row.querySelectorAll('td')[2]!.title).toBe('Not recorded');
     expect(row.querySelectorAll('td')[3]!.textContent).toBe('—'); // Delay
-    expect(row.querySelectorAll('td')[8]!.textContent).toBe('—'); // Safe
+    expect(row.querySelectorAll('td')[8]!.querySelector('[aria-hidden="true"]')?.textContent).toBe('—'); // Safe
     expect(row.querySelectorAll('td')[10]!.textContent).toBe('—'); // Winds aloft
   });
   it('points down to the plots when this flight’s series are in memory', () => {
@@ -614,6 +614,52 @@ const preV099Deployment = {
   device: 'Parachute', time: 7.0, altitude: 331.0, velocityAtDeployment: 4.2,
   descentRate: 3.4, isLanding: true, openingOk: true, descentOk: true,
 } as unknown as DeploymentReport;
+
+describe('S3b-1 drogue descent tiers', () => {
+  for (const booster of [false, true]) {
+    it.each([[60, 'stability-good', '✓'], [70, 'stability-good', '✓'], [75, 'stability-warn', '△'],
+      [90, 'stability-warn', '△'], [95, 'stability-bad', '⚠']] as const)(
+      `${booster ? 'booster' : 'sustainer'} drogue at %s ft/s`, (fps, cls, glyph) => {
+        const saved = run();
+        const d = { ...preV099Deployment, device: 'Drogue', isLanding: false,
+          descentRate: fps * 3048 / 10000, descentOk: fps <= 70 };
+        if (booster) saved.branches = [{ name: 'Booster', apogee: 100, tumbles: false,
+          deployments: [d], landingRate: 18 * 0.3048, safeLandingRate: true }];
+        else saved.deployments = [d];
+        render(<SimRunDetails run={saved} />);
+        const row = [...host.querySelectorAll('.motor-table tbody tr')].find(tr => tr.firstElementChild?.textContent === 'Drogue')!;
+        expect(row.lastElementChild?.className).toBe(cls);
+        if (fps === 75 || fps === 90) expect(row.children[5]?.className).toBe('stability-warn');
+        render(<SimHistory runs={[saved]} onRunsChange={() => {}} />);
+        openTable();
+        const cell = host.querySelector('tr.motor-row td.stability-good, tr.motor-row td.stability-warn, tr.motor-row td.stability-bad')!;
+        expect(cell.className).toBe(cls);
+        expect(cell.querySelector('[aria-hidden="true"]')?.textContent).toBe(glyph);
+      });
+  }
+});
+
+it.each([{ cd: '0.8' }, { cd: 0.7, cdNominal: '0.8', spillHoleDiameter: 0.1 },
+  { cd: 0.7, cdNominal: 0.8, spillHoleDiameter: '0.1' }])('S3b-2 renders corrupt coefficient evidence without throwing: %j', fields => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...run(),
+    deployments: [{ ...preV099Deployment, ...fields }] }]));
+  expect(() => render(<SimRunDetails run={loadRuns()[0]!} />)).not.toThrow();
+  expect(host.querySelector('.motor-table tbody tr')?.children[4]?.textContent).toBe(fields.cd === '0.8' ? '—' : '0.70');
+});
+
+it('S3b-3 names every Safe verdict for assistive technology', () => {
+  const passed = run();
+  const failed = { ...passed, id: 'failed', safeLandingRate: false };
+  const caution = { ...passed, id: 'caution', launchStaticMarginCal: 6 };
+  const unknown = { ...passed, id: 'unknown', importedSummary: true };
+  render(<SimHistory runs={[passed, failed, caution, unknown]} onRunsChange={() => {}} />);
+  openTable();
+  const rows = [...host.querySelectorAll('tr.motor-row')];
+  expect(rows.map(row => row.querySelector('.sr-only')?.textContent)).toEqual([
+    'Passed checks', 'Failed checks', 'Caution', 'Checks unavailable',
+  ]);
+  expect(rows.every(row => row.querySelector('span[aria-hidden="true"]'))).toBe(true);
+});
 
 describe('SimRunDetails — a run stored before v0.099 (audit 2026-09-22)', () => {
   // `flownCd` guarded `d.cd === null`, and an ABSENT key is undefined, so
@@ -941,6 +987,7 @@ describe('K16 rendered opening tiers', () => {
       expect(cells[7]!.className).toBe(cls);
       if (cls === 'stability-warn') {
         expect(cells[3]!.className).toBe('stability-warn');
+        expect(cells[7]!.textContent).toMatch(/^△ fast opening/);
         expect(cells[7]!.textContent).not.toContain('hard opening');
       }
       const safeRow = Array.from(host.querySelectorAll('tr')).find((row) => row.firstElementChild?.textContent === 'Safe deployment')!;
@@ -954,7 +1001,7 @@ describe('K16 rendered opening tiers', () => {
   }
   it('keeps a landing failure red alongside an amber opening', () => {
     const r = run();
-    r.deployments = [{ ...preV099Deployment, velocityAtDeployment: 75 * 0.3048, descentOk: false }];
+    r.deployments = [{ ...preV099Deployment, velocityAtDeployment: 75 * 0.3048, descentRate: 10, descentOk: false }];
     render(<SimRunDetails run={r} />);
     const cell = host.querySelector('.motor-table tbody tr')!.querySelectorAll('td')[7]!;
     expect(cell.textContent).toContain('fast opening');
@@ -998,7 +1045,7 @@ describe('SimHistory — a flight the kernel stopped early', () => {
     safeDeployment: null, deployments: [], velocityAtDeployment: null, launchStaticMarginCal: null,
   };
   const safeCells = () => Array.from(host.querySelectorAll('tr.motor-row')).map((tr) =>
-    tr.querySelector('td.stability-warn, td.stability-bad, td.stability-good')!.textContent);
+    tr.querySelector('td.stability-warn, td.stability-bad, td.stability-good')!.querySelector('[aria-hidden="true"]')?.textContent);
 
   it('marks an aborted run ⚠, whatever its verdicts say', () => {
     render(<SimHistory runs={[clean, passing, blank]} onRunsChange={() => {}} />);
@@ -1065,7 +1112,7 @@ describe('S3a-3 booster recovery in history safety', () => {
     const r = run();
     r.branches = [{ name: 'Booster', apogee: 120, tumbles: kind === 'landing',
       landingRate: kind === 'landing' ? 30 : 5, safeLandingRate: kind !== 'landing',
-      deployments: kind === 'landing' ? [] : [{ ...preV099Deployment, velocityAtDeployment: 5, descentOk: kind !== 'descent' }],
+      deployments: kind === 'landing' ? [] : [{ ...preV099Deployment, velocityAtDeployment: 5, descentRate: kind === 'descent' ? 10 : 3.4, descentOk: kind !== 'descent' }],
     }];
     render(<SimHistory runs={[r]} onRunsChange={() => {}} designName="Booster" />);
     openTable();

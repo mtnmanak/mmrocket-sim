@@ -5,7 +5,7 @@ import type { FlightResult, FlightSeries, RocketTree, StaticInfo } from '@online
 import {
   launchGuideExplanation, buildSimRun, commentLevelsAlign, commentsOf, conditionsKeyOf, extractLandingDrift, extractMaxRollRate,
   formatStability, openingVerdict, deploymentVerdict, deploymentRole, openingPolicy,
-  recommendDelay,
+  recommendDelay, PHYSICS_REVISION,
   AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
   pressureThrustActive, PRESSURE_THRUST_CHANGED, runCarriesNozzleStamp,
   ROLL_RATE_MEANINGFUL_RAD_S, runMatchesDesign, runStoppedEarly, SAFETY, stabilityPercent, storedSimCost,
@@ -839,7 +839,7 @@ describe('stored-run provenance (2026-09-03, v0.101)', () => {
     aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false,
   };
   const runWith = (over: Partial<SimRun>): SimRun =>
-    ({ delayResolution: testResolution([['m', testMotor()]], [5]), designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', conditionsKey: 'c1', aeroModel: 'classic', rogersKbf: true, ...over }) as SimRun;
+    ({ physicsRevision: PHYSICS_REVISION, delayResolution: testResolution([['m', testMotor()]], [5]), designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', conditionsKey: 'c1', aeroModel: 'classic', rogersKbf: true, ...over }) as SimRun;
 
   it('says nothing changed when nothing has', () => {
     expect(changedSinceRun(runWith({}), KEY)).toEqual([]);
@@ -2004,7 +2004,7 @@ describe('runMatchesDesign — what may be re-flown for its charts', () => {
       expect(runMatchesDesign(run({ nozzleStages: undefined }), NOZ)).toBe(false);
       expect(runCarriesNozzleStamp({}, NOZ)).toBe(false);
       expect(changedSinceRun(
-        { designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', conditionsKey: 'c1', aeroModel: 'classic', rogersKbf: true } as SimRun,
+        { physicsRevision: PHYSICS_REVISION, designKey: 'd1', motorSetKey: 'm1', motorDataKey: 'data1', conditionsKey: 'c1', aeroModel: 'classic', rogersKbf: true } as SimRun,
         NOZ,
       )).toEqual([PRESSURE_THRUST_CHANGED]);
     });

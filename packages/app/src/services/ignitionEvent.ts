@@ -8,7 +8,7 @@ import type { IgnitionEvent } from '@online-openrocket/engine';
  * runner all need the one list, and none of them should have to load another's
  * data (the preset catalogue, the motor catalogue) to get it.
  */
-export const IGNITION_EVENTS: readonly IgnitionEvent[] = [
+const IGNITION_EVENTS: readonly IgnitionEvent[] = [
   'automatic', 'launch', 'ejectioncharge', 'burnout', 'never',
 ];
 

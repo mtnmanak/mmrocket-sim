@@ -8,7 +8,7 @@ import { matchingRecoveryEvents } from './recoveryFlight.js';
 import { flightDataForExport } from './orkFlightData.js';
 import {
   changedSinceRun, conditionsKeyOf, designMatchKeyOf, motorDataKeyOf, motorSetKeyOf, runMatchesDesign, shortHash,
-  type DesignMatchInput, type DesignMatchKey, type SimRun,
+  PHYSICS_REVISION, type DesignMatchInput, type DesignMatchKey, type SimRun,
 } from './simReport.js';
 
 /**
@@ -103,12 +103,14 @@ describe('motorSetKeyOf — the persisted format', () => {
 });
 
 /**
- * What a run stamped by v0.137 carries for INPUT (below), spelled out — the
- * keys a stored run already holds are literals, never recomputed.
+ * A current run with the v0.137 key format for INPUT (below). Historical key
+ * strings stay literal; delay evidence and the current physics stamp are
+ * modern so these key-format tests are isolated from atmosphere upgrades.
  */
 const DEFAULT_CONDITIONS_KEY =
   'latitudeDeg=28.61|launchAltitudeM=0|launchRodAngleDeg=0|launchRodLengthM=1|pressureHPa=|temperatureC=|windAverage=0|windStdDev=0';
 const INPUT_RUN = {
+  physicsRevision: PHYSICS_REVISION,
   delayResolution: testResolution([['m1', mm()]], [5]),
   designKey: shortHash('{"stages":[1]}'),
   motorSetKey: 'm1:Estes/C6:5:automatic:0',
@@ -211,7 +213,8 @@ describe('report and replay share provenance checks', () => {
     ['Kbf', { effectiveKbf: false }, {}, 'the aerodynamics model'],
     ['hybrid band', { aeroMode: 'hybrid' }, { aeroModel: 'hybrid', hybridBand: [0.5, 2] }, 'the aerodynamics model'],
     ['pressure thrust', { hasNozzle: true }, {}, 'the motor thrust model'],
-    ['physics revision', { physicsRevisions: ['guide-clearance-transition-mass-v1'] }, {}, 'the launch-guide and transition-shoulder physics'],
+    ['physics revision', { effectiveKbf: false, physicsRevisions: ['guide-clearance-transition-mass-v1'] },
+      { physicsRevision: undefined, rogersKbf: false }, 'the launch-guide and transition-shoulder physics'],
   ];
   it.each(changes)('names changed %s and refuses replay', (_name, current, stored, label) => {
     const run = { ...INPUT_RUN, ...stored };
@@ -388,7 +391,7 @@ describe('changedSinceRun reads the hardware term motorSetKeyOf writes', () => {
   const current = (hw: number, motor = mm()) => designMatchKeyOf({ ...INPUT, assigned: [['m1', motor]], hardwareDeltaKg: hw });
   const stamped = (hw: number, motor = mm()) => {
     const k = current(hw, motor);
-    return { designKey: k.designKey, motorSetKey: k.motorSetKey, motorDataKey: k.motorDataKey, conditionsKey: k.conditionsKey } as SimRun;
+    return { physicsRevision: PHYSICS_REVISION, designKey: k.designKey, motorSetKey: k.motorSetKey, motorDataKey: k.motorDataKey, conditionsKey: k.conditionsKey } as SimRun;
   };
 
   it('a run flown before the weighing differs only in the pad mass', () => {
@@ -419,6 +422,7 @@ describe('designMatchKeyOf — the ONE assembly', () => {
   it('a run stamped from it matches it — the stamp and the comparison cannot drift', () => {
     const key = designMatchKeyOf(INPUT);
     const run = {
+      physicsRevision: PHYSICS_REVISION,
       delayResolution: testResolution([['m1', mm()]], [5]),
       designKey: key.designKey, motorSetKey: key.motorSetKey, motorDataKey: key.motorDataKey, conditionsKey: key.conditionsKey,
       aeroModel: 'classic', rogersKbf: true,
@@ -430,7 +434,7 @@ describe('designMatchKeyOf — the ONE assembly', () => {
   it('moves with each of its three stamped terms', () => {
     const run = (() => {
       const k = designMatchKeyOf(INPUT);
-      return { designKey: k.designKey, motorSetKey: k.motorSetKey, motorDataKey: k.motorDataKey, conditionsKey: k.conditionsKey } as SimRun;
+      return { physicsRevision: PHYSICS_REVISION, designKey: k.designKey, motorSetKey: k.motorSetKey, motorDataKey: k.motorDataKey, conditionsKey: k.conditionsKey } as SimRun;
     })();
     expect(changedSinceRun(run, designMatchKeyOf({ ...INPUT, physicsKey: '{"stages":[2]}' })))
       .toEqual(['the design']);
@@ -445,7 +449,7 @@ describe('motor physics provenance', () => {
   it.each(['catalogue', 'EX'])('rejects changed samples under the same %s identity', (kind) => {
     const motor = mm(kind === 'EX' ? { exMotorId: 'ex:home-c6' } : {});
     const original = designMatchKeyOf({ ...INPUT, assigned: [['m1', motor]] });
-    const run = { ...original, aeroModel: 'classic', rogersKbf: true,
+    const run = { ...original, physicsRevision: PHYSICS_REVISION, aeroModel: 'classic', rogersKbf: true,
       delayResolution: testResolution([['m1', motor]], [5]),
     } as unknown as SimRun;
     expect(runMatchesDesign(run, original)).toBe(true);

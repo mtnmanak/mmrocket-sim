@@ -144,8 +144,10 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
   // conclusion; everything the panel expands to is the working behind them.
   // On a multi-stage design it is the SUSTAINER's pair — the object the rest
   // of the app means by "the rocket" — with a count of the others.
-  const summary = `main ~${roughLength(sustainer.main.diameter)} ${lenSym}`
-    + ` · drogue ~${roughLength(sustainer.drogue.diameter)} ${lenSym}`
+  const sizeSummary = (advice: BandAdvice): string => advice.diameter === null
+    ? `${advice.role} —` : `${advice.role} ~${roughLength(advice.diameter)} ${lenSym}`;
+  const summary = sizeSummary(sustainer.main)
+    + ` · ${sizeSummary(sustainer.drogue)}`
     + (objects.length > 1 ? ` · +${objects.length - 1} stage${objects.length > 2 ? 's' : ''}` : '');
 
   const fmt = { roughLength, rate, lenSym, velSym, massSym, altSym };
@@ -357,24 +359,29 @@ function BandSection({
       {/* THE SIZE, first and in the largest type on the panel. It is the half
           of the answer that survives leaving this catalogue behind, and the Cd
           travels with it because a diameter alone is not an answer. */}
-      <p className="recovery-size-line">
-        about <strong>{roughLength(advice.diameter)} {lenSym}</strong>
-        {' '}at <strong>Cd {cdNum(advice.cd)}</strong>
-      </p>
-      <p className="recovery-size-note" title={`Cd ${advice.cd}: ${cdSaid}.`}>
-        for {rate(advice.band.target)} {velSym} — {cdSaid}
-        {vented && (advice.cdSource === 'automatic'
-          ? <>, {cdNum(advice.cdNominal)} scaled for its spill hole</>
-          : <>, its rated Cd {cdNum(advice.cdNominal)} scaled for its spill hole</>)}.
-        {/* A chute in a pod set is one canopy per pod (audit 2026-09-22), so
-            the size is per canopy and the rates are for all of them — said,
-            or "about 14 in" reads as the whole answer. */}
-        {advice.instances > 1 && (
-          <> Per canopy: the design opens {advice.instances} of this {advice.role}, one in each pod
-            it rides in, and every rate below is for all {advice.instances}.</>
-        )}
-      </p>
-
+      {advice.diameter === null ? (
+        <p className="recovery-sizing-hint">No size recommendation: {advice.reason}.</p>
+      ) : (
+        <>
+          <p className="recovery-size-line">
+            about <strong>{roughLength(advice.diameter)} {lenSym}</strong>
+            {' '}at <strong>Cd {cdNum(advice.cd)}</strong>
+          </p>
+          <p className="recovery-size-note" title={`Cd ${advice.cd}: ${cdSaid}.`}>
+            for {rate(advice.band.target)} {velSym} — {cdSaid}
+            {vented && (advice.cdSource === 'automatic'
+              ? <>, {cdNum(advice.cdNominal)} scaled for its spill hole</>
+              : <>, its rated Cd {cdNum(advice.cdNominal)} scaled for its spill hole</>)}.
+            {/* A chute in a pod set is one canopy per pod (audit 2026-09-22), so
+                the size is per canopy and the rates are for all of them — said,
+                or "about 14 in" reads as the whole answer. */}
+            {advice.instances > 1 && (
+              <> Per canopy: the design opens {advice.instances} of this {advice.role}, one in each pod
+                it rides in, and every rate below is for all {advice.instances}.</>
+            )}
+          </p>
+        </>
+      )}
       {advice.candidates.length > 0 ? (
         // A LIST, not a table. This panel lives in the design page's 320 px
         // right column; five columns of numbers with their own unit chips do
@@ -389,7 +396,7 @@ function BandSection({
         </ul>
       ) : (
         <p className="recovery-sizing-hint">
-          {catalogueFailed ? 'Catalogue suggestions are unavailable; the size above still applies.' : !catalogueReady
+          {catalogueFailed ? (advice.diameter === null ? 'Catalogue suggestions are unavailable.' : 'Catalogue suggestions are unavailable; the size above still applies.') : !catalogueReady
             ? 'Looking through the parts catalogue…'
             : advice.inBand === 0
               ? `No canopy in the catalogue lands this rocket inside the ${title.toLowerCase()} band.`
