@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
@@ -15,8 +15,8 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
  * the kernel; this file pins that the editor actually applies it.
  *
  * Freeform fins are the project owner's own primary workflow, so "refuse the
- * edit" must also never mean "refuse every edit": the last test covers a design
- * that arrived already broken.
+ * edit" must also never mean "refuse every edit": the "lets a design that
+ * ARRIVED broken be edited with feedback" test covers an already-broken design.
  *
  * Rendered through react-dom's own root API with React's `act` — no
  * @testing-library in this workspace (see SiteBand.test.tsx).
@@ -41,6 +41,22 @@ const render = (points: FinPoint[]) => {
       </PrefsProvider>,
     );
   });
+};
+
+/** Like onPatch/updateNode: commits return as props, possibly cloned. */
+const renderStateful = (points: FinPoint[]) => {
+  committed = [];
+  let replacePoints: (next: FinPoint[]) => void;
+  function Editor() {
+    const [current, setCurrent] = useState(points);
+    replacePoints = setCurrent;
+    return <FinPointsEditor points={current} onChange={next => {
+      committed.push(next);
+      setCurrent(next.map(p => [...p] as FinPoint));
+    }} />;
+  }
+  act(() => root.render(<PrefsProvider><Editor /></PrefsProvider>));
+  return (next: FinPoint[]) => act(() => replacePoints(next));
 };
 
 const field = (label: string): HTMLInputElement =>
@@ -97,6 +113,31 @@ describe('FinPointsEditor — the outline guard', () => {
     expect(alertText()).toContain('The fin is unchanged.');
   });
 
+  // S3b-g4 (audit 2026-10-17): external point changes retire stale edit feedback.
+  it('clears a refused-edit alert when Undo changes the same fin points', () => {
+    const replacePoints = renderStateful(GOOD);
+    type(field('Point 3 x'), '5');
+    expect(alertText()).toContain('crosses itself');
+    const restored: FinPoint[] = [[0, 0], [0.02, 0.025], [0.045, 0.025], [0.06, 0]];
+    replacePoints(restored);
+    expect(field('Point 2 y').value).toBe('25');
+    expect(outlineStroke()).toBe('#7a786f');
+    expect(alertText()).toBe('');
+    expect(committed).toEqual([]);
+  });
+
+  // S3b-g4 (audit 2026-10-17): equal coordinates keep the current refusal.
+  it.each([{ label: 'stored outline', points: GOOD }, { label: 'starter outline', points: [] as FinPoint[] }])('keeps a refusal when the parent re-renders equal points ($label)', ({ points }) => {
+    const replacePoints = renderStateful(points);
+    // A crossing (stored outline) or zero root chord (starter) is refused.
+    type(field('Point 3 x'), '0');
+    const reason = alertText();
+    expect(reason).toContain('The fin is unchanged.');
+    replacePoints(points.map(p => [...p] as FinPoint));
+    expect(alertText()).toBe(reason);
+    expect(committed).toEqual([]);
+  });
+
   it('refuses a coordinate that lands one point on top of another', () => {
     render(GOOD);
     // Point 3 x onto point 2's x, with the same y — a zero-length edge, which
@@ -139,12 +180,13 @@ describe('FinPointsEditor — the outline guard', () => {
     expect(committed).toEqual([[[0, 0], [0.045, 0.030], [0.060, 0]]]);
   });
 
-  it('lets a design that ARRIVED broken be edited back to sanity', () => {
+  // S3b-g4 (audit 2026-10-17): cloned commit feedback keeps the edit's explanation.
+  it('lets a design that ARRIVED broken be edited with feedback', () => {
     // Saved before this guard existed, or hand-edited .ork. Refusing every edit
     // here would trap the user in the exact state they are trying to escape,
     // and the design is already unbuildable, so nothing is made worse.
     const broken: FinPoint[] = [[0, 0], [0.020, 0.030], [0.005, 0.020], [0.060, 0]];
-    render(broken);
+    const replacePoints = renderStateful(broken);
     // Still broken after this edit — but it is allowed through.
     type(field('Point 3 x'), '6');
     expect(committed.length).toBe(1);
@@ -152,6 +194,13 @@ describe('FinPointsEditor — the outline guard', () => {
     // And the reason stays on screen, without the "unchanged" clause.
     expect(alertText()).toContain('crosses itself');
     expect(alertText()).not.toContain('The fin is unchanged.');
+    // An unrelated parent render can clone the same outline again.
+    const edited = committed[0]!;
+    replacePoints(edited.map(p => [...p] as FinPoint));
+    expect(alertText()).toContain('crosses itself');
+    // Undo to genuinely different points clears the old edit's explanation.
+    replacePoints(broken);
+    expect(alertText()).toBe('');
   });
 
   it('shows the 3-point starter for a set with too few points, and an edit never leaks into it', () => {

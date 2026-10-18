@@ -152,6 +152,52 @@ describe('📐 Fin template — one control, four files', () => {
     expect(downloadBlob).not.toHaveBeenCalled();
     expect(alertText()).toBe('⛔ Danger: Could not draw the fin template as an image: SVG rasterize failed — the SVG options still work.');
   });
+
+  // S3a-g4 (audit 2026-10-17): size is context, never a replacement for the actual export error.
+  it.each([
+    ['PNG', 'rasterize'], ['JPG', 'rasterize'], ['PNG', 'download'], ['JPG', 'download'],
+  ])('keeps the error and names the image size when a large %s template fails to %s', async (format, failure) => {
+    const large = { ...fins, rootChord: 0.45, tipChord: 0.25, height: 0.2 };
+    const body = { ...tree.components[0]!.children![0]!, children: [large] };
+    const design = { ...tree, components: [{ ...tree.components[0]!, children: [body] }] };
+    const reason = failure === 'rasterize' ? 'image encode failed' : 'download unavailable';
+    if (failure === 'rasterize') vi.mocked(svgToImage).mockRejectedValue(new Error(reason));
+    else {
+      vi.mocked(svgToImage).mockResolvedValue(new Blob(['encoded image']));
+      vi.mocked(downloadBlob).mockImplementationOnce(() => { throw new Error(reason); });
+    }
+    act(() => root.render(<PrefsProvider><PropertyPanel tree={design} node={large} onPatch={() => {}} /></PrefsProvider>));
+    await pick(format);
+    expect(svgToImage).toHaveBeenCalledOnce();
+    const [, width, , height] = vi.mocked(svgToImage).mock.calls[0]!;
+    expect((width ?? 0) * (height ?? 0)).toBeGreaterThan(16_000_000);
+    expect(downloadBlob).toHaveBeenCalledTimes(failure === 'rasterize' ? 0 : 1);
+    expect(alertText()).toBe(`⛔ Danger: Could not draw the fin template as an image: ${reason} (at ${width} x ${height} px it is above 16 million pixels in total or 8192 pixels on either side, which many browsers cannot draw at 300 dpi) — the SVG options still work.`);
+    vi.mocked(downloadBlob).mockClear();
+    await pick('SVG, white');
+    expect(downloadBlob).toHaveBeenCalledOnce();
+    expect(alertText()).toBeNull();
+  });
+
+  // S3a-g4 (audit 2026-10-17): templates still attempt images above the jig's limits.
+  it.each(['PNG', 'JPG'])('exports a large %s template when the browser can draw it', async format => {
+    // 450 x 200 mm fin: about 17.7 million pixels, above the jig's cap.
+    const large = { ...fins, rootChord: 0.45, tipChord: 0.25, height: 0.2 };
+    const body = { ...tree.components[0]!.children![0]!, children: [large] };
+    const design = { ...tree, components: [{ ...tree.components[0]!, children: [body] }] };
+    vi.mocked(svgToImage).mockResolvedValue(new Blob(['encoded image']));
+    act(() => root.render(<PrefsProvider><PropertyPanel tree={design} node={large} onPatch={() => {}} /></PrefsProvider>));
+    await pick(format);
+    expect(svgToImage).toHaveBeenCalledOnce();
+    const [, width, , height] = vi.mocked(svgToImage).mock.calls[0]!;
+    expect((width ?? 0) * (height ?? 0)).toBeGreaterThan(16_000_000);
+    expect(downloadBlob).toHaveBeenCalledOnce();
+    expect(alertText()).toBeNull();
+    vi.mocked(downloadBlob).mockClear();
+    await pick('SVG, white');
+    expect(downloadBlob).toHaveBeenCalledOnce();
+    expect(alertText()).toBeNull();
+  });
 });
 
 describe('✂ DXF follows the Rocket dimensions (`prefs.units.length`) preference', () => {

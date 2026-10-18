@@ -6,7 +6,7 @@ import { finAlignmentJigGeometry, finAlignmentJigSvg } from '../services/finAlig
 import { FIN_TEMPLATE_DPI, finTemplatePixelSize } from '../services/finTemplate.js';
 import { safeName } from '../services/fileName.js';
 import { svgToImage } from '../services/schematicExport.js';
-import { withDpi } from '../services/rasterDpi.js';
+import { assertRasterizable, withDpi } from '../services/rasterDpi.js';
 import { downloadBlob } from '../services/saveFile.js';
 import { FinTemplateMenu, type FinTemplateFormat } from './FinTemplateMenu.js';
 import { Note } from './Note.js';
@@ -36,10 +36,7 @@ export function FinAlignmentJigMenu({ tree, tube, fin }: { tree: RocketTree; tub
       let blob = new Blob([svg], { type: 'image/svg+xml' });
       if (raster) {
         const { width, height } = finTemplatePixelSize(svg);
-        // N049: preserve 300 dpi rather than silently shrink a large jig or exhaust a phone's canvas memory.
-        if (width * height > 16_000_000 || Math.max(width, height) > 8192) {
-          throw new Error('This jig is too large for a 300 dpi image. Use an SVG option.');
-        }
+        assertRasterizable(width, height);
         const image = await svgToImage(svg, width, format, height);
         const bytes = withDpi(new Uint8Array(await image.arrayBuffer()), format, FIN_TEMPLATE_DPI);
         blob = new Blob([bytes as BlobPart], { type: `image/${format}` });

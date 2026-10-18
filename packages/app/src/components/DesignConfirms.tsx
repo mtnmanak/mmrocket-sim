@@ -1,5 +1,5 @@
 import { Note } from './Note.js';
-import type { ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { FormatLossReport, LossyFormat } from '../services/formatLoss.js';
 import type { ImportedDesign } from '../services/importApply.js';
@@ -46,6 +46,15 @@ interface DesignConfirmsProps {
 export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossDialog, saveLossy, confirmNew, setConfirmNew,
   replaceLoss, startNewDesign, onSaveOrk, pendingOpen, setPendingOpen, onOpenOrk, shareOffer, setShareOffer,
   applyImported, shroudPrompt, setShroudPrompt, hasOpenMotorQuestion, onConvertShrouds, children }: DesignConfirmsProps) {
+  const openPrompt = useRef(pendingOpen);
+  useEffect(() => {
+    openPrompt.current = pendingOpen;
+    return () => { openPrompt.current = null; };
+  }, [pendingOpen]);
+  const dismissOpen = () => {
+    openPrompt.current = null;
+    setPendingOpen(null);
+  };
   return <>
       {lossDialog && <FormatLossDialog report={lossDialog.report} confirm={lossDialog.confirm}
         onClose={() => setLossDialog(null)}
@@ -80,7 +89,7 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
       )}
       {children}
       {pendingOpen && (
-        <Modal label="Unsaved changes" onClose={() => setPendingOpen(null)}>
+        <Modal label="Unsaved changes" onClose={dismissOpen}>
           <h2>Save “{tree.name ?? 'the current rocket'}” first?</h2>
           <Note tier="danger">
             <p className="note-para">
@@ -104,7 +113,8 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
                   // to protect — and nor must a save that failed. Leave the
                   // prompt up and let them decide.
                   if (out.kind === 'cancelled' || out.kind === 'failed') return;
-                  setPendingOpen(null);
+                  if (openPrompt.current !== f) return;
+                  dismissOpen();
                   void onOpenOrk(f);
                 })();
               }}
@@ -115,13 +125,13 @@ export function DesignConfirms({ tree, unprotected = false, lossDialog, setLossD
               className="file-btn modal-danger"
               onClick={() => {
                 const f = pendingOpen;
-                setPendingOpen(null);
+                dismissOpen();
                 void onOpenOrk(f);
               }}
             >
               Open without saving
             </button>
-            <button className="file-btn" onClick={() => setPendingOpen(null)}>Cancel</button>
+            <button className="file-btn" onClick={dismissOpen}>Cancel</button>
           </div>
         </Modal>
       )}

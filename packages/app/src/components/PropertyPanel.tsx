@@ -67,7 +67,7 @@ import { limitPatch, POSITION_LIMIT } from '../tree/sanitize.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { FIN_TEMPLATE_DPI, finTemplatePixelSize, finTemplateSvg } from '../services/finTemplate.js';
 import { svgToImage } from '../services/schematicExport.js';
-import { withDpi } from '../services/rasterDpi.js';
+import { rasterLimitProblem, withDpi } from '../services/rasterDpi.js';
 import { FinTemplateMenu, type FinTemplateFormat } from './FinTemplateMenu.js';
 import { TubeWrapMenu } from './TubeWrapMenu.js';
 import { FinAlignmentJigMenu } from './FinAlignmentJigMenu.js';
@@ -530,7 +530,8 @@ function FinSectionNotes({ tree, node }: { tree: RocketTree; node: ComponentNode
   }, [tree, node]);
   const cross = typeof node['crossSection'] === 'string' ? node['crossSection'] : 'square';
   const named = typeof node['airfoilSection'] === 'string' ? AIRFOIL_SECTION_LABEL[node['airfoilSection']] : undefined;
-  const drawnAs = cross === 'airfoil' ? undefined : CROSS_SECTION_LABEL[cross] ?? 'Square';
+  const drawnAs = cross === 'airfoil' ? undefined
+    : Object.hasOwn(CROSS_SECTION_LABEL, cross) ? CROSS_SECTION_LABEL[cross] : 'Square';
   return (
     <>
       {flat && (
@@ -1229,8 +1230,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           // a width that puts FIN_TEMPLATE_DPI pixels in every inch of the
           // page, with that resolution written into the file (rasterDpi.ts)
           // and its name, so an import at that resolution is 1:1.
+          let sizeContext = '';
           try {
             const { width, height } = finTemplatePixelSize(svg);
+            if (rasterLimitProblem(width, height)) {
+              sizeContext = ` (at ${width} x ${height} px it is above 16 million pixels in total or 8192 pixels on either side, which many browsers cannot draw at 300 dpi)`;
+            }
             const img = await svgToImage(svg, width, format, height);
             const bytes = withDpi(new Uint8Array(await img.arrayBuffer()), format, FIN_TEMPLATE_DPI);
             setExportNote(null);
@@ -1238,7 +1243,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
               `${stem}-${FIN_TEMPLATE_DPI}dpi.${format === 'png' ? 'png' : 'jpg'}`,
               `${format === 'png' ? 'PNG' : 'JPG'} cut template`);
           } catch (e) {
-            setExportNote(`Could not draw the fin template as an image: ${e instanceof Error ? e.message : String(e)}`
+            setExportNote(`Could not draw the fin template as an image: ${e instanceof Error ? e.message : String(e)}${sizeContext}`
               + ' — the SVG options still work.');
           }
         }} />

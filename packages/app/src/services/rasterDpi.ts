@@ -1,5 +1,18 @@
 import { crc32 } from './zipMember.js';
 
+/** Shared size verdict: jigs refuse it; fin templates add context only if export fails. */
+export function rasterLimitProblem(width: number, height: number): string | null {
+  return width * height > 16_000_000 || Math.max(width, height) > 8192
+    ? 'too large for a 300 dpi image (limits: 16 million pixels in total, 8192 pixels on either side)'
+    : null;
+}
+
+/** Preserve 300 dpi without exhausting canvas memory or silently shrinking a print. */
+export function assertRasterizable(width: number, height: number): void {
+  const problem = rasterLimitProblem(width, height);
+  if (problem) throw new Error(problem);
+}
+
 /**
  * Stamp a print resolution into a PNG or JPEG the canvas encoded.
  *

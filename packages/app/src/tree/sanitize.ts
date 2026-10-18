@@ -130,6 +130,7 @@ export const POSITION_LIMIT: FieldLimit = {
 
 /** The labels an enum field reads under in a note — the panel's are phrased as prompts. */
 const ENUM_LABEL: Record<string, string> = {
+  crossSection: 'Cross section',
   airfoilSection: 'supersonic airfoil section',
   separationEvent: 'separation event',
   cluster: 'cluster pattern',
@@ -176,7 +177,9 @@ function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
     // The panel's "Classic (from cross section)" option IS the empty string —
     // it means "no section", which is what an absent key means. Not a repair.
     if (raw.trim() === '') { delete edit()[key]; continue; }
-    const canon = canonicalEnum(limit.values, raw);
+    const canon = limit.match === 'lowercase'
+      ? limit.values.find((v) => v === raw.toLowerCase()) ?? null
+      : canonicalEnum(limit.values, raw);
     if (canon === raw) continue;
     if (canon !== null) { edit()[key] = canon; continue; } // same value, canonical spelling — nothing to say
     delete edit()[key];

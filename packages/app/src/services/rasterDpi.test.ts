@@ -1,6 +1,16 @@
 import { crc32 as zlibCrc32 } from 'node:zlib';
 import { describe, expect, it } from 'vitest';
-import { withDpi } from './rasterDpi.js';
+import { assertRasterizable, rasterLimitProblem, withDpi } from './rasterDpi.js';
+
+// S3a-g4 (audit 2026-10-17): either the total pixel count or one side can exceed the jig limits.
+it.each([[4001, 4000], [8193, 1], [1, 8193]])('refuses a %s x %s raster with a context-free reason', (width, height) => {
+  expect(rasterLimitProblem(width, height)).toBe('too large for a 300 dpi image (limits: 16 million pixels in total, 8192 pixels on either side)');
+  expect(() => assertRasterizable(width, height)).toThrow(/^too large for a 300 dpi image \(limits: 16 million pixels in total, 8192 pixels on either side\)$/);
+});
+it.each([[4000, 4000], [8192, 1], [1, 8192]])('accepts the exact limit: %s x %s', (width, height) => {
+  expect(rasterLimitProblem(width, height)).toBeNull();
+  expect(() => assertRasterizable(width, height)).not.toThrow();
+});
 
 /**
  * The PNG and JPG fin templates carry their 300 dpi in the file, so an import

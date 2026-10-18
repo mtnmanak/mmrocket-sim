@@ -78,6 +78,7 @@ function NodeRow({ node, depth, selectedId, soleStageId, rove, hidden, visibilit
       >
         {onToggleVisibility && node.id && (
           <button type="button" className="tree-visibility"
+            tabIndex={selected ? 0 : -1}
             aria-label={`${isHidden ? 'Show' : 'Hide'} ${label} in views`}
             aria-pressed={isHidden} aria-describedby={visibilityNoteId}
             title={isHidden ? `Show ${label} in views` : `Hide ${label} and its children in views`}

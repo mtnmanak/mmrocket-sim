@@ -27,7 +27,7 @@ const TREE = {
   }],
 } as unknown as RocketTree;
 
-const show = (selectedId: string | null) => act(() => root.render(
+const show = (selectedId: string | null, visibility = false) => act(() => root.render(
   <ComponentTree
     tree={TREE}
     selectedId={selectedId}
@@ -41,6 +41,7 @@ const show = (selectedId: string | null) => act(() => root.render(
     onCopy={() => {}}
     onCut={() => {}}
     onPaste={() => {}}
+    onToggleVisibility={visibility ? () => {} : undefined}
   />,
 ));
 
@@ -153,6 +154,19 @@ describe('the tree keeps the keyboard contract its role promises', () => {
     expect(tabbable[0]!.textContent).toContain('Airframe');
     // Every other row is reachable by arrow, not by Tab.
     expect(rows().filter((r) => r.tabIndex === -1).length).toBe(rows().length - 1);
+  });
+
+  it('S3c-4 keeps only the active row visibility control in sequential navigation', () => {
+    for (const id of [null, 'n1', 'b1']) {
+      show(id, true);
+      const box = host.querySelector('.tree-box')!;
+      const tabbable = [...box.querySelectorAll<HTMLElement>('*')].filter(el => el.tabIndex >= 0);
+      const active = box.querySelector<HTMLElement>('[role="treeitem"][tabindex="0"]')!;
+      const activeControls = [...active.querySelectorAll<HTMLButtonElement>('button')].filter(b => !b.disabled);
+      expect(tabbable).toEqual([active, ...activeControls]);
+      expect([...box.querySelectorAll<HTMLButtonElement>('.tree-visibility')]
+        .filter(b => b.tabIndex === 0)).toHaveLength(id ? 1 : 0);
+    }
   });
 
   it('falls back to the root row when the selection is not in the tree', () => {
