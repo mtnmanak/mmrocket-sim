@@ -22,8 +22,8 @@
 //     11 more, not all of them measured here. Both figures are recounted from
 //     the installed typescript-eslint by
 //     packages/app/scripts/eslint-config.guards.test.mjs
-//   - @typescript-eslint/no-non-null-assertion: 4,433 hits (631 outside tests) on
-//     2026-09-23, up from 2,902 / 576 on 2026-09-08 as the suites grew; load-bearing
+//   - @typescript-eslint/no-non-null-assertion: 13,650 hits (1,425 outside tests) on
+//     2026-10-17, up from 4,433 / 631 on 2026-09-23 and 2,902 / 576 on 2026-09-08 as the suites grew; load-bearing
 //     under the base tsconfig's noUncheckedIndexedAccess. The figure read "~284"
 //     until 2026-09-08, which was 10x low — a reader sizing the cleanup off it would
 //     have budgeted an afternoon for a week. It only grows; re-measure before acting
@@ -63,6 +63,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import jsxA11y from 'eslint-plugin-jsx-a11y';
 import globals from 'globals';
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 
 // `typeof <member> === 'number'` (or `!==`, `==`, `!=`; `x?.[k]` too): true of
 // NaN and of ±Infinity. The no-restricted-syntax rule in the browser-source
@@ -168,6 +169,14 @@ export default tseslint.config(
   // drops nothing CI lints: no tracked file matches .gitignore, which
   // `git ls-files -ci --exclude-standard` shows by printing nothing.
   includeIgnoreFile(fileURLToPath(new URL('.gitignore', import.meta.url))),
+  // And what .git/info/exclude keeps out, the same way (audit 2026-10-17, O-1). Local-only work folders listed
+  // there and not in .gitignore (.b10/ and its siblings) put 30 no-undef errors from .b10/fly/*.mjs into the local
+  // `npm run lint -- --max-warnings 0` on the laptop, a gate CI's fresh clone always passed. The file is absent in a
+  // worktree (its .git is a file) and holds only comments in CI's checkout, so it is read only when it exists. It
+  // drops nothing CI lints: `git ls-files -ci --exclude-standard`, which applies this file too, prints nothing.
+  ...(existsSync(fileURLToPath(new URL('.git/info/exclude', import.meta.url)))
+    ? [includeIgnoreFile(fileURLToPath(new URL('.git/info/exclude', import.meta.url)))]
+    : []),
 
   js.configs.recommended,
   ...tseslint.configs.recommended,
@@ -284,7 +293,7 @@ export default tseslint.config(
       // WARN in an editor, but CI runs with --max-warnings 0 (2026-09-22), so a new
       // stale dep array fails the deploy exactly as an error would. The count had sat
       // AT its old ceiling of 8, where one push could clear an old warning, add a real
-      // stale closure and stay green. The deliberate exceptions (27 on 2026-09-23:
+      // stale closure and stay green. The deliberate exceptions (35 on 2026-10-17, 27 on 2026-09-23:
       // `git grep -c "eslint-disable.*exhaustive-deps" -- packages`) each carry a
       // written reason after `--`, and reportUnusedDisableDirectives above fails any
       // that stops suppressing something.

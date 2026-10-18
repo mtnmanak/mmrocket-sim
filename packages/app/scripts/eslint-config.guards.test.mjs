@@ -40,7 +40,7 @@ import { describe, expect, it } from 'vitest';
 import { ESLint, Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
 import jsxA11y from 'eslint-plugin-jsx-a11y';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -423,6 +423,19 @@ describe('eslint.config.mjs — a lint from the repo root reaches what CI’s do
     for (const dir of dirs) {
       const bases = dir.slice(0, -1).includes('/') ? [''] : ['', 'packages/app/'];
       for (const probe of bases.flatMap((b) => [`${b}${dir}probe.mjs`, `${b}${dir}nested/probe.ts`])) {
+        expect(await eslint.isPathIgnored(probe), probe).toBe(true);
+      }
+    }
+    // .git/info/exclude is read too, when there is one (audit 2026-10-17, O-1): the laptop's .b10/ is listed there,
+    // not in .gitignore, and its 30 no-undef errors made the local gate red while CI was green. A worktree's .git is
+    // a file and CI's exclude holds only comments, so the probe runs only where the file lists a folder.
+    const exclude = new URL('../../../.git/info/exclude', import.meta.url);
+    const excluded = existsSync(exclude) && statSync(exclude).isFile()
+      ? readFileSync(exclude, 'utf8').split(/\r?\n/).map((l) => l.trim())
+        .filter((l) => l.endsWith('/') && !l.startsWith('#') && !l.startsWith('!') && !l.includes('*'))
+      : [];
+    for (const dir of excluded) {
+      for (const probe of [`${dir}probe.mjs`, `${dir}nested/probe.ts`]) {
         expect(await eslint.isPathIgnored(probe), probe).toBe(true);
       }
     }
