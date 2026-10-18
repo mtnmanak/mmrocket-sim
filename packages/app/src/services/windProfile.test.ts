@@ -54,6 +54,7 @@ describe('weather wind profile', () => {
   it('never offers archive levels, even if a response unexpectedly contains them', () => {
     const q = { launch: profile, place: { latitudeDeg: 40, longitudeDeg: -119 }, unix: 1, choice: 'site' as const,
       answer: { endpoint: 'archive' as const, date: '2021-03-01', demM: 0, elevationsM: [0], timezone: 'UTC',
+        retrievedAt: '2026-09-22T18:00:00.000Z',
         variants: [{ elevationM: 0, gridLatitudeDeg: 40, gridLongitudeDeg: -119, timezone: 'UTC', samples: [sample] }] } };
     expect(buildProposal(q).windLevels).toEqual([]);
     expect(buildProposal({ ...q, answer: { ...q.answer, endpoint: 'forecast' } }).windLevels).toEqual(profile.windLevels);

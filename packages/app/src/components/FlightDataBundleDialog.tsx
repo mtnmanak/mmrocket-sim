@@ -5,12 +5,21 @@ import { Note } from './Note.js';
 import { WeatherCredit } from './WeatherCredit.js';
 import { formatRunLabel } from '../services/simReport.js';
 import { flightDataBundleContents, flightDataBundleFiles, flightDataBundleLongitudeComparison, flightDataBundleWeatherCredit, type FlightDataBundleInput } from '../services/flightDataBundle.js';
+import { readDecimal } from '../prefs/units.js';
 import { saveFile } from '../services/saveFile.js';
 
 export type FlightDataBundleSource = Omit<FlightDataBundleInput, 'includeCoordinates' | 'measurements' | 'attachment'>;
 const MAX_ATTACHMENT_BYTES = 25 * 1024 * 1024;
-const numeric = (v: string) => v.trim() === '' ? null : Number(v);
-const invalid = (v: string) => v.trim() !== '' && (!Number.isFinite(Number(v)) || Number(v) < 0);
+const NUMBER_ERROR = 'Enter zero or a positive number (1.5 or 1,5), without thousands separators, or leave it blank.';
+const numeric = (v: string) => {
+  const n = readDecimal(v);
+  return n !== null && n >= 0 ? n : null;
+};
+const invalid = (v: string) => {
+  if (v.trim() === '') return false;
+  const n = readDecimal(v);
+  return n === null || n < 0;
+};
 
 export function FlightDataBundleDialog({ source, onClose }: { source: FlightDataBundleSource; onClose: () => void }) {
   const [includeCoordinates, setIncludeCoordinates] = useState(false);
@@ -45,6 +54,11 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
   const download = async () => {
     if (saving.current || reading) return;
     setError(''); setStatus('');
+    if (fields.some(f => invalid(f.value))) {
+      setError(NUMBER_ERROR);
+      firstInvalid.current?.focus();
+      return;
+    }
     if (!preview.files) { setError(preview.error); firstInvalid.current?.focus(); return; }
     saving.current = true; setBusy(true);
     try {
@@ -85,7 +99,7 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
             ref={el => { if (invalid(f.value) && !fields.slice(0, i).some(p => invalid(p.value))) firstInvalid.current = el; }}
             aria-invalid={invalid(f.value)} aria-describedby={invalid(f.value) ? 'bundle-number-error' : undefined}
             onChange={e => f.set(e.target.value)} /></label>)}
-          {fields.some(f => invalid(f.value)) && <p id="bundle-number-error">Enter zero or a positive number, or leave the value blank.</p>}
+          {fields.some(f => invalid(f.value)) && <p id="bundle-number-error">{NUMBER_ERROR}</p>}
           <label>Notes<textarea className="resize-none" rows={5} value={notes} onChange={e => setNotes(e.target.value)} /></label>
           <label>Data-log file (optional, up to 25 MiB)<input ref={fileInput} type="file" disabled={reading} onChange={e => { void (async () => {
             const input = e.currentTarget;

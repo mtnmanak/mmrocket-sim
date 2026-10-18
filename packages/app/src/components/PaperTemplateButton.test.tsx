@@ -45,3 +45,16 @@ it('does not offer a second paper template for fins or tubes', () => {
   mount({ id: 'p', type: 'bodytube' }); expect(button()).toBeUndefined();
   mount({ id: 'p2', type: 'freeformfinset' }); expect(button()).toBeUndefined();
 });
+it('formats the calibration ruler hint in the active length unit', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'cm' } }));
+  mount({ id: 'p', type: 'bulkhead', outerRadius: 0.03 });
+  expect(host.textContent).toContain('Check the ruler on every sheet: 5 cm.');
+  act(() => root.render(null));
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'm' } }));
+  mount({ id: 'p', type: 'bulkhead', outerRadius: 0.03 });
+  expect(host.textContent).toContain('Check the ruler on every sheet: 0.05 m.');
+  act(() => root.render(null));
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'in' } }));
+  mount({ id: 'p', type: 'bulkhead', outerRadius: 0.03 });
+  expect(host.textContent).toContain('Check the ruler on every sheet: 2 in.');
+});

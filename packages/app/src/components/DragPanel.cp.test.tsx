@@ -23,10 +23,12 @@ import { APP_VERSION } from '../version.js';
 const plots: { series: { label?: string }[]; data: (number | null)[][] }[] = [];
 vi.mock('uplot', () => ({
   default: class RecordingPlot {
+    scales: Record<string, { min?: number | null; max?: number | null }> = { x: {} };
     constructor(opts: { series: { label?: string }[] }, data: (number | null)[][]) {
       plots.push({ series: opts.series, data });
     }
     setSize() {}
+    setScale() {}
     destroy() {}
   },
 }));

@@ -9,6 +9,7 @@ import { DEFAULT_CONDITIONS } from '../services/launchConditions.js';
 import type { SimRun } from '../services/simReport.js';
 import { saveFile } from '../services/saveFile.js';
 import { runExportContext } from '../services/runExportContext.js';
+import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
 vi.mock('../services/saveFile.js', () => ({ saveFile: vi.fn(async () => ({ kind: 'cancelled' })) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
@@ -71,20 +72,39 @@ it('keeps failed save errors in the dialog and accepts missing measurements as u
   expect(host.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(false);
 });
 
-it('requires correction for invalid measurements and preserves entered SI values and explicit coordinate consent', async () => {
+it('requires correction for invalid measurements while keeping the preview mounted, and accepts comma-decimal SI values and explicit coordinate consent', async () => {
   act(() => root.render(<FlightDataBundleDialog source={source()} onClose={() => {}} />));
   const apogee = [...host.querySelectorAll('label')].find(l => l.textContent?.startsWith('Measured apogee'))!.control as HTMLInputElement;
   fill(apogee, '-2');
+  expect(host.querySelectorAll('details')).toHaveLength(6);
+  expect(host.textContent).not.toContain('Preview unavailable');
   await click('Download ZIP');
   expect(saveFile).not.toHaveBeenCalled();
   expect(apogee.getAttribute('aria-invalid')).toBe('true');
   expect(document.activeElement).toBe(apogee);
-  fill(apogee, '111.5');
+  fill(apogee, '.');
+  expect(host.querySelectorAll('details')).toHaveLength(6);
+  expect(apogee.getAttribute('aria-invalid')).toBe('true');
+  fill(apogee, '111,5');
+  expect(apogee.getAttribute('aria-invalid')).toBe('false');
   act(() => host.querySelector<HTMLInputElement>('input[type=checkbox]')!.click());
   await click('Download ZIP');
   const files = unzipSync(new Uint8Array(await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).arrayBuffer()));
   expect(JSON.parse(strFromU8(files['measurements.json']!)).apogeeM).toBe(111.5);
   expect(strFromU8(files['design.ork']!)).toContain('<launchlatitude>61.234567</launchlatitude>');
+});
+
+it('explains ambiguous separators at the field and after a refused download', async () => {
+  act(() => root.render(<FlightDataBundleDialog source={source()} onClose={() => {}} />));
+  const mass = [...host.querySelectorAll('label')].find(l => l.textContent?.startsWith('As-flown liftoff mass'))!.control as HTMLInputElement;
+  fill(mass, LOCALE_DECIMAL_COMMA ? '1.234' : '1,500');
+  expect(mass.getAttribute('aria-invalid')).toBe('true');
+  expect(host.querySelector('#bundle-number-error')!.textContent).toContain('without thousands separators');
+  expect(host.querySelector('#bundle-number-error')!.textContent).toContain('1.5 or 1,5');
+  await click('Download ZIP');
+  expect(saveFile).not.toHaveBeenCalled();
+  expect(host.querySelector('[role=alert]')!.textContent).toBe(host.querySelector('#bundle-number-error')!.textContent);
+  expect(document.activeElement).toBe(mass);
 });
 
 it('reads only the chosen attachment, previews it, and lets the flyer leave it out', async () => {

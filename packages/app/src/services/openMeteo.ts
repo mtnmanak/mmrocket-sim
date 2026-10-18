@@ -98,21 +98,26 @@ export const CACHE_TTL_MS = 10 * 60 * 1000;
 
 // ------------------------------------------------------------------- dates
 
+function formatYmd(fmt: Intl.DateTimeFormat, ms: number): string {
+  const parts = fmt.formatToParts(new Date(ms));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 /** "YYYY-MM-DD" of an instant as the calendar reads in `timeZone` (the browser's own when absent or unknown). */
 export function ymdInZone(ms: number, timeZone: string | undefined): string {
   // formatToParts, never a locale's whole-date string: 'en-CA' happens to
   // print ISO order today, and nothing promises it will tomorrow.
-  const fmt = (tz: string | undefined) => new Intl.DateTimeFormat('en-US', {
+  const makeFmt = (tz: string | undefined) => new Intl.DateTimeFormat('en-US', {
     timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(new Date(ms));
-  let parts: Intl.DateTimeFormatPart[];
+  });
+  let fmt: Intl.DateTimeFormat;
   try {
-    parts = fmt(timeZone);
+    fmt = makeFmt(timeZone);
   } catch {
-    parts = fmt(undefined); // an unknown zone name: the browser's own
+    fmt = makeFmt(undefined); // an unknown zone name: the browser's own
   }
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '';
-  return `${get('year')}-${get('month')}-${get('day')}`;
+  return formatYmd(fmt, ms);
 }
 
 const YMD = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -763,17 +768,23 @@ export interface LocalHour {
  */
 export function hoursOnLocalDate(samples: readonly HourSample[], timeZone: string, ymd: string): LocalHour[] {
   let tz = timeZone;
+  let ymdFmt: Intl.DateTimeFormat;
   try {
-    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    ymdFmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    });
   } catch {
     tz = 'UTC';
+    ymdFmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    });
   }
   const fmt = new Intl.DateTimeFormat('en-US', {
     timeZone: tz, hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
   });
   const hourOf = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hourCycle: 'h23' });
   return samples
-    .filter((s) => ymdInZone(s.unix * 1000, tz) === ymd)
+    .filter((s) => formatYmd(ymdFmt, s.unix * 1000) === ymd)
     .map((s) => {
       const d = new Date(s.unix * 1000);
       return { unix: s.unix, label: plainSpaces(fmt.format(d)), hour: Number(hourOf.formatToParts(d).find((p) => p.type === 'hour')?.value ?? 0) };
@@ -873,6 +884,7 @@ export function requestElevations(siteM: number, demM: number | null): number[] 
 export interface FetchOpts {
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
+  now?: () => number;
 }
 
 /**
@@ -911,16 +923,22 @@ export function clearWeatherCache(): void {
   answers.clear();
 }
 
-async function cached<T>(url: string, load: () => Promise<T>): Promise<T> {
+async function cachedWithTime<T>(url: string, load: () => Promise<T>, now: () => number = Date.now): Promise<{ at: number; value: T }> {
+  const nowMs = now();
   const hit = answers.get(url);
-  if (hit && Date.now() - hit.at < CACHE_TTL_MS) return hit.value as T;
+  if (hit && nowMs - hit.at < CACHE_TTL_MS) return { at: hit.at, value: hit.value as T };
   const value = await load();
-  answers.set(url, { at: Date.now(), value });
-  return value;
+  const at = now();
+  answers.set(url, { at, value });
+  return { at, value };
+}
+
+async function cached<T>(url: string, load: () => Promise<T>, now: () => number = Date.now): Promise<T> {
+  return (await cachedWithTime(url, load, now)).value;
 }
 
 /** A place search. Throws NetError / WeatherError. */
-export async function fetchGeocode(name: string, countryCode: string | undefined, o: FetchOpts = {}): Promise<GeoPlace[]> {
+async function fetchGeocode(name: string, countryCode: string | undefined, o: FetchOpts = {}): Promise<GeoPlace[]> {
   const a = await getJsonCapped(geocodeUrl(name, countryCode), { ...REQUEST, ...o, timeoutMs: REQUEST_TIMEOUT_MS });
   if (a.status < 200 || a.status >= 300) throw httpError(a.status, a.json);
   return parseGeocode(a.json);
@@ -935,21 +953,26 @@ export async function fetchElevation(latitudeDeg: number, longitudeDeg: number, 
       const e = a.status >= 200 && a.status < 300 ? parseElevation(a.json) : null;
       if (e === null) throw new WeatherError('shape', 'no elevation'); // not cached
       return e;
-    });
+    }, o.now);
   } catch (err) {
     if (isCancel(err)) throw err;
     return null;
   }
 }
 
-/** The forecast (or archive) for one place at one or two elevations. Throws NetError / WeatherError. */
-export async function fetchForecast(q: Parameters<typeof forecastUrl>[0], o: FetchOpts = {}): Promise<ForecastVariant[]> {
+async function fetchForecastWithTime(q: Parameters<typeof forecastUrl>[0], o: FetchOpts = {}): Promise<{ at: number; value: ForecastVariant[] }> {
   const url = forecastUrl(q);
-  return cached(url, async () => {
+  return cachedWithTime(url, async () => {
     const a = await getJsonCapped(url, { ...REQUEST, ...o, timeoutMs: REQUEST_TIMEOUT_MS });
     if (a.status < 200 || a.status >= 300) throw httpError(a.status, a.json);
     return parseForecast(a.json, q.elevationsM);
-  });
+  }, o.now);
+}
+
+/** The forecast (or archive) for one place at one or two elevations. Throws NetError / WeatherError. */
+// Exported as the error-text tests' entry point to the forecast fetcher.
+export async function fetchForecast(q: Parameters<typeof forecastUrl>[0], o: FetchOpts = {}): Promise<ForecastVariant[]> {
+  return (await fetchForecastWithTime(q, o)).value;
 }
 
 /** Everything one Fetch press brings back. */
@@ -964,6 +987,8 @@ export interface WeatherAnswer {
   variants: ForecastVariant[];
   /** The site's zone: the answer's own, else the place's, else the browser's. */
   timezone: string;
+  /** ISO 8601 UTC timestamp when the forecast response was retrieved (or originally cached). */
+  retrievedAt: string;
 }
 
 /** A date no endpoint answers — refused before any request. */
@@ -994,10 +1019,13 @@ export async function fetchWeather(q: {
   if (!w.ok) throw new DateRefusal(w.reason);
   const demM = await fetchElevation(q.place.latitudeDeg, q.place.longitudeDeg, o);
   const elevationsM = requestElevations(q.siteM, demM);
-  const variants = await fetchForecast({
+  const { at, value: variants } = await fetchForecastWithTime({
     endpoint: w.endpoint, latitudeDeg: q.place.latitudeDeg, longitudeDeg: q.place.longitudeDeg,
     elevationsM, startDate: w.startDate, endDate: w.endDate,
   }, o);
   const timezone = variants[0]?.timezone ?? q.place.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-  return { endpoint: w.endpoint, date: q.date, demM, elevationsM, variants, timezone };
+  return {
+    endpoint: w.endpoint, date: q.date, demM, elevationsM, variants, timezone,
+    retrievedAt: new Date(at).toISOString(),
+  };
 }
