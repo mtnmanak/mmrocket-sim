@@ -97,12 +97,127 @@ export function loadCustomPresets(): Preset[] {
   }
 }
 
-export function saveCustomPresets(presets: Preset[]): void {
+export function saveCustomPresets(presets: Preset[]): boolean {
   try {
     localStorage.setItem(CUSTOM_KEY, JSON.stringify(presets));
+    return true;
   } catch {
-    // Private browsing / quota — the presets still work for this session.
+    return false;
   }
+}
+
+/** Custom identities retain Unicode; the bundled catalogue's ASCII key cannot distinguish these names. */
+export const customPartKey = (value: string): string => value.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}+]/gu, '');
+const customManufacturerKey = (value: string): string => {
+  const key = customPartKey(value).replace(/\+/g, '');
+  return /^[a-z0-9]*$/.test(key) ? mfrKey(value) : key;
+};
+export const sameCustomPreset = (a: Preset, b: Preset): boolean =>
+  a.kind === b.kind && customManufacturerKey(a.manufacturer) === customManufacturerKey(b.manufacturer) && customPartKey(a.partNo) === customPartKey(b.partNo);
+
+/** Refuse new distinct identities that the existing design-link resolver conflates. */
+const customPresetLinkMessage = (conflict: Preset): string =>
+  `That part number cannot be told apart from My part ${conflict.manufacturer} ${conflict.partNo} when a design links to it; add a distinguishing Latin letter or digit.`;
+
+export function customPresetLinkError(row: Preset, remaining: Preset[]): string | undefined {
+  const conflict = remaining.find((p) => !sameCustomPreset(p, row)
+    && linkKey(p.kind, p.manufacturer, p.partNo) === linkKey(row.kind, row.manufacturer, row.partNo));
+  return conflict && customPresetLinkMessage(conflict);
+}
+
+/** Prepare a whole CSV import with one identity calculation per row, not per pair. */
+export function mergeCustomPresetImport(stored: Preset[], good: Preset[]): { presets: Preset[]; linkError?: string } {
+  const identify = (row: Preset) => ({
+    row,
+    id: `${row.kind}|${customManufacturerKey(row.manufacturer)}|${customPartKey(row.partNo)}`,
+    link: linkKey(row.kind, row.manufacturer, row.partNo),
+  });
+  const incoming = good.map(identify);
+  const goodIds = new Set(incoming.map((p) => p.id));
+  const keep = stored.map(identify).filter((p) => !goodIds.has(p.id));
+  const firstByLink = new Map<string, ReturnType<typeof identify>>();
+  // Legacy stored collisions alone do not refuse an unrelated import.
+  for (const p of keep) {
+    if (!firstByLink.has(p.link)) firstByLink.set(p.link, p);
+  }
+  for (const p of incoming) {
+    const first = firstByLink.get(p.link);
+    if (first && first.id !== p.id) {
+      return { presets: [], linkError: customPresetLinkMessage(first.row) };
+    }
+    if (!first) firstByLink.set(p.link, p);
+  }
+  return { presets: [...keep.map((p) => p.row), ...good] };
+}
+
+/** Deleting one displayed row must not remove differently spelled legacy rows. */
+export const exactCustomPreset = (a: Preset, b: Preset): boolean =>
+  a.kind === b.kind && a.manufacturer === b.manufacturer && a.partNo === b.partNo;
+
+// Only saved-component rows use this extension. Ordinary catalogue picks and
+// links keep their existing semantics, including automatic ring diameters.
+type SavedField = readonly [nodeKey: string, column: string, scale?: number];
+const TUBE_FIELDS: readonly SavedField[] = [
+  ['length', 'length'], ['outerRadius', 'outsideDiameter', 2], ['thickness', 'thickness'],
+];
+const SAVED_FIELDS = lookupTable<readonly SavedField[]>({
+  bodytube: TUBE_FIELDS, innertube: TUBE_FIELDS, tubecoupler: TUBE_FIELDS,
+  engineblock: TUBE_FIELDS, launchlug: TUBE_FIELDS,
+  centeringring: [['length', 'length'], ['outerRadius', 'outsideDiameter', 2], ['innerRadius', 'insideDiameter', 2]],
+  bulkhead: [['length', 'length'], ['outerRadius', 'outsideDiameter', 2]],
+  nosecone: [
+    ['length', 'length'], ['aftRadius', 'outsideDiameter', 2], ['thickness', 'thickness'],
+    ['shapeParameter', 'shapeParameter'], ['shoulderRadius', 'shoulderDiameter', 2],
+    ['shoulderLength', 'shoulderLength'], ['shoulderThickness', 'shoulderThickness'],
+  ],
+  transition: [
+    ['length', 'length'], ['foreRadius', 'foreOutsideDiameter', 2], ['aftRadius', 'aftOutsideDiameter', 2],
+    ['thickness', 'thickness'], ['shapeParameter', 'shapeParameter'],
+    ['foreShoulderRadius', 'foreShoulderDiameter', 2], ['foreShoulderLength', 'foreShoulderLength'],
+    ['foreShoulderThickness', 'foreShoulderThickness'], ['aftShoulderRadius', 'aftShoulderDiameter', 2],
+    ['aftShoulderLength', 'aftShoulderLength'], ['aftShoulderThickness', 'aftShoulderThickness'],
+  ],
+  parachute: [
+    ['diameter', 'diameter'], ['cd', 'dragCoefficient'], ['spillHoleDiameter', 'spillHoleDiameter'],
+    ['packedRadius', 'packedDiameter', 2], ['packedLength', 'packedLength'],
+    ['lineCount', 'lineCount'], ['lineLength', 'lineLength'],
+  ],
+  streamer: [['stripLength', 'length'], ['stripWidth', 'width'], ['cd', 'dragCoefficient'],
+    ['packedRadius', 'packedDiameter', 2], ['packedLength', 'packedLength']],
+});
+
+/** A part's own values, never a computed mass or an assembly's weighing.
+ * Blank dimensions remain absent/automatic, rather than freezing a parent's
+ * current radius. The savedComponent CSV flag preserves these blank values and
+ * the extra shape/shoulder fields without changing bundled preset behavior.
+ */
+export function componentToPreset(node: ComponentNode): Preset {
+  const kind = KIND_FOR_TYPE[node.type];
+  if (!kind) throw new Error('This component type has no part presets.');
+  const p: Preset = {
+    kind, manufacturer: 'My parts', partNo: '', description: node.name ?? '', savedComponent: true,
+  };
+  for (const [key, column, scale = 1] of SAVED_FIELDS[node.type] ?? []) {
+    const value = numOpt(node, key);
+    if (value !== undefined) p[column] = value * scale;
+  }
+  const outer = numOpt(p, 'outsideDiameter');
+  const wall = numOpt(node, 'thickness');
+  if (outer !== undefined && wall !== undefined) p['insideDiameter'] = Math.max(0, outer - 2 * wall);
+  for (const key of ['shape', 'filled', 'clipped'] as const) {
+    if (typeof node[key] === (key === 'shape' ? 'string' : 'boolean')) p[key] = node[key];
+  }
+  const surface = materialTypeFor(kind) === 'SURFACE';
+  const material = (nameKey: string, densityKey: string, type: string) => {
+    const density = numOpt(node, densityKey);
+    return density === undefined ? undefined : {
+      name: typeof node[nameKey] === 'string' ? node[nameKey] : '', type, density,
+    };
+  };
+  p.material = material(surface ? 'surfaceMaterialName' : 'materialName', surface ? 'surfaceDensity' : 'density', surface ? 'SURFACE' : 'BULK');
+  if (node.type === 'parachute') p.lineMaterial = material('lineMaterialName', 'lineDensity', 'LINE');
+  if (node['overrideSubcomponentsMass'] !== true) p.mass = numOpt(node, 'overrideMass');
+  return p;
 }
 
 const n = (p: Preset, key: string): number | undefined => numOpt(p, key);
@@ -151,6 +266,8 @@ export function presetPatch(
    * marker, so no stored or opened design moves.
    */
   place?: { parentRadius: number },
+  /** Only an interactive My part pick restores saved automatic and extra fields. */
+  options?: { saved: boolean },
 ): Partial<ComponentNode> {
   const patch: Partial<ComponentNode> = { name: `${p.manufacturer} ${p.partNo}` };
   const half = (v: number | undefined) => (v === undefined ? undefined : v / 2);
@@ -375,6 +492,42 @@ export function presetPatch(
     default:
       break;
   }
+  if (p['savedComponent'] === true && options?.saved) {
+    for (const [key, column, scale = 1] of SAVED_FIELDS[type] ?? []) {
+      // A placed canopy was already fitted to its new bay above.
+      if (type === 'parachute' && place && (key === 'packedRadius' || key === 'packedLength')) continue;
+      const raw = n(p, column);
+      let value = raw;
+      if (key === 'cd' || key === 'diameter') value = raw !== undefined && raw > 0 ? raw : undefined;
+      if (key === 'lineLength') value = raw !== undefined && raw >= 0 ? raw : undefined;
+      if (key === 'lineCount') value = raw !== undefined && raw >= 0 && Number.isInteger(raw) ? raw : undefined;
+      // Required dimensions have no blank state; an edited CSV keeps the target's value.
+      // Ring/coupler and transition radii remain kernel-automatic when absent.
+      const required = ['length', 'thickness', 'stripLength', 'stripWidth'].includes(key)
+        || (key === 'outerRadius' && ['bodytube', 'innertube', 'launchlug'].includes(type))
+        || (key === 'aftRadius' && type === 'nosecone');
+      const write = required ? set : own;
+      write(key, value === undefined ? undefined : value / scale);
+    }
+    if (type === 'nosecone' || type === 'transition') {
+      own('shape', typeof p['shape'] === 'string' ? p['shape'].toLowerCase() : undefined);
+    }
+    if (type === 'bodytube' || type === 'nosecone' || type === 'transition') {
+      own('filled', typeof p['filled'] === 'boolean' ? p['filled'] : undefined);
+    }
+    if (type === 'transition') own('clipped', typeof p['clipped'] === 'boolean' ? p['clipped'] : undefined);
+    const surface = materialTypeFor(p.kind) === 'SURFACE';
+    // A rigid row with no material keeps the receiving part's material.
+    const materialWrite = surface ? own : set;
+    if (surface || p.material) own(surface ? 'surfaceMaterialName' : 'materialName', p.material?.name || undefined);
+    materialWrite(surface ? 'surfaceDensity' : 'density', p.material?.density);
+    if (type === 'parachute') {
+      own('lineMaterialName', p.lineMaterial?.name || undefined);
+      own('lineDensity', p.lineMaterial?.density);
+    }
+    // The base mass rule also governs saved rows: positive own mass only;
+    // a massless row clears a previous catalogue mass, never a typed rigid-part mass.
+  }
   return patch;
 }
 
@@ -424,6 +577,8 @@ const CSV_COLS = [
   'aftShoulderDiameter', 'aftShoulderLength', 'diameter', 'dragCoefficient',
   'spillHoleDiameter', 'packedDiameter', 'packedLength', 'lineCount', 'lineLength', 'width',
   'lineMaterialName', 'lineMaterialDensity',
+  'savedComponent', 'shapeParameter', 'clipped', 'shoulderThickness',
+  'foreShoulderThickness', 'aftShoulderThickness',
 ];
 
 export function presetsToCsv(presets: Preset[]): string {
@@ -520,7 +675,7 @@ export function csvToPresets(csv: string): Preset[] {
       };
     }
     for (const c of CSV_COLS) {
-      if (['kind', 'manufacturer', 'partNo', 'description', 'materialName', 'materialType', 'materialDensity', 'shape', 'filled', 'lineMaterialName', 'lineMaterialDensity'].includes(c)) continue;
+      if (['kind', 'manufacturer', 'partNo', 'description', 'materialName', 'materialType', 'materialDensity', 'shape', 'filled', 'lineMaterialName', 'lineMaterialDensity', 'savedComponent', 'clipped'].includes(c)) continue;
       // TRIM BEFORE TESTING. `Number(' ')` is 0 and `' ' !== ''`, so a cell a
       // spreadsheet left holding a single space imported as the NUMBER ZERO —
       // a zero mass (which used to become `overrideMass: 0`), a zero diameter,
@@ -541,6 +696,10 @@ export function csvToPresets(csv: string): Preset[] {
     const shape = (row['shape'] ?? '').trim();
     if (shape) p['shape'] = shape.toUpperCase();
     if (/^\s*true\s*$/i.test(row['filled'] ?? '')) p['filled'] = true;
+    if (/^\s*true\s*$/i.test(row['savedComponent'] ?? '')) p['savedComponent'] = true;
+    for (const key of p['savedComponent'] === true ? ['clipped', 'filled'] : []) {
+      if (/^\s*(true|false)\s*$/i.test(row[key] ?? '')) p[key] = row[key]!.trim().toLowerCase() === 'true';
+    }
     out.push(p);
   }
   return out;
@@ -724,6 +883,10 @@ const CATALOGUE_FIELDS: Record<string, CatalogueField> = lookupTable<CatalogueFi
   foreShoulderLength: { words: 'fore shoulder length', differs: ALONG },
   aftShoulderLength: { words: 'aft shoulder length', differs: ALONG },
   outerRadius: { words: 'outer radius', differs: ACROSS },
+  innerRadius: { words: 'inner radius', differs: ACROSS },
+  // Packed size belongs to an interactive pick; links and conflict markers ignore it.
+  packedRadius: { words: 'packed radius', differs: NEVER },
+  packedLength: { words: 'packed length', differs: NEVER },
   aftRadius: { words: 'base radius', differs: ACROSS },
   foreRadius: { words: 'fore radius', differs: ACROSS },
   thickness: { words: 'wall thickness', differs: ACROSS },
@@ -886,7 +1049,7 @@ function flown(node: ComponentNode, key: string): number | string | boolean | un
  * catalogue's stock mass is a different claim about a different number.
  */
 export function catalogueDifferences(node: ComponentNode, row: Preset): CatalogueDifference[] {
-  const patch = presetPatch(node.type, row) as Record<string, unknown>;
+  const patch = presetPatch(node.type, row, undefined, undefined, { saved: true }) as Record<string, unknown>;
   const out: CatalogueDifference[] = [];
   const isCanopy = node.type === 'parachute';
   const byDensity = weighsByDensity(node, patch);
@@ -922,8 +1085,8 @@ export function catalogueDifferences(node: ComponentNode, row: Preset): Catalogu
     // … and a shape with its default parameter (and a transition's clipping),
     // exactly as a pick takes it.
     if (key === 'shape') {
-      take['shapeParameter'] = undefined;
-      if ('clipped' in patch) take['clipped'] = undefined;
+      take['shapeParameter'] = patch['shapeParameter'];
+      if ('clipped' in patch) take['clipped'] = patch['clipped'];
     }
     out.push({ key, words: field.words, have, want, patch: take as Partial<ComponentNode> });
   }

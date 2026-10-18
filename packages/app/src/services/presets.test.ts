@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import {
-  applyPresetLinks, CATALOGUE_LINK_KEYS, catalogueDifferences, catalogueField, csvToPresets, detachPatch,
+  applyPresetLinks, componentToPreset, CATALOGUE_LINK_KEYS, catalogueDifferences, catalogueField, csvToPresets, detachPatch,
   differsFromCatalogue, holdsCatalogueMass, KIND_FOR_TYPE, linkedPreset, loadCustomPresets, loadPresets, presetPatch, presetsToCsv, type Preset,
 } from './presets.js';
 import presetsJson from '../data/presets.json';
@@ -1216,6 +1216,14 @@ describe('the conflict marker — one table, per-field thresholds', () => {
       for (const type of typesFor.get(row.kind) ?? []) {
         for (const key of Object.keys(presetPatch(type as ComponentNode['type'], row))) {
           if (!catalogueField(type, key)) unnamed.add(`${type}.${key}`);
+        }
+      }
+    }
+    for (const type of Object.keys(KIND_FOR_TYPE) as ComponentNode['type'][]) {
+      const row = componentToPreset({ type });
+      for (const place of [undefined, { parentRadius: 0.04 }]) {
+        for (const key of Object.keys(presetPatch(type, row, undefined, place, { saved: true }))) {
+          if (!catalogueField(type, key)) unnamed.add(type + '.' + key);
         }
       }
     }

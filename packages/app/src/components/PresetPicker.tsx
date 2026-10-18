@@ -1,11 +1,11 @@
 import { Note, type NoteTier } from './Note.js';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import { useRovingRows } from './useRovingRows.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import {
-  KIND_FOR_TYPE, csvToPresets, loadCustomPresets, loadPresets, materialTypeFor, presetPatch,
-  presetsToCsv, saveCustomPresets, type Preset,
+  KIND_FOR_TYPE, csvToPresets, loadBundledPresets, loadCustomPresets, loadPresets, materialTypeFor, presetPatch,
+  presetsToCsv, exactCustomPreset, mergeCustomPresetImport, saveCustomPresets, type Preset,
 } from '../services/presets.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSig, siToUi } from '../prefs/units.js';
@@ -13,8 +13,13 @@ import { downloadBlob } from '../services/saveFile.js';
 import { sessionDebugLog } from '../services/sessionDebugLog.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { canopyCdA } from '../services/recoverySizing.js';
+import { Modal } from './Modal.js';
 
 const ROW_CAP = 300;
+const MY_PARTS_FILTER_KEY = 'online-openrocket.preset-my-parts-only.v1';
+function loadMyPartsOnly(): boolean {
+  try { return localStorage.getItem(MY_PARTS_FILTER_KEY) === 'true'; } catch { return false; }
+}
 type SortKey = 'manufacturer' | 'partNo' | 'description' | 'dimensions' | 'material'
   | 'mass' | 'packedDiameter' | 'packedLength' | 'cdA';
 
@@ -63,6 +68,17 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 } | null>(null);
 
   const [all, setAll] = useState<Preset[] | null>(null);
+  const [bundledRows, setBundledRows] = useState<ReadonlySet<Preset>>(new Set());
+  const [myPartsOnly, setMyPartsOnly] = useState(loadMyPartsOnly);
+  const myPartsToggle = useRef<HTMLInputElement>(null);
+  const focusAfterDelete = useRef(false);
+  const [deleting, setDeleting] = useState<Preset | null>(null);
+  useEffect(() => {
+    if (!deleting && focusAfterDelete.current) {
+      focusAfterDelete.current = false;
+      myPartsToggle.current?.focus();
+    }
+  }, [deleting]);
   const [text, setText] = useState('');
   const [mfr, setMfr] = useState('');
   const [noteTier, setNoteTier] = useState<NoteTier>('information');
@@ -72,15 +88,15 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
     // Same `live` flag as RecoverySizingPanel and ScaleDialog: a ~1.3 MB load
     // behind a dialog the user can close (2026-09-08 audit).
     let live = true;
-    loadPresets()
-      .then((p) => { if (live) setAll(p); })
+    Promise.all([loadPresets(), loadBundledPresets()])
+      .then(([p, bundled]) => { if (live) { setAll(p); setBundledRows(new Set(bundled)); } })
       .catch((e: unknown) => { if (live) setNote(`Could not load presets: ${e instanceof Error ? e.message : String(e)}`); });
     return () => { live = false; };
   }, []);
 
   const ofKind = useMemo(
-    () => (all ?? []).filter((p) => p.kind === kind),
-    [all, kind],
+    () => (all ?? []).filter((p) => p.kind === kind && (!myPartsOnly || !bundledRows.has(p))),
+    [all, kind, myPartsOnly, bundledRows],
   );
   const manufacturers = useMemo(
     () => [...new Set(ofKind.map((p) => p.manufacturer))].sort(),
@@ -169,9 +185,10 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
   // And the type its part takes (review of the audit fixes, 2026-10-01): a
   // typo, LINE, or the other kind's type imported clean too, and presetPatch
   // then applied no density at all — the same old weight under a new label.
-  const matBad = (m: { name: string; type: string; density: number } | undefined, type: string) =>
-    !!m && (badDensity(m.density) || !m.name.trim() || m.type !== type);
-  const rowIsSound = (p: Preset) => !matBad(p.material, materialTypeFor(p.kind)) && !matBad(p.lineMaterial, 'LINE');
+  const matBad = (m: { name: string; type: string; density: number } | undefined, type: string, saved: boolean) =>
+    !!m && (badDensity(m.density) || (!saved && !m.name.trim()) || m.type !== type);
+  const rowIsSound = (p: Preset) => !matBad(p.material, materialTypeFor(p.kind), p['savedComponent'] === true)
+    && !matBad(p.lineMaterial, 'LINE', p['savedComponent'] === true);
 
   /** Reports every failure itself (setNote), so callers fire it with `void`. */
   const importCsv = async (file: File) => {
@@ -197,11 +214,16 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
         return;
       }
       // Imported rows replace custom presets with the same kind+manufacturer+partNo.
-      const key = (p: Preset) => `${p.kind}|${p.manufacturer}|${p.partNo}`;
-      const keep = loadCustomPresets().filter((p) => !good.some((q) => key(q) === key(p)));
-      saveCustomPresets([...keep, ...good]);
+      const { presets, linkError } = mergeCustomPresetImport(loadCustomPresets(), good);
+      if (linkError) {
+        sessionDebugLog.record('import-failed', new Error(linkError));
+        setNoteTier('caution');
+        setNote(`Nothing imported. ${linkError}`);
+        return;
+      }
+      saveCustomPresets(presets);
       // Read the store back before claiming the import worked.
-      // `saveCustomPresets` swallows the setItem failure and returns void, and
+      // `saveCustomPresets` reports setItem failure; also verify the stored rows, since
       // localStorage is the ONLY place custom presets live — there is no
       // in-memory copy — so on a QuotaExceededError (a re-imported ~1,300-row
       // tube list, a private window, blocked site data) the table quietly
@@ -256,6 +278,24 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
   // keeps it open (audit 2026-09-22).
   const backdrop = useBackdropClose(onClose);
 
+  const deletePart = () => {
+    if (!deleting || bundledRows.has(deleting)) return;
+    const keep = loadCustomPresets().filter((p) => !exactCustomPreset(p, deleting));
+    setNoteTier('caution');
+    if (!saveCustomPresets(keep)) {
+      setNote('Could not delete My part — this browser’s storage is full or blocked. Try again.');
+      setDeleting(null);
+      return;
+    }
+    focusAfterDelete.current = true;
+    const remaining = all?.filter((p) => bundledRows.has(p) || !exactCustomPreset(p, deleting)) ?? null;
+    setAll(remaining);
+    if (mfr && !remaining?.some((p) => p.kind === kind && p.manufacturer === mfr && (!myPartsOnly || !bundledRows.has(p)))) setMfr('');
+    setNoteTier('information');
+    setNote(`Deleted ${deleting.manufacturer} ${deleting.partNo} from My parts. Parts already in a design keep their values.`);
+    setDeleting(null);
+  };
+
   return (
     <div className="prefs-overlay" role="presentation" {...backdrop}>
       <div className="prefs-dialog panel motor-browser preset-picker" role="dialog" aria-modal="true" aria-label="Component presets"
@@ -264,7 +304,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
         <div className="preset-picker-heading">
           <h2 style={{ flex: 1 }}>
             {kind} presets
-            <span className="motor-db-meta">openrocket-database{all ? ` · ${ofKind.length} parts` : ''}</span>
+            <span className="motor-db-meta">{myPartsOnly ? 'My parts' : 'openrocket-database'}{all ? ` · ${ofKind.length} parts` : ''}</span>
           </h2>
           <button className="file-btn" onClick={exportCsv}
             title={`Export all ${rows.length} row(s) matching the search — not just the ${ROW_CAP} the table shows`}>⬇ CSV</button>
@@ -284,6 +324,11 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
         </div>
 
         <div className="motor-filter-row" style={{ marginBottom: 8 }}>
+          <label><input ref={myPartsToggle} type="checkbox" checked={myPartsOnly} onChange={(e) => {
+            setMyPartsOnly(e.target.checked);
+            setMfr('');
+            try { localStorage.setItem(MY_PARTS_FILTER_KEY, String(e.target.checked)); } catch { /* Optional filter preference. */ }
+          }} /> My parts only</label>
           {/* A placeholder is not an accessible name — a screen reader reached
               this box as a bare "search edit". The label also has to name the
               THIRD field the filter matches: manufacturer, added with the
@@ -298,6 +343,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
           </select>
         </div>
 
+        <p className="hint">Delete or Backspace on a my part row opens its delete confirmation.</p>
         {isChute && <Note as="p" tier="information" className="preset-comparison-note">
           Packed sizes are as published, before fitting to the parent tube. Effective CdA is Cd × canopy area
           with the spill hole removed, using the app's convention. Blank cells mean the source has no usable value;
@@ -305,7 +351,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
         </Note>}
         <div className="motor-table-wrap">
           {!all && !note && <p className="placeholder">Loading preset database…</p>}
-          <span id={hintId} className="sr-only">Enter applies this part and closes the presets.</span>
+          <span id={hintId} className="sr-only">Enter applies this part and closes the presets. For a my part row, Delete or Backspace opens the delete confirmation.</span>
           <table className="motor-table">
             <thead>
               <tr>
@@ -322,14 +368,24 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
             <tbody ref={bodyRef}>
               {shownRows.map((p, i) => (
                 <tr key={`${p.manufacturer}|${p.partNo}|${i}`} className="motor-row" aria-describedby={hintId}
+                  aria-keyshortcuts={!bundledRows.has(p) ? 'Delete Backspace' : undefined}
+                  onKeyDownCapture={(e) => {
+                    if (e.target === e.currentTarget && (e.key === 'Delete' || e.key === 'Backspace') && !bundledRows.has(p)) {
+                      e.preventDefault(); e.stopPropagation(); setDeleting(p);
+                    }
+                  }}
                   {...rove(i, () => {
                     onApply(presetPatch(type, p, node && { node, presets: all ?? [] },
-                      parentRadius !== undefined ? { parentRadius } : undefined));
+                      parentRadius !== undefined ? { parentRadius } : undefined, { saved: true }));
                     onClose();
                   })}>
                   <td>{p.manufacturer}</td>
                   <td><strong>{p.partNo}</strong></td>
-                  <td>{p.description}</td>
+                  <td>{p.description}{!bundledRows.has(p) && <>
+                    {' '}<span className="motor-db-meta">my part</span>{' '}
+                    <button type="button" className="file-btn" tabIndex={-1} title="Delete My part (Delete or Backspace on the focused row)" aria-label={`Delete My part: ${p.manufacturer} ${p.partNo}`}
+                      onClick={(e) => { e.stopPropagation(); setDeleting(p); }}>Delete</button>
+                  </>}</td>
                   <td>{dim(p)}</td>
                   <td>{p.material?.name ?? ''}</td>
                   {isChute && <>
@@ -343,7 +399,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
             </tbody>
           </table>
           {all && rows.length === 0 && (
-            <p className="placeholder" style={{ padding: 16 }}>No presets match.</p>
+            <p className="placeholder" style={{ padding: 16 }}>{myPartsOnly && ofKind.length === 0 ? 'No My parts of this kind — turn off My parts only to see the catalogue.' : 'No presets match.'}</p>
           )}
           {rows.length > ROW_CAP && (
             <p className="motor-db-meta" style={{ padding: '6px 8px' }}>
@@ -351,6 +407,15 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
             </p>
           )}
         </div>
+        {deleting && <Modal label="Delete My part" onClose={() => setDeleting(null)}>
+          <h2>Delete My part?</h2>
+          <p>Delete {deleting.manufacturer} {deleting.partNo} from this browser’s My parts?
+            Parts already in a design keep their values. Export CSV first if you want to keep this row.</p>
+          <div className="modal-actions">
+            <button className="file-btn" onClick={() => setDeleting(null)}>Cancel</button>
+            <button className="file-btn" onClick={deletePart}>Delete</button>
+          </div>
+        </Modal>}
         {/* role="status" (2026-09-08 audit): `note` carries the CSV-import
             outcome, including "Could not store N of M preset(s)" — the result of
             an async operation the user is waiting on, previously announced to
