@@ -690,6 +690,9 @@ function assertFiniteCurve(motor: MotorSpec): void {
         '(a missing published weight or a malformed .rse/.eng file).',
     );
   }
+  if (motor.times.some((t) => t < 0) || motor.thrusts.some((f) => f < 0)) {
+    throw new Error(`Motor ${motor.designation}: thrust curve contains negative time or thrust; try another data file for this motor, or import a corrected .rse/.eng file.`);
+  }
   if (motor.masses.some((m) => m < 0)) {
     throw new Error(
       `Motor ${motor.designation}: thrust curve ends at a negative mass ` +

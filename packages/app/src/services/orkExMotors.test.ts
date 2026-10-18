@@ -178,6 +178,16 @@ describe('EX design archives', () => {
 });
 
 describe('hostile EX archives', () => {
+  it('round1 retains valid embedded motors beside a legacy coincident-only definition', () => {
+    const { xml } = saved();
+    const bad = { ...synthetic(), motorId: 'ex:legacy-bad', designation: 'LegacyBad',
+      samples: [{ time: 0, thrust: 10 }, { time: 0, thrust: 10 }], sampleMassesKg: undefined };
+    const opened = importOrk(payload(xml, [bad, synthetic()]));
+    expect(opened.embeddedExMotors).toEqual([synthetic()]);
+    expect(opened.notes.join(' ')).toContain('Embedded EX motor LegacyBad was not loaded: fewer than two distinct thrust points');
+    expect(opened.notes.join(' ')).not.toContain('Embedded EX motors were refused');
+    expect(Object.values(opened.motors)[0]!.exMotorId).toBe(synthetic().motorId);
+  });
   it('drops an empty EX reference with a persistent save note', async () => {
     const { xml } = saved();
     const opened = importOrk(xml.replace('<mmrexmotorid>ex:test-c6</mmrexmotorid>', '<mmrexmotorid></mmrexmotorid>'));

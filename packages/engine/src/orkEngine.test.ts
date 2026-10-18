@@ -1903,3 +1903,11 @@ describe('stubby tangent ogives carry the stubby-nose floor', () => {
     expect(nosePressure(0.5, 0.3, 'kbf', 0)).toBeGreaterThan(floor(0.5) + 0.05);
   }, 30_000);
 });
+
+it.each([
+  { times: [-0.1, ...C6_MOTOR.times.slice(1)] },
+  { thrusts: [0, -0.4, ...C6_MOTOR.thrusts.slice(2)] },
+])('round2 lane C S1c-5 names the motor and offers another data file for negative curve values (%j)', patch => {
+  const rocket = OrkRocket.build(REFERENCE_ROCKET);
+  expect(() => rocket.setMotor({ ...C6_MOTOR, ...patch })).toThrow(/Motor C6: thrust curve contains negative time or thrust; try another data file for this motor, or import a corrected \.rse\/\.eng file/);
+});

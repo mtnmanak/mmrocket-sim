@@ -1,3 +1,4 @@
+import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
 import { carryFlags, cautionNote, noteFlags } from './importNotes.js';
 import { storedWarnings } from './storedWarnings.js';
 import { sanitizeDesignProvenance } from './designProvenance.js';
@@ -342,7 +343,7 @@ function validFlownAutoDelays(v: unknown): Record<string, Record<string, number>
 
 /** A stored Mach-Alt table, or null: 1–1,000 rows of finite [Mach ≥ 0, altitude m]. */
 export function validMachAltTable(v: unknown): [number, number][] | null {
-  if (!Array.isArray(v) || v.length === 0 || v.length > 1000) return null;
+  if (!Array.isArray(v) || v.length === 0 || v.length > MAX_MACH_ALT_ROWS) return null;
   const rows: [number, number][] = [];
   for (const r of v) {
     if (!Array.isArray(r) || r.length !== 2) return null;

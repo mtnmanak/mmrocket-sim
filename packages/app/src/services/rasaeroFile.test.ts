@@ -2,7 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { applyStageNozzles, protuberanceFrontalArea } from '../tree/treeModel.js';
 import { KERNEL_DEFAULT_FIN_POINTS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
@@ -2988,5 +2988,27 @@ describe('cdx1WrittenParts agrees with the written file (B3)', () => {
     const input = { tree: designs['dual deploy laid out main first']!, motors: {}, launch: DEFAULT_CONDITIONS, configs: [],
       activeConfigId: null, measured: { massKg: null, cgM: null }, flightData: {} };
     expect(checkFormatLoss('cdx1', input).losses.join(' ')).toContain('Additional parachutes are omitted, including their delays: “Spare”.');
+  });
+});
+
+describe('lane C S1c-2 Mach-Alt limits', () => {
+  const xml = (rows: number) => '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter>'
+    + '</BodyTube></RocketDesign><MachAlt>' + Array.from({ length: rows }, (_, i) => '<Item>' + i + ', ' + i + '</Item>').join('')
+    + '</MachAlt></RASAeroDocument>';
+  it('refuses 1,001 distinct rows with the limit named', () => {
+    expect(importCdx1(xml(1000)).machAlt).toHaveLength(1000);
+    expect(() => importCdx1(xml(1001))).toThrow(/Mach-Alt table.*limit of 1,000 distinct rows/);
+  });
+  it('finds the highest altitude without a variable-argument Math.max', () => {
+    const max = vi.spyOn(Math, 'max');
+    try {
+      const imported = importCdx1(xml(1000));
+      expect(imported.notes.join(' ')).toContain('1000 points');
+      expect(max.mock.calls.some(args => args.length === 1000)).toBe(false);
+    } finally { max.mockRestore(); }
+  });
+  it('S7a-3 keeps recovery slot selection private', async () => {
+    const api = await import('./rasaeroFile.js');
+    expect(Object.hasOwn(api, 'cdx1RecoverySlots')).toBe(false);
   });
 });

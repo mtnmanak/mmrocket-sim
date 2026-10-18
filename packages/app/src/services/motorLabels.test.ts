@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { displayMotorManufacturer } from './motorDb.js';
 import { exToDbEntry, exToMotorSpec, parseEng } from './exMotors.js';
 import { mountMotorFromDb } from './motorMatch.js';
-import { motorTooltip } from './motorLabels.js';
+import { restoreMotorLabels, motorTooltip } from './motorLabels.js';
 import { batchMotorNames, candidateIdentity } from './batchSweep.js';
 
 describe('EX maker labels — @atestani, TRF #162, 2026-10-06', () => {
@@ -39,4 +39,42 @@ describe('EX maker labels — @atestani, TRF #162, 2026-10-06', () => {
     expect(candidateIdentity(db)).toBe(ex.motorId);
     expect(db.manufacturerAbbrev).toBe('EX');
   });
+});
+
+it.each(['tooltip', 'delay', 'restore', 'config'])('lane C S1c-1 keeps the H100 snapshot name through %s', async path => {
+  const { withDelay } = await import('./mountDelayEdits.js');
+  const { planConfigSwitch } = await import('./importApply.js');
+  const source = parseEng('E20 29 100 5 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!;
+  const ex = { ...source, flightSnapshot: {
+    designation: 'H100', diameter: 0.054, length: 0.3, cgX: 0.15,
+    times: [0, 1, 2], thrusts: [0, 200, 0], masses: [0.5, 0.4, 0.3],
+  } };
+  const mm = mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5,
+    { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
+  if (path === 'tooltip') expect(motorTooltip(mm)).toBe('Home (EX) H100, 5 s delay (H100-5)');
+  if (path === 'delay') expect(withDelay(mm, 7).label).toBe('H100-7');
+  const stale = { ...mm, label: 'E20-5', meta: { ...mm.meta, label: 'E20-5' } };
+  if (path === 'restore') expect(restoreMotorLabels({ mount: stale }).mount!.label).toBe('H100-5');
+  const cfg = { id: 'b', name: 'B', isDefault: false, motors: { mount: stale } };
+  const switched = planConfigSwitch({ savedConfigs: [cfg], activeConfigId: null,
+    mountMotors: {}, unmatchedRefs: {}, tree: { components: [] } }, cfg,
+    { mass: n => String(n), length: n => String(n) });
+  if (path === 'config') expect(switched.mountMotors.mount!.label).toBe('H100-5');
+  expect(switched.mountMotors.mount!.spec).toBe(mm.spec);
+});
+
+it.each([
+  [{ designation: 'Broken', realManufacturer: 'Home' }, 'Broken'],
+  [{ designation: 'E20', realManufacturer: 'Home', flightSnapshot: { designation: 'H100' } }, 'H100'],
+  [{ designation: 42 }, 'E20'],
+  [{ designation: '' }, 'E20'],
+] as const)('round1 labels damaged autosave definition %j without reading curve arrays', (definition, name) => {
+  const source = parseEng('E20 29 100 5 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!;
+  const spec = { ...exToMotorSpec(source, 5), exDefinition: JSON.parse(JSON.stringify(definition)) };
+  const mm = mountMotorFromDb(exToDbEntry(source), spec, 5,
+    { event: 'automatic', delay: 0 }, { exMotorId: source.motorId });
+  const restored = restoreMotorLabels({ mount: mm });
+  expect(restored.mount!.label).toBe(`${name}-5`);
+  expect(motorTooltip(mm)).toContain(`${name}, 5 s delay (${name}-5)`);
+  expect(restored.mount!.spec).toBe(spec);
 });

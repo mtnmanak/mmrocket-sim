@@ -1,3 +1,4 @@
+import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
 import { cautionNote, noteFlags } from './importNotes.js';
 import { cleanDesignProvenance } from './designProvenance.js';
 import { captureStageMass } from './stageMassOverrides.js';
@@ -286,7 +287,12 @@ function readMachAltTable(doc: XmlDocument): MachAltTable | undefined {
     // A negative Mach or a sub-sea-level altitude is not a row RASAero can
     // mean; dropping it beats handing the ISA model an altitude it clamps.
     if (!Number.isFinite(mach) || !Number.isFinite(altFt) || mach < 0 || altFt < 0) continue;
-    if (!byMach.has(mach)) byMach.set(mach, altFt / FT);
+    if (!byMach.has(mach)) {
+      if (byMach.size >= MAX_MACH_ALT_ROWS) {
+        throw new Error(`Mach-Alt table exceeds the limit of ${MAX_MACH_ALT_ROWS.toLocaleString('en-US')} distinct rows.`);
+      }
+      byMach.set(mach, altFt / FT);
+    }
   }
   if (byMach.size === 0) return undefined;
   return [...byMach.entries()].sort((a, b) => a[0] - b[0]).map(([m, alt]) => [m, alt]);
@@ -1695,7 +1701,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     }
   }
   if (machAlt) {
-    const top = fmtAltitude(altitudeUnit, Math.max(...machAlt.map(([, a]) => a)));
+    const top = fmtAltitude(altitudeUnit, machAlt.reduce((top, [, altitude]) => Math.max(top, altitude), 0));
     notes.push(`This file carries a Mach-Alt conditions table (${machAlt.length} point${machAlt.length === 1 ? '' : 's'}, `
       + `to ${top} ${altitudeUnit}) — pick it under Drag analysis → Conditions to sweep at the `
       + 'file’s altitudes instead of sea level.');
@@ -1936,7 +1942,7 @@ const deployAltOf = (c: ComponentNode): number =>
  * the design, then ordered by deploy event — tree position decides WHICH two,
  * never which slot. checkFormatLoss reads the same list.
  */
-export function cdx1RecoverySlots(tree: RocketTree): Cdx1RecoverySlot[] {
+function cdx1RecoverySlots(tree: RocketTree): Cdx1RecoverySlot[] {
   const chutes = cdx1Chutes(tree);
   chutes.sort((a, b) => eventRank(a) - eventRank(b) || deployAltOf(b) - deployAltOf(a));
   return chutes.map((chute): Cdx1RecoverySlot => {

@@ -898,3 +898,13 @@ describe('the file Mach-Alt table in the session', () => {
     expect(s.launch.windAverage).toBe(2);
   });
 });
+
+it('lane C S1c-2 uses the shared Mach-Alt limit on session reload', async () => {
+  vi.resetModules();
+  vi.doMock('./machAltLimits.js', () => ({ MAX_MACH_ALT_ROWS: 2 }));
+  try {
+    const { validMachAltTable } = await import('./session.js');
+    expect(validMachAltTable([[0, 0], [1, 10]])).toEqual([[0, 0], [1, 10]]);
+    expect(validMachAltTable([[0, 0], [1, 10], [2, 20]])).toBeNull();
+  } finally { vi.doUnmock('./machAltLimits.js'); vi.resetModules(); }
+});
