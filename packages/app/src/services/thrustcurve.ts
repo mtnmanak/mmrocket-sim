@@ -1,6 +1,8 @@
 import type { MotorSpec } from '@online-openrocket/engine';
 import { deadline } from './net.js';
 import { digestMotorFile } from './motorDigest.js';
+import { MOTOR_DB, MOTOR_DB_DATE, getCatalogueOverlay } from './motorDb.js';
+import { assertThrustcurveAvailable, recordThrustcurveFailure, thrustcurveFetch, thrustcurveBackoffMessage, ThrustcurveBackoffError, withThrustcurveBackoff } from './thrustcurveTraffic.js';
 
 /**
  * thrustcurve.org API v1 client (CORS-enabled; verified reflective
@@ -74,8 +76,9 @@ export interface TcHeaderMasses {
 }
 
 /**
- * fetchMotorSpec's failure when thrustcurve.org ANSWERS, and its answer lists
- * no file with a curve to fly — the one failure that means no curve exists.
+ * fetchMotorSpec's failure when the matching shipped catalogue's bundle, a
+ * remembered empty answer, or thrustcurve.org lists no file with a curve to
+ * fly — the one failure that means no curve exists.
  * Every other one (no connection, a timeout, an HTTP error, a bundle chunk
  * that would not load, an answer that cannot be read) means only that the
  * curve could not be had this time, and a caller must not say there is none:
@@ -670,6 +673,9 @@ interface BundledSimFile {
 }
 
 let bundledCurves: Promise<Record<string, BundledSimFile[]>> | null = null;
+let bundledCatalogueGenerated: string | undefined;
+let bundledComplete = false;
+const shippedMotorIds = new Set(MOTOR_DB.map((m) => m.motorId));
 
 /**
  * Every thrust curve thrustcurve.org publishes for every catalogued motor,
@@ -691,13 +697,79 @@ async function loadBundledCurves(): Promise<Record<string, BundledSimFile[]>> {
     // number[][], which is not comparable to the [t, F] pair type the runtime
     // relies on. The build script is what guarantees the pairs.
     bundledCurves = import('../data/motorCurves.json')
-      .then((mod) => (mod.default as unknown as { curves: Record<string, BundledSimFile[]> }).curves)
+      .then((mod) => {
+        const bundle = mod.default as unknown as { catalogueGenerated: string; complete?: boolean; curves: Record<string, BundledSimFile[]> };
+        bundledCatalogueGenerated = bundle.catalogueGenerated;
+        bundledComplete = bundle.complete === true;
+        return bundle.curves;
+      })
       .catch((err) => {
         bundledCurves = null; // a failed chunk load is not permanent
         throw err;
       });
   }
   return bundledCurves;
+}
+
+/** Batch must never turn a missing release chunk into a download per candidate. */
+export async function requireCurveBundle(motors: readonly TcMotor[] = []): Promise<void> {
+  try {
+    await loadBundledCurves();
+  } catch {
+    // A missing chunk matters only if a candidate would need a download.
+    // Use the same sample validation as fetchMotorSpec's cache read.
+    if (motors.length && motors.every((motor) => {
+      if (motor.motorId.startsWith('ex:')) return true;
+      try {
+        const entry: unknown = JSON.parse(localStorage.getItem(CACHE_PREFIX + motor.motorId) ?? 'null');
+        return !!entry && typeof entry === 'object' && 'samples' in entry && isSampleList(entry.samples);
+      } catch { return false; }
+    })) return;
+    throw new Error('The thrust curves bundled with the app did not load — reload the app and run again.');
+  }
+}
+
+const NO_CURVE_KEY = 'online-openrocket.no-curve.v1';
+const MAX_NO_CURVES = 2000;
+// A successful live check advances the catalogue too, allowing another try for
+// newly published files without waiting for the next app release.
+function validCatalogueDate(date: unknown): date is string {
+  return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z)?$/.test(date)
+    && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date.slice(0, 10);
+}
+const catalogueDate = (): string => {
+  const fetchedAt = getCatalogueOverlay()?.fetchedAt;
+  return validCatalogueDate(fetchedAt) ? fetchedAt : MOTOR_DB_DATE;
+};
+
+function noCurveEntries(): Map<string, string> {
+  try {
+    const raw = localStorage.getItem(NO_CURVE_KEY);
+    if (raw === null) return new Map();
+    if (raw.length > 1_000_000) throw new Error('oversize');
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not a map');
+    const entries = Object.entries(parsed);
+    if (entries.length > MAX_NO_CURVES || entries.some(([id, date]) => !id || id.length > 200
+      || !validCatalogueDate(date))) {
+      throw new Error('invalid entries');
+    }
+    return new Map(entries as [string, string][]);
+  } catch {
+    try { localStorage.removeItem(NO_CURVE_KEY); } catch { /* storage unavailable */ }
+    return new Map();
+  }
+}
+
+function rememberNoCurve(motorId: string): void {
+  try {
+    const date = catalogueDate();
+    const entries = new Map([...noCurveEntries()].filter(([, learned]) => learned === date));
+    entries.delete(motorId);
+    entries.set(motorId, date);
+    while (entries.size > MAX_NO_CURVES) entries.delete(entries.keys().next().value!);
+    localStorage.setItem(NO_CURVE_KEY, JSON.stringify(Object.fromEntries(entries)));
+  } catch { /* best-effort cache, never discard a user's EX files */ }
 }
 
 /**
@@ -731,6 +803,13 @@ export async function bundleHasCurve(motorId: string): Promise<boolean | null> {
   } catch {
     return null;
   }
+}
+
+/** Only a complete, matching bundle and no newer check establish an absent curve. */
+export async function knownNoPublishedCurve(motorId: string): Promise<boolean> {
+  if (Date.parse(catalogueDate()) > Date.parse(MOTOR_DB_DATE)) return false;
+  return (await bundleHasCurve(motorId)) === false && bundledComplete
+    && bundledCatalogueGenerated === MOTOR_DB_DATE && shippedMotorIds.has(motorId);
 }
 
 /** bundledSimFiles, but a bundle chunk that would not load THROWS rather than reading as "no files". */
@@ -1187,10 +1266,12 @@ export async function fetchMotorSpec(
   // files": the download stands in for it, and if that fails too the error
   // says both, because the cure for each is different.
   let bundleFailed = false;
+  let bundleEmpty = false;
   if (!samples) {
     let files: TcSimFile[] = [];
     try {
       files = await bundledFiles(motor.motorId);
+      bundleEmpty = files.length === 0;
     } catch {
       bundleFailed = true;
     }
@@ -1209,10 +1290,18 @@ export async function fetchMotorSpec(
   }
 
   if (!samples) {
+    // The builder downloads the entire shipped catalogue, not just the IDs
+    // present in `curves`. Only a complete bundle and equal dates establish that set:
+    // a newer overlay ID or mismatched bundle must retain its download path.
+    if (!bundleFailed && bundleEmpty && await knownNoPublishedCurve(motor.motorId)) {
+      throw new NoPublishedCurveError(motor.designation);
+    }
+    if (noCurveEntries().get(motor.motorId) === catalogueDate()) throw new NoPublishedCurveError(motor.designation);
     const limit = deadline(signal, FETCH_TIMEOUT_MS);
     let body: { results?: unknown } | null | undefined;
     try {
-      const res = await fetch(`${API}/download.json`, {
+      assertThrustcurveAvailable();
+      const res = await thrustcurveFetch()(`${API}/download.json`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // "both" carries the raw .eng/.rse alongside the samples, so the masses
@@ -1224,26 +1313,40 @@ export async function fetchMotorSpec(
         throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
       }
       // Reading the body is inside the deadline too: a connection that answers
-      // its headers and then stalls hangs here, not in fetch(). And it is read
+      // its headers and then stalls hangs while reading the body. It is read
       // CAPPED, never whole (see readJsonCapped).
       body = (await readJsonCapped(res, motor.designation)) as { results?: unknown } | null;
     } catch (err) {
       const timedOut = limit.timedOut();
+      recordThrustcurveFailure(timedOut, signal?.aborted === true, err instanceof TypeError);
       // An HTTP error, an unreadable answer and the caller's own cancel (Stop,
       // in BatchSimulate) go back as they came. What is left is a connection
       // that never opened — fetch's TypeError, worded differently by every
       // browser ("Failed to fetch", "Load failed") — or our deadline, and both
       // are said in words a note can repeat (motorMatch.ts).
-      if (!timedOut && (signal?.aborted || !(err instanceof TypeError))) throw err;
+      if (signal?.aborted) throw err;
+      const backoff = thrustcurveBackoffMessage();
+      if (bundleFailed && backoff && !timedOut && !(err instanceof TypeError)) {
+        throw new Error(`The thrust curves bundled with the app did not load, and ${backoff} `
+          + "Reload the app with a connection, or import the motor's .rse/.eng file.", { cause: err });
+      }
+      if (!timedOut && !(err instanceof TypeError)) {
+        if (backoff && !(err instanceof ThrustcurveBackoffError)) {
+          throw new Error(withThrustcurveBackoff(err instanceof Error ? err.message : String(err)), { cause: err });
+        }
+        throw err;
+      }
       const miss = timedOut
         ? `thrustcurve.org did not answer within ${FETCH_TIMEOUT_MS / 1000} s for ${motor.designation}`
         : `thrustcurve.org could not be reached for ${motor.designation}`;
       throw new Error(
         bundleFailed
-          ? `The thrust curves bundled with the app did not load, and ${miss}. Reload the app with a `
+          ? `The thrust curves bundled with the app did not load, and ${miss}. ${backoff ? backoff + ' ' : ''}Reload the app with a `
             + "connection, or import the motor's .rse/.eng file."
-          : `${miss}${timedOut ? '.' : ' — are you offline?'} Check the connection and try again, or import `
-            + "the motor's .rse/.eng file.",
+          : backoff
+            ? `${miss}. ${backoff} You can import the motor's .rse/.eng file.`
+            : `${miss}${timedOut ? '.' : ' — are you offline?'} Check the connection and try again, or import `
+              + "the motor's .rse/.eng file.",
         { cause: err },
       );
     } finally {
@@ -1273,6 +1376,7 @@ export async function fetchMotorSpec(
       // thrustcurve.org answered, and lists nothing to fly: the one failure
       // that means no curve exists. An answer with no `results` list at all is
       // a broken answer, not that one.
+      if (Array.isArray(listed)) rememberNoCurve(motor.motorId);
       throw Array.isArray(listed)
         ? new NoPublishedCurveError(motor.designation)
         : new Error(`No sample data available for ${motor.designation}`);

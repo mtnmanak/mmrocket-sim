@@ -6,6 +6,7 @@ import { baseDesignation } from './motorMatch.js';
 import { getJsonCapped, NetError, type JsonAnswer } from './net.js';
 import { API } from './thrustcurve.js';
 import { correctMotorRow } from '../../scripts/motor-corrections.mjs';
+import { assertThrustcurveAvailable, recordThrustcurveFailure, thrustcurveFetch, thrustcurveBackoffMessage, withThrustcurveBackoff } from './thrustcurveTraffic.js';
 
 /**
  * "Check thrustcurve.org for newer motors" — the user's way round a stale
@@ -220,6 +221,7 @@ export interface CheckOptions {
   /** Injection points for tests. */
   fetchImpl?: typeof fetch;
   now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -247,21 +249,26 @@ const ANSWER_TIMEOUT_MS = 30_000;
 const MAX_ANSWER_BYTES = SEARCH_CAP * 2048;
 
 async function getJson(url: string, opts: Pick<CheckOptions, 'fetchImpl' | 'signal'>): Promise<unknown> {
+  assertThrustcurveAvailable();
   let answer: JsonAnswer;
   try {
     answer = await getJsonCapped(url, {
-      timeoutMs: ANSWER_TIMEOUT_MS, maxBytes: MAX_ANSWER_BYTES, signal: opts.signal, fetchImpl: opts.fetchImpl,
+      timeoutMs: ANSWER_TIMEOUT_MS, maxBytes: MAX_ANSWER_BYTES, signal: opts.signal, fetchImpl: thrustcurveFetch(opts.fetchImpl),
     });
   } catch (err) {
+    recordThrustcurveFailure(err instanceof NetError && err.kind === 'timeout', opts.signal?.aborted === true,
+      err instanceof NetError && err.kind === 'network');
     // A Stop is still a Stop. getJsonCapped calls it 'aborted'; the motor
     // browser tells a Stop from a failure by the name fetch gives it.
     if (err instanceof NetError && err.kind === 'aborted') {
       throw Object.assign(new Error('The catalogue check was stopped.', { cause: err }), { name: 'AbortError' });
     }
+    const backoff = thrustcurveBackoffMessage();
+    if (backoff) throw new Error(withThrustcurveBackoff(err instanceof Error ? err.message : String(err)), { cause: err });
     throw err;
   }
   if (answer.status < 200 || answer.status >= 300) {
-    throw new Error(`thrustcurve.org answered HTTP ${answer.status} for ${url.replace(API, '')}`);
+    throw new Error(withThrustcurveBackoff(`thrustcurve.org answered HTTP ${answer.status} for ${url.replace(API, '')}`));
   }
   return answer.json;
 }
@@ -273,7 +280,15 @@ async function getJson(url: string, opts: Pick<CheckOptions, 'fetchImpl' | 'sign
  * Projected to the same 18 fields so the diff compares like with like.
  */
 async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<MotorDbEntry[]> {
-  const meta = await getJson(`${API}/metadata.json?availability=all`, opts) as {
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); }));
+  let requested = false;
+  const pacedJson = async (url: string): Promise<unknown> => {
+    if (requested) await sleep(250);
+    if (opts.signal?.aborted) throw Object.assign(new Error('The catalogue check was stopped.'), { name: 'AbortError' });
+    requested = true;
+    return getJson(url, opts);
+  };
+  const meta = await pacedJson(`${API}/metadata.json?availability=all`) as {
     manufacturers?: { abbrev: string }[]; impulseClasses?: string[];
   };
   const manufacturers = (meta.manufacturers ?? []).map((m) => m.abbrev).filter(Boolean);
@@ -282,7 +297,7 @@ async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<MotorDbEntry
 
   const search = async (params: Record<string, string>): Promise<Record<string, unknown>[]> => {
     const qs = new URLSearchParams({ ...params, maxResults: String(SEARCH_CAP) });
-    const body = await getJson(`${API}/search.json?${qs}`, opts) as { results?: Record<string, unknown>[] };
+    const body = await pacedJson(`${API}/search.json?${qs}`) as { results?: Record<string, unknown>[] };
     return Array.isArray(body.results) ? body.results : [];
   };
 
@@ -337,6 +352,7 @@ export async function checkForCatalogueUpdates(
     setCatalogueOverlay(previous);
     return { overlay: previous, skipped: 'recent', stored: true, silent: [] };
   }
+  assertThrustcurveAvailable();
   const live = await fetchLiveCatalogue(opts);
   const d = diffCatalogue(MOTOR_DB, live);
   // Screen only what would be APPLIED: a shipped row was looked at when it

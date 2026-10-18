@@ -146,7 +146,10 @@ function viewport(w: number): void {
 let mounted: { root: Root; host: HTMLElement }[] = [];
 
 async function settle(ms = 0): Promise<void> {
-  await act(async () => { await new Promise((r) => setTimeout(r, ms)); });
+  await act(async () => {
+    if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(Math.max(250, ms));
+    else await new Promise((r) => setTimeout(r, ms));
+  });
 }
 
 async function waitFor(pred: () => boolean, what: string, timeoutMs = 8000): Promise<void> {
@@ -224,6 +227,7 @@ afterEach(async () => {
   await unmountAll();
   discardCatalogueOverlay();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 it.each([360, 1200])('C-B20 hiding is session-only and leaves build and launch inputs unchanged at %i px', async width => {
@@ -2157,6 +2161,8 @@ describe('the vitals strip Flight item', () => {
 
 describe('the Motor vitals designation and tooltip', () => {
   it('keeps live check and discard labels, saved rows, tooltip and delay edits consistent', async () => {
+    // Advance the real catalogue pacing virtually, through both complete checks.
+    vi.useFakeTimers();
     const tree = defaultTree();
     const mount = motorMounts(tree)[0]!.id!;
     const mm = (await loadCatalogueMotor('AeroTech', 'F67C', 9))!;
@@ -2218,7 +2224,7 @@ describe('the Motor vitals designation and tooltip', () => {
     await settle(500);
     expect(peekSession()!.savedMark).toBe(edited.savedMark);
     expect(peekSession()!.savedMark).not.toBe(designFingerprint({ ...snapshot, ...peekSession()! }));
-  }, 30000);
+  }, 12000);
 
   it('memoizes the tooltip and never loads the EX library on unchanged-input rerenders', async () => {
     const tree = defaultTree();

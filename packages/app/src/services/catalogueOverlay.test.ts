@@ -5,7 +5,7 @@ import {
   setCatalogueOverlay, type CatalogueOverlay, type MotorDbEntry,
 } from './motorDb.js';
 import {
-  OVERLAY_KEY, RECHECK_MIN_MS, changedMotorsInDesign, checkForCatalogueUpdates, describeOverlay,
+  OVERLAY_KEY, RECHECK_MIN_MS, changedMotorsInDesign, checkForCatalogueUpdates as checkUpdates, describeOverlay,
   diffCatalogue, discardCatalogueOverlay, loadStoredOverlay, restoreCatalogueOverlay, screenEntry,
 } from './catalogueOverlay.js';
 import { mountMotorFromDb } from './motorMatch.js';
@@ -15,6 +15,12 @@ import { statedWeightTextFor } from './unitText.js';
 import { DEFAULT_PREFS } from '../prefs/preferences.js';
 import { MOTOR_CORRECTIONS } from '../../scripts/motor-corrections.mjs';
 import { DEFAULT_MAX_JSON_BYTES } from './net.js';
+import { resetThrustcurveBackoffForTests } from './thrustcurveTraffic.js';
+import type { CheckOptions } from './catalogueOverlay.js';
+
+// Existing catalogue/diff cases need no real pacing delay; the pacing case
+// below injects a recorder and checks the actual request/sleep order.
+const checkForCatalogueUpdates = (opts: CheckOptions = {}) => checkUpdates({ sleep: async () => {}, ...opts });
 
 /**
  * The in-app "check thrustcurve.org for newer motors" path. Everything here
@@ -62,7 +68,37 @@ const stalled = (): typeof fetch => (_input, init) => new Promise<Response>((_re
   sig?.addEventListener('abort', fail, { once: true });
 });
 
-beforeEach(() => { localStorage.clear(); setCatalogueOverlay(null); });
+beforeEach(() => { resetThrustcurveBackoffForTests(); localStorage.clear(); setCatalogueOverlay(null); });
+afterEach(() => {
+  resetThrustcurveBackoffForTests();
+  vi.useRealTimers();
+});
+
+it('pauses 250 ms between every catalogue request, including impulse-class pages', async () => {
+  const live = [row({ manufacturerAbbrev: 'A' }), row({ motorId: 'b', manufacturerAbbrev: 'B' })];
+  const api = stubApi(live, { cap: ['A'] });
+  const fetchApi = api as unknown as typeof fetch;
+  const events: string[] = [];
+  const fetchImpl: typeof fetch = async (url) => { events.push('fetch'); return fetchApi(String(url)); };
+  const sleep = vi.fn(async (ms: number) => { events.push(`sleep ${ms}`); });
+  await checkForCatalogueUpdates({ force: true, fetchImpl, sleep });
+  expect(api).toHaveBeenCalledTimes(6); // metadata, A, A's three classes, B
+  expect(sleep).toHaveBeenCalledTimes(5);
+  expect(events).toEqual(['fetch', ...Array.from({ length: 5 }, () => ['sleep 250', 'fetch']).flat()]);
+});
+
+it('the default sleep waits 250 ms before the second catalogue request', async () => {
+  vi.useFakeTimers();
+  const fetchImpl = stubApi([row()]) as unknown as typeof fetch;
+  const pending = checkUpdates({ force: true, fetchImpl });
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(249);
+  expect(fetchImpl).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(fetchImpl).toHaveBeenCalledTimes(2);
+  await pending;
+});
 afterEach(() => { localStorage.clear(); setCatalogueOverlay(null); });
 
 describe('screenEntry — a live row must be a possible motor', () => {

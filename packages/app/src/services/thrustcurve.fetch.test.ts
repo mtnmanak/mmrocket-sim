@@ -194,10 +194,12 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
     const tc = await freshModule();
     vi.stubGlobal('fetch', vi.fn(async () => okResponse({ results: [null, 7, 'x'] })));
     await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(/No sample data available for C6/);
-    // …and a sound file beside the junk is still found.
-    vi.stubGlobal('fetch', vi.fn(async () =>
-      okResponse({ results: [null, { format: 'RASP', samples: GOOD_SAMPLES }] })));
+    // …and a sound file beside the junk is still found on a fresh attempt.
+    localStorage.removeItem('online-openrocket.no-curve.v1');
+    const fetcher = vi.fn(async () => okResponse({ results: [null, { format: 'RASP', samples: GOOD_SAMPLES }] }));
+    vi.stubGlobal('fetch', fetcher);
     const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
+    expect(fetcher).toHaveBeenCalledOnce();
     expect(spec.masses.every((m) => Number.isFinite(m))).toBe(true);
   });
 
@@ -278,13 +280,16 @@ describe('"no curve exists" is said only when thrustcurve.org says so', () => {
   };
 
   it('an answer that lists no file is NoPublishedCurveError — the one failure that means none exists', async () => {
-    const tc = await freshModule();
+    let tc = await freshModule();
     stubDownload([]);
     const err = await failure(tc.fetchMotorSpec(QUEST_C6, 5));
     expect(err).toBeInstanceOf(tc.NoPublishedCurveError);
     expect(err.message).toMatch(/No sample data available for C6/);
-    stubDownload([{ format: 'RASP', samples: [{ time: 0.1, thrust: 5 }] }]); // one sample cannot fly
+    localStorage.clear();
+    tc = await freshModule();
+    const second = stubDownload([{ format: 'RASP', samples: [{ time: 0.1, thrust: 5 }] }]); // one sample cannot fly
     expect(await failure(tc.fetchMotorSpec(QUEST_C6, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(second).toHaveBeenCalledOnce();
   });
 
   it('a connection that never opens is not that, and says to check the connection', async () => {
@@ -292,36 +297,42 @@ describe('"no curve exists" is said only when thrustcurve.org says so', () => {
     vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
     const err = await failure(tc.fetchMotorSpec(QUEST_C6, 5));
     expect(err).not.toBeInstanceOf(tc.NoPublishedCurveError);
-    expect(err.message).toMatch(/^thrustcurve\.org could not be reached for C6 — are you offline\?/);
+    expect(err.message).toMatch(/^thrustcurve\.org could not be reached for C6\. thrustcurve.org is not answering/);
     expect(err.cause).toBeInstanceOf(TypeError);
   });
 
-  it('the guide says what each of them says for a motor with no bundled curve', async () => {
-    // The offline section of user-guide.md tells a user what picking one of
-    // the motors shipped without a curve does. Offline it said the pick "fails
-    // as any request does with no network": the browser's bare "Failed to
-    // fetch", which this error no longer is. A phrase each, shared by the
-    // message and the guide.
+  it('the guide says a shipped motor with no curve needs no request, online or offline', async () => {
     const tc = await freshModule();
-    stubDownload([]);
-    const online = (await failure(tc.fetchMotorSpec(QUEST_C6, 5))).message;
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
-    const offline = (await failure(tc.fetchMotorSpec(QUEST_C6, 5))).message;
+    const { MOTOR_DB } = await import('./motorDb.js');
+    const { default: bundle } = await import('../data/motorCurves.json');
+    const curves: Record<string, unknown> = bundle.curves;
+    const noCurve = MOTOR_DB.find((m) => !Object.hasOwn(curves, m.motorId))!;
+    expect(noCurve).toBeDefined();
+    const spy = stubDownload([]);
+    const online = (await failure(tc.fetchMotorSpec(noCurve, 5))).message;
+    const offlineSpy = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+    vi.stubGlobal('fetch', offlineSpy);
+    const offline = (await failure(tc.fetchMotorSpec(noCurve, 5))).message;
     const guide = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'user-guide.md'), 'utf8');
     const paragraph = guide.split('\n').find((l) => l.includes('with no bundled curve are the one gap')) ?? '';
     expect(paragraph).not.toBe('');
-    for (const [message, words] of [[online, 'no sample data'], [offline, 'thrustcurve.org could not be reached']] as const) {
-      expect(message.toLowerCase(), message).toContain(words);
-      expect(paragraph, words).toContain(words);
-    }
+    expect(online).toBe(offline);
+    expect(online.toLowerCase()).toContain('no sample data');
+    expect(paragraph).toContain('the app makes no request when you pick one');
+    expect(spy).not.toHaveBeenCalled();
+    expect(offlineSpy).not.toHaveBeenCalled();
   });
 
   it('an HTTP error or an answer with no results list is not that either', async () => {
-    const tc = await freshModule();
+    let tc = await freshModule();
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 503 }) as unknown as Response));
     expect(await failure(tc.fetchMotorSpec(QUEST_C6, 5))).not.toBeInstanceOf(tc.NoPublishedCurveError);
-    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ results: 'nope' })));
+    localStorage.clear();
+    tc = await freshModule();
+    const second = vi.fn(async () => okResponse({ results: 'nope' }));
+    vi.stubGlobal('fetch', second);
     expect(await failure(tc.fetchMotorSpec(QUEST_C6, 5))).not.toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(second).toHaveBeenCalledOnce();
   });
 
   it('a bundle that fails to load is not "no curve" — the error says the bundle failed', async () => {
@@ -339,6 +350,8 @@ describe('"no curve exists" is said only when thrustcurve.org says so', () => {
       const err = await failure(tc.fetchMotorSpec(bundled, 5));
       expect(err).not.toBeInstanceOf(tc.NoPublishedCurveError);
       expect(err.message).toMatch(/^The thrust curves bundled with the app did not load, and thrustcurve\.org could not be reached for C6/);
+      vi.useFakeTimers();
+      await vi.advanceTimersByTimeAsync(600_000);
       // With a connection the download stands in for the bundle, as before.
       stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
       expect((await tc.fetchMotorSpec(bundled, 5)).times.length).toBeGreaterThan(1);

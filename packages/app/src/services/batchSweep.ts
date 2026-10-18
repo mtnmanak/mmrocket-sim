@@ -12,7 +12,7 @@ import { numOrNull } from '../tree/nodeNum.js';
 import { nozzleForMotorId } from './nozzleDb.js';
 import { displayDesignation, displayMotorManufacturer, motorLabel, isHighPower, type MotorDbEntry } from './motorDb.js';
 import { motorLabelEntry } from './motorLabels.js';
-import { defaultDelay, delayOptions, fetchMotorSpec, type TcMotor } from './thrustcurve.js';
+import { defaultDelay, delayOptions, fetchMotorSpec, requireCurveBundle, type TcMotor } from './thrustcurve.js';
 import { motorIdentity, shiftMotorMass } from './hardwareMass.js';
 import { buildSimRun, type MotorMeta, type SimRun } from './simReport.js';
 import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
@@ -479,6 +479,7 @@ export async function runBatchSweep(
     weighed, model, autoDelay, launch, rocketName,
   } = input;
   const { signal } = hooks;
+  if (candidates.some((m) => !m.motorId.startsWith('ex:')) && !deps.fetchSpec) await requireCurveBundle(candidates);
   const retainedHardware = input.retainedHardware ?? weighed;
   const kbf = model !== 'eb';
   const aeroMode: AeroMode = model === 'eb' || model === 'kbf' ? 'classic' : model;
@@ -696,6 +697,7 @@ export async function runBatchSweep(
   const out: BatchRow[] = [];
   // Motor specs fetched in the single pass, reused by the combination pass.
   const specCache = new Map<string, MotorSpec>();
+  const specFailures = new Map<string, unknown>();
 
   const aero = { aeroMode, effectiveKbf: kbf, autoSupersonic: model === 'auto' };
 
@@ -707,7 +709,10 @@ export async function runBatchSweep(
     hooks.onProgress?.({ done: i, total, current: label });
     await yieldToUi();
     try {
-      const spec = await fetchSpec(entry, provisionalDelay(entry, autoDelay), signal);
+      const spec = await fetchSpec(entry, provisionalDelay(entry, autoDelay), signal).catch((error: unknown) => {
+        specFailures.set(entry.motorId, error);
+        throw error;
+      });
       specCache.set(entry.motorId, spec);
       // What this candidate FLIES: the catalogue spec, or — for the one
       // motor the pad mass was weighed with, on the mount it was weighed
@@ -843,6 +848,7 @@ export async function runBatchSweep(
         const specs = await Promise.all(entries.map(async (e) => {
           const hit = specCache.get(e.motorId);
           if (hit) return hit;
+          if (specFailures.has(e.motorId)) throw specFailures.get(e.motorId);
           // Only a candidate whose single-motor flight failed gets here; it
           // flies the same provisional delay that flight would have.
           const spec = await fetchSpec(e, provisionalDelay(e, autoDelay), signal);

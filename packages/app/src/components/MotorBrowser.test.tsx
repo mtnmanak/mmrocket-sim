@@ -7,6 +7,8 @@ import { MotorBrowser } from './MotorBrowser.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import type { MountMotor } from '../model/design.js';
 import { withAuto, withDelay, withPlugged } from '../services/mountDelayEdits.js';
+import { MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay } from '../services/motorDb.js';
+import { resetThrustcurveBackoffForTests } from '../services/thrustcurveTraffic.js';
 import { parseEng } from '../services/exMotors.js';
 
 /**
@@ -93,6 +95,17 @@ describe('MotorBrowser — sortable headers stay column headers', () => {
 // check. The blocks below do, through the real component and the real shipped
 // catalogue, the way a user does: search, click a row, press Load.
 
+beforeEach(() => { resetThrustcurveBackoffForTests(); setCatalogueOverlay(null); });
+afterEach(() => { resetThrustcurveBackoffForTests(); setCatalogueOverlay(null); });
+
+/** A newer catalogue row, deliberately outside the shipped bundle's coverage. */
+function addNetworkMotor(): void {
+  const base = MOTOR_DB.find(m => m.manufacturerAbbrev === 'Estes' && m.designation === 'G80')!;
+  setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: MOTOR_DB.length + 1,
+    added: [{ ...base, motorId: 'overlay-network-g81', designation: 'G81NET', commonName: 'G81NET' }],
+    changed: [], removed: [], rejected: [] });
+}
+
 const FILTERS_KEY = 'online-openrocket.motor-filters.v1';
 
 it('S1c-5 names refused legacy EX masses in the browser and offers re-import', () => {
@@ -159,7 +172,10 @@ const rowFor = (h: Harness, mfr: string, designation: string) => bodyRows(h).fin
 const delaySelect = (h: Harness) => h.host.querySelector<HTMLSelectElement>('.motor-load-row select');
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 /** Lets pending promises (a lazy JSON chunk, a file read) settle inside act. */
-const settle = async (ms = 0) => { await act(async () => { await new Promise((r) => setTimeout(r, ms)); }); };
+const settle = async (ms = 0) => { await act(async () => {
+  if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(Math.max(250, ms));
+  else await new Promise((r) => setTimeout(r, ms));
+}); };
 const loadButton = (h: Harness) => Array.from(h.host.querySelectorAll('button'))
   .find((b) => /Load motor|Loading/.test(b.textContent ?? ''));
 
@@ -420,11 +436,13 @@ describe('MotorBrowser — what an import says about the motors it took (audit 2
 
 describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)', () => {
   let h: Harness;
+  beforeEach(() => { vi.useFakeTimers(); });
   afterEach(async () => {
     vi.unstubAllGlobals();
     closeBrowser(h);
     const { discardCatalogueOverlay } = await import('../services/catalogueOverlay.js');
     discardCatalogueOverlay();
+    vi.useRealTimers();
   });
 
   /**
@@ -789,6 +807,7 @@ describe('MotorBrowser — filter chips say whether they are on (audit 2026-09-2
 
 describe('MotorBrowser — load and import results reach a screen reader (audit 2026-09-22)', () => {
   let h: Harness;
+  beforeEach(() => addNetworkMotor());
   afterEach(() => { vi.unstubAllGlobals(); closeBrowser(h); });
 
   it('has its status and alert regions in place before any message', () => {
@@ -800,17 +819,31 @@ describe('MotorBrowser — load and import results reach a screen reader (audit 
       .toEqual([['status', ''], ['status', ''], ['status', ''], ['alert', '']]);
   });
 
-  it('a Load that fails offline lands in the alert region', async () => {
-    // Estes G80 has catalogue masses but no bundled curve, so it needs the network.
-    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+  it('a shipped Estes G80 reports no sample data without a request', async () => {
+    setCatalogueOverlay(null); // No newer check: the shipped absence is still authoritative.
+    const fetcher = vi.fn();
+    vi.stubGlobal('fetch', fetcher);
     h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true } });
     search(h, 'G80');
     click(rowFor(h, 'Estes', 'G80')!);
     click(loadButton(h)!);
+    for (let i = 0; i < 50 && !/No sample data/.test(h.host.textContent ?? ''); i++) await settle(10);
+    expect(h.host.querySelector('.motor-import-notes > [role="alert"]')!.textContent).toMatch(/No sample data/);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it('a Load that fails offline lands in the alert region', async () => {
+    // The overlay-only motor needs a download.
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true } });
+    search(h, 'G81NET');
+    click(rowFor(h, 'Estes', 'G81NET')!);
+    click(loadButton(h)!);
     for (let i = 0; i < 50 && !(h.host.querySelector('.motor-import-notes > [role="alert"]')!.textContent); i++) await settle(10);
     // Said in the app's words, not the browser's bare "Failed to fetch" (audit 2026-09-30).
     expect(h.host.querySelector('.motor-import-notes > [role="alert"]')!.textContent)
-      .toMatch(/^thrustcurve\.org could not be reached for G80 — are you offline\?/);
+      .toMatch(/^thrustcurve\.org could not be reached for G81NET\. thrustcurve.org is not answering/);
+    expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
     expect(h.selected).toEqual([]);
   });
 
@@ -824,11 +857,12 @@ describe('MotorBrowser — load and import results reach a screen reader (audit 
     const notes = () => h.host.querySelector('.motor-import-notes')!;
     expect(notes().classList.contains('message-caution')).toBe(true);
     expect(notes().querySelector('[role="alert"]')!.textContent).toContain('Skipped 1 file');
-    search(h, 'G80');
-    click(rowFor(h, 'Estes', 'G80')!);
+    search(h, 'G81NET');
+    click(rowFor(h, 'Estes', 'G81NET')!);
     click(loadButton(h)!);
     for (let i = 0; i < 50 && !/thrustcurve\.org/.test(notes().querySelector('[role="alert"]')!.textContent ?? ''); i++) await settle(10);
-    expect(notes().querySelector('[role="alert"]')!.textContent).toMatch(/^thrustcurve\.org could not be reached for G80/);
+    expect(notes().querySelector('[role="alert"]')!.textContent).toMatch(/^thrustcurve\.org could not be reached for G81NET/);
+    expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
     expect(notes().querySelector('[role="status"]')!.textContent).toMatch(/Imported 1 EX motor/);
     expect(notes().classList.contains('message-tier')).toBe(false);
     expect(notes().querySelector('.message-label')).toBeNull();
@@ -843,10 +877,11 @@ describe('MotorBrowser — load and import results reach a screen reader (audit 
       </engine></engine-list></engine-database>` }]);
     const notes = () => h.host.querySelector('.motor-import-notes')!;
     expect(notes().classList.contains('message-caution')).toBe(true);
-    search(h, 'G80');
-    click(rowFor(h, 'Estes', 'G80')!);
+    search(h, 'G81NET');
+    click(rowFor(h, 'Estes', 'G81NET')!);
     click(loadButton(h)!);
     for (let i = 0; i < 50 && !/thrustcurve\.org/.test(notes().querySelector('[role="alert"]')!.textContent ?? ''); i++) await settle(10);
+    expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
     expect(notes().querySelector('[role="status"]')!.textContent).toMatch(/H99X: its nozzle exit/);
     expect(notes().classList.contains('message-caution')).toBe(true);
   });
@@ -907,19 +942,21 @@ describe('MotorBrowser — the table is ONE tab stop, walked with the arrows (au
 
 describe('MotorBrowser — two earlier fixes with no test until now (audit 2026-09-22)', () => {
   let h: Harness;
+  beforeEach(() => addNetworkMotor());
   afterEach(() => { vi.unstubAllGlobals(); if (h.host.isConnected) closeBrowser(h); });
 
   it.each(['motor', 'delay'])('S3a-1 ignores a download after the %s choice changes', async change => {
     let answer: ((response: Response) => void) | undefined;
-    vi.stubGlobal('fetch', () => new Promise<Response>(resolve => { answer = resolve; }));
+    vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(resolve => { answer = resolve; })));
     h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true } });
-    search(h, 'G80');
-    click(rowFor(h, 'Estes', 'G80')!);
+    search(h, 'G81NET');
+    click(rowFor(h, 'Estes', 'G81NET')!);
     click(loadButton(h)!);
     for (let i = 0; i < 300 && !answer; i++) await act(async () => { await new Promise(r => setTimeout(r, 10)); });
     expect(answer).toBeDefined();
     if (change === 'motor') {
-      const other = bodyRows(h).find(row => row !== rowFor(h, 'Estes', 'G80'))!;
+      search(h, 'G');
+      const other = bodyRows(h).find(row => row !== rowFor(h, 'Estes', 'G81NET'))!;
       click(other);
       expect(h.host.querySelector('.motor-row-picked')).toBe(other);
     }
@@ -936,11 +973,12 @@ describe('MotorBrowser — two earlier fixes with no test until now (audit 2026-
       } as Response);
       await new Promise(r => setTimeout(r, 50));
     });
+    expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
     expect(h.selected).toEqual([]);
   });
 
   it('a Load still downloading when the dialog closes never loads the motor', async () => {
-    // Estes G80 has no bundled curve, so its load waits on the network. The
+    // The overlay-only motor waits on the network. The
     // answer arrives AFTER the dialog is gone, and ignores the abort — the case
     // the post-fetch `signal.aborted` check exists for.
     let answered = false;
@@ -953,14 +991,15 @@ describe('MotorBrowser — two earlier fixes with no test until now (audit 2026-
     }, 30)));
     vi.stubGlobal('fetch', spy);
     h = openBrowser({ mountDiameterMm: 29, filters: { includeOOP: true } });
-    search(h, 'G80');
-    click(rowFor(h, 'Estes', 'G80')!);
+    search(h, 'G81NET');
+    click(rowFor(h, 'Estes', 'G81NET')!);
     click(loadButton(h)!);
     closeBrowser(h);
     // Wait out the whole download (the bundle lookup comes first), then some.
     for (let i = 0; i < 300 && !answered; i++) await act(async () => { await new Promise((r) => setTimeout(r, 10)); });
     await act(async () => { await new Promise((r) => setTimeout(r, 50)); });
     expect(answered).toBe(true);
+    expect(vi.mocked(fetch)).toHaveBeenCalledOnce();
     expect(h.selected).toEqual([]);
   });
 
