@@ -21,7 +21,10 @@ import { sanitizeTree } from './tree/sanitize.js';
 import { motorLengthLimit } from './tree/motorLength.js';
 import { MOTOR_DB, filterMotors } from './services/motorDb.js';
 import { importedSummaryRuns } from './services/orkFlightData.js';
+import * as summaryImports from './services/orkFlightData.js';
+import * as warningImports from './services/storedRunIdentity.js';
 import { addRuns, loadRuns } from './services/simStore.js';
+import * as runStorage from './services/simStore.js';
 import { savedConfigLabel } from './model/design.js';
 import { IMPERIAL_UNITS, uiToSi } from './prefs/units.js';
 import { resolveFlightState } from './services/flightState.js';
@@ -480,7 +483,7 @@ describe('a SOLID motor mount on Motors & Configuration', () => {
 
   it.each(['delete', 'clear'])('clears an inspected summary when history is removed by %s', async (action) => {
     addRuns(importedSummaryRuns({ name: 'Inspection removal', storedSimulations: [{ name: 'Stored', configId: null,
-      windAverage: 0, data: { runId: 'inspection', maxAltitude: 123, aeroModel: 'classic' } }] }));
+      data: { runId: 'inspection', maxAltitude: 123, aeroModel: 'classic' } }] }));
     const host = await mountApp();
     await waitFor(starterStored, 'starter motor');
     await act(async () => { button(host, 'Results').click(); });
@@ -510,7 +513,7 @@ describe('a SOLID motor mount on Motors & Configuration', () => {
 
   it.each([false, true])('reconciles inspected summary after Undo (same flight=%s)', async (same) => {
     const original = importedSummaryRuns({ name: 'Original A', storedSimulations: [{ name: 'Stored', configId: 'c1',
-      windAverage: 0, data: { runId: 'X', maxAltitude: 123, aeroModel: 'classic' } }] })[0]!;
+      data: { runId: 'X', maxAltitude: 123, aeroModel: 'classic' } }] })[0]!;
     addRuns([{ ...original, importedSummary: undefined, designKey: 'original-evidence' }]);
     const host = await mountApp();
     await waitFor(starterStored, 'starter motor');
@@ -551,40 +554,81 @@ describe('a SOLID motor mount on Motors & Configuration', () => {
   }, 30000);
 
   it('re-imports warning evidence into the saved report and reports an update', async () => {
-    const warning = { key: 'NO_RECOVERY_DEVICE', message: 'No recovery device', priority: 'HIGH' as const };
-    const write = (withWarnings: boolean) => exportOrk({ name: 'Warning enrichment',
-      tree: { components: [{ type: 'stage', children: [
+    const planning = vi.spyOn(summaryImports, 'planSummaryImport');
+    const persistence = vi.spyOn(runStorage, 'appendImportedRuns');
+    try {
+      const warning = { key: 'NO_RECOVERY_DEVICE', message: 'No recovery device', priority: 'HIGH' as const };
+      const write = (withWarnings: boolean) => exportOrk({ name: 'Warning enrichment',
+        tree: { components: [{ type: 'stage', children: [
+          { type: 'bodytube', length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+        ] }] }, launch: DEFAULT_CONDITIONS,
+        configs: [{ id: 'c1', name: 'Stored', isDefault: true, motors: {} }], activeConfigId: 'c1',
+        flightData: { c1: { runId: 'warning-flight', maxAltitude: 123, aeroModel: 'classic',
+          ...(withWarnings ? { simWarnings: [warning] } : {}) } },
+      });
+      const host = await mountApp();
+      await waitFor(starterStored, 'starter motor');
+      const picker = input(host, 'Open a design file');
+      const open = async (withWarnings: boolean) => {
+        Object.defineProperty(picker, 'files', { configurable: true, value: [new File([write(withWarnings)], 'warnings.ork')] });
+        await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
+        const past = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Open without saving'));
+        if (past) await act(async () => { past.click(); });
+      };
+      await open(false);
+      await waitFor(() => loadRuns().some((r) => r.id === 'warning-flight'), 'old imported report');
+      expect(loadRuns()[0]!.simWarnings).toBeUndefined();
+      await open(true);
+      await waitFor(() => !!loadRuns()[0]?.simWarnings?.length, 'enriched imported report');
+      const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+      if (toggle) await act(async () => { toggle.click(); });
+      expect(host.textContent).toContain('Stored runs: 0 added to Saved runs; 1 updated in Saved runs; 0 already in Saved runs; 0 not kept.');
+      expect(loadRuns()).toHaveLength(1);
+      expect(loadRuns()[0]!.simWarnings).toEqual([warning]);
+      for (const withWarnings of [true, false]) {
+        await open(withWarnings);
+        await waitFor(() => !!host.textContent?.includes('Stored runs: 0 added to Saved runs; 1 already in Saved runs; 0 not kept.'), 'unchanged import note');
+        expect(loadRuns()).toHaveLength(1);
+        expect(loadRuns()[0]!.simWarnings).toEqual([warning]);
+      }
+      expect(persistence).toHaveBeenCalledTimes(2);
+      for (let i = 0; i < 2; i++) {
+        expect(persistence.mock.calls[i]![2]).toBe(planning.mock.results[i]!.value.warningMergeBudget);
+      }
+    } finally { planning.mockRestore(); persistence.mockRestore(); }
+  }, 30000);
+
+  it('Round 6 shows one import caution with the number of warning copies admission omitted', async () => {
+    const budget = warningImports.createWarningMergeBudget();
+    budget.remaining = 0;
+    const factory = vi.spyOn(warningImports, 'createWarningMergeBudget').mockReturnValue(budget);
+    try {
+      const xml = exportOrk({ name: 'Limited warnings', tree: { components: [{ type: 'stage', children: [
         { type: 'bodytube', length: 0.3, outerRadius: 0.02, thickness: 0.001 },
       ] }] }, launch: DEFAULT_CONDITIONS,
       configs: [{ id: 'c1', name: 'Stored', isDefault: true, motors: {} }], activeConfigId: 'c1',
-      flightData: { c1: { runId: 'warning-flight', maxAltitude: 123, aeroModel: 'classic',
-        ...(withWarnings ? { simWarnings: [warning] } : {}) } },
-    });
-    const host = await mountApp();
-    await waitFor(starterStored, 'starter motor');
-    const picker = input(host, 'Open a design file');
-    const open = async (withWarnings: boolean) => {
-      Object.defineProperty(picker, 'files', { configurable: true, value: [new File([write(withWarnings)], 'warnings.ork')] });
+      flightData: { c1: { runId: 'limited-flight', maxAltitude: 123, aeroModel: 'classic',
+        simWarnings: [{ key: 'X', message: 'm', priority: 'HIGH' }] } },
+      });
+      const block = xml.match(/<simulation\b[^>]*>[\s\S]*?<\/simulation>/)![0];
+      const host = await mountApp();
+      await waitFor(starterStored, 'starter motor');
+      const picker = input(host, 'Open a design file');
+      Object.defineProperty(picker, 'files', { configurable: true,
+        value: [new File([xml.replace('</simulations>', block.repeat(2) + '</simulations>')], 'limits.ork')] });
       await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
       const past = [...document.querySelectorAll('button')].find((b) => b.textContent?.includes('Open without saving'));
       if (past) await act(async () => { past.click(); });
-    };
-    await open(false);
-    await waitFor(() => loadRuns().some((r) => r.id === 'warning-flight'), 'old imported report');
-    expect(loadRuns()[0]!.simWarnings).toBeUndefined();
-    await open(true);
-    await waitFor(() => !!loadRuns()[0]?.simWarnings?.length, 'enriched imported report');
-    const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
-    if (toggle) await act(async () => { toggle.click(); });
-    expect(host.textContent).toContain('Stored runs: 0 added to Saved runs; 1 updated in Saved runs; 0 already in Saved runs; 0 not kept.');
-    expect(loadRuns()).toHaveLength(1);
-    expect(loadRuns()[0]!.simWarnings).toEqual([warning]);
-    for (const withWarnings of [true, false]) {
-      await open(withWarnings);
-      await waitFor(() => !!host.textContent?.includes('Stored runs: 0 added to Saved runs; 1 already in Saved runs; 0 not kept.'), 'unchanged import note');
-      expect(loadRuns()).toHaveLength(1);
-      expect(loadRuns()[0]!.simWarnings).toEqual([warning]);
-    }
+      await waitFor(() => loadRuns().some(run => run.id === 'limited-flight'), 'bounded imported run');
+      const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+      if (toggle) await act(async () => { toggle.click(); });
+      const lines = [...host.querySelectorAll('.notice-list li')].filter(line => !line.querySelector('li')
+        && line.textContent?.includes('later copies of this flight'));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]!.textContent).toContain('2 later copies of this flight carried warnings that were not merged');
+      expect(lines[0]!.textContent).toContain('I28');
+      expect(loadRuns()[0]!.simWarnings).toEqual([{ key: 'X', message: 'm', priority: 'HIGH' }]);
+    } finally { factory.mockRestore(); }
   }, 30000);
 
   it('RES-1c records an unnamed configuration’s stored run under the label the app shows for it', async () => {
@@ -687,7 +731,7 @@ describe('a SOLID motor mount on Motors & Configuration', () => {
     // Imported from this same file, so already verified: the re-open proves nothing new (RES-1c).
     const run = importedSummaryRuns({ name: 'Cap regression',
       configs: [{ id: 'c1', name: 'Stored', isDefault: true, motors: {}, deployments: {}, separations: {} }], storedSimulations: [{
-        name: 'Stored', configId: 'c1', windAverage: 0, data: { runId: 'old', maxAltitude: 123, aeroModel: 'classic' },
+        name: 'Stored', configId: 'c1', data: { runId: 'old', maxAltitude: 123, aeroModel: 'classic' },
       }] })[0]!;
     expect(run.importedConfigVerified).toBe(true);
     addRuns([{ ...run, id: 'newest-unrelated', importedRunId: undefined, maxAltitude: 456 },
@@ -714,7 +758,7 @@ describe('a SOLID motor mount on Motors & Configuration', () => {
 
   it('inspects an imported summary without replacing a live flight and Launch returns to live results', async () => {
     addRuns(importedSummaryRuns({ name: 'File summary', storedSimulations: [{ name: 'Stored', configId: null,
-      windAverage: 0, data: { runId: 'file-summary', maxAltitude: 987654, aeroModel: 'supersonic' } }] }));
+      data: { runId: 'file-summary', maxAltitude: 987654, aeroModel: 'supersonic' } }] }));
     const host = await mountApp();
     await waitFor(starterStored, 'starter motor');
     const launch = () => [...host.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Launch')!.click();

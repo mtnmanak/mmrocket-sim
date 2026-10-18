@@ -364,8 +364,8 @@ describe('a long chain of automatic radii resolves in linear time', () => {
   it('resolves 8,000 tubes behind without recursing the length of the chain', () => {
     // The old resolver recursed once per tube and overflowed the stack here
     // ("Maximum call stack size exceeded"). The file is over the 2,000-part
-    // limit at open (board row 84), which is checked after the resolver has
-    // run over every tube: the limit's refusal, not a RangeError, is the guard.
+    // limit at open (board row 84), now checked during the pre-count before
+    // conversion or radius resolution. Report the full linear pre-count.
     expect(() => importOrk(orkXml(behind(8000)))).toThrow(/^This design has 8,0\d\d parts, past the 2,000 the app will open\./);
   }, 60_000);
 });

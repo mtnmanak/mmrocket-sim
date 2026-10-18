@@ -96,7 +96,7 @@ describe('designStateFromSession', () => {
   it('round 8: keeps names, motors, unmatched references, inactive stages, multiple configurations and own results', () => {
     const dry: SavedConfig = { id: 'dry', name: null, isDefault: true, motors: {} };
     const result = (configId: string | null) => ({ name: 'Stored check', configId,
-      data: { maxAltitude: 123 }, windAverage: 0 });
+      data: { maxAltitude: 123 } });
     const cases: [Partial<SessionState>, boolean][] = [
       [{ savedConfigs: [{ ...dry, name: 'Dry fit' }] }, true],
       [{ savedConfigs: [{ ...dry, name: '   ' }] }, false],

@@ -1,5 +1,5 @@
 import { carryFlags, cautionNote, noteFlags } from './importNotes.js';
-import { storedWarnings } from './storedWarnings.js';
+import { restoredWarnings } from './storedWarnings.js';
 import { sanitizeDesignProvenance } from './designProvenance.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { LaunchConditions } from './launchConditions.js';
@@ -366,7 +366,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
     if (!raw) return null;
     // Older autosaves may carry warning source IDs from a different open.
     let s = JSON.parse(raw, (key, value) =>
-      key === 'simWarnings' && Array.isArray(value) ? storedWarnings(value) : value) as SessionState;
+      key === 'simWarnings' && Array.isArray(value) ? restoredWarnings(value) : value) as SessionState;
     if (!s || typeof s !== 'object' || Array.isArray(s)) {
       // Unusable payload: drop it rather than re-parsing the same wreck on
       // every load, and so a corrupted autosave cannot follow the user around.
@@ -605,7 +605,7 @@ function writeNow(): void {
     const { stamp: _stale, over: _staleOver, ...state } = pending;
     const content = JSON.stringify(
       { appVersion: APP_VERSION, ...state, nozzleModeVersion: 1, emptyConfigVersion: 1, timeStepMigrationVersion: 1 }, (key, v) =>
-      key === 'simWarnings' && Array.isArray(v) ? storedWarnings(v)
+      key === 'simWarnings' && Array.isArray(v) ? restoredWarnings(v)
         : typeof v === 'number' && v === Infinity ? 'Infinity' : v);
     // The stamp covers everything but the timestamp (and a takeover's `over`),
     // so re-writing the same design is the same stamp. Spliced rather than

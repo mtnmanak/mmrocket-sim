@@ -1,10 +1,10 @@
-import { storedWarnings } from './storedWarnings.js';
+import { restoredWarnings, storedWarnings } from './storedWarnings.js';
 import { delayMountsOf, readDelay, resolutionMatchesPolicy, type DelayResolution } from './autoDelaySolver.js';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/design.js';
 import type { OrkImportResult, OrkExportFlightData } from './orkFile.js';
 import { expectedDelayMountsOf, motorDataKeyOf, motorDataKeysMatch, runCarriesNozzleStamp, runCarriesPhysicsRevision, runMatchesModel, type SimRun } from './simReport.js';
 import { lookupTable } from './xmlUtil.js';
-import { mergeStoredWarnings, summaryOf, summaryFingerprint, verifiesStoredRow } from './storedRunIdentity.js';
+import { createWarningMergeBudget, mergeImportedWarnings, summaryOf, summaryFingerprint, verifiesStoredRow, type WarningMergeBudget } from './storedRunIdentity.js';
 export { summaryOf } from './storedRunIdentity.js';
 import { MAX_RUNS } from './simStore.js';
 
@@ -86,6 +86,8 @@ function verifiedConfigLabel(configId: string | null | undefined, status: string
 }
 
 interface SummaryImportPlan {
+  /** Shared with persistence so one open never restarts partial matching. */
+  warningMergeBudget: WarningMergeBudget;
   runs: SimRun[];
   /** Existing rows with additional warning evidence; never consume free slots. */
   updatedRuns: SimRun[];
@@ -108,6 +110,7 @@ export function planSummaryImport(imported: Pick<OrkImportResult, 'name'>
 existingRuns: readonly SimRun[] = [],
 /** The matched configurations App built from this same file, for unnamed configurations' labels. */
 savedConfigs: readonly SavedConfig[] = []): SummaryImportPlan {
+  const warningMergeBudget = createWarningMergeBudget();
   const ids = new Map<string, string>();
   const identities = new Map<string, string>();
   const fingerprints = new Map<string, string>();
@@ -134,7 +137,7 @@ savedConfigs: readonly SavedConfig[] = []): SummaryImportPlan {
     if (duplicate !== undefined) {
       summaryIds.push(duplicate);
       const previous = rows.get(duplicate)!;
-      const simWarnings = mergeStoredWarnings(previous.simWarnings, fd.simWarnings);
+      const simWarnings = mergeImportedWarnings(duplicate, previous.simWarnings, fd.simWarnings, warningMergeBudget);
       // A row stored before its configuration could be verified (RES-1b and
       // earlier, or an unnamed configuration before RES-1c) gains the identity
       // this open proves. Same fingerprint, so the same configuration id.
@@ -170,7 +173,7 @@ savedConfigs: readonly SavedConfig[] = []): SummaryImportPlan {
       ...(flightConfig !== undefined ? { flightConfig, importedConfigVerified: true as const } : {}),
       ...(sim.configId ? { flightConfigId: sim.configId } : {}),
       aeroModel: fd.aeroModel,
-      ...(fd.simWarnings !== undefined ? { simWarnings: mergeStoredWarnings([], fd.simWarnings) } : {}),
+      ...(fd.simWarnings !== undefined ? { simWarnings: restoredWarnings(fd.simWarnings, warningMergeBudget.evidence) } : {}),
       ...(fd.rogersKbf !== undefined ? { rogersKbf: fd.rogersKbf } : {}),
       ...(fd.hybridBand ? { hybridBand: fd.hybridBand } : {}),
       maxAltitude: fd.maxAltitude ?? NaN, maxVelocity: fd.maxVelocity ?? NaN,
@@ -190,9 +193,15 @@ savedConfigs: readonly SavedConfig[] = []): SummaryImportPlan {
       commentLevels: ['info'],
     };
     rows.set(id, run);
+    warningMergeBudget.rowCounts.set(id, run.simWarnings?.length ?? 0);
     return [run];
   });
+  for (const run of existingRuns) {
+    const update = updatedRuns.get(run.id);
+    if (update) warningMergeBudget.preparedUpdates.set(run.id, { before: run.simWarnings, after: update.simWarnings });
+  }
   return {
+    warningMergeBudget,
     runs: runs.slice(0, Math.max(0, MAX_RUNS - existingRuns.length)).map((run) => rows.get(run.id)!),
     updatedRuns: existingRuns.flatMap((run) => updatedRuns.has(run.id) ? [updatedRuns.get(run.id)!] : []),
     summaryIds, total: simulations.length,

@@ -1,11 +1,11 @@
 import { recordedConfiguration, runConfigurationLabel, runOverrideText, runStatus } from './runConfiguration.js';
 import { validRunExportContext } from './runExportContext.js';
 import type { DesignMatchKey } from './simReport.js';
-import { storedWarnings } from './storedWarnings.js';
+import { restoredWarnings, storedWarnings } from './storedWarnings.js';
 import { csvCell } from './csvUtil.js';
 import { deploymentVerdict, openingVerdict, SAFETY, type SimRun } from './simReport.js';
 import { railNeeded, railNeededResultCell, railNeededHeader } from './railNeeded.js';
-import { mergeStoredWarnings, sameStoredFlight, verifiesStoredRow } from './storedRunIdentity.js';
+import { createWarningMergeBudget, mergeImportedWarnings, mergeStoredWarnings, sameStoredFlight, verifiesStoredRow, type WarningMergeBudget } from './storedRunIdentity.js';
 import { warningKeysCell } from './simWarnings.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
@@ -103,7 +103,7 @@ export function loadRuns(): SimRun[] {
         else Object.assign(r, { [k]: entries.filter((v) => k === 'boosterMotors'
           ? typeof v === 'string' : v !== null && typeof v === 'object' && !Array.isArray(v)) });
       }
-      if (r.simWarnings !== undefined) r.simWarnings = storedWarnings(r.simWarnings);
+      if (r.simWarnings !== undefined) r.simWarnings = restoredWarnings(r.simWarnings);
       for (const b of r.branches ?? []) {
         if (!Array.isArray(b.deployments)) b.deployments = [];
         else b.deployments = b.deployments.filter((d) => d !== null && typeof d === 'object' && !Array.isArray(d));
@@ -212,7 +212,7 @@ function persist(runs: SimRun[], fresh = 0, undoPair?: ReadonlySet<string>): Sim
   const kept = (undoPair
     ? runs.filter((run) => undoPair.has(run.id) || slots-- > 0)
     : runs.slice(0, MAX_RUNS)).map(run => {
-    const simWarnings = storedWarnings(run.simWarnings);
+    const simWarnings = restoredWarnings(run.simWarnings);
     return simWarnings === run.simWarnings ? run : { ...run, simWarnings };
   });
   lastEvicted = 0;
@@ -251,14 +251,22 @@ export function addRuns(newRuns: SimRun[]): SimRun[] {
 }
 
 /** Imported summaries fill free slots, in file order, after existing history. */
-export function appendImportedRuns(newRuns: SimRun[], updatedRuns: SimRun[] = []): SimRun[] {
+export function appendImportedRuns(newRuns: SimRun[], updatedRuns: SimRun[] = [],
+warningMergeBudget: WarningMergeBudget = createWarningMergeBudget()): SimRun[] {
   const existing = loadRuns();
   let changed = false;
   const updates = new Map(updatedRuns.map((run) => [run.id, run]));
   const reconciled = existing.map((run) => {
     const update = updates.get(run.id);
     if (!update || !sameStoredFlight(run, update)) return run;
-    const simWarnings = mergeStoredWarnings(run.simWarnings, update.simWarnings);
+    const prepared = warningMergeBudget.preparedUpdates.get(run.id);
+    warningMergeBudget.rowCounts.set(run.id, run.simWarnings?.length ?? 0);
+    // Planning used this exact baseline. Reuse its prepaid result rather than
+    // merging it again after the import has spent the remaining allowance.
+    const simWarnings = prepared && prepared.after === update.simWarnings
+      && JSON.stringify(storedWarnings(run.simWarnings)) === JSON.stringify(storedWarnings(prepared.before))
+      ? update.simWarnings : mergeImportedWarnings(run.id, run.simWarnings, update.simWarnings, warningMergeBudget);
+    warningMergeBudget.rowCounts.set(run.id, simWarnings?.length ?? 0);
     // A configuration identity this open verified (RES-1c), for the same id only.
     const verify = update.importedConfigVerified === true && update.flightConfigId === run.flightConfigId
       ? verifiesStoredRow(run, update.flightConfig) : null;

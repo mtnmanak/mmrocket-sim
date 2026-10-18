@@ -6,7 +6,8 @@ import {
 } from './simStore.js';
 import { IMPERIAL_UNITS } from '../prefs/units.js';
 import { densityAltitudeM } from './atmosphere.js';
-import { deploymentVerdict, type SimRun } from './simReport.js';
+import { deploymentVerdict, runStoppedEarly, type SimRun } from './simReport.js';
+import { MAX_STORED_WARNINGS } from './storedWarnings.js';
 
 /**
  * Store tests exercise the persistence round-trip, not simulation output —
@@ -23,6 +24,17 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     maxAltitude: 300,
     ...over,
   }) as SimRun;
+
+it('Round 2 bounds saved and restored warnings, preserving abort and HIGH evidence', () => {
+  localStorage.clear();
+  const warnings = Array.from({ length: MAX_STORED_WARNINGS + 1 }, () => ({ key: 'Joint', message: 'Gap' }));
+  const critical = [{ key: 'SIM_ABORT', message: '' }, { key: 'Danger', message: 'Unsafe', priority: 'HIGH' as const }];
+  addRun(mkRun('many', { simWarnings: [...warnings, ...critical] }));
+  const raw = JSON.parse(localStorage.getItem('online-openrocket.sim-runs.v1')!);
+  expect(raw[0].simWarnings).toEqual([...critical, expect.objectContaining({ key: 'StoredWarningsUnavailable' })]);
+  expect(loadRuns()[0]!.simWarnings).toEqual([...critical, expect.objectContaining({ key: 'StoredWarningsUnavailable' })]);
+  expect(runStoppedEarly(loadRuns()[0]!)).toBe(true);
+});
 
 it('N032 summary CSV/table use altitude units for heights and distance units for landing drift', () => {
   const run = mkRun('split', { maxAltitude: 304.8, altitudeAtDeployment: 152.4,

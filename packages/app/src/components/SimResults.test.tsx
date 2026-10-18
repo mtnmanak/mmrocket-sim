@@ -413,7 +413,7 @@ describe('SimRunDetails — where the raw flight data went', () => {
   });
   it('shows an imported model and blend band without inventing a delay, execution time or safety pass', () => {
     const imported = importedSummaryRuns({ name: 'Imported', storedSimulations: [{ name: 'Hybrid', configId: null,
-      windAverage: 12, data: { maxAltitude: 123, groundHitVelocity: 13, deploymentVelocity: 1, optimumDelay: 5, aeroModel: 'hybrid', rogersKbf: true, hybridBand: [0.7, 1.4] } }] })[0]!;
+      data: { maxAltitude: 123, groundHitVelocity: 13, deploymentVelocity: 1, optimumDelay: 5, aeroModel: 'hybrid', rogersKbf: true, hybridBand: [0.7, 1.4] } }] })[0]!;
     render(<SimRunDetails run={imported} />);
     act(() => { [...host.querySelectorAll('button')].find((b) => b.textContent === 'Show all details')!.click(); });
     expect(host.textContent).toContain('Configuration not recorded');

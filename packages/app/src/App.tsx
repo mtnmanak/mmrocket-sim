@@ -158,7 +158,7 @@ import { num, numOrNull } from './tree/nodeNum.js';
 import {
   flightDataForExport as flightDataForExportPure, flownAutoDelays, planSummaryImport, summaryImportCounts, summaryDocument,
 } from './services/orkFlightData.js';
-import { sameStoredFlight } from './services/storedRunIdentity.js';
+import { sameStoredFlight, warningMergeNotes } from './services/storedRunIdentity.js';
 import { motorLengthLimit } from './tree/motorLength.js';
 import { noBoreReason } from './tree/motorRoom.js';
 import { MotorLengthReadout } from './components/MotorLengthField.js';
@@ -2667,13 +2667,16 @@ export function App() {
       const summaryPlan = planSummaryImport(imported, current, plan.snapshot.savedConfigs);
       let next = current;
       if (summaryPlan.runs.length || summaryPlan.updatedRuns.length) {
-        next = appendImportedRuns(summaryPlan.runs, summaryPlan.updatedRuns);
+        next = appendImportedRuns(summaryPlan.runs, summaryPlan.updatedRuns, summaryPlan.warningMergeBudget);
         recordRuns(next);
       }
       const { added, updated, alreadySaved, notKept } = summaryImportCounts(summaryPlan, next);
       // Their own lines in the open's group: Information, unless a stored run
       // was not kept — imported flight evidence incomplete (D7 I28).
       const runLines: ImportNote[] = [
+        ...warningMergeNotes(summaryPlan.warningMergeBudget).map((text): ImportNote => ({
+          kind: 'I28.stored-warnings', tier: 'caution', text,
+        })),
         { kind: 'I28.stored-runs', tier: notKept > 0 ? 'caution' : 'information',
           text: `Stored runs: ${added} added to Saved runs; ${updated ? `${updated} updated in Saved runs; ` : ''}${alreadySaved} already in Saved runs; ${notKept} not kept.` },
         { kind: 'I27.stored-runs-rule', tier: 'information',

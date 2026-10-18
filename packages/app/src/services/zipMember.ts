@@ -282,6 +282,9 @@ export function crc32(d: Uint8Array): number {
   return (c ^ -1) >>> 0;
 }
 
+/** Maximum concatenated gzip members; real design files normally have one. */
+export const MAX_GZIP_MEMBERS = 1000;
+
 /**
  * Inflate a GZIP-compressed design file (magic 1f 8b): the form older
  * OpenRocket releases saved a compressed .ork in, which desktop 24.12 still
@@ -295,39 +298,43 @@ export function crc32(d: Uint8Array): number {
  * size field is its trailer's, modulo 2^32 and describing the LAST member
  * alone, so the stream is the one place a bomb can be stopped.
  *
- * Every member is read, as GZIPInputStream reads them, and every member's
- * trailer is then checked as it checks them — CRC-32 and length — because
+ * Up to MAX_GZIP_MEMBERS are read, and every accepted member's
+ * trailer is then checked as GZIPInputStream checks it — CRC-32 and length — because
  * fflate checks neither, and its streaming Gunzip can hand back a file CUT
  * SHORT as a shorter file with no error at all (measured 2026-10-01: 179 of
  * 2,418 truncations of a 17 KB document; its final push finds the input
  * already consumed and returns). A damaged file is refused, never passed on
- * in part. Stricter than desktop in one way, on purpose: bytes after the last
- * member, which GZIPInputStream skips when they do not begin another, are
+ * in part. Stricter than desktop on purpose: member count is capped, and bytes
+ * after the last member, which GZIPInputStream skips when they do not begin another, are
  * refused here with the rest, because the last trailer is found by position.
  */
 export function gunzipCapped(bytes: Uint8Array, kind: string): Uint8Array {
   const damaged = (why: string) => new Error(`Not a readable compressed ${kind} file — it is damaged (${why}).`);
   const tooBig = new Error(`This compressed ${kind} file expands past the `
     + `${MAX_ZIP_MEMBER_BYTES / (1024 * 1024)} MB this app will open — that is not a rocket design.`);
+  const tooMany = new Error(`This compressed ${kind} file has more than ${MAX_GZIP_MEMBERS.toLocaleString('en-US')} gzip members, past the limit this app will open.`);
   const chunks: Uint8Array[] = [];
   let total = 0;
   const gunzip = new Gunzip((chunk) => {
     if (total + chunk.length > MAX_ZIP_MEMBER_BYTES) throw tooBig;
-    chunks.push(chunk);
+    if (chunk.length) chunks.push(chunk);
     total += chunk.length;
   });
   // Where each member starts, in the file and in the output. fflate reports
   // each one after the first as it reaches its header, by which time every
   // byte the previous member inflated to has been delivered.
   const members = [{ at: 0, out: 0 }];
-  gunzip.onmember = (at) => { members.push({ at, out: total }); };
+  gunzip.onmember = (at) => {
+    if (members.length >= MAX_GZIP_MEMBERS) throw tooMany;
+    members.push({ at, out: total });
+  };
   try {
     for (let p = 0; p < bytes.length; p += INFLATE_CHUNK) {
       const q = Math.min(p + INFLATE_CHUNK, bytes.length);
       gunzip.push(bytes.subarray(p, q), q === bytes.length);
     }
   } catch (err) {
-    if (err === tooBig) throw err;
+    if (err === tooBig || err === tooMany) throw err;
     throw damaged(err instanceof Error ? err.message : String(err));
   }
   const out = new Uint8Array(total);
