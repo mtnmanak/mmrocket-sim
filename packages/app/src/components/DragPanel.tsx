@@ -86,12 +86,18 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
   // parent render can't force a plot recreate (kept out of the deps below).
   const onZoomChangeRef = useRef(onZoomChange);
   onZoomChangeRef.current = onZoomChange;
+  const savedWin = useRef<{ min: number; max: number; x0: number; x1: number } | null>(null);
   const summary = useMemo(() => chartSummary({
     title, x, at: (m) => rollPlane ? `${formatReadout(m, 3)}° roll-plane angle` : `Mach ${formatReadout(m, 3)}`,
     series: lines, source: rollPlane
       ? (worstPlaneNote ?? (worstAngle === null ? 'No defined worst plane.' : `Worst plane: ${worstAngle}°; marked by a dotted vertical line.`))
       : DRAG_CSV_NOTE,
   }), [title, x, lines, rollPlane, worstAngle, worstPlaneNote]);
+  const summaryRef = useRef(summary);
+  summaryRef.current = summary;
+  useEffect(() => {
+    if (ref.current) nameChartCanvas(ref.current, summary);
+  }, [summary]);
 
   useEffect(() => {
     const el = ref.current;
@@ -133,16 +139,26 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
       ],
     };
     const plot = new uPlot(opts, data, el);
-    nameChartCanvas(el, summary);
+    const x0 = x[0];
+    const x1 = x[x.length - 1];
+    const saved = savedWin.current;
+    if (saved && saved.x0 === x0 && saved.x1 === x1) {
+      plot.setScale('x', { min: saved.min, max: saved.max });
+    }
+    nameChartCanvas(el, summaryRef.current);
     if (plotRef) plotRef.current = plot;
     const obs = new ResizeObserver(() => plot.setSize({ width: el.clientWidth, height: chartH() }));
     obs.observe(el);
     return () => {
+      const sc = plot.scales['x']!;
+      savedWin.current = x0 != null && x1 != null && sc.min != null && sc.max != null
+        ? { min: sc.min, max: sc.max, x0, x1 }
+        : null;
       obs.disconnect();
       if (plotRef) plotRef.current = null;
       plot.destroy();
     };
-  }, [x, lines, xLabel, yLabel, height, lockLegend, resolvedTheme, daylight, expanded, plotRef, summary, worstAngle]);
+  }, [x, lines, xLabel, yLabel, height, lockLegend, resolvedTheme, daylight, expanded, plotRef, worstAngle]);
 
   return <div ref={ref} className={lockLegend ? 'chart-legend-locked' : undefined} />;
 }
@@ -654,14 +670,15 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
   // The design's static figures, read only while a sweep is showing: the CP
   // chart needs the length to scale by, and the roll note below needs the
   // single-plane and swept CPs.
+  const hasSweep = Boolean(sweep && !('error' in sweep));
   const info = useMemo<StaticInfo | null>(() => {
-    if (!sweep || 'error' in sweep) return null;
+    if (!hasSweep) return null;
     try {
       return sweepRocket.staticInfo();
     } catch {
       return null;
     }
-  }, [sweep, sweepRocket]);
+  }, [hasSweep, sweepRocket]);
   const rollNote = info ? rollDependentCp(info) : null;
 
   // CP as % of body length (the wind-tunnel convention for CP-vs-Mach plots,

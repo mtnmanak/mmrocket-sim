@@ -1,14 +1,15 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
 import { NETWORK_HOSTS, NetError } from './net.js';
+import * as openMeteoModule from './openMeteo.js';
 import {
   addDaysYmd, clearWeatherCache, compassPoint, DateRefusal, distanceM, fetchElevation, fetchForecast, fetchWeather,
   forecastUrl, formatDay, formatValidTime, geocodeUrl, hoursOnLocalDate, isDigitsOnly, parseCoordinates, parseElevation,
   MAP_LINK_WITHOUT_COORDINATES, estimatedCloudBaseM,
   parseForecast, parseGeocode, placeFromDevice, placeFromGeo, planDateWindow, requestElevations, searchPlace, SEARCH_COPY,
-  usCommaRetry, WeatherError, weatherErrorText, ymdInZone, type HourSample,
+  usCommaRetry, WeatherError, weatherErrorText, ymdInZone, type HourSample, type WeatherAnswer,
 } from './openMeteo.js';
 
 /**
@@ -512,17 +513,21 @@ describe('fetchWeather', () => {
     expect(a.variants).toHaveLength(2);
   });
 
-  it('reuses the same answer for ten minutes, and asks again after', async () => {
+  it('reuses the same answer and its original retrievedAt for ten minutes, and asks again after', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(Date.UTC(2026, 8, 22, 20));
     const f = fakeFetch(route);
     const q = { place, siteM: 0, date: '2026-09-26', today: '2026-09-22' };
-    await fetchWeather(q, { fetchImpl: f.fetchImpl });
-    await fetchWeather(q, { fetchImpl: f.fetchImpl });
+    const first = await fetchWeather(q, { fetchImpl: f.fetchImpl });
+    vi.setSystemTime(Date.UTC(2026, 8, 22, 20, 5));
+    const cachedHit = await fetchWeather(q, { fetchImpl: f.fetchImpl });
     expect(f.urls).toHaveLength(2);
+    expect(first.retrievedAt).toBe(new Date(Date.UTC(2026, 8, 22, 20)).toISOString());
+    expect(cachedHit.retrievedAt).toBe(first.retrievedAt);
     vi.setSystemTime(Date.UTC(2026, 8, 22, 20, 10, 1));
-    await fetchWeather(q, { fetchImpl: f.fetchImpl });
+    const refreshed = await fetchWeather(q, { fetchImpl: f.fetchImpl });
     expect(f.urls).toHaveLength(4);
+    expect(refreshed.retrievedAt).toBe(new Date(Date.UTC(2026, 8, 22, 20, 10, 1)).toISOString());
   });
 
   // The ERA5 archive is another host and another dataset; read here from a
@@ -608,11 +613,35 @@ describe('fetchWeather', () => {
 });
 
 describe('context helpers', () => {
+  it('requires the original fetch timestamp on every weather answer', () => {
+    expectTypeOf<WeatherAnswer['retrievedAt']>().toEqualTypeOf<string>();
+  });
+
   it('names a compass point and a grid distance', () => {
     expect(compassPoint(331)).toBe('NNW');
     expect(compassPoint(-10)).toBe('N');
     expect(compassPoint(294)).toBe('WNW');
     // The captured answer's grid cell is 1.4 km from Gerlach's town centre.
     expect(distanceM(40.65157, -119.35519, 40.66386, -119.35593) / 1000).toBeCloseTo(1.37, 2);
+  });
+
+  it('reuses a single date formatter across all samples in hoursOnLocalDate and keeps fetchGeocode internal', () => {
+    const RealDtf = Intl.DateTimeFormat;
+    let dtfCalls = 0;
+    const spy = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (...args: Parameters<typeof Intl.DateTimeFormat>) {
+      dtfCalls++;
+      return new RealDtf(...args);
+    } as typeof Intl.DateTimeFormat);
+    try {
+      const [v] = parseForecast(fixture('forecast-blackrock-1190m.json'), [1190]);
+      expect(v!.samples).toHaveLength(72);
+      dtfCalls = 0;
+      const hours = hoursOnLocalDate(v!.samples, 'America/Los_Angeles', '2026-09-26');
+      expect(hours).toHaveLength(24);
+      expect(dtfCalls).toBe(3);
+    } finally {
+      spy.mockRestore();
+    }
+    expect('fetchGeocode' in openMeteoModule).toBe(false);
   });
 });

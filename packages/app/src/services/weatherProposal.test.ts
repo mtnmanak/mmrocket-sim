@@ -28,6 +28,7 @@ function answer(elevationsM: number[], demM: number | null, variants?: ForecastV
     endpoint: 'forecast', date: '2026-09-26', demM, elevationsM,
     variants: variants ?? parseForecast(fixture('forecast-gerlach-0-1202m.json'), elevationsM),
     timezone: 'America/Los_Angeles',
+    retrievedAt: '2026-09-22T18:00:00.000Z',
   };
 }
 const TWO = () => answer([0, 1202], 1202);

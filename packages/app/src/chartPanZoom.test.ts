@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
-  arrowPan, clampWindow, isFullExtent, panelHeight, panWindow, plotIsZoomed, resetPlots,
+  arrowPan, clampWindow, isFullExtent, panelHeight, panWindow, panZoomPlugin, plotIsZoomed, resetPlots,
   WHEEL_ZOOM_BASE, wheelNotches, wheelWindow, wheelZoomFactor,
   xDataExtent, zoomPercent, zoomWindow, type XPlot, type XWindow,
 } from './chartPanZoom.js';
@@ -336,5 +336,47 @@ describe('zoomPercent', () => {
     expect(zoomPercent(plot(0, 0))).toBe(100);
     expect(zoomPercent(plot(0, 10, []))).toBe(100);
     expect(zoomPercent(plot(0, 10, [4]))).toBe(100);
+  });
+});
+
+describe('panZoomPlugin — degenerate x extent', () => {
+  it('leaves wheel and pointer-pan as no-ops on a single-value x extent with a padded scale', () => {
+    const over = Object.assign(new EventTarget(), {
+      style: { touchAction: '' },
+      getBoundingClientRect: () => ({ left: 0 }),
+      setPointerCapture: () => {},
+    });
+    const setScale = vi.fn();
+    const u = {
+      over,
+      data: [[0.5, 0.5, 0.5]],
+      scales: { x: { min: 0.4, max: 0.6 } },
+      posToVal: (px: number) => 0.4 + px * 0.002,
+      setScale,
+    };
+    const plugin = panZoomPlugin();
+    (plugin.hooks.init as (plot: unknown) => void)(u);
+
+    const wheelEv = Object.assign(new Event('wheel', { cancelable: true }), {
+      clientX: 50,
+      deltaY: -100,
+      deltaMode: 0,
+    });
+    over.dispatchEvent(wheelEv);
+    expect(wheelEv.defaultPrevented).toBe(false);
+    expect(setScale).not.toHaveBeenCalled();
+
+    over.dispatchEvent(Object.assign(new Event('pointerdown', { cancelable: true }), {
+      pointerId: 1,
+      button: 0,
+      shiftKey: true,
+      clientX: 50,
+    }));
+    over.dispatchEvent(Object.assign(new Event('pointermove', { cancelable: true }), {
+      pointerId: 1,
+      buttons: 1,
+      clientX: 30,
+    }));
+    expect(setScale).not.toHaveBeenCalled();
   });
 });

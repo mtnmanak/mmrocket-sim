@@ -330,7 +330,7 @@ export function WeatherDialog({
     try {
       const a = await fetchWeather({
         place: target, siteM: padAir(launch).altitudeM, date, today: ymdInZone(now(), target.timezone),
-      }, { signal, fetchImpl });
+      }, { signal, fetchImpl, now });
       if (!seq.current.isCurrent(id)) return;
       const hs = hoursOnLocalDate(a.variants[0]?.samples ?? [], a.timezone, a.date);
       const nowUnix = now() / 1000;
@@ -379,7 +379,10 @@ export function WeatherDialog({
     if (!proposal || !answer || !place || !canApply) return;
     const hour = hours.find((h) => h.unix === proposal.sample.unix)?.hour;
     writeMemory({ country, lastQuery: query, ...(hour !== undefined ? { lastHour: hour } : {}) });
-    onApply(patch, snapshotOf({ launch, answer, place, proposal, patch, retrievedAt: new Date(now()) }));
+    onApply(patch, snapshotOf({
+      launch, answer, place, proposal, patch,
+      retrievedAt: new Date(answer.retrievedAt),
+    }));
     onClose();
   };
 

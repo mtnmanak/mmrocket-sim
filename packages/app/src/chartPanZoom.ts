@@ -311,6 +311,7 @@ export function panZoomPlugin(
           if (sc.min == null || sc.max == null) return;
           const focus = u.posToVal(e.clientX - over.getBoundingClientRect().left, 'x');
           const [d0, d1] = extent();
+          if (!(d1 > d0)) return;
           // Normalised by how far the wheel actually turned, so one physical
           // detent means the same thing on every device — see wheelZoomFactor.
           // The wheel does not get to zoom for ever. Past WHEEL_MAX_DEPTH the
@@ -363,6 +364,7 @@ export function panZoomPlugin(
           // the window left, so the data follows the pointer.
           const dx = u.posToVal(0, 'x') - u.posToVal(dxPx, 'x');
           const [d0, d1] = extent();
+          if (!(d1 > d0)) return;
           setWindow(panWindow(sc.min, sc.max, dx, d0, d1));
         });
 

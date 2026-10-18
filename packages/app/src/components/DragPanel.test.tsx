@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
-import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
 import { DRAG_SWEEP_IDLE_MS, DragPanel } from './DragPanel.js';
 import { foldTypography } from '../services/textFold.js';
@@ -705,5 +705,144 @@ describe('DragPanel — charts a screen reader can tell apart', () => {
     expect(named[2]).toMatch(/^Drag breakdown \(power-off\) vs Mach/);
     expect(named[2]).toContain('Nose cone');
     for (const n of named) expect(n).toContain('The Drag table (.csv) download above holds the same numbers.');
+  });
+});
+
+describe('DragPanel chart rebuilds', () => {
+  function ChartPreferences() {
+    const { prefs, setPrefs } = usePrefs();
+    return <>
+      <button onClick={() => setPrefs({ ...prefs, daylight: !prefs.daylight })}>Toggle test Daylight</button>
+      <button onClick={() => setPrefs({ ...prefs, theme: prefs.theme === 'dark' ? 'light' : 'dark' })}>Toggle test theme</button>
+    </>;
+  }
+
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    localStorage.clear();
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    vi.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+      if (typeof args[0] === 'string' && args[0].includes('not wrapped in act')) return;
+      realError(...args);
+    });
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    localStorage.clear();
+    vi.restoreAllMocks();
+  });
+
+  it('preserves a chart zoom window across size, Daylight and theme changes and resets when the Mach extent changes', async () => {
+    const dynamicRocket = {
+      dragSweep: (opts?: { machMax?: number }) => {
+        const s = stubSweep();
+        const n = s.machs.filter((m) => m <= (opts?.machMax ?? 3)).length;
+        return {
+          ...s,
+          machs: s.machs.slice(0, n),
+          cp: s.cp.slice(0, n),
+          cna: s.cna.slice(0, n),
+          powerOff: {
+            total: s.powerOff.total.slice(0, n),
+            friction: s.powerOff.friction.slice(0, n),
+            pressure: s.powerOff.pressure.slice(0, n),
+            base: s.powerOff.base.slice(0, n),
+          },
+          powerOn: {
+            total: s.powerOn.total.slice(0, n),
+            friction: s.powerOn.friction.slice(0, n),
+            pressure: s.powerOn.pressure.slice(0, n),
+            base: s.powerOn.base.slice(0, n),
+          },
+          components: s.components.map((c) => ({ ...c, cd: c.cd.slice(0, n) })),
+        } as DragSweep;
+      },
+      staticInfo: () => ({ length: 1.2 }),
+    } as unknown as OrkRocket;
+    act(() => root.render(
+      <PrefsProvider>
+        <ChartPreferences />
+        <DragPanel rocket={dynamicRocket} designName="Test rocket" />
+      </PrefsProvider>,
+    ));
+    act(() => { (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click(); });
+    await act(async () => {});
+    const resetBtn = () => host.querySelector('button[aria-label="Reset the drag coefficient chart view"]') as HTMLButtonElement;
+    const expandBtn = () => host.querySelector('button[aria-label="Expand the drag coefficient chart"]') as HTMLButtonElement;
+    expect(resetBtn().disabled).toBe(true);
+
+    const over = host.querySelector('.u-over') as HTMLElement;
+    await act(async () => {
+      const ev = new WheelEvent('wheel', { deltaY: -100, cancelable: true });
+      Object.defineProperty(ev, 'clientX', { value: 100 });
+      over.dispatchEvent(ev);
+    });
+    expect(resetBtn().disabled).toBe(false);
+
+    await act(async () => {
+      expandBtn().click();
+    });
+    expect(resetBtn().disabled).toBe(false);
+
+    await act(async () => {
+      (host.querySelector('button[aria-label="Restore the drag coefficient chart size"]') as HTMLButtonElement).click();
+    });
+    expect(resetBtn().disabled).toBe(false);
+
+    for (const label of ['Toggle test Daylight', 'Toggle test Daylight', 'Toggle test theme']) {
+      await act(async () => {
+        [...host.querySelectorAll('button')].find((b) => b.textContent === label)!.click();
+      });
+      expect(resetBtn().disabled).toBe(false);
+    }
+
+    const machSelect = host.querySelector('select') as HTMLSelectElement;
+    await act(async () => {
+      machSelect.value = '2';
+      machSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(resetBtn().disabled).toBe(true);
+  });
+
+  it('does not re-run staticInfo or RollPlaneChart aeroDiagnostics when only sweep conditions change', () => {
+    const staticInfoSpy = vi.fn(() => ({ length: 1.2, cg: 0.7, mass: 0.5, refDiameter: 0.05 }));
+    const aeroDiagnosticsSpy = vi.fn(() => ({
+      cp: [0.85, 0, 0, 10] as [number, number, number, number],
+      worstCP: [0.85, 0, 0, 10] as [number, number, number, number],
+      cpByTheta: Array.from({ length: 360 }, () => [0.85, 0, 0, 10] as [number, number, number, number]),
+    }));
+    const customRocket = {
+      dragSweep: () => stubSweep(),
+      staticInfo: staticInfoSpy,
+      aeroDiagnostics: aeroDiagnosticsSpy,
+    } as unknown as OrkRocket;
+
+    act(() => root.render(
+      <PrefsProvider>
+        <DragPanel rocket={customRocket} designName="Test rocket" />
+      </PrefsProvider>,
+    ));
+    act(() => { (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click(); });
+    const rollToggle = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Show CP vs roll-plane angle'))!;
+    act(() => { rollToggle.click(); });
+
+    expect(staticInfoSpy).toHaveBeenCalledTimes(1);
+    expect(aeroDiagnosticsSpy).toHaveBeenCalledTimes(1);
+
+    const maxMach = host.querySelector('select') as HTMLSelectElement;
+    act(() => {
+      maxMach.value = '2';
+      maxMach.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(aeroDiagnosticsSpy).toHaveBeenLastCalledWith(0.3, expect.any(Number));
+
+    expect(staticInfoSpy).toHaveBeenCalledTimes(1);
+    expect(aeroDiagnosticsSpy).toHaveBeenCalledTimes(1);
   });
 });

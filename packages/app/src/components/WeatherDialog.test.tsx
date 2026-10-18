@@ -1316,4 +1316,22 @@ describe('winds aloft review', () => {
     await click(button('Fetch'));
     expect(host.textContent).toContain('Winds aloft are unavailable');
   });
+  it('stamps retrievedAt from the forecast fetch or cache time rather than the Apply click time', async () => {
+    let clock = NOW;
+    render({ initialPlace: GERLACH_PLACE, initialHour: { validUnix: SAT_2PM, timezone: 'America/Los_Angeles' }, now: () => clock });
+    await click(button('Fetch'));
+    expect(urls).toHaveLength(2);
+    // Advance clock by 7 hours, past midnight UTC, before pressing Apply.
+    clock = NOW + 7 * 3600 * 1000;
+    await click(button('Apply'));
+    expect(applied[0]!.snapshot.retrievedAt).toBe(new Date(NOW).toISOString());
+
+    // Re-fetching within the 10-minute cache window preserves the original fetch timestamp.
+    clock = NOW + 5 * 60 * 1000;
+    await click(button('Fetch'));
+    clock = NOW + 8 * 60 * 1000;
+    await click(button('Apply'));
+    expect(urls).toHaveLength(2);
+    expect(applied[1]!.snapshot.retrievedAt).toBe(new Date(NOW).toISOString());
+  });
 });
