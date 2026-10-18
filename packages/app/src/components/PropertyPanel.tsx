@@ -377,11 +377,13 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
         <input id={`${id}-name`} maxLength={80} value={draft} placeholder="Optional"
           aria-invalid={message ? true : undefined} aria-describedby={`${id}-hint${message ? ` ${id}-message` : ''}`}
           onChange={e => { setDraft(e.target.value); setMessage(''); }}
-          onBlur={e => { if (!restoringNameFocus.current) commitName(e.relatedTarget === null); }}
+          // Only Enter keeps focus here (its field unmounts under it). A blur is the user leaving, even to blank space
+          // or, in Safari, to a button: moving focus to the select then let a stray arrow key change the material.
+          onBlur={() => { if (!restoringNameFocus.current) commitName(false); }}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitName(true); } }} />
         <p id={`${id}-hint`} className="prefs-hint">{kind === 'bulk'
           ? `Typing a ${label === 'Fillet material' ? 'fillet density' : 'density'} afterwards removes the name; set the density first.`
-          : `The name applies to this part's current density, ${foreignDensity ?? KERNEL_DEFAULT_MATERIALS[kind].density} ${densityUnit}; to change a canopy or line density, edit a saved entry in My materials.`}</p>
+          : `The name applies to this part's current density, ${foreignDensity ?? KERNEL_DEFAULT_MATERIALS[kind].density} ${densityUnit}; to change a canopy or line density, edit a saved entry in My materials, then pick it again from this list.`}</p>
       </div>}
       {foreign !== null && saveProblem === null && <button type="button" className="finish-all-btn"
         aria-label={saved ? saved.density === foreignDensity ? `Saved in My materials: ${label}` : `Update in My materials: ${label}` : `Save to My materials: ${label}`}

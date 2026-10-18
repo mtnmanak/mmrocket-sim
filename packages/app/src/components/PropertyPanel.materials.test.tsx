@@ -324,9 +324,10 @@ it('labels a zero-density user material neutrally and explains density editing b
   act(() => field.focus()); type(field, 'My foam'); act(() => field.blur());
   show({ ...tube('t', { density: 0 }), ...patches[0] });
   expect(select().selectedOptions[0]!.textContent).toBe("My foam (680 kg/m³) — this part's material");
-  expect(document.activeElement).toBe(select());
+  // A blur leaves focus where the user sent it; only Enter returns it to the select.
+  expect(document.activeElement).not.toBe(select());
   show(makeNode('parachute'));
-  expect(host.textContent).toContain(`The name applies to this part's current density, ${KERNEL_DEFAULT_MATERIALS.surface.density} kg/m²; to change a canopy or line density, edit a saved entry in My materials.`);
+  expect(host.textContent).toContain(`The name applies to this part's current density, ${KERNEL_DEFAULT_MATERIALS.surface.density} kg/m²; to change a canopy or line density, edit a saved entry in My materials, then pick it again from this list.`);
 });
 it('shows a blocked-storage note only in My materials, once for a part with two material selectors', () => {
   storageSpy('getItem').mockImplementation(() => { throw Error('blocked'); });
@@ -352,6 +353,17 @@ it('commits on blur to another input without stealing focus or patching a second
   act(() => next.focus()); type(next, 'Nose');
   expect(document.activeElement).toBe(next);
   expect(patches).toHaveLength(1);
+});
+// Review 2026-10-18: a blur with no new focus target (blank panel space; any button in Safari) used to move focus
+// into the material select, where a stray arrow key would change the part's material.
+it('commits on a blur to nowhere without moving focus into the material select', () => {
+  const node = tube('t'); show(node);
+  const field = input('Material name');
+  act(() => field.focus()); type(field, 'My foam');
+  const focus = vi.spyOn(select(), 'focus');
+  act(() => { field.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: null })); });
+  expect(focus).not.toHaveBeenCalled();
+  expect(patches).toEqual([{ materialName: 'My foam' }]);
 });
 it.each(['Balsa', 'Custom', 'x'.repeat(81)])('keeps keyboard focus in a refused name on Enter (%s)', value => {
   show(tube('t')); const field = input('Material name');
@@ -445,7 +457,7 @@ it.each([
     const field = input(`${label} name`);
     const effective = density ?? KERNEL_DEFAULT_MATERIALS[kind].density;
     expect(host.querySelector(`[id="${field.getAttribute('aria-describedby')}"]`)?.textContent)
-      .toBe(`The name applies to this part's current density, ${effective} ${unit}; to change a canopy or line density, edit a saved entry in My materials.`);
+      .toBe(`The name applies to this part's current density, ${effective} ${unit}; to change a canopy or line density, edit a saved entry in My materials, then pick it again from this list.`);
     type(field, 'Named cloth or cord');
     void act(() => field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
     expect(patches).toEqual([{ [nameKey]: 'Named cloth or cord', ...(density === undefined ? { [densityKey]: effective } : {}) }]);
