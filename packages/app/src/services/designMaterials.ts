@@ -1,6 +1,9 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS } from '../data/materials.js';
 import { numOpt } from '../tree/nodeNum.js';
+import { MAX_BULK_DENSITY } from '../tree/schema.js';
+import type { FlightTree } from '../model/design.js';
+import { cleanDocumentMaterials } from './documentMaterials.js';
 
 export type MaterialKind = 'bulk' | 'surface' | 'line';
 export const MATERIAL_LISTS = { bulk: BULK_MATERIALS, surface: SURFACE_MATERIALS, line: LINE_MATERIALS };
@@ -44,6 +47,18 @@ export function designMaterials(tree: RocketTree, kind: MaterialKind): DesignMat
       else found.set(key, { name, density, count: 1 });
     }
     pending.push(...node.children ?? []);
+  }
+  // Desktop OR replaces pipes in document-list names, but keeps them on parts.
+  // Only merge the document alias; preserve each part's exact selectable pair.
+  const documentKey = (name: string, density: number) => JSON.stringify([name.replaceAll('|', ' ').trim(), density]);
+  const partKeys = new Set([...found.values()].map(m => documentKey(m.name, m.density)));
+  for (const m of cleanDocumentMaterials((tree as FlightTree).documentMaterials)) {
+    if (m.kind !== kind || materialNameKey(m.name) === 'custom'
+      || (kind === 'bulk' && m.density > MAX_BULK_DENSITY)
+      || builtInMaterial(kind, m.name)
+      || partKeys.has(documentKey(m.name, m.density))) continue;
+    const key = JSON.stringify([m.name, m.density]);
+    if (!found.has(key)) found.set(key, { name: m.name, density: m.density, count: 0 });
   }
   return [...found.values()].sort((a, b) => a.name.localeCompare(b.name) || a.density - b.density);
 }

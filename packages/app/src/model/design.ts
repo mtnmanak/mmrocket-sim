@@ -30,8 +30,17 @@ export interface FlightOverrides {
  */
 export interface FlightTree extends RocketTree {
   ignitionDefaults?: Record<string, IgnitionTuple>;
+  /** Reusable document metadata; parts retain their own flight densities. */
+  documentMaterials?: DocumentMaterial[];
   /** C-A9: design notes travel with the root, outside the physical component tree. */
   provenance?: DesignProvenance;
+}
+
+export interface DocumentMaterial {
+  kind: 'bulk' | 'surface' | 'line';
+  name: string;
+  density: number;
+  group?: string;
 }
 
 export interface DesignRevision { date: string; text: string }

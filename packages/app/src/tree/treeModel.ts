@@ -1552,6 +1552,9 @@ export function protuberanceDeliveredCd(tree: RocketTree, node: ComponentNode): 
 export { KERNEL_DEFAULT_CD };
 
 export function engineTree(tree: RocketTree): RocketTree {
+  // Reusable document materials are metadata, never kernel input.
+  tree = { ...tree };
+  delete (tree as RocketTree & { documentMaterials?: unknown }).documentMaterials;
   // N045: remove annotations before reference-area and body-CD probes as well as the kernel build.
   // A malformed saved mark carrying children must not resize another part's drag reference.
   const withoutMarks = (nodes: ComponentNode[]): ComponentNode[] => nodes.filter(n => (n.type as string) !== 'tubehole').map(n =>
