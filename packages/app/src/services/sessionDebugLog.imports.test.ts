@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { zipSync } from 'fflate';
 import { createSessionDebugLog, MAX_DEBUG_LOG_BYTES, sessionDebugLog } from './sessionDebugLog.js';
 import { importMotorFiles } from './importMotorFiles.js';
-import { EX_SAMPLE_LIMIT_NOTE, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
+import { EX_IMPORT_BYTES_NOTE, EX_SAMPLE_LIMIT_NOTE, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
+import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
 import { importOrk } from './orkFile.js';
 import { importRkt } from './rocksimFile.js';
 import { importCdx1 } from './rasaeroFile.js';
@@ -31,6 +32,25 @@ function logged(error: Error): string {
 }
 
 describe('C-H3 real import diagnostics', () => {
+  it.each([
+    EX_IMPORT_BYTES_NOTE,
+    `Mach-Alt table exceeds the limit of ${MAX_MACH_ALT_ROWS.toLocaleString('en-US')} distinct rows.`,
+  ])('round1 retains the count-only limit refusal: %s', message => {
+    expect(logged(new Error(message))).toContain(`import-failed: Error: ${message}`);
+    expect(logged(new Error(`${message} Private Fairbanks 61.234`))).toContain('Message omitted for privacy');
+  });
+
+  it('round1 retains the distinct-point refusal category without the motor name', async () => {
+    const out = await importMotorFiles([new File([
+      'Private 18 70 P 0.01 0.02 PrivateMaker\n0 10\n0 10',
+    ], 'Private Fairbanks.eng')]);
+    expect(out.parsed).toEqual([]);
+    const event = sessionDebugLog.text().trim().split('\n').at(-1)!;
+    expect(event).toContain('Motor import refused: fewer than two distinct thrust points (file detail omitted)');
+    expect(event).not.toContain('Private');
+    expect(event).not.toContain('Fairbanks');
+  });
+
   it.each(['.eng', '.rse'])('retains the %s thrust sample-limit refusal without private fields', async extension => {
     // Happy-dom's selector truncates 100,001 siblings to 65,536; use the real JS parser to reach the cap.
     if (extension === '.rse') setXmlParser(jsXmlParser);

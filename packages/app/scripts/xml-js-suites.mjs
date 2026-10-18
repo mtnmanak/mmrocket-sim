@@ -42,6 +42,7 @@ export const XML_JS_SUITES = [
   'src/services/configSync.test.ts',
   'src/services/autosaveBackup.test.ts',
   'src/services/exMotors.test.ts',
+  'src/services/importMotorFiles.test.ts',
   // EX validation and same-id nozzle imports (audit 2026-10-11, S1c-4/S3c-2).
   'src/services/exMotors.audit.test.ts',
   'src/hooks/useNozzleFollow.test.tsx',

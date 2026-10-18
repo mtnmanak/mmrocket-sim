@@ -1,3 +1,4 @@
+import { parseDecimal } from './xmlUtil.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import { deadline } from './net.js';
 import { digestMotorFile } from './motorDigest.js';
@@ -191,7 +192,7 @@ export function isSampleList(arr: unknown): arr is TcSample[] {
     if (typeof s !== 'object' || s === null) return false;
     const { time, thrust } = s as Record<string, unknown>;
     return typeof time === 'number' && typeof thrust === 'number'
-      && Number.isFinite(time) && Number.isFinite(thrust);
+      && Number.isFinite(time) && Number.isFinite(thrust) && time >= 0 && thrust >= 0;
   });
 }
 
@@ -736,7 +737,7 @@ export async function bundleHasCurve(motorId: string): Promise<boolean | null> {
 /** bundledSimFiles, but a bundle chunk that would not load THROWS rather than reading as "no files". */
 async function bundledFiles(motorId: string): Promise<TcSimFile[]> {
   const curves = await loadBundledCurves();
-  return (curves[motorId] ?? []).map((f) => ({
+  return (Object.hasOwn(curves, motorId) ? curves[motorId]! : []).map((f) => ({
     // Carried so the picker can tell two files apart by what they are, not by
     // where the bundle happens to list them (pickSampleFile).
     ...(f.simfileId ? { simfileId: f.simfileId } : {}),
@@ -791,7 +792,7 @@ export function delayOptions(motor: TcMotor): number[] {
     const s = raw.trim().toUpperCase();
     if (s === 'P' || s === 'PLUGGED') { plugged = true; continue; }
     if (s === '') continue; // Number('') is 0 — an empty item is not a 0 s delay
-    const n = Number(s);
+    const n = parseDecimal(s);
     if (!Number.isFinite(n) || n < 0) continue;
     if (n >= PLUGGED_DELAY_CODE) { plugged = true; continue; }
     opts.push(n);

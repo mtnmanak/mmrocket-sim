@@ -120,6 +120,11 @@ const record = (v: unknown): v is Record<string, unknown> =>
 
 /** Shared archive/library gate: old imports must meet today's checks (audit 2026-10-11, S1c-5). */
 export function validExMotor(v: unknown): v is ExMotor {
+  return validExMotorFields(v) && hasDistinctThrustPoints(v.samples);
+}
+
+/** Archive screening before separately naming legacy curves that cannot fly. */
+export function validExMotorFields(v: unknown): v is ExMotor {
   if (!record(v)) return false;
   const totalG = v['totalWeightG'];
   const propG = v['propWeightG'];
@@ -141,6 +146,11 @@ export function validExMotor(v: unknown): v is ExMotor {
         && m >= (totalG - propG) / 1000 * 0.99 && m <= totalG / 1000 * 1.01)))
     && (v['exitDiameterM'] === undefined || (positive(v['exitDiameterM'])
       && v['exitDiameterM'] >= v['diameter'] / 1000 * EXIT_MIN_FRACTION_OF_CASE && v['exitDiameterM'] <= v['diameter'] / 1000 * EXIT_MAX_FRACTION_OF_CASE));
+}
+
+function hasDistinctThrustPoints(samples: { time: number; thrust: number }[]): boolean {
+  const curve = flownCurve(samples).samples;
+  return curve.length >= 2 && curve[curve.length - 1]!.time > 0;
 }
 
 /** Exact loaded data is accepted only when every array can fly unchanged. */
@@ -314,14 +324,18 @@ export interface ExImport extends ExLibraryWrite {
 export function addExMotors(added: ExMotor[]): ExImport {
   const batch = new Map<string, ExMotor>();
   const duplicates: string[] = [];
-  const sameMotor = (a: ExMotor, b: ExMotor) =>
-    JSON.stringify({ ...a, motorId: '', addedAt: 0 }) === JSON.stringify({ ...b, motorId: '', addedAt: 0 });
+  const identities = new Map<string, Set<string>>();
+  const nextSuffix = new Map<string, number>();
   for (const m of added) {
-    let id: string | null = m.motorId;
-    for (let n = 2; id !== null && batch.has(id); n++) {
-      id = sameMotor(batch.get(id)!, m) ? null : `${m.motorId}~${n}`;
-    }
-    if (id === null) continue; // an exact repeat of a motor already in this batch
+    const seen = identities.get(m.motorId) ?? new Set<string>();
+    const identity = JSON.stringify({ ...m, motorId: '', addedAt: 0 });
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    identities.set(m.motorId, seen);
+    let id = boundedExId(m.motorId);
+    let n = nextSuffix.get(m.motorId) ?? 2;
+    while (batch.has(id)) id = boundedExId(m.motorId, `~${n++}`);
+    nextSuffix.set(m.motorId, n);
     if (id !== m.motorId) duplicates.push(m.designation);
     batch.set(id, id === m.motorId ? m : { ...m, motorId: id });
   }
@@ -466,7 +480,7 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
   let samples: { time: number; thrust: number }[] = [];
 
   const isHeader = (tok: string[]) =>
-    tok.length >= 7 && Number.isFinite(Number(tok[1])) && Number.isFinite(Number(tok[2]));
+    tok.length >= 7 && Number.isFinite(parseDecimal(tok[1])) && Number.isFinite(parseDecimal(tok[2]));
 
   const finish = () => {
     const h = header;
@@ -481,7 +495,7 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
     // A header has seven or more tokens (isHeader), so the name is there.
     const name = h[0]!;
     const [, diaMm, lenMm, delays, propKg, totKg, ...mfr] = h;
-    if (!(Number(diaMm) > 0 && Number(lenMm) > 0)) {
+    if (!(parseDecimal(diaMm) > 0 && parseDecimal(lenMm) > 0)) {
       skipped.push(`${name}: diameter/length missing or not a positive number`);
       return;
     }
@@ -491,16 +505,18 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
     pts.length = last + 1;
     if (pts[0]!.time > 0) pts.unshift({ time: 0, thrust: 0 });
     if (pts.length > MAX_EX_MOTOR_SAMPLES) { skipped.push(`${name}: ${EX_SAMPLE_LIMIT_NOTE}`); return; }
-    const problem = massProblem(Number(propKg) * 1000, Number(totKg) * 1000);
+    const problem = massProblem(parseDecimal(propKg) * 1000, parseDecimal(totKg) * 1000);
     if (problem) { skipped.push(`${name}: ${problem}`); return; }
+    if (pts.length < 2) { skipped.push(`${name}: no thrust data`); return; }
+    if (!hasDistinctThrustPoints(pts)) { skipped.push(`${name}: fewer than two distinct thrust points`); return; }
     motors.push({
-      motorId: `ex:${slug(`${mfr.join(' ') || 'ex'}-${name}`)}`,
+      motorId: boundedExId(`ex:${slug(`${mfr.join(' ') || 'ex'}-${name}`)}`),
       designation: name,
       realManufacturer: mfr.join(' ') || 'EX',
-      diameter: Number(diaMm),
-      length: Number(lenMm),
-      totalWeightG: Number(totKg) * 1000,
-      propWeightG: Number(propKg) * 1000,
+      diameter: parseDecimal(diaMm),
+      length: parseDecimal(lenMm),
+      totalWeightG: parseDecimal(totKg) * 1000,
+      propWeightG: parseDecimal(propKg) * 1000,
       // 'P' in the RASP delay field means PLUGGED — no ejection charge at all
       // — and it must survive into the delays string. Emptying it here (what
       // this line used to do) made exToDbEntry emit `delays: undefined`, and
@@ -527,13 +543,13 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
       finish();
       header = tok;
       // The two MASS columns get the same test as the two dimension columns.
-      // They did not, and `Number('notanum')` is NaN, so a malformed header
+      // They did not, and `parseDecimal('notanum')` is NaN, so a malformed header
       // imported a motor with propWeightG: NaN — which survives all the way to
       // fly time and then fails there saying "thrustcurve.org publishes no
       // loaded/propellant weight for <motor>", naming a service that had
       // nothing to do with a file the user loaded off their own disk.
       // parseRse refuses its equivalent ("initial mass missing or zero").
-      if (!Number.isFinite(Number(tok[4])) || !Number.isFinite(Number(tok[5]))) {
+      if (!Number.isFinite(parseDecimal(tok[4])) || !Number.isFinite(parseDecimal(tok[5]))) {
         // Both are there: a header has seven or more tokens (isHeader).
         refused = `Propellant and total mass must be numbers in "${line.slice(0, 60)}" — `
           + `read "${tok[4]!}" and "${tok[5]!}".`;
@@ -543,8 +559,8 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
     if (!header) throw new Error(`Not a RASP header line: "${line.slice(0, 60)}"`);
     if (refused) continue; // a skipped motor's data lines are read past to the next header
     if (samples.length >= MAX_EX_MOTOR_SAMPLES) { refused = `${header[0]!}: ${EX_SAMPLE_LIMIT_NOTE}`; continue; }
-    const [t, f] = tok.map(Number);
-    if (!Number.isFinite(t) || !Number.isFinite(f)) {
+    const [t, f] = tok.map(parseDecimal);
+    if (tok.length !== 2 || !Number.isFinite(t) || !Number.isFinite(f)) {
       throw new Error(`Bad data line: "${line.slice(0, 60)}"`);
     }
     // Name the motor and point at import, not an unnamed kernel refusal
@@ -704,6 +720,10 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
       skipped.push(`Motor ${name}: no thrust data`);
       continue;
     }
+    if (!hasDistinctThrustPoints(samples)) {
+      skipped.push(`Motor ${name}: fewer than two distinct thrust points`);
+      continue;
+    }
     // getAttribute returns null for an ABSENT attribute, and Number(null) is 0
     // — which is finite, so an .rse whose <eng-data> points carry no m at all
     // used to produce an all-zero mass array that was then preferred over the
@@ -725,7 +745,7 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
       notes?.push(`${name}: its nozzle exit, exitDia ${exit.rejected}, was not used.`);
     }
     motors.push({
-      motorId: `ex:${slug(`${mfr}-${name}`)}`,
+      motorId: boundedExId(`ex:${slug(`${mfr}-${name}`)}`),
       designation: name,
       realManufacturer: mfr,
       diameter: numAttr('dia'),

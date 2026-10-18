@@ -453,7 +453,9 @@ export function restateBackedOutMotor(
   const cgOk = cg === undefined || (massOk && cg >= 0 && cg <= len);
   const same = (a: number | undefined, b: number | undefined) =>
     a === undefined ? b === undefined : b !== undefined && near(a, b);
-  if (massOk && cgOk && same(dry, rec.massKg) && same(cg, rec.cgM)) {
+  if (massOk && same(dry, rec.massKg)
+    && ((cgOk && same(cg, rec.cgM))
+      || (!cgOk && rec.cgM === undefined && numOpt(stage, 'overrideCGX') === undefined))) {
     return null;
   }
 
@@ -639,11 +641,10 @@ export function reconcileIncludedMotor(
     };
   }
 
-  const next: ComponentNode = { ...cleared, overrideMass: dry, overrideSubcomponentsMass: true };
+  const next: ComponentNode = { ...cleared, overrideMass: dry };
   // A motor first resolved after import needs the same re-pick record as a
   // catalogue back-out (audit 2026-10-11, S7b-1).
   const figures: StatedStageFigures = { motor: named, mountId, launchKg: stated, massKg: dry };
-  next[STATED_STAGE_FIGURES] = figures;
   const parts = [`its mass override is now ${text.mass(dry)} of airframe`];
   let severity: ReconciledStatedWeight['severity'] = 'info';
   let trailer = '';
@@ -653,6 +654,7 @@ export function reconcileIncludedMotor(
   // (audit row 522), which the kernel already ignores.
   const statedCg = numOpt(cleared, 'overrideCGX');
   if (statedCg !== undefined) {
+    figures.launchCgM = statedCg;
     // Where the motor's CG sits, measured from the STAGE's own front — which
     // is the frame the importer wrote `overrideCGX` in. The motor's aft face
     // is the mount's aft end (BodyTube.getMotorPosition with no overhang), so
@@ -671,7 +673,6 @@ export function reconcileIncludedMotor(
     const len = stageLength(stage);
     if (cg >= 0 && cg <= len) {
       next['overrideCGX'] = cg;
-      next['overrideSubcomponentsCG'] = true;
       Object.assign(figures, { launchCgM: statedCg, cgM: cg });
       parts.push(`its CG override is now ${text.length(cg)} from the stage’s own front`);
     } else {
@@ -685,6 +686,15 @@ export function reconcileIncludedMotor(
     }
   }
 
+  // Only retain figures that can still describe the user's override settings.
+  if (cleared['overrideSubcomponentsMass'] === true
+    && (statedCg === undefined || cleared['overrideSubcomponentsCG'] === true)) {
+    next[STATED_STAGE_FIGURES] = figures;
+  }
+  const unticked = [
+    numOpt(next, 'overrideMass') !== undefined && next['overrideSubcomponentsMass'] !== true,
+    numOpt(next, 'overrideCGX') !== undefined && next['overrideSubcomponentsCG'] !== true,
+  ].filter(Boolean).length;
   return {
     tree: replaceStage(tree, index, next),
     severity,
@@ -692,7 +702,9 @@ export function reconcileIncludedMotor(
       + `with ${who} still inside it. That motor is loaded now, so its ${text.mass(motor.launchMassKg)} has `
       + `been taken back out — ${parts.join(', and ')}. Without that the motor would have been counted `
       + `twice and the rocket would fly ${text.mass(motor.launchMassKg)} heavy. Clear the overrides under `
-      + `Overrides to go back to the computed geometry.${trailer}`,
+      + `Overrides to go back to the computed geometry.${trailer}`
+      + (unticked > 0
+        ? ` Your unticked Use instead of everything inside ${unticked === 1 ? 'box has' : 'boxes have'} been kept unticked.` : ''),
   };
 }
 

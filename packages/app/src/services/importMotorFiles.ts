@@ -1,6 +1,8 @@
 import type { NoteTier } from '../components/Note.js';
 import { addExMotors, parseMotorFile, type ExMotor } from './exMotors.js';
+import { EX_IMPORT_BYTES_NOTE, MAX_EX_IMPORT_BYTES } from './exMotorLimits.js';
 import { sessionDebugLog } from './sessionDebugLog.js';
+import { decodeXml } from './xmlUtil.js';
 
 // @atestani TRF #162, Eric 2026-10-06: both pickers share parsing, storage and notices.
 export async function importMotorFiles(files: File[]) {
@@ -18,10 +20,20 @@ export async function importMotorFiles(files: File[]) {
   const failed: string[] = [];
   /** What the parsers had to say about motors they DID import (a refused nozzle exit, …). */
   const said: string[] = [];
+
   for (const f of motorFiles) {
     try {
+      if (f.size > MAX_EX_IMPORT_BYTES) throw new Error(EX_IMPORT_BYTES_NOTE);
       const notes: string[] = [];
-      parsed.push(...parseMotorFile(f.name, await f.text(), notes));
+      const bytes = new Uint8Array(await f.arrayBuffer());
+      const [b0, b1, b2] = bytes;
+      const xml = /\.rse$/i.test(f.name) || b0 === 0x3c || (b0 === 0x00 && b1 === 0x3c)
+        || (b0 === 0xff && b1 === 0xfe) || (b0 === 0xfe && b1 === 0xff)
+        || (b0 === 0xef && b1 === 0xbb && b2 === 0xbf);
+      const decoded = xml ? decodeXml(bytes) : { xml: new TextDecoder('utf-8').decode(bytes) };
+      if (decoded.note) notes.push(decoded.note.replace('Check the part and material names.', 'Check the motor and maker names.'));
+      const motors = parseMotorFile(f.name, decoded.xml, notes);
+      parsed.push(...motors);
       said.push(...notes.map((n) => `${f.name}: ${n}`));
     } catch (e) {
       sessionDebugLog.record('import-failed', e);

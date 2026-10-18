@@ -719,3 +719,100 @@ it('fetches current EX masses and geometry even with a stale catalogue row', asy
     expect(spec.cgX).toBeCloseTo(0.125, 9);
   } finally { localStorage.clear(); }
 });
+
+describe('lane C EX import regressions', () => {
+  afterEach(() => localStorage.clear());
+
+  it.each(['0 0', '0 0\n1 0', '0 10'])('S1c-6/S1c-9 refuses a degenerate .eng and reloads its valid sibling (%s)', points => {
+    const notes: string[] = [];
+    const parsed = parseEng('E20 29 100 P 0.05 0.1 Home\n' + points + '\n' + ENG, notes);
+    expect(parsed.map(m => m.designation)).toEqual(['K550W']);
+    expect(notes.join(' ')).toContain('E20: no thrust data');
+    addExMotors(parsed);
+    expect(loadExMotors().map(m => m.designation)).toEqual(['K550W']);
+    expect(getExMotor('ex:home-e20')).toBeUndefined();
+  });
+
+  it('S1c-6 bounds parser ids and collision suffixes so every imported motor reloads', () => {
+    const maker = 'M'.repeat(1100);
+    const eng = parseEng('E20 29 100 P 0.05 0.1 ' + maker + '\n0 0\n0.5 40\n1 0')[0]!;
+    const rse = parseRse(RSE.replace('EX Labs', maker))[0]!;
+    expect(eng.motorId.length).toBeLessThanOrEqual(1024);
+    expect(rse.motorId.length).toBeLessThanOrEqual(1024);
+  });
+
+  it('S1c-6 bounds collision suffixes on an already maximal id', () => {
+    const eng = { ...parseEng(ENG)[0]!, motorId: 'ex:' + 'm'.repeat(1021) };
+    const write = addExMotors([eng, { ...eng, delays: '5' }, { ...eng, delays: '10' }]);
+    expect(write.motors).toHaveLength(3);
+    expect(write.motors.every(m => m.motorId.length <= 1024)).toBe(true);
+    expect(new Set(write.motors.map(m => m.motorId)).size).toBe(3);
+    expect(loadExMotors()).toEqual(write.motors);
+  });
+
+  it.each(['0x1d', '0b11101', '0o35'])('S1c-7/S1c-9 refuses a non-decimal .eng header (%s)', token => {
+    expect(() => parseEng('X ' + token + ' 100 P 0.05 0.1 Home\n0 0\n1 10')).toThrow(/Not a RASP header/);
+    expect(loadExMotors()).toEqual([]);
+  });
+
+  it.each(['0.1 0x28', '0b1 40', '0.5 120 0.04'])('S1c-7 refuses a malformed .eng data pair (%s)', pair => {
+    expect(() => parseEng('X 29 100 P 0.05 0.1 Home\n0 0\n' + pair)).toThrow(/Bad data line/);
+  });
+
+  it.each(['0x1', '0b1', '0o1'])('S1c-7 refuses non-decimal .eng masses (%s)', token => {
+    expect(() => parseEng('X 29 100 P ' + token + ' 2 Home\n0 0\n1 10')).toThrow(/mass must be numbers/);
+  });
+
+  it('S1c-7 ignores hex/binary/octal delay tokens in both motor formats', () => {
+    const eng = parseEng(ENG.replace('410 0 ', '410 0x10-0b10-0o10-5-P '))[0]!;
+    const rse = parseRse(RSE.replace('10,14,18', '0x10,0b10,0o10,5,P'))[0]!;
+    for (const motor of [eng, rse]) expect(delayOptions(exToDbEntry(motor))).toEqual([5, Infinity]);
+  });
+
+  it('S1c-g3 skips coincident-only .eng curves', () => {
+    const notes: string[] = [];
+    expect(parseEng('E20 29 100 P 0.05 0.1 Home\n0 10\n0 10\n' + ENG, notes)).toHaveLength(1);
+    expect(notes.join(' ')).toContain('E20: fewer than two distinct thrust points');
+  });
+
+  it('S1c-g3 skips coincident-only .rse curves', () => {
+    const notes: string[] = [];
+    const bad = '<engine code="E20" mfg="Home" dia="29" len="100" initWt="100" propWt="50"><data>'
+      + '<eng-data t="0" f="10"/><eng-data t="0" f="10"/></data></engine>';
+    expect(parseRse(RSE.replace('</engine-list>', bad + '</engine-list>'), notes)).toHaveLength(1);
+    expect(notes.join(' ')).toContain('E20: fewer than two distinct thrust points');
+  });
+
+  it('S1c-g3 refuses a legacy stored coincident-only curve', () => {
+    const source = parseEng(ENG)[0]!;
+    localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([
+      { ...source, samples: [{ time: 0, thrust: 10 }, { time: 0, thrust: 10 }] },
+    ]));
+    expect(loadExMotors()).toEqual([]);
+  });
+
+  it('S1c-3 assigns 2,000 same-name twins with a linear number of stringifications', () => {
+    const seed = parseEng(ENG)[0]!;
+    const motors = Array.from({ length: 2000 }, (_, i) => ({ ...seed, length: 410 + i }));
+    const stringify = JSON.stringify;
+    const counted = vi.spyOn(JSON, 'stringify').mockImplementation(value => {
+      if (counted.mock.calls.length > 8000) throw new Error('superlinear twin comparisons');
+      return stringify(value);
+    });
+    try {
+      const write = addExMotors([...motors, motors[100]!]);
+      expect(write.motors).toHaveLength(2000);
+      expect(write.motors.at(-1)!.motorId).toBe(seed.motorId + '~2000');
+      expect(counted.mock.calls.length).toBeLessThan(6000);
+    } finally { counted.mockRestore(); }
+  });
+
+  it('round2 parses .eng collections larger than 1,024 motors', () => {
+    expect(parseEng(Array(1100).fill(ENG).join(''))).toHaveLength(1100);
+  });
+
+  it('round2 parses .rse collections larger than 1,024 motors', () => {
+    const engine = RSE.match(/<engine mfg=[\s\S]*?<\/engine>/)![0];
+    expect(parseRse('<engine-database>' + engine.repeat(1100) + '</engine-database>')).toHaveLength(1100);
+  });
+});

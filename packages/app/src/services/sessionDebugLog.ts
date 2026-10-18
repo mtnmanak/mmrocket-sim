@@ -2,7 +2,8 @@ import { APP_VERSION } from '../version.js';
 import type { Preferences } from '../prefs/preferences.js';
 import { AERO_NAME, type AeroChoice } from '../prefs/aeroChoice.js';
 import { UNITS, type Quantity } from '../prefs/units.js';
-import { MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
+import { EX_IMPORT_BYTES_NOTE, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
+import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
 
 export const MAX_DEBUG_LOG_BYTES = 64 * 1024;
 export const MAX_DEBUG_LOG_EVENTS = 200;
@@ -18,6 +19,8 @@ const EVENTS: readonly DebugEvent[] = ['session-start', 'preferences-changed', '
 // C-H3: error text can contain the entire imported XML or a weather query.
 // Retain only known diagnostic sentences; never stringify objects or stacks.
 const SAFE_MESSAGES = new Set(['No stage found', 'Failed to fetch', 'Load failed', 'NetworkError when attempting to fetch resource.',
+  EX_IMPORT_BYTES_NOTE,
+  `Mach-Alt table exceeds the limit of ${MAX_MACH_ALT_ROWS.toLocaleString('en-US')} distinct rows.`,
   'Script error.', 'No supported components found in this design.',
   'No supported components found in this RockSim design.', 'No supported components found in this RASAero design.',
   'Not a .ork file (root must be <openrocket>)', 'Not a .ork file (missing <rocket>)',
@@ -48,6 +51,7 @@ const SAFE_IMPORT_MESSAGES = [
 // C-H3: motor parsers name refused motors and may quote raw values. Return fixed categories only.
 const MOTOR_NUMBER = '(?:NaN|-?Infinity|-?[0-9]+(?:\\.[0-9]+)?(?:e[+-]?[0-9]+)?)';
 const SAFE_MOTOR_REFUSALS: readonly [RegExp, string][] = [
+  [/^[\s\S]+: fewer than two distinct thrust points$/, 'fewer than two distinct thrust points'],
   [new RegExp(`^[\\s\\S]+: more than ${MAX_EX_MOTOR_SAMPLES} thrust samples$`), 'thrust sample limit exceeded'],
   [/^[\s\S]+: initial mass \(initWt\) missing or zero$/, 'initial mass missing or zero'],
   [new RegExp(`^[\\s\\S]+: loaded mass ${MOTOR_NUMBER} g is not a mass$`), 'invalid loaded mass'],

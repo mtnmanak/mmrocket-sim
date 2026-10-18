@@ -6,7 +6,7 @@ import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { addExMotors, parseEng } from './exMotors.js';
 import { captureStageMass } from './stageMassOverrides.js';
 import { num } from '../tree/nodeNum.js';
-import { reconcileAllIncludedMotors, reconcileIncludedMotor, STATED_STAGE_FIGURES } from './statedLaunchWeight.js';
+import { reconcileAllIncludedMotors, reconcileIncludedMotor, OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES } from './statedLaunchWeight.js';
 
 const TEXT = { mass: (n: number) => `${n} kg`, length: (n: number) => `${n} m` };
 const LB = 2.20462262;
@@ -164,4 +164,61 @@ it('S1c-6 reports an unknown nose shape and the tangent-ogive fallback', () => {
   const imported = importCdx1(file().replace('<Shape>Conical</Shape>', '<Shape>Parabola</Shape>'));
   expect(imported.tree.components[0]!.children![0]!.shape).toBe('ogive');
   expect(imported.notes.join(' ')).toMatch(/Parabola.*[Tt]angent ogive/);
+});
+
+it.each(['overrideSubcomponentsMass', 'overrideSubcomponentsCG'])(
+  'round1 S7b-1 backs out the motor while keeping an unticked %s', flag => {
+    const imported = importCdx1(file(simulation('M787  (KIP)')));
+    const stage = { ...imported.tree.components[0]!, [flag]: false };
+    expect(stage[OVERRIDE_INCLUDES_MOTOR]).toBeDefined();
+    const tree = { ...imported.tree, components: [stage] };
+    const id = Object.keys(imported.motors)[0]!;
+    const result = reconcileIncludedMotor(tree, id, motor('M787', 1), TEXT)!;
+    expect(num(result.tree.components[0]!, 'overrideMass', NaN)).toBeCloseTo(9, 10);
+    expect(num(result.tree.components[0]!, 'overrideCGX', NaN)).toBeCloseTo(6 / 9, 10);
+    expect(result.tree.components[0]![flag]).toBe(false);
+    expect(result.tree.components[0]![OVERRIDE_INCLUDES_MOTOR]).toBeUndefined();
+    expect(result.note).toContain('taken back out');
+    expect(result.note).toContain('kept unticked');
+    expect(result.tree.components[0]![STATED_STAGE_FIGURES]).toBeUndefined();
+    expect(reconcileIncludedMotor(result.tree, id, motor('M787', 2), TEXT)).toBeNull();
+  });
+
+it('round1 S7b-1 rejects the same CG only once and recovers after a corrected pick', () => {
+  const imported = importCdx1(file(simulation('M787  (KIP)', 10, 0.2)));
+  const id = Object.keys(imported.motors)[0]!;
+  const first = reconcileIncludedMotor(imported.tree, id, motor('M787', 3), TEXT)!;
+  expect(first.tree.components[0]!['overrideCGX']).toBeUndefined();
+  expect(reconcileIncludedMotor(first.tree, id, motor('M787', 3), TEXT)).toBeNull();
+  const second = reconcileIncludedMotor(first.tree, id, motor('M787', 1), TEXT)!;
+  expect(num(second.tree.components[0]!, 'overrideMass', NaN)).toBeCloseTo(9, 10);
+  expect(num(second.tree.components[0]!, 'overrideCGX', NaN)).toBeCloseTo(1 / 9, 10);
+});
+
+it.each(['overrideSubcomponentsMass', 'overrideSubcomponentsCG', 'both'])(
+  'round2 reports absent %s flags and retains no unusable restatement record', flag => {
+    const imported = importCdx1(file(simulation('M787  (KIP)')));
+    const stage = { ...imported.tree.components[0]! };
+    if (flag !== 'overrideSubcomponentsCG') delete stage['overrideSubcomponentsMass'];
+    if (flag !== 'overrideSubcomponentsMass') delete stage['overrideSubcomponentsCG'];
+    const id = Object.keys(imported.motors)[0]!;
+    const result = reconcileIncludedMotor({ ...imported.tree, components: [stage] }, id, motor('M787', 1), TEXT)!;
+    const corrected = result.tree.components[0]!;
+    expect(num(corrected, 'overrideMass', NaN)).toBeCloseTo(9, 10);
+    expect(num(corrected, 'overrideCGX', NaN)).toBeCloseTo(6 / 9, 10);
+    expect(corrected[STATED_STAGE_FIGURES]).toBeUndefined();
+    expect(result.note).toContain(flag === 'both' ? 'boxes have been kept unticked' : 'box has been kept unticked');
+    expect(reconcileIncludedMotor(result.tree, id, motor('M787', 2), TEXT)).toBeNull();
+  });
+
+it.each([false, undefined])('round2 omits the unticked CG note when the CG override was rejected (%s)', flag => {
+  const imported = importCdx1(file(simulation('M787  (KIP)', 10, 0.2)));
+  const stage = { ...imported.tree.components[0]!, overrideSubcomponentsCG: flag };
+  const id = Object.keys(imported.motors)[0]!;
+  const result = reconcileIncludedMotor({ ...imported.tree, components: [stage] }, id, motor('M787', 3), TEXT)!;
+  expect(result.tree.components[0]!['overrideCGX']).toBeUndefined();
+  expect(result.tree.components[0]![STATED_STAGE_FIGURES]).toBeUndefined();
+  expect(result.note).toContain('CG override has been cleared');
+  expect(result.note).not.toContain('kept unticked');
+  expect(reconcileIncludedMotor(result.tree, id, motor('M787', 3), TEXT)).toBeNull();
 });

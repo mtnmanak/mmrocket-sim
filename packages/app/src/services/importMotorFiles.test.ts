@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { importMotorFiles } from './importMotorFiles.js';
 import { sessionDebugLog } from './sessionDebugLog.js';
+import { EX_IMPORT_BYTES_NOTE, MAX_EX_IMPORT_BYTES } from './exMotorLimits.js';
 
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 
@@ -49,4 +50,118 @@ it('C-H3 captures a failed motor import without the file name or its content', a
   expect(after).toContain('import-failed');
   expect(after).not.toContain('Secret');
   expect(after).not.toContain('61.234');
+});
+
+it('lane C S1c-3 refuses an oversized motor file before reading it', async () => {
+  const file = new File(['not read'], 'oversized.eng');
+  Object.defineProperty(file, 'size', { value: 16 * 1024 * 1024 + 1 });
+  const read = vi.spyOn(file, 'arrayBuffer');
+  const out = await importMotorFiles([file]);
+  expect(read).not.toHaveBeenCalled();
+  expect(out.write).toBeNull();
+  expect(out.error).toContain('oversized.eng: Motor file limit is 16 MiB');
+});
+
+it('round2 imports a large folder and deduplicates a second copy of the collection', async () => {
+  const eng = Array.from({ length: 1100 }, (_, i) => `E${i} 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0\n`).join('');
+  const out = await importMotorFiles([new File([eng], 'rasp.eng'), new File([eng], 'rasp (1).eng')]);
+  expect(out.error).toBeNull();
+  expect(out.parsed).toHaveLength(2200);
+  expect(out.write?.stored).toBe(true);
+  expect(out.write?.motors).toHaveLength(1100);
+  expect(JSON.parse(localStorage.getItem('online-openrocket.ex-motors.v1')!)).toHaveLength(1100);
+});
+
+it('round2 imports multiple under-limit files whose combined raw count exceeds 1,024', async () => {
+  const eng = Array.from({ length: 600 }, (_, i) => `E${i} 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0\n`).join('');
+  const out = await importMotorFiles([new File([eng], 'first.eng'), new File([eng], 'copy.eng')]);
+  expect(out.error).toBeNull();
+  expect(out.parsed).toHaveLength(1200);
+  expect(out.write?.motors).toHaveLength(600);
+  expect(out.write?.stored).toBe(true);
+});
+
+it.each(['eng', 'rse'])('round2 imports a single %s collection over 1,024 motors', async extension => {
+  const eng = 'E20 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0\n';
+  const engine = '<engine code="E20" mfg="Home" dia="29" len="100" initWt="100" propWt="50"><data><eng-data t="0" f="0"/><eng-data t="1" f="40"/><eng-data t="2" f="0"/></data></engine>';
+  const collection = extension === 'eng' ? eng.repeat(1100)
+    : `<engine-database>${engine.repeat(1100)}</engine-database>`;
+  const out = await importMotorFiles([new File([collection], `collection.${extension}`)]);
+  expect(out.error).toBeNull();
+  expect(out.parsed).toHaveLength(1100);
+  expect(out.write?.stored).toBe(true);
+  expect(out.write?.motors).toHaveLength(1);
+});
+
+it.each(['UTF-16LE', 'ISO-8859-1'])('round1 decodes a %s .rse with a non-ASCII maker', async encoding => {
+  const xml = `<?xml version="1.0" encoding="${encoding}"?><engine-database><engine code="E20" mfg="Créateur" dia="29" len="100" initWt="100" propWt="50"><data><eng-data t="0" f="0"/><eng-data t="1" f="40"/><eng-data t="2" f="0"/></data></engine></engine-database>`;
+  const bytes = encoding === 'UTF-16LE' ? new Uint8Array(2 + xml.length * 2)
+    : Uint8Array.from(xml, ch => ch.charCodeAt(0));
+  if (encoding === 'UTF-16LE') {
+    bytes.set([0xff, 0xfe]);
+    const view = new DataView(bytes.buffer);
+    for (let i = 0; i < xml.length; i++) view.setUint16(2 + i * 2, xml.charCodeAt(i), true);
+  }
+  const out = await importMotorFiles([new File([bytes], 'encoded.rse')]);
+  expect(out.error).toBeNull();
+  expect(out.parsed).toHaveLength(1);
+  expect(out.parsed[0]!.realManufacturer).toBe('Créateur');
+});
+
+it('round1 derives the byte refusal from the shared cap and never reads oversized XML', async () => {
+  expect(EX_IMPORT_BYTES_NOTE).toBe(`Motor file limit is ${MAX_EX_IMPORT_BYTES / (1024 * 1024)} MiB; this file was not read.`);
+  const file = new File(['not read'], 'oversized.rse');
+  Object.defineProperty(file, 'size', { value: MAX_EX_IMPORT_BYTES + 1 });
+  const read = vi.spyOn(file, 'arrayBuffer');
+  const out = await importMotorFiles([file]);
+  expect(read).not.toHaveBeenCalled();
+  expect(out.error).toContain(EX_IMPORT_BYTES_NOTE);
+});
+
+const motorXml = (declaration = '') => `${declaration}<engine-database><engine code="E20" mfg="Créateur" dia="29" len="100" initWt="100" propWt="50"><data><eng-data t="0" f="0"/><eng-data t="1" f="40"/><eng-data t="2" f="0"/></data></engine></engine-database>`;
+
+it.each(['rse', 'txt'])('round2 uses motor wording for undecodable Windows-1252 XML in .%s', async extension => {
+  const bytes = Uint8Array.from(motorXml().replace('</engine-database>', '<!-- 20° --></engine-database>'), ch => ch.charCodeAt(0));
+  const out = await importMotorFiles([new File([bytes], `legacy.${extension}`)]);
+  expect(out.error).toBeNull();
+  expect(out.parsed).toHaveLength(1);
+  expect(out.notice).toContain('2 characters in this file could not be read and were replaced');
+  expect(out.notice).toContain('Check the motor and maker names.');
+  expect(out.notice).not.toContain('part and material');
+  expect(out.noticeTier).toBe('caution');
+});
+
+it.each(['UTF-16LE', 'UTF-16BE', 'UTF-16LE-no-BOM', 'ISO-8859-1', 'UTF-8-BOM'])(
+  'round2 detects %s RockSim XML stored as .txt', async encoding => {
+    const xml = motorXml(encoding === 'ISO-8859-1' ? '<?xml version="1.0" encoding="ISO-8859-1"?>' : '');
+    let bytes: Uint8Array<ArrayBuffer>;
+    if (encoding.startsWith('UTF-16')) {
+      const bom = encoding.endsWith('no-BOM') ? 0 : 2;
+      const little = encoding !== 'UTF-16BE';
+      bytes = new Uint8Array(bom + xml.length * 2);
+      if (bom) bytes.set(little ? [0xff, 0xfe] : [0xfe, 0xff]);
+      const view = new DataView(bytes.buffer);
+      for (let i = 0; i < xml.length; i++) view.setUint16(bom + i * 2, xml.charCodeAt(i), little);
+    } else if (encoding === 'ISO-8859-1') {
+      bytes = Uint8Array.from(xml, ch => ch.charCodeAt(0));
+    } else {
+      const encoded = new TextEncoder().encode(xml);
+      bytes = new Uint8Array(3 + encoded.length);
+      bytes.set([0xef, 0xbb, 0xbf]);
+      bytes.set(encoded, 3);
+    }
+    const out = await importMotorFiles([new File([bytes], 'encoded.txt')]);
+    expect(out.error).toBeNull();
+    expect(out.parsed[0]!.realManufacturer).toBe('Créateur');
+    expect(out.noticeTier).toBe('information');
+  });
+
+it('round2 skips one oversized file by name and still imports a usable sibling', async () => {
+  const oversized = new File(['not read'], 'oversized.eng');
+  Object.defineProperty(oversized, 'size', { value: MAX_EX_IMPORT_BYTES + 1 });
+  const read = vi.spyOn(oversized, 'arrayBuffer');
+  const out = await importMotorFiles([oversized, new File(['E20 29 100 P 0.05 0.1 Home\n0 0\n1 40\n2 0'], 'good.eng')]);
+  expect(read).not.toHaveBeenCalled();
+  expect(out.write?.motors).toHaveLength(1);
+  expect(out.error).toContain('Skipped 1 file — oversized.eng: Motor file limit is 16 MiB');
 });

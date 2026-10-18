@@ -701,3 +701,22 @@ describe('a desktop design\'s <digest> picks among a downloaded motor\'s files',
     expect(Math.max(...spec.thrusts)).toBe(11.75);
   });
 });
+
+describe('lane C sample and bundle guards', () => {
+  it.each([{ time: -0.1, thrust: 2 }, { time: 3.1, thrust: -0.4 }])('S1c-5 rejects a negative sample %j in the picker and cache', async bad => {
+    const tc = await freshModule();
+    expect(tc.isSampleList([bad])).toBe(false);
+    const good: TcSimFile = { format: 'RASP', samples: GOOD_SAMPLES };
+    const broken: TcSimFile = { format: 'RASP', samples: [...GOOD_SAMPLES, bad] };
+    expect(tc.pickSampleFile([broken, good])).toBe(good);
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples: broken.samples, cachedAt: Date.now() }));
+    const fetch = stubDownload([good]);
+    await tc.fetchMotorSpec(QUEST_C6, 5);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(localStorage.getItem(CACHE_KEY)!).samples).toEqual(GOOD_SAMPLES);
+  });
+  it.each(['constructor', 'toString', '__proto__'])('S1c-g4 treats prototype key %s as absent from the bundle', async id => {
+    const tc = await freshModule();
+    expect(await tc.bundleHasCurve(id)).toBe(false);
+  });
+});

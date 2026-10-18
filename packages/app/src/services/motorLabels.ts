@@ -1,5 +1,5 @@
 import type { MountMotor, SavedConfig } from '../model/design.js';
-import { getExMotor } from './exMotors.js';
+import { getExMotor, type ExMotor } from './exMotors.js';
 import { applyOverlay, displayMotorManufacturer, getCatalogue, isCatalogueOverlayInitialized, motorLabel } from './motorDb.js';
 import { loadStoredOverlay } from './catalogueOverlay.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
@@ -20,13 +20,21 @@ export function labelCatalogue() {
   return startupCatalogue.motors;
 }
 
+function exLabelEntry(ex: ExMotor | undefined, fallback: string) {
+  // Autosaved definitions may be incomplete. Naming a motor must not repair
+  // its curve or assume that samples/snapshot arrays survived storage.
+  const designation = ex?.flightSnapshot?.designation ?? ex?.designation;
+  return { designation: typeof designation === 'string' && designation ? designation : fallback,
+    manufacturerAbbrev: 'EX', realManufacturer: typeof ex?.realManufacturer === 'string' ? ex.realManufacturer : undefined };
+}
+
 function resolvedMotorEntry(mm: Pick<MountMotor, 'spec' | 'meta'>, catalogue: ReturnType<typeof getCatalogue>) {
   const exId = mm.meta.exMotorId ?? (mm.meta.motorId?.startsWith('ex:') ? mm.meta.motorId : undefined);
   const ex = exId ? (mm.spec as RepairedMotorSpec).exDefinition ?? getExMotor(exId) : undefined;
   const matches = exId ? [] : catalogue.filter(m => mm.meta.motorId
     ? m.motorId === mm.meta.motorId
     : m.designation === mm.spec.designation && m.manufacturerAbbrev === mm.meta.manufacturer);
-  return ex ? { designation: ex.designation, manufacturerAbbrev: 'EX' }
+  return ex ? exLabelEntry(ex, mm.spec.designation)
     : matches.length === 1 ? matches[0] : undefined;
 }
 
@@ -64,8 +72,7 @@ export function motorTooltip(mm: MountMotor, catalogue = labelCatalogue()): stri
   // Rendering its identity must not parse the entire imported-motor library.
   const isEx = mm.meta.exMotorId || mm.meta.motorId?.startsWith('ex:');
   const entry = isEx
-    ? { designation: (mm.spec as RepairedMotorSpec).exDefinition?.designation ?? mm.spec.designation,
-      manufacturerAbbrev: 'EX', realManufacturer: (mm.spec as RepairedMotorSpec).exDefinition?.realManufacturer }
+    ? exLabelEntry((mm.spec as RepairedMotorSpec).exDefinition, mm.spec.designation)
     : motorLabelEntry(mm, catalogue);
   const manufacturer = displayMotorManufacturer(entry);
   const label = motorLabel(entry, mm.spec.ejectionDelay, mm.meta, catalogue);

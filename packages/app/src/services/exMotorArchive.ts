@@ -1,14 +1,14 @@
 import { cautionNote } from './importNotes.js';
-import { validExMotor as validArchivedExMotor, validFlightSnapshot, boundedExId, exMotorIdentity, exToMotorSpec, flightIdentity, loadExMotors, type ExMotor, type ExFlightSnapshot } from './exMotors.js';
+import { validExMotor as validArchivedExMotor, validExMotorFields, validFlightSnapshot, boundedExId, exMotorIdentity, exToMotorSpec, flightIdentity, loadExMotors, type ExMotor, type ExFlightSnapshot } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import type { OrkExportMotor } from './orkFile.js';
 import { escapeXml } from './xmlUtil.js';
-import { MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
+import { MAX_EMBEDDED_EX_MOTORS, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 import type { XmlElement } from './xmlParse.js';
 
 export const EX_MOTORS_TAG = 'mmrexmotors';
 export const EX_MOTOR_ID_TAG = 'mmrexmotorid';
-export const MAX_EMBEDDED_EX_MOTORS = 1024;
+export { MAX_EMBEDDED_EX_MOTORS } from './exMotorLimits.js';
 // Bound escaped UTF-8, leaving room beneath the disk reader's 64 MiB XML cap.
 // Share links retain their independent, smaller whole-document limit.
 export const MAX_EX_ARCHIVE_BYTES = 16 * 1024 * 1024;
@@ -125,9 +125,17 @@ export function readArchivedExMotors(rocket: XmlElement, notes: string[]): Map<s
     if (raw.length > MAX_EX_ARCHIVE_BYTES || new TextEncoder().encode(escapeXml(raw)).length > MAX_EX_ARCHIVE_BYTES) throw new Error('over the 16 MiB disk archive limit');
     const value: unknown = JSON.parse(raw);
     if (!Array.isArray(value) || value.length > MAX_EMBEDDED_EX_MOTORS) throw new Error('invalid motor list or over 1024 motors');
-    if (!value.every(validArchivedExMotor)) throw new Error(`invalid definition, non-finite value, or over ${MAX_EX_MOTOR_SAMPLES} samples per motor`);
+    // Legacy archives can contain a degenerate captured source alongside good
+    // motors. Validate structure first, then refuse only those unusable curves.
+    if (!value.every(validExMotorFields)) throw new Error(`invalid definition, non-finite value, or over ${MAX_EX_MOTOR_SAMPLES} samples per motor`);
     if (new Set(value.map(m => m.motorId)).size !== value.length) throw new Error('duplicate library ids');
-    return new Map(value.map(m => [m.motorId, m]));
+    const usable = value.filter(m => {
+      const name = m.designation.slice(0, 160);
+      if (validArchivedExMotor(m)) return true;
+      cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motor ${name} was not loaded: fewer than two distinct thrust points. Re-import its original .eng/.rse file.`);
+      return false;
+    });
+    return new Map(usable.map(m => [m.motorId, m]));
   } catch (error) {
     cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motors were refused: ${error instanceof Error ? error.message : String(error)}. Re-import the original .eng/.rse; these motors were not loaded.`);
     return new Map();
