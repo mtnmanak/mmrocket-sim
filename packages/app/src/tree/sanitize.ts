@@ -4,6 +4,8 @@ import { KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { finOutlineProblem, type FinOutlinePoint } from './finOutline.js';
 import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
+import { num } from './nodeNum.js';
+import { clusterCount } from './cluster.js';
 import {
   applyFieldLimit, canonicalEnum, DISPLAY_NAME, ENUM_LIMITS, FIELDS, fieldLimit, MAX_DIMENSION_M, SEPARATION_EVENT_VALUES,
   type EnumLimit, type FieldDef, type FieldLimit, type LimitKind,
@@ -221,6 +223,51 @@ function walk(nodes: ComponentNode[], found: Finding[]): ComponentNode[] | null 
  */
 export const MAX_DESIGN_PARTS = 2000;
 
+/**
+ * Total copies, including every repeated descendant, before any rendering or build.
+ * The 138 tester files measured on 2026-10-17 top out at 62; 10,000 leaves
+ * ample room for real assemblies while bounding multiplicative nesting.
+ */
+export const MAX_EXPANDED_INSTANCES = 10_000;
+export const TOO_MANY_INSTANCES_ERROR_NAME = 'TooManyInstancesError';
+
+/** Count without allocating copies; saturate hostile products at a safe integer. */
+export function countExpandedInstances(nodes: readonly ComponentNode[]): number {
+  let total = 0;
+  const walk = (parts: readonly ComponentNode[], inherited: number) => {
+    for (const n of parts) {
+      let copies = 1;
+      if (n.type === 'podset' || n.type === 'parallelstage') {
+        copies = Math.max(1, Math.round(num(n, 'instanceCount', 2)));
+        if (num(n, 'instanceCount', 2) < 1) copies = 2;
+      } else if (n.type === 'innertube') {
+        copies = clusterCount(String(n['cluster'] ?? 'single'));
+      } else if (n.type.endsWith('finset')) {
+        copies = Math.min(8, Math.max(1, Math.round(num(n, 'finCount', n.type === 'tubefinset' ? 6 : 3))));
+      } else if ((n.type as string) === 'tubehole') {
+        copies = Math.min(64, Math.max(1, Math.round(num(n, 'holeCount', 1))));
+      } else if (['launchlug', 'railbutton', 'centeringring', 'bulkhead', 'engineblock', 'tubecoupler'].includes(n.type)) {
+        copies = Math.min(64, Math.max(1, Math.round(num(n, 'instanceCount', 1))));
+      }
+      const expanded = Math.min(Number.MAX_SAFE_INTEGER, inherited * copies);
+      total = Math.min(Number.MAX_SAFE_INTEGER, total + expanded);
+      walk(n.children ?? [], expanded);
+    }
+  };
+  walk(nodes, 1);
+  return total;
+}
+
+export function refuseTooManyInstances(nodes: readonly ComponentNode[], context: 'load' | 'edit' = 'load'): void {
+  const count = countExpandedInstances(nodes);
+  if (count <= MAX_EXPANDED_INSTANCES) return;
+  const start = context === 'edit' ? 'That change was not applied: it would give the design' : 'This design has';
+  const error = new Error(`${start} ${count.toLocaleString('en-US')} expanded component instances, past the `
+    + `${MAX_EXPANDED_INSTANCES.toLocaleString('en-US')} the app allows. Each fin, clustered tube, hole mark and repeated part counts, and pods and boosters multiply every part inside them. Desktop OR has no such limit.`);
+  error.name = TOO_MANY_INSTANCES_ERROR_NAME;
+  throw error;
+}
+
 /** The refusal's Error name, so a share link's failure is not called a damaged link. */
 export const TOO_MANY_PARTS_ERROR_NAME = 'TooManyPartsError';
 
@@ -266,6 +313,7 @@ export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
   tree = sanitizeDesignProvenance(tree, notes);
   const found: Finding[] = [];
   const components = walk(tree.components, found);
+  refuseTooManyInstances(components ?? tree.components);
   // D7 I04: a repaired value replaces what the file or session held — Caution.
   if (notes) for (const f of found) cautionNote(notes, 'I04.limits', `${f.problem} — ${f.repair}.`);
   return components ? { ...tree, components } : tree;

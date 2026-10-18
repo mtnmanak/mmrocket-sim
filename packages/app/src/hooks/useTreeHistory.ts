@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useReducer, useRef, useState, 
 import type { RocketTree } from '@online-openrocket/engine';
 import { openModalCount } from '../components/useDialog.js';
 import { ancestorsOf, findNode } from '../tree/treeModel.js';
+import { refuseTooManyInstances, TOO_MANY_INSTANCES_ERROR_NAME } from '../tree/sanitize.js';
 
 /**
  * THE DESIGN TREE AND ITS UNDO / REDO HISTORY (Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y
@@ -39,6 +40,8 @@ export const HISTORY_COALESCE_MS = 800;
 export const HISTORY_CAP = 50;
 
 export interface TreeHistoryOptions<T = undefined> {
+  /** A refused edit leaves the tree and history intact; App shows this reason. */
+  onRefuse?: (reason: string) => void;
   /** Optional immutable data which must travel with each tree undo step. */
   captureCompanion?: () => T;
   restoreCompanion?: (value: T) => void;
@@ -159,11 +162,20 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
    */
   const treeRef = useRef(tree);
   treeRef.current = tree;
+  const allowed = useCallback((next: RocketTree): boolean => {
+    try { refuseTooManyInstances(next.components, 'edit'); return true; }
+    catch (error) {
+      if (!(error instanceof Error) || error.name !== TOO_MANY_INSTANCES_ERROR_NAME) throw error;
+      optionsRef.current.onRefuse?.(error.message);
+      return false;
+    }
+  }, []);
   /** setTreeRaw + the mirror, so no writer can leave the two disagreeing. */
   const writeTree = useCallback((next: RocketTree) => {
+    if (!allowed(next)) return;
     treeRef.current = next;
     setTreeRaw(next);
-  }, []);
+  }, [allowed]);
 
   const capture = useCallback((): Entry => ({
     tree: treeRef.current, selectedId: selectionRef.current,
@@ -191,6 +203,7 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
   }, [writeTree, setSelectedId]);
 
   const setTree = useCallback((next: RocketTree) => {
+    if (!allowed(next)) return;
     // Coalesce rapid-fire edits (slider moves, keystrokes) into ONE undo step
     // — otherwise a 2 s slider drag floods the 50-entry buffer and Ctrl+Z
     // steps back a pixel at a time. (The 2D view's axial drag no longer needs
@@ -204,7 +217,7 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
     future.current = [];
     bumpHist();
     writeTree(next);
-  }, [writeTree, capture]);
+  }, [writeTree, capture, allowed]);
   const undo = useCallback(() => {
     if (optionsRef.current.blocked?.()) return;
     const prev = history.current.pop();
@@ -238,19 +251,21 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
    * reason.
    */
   const commitStep = useCallback((next: RocketTree) => {
+    if (!allowed(next)) return;
     pushCapped(history.current, capture());
     future.current = [];
     lastEditAt.current = 0;
     bumpHist();
     writeTree(next);
-  }, [writeTree, capture]);
+  }, [writeTree, capture, allowed]);
   const reset = useCallback((next?: RocketTree) => {
+    if (next !== undefined && !allowed(next)) return;
     history.current = [];
     future.current = [];
     lastEditAt.current = 0;
     bumpHist();
     if (next !== undefined) writeTree(next);
-  }, [writeTree]);
+  }, [writeTree, allowed]);
 
   const checkpoint = useCallback(() => {
     const entry = capture();

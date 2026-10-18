@@ -1,7 +1,6 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import { num } from './nodeNum.js';
 
-export const TUBE_HOLE_TYPE = 'tubehole';
 export const TUBE_HOLE_ADVICE = 'Fabrication only: these marks do not change mass, CG, drag or any flight number. The app does not calculate vent pressure.';
 export const TUBE_HOLE_DEFAULTS = { holeDiameter: 0.003, holePosition: 0.025, angleOffset: 0, holeCount: 1 };
 

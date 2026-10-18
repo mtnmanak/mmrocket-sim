@@ -1277,6 +1277,19 @@ describe('the conflict marker — one table, per-field thresholds', () => {
     expect(mat[0]!.patch).toEqual({ density: 1050, materialName: 'Polystyrene PS' });
   });
 
+  it.each([undefined, 0.003])('Round 2 compares only solidity for a filled nose with wall %s', thickness => {
+    const row: Preset = {
+      kind: 'NoseCone', manufacturer: 'Test Cones', partNo: 'NC-solid', description: '',
+      length: 0.2, outsideDiameter: 0.066, shape: 'OGIVE', thickness: 0.001,
+    };
+    const node = { type: 'nosecone', id: 'n',
+      ...presetPatch('nosecone', row), filled: true, thickness } as ComponentNode;
+    expect(linkedPreset(node, [row])).toBe(row);
+    expect(catalogueDifferences(node, row).map(d => d.key)).toEqual(['filled']);
+    // Unticking Solid must still compare the now-operative default/stated wall.
+    expect(catalogueDifferences({ ...node, filled: false }, row).map(d => d.key)).toEqual(['thickness']);
+  });
+
   it('a body tube cut to length is not a disagreement — desktop’s own rule', () => {
     // BodyTube and LaunchLug keep their preset when their length changes
     // (desktop 24.12 BodyComponent.setLength, LaunchLug.setLength: no

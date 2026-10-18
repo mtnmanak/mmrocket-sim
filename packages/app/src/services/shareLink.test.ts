@@ -1,6 +1,17 @@
 import { deflateSync, strToU8 } from 'fflate';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, MAX_INFLATED_BYTES, shareLinkOpenFailure } from './shareLink.js';
+import { refuseTooManyInstances } from '../tree/sanitize.js';
+
+it('S4a-1 reports an instance refusal as a limit, keeping the readable reason', () => {
+  let error: unknown;
+  try { refuseTooManyInstances([{ type: 'podset', instanceCount: 32, children: [
+    { type: 'podset', instanceCount: 32, children: [{ type: 'podset', instanceCount: 32 }] },
+  ] }]); } catch (caught) { error = caught; }
+  expect(error).toBeInstanceOf(Error);
+  expect(shareLinkOpenFailure(error)).toMatch(/10,000/);
+  expect(shareLinkOpenFailure(error)).not.toContain('damaged');
+});
 
 // These tests run in vitest's node environment: Node ≥ 21.2 ships the same
 // CompressionStream / DecompressionStream / Blob / Response / atob globals

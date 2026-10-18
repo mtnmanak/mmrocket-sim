@@ -6,7 +6,51 @@ import {
 } from './scaleRocket.js';
 import { engineTree, findNode } from './treeModel.js';
 import { axialLength, startFromPosition } from './position.js';
-import { FIELDS } from './schema.js';
+import { FIELDS, MIN_POSITIVE_DIMENSION_M } from './schema.js';
+
+describe('F2 scale regressions', () => {
+  it('S4a-3 measures and scales only neighbourless automatic transition ends', () => {
+    const tree: RocketTree = { components: [{ type: 'stage', children: [
+      { type: 'bodytube', id: 'body', outerRadius: 0.019, length: 0.2 },
+      { type: 'transition', id: 'transition', length: 0.1 },
+    ] }] };
+    expect(maxBodyDiameter(tree)).toBeCloseTo(0.05, 12);
+    const next = scaleRocket(tree, 2).tree;
+    expect(findNode(next, 'transition')!['foreRadius']).toBeUndefined();
+    expect(findNode(next, 'transition')!['aftRadius']).toBeCloseTo(0.05, 12);
+    // A neighbour whose stated radius happens to be DEFAULT_RADIUS stays automatic.
+    const neighbour = { ...tree, components: [{ type: 'stage', children: [
+      { type: 'bodytube', outerRadius: 0.025, length: 0.2 },
+      { type: 'transition', id: 't', length: 0.1 },
+      { type: 'bodytube', outerRadius: 0.025, length: 0.2 },
+    ] }] } as RocketTree;
+    expect(findNode(scaleRocket(neighbour, 2).tree, 't')!['aftRadius']).toBeUndefined();
+    const lone = scaleRocket({ components: [{ type: 'stage', children: [
+      { type: 'transition', id: 'lone', length: 0.1 },
+    ] }] }, 2).tree;
+    expect(findNode(lone, 'lone')!['foreRadius']).toBeCloseTo(0.05, 12);
+    expect(findNode(lone, 'lone')!['aftRadius']).toBeCloseTo(0.05, 12);
+  });
+
+  it.each([['tubehole', 'holeDiameter', 'Diameter'], ['tubefinset', 'length', 'Length']] as const)(
+    'S4a-4 keeps the positive floor and names a clamped %s field', (type, key, label) => {
+      const tree: RocketTree = { components: [{ type, id: 'part', name: 'Tiny part', [key]: MIN_POSITIVE_DIMENSION_M } as ComponentNode] };
+      const scaled = scaleRocket(tree, 0.5);
+      expect(findNode(scaled.tree, 'part')![key]).toBe(MIN_POSITIVE_DIMENSION_M);
+      expect(scaled.notes.join(' ')).toContain('Tiny part');
+      expect(scaled.notes.join(' ').toLowerCase()).toContain(label.toLowerCase());
+      expect(scaled.notes.join(' ')).toContain('0.1 mm');
+      expect(scaled.needsAttention).toBe(true);
+    },
+  );
+
+  it('S4a-g4 counts a mass component whose mass is the kernel default', () => {
+    const scaled = scaleRocket({ components: [{ type: 'masscomponent', id: 'mass' }] }, 2);
+    expect(findNode(scaled.tree, 'mass')!['mass']).toBeCloseTo(0.08, 12);
+    expect(scaled.notes.join(' ')).toContain('1 pinned mass');
+    expect(scaled.notes.join(' ')).toContain('re-weigh it');
+  });
+});
 
 /**
  * A design carrying EVERY component type, with every length-valued key on each
@@ -353,11 +397,12 @@ describe('scaleRocket — the completeness guard', () => {
       components: [{
         type: 'stage', id: 's', children: [{
           type: 'bodytube', id: 'b', length: 0.5, outerRadius: 0.04, children: [
-            { type: 'transition', id: 't', length: 0.05 } as ComponentNode,
             { type: 'centeringring', id: 'c', length: 0.005 } as ComponentNode,
             { type: 'tubefinset', id: 'u', finCount: 6, length: 0.1 } as ComponentNode,
           ],
-        } as ComponentNode],
+        } as ComponentNode,
+        { type: 'transition', id: 't', length: 0.05 } as ComponentNode,
+        { type: 'bodytube', id: 'after', length: 0.1, outerRadius: 0.03 } as ComponentNode],
       } as ComponentNode],
     };
     const out = scaleRocket(autos, 3).tree;
@@ -855,6 +900,13 @@ describe('scaleRocket — motor mounts', () => {
     expect(shrunk[0]!.motorStillFits).toBe(false);
     const grown = previewMounts(t, 2, { assignedMotorDiameters: { mt: 0.038 } });
     expect(grown[0]!.motorStillFits).toBe(true);
+  });
+
+  it('CR-4 tests an off-catalogue EX motor against the scaled bore', () => {
+    const tree = withMount(0.040);
+    expect(previewMounts(tree, 1.5, { assignedMotorDiameters: { mt: 0.040 } })[0]!.motorStillFits).toBe(true);
+    expect(previewMounts(tree, 0.95, { assignedMotorDiameters: { mt: 0.040 } })[0]!.motorStillFits).toBe(false);
+    expect(scaleRocket(tree, 1.5, { assignedMotorDiameters: { mt: 0.040 } }).notes.join(' ')).not.toContain('no longer fits');
   });
 
   it('the SNAP can lose a motor the scaled bore kept, and says so', () => {

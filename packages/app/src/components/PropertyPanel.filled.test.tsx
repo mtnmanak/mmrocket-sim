@@ -1,10 +1,13 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { importOrk } from '../services/orkFile.js';
+import { updateNode } from '../tree/treeModel.js';
+import { blankValue } from '../tree/schema.js';
 
 /**
  * A SOLID part (Solid (filled)) has no bore, so the panel shows no inner
@@ -41,6 +44,33 @@ const render = (part: Record<string, unknown>) => {
   ));
 };
 const box = (label: string) => host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
+
+it.each([['nosecone', 'aftradius', 'Base inner diameter', '2', '36'],
+  ['bodytube', 'radius', 'Inner diameter', '0.3', '39.4']] as const)(
+  'S4a-g3 restores the default wall controls after unticking an imported filled %s', (type, radius, bore, wall, inside) => {
+    const imported = importOrk(`<openrocket version="1.10"><rocket><subcomponents><stage><subcomponents>
+      <${type}><name>Solid</name><length>0.1</length><${radius}>0.02</${radius}><thickness>filled</thickness></${type}>
+      </subcomponents></stage></subcomponents></rocket></openrocket>`).tree;
+    function FilledPanel() {
+      const [tree, setTree] = useState<RocketTree>(imported);
+      const node = tree.components[0]!.children![0]!;
+      return <PrefsProvider><PropertyPanel tree={tree} node={node}
+        onPatch={patch => setTree(updateNode(tree, node.id!, patch))} /></PrefsProvider>;
+    }
+    act(() => root.render(<FilledPanel />));
+    expect(box(bore)).toBeNull();
+    const solid = [...host.querySelectorAll('label')].find(label => label.textContent?.includes('Solid (filled)'))!
+      .querySelector<HTMLInputElement>('input')!;
+    expect(solid.checked).toBe(true);
+    act(() => solid.click());
+    expect(box('Wall thickness (mm)')?.placeholder).toBe(`default: ${wall}`);
+    expect(box(bore)?.value).toBe(inside);
+    act(() => { box('Wall thickness (mm)')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true })); });
+    expect(Number(box('Wall thickness (mm)')!.value)).toBeGreaterThan(Number(wall));
+    expect(blankValue('bodytube', 'length')).toBeUndefined();
+    expect(blankValue('transition', 'foreRadius')).toBeUndefined();
+  },
+);
 
 describe('a solid part shows no inner diameter', () => {
   const tube = { id: 'b1', type: 'bodytube', length: 0.3, outerRadius: 0.02, thickness: 0.001 };

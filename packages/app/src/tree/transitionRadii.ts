@@ -16,7 +16,9 @@ const zero = (value: number) => Math.abs(value) < 5e-9;
  * A drawing/export snapshot: absent transition ends remain automatic in the
  * source tree. Mirrors SymmetricComponent's inline neighbour/flush sleeve search.
  */
-export function resolveTransitionRadii(tree: RocketTree): RocketTree {
+export function resolveTransitionRadii(
+  tree: RocketTree, onDefault?: (node: ComponentNode, key: 'foreRadius' | 'aftRadius') => void,
+): RocketTree {
   const ends = new Map<ComponentNode, Partial<ComponentNode>>();
   const statedFace = (n: ComponentNode | undefined, side: 'fore' | 'aft'): number | undefined => {
     if (!n) return DEFAULT_RADIUS;
@@ -138,7 +140,9 @@ export function resolveTransitionRadii(tree: RocketTree): RocketTree {
     const patch: Partial<ComponentNode> = {};
     for (const side of ['fore', 'aft'] as const) {
       if (numOpt(n, `${side}Radius`) === undefined) {
-        patch[`${side}Radius`] = statedFace(neighbour(n, side), side === 'fore' ? 'aft' : 'fore');
+        const adjacent = neighbour(n, side);
+        if (!adjacent) onDefault?.(n, `${side}Radius`);
+        patch[`${side}Radius`] = statedFace(adjacent, side === 'fore' ? 'aft' : 'fore');
       }
     }
     if (Object.keys(patch).length) ends.set(n, patch);

@@ -85,8 +85,7 @@ export interface CatalogueOverlay {
  * rows appended, removed rows KEPT but marked out of production — a design may
  * still reference one, and "hidden by default but resolvable" is the honest
  * state for a motor thrustcurve.org has dropped. With no overlay it returns
- * `base` itself, so identity checks against MOTOR_DB (allClasses' fast path)
- * keep working.
+ * `base` itself; non-empty overlays get their own stable catalogue identity.
  * @internal Exported for services/catalogueOverlay.test.ts; no other module imports it.
  */
 export function applyOverlay(base: MotorDbEntry[], overlay: CatalogueOverlay | null): MotorDbEntry[] {
@@ -325,28 +324,18 @@ export function classLabel(cls: number): string {
   return cls === 75 ? '75/76' : String(cls);
 }
 
-/**
- * The default argument's answer, derived once.
- *
- * `MOTOR_DB` is a static import of 1,156 rows and the classes in it never
- * change, but `allClasses()` was rebuilding a map, a Set and a sort on every
- * call — and `classesFittingMount` calls it, which `previewMounts` calls once
- * per motored mount on every keystroke in the Scale dialog, on top of five
- * callers in the motor browser. Small (~0.04 ms a call) and pure waste.
- */
-let defaultClasses: number[] | null = null;
+/** Diameter classes cached for each immutable catalogue, overlays included. */
+const classesCache = new WeakMap<MotorDbEntry[], number[]>();
 
 /** All diameter classes present in the database, ascending. */
 export function allClasses(motors: MotorDbEntry[] = getCatalogue()): number[] {
-  if (motors === MOTOR_DB) {
-    defaultClasses ??= [...new Set(motors.map((m) => diameterClass(m.diameter)))]
-      .sort((a, b) => a - b);
-    // A copy, so a caller that sorts or splices the result in place cannot
-    // corrupt the cache for everyone else. Seventeen numbers; the scan of
-    // 1,156 rows is the part worth not repeating.
-    return defaultClasses.slice();
+  let classes = classesCache.get(motors);
+  if (!classes) {
+    classes = [...new Set(motors.map((m) => diameterClass(m.diameter)))].sort((a, b) => a - b);
+    classesCache.set(motors, classes);
   }
-  return [...new Set(motors.map((m) => diameterClass(m.diameter)))].sort((a, b) => a - b);
+  // Callers may sort or splice their answer without corrupting the cache.
+  return classes.slice();
 }
 
 /** Classes that physically fit a mount with the given bore (inner diameter, mm). */
@@ -355,16 +344,16 @@ export function classesFittingMount(boreMm: number, motors: MotorDbEntry[] = get
 }
 
 /**
- * Does this catalogued motor fit a mount with that bore? Exactly the test
+ * Does this motor fit a mount with that bore, including off-catalogue EX sizes? Exactly the test
  * `filterMotors` applies per row, exposed for a caller holding ONE motor —
  * rather than a fifth hand-rolled copy of the same arithmetic, which is how a
  * 24 mm D12 came to be offered on the starter rocket's 18 mm mount while the
  * browser had always refused it (2026-09-21).
  */
 export function fitsMount(
-  boreMm: number, m: Pick<MotorDbEntry, 'diameter'>, motors: MotorDbEntry[] = getCatalogue(),
+  boreMm: number, m: Pick<MotorDbEntry, 'diameter'>, _motors?: MotorDbEntry[],
 ): boolean {
-  return classesFittingMount(boreMm, motors).includes(diameterClass(m.diameter));
+  return diameterClass(m.diameter) <= boreMm + MOUNT_TOLERANCE_MM;
 }
 
 export interface MotorFilter {

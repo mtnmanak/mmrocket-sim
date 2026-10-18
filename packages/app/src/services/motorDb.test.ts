@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { fitsMount, getCatalogue, getCatalogueOverlay, setCatalogueOverlay, MOTOR_DB_DATE } from './motorDb.js';
+
 import {
   MOTOR_DB, allClasses, classLabel, classesFittingMount, diameterClass,
   displayDesignation, motorLabel, filterMotors, findDbMotor, impulseClassesForMount, impulseLetter,
@@ -6,6 +8,34 @@ import {
   manufacturerMatches, manufacturersForMount, matchDbMotor, nearestCommonClass, PROPELLANT_CODES,
   propellantsForMount, rangesForMount, sortMotors,
 } from './motorDb.js';
+
+it('CR-4 fits an EX motor even when its diameter class is absent from the catalogue', () => {
+  expect(fitsMount(60, { diameter: 40 })).toBe(true);
+  expect(fitsMount(38, { diameter: 40 })).toBe(false);
+  expect(fitsMount(52, { diameter: 50.8 })).toBe(true);
+});
+
+it('CR-5 caches overlay classes by catalogue identity and protects cached answers', () => {
+  const before = getCatalogueOverlay();
+  try {
+    setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-10-17', liveCount: MOTOR_DB.length + 1,
+      added: [{ ...MOTOR_DB[0]!, motorId: 'F2-test', diameter: 45 }], changed: [], removed: [], rejected: [] });
+    const catalogue = getCatalogue();
+    const scan = vi.spyOn(catalogue, 'map');
+    try {
+      const first = allClasses();
+      expect(first).toContain(45);
+      first.splice(0);
+      expect(allClasses()).toContain(45);
+      expect(scan).toHaveBeenCalledTimes(1);
+      // A new effective array needs its own scan and must not keep the old overlay class.
+      setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-10-17', liveCount: MOTOR_DB.length + 1,
+        added: [{ ...MOTOR_DB[0]!, motorId: 'F2-test-2', diameter: 50.8 }], changed: [], removed: [], rejected: [] });
+      expect(allClasses()).toContain(50.8);
+      expect(allClasses()).not.toContain(45);
+    } finally { scan.mockRestore(); }
+  } finally { setCatalogueOverlay(before); }
+});
 
 describe('bundled motor database', () => {
   it('is present and substantial', () => {

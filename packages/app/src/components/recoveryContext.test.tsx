@@ -7,7 +7,7 @@ import type { FlightOverrides, SavedConfig } from '../model/design.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { ConfigOverview } from './ConfigOverview.js';
 import { PropertyPanel } from './PropertyPanel.js';
-import { recoverySummary } from './recoveryContext.js';
+import * as recoveryContext from './recoveryContext.js';
 import { activeFlightOverrides } from '../services/flightState.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -23,7 +23,6 @@ describe('recovery configuration context', () => {
     const c: SavedConfig = { ...configs[0]!, separations: { stage: { separationEvent: 'burnout', separationDelay: 1, separationAltitude: 200 } },
       ignitions: { mount: { event: 'launch', delay: 1 } } };
     const inherited = { ...tree, components: [...tree.components, { ...node, id: 'other', name: 'Drogue' }] };
-    expect(recoverySummary(c, 'm', inherited)).toContain('Drogue: apogee');
     const host = document.createElement('div'); const root = createRoot(host);
     try {
       act(() => root.render(<ConfigOverview configs={[c, { id: 'none', name: 'Plain', isDefault: false, motors: {} }]}
@@ -111,13 +110,8 @@ describe('recovery configuration context', () => {
   });
 
   it('RECOV-CASE reads a mixed-case event the way the kernel flies it', () => {
-    // The kernel lower-cases the event, so "Altitude" flies at its altitude and
-    // "EJECTION" on the charge; the summary quoted the first as a bare word.
-    const mixed: SavedConfig = { id: 'm', name: 'M', isDefault: true, motors: {},
-      deployments: { chute: { deployEvent: 'Altitude', deployAltitude: 121.92 } } };
-    expect(recoverySummary(mixed, 'm', tree)).toBe('Main: 121.92 m AGL descending (override; component default is shown in the panel)');
-    expect(recoverySummary({ ...mixed, deployments: { chute: { deployEvent: 'EJECTION' } } }, 'm', tree))
-      .toBe('Main: ejection charge (override; component default is shown in the panel)');
+    // Own setting names mixed-case Altitude / NEVER as the kernel reads them,
+    // and an absent event uses Motor ejection charge.
     // Design's read-only Own setting names the event flown (CFG-3 port of the
     // Deploy at menu check; the editor's menu is pinned in ConfigPartEditors.test).
     const host = document.createElement('div'); const root = createRoot(host);
@@ -134,4 +128,9 @@ describe('recovery configuration context', () => {
       expect(own()).toBe('Own setting: Motor ejection charge');
     } finally { act(() => root.unmount()); }
   });
+});
+
+it('S5-4 keeps the deployment formatter without the unused recovery summary', () => {
+  expect('recoverySummary' in recoveryContext).toBe(false);
+  expect(recoveryContext.deployAltitudeText(121.92, 'ft')).toBe('400 ft');
 });

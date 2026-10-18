@@ -4,9 +4,10 @@ import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/en
 import type { MountMotor } from '../model/design.js';
 import { addChild, defaultTree, motorMounts } from '../tree/treeModel.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
-import { autosavedDesignFile } from './autosaveBackup.js';
+import { autosavedDesignFile, autosaveToOrk } from './autosaveBackup.js';
 import { importOrk } from './orkFile.js';
-import { discardSession, saveSessionDebounced } from './session.js';
+import * as orkFile from './orkFile.js';
+import { discardSession, saveSessionDebounced, type SessionState } from './session.js';
 
 /**
  * The crash-recovery download (audit 2026-09-22): the autosaved design as a
@@ -41,6 +42,28 @@ afterEach(() => {
 });
 
 describe('autosavedDesignFile', () => {
+  it('Round 1 recovers the original over-limit tree as ork instead of the starter', () => {
+    let body: ComponentNode = { type: 'bodytube', name: 'Deep original', length: 0.1, outerRadius: 0.01 };
+    for (let i = 0; i < 4; i++) body = { type: 'bodytube', length: 0.1, outerRadius: 0.02, children: [
+      { type: 'podset', instanceCount: 32, children: [body] },
+    ] };
+    const session = { tree: { name: 'Original over-limit', components: [{ type: 'stage', children: [body] }] },
+      launch: DEFAULT_CONDITIONS, savedAt: 0 } satisfies SessionState;
+    localStorage.setItem(KEY, JSON.stringify(session));
+    const xml = autosaveToOrk(session);
+    expect(xml).toContain('Original over-limit');
+    expect(xml).toContain('Deep original');
+    expect(xml.match(/<instancecount>32<\/instancecount>/g)).toHaveLength(4);
+    const file = autosavedDesignFile()!;
+    expect(file).toMatchObject({ ork: true, name: 'Original_over-limit-autosave.ork' });
+    expect(file.data).toContain('Deep original');
+    expect(file.data.match(/<instancecount>32<\/instancecount>/g)).toHaveLength(4);
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual(session);
+    const writer = vi.spyOn(orkFile, 'exportOrk').mockImplementation(() => { throw new Error('writer unavailable'); });
+    try {
+      expect(autosavedDesignFile()).toMatchObject({ ork: false, extension: '.json', data: localStorage.getItem(KEY) });
+    } finally { writer.mockRestore(); }
+  });
   it('S1d-7 preserves plugged delays in a held raw JSON recovery', () => {
     const storage = localStorage;
     vi.stubGlobal('localStorage', { getItem: (key: string) => storage.getItem(key),

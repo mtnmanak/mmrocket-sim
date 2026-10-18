@@ -852,6 +852,8 @@ export interface CatalogueDifference {
  * (a canopy's 6 lines, no vent, an empty shoulder) — or undefined.
  */
 function flown(node: ComponentNode, key: string): number | string | boolean | undefined {
+  // A solid part's wall does not decide its flown geometry or mass.
+  if (key === 'thickness' && node['filled'] === true) return undefined;
   const v = node[key];
   if (typeof v === 'string' || typeof v === 'boolean') return v;
   const n = numOpt(node, key);
