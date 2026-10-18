@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import { audit, classify } from './matcher-sweep.classify.mjs';
+import { mutations, replaceMutationAnchor } from './matcher-sweep.mutate.mjs';
+import { readFileSync } from 'node:fs';
+
+describe('mutation harness anchor guards', () => {
+  it('refuses missing and ambiguous anchors before replacing source', () => {
+    expect(() => replaceMutationAnchor('one', 'absent', 'x', 'missing')).toThrow('expected 1 hit, found 0');
+    expect(() => replaceMutationAnchor('one one', 'one', 'x', 'duplicate')).toThrow('expected 1 hit, found 2');
+    expect(replaceMutationAnchor('one two', 'one', 'x', 'unique')).toBe('x two');
+  });
+
+  it('mutates physical-evidence multiple sets separately from diagnostic burn time', () => {
+    const source = readFileSync(new URL('../src/services/rocksimMotorEvidence.ts', import.meta.url), 'utf8');
+    const [, , anchor, replacement] = mutations.find(([name]) => name === 'rkt-evidence-multiple-sets');
+    const changed = replaceMutationAnchor(source, anchor, replacement, 'rkt-evidence-multiple-sets');
+    const split = source.indexOf('export function rocksimMotorEvidence');
+    expect(changed.slice(0, split)).toBe(source.slice(0, split));
+    expect(changed.slice(split)).not.toBe(source.slice(split));
+  });
+});
 describe('matcher sweep accounting (no local corpus needed)', () => {
   const meta = { selectedFiles: 1, expectedFiles: 1 };
   const record = side => ({ key: 'fixture', side, status: 'ok', sha256: 'hash', raw: [{ ordinal: 0, designation: 'C6', resolved: [0] }], refs: [{ id: 'c6', loaded: true }] });

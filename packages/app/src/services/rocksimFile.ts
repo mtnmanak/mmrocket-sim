@@ -31,7 +31,7 @@ import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets
 import { DISPLAY_NAME } from '../tree/schema.js';
 import { findDbMotor, type MotorDbEntry } from './motorDb.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
-import { rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
+import { indexRocksimMotors, rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { defaultDelay } from './thrustcurve.js';
 import { deployAltitudeText } from '../components/recoveryContext.js';
 import { declaresDoctype, parseXml, XmlDoctypeRefused, type XmlElement } from './xmlParse.js';
@@ -44,6 +44,8 @@ import { sparsify } from './flightState.js';
 import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { refuseOversizedForeignXml } from './foreignPartPrecount.js';
+
+export const MAX_RKT_SIMULATION_RECORDS = 4096;
 
 /**
  * RockSim (.rkt) design import/export — Phase 3 "file imports and exports".
@@ -1319,6 +1321,24 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   // The file's stored simulations — read here for the tubes' loadouts, and
   // again below, once the tubes are regrouped, for the configurations.
   const simEls = Array.from(doc.querySelectorAll('SimulationResults'));
+  // Bound raw work before identical simulations fold into configurations.
+  if (simEls.length > MAX_RKT_SIMULATION_RECORDS) {
+    throw new Error(`This file contains ${simEls.length.toLocaleString('en-US')} simulations, past the ${MAX_RKT_SIMULATION_RECORDS.toLocaleString('en-US')} the app will open. Remove simulations in RockSim and save it again. Desktop OR has no such limit.`);
+  }
+  const allEngineSets = Array.from(doc.querySelectorAll('EngineSet'));
+  if (allEngineSets.length > MAX_RKT_SIMULATION_RECORDS) {
+    throw new Error(`This file's simulations list ${allEngineSets.length.toLocaleString('en-US')} motor loadouts, past the ${MAX_RKT_SIMULATION_RECORDS.toLocaleString('en-US')} the app will open. Remove simulations in RockSim and save it again. Desktop OR has no such limit.`);
+  }
+  // Nested records overlap their subtree scans even below the raw count caps.
+  // Refuse them before any per-simulation or per-loadout queries.
+  if (simEls.some(s => s.parentElement?.closest('SimulationResults'))) {
+    throw new Error('This RockSim file contains nested simulations, which the app cannot open. Open it in RockSim and save it again.');
+  }
+  if (allEngineSets.some(e => e.parentElement?.closest('EngineSet'))) {
+    throw new Error('This RockSim file contains nested motor loadouts, which the app cannot open. Open it in RockSim and save it again.');
+  }
+  const simulationSets = new Map(simEls.map(s => [s, Array.from(s.querySelectorAll('EngineSet'))]));
+  const motorIndex = indexRocksimMotors(doc, design, simulationSets);
   const designRecoveryNotes: string[] = [];
   const designRecovery = readDeploymentEvents(design, serialToNode, designRecoveryNotes, num);
   const simulationRecoveryNotes = simEls.map(() => [] as string[]);
@@ -1353,12 +1373,17 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   // as do the existing repairs that distribute sets across enough real tubes.
   // This records only counts; session-local component ids never leave the parse.
   const missingMotorCounts = new Map<XmlElement, number>();
-  const looseSets = Array.from(doc.querySelectorAll('EngineSet')).filter(e => !e.closest('SimulationResults'));
-  for (const sets of [looseSets, ...simEls.map(s => Array.from(s.querySelectorAll('EngineSet')))]) {
+  const looseSets = allEngineSets.filter(e => !e.closest('SimulationResults'));
+  for (const sets of [looseSets, ...simulationSets.values()]) {
     const bearing = sets.filter(e => !!text(e, ':scope > EngineCode'));
+    const bearingByStage = new Map<number, number>();
+    for (const e of bearing) {
+      const stage = stageOfSet(e);
+      bearingByStage.set(stage, (bearingByStage.get(stage) ?? 0) + 1);
+    }
     const overflow = bearing.some(e => {
       const stage = stageOfSet(e);
-      return !namedMount(e) && bearing.filter(s => stageOfSet(s) === stage).length
+      return !namedMount(e) && (bearingByStage.get(stage) ?? 0)
         > mountsIn(components[stage]?.children ?? []).length;
     });
     if (overflow) {
@@ -1386,7 +1411,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    * flew five (1,562 m). Found by the v0.144 corpus.
    */
   const simSets = simEls.map((sim) => {
-    const sets = Array.from(sim.querySelectorAll('EngineSet'));
+    const sets = simulationSets.get(sim)!;
     const taken = new Set(sets.map(namedMount).filter((n): n is ComponentNode => n !== undefined));
     return sets.flatMap((el) => {
       const named = namedMount(el);
@@ -1899,12 +1924,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     // RockSim's two negative <EjectionDelay> codes are sentinels, not delays —
     // see rktEjectionDelay. Resolved here, so no negative delay leaves the reader.
     const read = rktEjectionDelay(engineSet, num);
-    const matchContext = rocksimMotorEvidence(doc, engineSet);
+    const matchContext = rocksimMotorEvidence(engineSet, motorIndex);
     const every = read === 'every' ? rktEveryDelay(code, manufacturer, matchContext, opts?.catalogue) : null;
     const ref: OrkMotorRef = {
       designation: code,
       matchContext,
-      rktBurnTimeS: rocksimBurnTime(doc, engineSet),
+      rktBurnTimeS: rocksimBurnTime(engineSet, motorIndex),
       manufacturer,
       diameter: 0, // unknown in the file — match by designation alone
       length: 0,
@@ -1946,10 +1971,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    * a stage lit at launch over an unpowered one keeps its IgnitionDelay (below).
    */
   const simGroups: { number: number | null; name: string | null; sets: XmlElement[] }[] = [];
-  const loose = Array.from(doc.querySelectorAll('EngineSet')).filter((e) => !e.closest('SimulationResults'));
-  if (loose.length) simGroups.push({ number: null, name: null, sets: loose });
+  if (looseSets.length) simGroups.push({ number: null, name: null, sets: looseSets });
   simEls.forEach((s, i) => {
-    const sets = Array.from(s.querySelectorAll('EngineSet'));
+    const sets = simulationSets.get(s)!;
     if (sets.length) {
       simGroups.push({ number: i + 1, name: text(s, ':scope > SimulationName'), sets });
     }
@@ -2844,6 +2868,9 @@ export function exportRkt({ name, tree, motors, overrides = {}, compInfo, measur
       // <BaseExtensionLen>0</BaseExtensionLen>, unlike the same tube without it.
       const massOv = numOpt(b, 'overrideMass');
       if (massOv !== undefined && massOv !== 0) continue;
+      // Reopening derives the extension's zero mass from the cone's coupled
+      // mass/CG flag. Keep a separate tube when that would change its mass.
+      if ((massOv === 0) !== (numOpt(a, 'overrideMass') !== undefined || numOpt(a, 'overrideCGX') !== undefined)) continue;
       if (numOpt(b, 'overrideCGX') !== undefined || numOpt(b, 'overrideCD') !== undefined) continue;
       baseExtOf.set(a.id, axialLength(b));
       folded.add(b);

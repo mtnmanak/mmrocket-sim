@@ -2,10 +2,8 @@
 // test process exit codes are captured directly, with a full log per mutant.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
-const root = process.cwd();
-const out = `${root}/.matcher-sweep/mutations`;
-mkdirSync(out, { recursive: true });
-const mutations = [
+import { fileURLToPath } from 'node:url';
+export const mutations = [
   ['g80-equivalence', 'motorDb.ts', 'if (target && fits(target) && equivalentG80(whole.motor, target))', 'if (false)'],
   ['g80-maker', 'motorDb.ts', "(!manufacturer?.trim() || /^(unknown|custom)$/i.test(manufacturer.trim()))", 'true'],
   ['g80-overlay', 'motorMatchPolicy.ts', 'Math.abs(from[k] - to[k]) < 1e-9', 'true'],
@@ -23,15 +21,17 @@ const mutations = [
   ['h135-identity', 'motorDb.ts', 'if (complete && exact.length === 1)', 'if (false)'],
   ['h135-complete', 'motorDb.ts', 'if (complete && exact.length === 1)', 'if (exact.length === 1)'],
   ['h135-unique', 'motorDb.ts', 'if (complete && exact.length === 1)', 'if (complete && exact.length >= 1)'],
-  ['rkt-version', 'rocksimMotorEvidence.ts', "value(doc.documentElement, 'FileVersion') !== 4", 'false'],
-  ['rkt-stage', 'rocksimMotorEvidence.ts', "value(design, 'StageCount') !== 1", 'false'],
-  ['rkt-dry-provenance', 'rocksimMotorEvidence.ts', "value(design, 'UseKnownMass') !== 1", 'false'],
-  ['rkt-multiple-sets', 'rocksimMotorEvidence.ts', "sim.querySelectorAll('EngineSet').length !== 1", 'false'],
-  ['rkt-cluster', 'rocksimMotorEvidence.ts', "value(engineSet, 'EngineCount') !== 1", 'false'],
-  ['rkt-ignition', 'rocksimMotorEvidence.ts', "value(sim, 'TimeToBurnout') - ignition", "value(sim, 'TimeToBurnout')"],
-  ['rkt-context', 'rocksimFile.ts', 'const matchContext = rocksimMotorEvidence(doc, engineSet);', 'const matchContext = undefined;'],
+  ['rkt-version', 'rocksimMotorEvidence.ts', "fileVersion !== 4", 'false'],
+  ['rkt-stage', 'rocksimMotorEvidence.ts', "fileVersion !== 4 || stageCount !== 1", 'fileVersion !== 4 || false'],
+  ['rkt-dry-provenance', 'rocksimMotorEvidence.ts', "useKnownMass !== 1", 'false'],
+  ['rkt-multiple-sets', 'rocksimMotorEvidence.ts', "if (stageCount !== 1 || !sim\n    || engineSetCount(sim, index) !== 1", 'if (stageCount !== 1 || !sim\n    || false'],
+  ['rkt-indexed-count', 'rocksimMotorEvidence.ts', 'index.simulationSets.get(sim)?.length ?? 0', 'index.simulationSets.get(sim)?.length ?? 1'],
+  ['rkt-evidence-multiple-sets', 'rocksimMotorEvidence.ts', "useKnownMass !== 1 || !sim\n    || engineSetCount(sim, index) !== 1", 'useKnownMass !== 1 || !sim\n    || false'],
+  ['rkt-cluster', 'rocksimMotorEvidence.ts', "|| value(engineSet, 'EngineCount') !== 1) return undefined;", ') return undefined;'],
+  ['rkt-ignition', 'rocksimMotorEvidence.ts', "const burn = value(sim, 'TimeToBurnout') - ignition;", "const burn = value(sim, 'TimeToBurnout');"],
+  ['rkt-context', 'rocksimFile.ts', 'const matchContext = rocksimMotorEvidence(engineSet, motorIndex);', 'const matchContext = undefined;'],
   ['config-evidence-folding', 'rocksimFile.ts', '? JSON.stringify(r.matchContext) :', "? '' :"],
-  ['every-delay-context', 'rocksimFile.ts', 'findDbMotor(designation, undefined, undefined, manufacturer, context)', 'findDbMotor(designation, undefined, undefined, manufacturer)'],
+  ['every-delay-context', 'rocksimFile.ts', 'findDbMotor(designation, undefined, catalogue, manufacturer, context)', 'findDbMotor(designation, undefined, catalogue, manufacturer)'],
   ['rasaero-context', 'rasaeroFile.ts', "eng.delay !== undefined\n          ?", "false\n          ?"],
   ['rasaero-subtraction', 'rasaeroFile.ts', 'findDbMotor(ref.designation, undefined, undefined, ref.manufacturer, ref.matchContext)', 'findDbMotor(ref.designation, undefined, undefined, ref.manufacturer)'],
   ['open-note', 'motorMatch.ts', 'const openNote = unconfirmedMatchNote(ref, dbMatch, how);', 'const openNote = undefined;'],
@@ -44,22 +44,35 @@ const mutations = [
   ['sweep-right-nothing', '../scripts/matcher-sweep.classify.mjs', "['right→wrong', 'right→nothing', 'none→wrong', 'UNVERIFIABLE']", "['right→wrong', 'none→wrong', 'UNVERIFIABLE']"],
   ['sweep-none-wrong', '../scripts/matcher-sweep.classify.mjs', "['right→wrong', 'right→nothing', 'none→wrong', 'UNVERIFIABLE']", "['right→wrong', 'right→nothing', 'UNVERIFIABLE']"],
 ];
-const results = [];
-for (const [name, file, old, replacement] of mutations) {
-  if (process.argv.length > 2 && !process.argv.slice(2).includes(name)) continue;
-  const path = file.startsWith('../scripts/') ? `${root}/packages/app/scripts/${file.slice('../scripts/'.length)}` : `${root}/packages/app/src/services/${file}`;
-  const source = readFileSync(path, 'utf8');
-  if (!source.includes(old)) throw new Error(`Missing mutation anchor: ${name}`);
-  try {
-    writeFileSync(path, source.replace(old, replacement));
-    const test = file.startsWith('../scripts/') ? 'scripts/matcher-sweep.test.mjs' : 'src/services/motorMatch.policy.test.ts';
-    const p = spawnSync(process.execPath, [`${root}/packages/app/node_modules/vitest/vitest.mjs`, 'run', test, '--maxWorkers', '1'],
-      { cwd: `${root}/packages/app`, encoding: 'utf8', timeout: 60000 });
-    writeFileSync(`${out}/${name}.log`, (p.stdout ?? '') + (p.stderr ?? ''));
-    const killed = p.status === 1 && /AssertionError/.test((p.stdout ?? '') + (p.stderr ?? ''));
-    results.push({ name, exit: p.status, killed });
-    console.log(`${name}: exit ${p.status}, ${killed ? 'killed' : 'SURVIVED/INVALID'}`);
-  } finally { writeFileSync(path, source); }
+export function replaceMutationAnchor(source, anchor, replacement, name) {
+  const hits = source.split(anchor).length - 1;
+  if (hits !== 1) throw new Error(`Mutation anchor ${name}: expected 1 hit, found ${hits}`);
+  return source.replace(anchor, replacement);
 }
-writeFileSync(`${out}/results.json`, JSON.stringify(results, null, 2));
-process.exitCode = results.every(r => r.killed) ? 0 : 1;
+
+// Importing the anchor guards for tests must not launch mutations.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const root = process.cwd();
+  const vitest = fileURLToPath(new URL('./vitest.mjs', import.meta.resolve('vitest/package.json')));
+  const out = `${root}/.matcher-sweep/mutations`;
+  mkdirSync(out, { recursive: true });
+  const results = [];
+  for (const [name, file, old, replacement] of mutations) {
+    if (process.argv.length > 2 && !process.argv.slice(2).includes(name)) continue;
+    const path = file.startsWith('../scripts/') ? `${root}/packages/app/scripts/${file.slice('../scripts/'.length)}` : `${root}/packages/app/src/services/${file}`;
+    const source = readFileSync(path, 'utf8');
+    const mutated = replaceMutationAnchor(source, old, replacement, name);
+    try {
+      writeFileSync(path, mutated);
+      const test = file.startsWith('../scripts/') ? 'scripts/matcher-sweep.test.mjs' : 'src/services/motorMatch.policy.test.ts';
+      const p = spawnSync(process.execPath, [vitest, 'run', test, '--maxWorkers', '1'],
+        { cwd: `${root}/packages/app`, encoding: 'utf8', timeout: 60000 });
+      writeFileSync(`${out}/${name}.log`, (p.stdout ?? '') + (p.stderr ?? ''));
+      const killed = p.status === 1 && /AssertionError/.test((p.stdout ?? '') + (p.stderr ?? ''));
+      results.push({ name, exit: p.status, killed });
+      console.log(`${name}: exit ${p.status}, ${killed ? 'killed' : 'SURVIVED/INVALID'}`);
+    } finally { writeFileSync(path, source); }
+  }
+  writeFileSync(`${out}/results.json`, JSON.stringify(results, null, 2));
+  process.exitCode = results.every(r => r.killed) ? 0 : 1;
+}
