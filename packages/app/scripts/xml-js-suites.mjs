@@ -22,6 +22,8 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  // M1: custom materials named in the panel survive both file formats.
+  'src/components/PropertyPanel.materials.test.tsx',
   // N028: the preflight check reads designs opened through importOrk.
   'src/components/PreflightAudit.test.tsx',
   // C-H3: diagnostic messages are taken from the real importer refusals.

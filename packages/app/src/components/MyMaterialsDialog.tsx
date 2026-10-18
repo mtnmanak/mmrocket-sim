@@ -1,0 +1,139 @@
+import { useEffect, useId, useRef, useState } from 'react';
+import { Modal } from './Modal.js';
+import { NumField } from './NumField.js';
+import { useUserMaterials } from './useUserMaterials.js';
+import { MATERIAL_UNITS, type MaterialKind } from '../services/designMaterials.js';
+import {
+  importUserMaterialsCsv, loadUserMaterials, materialProblem, saveUserMaterials, userMaterialKey, userMaterialsToCsv,
+  type UserMaterial,
+} from '../services/userMaterials.js';
+import { downloadBlob } from '../services/saveFile.js';
+
+export const MATERIAL_STORAGE_FAILURE = 'My materials could not be saved in this browser. Storage may be full or blocked. Export CSV to keep a copy before trying again.';
+
+export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
+  const { materials, note } = useUserMaterials();
+  const [message, setMessage] = useState('');
+  const [editing, setEditing] = useState<{ key: string; draft: UserMaterial } | null>(null);
+  const [deleting, setDeleting] = useState<UserMaterial | null>(null);
+  const [reading, setReading] = useState(false);
+  const alive = useRef(true);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  // The file read is asynchronous; do not write storage after this dialog closes.
+  const close = () => { alive.current = false; onClose(); };
+  const file = useRef<HTMLInputElement>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const editButtons = useRef(new Map<string, HTMLButtonElement>());
+  const focusAfterEdit = useRef<string | null>(null);
+  const focusEditName = useRef(false);
+  useEffect(() => {
+    if (focusEditName.current) {
+      document.getElementById(`${uid}-name`)?.focus();
+      focusEditName.current = false;
+    }
+    if (focusAfterEdit.current === null) return;
+    (editButtons.current.get(focusAfterEdit.current) ?? heading.current)?.focus();
+    focusAfterEdit.current = null;
+  });
+  const uid = useId();
+  const persist = (next: UserMaterial[], success: string): boolean => {
+    if (!saveUserMaterials(next)) { setMessage(MATERIAL_STORAGE_FAILURE); return false; }
+    setMessage(success);
+    return true;
+  };
+  return <Modal label="My materials" onClose={close} className="prefs-dialog panel">
+    <div style={{ maxHeight: 'calc(100dvh - 100px)', overflowY: 'auto', overflowWrap: 'anywhere' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+        <h2 ref={heading} tabIndex={-1} style={{ flex: 1 }}>My materials</h2>
+        <button type="button" onClick={close} aria-label="Close My materials">Close</button>
+      </div>
+      <p>Saved in this browser only. Export CSV to keep a copy or move your materials to another browser. Editing this library does not change parts already in a design.</p>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+        <button type="button" aria-label="Export CSV of My materials" onClick={() => {
+          try { downloadBlob(new Blob([userMaterialsToCsv(materials)], { type: 'text/csv;charset=utf-8' }), 'my-materials.csv'); }
+          catch { setMessage('The CSV could not be downloaded. Try Export CSV again.'); }
+        }}>⬇ Export CSV</button>
+        <button type="button" aria-label="Import CSV into My materials" disabled={reading} onClick={() => file.current?.click()}>⬆ Import CSV</button>
+        <input ref={file} type="file" accept=".csv,text/csv" aria-label="Materials CSV file" hidden
+          onChange={e => { void (async () => {
+            const picked = e.target.files?.[0];
+            e.target.value = '';
+            if (!picked) return;
+            if (picked.size > 2 * 1024 * 1024) { setMessage('Materials CSV has a limit of 2 MiB. Split the file and try again.'); return; }
+            setReading(true);
+            try {
+              const csv = await picked.text();
+              if (!alive.current) return;
+              // Read the current store after await, so another tab's edit is retained.
+              const result = importUserMaterialsCsv(csv, loadUserMaterials());
+              const summary = `${result.added} added, ${result.replaced} replaced, ${result.refused} refused.`;
+              const details = result.reasons.slice(0, 10).join('; ')
+                + (result.reasons.length > 10 ? `; and ${result.reasons.length - 10} more` : '');
+              if (result.added || result.replaced) persist(result.materials, `${summary} ${details}`);
+              else setMessage(`${summary} ${details}`);
+            } catch { if (alive.current) setMessage('The CSV could not be read. Choose a CSV file and try again.'); }
+            finally { if (alive.current) setReading(false); }
+          })(); }} />
+      </div>
+      <div role="status">
+        {reading && <p>Reading CSV…</p>}
+        {note && <p>{note}</p>}
+        {message && <p>{message}</p>}
+      </div>
+      {materials.length === 0 && <p>No saved materials. Save a named material from a part, or Import CSV.</p>}
+      {(['bulk', 'surface', 'line'] as MaterialKind[]).map(kind => <section key={kind} aria-label={`${kind} materials`}>
+        <h3>{kind === 'bulk' ? 'Bulk' : kind === 'surface' ? 'Surface' : 'Line'} ({MATERIAL_UNITS[kind]})</h3>
+        <ul style={{ paddingLeft: 20 }}>
+          {materials.filter(m => m.kind === kind).map(m => {
+            const key = userMaterialKey(m);
+            return <li key={key} style={{ marginBottom: 12 }}>
+              {editing?.key === key ? <form onSubmit={e => {
+                e.preventDefault();
+                const problem = materialProblem(editing.draft);
+                if (problem) { setMessage(problem); return; }
+                const nextKey = userMaterialKey(editing.draft);
+                if (nextKey !== key && materials.some(other => userMaterialKey(other) === nextKey)) {
+                  setMessage('That name is already in My materials for this kind. Choose another name.'); return;
+                }
+                if (persist(materials.map(old => userMaterialKey(old) === key ? editing.draft : old), 'Material updated.')) {
+                  focusAfterEdit.current = nextKey;
+                  setEditing(null);
+                }
+              }}>
+                <div className="field"><label htmlFor={`${uid}-name`}>Material name</label>
+                  <input id={`${uid}-name`} maxLength={80} value={editing.draft.name}
+                    onChange={e => setEditing({ ...editing, draft: { ...editing.draft, name: e.target.value } })} /></div>
+                <div className="field"><label htmlFor={`${uid}-density`}>Density ({MATERIAL_UNITS[kind]})</label>
+                  <NumField id={`${uid}-density`} value={editing.draft.density} min={0}
+                    validate={v => v > 0} step={kind === 'bulk' ? 10 : 0.001}
+                    onCommit={v => { if (v !== null) setEditing({ ...editing, draft: { ...editing.draft, density: v } }); }} /></div>
+                <button type="submit">Save material</button>{' '}
+                <button type="button" onClick={() => { focusAfterEdit.current = key; setEditing(null); }}>Cancel</button>
+              </form> : <>
+                <span>{m.name} ({m.density} {MATERIAL_UNITS[kind]})</span>{' '}
+                <button type="button" aria-label={`Edit ${kind} material ${m.name}`} ref={el => {
+                  if (el) editButtons.current.set(key, el);
+                  else editButtons.current.delete(key);
+                }} onClick={() => { focusEditName.current = true; setEditing({ key, draft: { ...m } }); setMessage(''); }}>Edit</button>{' '}
+                <button type="button" aria-label={`Delete ${kind} material ${m.name}`} onClick={() => { setMessage(''); setDeleting(m); }}>Delete</button>
+              </>}
+            </li>;
+          })}
+        </ul>
+      </section>)}
+      {deleting && <Modal label={`Delete ${deleting.kind} material ${deleting.name}?`} onClose={() => setDeleting(null)}>
+        <h2>Delete {deleting.kind} material {deleting.name}?</h2>
+        <p>This removes it from My materials in this browser. Parts already using it keep their material. Import a saved CSV to restore the library entry.</p>
+        <div role="status">{message && <p>{message}</p>}</div>
+        <button type="button" onClick={() => setDeleting(null)}>Cancel</button>{' '}
+        <button type="button" className="danger" onClick={() => {
+          if (persist(materials.filter(m => userMaterialKey(m) !== userMaterialKey(deleting)), 'Material deleted.')) {
+            if (editing?.key === userMaterialKey(deleting)) setEditing(null);
+            focusAfterEdit.current = '';
+            setDeleting(null);
+          }
+        }}>Delete material</button>
+      </Modal>}
+    </div>
+  </Modal>;
+}

@@ -1,5 +1,6 @@
 import { Note } from './Note.js';
-import { useId } from 'react';
+import { useId, useState } from 'react';
+import { MyMaterialsDialog } from './MyMaterialsDialog.js';
 import { clearTourDone, markTourDone } from './FirstRunTour.js';
 import { NumField } from './NumField.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
@@ -26,6 +27,7 @@ const CUSTOM_SEED: PrinterPrefs = {
 };
 
 export function PreferencesDialog({ onClose }: { onClose: () => void }) {
+  const [materialsOpen, setMaterialsOpen] = useState(false);
   const { prefs, setPrefs, aeroOverride, setAeroOverride } = usePrefs();
   /**
    * Every field's `<label htmlFor>` points at its own control (audit
@@ -417,6 +419,10 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
           Values are stored in SI internally — switching units never changes your design,
           only how numbers are shown and typed.
         </p>
+        <h3 className="prefs-section">Materials</h3>
+        <p className="prefs-hint">Named materials saved in this browser for the material selectors.</p>
+        <button type="button" onClick={() => setMaterialsOpen(true)}>My materials…</button>
+        {materialsOpen && <MyMaterialsDialog onClose={() => setMaterialsOpen(false)} />}
       </div>
     </div>
   );

@@ -1,11 +1,12 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { presetPatch, type Preset } from '../services/presets.js';
+import * as presets from '../services/presets.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -30,6 +31,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  vi.restoreAllMocks();
 });
 
 const G12: Preset = {
@@ -63,12 +65,15 @@ describe('a catalogue part shows its own material', () => {
     expect(patch['density']).toBe(1900);
   });
 
-  it('the dropdown shows that name, not "Custom"', () => {
+  it('the dropdown shows that name, not "Custom"', async () => {
+    vi.spyOn(presets, 'loadPresets').mockResolvedValue([G12]);
     const node = {
       type: 'bodytube', id: 'b', length: 1.219, outerRadius: 0.0511, thickness: 0.0013,
       ...presetPatch('bodytube', G12),
     } as unknown as ComponentNode;
-    render(node);
+    // Claim catalogue provenance only after the linked row is available and
+    // its material name and density have been checked.
+    await act(async () => { render(node); });
     const sel = materialSelect();
     expect(sel, 'no material dropdown rendered').not.toBeNull();
     expect(sel!.value).toBe('Fiberglass, G12, filament wound tube, bulk');

@@ -12,13 +12,13 @@ import { DesignFlightSetting, DesignNozzleSetting, type DesignFlightContext } fr
 const FLIGHT_SETTING_KEYS: ReadonlySet<string> = new Set([
   'deployAltitude', 'deployDelay', 'separationAltitude', 'separationDelay',
 ]);
-import { Fragment, useEffect, useId, useMemo, useState } from 'react';
+import { Fragment, useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { ComponentInfo, ComponentNode, ComponentPosition, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { FinPointsEditor, type FinPoint } from './FinPointsEditor.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  applyFieldLimit, blankValue, DISPLAY_NAME, FIELDS, POSITIONABLE, type FieldDef,
+  applyFieldLimit, blankValue, DISPLAY_NAME, FIELDS, MAX_BULK_DENSITY, POSITIONABLE, type FieldDef,
 } from '../tree/schema.js';
 import {
   bodyDragReference, fairingCd, fairingDeliveredCd, fairingFrontalArea, findParent,
@@ -32,6 +32,7 @@ import { shroudEnds } from '../tree/shroud.js';
 import { finTabFit, shoulderFit } from '../tree/fitHelpers.js';
 import { ventLimit } from '../tree/canopyVent.js';
 import { num, numOpt } from '../tree/nodeNum.js';
+import { KERNEL_DEFAULT_MATERIALS } from '../tree/kernelDefaults.js';
 import { RAIL_BUTTON_AFT_GAP, railButtonPlacement } from '../services/railButtonPlacement.js';
 
 /**
@@ -60,7 +61,7 @@ import { fmtFieldValue, fmtSi, fmtSig, niceStep, QUANTITY_LABEL, siToUi, uiToSi,
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import {
-  catalogueDifferences, detachPatch, KIND_FOR_TYPE, linkedPreset, loadPresets,
+  catalogueDifferences, detachPatch, KIND_FOR_TYPE, linkedPreset, loadPresets, presetPatch,
   type CatalogueDifference, type Preset,
 } from '../services/presets.js';
 import { limitPatch, POSITION_LIMIT } from '../tree/sanitize.js';
@@ -75,6 +76,10 @@ import { TUBE_HOLE_ADVICE } from '../tree/tubeHoles.js';
 import { WRAP_FINS } from '../services/tubeWrapGuide.js';
 import { safeName } from '../services/fileName.js';
 import { downloadBlob } from '../services/saveFile.js';
+import { builtInMaterial, designMaterials, materialNameKey, type MaterialKind } from '../services/designMaterials.js';
+import { materialProblem, saveUserMaterials, USER_MATERIALS_LIMIT, userMaterialKey } from '../services/userMaterials.js';
+import { useUserMaterials } from './useUserMaterials.js';
+import { MATERIAL_STORAGE_FAILURE, MyMaterialsDialog } from './MyMaterialsDialog.js';
 
 /**
  * Schema fields are authored in "legacy" units (mm/deg/g/m/s/kg·m⁻³ — what the
@@ -239,7 +244,8 @@ const markerNumber = (v: CatalogueDifference['have']): number | undefined => num
  * density is set. Densities: bulk kg/m³, surface kg/m², line kg/m.
  *
  * A material the node NAMES but this list does not hold still shows its own
- * name, as an extra option at the top. Reported 2026-09-01a: "anytime you pull
+ * name and density as this part's own option.
+ * Reported 2026-09-01a: "anytime you pull
  * in a part from the database, it marks the material as Custom, even if the
  * database clearly shows the material."
  *
@@ -253,7 +259,7 @@ const markerNumber = (v: CatalogueDifference['have']): number | undefined => num
  *
  * "Custom" now means what it says: no name at all.
  */
-function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, onPatch, catalogue, foreignSource = 'from the parts database' }: {
+function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, tree, onPatch, catalogue, foreignSource }: {
   label: string;
   list: MaterialDef[];
   nameKey: string;
@@ -261,13 +267,15 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
   densityUnit: string;
   foreignSource?: string;
   node: ComponentNode;
+  tree?: RocketTree;
   onPatch: (patch: Partial<ComponentNode>) => void;
   /** The conflict marker for this material, when the part's catalogue row names another. */
   catalogue?: { diff: CatalogueDifference; row: string; onUse: () => void };
 }) {
   const current = node[nameKey];
   const named = typeof current === 'string' && current !== '' ? current : null;
-  const known = named !== null && list.some((m) => m.name === named);
+  const kind: MaterialKind = densityKey === 'surfaceDensity' ? 'surface' : densityKey === 'lineDensity' ? 'line' : 'bulk';
+  const known = named !== null && list.some(m => m.name === named);
   // The node names a material this list has never heard of — a catalogue part's
   // own material, almost always. Offer it, selected, with the density the node
   // is actually flying, rather than silently calling it Custom.
@@ -275,33 +283,124 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, o
   // A non-finite density is no density (audit row 522): the option would read "(NaN kg/m³)".
   const foreignDensity = numOpt(node, densityKey);
   const id = useId();
+  const selectRef = useRef<HTMLSelectElement>(null);
+  const restoringNameFocus = useRef(false);
+  const { materials } = useUserMaterials();
+  const [message, setMessage] = useState('');
+  const [draft, setDraft] = useState('');
+  const [managing, setManaging] = useState(false);
+  const [picked, setPicked] = useState<string | null>(null);
+  useEffect(() => { setPicked(null); }, [node.id, nameKey]);
+  useEffect(() => { setDraft(''); setMessage(''); }, [node.id, nameKey, named]);
+  const allDesign = useMemo(() => designMaterials(tree ?? { components: [node] }, kind), [tree, node, kind]);
+  const mine = materials.filter(m => m.kind === kind);
+  // Internal values must never equal a real material name, including an imported one.
+  const names = [...list, ...allDesign, ...mine].map(m => m.name).concat(named ?? []);
+  let prefix = `${id}:`;
+  while (names.some(name => name.startsWith(prefix))) prefix += ':';
+  const groupValue = (source: 'design' | 'mine', m: Pick<MaterialDef, 'name' | 'density'>) => `${prefix}${source}:${JSON.stringify([m.name, m.density])}`;
+  const pickedMaterial = allDesign.find(m => groupValue('design', m) === picked)
+    ?? mine.find(m => groupValue('mine', m) === picked);
+  const keepPicked = pickedMaterial !== undefined && pickedMaterial.name === named && pickedMaterial.density === foreignDensity;
+  const inDesign = allDesign.filter(m => keepPicked || m.name !== named || m.density !== foreignDensity);
+  const sourceLabel = foreignSource ?? "this part's material";
+  const saveProblem = materialProblem({ kind, name: foreign, density: foreignDensity ?? NaN });
+  const saved = named ? mine.find(m => materialNameKey(m.name) === materialNameKey(named)) : undefined;
+  const value = keepPicked ? picked! : named ?? '';
+  const commitName = (restoreFocus: boolean) => {
+    const name = draft.trim();
+    if (!name) { setDraft(''); return; }
+    if (name.length > 80) { setMessage('Material name must contain at most 80 characters'); return; }
+    if (materialNameKey(name) === 'custom') { setMessage('Custom is reserved for unnamed materials. Choose another name.'); return; }
+    if (builtInMaterial(kind, name)) { setMessage(`${name} is in the built-in list — pick it from the list`); return; }
+    onPatch({ [nameKey]: name,
+      ...(foreignDensity === undefined || (kind === 'bulk' && foreignDensity <= 0)
+        ? { [densityKey]: KERNEL_DEFAULT_MATERIALS[kind].density } : {}) });
+    setDraft(''); setMessage('');
+    if (restoreFocus) {
+      restoringNameFocus.current = true;
+      selectRef.current?.focus();
+      restoringNameFocus.current = false;
+    }
+  };
   return (
     <div className="field">
       <div className="field-label-help"><label htmlFor={id}>{label}</label><GlossaryHelp term={fieldTerm(node.type, 'material')} label={label} /></div>
       <select
+        ref={selectRef}
         id={id}
         aria-label={label}
-        value={named ?? ''}
+        value={value}
         onChange={(e) => {
-          const mat = list.find((m) => m.name === e.target.value);
-          if (mat) onPatch({ [nameKey]: mat.name, [densityKey]: mat.density });
-          // Re-picking the part's own material is a no-op, not a reason to
-          // rewrite the density it came with.
-          else if (e.target.value === foreign) { /* already applied */ }
-          else onPatch({ [nameKey]: undefined });
+          const groupMaterial = inDesign.find(m => groupValue('design', m) === e.target.value)
+            ?? mine.find(m => groupValue('mine', m) === e.target.value);
+          const mat = groupMaterial ?? list.find((m) => m.name === e.target.value);
+          setMessage('');
+          if (mat) {
+            if (kind === 'bulk' && mat.density > MAX_BULK_DENSITY) {
+              setMessage(`Bulk material density has a limit of ${MAX_BULK_DENSITY} kg/m³`); return;
+            }
+            setPicked(groupMaterial ? e.target.value : null);
+            onPatch({ [nameKey]: mat.name, [densityKey]: mat.density });
+          }
+          // The fallback has no reusable density: re-picking it keeps the
+          // part's original values, including an absent density.
+          else {
+            setPicked(null);
+            if (e.target.value !== foreign) onPatch({ [nameKey]: undefined });
+          }
         }}
       >
         <option value="">Custom</option>
-        {foreign !== null && (
+        {foreign !== null && !keepPicked && (
           <option value={foreign}>
             {foreign}{foreignDensity !== undefined ? ` (${foreignDensity} ${densityUnit})` : ''}
-            {` — ${foreignSource}`}
+            {` — ${sourceLabel}`}
           </option>
         )}
         {list.map((m) => (
           <option key={m.name} value={m.name}>{m.name} ({m.density} {densityUnit})</option>
         ))}
+        {inDesign.length > 0 && <optgroup label="In this design">
+          {inDesign.map(m => <option key={JSON.stringify([m.name, m.density])} value={groupValue('design', m)}>
+            {m.name} ({m.density} {densityUnit})
+          </option>)}
+        </optgroup>}
+        {mine.length > 0 && <optgroup label="My materials">
+          {mine.map(m => <option key={m.name} value={groupValue('mine', m)}>
+            {m.name} ({m.density} {densityUnit})
+          </option>)}
+        </optgroup>}
       </select>
+      {!named && <div className="field">
+        <label htmlFor={`${id}-name`}>{label} name</label>
+        <input id={`${id}-name`} maxLength={80} value={draft} placeholder="Optional"
+          aria-invalid={message ? true : undefined} aria-describedby={`${id}-hint${message ? ` ${id}-message` : ''}`}
+          onChange={e => { setDraft(e.target.value); setMessage(''); }}
+          onBlur={e => { if (!restoringNameFocus.current) commitName(e.relatedTarget === null); }}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitName(true); } }} />
+        <p id={`${id}-hint`} className="prefs-hint">{kind === 'bulk'
+          ? `Typing a ${label === 'Fillet material' ? 'fillet density' : 'density'} afterwards removes the name; set the density first.`
+          : `The name applies to this part's current density, ${foreignDensity ?? KERNEL_DEFAULT_MATERIALS[kind].density} ${densityUnit}; to change a canopy or line density, edit a saved entry in My materials.`}</p>
+      </div>}
+      {foreign !== null && saveProblem === null && <button type="button" className="finish-all-btn"
+        aria-label={saved ? saved.density === foreignDensity ? `Saved in My materials: ${label}` : `Update in My materials: ${label}` : `Save to My materials: ${label}`}
+        disabled={saved?.density === foreignDensity && saved !== undefined}
+        onClick={() => {
+          const entry = { kind, name: foreign, density: foreignDensity ?? NaN };
+          const problem = materialProblem(entry);
+          if (problem) { setMessage(problem); return; }
+          if (!saved && materials.length >= USER_MATERIALS_LIMIT) { setMessage('My materials has a limit of 500 entries. Delete an entry before saving another.'); return; }
+          const next = materials.filter(m => userMaterialKey(m) !== userMaterialKey(entry));
+          const success = saveUserMaterials([...next, entry]);
+          setMessage(success ? 'Saved in My materials.' : MATERIAL_STORAGE_FAILURE);
+          if (success) selectRef.current?.focus();
+        }}>
+        {saved ? saved.density === foreignDensity ? 'Saved in My materials' : 'Update in My materials' : '☆ Save to My materials'}
+      </button>}
+      <button type="button" className="finish-all-btn" aria-label={`My materials for ${label}`} onClick={() => setManaging(true)}>My materials…</button>
+      <div role="status">{message && <p id={`${id}-message`}>{message}</p>}</div>
+      {managing && <MyMaterialsDialog onClose={() => setManaging(false)} />}
       {catalogue && (() => {
         const { diff, row, onUse } = catalogue;
         const name = diff.patch[nameKey];
@@ -668,6 +767,13 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
     [linked, catalogue, node],
   );
   const diffs = useMemo(() => (row ? catalogueDifferences(node, row) : []), [row, node]);
+  const catalogueMaterial = row ? presetPatch(node.type, row) : null;
+  const materialSource = (nameKey: string, densityKey: string) =>
+    catalogueMaterial && typeof catalogueMaterial[nameKey] === 'string'
+      && node[nameKey] === catalogueMaterial[nameKey]
+      && numOpt(node, densityKey) !== undefined
+      && numOpt(node, densityKey) === numOpt(catalogueMaterial, densityKey)
+      ? 'from the parts database' : undefined;
   const diffFor = (key: string): CatalogueDifference | undefined => diffs.find((d) => d.key === key);
   const rowName = row ? `${row.manufacturer} ${row.partNo}` : `${linkMfr} ${linkPartNo ?? ''}`.trim();
   // What Detach did, for WHICH part — scoped like the preset note above.
@@ -1536,7 +1642,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
               <Fragment key={f.key}>
                 <MaterialSelect label="Material" list={BULK_MATERIALS}
                   nameKey="materialName" densityKey="density" densityUnit="kg/m³"
-                  node={node} onPatch={onPatch} />
+                  node={node} tree={tree} onPatch={onPatch} foreignSource={materialSource('materialName', 'density')} />
                 {renderNumeric(f)}
               </Fragment>
             );
@@ -1550,7 +1656,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
               <Fragment key={f.key}>
                 <MaterialSelect label="Fillet material" list={BULK_MATERIALS}
                   nameKey="filletMaterialName" densityKey="filletDensity" densityUnit="kg/m³"
-                  foreignSource="from this design" node={filletNode}
+                  foreignSource="from this design" node={filletNode} tree={tree}
                   onPatch={(patch) => onPatch({
                     ...(numOpt(node, 'filletDensity') === undefined ? { filletDensity: 680 } : {}),
                     ...patch, filletMaterialGroup: undefined,
@@ -1604,13 +1710,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         {(node.type === 'parachute' || node.type === 'streamer') && (
           <MaterialSelect label="Canopy material" list={SURFACE_MATERIALS}
             nameKey="surfaceMaterialName" densityKey="surfaceDensity" densityUnit="kg/m²"
-            node={node} onPatch={onPatch} catalogue={materialMarker('surfaceDensity')} />
+            node={node} tree={tree} onPatch={onPatch} catalogue={materialMarker('surfaceDensity')}
+            foreignSource={materialSource('surfaceMaterialName', 'surfaceDensity')} />
         )}
         {(node.type === 'parachute' || node.type === 'shockcord') && (
           <MaterialSelect label={node.type === 'parachute' ? 'Line material' : 'Cord material'}
             list={LINE_MATERIALS}
             nameKey="lineMaterialName" densityKey="lineDensity" densityUnit="kg/m"
-            node={node} onPatch={onPatch} catalogue={materialMarker('lineDensity')} />
+            node={node} tree={tree} onPatch={onPatch} catalogue={materialMarker('lineDensity')}
+            foreignSource={materialSource('lineMaterialName', 'lineDensity')} />
         )}
       </div>
       {/* Say what the coefficient IS. The two streamlined classes are not
