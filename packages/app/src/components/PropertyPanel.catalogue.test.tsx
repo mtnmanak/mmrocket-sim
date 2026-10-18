@@ -19,10 +19,11 @@ import presetsJson from '../data/presets.json';
  * The catalogue is stood in for by a small fixture, so every figure below is
  * known; services/presets.test.ts pins the table against the shipped rows.
  */
-const { loadPresets } = vi.hoisted(() => ({ loadPresets: vi.fn() }));
+const { loadPresets, loadBundledPresets } = vi.hoisted(() => ({ loadPresets: vi.fn(), loadBundledPresets: vi.fn() }));
 vi.mock('../services/presets.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../services/presets.js')>()),
   loadPresets,
+  loadBundledPresets,
 }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -101,6 +102,8 @@ beforeEach(() => {
   localStorage.clear();
   loadPresets.mockReset();
   loadPresets.mockResolvedValue(CATALOGUE);
+  loadBundledPresets.mockReset();
+  loadBundledPresets.mockResolvedValue(CATALOGUE);
   patches = [];
   host = document.createElement('div');
   document.body.appendChild(host);

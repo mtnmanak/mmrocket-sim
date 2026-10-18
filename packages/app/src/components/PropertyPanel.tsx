@@ -59,6 +59,7 @@ import { printerName, toPrinterVolume } from '../prefs/printers.js';
 import { fmtFieldValue, fmtSi, fmtSig, niceStep, QUANTITY_LABEL, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
+import { SaveMyPartDialog } from './SaveMyPartDialog.js';
 import {
   catalogueDifferences, detachPatch, KIND_FOR_TYPE, linkedPreset, loadPresets,
   type CatalogueDifference, type Preset,
@@ -596,6 +597,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
   const uid = useId();
   const idFor = (key: string) => `${uid}-${key}`;
   const [showPresets, setShowPresets] = useState(false);
+  const [saveMyPart, setSaveMyPart] = useState(false);
+  const [savedPartNote, setSavedPartNote] = useState<string | null>(null);
   // Why an export button did nothing, and for WHICH component. Cleared on the
   // next attempt, and shown only while that component is the one selected, so
   // it never outlives the outline it is complaining about: a self-crossing-fin
@@ -1151,11 +1154,18 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         <p className="hint">Saved with this part in .ork. Comments do not affect a flight.</p>
       </div>
       {KIND_FOR_TYPE[node.type] && (
-        <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+        <button className="file-btn" style={{ flex: '1 1 230px' }}
           onClick={() => setShowPresets(true)}>
           📦 Choose from preset database…
         </button>
+        <button className="file-btn" style={{ flex: '1 1 160px' }} onClick={() => setSaveMyPart(true)}>☆ Save as My part…</button>
+        </div>
       )}
+      {saveMyPart && <SaveMyPartDialog node={node} onSaved={(name) => setSavedPartNote(`Saved ${name} in this browser.`)} onClose={() => {
+        setSaveMyPart(false);
+        setPickerCloses((n) => n + 1);
+      }} />}
       {(linked || detachNote) && (
         <>
           {/* Tier (c): the row this part is linked to, with Detach — and the
@@ -1202,6 +1212,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           </div>
         </>
       )}
+      {savedPartNote && <p className="hint" role="status">{savedPartNote}</p>}
       {presetNote && (
         <Note as="p" tier="caution" className="print-note print-note-warn" role="status">{presetNote}</Note>
       )}
