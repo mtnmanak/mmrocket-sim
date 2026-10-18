@@ -3,7 +3,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import type { ComponentNode } from '@online-openrocket/engine';
+import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { exportRkt, importRkt, rktComponentInfo, rktEveryDelay, rktPackedChuteSize } from './rocksimFile.js';
 import { exportOrk, importOrk, type OrkExportMotor } from './orkFile.js';
 import { exportCdx1, importCdx1 } from './rasaeroFile.js';
@@ -18,8 +18,34 @@ import { KERNEL_DEFAULT_FIN_POINTS, KERNEL_DEFAULT_MATERIALS, kernelDefault, ker
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
 import { tubeFinRadius } from '../tree/tubefins.js';
 import { engineTree, flownInstanceCount } from '../tree/treeModel.js';
+import { checkFormatLoss } from './formatLoss.js';
+import { DEFAULT_CONDITIONS } from './launchConditions.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
+
+const rktSaveLosses = (tree: RocketTree) => checkFormatLoss('rkt', {
+  tree, motors: {}, launch: { ...DEFAULT_CONDITIONS }, configs: [], activeConfigId: null,
+  measured: { massKg: null, cgM: null }, flightData: {},
+}).losses.join('\n');
+
+describe('S1b-3 zero-density recovery save disclosures', () => {
+  it.each([
+    ['parachute', 'surfaceDensity', 'Zero-density canopies and streamer strips'],
+    ['streamer', 'surfaceDensity', 'Zero-density canopies and streamer strips'],
+    ['shockcord', 'lineDensity', 'Zero-density shock cords'],
+  ] as const)('warns before %s %s zero is lost on export and reopen', (type, densityKey, note) => {
+    const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
+      { type: 'bodytube', id: 'b', length: 0.3, outerRadius: 0.03, children: [
+        { type, id: 'r', name: 'Weightless recovery', [densityKey]: 0 },
+      ] },
+    ] }] };
+    const xml = exportRkt({ name: 'Weightless', tree });
+    expect(xml).toContain('<Density>0</Density>');
+    const part = flatten(importRkt(xml).tree.components).find(n => n.name === 'Weightless recovery')!;
+    expect(part[densityKey]).toBeUndefined();
+    expect(rktSaveLosses(tree)).toContain(`${note} and their material are not kept; the reader supplies its own defaults: “Weightless recovery”.`);
+  });
+});
 
 /** Fixtures are the DESKTOP's own RockSim test files (24.12 source tree). */
 function fixture(name: string): string {
@@ -1047,7 +1073,7 @@ describe('RockSim export → import round trip of the two override flags', () =>
     };
     const xml = exportRkt(d);
     const back = importRkt(xml);
-    return { xml, tube: flatten(back.tree.components).find((c) => c.type === 'bodytube')! };
+    return { xml, tree: d.tree, tube: flatten(back.tree.components).find((c) => c.type === 'bodytube')! };
   };
 
   it('carries a mass override across, with a CG equal to the computed one', () => {
@@ -1069,10 +1095,38 @@ describe('RockSim export → import round trip of the two override flags', () =>
     expect(tube['overrideMass']).toBeCloseTo(0.05, 9);
   });
 
+  it.each([0, -0.02])('S1b-1 discloses the loss of CG override %s m on reopen', overrideCGX => {
+    const { xml, tree, tube } = rt({ overrideCGX });
+    expect(xml).toContain(`<KnownCG>${overrideCGX * 1000}</KnownCG>`);
+    expect(tube['overrideCGX']).toBeUndefined();
+    expect(tube['overrideMass']).toBeCloseTo(0.05, 9);
+    expect(rktSaveLosses(tree)).toContain('CG overrides at or ahead of the part’s front reopen here on the computed CG');
+  });
+
   it('round-trips both overrides together', () => {
     const { tube } = rt({ overrideMass: 0.123, overrideCGX: 0.2 });
     expect(tube['overrideMass']).toBeCloseTo(0.123, 9);
     expect(tube['overrideCGX']).toBeCloseTo(0.2, 9);
+  });
+
+  it.each(['podset', 'parallelstage'] as const)('Round 2 discloses %s zero CG with or without a mass override', type => {
+    for (const overrideMass of [undefined, 0.1]) {
+      const node: ComponentNode = { type, id: 'pod', name: 'Pod', instanceCount: 1,
+        overrideCGX: 0, ...(overrideMass !== undefined ? { overrideMass } : {}),
+        children: [{ type: 'bodytube', length: 0.1, outerRadius: 0.01 }] };
+      const tree = { components: [{ type: 'stage' as const, children: [
+        { type: 'bodytube' as const, length: 0.3, outerRadius: 0.02, children: [node] },
+      ] }] };
+      const back = importRkt(exportRkt({ name: 'Round 2', tree }));
+      const pod = flatten(back.tree.components).find(n => n.type === type)!;
+      expect(pod).toBeDefined();
+      expect(pod['overrideCGX']).toBeUndefined();
+      if (overrideMass === undefined) expect(pod['overrideMass']).toBeUndefined();
+      else expect(pod['overrideMass']).toBeCloseTo(overrideMass, 9);
+      const warning = rktSaveLosses(tree);
+      expect(warning).toContain('CG overrides at or ahead of the part’s front reopen here on the computed CG');
+      expect(warning).not.toContain('mass held at the saved value');
+    }
   });
 
   it('round-trips no override at all', () => {
@@ -2736,6 +2790,37 @@ describe('RockSim nose cone base extension', () => {
         .toBe((fixture('rocksimTestRocket1.rkt').match(/<BodyTube>/g) ?? []).length + 1);
     }
   });
+
+  it.each(['clear', 'mass', 'cg'] as const)(
+    'S1b-2 preserves empty mass after the cone override changes: %s', async edit => {
+      const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+      const direct = importRkt(fixture(edit === 'clear' ? 'rocksimTestRocket1.rkt' : 'nose-base-extension-mount.rkt'));
+      const chain = direct.tree.components[0]!.children!;
+      const cone = chain[0]!;
+      const extension = ext(chain)!;
+      expect(extension['overrideMass']).toBe(edit === 'clear' ? 0 : undefined);
+      if (edit === 'clear') {
+        delete cone['overrideMass'];
+        delete cone['overrideCGX'];
+      } else if (edit === 'mass') cone['overrideMass'] = 0.123;
+      else cone['overrideCGX'] = 0.04;
+      resetEngine();
+      const rocket = OrkRocket.buildTree(engineTree(direct.tree));
+      const before = rocket.staticInfo();
+      const compInfo = rktComponentInfo(direct.tree, id => rocket.componentInfo(id));
+      const xml = exportRkt({ name: direct.name, tree: direct.tree, compInfo });
+      const reopened = importRkt(xml);
+      resetEngine();
+      const after = OrkRocket.buildTree(engineTree(reopened.tree)).staticInfo();
+      // kg and m: allow XML rounding to four decimal mm/grams, not a lost tube.
+      expect(after.massEmpty).toBeCloseTo(before.massEmpty, 6);
+      expect(after.length).toBeCloseTo(before.length, 6);
+      expect(xml).toContain('<BaseExtensionLen>0</BaseExtensionLen>');
+      expect(ext(reopened.tree.components[0]!.children!)).toBeUndefined();
+      const separate = flatten(reopened.tree.components).find(n => n.name === extension.name)!;
+      expect(separate.type).toBe('bodytube');
+      expect(separate['overrideMass']).toBe(edit === 'clear' ? 0 : undefined);
+    }, 60_000);
 
   it('never drops the tube when the cone has no id to key the fold on', () => {
     const xml = exportRkt({

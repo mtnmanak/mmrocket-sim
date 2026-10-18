@@ -4,7 +4,7 @@ import { findDbMotor, matchDbMotor, MOTOR_DB } from './motorDb.js';
 import { fetchSpecByDigest, matchImportedMotor } from './motorMatch.js';
 import { MOTOR_MATCH_POLICY as P, type MotorMatchContext } from './motorMatchPolicy.js';
 import { importRkt, rktEveryDelay } from './rocksimFile.js';
-import { rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
+import { indexRocksimMotors, rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { importCdx1 } from './rasaeroFile.js';
 import { defaultDelay } from './thrustcurve.js';
 import type { OrkMotorRef } from './orkFile.js';
@@ -30,9 +30,14 @@ function rkt(code = 'K700BB', mass = 4098, burn = 2.38, diameter = 54.4): string
     <EngineCode>${code}</EngineCode><IgnitionDelay>0</IgnitionDelay><EjectionDelay>-1</EjectionDelay></EngineSet></Stage3Engines>
     </SimulationResults></RockSimDocument>`;
 }
+function motorIndex(doc: Document) {
+  const design = doc.querySelector('RockSimDocument > DesignInformation > RocketDesign')!;
+  const sets = new Map([...doc.querySelectorAll('SimulationResults')].map(sim => [sim, [...sim.querySelectorAll('EngineSet')]]));
+  return indexRocksimMotors(doc, design, sets);
+}
 function evidence(xml: string): MotorMatchContext {
   const doc = new DOMParser().parseFromString(xml, 'text/xml');
-  return rocksimMotorEvidence(doc, doc.querySelector('EngineSet')!);
+  return rocksimMotorEvidence(doc.querySelector('EngineSet')!, motorIndex(doc));
 }
 beforeEach(() => vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline')))));
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
@@ -127,6 +132,14 @@ describe('reviewed historical motor policies', () => {
 });
 
 describe('physical evidence provenance and importer seams', () => {
+  it('refuses evidence and burn duration if the indexed simulation count is unavailable', () => {
+    const doc = new DOMParser().parseFromString(rkt(), 'text/xml');
+    const index = { ...motorIndex(doc), simulationSets: new Map() };
+    const engineSet = doc.querySelector('EngineSet')!;
+    expect(rocksimMotorEvidence(engineSet, index).physical).toBeUndefined();
+    expect(rocksimBurnTime(engineSet, index)).toBeUndefined();
+  });
+
   it('rejects mixed/clustered/staged, unknown units, unqualified dry masses, stale mounts and invalid numbers', () => {
     expect(evidence(rkt()).physical?.motorMassG).toBe(2088);
     const invalid = [
@@ -188,7 +201,7 @@ describe('physical evidence provenance and importer seams', () => {
 describe('stored RockSim burn duration is diagnostic only', () => {
   function burn(xml: string): number | undefined {
     const doc = new DOMParser().parseFromString(xml, 'text/xml');
-    return rocksimBurnTime(doc, doc.querySelector('EngineSet')!);
+    return rocksimBurnTime(doc.querySelector('EngineSet')!, motorIndex(doc));
   }
   it('reads legacy seconds without promoting legacy masses to matcher evidence', () => {
     for (const version of [2, 3, 4]) {

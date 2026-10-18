@@ -37,6 +37,9 @@ const SAFE_MESSAGES = new Set(['No stage found', 'Failed to fetch', 'Load failed
 
 // C-H3: these refusals contain only format names and counts, never user text.
 const SAFE_IMPORT_MESSAGES = [
+  /^This RockSim file contains nested (simulations|motor loadouts), which the app cannot open\. Open it in RockSim and save it again\.$/,
+  /^This file contains [0-9,]+ simulations, past the [0-9,]+ the app will open\. Remove simulations in RockSim and save it again\. Desktop OR has no such limit\.$/,
+  /^This file's simulations list [0-9,]+ motor loadouts, past the [0-9,]+ the app will open\. Remove simulations in RockSim and save it again\. Desktop OR has no such limit\.$/,
   /^this link was made by a newer version of the app \(format [0-9]+\)$/,
   /^this link expands past [0-9]+ MB — that is not a rocket design$/,
   /^This archive lists [0-9,]+ entries, past the [0-9,]+ this app will read — that is not a rocket design\.$/,
