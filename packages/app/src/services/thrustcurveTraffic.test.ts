@@ -14,6 +14,8 @@ let motor: TcMotor;
 let noCurveMotor: TcMotor;
 const KEY = 'online-openrocket.no-curve.v1';
 const samples = [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 12 }, { time: 1, thrust: 0 }];
+// Catalogue refreshes must preserve the ordering these retry cases exercise.
+const daysAfter = (date: string, days: number): string => new Date(Date.parse(date) + days * 86_400_000).toISOString();
 const response = (body: unknown, status = 200, headers?: HeadersInit) => new Response(JSON.stringify(body), { status, headers });
 const miss = (p: Promise<unknown>): Promise<Error> => p.then(() => { throw new Error('expected rejection'); }, (e: unknown) => {
   expect(e).toBeInstanceOf(Error);
@@ -48,7 +50,7 @@ it('remembers empty answers across module reloads, and retries once the catalogu
   expect(await miss(tc.fetchMotorSpec(motor, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
   expect(fetcher).toHaveBeenCalledTimes(1);
   const currentDb = await import('./motorDb.js');
-  currentDb.setCatalogueOverlay({ baseGenerated: currentDb.MOTOR_DB_DATE, fetchedAt: '2026-10-17T12:00:00.000Z',
+  currentDb.setCatalogueOverlay({ baseGenerated: currentDb.MOTOR_DB_DATE, fetchedAt: daysAfter(currentDb.MOTOR_DB_DATE, 1),
     liveCount: 1, added: [], changed: [], removed: [], rejected: [] });
   await miss(tc.fetchMotorSpec(motor, 5));
   await miss(tc.fetchMotorSpec(motor, 5));
@@ -71,7 +73,7 @@ it('a newer check retries a shipped absent curve once per catalogue check', asyn
   vi.stubGlobal('fetch', fetcher);
   await miss(tc.fetchMotorSpec(noCurveMotor, 5));
   expect(fetcher).not.toHaveBeenCalled();
-  for (const fetchedAt of ['2026-10-17T12:00:00.000Z', '2026-10-18T12:00:00.000Z']) {
+  for (const fetchedAt of [daysAfter(db.MOTOR_DB_DATE, 1), daysAfter(db.MOTOR_DB_DATE, 2)]) {
     db.setCatalogueOverlay({ baseGenerated: db.MOTOR_DB_DATE, fetchedAt,
       liveCount: 0, added: [], changed: [], removed: [], rejected: [] });
     await miss(tc.fetchMotorSpec(noCurveMotor, 5));
@@ -79,7 +81,7 @@ it('a newer check retries a shipped absent curve once per catalogue check', asyn
   }
   expect(fetcher).toHaveBeenCalledTimes(2);
   // A later check can discover a curve published since the shipped build.
-  db.setCatalogueOverlay({ baseGenerated: db.MOTOR_DB_DATE, fetchedAt: '2026-10-19T12:00:00.000Z',
+  db.setCatalogueOverlay({ baseGenerated: db.MOTOR_DB_DATE, fetchedAt: daysAfter(db.MOTOR_DB_DATE, 3),
     liveCount: 0, added: [], changed: [], removed: [], rejected: [] });
   fetcher.mockImplementation(async () => response({ results: [{ samples }] }));
   expect((await tc.fetchMotorSpec(noCurveMotor, 5)).thrusts).toEqual([0, 12, 0]);
@@ -129,7 +131,9 @@ it('drops an over-limit negative store and tolerates unavailable storage', async
 it('only a matching bundle catalogue date can establish a shipped no-curve motor', async () => {
   const original = await import('../data/motorCurves.json');
   vi.resetModules();
-  vi.doMock('../data/motorCurves.json', () => ({ default: { ...original.default, catalogueGenerated: '2026-09-01' } }));
+  vi.doMock('../data/motorCurves.json', () => ({ default: { ...original.default,
+    catalogueGenerated: daysAfter(db.MOTOR_DB_DATE, -1).slice(0, 10),
+  } }));
   const client = await import('./thrustcurve.js');
   const fetcher = vi.fn(async () => response({ results: [] }));
   vi.stubGlobal('fetch', fetcher);
@@ -180,11 +184,11 @@ it.each(['partial', 'mismatched', 'newer overlay'] as const)('design-open notes 
   vi.resetModules();
   vi.doMock('../data/motorCurves.json', () => ({ default: { ...original.default,
     ...(kind === 'partial' ? { complete: false } : {}),
-    ...(kind === 'mismatched' ? { catalogueGenerated: '2026-09-01' } : {}),
+    ...(kind === 'mismatched' ? { catalogueGenerated: daysAfter(db.MOTOR_DB_DATE, -1).slice(0, 10) } : {}),
   } }));
   const currentDb = await import('./motorDb.js');
   if (kind === 'newer overlay') currentDb.setCatalogueOverlay({ baseGenerated: currentDb.MOTOR_DB_DATE,
-    fetchedAt: '2026-10-17T12:00:00.000Z', liveCount: 0, added: [], changed: [], removed: [], rejected: [] });
+    fetchedAt: daysAfter(currentDb.MOTOR_DB_DATE, 1), liveCount: 0, added: [], changed: [], removed: [], rejected: [] });
   const { matchImportedMotor } = await import('./motorMatch.js');
   const shipped = currentDb.MOTOR_DB.find(m => m.motorId === noCurveMotor.motorId)!;
   const fetchSpec = vi.fn(async () => { throw new Error('download unavailable'); });
