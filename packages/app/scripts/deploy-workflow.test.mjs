@@ -29,6 +29,7 @@ const workflow = (name) => readFileSync(new URL(`../../../.github/workflows/${na
   .split(/\r?\n/).map((l) => l.replace(/\s+#.*$/, ''));
 const DEPLOY = workflow('deploy.yml');
 const REFRESH = workflow('motors-refresh.yml');
+const CATALOGUE = workflow('catalogue-publish.yml');
 
 const indentOf = (l) => l.length - l.trimStart().length;
 const isContent = (l) => l.trim() !== '' && !l.trim().startsWith('#');
@@ -121,10 +122,10 @@ describe('deploy.yml — pull requests get the gate, only main deploys', () => {
   });
 
   it('leaves no git credential in any checkout of either workflow', () => {
-    const checkouts = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [REFRESH, 'refresh'], [REFRESH, 'publish']]
+    const checkouts = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [REFRESH, 'refresh'], [REFRESH, 'publish'], [CATALOGUE, 'plan'], [CATALOGUE, 'catalogue']]
       .flatMap(([lines, job]) => steps(lines, job).filter((s) => value(s, 'uses')?.startsWith('actions/checkout@'))
         .map((s) => [job, value(child(s, 'with') ?? [''], 'persist-credentials')]));
-    expect(checkouts).toEqual([['build', 'false'], ['deploy', 'false'], ['refresh', 'false'], ['publish', 'false']]);
+    expect(checkouts).toEqual([['build', 'false'], ['deploy', 'false'], ['refresh', 'false'], ['publish', 'false'], ['plan', 'false'], ['catalogue', 'false']]);
   });
 
   it('runs every gate command of the deploy build on a motor refresh, in the same order', () => {
@@ -134,18 +135,189 @@ describe('deploy.yml — pull requests get the gate, only main deploys', () => {
     const refresh = runs(REFRESH, 'refresh');
     expect(refresh.filter((r) => gate.includes(r))).toEqual(gate);
     // ...on the refreshed data: after the refresh step, not before it.
-    expect(refresh.indexOf(gate[0])).toBeGreaterThan(refresh.indexOf('npm run motors:refresh'));
+    const refreshSteps = steps(REFRESH, 'refresh');
+    const fetching = refreshSteps.findIndex((s) => s.some((l) => l.includes('node packages/app/scripts/fetch-motor-db.mjs --full-out')));
+    expect(fetching).toBeGreaterThanOrEqual(0);
+    expect(refreshSteps.findIndex((s) => value(s, 'run') === gate[0])).toBeGreaterThan(fetching);
+    const body = refreshSteps[fetching].join('\n');
+    expect(body.indexOf('fetch-motor-curves.mjs')).toBeGreaterThan(body.indexOf('fetch-motor-db.mjs'));
+    expect(body.indexOf('scripts/build-user-guide.mjs')).toBeGreaterThan(body.indexOf('fetch-motor-curves.mjs'));
+    // The optional superset must be the ONLY divergence from the hand-run command.
+    const pkg = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
+    const commands = child(refreshSteps[fetching], 'run').filter(isContent).map((l) => l.trim()
+      .replace(/ --full-out "[^"]+"/, ''));
+    expect(commands).toEqual(pkg.scripts['motors:refresh'].split('&&').map((s) => s.trim()));
   });
 });
 
 describe('both workflows — one pinned runner image', () => {
-  // ubuntu-latest moves on GitHub's date, not on a commit here (to Ubuntu 26 from 19 October 2026), which would
-  // change the gate's OS under an unrelated push. The image moves only by a commit that changes all four jobs.
-  it('runs all four jobs on the same explicit image, never a -latest label', () => {
-    const images = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [REFRESH, 'refresh'], [REFRESH, 'publish']]
+  // ubuntu-latest moves on GitHub's date, not on a commit here. The image moves
+  // only by a commit that changes all jobs, including the catalogue publisher.
+  it('runs all six jobs on the same explicit image, never a -latest label', () => {
+    const images = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [REFRESH, 'refresh'], [REFRESH, 'publish'], [CATALOGUE, 'plan'], [CATALOGUE, 'catalogue']]
       .map(([lines, job]) => value(path(lines, 'jobs', job), 'runs-on'));
-    expect(images).toHaveLength(4);
+    expect(images).toHaveLength(6);
     for (const image of images) expect(image).toMatch(/^ubuntu-\d\d\.\d\d$/);
     expect(new Set(images).size).toBe(1);
+  });
+});
+
+// Include both '- uses:' and named steps with a separate indented 'uses:'.
+function assertPinnedActions(text, expectedCount) {
+  const uses = text.split(/\r?\n/).filter((l) => /^\s*(?:- )?uses:/.test(l));
+  expect(uses).toHaveLength(expectedCount);
+  for (const use of uses) expect(use).toMatch(/uses: actions\/[a-z-]+@[a-f0-9]{40} # v\d/);
+}
+
+// Dynamic imports and CommonJS entry points must not bypass the pre-install
+// dependency boundary. Ban computed imports and createRequire outright here.
+function importsOf(source) {
+  expect(source).not.toMatch(/\bcreateRequire\b/);
+  const staticImports = [...source.matchAll(/\b(?:import|export)\s+(?:[^;]*?\s+from\s+)?['"]([^'"]+)['"]/g)].map((m) => m[1]);
+  const calls = [...source.matchAll(/\b(?:import|require)\s*\(([^)]*)\)/g)].map((m) => {
+    expect(m[1].trim()).toMatch(/^['"][^'"]+['"]$/);
+    return m[1].trim().slice(1, -1);
+  });
+  const imports = [...staticImports, ...calls];
+  for (const spec of imports) expect(spec.startsWith('node:') || spec.startsWith('.')).toBe(true);
+  return imports;
+}
+
+
+const normalize = (lines) => lines.filter(isContent).map((l) => l.trim().replace(/(uses: actions\/[a-z-]+)@[a-f0-9]{40}/, '$1@<pin>'));
+function stepStructure(step) {
+  return { name: value(step, 'name') ?? null, run: value(step, 'run') === '|' ? normalize(child(step, 'run')) : value(step, 'run') ?? null,
+    if: value(step, 'if') ?? null, envKeys: (child(step, 'env') ?? []).filter(isContent).map((l) => l.trim().split(':')[0]),
+    configuration: normalize(step) };
+}
+function jobStructure(lines, job) {
+  const body = path(lines, 'jobs', job);
+  return { header: normalize(body.slice(0, body.findIndex((l) => l.trim() === 'steps:'))),
+    permissions: normalize(path(lines, 'jobs', job, 'permissions')), steps: steps(lines, job).map(stepStructure) };
+}
+
+const ORIGINAL_REFRESH = JSON.parse(readFileSync(new URL('./fixtures/motors-refresh-original.json', import.meta.url), 'utf8'));
+
+describe('catalogue workflow isolation and approval boundary', () => {
+  it('R1: restores original workflow structure across Dependabot SHA and comment edits', () => {
+    const assertRestored = (lines) => {
+      expect(jobStructure(lines, 'publish')).toEqual(ORIGINAL_REFRESH.publish);
+      const after = steps(lines, 'refresh').filter((step) => !['freeze', 'inputs'].includes(value(step, 'id'))
+        && value(step, 'name') !== 'Seal frozen artifact time window');
+      const fetch = after.find((step) => value(step, 'name') === 'Refresh the catalogue, the curve bundle and the user guide');
+      after.splice(after.indexOf(fetch), 1, ['        name: Refresh the catalogue, the curve bundle and the user guide', '        run: npm run motors:refresh']);
+      const install = after.find((step) => value(step, 'run') === 'npm ci');
+      expect(install, 'the original npm ci command must remain').toBeDefined();
+      after.splice(after.indexOf(install), 1);
+      after.splice(after.findIndex((step) => value(step, 'name') === 'Refresh the catalogue, the curve bundle and the user guide'), 0, install);
+      expect(after.map(stepStructure)).toEqual(ORIGINAL_REFRESH.refresh.steps);
+      const header = jobStructure(lines, 'refresh'); delete header.steps;
+      const original = { ...ORIGINAL_REFRESH.refresh }; delete original.steps;
+      expect(header).toEqual(original);
+    };
+    assertRestored(REFRESH);
+    assertRestored(REFRESH.map((l) => l.replace(/@[a-f0-9]{40}/g, '@' + 'f'.repeat(40))).concat('  # routine comment'));
+    expect(() => assertRestored(REFRESH.map((l) => l.replace('run: npm ci', 'run: npm ci --ignore-scripts')))).toThrow();
+    expect(path(REFRESH, 'concurrency').filter(isContent)).toEqual(['  group: motors-refresh', '  cancel-in-progress: false']);
+    expect(path(CATALOGUE, 'concurrency')).toBeNull();
+    expect(path(CATALOGUE, 'jobs', 'catalogue', 'concurrency').filter(isContent).map((l) => l.trim())).toEqual(['group: catalogue-publish', 'cancel-in-progress: false']);
+    expect(path(REFRESH, 'jobs').filter((l) => indentOf(l) === 2 && isContent(l)).map((l) => l.trim())).toEqual(['refresh:', 'publish:']);
+    expect(path(REFRESH, 'jobs', 'refresh', 'concurrency')).toBeNull();
+    expect(path(REFRESH, 'jobs', 'refresh').join('\n')).not.toMatch(/curl|catalogue-publish\.mjs plan/);
+  });
+
+  it('R1: pins both triggers, repository/main/event guards and the refresh attempt gate', () => {
+    expect(value(path(CATALOGUE, 'on', 'workflow_run'), 'workflows')).toBe('[Weekly motor catalogue refresh]');
+    expect(value(path(CATALOGUE, 'on', 'workflow_run'), 'types')).toBe('[completed]');
+    expect(value(path(CATALOGUE, 'on', 'workflow_dispatch', 'inputs', 'run_id'), 'required')).toBe('true');
+    expect(value(path(CATALOGUE, 'on', 'workflow_dispatch', 'inputs', 'run_id'), 'type')).toBe('string');
+    const condition = child(path(CATALOGUE, 'jobs', 'plan'), 'if').filter(isContent).map((l) => l.trim()).join(' ');
+    expect(condition).toBe("!cancelled() && github.repository == 'mtnmanak/mmrocket-sim' && github.ref == 'refs/heads/main'");
+    const input = steps(CATALOGUE, 'plan').find((s) => value(s, 'id') === 'input').join('\n');
+    for (const line of ['gh api "$api/runs/$RUN_ID"', 'gh api --paginate --slurp "$api/runs/$RUN_ID/attempts/$attempt/jobs?per_page=100"',
+      'catalogue-source.mjs attempts', 'catalogue-source.mjs select', '--run "$RUNNER_TEMP/source-run.json" --jobs "$jobs" --artifacts "$RUNNER_TEMP/artifacts.json"',
+      '--out "$RUNNER_TEMP/source-output" --summary "$GITHUB_STEP_SUMMARY"']) expect(input).toContain(line);
+    expect(path(CATALOGUE, 'jobs', 'plan', 'permissions').filter(isContent).map((l) => l.trim())).toEqual(['contents: read', 'actions: read']);
+    expect(path(CATALOGUE, 'jobs', 'plan').join('\n')).not.toMatch(/\bsecrets\b|^\s*(?:run: )?npm ci|cache: npm|environment:/im);
+    expect(CATALOGUE.join('\n')).not.toContain('always()');
+  });
+
+  it('R1/R4: pins immutable artifact ID/digest, pre-install provenance and fail-loud missing/expired input', () => {
+    const refresh = steps(REFRESH, 'refresh'), freeze = refresh.find((s) => value(s, 'id') === 'freeze');
+    const upload = refresh.find((s) => value(s, 'id') === 'inputs');
+    const install = refresh.findIndex((s) => value(s, 'run') === 'npm ci');
+    expect(refresh.indexOf(freeze)).toBeLessThan(refresh.indexOf(upload)); expect(refresh.indexOf(upload)).toBeLessThan(install);
+    expect(value(freeze, 'continue-on-error')).toBe('true'); expect(value(upload, 'continue-on-error')).toBe('true');
+    expect(value(upload, 'if')).toBe("steps.freeze.outcome == 'success'");
+    expect(child(freeze, 'run').filter(isContent).map((l) => l.trim())).toEqual([
+      'node packages/app/scripts/catalogue-publish.mjs freeze \\', '--motors "$RUNNER_TEMP/catalogue-input/motors-full.json" \\',
+      '--curves "$DATA/motorCurves.json" --out "$RUNNER_TEMP/catalogue-input"']);
+    expect(value(child(upload, 'with'), 'retention-days')).toBe('35');
+    expect(runs(REFRESH, 'refresh')).toContain('sleep 2');
+    const input = steps(CATALOGUE, 'plan').find((s) => value(s, 'id') === 'input').join('\n');
+    for (const line of ['gh api "$api/artifacts/$artifact_id/zip"', 'sha256sum --check --status', 'Catalogue artifact ZIP digest mismatch']) expect(input).toContain(line);
+    const planning = steps(CATALOGUE, 'plan').find((s) => value(s, 'id') === 'catalogue');
+    expect(value(planning, 'if')).toBe("steps.input.outputs.eligible == 'true'");
+    const block = child(planning, 'run').filter(isContent).map((l) => l.trim());
+    expect(block.slice(block.indexOf('case "$status" in'), block.indexOf('esac') + 1)).toEqual([
+      'case "$status" in', '200) previous_args=(--previous "$previous") ;;', '404) ;;',
+      '*) echo "Catalogue manifest GET failed: HTTP $status" >&2; exit 1 ;;', 'esac']);
+    for (const text of ['--source-run-id "$SOURCE_RUN_ID" --fetched-at "$FETCHED_AT"',
+      '--inputs "$RUNNER_TEMP/catalogue-input/inputs.json"', '>> "$GITHUB_STEP_SUMMARY"', '--commit "$SOURCE_COMMIT" --source-attempt "$SOURCE_ATTEMPT"']) {
+      expect(CATALOGUE.join('\n')).toContain(text);
+    }
+  });
+
+  it('T1/T8: forbids reserved step env overrides and checks approval protection without failing on denied reads', () => {
+    for (const [lines, jobs] of [[REFRESH, ['refresh', 'publish']], [CATALOGUE, ['plan', 'catalogue']]]) {
+      for (const job of jobs) for (const step of steps(lines, job)) {
+        const keys = (child(step, 'env') ?? []).filter(isContent).map((l) => l.trim().split(':')[0]);
+        expect(keys.filter((key) => /^(GITHUB_|RUNNER_)/.test(key))).toEqual([]);
+      }
+    }
+    const approval = steps(CATALOGUE, 'plan').find((s) => value(s, 'name') === 'Check approval protection (informational)').join('\n');
+    expect(approval).toContain('if gh api "repos/$GITHUB_REPOSITORY/environments/catalogue-publish"');
+    expect(approval).toContain('could not confirm the approval rule');
+    expect(approval).toContain('catalogue-source.mjs approval');
+  });
+
+  it('R8: catches static/dynamic/require dependencies and createRequire before npm ci', () => {
+    const seen = new Set();
+    function builtinOnly(url) {
+      if (seen.has(url.href)) return;
+      seen.add(url.href);
+      for (const spec of importsOf(readFileSync(url, 'utf8'))) if (spec.startsWith('.')) builtinOnly(new URL(spec, url));
+    }
+    for (const file of ['fetch-motor-db.mjs', 'fetch-motor-curves.mjs', 'catalogue-publish.mjs', 'catalogue-source.mjs', '../../../scripts/build-user-guide.mjs']) builtinOnly(new URL(file, import.meta.url));
+    expect(seen.size).toBeGreaterThanOrEqual(6);
+    for (const bad of ["await import('marked')", "import ( 'marked' )", "require('marked')", 'createRequire(import.meta.url)', 'import(variable)']) {
+      expect(() => importsOf(bad)).toThrow();
+    }
+    expect(importsOf("await import('node:fs'); require('./local.mjs')")).toEqual(['node:fs', './local.mjs']);
+  });
+
+  it('R8: confines ALL secret references and the environment to upload; pins commands and every action', () => {
+    expect(value(path(CATALOGUE, 'jobs', 'catalogue'), 'needs')).toBe('plan');
+    expect(value(path(CATALOGUE, 'jobs', 'catalogue'), 'if')).toBe("${{ !cancelled() && github.repository == 'mtnmanak/mmrocket-sim' && github.ref == 'refs/heads/main' && needs.plan.outputs.changed == 'true' }}");
+    expect(value(path(CATALOGUE, 'jobs', 'catalogue'), 'environment')).toBe('catalogue-publish');
+    expect(value(path(CATALOGUE, 'jobs', 'plan', 'outputs'), 'changed')).toBe('${{ steps.catalogue.outputs.changed }}');
+    const list = steps(CATALOGUE, 'catalogue'), upload = list.find((s) => value(s, 'name') === 'Upload snapshots, then manifest');
+    const expected = ['AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}', 'AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}',
+      'CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}'];
+    const secretLines = (lines) => lines.filter((l) => isContent(l) && /\bsecrets\b/i.test(l)).map((l) => l.trim());
+    expect(secretLines(CATALOGUE)).toEqual(expected); expect(secretLines(upload)).toEqual(expected);
+    expect(CATALOGUE.filter((l) => /^\s*environment:/.test(l)).map((l) => l.trim())).toEqual(['environment: catalogue-publish']);
+    expect(path(CATALOGUE, 'jobs', 'catalogue', 'env')).toBeNull();
+    expect(path(CATALOGUE, 'jobs', 'catalogue', 'permissions').filter(isContent).map((l) => l.trim())).toEqual(['contents: read']);
+    for (const step of list) expect(value(step, 'continue-on-error')).toBeUndefined();
+    expect(value(upload, 'run')).toBe('node packages/app/scripts/catalogue-publish.mjs upload --plan "$RUNNER_TEMP/catalogue-plan"');
+    const verify = list.find((s) => value(s, 'name') === 'Verify the public catalogue');
+    expect(value(verify, 'run')).toBe('node packages/app/scripts/catalogue-publish.mjs verify --base https://catalogue.mountainmanrockets.com --plan "$RUNNER_TEMP/catalogue-plan"');
+    expect(list.indexOf(verify)).toBe(list.indexOf(upload) + 1); expect(value(verify, 'env')).toBeUndefined();
+    for (const [name, lines, jobs] of [['motors-refresh.yml', REFRESH, ['refresh', 'publish']], ['catalogue-publish.yml', CATALOGUE, ['plan', 'catalogue']]]) {
+      const original = readFileSync(new URL(`../../../.github/workflows/${name}`, import.meta.url), 'utf8');
+      assertPinnedActions(original, jobs.flatMap((job) => steps(lines, job)).filter((s) => value(s, 'uses')).length);
+    }
+    expect(() => assertPinnedActions('  - name: Bad\n    uses: actions/checkout@main', 1)).toThrow();
   });
 });

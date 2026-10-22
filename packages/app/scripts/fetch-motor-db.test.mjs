@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CAP, FIELDS, catalogueDocument, fetchCatalogue, main } from './fetch-motor-db.mjs';
+import { CAP, FIELDS, FULL_FIELDS, cli, catalogueDocument, fetchCatalogue, main } from './fetch-motor-db.mjs';
 import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
 
 /**
@@ -120,6 +120,73 @@ describe('fetchCatalogue', () => {
 describe('main', () => {
   const tmp = () => mkdtempSync(join(tmpdir(), 'motor-db-'));
 
+  it('writes the 25-field superset from one fetch without changing one byte of the app output', async () => {
+    const dir = tmp();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-22T12:00:00Z'));
+    try {
+      const extras = { manufacturer: 'Small Motors', certOrg: 'TRA', dataFiles: 2,
+        infoUrl: 'https://example.invalid/motor', delayAdjustable: true, sparky: false, updatedOn: '2026-10-01' };
+      const motors = [...catalogue(), ...correctedRows()].map((m) => ({ ...m, ...extras }));
+      const without = fakeApi({ motors }), withFull = fakeApi({ motors });
+      const outPath = join(dir, 'motors.json'), fullOutPath = join(dir, 'nested', 'full.json');
+      expect(await main({ outPath, fetchImpl: without.fetchImpl, log: quiet })).toBe(0);
+      const baseline = readFileSync(outPath, 'utf8');
+      expect(await main({ outPath, fullOutPath, fetchImpl: withFull.fetchImpl, log: quiet })).toBe(0);
+      expect(readFileSync(outPath, 'utf8')).toBe(baseline);
+      const full = JSON.parse(readFileSync(fullOutPath, 'utf8'));
+      const app = JSON.parse(baseline);
+      expect(FIELDS).toHaveLength(18);
+      expect(full.fields).toEqual([...FIELDS, ...Object.keys(extras)]);
+      expect(FULL_FIELDS).toHaveLength(25);
+      expect(full.generated).toBe(app.generated);
+      expect(full.source).toBe(app.source);
+      expect(full.count).toBe(app.count);
+      expect(full.motors.map((m) => m.motorId)).toEqual(app.motors.map((m) => m.motorId));
+      expect(full.motors.every((m) => Object.entries(extras).every(([k, v]) => m[k] === v))).toBe(true);
+      expect(full.motors.map((m) => Object.fromEntries(FIELDS.filter((f) => f in m).map((f) => [f, m[f]]))))
+        .toEqual(app.motors);
+      for (const correction of MOTOR_CORRECTIONS) {
+        for (const doc of [full, app]) {
+          const row = doc.motors.find((m) => m.motorId === correction.motorId);
+          for (const [field, { good }] of Object.entries(correction.fields)) expect(row[field]).toBe(good);
+        }
+      }
+      expect(withFull.calls.map((c) => c.url)).toEqual(without.calls.map((c) => c.url));
+      // Independent reconstruction of the old projection/document, including key order.
+      const expectedRows = motors.map((m) => {
+        const correction = MOTOR_CORRECTIONS.find((c) => c.motorId === m.motorId);
+        const corrected = { ...m, ...Object.fromEntries(Object.entries(correction?.fields ?? {}).map(([f, c]) => [f, c.good])) };
+        return Object.fromEntries(FIELDS.map((f) => [f, corrected[f]]));
+      }).sort((a, b) => String(a.manufacturerAbbrev).localeCompare(String(b.manufacturerAbbrev))
+        || String(a.designation).localeCompare(String(b.designation)));
+      expect(baseline).toBe(JSON.stringify({ generated: '2026-10-22', source: 'thrustcurve.org API v1', count: motors.length, motors: expectedRows }));
+    } finally {
+      vi.useRealTimers();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes neither output for incomplete or unreviewed corrected rows', async () => {
+    const dir = tmp();
+    try {
+      for (const motors of [catalogue(), [...catalogue(), ...correctedRows().map((m) => ({ ...m, length: -123 }))]]) {
+        const outPath = join(dir, 'app.json'), fullOutPath = join(dir, 'full.json');
+        expect(await main({ outPath, fullOutPath, fetchImpl: fakeApi({ motors }).fetchImpl, log: quiet })).toBe(1);
+        expect(existsSync(outPath)).toBe(false);
+        expect(existsSync(fullOutPath)).toBe(false);
+      }
+      const api = fakeApi({ tamper: (p, b) => p.manufacturer === 'Small' ? { ...b, results: [] } : b });
+      const outPath = join(dir, 'app.json'), fullOutPath = join(dir, 'full.json');
+      expect(await main({ outPath, fullOutPath, fetchImpl: api.fetchImpl, log: quiet })).toBe(1);
+      expect(existsSync(outPath)).toBe(false);
+      expect(existsSync(fullOutPath)).toBe(false);
+      await expect(main({ outPath, fullOutPath: outPath })).rejects.toThrow(/must differ/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('writes motors.json only when the catalogue is complete', async () => {
     const dir = tmp();
     try {
@@ -209,5 +276,19 @@ describe('catalogueDocument', () => {
     expect(catalogueDocument([{ motorId: 'a' }], '2026-09-22')).toEqual({
       generated: '2026-09-22', source: 'thrustcurve.org API v1', count: 1, motors: [{ motorId: 'a' }],
     });
+  });
+});
+
+
+describe('fetch CLI full-out parsing', () => {
+  it('passes --full-out through to main and refuses a missing value before main', async () => {
+    const runMain = vi.fn().mockResolvedValue(17);
+    expect(await cli(['--full-out', 'output/full.json'], runMain)).toBe(17);
+    expect(runMain).toHaveBeenLastCalledWith({ fullOutPath: 'output/full.json' });
+    expect(await cli([], runMain)).toBe(17);
+    expect(runMain).toHaveBeenLastCalledWith({ fullOutPath: undefined });
+    runMain.mockClear();
+    await expect(cli(['--full-out'], runMain)).rejects.toThrow();
+    expect(runMain).not.toHaveBeenCalled();
   });
 });

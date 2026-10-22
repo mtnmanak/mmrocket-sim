@@ -1,0 +1,174 @@
+# Independent of the app PR: only a successful, main-branch refresh job can feed
+# this workflow. No npm/dependency code executes here. Approval gates R2 writes.
+# First-run assumptions (UNVERIFIED offline): ubuntu-24.04 has AWS CLI;
+# R2 honors S3 If-Match/If-None-Match; gh --paginate --slurp returns REST pages
+# with run_attempt, job steps, artifact created_at, expired and sha256 digest.
+# Node parses API Z/fractional/offset timestamps. Artifact time fixes freshness.
+# Environment catalogue-publish: reviewer mtnmanak, main only, environment-scoped
+# R2 secrets, self-review allowed. Keep WAF/Bot challenges off the catalogue host
+# for runner GETs (both curl and Node fetch). Approval review is the guard against
+# a compromised dependency; the pre-install window detects naive tampering only.
+# Ineligible workflow/event/branch/unfinished/failed gate is green-neutral;
+# missing/expired/ambiguous input from an eligible source is red with a reason.
+name: Publish curated motor catalogue
+
+on:
+  workflow_run:
+    workflows: [Weekly motor catalogue refresh]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: Successful refresh run ID to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    if: >-
+      !cancelled() && github.repository == 'mtnmanak/mmrocket-sim' &&
+      github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    # Two previous snapshot reads each have a six-minute retry budget plus
+    # bounded requests; leave room for the paginated source API reads as well.
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      changed: ${{ steps.catalogue.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Confirm refresh gate and download its frozen artifact by ID
+        id: input
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+        run: |
+          trap 'echo "Catalogue source API/download/eligibility check failed; see the step diagnostic" >> "$GITHUB_STEP_SUMMARY"' ERR
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo 'Invalid refresh run ID' | tee -a "$GITHUB_STEP_SUMMARY" >&2; exit 1; }
+          api="repos/$GITHUB_REPOSITORY/actions"
+          gh api "$api/runs/$RUN_ID" > "$RUNNER_TEMP/source-run.json"
+          jobs="$RUNNER_TEMP/catalogue-jobs"
+          mkdir -p "$jobs"
+          node packages/app/scripts/catalogue-source.mjs attempts --run "$RUNNER_TEMP/source-run.json" > "$RUNNER_TEMP/attempts.txt"
+          while read -r attempt; do
+            gh api --paginate --slurp "$api/runs/$RUN_ID/attempts/$attempt/jobs?per_page=100" > "$jobs/$attempt.json"
+          done < "$RUNNER_TEMP/attempts.txt"
+          gh api --paginate --slurp "$api/runs/$RUN_ID/artifacts?per_page=100" > "$RUNNER_TEMP/artifacts.json"
+          node packages/app/scripts/catalogue-source.mjs select \
+            --run "$RUNNER_TEMP/source-run.json" --jobs "$jobs" --artifacts "$RUNNER_TEMP/artifacts.json" \
+            --out "$RUNNER_TEMP/source-output" --summary "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/source-output" >> "$GITHUB_OUTPUT"
+          if ! grep -q '^eligible=true$' "$RUNNER_TEMP/source-output"; then exit 0; fi
+          artifact_id=$(sed -n 's/^artifact_id=//p' "$RUNNER_TEMP/source-output")
+          digest=$(sed -n 's/^digest=//p' "$RUNNER_TEMP/source-output")
+          gh api "$api/artifacts/$artifact_id/zip" > "$RUNNER_TEMP/catalogue-input.zip"
+          echo "$digest  $RUNNER_TEMP/catalogue-input.zip" | sha256sum --check --status || {
+            echo 'Catalogue artifact ZIP digest mismatch' | tee -a "$GITHUB_STEP_SUMMARY" >&2; exit 1;
+          }
+          mkdir -p "$RUNNER_TEMP/catalogue-input"
+          unzip -q "$RUNNER_TEMP/catalogue-input.zip" -d "$RUNNER_TEMP/catalogue-input"
+
+      - name: Check approval protection (informational)
+        if: steps.input.outputs.eligible == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/environments/catalogue-publish" > "$RUNNER_TEMP/approval.json"; then
+            node packages/app/scripts/catalogue-source.mjs approval --run "$RUNNER_TEMP/approval.json" >> "$GITHUB_STEP_SUMMARY" ||
+              echo 'could not confirm the approval rule' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo 'could not confirm the approval rule' >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Plan the curated catalogue publication
+        id: catalogue
+        if: steps.input.outputs.eligible == 'true'
+        env:
+          CATALOGUE_BASE: https://catalogue.mountainmanrockets.com
+          SOURCE_RUN_ID: ${{ steps.input.outputs.source_run_id }}
+          FETCHED_AT: ${{ steps.input.outputs.fetched_at }}
+          SOURCE_COMMIT: ${{ steps.input.outputs.commit }}
+          SOURCE_ATTEMPT: ${{ steps.input.outputs.source_attempt }}
+        run: |
+          previous="$RUNNER_TEMP/catalogue-previous.json"
+          status=$(curl --silent --show-error --location --max-time 30 --output "$previous" --write-out '%{http_code}' \
+            "$CATALOGUE_BASE/manifest.json")
+          previous_args=(--previous none)
+          case "$status" in
+            200) previous_args=(--previous "$previous") ;;
+            404) ;;
+            *) echo "Catalogue manifest GET failed: HTTP $status" >&2; exit 1 ;;
+          esac
+          node packages/app/scripts/catalogue-publish.mjs plan \
+            --motors "$RUNNER_TEMP/catalogue-input/motors-full.json" \
+            --curves "$RUNNER_TEMP/catalogue-input/motorCurves.json" \
+            --inputs "$RUNNER_TEMP/catalogue-input/inputs.json" "${previous_args[@]}" \
+            --source-run-id "$SOURCE_RUN_ID" --fetched-at "$FETCHED_AT" \
+            --commit "$SOURCE_COMMIT" --source-attempt "$SOURCE_ATTEMPT" \
+            --out "$RUNNER_TEMP/catalogue-plan" --summary "$RUNNER_TEMP/catalogue-summary.md" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/catalogue-summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: steps.catalogue.outputs.changed == 'true'
+        with:
+          name: catalogue-plan
+          path: ${{ runner.temp }}/catalogue-plan
+          if-no-files-found: error
+          retention-days: 35
+
+  catalogue:
+    needs: plan
+    if: ${{ !cancelled() && github.repository == 'mtnmanak/mmrocket-sim' && github.ref == 'refs/heads/main' && needs.plan.outputs.changed == 'true' }}
+    # Only eligible, changed publications compete for the approval slot; an
+    # ineligible run must never replace an eligible pending publication.
+    concurrency:
+      group: catalogue-publish
+      cancel-in-progress: false
+    environment: catalogue-publish
+    runs-on: ubuntu-24.04
+    # Three resources can each need six one-minute sleeps AND seven bounded
+    # 30-second requests; allow that worst case plus upload/checkout overhead.
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: catalogue-plan
+          path: ${{ runner.temp }}/catalogue-plan
+
+      # Runner AWS inventory is UNVERIFIED offline; fail before any writes if absent.
+      - name: Check AWS CLI
+        run: aws --version
+
+      - name: Upload snapshots, then manifest
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node packages/app/scripts/catalogue-publish.mjs upload --plan "$RUNNER_TEMP/catalogue-plan"
+
+      - name: Verify the public catalogue
+        run: node packages/app/scripts/catalogue-publish.mjs verify --base https://catalogue.mountainmanrockets.com --plan "$RUNNER_TEMP/catalogue-plan"

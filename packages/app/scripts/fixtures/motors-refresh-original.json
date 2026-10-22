@@ -1,0 +1,339 @@
+{
+  "publish": {
+    "header": [
+      "needs: refresh",
+      "if: needs.refresh.outputs.open-pr == 'true'",
+      "runs-on: ubuntu-24.04",
+      "timeout-minutes: 10",
+      "permissions:",
+      "contents: write",
+      "pull-requests: write",
+      "env:",
+      "BRANCH: chore/motors-refresh",
+      "DATA: packages/app/src/data"
+    ],
+    "permissions": [
+      "contents: write",
+      "pull-requests: write"
+    ],
+    "steps": [
+      {
+        "name": null,
+        "run": null,
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "uses: actions/checkout@<pin>",
+          "with:",
+          "persist-credentials: false"
+        ]
+      },
+      {
+        "name": null,
+        "run": null,
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "uses: actions/download-artifact@<pin>",
+          "with:",
+          "name: motors-refresh",
+          "path: ${{ runner.temp }}/refresh"
+        ]
+      },
+      {
+        "name": "Commit onto the refresh branch",
+        "run": [
+          "cp \"$RUNNER_TEMP/refresh/motors.json\" \"$RUNNER_TEMP/refresh/motorCurves.json\" \\",
+          "\"$RUNNER_TEMP/refresh/userGuide.ts\" \"$DATA/\"",
+          "git config user.name 'github-actions[bot]'",
+          "git config user.email '41898282+github-actions[bot]@users.noreply.github.com'",
+          "git add -- \"$DATA/motors.json\" \"$DATA/motorCurves.json\" \"$DATA/userGuide.ts\"",
+          "git commit -F \"$RUNNER_TEMP/refresh/commit-msg.txt\"",
+          "git push --force \\",
+          "\"https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git\" \\",
+          "\"HEAD:refs/heads/$BRANCH\""
+        ],
+        "if": null,
+        "envKeys": [
+          "GH_TOKEN"
+        ],
+        "configuration": [
+          "name: Commit onto the refresh branch",
+          "env:",
+          "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+          "run: |",
+          "cp \"$RUNNER_TEMP/refresh/motors.json\" \"$RUNNER_TEMP/refresh/motorCurves.json\" \\",
+          "\"$RUNNER_TEMP/refresh/userGuide.ts\" \"$DATA/\"",
+          "git config user.name 'github-actions[bot]'",
+          "git config user.email '41898282+github-actions[bot]@users.noreply.github.com'",
+          "git add -- \"$DATA/motors.json\" \"$DATA/motorCurves.json\" \"$DATA/userGuide.ts\"",
+          "git commit -F \"$RUNNER_TEMP/refresh/commit-msg.txt\"",
+          "git push --force \\",
+          "\"https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git\" \\",
+          "\"HEAD:refs/heads/$BRANCH\""
+        ]
+      },
+      {
+        "name": "Open or update the pull request",
+        "run": [
+          "n=$(gh pr list --head \"$BRANCH\" --state open --json number --jq '.[0].number // empty')",
+          "if [ -z \"$n\" ]; then",
+          "n=$(gh pr create --base main --head \"$BRANCH\" \\",
+          "--title \"$(cat \"$RUNNER_TEMP/refresh/pr-title.txt\")\" \\",
+          "--body-file \"$RUNNER_TEMP/refresh/pr-body.md\")",
+          "echo \"opened $n\"",
+          "else",
+          "gh pr edit \"$n\" \\",
+          "--title \"$(cat \"$RUNNER_TEMP/refresh/pr-title.txt\")\" \\",
+          "--body-file \"$RUNNER_TEMP/refresh/pr-body.md\"",
+          "echo \"updated existing PR",
+          "fi",
+          "gh pr edit \"$n\" --add-assignee mtnmanak || echo \"(could not assign; PR is open regardless)\""
+        ],
+        "if": null,
+        "envKeys": [
+          "GH_TOKEN"
+        ],
+        "configuration": [
+          "name: Open or update the pull request",
+          "env:",
+          "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}",
+          "run: |",
+          "n=$(gh pr list --head \"$BRANCH\" --state open --json number --jq '.[0].number // empty')",
+          "if [ -z \"$n\" ]; then",
+          "n=$(gh pr create --base main --head \"$BRANCH\" \\",
+          "--title \"$(cat \"$RUNNER_TEMP/refresh/pr-title.txt\")\" \\",
+          "--body-file \"$RUNNER_TEMP/refresh/pr-body.md\")",
+          "echo \"opened $n\"",
+          "else",
+          "gh pr edit \"$n\" \\",
+          "--title \"$(cat \"$RUNNER_TEMP/refresh/pr-title.txt\")\" \\",
+          "--body-file \"$RUNNER_TEMP/refresh/pr-body.md\"",
+          "echo \"updated existing PR",
+          "fi",
+          "gh pr edit \"$n\" --add-assignee mtnmanak || echo \"(could not assign; PR is open regardless)\""
+        ]
+      }
+    ]
+  },
+  "refresh": {
+    "header": [
+      "if: github.repository == 'mtnmanak/mmrocket-sim'",
+      "runs-on: ubuntu-24.04",
+      "timeout-minutes: 30",
+      "permissions:",
+      "contents: read",
+      "outputs:",
+      "open-pr: ${{ steps.diff.outputs.open-pr }}",
+      "env:",
+      "DATA: packages/app/src/data"
+    ],
+    "permissions": [
+      "contents: read"
+    ],
+    "steps": [
+      {
+        "name": null,
+        "run": null,
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "uses: actions/checkout@<pin>",
+          "with:",
+          "persist-credentials: false"
+        ]
+      },
+      {
+        "name": null,
+        "run": null,
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "uses: actions/setup-node@<pin>",
+          "with:",
+          "node-version: 22",
+          "cache: npm"
+        ]
+      },
+      {
+        "name": "Keep the shipped catalogue to diff against",
+        "run": [
+          "mkdir -p \"$RUNNER_TEMP/before\"",
+          "cp \"$DATA/motors.json\" \"$DATA/motorCurves.json\" \"$RUNNER_TEMP/before/\""
+        ],
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "name: Keep the shipped catalogue to diff against",
+          "run: |",
+          "mkdir -p \"$RUNNER_TEMP/before\"",
+          "cp \"$DATA/motors.json\" \"$DATA/motorCurves.json\" \"$RUNNER_TEMP/before/\""
+        ]
+      },
+      {
+        "name": null,
+        "run": "npm ci",
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "run: npm ci"
+        ]
+      },
+      {
+        "name": "Refresh the catalogue, the curve bundle and the user guide",
+        "run": "npm run motors:refresh",
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "name: Refresh the catalogue, the curve bundle and the user guide",
+          "run: npm run motors:refresh"
+        ]
+      },
+      {
+        "name": "Deploy gate on the refreshed data — typecheck",
+        "run": "npm run typecheck",
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "name: Deploy gate on the refreshed data — typecheck",
+          "run: npm run typecheck"
+        ]
+      },
+      {
+        "name": "Deploy gate on the refreshed data — lint, zero warnings",
+        "run": "npm run lint -- --max-warnings 0",
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "name: Deploy gate on the refreshed data — lint, zero warnings",
+          "run: npm run lint -- --max-warnings 0"
+        ]
+      },
+      {
+        "name": "Deploy gate on the refreshed data — tests",
+        "run": "npm test",
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "name: Deploy gate on the refreshed data — tests",
+          "run: npm test"
+        ]
+      },
+      {
+        "name": "Deploy gate on the refreshed data — build",
+        "run": "npm run build",
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "name: Deploy gate on the refreshed data — build",
+          "run: npm run build"
+        ]
+      },
+      {
+        "name": "What git sees (informational only)",
+        "run": "git diff --stat -- \"$DATA/motors.json\" \"$DATA/motorCurves.json\" \"$DATA/userGuide.ts\"",
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "name: What git sees (informational only)",
+          "run: git diff --stat -- \"$DATA/motors.json\" \"$DATA/motorCurves.json\" \"$DATA/userGuide.ts\""
+        ]
+      },
+      {
+        "name": "Summarise what actually changed",
+        "run": [
+          "node packages/app/scripts/motor-diff-summary.mjs \\",
+          "--before \"$RUNNER_TEMP/before\" \\",
+          "--after \"$DATA\" \\",
+          "--markdown \"$RUNNER_TEMP/pr-body.md\" \\",
+          "--title \"$RUNNER_TEMP/pr-title.txt\" \\",
+          "--commit-message \"$RUNNER_TEMP/commit-msg.txt\" \\",
+          "--github-output \"$GITHUB_OUTPUT\""
+        ],
+        "if": null,
+        "envKeys": [],
+        "configuration": [
+          "name: Summarise what actually changed",
+          "id: diff",
+          "run: |",
+          "node packages/app/scripts/motor-diff-summary.mjs \\",
+          "--before \"$RUNNER_TEMP/before\" \\",
+          "--after \"$DATA\" \\",
+          "--markdown \"$RUNNER_TEMP/pr-body.md\" \\",
+          "--title \"$RUNNER_TEMP/pr-title.txt\" \\",
+          "--commit-message \"$RUNNER_TEMP/commit-msg.txt\" \\",
+          "--github-output \"$GITHUB_OUTPUT\""
+        ]
+      },
+      {
+        "name": "Job summary",
+        "run": [
+          "if [ -f \"$RUNNER_TEMP/pr-body.md\" ]; then",
+          "cat \"$RUNNER_TEMP/pr-body.md\" >> \"$GITHUB_STEP_SUMMARY\"",
+          "fi"
+        ],
+        "if": "always()",
+        "envKeys": [],
+        "configuration": [
+          "name: Job summary",
+          "if: always()",
+          "run: |",
+          "if [ -f \"$RUNNER_TEMP/pr-body.md\" ]; then",
+          "cat \"$RUNNER_TEMP/pr-body.md\" >> \"$GITHUB_STEP_SUMMARY\"",
+          "fi"
+        ]
+      },
+      {
+        "name": "No motor changed — leave main alone",
+        "run": [
+          "echo \"Catalogue and curve bundle are unchanged apart from the date stamp.\"",
+          "echo \"No pull request opened. The numbers are in the job summary.\""
+        ],
+        "if": "steps.diff.outputs.open-pr != 'true'",
+        "envKeys": [],
+        "configuration": [
+          "name: No motor changed — leave main alone",
+          "if: steps.diff.outputs.open-pr != 'true'",
+          "run: |",
+          "echo \"Catalogue and curve bundle are unchanged apart from the date stamp.\"",
+          "echo \"No pull request opened. The numbers are in the job summary.\""
+        ]
+      },
+      {
+        "name": "Hand the refresh to the publish job",
+        "run": [
+          "mkdir -p \"$RUNNER_TEMP/refresh\"",
+          "cp \"$DATA/motors.json\" \"$DATA/motorCurves.json\" \"$DATA/userGuide.ts\" \\",
+          "\"$RUNNER_TEMP/pr-body.md\" \"$RUNNER_TEMP/pr-title.txt\" \"$RUNNER_TEMP/commit-msg.txt\" \\",
+          "\"$RUNNER_TEMP/refresh/\""
+        ],
+        "if": "steps.diff.outputs.open-pr == 'true'",
+        "envKeys": [],
+        "configuration": [
+          "name: Hand the refresh to the publish job",
+          "if: steps.diff.outputs.open-pr == 'true'",
+          "run: |",
+          "mkdir -p \"$RUNNER_TEMP/refresh\"",
+          "cp \"$DATA/motors.json\" \"$DATA/motorCurves.json\" \"$DATA/userGuide.ts\" \\",
+          "\"$RUNNER_TEMP/pr-body.md\" \"$RUNNER_TEMP/pr-title.txt\" \"$RUNNER_TEMP/commit-msg.txt\" \\",
+          "\"$RUNNER_TEMP/refresh/\""
+        ]
+      },
+      {
+        "name": null,
+        "run": null,
+        "if": "steps.diff.outputs.open-pr == 'true'",
+        "envKeys": [],
+        "configuration": [
+          "uses: actions/upload-artifact@<pin>",
+          "if: steps.diff.outputs.open-pr == 'true'",
+          "with:",
+          "name: motors-refresh",
+          "path: ${{ runner.temp }}/refresh",
+          "if-no-files-found: error",
+          "retention-days: 3"
+        ]
+      }
+    ]
+  }
+}

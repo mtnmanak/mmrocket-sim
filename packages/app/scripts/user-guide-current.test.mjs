@@ -107,8 +107,8 @@ describe('the committed userGuide.ts is current', () => {
     // Every "run `npm run motors:refresh`" remedy in the repo (check-upstream,
     // motor-db-age.test.mjs, motor-diff-summary) is a hand-run refresh. If the
     // script wrote only the JSON, committing its output as told would fail the
-    // first test in this file on the deploy. The weekly workflow runs the same
-    // script, so this is the one place the order lives.
+    // first test in this file on the deploy. The weekly workflow spells out the
+    // same commands to add --full-out; deploy-workflow.test.mjs guards drift.
     const pkg = JSON.parse(readFileSync(join(DATA, '..', '..', '..', '..', 'package.json'), 'utf8'));
     const steps = pkg.scripts['motors:refresh'].split('&&').map((s) => s.trim());
     expect(steps).toEqual([

@@ -1,6 +1,10 @@
 # Weekly refresh of the bundled ThrustCurve motor catalogue and curve bundle,
 # delivered as a PULL REQUEST — never as a push to main.
 #
+# CATALOGUE PUBLICATION: pre-install inputs feed the separate catalogue-publish.yml
+# workflow after this refresh job succeeds. That workflow requires Eric's approval
+# before uploading immutable rows/curves and changing the public pointer.
+#
 # WHY A PR AND NOT A PUSH. In this repo a push to main IS the production deploy
 # (.github/workflows/deploy.yml, `on: push: branches: [main]`). A motor-data diff
 # landing on main would deploy itself to every beta tester with nobody having read
@@ -54,8 +58,8 @@
 # production deploy. Keeping the token out of .git/config (persist-credentials:
 # false) did not put it out of reach: a step on a hosted runner has passwordless
 # sudo, and the runner process that holds the job's token is readable to it. Now:
-#   refresh  holds a read-only token. It installs, fetches, runs the whole deploy
-#            gate on the new data, decides whether a PR is warranted, and uploads
+#   refresh  holds a read-only token. It fetches/freezes before installing, runs
+#            the whole deploy gate, decides whether a PR is warranted, and uploads
 #            the two data files and the user guide compiled from them, with the
 #            PR's title, body and commit message.
 #   publish  holds `contents: write` and `pull-requests: write`, and runs no npm
@@ -142,28 +146,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/before"
           cp "$DATA/motors.json" "$DATA/motorCurves.json" "$RUNNER_TEMP/before/"
 
-      # Both refresh scripts import only node: builtins, so this install exists
-      # ONLY for the deploy gate's steps below (tsc, eslint, vitest, vite). It
-      # is cached by setup-node.
-      - run: npm ci
-
-      # Catalogue THEN curves THEN guide — and `motors:refresh` IS that order in
-      # one script (package.json: fetch-motor-db.mjs && fetch-motor-curves.mjs &&
-      # scripts/build-user-guide.mjs). Never split them: motorCurves.json is keyed
-      # by motorId FROM motors.json, so a curve run against the old catalogue
-      # leaves every newly-certified motor curveless; and the user guide quotes
-      # both files — {{MOTOR_COUNT}}, {{MOTOR_DB_DATE}}, the curve counts and
-      # shares — compiled into the COMMITTED packages/app/src/data/userGuide.ts,
-      # which packages/app/scripts/user-guide-current.test.mjs fails when stale.
-      # So the guide is recompiled in the same script, before the gate below, and
-      # the commit carries it beside the JSON: main's guide quotes main's
-      # catalogue (audit 2026-09-22, Tests row 526). It is in the npm script,
-      # not a step of this workflow alone, because every "run `npm run
-      # motors:refresh`" remedy in the repo (check-upstream.mjs,
-      # motor-db-age.test.mjs, motor-diff-summary.mjs) is a hand-run refresh
-      # that must commit as cleanly as this one. The compile can also refuse,
-      # e.g. when a new count collides with a hand-typed figure in
-      # user-guide.md — better here than in the deploy's build after a merge.
+      # Inline motors:refresh (catalogue THEN curves THEN guide) with the opt-in
+      # --full-out. deploy-workflow.test.mjs keeps these commands in lockstep with
+      # package.json. Fetch/freeze precede npm ci; the gate still runs afterwards.
+      # Curves use this catalogue's IDs, and the guide quotes both files, so keep
+      # all three commands in this order, including for a hand-run refresh.
       #
       # Both scripts exit non-zero on trouble, and decide BEFORE they write
       # (audit 2026-09-22): fetch-motor-db.mjs on any non-200 or any answer short
@@ -180,7 +167,39 @@ jobs:
       # service rate-limits. If it ever does, the symptom is this step red with
       # HTTP 403 or HTTP 429.
       - name: Refresh the catalogue, the curve bundle and the user guide
-        run: npm run motors:refresh
+        run: |
+          node packages/app/scripts/fetch-motor-db.mjs --full-out "$RUNNER_TEMP/catalogue-input/motors-full.json"
+          node packages/app/scripts/fetch-motor-curves.mjs
+          node scripts/build-user-guide.mjs
+
+      # Freeze/upload before ANY dependency executes. These steps cannot block
+      # the app PR; the separate workflow FAILS loudly for a missing/expired
+      # artifact after the refresh job succeeds, so these failures are not silent.
+      - name: Freeze the catalogue input bytes and sha256
+        id: freeze
+        continue-on-error: true
+        run: |
+          node packages/app/scripts/catalogue-publish.mjs freeze \
+            --motors "$RUNNER_TEMP/catalogue-input/motors-full.json" \
+            --curves "$DATA/motorCurves.json" --out "$RUNNER_TEMP/catalogue-input"
+
+      - name: Upload frozen catalogue inputs
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        id: inputs
+        if: steps.freeze.outcome == 'success'
+        continue-on-error: true
+        with:
+          name: catalogue-input
+          path: ${{ runner.temp }}/catalogue-input
+          if-no-files-found: error
+          retention-days: 35
+
+      # Keep API timestamps (second precision) strictly before dependency execution.
+      - name: Seal frozen artifact time window
+        run: sleep 2
+
+      # Only the deploy gate needs dependencies; cached by setup-node.
+      - run: npm ci
 
       # THE WHOLE DEPLOY GATE, not a hand-picked subset of it — because merging
       # this PR runs exactly these commands on main (deploy.yml's build job) and

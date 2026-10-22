@@ -2,7 +2,9 @@
  * Regenerates src/data/motors.json — the bundled ThrustCurve motor summary
  * database (metadata only; the curves are fetch-motor-curves.mjs's job).
  *
- * Usage: node packages/app/scripts/fetch-motor-db.mjs
+ * Usage: node packages/app/scripts/fetch-motor-db.mjs [--full-out <path>]
+ * The opt-in publication superset comes from the same checked API rows; the
+ * bundled 18-field output is unchanged.
  *
  * Iterates manufacturers from the metadata endpoint and pages each one via
  * impulse-class subdivision if a query hits the request cap, so the bundle
@@ -33,9 +35,10 @@
  * holding a THIRD figure stops the write, as a short page does, and so does a
  * corrected motor that does not come back at all.
  */
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { applyMotorCorrections } from './motor-corrections.mjs';
 
 const API = 'https://www.thrustcurve.org/api/v1';
@@ -49,6 +52,11 @@ export const FIELDS = [
   'burnTimeS', 'totalWeightG', 'propWeightG', 'delays', 'availability',
   'propInfo', 'caseInfo',
 ];
+export const FULL_FIELDS = [...FIELDS,
+  'manufacturer', 'certOrg', 'dataFiles', 'infoUrl', 'delayAdjustable', 'sparky', 'updatedOn',
+];
+
+const project = (row, fields) => Object.fromEntries(fields.map((f) => [f, row[f]]));
 
 /**
  * thrustcurve.org is volunteer-run, so every request this project makes names
@@ -66,7 +74,7 @@ const UA = { 'user-agent': 'mmrocket-sim-upstream-check' };
  * query that came back short. `fetchImpl` is the network, injectable so the
  * test can stand in for thrustcurve.org.
  */
-export async function fetchCatalogue({ fetchImpl = fetch, log = (s) => process.stdout.write(s) } = {}) {
+export async function fetchCatalogue({ fetchImpl = fetch, log = (s) => process.stdout.write(s), fields = FIELDS } = {}) {
   async function getJson(url) {
     const res = await fetchImpl(url, { headers: UA });
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
@@ -124,7 +132,7 @@ export async function fetchCatalogue({ fetchImpl = fetch, log = (s) => process.s
   }
 
   return [...byId.values()]
-    .map((m) => Object.fromEntries(FIELDS.map((f) => [f, m[f]])))
+    .map((m) => project(m, fields))
     .sort((a, b) => String(a.manufacturerAbbrev).localeCompare(String(b.manufacturerAbbrev))
       || String(a.designation).localeCompare(String(b.designation)));
 }
@@ -140,10 +148,13 @@ export function catalogueDocument(motors, today) {
 }
 
 /** Fetch, check, and only then write. Resolves to the process exit code. */
-export async function main({ outPath = OUT, fetchImpl = fetch, log } = {}) {
+export async function main({ outPath = OUT, fullOutPath, fetchImpl = fetch, log } = {}) {
+  if (fullOutPath && resolve(fullOutPath) === resolve(outPath)) {
+    throw new Error('--full-out must differ from the bundled output path');
+  }
   let motors;
   try {
-    motors = await fetchCatalogue({ fetchImpl, log });
+    motors = await fetchCatalogue({ fetchImpl, log, fields: fullOutPath ? FULL_FIELDS : FIELDS });
   } catch (err) {
     console.error(`${err.message}\nNothing was written; ${outPath} is as it was.`);
     return 1;
@@ -167,11 +178,24 @@ export async function main({ outPath = OUT, fetchImpl = fetch, log } = {}) {
   }
   for (const s of corrected.applied) console.log(`corrected ${s} (motor-corrections.mjs)`);
   for (const s of corrected.already) console.log(`thrustcurve.org now gives ${s} itself: retire that entry from motor-corrections.mjs`);
-  writeFileSync(outPath, JSON.stringify(catalogueDocument(corrected.motors, new Date().toISOString().slice(0, 10))));
+  const today = new Date().toISOString().slice(0, 10);
+  const appRows = corrected.motors.map((m) => project(m, FIELDS));
+  writeFileSync(outPath, JSON.stringify(catalogueDocument(appRows, today)));
+  if (fullOutPath) {
+    mkdirSync(dirname(fullOutPath), { recursive: true });
+    const { motors: fullRows, ...metadata } = catalogueDocument(corrected.motors, today);
+    writeFileSync(fullOutPath, JSON.stringify({
+      ...metadata, fields: FULL_FIELDS, motors: fullRows,
+    }));
+    console.log(`Wrote ${corrected.motors.length} full rows to ${fullOutPath}`);
+  }
   console.log(`\nWrote ${corrected.motors.length} motors to ${outPath}`);
   return 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  process.exitCode = await main();
+/** Keep CLI parsing injectable so a flag regression is tested without a fetch. */
+export async function cli(argv = process.argv.slice(2), runMain = main) {
+  const { values } = parseArgs({ args: argv, options: { 'full-out': { type: 'string' } } });
+  return runMain({ fullOutPath: values['full-out'] });
 }
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await cli();

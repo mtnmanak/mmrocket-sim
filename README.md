@@ -73,6 +73,27 @@ module is named for what it checks: shipped data
 (`packages/app/scripts/preset-density.test.mjs`) or the dependency tree
 (`packages/app/scripts/dependencies.threeTypes.test.mjs`).
 
+`npm run motors:refresh` keeps the bundled 18-field catalogue. The weekly workflow
+also passes `--full-out <path>` to produce the 25-field public catalogue from the
+same fetch, freezing/uploading it before npm ci. The independent
+`catalogue-publish.yml` workflow checks the refresh job through the jobs API,
+downloads the immutable artifact by ID with its API digest, and plans without npm.
+Artifact created_at fixes freshness across re-runs; the gate uses the producing
+attempt, not the latest attempt. Its approval summary links the source run/commit
+and names live/new snapshots, row/curve changes, and metadata/order changes.
+Older/equal changed fetches refuse at plan and upload; a whole-workflow replay of
+an already-published input is green.
+After Eric's `catalogue-publish` environment approval, upload preserves history
+and schema-1 extensions, resumes matching objects (bytes AND headers), and chooses
+another suffix for different orphan bytes or headers (20 attempts). The pointer
+is written last with a conditional PUT. Re-running upload of an already-live plan
+reconstructs its receipt and retries public verification. Nozzles and measured
+delays are excluded.
+The pre-install window detects naive tampering; approval review remains the guard
+against a dependency that compromises the runner. The input pair check enforces
+matching generated dates and curve IDs being a subset of rows; it cannot
+independently prove that a hand-paired bundle saw every row.
+
 Rebuilding the kernel from the carved Java sources (only needed when changing
 `engine-java/`) additionally requires a JDK 17:
 
