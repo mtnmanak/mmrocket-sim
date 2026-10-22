@@ -127,10 +127,10 @@ jobs:
         with:
           # This job's token is read-only (the write scopes are the publish
           # job's), and nothing here pushes, so there is no reason to leave it
-          # in .git/config while `npm ci` installs ~580 third-party packages and
-          # runs the install script of any that declares one (the lockfile marks
-          # one today, fsevents, which installs on macOS only — esbuild's went
-          # with vite 8, AUDIT row 528; any routine upgrade can add more).
+          # in .git/config while `npm ci` installs third-party packages and
+          # runs declared install scripts. The API's Wrangler toolchain adds
+          # esbuild and workerd scripts; fsevents installs on macOS only.
+          # Any routine upgrade can add more.
           persist-credentials: false
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
