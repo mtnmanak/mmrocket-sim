@@ -289,6 +289,21 @@ describe('eslint.config.mjs — the browser-source guards resolve and fire', () 
     }
   });
 
+  it('refuses the headless entry from browser source and allows its parser re-export', async () => {
+    const IMPORTS = ['no-restricted-imports'];
+    const probe = [
+      "import { simulateFile } from './headless/index.js';",
+      "export { simulateFile as fly } from '../headless';",
+      "import { simulateFile as fileFly } from '../headless.js';",
+    ].join('\n');
+    for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/services/presets.ts']) {
+      expect(lint(probe, await rulesFor(rel, IMPORTS)), rel)
+        .toEqual(['no-restricted-imports@1', 'no-restricted-imports@2', 'no-restricted-imports@3']);
+    }
+    expect(lint("export { jsXmlParser } from '../services/xmlParseJs.js';",
+      await rulesFor('packages/app/src/headless/index.ts', IMPORTS))).toEqual([]);
+  });
+
   it('turns the six zero-hit type-aware rules on for shipped source, require-await off in tests (audit Step A)', async () => {
     // Each measured at 0 hits in packages/app/src and packages/engine/src on
     // 2026-09-30, so each refuses the next instance at no cost. require-await

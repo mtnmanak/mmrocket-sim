@@ -1,0 +1,27 @@
+{
+  "name": "@online-openrocket/api",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Headless MMRocket Sim API (Cloudflare Worker) — slice S1 skeleton",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "dependencies": {
+    "@xmldom/xmldom": "^0.9.12",
+    "css-select": "^7.0.0",
+    "fflate": "^0.8.3",
+    "saxes": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "esbuild": "0.28.1",
+    "miniflare": "5.20260921.0-alpha",
+    "typescript": "^5.5.0",
+    "vitest": "^5.0.3",
+    "wrangler": "4.136.3"
+  },
+  "scripts": {
+    "dev": "wrangler dev --local",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  }
+}

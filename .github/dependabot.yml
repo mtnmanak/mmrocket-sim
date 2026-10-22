@@ -46,13 +46,13 @@
 # is a subset check and stays green when happy-dom gets closer to Chrome.
 #
 # The wrangler version in deploy.yml (`wranglerVersion` and the install step)
-# is not something Dependabot reads: bump those two together, by hand.
+# is not something Dependabot reads: bump those and packages/api together, by hand.
 
 version: 2
 updates:
   - package-ecosystem: npm
     # The workspace root: its package-lock.json covers packages/app and
-    # packages/engine.
+    # packages/engine and packages/api.
     directory: /
     schedule:
       interval: monthly
@@ -63,6 +63,9 @@ updates:
       npm:
         patterns: ['*']
     ignore:
+      # Pinned by hand in deploy.yml and packages/api; bump both together,
+      # see packages/api/src/pins.test.ts.
+      - dependency-name: wrangler
       - dependency-name: '*'
         update-types: ['version-update:semver-major']
       - dependency-name: three

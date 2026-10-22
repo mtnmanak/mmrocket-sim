@@ -70,6 +70,29 @@ const buffer = (name: string): ArrayBuffer => {
 };
 
 describe('simulateFile flies a design file offline, on the shipped data', () => {
+  it('times the importer separately from motor resolution and the flight', async () => {
+    let clock = 100;
+    const now = () => clock;
+    const realImporter = vi.mocked(importOrk).getMockImplementation()!;
+    vi.mocked(importOrk).mockImplementationOnce((...args) => {
+      clock += 7;
+      return realImporter(...args);
+    });
+    let matched = 0;
+    try {
+      const out = await simulateFile(bytes('reference.ork'), 'reference.ork', {
+        now,
+        match: (ref) => {
+          clock += 11;
+          matched++;
+          return matchImportedMotor(ref, { catalogue: MOTOR_DB, fetchSpec: bundledOnlyFetchSpec, exMotors: [] });
+        },
+      });
+      expect(matched).toBeGreaterThan(0);
+      expect(out.timing).toEqual({ parseMs: 7, flyMs: matched * 11, totalMs: 7 + matched * 11 });
+    } finally { vi.mocked(importOrk).mockImplementation(realImporter); }
+  }, 60_000);
+
   it('N032 site note units reach the headless bytes door', async () => {
     // No motor: the normal refusal retains the completed import note.
     const error: unknown = await simulateFile(bytes('unit-site-notes.ork'), 'unit-site-notes.ork', {
@@ -224,7 +247,7 @@ describe('simulateFile reads the shipped data only', () => {
       fetchedAt: '2026-10-01T00:00:00Z', liveCount: MOTOR_DB.length, rejected: [] });
     const again = await simulateFile(data, name);
     const parsedAgain = await simulateImported(cloneParsed(parsed));
-    const specs = (out: typeof plain) => Object.values(out.state.mountMotors).map((m) => m.spec);
+    const specs = (out: Pick<typeof plain, 'state'>) => Object.values(out.state.mountMotors).map((m) => m.spec);
     expect(specs(again)).toStrictEqual(specs(plain));
     expect(specs(parsedAgain)).toStrictEqual(specs(fromParse));
     expect(idFree(again.run)).toStrictEqual(idFree(plain.run));

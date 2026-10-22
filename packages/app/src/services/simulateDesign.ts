@@ -104,6 +104,8 @@ export interface BuiltLaunchInput<R extends BuildHandle = OrkRocket> {
    * wall time either way — which is why an agreement check strips it.
    */
   now?: () => number;
+  /** Absent in App: retain the browser timer yield between auto-delay probes. */
+  yieldToUi?: () => Promise<void>;
 }
 
 /**
@@ -131,8 +133,8 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   const activeConfig = activeConfigId === null ? undefined : labelled.find(c => c.id === activeConfigId);
   const flightConfig = activeConfig ? savedConfigLabel(activeConfig) : assigned.length ? 'working settings' : 'none';
   const refusedMountIds = refusedMountIdsOf(built.motorFailures);
-  // The keys and their order are onLaunch's at 78d3015; `signal` and `now` are
-  // spread only when given, so the object App hands the runner is unchanged.
+  // The keys and their order are onLaunch's at 78d3015; optional host signal,
+  // clock and yield are spread only when given, so App's runner input is unchanged.
   const flight = await flyLaunch(built.rocket, {
     assigned,
     // What the report's delay table and the Auto-delay refusal call each
@@ -153,6 +155,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
     onSupersonicUpgrade: input.onSupersonicUpgrade,
     ...(signal ? { signal } : {}),
     ...(now ? { now } : {}),
+    ...(input.yieldToUi ? { yieldToUi: input.yieldToUi } : {}),
   });
   const { result: res, flownDelayS: flownDelay, usedSupersonic, execMs, delayResolution } = flight;
   // The primary's record is the one `assigned` carries (filtered from the
@@ -241,6 +244,8 @@ export async function flyBuiltDesign<R extends BuildHandle>(
 export const APP_DEFAULT_AERO: AeroState = { ...effectiveAero(DEFAULT_PREFS, null), autoSupersonic: false };
 
 export interface SimulateDesignOptions {
+  /** Optional host yield; the headless barrel supplies a microtask-only default. */
+  yieldToUi?: () => Promise<void>;
   advisoryLimits?: FlightAdvisories;
   /** The aero model to fly; default APP_DEFAULT_AERO (what a first visit flies). */
   aero?: AeroState;
@@ -442,6 +447,7 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
       onSupersonicUpgrade: () => { upgraded = true; },
       ...(opts.signal ? { signal: opts.signal } : {}),
       ...(opts.now ? { now: opts.now } : {}),
+      ...(opts.yieldToUi ? { yieldToUi: opts.yieldToUi } : {}),
     });
   } catch (e) {
     // A cancel is the caller's, not a failed flight: the flight's own abort

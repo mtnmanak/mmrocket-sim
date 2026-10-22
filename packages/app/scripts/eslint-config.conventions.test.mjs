@@ -21,7 +21,8 @@ describe('audit 2026-10-11 lint delta', () => {
       expect(await probe(path, 'no-restricted-syntax', 'export function sample() {}')).toHaveLength(0);
     }, 30_000);
 
-  it.each(['packages/app/src/App.tsx', 'packages/app/src/services/motorDb.ts', 'packages/engine/src/index.ts'])(
+  it.each(['packages/app/src/App.tsx', 'packages/app/src/services/motorDb.ts', 'packages/engine/src/index.ts',
+    'packages/app/src/headless/index.ts', 'packages/api/src/index.ts'])(
     'item 2: %s refuses test-support imports', async (path) => {
       for (const name of ['./sample.testSupport', './sample.testSupport.js', '../services/sample.testSupport.ts']) {
         expect(await probe(path, 'no-restricted-imports', `import { sample } from '${name}';`)).toHaveLength(1);

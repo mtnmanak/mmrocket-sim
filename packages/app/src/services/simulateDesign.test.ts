@@ -77,6 +77,13 @@ describe('APP_DEFAULT_AERO', () => {
 });
 
 describe('simulateDesign flies the design', () => {
+  it('forwards the host yield through the Launch path', async () => {
+    const yieldToUi = vi.fn(() => Promise.resolve());
+    const out = await simulateDesign(await f67Auto(), { yieldToUi });
+    expect(out.flight.delayResolution.probes).toBeGreaterThan(0);
+    expect(yieldToUi).toHaveBeenCalled();
+  }, 60_000);
+
   it('N007 headless Launch uses imperial limit entries in frozen report comments', async () => {
     const s = await starter();
     const out = await simulateDesign(s, { units: IMPERIAL_UNITS,

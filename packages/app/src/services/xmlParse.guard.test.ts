@@ -37,10 +37,10 @@ const isTest = (p: string) => /\.test\.tsx?$/.test(p);
 /** Comments out, so a sentence about DOMParser or a package is not a use. */
 const code = (p: string) => readFileSync(p, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1');
 
-const NODE_SIDE = new Set(['src/services/xmlParseJs.ts', XML_JS_SETUP, 'src/services/xmlParseParity.ts']);
+const NODE_SIDE = new Set(['src/services/xmlParseJs.ts', XML_JS_SETUP, 'src/services/xmlParseParity.ts', 'src/headless/index.ts']);
 // A package may be named bare or by a subpath ('@xmldom/xmldom/lib/dom-parser.js').
 // All three quotes count: import(`./services/xmlParseJs.js`) loads it too.
-const FORBIDDEN = /(?:from\s+|import\s*\(\s*|import\s+)['"`](?:(?:saxes|@xmldom\/xmldom|css-select)(?:\/[^'"`]*)?|[./]*(?:[\w-]+\/)*xmlParse(?:Js|Parity)(?:\.js|\.ts)?)['"`]/;
+const FORBIDDEN = /(?:from\s+|import\s*\(\s*|import\s+)['"`](?:(?:saxes|@xmldom\/xmldom|css-select)(?:\/[^'"`]*)?|[./]*(?:[\w-]+\/)*(?:xmlParse(?:Js|Parity)(?:\.js|\.ts)?|headless(?:\.[jt]s|\/[^'"`]*)?))['"`]/;
 
 /**
  * Does a test file reach an importer? Three ways it can (verify-step2 finding 2,
@@ -68,6 +68,9 @@ describe('the XML parser seam', () => {
     'import `saxes`;',
     'void import(`@xmldom/xmldom/lib/dom-parser.js`);',
     'import { selectAll } from `css-select/dist/index.js`;',
+    'void import(`../headless/index.js`);',
+    'export { simulateFile } from "./headless";',
+    'import "./headless/index.ts";',
   ])('finds a backtick-quoted forbidden specifier: %s', (src) => {
     expect(FORBIDDEN.test(src)).toBe(true);
   });

@@ -1,0 +1,13 @@
+name = "mmrsim-api"
+main = "src/index.ts"
+compatibility_date = "2026-09-28"
+send_metrics = false
+
+[dev]
+ip = "127.0.0.1"
+port = 8787
+
+
+# Paid Workers only; local workerd does not enforce this CPU ceiling.
+[limits]
+cpu_ms = 30000

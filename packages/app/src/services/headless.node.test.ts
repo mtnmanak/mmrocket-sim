@@ -1,10 +1,11 @@
 // @vitest-environment node
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { idFree } from './simulate.testSupport.js';
 import { simulateFile } from './simulateFile.js';
+import { simulateFile as headlessSimulateFile } from '../headless/index.js';
 import { setXmlParser } from './xmlParse.js';
 import { jsXmlParser } from './xmlParseJs.js';
 
@@ -35,9 +36,8 @@ describe('headless: a design file flown in plain Node', () => {
 
   it.each(CASES)('%s opens and flies, and flies the same twice', async (name) => {
     const first = await simulateFile(bytesOf(name), name);
-    // Measured 2026-10-01: these three apogees are equal to the last digit to
-    // the same simulateFile under happy-dom's DOMParser (280.38 m, 97.06 m, and
-    // Show-off's 1.17 m on a 1/4A2). Not hard-coded here: the kernel's last bits
+    // Show-off currently aborts under thrust: its positive altitude is incomplete.
+    // Values are not hard-coded here: the kernel's last bits
     // differ between Node 22 and 24 (CLAUDE.md), and the parser's equality is
     // xmlParse's job, against Chrome.
     expect(first.result.summary.maxAltitude).toBeGreaterThan(0);
@@ -50,6 +50,27 @@ describe('headless: a design file flown in plain Node', () => {
     expect(idFree(second.run)).toStrictEqual(idFree(first.run));
     expect(second.result.summary).toStrictEqual(first.result.summary);
     expect(second.result.series).toStrictEqual(first.result.series);
+  }, 60_000);
+
+  it.each(['default', 'explicit'] as const)('the barrel solves auto delay without timers (%s yield)', async mode => {
+    const body = new TextEncoder().encode(new TextDecoder().decode(bytesOf('rocksimTestRocket1.rkt'))
+      .replace(/<EngineCode>[^<]*<\/EngineCode>/g, '<EngineCode>G135R</EngineCode>')
+      .replace(/<EngineMfg>[^<]*<\/EngineMfg>/g, '<EngineMfg>KBA</EngineMfg>')
+      .replace(/<EjectionDelay>[^<]*<\/EjectionDelay>/g, '<EjectionDelay>-1</EjectionDelay>'));
+    const yieldToUi = vi.fn(() => Promise.resolve());
+    const timers = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      // Restore the spy immediately when the call settles, before assertion/framework work.
+      let calls = 0;
+      const flight = mode === 'explicit' ? headlessSimulateFile(body, 'auto.rkt', { yieldToUi })
+        : headlessSimulateFile(body, 'auto.rkt');
+      const out = await flight
+        .finally(() => { calls = timers.mock.calls.length; timers.mockRestore(); });
+      expect(out.flight.delayResolution.probes).toBeGreaterThan(0);
+      expect(out.flight.delayResolution.mounts.some(m => m.mode === 'auto')).toBe(true);
+      expect(calls).toBe(0);
+      if (mode === 'explicit') expect(yieldToUi).toHaveBeenCalled();
+    } finally { timers.mockRestore(); }
   }, 60_000);
 
   it('without the JS parser installed, an open refuses rather than crashing on a missing DOMParser', async () => {

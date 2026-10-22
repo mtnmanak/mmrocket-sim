@@ -67,10 +67,17 @@ export interface SimulateFileResult extends SimulateDesignResult {
   importNote: { text: string; severity: NoticeSeverity };
 }
 
+export interface TimedSimulateFileResult extends SimulateFileResult {
+  /** Wall time, not CPU: includes event-loop waiting and any host-side lock contention. */
+  timing: { parseMs: number; flyMs: number; totalMs: number };
+}
+
 /** A design file's bytes, flown as the app opens and launches it. The size is refused before anything is parsed. */
 export async function simulateFile(
   data: ArrayBuffer | Uint8Array, fileName: string, opts: SimulateFileOptions = {},
-): Promise<SimulateFileResult> {
+): Promise<TimedSimulateFileResult> {
+  const now = opts.now ?? (() => performance.now());
+  const started = now();
   const tooBig = designFileTooLarge(data.byteLength, fileName);
   if (tooBig) throw new SimulateDesignError('file', tooBig);
   refuseIfAborted(opts.signal);
@@ -91,7 +98,10 @@ export async function simulateFile(
   } catch (e) {
     throw new SimulateDesignError('parse', designFileOpenFailure(fileName, e), { cause: e });
   }
-  return simulateImported(imported, opts);
+  const parsed = now();
+  const out = await simulateImported(imported, opts);
+  const finished = now();
+  return { ...out, timing: { parseMs: parsed - started, flyMs: finished - parsed, totalMs: finished - started } };
 }
 
 /**
