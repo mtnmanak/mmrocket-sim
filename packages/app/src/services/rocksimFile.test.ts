@@ -4283,7 +4283,7 @@ describe('a dry-run export raises and notes exactly what a real one does (B4)', 
     expect(designs.length).toBeGreaterThan(20);
     let refusals = 0;
     for (const file of designs) {
-      const text = readFileSync(join(dir, file), file.endsWith('.ork') ? undefined : 'utf8');
+      const text = file.endsWith('.ork') ? readFileSync(join(dir, file)) : readFileSync(join(dir, file), 'utf8');
       const data = typeof text === 'string' ? text
         : text.buffer.slice(text.byteOffset, text.byteOffset + text.byteLength) as ArrayBuffer;
       const r = /\.ork$/i.test(file) ? importOrk(data) : /\.rkt$/i.test(file) ? importRkt(data) : importCdx1(data);
