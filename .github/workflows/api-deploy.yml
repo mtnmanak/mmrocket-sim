@@ -1,0 +1,176 @@
+# Deploy the headless API Worker (packages/api; Worker name mmrsim-api) to Cloudflare Workers,
+# or delete it. RUN BY HAND ONLY ("Run workflow" in the Actions tab), and only from main.
+#
+# WHAT IT IS FOR, FOR NOW. One confirming deploy on Workers Paid (board row 102; register,
+# 22 October 2026 (night) - S2 follow-up, F): the Worker goes up at
+# https://mmrsim-api.<account subdomain>.workers.dev - unlisted, and with NO API key yet - the
+# heavy corpus designs are flown against it, Cloudflare's own Memory usage and CPU time charts
+# are read, and then this workflow with action=delete takes it down again. It is NOT the
+# go-live job: no custom domain, no key, no push trigger. Go-live
+# (api.mmrsim.mountainmanrockets.com, a ThrustCurve-only key first) changes this file.
+#
+# THE SAME TWO-JOB SPLIT AS deploy.yml, for the same reason (read its header):
+#   build   holds no secret. npm ci, builds the engine package, and bundles the Worker with the
+#           repository's pinned wrangler (`deploy --dry-run --outdir`): the exact bytes a plain
+#           `wrangler deploy` would upload, minified and ASCII (packages/api/src/bundle.test.ts
+#           guards the ASCII in the suite; a step below re-checks the artifact itself).
+#           Uploads index.js only.
+#   deploy  holds the token and runs none of the repository's dependencies. Environment
+#           api-production (deployment branches: main only), whose CLOUDFLARE_API_TOKEN is the
+#           Workers deploy token - an account token with Workers Scripts Write, Workers Tail
+#           Read and Account Settings Read, plus Workers Routes Write on mountainmanrockets.com
+#           only. Inside this environment it shadows the repository's Pages token of the same
+#           name; CLOUDFLARE_ACCOUNT_ID is the repository secret. The pinned wrangler is
+#           installed in a step with no secret in it (deploy.yml explains why), then the built
+#           index.js is uploaded with --no-bundle; the Worker's name, compatibility date and
+#           limits (cpu_ms) come from the committed packages/api/wrangler.toml.
+#   delete  the same environment and the same install; `wrangler delete --force` on the name in
+#           wrangler.toml. --force skips wrangler's interactive confirmation and its dependants
+#           check (nothing binds to this Worker).
+#
+# PINS. Actions by commit SHA with the release tag in a comment, as in deploy.yml. Wrangler is
+# EXACT at the version in packages/api/package.json, in four places below (two installs, two
+# wranglerVersion), held together with deploy.yml's two by packages/api/src/pins.test.ts.
+
+name: API deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "deploy: build and upload the Worker. delete: remove it from Cloudflare."
+        type: choice
+        options: [deploy, delete]
+        default: deploy
+
+# One at a time, and never cancel a run part-way through an upload or a delete.
+concurrency:
+  group: api-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # "Run workflow" offers every branch; only main is ever built for upload.
+    if: inputs.action == 'deploy' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04 # pinned with deploy.yml's jobs; move them together
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # The Worker imports the engine package, whose dist/ is a build output.
+      - run: npm run build -w @online-openrocket/engine
+
+      - name: Bundle the Worker (the bytes the deploy job uploads)
+        working-directory: packages/api
+        env:
+          WRANGLER_SEND_METRICS: "false"
+        run: npx --no-install wrangler deploy --dry-run --outdir dist
+
+      # One byte over 0x7F makes V8 hold the whole source as a two-byte string (14.9 MiB, measured
+      # 2026-10-22); bundle.test.ts guards the source, this guards the artifact that ships.
+      - name: The bundle must be ASCII
+        working-directory: packages/api
+        run: |
+          node -e "
+            const b = require('node:fs').readFileSync('dist/index.js');
+            const i = b.findIndex(x => x > 0x7f);
+            if (i >= 0) { console.error('non-ASCII byte at ' + i); process.exit(1); }
+            console.log('dist/index.js: ' + b.length + ' bytes, ASCII');
+          "
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: api-worker
+          path: packages/api/dist/index.js
+          if-no-files-found: error
+          retention-days: 3
+
+  deploy:
+    needs: build
+    if: inputs.action == 'deploy' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: api-production
+    permissions:
+      contents: read
+    steps:
+      # The committed wrangler.toml (name, compatibility date, limits) and the .gitignore, nothing
+      # else: no package.json or lockfile, so the install below installs wrangler alone.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /.gitignore
+            /packages/api/wrangler.toml
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: api-worker
+          path: packages/api/dist
+
+      - name: Install the pinned wrangler (no secret in this step)
+        working-directory: packages/api
+        run: npm install --no-save --no-package-lock wrangler@4.136.3
+
+      - uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # EXACT, and the same as the install step: the action then skips its own install.
+          wranglerVersion: "4.136.3"
+          workingDirectory: packages/api
+          # --no-bundle uploads the build job's index.js as it is. --minify=false only silences
+          # wrangler's warning that wrangler.toml's minify (which the build job applied) cannot
+          # apply to an unbundled upload.
+          command: deploy dist/index.js --no-bundle --minify=false
+
+  delete:
+    if: inputs.action == 'delete' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: api-production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /.gitignore
+            /packages/api/wrangler.toml
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Install the pinned wrangler (no secret in this step)
+        working-directory: packages/api
+        run: npm install --no-save --no-package-lock wrangler@4.136.3
+
+      - uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: "4.136.3"
+          workingDirectory: packages/api
+          command: delete --force

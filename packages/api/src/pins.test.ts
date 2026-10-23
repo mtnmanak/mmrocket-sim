@@ -1,12 +1,16 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 
-it('holds the API and both manually maintained deployment Wrangler pins together', () => {
+// The WHOLE version token, so 4.136.3-next.0 or a bare range like "4" reads as itself, not as a matching prefix.
+// It must start with a digit: deploy.yml's comments mention `wrangler@...` with no version.
+const wranglerPins = (workflow: string) => [...readFileSync(new URL(`../../../.github/workflows/${workflow}`, import.meta.url), 'utf8')
+  .matchAll(/(?:wranglerVersion:\s*['"]?|wrangler@)(\d[^\s'"`]*)/g)].map(m => m[1]);
+
+it('holds the API and every manually maintained deployment Wrangler pin together', () => {
   const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { devDependencies: { wrangler: string } };
-  const workflow = readFileSync(new URL('../../../.github/workflows/deploy.yml', import.meta.url), 'utf8');
-  const pins = [...workflow.matchAll(/(?:wranglerVersion:\s*['"]?|wrangler@)(\d+\.\d+\.\d+)/g)].map(m => m[1]);
-  expect(pins).toHaveLength(2);
-  expect(pins).toEqual([pkg.devDependencies.wrangler, pkg.devDependencies.wrangler]);
+  // deploy.yml: one install + one wranglerVersion. api-deploy.yml: the same pair in its deploy and delete jobs.
+  expect(wranglerPins('deploy.yml')).toEqual(Array(2).fill(pkg.devDependencies.wrangler));
+  expect(wranglerPins('api-deploy.yml')).toEqual(Array(4).fill(pkg.devDependencies.wrangler));
 });
 
 it('keeps Wrangler out of automatic npm updates while its deployment pins are manual', () => {

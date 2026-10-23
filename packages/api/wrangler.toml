@@ -9,6 +9,7 @@ ip = "127.0.0.1"
 port = 8787
 
 
-# Paid Workers only; local workerd does not enforce this CPU ceiling.
+# Paid Workers only; local workerd does not enforce this CPU ceiling. 60 s: the heaviest corpus
+# design measured ~25 s of CPU in Node (2026-10-22) against the 30 s default; the maximum is 300 s.
 [limits]
-cpu_ms = 30000
+cpu_ms = 60000
