@@ -78,7 +78,7 @@ public class FlightDataBranch extends DataBranch<FlightDataType> {
 		this.values.clear();
 
 		// Need to have at least one type to set up values
-		values.put(FlightDataType.TYPE_TIME, new ArrayList<>());
+		values.put(FlightDataType.TYPE_TIME, new DoubleColumn());
 		minValues.put(FlightDataType.TYPE_TIME, Double.NaN);
 		maxValues.put(FlightDataType.TYPE_TIME, Double.NaN);
 
@@ -277,8 +277,8 @@ public class FlightDataBranch extends DataBranch<FlightDataType> {
 	public FlightDataBranch clone() {
 		FlightDataType[] types = getTypes();
 		FlightDataBranch clone = new FlightDataBranch(name, types);
-		for (Map.Entry<FlightDataType, ArrayList<Double>> entry : values.entrySet()) {
-			clone.values.put(entry.getKey(), entry.getValue().clone());
+		for (Map.Entry<FlightDataType, DoubleColumn> entry : values.entrySet()) {
+			clone.values.put(entry.getKey(), entry.getValue().copy());
 		}
 		clone.minValues.putAll(minValues);
 		clone.maxValues.putAll(maxValues);

@@ -1,6 +1,5 @@
 package info.openrocket.core.simulation;
 
-import info.openrocket.core.util.ArrayList;
 import info.openrocket.core.util.ModID;
 import info.openrocket.core.util.Monitorable;
 import info.openrocket.core.util.Mutable;
@@ -19,8 +18,68 @@ import java.util.Set;
  * @param <T> the type of data in this branch
  */
 public abstract class DataBranch<T extends DataType> implements Monitorable {
+	/** Primitive storage; boxing is confined to the List compatibility surface. */
+	public static final class DoubleColumn extends java.util.AbstractList<Double> implements java.util.RandomAccess {
+		private double[] data = new double[8];
+		private int size;
+
+		@Override
+		public int size() {
+			return size;
+		}
+
+		private void checkIndex(int index) {
+			if (index < 0 || index >= size) {
+				throw new IndexOutOfBoundsException("Index: " + index + ", Size: " + size);
+			}
+		}
+
+		public double getDouble(int index) {
+			checkIndex(index);
+			return data[index];
+		}
+
+		public double setDouble(int index, double value) {
+			checkIndex(index);
+			double old = data[index];
+			data[index] = value;
+			return old;
+		}
+
+		public void addDouble(double value) {
+			if (size == data.length) {
+				data = Arrays.copyOf(data, Math.max(8, size * 2));
+			}
+			data[size++] = value;
+			modCount++;
+		}
+
+		@Override
+		public Double get(int index) {
+			return getDouble(index);
+		}
+
+		@Override
+		public Double set(int index, Double value) {
+			return setDouble(index, value);
+		}
+
+		@Override
+		public boolean add(Double value) {
+			addDouble(value);
+			return true;
+		}
+
+		public DoubleColumn copy() {
+			DoubleColumn copy = new DoubleColumn();
+			copy.data = Arrays.copyOf(data, size);
+			copy.size = size;
+			return copy;
+		}
+	}
+
 	protected final String name;
-	protected final Map<T, ArrayList<Double>> values = new LinkedHashMap<>();
+	protected final Map<T, DoubleColumn> values = new LinkedHashMap<>();
 	protected final Map<T, Double> maxValues = new HashMap<>();
 	protected final Map<T, Double> minValues = new HashMap<>();
 
@@ -55,7 +114,7 @@ public abstract class DataBranch<T extends DataType> implements Monitorable {
 			throw new IllegalArgumentException("Value type " + type + " already exists.");
 		}
 
-		values.put(type, new ArrayList<>());
+		values.put(type, new DoubleColumn());
 		minValues.put(type, Double.NaN);
 		maxValues.put(type, Double.NaN);
 	}
@@ -67,21 +126,21 @@ public abstract class DataBranch<T extends DataType> implements Monitorable {
 	 */
 	public void addPoint() {
 		mutable.check();
-		for (Map.Entry<T, ArrayList<Double>> entry : values.entrySet()) {
+		for (Map.Entry<T, DoubleColumn> entry : values.entrySet()) {
 			sanityCheckValues(entry.getKey(), Double.NaN);
-			entry.getValue().add(Double.NaN);
+			entry.getValue().addDouble(Double.NaN);
 		}
 		modID = new ModID();
 	}
 
-	private void sanityCheckValues(T type, Double value) {
-		ArrayList<Double> list = values.get(type);
+	private void sanityCheckValues(T type, double value) {
+		DoubleColumn list = values.get(type);
 
 		if (list == null) {
-			list = new info.openrocket.core.util.ArrayList<>();
+			list = new DoubleColumn();
 			int n = getLength();
 			for (int i = 0; i < n; i++) {
-				list.add(Double.NaN);
+				list.addDouble(Double.NaN);
 			}
 			values.put(type, list);
 			minValues.put(type, value);
@@ -100,11 +159,11 @@ public abstract class DataBranch<T extends DataType> implements Monitorable {
 	public void setValue(T type, double value) {
 		mutable.check();
 
-		ArrayList<Double> list = values.computeIfAbsent(type, k -> {
-			ArrayList<Double> newList = new ArrayList<>();
+		DoubleColumn list = values.computeIfAbsent(type, k -> {
+			DoubleColumn newList = new DoubleColumn();
 			int n = getLength();
 			for (int i = 0; i < n; i++) {
-				newList.add(Double.NaN);
+				newList.addDouble(Double.NaN);
 			}
 			minValues.put(k, Double.NaN);
 			maxValues.put(k, Double.NaN);
@@ -112,7 +171,7 @@ public abstract class DataBranch<T extends DataType> implements Monitorable {
 		});
 
 		if (list.size() > 0) {
-			list.set(list.size() - 1, value);
+			list.setDouble(list.size() - 1, value);
 		}
 
 		double min = minValues.get(type);
@@ -136,10 +195,10 @@ public abstract class DataBranch<T extends DataType> implements Monitorable {
 	 * 				the variable type hasn't been added to this branch.
 	 */
 	public List<Double> getClone(T type) {
-		ArrayList<Double> list = values.get(type);
+		DoubleColumn list = values.get(type);
 		if (list == null)
 			return null;
-		return list.clone();
+		return new java.util.ArrayList<>(list);
 	}
 
 	/**
@@ -150,11 +209,17 @@ public abstract class DataBranch<T extends DataType> implements Monitorable {
 	 * 				the variable type hasn't been added to this branch.
 	 */
 	public List<Double> get(T type) {
-		ArrayList<Double> list = values.get(type);
+		DoubleColumn list = values.get(type);
 		if (list == null) {
 			return null;
 		}
 		return Collections.unmodifiableList(list);
+	}
+
+	/** Return an independent primitive snapshot for serialization, or null if absent. */
+	public double[] getValuesCopy(T type) {
+		DoubleColumn list = values.get(type);
+		return list == null ? null : Arrays.copyOf(list.data, list.size);
 	}
 
 	/**
@@ -167,11 +232,11 @@ public abstract class DataBranch<T extends DataType> implements Monitorable {
 		if (index < 0 || index >= getLength()) {
 			throw new IllegalArgumentException("Index out of bounds");
 		}
-		ArrayList<Double> list = values.get(type);
+		DoubleColumn list = values.get(type);
 		if (list == null) {
 			return null;
 		}
-		return list.get(index);
+		return list.getDouble(index);
 	}
 
 	/**
@@ -182,10 +247,10 @@ public abstract class DataBranch<T extends DataType> implements Monitorable {
 	 * @return		the last value in this branch, or NaN.
 	 */
 	public double getLast(T type) {
-		ArrayList<Double> list = values.get(type);
+		DoubleColumn list = values.get(type);
 		if (list == null || list.isEmpty())
 			return Double.NaN;
-		return list.get(list.size() - 1);
+		return list.getDouble(list.size() - 1);
 	}
 
 	/**
@@ -220,7 +285,7 @@ public abstract class DataBranch<T extends DataType> implements Monitorable {
 	 * Return the number of data points in this branch.
 	 */
 	public int getLength() {
-		for (ArrayList<Double> doubles : values.values()) {
+		for (DoubleColumn doubles : values.values()) {
 			return doubles.size();
 		}
 		return 0;

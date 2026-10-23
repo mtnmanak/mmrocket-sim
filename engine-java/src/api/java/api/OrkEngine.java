@@ -1579,21 +1579,22 @@ public final class OrkEngine {
                     FlightDataType.TYPE_ROLL_RATE, FlightDataType.TYPE_VELOCITY_Z));
 
     private static void appendBranchSeries(StringBuilder sb, FlightDataBranch branch, boolean fullSeries) {
+        // Primitive snapshots avoid boxing every sample on the JSON path.
         sb.append('{');
-        appendSeries(sb, "time", branch.get(FlightDataType.TYPE_TIME)).append(',');
-        appendSeries(sb, "altitude", branch.get(FlightDataType.TYPE_ALTITUDE)).append(',');
-        appendSeries(sb, "velocity", branch.get(FlightDataType.TYPE_VELOCITY_TOTAL)).append(',');
-        appendSeries(sb, "acceleration", branch.get(FlightDataType.TYPE_ACCELERATION_TOTAL)).append(',');
-        appendSeries(sb, "mass", branch.get(FlightDataType.TYPE_MASS)).append(',');
-        appendSeries(sb, "thrust", branch.get(FlightDataType.TYPE_THRUST_FORCE)).append(',');
-        appendSeries(sb, "drag", branch.get(FlightDataType.TYPE_DRAG_FORCE)).append(',');
-        appendSeries(sb, "mach", branch.get(FlightDataType.TYPE_MACH_NUMBER)).append(',');
-        appendSeries(sb, "stability", branch.get(FlightDataType.TYPE_STABILITY)).append(',');
-        appendSeries(sb, "cpLocation", branch.get(FlightDataType.TYPE_CP_LOCATION)).append(',');
-        appendSeries(sb, "cgLocation", branch.get(FlightDataType.TYPE_CG_LOCATION)).append(',');
-        appendSeries(sb, "aoa", branch.get(FlightDataType.TYPE_AOA));
+        appendSeries(sb, "time", branch.getValuesCopy(FlightDataType.TYPE_TIME)).append(',');
+        appendSeries(sb, "altitude", branch.getValuesCopy(FlightDataType.TYPE_ALTITUDE)).append(',');
+        appendSeries(sb, "velocity", branch.getValuesCopy(FlightDataType.TYPE_VELOCITY_TOTAL)).append(',');
+        appendSeries(sb, "acceleration", branch.getValuesCopy(FlightDataType.TYPE_ACCELERATION_TOTAL)).append(',');
+        appendSeries(sb, "mass", branch.getValuesCopy(FlightDataType.TYPE_MASS)).append(',');
+        appendSeries(sb, "thrust", branch.getValuesCopy(FlightDataType.TYPE_THRUST_FORCE)).append(',');
+        appendSeries(sb, "drag", branch.getValuesCopy(FlightDataType.TYPE_DRAG_FORCE)).append(',');
+        appendSeries(sb, "mach", branch.getValuesCopy(FlightDataType.TYPE_MACH_NUMBER)).append(',');
+        appendSeries(sb, "stability", branch.getValuesCopy(FlightDataType.TYPE_STABILITY)).append(',');
+        appendSeries(sb, "cpLocation", branch.getValuesCopy(FlightDataType.TYPE_CP_LOCATION)).append(',');
+        appendSeries(sb, "cgLocation", branch.getValuesCopy(FlightDataType.TYPE_CG_LOCATION)).append(',');
+        appendSeries(sb, "aoa", branch.getValuesCopy(FlightDataType.TYPE_AOA));
         sb.append(',');
-        appendSeries(sb, "activeLength", branch.get(ActiveLengthListener.LENGTH));
+        appendSeries(sb, "activeLength", branch.getValuesCopy(ActiveLengthListener.LENGTH));
         // Symbol-keyed series ("Pl", "Cdf", "mp"…) beyond the friendly
         // dozen, in getTypes()' natural sort order — only the types this
         // branch actually carries. Key ORDER is deterministic; with
@@ -1609,7 +1610,7 @@ public final class OrkEngine {
                     : !SUMMARY_SYMBOL_TYPES.contains(type)) {
                 continue;
             }
-            List<Double> values = branch.get(type);
+            double[] values = branch.getValuesCopy(type);
             if (values == null) {
                 continue;
             }
@@ -1619,16 +1620,16 @@ public final class OrkEngine {
         sb.append('}');
     }
 
-    private static StringBuilder appendSeries(StringBuilder sb, String name, List<Double> values) {
+    private static StringBuilder appendSeries(StringBuilder sb, String name, double[] values) {
         sb.append('"').append(name).append("\":[");
         if (values != null) {
-            for (int i = 0; i < values.size(); i++) {
+            for (int i = 0; i < values.length; i++) {
                 if (i > 0) sb.append(',');
-                Double v = values.get(i);
+                double v = values[i];
                 // isInfinite too: Java Double.toString(Infinity) is a bare
                 // 'Infinity', which JSON.parse rejects — one such sample
                 // would kill the whole result (num() already guards this).
-                sb.append(v == null || v.isNaN() || v.isInfinite() ? "null" : v.toString());
+                sb.append(Double.isNaN(v) || Double.isInfinite(v) ? "null" : Double.toString(v));
             }
         }
         return sb.append(']');

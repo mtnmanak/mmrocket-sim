@@ -9,40 +9,32 @@ package info.openrocket.core.util;
  * object
  * should call {@link #check()} before modification.
  * <p>
- * This class also provides a stack trace of the position where the object was
- * made
- * immutable to help in debugging modifications of immuted objects.
+ * Only the immutable state is retained, avoiding captured stack receivers in TeaVM.
  * 
  * @author Sampo Niskanen <sampo.niskanen@iki.fi>
  */
 public class Mutable implements Cloneable {
 
-	private Throwable immuteTrace = null;
+	private boolean immutable = false;
 
 	/**
 	 * Mark the object immutable. Once the object has been called the object
 	 * cannot be made mutable again. Repeated calls to this method have no effect.
 	 */
 	public void immute() {
-		if (immuteTrace == null) {
-			immuteTrace = new Throwable();
-		}
+		immutable = true;
 	}
 
 	/**
 	 * Check that the object is still mutable, and throw an exception if it is not.
-	 * <p>
-	 * The thrown exception will contain a trace of the position where the object
-	 * was made
-	 * immutable to help in debugging.
+	 * The message preserves the original no-message Throwable's text, without a cause.
 	 * 
 	 * @throws IllegalStateException if {@link #immute()} has been called for this
 	 *                               object.
 	 */
 	public void check() {
-		if (immuteTrace != null) {
-			throw new IllegalStateException("Object has been made immutable at "
-					+ immuteTrace.getMessage(), immuteTrace);
+		if (immutable) {
+			throw new IllegalStateException("Object has been made immutable at null");
 		}
 	}
 
@@ -52,7 +44,7 @@ public class Mutable implements Cloneable {
 	 * @return whether this object is still mutable.
 	 */
 	public boolean isMutable() {
-		return immuteTrace == null;
+		return !immutable;
 	}
 
 	/**

@@ -1613,6 +1613,109 @@ components (centering rings, bulkheads, tube couplers) — which is exactly the
   differs by subclass, so a hashed index would need a proof per subclass.
 - **Divergence from upstream:** none in behaviour; upstreamable.
 
+### simulation/DataBranch.java + simulation/FlightDataBranch.java + api/OrkEngine.java - primitive sample columns (API S2, 2026-10-22)
+
+- **Why:** boxed `Double` samples in `DataBranch.values` dominate the worst API
+  flight's live heap. A primitive column retains the same double bits without a
+  wrapper and reference slot per sample.
+- **Change:** `DoubleColumn` stores `double[]` plus logical size, with amortised
+  growth and boxed `List<Double>` access for existing readers. Branch writes and
+  scalar reads use primitive accessors (`getByIndex` still boxes its return);
+  `get` remains a live unmodifiable view,
+  `getClone` an independent mutable list. `getValuesCopy` returns a detached
+  primitive snapshot for `api/OrkEngine.java`'s `appendBranchSeries`/`appendSeries`
+  JSON loops; finite samples still use
+  `Double.toString`, nonfinite samples still emit `null`, in the same key order.
+  `FlightDataBranch.clone` copies each primitive column; separation still replays
+  every point through `addPoint`/`setValue` and retains its existing event filter
+  and min/max bookkeeping. No physics, floating-point arithmetic or series set
+  changes in these patches.
+- **TeaVM:** `double[]` compiles to `Float64Array`; uses `Arrays.copyOf`,
+  `AbstractList` and `RandomAccess`. Boxing remains in `get(i)` on list views,
+  `getByIndex` (including every point of stage-separation replay). Those boxes
+  are transient, not retained. `getClone` boxes into detached mutable snapshots;
+  min/max maps retain boxed scalar extrema on a new extreme. Stored samples
+  and bridge serialization are primitive.
+- **Evidence (Claude, 2026-10-22):** clean pre-patch rebuild byte-identical to
+  committed artifact, md5 `330f160351f40bdb7bd475fffd9a7754`; patched md5
+  `d0699d79db49401cf09bb0c9aac53a27` (unchanged after Round 2). Artifact grep,
+  baseline -> patched matching lines: `DoubleColumn` 0 -> 38,
+  `getValuesCopy` 0 -> 16, `immuteTrace` 7 -> 0; occurrences:
+  `DoubleColumn` 0 -> 52, `getValuesCopy` 0 -> 17, `immuteTrace` 7 -> 0.
+  `gradlew goldenJvm`: 464 lines,
+  ZERO-line diff pre/post. TeaVM GoldenMain, excluding kernel log lines: 474 lines,
+  identical except two Node module-type warnings naming the worktree path.
+  Difftest: `differential ok: 464 lines (312 bit-identical, 152 within tolerance)`.
+  Claude's post-Round-2 re-run: JUnit 104 tests, 0 failures, including
+  DataBranchStorageTest 9, unchanged DataBranchViewTest 6 and MutableTest 3;
+  goldenJvm still ZERO-line diff and difftest clean. The initial mutation run
+  killed 10/11 after passing baselines; the surviving `(float)` narrowing in
+  `addDouble` is now KILLED by `columnGrowsAndSupportsBoxedAndPrimitiveAccess`
+  and `fullCapacityCopiesAndCloneOfCloneAreIndependentBothWays`.
+  Corpus: 129 unique designs, SHA-256 deduped from 142 occurrences under
+  `docs/User files`, `docs/Flight Data` and `docs/testing`. All request-parsed
+  kernel JSON payloads (component UUIDs masked), old vs patched, raw-byte-identical
+  for 128/129 designs in both full and summary modes. The remaining
+  `8 in Goblin 4 x 75mm v2.rkt` also varies on the UNPATCHED kernel due to
+  same-time multi-mount event ordering (the KPERF case below); identical with
+  canonical event order, and raw-identical on a re-run. API responses excluding
+  timing: 129/129 identical, old kernel/full vs patched kernel/summary.
+- **Historical pre-minification measurement (Claude; both kernel patches together):** smallest V8
+  old-space cap in MiB (`--max-old-space-size`, workerd 2026-09-21 `v8Flags`,
+  binary search in 4 MiB steps before and 2 MiB after) at which the API flies:
+
+  | Design | Old/full | Old/summary | New/full | New/summary |
+  |---|---:|---:|---:|---:|
+  | SS Wild Bash 20260623v0.ork | 88 | 68 | 70 | 52 |
+  | SS Wild Bash 20260623v0.rkt | 84 | 72 | 66 | 44 |
+  | SS_Wild_Bash_20260623v1BM.CDX1 | 84 | 64 | 66 | 44 |
+  | 2,4-D.rkt | 76 | 60 | 60 | 42 |
+  | 38-54 2-stage.CDX1 | 76 | 52 | 62 | 42 |
+  | 38-54 2-stage.ork | 68 | 52 | 58 | 42 |
+  | ThreeCarbYen-2018.CDX1 | 72 | 52 | 56 | 40 |
+  | boattail.ork (app example; Worker start floor) | 32 | 32 | 30 | 30 |
+
+  The boattail 32/30 MiB difference is within the old search's 4 MiB resolution
+  and does not establish a saving. These caps exclude typed-array backing stores above 64 bytes, which live
+  outside V8 old space; they do not measure total isolate memory. Node heap
+  snapshot of the worst .rkt at its old-space limit, patched kernel/summary:
+  14.7 MiB ArrayBuffer backing stores in 325 buffers, including 7.48 MiB TeaVM
+  `char[]` for the serialized result and about 7.2 MiB primitive columns/small
+  buffers. At the same moment the result also occupies a 7.48 MiB two-byte JS
+  string (non-ASCII symbol keys), and Worker source a 14.9 MiB two-byte string.
+  Mid-flight boxed `jl_Double`: 1,654, formerly about 850,000. No FlightData is
+  reachable through a Throwable's captured stack. These measurements predate
+  the Round 2 ASCII/minification change and are superseded for the shipped
+  Worker by the production-bundle measurements below.
+- **Shipped-Worker measured effect (Claude, after Round 2):** real Wrangler
+  `deploy --dry-run` bundles, old = origin/main `c9e3b9b4`, unminified, old
+  kernel/full series; new = this lane, minified ASCII, patched kernel/summary
+  series. Smallest workerd V8 old-space caps in MiB, searched in 2 MiB steps
+  for BOTH bundles:
+
+  | Design | Old Worker | New Worker |
+  |---|---:|---:|
+  | SS Wild Bash 20260623v0.ork | 88 | 44 |
+  | SS Wild Bash 20260623v0.rkt | 86 | 34 |
+  | 2,4-D.rkt | 76 | 32 |
+  | Wildman Mach 2 this one.ork (4.2 MB zip, 15.2 MB XML; import-bound) | 72 | 60 |
+  | boattail.ork (Worker start floor) | 38 | 22 |
+
+  The worst cap across these designs is 88 -> 60 MiB; the flight-bound worst
+  is 88 -> 44 MiB. The ASCII start floor 38 -> 22 MiB includes the old/full
+  versus patched/summary kernel and bundle changes above, at the same 2 MiB
+  resolution; it is not an isolated ASCII or Mutable saving. Typed-array
+  storage is outside these caps, which are not total isolate memory.
+  API responses are identical between the two Workers on all five designs.
+  Node CPU per request on these same two bundles, sequential, two runs each:
+  SS Wild Bash .rkt 28.3/26.8 s old vs 27.1/23.3 s new; 2,4-D.rkt 7.1/7.9 vs
+  6.1/5.9 s; 38-54 2-stage.ork 6.0/6.4 vs 5.0/5.5 s;
+  ThreeCarbYen-2018.CDX1 5.9/6.5 vs 4.5/4.8 s. These are Node CPU timings,
+  not workerd CPU billing.
+- **Divergence from upstream:** yes, from 24.12 and `unstable`; protected
+  `values` has primitive-column type, with new public `DoubleColumn` and
+  `getValuesCopy` members. Ported subclasses manipulating `values` must adapt.
+
 ### simulation/DataBranch.java - read-only column views instead of a clone per read (OR #2909 / PR #2909, KPERF, 2026-10-11)
 
 - **Why:** `DataBranch.get(type)` cloned the whole column on every call. The bridge's
@@ -1665,7 +1768,10 @@ components (centering rings, bulkheads, tube couplers) — which is exactly the
   summary), 43,956 on `reference.ork` - a few MB of short-lived arrays per flight, too
   small against the RK4 loop's own allocation to move the GC count measurably.
 - **Divergence from upstream 24.12:** yes for this class; it matches upstream `unstable`
-  after PR #2909.
+  after PR #2909 for the view change. The 2026-10-22 primitive-column entry
+  above supersedes this entry's storage and bridge-read description:
+  DataBranch.java now also diverges from `unstable`, and the bridge reads
+  primitive snapshots through `getValuesCopy`, rather than `get` views.
 
 - **B10 reapplication (2026-10-13):** patch and six tests restored byte-for-byte from
   `24812cdb`. The six scoped JVM tests pass; clone-on-get and view-on-getClone
@@ -1673,6 +1779,53 @@ components (centering rings, bulkheads, tube couplers) — which is exactly the
   464 current golden rows with/without this allocation patch found zero differences.
   The TeaVM, corpus and timing evidence above belongs to the original KPERF pass;
   it was not rerun for this reapplication because Gradle is sandbox-blocked.
+
+## TeaVM diagnostic fixes (documented exception change; no physics change)
+
+### util/Mutable.java - immutable state without retained Throwable (API S2, 2026-10-22)
+
+- **Why:** TeaVM's captured JS Error stack retains frame receivers, keeping the
+  completed coast engine and its flight samples alive through `immuteTrace`.
+  Java stack decoding is absent in the measured build, so that retained JS stack
+  provides no Java-side debugging information. This is a TeaVM-specific retention
+  fix, outside Performance because Rule 1 requires no observable changes there.
+- **Change:** retain a boolean instead of a Throwable. `check` still throws
+  `IllegalStateException("Object has been made immutable at null")`, now without
+  a cause. The null cause is the one observable change. Repeated `immute` remains
+  a no-op; `isMutable` and cloned state retain their meaning.
+- **TeaVM:** no Error is constructed or retained by `immute`; ordinary exceptions
+  are still created when an illegal mutation actually calls `check`.
+- **Evidence (Claude, 2026-10-22, after Round 2):** rebuilt artifact md5
+  `d0699d79db49401cf09bb0c9aac53a27`, unchanged after Round 2, compared with
+  the byte-identical clean baseline `330f160351f40bdb7bd475fffd9a7754`.
+  Artifact grep, baseline -> patched: `immuteTrace` 7 -> 0 matching lines
+  and 7 -> 0 occurrences. Shared gates for both patches are detailed in the
+  primitive-column entry above: goldenJvm 464 lines, ZERO-line diff; TeaVM
+  golden 474 lines identical except two worktree-path module-type warnings;
+  difftest 464 lines (312 bit-identical, 152 within tolerance). Post-Round-2
+  JUnit 104/104 passed, including DataBranchStorageTest 9, unchanged
+  DataBranchViewTest 6 and all 3 MutableTest cases (message, null cause, cloned
+  state, repeated immute). The original 10/11 mutation kills are now joined by
+  the `addDouble` narrowing kill in `columnGrowsAndSupportsBoxedAndPrimitiveAccess`
+  and `fullCapacityCopiesAndCloneOfCloneAreIndependentBothWays`.
+  Corpus 128/129 raw-identical in each series mode, 129/129 with canonical
+  event ordering (known KPERF case); API responses excluding timing 129/129
+  identical, old/full vs new/summary.
+- **Measured effect:** no FlightData reachable through a Throwable's captured
+  stack in the patched/summary worst-.rkt snapshot. The shipped-Worker table in
+  the primitive-column entry measures all changes together, not Mutable alone:
+  worst across measured designs 88 -> 60 MiB, flight-bound worst 88 -> 44 MiB,
+  Worker start floor 38 -> 22 MiB, all old-space caps searched at 2 MiB steps
+  for both production bundles. External typed-array storage is outside these
+  caps. The earlier pre-minification snapshot has 14.7 MiB backing stores /
+  325 buffers (7.48 MiB result `char[]`, about 7.2 MiB columns/small buffers),
+  plus a 7.48 MiB two-byte result string and a 14.9 MiB two-byte Worker source
+  string. These are not total-isolate limits or a separate saving for Mutable.
+- **Divergence from upstream:** yes; boolean immutable state replaces the
+  retained Throwable and the illegal-mutation exception has no cause.
+  The original JVM message is preserved. NOT upstreamable as is: upstream JVM
+  users would lose the documented immute-site trace without TeaVM's retention
+  problem; an upstream version would need to preserve that trace outside TeaVM.
 
 ## Correctness fixes (documented physics change — a kernel defect, fixed deliberately)
 
@@ -2944,7 +3097,9 @@ aerodynamic model.
    the CORRECTNESS FIXES above, which change observable numbers ON PURPOSE and must
    prove the change is confined to the intended case with a before/after `goldenJvm`
    diff, plus an arithmetic check that the new values are RIGHT and not merely
-   different).
+   different; plus the TeaVM diagnostic fix above, whose sole observable change
+   is Mutable.check's null exception cause; it must retain zero-line physics
+   goldens and test the exact message and null cause explicitly).
 2. Prefer shims over patches; patch only when the carved file itself must change.
 3. On upstream upgrade: re-diff every patched file against its new upstream version and
    re-apply the minimal change.
