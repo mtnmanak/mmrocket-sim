@@ -77,6 +77,19 @@ describe('APP_DEFAULT_AERO', () => {
 });
 
 describe('simulateDesign flies the design', () => {
+  it('threads summary series through the headless Launch and leaves full as the default', async () => {
+    const input = await starter();
+    const full = await simulateDesign(input);
+    const summary = await simulateDesign(input, { reportSeries: 'summary' });
+    expect(full.result.series['Vs']?.length).toBeGreaterThan(0);
+    expect(full.run.loads?.maxQ).toMatchObject({ value: expect.any(Number) });
+    expect(summary.result.series['Vs']).toBeUndefined();
+    expect(summary.result.series['g']).toBeUndefined();
+    expect(summary.run.loads).toEqual({ maxQ: null, maxQAlpha: null });
+    expect(summary.result.summary).toEqual(full.result.summary);
+    expect(summary.result.series.altitude).toEqual(full.result.series.altitude);
+  }, 60_000);
+
   it('forwards the host yield through the Launch path', async () => {
     const yieldToUi = vi.fn(() => Promise.resolve());
     const out = await simulateDesign(await f67Auto(), { yieldToUi });

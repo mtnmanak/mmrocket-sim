@@ -174,6 +174,8 @@ function writeMountDelay(
 }
 
 export interface LaunchInput extends AssignedMotors {
+  /** Reported flight's series set; full by default. Probes keep their summary default. */
+  reportSeries?: 'full' | 'summary';
   mountNames?: Record<string, string>;
   signal?: AbortSignal;
   yieldToUi?: () => Promise<void>;
@@ -283,9 +285,10 @@ async function flyFromCleanHandle(
     for (const m of delayResolution.mounts) writeMountDelay(rocket, input, m.mountId, readDelay(m.flownDelay));
     input.signal?.throwIfAborted();
     const t0 = now();
-    // Load metrics need the kernel's density and sound speed. Keep solver and
-    // Mach probes lean; only the reported flight pays for full serialization.
-    const result = withLoadSeries(rocket.simulate({ ...simOptions, delayProbe: false, series: 'full' }));
+    // App's load metrics need full density/sound-speed series; headless callers
+    // may choose summary when those metrics are not returned. flyBuiltDesign
+    // selects full for an active airspeed limit, which also needs Vs. Probes stay lean.
+    const result = withLoadSeries(rocket.simulate({ ...simOptions, delayProbe: false, series: input.reportSeries ?? 'full' }));
     execMs = now() - t0;
     // The final normal flight decides aero, not the ballistic probe's descent.
     // Recompute every target after an upgrade, within the SAME eight-probe budget.

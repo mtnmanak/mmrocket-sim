@@ -109,7 +109,16 @@ export const worker = {
       // simulateFile takes withKernel internally. An outer lock here would deadlock.
       // A microtask-only flight has no macrotask cancellation point inside withKernel.
       // The event loop serializes requests; S2 must measure contention/admission externally.
-      const flight = simulateFile(data, filename, { network: 'forbid', yieldToUi: () => Promise.resolve() });
+      // Shipped Wrangler bundles, old unminified kernel/full -> minified ASCII
+      // patched kernel/summary: smallest workerd V8 old-space caps in 2 MiB steps,
+      // worst across measured designs 88 -> 60 MiB, flight-bound worst 88 -> 44,
+      // Worker start floor 38 -> 22; typed-array storage is outside these caps.
+      // 129/129 API responses identical (excluding timing). notes.flight still returns
+      // low rod-exit thrust:weight using the same WGS84 model at pad latitude and
+      // interpolated height rather than reading the kernel's per-step g (which also
+      // follows the rocket's drifting latitude); the difference is at rounding level.
+      // The API returns neither load peaks (maxQ/max q-alpha) nor an airspeed check.
+      const flight = simulateFile(data, filename, { network: 'forbid', reportSeries: 'summary', yieldToUi: () => Promise.resolve() });
       // Defence in depth: keep the real flight and its cleanup alive after disconnect.
       ctx.waitUntil(flight.catch(() => undefined));
       const out = await flight;

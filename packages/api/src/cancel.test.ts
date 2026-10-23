@@ -37,7 +37,7 @@ it('a relay abort signal after an event-loop turn leaves later direct dispatches
       { method: 'POST', body: bytesOf('reference.ork'), signal: AbortSignal.timeout(5000) });
     expect(subsequent.status, await subsequent.clone().text()).toBe(200);
     setXmlParser(jsXmlParser);
-    const node = await simulateFile(bytesOf('reference.ork'), 'reference.ork');
+    const node = await simulateFile(bytesOf('reference.ork'), 'reference.ork', { reportSeries: 'summary' });
     const aborted = [node.result, ...boosterBranches(node.result)].some(branch =>
       branch.events.some(event => event.type === 'SIM_ABORT' || event.type === 'EXCEPTION'));
     expect((await subsequent.json() as { outcome: string }).outcome).toBe(aborted ? 'aborted' : 'completed');

@@ -383,7 +383,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     : bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipCapped(bytes, '.CDX1') : bytes);
   const decoded: { xml: string; note?: string } =
     typeof data === 'string' ? { xml: data } : decodeXml(inflated(new Uint8Array(data)));
-  const xml = decoded.xml.replace(/^﻿?/, '');
+  const xml = decoded.xml.replace(/^\uFEFF?/, '');
   refuseOversizedForeignXml(xml, 'cdx1');
   // Through the parser seam (xmlParse.ts); same message as before it.
   const doc = parseXml(xml, 'Not a valid RASAero file (XML parse error)');

@@ -386,7 +386,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   // (2026-10-01) only happy-dom, the test stand-in, refuses it — Chrome and the
   // JS parser (xmlParseJs.ts) both accept it — so this strip is for the tests;
   // it is harmless under every parser, and kept.
-  xml = xml.replace(/^﻿?\s*<\?xml[^?]*\?>/, '');
+  xml = xml.replace(/^\uFEFF?\s*<\?xml[^?]*\?>/, '');
   // Through the parser seam (xmlParse.ts): the browser's own DOMParser, as
   // before, or the JS parser a Node/Workers entry installs. Same message.
   const rawExtensions = extensionXmlBySimulation(xml);

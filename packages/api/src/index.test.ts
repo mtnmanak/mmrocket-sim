@@ -72,7 +72,7 @@ describe('S1 in real workerd', () => {
 
   it.each(FIXTURES)('%s matches plain Node and returns first/warm timing previews', async (name) => {
     const body = bytesOf(name);
-    const node = await simulateFile(body, name, { network: 'forbid' });
+    const node = await simulateFile(body, name, { network: 'forbid', reportSeries: 'summary' });
     for (const phase of ['first for fixture', 'warm repeat']) {
       const hostStarted = performance.now();
       const response = await normal!.fetch(`http://local/experimental/fly?filename=${encodeURIComponent(name)}`, { method: 'POST', body });
@@ -124,7 +124,7 @@ describe('S1 in real workerd', () => {
 
   it('auto-delay schedules zero timers inside workerd', async () => {
     const body = await autoBody();
-    const node = await simulateFile(body, 'auto.rkt');
+    const node = await simulateFile(body, 'auto.rkt', { reportSeries: 'summary' });
     expect(node.flight.delayResolution.probes).toBeGreaterThan(0);
     expect(node.flight.delayResolution.mounts.some(mount => mount.mode === 'auto')).toBe(true);
     const response = await trapped!.fetch('http://local/experimental/fly?filename=auto.rkt',
@@ -146,7 +146,7 @@ describe('S1 in real workerd', () => {
 
   it.each(['cluster', 'never', 'refused'] as const)('reports the actual %s loadout and build refusals', async kind => {
     const body = kind === 'cluster' ? clusterBody() : secondaryBody(kind);
-    const node = await simulateFile(body, `${kind}.ork`, { network: 'forbid' });
+    const node = await simulateFile(body, `${kind}.ork`, { network: 'forbid', reportSeries: 'summary' });
     const response = await normal!.fetch(`http://local/experimental/fly?filename=${kind}.ork`, { method: 'POST', body });
     expect(response.status, await response.clone().text()).toBe(200);
     const result = await response.json() as FlightResponse;
@@ -166,7 +166,7 @@ describe('S1 in real workerd', () => {
 
   it('keeps same-name bodies and interleaved/reversed designs independent', async () => {
     const bodies = [bytesOf('reference.ork'), clusterBody()];
-    const oracles = await Promise.all(bodies.map(body => simulateFile(body, 'same.ork')));
+    const oracles = await Promise.all(bodies.map(body => simulateFile(body, 'same.ork', { reportSeries: 'summary' })));
     expect(oracles[0]!.result.summary.maxAltitude).not.toBe(oracles[1]!.result.summary.maxAltitude);
     for (const index of [1, 0, 1, 0]) {
       const response = await trapped!.fetch('http://local/experimental/fly?filename=same.ork', { method: 'POST', body: bodies[index]! });
@@ -175,7 +175,7 @@ describe('S1 in real workerd', () => {
       sameNumeric(out.motors, expectedMotors(oracles[index]!));
     }
     for (const name of [...FIXTURES].reverse()) {
-      const node = await simulateFile(bytesOf(name), name);
+      const node = await simulateFile(bytesOf(name), name, { reportSeries: 'summary' });
       const response = await trapped!.fetch(`http://local/experimental/fly?filename=${name}`, { method: 'POST', body: bytesOf(name) });
       close((await response.json() as FlightResponse).apogeeM, node.result.summary.maxAltitude);
     }
@@ -184,7 +184,7 @@ describe('S1 in real workerd', () => {
   it('concurrent requests retain each design\'s own oracle result (statelessness, not lock contention)', async () => {
     const bodies = [await autoBody(), bytesOf('reference.ork'), bytesOf('TubeFins2.rkt')];
     const names = ['auto.rkt', 'reference.ork', 'TubeFins2.rkt'];
-    const nodes = await Promise.all(bodies.map((body, i) => simulateFile(body, names[i]!, { yieldToUi: () => Promise.resolve() })));
+    const nodes = await Promise.all(bodies.map((body, i) => simulateFile(body, names[i]!, { reportSeries: 'summary', yieldToUi: () => Promise.resolve() })));
     const responses = await Promise.all(bodies.map((body, i) => normal!.fetch(`http://local/experimental/fly?filename=${names[i]}`, { method: 'POST', body })));
     for (const [i, response] of responses.entries()) {
       expect(response.status, await response.clone().text()).toBe(200);

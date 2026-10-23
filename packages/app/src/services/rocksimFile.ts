@@ -253,7 +253,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     );
   }
   // RockSim files may lack an XML declaration and can carry stray BOMs.
-  xml = xml.replace(/^﻿?/, '');
+  xml = xml.replace(/^\uFEFF?/, '');
   // happy-dom, the test stand-in, refuses CDATA sections (Chrome and the JS
   // parser, xmlParseJs.ts, both read them; measured 2026-10-01). RockSim only
   // uses them for plain text (PartDesc etc.), so inline-escape: harmless under

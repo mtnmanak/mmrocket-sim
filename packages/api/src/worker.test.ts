@@ -78,6 +78,7 @@ it('keeps waitUntil pending for the real flight and passes a timer-free yield', 
     expect(settled).toBe(false);
     const options = vi.mocked(simulateFile).mock.calls[0]![2]!;
     expect(options.network).toBe('forbid');
+    expect(options.reportSeries).toBe('summary');
     let macrotaskRan = false;
     const timeout = setTimeout(() => { macrotaskRan = true; }, 0);
     const immediate = setImmediate(() => { macrotaskRan = true; });
@@ -96,7 +97,7 @@ it('keeps waitUntil pending for the real flight and passes a timer-free yield', 
 
 it('filters the motor list using projected ignition, including tree defaults', async () => {
   const actual = await vi.importActual<typeof import('../../app/src/headless/index.js')>('../../app/src/headless/index.js');
-  const out = await actual.simulateFile(bytesOf('reference.ork'), 'reference.ork');
+  const out = await actual.simulateFile(bytesOf('reference.ork'), 'reference.ork', { reportSeries: 'summary' });
   const id = out.flight.delayResolution.mounts[0]!.mountId;
   // Simulate the editor state returned alongside a flight whose tree default is never.
   out.state.tree.ignitionDefaults = { [id]: { event: 'never', delay: 0 } };

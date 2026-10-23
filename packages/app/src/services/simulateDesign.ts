@@ -67,6 +67,8 @@ import type { WeatherSnapshot } from './weatherSnapshot.js';
 
 /** App's state as one Launch reads it, with the design already built. */
 export interface BuiltLaunchInput<R extends BuildHandle = OrkRocket> {
+  /** Reported series set; see SimulateDesignOptions.reportSeries. App leaves this absent. */
+  reportSeries?: 'full' | 'summary';
   weatherSnapshot?: WeatherSnapshot | null;
   units?: UnitSelection;
   advisoryLimits?: FlightAdvisories;
@@ -153,6 +155,8 @@ export async function flyBuiltDesign<R extends BuildHandle>(
     // runner calls it after its last await: on a design opened meanwhile it
     // put "M+" on the strip and flew every later flight supersonic.
     onSupersonicUpgrade: input.onSupersonicUpgrade,
+    ...(input.reportSeries ? { reportSeries: input.reportSeries === 'summary' && advisoryLimits?.maxAirspeedMs !== undefined
+      ? 'full' : input.reportSeries } : {}),
     ...(signal ? { signal } : {}),
     ...(now ? { now } : {}),
     ...(input.yieldToUi ? { yieldToUi: input.yieldToUi } : {}),
@@ -244,6 +248,23 @@ export async function flyBuiltDesign<R extends BuildHandle>(
 export const APP_DEFAULT_AERO: AeroState = { ...effectiveAero(DEFAULT_PREFS, null), autoSupersonic: false };
 
 export interface SimulateDesignOptions {
+  /**
+   * Reported flight's series set, default 'full'. 'summary' keeps friendly keys,
+   * activeLength, Pl/θl/Px/Py, dΦ and Vz; it omits ρ,
+   * Vs, g and all other full-only symbols (atmosphere, forces, coefficients, etc.).
+   * The run's load peaks are then null; maxAirspeedMs is unavailable (omitted
+   * without advisory limits, null when other limits are active). A finite positive
+   * advisoryLimits.maxAirspeedMs activates the airspeed check and overrides
+   * 'summary' with 'full', preserving Vs and evaluation of that limit.
+   * Rod-exit thrust-to-weight uses the same WGS84 model evaluated at the pad
+   * latitude and interpolated height rather than reading the kernel's per-step
+   * g (which also follows the rocket's drifting latitude); the difference is
+   * at rounding level. The API returns a low
+   * thrust-to-weight warning in notes.flight; 129/129 corpus API responses
+   * were identical. It returns neither load peaks (maxQ/max q-alpha) nor
+   * an airspeed check, and requests summary without advisory limits.
+   */
+  reportSeries?: 'full' | 'summary';
   /** Optional host yield; the headless barrel supplies a microtask-only default. */
   yieldToUi?: () => Promise<void>;
   advisoryLimits?: FlightAdvisories;
@@ -429,6 +450,7 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
   let flown: Awaited<ReturnType<typeof flyBuiltDesign>>;
   try {
     flown = await flyBuiltDesign({
+      ...(opts.reportSeries ? { reportSeries: opts.reportSeries } : {}),
       units: opts.units,
       advisoryLimits: opts.advisoryLimits,
       built,

@@ -425,7 +425,7 @@ export function describeRow(m: MotorDbEntry, all: readonly MotorDbEntry[] = [m])
  * writes opens with `Motor “<designation>”`, and the count goes after it.
  */
 export function withMountCount(note: string, mounts: number): string {
-  return mounts > 1 ? note.replace(/^(Motor “[^”]*”)/, `$1 (${mounts} mounts)`) : note;
+  return mounts > 1 ? note.replace(/^(Motor \u201C[^\u201D]*\u201D)/, `$1 (${mounts} mounts)`) : note;
 }
 
 /**

@@ -113,6 +113,23 @@ describe('Hybrid handle protocol', () => {
   });
 });
 
+describe('reported flight series selection', () => {
+  it.each([undefined, 'full', 'summary'] as const)('requests %s while leaving probes on their default', async (reportSeries) => {
+    const { handle } = recordingHandle();
+    const simulate = handle.simulate;
+    const options: Parameters<FlightHandle['simulate']>[0][] = [];
+    handle.simulate = (o) => { options.push(o); return simulate(o); };
+    await flyLaunch(handle, { ...staged(true), aeroMode: 'auto',
+      ...(reportSeries ? { reportSeries } : {}) });
+    const reported = options.filter(o => o?.delayProbe === false);
+    const probes = options.filter(o => o?.delayProbe !== false);
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.series).toBe(reportSeries ?? 'full');
+    expect(probes.length).toBeGreaterThan(1); // Mach and delay probes both ran.
+    expect(probes.every(o => o?.series === undefined)).toBe(true);
+  });
+});
+
 describe('Auto atmosphere upgrade (OR #2731)', () => {
   it.each(['probe', 'final'] as const)('switches pad air when the %s flight upgrades', async (when) => {
     const { handle } = recordingHandle();
