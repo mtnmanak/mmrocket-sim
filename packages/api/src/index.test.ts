@@ -261,7 +261,10 @@ describe('S1 in real workerd', () => {
   });
 
   it('HTTP smoke: an oversize upload is refused (early cancellation is checked inside workerd below)', async () => {
-    let remaining = 9 * 1024 * 1024;
+    // Exactly one byte over the 8 MiB cap: the refusal then lands as the upload ends. A larger body leaves bytes
+    // unsent when the Worker cancels, and Wrangler's dev proxy loses the next request on that connection
+    // ("Network connection lost" — CI run 40059718401, the no-motor test two tests later).
+    let remaining = 8 * 1024 * 1024 + 1;
     const body = new ReadableStream<Uint8Array>({ pull(controller) {
       if (!remaining) { controller.close(); return; }
       const size = Math.min(1024 * 1024, remaining);
