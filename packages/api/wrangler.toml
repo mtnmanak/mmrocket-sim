@@ -10,7 +10,6 @@ port = 8787
 
 
 # Deployed 2026-10-23: the heaviest corpus design took 47-56 s warm and was killed at 60 s
-# on cold isolates. Held at 60 s for one deploy that checks the dead-holder 503 on Cloudflare
-# itself; then the 300 s maximum. Local workerd does not enforce it.
+# on cold isolates. Paid Workers' maximum is 300 s; local workerd does not enforce it.
 [limits]
-cpu_ms = 60000
+cpu_ms = 300000
