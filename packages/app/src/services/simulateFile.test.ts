@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { zipSync } from 'fflate';
 import presetsJson from '../data/presets.json';
 import { INITIAL_UNITS } from '../prefs/units.js';
 import { defaultTree, motorMounts } from '../tree/treeModel.js';
@@ -20,6 +21,7 @@ import { simulateFile, simulateImported } from './simulateFile.js';
 import { addExMotors, parseEng } from './exMotors.js';
 import { resetThrustcurveBackoffForTests } from './thrustcurveTraffic.js';
 import { bundledOnlyFetchSpec, bundleHasCurve } from './thrustcurve.js';
+import { InflatedFileTooLargeError, MAX_ZIP_MEMBER_BYTES } from './zipMember.js';
 
 /**
  * THE HEADLESS OPEN (2026-10-01): a design file's bytes, flown as the app opens
@@ -70,6 +72,19 @@ const buffer = (name: string): ArrayBuffer => {
 };
 
 describe('simulateFile flies a design file offline, on the shipped data', () => {
+  it('floors the parsed step before planning without mutating the imported launch', async () => {
+    const imported = importOrk(buffer('reference.ork'));
+    imported.launch = { ...imported.launch, timeStepS: 0.01 };
+    const launch = imported.launch;
+    vi.mocked(importOrk).mockReturnValueOnce(imported);
+    const out = await simulateFile(bytes('reference.ork'), 'reference.ork', { minTimeStepS: 0.05 });
+    expect(out.plan.snapshot.launch.timeStepS).toBe(0.05);
+    expect(out.timeStepFloor).toEqual({ appStepS: 0.01, flownStepS: 0.05 });
+    expect(out.importNote.text).not.toContain('Flights here now use a 0.01 s');
+    expect(imported.launch).toBe(launch);
+    expect(launch.timeStepS).toBe(0.01);
+  }, 60_000);
+
   it('times the importer separately from motor resolution and the flight', async () => {
     let clock = 100;
     const now = () => clock;
@@ -382,6 +397,23 @@ describe('simulateFile stops when the caller cancels', () => {
 });
 
 describe('simulateFile says why it did not fly', () => {
+  it.each([undefined, 1024])('wraps inflated-size errors unless a cap is explicitly supplied (%s)', async cap => {
+    // An oversized declaration is refused before decoding, so no large allocation is needed.
+    const zip = zipSync({ 'rocket.ork': new Uint8Array(1) });
+    const view = new DataView(zip.buffer);
+    const end = zip.length - 22;
+    const central = view.getUint32(end + 16, true);
+    view.setUint32(central + 24, MAX_ZIP_MEMBER_BYTES + 1, true);
+    const err: unknown = await simulateFile(zip, 'large.ork', { presets: [], maxInflatedBytes: cap }).catch((e: unknown) => e);
+    if (cap !== undefined) {
+      expect(err).toBeInstanceOf(InflatedFileTooLargeError);
+    } else {
+      expect(err).toBeInstanceOf(SimulateDesignError);
+      expect(err).toMatchObject({ kind: 'parse', cause: expect.any(InflatedFileTooLargeError) });
+      expect((err as Error).message).toBe(designFileOpenFailure('large.ork', (err as Error).cause));
+    }
+  });
+
   it("'file': one byte over the limit is refused with the app’s sentence, before the importer runs", async () => {
     const err = await simulateFile(new Uint8Array(MAX_DESIGN_FILE_BYTES + 1), 'huge.ork').catch((e: unknown) => e);
     expect(err).toMatchObject({ kind: 'file', message: 'huge.ork is 64 MB — that is not a rocket design. Nothing was opened.' });

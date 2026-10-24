@@ -17,7 +17,7 @@ import {
 } from './designDerivation.js';
 import { aeroModelFor, rogersKbfFor, stageMotorInfo } from './flightPipeline.js';
 import { flyLaunch, type LaunchFlight } from './flightRunner.js';
-import { kernelSimOptions, type LaunchConditions } from './launchConditions.js';
+import { DEFAULT_TIME_STEP_S, kernelSimOptions, type LaunchConditions } from './launchConditions.js';
 import { applyLegacyPadMassStep } from './padMassReconcile.js';
 import type { HeldNote } from './notices.js';
 import { buildSimRun, type DesignMatchKey, type FreshSimRun } from './simReport.js';
@@ -248,6 +248,10 @@ export async function flyBuiltDesign<R extends BuildHandle>(
 export const APP_DEFAULT_AERO: AeroState = { ...effectiveAero(DEFAULT_PREFS, null), autoSupersonic: false };
 
 export interface SimulateDesignOptions {
+  /** API-only dead-holder detection; unsafe with browser macrotask yields. Absent: wait indefinitely. */
+  kernelDeadHolderMs?: number;
+  /** Optional floor shared by the reported flight, auto-delay probes and Mach probe. */
+  minTimeStepS?: number;
   /**
    * Reported flight's series set, default 'full'. 'summary' keeps friendly keys,
    * activeLength, Pl/θl/Px/Py, dΦ and Vz; it omits ρ,
@@ -338,6 +342,13 @@ export class SimulateDesignError extends Error {
   }
 }
 
+export class KernelUnavailableError extends Error {
+  constructor() {
+    super('A previous flight on this server instance was stopped part-way; please retry.');
+    this.name = 'KernelUnavailableError';
+  }
+}
+
 /**
  * ONE HEADLESS LAUNCH AT A TIME. A build resets the kernel, which makes every
  * earlier handle throw "stale engine handle" (packages/engine orkEngine.ts),
@@ -353,22 +364,62 @@ export class SimulateDesignError extends Error {
  *
  * App does not take this lock: it never calls `simulateDesign` (see the header).
  */
-let tail: Promise<void> = Promise.resolve();
+let tail: Promise<void> | undefined;
+let poisoned = false;
 
-export function withKernel<T>(fn: () => Promise<T> | T, signal?: AbortSignal): Promise<T> {
+/** @internal Only tests may discard the queue and poisoned state; production must replace the isolate. */
+export function resetKernelForTests(): void {
+  tail = undefined;
+  poisoned = false;
+}
+
+export function withKernel<T>(
+  fn: () => Promise<T> | T, signal?: AbortSignal, opts?: { deadHolderMs?: number },
+): Promise<T> {
+  if (poisoned) return Promise.reject(new KernelUnavailableError());
   if (signal?.aborted) return Promise.reject(abortReason(signal));
+  const waiting = tail !== undefined;
   let started = false;
-  const run = tail.then(() => {
+  let expired = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const clearTimer = () => { if (timer !== undefined) { clearTimeout(timer); timer = undefined; } };
+  const run = (tail ?? Promise.resolve()).then(() => {
+    // A timed-out waiter must never touch the static kernel, even if the old
+    // holder eventually settles. Poison also refuses already-queued callers.
+    if (expired || poisoned) throw new KernelUnavailableError();
     refuseIfAborted(signal);
     started = true;
+    clearTimer();
     return fn();
   });
-  tail = run.then(() => undefined, () => undefined);
-  if (!signal) return run;
+  const next = run.then(() => undefined, () => undefined);
+  tail = next;
+  void next.then(() => { if (tail === next) tail = undefined; });
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () => { if (!started) reject(abortReason(signal)); };
-    signal.addEventListener('abort', onAbort, { once: true });
-    run.then(resolve, reject).finally(() => { signal.removeEventListener('abort', onAbort); });
+    const onAbort = () => {
+      if (!started) { clearTimer(); reject(abortReason(signal!)); }
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
+    if (waiting && opts?.deadHolderMs !== undefined) {
+      // API-only: a timer can fire only when the event loop is idle. All work
+      // inside that lock is microtask-only: yieldToUi returns Promise.resolve(),
+      // bypassing autoDelaySolver's setTimeout fallback. A fired timer means
+      // no holder is running. Browser yields are macrotasks, so this argument
+      // is NOT sound there; the browser must leave this option off.
+      timer = setTimeout(() => {
+        if (!started) {
+          expired = true;
+          poisoned = true;
+          signal?.removeEventListener('abort', onAbort);
+          clearTimer();
+          reject(new KernelUnavailableError());
+        }
+      }, opts.deadHolderMs);
+    }
+    void run.then(resolve, reject).then(() => {
+      clearTimer();
+      signal?.removeEventListener('abort', onAbort);
+    });
   });
 }
 
@@ -395,7 +446,11 @@ function abortReason(signal: AbortSignal): Error {
  * Nothing is persisted: `addRun` and every other write stay with App.
  */
 export function simulateDesign(state: DesignState, opts: SimulateDesignOptions = {}): Promise<SimulateDesignResult> {
-  return withKernel(() => simulateDesignNow(state, opts), opts.signal);
+  // The dead-holder watchdog requires microtask-only yields inside the lock.
+  if (opts.kernelDeadHolderMs !== undefined && opts.yieldToUi === undefined) {
+    opts = { ...opts, yieldToUi: () => Promise.resolve() };
+  }
+  return withKernel(() => simulateDesignNow(state, opts), opts.signal, { deadHolderMs: opts.kernelDeadHolderMs });
 }
 
 function buildOrThrow(
@@ -417,6 +472,9 @@ function buildOrThrow(
 }
 
 async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions): Promise<SimulateDesignResult> {
+  if (opts.minTimeStepS !== undefined && (input.launch.timeStepS ?? DEFAULT_TIME_STEP_S) < opts.minTimeStepS) {
+    input = { ...input, launch: { ...input.launch, timeStepS: opts.minTimeStepS } };
+  }
   const refusal = input.savedConfigs.find(c => c.id === input.activeConfigId)?.motorLoadoutRefusal;
   if (refusal) throw new SimulateDesignError('flight', refusal);
   const aero = opts.aero ?? APP_DEFAULT_AERO;

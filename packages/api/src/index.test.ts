@@ -1,13 +1,14 @@
+import { gzipSync, zipSync } from 'fflate';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { unstable_startWorker } from 'wrangler';
 import {
-  APP_VERSION, CURVES_GENERATED, MAX_DESIGN_FILE_BYTES, MOTORS_GENERATED,
+  APP_VERSION, CURVES_GENERATED, MOTORS_GENERATED,
   commentsOf, jsXmlParser, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser, simulateFile,
 } from '../../app/src/headless/index.js';
 import { boosterBranches } from '@online-openrocket/engine';
-import { autoBody, bytesOf, clusterBody, missingCurveBody, secondaryBody } from './fixtures.testSupport.js';
+import { autoBody, bytesOf, clusterBody, missingCurveBody, secondaryBody, timeStepBody } from './fixtures.testSupport.js';
 
 type LocalWorker = Awaited<ReturnType<typeof unstable_startWorker>>;
 interface FlightResponse {
@@ -23,7 +24,7 @@ interface FlightResponse {
   flightTimeS: number;
   motors: { mount: string; manufacturer: string; designation: string; count: number; delayS: number | 'plugged' }[];
   warnings: { message: string }[];
-  notes: { import: unknown; padMass: unknown; flight: unknown[] };
+  notes: { api: string[]; import: { text: string; group: { lines: { text: string }[] } }; padMass: unknown; flight: unknown[] };
   timing: { basis: string; parseMs: number; flyMs: number; totalMs: number };
 }
 const FIXTURES = ['reference.ork', 'TubeFins2.rkt', 'Show-off.CDX1'] as const;
@@ -61,6 +62,61 @@ afterAll(async () => {
 });
 
 describe('S1 in real workerd', () => {
+  it('returns 503 with retry guidance when a dead holder poisons the kernel', async () => {
+    const response = await trapped!.fetch('http://local/__test/dead-kernel',
+      { method: 'POST', body: bytesOf('reference.ork') });
+    expect(response.status).toBe(503);
+    expect(response.headers.get('retry-after')).toBe('5');
+    expect(await response.json()).toEqual({ error: { code: 'KERNEL_UNAVAILABLE',
+      message: expect.stringMatching(/previous flight.*stopped part-way.*retry/i) } });
+  }, 60_000);
+
+  it.each([['ork', 'zip'], ['ork', 'gzip'], ['rkt', 'zip'], ['rkt', 'gzip']] as const)(
+    'rejects oversized inflated %s XML in %s as 413', async (extension, compression) => {
+      const xml = new Uint8Array(16 * 1024 * 1024 + 1);
+      const body = compression === 'zip' ? zipSync({ ['rocket.' + extension]: xml }) : gzipSync(xml);
+      const response = await normal!.fetch('http://local/experimental/fly?filename=large.' + extension,
+        { method: 'POST', body });
+      expect(response.status).toBe(413);
+      expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
+        message: expect.stringMatching(/16 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
+    });
+
+  it.each([0.005, 0.01, 0.05, 0.1])('flies an own-file step of %s s with the API floor and reports any change', async step => {
+    const body = timeStepBody(step);
+    const node = await simulateFile(body, 'step.ork', { reportSeries: 'summary', minTimeStepS: 0.05 });
+    expect(node.run.timeStepS).toBe(Math.max(step, 0.05));
+    const response = await normal!.fetch('http://local/experimental/fly?filename=step.ork',
+      { method: 'POST', body });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const result = await response.json() as FlightResponse;
+    // workerd and Node can part in the last bits, and a coarse step lets that move an event: compare at the
+    // event-time tolerance, then prove the floor by distance — nearer the floored oracle than the file's own step.
+    close(result.apogeeM, node.result.summary.maxAltitude, true);
+    close(result.flightTimeS, node.result.summary.flightTime, true);
+    if (step < 0.05) {
+      const unfloored = await simulateFile(body, 'step.ork', { reportSeries: 'summary' });
+      expect(unfloored.run.timeStepS).toBe(Math.max(step, 0.01));
+      const floored = node.result.summary.maxAltitude, raw = unfloored.result.summary.maxAltitude;
+      expect(raw).not.toBe(floored);
+      expect(Math.abs(result.apogeeM - floored)).toBeLessThan(Math.abs(result.apogeeM - raw));
+    }
+    expect(result.notes.api).toEqual(step < 0.05
+      ? ['This API flies at a time step of at least 0.05 s; in the app this design flies at 0.01 s.'] : []);
+    for (const text of [result.notes.import.text, ...result.notes.import.group.lines.map(line => line.text)]) {
+      expect(text).not.toContain('Flights here now use a 0.01 s');
+    }
+    if (step === 0.005) expect(result.notes.import.text).toMatch(/0\.005 s[\s\S]*0\.01 s/);
+  }, 60_000);
+
+  it('accepts exactly 8 MiB at the body cap and parses the received bytes', async () => {
+    const body = new Uint8Array(8 * 1024 * 1024);
+    body.fill(32);
+    const response = await normal!.fetch('http://local/experimental/fly?filename=boundary.ork', { method: 'POST', body });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: 'INVALID_FILE' } });
+  });
+
   it('/health identifies the actual app, public engine and bundled snapshots', async () => {
     const response = await normal!.fetch('http://local/health');
     expect(response.status).toBe(200);
@@ -98,7 +154,7 @@ describe('S1 in real workerd', () => {
       if (name === 'TubeFins2.rkt') expect(result.warnings.map(w => w.message)).toContain(
         'Airframe diameter steps abruptly — drag predictions suffer — : "Nose cone", "Forward Fuselage Tube"');
       expect(result.warnings.every(w => !w.message.includes(': :'))).toBe(true);
-      expect(result.notes).toEqual({ import: node.importNote, padMass: node.padMassNote, flight: commentsOf(node.run) });
+      expect(result.notes).toEqual({ api: [], import: node.importNote, padMass: node.padMassNote, flight: commentsOf(node.run) });
       expect(result.timing.basis).toContain('not CPU time');
       expect(result.timing.basis).toContain('local-only');
       const { basis: _basis, ...times } = result.timing;
@@ -201,11 +257,11 @@ describe('S1 in real workerd', () => {
   it('rejects a declared oversize body before parsing', async () => {
     const response = await trapped!.fetch('http://local/__test/declared-oversize');
     expect(response.status).toBe(413);
-    expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE', message: expect.stringMatching(/67,108,864 bytes; received 67,108,865 bytes/) } });
+    expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE', message: expect.stringMatching(/8 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
   });
 
   it('HTTP smoke: an oversize upload is refused (early cancellation is checked inside workerd below)', async () => {
-    let remaining = MAX_DESIGN_FILE_BYTES + 1;
+    let remaining = 9 * 1024 * 1024;
     const body = new ReadableStream<Uint8Array>({ pull(controller) {
       if (!remaining) { controller.close(); return; }
       const size = Math.min(1024 * 1024, remaining);
@@ -225,7 +281,7 @@ describe('S1 in real workerd', () => {
       const response = await trapped!.fetch(`http://local${path}`);
       expect(response.status).toBe(413);
       expect(response.headers.get('x-test-reader-cancelled')).toBe('true');
-      expect(response.headers.get('x-test-bytes-read')).toBe(String(MAX_DESIGN_FILE_BYTES + 1));
+      expect(response.headers.get('x-test-bytes-read')).toBe(String(8 * 1024 * 1024 + 1));
     });
 
   it('hides unexpected failures behind a stable JSON 500', async () => {

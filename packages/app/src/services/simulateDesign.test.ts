@@ -77,6 +77,45 @@ describe('APP_DEFAULT_AERO', () => {
 });
 
 describe('simulateDesign flies the design', () => {
+  it('defaults to microtask yields with the watchdog on during an auto-delay flight', async () => {
+    const input = await f67Auto();
+    const timer = vi.spyOn(globalThis, 'setTimeout');
+    try {
+      const out = await simulateDesign(input, { kernelDeadHolderMs: 10_000 });
+      expect(out.flight.delayResolution.probes).toBeGreaterThan(0);
+      expect(out.flight.delayResolution.mounts.some(mount => mount.mode === 'auto')).toBe(true);
+      expect(timer).not.toHaveBeenCalled();
+    } finally { timer.mockRestore(); }
+  }, 60_000);
+
+  it('floors every Auto/Mach probe and reported flight only when opted in', async () => {
+    const input = await f67Auto();
+    input.launch = { ...input.launch, timeStepS: 0.01 };
+    const observed: number[] = [];
+    const originalBuild = KERNEL_HANDLES.build;
+    const handles = { ...KERNEL_HANDLES, build: (...args: Parameters<typeof originalBuild>) => {
+      const rocket = originalBuild(...args);
+      const simulate = rocket.simulate.bind(rocket);
+      vi.spyOn(rocket, 'simulate').mockImplementation(options => {
+        observed.push(options?.timeStep ?? 0.05);
+        return simulate(options);
+      });
+      return rocket;
+    } };
+    const normal = await simulateDesign(input, { handles, aero: AUTO });
+    expect(observed.length).toBeGreaterThan(1);
+    expect(observed.every(step => step === 0.01)).toBe(true);
+    expect(normal.run.timeStepS).toBe(0.01);
+    observed.length = 0;
+    const floored = await simulateDesign(input, { handles, aero: AUTO, minTimeStepS: 0.05 });
+    expect(floored.flight.delayResolution.probes).toBeGreaterThan(0);
+    expect(floored.autoSupersonic).toBe(true);
+    expect(observed.length).toBeGreaterThan(1);
+    expect(observed.every(step => step === 0.05)).toBe(true);
+    expect(floored.run.timeStepS).toBe(0.05);
+    expect(input.launch.timeStepS).toBe(0.01);
+  }, 60_000);
+
   it('threads summary series through the headless Launch and leaves full as the default', async () => {
     const input = await starter();
     const full = await simulateDesign(input);

@@ -75,6 +75,8 @@ export type DesignFormat = 'ork' | 'rkt' | 'cdx1';
 
 /** What the file door reads a design with; see {@link parseDesignFile}. */
 export interface DesignFileOptions {
+  /** Optional inflated XML cap for ZIP/gzip design files. */
+  maxInflatedBytes?: number;
   presets: readonly Preset[];
   /** Legacy option name: the caller's Altitude selection for new height notes. */
   distanceUnit?: string;
@@ -117,7 +119,7 @@ export async function parseDesignFile(
 ): Promise<ImportedDesign> {
   switch (designFormatOf(fileName)) {
     case 'rkt':
-      return { ...importRkt(data, { presets: opts.presets, catalogue: opts.catalogue,
+      return { ...importRkt(data, { maxInflatedBytes: opts.maxInflatedBytes, presets: opts.presets, catalogue: opts.catalogue,
         ...(opts.horizontalDistanceUnit !== undefined ? { horizontalDistanceUnit: opts.horizontalDistanceUnit } : {}),
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) }), sourceFormat: 'rkt' };
     case 'cdx1':
@@ -125,7 +127,7 @@ export async function parseDesignFile(
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}),
         ...(opts.flownSpec ? { flownSpec: opts.flownSpec } : {}) }), sourceFormat: 'cdx1' };
     case 'ork':
-      return { ...importOrk(data, { presets: opts.presets,
+      return { ...importOrk(data, { maxInflatedBytes: opts.maxInflatedBytes, presets: opts.presets,
         ...(opts.horizontalDistanceUnit !== undefined ? { horizontalDistanceUnit: opts.horizontalDistanceUnit } : {}),
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) }), sourceFormat: 'ork' };
   }

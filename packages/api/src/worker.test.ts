@@ -26,9 +26,10 @@ it.each([undefined, '3', '1', '10'])('assembles received bytes with Content-Leng
   expect([...new Uint8Array(data as ArrayBuffer)]).toEqual([1, 2, 3]);
 });
 
-it('assembles only received bytes with no ArrayBuffer reservation or slice despite a declared 64 MiB length', async () => {
+it('assembles only received bytes with no ArrayBuffer reservation or slice despite a declared 8 MiB length', async () => {
   const request = new Request(url, { method: 'POST', body: new Uint8Array(10) });
-  request.headers.set('Content-Length', String(64 * 1024 * 1024));
+  // The API's body cap: a declared length AT the cap is read, so only received bytes may be allocated.
+  request.headers.set('Content-Length', String(8 * 1024 * 1024));
   const sizes: number[] = [];
   const reservations: number[] = [];
   const slices: unknown[][] = [];

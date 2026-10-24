@@ -1,6 +1,7 @@
 import { fetchAttempts, timerCalls } from './networkTrap.testSupport.js';
 import { worker } from './index.js';
-import { MAX_DESIGN_FILE_BYTES } from '../../app/src/headless/index.js';
+import { resetKernelForTests, withKernel } from '../../app/src/services/simulateDesign.js';
+const BODY_CAP = 8 * 1024 * 1024;
 
 // eslint-disable-next-line no-restricted-syntax -- Test-only Cloudflare module entry requires a default export.
 export default {
@@ -8,11 +9,18 @@ export default {
     const pending: Promise<unknown>[] = [];
     const ctx = { waitUntil(p: Promise<unknown>) { pending.push(p); runtime.waitUntil(p); } };
     const path = new URL(request.url).pathname;
+    if (path === '/__test/dead-kernel') {
+      resetKernelForTests();
+      void withKernel(() => new Promise(() => {}));
+      try {
+        return await worker.fetch(new Request('http://local/experimental/fly?filename=reference.ork', request), undefined, ctx);
+      } finally { resetKernelForTests(); }
+    }
     // Wrangler's HTTP proxy normalizes Content-Length. Exercise the early
     // refusal with a Request created inside workerd, before that proxy boundary.
     if (path === '/__test/declared-oversize') {
       const large = new Request('http://local/experimental/fly?filename=large.ork', { method: 'POST', body: 'x' });
-      large.headers.set('Content-Length', String(MAX_DESIGN_FILE_BYTES + 1));
+      large.headers.set('Content-Length', String(BODY_CAP + 1));
       return worker.fetch(large, undefined, ctx);
     }
     if (path.startsWith('/__test/streamed-cap') || path === '/__test/body-error') {
@@ -22,11 +30,11 @@ export default {
       const chunk = new Uint8Array(1024 * 1024);
       const body = new ReadableStream<Uint8Array>({
         pull(controller) {
-          if (path === '/__test/body-error' || sent > MAX_DESIGN_FILE_BYTES) {
+          if (path === '/__test/body-error' || sent > BODY_CAP) {
             controller.error(new Error('Private body reader failure; must never reach the JSON response.'));
             return;
           }
-          const bytes = Math.min(chunk.byteLength, MAX_DESIGN_FILE_BYTES + 1 - sent);
+          const bytes = Math.min(chunk.byteLength, BODY_CAP + 1 - sent);
           controller.enqueue(chunk.subarray(0, bytes));
           sent += bytes;
         },

@@ -45,3 +45,9 @@ export function secondaryBody(kind: 'never' | 'refused') {
   }
   return orkOf(xml.replace('</innertube>', `</innertube>${mount}`));
 }
+
+export const timeStepBody = (step: number) => orkOf(referenceXml()
+  .replace('creator="OpenRocket 24.12"', 'creator="MMRocket Sim"')
+  .replace('<simulations>', `<simulations><simulation status="notsimulated"><name>Step test</name><conditions>
+    <configid>b61d1bfe-9ef0-4607-9756-382bf2bab907</configid><timestep>${step}</timestep>
+    </conditions></simulation>`));

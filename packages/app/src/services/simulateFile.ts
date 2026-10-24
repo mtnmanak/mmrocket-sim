@@ -1,3 +1,4 @@
+import { InflatedFileTooLargeError } from './zipMember.js';
 import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
 import { designFileOpenFailure, designFileTooLarge, openDesignFile } from './designFile.js';
@@ -46,6 +47,8 @@ import { statedWeightTextFor } from './unitText.js';
  */
 
 export interface SimulateFileOptions extends SimulateDesignOptions {
+  /** Optional inflated XML cap; absent retains the browser default. */
+  maxInflatedBytes?: number;
   /** The Launch panel's conditions the file's own are merged onto (planImport's). Default DEFAULT_CONDITIONS. */
   launch?: LaunchConditions;
   /** The parts catalogue a file's parts link against. Default: the shipped presets only (`loadBundledPresets`). */
@@ -68,6 +71,8 @@ export interface SimulateFileResult extends SimulateDesignResult {
 }
 
 export interface TimedSimulateFileResult extends SimulateFileResult {
+  /** Present only when the host's floor raised the step the app would fly after import. */
+  timeStepFloor?: { appStepS: number; flownStepS: number };
   /** Wall time, not CPU: includes event-loop waiting and any host-side lock contention. */
   timing: { parseMs: number; flyMs: number; totalMs: number };
 }
@@ -90,18 +95,25 @@ export async function simulateFile(
     const aero = opts.aero ?? APP_DEFAULT_AERO;
     // The curve load the default match below flies, so a .CDX1's stated launch
     // weight is backed out with the mass that flight carries.
-    imported = await openDesignFile(buffer, fileName, { presets, distanceUnit: (opts.units ?? INITIAL_UNITS).altitude,
+    imported = await openDesignFile(buffer, fileName, { maxInflatedBytes: opts.maxInflatedBytes, presets, distanceUnit: (opts.units ?? INITIAL_UNITS).altitude,
       horizontalDistanceUnit: (opts.units ?? INITIAL_UNITS).distance,
       aeroChoice: aero.aeroMode === 'classic' ? (aero.effectiveKbf ? 'kbf' : 'eb') : aero.aeroMode,
       catalogue: opts.network === 'allow' ? undefined : MOTOR_DB,
       flownSpec: opts.network === 'allow' ? (m, d) => fetchMotorSpec(m, d, opts.signal) : bundledOnlyFetchSpec });
   } catch (e) {
+    if (opts.maxInflatedBytes !== undefined && e instanceof InflatedFileTooLargeError) throw e;
     throw new SimulateDesignError('parse', designFileOpenFailure(fileName, e), { cause: e });
   }
   const parsed = now();
+  const appStepS = imported.launch?.timeStepS;
+  const timeStepFloor = opts.minTimeStepS !== undefined && typeof appStepS === 'number' && appStepS < opts.minTimeStepS
+    ? { appStepS, flownStepS: opts.minTimeStepS } : undefined;
+  if (timeStepFloor) {
+    imported = { ...imported, launch: { ...imported.launch, timeStepS: timeStepFloor.flownStepS } };
+  }
   const out = await simulateImported(imported, opts);
   const finished = now();
-  return { ...out, timing: { parseMs: parsed - started, flyMs: finished - parsed, totalMs: finished - started } };
+  return { ...out, ...(timeStepFloor ? { timeStepFloor } : {}), timing: { parseMs: parsed - started, flyMs: finished - parsed, totalMs: finished - started } };
 }
 
 /**

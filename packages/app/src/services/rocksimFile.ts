@@ -210,6 +210,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    */
   distanceUnit?: string;
   horizontalDistanceUnit?: string;
+  /** Optional host cap; browser imports retain the shared 64 MiB default. */
+  maxInflatedBytes?: number;
 }): LayeredOrkImportResult {
   let xml: string;
   // Set when the bytes were not valid UTF-8 and named no other encoding (see
@@ -232,8 +234,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     // its bytes reached the XML parser here as "XML parse error". A damaged
     // one is refused as damaged (zipMember.ts gunzipCapped).
     ({ xml, note: encodingNote } = decodeXml(bytes[0] === 0x50 && bytes[1] === 0x4b
-      ? unzipMember(bytes, '.rkt', '.rkt')
-      : bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipCapped(bytes, '.rkt') : bytes));
+      ? unzipMember(bytes, '.rkt', '.rkt', opts?.maxInflatedBytes)
+      : bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipCapped(bytes, '.rkt', opts?.maxInflatedBytes) : bytes));
   }
   // Old RockSim (pre-9) wrote a BINARY design format, signature "[[RS001024RS]]"
   // in the first bytes. Neither we nor desktop OpenRocket can read it, but it IS

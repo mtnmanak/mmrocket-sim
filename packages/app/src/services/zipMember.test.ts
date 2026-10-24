@@ -1,6 +1,6 @@
 import { Deflate, gunzipSync, gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
-import { gunzipCapped, MAX_ZIP_ENTRIES, MAX_ZIP_MEMBER_BYTES, unzipMember } from './zipMember.js';
+import { InflatedFileTooLargeError, gunzipCapped, MAX_ZIP_ENTRIES, MAX_ZIP_MEMBER_BYTES, unzipMember } from './zipMember.js';
 
 /**
  * The zip reader both design importers share, attacked directly. The import-
@@ -417,4 +417,45 @@ it('S1a-2 caps empty gzip members before decoding the next payload', () => {
   for (const kind of ['.ork', '.rkt', '.CDX1']) {
     expect(() => gunzipCapped(members(1001), kind)).toThrow(/^This compressed .*more than 1,000 gzip members/);
   }
+});
+
+describe('optional inflated-byte cap', () => {
+  it('refuses an oversized ZIP declaration before decoding damaged data', () => {
+    const zip = zipSync({ 'rocket.ork': new Uint8Array(1025) });
+    const cd = centralRecord(zip, 'rocket.ork');
+    const view = new DataView(zip.buffer);
+    const start = 30 + view.getUint16(26, true) + view.getUint16(28, true);
+    zip.fill(0xff, start, start + view.getUint32(cd + 20, true));
+    expect(() => unzipMember(zip, '.ork', '.ork', 1024)).toThrow(InflatedFileTooLargeError);
+  });
+
+  it.each([0, 6] as const)('refuses output past a false-small declaration as damaged, not too large, at level %s', level => {
+    // Incompressible bytes, so the large deflated member spans several INFLATE_CHUNK pushes and the overrun lands on
+    // a LATER output chunk, not the first (zero bytes compress to a single push, which hid a first-chunk-only guard).
+    let seed = 1;
+    const noise = (n: number) => Uint8Array.from({ length: n }, () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) >>> 24);
+    for (const [data, declared, cap] of [[noise(1025), 1000, 1024], [noise(300_000), 100_000, 200_000]] as const) {
+      const zip = zipSync({ 'rocket.ork': data }, { level });
+      const cd = centralRecord(zip, 'rocket.ork');
+      if (data.length > 64 * 1024) expect(new DataView(zip.buffer).getUint32(cd + 20, true)).toBeGreaterThan(3 * 64 * 1024);
+      u32(zip, cd + 24, declared);
+      let error: unknown;
+      try { unzipMember(zip, '.ork', '.ork', cap); } catch (e) { error = e; }
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(InflatedFileTooLargeError);
+      expect((error as Error).message).toMatch(/damaged or crafted/);
+    }
+  });
+
+  it('bounds ZIP and gzip output at the supplied cap, leaving the default unchanged', () => {
+    const data = new Uint8Array(1025);
+    const zip = zipSync({ 'rocket.ork': data });
+    const gzip = gzipSync(data);
+    expect(() => unzipMember(zip, '.ork', '.ork', 1024)).toThrow(InflatedFileTooLargeError);
+    expect(() => gunzipCapped(gzip, '.ork', 1024)).toThrow(InflatedFileTooLargeError);
+    expect(unzipMember(zip, '.ork', '.ork', 1025).length).toBe(1025);
+    expect(gunzipCapped(gzip, '.ork', 1025).length).toBe(1025);
+    expect(unzipMember(zip, '.ork', '.ork').length).toBe(1025);
+    expect(gunzipCapped(gzip, '.ork').length).toBe(1025);
+  });
 });

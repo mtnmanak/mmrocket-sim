@@ -358,6 +358,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   /** N032: the caller's Altitude selection, for newly composed height notes. */
   distanceUnit?: string;
   horizontalDistanceUnit?: string;
+  /** Optional host cap; browser imports retain the shared 64 MiB default. */
+  maxInflatedBytes?: number;
 }): LayeredOrkImportResult {
   let xml: string;
   // Set when the bytes were not valid UTF-8 and named no other encoding (see
@@ -373,11 +375,11 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       // member — every decal, and every crafted 1 GB run of zeros — before a
       // byte of XML was read, and an out-of-memory tab cannot be caught by the
       // try/catch around this call. See zipMember.ts.
-      bytes = unzipMember(bytes, '.ork', '.ork');
+      bytes = unzipMember(bytes, '.ork', '.ork', opts?.maxInflatedBytes);
     } else if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
       // GZIP, which older OpenRocket releases saved and desktop 24.12 still
       // opens: under the same cap, as a stream (zipMember.ts gunzipCapped).
-      bytes = gunzipCapped(bytes, '.ork');
+      bytes = gunzipCapped(bytes, '.ork', opts?.maxInflatedBytes);
     }
     ({ xml, note: encodingNote } = decodeXml(bytes));
   }

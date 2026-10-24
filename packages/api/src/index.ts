@@ -1,11 +1,16 @@
 import { boosterBranches } from '@online-openrocket/engine';
 import {
-  APP_VERSION, CURVES_GENERATED, MOTORS_GENERATED, MAX_DESIGN_FILE_BYTES,
+  APP_VERSION, CURVES_GENERATED, MOTORS_GENERATED, KernelUnavailableError, InflatedFileTooLargeError,
   commentsOf, formatWarning, jsXmlParser, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser,
   simulateFile, SimulateDesignError, type TimedSimulateFileResult,
 } from '../../app/src/headless/index.js';
 
 setXmlParser(jsXmlParser);
+
+const MAX_API_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_API_INFLATED_BYTES = 16 * 1024 * 1024;
+const MIN_API_TIME_STEP_S = 0.05;
+const APP_URL = 'https://mmrsim.mountainmanrockets.com';
 
 function error(code: string, message: string, status: number, headers?: HeadersInit): Response {
   return Response.json({ error: { code, message } }, { status, headers });
@@ -20,7 +25,7 @@ class BodyTooLarge extends Error {
 async function readDesign(request: Request): Promise<ArrayBuffer> {
   const length = request.headers.get('content-length');
   const declared = length !== null && /^\d+$/.test(length) ? Number(length) : undefined;
-  if (declared !== undefined && declared > MAX_DESIGN_FILE_BYTES) throw new BodyTooLarge(declared);
+  if (declared !== undefined && declared > MAX_API_BODY_BYTES) throw new BodyTooLarge(declared);
   if (!request.body) return new ArrayBuffer(0);
   const reader = request.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -30,7 +35,7 @@ async function readDesign(request: Request): Promise<ArrayBuffer> {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > MAX_DESIGN_FILE_BYTES) {
+      if (size > MAX_API_BODY_BYTES) {
         await reader.cancel().catch(() => undefined);
         throw new BodyTooLarge(size);
       }
@@ -53,6 +58,7 @@ function summary(out: TimedSimulateFileResult) {
   const state = resolveFlightState(out.state.tree, out.state.savedConfigs, out.state.activeConfigId,
     out.state.detachedOverrides ?? {}, out.state.mountMotors);
   const mountNames = mountNamesOf(motorMounts(state.tree));
+  const floor = out.timeStepFloor;
   const { maxAltitude, maxVelocity, maxMachNumber, flightTime } = out.result.summary;
   const aborts = [
     { name: out.state.tree.name ?? 'Rocket', events: out.result.events },
@@ -83,7 +89,9 @@ function summary(out: TimedSimulateFileResult) {
       const text = formatWarning(warning);
       return { ...warning, message: `${text.label}${text.detail ? ` — ${text.detail}` : ''}` };
     }),
-    notes: { import: out.importNote, padMass: out.padMassNote, flight: commentsOf(out.run) },
+    notes: { api: floor
+      ? [`This API flies at a time step of at least ${floor.flownStepS} s; in the app this design flies at ${floor.appStepS} s.`] : [],
+      import: out.importNote, padMass: out.padMassNote, flight: commentsOf(out.run) },
   };
 }
 
@@ -118,7 +126,10 @@ export const worker = {
       // interpolated height rather than reading the kernel's per-step g (which also
       // follows the rocket's drifting latitude); the difference is at rounding level.
       // The API returns neither load peaks (maxQ/max q-alpha) nor an airspeed check.
-      const flight = simulateFile(data, filename, { network: 'forbid', reportSeries: 'summary', yieldToUi: () => Promise.resolve() });
+      const flight = simulateFile(data, filename, {
+        network: 'forbid', reportSeries: 'summary', yieldToUi: () => Promise.resolve(),
+        kernelDeadHolderMs: 10_000, minTimeStepS: MIN_API_TIME_STEP_S, maxInflatedBytes: MAX_API_INFLATED_BYTES,
+      });
       // Defence in depth: keep the real flight and its cleanup alive after disconnect.
       ctx.waitUntil(flight.catch(() => undefined));
       const out = await flight;
@@ -130,7 +141,13 @@ export const worker = {
       } });
     } catch (e) {
       if (e instanceof BodyTooLarge) {
-        return error('FILE_TOO_LARGE', `${filename}: limit ${MAX_DESIGN_FILE_BYTES.toLocaleString('en-US')} bytes; received ${e.received.toLocaleString('en-US')} bytes.`, 413);
+        return error('FILE_TOO_LARGE', `${filename}: the API body limit is 8 MiB; received ${e.received.toLocaleString('en-US')} bytes. Use ${APP_URL} for larger files.`, 413);
+      }
+      if (e instanceof InflatedFileTooLargeError) {
+        return error('FILE_TOO_LARGE', `${filename}: the API inflated XML limit is 16 MiB. Use ${APP_URL} for larger files.`, 413);
+      }
+      if (e instanceof KernelUnavailableError) {
+        return error('KERNEL_UNAVAILABLE', e.message, 503, { 'Retry-After': '5' });
       }
       if (e instanceof SimulateDesignError) {
         const codes = { file: 'FILE_TOO_LARGE', parse: 'INVALID_FILE', build: 'DESIGN_BUILD_FAILED',

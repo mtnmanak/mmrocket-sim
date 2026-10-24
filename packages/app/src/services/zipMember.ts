@@ -60,6 +60,16 @@ import { Gunzip, Inflate, strFromU8 } from 'fflate';
  */
 export const MAX_ZIP_MEMBER_BYTES = 64 * 1024 * 1024;
 
+/** Distinct from damaged XML/archives so API callers can report a size refusal. */
+export class InflatedFileTooLargeError extends Error {
+  readonly maxBytes: number;
+  constructor(maxBytes: number, message: string) {
+    super(message);
+    this.maxBytes = maxBytes;
+    this.name = 'InflatedFileTooLargeError';
+  }
+}
+
 /**
  * Most central-directory entries an archive may declare. A real .ork holds the
  * rocket plus its decals — a handful of entries, a few dozen at most — so
@@ -206,15 +216,15 @@ function isUsableEntry(f: ZipEntry): boolean {
  * of them reaches the user through App.tsx's "Could not open that … file: "
  * prefix.
  */
-export function unzipMember(bytes: Uint8Array, extension: string, kind: string): Uint8Array {
+export function unzipMember(bytes: Uint8Array, extension: string, kind: string, maxBytes = MAX_ZIP_MEMBER_BYTES): Uint8Array {
   const usable = readCentralDirectory(bytes, kind).filter(isUsableEntry);
   const chosen = usable.find((f) => f.name.toLowerCase().endsWith(extension)) ?? usable[0];
   if (!chosen) throw new Error(`Empty ${kind} archive`);
   const mb = (n: number) => Math.round(n / (1024 * 1024));
-  if (chosen.originalSize > MAX_ZIP_MEMBER_BYTES) {
-    throw new Error(
+  if (chosen.originalSize > maxBytes) {
+    throw new InflatedFileTooLargeError(maxBytes,
       `“${chosen.name}” in this archive expands to ${mb(chosen.originalSize)} MB, past the `
-      + `${mb(MAX_ZIP_MEMBER_BYTES)} MB this app will open — that is not a rocket design.`);
+      + `${mb(maxBytes)} MB this app will open — that is not a rocket design.`);
   }
   const damaged = (why: string) =>
     new Error(`Not a readable ${kind} archive — “${chosen.name}” ${why}.`);
@@ -232,7 +242,9 @@ export function unzipMember(bytes: Uint8Array, extension: string, kind: string):
   // The declared size passed the cap above, so it IS the ceiling here: the
   // output buffer is sized from it (as fflate's `inflateSync(…, { out: new
   // u8(su) })` was), and output past it is refused instead of being decoded
-  // and dropped.
+  // and dropped. Output past a false-small declaration is a damaged archive at
+  // ANY cap — not a size refusal: memory is bounded by the declaration, and
+  // only an honestly declared member over the cap is "too large".
   const overflow = new Error(
     `“${chosen.name}” in this archive inflates past the ${chosen.originalSize.toLocaleString('en-US')} `
     + 'bytes its directory declares — the archive is damaged or crafted, not a rocket design.');
@@ -308,15 +320,15 @@ export const MAX_GZIP_MEMBERS = 1000;
  * after the last member, which GZIPInputStream skips when they do not begin another, are
  * refused here with the rest, because the last trailer is found by position.
  */
-export function gunzipCapped(bytes: Uint8Array, kind: string): Uint8Array {
+export function gunzipCapped(bytes: Uint8Array, kind: string, maxBytes = MAX_ZIP_MEMBER_BYTES): Uint8Array {
   const damaged = (why: string) => new Error(`Not a readable compressed ${kind} file — it is damaged (${why}).`);
-  const tooBig = new Error(`This compressed ${kind} file expands past the `
-    + `${MAX_ZIP_MEMBER_BYTES / (1024 * 1024)} MB this app will open — that is not a rocket design.`);
+  const tooBig = new InflatedFileTooLargeError(maxBytes, `This compressed ${kind} file expands past the `
+    + `${maxBytes / (1024 * 1024)} MB this app will open — that is not a rocket design.`);
   const tooMany = new Error(`This compressed ${kind} file has more than ${MAX_GZIP_MEMBERS.toLocaleString('en-US')} gzip members, past the limit this app will open.`);
   const chunks: Uint8Array[] = [];
   let total = 0;
   const gunzip = new Gunzip((chunk) => {
-    if (total + chunk.length > MAX_ZIP_MEMBER_BYTES) throw tooBig;
+    if (total + chunk.length > maxBytes) throw tooBig;
     if (chunk.length) chunks.push(chunk);
     total += chunk.length;
   });
