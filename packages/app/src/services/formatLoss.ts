@@ -330,7 +330,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
         || kids.some(n => n.type === 'transition' && String(n['shape'] ?? 'conical') !== 'conical'),
       `Booster geometry ${named(stage)}: forward noses are omitted, tube boundaries and radii collapse to one tube, and shoulder/boat-tail shapes become conical.`);
       const stageNodes = nodesOf({ components: [stage] });
-      const motor = stageNodes.map(n => input.motors[n.id ?? '']).find(Boolean);
+      const motor = stageNodes.map(n => Object.hasOwn(input.motors, n.id ?? '') ? input.motors[n.id ?? ''] : undefined).find(Boolean);
       add(num(stage, 'nozzleExitDiameter', 0) > 0 && !rasaeroManufacturerAbbrev(motor?.manufacturer),
         `Booster nozzle ${named(stage)} is not kept because this stage has no exported engine.`);
     }
@@ -353,7 +353,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
       add((m.ignitionEvent !== undefined && !['automatic', 'burnout'].includes(m.ignitionEvent)) || (m.ignitionEvent !== 'burnout' && (m.ignitionDelay ?? 0) !== 0),
         `Motor “${m.designation}”: ignition trigger/timing is not kept; only burnout-relative delays can be written for the upper two stages.`);
     }
-    const stageMotors = stages.map(s => nodesOf({ components: [s] }).flatMap(n => input.motors[n.id ?? ''] ? [input.motors[n.id ?? '']!] : []));
+    const stageMotors = stages.map(s => nodesOf({ components: [s] }).flatMap(n => Object.hasOwn(input.motors, n.id ?? '') ? [input.motors[n.id ?? '']!] : []));
     // Automatic is launch only on the bottom active core stage (AxialStage).
     const launchStage = stages.length - 1;
     for (let i = 0; i < launchStage; i++) for (const m of stageMotors[i]!) {
@@ -369,7 +369,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     }
     if (stages[2]) {
       const bottom = nodesOf({ components: [stages[2]] });
-      add(bottom.some(n => (input.motors[n.id ?? '']?.ignitionDelay ?? 0) !== 0), 'Bottom-stage ignition delay is not kept; Booster2 has no ignition-delay field.');
+      add(bottom.some(n => Object.hasOwn(input.motors, n.id ?? '') && (input.motors[n.id ?? '']?.ignitionDelay ?? 0) !== 0), 'Bottom-stage ignition delay is not kept; Booster2 has no ignition-delay field.');
     }
     parts(n => n.type === 'launchlug', 'Launch lugs lose placement, spacing, walls and extra instances; only the first lug’s size on each supported sustainer tube is kept, and booster lugs are omitted');
     parts(n => n.type === 'railbutton', 'Rail buttons, including their geometry and drag, are omitted');

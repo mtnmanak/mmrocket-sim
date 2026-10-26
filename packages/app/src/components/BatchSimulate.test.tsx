@@ -170,6 +170,15 @@ describe('the batch dialog', () => {
       expect(label.control).toBe(input);
     }
   });
+  it('keeps an established time-step status when candidates appear', () => {
+    mount({ timeStepS: 0.01 }, { mounts: [{ ...MOUNTS[0]!, diameterMm: 1 }] });
+    const regions = new Set(host.querySelectorAll('[role="status"]'));
+    expect(host.textContent).not.toContain('finer than');
+    mount({ timeStepS: 0.01 });
+    const caution = [...host.querySelectorAll('[role="status"]')].find(el => el.textContent?.includes('finer than'))!;
+    expect(caution).toBeDefined();
+    expect(regions.has(caution)).toBe(true);
+  });
 
   it('K2: the aero model options lead with each model’s one name, any description after " — "', () => {
     mount();

@@ -1,4 +1,7 @@
 import type { RecordedFlightOverride } from './flightOverrideSummary.js';
+import { shroudWarningFilter } from './shroudWarnings.js';
+import { stageMotorInfo as motorInfoOf } from './flightPipeline.js';
+import { stages, stagesWithRecoveryDevice } from '../tree/treeModel.js';
 // Reports and live alerts share the Mach policy (audit 2026-10-11, S7a-7).
 import { MACH_AUTO_THRESHOLD } from './machProbe.js';
 import { storedWarnings } from './storedWarnings.js';
@@ -434,6 +437,8 @@ export interface FlownRecoveryDevice {
 
 /** One separated stage's own flight (staged rockets; branch 0 excluded). */
 export interface BranchReport {
+  stageId?: string;
+  highPower?: boolean;
   /** Stage name ("Booster"…). */
   name: string;
   /** That stage's motor, when known. */
@@ -976,6 +981,18 @@ export function formatRunLabel(run: Pick<SimRun, 'rocket' | 'motor' | 'manufactu
  * strongest cue that a report predates the design, and it was invisible; it cost
  * two investigations on 2026-09-03.
  */
+let historyClock: Intl.DateTimeFormat | undefined;
+let historyDate: Intl.DateTimeFormat | undefined;
+let historyDateYear: Intl.DateTimeFormat | undefined;
+const runDate = (date: Date, year: boolean) => {
+  if (year) {
+    historyDateYear ??= new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+    return historyDateYear.format(date);
+  }
+  historyDate ??= new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', timeZone: 'UTC' });
+  return historyDate.format(date);
+};
+
 export function formatRunWhen(when: number, now: number = Date.now()): string {
   const d = new Date(when);
   // isFinite alone lets 1e16 through, which is a finite number and an Invalid
@@ -983,16 +1000,18 @@ export function formatRunWhen(when: number, now: number = Date.now()): string {
   // `when`, so a corrupted entry would print "Invalid Date" into the report.
   if (!Number.isFinite(when) || Number.isNaN(d.getTime())) return 'an unknown time';
   const ref = new Date(now);
-  if (ref.toDateString() === d.toDateString()) return d.toLocaleTimeString();
+  // Format current local wall time through UTC formatters so a device timezone
+  // change does not leave cached formatters using the old zone.
+  const local = new Date(when - d.getTimezoneOffset() * 60000);
+  if (Number.isNaN(local.getTime())) return d.toLocaleString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit',
+  });
+  const clock = (historyClock ??= new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'UTC' })).format(local);
+  if (ref.toDateString() === d.toDateString()) return clock;
   // The YEAR matters: the store keeps 500 runs and never expires them, so
   // without it a run from last December reads exactly like one from a fortnight
   // ago — the very failure this function exists to prevent, one year out.
-  const date = d.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    ...(d.getFullYear() !== ref.getFullYear() ? { year: 'numeric' } : {}),
-  });
-  return `${date}, ${d.toLocaleTimeString()}`;
+  return `${runDate(local, d.getFullYear() !== ref.getFullYear())}, ${clock}`;
 }
 
 /**
@@ -1233,6 +1252,8 @@ export interface PhysicsRevision {
   affects?: (n: ComponentNode) => boolean;
   affectsTree?: (tree: RocketTree) => boolean;
   affectsModel?: (model: AtmosphereModel) => boolean;
+  atmosphereOnly?: boolean;
+  ambiguous?: boolean;
 }
 
 /** Append revisions in flight order; each entry names only the designs it changes. */
@@ -1246,11 +1267,15 @@ const PHYSICS_REVISIONS: readonly PhysicsRevision[] = [
   { id: 'strap-on-nozzle-v4', description: 'strap-on nozzle', affectsTree: affectsStrapOnNozzle },
   // v0.144: a pods-only stage's base-drag credit spreads over the pods' bases.
   { id: 'pods-only-base-drag-v5', description: 'pods-only base-drag', affectsTree: affectsPodsOnlyBase },
+  // v6 spans both sides of the aero release; that stamp alone cannot date it.
+  { id: 'transonic-ogive-aero-v6a', description: 'transonic and ogive aerodynamics',
+    affects: n => ['nosecone', 'trapezoidfinset', 'ellipticalfinset', 'freeformfinset'].includes(n.type),
+    affectsModel: usesGeopotentialIsa },
   // K6: the kernel bridge now forwards recovery-part radial placement.
   // Sideways offsets change pitch/yaw inertia through RigidBody.rebase's Iyy,
   // even without fin cant; conservatively flag every nonzero recovery offset.
   { id: 'recovery-radial-mass-v6', description: 'recovery-part placement', affectsTree: hasRecoveryRadialOffset },
-  { id: 'geopotential-isa-v7', description: 'atmosphere', affectsModel: usesGeopotentialIsa },
+  { id: 'geopotential-isa-v7', description: 'atmosphere', affectsModel: usesGeopotentialIsa, atmosphereOnly: true },
 ];
 export const PHYSICS_REVISION = PHYSICS_REVISIONS[PHYSICS_REVISIONS.length - 1]!.id;
 
@@ -1260,7 +1285,15 @@ export const PHYSICS_REVISION = PHYSICS_REVISIONS[PHYSICS_REVISIONS.length - 1]!
  * sentence would muddle.
  */
 export function physicsChangeLabels(revisions: readonly PhysicsRevision[]): string[] {
-  return revisions.map((r) => `the ${r.description} physics`);
+  return revisions.map((r) => r.ambiguous ? MAY_PREDATE_TRANSONIC : `the ${r.description} physics`);
+}
+const MAY_PREDATE_TRANSONIC = 'this run may predate the transonic and ogive aerodynamics physics';
+
+/** Keep uncertain provenance separate from changes the stored evidence proves. */
+export function describeRunChanges(changes: readonly string[], since = 'since'): string {
+  const known = changes.filter(change => change !== MAY_PREDATE_TRANSONIC);
+  return [known.length ? `${listAnd(known)} changed ${since}` : '',
+    changes.includes(MAY_PREDATE_TRANSONIC) ? MAY_PREDATE_TRANSONIC : ''].filter(Boolean).join('; ');
 }
 /** For a caller with only the boolean, which cannot say which revisions apply. */
 export const KERNEL_PHYSICS_CHANGED = 'the simulator’s physics';
@@ -1280,7 +1313,7 @@ interface PhysicsRevisionOptions {
 
 /** The revisions a run predates that reach the current design, in flight order. */
 export function physicsRevisionsMissed(
-  run: Pick<SimRun, 'physicsRevision' | 'aeroModel' | 'rogersKbf'>,
+  run: Pick<SimRun, 'physicsRevision' | 'aeroModel' | 'rogersKbf' | 'exportContext'>,
   cur: Pick<DesignMatchKey, 'aeroMode' | 'effectiveKbf' | 'autoSupersonic'> & { requiresPhysicsRevision?: boolean; physicsRevisions?: readonly string[] },
   options?: PhysicsRevisionOptions,
 ): PhysicsRevision[] {
@@ -1291,17 +1324,25 @@ export function physicsRevisionsMissed(
   const flownIndex = PHYSICS_REVISIONS.findIndex(({ id }) => id === run.physicsRevision);
   const runModel: AtmosphereModel = { aeroMode: run.aeroModel, effectiveKbf: run.rogersKbf };
   const unknownModel = !run.aeroModel || (run.aeroModel === 'classic' && run.rogersKbf === undefined);
-  return PHYSICS_REVISIONS.filter(({ id, affectsModel }, i) => i > flownIndex
-    && (affectsModel ? options?.includeModelRevisions !== false
-      && affectsModel(cur) && (unknownModel || affectsModel(runModel)) : affected.includes(id)));
+  const version = /^(\d+)\.(\d+)(?:\.\d+)?$/.exec(run.exportContext?.appVersion ?? '');
+  const major = Number(version?.[1]), release = Number(version?.[2]);
+  const aeroShipped = Number.isSafeInteger(major) && Number.isSafeInteger(release)
+    ? major > 0 || release >= 179 : undefined;
+  const v6Aero = (id: string) => id === 'transonic-ogive-aero-v6a' && run.physicsRevision === 'recovery-radial-mass-v6';
+  return PHYSICS_REVISIONS.filter(({ id, affectsModel, affects, affectsTree, atmosphereOnly }, i) => (i > flownIndex || v6Aero(id))
+    && !(v6Aero(id) && aeroShipped === true)
+    && (affectsModel ? (!atmosphereOnly || options?.includeModelRevisions !== false)
+      && (!(affects || affectsTree) || affected.includes(id))
+      && affectsModel(cur) && (unknownModel || affectsModel(runModel)) : affected.includes(id)))
+    .map(revision => v6Aero(revision.id) && aeroShipped === undefined ? { ...revision, ambiguous: true } : revision);
 }
 
 export function requiresPhysicsRevision(tree: RocketTree): boolean {
-  return physicsRevisionsFor(tree).length > 0;
+  return physicsRevisionsFor(tree).some(id => PHYSICS_REVISIONS.some(r => r.id === id && !r.affectsModel));
 }
 
 export function runCarriesPhysicsRevision(
-  run: Pick<SimRun, 'physicsRevision' | 'aeroModel' | 'rogersKbf'>,
+  run: Pick<SimRun, 'physicsRevision' | 'aeroModel' | 'rogersKbf' | 'exportContext'>,
   cur: Pick<DesignMatchKey, 'aeroMode' | 'effectiveKbf' | 'autoSupersonic'> & { requiresPhysicsRevision?: boolean; physicsRevisions?: readonly string[] },
   options?: PhysicsRevisionOptions,
 ): boolean {
@@ -2037,6 +2078,7 @@ export function buildSimRun(input: {
   const { result, info, motor, meta, launch, rocketName, execMs, stageMotorInfo, boosterMotors, aeroModel, rogersKbf, motorConfig, flightConfig, flightConfigId, designKey, motorSetKey, flownRecovery, nozzleStages, recoveryStages } = input;
   const da = densityAltitudeM(launch, { ...(aeroModel ? { aeroMode: aeroModel } : {}), effectiveKbf: rogersKbf === true });
   const { summary, series } = result;
+  const keepWarning = input.advisoryTree ? shroudWarningFilter(input.advisoryTree) : () => true;
   const advisoryLimits = normalizeFlightAdvisories(input.advisoryLimits);
   const maxAirspeedMs = peakAirspeed(series).value;
 
@@ -2166,7 +2208,12 @@ export function buildSimRun(input: {
   // Booster branches (staged flights): each separated stage flies its OWN
   // descent — apogee, recovery (or tumble), and landing verdict per stage.
   const branches: BranchReport[] = [];
+  const recoveryStageIds = input.advisoryTree ? new Set(stagesWithRecoveryDevice(input.advisoryTree, true)) : undefined;
+  const motorsByStageId = input.advisoryTree && input.advisoryMotors
+    ? motorInfoOf(input.advisoryTree, [...input.advisoryMotors].map(([id, mm]) => [id, mm]), stages(input.advisoryTree), true) : undefined;
   for (const b of boosterBranches(result)) {
+    const stageId = b.events.find(e => e.type === 'STAGE_SEPARATION')?.sourceId;
+    const facts = stageId && motorsByStageId ? motorsByStageId[stageId] : stageMotorInfo?.[b.name];
     const alt = b.series.altitude.filter((v): v is number => v !== null && Number.isFinite(v));
     const groundEv = b.events.find((e) => e.type === 'GROUND_HIT');
     const vHit = groundEv ? at(b.series.time, b.series.velocity, groundEv.time) : null;
@@ -2179,7 +2226,9 @@ export function buildSimRun(input: {
         groundEv?.time ?? b.series.time[b.series.time.length - 1] ?? 0) ?? landing);
     branches.push({
       name: b.name,
-      motorLabel: stageMotorInfo?.[b.name]?.label,
+      ...(stageId ? { stageId } : {}),
+      ...(facts?.highPower !== undefined ? { highPower: facts.highPower } : {}),
+      motorLabel: facts?.label,
       apogee: alt.length ? Math.max(...alt) : null,
       tumbles: b.events.some((e) => e.type === 'TUMBLE'),
       deployments: bDeployments,
@@ -2188,7 +2237,8 @@ export function buildSimRun(input: {
       // judging its arrival on ground speed charged the wind against it too.
       landingRate: bLanding,
       safeLandingRate: bLanding === null ? null : bLanding <= SAFETY.maxLandingRate,
-      ...(recoveryStages ? { recoveryFitted: recoveryStages.includes(b.name) } : {}),
+      ...(stageId && recoveryStageIds ? { recoveryFitted: recoveryStageIds.has(stageId) }
+        : recoveryStages ? { recoveryFitted: recoveryStages.includes(b.name) } : {}),
     });
   }
   const landingRaw = tGround === null ? null : Number.isFinite(summary.groundHitVelocity)
@@ -2430,7 +2480,7 @@ export function buildSimRun(input: {
   // so the data was always there and only the branching hid it.
   for (const b of branches) {
     const landTxt = b.landingRate !== null ? `${b.landingRate.toFixed(1)} m/s (${fps(b.landingRate)})` : 'unknown speed';
-    if (b.deployments.length === 0 && stageMotorInfo?.[b.name]?.highPower === true) {
+    if (b.deployments.length === 0 && b.highPower === true) {
       say(b.recoveryFitted
         ? `${b.name}'s recovery device never opened — a booster this size must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}. Check its deployment event.`
         : `${b.name} has NO recovery device — a booster this size must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}.`, 'warning');
@@ -2520,7 +2570,8 @@ export function buildSimRun(input: {
     // empty warning list and nothing anywhere saying why. On the beta test
     // corpus 17 of the 72 flyable designs end this way, almost all .CDX1.
     ...(result.warnings !== undefined || stopWarnings.length > 0
-      ? { simWarnings: storedWarnings([...stopWarnings, ...(result.warnings ?? [])]) }
+      ? { simWarnings: storedWarnings([...stopWarnings, ...(result.warnings ?? []).filter(w =>
+        w.key !== 'THICK_FIN' || keepWarning(w.message))]) }
       : {}),
     landingDistanceM: drift.distanceM,
     landingBearingDeg: drift.bearingDeg,

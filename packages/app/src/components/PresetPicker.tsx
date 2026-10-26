@@ -1,4 +1,5 @@
 import { Note, type NoteTier } from './Note.js';
+import { CSV_APOSTROPHE_HELP } from '../services/csvUtil.js';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import { useRovingRows } from './useRovingRows.js';
@@ -444,6 +445,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
             ordinary success text. The region is ALWAYS mounted (2026-09-22): it
             was rendered only with its text already in it, and a live region
             inserted that way is announced unreliably. */}
+        <p className="comp-stats">{CSV_APOSTROPHE_HELP}</p>
         <div role="status">
           {note && <Note as="p" tier={noteTier} className="motor-db-meta" style={{ marginBottom: 0 }}>{note}</Note>}
         </div>

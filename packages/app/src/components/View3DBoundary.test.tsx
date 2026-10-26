@@ -71,8 +71,13 @@ describe('the 3D view’s error boundary', () => {
   });
 
   it('is announced, so a screen reader is told the panel changed', () => {
+    render(<div>Scene</div>);
+    const region = host.querySelector('[role="status"]');
+    expect(region).not.toBeNull();
+    expect(region?.textContent).toBe('');
     render(<Boom message="nope" />);
-    expect(host.querySelector('.hero-fallback')!.getAttribute('role')).toBe('status');
+    expect(host.querySelector('[role="status"]')).toBe(region);
+    expect(region?.textContent).toContain('3D view could not start');
   });
 
   it('logs the failure rather than swallowing it', () => {

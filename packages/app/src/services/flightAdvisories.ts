@@ -50,7 +50,7 @@ export function zeroDelayRecoveryAdvice(
     for (const node of nodes) {
       if (!root && ['stage', 'parallelstage', 'podset'].includes(node.type)) continue;
       if (['parachute', 'streamer'].includes(node.type) && flownDeployEvent(node['deployEvent']) === 'ejection') {
-        const extra = typeof node['deployDelay'] === 'number' && node['deployDelay'] > 0 ? ` after another ${node['deployDelay']} s` : '';
+        const extra = typeof node['deployDelay'] === 'number' && Number.isFinite(node['deployDelay']) && node['deployDelay'] > 0 ? ` after another ${node['deployDelay']} s` : '';
         devices.push(`${node.name ?? 'Recovery device'}${extra}`);
       }
       walk(node.children ?? []);

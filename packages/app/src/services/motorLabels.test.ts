@@ -5,6 +5,14 @@ import { mountMotorFromDb } from './motorMatch.js';
 import { restoreMotorLabels, motorTooltip } from './motorLabels.js';
 import { batchMotorNames, candidateIdentity } from './batchSweep.js';
 
+it.each(['5', true, null])('never calls invalid live delay %j plugged in its tooltip', delay => {
+  const ex = parseEng('C6 18 70 5 0.01 0.02 Home\n0 0\n0.5 6\n1 0')[0]!;
+  const mm = mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5, { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
+  Object.assign(mm.spec, { ejectionDelay: delay });
+  expect(motorTooltip(mm)).toContain('unknown delay');
+  expect(motorTooltip(mm)).not.toContain('plugged');
+});
+
 describe('EX maker labels — @atestani, TRF #162, 2026-10-06', () => {
   const ex = parseEng('F67 28.6 127 6 0.0430 0.1120 Enerjet\n0 0\n0.5 67\n1.2 0\n')[0]!;
 

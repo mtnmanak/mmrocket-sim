@@ -563,7 +563,7 @@ function FinPrintScope({ tree, node, lengthSym }: { tree: RocketTree; node: Comp
       tab: printed.kind === 'shaped' ? printed.tab : finTabSpan(node, finRootChord(node), ctx.tabMaxDepth) !== null,
     };
   }, [tree, node]);
-  const fillets = typeof node['filletRadius'] === 'number' && node['filletRadius'] > 0;
+  const fillets = typeof node['filletRadius'] === 'number' && Number.isFinite(node['filletRadius']) && node['filletRadius'] > 0;
   const withTab = tab ? ' with its tab' : '';
   if (shape.kind === 'refused') {
     return (
@@ -958,8 +958,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
   // (blank radius); explicit values get the same ceiling here so neither the
   // slider nor typing can push the tubes into each other.
   const tubeFinBodyR = node.type === 'tubefinset' && parent && parent !== 'stage'
-    && typeof parent['outerRadius'] === 'number' && (parent['outerRadius'] as number) > 0
-    ? (parent['outerRadius'] as number)
+    && num(parent, 'outerRadius', 0.012) > 0
+    ? num(parent, 'outerRadius', 0.012)
     : null;
 
   /**
@@ -1343,11 +1343,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         </>
       )}
       <div role="status">{savedPartNote && <p className="hint">{savedPartNote}</p>}</div>
-      {presetNote && (
-        <Note as="p" tier="caution" className="print-note print-note-warn" role="status">
+        <Note as="p" tier={presetNote ? 'caution' : 'information'} className={presetNote ? 'print-note print-note-warn' : 'sr-only'} role="status">
           {presetNote}
         </Note>
-      )}
       {(node.type === 'trapezoidfinset' || node.type === 'ellipticalfinset'
         || node.type === 'freeformfinset') && (
         <FinTemplateMenu onPick={async (format: FinTemplateFormat) => {

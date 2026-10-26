@@ -7,6 +7,12 @@ import { exportRkt } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 
 describe('lossy fix regressions', () => {
+  it.each(['toString', 'constructor', '__proto__'])('does not let stage %s hide a real booster motor in the loss review', id => {
+    const d = input();
+    d.tree.components.push({ type: 'stage', id, nozzleExitDiameter: 0.01, children: [{ type: 'bodytube', id: 'boost' }] });
+    d.motors.boost = { designation: 'H123', manufacturer: 'AeroTech', diameter: 0.029, length: 0.1, delay: 5 };
+    expect(checkFormatLoss('cdx1', d).losses.join(' ')).not.toContain('has no exported engine');
+  });
   it('S1b-3 previews the solid centering ring hole loss before saving', () => {
     const ring: ComponentNode = { type: 'centeringring', name: 'Solid ring', innerRadius: 0 };
     const d = input(ring);

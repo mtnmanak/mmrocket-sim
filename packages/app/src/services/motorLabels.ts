@@ -77,6 +77,7 @@ export function motorTooltip(mm: MountMotor, catalogue = labelCatalogue()): stri
   const manufacturer = displayMotorManufacturer(entry);
   const label = motorLabel(entry, mm.spec.ejectionDelay, mm.meta, catalogue);
   const delay = mm.meta.autoDelay ? 'automatic delay'
-    : Number.isFinite(mm.spec.ejectionDelay) ? `${mm.spec.ejectionDelay} s delay` : 'plugged';
+    : Number.isFinite(mm.spec.ejectionDelay) ? `${mm.spec.ejectionDelay} s delay`
+      : mm.spec.ejectionDelay === Infinity ? 'plugged' : 'unknown delay';
   return `${[manufacturer, entry.designation].filter(Boolean).join(' ')}, ${delay} (${label})`;
 }

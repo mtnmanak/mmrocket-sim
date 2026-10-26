@@ -626,9 +626,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
           </div>
         </div>
 
-        {candidates.length > 0 && (
-          <TimeStepCaution dt={launch.timeStepS} flights={totalFlights} />
-        )}
+        <TimeStepCaution dt={candidates.length > 0 ? launch.timeStepS : undefined} flights={totalFlights} />
 
         {armed && !runAnyway && !running && (
           <p className="field-caution" role="alert" style={{ margin: '6px 0 0' }}>

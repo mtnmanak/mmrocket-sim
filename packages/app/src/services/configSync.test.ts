@@ -17,6 +17,22 @@ import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { motorMounts } from '../tree/treeModel.js';
 import { planConfigSwitch, planImport, resolveImportMotors } from './importApply.js';
 
+it.each(['constructor', 'toString', '__proto__'])('restores an unmatched reference at id %s', id => {
+  const stored = Object.fromEntries([[id, ref('Missing')]]);
+  const restored = restoreUnmatchedRefs([], null, {}, stored);
+  expect(Object.hasOwn(restored, id)).toBe(true);
+  expect(restored[id]?.designation).toBe('Missing');
+});
+it.each(['__proto__', 'constructor', 'toString'])('keeps every own id while clearing a weighing: %s', id => {
+  const motors = Object.fromEntries([[id, { ...motor('C6'), padMassKg: 1 }]]);
+  const refs = Object.fromEntries([[id, { ...ref('Missing'), padMassKg: 1 }]]);
+  expect(Object.hasOwn(stripPadMass(motors), id)).toBe(true);
+  expect(Object.hasOwn(stripRefPadMass(refs), id)).toBe(true);
+  const tree: RocketTree = { components: [{ type: 'stage', id, nozzleExitDiameter: 0.02 }] };
+  const configs = [{ ...cfg('c', {}), nozzles: Object.fromEntries([[id, 0.01]]) }];
+  expect(withActiveConfigTreeSynced(configs, 'c', tree)[0]!.nozzles![id]).toBe(0.02);
+});
+
 describe('configuration editing', () => {
   const working = () => {
     const tree = twoStage();

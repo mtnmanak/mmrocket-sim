@@ -17,7 +17,7 @@ import { clickable } from './clickable.js';
 import { Modal } from './Modal.js';
 import { UnitChip } from './UnitChip.js';
 import {
-  launchGuideExplanation, aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, descentVerdict, formatRunLabel, formatRunStability, formatRunWhen, formatRunWhenProse, listAnd,
+  launchGuideExplanation, aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, descentVerdict, formatRunLabel, formatRunStability, formatRunWhen, formatRunWhenProse, describeRunChanges,
   ROLL_RATE_MEANINGFUL_RAD_S, runStoppedEarly, SAFETY, stabilityState, WIND_BLOWS_TOWARD_DEG,
   type DeploymentReport, type DeploymentVerdict, type SimRun,
 } from '../services/simReport.js';
@@ -237,7 +237,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           {/* The classic model's limit beside the report's title, where the
               numbers it qualifies start (D7 §5, R05) — the same condition as
               the report comment simReport writes for it. */}
-          {run.aeroModel === 'classic' && run.maxMach > MACH_AUTO_THRESHOLD && (
+          {run.aeroModel === 'classic' && Number.isFinite(run.maxMach) && run.maxMach > MACH_AUTO_THRESHOLD && (
             <span className="chart-model-limit simdet-model-limit">
               {' '}— classic aero model, approximate past Mach {MACH_AUTO_THRESHOLD} (flown to Mach {run.maxMach.toFixed(2)})
             </span>
@@ -250,7 +250,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           Flown {formatRunWhenProse(run.when)}
           {changedSince == null ? '' : changedSince.length === 0
             ? ' · matches the design as it stands'
-            : ` · ${listAnd(changedSince)} changed since`}
+            : ` · ${describeRunChanges(changedSince)}`}
         </span>
         {/* aria-expanded (audit 2026-09-22): it opens and closes a section,
             and said so to nobody. */}
@@ -272,16 +272,16 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           : 'Re-fly this design to download its raw flight data — time series aren’t saved with run history.'}
       </p>
       <MountDelayReport resolution={run.delayResolution} />
-      {!run.delayResolution && (run.optimumDelayS !== null || run.recommendedDelayS !== null) && (
+      {!run.delayResolution && (run.optimumDelayS != null || run.recommendedDelayS != null) && (
         <p className="simdet-delay">
           Legacy summary optimum <strong>{s(run.optimumDelayS, 1)} s</strong>
-          {run.recommendedDelayS !== null && (
+          {run.recommendedDelayS != null && (
             <> · recommended (drill to fit) <strong>{run.recommendedDelayS} s</strong></>
           )}
           {' '}· flown with{' '}
           <strong>
             {Number.isFinite(run.delayS) ? `${run.delayS} s`
-              : run.importedSummary && run.delayS !== Infinity ? 'unknown delay' : 'plugged (no ejection charge)'}
+              : run.delayS === Infinity ? 'plugged (no ejection charge)' : 'unknown delay'}
           </strong>
         </p>
       )}
@@ -313,10 +313,10 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
           <DeploymentRoleNote deployments={run.deployments ?? []} />
         </div>
       )}
-      {(run.branches ?? []).map((b) => {
+      {(run.branches ?? []).map((b, i) => {
         const landBad = b.safeLandingRate === false;
         return (
-          <div key={b.name} style={{ marginTop: 10 }}>
+          <div key={`${b.stageId ?? b.name}-${i}`} style={{ marginTop: 10 }}>
             <p style={{ margin: '4px 0', fontWeight: 600 }}>
               {b.name}{b.motorLabel ? ` (${b.motorLabel})` : ''} — separate flight:
               {' '}apogee {b.apogee === null ? '—' : fmtSi('altitude', alt, b.apogee)} <UnitChip quantity="altitude" />
@@ -355,7 +355,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                   omitted rather than showing a meaningless 0.000. r/s matches
                   the desktop's UNITS_ROLL default; °/s rides along because
                   flyers think in degrees. */}
-              {run.maxRollRateRadS != null && run.maxRollRateRadS > ROLL_RATE_MEANINGFUL_RAD_S && (
+              {Number.isFinite(run.maxRollRateRadS) && run.maxRollRateRadS != null && run.maxRollRateRadS > ROLL_RATE_MEANINGFUL_RAD_S && (
                 <Row label="Max roll rate"
                   value={`${(run.maxRollRateRadS / (2 * Math.PI)).toFixed(2)} r/s (${Math.round((run.maxRollRateRadS * 180) / Math.PI)}°/s)`} />
               )}
@@ -398,7 +398,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               {/* The cause, printed beside the effect: this is why the CP below
                   sits forward of the Design tab's. At zero wind they agree. */}
               <Row label="Angle of attack at launch guide exit"
-                value={run.rodExitAoa == null ? '—' : s((run.rodExitAoa * 180) / Math.PI, 1)} unit="°" />
+                value={run.rodExitAoa == null || !Number.isFinite(run.rodExitAoa) ? '—' : s((run.rodExitAoa * 180) / Math.PI, 1)} unit="°" />
               <Row label="CG at launch guide exit"
                 value={run.launchCG === null ? '—' : fmtSi('length', len, run.launchCG, 3)} quantity="length" />
               <Row label="CP at launch guide exit"
@@ -443,7 +443,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
                 // flight's drift reads "downwind" when it lands on that side.
                 <Row label="Landing bearing"
                   value={`${Math.round(run.landingBearingDeg)}° (${compassPoint8(run.landingBearingDeg)}${
-                    run.windAvg > 0
+                    typeof run.windAvg === 'number' && Number.isFinite(run.windAvg) && run.windAvg > 0
                       && Math.abs(((run.landingBearingDeg - WIND_BLOWS_TOWARD_DEG) % 360 + 540) % 360 - 180) <= 45
                       ? ', downwind' : ''})`} />
               )}
@@ -488,8 +488,9 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               {/* Every motor firing together — a cluster times any pod set or
                   strap-on ring (mountMotorCount). "(cluster)" read wrong once
                   the count took in the pods (audit 2026-09-22, row 351). */}
-              <Row label="Motors" value={run.importedSummary && run.motorCount == null ? '—'
-                : (run.motorCount ?? 1) > 1 ? `${run.motorCount!} firing together` : '1'} />
+              <Row label="Motors" value={run.motorCount === undefined ? (run.importedSummary ? '—' : '1')
+                : !Number.isFinite(run.motorCount) ? '—'
+                : run.motorCount > 1 ? `${run.motorCount} firing together` : '1'} />
             </tbody>
           </table>
           </div>
@@ -509,10 +510,11 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
  * @internal Exported for services/batchSweep.test.ts; no other module imports it.
  */
 export function historyMotorLabel(r: Pick<SimRun, 'manufacturer' | 'motor' | 'motorConfig'>): string {
-  if (!r.manufacturer) return r.motor;
+  const motor = r.motor ?? '';
+  if (!r.manufacturer) return motor;
   const named = (r.motorConfig ?? '').startsWith('mixed')
-    && r.manufacturer.split('+').every((m) => r.motor.includes(`${m} `));
-  return named ? r.motor : `${r.manufacturer} ${r.motor}`;
+    && r.manufacturer.split('+').every((m) => motor.includes(`${m} `));
+  return named ? motor : `${r.manufacturer} ${motor}`.trim();
 }
 
 export function SimHistory({
@@ -579,8 +581,8 @@ export function SimHistory({
     setUndo({ run: r, beforeId: runs[i + 1]?.id ?? null });
     onRunsChange(deleteRun(r.id));
   };
-  const undoLine = undo && (
-    <p className="comp-stats" role="status" style={{ margin: '6px 0 0' }}>
+  const undoLine = <div role="status" className={undo ? undefined : 'sr-only'}>{undo && (
+    <p className="comp-stats" style={{ margin: '6px 0 0' }}>
       {runName(undo.run) ? `Deleted run ${runName(undo.run)}.` : 'Deleted a run.'}{' '}
       <button ref={undoRef} className="file-btn" aria-label={`Undo: put back run ${runName(undo.run)}`.trim()}
         onClick={() => { onRunsChange(restoreRun(undo.run, undo.beforeId)); setUndo(null); }}>
@@ -588,9 +590,9 @@ export function SimHistory({
       </button>{' '}
       <button className="file-note-dismiss" aria-label="Dismiss" onClick={() => setUndo(null)}>×</button>
     </p>
-  );
+  )}</div>;
   // The last run deleted: the table has gone, its Undo has not.
-  if (runs.length === 0) return <div className="panel" style={{ marginTop: 10 }}>{undoLine}</div>;
+  if (runs.length === 0) return <div className="panel" style={{ marginTop: 10 }}><div hidden />{undoLine}</div>;
 
   const downloadCsv = () => downloadBlob(
     new Blob([CSV_BOM, runsToCsv(runs, prefs.units, undefined, provenance)], { type: 'text/csv;charset=utf-8' }),
@@ -735,7 +737,7 @@ export function SimHistory({
                     <td>{historyMotorLabel(r)}</td>
                     <td title={recordedConfiguration(r) === undefined ? 'Not recorded' : undefined}>{runConfigurationLabel(r)}</td>
                     <td>{Number.isFinite(r.delayS) ? `${r.delayS}s`
-                      : r.importedSummary && r.delayS !== Infinity ? '—' : 'P'}</td>
+                      : r.delayS === Infinity ? 'P' : '—'}</td>
                     {columns.map(column => <td key={column.id}>{summaryCell(column, r, prefs.units)}</td>)}
                     <td className={r.importedSummary ? undefined : unsafe ? 'stability-bad' : caution ? 'stability-warn' : 'stability-good'}>
                       <span aria-hidden="true">{r.importedSummary ? '—' : unsafe ? '⚠' : caution ? '△' : '✓'}</span>

@@ -183,8 +183,8 @@ export function useNozzleFollow(opts: {
       // make it again, and the new motor flew the previous motor's exit. Now a
       // stage is decided here unless a NEWER loadout has been recorded for it
       // since, in which case that run decides it.
-      const updates: Record<string, number | null> = {};
-      const clearedNow: Record<string, NozzleCleared> = {};
+      const updates: Record<string, number | null> = Object.create(null);
+      const clearedNow: Record<string, NozzleCleared> = Object.create(null);
       const forgotten: string[] = [];
       const nowDecided = new Map(decided.current);
       for (const { s, entries } of looked) {

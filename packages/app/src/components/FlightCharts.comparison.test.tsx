@@ -78,6 +78,18 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
 describe('flight comparisons wiring', () => {
+  it('updates an established status when a selected branch lacks comparison data', () => {
+    const flight = result(); flight.branches = [
+      { name: 'Core', series: flight.series, events: [] },
+      { name: 'Booster', series: { ...data(), velocity: [] }, events: [] },
+    ];
+    render(flight); select('Comparison chart', 'phase');
+    const regions = new Set(host.querySelectorAll('[role="status"]'));
+    select('Flight branch', '1');
+    const note = [...host.querySelectorAll('[role="status"]')].find(el => el.textContent?.includes('no usable data'))!;
+    expect(note).toBeDefined();
+    expect(regions.has(note)).toBe(true);
+  });
   it('C-E7 custom axes and ground tracks preserve chronology, isolated zoom, emphasis and saved choices', () => {
     const flight = result(); flight.series.Px = [0, 1, 1, -1, 0]; flight.series.Py = [0, 2, 3, 4, 5];
     const before = structuredClone(flight);

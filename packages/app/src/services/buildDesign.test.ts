@@ -167,6 +167,17 @@ describe('buildDesign — the warning strip', () => {
     tree, assigned: [], kbf: true, supersonic: false, measuredDryMassKg: null, primaryMountId: null,
     currentSetKey: '',
   });
+  it.each([
+    ['freeformfinset', '', '[FreeformFinSet.FreeformFinSet]'],
+    ['trapezoidfinset', 'odd "Camera"', 'Camera'],
+  ] as const)('keeps the real %s warning for name %j beside shroud %j', (type, name, shroudName) => {
+    const tree = camTree(shroudName, 0.04);
+    Object.assign(tree.components[0]!.children![1]!.children![1]!, { type, name,
+      ...(type === 'freeformfinset' ? { points: [[0, 0], [0.03, 0.055], [0.06, 0.055], [0.1, 0]] } : {}) });
+    const built = buildDesign(noMotors(tree), KERNEL_HANDLES);
+    if ('error' in built) throw new Error(built.error);
+    expect(built.info.warningTexts.some(w => w.includes('THICK_FIN'))).toBe(true);
+  }, 60000);
 
   it('recomputes the base-drag advisory on live add, mass edit and deletion', () => {
     const tree = camTree('Camera');

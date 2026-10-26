@@ -39,6 +39,7 @@ describe('AftView zoom controls', () => {
   it('name every icon-only button, keeping the tooltip', () => {
     act(() => root.render(<AftView tree={TREE} />));
     const buttons = [...host.querySelectorAll('.schematic-controls button')];
+    expect(buttons.every(b => b.classList.contains('file-btn'))).toBe(true);
     expect(buttons.map((b) => b.getAttribute('aria-label'))).toEqual([
       'Zoom in', 'Zoom out', 'Fit the whole cross-section in view',
     ]);

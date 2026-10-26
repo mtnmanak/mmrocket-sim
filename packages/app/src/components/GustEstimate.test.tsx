@@ -47,6 +47,18 @@ const chip = () => host.querySelector('.gust-estimate');
 const button = () => host.querySelector<HTMLButtonElement>('.gust-estimate button');
 const text = () => chip()?.textContent ?? '';
 
+it('keeps the same status through moving away from the forecast and back', () => {
+  render(FIVE);
+  const status = host.querySelector('[role="status"]');
+  render({ ...FIVE, windAverage: 7 });
+  expect(host.querySelector('[role="status"]')).toBe(status);
+  expect(status?.textContent).toBe('');
+  expect((status as HTMLElement).style.position).toBe('absolute');
+  render(FIVE);
+  expect(host.querySelector('[role="status"]')).toBe(status);
+  expect(status?.textContent).toContain('thermals or showers');
+});
+
 describe('the gust-to-σ chip', () => {
   it('N005 quotes four-decimal wind and sigma fields in the gust arithmetic without changing them', () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
@@ -82,7 +94,9 @@ describe('the gust-to-σ chip', () => {
     render({ ...FIVE, windStdDev: 0.7 });
     expect(text()).toMatch(/^Estimate from forecast gustσ ≈ 2 m\/s from an 11 m\/s gust\./);
     expect(button()!.title).toBe('Works out σ from the forecast’s gust and average wind. Nothing changes until you click.');
-    expect(button()!.getAttribute('aria-describedby')).toBe(host.querySelector('.gust-estimate [role="status"]')!.id);
+    const description = document.getElementById(button()!.getAttribute('aria-describedby')!)!;
+    expect(description.textContent).toContain('σ ≈ 2 m/s');
+    expect(description.contains(button())).toBe(false);
     act(() => button()!.click());
     expect(changes).toHaveLength(1);
     expect(changes[0]!.windStdDev).toBe(2);

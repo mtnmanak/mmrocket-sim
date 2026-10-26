@@ -63,10 +63,14 @@ function motorSet(
 
 /** The stored session as an .ork document. Throws whatever the writer throws. */
 export function autosaveToOrk(s: SessionState): string {
+  if ((s.treeRestoreNotes?.length ?? 0) > 0) throw new Error('The recovery .ork would omit repaired autosave data; keep the raw autosave.');
   // A damaged root must still fall back to the original recovery bytes.
   if (!Array.isArray(s.tree?.components)) throw new Error('Unreadable autosave tree');
   // The crash path never mounts App; it must normalize and migrate independently.
   const restored = designStateFromSession(s, { legacyMaxMotorLengthM: null });
+  if (!restored.refused && restored.restoreNoteTiers.some(note => note.tier === 'caution' || note.tier === 'danger')) {
+    throw new Error('The recovery .ork would replace repaired autosave data; keep the raw autosave.');
+  }
   // Refusal protects rendering, not recovery: export the stored logical tree
   // without expanding instances or substituting the starter design.
   if (!restored.refused) s = { ...restored.session!, ...restored.state };

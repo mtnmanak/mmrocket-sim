@@ -60,6 +60,27 @@ it('reports blocked reads without stopping the panel', () => {
   expect(readUserMaterials().note).not.toContain('Import');
 });
 describe('materials CSV', () => {
+  it.each(['\n', '\r\n', '\r'])('accepts exactly 20000 physical rows with a final newline %j', newline => {
+    const csv = ['kind,name,density,unit', ...Array<string>(19998).fill(''), 'bulk,My mix,1,kg/m3'].join(newline) + newline;
+    const result = importUserMaterialsCsv(csv, []);
+    expect(result.refused).toBe(0);
+    expect(result.materials).toEqual([{ kind: 'bulk', name: 'My mix', density: 1 }]);
+    expect(importUserMaterialsCsv(csv + newline, []).refused).toBeGreaterThan(0);
+  });
+  it.each(["'-1", "'+5"])('keeps a handwritten numeric-looking material name %s', name => {
+    expect(importUserMaterialsCsv(`kind,name,density,unit\nbulk,${name},1,kg/m3`, []).materials[0]?.name).toBe(name);
+  });
+  it.each(['0x10', '0b110', '0o7'])('refuses nondecimal density %s', density => {
+    const result = importUserMaterialsCsv(`kind,name,density,unit\nbulk,Foam mix,${density},kg/m3`, []);
+    expect(result.added).toBe(0);
+    expect(result.refused).toBe(1);
+  });
+  it.each(['\n'.repeat(20001), 'bulk,Mix,1,kg/m3\n'.repeat(20001)])('refuses excessive CSV records without partial import', rows => {
+    const result = importUserMaterialsCsv(`kind,name,density,unit\n${rows}`, [valid]);
+    expect(result.materials).toEqual([valid]);
+    expect(result.refused).toBeGreaterThan(0);
+    expect(result.reasons.join(' ')).toMatch(/limit.*rows/i);
+  });
   it.each(['\n', '\r\n', '\r'])('reports physical starting lines after blank and multiline records (%j)', newline => {
     const csv = ['kind,name,density,unit', '', 'bulk,Balsa,170,kg/m3',
       'surface,"Two', 'lines",0.1,kg/m2', 'bulk,Other,0,kg/m3'].join(newline);

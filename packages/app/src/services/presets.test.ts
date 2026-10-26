@@ -9,6 +9,23 @@ import { numOpt } from '../tree/nodeNum.js';
 import { centeringRingBore, ringOuterRadius } from '../tree/solidMesh.js';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
+it('does not count an inverted foreign ring as a catalogue match', () => {
+  const p: Preset = { kind: 'CenteringRing', manufacturer: 'EX', partNo: 'BAD', description: '', outsideDiameter: 0.025, insideDiameter: 0.029 };
+  const node: ComponentNode = { type: 'centeringring', name: 'My ring', outerRadius: 0.03, innerRadius: 0.019 };
+  const notes: string[] = [];
+  expect(applyPresetLinks([{ node, manufacturer: p.manufacturer, partNo: p.partNo }], [p], notes)).toBe(0);
+  expect(notes.join(' ')).not.toContain('matched the parts catalogue');
+  expect(node).toEqual({ type: 'centeringring', name: 'My ring', outerRadius: 0.03, innerRadius: 0.019 });
+});
+it.each(["'-1", "'+5"])('keeps a handwritten literal apostrophe before numeric text %s', literal => {
+  const [p] = csvToPresets(`kind,manufacturer,partNo,description\nBodyTube,EX,${literal},${literal}\n`);
+  expect(p).toMatchObject({ partNo: literal, description: literal });
+});
+it('refuses an inverted ring pick without assigning a false catalogue identity', () => {
+  const p: Preset = { kind: 'CenteringRing', manufacturer: 'EX', partNo: 'BAD', description: '', outsideDiameter: 0.025, insideDiameter: 0.029 };
+  const node: ComponentNode = { type: 'centeringring', name: 'My ring', outerRadius: 0.03, innerRadius: 0.019 };
+  expect(presetPatch('centeringring', p, { node, presets: [] })).toEqual({});
+});
 
 it.each(['=', '+', '-', '@', '\t', '\r', '-1', '+1'])('S7c-1 preserves apostrophes before %j through CSV', lead => {
   for (const prefix of ['', "'", "''", "'''"]) {

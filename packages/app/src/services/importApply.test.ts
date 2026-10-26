@@ -106,6 +106,16 @@ describe('importedLaunch — THE launch merge', () => {
 });
 
 describe('resolveImportMotors — the awaits of an open', () => {
+  it.each(['__proto__', 'constructor', 'toString'])('keeps motor and configuration maps at own id %s', async id => {
+    const refs = Object.fromEntries([[id, ref('H100')]]);
+    const imported: ImportedDesign = { name: 'x', tree: podTree(), notes: [], motors: refs,
+      configs: [config(id, refs)] };
+    const out = await resolveImportMotors(imported, async () => ({ motor: motor('H100'), note: '' }));
+    expect(Object.hasOwn(out.working, id)).toBe(true);
+    expect(Object.hasOwn(out.configs, id)).toBe(true);
+    expect(Object.hasOwn(out.configs[id]!, id)).toBe(true);
+    expect(Object.hasOwn(out.configResults!, id)).toBe(true);
+  });
   it('matches the applied set once and every OTHER configuration after it, in file order', async () => {
     const imported: ImportedDesign = {
       name: 'x', tree: podTree(), notes: [], motors: { mmt: ref('H100') },
@@ -390,6 +400,14 @@ describe('planConfigSwitch — one switch, applied and noted', () => {
     expect(plan.note.text).toContain('[H100-10, I200-10]');
   });
 
+  it.each(['toString', 'constructor', '__proto__'])('does not seed an inherited configuration nozzle for %s', id => {
+    const next = tree();
+    next.components[1]!.id = id;
+    const target = { ...A, nozzles: { other: 0.02 } };
+    const plan = planConfigSwitch({ savedConfigs: [target], activeConfigId: null,
+      mountMotors: {}, unmatchedRefs: {}, tree: next }, target, TEXT);
+    expect(plan.nozzleStated).toEqual([]);
+  });
   it('writes the working set back into the configuration being left, then applies the target', () => {
     const working = { ...A.motors, m1: { ...A.motors['m1']!, label: 'H100-14' } };
     const plan = planConfigSwitch({

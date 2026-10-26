@@ -1,10 +1,11 @@
 import {
-  OrkRocket, resetEngine, setEngineLengthUnit, type ComponentNode, type RocketTree, type StaticInfo,
+  OrkRocket, resetEngine, setEngineLengthUnit, type RocketTree, type StaticInfo,
 } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { railInterferenceWarnings, wakeShadowWarnings } from '../tree/mountAngle.js';
 import { explainBuildFailure } from '../tree/sanitize.js';
-import { engineTree, flownRecoveryDevices, shroudKernelName } from '../tree/treeModel.js';
+import { engineTree, flownRecoveryDevices } from '../tree/treeModel.js';
+import { shroudWarningFilter } from './shroudWarnings.js';
 import { writeMountMotor, type FlightHandle } from './flightRunner.js';
 import { flownSpec, hardwareMass, LEGACY_PAD_MASS_KEY, type HardwareMassResult } from './hardwareMass.js';
 import type { FlownRecoveryDevice } from './simReport.js';
@@ -199,22 +200,7 @@ export function buildDesign<R extends BuildHandle>(
     // with: the bare name matched anywhere, so a shroud with a cleared Name
     // field (the empty string is in every warning) or one named "Fin" (in
     // "Fins") took the real fins' thick-fin warning with it (audit 2026-09-30).
-    const fairingNames = new Set<string>();
-    const finNames = new Set<string>();
-    const scanF = (nodes: ComponentNode[]) => {
-      for (const nd of nodes) {
-        if (nd.type === 'fairing') fairingNames.add(shroudKernelName(nd));
-        if (['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'].includes(nd.type) && nd.name) finNames.add(nd.name);
-        scanF(nd.children ?? []);
-      }
-    };
-    scanF(tree.components);
-    // The kernel warning text has names, not ids: keep an ambiguous source.
-    for (const name of finNames) fairingNames.delete(name);
-    if (fairingNames.size > 0) {
-      info.warningTexts = info.warningTexts.filter((wtext) =>
-        !(wtext.includes('THICK_FIN') && [...fairingNames].some((fn) => wtext.includes(`"${fn}"`))));
-    }
+    info.warningTexts = info.warningTexts.filter(shroudWarningFilter(tree));
     // Interference around the rail (v0.088). An APP-side check, appended to
     // the same strip. It is a build problem, not a physics one: a fin on the
     // rail's line means the rocket does not go on the pad. Eric asked for it

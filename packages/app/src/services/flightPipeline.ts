@@ -45,6 +45,7 @@ export function stageMotorInfo(
   tree: RocketTree,
   assigned: [string, MountMotor][],
   stageList: ComponentNode[],
+  byId = false,
 ): Record<string, { label?: string; highPower?: boolean }> {
   // Keyed by a STAGE NAME, which is file or user text: on a plain object a
   // stage called `constructor` found Object as its "previous" entry and was
@@ -69,7 +70,7 @@ export function stageMotorInfo(
       p = p.id ? findParent(tree, p.id) : null;
     }
     branchStage ??= stageList[stageIndexOf(tree, id)];
-    if (branchStage?.name) {
+    if (branchStage && (byId ? branchStage.id : branchStage.name)) {
       // MERGE, never overwrite (2026-09-21, from the 19 Sep review). A branch
       // can carry more than one mount, and `assigned` arrives in assignment
       // order, so writing the entry outright let the LAST motor decide the
@@ -86,6 +87,10 @@ export function stageMotorInfo(
     }
   }
   for (const [stage, info] of byStage) {
+    if (byId) {
+      if (stage.id) out[stage.id] = info;
+      continue;
+    }
     // The kernel reports names without ids. Labels require every namesake to
     // agree, including motorless stages. Safety comes first for high power:
     // a lower-power namesake may get a conservative recovery warning.

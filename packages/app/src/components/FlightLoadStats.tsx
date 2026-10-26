@@ -24,9 +24,9 @@ export function FlightLoadStats({ run }: { run: SimRun }) {
       <tr><td className="simdet-label">Max dynamic pressure (max Q)</td>
         <td>{q ? `${pressure(q.value)} ${u.pressure} at ${at(q)}` : unavailable}</td></tr>
       <tr><td className="simdet-label">Max q·α</td>
-        <td>{qa ? `${pressure(qa.value)} ${u.pressure}·rad (${pressure(qa.value * 180 / Math.PI)} ${u.pressure}·°) at ${at(qa)}` : unavailable}</td></tr>
+        <td>{qa ? `${pressure(qa.value)} ${u.pressure}·rad (${Number.isFinite(qa.value) ? pressure(qa.value * 180 / Math.PI) : '—'} ${u.pressure}·°) at ${at(qa)}` : unavailable}</td></tr>
       {qa && <tr><td className="simdet-label">At max q·α</td>
-        <td>Mach {digits(qa.mach, 3)}; α {digits(qa.aoa, 4)} rad ({qa.aoa == null ? '—' : digits(qa.aoa * 180 / Math.PI, 2)}°)</td></tr>}
+        <td>Mach {digits(qa.mach, 3)}; α {digits(qa.aoa, 4)} rad ({qa.aoa == null || !Number.isFinite(qa.aoa) ? '—' : digits(qa.aoa * 180 / Math.PI, 2)}°)</td></tr>}
     </tbody></table>
     <p className="simdet-comments">Normal force on the airframe scales with q·α at small angles of attack.</p>
   </div>;

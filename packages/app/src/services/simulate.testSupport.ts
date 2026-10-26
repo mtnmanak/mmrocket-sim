@@ -42,6 +42,9 @@ export function idFree(run: FreshSimRun) {
   };
   return {
     ...rest,
+    ...(rest.branches ? { branches: rest.branches.map(branch => ({ ...branch,
+      ...(branch.stageId === undefined ? {} : { stageId: renumber(branch.stageId) }),
+    })) } : {}),
     ...(rest.recoveryEvents ? { recoveryEvents: rest.recoveryEvents.map((event) => ({
       ...event,
       ...(event.sourceId === undefined ? {} : { sourceId: renumber(event.sourceId) }),

@@ -1,6 +1,6 @@
 import { probeFlight, testMotor, testResolution } from './autoDelay.testSupport.js';
 import { delayMountsOf, solveAutoDelays } from './autoDelaySolver.js';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import type { FlightResult, FlightSeries, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import {
   launchGuideExplanation, buildSimRun, commentLevelsAlign, commentsOf, conditionsKeyOf, extractLandingDrift, extractMaxRollRate,
@@ -9,7 +9,7 @@ import {
   AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
   pressureThrustActive, PRESSURE_THRUST_CHANGED, runCarriesNozzleStamp,
   ROLL_RATE_MEANINGFUL_RAD_S, runMatchesDesign, runStoppedEarly, SAFETY, stabilityPercent, storedSimCost,
-  kernelGravity, type DesignMatchKey, type SimRun,
+  kernelGravity, physicsRevisionsMissed, physicsChangeLabels, describeRunChanges, type DesignMatchKey, type SimRun,
 } from './simReport.js';
 import { runsToCsv } from './simStore.js';
 import { idFree } from './simulate.testSupport.js';
@@ -27,6 +27,73 @@ const info: StaticInfo = {
   cp: 0.29, cna: 8, stabilityCalibers: 1.3, refDiameter: 0.024,
   warnings: 0, warningTexts: [],
 };
+it('formats a full stored history without rebuilding locale formatters per row', () => {
+  const Format = Intl.DateTimeFormat;
+  const constructors = vi.spyOn(Intl, 'DateTimeFormat').mockImplementation(function (locales, options) {
+    return new Format(locales, options);
+  });
+  const date = vi.spyOn(Date.prototype, 'toLocaleDateString');
+  const time = vi.spyOn(Date.prototype, 'toLocaleTimeString');
+  try {
+    for (let i = 0; i < 500; i++) expect(formatRunWhen(1700000000000 + i * 1000, 1800000000000)).toMatch(/\d/);
+    expect(date.mock.calls.length).toBeLessThan(3);
+    expect(time.mock.calls.length).toBeLessThan(3);
+    expect(constructors.mock.calls.length).toBeLessThan(4);
+  } finally { date.mockRestore(); time.mockRestore(); constructors.mockRestore(); }
+});
+it('formats history using the current device timezone after a change', () => {
+  const when = Date.UTC(2026, 9, 26, 16);
+  const offset = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(0);
+  try {
+    const expected = (hours: number) => new Intl.DateTimeFormat(undefined, {
+      hour: 'numeric', minute: '2-digit', second: '2-digit', timeZone: 'UTC',
+    }).format(new Date(when - hours * 3600000));
+    expect(formatRunWhen(when, when)).toBe(expected(0));
+    offset.mockReturnValue(600);
+    expect(formatRunWhen(when, when)).toBe(expected(10));
+  } finally { offset.mockRestore(); }
+});
+it('does not exempt changed transonic aero physics when retaining recovery evidence', () => {
+  const revisions = physicsRevisionsMissed({ physicsRevision: 'pods-only-base-drag-v5', aeroModel: 'supersonic', rogersKbf: true },
+    { aeroMode: 'supersonic', effectiveKbf: true, autoSupersonic: false, physicsRevisions: ['transonic-ogive-aero-v6a'] },
+    { includeModelRevisions: false });
+  expect(revisions.map(r => r.id)).toEqual(['transonic-ogive-aero-v6a']);
+});
+it.each([8640000000000000, -8640000000000000])('formats Date boundary %s without timezone overflow', when => {
+  const offset = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(when > 0 ? -540 : 600);
+  try {
+    expect(formatRunWhen(when)).toMatch(/\d/);
+  } finally { offset.mockRestore(); }
+});
+it.each(['classic', 'supersonic'] as const)('treats affected v6 %s aero as ambiguous evidence', aeroModel => {
+  const revisions = physicsRevisionsMissed({ physicsRevision: 'recovery-radial-mass-v6', aeroModel: 'classic', rogersKbf: true },
+    { aeroMode: aeroModel, effectiveKbf: true, autoSupersonic: false, physicsRevisions: ['transonic-ogive-aero-v6a'] },
+    { includeModelRevisions: false });
+  expect(revisions.map(r => r.id)).toEqual(['transonic-ogive-aero-v6a']);
+  expect(describeRunChanges(physicsChangeLabels(revisions))).toBe('this run may predate the transonic and ogive aerodynamics physics');
+  expect(physicsRevisionsMissed({ physicsRevision: PHYSICS_REVISION, aeroModel, rogersKbf: true },
+    { aeroMode: aeroModel, effectiveKbf: true, autoSupersonic: false, physicsRevisions: ['transonic-ogive-aero-v6a'] })).toEqual([]);
+});
+it.each([
+  ['0.178', true, false], ['0.179', false, false], ['0.180', false, false], ['unknown', true, true],
+] as const)('uses the stored run app version %s to date v6 aero', (appVersion, missed, ambiguous) => {
+  const revisions = physicsRevisionsMissed({ physicsRevision: 'recovery-radial-mass-v6', aeroModel: 'classic', rogersKbf: true,
+    exportContext: { appVersion, launch: DEFAULT_CONDITIONS, weather: null } },
+  { aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false, physicsRevisions: ['transonic-ogive-aero-v6a'] },
+  { includeModelRevisions: false });
+  expect(revisions.map(r => r.id)).toEqual(missed ? ['transonic-ogive-aero-v6a'] : []);
+  expect(revisions.some(r => r.ambiguous)).toBe(ambiguous);
+});
+it('removes only camera-shroud thickness warnings from saved flight notes', () => {
+  const run = buildSimRun({ result: { ...fakeResult(), warnings: [
+    { key: 'THICK_FIN', message: '[Warning.THICK_FIN]:  "Camera"' },
+    { key: 'THICK_FIN', message: '[Warning.THICK_FIN]:  "Fins"' },
+  ] }, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Test', execMs: 1,
+  advisoryTree: { components: [{ type: 'stage', children: [
+    { type: 'fairing', name: 'Camera' }, { type: 'trapezoidfinset', name: 'Fins' },
+  ] }] } });
+  expect(run.simWarnings?.filter(w => w.key === 'THICK_FIN').map(w => w.message)).toEqual(['[Warning.THICK_FIN]:  "Fins"']);
+});
 
 /** Minimal but self-consistent flight: rod exit at 0.15 s, burnout 2 s, apogee 6.8 s. */
 function fakeResult(): FlightResult {
@@ -521,6 +588,24 @@ describe('buildSimRun — staged branches (Release C)', () => {
     execMs: 10,
     stageMotorInfo: { Booster: { label: highPower ? 'J420R-0' : 'C6-0', highPower } },
     boosterMotors: [highPower ? 'J420R-0' : 'C6-0'],
+  });
+  it.each(['Booster', ''])('attributes booster recovery warnings by separation source id (name %s)', stageName => {
+    const input = stagedInput(false, true);
+    const first = input.result.branches![1]!;
+    first.events[0]!.sourceId = 'hp';
+    const second = structuredClone(first);
+    second.events[0]!.sourceId = 'lp';
+    input.result.branches!.push(second);
+    const hp = { ...testMotor(), label: 'H128', meta: { ...testMotor().meta, highPower: true } };
+    const lp = { ...testMotor(), label: 'D12', meta: { ...testMotor().meta, highPower: false } };
+    const tree: RocketTree = { components: [
+      { type: 'stage', id: 'top', name: 'Top' },
+      { type: 'stage', id: 'hp', name: stageName, children: [{ type: 'bodytube', id: 'mhp', motorMount: true }] },
+      { type: 'stage', id: 'lp', name: stageName, children: [{ type: 'bodytube', id: 'mlp', motorMount: true }] },
+    ] };
+    const run = buildSimRun({ ...input, advisoryTree: tree, advisoryMotors: [['mhp', hp], ['mlp', lp]] });
+    expect(run.branches?.map(b => b.motorLabel)).toEqual(['H128', 'D12']);
+    expect(run.comments.match(/has NO recovery device/g)).toHaveLength(1);
   });
 
   it('reports the booster branch with its own recovery and landing verdict', () => {
@@ -2799,6 +2884,20 @@ describe('a booster whose recovery device never opened', () => {
     result: tumbling(), info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'TwoStage', execMs: 1,
     stageMotorInfo: { Booster: { label: 'J420R-0', highPower: true } }, boosterMotors: ['J420R-0'],
     ...(recoveryStages ? { recoveryStages } : {}),
+  });
+  it('attributes recovery devices by stage id for namesake boosters', () => {
+    const result = tumbling();
+    const booster = result.branches![1]!;
+    const branch = (sourceId: string) => ({ ...booster, events: booster.events.map(e =>
+      e.type === 'STAGE_SEPARATION' ? { ...e, sourceId } : e) });
+    result.branches = [result.branches![0]!, branch('with'), branch('without')];
+    const tree: RocketTree = { components: [
+      { type: 'stage', id: 'with', name: 'Booster', children: [{ type: 'parachute', id: 'chute', deployEvent: 'never' }] },
+      { type: 'stage', id: 'without', name: 'Booster' },
+    ] };
+    const run = buildSimRun({ result, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Test', execMs: 1,
+      recoveryStages: [], advisoryTree: tree });
+    expect(run.branches?.map(b => [b.stageId, b.recoveryFitted])).toEqual([['with', true], ['without', false]]);
   });
 
   it('says it never opened when the stage carries one', () => {

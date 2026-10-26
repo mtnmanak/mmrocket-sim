@@ -3,7 +3,7 @@ import { strFromU8, zipSync } from 'fflate';
 import { Modal } from './Modal.js';
 import { Note } from './Note.js';
 import { WeatherCredit } from './WeatherCredit.js';
-import { formatRunLabel } from '../services/simReport.js';
+import { formatRunLabel, describeRunChanges } from '../services/simReport.js';
 import { flightDataBundleContents, flightDataBundleFiles, flightDataBundleLongitudeComparison, flightDataBundleWeatherCredit, type FlightDataBundleInput } from '../services/flightDataBundle.js';
 import { readDecimal } from '../prefs/units.js';
 import { saveFile } from '../services/saveFile.js';
@@ -81,7 +81,7 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
       <Note tier={source.changedSince?.length || longitudeComparison === 'different' ? 'caution' : 'information'} as="p">
         The design file is the current design.
         {source.changedSince === null ? ' Whether its simulation-relevant inputs match this run is unknown.' : source.changedSince.length
-          ? ` ${source.changedSince.join(', ')} changed since this run; its results describe the earlier rocket.`
+          ? ` ${describeRunChanges(source.changedSince, 'since this run')}; its results describe the earlier rocket.`
           : ' Simulation-relevant inputs match the selected run; this comparison excludes site longitude and design names or appearance.'}
         {longitudeComparison === 'different' && " The current design's site longitude differs from the selected run's recorded site."}
         {' '}The app does not retain an earlier design file with each run.
@@ -118,7 +118,7 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
             } }
             finally { if (readId.current === id) setReading(false); }
           })(); }} /></label>
-          {reading && <p role="status">Reading the data-log file…</p>}
+          <p role="status" className={reading ? undefined : 'sr-only'}>{reading ? 'Reading the data-log file…' : ''}</p>
           {attachment && <p>{attachment.name} ({attachment.bytes.byteLength} bytes) <button type="button" className="file-btn"
             onClick={() => { ++readId.current; setAttachment(undefined); if (fileInput.current) fileInput.current.value = ''; }}>Leave out attachment</button></p>}
           <label className="bundle-coordinate-choice"><input type="checkbox" checked={includeCoordinates}

@@ -52,6 +52,76 @@ it('N046 opens a flight warning explanation from its unchanged code and keeps th
   expect(dialog.textContent).toContain('What to do');
   expect(dialog.textContent).toContain('ballistic');
 });
+it('does not invent a recommendation for a legacy flight with no recommended delay', () => {
+  const saved = { ...run(), delayResolution: undefined, optimumDelayS: 5, recommendedDelayS: undefined } as unknown as SimRun;
+  render(<SimRunDetails run={saved} />);
+  expect(host.textContent).not.toContain('recommended (drill to fit)');
+});
+it('keeps legacy history controls reachable with absent motor text', () => {
+  render(<SimHistory runs={[{ ...run(), motor: undefined, manufacturer: 'Estes', motorConfig: 'mixed C6' } as unknown as SimRun]}
+    onRunsChange={() => {}} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show')!.click());
+  expect(host.textContent).not.toContain('undefined');
+  expect(host.querySelector('button[aria-label^="Delete run"]')).not.toBeNull();
+});
+it.each(['windAvg', 'motorCount'])('does not coerce the saved detail sibling %s', field => {
+  const saved = { ...run(), landingDistanceM: 100, landingBearingDeg: 270,
+    [field]: { toString: 0, valueOf: 0 } } as unknown as SimRun;
+  render(<SimRunDetails run={saved} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+  if (field === 'windAvg') expect(host.textContent).not.toContain('downwind');
+  else {
+    const row = [...host.querySelectorAll('tr')].find(r => r.querySelector('td')?.textContent === 'Motors')!;
+    expect(row.textContent).toContain('—');
+  }
+});
+it('keeps an unreadable stored motor count unavailable after loading', () => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...run(), motorCount: { toString: 0, valueOf: 0 } }]));
+  render(<SimRunDetails run={loadRuns()[0]!} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+  const row = [...host.querySelectorAll('tr')].find(r => r.querySelector('td')?.textContent === 'Motors')!;
+  expect(row.querySelectorAll('td')[1]!.textContent).toBe('—');
+});
+it.each([true, '0x10'])('does not coerce stored load peaks in the report: %j', bad => {
+  const saved = { ...run(), loads: { maxQAlpha: { value: bad, aoa: bad, time: 1, altitude: 100, mach: 0.5 } } };
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([saved]));
+  render(<SimRunDetails run={loadRuns()[0]!} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+  const rows = [...host.querySelectorAll('tr')].filter(r => r.textContent?.includes('max q·α') || r.textContent?.includes('Max q·α'));
+  expect(rows).toHaveLength(2);
+  expect.soft(rows[0]?.querySelectorAll('td')[1]?.textContent).toMatch(/\(— [^()]+\) at/);
+  expect.soft(rows[1]?.textContent).toContain('α — rad (—°)');
+  expect(rows.every(r => r.textContent?.includes('—'))).toBe(true);
+  expect(rows.map(r => r.textContent).join(' ')).not.toMatch(/57\.30|916\.73/);
+});
+it.each([true, '0x10'])('does not coerce corrupt saved detail numbers %j', value => {
+  const saved = { ...run(), rodExitAoa: value, maxRollRateRadS: value } as unknown as SimRun;
+  render(<SimRunDetails run={saved} />);
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+  expect(host.textContent).not.toContain('Max roll rate');
+  const row = [...host.querySelectorAll('tr')].find(r => r.textContent?.includes('Angle of attack at launch guide exit'))!;
+  expect(row.querySelectorAll('td')[1]!.textContent).toContain('—');
+});
+it('draws a corrupt Classic Mach as unavailable instead of crashing the saved report', () => {
+  const saved = { ...run(), aeroModel: 'classic', maxMach: '2.2' } as unknown as SimRun;
+  expect(() => render(<SimRunDetails run={saved} />)).not.toThrow();
+  expect(host.textContent).not.toContain('flown to Mach 2.20');
+});
+it('keeps duplicate-named booster report sections distinct', () => {
+  const branch = { name: 'Booster', apogee: 100, landingRate: 5, tumbles: false, deployments: [], safeLandingRate: true };
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    render(<SimRunDetails run={{ ...run(), branches: [{ ...branch, motorLabel: 'H128' }, { ...branch, motorLabel: 'D12' }] }} />);
+    expect(host.textContent).toContain('H128');
+    expect(host.textContent).toContain('D12');
+    expect(errors.mock.calls.flat().join(' ')).not.toContain('same key');
+  } finally { errors.mockRestore(); }
+});
+it.each(['5', true, '', null])('shows an unknown delay rather than plugged for %j', delayS => {
+  render(<SimRunDetails run={{ ...run(), delayResolution: undefined, delayS } as unknown as SimRun} />);
+  expect(host.textContent).not.toContain('plugged (no ejection charge)');
+  expect(host.textContent).toContain('unknown delay');
+});
 
 /** The same self-consistent flight simReport.test.ts uses. */
 function fakeResult(): FlightResult {
@@ -897,6 +967,7 @@ describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-
     render(<Wired />);
     openTable();
     const del = host.querySelector('button[aria-label^="Delete run Bravo"]') as HTMLButtonElement;
+    const regions = [...host.querySelectorAll('[role="status"]')];
     act(() => { del.click(); });
     expect(loadRuns().map((r) => r.id)).toEqual(['a', 'c']);
     const undo = byText('Undo');
@@ -904,6 +975,9 @@ describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-
     // Focus lands on it: the ✕ the keyboard was on has gone with its row.
     expect(document.activeElement).toBe(undo);
     expect(host.textContent).toContain('Deleted run Bravo');
+    const heading = host.querySelector('h2')!;
+    expect(heading.compareDocumentPosition(undo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(regions).toContain([...host.querySelectorAll('[role="status"]')].find(n => n.textContent?.includes('Deleted run Bravo')));
     act(() => { undo.click(); });
     expect(loadRuns().map((r) => r.id)).toEqual(['a', 'b', 'c']);
     expect(host.textContent).not.toContain('Deleted run');
@@ -914,8 +988,10 @@ describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-
     addRuns([named('only', 'Solo')]);
     render(<Wired />);
     openTable();
+    const regions = [...host.querySelectorAll('[role="status"]')];
     act(() => { (host.querySelector('button[aria-label^="Delete run Solo"]') as HTMLButtonElement).click(); });
     expect(loadRuns()).toEqual([]);
+    expect(regions).toContain([...host.querySelectorAll('[role="status"]')].find(n => n.textContent?.includes('Deleted run Solo')));
     act(() => { byText('Undo').click(); });
     expect(loadRuns().map((r) => r.id)).toEqual(['only']);
   });

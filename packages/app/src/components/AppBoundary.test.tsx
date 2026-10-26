@@ -40,6 +40,15 @@ function renderCrashed() {
   vi.spyOn(console, 'error').mockImplementation(() => {});
   act(() => root.render(<AppBoundary onReload={() => { reloads += 1; }}><Boom /></AppBoundary>));
 }
+it('updates its established recovery outcome region', async () => {
+  renderCrashed();
+  const status = host.querySelector('[role="status"]');
+  expect(status).not.toBeNull();
+  expect(status!.textContent).toBe('');
+  await act(async () => { button('Download the autosaved design').click(); });
+  expect(host.querySelector('[role="status"]')).toBe(status);
+  expect(status!.textContent).not.toBe('');
+});
 
 beforeEach(() => {
   localStorage.clear();

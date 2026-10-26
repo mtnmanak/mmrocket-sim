@@ -76,6 +76,19 @@ const line = () => host.querySelector('#pad-mass-mmt-line')!;
 const text = () => line().textContent!;
 const imperial = () => localStorage.setItem(
   PREFS_KEY, JSON.stringify({ units: { mass: 'oz', length: 'in' } }));
+it('keeps the same status region from blank through a pad-mass refusal', () => {
+  show();
+  const status = host.querySelector('[role="status"]');
+  expect(status).not.toBeNull();
+  expect(status!.textContent).toBe('');
+  show({ valueKg: 10.574, hardware: MAMBA });
+  expect(host.querySelector('[role="status"]')).toBe(status);
+  expect(status!.textContent).toBe('');
+  expect(line().getAttribute('role')).toBeNull();
+  show({ valueKg: 0.1, hardware: { state: 'none', why: 'no-motor' } });
+  expect(host.querySelector('[role="status"]')).toBe(status);
+  expect(status!.textContent).toContain('nothing');
+});
 
 /**
  * Native setter + input event — how React sees a real keystroke. A keystroke

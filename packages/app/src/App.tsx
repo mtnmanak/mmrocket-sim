@@ -131,7 +131,7 @@ import {
 } from './services/session.js';
 import {
   AERO_MODEL_CHANGED, aeroModelLabel, changedSinceRun, commentsOf,
-  currentModelLabel, formatRunLabel, formatRunWhenProse, formatStability, listAnd,
+  currentModelLabel, formatRunLabel, formatRunWhenProse, formatStability, describeRunChanges,
   hasAerodynamicForce, shownStability, runMatchesDesign, runMatchesModel,
   storedSimCost,
   type DesignMatchKey, type MotorMeta, type SimRun,
@@ -168,7 +168,7 @@ import { addNewComponent } from './services/addComponent.js';
 import { convertShrouds, type ShroudCandidate } from './tree/shroudConvert.js';
 import { mountBore } from './tree/scaleRocket.js';
 import { designNotices, type HeldNote } from './services/notices.js';
-import { groupOf, tierLines, withoutLines, noteFlags, type ImportNote, type NoteGroup } from './services/importNotes.js';
+import { groupOf, highestTier, tierLines, withoutLines, noteFlags, type ImportNote, type NoteGroup } from './services/importNotes.js';
 import { dismissLegacyPositions, preserveLegacyPositionCheck } from './services/legacyPositionCheck.js';
 import {
   legacyPadMassWrite, restoredPadMassNote, typedPadMass, type PadMassText,
@@ -598,6 +598,10 @@ export function App() {
     setLossySaved(l => l && l.mark === before ? { ...l, mark: after } : l);
   }, []);
   const [launch, setLaunch] = useState<LaunchConditions>(restored.state.launch);
+  const editLaunch = (next: LaunchConditions) => {
+    if (next.timeStepS !== launch.timeStepS) setTimeStepMigrated(false);
+    setLaunch(next);
+  };
   /**
    * The launch conditions as last rendered, for an open to merge the file's
    * into AFTER its last await (audit 2026-09-22). The open's own closure holds
@@ -764,14 +768,6 @@ export function App() {
   const setFileNote = useCallback((text: string | null, severity: NoticeSeverity = 'info', expand?: boolean, tier?: NoteTier) => {
     setFileNoteState(text === null ? null : { text, severity, ...(expand ? { expand: true } : {}), ...(tier ? { tier } : {}) });
   }, []);
-  /**
-   * A failed 2D/3D image export from the hero's own buttons: Danger, drawn in
-   * the fixed notice strip rather than the header block, which is off screen
-   * once the canvas is scrolled into view (review of NOTES-1b, finding 1).
-   */
-  const setHeroExportFailure = useCallback((text: string) => {
-    setFileNoteState({ text, severity: 'error', tier: 'danger', inBar: true });
-  }, []);
   /** An open's or a configuration switch's note: its text and its tiered lines (services/importApply.ts). */
   const setGroupNote = useCallback((text: string, severity: NoticeSeverity, expand?: boolean, group?: NoteGroup) => {
     setFileNoteState({ text, severity, ...(expand ? { expand: true } : {}), ...(group ? { group } : {}) });
@@ -909,6 +905,8 @@ export function App() {
   const appliedOrkSave = useRef(0);
   const appliedSaveDestination = useRef<object | null>(null);
   const appliedOrkSaveDestination = useRef<object | null>(null);
+  const recentSaveByName = useRef(new Map<string, number>());
+  const recentNoteSave = useRef(0);
   /**
    * WHICH BUILD'S IMPORTER produced the tree now in state — not which build is
    * running.
@@ -967,7 +965,7 @@ export function App() {
    * (AUDIT row 477 — savedMarkSites.test.ts counted the sites in this text).
    */
   const {
-    dirty, currentMark, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
+    dirty, currentMark, markSaved, invalidateSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick,
   } = useDesignDirty(designSnapshot, restored.session, { landing: starterLanding, mountId: defaultMountId }, preRankRestore, preLengthRestore, restored.preConfigRestore,
     // A .rkt/.CDX1 save marks the design it wrote, apart from the .ork mark:
     // a non-edit rewrite (catalogue relabel, restore migration, starter landing)
@@ -989,7 +987,7 @@ export function App() {
   const lossyFlights = (session?.lossySaved?.flights ?? 0) + flightCount.current;
   const lossyStatus = designFile && (designFile.format === 'rkt' || designFile.format === 'cdx1')
     ? lossySaveStatus(lossySaved, currentMark, lossyFlights)
-      ?? (designFile.via !== 'opened' || dirty ? 'Unsaved changes' : null) : null;
+      ?? (dirty ? 'Unsaved changes' : null) : null;
   const liveLossReport = liveLoss?.file === designFile ? liveLoss.report : null;
 
   // The rocket name lives INSIDE the file; the name on disk can be different.
@@ -1036,6 +1034,8 @@ export function App() {
    */
   const startNewDesign = () => {
     documentGeneration.current++;
+    appliedSaveDestination.current = null;
+    appliedOrkSaveDestination.current = null;
     setAutosavePaused(false);
     setHiddenPartIds(new Set());
     motorChoices.current.clear();
@@ -1426,12 +1426,12 @@ export function App() {
     [flightTree.components, auditMasses, built]);
   const stabilityRangeInput = useMemo(() => ({
     tree: { components: tree.components, ignitionDefaults: (tree as FlightTree).ignitionDefaults },
-    configs: syncActiveConfig(savedConfigs, activeConfigId, { tree, motors: mountMotors, unmatchedRefs }),
+    configs: withActiveConfigTreeSynced(liveConfigs, activeConfigId, tree),
     ...(activeConfigId === null ? { workingMotors: mountMotors, workingUnmatchedRefs: unmatchedRefs } : {}),
     kbf: effectiveKbf, supersonic: effectiveSupersonic, hybrid: effectiveHybrid,
     measuredDryMassKg: measured.massKg,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only components and ignition defaults affect physics; root metadata does not
-  }), [tree.components, (tree as FlightTree).ignitionDefaults, savedConfigs, activeConfigId, mountMotors, unmatchedRefs, effectiveKbf, effectiveSupersonic,
+  }), [tree.components, (tree as FlightTree).ignitionDefaults, liveConfigs, activeConfigId, mountMotors, unmatchedRefs, effectiveKbf, effectiveSupersonic,
     effectiveHybrid, measured.massKg]);
 
   const buildError = 'error' in buildResult ? buildResult.error : simError;
@@ -1533,7 +1533,7 @@ export function App() {
   const batchWeighed = useMemo(() => {
     if (!built || built.hardware.state !== 'ok') return undefined;
     const h = built.hardware;
-    const mm = mountMotors[h.appliedTo];
+    const mm = overrideFor(mountMotors, h.appliedTo);
     if (!mm || mm.padMassWeighedWith === LEGACY_PAD_MASS_KEY) return undefined;
     return {
       mountId: h.appliedTo,
@@ -1940,7 +1940,8 @@ export function App() {
       return `${identity.slice('unmatched:'.length)} (named by the file, not loaded)`;
     }
     if (identity.startsWith('ex:')) {
-      return loadExMotors().find((m) => m.motorId === identity)?.designation ?? identity;
+      const ex = loadExMotors().find((m) => m.motorId === identity);
+      return ex?.flightSnapshot?.designation ?? ex?.designation ?? identity;
     }
     const slash = identity.indexOf('/');
     return slash === -1 ? identity : identity.slice(slash + 1);
@@ -2327,6 +2328,11 @@ export function App() {
     if (generation === documentGeneration.current) setFileNote(text, severity, expand, tier);
     else showEarlierSaveNote({ text, tier: tier ?? (severity === 'error' ? 'danger' : severity === 'warn' ? 'caution' : 'information') });
   };
+  const heroGeneration = documentGeneration.current;
+  const setHeroExportFailure = (text: string) => {
+    if (heroGeneration === documentGeneration.current) setFileNoteState({ text, severity: 'error', tier: 'danger', inBar: true });
+    else showEarlierSaveNote({ text, tier: 'danger' });
+  };
 
   const downloadAutosavedDesign = async () => {
     const generation = documentGeneration.current;
@@ -2363,6 +2369,7 @@ export function App() {
     losses: readonly string[] = [],
     lossTier: NoteTier = losses.length ? 'caution' : 'information',
     generation = documentGeneration.current,
+    saveId = 0,
   ) => {
     // CSV gets a UTF-8 BOM: headers can carry non-ASCII (units, symbols), and
     // Excel's double-click open decodes BOM-less CSV as the ANSI codepage.
@@ -2381,18 +2388,35 @@ export function App() {
       extensions: [`.${ext}`],
       description: info.description,
     });
+    if (generation !== documentGeneration.current && out.kind === 'saved' && out.destination) {
+      if (out.destination === appliedOrkSaveDestination.current) invalidateSaved();
+      if (out.destination === appliedSaveDestination.current) {
+        if (!appliedOrkSaveDestination.current) invalidateSaved();
+        setLossySaved(null);
+      }
+    }
+    if (ext.toLowerCase() !== 'ork' && out.kind === 'saved' && out.destination
+      && out.destination === appliedOrkSaveDestination.current) {
+      appliedOrkSaveDestination.current = null;
+      invalidateSaved();
+    }
     const said = saveOutcomeNote(out, losses);
     const tier = out.kind === 'downloaded' && out.fellBack ? 'caution' : lossTier;
     if (suffix === '' && ['ork', 'rkt', 'cdx1'].includes(ext.toLowerCase())
         && (out.kind === 'saved' || out.kind === 'downloaded')) {
       // C-A2: keep the exact bytes written, including lossy formats' own limits.
+      recentNoteSave.current = Math.max(recentNoteSave.current, saveId);
       const recentFinished = (note: string | null) => {
-        if (generation === documentGeneration.current) setRecentNote(note);
+        if (generation === documentGeneration.current && saveId === recentNoteSave.current) setRecentNote(note);
         // Keep this save's destination warning and export losses with its Recent note.
-        else if (note) showEarlierSaveNote({ text: `${said ? said.text : `Saved “${out.name}”.`}\n${note}`, tier: 'caution' });
+        else if (generation !== documentGeneration.current && note) showEarlierSaveNote({ text: `${said ? said.text : `Saved “${out.name}”.`}\n${note}`, tier: 'caution' });
       };
-      void new Blob(parts).arrayBuffer().then(bytes => rememberRecentDesign(out.name, bytes))
-        .then(recentFinished, () => recentFinished('The app could not keep a copy in Recent. Save a file to keep this design.'));
+      if (saveId >= (recentSaveByName.current.get(out.name) ?? 0)) {
+        recentSaveByName.current.set(out.name, saveId);
+        void new Blob(parts).arrayBuffer().then(bytes => saveId === recentSaveByName.current.get(out.name)
+          ? rememberRecentDesign(out.name, bytes) : undefined)
+          .then(note => { if (note !== undefined) recentFinished(note); }, () => recentFinished('The app could not keep a copy in Recent. Save a file to keep this design.'));
+      }
     }
     // Where it went, and what it could not carry (saveOutcomeNote); a
     // cancelled dialog says nothing.
@@ -2455,7 +2479,7 @@ export function App() {
         configs, activeConfigId, measured,
         flightData: flightDataForExport(),
         notes: losses,
-      }), 'ork', '', losses, omittedMotor ? 'caution' : 'information', generation);
+      }), 'ork', '', losses, omittedMotor ? 'caution' : 'information', generation, saveId);
       // Only a real write counts. 'cancelled' means the user backed out of the
       // picker, and treating that as saved is how work gets discarded silently.
       if (generation === documentGeneration.current
@@ -2480,7 +2504,7 @@ export function App() {
       }
       return out;
     } catch (e) {
-      setFileNote(`Save .ork failed — nothing was written: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
+      documentNote(generation, `Save .ork failed — nothing was written: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
       return { kind: 'failed' };
     }
   };
@@ -2501,8 +2525,8 @@ export function App() {
     motors: exportMotorsMap(format === 'rkt' ? flownForAutosave : {}), flightData: flightDataNow,
     distanceUnit: prefs.units.altitude,
   });
-  const lossyExportFailed = (format: LossyFormat, e: unknown) =>
-    setFileNote(`${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
+  const lossyExportFailed = (format: LossyFormat, e: unknown, generation = documentGeneration.current) =>
+    documentNote(generation, `${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
   // Use the latest render at the idle edge, without restarting the timer for
   // unrelated UI renders. No kernel calls are made by this preview. The ref is
   // written after render, in a layout effect, so before the timer's effect.
@@ -2565,7 +2589,7 @@ export function App() {
           : exportCdx1({ name: tree.name ?? 'My Rocket', tree, overrides: activeOverrides, motors: data.motors, launch,
             launchMassKg: built?.info.mass, launchCgM: built?.info.cg,
             ...(fileMachAlt ? { machAlt: fileMachAlt } : {}) });
-        const out = await download(xml, format === 'rkt' ? 'rkt' : 'CDX1', '', report.losses, undefined, generation);
+        const out = await download(xml, format === 'rkt' ? 'rkt' : 'CDX1', '', report.losses, undefined, generation, saveId);
         if (generation === documentGeneration.current
             && (saveId > appliedSave.current || (out.kind === 'saved' && out.destination && out.destination === appliedSaveDestination.current))
             && (out.kind === 'saved' || out.kind === 'downloaded')) {
@@ -2577,7 +2601,7 @@ export function App() {
           setLiveLoss({ file, report });
         }
       } catch (e) {
-        lossyExportFailed(format, e);
+        lossyExportFailed(format, e, generation);
       }
     };
     if (accepted && !report.refused && stableJson(report) === stableJson(accepted)) void write();
@@ -2662,6 +2686,10 @@ export function App() {
     // work look saved.
     if (!openSeq.isCurrent(openId)) return;
     documentGeneration.current++;
+    appliedSaveDestination.current = null;
+    appliedOrkSaveDestination.current = null;
+    recentNoteSave.current = ++saveCounter.current;
+    if (file) recentSaveByName.current.set(file.name, recentNoteSave.current);
     setHiddenPartIds(new Set());
     setRecentNote(null);
     // Only a winning open replaces the old parse on screen and its notice
@@ -2794,15 +2822,15 @@ export function App() {
    */
   const editIgnition = (id: string, tuple: IgnitionTuple, scope: FlightEditScope, numeric = false, finished = false) => {
     const gesture = numeric ? flightEdit.current : null;
-    const baseline = (tree as FlightTree).ignitionDefaults?.[id] ?? mountMotors[id]!.ignition;
+    const baseline = overrideFor((tree as FlightTree).ignitionDefaults, id) ?? overrideFor(mountMotors, id)!.ignition;
     if (scope === 'own') {
       // Establishing the first shared default must not change what another
       // configuration flies: one whose own motor record lights differently
       // from today's own setting keeps that as an override. Existing
       // overrides are never touched (own-setting scope).
       let frozen = false;
-      const configs = (tree as FlightTree).ignitionDefaults?.[id] ? savedConfigs : savedConfigs.map(c => {
-        const native = c.motors[id]?.ignition;
+      const configs = overrideFor((tree as FlightTree).ignitionDefaults, id) ? savedConfigs : savedConfigs.map(c => {
+        const native = overrideFor(c.motors, id)?.ignition;
         if (c.id === activeConfigId || !native || overrideFor(c.ignitions, id) || !sparsify(baseline, native)) return c;
         frozen = true;
         return { ...c, ignitions: { ...c.ignitions, [id]: { ...native } } };
@@ -2815,13 +2843,13 @@ export function App() {
       : detachedOwnsOverrides ? 'detached' : 'default');
     // Native configurations can still inherit their own propellant-based motor
     // record. Establishing one shared default must not change any other owner.
-    const establishing = !(tree as FlightTree).ignitionDefaults?.[id];
+    const establishing = !overrideFor((tree as FlightTree).ignitionDefaults, id);
     const configs = establishing ? savedConfigs.map(c => {
-      const effective = c.ignitions?.[id] ?? c.motors[id]?.ignition;
+      const effective = overrideFor(c.ignitions, id) ?? overrideFor(c.motors, id)?.ignition;
       return effective ? { ...c, ignitions: setOverride(c.ignitions, id, baseline, effective) } : c;
     }) : savedConfigs;
     const detached = establishing ? { ...detachedOverrides,
-      ignitions: setOverride(detachedOverrides.ignitions, id, baseline, detachedOverrides.ignitions?.[id] ?? mountMotors[id]!.ignition),
+      ignitions: setOverride(detachedOverrides.ignitions, id, baseline, overrideFor(detachedOverrides.ignitions, id) ?? overrideFor(mountMotors, id)!.ignition),
     } : detachedOverrides;
     // With no owner there is no override layer: the mount default it is (FC-5).
     if (owner === 'default') {
@@ -2869,7 +2897,7 @@ export function App() {
   const adoptComponentOverrideEverywhere = (node: ComponentNode) => {
     const id = node.id!;
     const recovery = node.type === 'parachute' || node.type === 'streamer';
-    const tuple = recovery ? activeOverrides.deployments?.[id] : activeOverrides.separations?.[id];
+    const tuple = recovery ? overrideFor(activeOverrides.deployments, id) : overrideFor(activeOverrides.separations, id);
     if (!tuple) return;
     // Clear every owner, including detached choices, in the SAME history step (FC-5).
     commitFlightLayers({ tree: updateNode(tree, id, { ...tuple }),
@@ -2996,8 +3024,9 @@ export function App() {
       await applyImported(imported, openId, { name: file.name, via: 'opened', format: imported.sourceFormat! });
       if (openSeq.isCurrent(openId)) {
         sessionDebugLog.record('import-complete');
+        const recentId = recentSaveByName.current.get(file.name);
         const note = await rememberRecentDesign(file.name, buffer);
-        if (openSeq.isCurrent(openId)) setRecentNote(note);
+        if (openSeq.isCurrent(openId) && recentId === recentNoteSave.current) setRecentNote(note);
       }
     } catch (e) {
       sessionDebugLog.record('import-failed', e);
@@ -3196,7 +3225,7 @@ export function App() {
   );
   // Batch simulate targets the PRIMARY (sustainer) mount; per the owner's rule
   // batch never runs across staged rockets (combinatorics).
-  const primaryLabel = primaryMountId ? mountMotors[primaryMountId]?.label : undefined;
+  const primaryLabel = primaryMountId ? overrideFor(mountMotors, primaryMountId)?.label : undefined;
   const assignedCount = assigned.length;
   // The strip's Flight item (CFG-SPEC B3): the configuration Launch flies,
   // then its motor; the tooltip names the configuration and every loaded motor.
@@ -3208,7 +3237,7 @@ export function App() {
     active: liveActiveLayer, working: flightWorking,
     motors: [...assigned].sort(([a], [b]) => Number(b === primaryMountId) - Number(a === primaryMountId))
       .map(([id, mm]) => ({ mount: mountName(mounts.find((m) => m.id === id)!),
-        text: motorTooltip(mountMotors[id] ?? mm, catalogue) })),
+        text: motorTooltip(overrideFor(mountMotors, id) ?? mm, catalogue) })),
   }), [liveActiveLayer, flightWorking, assigned, primaryMountId, mounts, mountMotors, catalogue]);
 
   // Motor-mount sizes (nominal motor diameter each mount accepts), per stage —
@@ -3279,7 +3308,7 @@ export function App() {
   const preparePrintReport = () => {
     // C-A6: imported references never reach installation, but still make the intended loadout incomplete.
     const unresolved = mounts.flatMap(mount => {
-      const ref = mount.id ? unmatchedRefs[mount.id] : undefined;
+      const ref = mount.id ? overrideFor(unmatchedRefs, mount.id) : undefined;
       return ref && !assigned.some(([id]) => id === mount.id)
         ? [{ mount, identity: [ref.manufacturer, ref.designation].filter(Boolean).join(' ') }] : [];
     });
@@ -3331,7 +3360,7 @@ export function App() {
     : modelMatch === false
       ? `Apogee of the most recent flight, which was flown on ${aeroModelLabel(lastRun.aeroModel, lastRun.rogersKbf)}. That is not the model now selected. Press Launch to re-fly it.`
       : changedSinceNonModel.length > 0
-        ? `Apogee of a flight from ${formatRunWhenProse(lastRun.when)} — ${listAnd(changedSinceNonModel)} changed since. Press Launch to fly the current design.`
+        ? `Apogee of a flight from ${formatRunWhenProse(lastRun.when)} — ${describeRunChanges(changedSinceNonModel)}. Press Launch to fly the current design.`
         : `Apogee of a flight from ${formatRunWhenProse(lastRun.when)} that may not match the design as it stands. Press Launch to fly the current design.`;
 
   // "Try Auto & re-fly" from the supersonic-flight alert: once the session
@@ -3676,9 +3705,9 @@ export function App() {
             back to their defaults when you reload.
           </div>
         )}
-        {recentNote && <Note tier="caution" role="status" className="recent-storage-note">
-          {recentNote} <button className="file-btn" onClick={() => setRecentNote(null)} aria-label="Dismiss recent storage note">Dismiss</button>
-        </Note>}
+        <Note tier={recentNote ? 'caution' : 'information'} role="status" className={`recent-storage-note ${recentNote ? '' : 'sr-only'}`}>
+          {recentNote && <>{recentNote} <button className="file-btn" onClick={() => setRecentNote(null)} aria-label="Dismiss recent storage note">Dismiss</button></>}
+        </Note>
         <Note tier={earlierSaveNote?.tier ?? 'information'}
           role="status" className={`earlier-save-note ${earlierSaveNote ? 'file-note' : 'sr-only'}`}>
           {earlierSaveNote && <>An earlier export finished: {earlierSaveNote.text}
@@ -3872,11 +3901,14 @@ export function App() {
               // Its group loses the same lines and gains the reconcile's, each
               // keeping its tier (D7 §4).
               const group = withoutLines(groupOf(prev), new Set(openMotorQuestion.acceptedLines));
+              const lines = [...group.lines, ...tierLines(spent.notes, noteFlags(spent.notes))];
+              const severity = highestTier(lines) === 'information'
+                && !lines.some(line => line.text.startsWith('Warning: this file uses format ')) ? 'info' : 'warn';
               return {
                 ...prev, text: [...prev.text.split('\n').filter(line => !openMotorQuestion.acceptedLines.includes(line)),
                   ...spent.notes].join('\n'),
-                severity: spent.severity === 'warn' ? 'warn' : prev.severity,
-                group: { ...group, lines: [...group.lines, ...tierLines(spent.notes, noteFlags(spent.notes))] },
+                severity: prev.severity === 'error' ? 'error' : severity,
+                group: { ...group, lines },
               };
             });
           }} />
@@ -4087,7 +4119,7 @@ export function App() {
               ? `${primaryLabel}${assigned.length > 1 ? ` +${assigned.length - 1}` : ''}`
               : null}
             launch={launch}
-            onLaunchChange={setLaunch}
+            onLaunchChange={editLaunch}
             onLaunch={onLaunch}
             simulating={simulating}
             recovery={recovery}
@@ -4558,7 +4590,7 @@ export function App() {
                           exitDiameterM={numOrNull(nozzleStage, 'nozzleExitDiameter')}
                           motors={loadout}
                           motorLabel={loadout[0]?.label ?? null}
-                          clearedFor={nozzleCleared[nozzleStage.id!] ?? null}
+                          clearedFor={overrideFor(nozzleCleared, nozzleStage.id!) ?? null}
                           onCommit={(m) => setTree(applyStageNozzles(treeRef.current, { [nozzleStage.id!]: m }))}
                           onAutoFill={(m) => writeTree(applyStageNozzles(treeRef.current, { [nozzleStage.id!]: m }))}
                         />
@@ -4566,7 +4598,7 @@ export function App() {
                     })}
                   </div>
                   {stMounts.map((m) => {
-              const mm = flightState.mountMotors[m.id!];
+              const mm = overrideFor(flightState.mountMotors, m.id!);
               const mNode = findNode(tree, m.id!);
               // Pods and strap-ons included (audit 2026-09-22, row 351): the
               // label and the pad-mass card's multi-motor wording follow the
@@ -4673,7 +4705,7 @@ export function App() {
                             value={Number.isFinite(mm.spec.ejectionDelay) ? mm.spec.ejectionDelay : undefined}
                             step={1}
                             max={60}
-                            placeholder={Number.isFinite(mm.spec.ejectionDelay) ? undefined : 'plugged'}
+                            placeholder={mm.spec.ejectionDelay === Infinity ? 'plugged' : Number.isFinite(mm.spec.ejectionDelay) ? undefined : 'unknown'}
                             // The card heading's own fallback: never the internal id (audit 2026-09-30).
                             ariaLabel={`Ejection delay for ${mountName(m)}`}
                             onCommit={(v) => {
@@ -4689,7 +4721,7 @@ export function App() {
                           title="No ejection charge (removed for electronic deployment, or a factory -P motor). Recovery must deploy on apogee/altitude.">
                           <input
                             type="checkbox"
-                            checked={!Number.isFinite(mm.spec.ejectionDelay)}
+                            checked={mm.spec.ejectionDelay === Infinity}
                             style={{ width: 'auto' }}
                             onChange={(e) => {
                               // Un-plugging restores the longest prescribed
@@ -4731,7 +4763,7 @@ export function App() {
                           event", beside a label tied to nothing. The scope
                           choice is explicit (CFG-SPEC A3). */}
                       <MountIgnitionField mountId={m.id!} mountName={mountName(m)} ownerKey={flightOwnerKey}
-                        own={(tree as FlightTree).ignitionDefaults?.[m.id!] ?? mountMotors[m.id!]?.ignition ?? mm.ignition}
+                        own={overrideFor((tree as FlightTree).ignitionDefaults, m.id!) ?? overrideFor(mountMotors, m.id!)?.ignition ?? mm.ignition}
                         override={overrideFor(activeOverrides.ignitions, m.id!)}
                         overrideLabel={overrideScopeLabel} isStaged={isStaged}
                         onEdit={(scope, tuple, numeric) => editIgnition(m.id!, tuple, scope, numeric)}
@@ -4748,9 +4780,7 @@ export function App() {
                       app could not load, a value typed here would never reach
                       the file (the export gate keeps the primary's), so the card
                       explains instead of offering a field. */}
-                  {mm && m.id === primaryMountId && (() => {
-                    if (filePrimaryMountId === primaryMountId) {
-                      return (
+                  {mm && m.id === primaryMountId && filePrimaryMountId === primaryMountId && (
                         <MotorPadMass
                           mountId={m.id!}
                           motorLabel={baseLabel(mm.label)}
@@ -4765,16 +4795,17 @@ export function App() {
                           describeIdentity={describeIdentity}
                           identityKey={motorIdentity(mm.meta, mm.spec.designation)}
                         />
-                      );
-                    }
+                  )}
+                  <div className="unmatched-pad-mass-status" role="status">
+                  {mm && m.id === primaryMountId && filePrimaryMountId !== primaryMountId && (() => {
                     // The file's primary is an unmatched reference (filePrimaryMountId
                     // is never null while primaryMountId is not).
-                    const fileRef = filePrimaryMountId ? unmatchedRefs[filePrimaryMountId] : undefined;
+                    const fileRef = filePrimaryMountId ? overrideFor(unmatchedRefs, filePrimaryMountId) : undefined;
                     const where = mountName(filePrimaryMountId ? findNode(tree, filePrimaryMountId) : null, 'a removed mount');
                     const named = fileRef?.designation ?? 'a motor the file names';
                     return typeof fileRef?.padMassKg === 'number' && fileRef.padMassKg > 0
                       ? (
-                        <p className="print-note print-note-warn" role="status">
+                        <p className="print-note print-note-warn">
                           {`The file's weighed pad mass belongs to the motor on ${where} (${named}), which could not`
                             + ' be loaded. It is kept so the file saves unchanged, and nothing is carried. Load that'
                             + ' motor to use it, or load a motor there and re-weigh with these motors in.'}
@@ -4789,7 +4820,7 @@ export function App() {
                             + ' motor, or another one there, and the field appears under it.'}
                         </p>
                       );
-                  })()}
+                  })()}</div>
                 </div>
               );
                   })}
@@ -4839,7 +4870,7 @@ export function App() {
             })()}
           </div>
 
-          <LaunchPanel flownAtmosphere={flownAtmosphere} overrideSummary={launchOverrideSummary} onShowOverride={showFlightOverride} hasLaunchGuide={hasLaunchGuides(tree)} value={launch} onChange={setLaunch} onLaunch={onLaunch} simulating={simulating}
+          <LaunchPanel flownAtmosphere={flownAtmosphere} overrideSummary={launchOverrideSummary} onShowOverride={showFlightOverride} hasLaunchGuide={hasLaunchGuides(tree)} value={launch} onChange={editLaunch} onLaunch={onLaunch} simulating={simulating}
             longitudeReview={longitudeReview} onLongitudeReview={setLongitudeReview}
             canLaunch={!!built && !!primaryMountId && !nozzlePending}
             lastRun={simCostRef}
@@ -4891,7 +4922,7 @@ export function App() {
               subsonic flights of this design would fly classic).
             </div>
           )}
-          {!inspectedSummary && lastRun && (modelMatch === false || changedSinceNonModel.length > 0) &&
+          <div role="status" className={!inspectedSummary && lastRun && (modelMatch === false || changedSinceNonModel.length > 0) ? undefined : 'sr-only'}>{!inspectedSummary && lastRun && (modelMatch === false || changedSinceNonModel.length > 0) &&
             <Note tier="caution" className="result-freshness">
           {!inspectedSummary && modelMatch === false && lastRun && (
             // States what the flight DID first, matching the auto-supersonic
@@ -4899,7 +4930,7 @@ export function App() {
             // destroys the flight: keeping it is only honest if the report
             // says which model produced these numbers, rather than letting
             // them be silently re-read under the new one.
-            <div className="file-note file-note-warn" role="status">
+            <div className="file-note file-note-warn">
               These numbers were <strong>flown on {aeroModelLabel(lastRun.aeroModel, lastRun.rogersKbf)}</strong>.
               The model now selected is <strong>{currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}</strong>,
               so they are not comparable with a fresh flight — press <strong>Launch</strong> to
@@ -4911,14 +4942,14 @@ export function App() {
             // No auxiliary verb: "the launch conditions HAS changed" is wrong,
             // and picking has/have from the list length gets that case backwards
             // because one of the three labels is itself plural.
-            <div className="file-note file-note-warn" role="status">
+            <div className="file-note file-note-warn">
               These numbers were <strong>flown {formatRunWhenProse(lastRun.when)}</strong>, and{' '}
-              <strong>{listAnd(changedSinceNonModel)}</strong> changed since — they describe the
+              <strong>{describeRunChanges(changedSinceNonModel)}</strong> — they describe the
               rocket as it was then, not the one you have now.
               Press <strong>Launch</strong> to fly the current design.
             </div>
           )}
-            </Note>}
+            </Note>}</div>
           {/* Each panel below draws stored or computed data, so each has its
               own boundary (audit 2026-09-22): a throw in one says so in place,
               and the rest of the tab — the run table included, where a bad
@@ -4966,7 +4997,7 @@ export function App() {
                      runs, so a model switch is a labelling matter, not a
                      different rocket. */
                   staleReason={changedSinceNonModel.length > 0
-                    ? listAnd(changedSinceNonModel) : null}
+                    ? changedSinceNonModel : null}
                   /* And they wait while a Launch flies the same handle (see
                      showChartsFor). */
                   flightRunning={simulating} />

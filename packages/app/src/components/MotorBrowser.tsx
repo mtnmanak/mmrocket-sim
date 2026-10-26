@@ -587,8 +587,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                   once and nobody could see it. */}
               {catalogueAgeDays > 0 ? ` (${catalogueAgeDays} day${catalogueAgeDays === 1 ? '' : 's'} old)` : ''}
               {overlay && (overlay.added.length || overlay.changed.length || overlay.removed.length)
-                ? ` · +${overlay.added.length} new, ${overlay.changed.length} changed since, checked ${overlay.fetchedAt.slice(0, 10)}`
-                : overlay ? ` · up to date as of ${overlay.fetchedAt.slice(0, 10)}` : ''}
+                ? ` · +${overlay.added.length} new, ${overlay.changed.length} changed since, checked ${overlay.fetchedAt.slice(0, 10) || 'on an unknown date'}`
+                : overlay ? ` · up to date as of ${overlay.fetchedAt.slice(0, 10) || 'an unknown date'}` : ''}
               {' '}· mount ⌀ {dimUi(mountDiameterMm).toFixed(1)} {motorSym}
             </span>
           </h2>

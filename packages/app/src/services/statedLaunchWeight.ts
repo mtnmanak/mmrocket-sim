@@ -594,6 +594,11 @@ export function reconcileIncludedMotor(
     delete bare['overrideSubcomponentsMass'];
     delete bare['overrideCGX'];
     delete bare['overrideSubcomponentsCG'];
+    if (cleared['overrideSubcomponentsMass'] === true && (!hasCg || cleared['overrideSubcomponentsCG'] === true)) {
+      bare[STATED_STAGE_FIGURES] = { motor: named, mountId,
+        ...(hasMass ? { launchKg: stated as number } : {}),
+        ...(hasCg ? { launchCgM: numOpt(cleared, 'overrideCGX') } : {}) } satisfies StatedStageFigures;
+    }
     const what = hasMass
       ? `the ${text.mass(stated as number)} the RASAero file stated for that stage is a launch weight`
       : 'the CG the RASAero file stated for that stage is a launch CG';
@@ -651,8 +656,11 @@ export function reconcileIncludedMotor(
     delete bare['overrideSubcomponentsMass'];
     delete bare['overrideCGX'];
     delete bare['overrideSubcomponentsCG'];
-    bare[STATED_STAGE_FIGURES] = { motor: named, mountId, launchKg: stated,
-      ...(numOpt(cleared, 'overrideCGX') !== undefined ? { launchCgM: numOpt(cleared, 'overrideCGX') } : {}) } satisfies StatedStageFigures;
+    if (cleared['overrideSubcomponentsMass'] === true
+      && (numOpt(cleared, 'overrideCGX') === undefined || cleared['overrideSubcomponentsCG'] === true)) {
+      bare[STATED_STAGE_FIGURES] = { motor: named, mountId, launchKg: stated,
+        ...(numOpt(cleared, 'overrideCGX') !== undefined ? { launchCgM: numOpt(cleared, 'overrideCGX') } : {}) } satisfies StatedStageFigures;
+    }
     return {
       tree: replaceStage(tree, index, bare),
       severity: 'warn',

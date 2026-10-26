@@ -77,6 +77,9 @@ const editApart = (h: { current: TreeHistory }, next: RocketTree) => {
 };
 
 it.each([
+  { key: ';', code: 'KeyZ', ctrlKey: true },
+  { key: ';', code: 'KeyZ', ctrlKey: true, shiftKey: true },
+  { key: '/', code: 'KeyY', ctrlKey: true },
   { key: 'z', code: 'KeyZ', ctrlKey: true, altKey: true },
   { key: 'Dead', code: 'KeyZ', ctrlKey: true, isComposing: true },
   { key: 'Process', code: 'KeyZ', ctrlKey: true, isComposing: true },

@@ -339,6 +339,8 @@ describe('App — accessibility, as rendered', () => {
       .find((i) => i.querySelector('.vitals-label')?.textContent === 'Apogee')!;
     expect(apogee().querySelector('.vitals-stale')).toBeNull(); // current: nothing to say
     expect(apogee().title).toBe('Apogee of the most recent flight');
+    const regions = new Set(host.querySelectorAll('[role="status"]'));
+    for (const region of host.querySelectorAll('.results-column > [role="status"]')) expect(region.className).toBe('sr-only');
     // The model switched after the flight: the number stays, and belongs to the other model.
     const aero = host.querySelector<HTMLSelectElement>('select[aria-label="Aerodynamics model (this session)"]')!;
     await act(async () => {
@@ -349,6 +351,8 @@ describe('App — accessibility, as rendered', () => {
     expect(why).toBe('Apogee of the most recent flight, which was flown on Rogers Modified Barrowman (Kbf)'
       + '. That is not the model now selected. Press Launch to re-fly it.');
     expect(apogee().querySelector('.vitals-stale')?.getAttribute('aria-hidden')).toBe('true');
+    const stale = host.querySelector('.result-freshness')!;
+    expect(regions.has(stale.closest('[role="status"]')!)).toBe(true);
     // D7 §5, R04: the provenance is in words WITH the number, not only a glyph.
     expect(apogee().querySelector('.vitals-value')?.textContent).toMatch(/⚠ previous flight/);
     expect(apogee().querySelector('.vitals-value .sr-only')?.textContent).toBe(` — warning: ${why}`);

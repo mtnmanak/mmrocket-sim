@@ -63,7 +63,7 @@ const own = <T>(table: Record<string, T>, key: string): T | undefined =>
 
 /** The part a note or a build error names: its own name, else its type's. */
 function partName(n: ComponentNode): string {
-  return `“${n.name ?? own<string>(DISPLAY_NAME, n.type) ?? n.type}”`;
+  return `“${typeof n.name === 'string' ? n.name : own<string>(DISPLAY_NAME, n.type) ?? n.type}”`;
 }
 
 /**
@@ -203,6 +203,11 @@ function walk(nodes: ComponentNode[], found: Finding[]): ComponentNode[] | null 
   let out: ComponentNode[] | null = null;
   nodes.forEach((n, i) => {
     let fixed = sanitizeOwn(n, found);
+    if (n.name !== undefined && typeof n.name !== 'string') {
+      fixed = { ...fixed };
+      delete fixed.name;
+      found.push({ problem: `${partName(n)}: name could not be read`, repair: 'using the part type as its name' });
+    }
     // C-B8: untrusted autosaves may contain a non-text comment.
     if (n['comment'] !== undefined && typeof n['comment'] !== 'string') {
       fixed = { ...fixed };
@@ -325,6 +330,10 @@ export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
   tree = sanitizeDesignProvenance(tree, notes);
   tree = sanitizeDocumentMaterials(tree, notes);
   const found: Finding[] = [];
+  if (tree.name !== undefined && typeof tree.name !== 'string') {
+    tree = { ...tree, name: 'Rocket' };
+    found.push({ problem: 'The rocket name could not be read', repair: 'using Rocket as its name' });
+  }
   const components = walk(tree.components, found);
   refuseTooManyInstances(components ?? tree.components);
   // D7 I04: a repaired value replaces what the file or session held — Caution.

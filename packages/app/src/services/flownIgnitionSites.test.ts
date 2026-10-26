@@ -54,7 +54,7 @@ describe('a motor written onto a built handle keeps its ignition', () => {
     // 2026-09-22 — the ignition restore AND the refusal of an event the kernel
     // does not know, which a hand-kept copy here had lost (the row-283 gap).
     // batchSweep.test.ts flies both.
-    expect(body).toContain('writeMountMotor(r, id, spec, assignedIgnitions[id]');
+    expect(body).toContain('writeMountMotor(r, id, spec, overrideFor(assignedIgnitions, id)');
     expect(body).not.toContain('.setMotorById(');
   });
 

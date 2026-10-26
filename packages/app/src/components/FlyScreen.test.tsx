@@ -149,6 +149,16 @@ describe('FlyScreen', () => {
     ));
     return calls;
   }
+  it('updates established status regions when a flight becomes stale', () => {
+    const run = { ...RUN, motor: 'C6', manufacturer: 'Estes', delayS: 5, when: 0 };
+    mount({ run, changedSince: [], staleModel: undefined });
+    const regions = new Set(host.querySelectorAll('[role="status"]'));
+    for (const region of host.querySelectorAll('.fly-col > [role="status"]')) expect(region.className).toBe('sr-only');
+    mount({ run, changedSince: ['the motor'], staleModel: 'Classic' });
+    const notes = [...host.querySelectorAll('.fly-stale')];
+    expect(notes).toHaveLength(2);
+    for (const note of notes) expect(regions.has(note.closest('[role="status"]')!)).toBe(true);
+  });
 
   it.each([undefined, '5', null, {}, Infinity])('storage hardening: draws unavailable optimum delay (%j)', (optimumDelayS) => {
     mount({ run: { ...RUN, optimumDelayS } as SimRun });
@@ -259,6 +269,19 @@ describe('FlyScreen', () => {
       ...RUN, when: Date.now(), motor: 'C6', manufacturer: 'Estes', delayS: 3,
     } as SimRun;
     const notes = () => Array.from(host.querySelectorAll('.fly-stale')).map((el) => el.textContent ?? '');
+    it('says an ambiguous flight may predate the aero change', () => {
+      mount({ run: FLOWN, changedSince: ['this run may predate the transonic and ogive aerodynamics physics'] });
+      expect(notes()[0]).toContain('this run may predate the transonic and ogive aerodynamics physics. Press Launch');
+      expect(notes()[0]).not.toContain('changed since');
+    });
+    it('keeps a stale legacy flight with absent motor text readable', () => {
+      const legacy = { ...FLOWN, id: 'absent' };
+      delete (legacy as Partial<SimRun>).motor;
+      addRun(legacy);
+      expect(() => mount({ run: loadRuns()[0], changedSince: ['the design'] })).not.toThrow();
+      expect(notes()[0]).toContain('Flown with');
+      expect(notes()[0]).not.toContain('undefined');
+    });
 
     it('says what flew and what changed since, and sends the user to Launch', () => {
       mount({ run: FLOWN, changedSince: ['the motor'] });

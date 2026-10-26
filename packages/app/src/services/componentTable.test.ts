@@ -31,6 +31,14 @@ const infoFor = (id: string): ComponentInfo | null => (id === 'n' ? {
 const prefs = { units: INITIAL_UNITS, radiusMode: 'diameter' as const };
 
 describe('componentTable', () => {
+  it.each(['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'] as const)('exports the fillet material for %s', type => {
+    const table = componentTable({ components: [{ type: 'stage', children: [
+      { type, materialName: 'Balsa', filletRadius: 0.003, filletMaterialName: 'Epoxy', filletDensity: 1100 },
+    ] }] }, prefs);
+    expect(table.headers).toContain('Fillet material');
+    expect(table.rows[0]![table.headers.indexOf('Fillet material')]).toBe('Epoxy');
+    expect(table.rows[0]![table.headers.indexOf('Fillet material density (kg/m³)')]).toBe(1100);
+  });
   it.each([
     [INITIAL_UNITS, 680], [{ ...INITIAL_UNITS, density: 'g/cm³' }, 0.68], [IMPERIAL_UNITS, 0.393065],
   ])('S7c-2 exports bulk density once in the selected units %s', (units, expected) => {

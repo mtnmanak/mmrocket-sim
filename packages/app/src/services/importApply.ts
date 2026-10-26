@@ -175,17 +175,17 @@ export async function resolveImportMotors(
   imported: ImportedDesign,
   match: (ref: OrkMotorRef) => Promise<MotorMatchResult> = matchImportedMotor,
 ): Promise<ResolvedImportMotors> {
-  const working: Record<string, MotorMatchResult> = {};
+  const working: Record<string, MotorMatchResult> = Object.create(null);
   for (const [nodeId, ref] of Object.entries(imported.motors)) {
     working[nodeId] = await match(ref);
   }
   const chosenId = imported.chosenConfigId ?? null;
-  const configs: Record<string, Record<string, MountMotor | undefined>> = {};
-  const configResults: Record<string, Record<string, MotorMatchResult>> = {};
+  const configs: Record<string, Record<string, MountMotor | undefined>> = Object.create(null);
+  const configResults: Record<string, Record<string, MotorMatchResult>> = Object.create(null);
   for (const cfg of imported.configs ?? []) {
     if (cfg.id === chosenId) continue;
-    const matched: Record<string, MountMotor | undefined> = {};
-    const results: Record<string, MotorMatchResult> = {};
+    const matched: Record<string, MountMotor | undefined> = Object.create(null);
+    const results: Record<string, MotorMatchResult> = Object.create(null);
     for (const [nodeId, ref] of Object.entries(cfg.motors)) {
       results[nodeId] = await match(ref);
       matched[nodeId] = results[nodeId].motor;
@@ -263,7 +263,7 @@ function flyablePick(imported: ImportedDesign, resolved: ResolvedImportMotors): 
   const cfg = candidates.find((c) => liftoff(c).some((id) => stageOf.get(id) === bottom)) ?? candidates[0];
   if (!cfg) return null;
   const results = resolved.configResults?.[cfg.id] ?? {};
-  const matches: Record<string, MotorMatchResult> = {};
+  const matches: Record<string, MotorMatchResult> = Object.create(null);
   for (const [id, ref] of Object.entries(cfg.motors)) {
     const motor = resolved.configs[cfg.id]?.[id];
     matches[id] = results[id] ?? { ...(motor ? { motor } : {}), note: motor ? '' : `Motor “${ref.designation}” could not be loaded.` };
@@ -390,10 +390,10 @@ export function planImport(
   // note has no business restating it. What it IS still the only source of is
   // a motor that could not be matched or downloaded — and, since the review of
   // audit 2026-09-23, one that loaded without the file confirming it.
-  const nextMotors: Record<string, MountMotor> = {};
+  const nextMotors: Record<string, MountMotor> = Object.create(null);
   // The refs nothing resolved, kept whole so Save writes them back verbatim
   // instead of dropping the mount — see SavedConfig.unmatchedRefs.
-  const nextUnmatchedRefs: Record<string, OrkMotorRef> = {};
+  const nextUnmatchedRefs: Record<string, OrkMotorRef> = Object.create(null);
   const openNotes: (string | undefined)[] = [];
   const infoNotes: (string | undefined)[] = [];
   for (const [nodeId, ref] of Object.entries(openRefs)) {
@@ -426,9 +426,9 @@ export function planImport(
   if (pick) importedTree = configOntoTree(importedTree, pick.cfg);
   const nextConfigs: SavedConfig[] = [];
   for (const cfg of imported.configs ?? []) {
-    const cfgMotors: Record<string, MountMotor> = {};
+    const cfgMotors: Record<string, MountMotor> = Object.create(null);
     const unmatched: string[] = [];
-    const cfgUnmatchedRefs: Record<string, OrkMotorRef> = {};
+    const cfgUnmatchedRefs: Record<string, OrkMotorRef> = Object.create(null);
     for (const [nodeId, ref] of Object.entries(cfg.motors)) {
       // The applied config's motors were matched (and reported) above —
       // reused rather than re-fetching the same thrust curves; the reader's
@@ -815,7 +815,7 @@ export function planConfigSwitch(
   }
   const nozzleStated = hasNozzles
     ? stageMotors(next, Object.entries(cfg.motors).filter(([id]) => mountIds.has(id)))
-      .filter((s) => s.stageId in cfg.nozzles!)
+      .filter((s) => Object.hasOwn(cfg.nozzles!, s.stageId))
     : [];
   return {
     savedConfigs,

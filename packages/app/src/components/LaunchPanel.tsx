@@ -247,7 +247,7 @@ export function TimeStepCaution({ dt, lastRun, flights = 1 }: {
    */
   flights?: number;
 }) {
-  if (dt == null || dt >= DEFAULT_TIME_STEP_S) return null;
+  if (dt == null || dt >= DEFAULT_TIME_STEP_S) return <div className="sr-only" role="status" />;
   const factor = timeStepCostFactor(dt);
   // The last flight was measured at ITS OWN step, which is usually not the one
   // being typed now — scale between the two rather than assuming the default.
@@ -257,7 +257,7 @@ export function TimeStepCaution({ dt, lastRun, flights = 1 }: {
   const perFlight = ref ? ref.s * (factor / ref.f) : null;
   const atDefault = ref ? ref.s / ref.f : null;
   return (
-    <p className="field-caution" role="status">
+    <div role="status"><p className="field-caution">
       <Icon name="zap" size={13} />{' '}
       <strong>{dt} s is finer than the {DEFAULT_TIME_STEP_S} s default.</strong>{' '}
       {flights > 1
@@ -274,7 +274,7 @@ export function TimeStepCaution({ dt, lastRun, flights = 1 }: {
       accuracy you can read: against a converged reference, {DEFAULT_TIME_STEP_S} s
       lands apogee within 0.06 m on a 6.4 km flight and raises exactly the same
       warnings. See <em>Launch Conditions → Time step</em> in the Guide.
-    </p>
+    </p></div>
   );
 }
 
@@ -463,7 +463,7 @@ function DensityAltitudeReadout({ value, atmosphereModel }: { value: LaunchCondi
 function PadPressureCaution({ value, atmosphereModel }: { value: LaunchConditions; atmosphereModel: AtmosphereModel }) {
   const { prefs } = usePrefs();
   const issue = padPressureIssue(value, atmosphereModel);
-  if (!issue) return null;
+  if (!issue) return <div role="status" />;
   const sym = prefs.units.pressure;
   const altSym = prefs.units.altitude;
   // The site the flight flies (`padAir` clamps the stored one into its range),
@@ -472,7 +472,7 @@ function PadPressureCaution({ value, atmosphereModel }: { value: LaunchCondition
   const site = fmtSi('altitude', altSym, siteM);
   const standing = `${fmtSi('pressure', sym, isaPressurePa(siteM, atmosphereModel))} ${sym}`;
   return (
-    <p className="field-caution" role="status" data-caution="pad-pressure">
+    <div role="status"><p className="field-caution" data-caution="pad-pressure">
       <Icon name="zap" size={13} />{' '}
       <><strong>{fmtSi('pressure', sym, value.pressureHPa! * 100)} {sym} is about sea-level
         pressure</strong>, and this pad is {site} {altSym} up, where a barometer reads about{' '}
@@ -482,7 +482,7 @@ function PadPressureCaution({ value, atmosphereModel }: { value: LaunchCondition
         Clear the field and the app uses {standing}, the standing pressure for your site
         altitude.</>
       {' '}See <em>Launch Conditions</em> in the Guide.
-    </p>
+    </p></div>
   );
 }
 
@@ -644,8 +644,8 @@ export function LaunchPanel({
             −80.6 it flies. */}
         {numField('Longitude (°)', 'longitudeDeg', 1, ...LONGITUDE_DEG_RANGE, true, LONGITUDE_HELP,
           KERNEL_DEFAULT_LONGITUDE_DEG)}
-        {longitudeReview && onLongitudeReview && <LongitudeCheck value={value} onChange={onChange}
-          review={longitudeReview} onReview={onLongitudeReview} />}
+        <LongitudeCheck value={value} onChange={onChange}
+          review={longitudeReview} onReview={onLongitudeReview} />
         {/* Under the coordinates its Coriolis term reads (GS1); desktop keeps it
             in its simulation options, beside the time step. */}
         <GeodeticField value={value} onChange={onChange} />

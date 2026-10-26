@@ -81,6 +81,14 @@ function fixture(type: 'centeringring' | 'bulkhead' = 'centeringring') {
 const applyPick = () => { click(buttonNamed('Choose from preset database')); click(buttonNamed('apply catalogue row')); };
 
 describe('PropertyPanel - pick-only fit', () => {
+  it('updates an established status region after a repaired preset pick', () => {
+    const f = fixture(); f.render();
+    const regions = new Set(host.querySelectorAll('[role="status"]'));
+    applyPick(); f.render();
+    const note = host.querySelector('.message-caution[role="status"]')!;
+    expect(note?.textContent).toMatch(/fit|Undo/);
+    expect(regions.has(note)).toBe(true);
+  });
   it.each(['centeringring', 'bulkhead'] as const)('opens and restores a stored %s 1 mm under its bore silently', type => {
     const f = fixture(type); f.render();
     expect(host.querySelector('.message-caution')).toBeNull();

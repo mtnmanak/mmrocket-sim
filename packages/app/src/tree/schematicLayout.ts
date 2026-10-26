@@ -456,7 +456,8 @@ const TYPE_STYLE: Partial<Record<string, { stroke: string; tag: string }>> = loo
 /** Every shape of the side view, as data. See the module note. */
 export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): SchematicLayout {
   tree = resolveTransitionRadii(tree);
-  const { scale, roll, motors, vertical } = o;
+  const { scale, roll, vertical } = o;
+  const motors = o.motors && lookupTable(o.motors);
   const hidden = hiddenPartIds(tree, o.hiddenIds);
   const ctx = { scale, cy: o.cy, x0: o.x0 };
   // Three paint layers, concatenated at the end.

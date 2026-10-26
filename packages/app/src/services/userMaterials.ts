@@ -1,4 +1,5 @@
-import { csvCell } from './csvUtil.js';
+import { csvCell, unescapeCsvText } from './csvUtil.js';
+import { parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { MAX_BULK_DENSITY } from '../tree/schema.js';
 import { builtInMaterial, materialNameKey, MATERIAL_UNITS, usableMaterialDensity, type MaterialKind } from './designMaterials.js';
@@ -85,6 +86,10 @@ function csvRecords(csv: string): { cells: string[]; line: number }[] {
   for (let i = 0; i < csv.length; i++) {
     const ch = csv[i]!;
     if (ch === '\r' || (ch === '\n' && csv[i - 1] !== '\r')) line++;
+    if (line > 20000 && !(line === 20001 && (i === csv.length - 1
+      || (ch === '\r' && i === csv.length - 2 && csv[i + 1] === '\n')))) {
+      throw new Error('CSV has a limit of 20000 physical rows');
+    }
     if (quoted) {
       if (ch === '"' && csv[i + 1] === '"') { cell += '"'; i++; }
       else if (ch === '"') { quoted = false; closed = true; }
@@ -92,7 +97,8 @@ function csvRecords(csv: string): { cells: string[]; line: number }[] {
     } else if (ch === ',' || ch === '\n' || ch === '\r') {
       row.push(cell); cell = ''; closed = false;
       if (ch !== ',') {
-        rows.push({ cells: row, line: startLine }); row = []; startLine = line;
+        if (row.some(c => c.trim())) rows.push({ cells: row, line: startLine });
+        row = []; startLine = line;
         if (ch === '\r' && csv[i + 1] === '\n') i++;
       }
     } else if (ch === '"' && cell === '' && !closed) quoted = true;
@@ -112,15 +118,16 @@ export function importUserMaterialsCsv(csv: string, existing: readonly UserMater
   const importedKeys = new Set<string>();
   let rows: ReturnType<typeof csvRecords>;
   try { rows = csvRecords(csv.replace(/^\uFEFF/, '')); }
-  catch { return { ...result, refused: 1, reasons: ['Malformed CSV: check quotes and separators'] }; }
+  catch (error) { return { ...result, refused: 1, reasons: [error instanceof Error && error.message.includes('limit')
+    ? error.message : 'Malformed CSV: check quotes and separators'] }; }
   if (rows[0]?.cells.join(',') !== 'kind,name,density,unit') {
     return { ...result, refused: Math.max(1, rows.length - 1), reasons: ['CSV columns must be kind,name,density,unit'] };
   }
   for (const { cells, line } of rows.slice(1)) {
     const [kind, rawName = '', density = '', unit] = cells;
     // Undo precisely the formula guard written by csvCell, including quoted commas.
-    const name = /^'+[=+\-@\t\r]/.test(rawName) ? rawName.slice(1) : rawName;
-    const entry = { kind, name, density: density.trim() ? Number(density) : NaN };
+    const name = unescapeCsvText(rawName);
+    const entry = { kind, name, density: parseDecimal(density) };
     let problem = cells.length !== 4 ? 'Expected four columns' : materialProblem(entry);
     if (!problem) {
       const m = entry as UserMaterial;

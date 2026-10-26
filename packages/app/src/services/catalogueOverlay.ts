@@ -67,6 +67,11 @@ const NUMERIC_FIELDS = new Set([
  * checks samplesToMotorSpec and motorDbIntegrity.test.ts apply to shipped rows.
  */
 export function screenEntry(m: Partial<MotorDbEntry>): string | null {
+  for (const key of CATALOGUE_FIELDS) {
+    if (m[key] != null && typeof m[key] !== (NUMERIC_FIELDS.has(key) ? 'number' : 'string')) {
+      return `${key} is not ${NUMERIC_FIELDS.has(key) ? 'a number' : 'text'}`;
+    }
+  }
   if (typeof m.motorId !== 'string' || !m.motorId) return 'no motorId';
   if (typeof m.designation !== 'string' || !m.designation.trim()) return 'no designation';
   if (typeof m.manufacturerAbbrev !== 'string' || !m.manufacturerAbbrev.trim()) return 'no manufacturer';
@@ -429,8 +434,15 @@ export async function checkForCatalogueUpdates(
   });
   const resolved = new Set([...live.map(m => m.motorId), ...removed]);
   // An empty maker response also keeps motors learned by an earlier check.
-  for (const m of previous?.added ?? []) if (!resolved.has(m.motorId) && !answered.has(m.manufacturerAbbrev)) {
-    silent.add(m.manufacturerAbbrev);
+  const acceptedNewIds = new Set(added.map(m => m.motorId));
+  const listedIds = new Set(live.map(m => m.motorId));
+  for (const m of previous?.added ?? []) if (!acceptedNewIds.has(m.motorId)) {
+    if (answered.has(m.manufacturerAbbrev)) {
+      if (!listedIds.has(m.motorId)) removed.push(m.motorId);
+    } else {
+      silent.add(m.manufacturerAbbrev);
+      if (previous?.removed.includes(m.motorId)) removed.push(m.motorId);
+    }
     added.push(m);
   }
   for (const c of previous?.changed ?? []) if (!resolved.has(c.motorId) && !answered.has(c.after.manufacturerAbbrev)) {
@@ -455,6 +467,7 @@ export async function checkForCatalogueUpdates(
 
 /** "12 new, 3 changed, 0 removed" and the per-field detail, for the browser's note. */
 export function describeOverlay(o: CatalogueOverlay): string[] {
+  const scalar = (v: unknown): string => typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' ? String(v) : '?';
   const lines: string[] = [];
   lines.push(`${o.added.length} new, ${o.changed.length} changed, ${o.removed.length} no longer listed`
     + (o.rejected.length ? `, ${o.rejected.length} refused as implausible` : '')
@@ -462,13 +475,13 @@ export function describeOverlay(o: CatalogueOverlay): string[] {
   for (const c of o.changed.slice(0, 12)) {
     const parts = c.fields.map((f) => {
       const a = field(c.before, f); const b = field(c.after, f);
-      return `${f} ${String(a)} → ${String(b)}`;
+      return `${f} ${scalar(a)} → ${scalar(b)}`;
     });
     lines.push(`${c.after.manufacturerAbbrev} ${c.after.designation}: ${parts.join(', ')}`);
   }
   if (o.changed.length > 12) lines.push(`…and ${o.changed.length - 12} more changed.`);
   for (const r of o.rejected.slice(0, 5)) {
-    lines.push(`Refused ${r.entry.manufacturerAbbrev ?? '?'} ${r.entry.designation ?? '?'}: ${r.reason}.`);
+    lines.push(`Refused ${scalar(r.entry.manufacturerAbbrev)} ${scalar(r.entry.designation)}: ${r.reason}.`);
   }
   return lines;
 }

@@ -12,7 +12,7 @@ import { validDelayResolution } from './autoDelaySolver.js';
 import { formatWarning } from './simWarnings.js';
 import { recordedConfiguration, runConfigurationHeading } from './runConfiguration.js';
 import { dataHeaderLines, EXPORT_VARS } from './schematicExport.js';
-import { aeroModelLabel, commentsOf, formatRunStability, formatRunWhenProse, formatStability, hasAerodynamicForce, listAnd,
+import { aeroModelLabel, commentsOf, formatRunStability, formatRunWhenProse, formatStability, hasAerodynamicForce, describeRunChanges,
   type DeploymentReport, type SimRun, type StabilityUnit } from './simReport.js';
 import { escapeXml } from './xmlUtil.js';
 import { printDocument } from './printDocument.js';
@@ -84,7 +84,8 @@ export function designPrintHtml(input: DesignPrintInput): string {
         ringCaution = note(`${error instanceof Error ? error.message : 'Ring dimensions unavailable.'} Do not cut from unresolved dimensions.`, 'caution');
       }
     }
-    const materials = [`Material density (${u.density})`, 'Surface density (kg/m²)', 'Line material', 'Line density (kg/m)']
+    const materials = [`Material density (${u.density})`, 'Surface density (kg/m²)', 'Line material', 'Line density (kg/m)',
+      'Fillet material', `Fillet material density (${u.density})`]
       .map(label => ({ label, value: row[table.headers.indexOf(label)] }))
       .filter(({ label, value }) => value !== '' && value !== undefined && !(label === 'Line material' && n?.type === 'shockcord'))
       .map(({ label, value }) => `${label}: ${String(value)}`);
@@ -124,7 +125,7 @@ export function designPrintHtml(input: DesignPrintInput): string {
       p(`Aerodynamics: ${aeroModelLabel(run.aeroModel, run.rogersKbf)}`));
     if (run.importedSummary) body.push(note('Imported summary. Design match and safety are unknown; only the file’s recorded predictions are shown.', 'caution'));
     else if (input.changedSince === null) body.push(note('Design match unknown. These stored results cannot establish a match with the current design.', 'caution'));
-    else if (input.changedSince.length) body.push(note(`${listAnd(input.changedSince)} changed since this flight. Its results describe the earlier rocket and conditions.`, 'caution'));
+    else if (input.changedSince.length) body.push(note(`${describeRunChanges(input.changedSince, 'since this flight')}. Its results describe the earlier rocket and conditions.`, 'caution'));
     else body.push(p('This flight matches the current design, motors, conditions and model.'));
     if (validDelayResolution(run.delayResolution)) {
       const rows = run.delayResolution.mounts.map(m => {

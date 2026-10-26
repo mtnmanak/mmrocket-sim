@@ -1,5 +1,6 @@
 import { resolveTransitionRadii } from './transitionRadii.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { lookupTable } from '../services/xmlUtil.js';
 import { clusterOffsets } from './cluster.js';
 import { tubeFinRadius } from './tubefins.js';
 import { assemblyInstanceCount, finCountOf, lineInstanceCount } from './counts.js';
@@ -59,6 +60,7 @@ export interface AftLayout {
 export function aftLayout(
   tree: RocketTree, roll: number, motors?: Record<string, MotorDims>, hiddenIds?: ReadonlySet<string>,
 ): AftLayout {
+  if (motors) motors = lookupTable(motors);
   const hidden = hiddenPartIds(tree, hiddenIds);
   tree = resolveTransitionRadii(tree);
   // Painter's layers: hulls (opaque, big→small), then internals, then externals.

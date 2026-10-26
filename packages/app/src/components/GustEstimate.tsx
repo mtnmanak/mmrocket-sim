@@ -39,12 +39,12 @@ export function GustEstimate({ value, onChange, onEstimate, forecastWind }: {
 }) {
   const { prefs } = usePrefs();
   const lineId = `${useId()}-gust`;
-  if (!forecastWind) return null;
+  if (!forecastWind) return <Note id={lineId} role="status" tier="information" style={{ position: 'absolute' }}>{null}</Note>;
   const est = sigmaFromGust(forecastWind.meanMs, forecastWind.gustMs);
-  if (!est.ok) return null;
+  if (!est.ok) return <Note id={lineId} role="status" tier="information" style={{ position: 'absolute' }}>{null}</Note>;
   const meanMatches = Math.abs(value.windAverage - forecastWind.meanMs) <= 0.005;
   const applied = Math.abs(value.windStdDev - est.sigmaMs) < 0.0005;
-  if (!meanMatches && !applied) return null;
+  if (!meanMatches && !applied) return <Note id={lineId} role="status" tier="information" style={{ position: 'absolute' }}>{null}</Note>;
 
   const sym = prefs.units.windspeed;
   // Every speed with the digits its box shows (weatherText.windNumber): the σ
@@ -73,16 +73,16 @@ export function GustEstimate({ value, onChange, onEstimate, forecastWind }: {
   );
 
   return (
-    <Note tier={!meanMatches && applied ? 'caution' : 'information'} className={`gust-estimate${warn ? ' gust-estimate-warn' : ''}${!meanMatches ? ' gust-estimate-muted' : ''}`}
+    <Note id={lineId} role="status" tier={!meanMatches && applied ? 'caution' : 'information'} className={`gust-estimate${warn ? ' gust-estimate-warn' : ''}${!meanMatches ? ' gust-estimate-muted' : ''}`}
       {...(warn ? { 'data-caution': 'gust-convective' } : {})}>
       {meanMatches && !applied && (
-        <button type="button" className="file-btn" aria-describedby={lineId}
+        <button type="button" className="file-btn" aria-describedby={`${lineId}-text`}
           title={`Works out σ from the ${source}’s gust and average wind. Nothing changes until you click.`}
           onClick={() => (onEstimate ? onEstimate(est.sigmaMs) : onChange(editProfileSurface(value, { ...value, windStdDev: est.sigmaMs })))}>
           Estimate from {source} gust
         </button>
       )}
-      <span id={lineId} role="status">
+      <span id={`${lineId}-text`}>
         {meanMatches && !applied && (
           <>σ ≈ {speed(est.sigmaMs)} from {article(num(forecastWind.gustMs))} {gust} gust.{extras}</>
         )}

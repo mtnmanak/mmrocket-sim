@@ -99,7 +99,7 @@ export function applyOverlay(base: MotorDbEntry[], overlay: CatalogueOverlay | n
     return m;
   });
   const have = new Set(out.map((m) => m.motorId));
-  for (const a of overlay.added) if (!have.has(a.motorId)) out.push(a);
+  for (const a of overlay.added) if (!have.has(a.motorId)) out.push(removed.has(a.motorId) ? { ...a, availability: 'OOP' } : a);
   return out;
 }
 
@@ -213,7 +213,8 @@ export function motorLabel(
   const clashes = maker && maker !== 'EX'
     && catalogueLabelGroups(catalogue).get(labelKey(entry.designation, maker));
   const base = withoutLabelDelay(clashes ? entry.designation : displayDesignation(entry.designation, maker));
-  if (!autoDelay && !Number.isFinite(delay) && base.endsWith('-PS')) return base;
+  if (!autoDelay && delay !== Infinity && !Number.isFinite(delay)) return `${base} (unknown delay)`;
+  if (!autoDelay && delay === Infinity && base.endsWith('-PS')) return base;
   return autoDelay ? `${base} (auto delay)` : `${base}-${Number.isFinite(delay) ? delay : 'P'}`;
 }
 

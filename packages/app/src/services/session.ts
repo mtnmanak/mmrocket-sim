@@ -379,6 +379,21 @@ function readSession(restoreRoot: boolean): SessionState | null {
       return null;
     }
     delete s.treeRestoreNotes;
+    if (s.importedDocument !== undefined) {
+      if (!isTable(s.importedDocument) || typeof s.importedDocument.name !== 'string') {
+        delete s.importedDocument;
+        cautionNote(s.treeRestoreNotes ??= [], 'G04.simulations-removed', 'Unreadable imported simulation records were removed.');
+      } else {
+        const raw = s.importedDocument.storedSimulations;
+        const readable = Array.isArray(raw) ? raw.filter(sim => isTable(sim)
+          && typeof sim.name === 'string' && (sim.configId === null || typeof sim.configId === 'string')
+          && (sim.status === undefined || typeof sim.status === 'string') && isTable(sim.data)) : [];
+        if (!Array.isArray(raw) || readable.length !== raw.length) {
+          cautionNote(s.treeRestoreNotes ??= [], 'G04.simulations-removed', 'Unreadable imported simulation records were removed.');
+        }
+        s.importedDocument.storedSimulations = readable;
+      }
+    }
     if (s.importedDocument?.desktopPredictions !== undefined
       && !validDesktopPredictions(s.importedDocument.desktopPredictions)) delete s.importedDocument.desktopPredictions;
     if (!isTable(s.tree)) {
@@ -403,6 +418,8 @@ function readSession(restoreRoot: boolean): SessionState | null {
     if (s.savedConfigs !== undefined) {
       const configs = Array.isArray(s.savedConfigs) ? s.savedConfigs.filter(c =>
         isTable(c) && typeof c.id === 'string' && isTable(c.motors)
+        && (c.name == null || typeof c.name === 'string')
+        && (c.motorLoadoutRefusal === undefined || typeof c.motorLoadoutRefusal === 'string')
         && ['unmatchedRefs', 'deployments', 'separations', 'ignitions', 'nozzles', 'stageActiveness', 'stageMassOverrides']
           .every(key => c[key] === undefined || isTable(c[key])),
       ) : [];
@@ -432,11 +449,24 @@ function readSession(restoreRoot: boolean): SessionState | null {
       }
       s.nozzleModeVersion = 1;
     }
-    const validMotor = (mm: unknown): mm is MountMotor => isTable(mm) && isTable(mm['spec']) && isTable(mm['meta'])
-      && typeof mm['label'] === 'string'
-      && ['padMassWeighedWith', 'openNote'].every(key => mm[key] === undefined || typeof mm[key] === 'string')
-      && (mm['padMassKg'] === undefined || (typeof mm['padMassKg'] === 'number' && Number.isFinite(mm['padMassKg']) && mm['padMassKg'] > 0));
+    const validMotor = (mm: unknown): mm is MountMotor => {
+      if (!isTable(mm)) return false;
+      const spec = mm['spec'], meta = mm['meta'];
+      return isTable(spec) && isTable(meta) && typeof spec['designation'] === 'string'
+        && ['motorId', 'exMotorId', 'manufacturer', 'orkType', 'orkManufacturer', 'orkDigest'].every(key => meta[key] === undefined || typeof meta[key] === 'string')
+        && (meta['availableDelays'] === undefined || (Array.isArray(meta['availableDelays'])
+          && meta['availableDelays'].every(d => Number.isFinite(d) || d === Infinity || d === 'Infinity')))
+        && typeof mm['label'] === 'string'
+        && ['padMassWeighedWith', 'openNote'].every(key => mm[key] === undefined || typeof mm[key] === 'string')
+        && (mm['padMassKg'] === undefined || (typeof mm['padMassKg'] === 'number' && Number.isFinite(mm['padMassKg']) && mm['padMassKg'] > 0));
+    };
     let motorsRemoved = false;
+    if (s.motor !== undefined && !validMotor({ spec: s.motor, meta: s.motorMeta ?? {}, label: s.motorLabel ?? 'C6-5' })) {
+      delete s.motor;
+      delete s.motorMeta;
+      delete s.motorLabel;
+      motorsRemoved = true;
+    }
     if (s.mountMotors !== undefined) {
       if (isTable(s.mountMotors)) {
         const entries = Object.entries(s.mountMotors).filter(([, mm]) => validMotor(mm));
@@ -471,13 +501,16 @@ function readSession(restoreRoot: boolean): SessionState | null {
       for (const mm of Object.values(set)) {
         const d = mm?.spec?.ejectionDelay as unknown;
         if (d === 'Infinity' || d === null) mm.spec.ejectionDelay = Infinity;
+        if (mm.meta.availableDelays) mm.meta.availableDelays = mm.meta.availableDelays.map(d => (d as unknown) === 'Infinity' ? Infinity : d);
       }
     }
     // A plugged reference's delay the same way: it rides out to the file as
     // "none" only while it is Infinity (writers test Number.isFinite).
-    for (const ref of Object.values(s.unmatchedRefs ?? {})) {
-      const d = ref?.delay as unknown;
-      if (d === 'Infinity' || d === null) ref.delay = Infinity;
+    for (const refs of [s.unmatchedRefs, ...(s.savedConfigs ?? []).map(c => c.unmatchedRefs)]) {
+      for (const ref of Object.values(refs ?? {})) {
+        const d = ref.delay as unknown;
+        if (d === 'Infinity' || d === null) ref.delay = Infinity;
+      }
     }
     if (isTable(s.launch)) {
       if (s.launch.timeStepS != null
@@ -516,6 +549,17 @@ function readSession(restoreRoot: boolean): SessionState | null {
     // check out is dropped rather than put a wrong "forecast said" beside a field.
     // The restore's legacy pad-mass check needs an object (audit 2026-10-11, S1d-5).
     if (s.measured !== undefined && !isTable(s.measured)) delete s.measured;
+    if (s.measured) {
+      let repaired = false;
+      for (const key of ['massKg', 'cgM'] as const) {
+        const value = s.measured[key];
+        if (value !== null && (typeof value !== 'number' || !Number.isFinite(value))) {
+          s.measured[key] = null;
+          repaired = true;
+        }
+      }
+      if (repaired) cautionNote(s.treeRestoreNotes ??= [], 'G04.measurements-reset', 'Unreadable measurements were cleared; enter the measured mass and CG again.');
+    }
     if (s.weather !== undefined) {
       const w = validWeatherSnapshot(s.weather);
       if (w) s.weather = w;

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { CSV_APOSTROPHE_HELP } from '../services/csvUtil.js';
 import { flushSync } from 'react-dom';
 import { Modal } from './Modal.js';
 import { readDecimal } from '../prefs/units.js';
@@ -78,6 +79,7 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
             finally { if (alive.current) setReading(false); }
           })(); }} />
       </div>
+      <p className="comp-stats">{CSV_APOSTROPHE_HELP}</p>
       <div role="status">
         {reading && <p>Reading CSV…</p>}
         {note && <p>{note}</p>}
