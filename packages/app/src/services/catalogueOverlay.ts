@@ -44,7 +44,7 @@ export const RECHECK_MIN_MS = 6 * 60 * 60 * 1000;
 const SEARCH_CAP = 500;
 
 /** The same 18 fields fetch-motor-db.mjs projects — keep the two lists identical. */
-export const CATALOGUE_FIELDS = [
+const CATALOGUE_FIELDS = [
   'motorId', 'manufacturerAbbrev', 'designation', 'commonName', 'impulseClass',
   'diameter', 'length', 'type', 'avgThrustN', 'maxThrustN', 'totImpulseNs',
   'burnTimeS', 'totalWeightG', 'propWeightG', 'delays', 'availability',

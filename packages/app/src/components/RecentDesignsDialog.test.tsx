@@ -46,6 +46,17 @@ it('confirms Clear recent, preserves the list on failure, and clears only after 
   await click('Clear recent'); await click('Clear copies');
   expect(host.textContent).toContain('No recent designs');
 });
+it('keeps focus in Recent designs while Clear recent is disabled after confirmation', async () => {
+  let finish!: () => void;
+  vi.mocked(recent.clearRecentDesigns).mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  await show();
+  button('Clear recent').focus(); await click('Clear recent');
+  await click('Clear copies');
+  expect(button('Clear recent').disabled).toBe(true);
+  expect(document.activeElement).toBe(button('Close'));
+  await act(async () => finish());
+  expect(document.activeElement).toBe(button('Close'));
+});
 it('reports storage failure and allows retry', async () => {
   vi.mocked(recent.listRecentDesigns).mockRejectedValueOnce(new Error('Storage blocked')).mockResolvedValueOnce([]);
   await show(); expect(host.textContent).toContain('Storage blocked');

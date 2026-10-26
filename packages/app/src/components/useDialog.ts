@@ -38,10 +38,11 @@ const FOCUSABLE = [
   'select:not([disabled])',
   'textarea:not([disabled])',
   '[tabindex]',
-].map((sel) => `${sel}:not([tabindex="-1"])`).join(',');
+].map((sel) => `${sel}:not([tabindex="-1"]):not(:disabled)`).join(',');
 
 /** Open dialogs, innermost last. Only the last one answers Escape. */
 const stack: symbol[] = [];
+const dialogs = new Map<symbol, HTMLElement>();
 
 /**
  * How many MODAL dialogs are open right now.
@@ -81,6 +82,7 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
     const node = ref.current;
+    if (node) dialogs.set(id, node);
     const overlay = node?.closest<HTMLElement>('.prefs-overlay, .modal-backdrop') ?? node;
     let suspended = false;
     let resumeFocus: HTMLElement | null = null;
@@ -159,6 +161,7 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
       restoreOverlay();
       const i = stack.indexOf(id);
       if (i >= 0) stack.splice(i, 1);
+      dialogs.delete(id);
       // Only restore if focus is still inside (or was lost to) this dialog —
       // never yank it away from something the close handler focused on purpose.
       // `node`, the element captured at open, not `ref.current`: on a real
@@ -168,7 +171,12 @@ export function useDialog<T extends HTMLElement = HTMLDivElement>(
       const active = document.activeElement;
       if (!document.querySelector('.fatal-error-bar')
         && (!active || active === document.body || node?.contains(active))) {
-        previouslyFocused?.focus?.();
+        if (previouslyFocused?.isConnected && !previouslyFocused.matches(':disabled')) {
+          previouslyFocused.focus();
+        } else {
+          const outer = dialogs.get(stack[stack.length - 1]!);
+          if (outer) (focusableWithin(outer)[0] ?? outer).focus();
+        }
       }
     };
   }, []);

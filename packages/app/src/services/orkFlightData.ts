@@ -355,8 +355,9 @@ export function flownAutoDelays(input: FlightDataForExportInput): Record<string,
   return out;
 }
 
-export function flightDataForExport(input: FlightDataForExportInput): Record<string, OrkExportFlightData> {
-  const autoDelays = flownAutoDelays(input);
+export function flightDataForExport(
+  input: FlightDataForExportInput, autoDelays = flownAutoDelays(input),
+): Record<string, OrkExportFlightData> {
   const out = lookupTable<OrkExportFlightData>({});
   for (const r of input.runs) {
     if (!r.flightConfigId || out[r.flightConfigId]) continue;

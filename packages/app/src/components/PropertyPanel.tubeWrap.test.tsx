@@ -120,7 +120,8 @@ it.each([
   expect(document.activeElement === opener).toBe(true);
   expect(opener.getAttribute('aria-disabled')).toBe('true');
   expect(getComputedStyle(opener).opacity).toBe(label === 'JPG' ? '1' : '0.5');
-  expect(host.querySelector('[role="status"]')!.textContent).toContain('Preparing tube wrap');
+  const wrapStatus = [...host.querySelectorAll('[role="status"]')].find(el => el.textContent?.includes('Preparing tube wrap'));
+  expect(wrapStatus).toBeDefined();
   act(() => opener.click());
   expect(popup()).toBeNull();
   act(() => opener.click());
@@ -144,7 +145,8 @@ it.each([
     expect(host.querySelector('[role="alert"]')).toBeNull();
   } else {
     expect(downloadBlob).toHaveBeenCalledOnce();
-    expect(host.querySelector('[role="status"]')!.textContent).toContain('1 page prepared');
+    expect(wrapStatus!.isConnected).toBe(true);
+    expect(wrapStatus!.textContent).toContain('1 page prepared');
     act(() => opener.click()); expect(popup()).not.toBeNull();
   }
 });

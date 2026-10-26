@@ -875,7 +875,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
                   <button className={cpView === 'unit' ? 'active' : ''}
                     aria-pressed={cpView === 'unit'} onClick={() => updateSettings({ cpView: 'unit' })}>{lenUnit} from nose</button>
                 </div>
-                <ChartHeadButtons chart="center of pressure" zoomed={zoomedCharts.has('cp')} expanded={bigCharts.has('cp')}
+                <ChartHeadButtons chart="center of pressure" zoomed={cpHasLift && zoomedCharts.has('cp')} expanded={bigCharts.has('cp')}
                   plot={cpPlot} onToggleExpand={() => toggleBig('cp')} />
               </div>
               {cpHasLift ? (

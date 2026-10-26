@@ -314,6 +314,22 @@ describe('RecoverySizingPanel', () => {
       ],
     };
 
+    it('retains each same-named stage section when names change or groups reorder', async () => {
+      const groups = twoGroups.state === 'ok' ? twoGroups.groups : [];
+      await mount({ tree: twoStageTree, byStage: { state: 'ok', groups } });
+      const original = [...host.querySelectorAll('.recovery-object')];
+      await mount({ tree: twoStageTree, byStage: { state: 'ok', groups: groups.map(g => ({ ...g, stageNames: ['Stage'] })) } });
+      const renamed = [...host.querySelectorAll('.recovery-object')];
+      expect(renamed).toHaveLength(2);
+      expect(renamed[0]).toBe(original[0]);
+      expect(renamed[1]).toBe(original[1]);
+      await mount({ tree: twoStageTree, byStage: { state: 'ok', groups: [...groups].reverse().map(g => ({ ...g, stageNames: ['Stage'] })) } });
+      const reordered = [...host.querySelectorAll('.recovery-object')];
+      expect(reordered).toHaveLength(2);
+      expect(reordered[0]).toBe(original[1]);
+      expect(reordered[1]).toBe(original[0]);
+    });
+
     it('keeps booster sections when the sustainer Cd is zero', async () => {
       const design = structuredClone(twoStageTree);
       design.components[0]!.children![0]!.children![0]!['cd'] = 0;

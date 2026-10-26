@@ -259,9 +259,12 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   const [fullRecording, setFullRecording] = useState<{ original: FlightResult; full: FlightResult } | null>(null);
   const [plotError, setPlotError] = useState<string | null>(null);
   const recording = fullRecording?.original === result ? fullRecording.full : result;
+  const [zoomed, setZoomed] = useState(false);
+  const [zoomPct, setZoomPct] = useState(100);
   const [branchChoice, setBranchChoice] = useState({ result, index: 0, generation: 0 });
   if (branchChoice.result !== result) {
     setBranchChoice({ result, index: 0, generation: branchChoice.generation + 1 });
+    setZoomed(false); setZoomPct(100);
   }
   const boosters = boosterBranches(recording);
   const branchIndex = branchChoice.result === result ? branchChoice.index : 0;
@@ -293,8 +296,6 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   // The panels are peers — a zoom on one is applied to all of them — so there
   // is one depth for the grid, reported once beside the reset button rather
   // than repeated on every panel.
-  const [zoomed, setZoomed] = useState(false);
-  const [zoomPct, setZoomPct] = useState(100);
   // One Set instance for the component's whole life: Panels register their
   // uPlot in it and the pan/zoom plugin broadcasts window changes to every
   // member (programmatic setScale does not ride uPlot's cursor-sync bus).
@@ -518,7 +519,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
         It is not shown where CP, CG or that length is missing, or after recovery deployment or tumbling.
         The flight CP depends on speed and angle of attack, so it can differ from the static design value.
       </Note>}
-      {(visible.length > 0 || preset?.x === 'time') && (
+      {(visible.length > 0 || (preset?.x === 'time' && usableSeries(shown.series, [...preset.left, ...preset.right], preset.x))) && (
         <div className="chart-toolbar">
           <GestureHints />
           <button className="chart-btn" disabled={!zoomed}

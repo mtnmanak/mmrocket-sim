@@ -1337,7 +1337,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           </div>
         </>
       )}
-      {savedPartNote && <p className="hint" role="status">{savedPartNote}</p>}
+      <div role="status">{savedPartNote && <p className="hint">{savedPartNote}</p>}</div>
       {presetNote && (
         <Note as="p" tier="caution" className="print-note print-note-warn" role="status">
           {presetNote}

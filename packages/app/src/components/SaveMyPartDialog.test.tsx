@@ -193,7 +193,10 @@ describe('M2.2 save dialog', () => {
   it('shows a success confirmation below the panel preset buttons after saving', async () => {
     act(() => root.render(<PrefsProvider><PropertyPanel node={node} tree={{ components: [node] }} onPatch={() => {}} /></PrefsProvider>));
     act(() => [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Save as My part'))!.click());
+    const regions = [...host.querySelectorAll('[role="status"]')];
     input('Part number', 'T1'); await save();
+    const success = [...host.querySelectorAll('[role="status"]')].find(s => s.textContent?.includes('Saved My parts T1'));
+    expect(regions).toContain(success);
     expect(host.querySelector('[aria-label="Save as My part"]')).toBeNull();
     expect([...host.querySelectorAll('[role="status"]')].some((s) => s.textContent?.includes('Saved My parts T1 in this browser.'))).toBe(true);
   });

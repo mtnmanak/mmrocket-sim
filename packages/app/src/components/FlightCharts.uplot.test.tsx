@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useLayoutEffect } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import uPlot from 'uplot';
+import { DragPanel } from './DragPanel.js';
+import type { OrkRocket } from '@online-openrocket/engine';
 import type { FlightResult } from '@online-openrocket/engine';
 import { FlightCharts } from './FlightCharts.js';
 import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
@@ -204,6 +206,47 @@ describe('N012 emphasis with real uPlot scheduling', () => {
     expect(bounds(plot)).toEqual([1, 2]);
   });
 
+  it('resets the time zoom before replacement plots initialize', async () => {
+    await renderCharts();
+    await act(async () => { for (const plot of live()) plot.setScale('x', { min: 1, max: 2 }); });
+    expect(host.querySelector('.chart-zoom-pct')?.textContent).toBe('400%');
+    const createdBeforeReplacement = registry.plots.length;
+    const atCommit: { pct: string | null | undefined; disabled: boolean | undefined; created: number }[] = [];
+    function ReadZoomBeforePlotsMount() {
+      useLayoutEffect(() => {
+        atCommit.push({ pct: host.querySelector('.chart-zoom-pct')?.textContent,
+          disabled: [...host.querySelectorAll('button')].find(b => b.textContent === 'Reset time charts')?.disabled,
+          created: registry.plots.length });
+      }, []);
+      return null;
+    }
+    await act(async () => root.render(<PrefsProvider><Preferences />
+      <FlightCharts result={{ ...flight }} flightName="Next flight" />
+      <ReadZoomBeforePlotsMount />
+    </PrefsProvider>));
+    expect(atCommit).toEqual([{ pct: '100%', disabled: true, created: createdBeforeReplacement }]);
+    expect(host.querySelector('.chart-zoom-pct')?.textContent).toBe('100%');
+    expect([...host.querySelectorAll('button')].find(b => b.textContent === 'Reset time charts')?.disabled).toBe(true);
+  });
+
+  it('hides the time toolbar when only an unavailable custom comparison remains', async () => {
+    await renderCharts();
+    await act(async () => { for (const plot of live()) plot.setScale('x', { min: 1, max: 2 }); });
+    await act(async () => {
+      for (const chip of host.querySelectorAll<HTMLButtonElement>('[aria-label="Plot series"] button[aria-pressed="true"]')) chip.click();
+      const select = host.querySelector<HTMLSelectElement>('.comparison-controls select')!;
+      select.value = 'custom'; select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await act(async () => {
+      const select = host.querySelector<HTMLSelectElement>('[aria-label="Custom Y axis"]')!;
+      const option = document.createElement('option'); option.value = 'aoa'; option.textContent = 'Angle of attack';
+      select.append(option); select.value = 'aoa';
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(live()).toHaveLength(0);
+    expect(host.querySelector('.chart-toolbar')).toBeNull();
+  });
+
   it('initializes all three flight plots with finite time bounds', async () => {
     await renderCharts();
     expect(live()).toHaveLength(3);
@@ -248,4 +291,22 @@ describe('N012 emphasis with real uPlot scheduling', () => {
       expect(comparison.series[2]!.width).toBeGreaterThan(comparison.series[1]!.width!);
     },
   );
+});
+
+
+it('disables CP reset when a zoomed plot loses lift and unmounts', async () => {
+  const sweep = (lift: boolean) => ({ machs: [0.3, 1, 2], cp: [0.4, 0.4, 0.4], cna: lift ? [2, 2, 2] : [0, 0, 0], hasNozzle: false,
+    powerOff: { total: [0.4, 0.4, 0.4] }, powerOn: { total: [0.4, 0.4, 0.4] }, components: [] });
+  const rocket = (lift: boolean) => ({ dragSweep: () => sweep(lift),
+    staticInfo: () => ({ length: 1, cp: 0.4, cna: 2, cpWorst: 0.2, cnaWorst: 2 }) } as unknown as OrkRocket);
+  await act(async () => root.render(<PrefsProvider><DragPanel rocket={rocket(true)} open /></PrefsProvider>));
+  const cp = live().find(p => p.series.some(s => s.label === 'CP'))!;
+  await act(async () => cp.setScale('x', { min: 0.5, max: 1 }));
+  expect(button('Reset the center of pressure chart view').disabled).toBe(false);
+  await act(async () => root.render(<PrefsProvider><DragPanel rocket={rocket(false)} open /></PrefsProvider>));
+  for (let i = 0; i < 50 && !host.textContent?.includes('No CP to plot in this roll plane'); i++) {
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+  }
+  expect(host.textContent).toContain('No CP to plot in this roll plane');
+  expect(button('Reset the center of pressure chart view').disabled).toBe(true);
 });

@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { headerMasses as appHeaderMasses } from '../src/services/thrustcurve.ts';
-import { BATCH, addDigests, compactFile, curvesDocument, headerMasses, main, rawDigests } from './fetch-motor-curves.mjs';
+import { BATCH, addDigests, compactFile, curvesDocument, fetchCurves, headerMasses, main, rawDigests } from './fetch-motor-curves.mjs';
 
 /**
  * fetch-motor-curves.mjs against a stand-in for thrustcurve.org — never the
@@ -117,6 +117,27 @@ function world(n, { failBatch = -1 } = {}) {
 describe('main', () => {
   const quiet = () => {};
   const noSleep = async () => {};
+
+  it('paces failed batches as well as successful batches', async () => {
+    const events = [];
+    const { motors, fetchImpl } = world(101, { failBatch: 0 });
+    await fetchCurves(motors, {
+      fetchImpl: (...args) => { events.push('request'); return fetchImpl(...args); },
+      sleep: async (ms) => { events.push(ms); }, log: quiet,
+    });
+    expect(events).toEqual(['request', 250, 'request', 250, 'request', 250]);
+  });
+
+  it('stops on HTTP 429 and records all remaining motors as failed', async () => {
+    let requests = 0;
+    const { motors } = world(101);
+    const got = await fetchCurves(motors, {
+      fetchImpl: async () => { requests++; return { ok: false, status: 429 }; },
+      sleep: noSleep, log: quiet,
+    });
+    expect(requests).toBe(1);
+    expect(got.failed).toHaveLength(motors.length);
+  });
 
   function run(n, opts) {
     const dir = mkdtempSync(join(tmpdir(), 'motor-curves-'));

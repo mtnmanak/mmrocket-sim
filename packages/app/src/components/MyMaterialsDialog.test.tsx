@@ -71,6 +71,15 @@ it('renames an unchanged app-seeded density in a decimal-comma locale without ac
   expect(loadUserMaterials()[0]?.density).toBe(800.125);
 });
 afterEach(() => { locale.decimalComma = undefined; act(() => root.unmount()); host.remove(); localStorage.clear(); vi.restoreAllMocks(); });
+it('uses themed buttons and a destructive confirmation in the material library', () => {
+  saveUserMaterials([{ kind: 'bulk', name: 'Mix', density: 900 }]); mount();
+  const themed = () => {
+    for (const el of host.querySelectorAll('button:not([tabindex="-1"])')) expect(el.classList.contains('file-btn')).toBe(true);
+  };
+  themed(); click(button('Edit bulk material Mix')); themed(); click(button('Cancel'));
+  click(button('Delete bulk material Mix')); themed();
+  expect(button('Delete material').classList.contains('modal-danger')).toBe(true);
+});
 it('imports and displays added/replaced/refused counts with a built-in refusal reason', async () => {
   saveUserMaterials([{ kind: 'bulk', name: 'Mix', density: 900 }]); mount();
   const status = host.querySelector('[role="status"]');

@@ -28,7 +28,11 @@ it('reports PNG failures and allows a retry that saves the identified plot', asy
   const context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
   const save = vi.spyOn(saving, 'saveFile').mockResolvedValue({ kind: 'downloaded', name: 'flight.png' });
   await act(async () => root.render(<PlotImage container={ref} title="Flight · Altitude (m) over Time (s)" />));
+  const status = controls.querySelector('[role="status"]');
+  expect(status).not.toBeNull();
+  expect(status!.textContent).toBe('');
   await act(async () => controls.querySelector('button')!.click());
+  expect(controls.querySelector('[role="status"]')).toBe(status);
   expect(controls.textContent).toContain('Image could not be saved'); expect(save).not.toHaveBeenCalled();
   const text = vi.fn();
   context.mockReturnValue({ fillRect() {}, fillText: text, drawImage() {}, measureText: () => ({ width: 10 }) } as unknown as CanvasRenderingContext2D);

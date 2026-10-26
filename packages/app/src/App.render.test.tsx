@@ -23,6 +23,7 @@ import { nozzleOversize } from './services/nozzleCheck.js';
 import { peekSession } from './services/session.js';
 import { resolveFlightState } from './services/flightState.js';
 import { designMatchKeyOf, type SimRun } from './services/simReport.js';
+import { flightExportInput } from './services/exportAssembly.js';
 import * as simStore from './services/simStore.js';
 import { addChild, addStage, defaultTree, findNode, makeNode, motorMounts, updateNode } from './tree/treeModel.js';
 import type { MountMotor } from './model/design.js';
@@ -43,6 +44,10 @@ import { APP_VERSION } from './version.js';
  * called, on the Design tab, by exactly ONE of App's memos — which is what
  * lets a count of its calls stand for "that memo re-ran".
  */
+vi.mock('./services/exportAssembly.js', async (importOriginal) => {
+  const real = await importOriginal<typeof import('./services/exportAssembly.js')>();
+  return { ...real, flightExportInput: vi.fn(real.flightExportInput) };
+});
 vi.mock('./services/buildAllowance.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/buildAllowance.js')>();
   return {
@@ -332,6 +337,22 @@ describe('a keystroke in the Rocket name re-runs none of the five memos row 513 
     provenance: vi.mocked(designMatchKeyOf).mock.calls.length,
     mountSizes: vi.mocked(classLabel).mock.calls.length,
   });
+
+  it('reuses flight export assembly for name and notes edits with 500 stored runs', async () => {
+    await seedStarterSession();
+    const runs = Array.from({ length: 500 }, (_, i) => ({ id: `old-${i}`, flightConfigId: 'A', designKey: 'old', motorDataKeys: {} } as unknown as SimRun));
+    vi.spyOn(simStore, 'loadRuns').mockReturnValueOnce(runs);
+    const host = await mountApp(); await settle(50);
+    const count = vi.mocked(flightExportInput).mock.calls.length;
+    expect(count).toBeGreaterThan(0);
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Renamed');
+    const notes = host.querySelector<HTMLTextAreaElement>('textarea')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(notes, 'Flight notes');
+      notes.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(vi.mocked(flightExportInput).mock.calls.length).toBe(count);
+  }, 30000);
 
   it('renames on screen, and runs each of them again only when the design itself changes', async () => {
     const host = await mountApp();

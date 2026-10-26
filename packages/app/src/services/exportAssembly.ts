@@ -46,19 +46,24 @@ interface ExportFlightState extends Pick<FlightDataForExportInput,
 export function flightExportInput(input: ExportFlightState): FlightDataForExportInput {
   const { runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree, detachedOverrides, mountMotors, launch } = input;
+  const states = new Map<string | null, ReturnType<NonNullable<FlightDataForExportInput['configurationState']>>>();
   return {
     runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds,
     mountIds: mounts.map((m) => m.id).filter((id): id is string => typeof id === 'string'),
     designKey: provenanceKey.designKey,
     configurationState: (id) => {
+      const cached = states.get(id);
+      if (cached) return cached;
       const cfg = savedConfigs.find(c => c.id === id);
       const working = id === activeConfigId;
       const resolved = resolveFlightState(!working && cfg ? configOntoTree(tree, cfg) : tree,
         savedConfigs, id, detachedOverrides, working ? mountMotors : cfg?.motors ?? mountMotors);
       const motors = assignedMotorsOf(resolved.mountMotors, mounts);
-      return { ...provenanceKeyOf({ tree: resolved.tree, physicsKey: physicsKeyOf(resolved.tree.components),
+      const state = { ...provenanceKeyOf({ tree: resolved.tree, physicsKey: physicsKeyOf(resolved.tree.components),
         assigned: motors, hardwareDeltaKg: working ? hardwareDeltaKg : 0, launch,
         aero: { aeroMode, effectiveKbf, autoSupersonic } }), motors };
+      states.set(id, state);
+      return state;
     },
     conditionsKey: provenanceKey.conditionsKey,
     model: { aeroMode, effectiveKbf, autoSupersonic },

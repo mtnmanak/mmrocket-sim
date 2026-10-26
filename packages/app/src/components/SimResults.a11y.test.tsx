@@ -69,6 +69,16 @@ describe('SimHistory rows — reachable without a mouse', () => {
     localStorage.clear();
   });
 
+  it('names chart actions by run, including the re-flying state', () => {
+    const props = { runs: [run('a'), { ...run('b'), rocket: 'Other rocket' }],
+      onRunsChange: () => {}, onShowCharts: () => {}, canShowCharts: () => true };
+    render(<SimHistory {...props} />); openTable();
+    expect(host.querySelector('[aria-label="Show charts for Big Dog 4in C6"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="Show charts for Other rocket C6"]')).not.toBeNull();
+    render(<SimHistory {...props} reflyingId="a" />);
+    expect(host.querySelector<HTMLButtonElement>('[aria-label="Re-flying charts for Big Dog 4in C6"]')?.disabled).toBe(true);
+  });
+
   it('gives each row a tab stop', () => {
     render(<SimHistory runs={[run('a')]} onRunsChange={() => {}} onSelect={() => {}} />);
     openTable();

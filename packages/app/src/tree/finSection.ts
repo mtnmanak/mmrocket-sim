@@ -579,23 +579,3 @@ export function printableHalf(half: number, thickness: number, minEdge = PRINT_M
   const floor = Math.min(Math.max(0, minEdge), thickness) / 2;
   return Math.min(H, Math.max(half, floor));
 }
-
-/**
- * A profile with every half-thickness floored by `printableHalf`; a sharp or
- * round edge becomes a blunt face of height min(minEdge, t). A flat (square)
- * profile comes back unchanged.
- */
-export function printableProfile(profile: FinSectionProfile, minEdge = PRINT_MIN_EDGE): FinSectionProfile {
-  if (profile.flat) return profile;
-  const t = profile.thickness;
-  const edgeH = Math.min(Math.max(0, minEdge), t);
-  const floorEdge = (e: FinEdge): FinEdge =>
-    e.kind === 'blunt' ? { kind: 'blunt', height: Math.max(e.height, edgeH) } : edgeH > 0 ? { kind: 'blunt', height: edgeH } : { ...e };
-  return {
-    ...profile,
-    xi: profile.xi.slice(),
-    half: profile.half.map((h) => printableHalf(h, t, minEdge)),
-    le: floorEdge(profile.le),
-    te: floorEdge(profile.te),
-  };
-}
