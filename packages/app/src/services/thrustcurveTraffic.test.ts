@@ -460,17 +460,42 @@ it('a recent cached catalogue check remains available while the breaker is open'
 });
 
 it('bundled and cached curves load byte for byte while the breaker is open', async () => {
+  const fetcher = vi.fn(async () => response({}, 503));
+  vi.stubGlobal('fetch', fetcher);
   const bundled = db.MOTOR_DB.find((m) => m.designation === 'C6' && m.manufacturerAbbrev === 'Estes')!;
   const baseline = JSON.stringify(await tc.fetchMotorSpec(bundled, 5));
   // Readable fixture captured from the pre-traffic client; no kernel floats.
   expect(JSON.parse(baseline)).toEqual(C6_SPEC);
-  localStorage.setItem('tc:samples:v7:cached', JSON.stringify({ samples, masses: null }));
+  localStorage.setItem('tc:samples:v7:cached', JSON.stringify({ samples, masses: null, massParser: 1 }));
   const cached = JSON.stringify(await tc.fetchMotorSpec({ ...motor, motorId: 'cached' }, 5));
-  const fetcher = vi.fn(async () => response({}, 503));
-  vi.stubGlobal('fetch', fetcher);
+  expect(fetcher).not.toHaveBeenCalled();
   await miss(tc.fetchMotorSpec(motor, 5));
   expect(JSON.stringify(await tc.fetchMotorSpec(bundled, 5))).toBe(baseline);
   expect(JSON.stringify(await tc.fetchMotorSpec({ ...motor, motorId: 'cached' }, 5))).toBe(cached);
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it.each([null, { totalWeightG: 2000, propWeightG: 1000 }])('flies legacy cached masses %j through an open breaker without requests', async masses => {
+  const fetcher = vi.fn(async () => response({}, 503));
+  vi.stubGlobal('fetch', fetcher);
+  await miss(tc.fetchMotorSpec(motor, 5));
+  localStorage.setItem('tc:samples:v7:legacy', JSON.stringify({ samples, masses }));
+  const spec = await tc.fetchMotorSpec({ ...motor, motorId: 'legacy' }, 5);
+  expect(spec.times.length).toBeGreaterThan(1);
+  expect(localStorage.getItem('tc:samples:v7:legacy')).not.toBeNull();
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it('keeps legacy cached masses ahead of the bundle while the breaker is open', async () => {
+  const bundled = db.MOTOR_DB.find(m => m.designation === 'C6' && m.manufacturerAbbrev === 'Estes')!;
+  await tc.fetchMotorSpec(bundled, 5, undefined, { bundleOnly: true });
+  const fetcher = vi.fn(async () => response({}, 503));
+  vi.stubGlobal('fetch', fetcher);
+  await miss(tc.fetchMotorSpec(motor, 5));
+  const key = 'tc:samples:v7:' + bundled.motorId;
+  localStorage.setItem(key, JSON.stringify({ samples, masses: { totalWeightG: 2000, propWeightG: 1000 } }));
+  expect((await tc.fetchMotorSpec(bundled, 5)).masses[0]).toBeCloseTo(2, 12);
+  expect(localStorage.getItem(key)).not.toBeNull();
   expect(fetcher).toHaveBeenCalledOnce();
 });
 

@@ -9,6 +9,7 @@ import { importRkt } from './rocksimFile.js';
 import { countParts } from '../tree/sanitize.js';
 import { engineTree } from '../tree/treeModel.js';
 import { parseXml } from './xmlParse.js';
+import { inlineXmlCdata } from './xmlUtil.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const rkt = (parts: string) => `<RockSimDocument><DesignInformation><RocketDesign><StageCount>1</StageCount>
@@ -126,11 +127,10 @@ describe('RockSim discloses losses without moving or retaining the lost parts', 
     const path = [join(here, '../../../../docs/User files/Rocksim Designs', name),
       ...(process.env.ROCKSIM_DESIGNS ? [join(process.env.ROCKSIM_DESIGNS, name)] : []),
       join('G:/Documents/Dropbox/Rocksim Designs', name)].find(p => existsSync(p));
-    it.skipIf(!path)(`${name}: same parts and built mass, every fin-attached loss named`, () => {
+    it.skipIf(!path)(`${name}: same parts and built mass, bounded fin-loss summary`, () => {
       const xml = readFileSync(path!, 'utf8');
       // happy-dom needs the same CDATA inlining as the RockSim importer.
-      const doc = parseXml(xml.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, content: string) =>
-        content.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')), 'corpus parse error');
+      const doc = parseXml(inlineXmlCdata(xml), 'corpus parse error');
       const losses = [...doc.querySelectorAll('FinSet > AttachedParts'), ...doc.querySelectorAll('CustomFinSet > AttachedParts')]
         .filter(w => w.children.length > 0);
       expect(losses.length).toBeGreaterThan(0);
@@ -140,9 +140,15 @@ describe('RockSim discloses losses without moving or retaining the lost parts', 
       // Kernel arithmetic can vary by Node version: 1e-9 kg is far below the files' precision.
       expect(mass(result.tree)).toBeCloseTo(massKg, 9);
       const notes = result.noteTiers?.filter(n => n.kind === 'I03.fin-attached') ?? [];
-      for (const wrap of losses) {
+      expect(notes).toHaveLength(1);
+      expect(notes[0]?.tier).toBe('caution');
+      const roots = losses.filter(w => !w.parentElement!.parentElement!.closest('FinSet')
+        && !w.parentElement!.parentElement!.closest('CustomFinSet'));
+      if (roots.length > 1) expect(notes[0]?.text).toContain(`${roots.length} fin sets`);
+      if (roots.length > 3) expect(notes[0]?.text).toContain(`and ${roots.length - 3} more fin sets`);
+      for (const wrap of roots.slice(0, 3)) {
         const finName = wrap.parentElement!.querySelector(':scope > Name')!.textContent!.trim();
-        // A nested fin's whole subtree is disclosed by its retained ancestor's note.
+        // Each of the first three hosts names its whole dropped subtree once.
         const names = [...wrap.querySelectorAll('Name')].map(n => n.textContent!.trim());
         for (const part of names) expect(notes.some(n => n.text.includes(part))).toBe(true);
         if (!wrap.parentElement!.parentElement!.closest('FinSet') && !wrap.parentElement!.parentElement!.closest('CustomFinSet')) {

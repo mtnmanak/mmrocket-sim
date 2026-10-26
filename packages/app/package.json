@@ -7,10 +7,10 @@
   "private": true,
   "scripts": {
     "dev": "vite",
-    "build": "node ../../scripts/build-user-guide.mjs && tsc -b && vite build",
-    "typecheck": "tsc -b",
+    "build": "node ../../scripts/check-workspace-links.mjs && node ../../scripts/build-user-guide.mjs && tsc -b && vite build",
+    "typecheck": "node ../../scripts/check-workspace-links.mjs && tsc -b",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "node ../../scripts/check-workspace-links.mjs && vitest run"
   },
   "dependencies": {
     "@fontsource/rajdhani": "^5.3.0",

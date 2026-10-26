@@ -60,9 +60,152 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+it.each([['accelCsv', 0], ['accelCsv', 3], ['baroCsv', 0], ['baroCsv', 1], ['baroCsv', 2]])(
+  'skips an unused prelaunch blank in %s column %s', (file, col) => {
+    const fx = synthFlight();
+    const base = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 15 });
+    const baseline = solve(prepare(base), base);
+    const lines = fx[file].trimEnd().split('\n');
+    const row = lines.findIndex((line, i) => i && Number(line.split(',')[0]) < -0.5);
+    expect(row).toBeGreaterThan(0);
+    const cells = lines[row].split(',');
+    cells[col] = '';
+    lines[row] = cells.join(',');
+    fx[file] = lines.join('\n');
+    const opts = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 15 });
+    expect(solve(prepare(opts), opts).band.cd).toBeCloseTo(baseline.band.cd, 10);
+  });
+
+it.each(['accelCsv', 'baroCsv'])('accepts a repeated timestamp in %s as a zero time step', file => {
+  const fx = synthFlight();
+  const base = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 15 });
+  const baseline = solve(prepare(base), base);
+  const lines = fx[file].trimEnd().split('\n');
+  const row = lines.findIndex(line => Number(line.split(',')[0]) === 8);
+  lines.splice(row, 0, lines[row]);
+  fx[file] = lines.join('\n');
+  const opts = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 15 });
+  expect(solve(prepare(opts), opts).band.cd).toBeCloseTo(baseline.band.cd, 5);
+});
+
+it('keeps cold measured-pressure flights below 11 km usable', () => {
+  const fx = synthFlight({ padTempK: 220 });
+  const opts = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 220 - 273.15 });
+  expect(solve(prepare(opts), opts).band.cd).toBeCloseTo(0.45, 2);
+  expect(atmosphere({ altitudeM: 6000, pressurePa: 40000, padTempK: 253.15, siteElevationM: 0 }).temperatureK)
+    .toBeCloseTo(214.15, 8);
+});
+
+it.each(['time', 'altitude', 'post-peak time', 'post-peak altitude'])('reports the original companion data row for invalid %s', channel => {
+  const fx = synthFlight();
+  const lines = fx.baroCsv.trimEnd().split('\n');
+  const base = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 15 });
+  const baseline = solve(prepare(base), base);
+  const peak = lines.findIndex(line => Number(line.split(',')[0]) === baseline.apogeeS);
+  const row = channel.startsWith('post-peak') ? peak + 1 : lines.findIndex(line => Number(line.split(',')[0]) === 8);
+  const cells = lines[row].split(',');
+  cells[channel.endsWith('time') ? 0 : 2] = '';
+  lines[row] = cells.join(',');
+  const opts = { ...base, baroText: lines.join('\n') };
+  expect(() => solve(prepare(opts), opts)).toThrow(new RegExp(`R6:.*data row ${row}\\b`));
+});
+
+it.each([['accelCsv', 0], ['accelCsv', 3], ['baroCsv', 0], ['baroCsv', 1], ['baroCsv', 2]])(
+  'ignores a landing-time blank in %s column %s after the measured coast', (file, col) => {
+    const fx = synthFlight();
+    const opts = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 15 });
+    const baseline = solve(prepare(opts), opts);
+    const lines = fx[file].trimEnd().split('\n');
+    const cells = lines.at(-1).split(',');
+    cells[col] = '';
+    lines[lines.length - 1] = cells.join(',');
+    fx[file] = lines.join('\n');
+    const changed = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 15 });
+    const result = solve(prepare(changed), changed);
+    expect(result.band.cd).toBeCloseTo(baseline.band.cd, 10);
+    expect(result.apogeeS).toBe(baseline.apogeeS);
+  });
+
+it.each([['accelCsv', 0], ['accelCsv', 3], ['baroCsv', 0], ['baroCsv', 2]])(
+  'ignores an interior descent blank in %s column %s', (file, col) => {
+    const fx = synthFlight();
+    const opts = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 15 });
+    const baseline = solve(prepare(opts), opts);
+    const lines = fx[file].trimEnd().split('\n');
+    const row = lines.findIndex((line, i) => i && Number(line.split(',')[0]) > fx.truth.apogeeT + 1);
+    const cells = lines[row].split(',');
+    cells[col] = '';
+    lines[row] = cells.join(',');
+    fx[file] = lines.join('\n');
+    const changed = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 15 });
+    expect(solve(prepare(changed), changed).band.cd).toBeCloseTo(baseline.band.cd, 10);
+  });
+
 it('refuses an ISA sample above the supported 11 km MSL ceiling', () => {
   expect(() => atmosphere({ altitudeM: 12000, siteElevationM: 3000 })).toThrow(/R5:.*11.*km/);
   expect(() => atmosphere({ altitudeM: 8000, siteElevationM: 3000 })).not.toThrow();
+});
+
+it.each(['pressure', 'altitude', 'both'])('refuses truncated %s companion coverage instead of clamping measurements', channel => {
+  const fx = synthFlight();
+  const baroText = fx.baroCsv.split('\n').filter((line, i) => !i || (line && Number(line.split(',')[0]) <= 8))
+    .map(line => line.split(',').filter((_, i) => channel === 'both' || i === 0 || i === (channel === 'pressure' ? 1 : 2)).join(','))
+    .join('\n');
+  const opts = synthOpts(fx, { baroText, padTempC: 15, siteElevationM: 0 });
+  expect(() => solve(prepare(opts), opts)).toThrow(/R6:.*baro.*cover/i);
+});
+
+it('refuses companion coverage that begins after the needed samples', () => {
+  const fx = synthFlight();
+  const baroText = fx.baroCsv.split('\n').filter((line, i) => !i || (line && Number(line.split(',')[0]) >= 8)).join('\n');
+  const opts = synthOpts(fx, { baroText, padTempC: 15 });
+  expect(() => solve(prepare(opts), opts)).toThrow(/R6:.*baro.*cover/i);
+});
+
+it('refuses an accelerometer trace that ends before the measured apogee', () => {
+  const fx = synthFlight();
+  const accelText = fx.accelCsv.split('\n').filter((line, i) => !i || (line && Number(line.split(',')[0]) <= 8)).join('\n');
+  const opts = synthOpts(fx, { accelText, baroText: fx.baroCsv, padTempC: 15 });
+  expect(() => solve(prepare(opts), opts)).toThrow(/R6:.*accelerometer.*cover/i);
+});
+
+it.each([false, true])('accepts a given apogee between accelerometer samples with companion=%s', companion => {
+  const fx = synthFlight();
+  const opts = synthOpts(fx, { baroText: companion ? fx.baroCsv : undefined, padTempC: 15,
+    siteElevationM: 0, apogeeS: 17.921 });
+  const result = solve(prepare(opts), opts);
+  expect(result.apogeeS).toBe(17.921);
+  expect(result.band.cd).toBeGreaterThan(0.45 * 0.999);
+  expect(result.band.cd).toBeLessThan(0.45 * 1.001);
+});
+
+it('accepts a companion apogee between accelerometer samples', () => {
+  const fx = synthFlight();
+  const base = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 15 });
+  const baseline = solve(prepare(base), base);
+  const baroText = fx.baroCsv.trimEnd().split('\n').map((line, i) => {
+    if (!i) return line;
+    const cells = line.split(',');
+    cells[0] = String(Number(cells[0]) + 0.001);
+    return cells.join(',');
+  }).join('\n');
+  const opts = { ...base, baroText };
+  const result = solve(prepare(opts), opts);
+  expect(result.apogeeS).toBeCloseTo(baseline.apogeeS + 0.001, 8);
+  expect(result.band.cd).toBeGreaterThan(0.45 * 0.999);
+  expect(result.band.cd).toBeLessThan(0.45 * 1.001);
+});
+
+it('accepts a companion that covers the coast but stops before the recovery trace ends', () => {
+  const fx = synthFlight();
+  const fullOpts = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 15 });
+  const full = solve(prepare(fullOpts), fullOpts);
+  const baroText = fx.baroCsv.split('\n').filter((line, i) =>
+    !i || (line && Number(line.split(',')[0]) <= fx.truth.apogeeT + 0.5)).join('\n');
+  const shortOpts = { ...fullOpts, baroText };
+  const short = solve(prepare(shortOpts), shortOpts);
+  expect(short.band.cd).toBeCloseTo(full.band.cd, 10);
+  expect(short.apogeeS).toBe(full.apogeeS);
 });
 
 it('refuses missing measured coast pressure even when ISA is available', () => {
@@ -117,6 +260,7 @@ function synthFlight({
   rateHz = 500,
   baroRateHz = 50,
   siteElevationM = 0,
+  padTempK = ISA_T0 - LAPSE * siteElevationM,
   constantDensity = null,
   thrustN = SYNTH_THRUST_N,
   burnS = SYNTH_BURN_S,
@@ -129,7 +273,6 @@ function synthFlight({
   descentS = 2.0,
 } = {}) {
   const area = Math.PI * diameterM * diameterM / 4;
-  const padTempK = ISA_T0 - LAPSE * siteElevationM;
 
   /** The same two-branch atmosphere the extractor reconstructs — see atmosphere(). */
   const air = (h) => {
@@ -204,6 +347,34 @@ const synthOpts = (fx, extra = {}) => ({
   massKg: fx.massKg,
   diameterM: fx.diameterM,
   ...extra,
+});
+
+it.each([
+  ['baro time', 'baroCsv', 0, ''], ['baro time', 'baroCsv', 0, '-1'],
+  ['baro time', 'baroCsv', 0, '0'], ['baro time', 'baroCsv', 0, '100'], ['baro altitude', 'baroCsv', 2, ''],
+  ['accelerometer time', 'accelCsv', 0, ''], ['accelerometer time', 'accelCsv', 0, '100'], ['accelerometer axial', 'accelCsv', 3, ''],
+])('refuses an invalid required %s sample before solving', (_name, file, col, value) => {
+  const fx = synthFlight();
+  const lines = fx[file].trimEnd().split('\n');
+  const row = lines.findIndex(line => Number(line.split(',')[0]) === 8);
+  expect(row).toBeGreaterThan(0);
+  const cells = lines[row].split(',');
+  cells[col] = value;
+  lines[row] = cells.join(',');
+  fx[file] = lines.join('\n');
+  const opts = synthOpts(fx, { baroText: fx.baroCsv, padTempC: 15 });
+  expect(() => solve(prepare(opts), opts)).toThrow(/R6:.*(time|altitude|Accel_Z)/i);
+});
+
+it('refuses measured-pressure temperatures outside the supported troposphere', () => {
+  expect(() => atmosphere({ altitudeM: 13800, pressurePa: 12044.56,
+    padTempK: 288.15 - 0.0065 * 1200, siteElevationM: 1200 })).toThrow(/R5:.*11.*km/);
+  expect(() => atmosphere({ altitudeM: 12000, pressurePa: 12044.56, padTempK: 310 })).toThrow(/R5:.*11.*km/);
+});
+
+it.each([NaN, Infinity, -Infinity])('treats non-finite site elevation as unknown at the measured-pressure ceiling: %s', siteElevationM => {
+  expect(() => atmosphere({ altitudeM: 12000, pressurePa: 18000, padTempK: 308.15, siteElevationM }))
+    .toThrow(/R5:.*11.*km/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

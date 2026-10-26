@@ -13,6 +13,19 @@ const rse = (curve: string) => `<engine-database><engine-list><engine code="Audi
 afterEach(() => localStorage.clear());
 
 describe('motor audit regressions', () => {
+  it.each(['', '; comment\n'])('reads BOM-prefixed RASP headers and comments (%s)', prefix => {
+    const text = `\uFEFF${prefix}${eng()}`;
+    const motors = parseEng(`${text}\n${text}`);
+    expect(motors).toHaveLength(2);
+    expect(motors.map(m => m.designation)).toEqual(['Audit', 'Audit']);
+  });
+  it.each(['\u00a0', '\u2003', '\u202f'])('accepts copied Unicode whitespace %j on the user RASP import path', space => {
+    const text = eng().replaceAll(' ', space) + `\n${space}\n`;
+    const motor = parseEng(text)[0]!;
+    expect(motor.designation).toBe('Audit');
+    expect(motor.samples).toEqual(parseEng(eng())[0]!.samples);
+    expect(motor.realManufacturer).toBe('Home');
+  });
   it.each(['rse', 'eng'])('S1c-b3 decodes whitespace-prefixed XML in a .%s file by its declaration', async extension => {
     const text = ` \t\r\n<?xml version="1.0" encoding="windows-1252"?>\n${rse('0 0\n0.5 20\n1 0').replace('mfg="Home"', 'mfg="Aero\x99"')}`;
     const bytes = Uint8Array.from(text, c => c.charCodeAt(0));

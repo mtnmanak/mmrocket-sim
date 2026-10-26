@@ -2,6 +2,8 @@ import { readFileSync, appendFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { Window } from 'happy-dom';
+import { inlineXmlCdata } from '../src/services/xmlUtil.ts';
+import { simulationNumbers } from './matcher-inventory.mjs';
 const root = process.cwd().replaceAll('\\', '/');
 const emit = row => appendFileSync(process.env.MATCHER_OUT, JSON.stringify(row) + '\n');
 writeFileSync(`${process.env.MATCHER_OUT}.pid`, String(process.pid));
@@ -37,8 +39,7 @@ for (const file of JSON.parse(readFileSync(process.env.MATCHER_LIST, 'utf8'))) {
         await win.happyDOM.close();
         continue;
       }
-      const xml = lib.decodeXml(bytes).xml.replace(/^\uFEFF?\s*<\?xml[^?]*\?>/, '')
-        .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, (_, s) => s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'));
+      const xml = inlineXmlCdata(lib.decodeXml(bytes).xml.replace(/^\uFEFF?\s*<\?xml[^?]*\?>/, ''));
       const doc = new win.DOMParser().parseFromString(xml, 'text/xml');
       if (doc.querySelector('parsererror')) throw new Error('Raw inventory XML parse failure');
       if (kind === 'rkt' && doc.documentElement.tagName === 'SOAP-ENV:Envelope'
@@ -53,18 +54,19 @@ for (const file of JSON.parse(readFileSync(process.env.MATCHER_LIST, 'utf8'))) {
         continue;
       }
       const text = (el, tag) => el.querySelector(`:scope > ${tag}`)?.textContent?.trim() ?? '';
-      const sims = [...doc.querySelectorAll(kind === 'rkt' ? 'SimulationResults' : 'Simulation')];
+      const simOwners = new WeakMap();
+      const simNumbers = simulationNumbers(doc, kind === 'rkt' ? 'SimulationResults' : 'Simulation', simOwners);
       const raw = kind === 'rkt' ? [...doc.querySelectorAll('EngineSet')].map((el, ordinal) => ({ ordinal, designation: text(el, 'EngineCode'), manufacturer: text(el, 'EngineMfg'), mount: text(el, 'MountSerialNo'),
-        config: el.closest('SimulationResults') ? `rocksim-sim-${sims.indexOf(el.closest('SimulationResults')) + 1}` : 'rocksim-design',
+        config: simNumbers.has(el) ? `rocksim-sim-${simNumbers.get(el)}` : 'rocksim-design',
         fingerprint: ['EngineCode', 'EngineMfg', 'MountSerialNo', 'IgnitionDelay', 'EjectionDelay'].map(t => text(el, t)).join('|') }))
         : kind === 'ork' ? [...doc.querySelectorAll('motormount > motor')].map((el, ordinal) => ({ ordinal, designation: text(el, 'designation'), manufacturer: text(el, 'manufacturer'), config: el.getAttribute('configid') }))
           : [...doc.querySelectorAll('SustainerEngine, Booster1Engine, Booster2Engine')].map((el, ordinal) => {
-            const s = el.closest('Simulation');
+            const s = simOwners.get(el);
             const name = el.textContent.trim();
             const parts = name.split(/\s{2,}/);
             const enabled = el.tagName === 'SustainerEngine' || text(s, el.tagName.replace('Engine', '').replace('Booster', 'IncludeBooster')).toLowerCase() === 'true';
             return { ordinal, designation: parts[0]?.replace(/-([0-9]+|[pP])$/, ''), manufacturer: parts[1]?.replace(/^\(|\)$/g, ''), original: name,
-              config: `rasaero-sim-${sims.indexOf(s) + 1}`, slot: el.tagName,
+              config: `rasaero-sim-${simNumbers.get(el) ?? 0}`, slot: el.tagName,
               excluded: !enabled ? 'disabled booster' : name.includes('NoThrust') || !name ? 'empty/NoThrust' : parts.length !== 2 ? 'unreadable engine string' : undefined };
           });
       const input = data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength);

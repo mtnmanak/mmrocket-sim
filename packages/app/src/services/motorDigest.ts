@@ -9,4 +9,4 @@
  * computes it here for a file downloaded live. Why the digest matters, and
  * what it is over: that file's header.
  */
-export { digestMotorFile, digestRasp, digestRse, md5Hex, MotorDigest, DIGEST_DATA_TYPE } from '../../scripts/motor-digest.mjs';
+export { digestMotorFile, digestRasp, digestRse, md5Hex, MotorDigest, DIGEST_DATA_TYPE, motorHeaderMasses } from '../../scripts/motor-digest.mjs';

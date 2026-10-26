@@ -6,6 +6,7 @@
   "license": "GPL-3.0-or-later",
   "type": "module",
   "dependencies": {
+    "@online-openrocket/engine": "*",
     "@xmldom/xmldom": "^0.9.12",
     "css-select": "^7.0.0",
     "fflate": "^0.8.3",
@@ -20,8 +21,8 @@
     "wrangler": "4.149.0"
   },
   "scripts": {
-    "dev": "wrangler dev --local",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "dev": "node ../../scripts/check-workspace-links.mjs && wrangler dev --local",
+    "typecheck": "node ../../scripts/check-workspace-links.mjs && tsc -p tsconfig.json --noEmit",
+    "test": "node ../../scripts/check-workspace-links.mjs && vitest run"
   }
 }

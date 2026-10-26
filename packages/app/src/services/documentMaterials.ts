@@ -4,7 +4,7 @@ import { numOpt } from '../tree/nodeNum.js';
 import type { XmlElement } from './xmlParse.js';
 import { parseDecimal } from './xmlUtil.js';
 
-export const DOCUMENT_MATERIAL_LIMIT = 256;
+const DOCUMENT_MATERIAL_LIMIT = 256;
 const GROUPS = new Set(['Metals', 'Woods', 'Plastics', 'Fabrics', 'PaperProducts', 'Foams',
   'Composites', 'Fibers', 'ThreadsLines', 'Other', 'Custom']);
 

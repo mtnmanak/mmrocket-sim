@@ -69,6 +69,14 @@ async function uploaded(plan = first(), b = bucket()) {
 }
 
 describe('planPublication and contentHash', () => {
+  it.each(['constructor', 'toString', '__proto__'])('diffs own curve keys safely: %s', id => {
+    const args = inputs();
+    const one = bytes({ curves: { [id]: [{ simfileId: 'f', samples: [[0, 0], [1, 1]] }] } });
+    const empty = bytes({ curves: {} });
+    for (const [previousCurvesBytes, curvesBytes] of [[empty, one], [one, empty]]) {
+      expect(publicationSummary(first(), { ...args, curvesBytes, previousCurvesBytes })).toContain(id);
+    }
+  });
   it('R2: refuses older/equal fetch times at PLAN and UPLOAD, including legacy generated dates', async () => {
     const previousManifest = manifest();
     previousManifest.snapshots[0].fetchedAt = '2026-10-25T00:00:00.000Z';

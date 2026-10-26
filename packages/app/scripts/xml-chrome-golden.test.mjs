@@ -9,7 +9,9 @@ const SCRIPT = fileURLToPath(new URL('./xml-chrome-golden.mjs', import.meta.url)
 const dataUrl = (code) => `data:text/javascript,${encodeURIComponent(code)}`;
 
 describe('xml-chrome-golden --check cleanup', () => {
-  it.each([false, true])('removes its build directory when the golden differs: %s', (differs) => {
+  it.for([false, true])('removes its build directory when the golden differs: %s', (differs, { task }) => {
+    const childTimeout = 20_000;
+    expect(task.timeout).toBeGreaterThan(childTimeout);
     const temp = mkdtempSync(join(tmpdir(), 'xml-golden-test-'));
     // Exercise the real CLI in a child: process.exit cannot be mocked with a
     // thrown error, because that would run finally and hide the original leak.
@@ -56,7 +58,7 @@ describe('xml-chrome-golden --check cleanup', () => {
         '--import', dataUrl(`import { register } from 'node:module'; register(${JSON.stringify(loader)});`),
         SCRIPT, '--check',
       ], {
-        encoding: 'utf8', timeout: 20_000,
+        encoding: 'utf8', timeout: childTimeout,
         env: { ...process.env, TMP: temp, TEMP: temp, TMPDIR: temp, PLAYWRIGHT_CORE: '' },
       });
       expect(result.error).toBeUndefined();
@@ -69,5 +71,5 @@ describe('xml-chrome-golden --check cleanup', () => {
     } finally {
       rmSync(temp, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 });

@@ -4,6 +4,16 @@ import { mutations, replaceMutationAnchor } from './matcher-sweep.mutate.mjs';
 import { readFileSync } from 'node:fs';
 
 describe('mutation harness anchor guards', () => {
+  it('does not linearly search simulation nodes for RASAero nozzle notes', () => {
+    const source = readFileSync(new URL('../src/services/rasaeroFile.ts', import.meta.url), 'utf8');
+    expect(source).not.toContain('sims.indexOf(');
+  });
+  it('does not rewrite CDATA inside comments or linearly search simulations per motor', () => {
+    const source = readFileSync(new URL('./matcher-sweep.worker.mjs', import.meta.url), 'utf8');
+    expect(source).not.toContain('.replace(/<!\\[CDATA\\[([\\s\\S]*?)\\]\\]>/g');
+    expect(source).not.toContain('sims.indexOf(');
+    expect(source).not.toContain(".closest('Simulation')");
+  });
   it('refuses missing and ambiguous anchors before replacing source', () => {
     expect(() => replaceMutationAnchor('one', 'absent', 'x', 'missing')).toThrow('expected 1 hit, found 0');
     expect(() => replaceMutationAnchor('one one', 'one', 'x', 'duplicate')).toThrow('expected 1 hit, found 2');

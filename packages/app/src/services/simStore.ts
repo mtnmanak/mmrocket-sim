@@ -9,7 +9,7 @@ import { createWarningMergeBudget, mergeImportedWarnings, mergeStoredWarnings, s
 import { warningKeysCell } from './simWarnings.js';
 import { INITIAL_UNITS, noticeQuantity, siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
-import { validWindLevels } from './windProfile.js';
+import { validWindLevels, validWindProfileSource } from './windProfile.js';
 
 /**
  * Persisted simulation-run history (localStorage). the owner's flight-day flow:
@@ -28,7 +28,7 @@ export const MAX_RUNS = 500;
  * button into a silent no-op. Normalised to absent on load: absent is a state
  * every one of those readers already handles.
  */
-const ARRAY_FIELDS = ['deployments', 'branches', 'boosterMotors', 'simWarnings', 'windLevels'] as const;
+const ARRAY_FIELDS = ['deployments', 'branches', 'boosterMotors', 'simWarnings'] as const;
 
 export function loadRuns(): SimRun[] {
   try {
@@ -120,8 +120,13 @@ export function loadRuns(): SimRun[] {
         const entries = r[k];
         if (!Array.isArray(entries)) delete r[k];
         else Object.assign(r, { [k]: entries.filter((v) => k === 'boosterMotors'
-          ? typeof v === 'string' : v !== null && typeof v === 'object' && !Array.isArray(v)) });
+          ? typeof v === 'string' : v !== null && typeof v === 'object' && !Array.isArray(v)
+            && (k !== 'deployments' || ('device' in v && typeof v.device === 'string'))
+            && (k !== 'branches' || ('name' in v && typeof v.name === 'string'))) });
       }
+      if (r.windLevels !== undefined && !validWindLevels(r.windLevels)) delete r.windLevels;
+      if (r.windProfileSource !== undefined
+        && (!r.windLevels?.length || !validWindProfileSource(r.windProfileSource))) delete r.windProfileSource;
       if (r.simWarnings !== undefined) r.simWarnings = restoredWarnings(r.simWarnings);
       if (r.windLevels !== undefined && !validWindLevels(r.windLevels)) delete r.windLevels;
       for (const b of r.branches ?? []) {
@@ -129,7 +134,8 @@ export function loadRuns(): SimRun[] {
         if (typeof b.stageId !== 'string') delete b.stageId;
         if (typeof b.motorLabel !== 'string') delete b.motorLabel;
         if (!Array.isArray(b.deployments)) b.deployments = [];
-        else b.deployments = b.deployments.filter((d) => d !== null && typeof d === 'object' && !Array.isArray(d));
+        else b.deployments = b.deployments.filter((d) => d !== null && typeof d === 'object' && !Array.isArray(d)
+          && typeof d.device === 'string');
       }
       for (const d of [...(r.deployments ?? []), ...(r.branches ?? []).flatMap(b => b.deployments)]) {
         if (typeof d.device !== 'string') d.device = '';

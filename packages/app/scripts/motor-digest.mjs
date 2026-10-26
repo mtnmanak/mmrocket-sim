@@ -206,8 +206,8 @@ function finalizeThrustCurve(time, thrust, ...lists) {
 }
 
 /** AbstractMotorLoader.split(str): Java's split on \s+, less one leading empty piece. */
-function javaSplitWs(s) {
-  const pieces = s.split(/\s+/);
+export function javaSplitWs(s) {
+  const pieces = s.split(/[ \t\n\x0B\f\r]+/);
   // Java's String.split drops trailing empty strings ("" alone stays [""]).
   while (pieces.length > 1 && pieces[pieces.length - 1] === '') pieces.pop();
   if (pieces.length === 0 || pieces[0] !== '') return pieces;
@@ -321,6 +321,38 @@ function* xmlEvents(text) {
     yield { open: name, attrs };
     if (selfClosing) yield { close: name };
   }
+}
+
+/** File-header masses in grams, shared by live downloads and the bundle builder. */
+export function motorHeaderMasses(text) {
+  text = text.replace(/^(?:\uFEFF|\xEF\xBB\xBF)/, '');
+  const checked = (total, prop) => {
+    const totalWeightG = parseJavaDouble(total), propWeightG = parseJavaDouble(prop);
+    return Number.isFinite(totalWeightG) && Number.isFinite(propWeightG)
+      && totalWeightG > 0 && propWeightG > 0 && propWeightG <= totalWeightG
+      ? { totalWeightG, propWeightG } : null;
+  };
+  if (text.trimStart().startsWith('<')) {
+    try {
+      const stack = [];
+      for (const ev of xmlEvents(text)) {
+        if (ev.close) { stack.pop(); continue; }
+        if (ev.open === 'engine' && stack.every(name => ['engine-database', 'engine-list'].includes(name))) {
+          return checked(ev.attrs.get('initWt'), ev.attrs.get('propWt'));
+        }
+        stack.push(ev.open);
+      }
+    } catch { return null; }
+    return null;
+  }
+  for (const raw of text.split(/\r\n|\r|\n/)) {
+    const line = raw.replace(/^[\u0000- ]+|[\u0000- ]+$/g, '');
+    if (!line || line.startsWith(';')) continue;
+    const f = javaSplitWs(line);
+    if (f.length !== 7) return null;
+    return checked(String(parseJavaDouble(f[5]) * 1000), String(parseJavaDouble(f[4]) * 1000));
+  }
+  return null;
 }
 
 /**

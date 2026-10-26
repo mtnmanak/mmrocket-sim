@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { OrkRocket, resetEngine, type ComponentNode } from '@online-openrocket/engine';
 import { exportRkt, importRkt } from './rocksimFile.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 import { engineTree } from '../tree/treeModel.js';
+import { parseXml, type XmlElement } from './xmlParse.js';
+import { refuseOversizedForeignXml } from './foreignPartPrecount.js';
+import { MAX_DESIGN_PARTS } from '../tree/sanitize.js';
 
 const xml = (parts: string) => `<RockSimDocument><DesignInformation><RocketDesign>
   <Name>Audit</Name><StageCount>1</StageCount><Stage3Parts><BodyTube><Name>Tube</Name>
@@ -13,6 +16,58 @@ const all = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, 
 const named = (r: ReturnType<typeof importRkt>, name: string) => all(r.tree.components).find(n => n.name === name)!;
 
 describe('RockSim audit regressions', () => {
+  it.each(['FinSet', 'CustomFinSet', 'TubeFinSet'])('includes the retained host in the lexical %s refusal count', tag => {
+    const file = xml(`<${tag}/>`
+      .repeat(MAX_DESIGN_PARTS + 1));
+    expect(() => refuseOversizedForeignXml(file, 'rkt')).toThrow(/2,003 parts, past the 2,000/);
+  });
+  it('refuses 100k stage-level fins before DOM parsing even though attachment rules drop them', () => {
+    const fins = '<FinSet><AttachedParts><Ring/></AttachedParts></FinSet>'.repeat(100_000);
+    const file = xml('').replace('<Stage3Parts>', `<Stage3Parts>${fins}`);
+    const start = performance.now();
+    expect(() => refuseOversizedForeignXml(file, 'rkt')).toThrow(/parts.*limit|limit.*parts|2,000/i);
+    expect(() => importRkt(file)).toThrow(/2,000/);
+    expect(performance.now() - start).toBeLessThan(5_000);
+  }, 10_000);
+  it.each(['', '<Unknown>'])('counts dropped fins through the DOM fallback: %s', wrapper => {
+    const fins = '<FinSet extra="x"/>'.repeat(MAX_DESIGN_PARTS + 1);
+    const file = xml('').replace('<Stage3Parts>', `<Stage3Parts>${wrapper}${fins}${wrapper ? '</Unknown>' : ''}`);
+    expect(() => importRkt(file)).toThrow(/parts.*limit|limit.*parts|2,000/i);
+  }, 30_000);
+  it('collapses fin attachment cautions to one count with the first few names', () => {
+    const fins = Array.from({ length: 6 }, (_, i) => `<FinSet><Name>Wing${i}</Name><AttachedParts><Ring><Name>Ring${i}</Name></Ring></AttachedParts></FinSet>`).join('');
+    const result = importRkt(xml(fins));
+    const notes = result.noteTiers?.filter(n => n.kind === 'I03.fin-attached') ?? [];
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.tier).toBe('caution');
+    expect(notes[0]!.text).toContain('6 fin sets');
+    for (const name of ['Wing0', 'Wing1', 'Wing2']) expect(notes[0]!.text).toContain(name);
+    expect(notes[0]!.text).not.toContain('Wing5');
+  });
+  it('includes dropped fins in the combined retained-part limit', () => {
+    const file = xml('').replace('<Stage3Parts>', '<Stage3Parts>' + '<FinSet/>'.repeat(MAX_DESIGN_PARTS - 1));
+    expect(() => importRkt(file)).toThrow(/2,000/);
+  });
+  it('uses one attachment summary across active stage slots', () => {
+    const fin = '<FinSet><AttachedParts><Ring/></AttachedParts></FinSet>';
+    const file = xml(fin).replace('<StageCount>1', '<StageCount>2')
+      .replace('</Stage3Parts>', `</Stage3Parts><Stage2Parts>${fin}</Stage2Parts>`);
+    const notes = importRkt(file).noteTiers?.filter(n => n.kind === 'I03.fin-attached') ?? [];
+    expect(notes).toHaveLength(1);
+    expect(notes[0]!.text).toContain('2 fin sets');
+  });
+  it('does not walk ancestors for each fin under unsupported deep subtrees', () => {
+    const sample = parseXml('<Unknown><FinSet/></Unknown>', 'fixture').documentElement;
+    const closest = vi.spyOn(Object.getPrototypeOf(sample) as XmlElement, 'closest');
+    try {
+      expect(sample.children[0]!.closest('Unknown')).not.toBeNull();
+      expect(closest).toHaveBeenCalledOnce();
+      closest.mockClear();
+      const nested = '<Unknown>'.repeat(40) + '<FinSet/>'.repeat(100) + '</Unknown>'.repeat(40);
+      importRkt(xml(nested));
+      expect(closest).not.toHaveBeenCalled();
+    } finally { closest.mockRestore(); }
+  });
   it('F5 bore keeps an unreadable ring ID automatic beside a motor tube', () => {
     const r = importRkt(xml(`<Ring><Name>Automatic ring</Name><UsageCode>0</UsageCode><OD>98</OD><ID>29,0</ID><Len>2</Len></Ring>
       <BodyTube><Name>Motor tube</Name><OD>30</OD><ID>28</ID><Len>100</Len><IsInsideTube>1</IsInsideTube></BodyTube>`));

@@ -40,6 +40,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { applyMotorCorrections } from './motor-corrections.mjs';
+import { manufacturerAbbreviations } from './thrustcurve-api-shapes.mjs';
 
 const API = 'https://www.thrustcurve.org/api/v1';
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'data', 'motors.json');
@@ -84,6 +85,9 @@ export async function fetchCatalogue({ fetchImpl = fetch, log = (s) => process.s
   async function search(params, maxResults = CAP) {
     const qs = new URLSearchParams({ ...params, maxResults: String(maxResults) });
     const body = await getJson(`${API}/search.json?${qs}`);
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error(`search ${qs}: invalid response shape`);
+    if (!Array.isArray(body.results) || !body.results.every(m => m && typeof m === 'object'
+      && typeof m.motorId === 'string' && m.motorId.length > 0)) throw new Error(`search ${qs}: invalid results shape`);
     const { matches } = body;
     if (!Number.isInteger(matches) || matches < 0) {
       throw new Error(`search ${qs} answered with no usable \`matches\` (${JSON.stringify(matches)}), `
@@ -99,7 +103,10 @@ export async function fetchCatalogue({ fetchImpl = fetch, log = (s) => process.s
   };
 
   const meta = await getJson(`${API}/metadata.json?availability=all`);
-  const manufacturers = (meta.manufacturers ?? []).map((m) => m.abbrev);
+  const manufacturers = manufacturerAbbreviations(meta);
+  if (!Array.isArray(meta.impulseClasses) || !meta.impulseClasses.every(c => typeof c === 'string' && c.trim().length > 0)) {
+    throw new Error('metadata: invalid impulseClasses');
+  }
   const classes = meta.impulseClasses ?? [];
   if (manufacturers.length === 0) throw new Error('metadata returned no manufacturers');
   // The API's own population, asked for one row so it costs one small request.

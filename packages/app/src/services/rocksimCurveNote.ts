@@ -1,6 +1,6 @@
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { OrkMotorRef } from './orkFile.js';
-import { bundledSimFiles, fileImpulseNs, flownCurve, type TcMotor, type TcSimFile } from './thrustcurve.js';
+import { bundledSimFiles, fileImpulseNs, flownCurve, isSampleList, type TcMotor, type TcSimFile } from './thrustcurve.js';
 
 /** Inform, never infer a motor revision or replace a curve from a stored flight.
  * 15% is the existing picker's burn-duration agreement band. A candidate must
@@ -19,7 +19,7 @@ export async function rocksimCurveNote(
   // A diagnostic must not turn a successfully loaded cached/network motor into
   // a missing motor if the optional bundle cannot be read.
   const candidates = (await files().catch(() => [])).filter(f => {
-    if (!f.simfileId || !f.samples?.length) return false;
+    if (!f.simfileId || !isSampleList(f.samples)) return false;
     const end = flownCurve(f.samples).samples.at(-1)?.time;
     return end != null && Math.abs(end - duration) > 0.15 * stored
       && Math.abs(end - stored) <= Math.max(0.1, 0.05 * stored);

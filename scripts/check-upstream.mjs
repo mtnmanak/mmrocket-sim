@@ -93,9 +93,12 @@ import { createHash } from 'node:crypto';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { checkAdvisories } from './upstream-advisories.mjs';
+import { markupAttributes, markupTagEnd } from './markup-scan.mjs';
+import { childElements, elementBlocks } from '../packages/app/scripts/fetch-component-presets.mjs';
 
 import { CORRECTIONS, UPSTREAM_WATCH } from '../packages/app/scripts/apply-preset-corrections.mjs';
 import { MOTOR_CORRECTIONS } from '../packages/app/scripts/motor-corrections.mjs';
+import { manufacturerAbbreviations } from '../packages/app/scripts/thrustcurve-api-shapes.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const RAW = 'https://raw.githubusercontent.com/openrocket/openrocket-database/master/orc';
@@ -110,28 +113,37 @@ const notes = [];
 const say = (s = '') => console.log(s);
 const flag = (s) => { moved++; console.log('  ** ' + s); };
 
-async function text(url) {
-  const res = await fetch(url, { headers: UA });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return res.text();
+const failedHosts = new Set();
+const rateLimited = err => err.status === 429
+  || (err.status === 403 && typeof err.url === 'string' && new URL(err.url).hostname === 'www.thrustcurve.org');
+
+async function request(url, read, signal) {
+  const host = new URL(url).host;
+  if (failedHosts.delete(host)) await new Promise(resolve => setTimeout(resolve, 250));
+  try {
+    const res = await fetch(url, { headers: UA, ...(signal ? { signal } : {}) });
+    if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status} for ${url}`), { status: res.status });
+    return await read(res);
+  } catch (err) {
+    failedHosts.add(host);
+    err.url = url;
+    throw err;
+  }
 }
-async function json(url) {
-  const res = await fetch(url, { headers: UA });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  return res.json();
-}
+const text = url => request(url, res => res.text());
+const json = url => request(url, res => res.json());
 
 async function pdfBytes(url) {
-  const res = await fetch(url, { headers: UA, signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-  const chunks = [];
-  let length = 0;
-  for await (const chunk of res.body) {
-    length += chunk.length;
-    if (length > 2_000_000) throw new Error(`PDF exceeds 2 MB for ${url}`);
-    chunks.push(chunk);
-  }
-  return Buffer.concat(chunks);
+  return request(url, async res => {
+    const chunks = [];
+    let length = 0;
+    for await (const chunk of res.body) {
+      length += chunk.length;
+      if (length > 2_000_000) throw new Error(`PDF exceeds 2 MB for ${url}`);
+      chunks.push(chunk);
+    }
+    return Buffer.concat(chunks);
+  }, AbortSignal.timeout(30_000));
 }
 
 /**
@@ -139,13 +151,11 @@ async function pdfBytes(url) {
  * a dumb scan and not an XML parse: this file is watched, not consumed, and a
  * parser would add a dependency to a script whose whole job is to be runnable.
  */
-function rowsByPart(xml, element) {
+export function rowsByPart(xml, element) {
   const out = new Map();
-  const re = new RegExp(`<${element}>([\\s\\S]*?)</${element}>`, 'g');
-  let m;
-  while ((m = re.exec(xml))) {
-    const block = m[1];
-    const field = (tag) => (block.match(new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`)) || [])[1];
+  for (const { body } of elementBlocks(xml, element)) {
+    const fields = childElements(body);
+    const field = tag => fields.find(child => child.tag === tag)?.text;
     const pn = field('PartNumber');
     if (pn === undefined) continue;
     out.set(pn, field);
@@ -159,29 +169,19 @@ function rowsByPart(xml, element) {
  * hand: the names carry quotes, commas and inch marks, and building a regex
  * from them is one more thing to get wrong.
  */
-function materialDensityIn(xml, name) {
-  const needle = `<Name>${name}</Name>`;
-  let from = 0;
-  for (;;) {
-    const at = xml.indexOf(needle, from);
-    if (at < 0) return null;
-    // The <Material ...> block this Name belongs to must open before it and
-    // close after it; a part row also has a <Name>, so check the container.
-    const open = xml.lastIndexOf('<Material', at);
-    const close = xml.indexOf('</Material>', at);
-    if (open >= 0 && close >= 0 && xml.lastIndexOf('</Material>', at) < open) {
-      const block = xml.slice(open, close);
-      const d = block.indexOf('<Density>');
-      if (d >= 0) return block.slice(d + 9, block.indexOf('</Density>', d)).trim();
-      return null;
+export function materialDensityIn(xml, name) {
+  for (const { body } of elementBlocks(xml, 'Material')) {
+    const fields = childElements(body);
+    if (fields.find(child => child.tag === 'Name')?.text === name) {
+      return fields.find(child => child.tag === 'Density')?.text ?? null;
     }
-    from = at + needle.length;
   }
+  return null;
 }
 
 const fileCache = new Map();
 async function orc(file) {
-  if (!fileCache.has(file)) fileCache.set(file, await text(`${RAW}/${file}`));
+  if (!fileCache.has(file)) fileCache.set(file, text(`${RAW}/${file}`));
   return fileCache.get(file);
 }
 
@@ -239,12 +239,20 @@ async function checkWatch() {
   }
 }
 
-async function checkHead() {
+export async function checkHead(getJson = json) {
   say('');
   say('3. openrocket-database HEAD');
-  const [c] = await json(`${GH_API}/commits?per_page=1`);
+  const commits = await getJson(`${GH_API}/commits?per_page=1`);
+  if (!Array.isArray(commits) || !commits.length || !commits.every(c => c && typeof c.sha === 'string'
+    && typeof c.commit?.author?.date === 'string' && typeof c.commit?.message === 'string')) {
+    throw new Error('GitHub commits: invalid response shape');
+  }
+  const [c] = commits;
   say(`  head ${c.sha.slice(0, 10)}  ${c.commit.author.date}  ${c.commit.message.split('\n')[0]}`);
-  const open = await json(`${GH_API}/issues?state=open&per_page=100`);
+  const open = await getJson(`${GH_API}/issues?state=open&per_page=100`);
+  if (!Array.isArray(open) || !open.every(i => i && Number.isFinite(i.number) && typeof i.title === 'string')) {
+    throw new Error('GitHub issues: invalid response shape');
+  }
   const issues = open.filter((i) => !i.pull_request);
   say(`  ${issues.length} open issue(s), ${open.length - issues.length} open PR(s)`);
   for (const i of issues.slice(0, 10)) say(`       #${i.number} ${i.title}`);
@@ -341,7 +349,7 @@ export function cataloguePopulationNote(bundled, upstream) {
     : `thrustcurve.org now lists ${upstream} motors, ${-d} FEWER than the bundled ${bundled} — motors have been withdrawn since this catalogue was built.`;
 }
 
-async function checkThrustCurve() {
+export async function checkThrustCurve(getJson = json) {
   say('');
   say('4. ThrustCurve API and the bundled motor catalogue');
   const dataDir = join(here, '..', 'packages', 'app', 'src', 'data');
@@ -369,10 +377,11 @@ async function checkThrustCurve() {
   // and never a failure — it depends on a third-party endpoint being up, and a
   // release must not be blocked by someone else's outage.
   try {
-    const probe = await json(`${TC_API}/search.json?availability=all&maxResults=1`);
+    const probe = await getJson(`${TC_API}/search.json?availability=all&maxResults=1`);
     const msg = cataloguePopulationNote(bundled, probe?.matches);
     if (msg) say(`  note ${msg}`);
   } catch (e) {
+    if (rateLimited(e)) throw e;
     say(`  note could not reach thrustcurve.org to compare catalogue size (${e.message}) — the age check above still stands.`);
   }
 
@@ -392,9 +401,11 @@ async function checkThrustCurve() {
   }
 
   // API SHAPE, as before: the in-app browser and both refresh scripts read it.
-  const meta = await json(`${TC_API}/metadata.json`);
-  const mfrs = meta.manufacturers?.length ?? 0;
+  const meta = await getJson(`${TC_API}/metadata.json`);
   checked++;
+  let mfrs;
+  try { mfrs = manufacturerAbbreviations(meta).length; }
+  catch (error) { flag(`metadata.json: API shape may have changed (${error.message}). The in-app motor browser reads this shape.`); return; }
   if (!mfrs) flag('metadata.json returned no manufacturers — the API shape may have changed. The in-app motor browser reads this shape.');
   else say(`  ok   metadata.json: ${mfrs} manufacturers live`);
 }
@@ -447,7 +458,9 @@ export async function checkMotorCorrections(getJson = json) {
   for (const c of MOTOR_CORRECTIONS) {
     const qs = new URLSearchParams({ manufacturer: c.manufacturer, designation: c.designation, availability: 'all' });
     const body = await getJson(`${TC_API}/search.json?${qs}`);
-    const live = (Array.isArray(body?.results) ? body.results : []).find((m) => m?.motorId === c.motorId);
+    if (!body || !Array.isArray(body.results) || !body.results.every(m => m && typeof m === 'object'
+      && typeof m.motorId === 'string' && m.motorId.length > 0)) throw new Error('motor search: invalid response shape');
+    const live = body.results.find(m => m.motorId === c.motorId);
     for (const v of motorCorrectionVerdicts(c, live)) {
       checked++;
       if (v.moved) {
@@ -565,11 +578,53 @@ function checkNozzles() {
 }
 
 /** Certification PDF hrefs; labels, whitespace and unrelated page markup are not data drift. */
+function stripHtmlSpans(html, textOnly = false) {
+  const chunks = [];
+  let kept = 0;
+  for (let at = 0; at < html.length;) {
+    const start = html.indexOf('<', at);
+    if (start < 0) break;
+    if (html.startsWith('<!--', start)) {
+      const end = html.indexOf('-->', start + 4);
+      if (end < 0) throw new Error('unclosed HTML comment');
+      at = end + 3;
+    } else {
+      // A literal comparison such as "delay < 5" is text, not a tag.
+      if (!/^<\/?[A-Za-z!]/.test(html.slice(start, start + 3))) { at = start + 1; continue; }
+      const end = markupTagEnd(html, start);
+      if (end < 0) throw new Error('unclosed HTML tag');
+      at = end + 1;
+      const tag = /^<(script|style)(?=[\s/>]|$)/i.exec(html.slice(start, at))?.[1];
+      if (tag) {
+        const close = new RegExp(`</${tag}\\s*>`, 'ig');
+        close.lastIndex = at;
+        if (!close.exec(html)) throw new Error(`unclosed HTML ${tag}`);
+        at = close.lastIndex;
+      } else if (!textOnly) continue;
+    }
+    chunks.push(html.slice(kept, start), ' ');
+    kept = at;
+  }
+  chunks.push(html.slice(kept));
+  return chunks.join('');
+}
+
 export function aerotechDocumentLinks(html, base) {
   const links = new Set();
-  const page = html.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>|<!--[\s\S]*?-->/gi, '');
-  for (const match of page.matchAll(/<a\b[^>]*\bhref\s*=\s*(["'])(.*?)\1/gi)) {
-    const href = match[2].replace(/&amp;/gi, '&').replace(/&#(\d+);/g, (_all, n) => String.fromCodePoint(Number(n)));
+  const page = stripHtmlSpans(html);
+  for (let at = 0; at < page.length;) {
+    const start = page.indexOf('<', at);
+    if (start < 0) break;
+    if (!/^<\/?[A-Za-z!]/.test(page.slice(start, start + 3))) { at = start + 1; continue; }
+    const end = markupTagEnd(page, start);
+    if (end < 0) throw new Error('unclosed HTML tag');
+    at = end + 1;
+    const tag = page.slice(start, at);
+    if (!/^<a(?=[\s/>]|$)/i.test(tag)) continue;
+    const match = [...markupAttributes(tag.slice(2, -1).replace(/\/\s*$/, ''), true)]
+      .find(([name]) => name.toLowerCase() === 'href');
+    if (!match) continue;
+    const href = match[1].replace(/&amp;/gi, '&').replace(/&#(\d+);/g, (_all, n) => String.fromCodePoint(Number(n)));
     const url = new URL(href, base);
     if (url.protocol !== 'https:' || !/\.pdf$/i.test(url.pathname)) continue;
     url.hash = '';
@@ -670,12 +725,10 @@ const OPEN_METEO_TERMS = [
     text: 'All log files will be deleted after a period of 90 days.' },
 ];
 
-async function checkOpenMeteoTerms() {
+export async function checkOpenMeteoTerms(getText = text) {
   say('');
   say('6. Open-Meteo’s terms, as the weather copy and the free tier quote them');
-  const page = (await text(OPEN_METEO_TERMS_URL))
-    .replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<[^>]+>/g, ' ')
+  const page = stripHtmlSpans(await getText(OPEN_METEO_TERMS_URL), true)
     .replace(/&nbsp;|&#160;/g, ' ').replace(/&#39;|&apos;|&rsquo;/g, '\'').replace(/&amp;/g, '&')
     .replace(/\s+/g, ' ');
   const flat = (s) => s.replace(/\s+/g, ' ');
@@ -765,13 +818,26 @@ advisories = checkAdvisories) {
   moved = 0;
   checked = 0;
   notes.length = 0;
+  fileCache.clear();
+  failedHosts.clear();
   let status;
   try {
     say('Upstream vigilance check — READ ONLY, nothing here is written to the repo.');
     say('');
-    for (const check of checks) await check();
+    for (const check of checks) {
+      try { await check(); }
+      catch (err) {
+        console.error(`check could not run: ${err.message}`);
+        console.error('(network or parse failure; NOT a verdict on this section\'s data)');
+        status = 2;
+        if (rateLimited(err)) break;
+      }
+    }
     say('');
-    if (moved === 0) {
+    if (status === 2) {
+      say(`Some checks could not run; ${moved} of ${checked} completed watched values MOVED.`);
+      for (const n of notes) say(`  - ${n}`);
+    } else if (moved === 0) {
       say(`All ${checked} watched value(s) in sections 1–6 are where this repo expects them.`);
       status = 0;
     } else {

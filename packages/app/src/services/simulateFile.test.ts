@@ -320,7 +320,7 @@ describe('simulateFile reads the shipped data only', () => {
     expect(db, 'the catalogue row the file’s motor loaded from').toBeDefined();
     const key = `tc:samples:v7:${db!.motorId}`;
     const hot = primary.spec.times.map((time, i) => ({ time, thrust: primary.spec.thrusts[i]! * 1.1 }));
-    localStorage.setItem(key, JSON.stringify({ samples: hot, masses: null, t: 1 }));
+    localStorage.setItem(key, JSON.stringify({ samples: hot, masses: null, massParser: 1, t: 1 }));
     const again = await simulateImported(cloneParsed(parsed));
     expect(comparable(again.run)).toStrictEqual(comparable(plain.run));
     expect(localStorage.getItem(key)).not.toBeNull();

@@ -39,9 +39,9 @@ export { coordinatesLabel } from './coordinates.js';
  */
 
 export const FORECAST_API = 'https://api.open-meteo.com/v1/forecast';
-export const ARCHIVE_API = 'https://archive-api.open-meteo.com/v1/archive';
-export const ELEVATION_API = 'https://api.open-meteo.com/v1/elevation';
-export const GEOCODE_API = 'https://geocoding-api.open-meteo.com/v1/search';
+const ARCHIVE_API = 'https://archive-api.open-meteo.com/v1/archive';
+const ELEVATION_API = 'https://api.open-meteo.com/v1/elevation';
+const GEOCODE_API = 'https://geocoding-api.open-meteo.com/v1/search';
 
 for (const u of [FORECAST_API, ARCHIVE_API, ELEVATION_API, GEOCODE_API]) {
   // A structural guard, not decoration: net.ts's host list is what any future
@@ -61,8 +61,8 @@ export const HOURLY_VARS = [
 export const SKY_VARS = ['cloud_cover', 'cloud_cover_low', 'visibility', 'dew_point_2m'] as const;
 
 // Open-Meteo's documented pressure levels: https://open-meteo.com/en/docs#pressure_level_variables
-export const PRESSURE_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 700, 600, 500, 400, 300, 250, 200, 150, 100, 70, 50, 30] as const;
-export const FIXED_WIND_HEIGHTS = [80, 120, 180] as const;
+const PRESSURE_LEVELS = [1000, 975, 950, 925, 900, 850, 800, 700, 600, 500, 400, 300, 250, 200, 150, 100, 70, 50, 30] as const;
+const FIXED_WIND_HEIGHTS = [80, 120, 180] as const;
 export const ALOFT_VARS = [
   ...FIXED_WIND_HEIGHTS.flatMap((h) => [`wind_speed_${h}m`, `wind_direction_${h}m`]),
   ...PRESSURE_LEVELS.flatMap((p) => [`wind_speed_${p}hPa`, `wind_direction_${p}hPa`, `geopotential_height_${p}hPa`]),
@@ -84,9 +84,9 @@ export const HOURLY_UNITS: Readonly<Record<'time' | (typeof HOURLY_VARS)[number]
  * including today. Before that, the ERA5 reanalysis — the weather as it was,
  * not a forecast — back to its first year.
  */
-export const FORECAST_DAYS_BACK = 92;
-export const FORECAST_DAYS_AHEAD = 15;
-export const ARCHIVE_FIRST_DATE = '1940-01-01';
+const FORECAST_DAYS_BACK = 92;
+const FORECAST_DAYS_AHEAD = 15;
+const ARCHIVE_FIRST_DATE = '1940-01-01';
 
 /**
  * The difference between the site altitude and the terrain model's ground
@@ -96,7 +96,7 @@ export const ARCHIVE_FIRST_DATE = '1940-01-01';
 export const ELEVATION_AGREE_M = 30;
 
 /** How long an answer is reused for the same place, elevations and date. */
-export const CACHE_TTL_MS = 10 * 60 * 1000;
+const CACHE_TTL_MS = 10 * 60 * 1000;
 
 // ------------------------------------------------------------------- dates
 
@@ -179,7 +179,7 @@ export function planDateWindow(date: string, today: string): DateWindow {
 }
 
 /** What the dialog says for a date no endpoint answers. */
-export const DATE_REFUSAL: Readonly<Record<'too-far-ahead' | 'too-early' | 'bad-date', string>> = {
+const DATE_REFUSAL: Readonly<Record<'too-far-ahead' | 'too-early' | 'bad-date', string>> = {
   'too-far-ahead': 'Open-Meteo forecasts 16 days ahead at most.',
   'too-early': 'Open-Meteo’s records go back to 1 January 1940.',
   'bad-date': 'Pick a date.',
@@ -238,7 +238,7 @@ export class WeatherError extends Error {
 }
 
 /** Where every failure message ends: the dialog writes only on Apply, so nothing did change. */
-export const UNCHANGED_TAIL = ' Your launch conditions are unchanged.';
+const UNCHANGED_TAIL = ' Your launch conditions are unchanged.';
 
 /** What the user reads for a failure. */
 export function weatherErrorText(err: unknown): string {

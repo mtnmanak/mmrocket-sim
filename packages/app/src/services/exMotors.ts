@@ -9,7 +9,7 @@ import type { MotorSpec } from '@online-openrocket/engine';
 
 /** Delay belongs to each mount; this is the exact curve the design loaded. */
 export type ExFlightSnapshot = Omit<MotorSpec, 'ejectionDelay'>;
-export const MAX_EX_MOTOR_ID_LENGTH = 1024;
+const MAX_EX_MOTOR_ID_LENGTH = 1024;
 
 /** Preserve a readable prefix while reserving room for any collision suffix. */
 export function boundedExId(id: string, suffix = ''): string {
@@ -577,7 +577,7 @@ export function parseEng(text: string, notes?: string[], units: UnitSelection = 
 
   for (const raw of lines) {
     const line = raw.trim();
-    if (line === '' || line.startsWith(';')) continue;
+    if (!line || line.startsWith(';')) continue;
     const tok = line.split(/\s+/);
     if (isHeader(tok)) {
       finish();

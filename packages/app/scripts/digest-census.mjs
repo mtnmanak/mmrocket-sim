@@ -31,13 +31,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { downloadRawFiles } from './fetch-motor-curves.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const APP = join(HERE, '..');
 const ROOT = join(APP, '..', '..');
 const CURVES = join(APP, 'src', 'data', 'motorCurves.json');
-const API = 'https://www.thrustcurve.org/api/v1';
-const BATCH = 50;
 
 const argv = process.argv.slice(2);
 const opt = (name) => {
@@ -82,20 +81,7 @@ const bundle = JSON.parse(readFileSync(CURVES, 'utf8'));
 const rawPath = join(out, `raw-${bundle.generated}.json`);
 if (!existsSync(rawPath)) {
   const ids = Object.keys(bundle.curves);
-  const raw = {};
-  for (let i = 0; i < ids.length; i += BATCH) {
-    const res = await fetch(`${API}/download.json`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
-      body: JSON.stringify({ motorIds: ids.slice(i, i + BATCH), data: 'file' }),
-    });
-    if (!res.ok) throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
-    for (const f of (await res.json()).results ?? []) {
-      if (f.simfileId && f.data) raw[f.simfileId] = { motorId: f.motorId, format: f.format, source: f.source, data: f.data };
-    }
-    process.stdout.write(`  raw files: ${Math.min(i + BATCH, ids.length)} / ${ids.length} motors\r`);
-    await new Promise((r) => setTimeout(r, 250));
-  }
+  const raw = await downloadRawFiles(ids);
   process.stdout.write('\n');
   writeFileSync(rawPath, JSON.stringify(raw));
 }

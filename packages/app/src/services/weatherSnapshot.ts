@@ -287,7 +287,7 @@ export function validWeatherSnapshot(x: unknown): WeatherSnapshot | null {
       output.windLevels = input['windLevels'].map((l) => ({ ...l }));
     }
     if ('windProfileSource' in input) {
-      if (!validWindProfileSource(input['windProfileSource'])) return null;
+      if (!output.windLevels?.length || !validWindProfileSource(input['windProfileSource'])) return null;
       output.windProfileSource = { ...input['windProfileSource'] };
     }
   }

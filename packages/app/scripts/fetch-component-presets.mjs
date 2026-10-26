@@ -38,6 +38,7 @@
 import { writeFileSync, mkdirSync, readdirSync, readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { openrocketSrcRoot } from '../../../scripts/openrocket-src.mjs';
+import { markupAttributes, markupTagEnd } from '../../../scripts/markup-scan.mjs';
 import { dirname, join, resolve } from 'node:path';
 import { mfrDisplay, presetKey, spellingConflicts } from './manufacturers.mjs';
 
@@ -193,18 +194,29 @@ function decodeEntities(s) {
 }
 
 export function stripComments(xml) {
-  return xml.replace(/<!--[\s\S]*?-->/g, '');
+  const chunks = [];
+  let kept = 0;
+  for (let at = 0; at < xml.length;) {
+    const start = xml.indexOf('<', at);
+    if (start < 0) break;
+    const cdata = xml.startsWith('<![CDATA[', start);
+    const pi = xml.startsWith('<?', start);
+    const comment = xml.startsWith('<!--', start);
+    if (!cdata && !pi && !comment) { at = start + 1; continue; }
+    const endToken = cdata ? ']]>' : pi ? '?>' : '-->';
+    const end = xml.indexOf(endToken, start + (cdata ? 9 : pi ? 2 : 4));
+    if (end < 0) throw new Error(`unclosed XML ${cdata ? 'CDATA' : pi ? 'processing instruction' : 'comment'}`);
+    at = end + endToken.length;
+    if (comment) { chunks.push(xml.slice(kept, start)); kept = at; }
+  }
+  chunks.push(xml.slice(kept));
+  return chunks.join('');
 }
 
 /** Parse an attribute string like ` Unit="mm" Type="BULK"` into an object. */
 function parseAttrs(attrString) {
-  const attrs = {};
-  const re = /([\w:-]+)\s*=\s*"([^"]*)"|([\w:-]+)\s*=\s*'([^']*)'/g;
-  let m;
-  while ((m = re.exec(attrString)) !== null) {
-    if (m[1] !== undefined) attrs[m[1]] = decodeEntities(m[2]);
-    else attrs[m[3]] = decodeEntities(m[4]);
-  }
+  const attrs = Object.create(null);
+  for (const [name, value] of markupAttributes(attrString)) attrs[name] = decodeEntities(value);
   return attrs;
 }
 
@@ -213,29 +225,81 @@ function parseAttrs(attrString) {
  * (case-insensitive). Returns null if not found.
  */
 function extractBlock(xml, tag) {
-  const re = new RegExp(`<${tag}(?:\\s[^>]*)?>([\\s\\S]*?)</${tag}\\s*>`, 'i');
-  const m = re.exec(xml);
-  return m ? m[1] : null;
+  for (const el of elementBlocks(xml, tag)) return el.body;
+  return null;
 }
 
-/**
- * Iterate direct flat child elements of a block. The .orc format never nests
- * an element inside another element of the same tag name, so a non-greedy
- * open..close match is safe. Also matches self-closing elements.
- * Returns [{ tag, attrs, text }].
- */
-function childElements(block) {
-  const out = [];
-  const re = /<([A-Za-z][\w:-]*)((?:\s[^>]*?)?)\/>|<([A-Za-z][\w:-]*)((?:\s[^>]*?)?)>([\s\S]*?)<\/\3\s*>/g;
-  let m;
-  while ((m = re.exec(block)) !== null) {
-    if (m[1] !== undefined) {
-      out.push({ tag: m[1], attrs: parseAttrs(m[2] || ''), text: '' });
-    } else {
-      out.push({ tag: m[3], attrs: parseAttrs(m[4] || ''), text: decodeEntities(m[5].trim()) });
+function xmlSpan(xml, start) {
+  const span = xml.startsWith('<![CDATA[', start) ? ['CDATA', ']]>', 9]
+    : xml.startsWith('<!--', start) ? ['comment', '-->', 4]
+      : xml.startsWith('<?', start) ? ['processing instruction', '?>', 2] : null;
+  if (!span) return null;
+  const end = xml.indexOf(span[1], start + span[2]);
+  if (end < 0) throw new Error(`unclosed XML ${span[0]}`);
+  return { kind: span[0], body: xml.slice(start + span[2], end), end: end + span[1].length };
+}
+
+/** Tag offsets always refer to the original text, never Unicode case folding. */
+function* xmlTags(xml) {
+  for (let at = 0; at < xml.length;) {
+    const start = xml.indexOf('<', at);
+    if (start < 0) return;
+    const span = xmlSpan(xml, start);
+    if (span) {
+      at = span.end;
+      continue;
     }
+    const end = markupTagEnd(xml, start);
+    if (end < 0) throw new Error('unclosed XML element');
+    at = end + 1;
+    const tag = /^<(\/?)([A-Za-z][\w:-]*)([\s\S]*)>$/.exec(xml.slice(start, at));
+    if (tag) yield { start, end: at, closing: !!tag[1], tag: tag[2], tail: tag[3],
+      selfClosing: tag[3].trimEnd().endsWith('/') };
   }
-  return out;
+}
+
+/** Each scan advances or refuses the first unclosed element, including nested names. */
+export function* elementBlocks(xml, wanted) {
+  const tags = xmlTags(xml);
+  for (let next = tags.next(); !next.done; next = tags.next()) {
+    const open = next.value;
+    if (open.closing || (wanted && open.tag.toLowerCase() !== wanted.toLowerCase())) continue;
+    const { tag, tail } = open;
+    if (open.selfClosing) {
+      yield { tag, attrs: parseAttrs(tail.slice(0, tail.lastIndexOf('/'))), body: '' };
+      continue;
+    }
+    let depth = 1, close;
+    for (let inner = tags.next(); !inner.done; inner = tags.next()) {
+      const current = inner.value;
+      if (current.tag.toLowerCase() !== tag.toLowerCase()) continue;
+      if (current.closing) depth--;
+      else if (!current.selfClosing) depth++;
+      if (depth === 0) { close = current; break; }
+    }
+    if (!close) throw new Error(`unclosed XML element <${tag}>`);
+    yield { tag, attrs: parseAttrs(tail), body: xml.slice(open.end, close.start) };
+  }
+}
+
+function xmlText(body) {
+  const chunks = [];
+  let kept = 0;
+  for (let at = 0; at < body.length;) {
+    const start = body.indexOf('<', at);
+    if (start < 0) break;
+    const span = xmlSpan(body, start);
+    if (!span) { at = start + 1; continue; }
+    chunks.push(decodeEntities(body.slice(kept, start)));
+    if (span.kind === 'CDATA') chunks.push(span.body);
+    at = kept = span.end;
+  }
+  chunks.push(decodeEntities(body.slice(kept)));
+  return chunks.join('').trim();
+}
+
+export function childElements(block) {
+  return [...elementBlocks(block)].map(({ tag, attrs, body }) => ({ tag, attrs, text: xmlText(body) }));
 }
 
 // ---------------------------------------------------------------------------
@@ -288,11 +352,8 @@ export function parseMaterials(xml, fileName, warnings) {
   const materials = new Map();
   const materialsBlock = extractBlock(xml, 'Materials');
   if (materialsBlock) {
-    const matRe = /<Material((?:\s[^>]*?)?)>([\s\S]*?)<\/Material\s*>/gi;
-    let m;
-    while ((m = matRe.exec(materialsBlock)) !== null) {
-      const attrs = parseAttrs(m[1] || '');
-      const kids = childElements(m[2]);
+    for (const { attrs, body } of elementBlocks(materialsBlock, 'Material')) {
+      const kids = childElements(body);
       const get = (t) => kids.find((k) => k.tag.toLowerCase() === t.toLowerCase());
       try {
         const name = get('Name')?.text;
@@ -354,18 +415,15 @@ export function parseOrc(xml, fileName, globalMaterials) {
   }
 
   // Top-level children of <Components> are the presets themselves.
-  const compRe = /<([A-Za-z][\w:-]*)((?:\s[^>]*?)?)>([\s\S]*?)<\/\1\s*>/g;
-  let cm;
-  while ((cm = compRe.exec(componentsBlock)) !== null) {
-    const kind = cm[1];
-    const body = cm[3];
+  for (const { tag: kind, body } of elementBlocks(componentsBlock)) {
+    const fields = childElements(body);
     try {
       const preset = { kind, manufacturer: '', partNo: '', description: '' };
       const dims = {};
       let material = null;
       let lineMaterial = null;
 
-      for (const el of childElements(body)) {
+      for (const el of fields) {
         const tag = el.tag;
         const unit = el.attrs.Unit;
         const ctx = `${kind} in ${fileName}`;
@@ -447,8 +505,12 @@ export async function fetchWithRetry(url, { headers, fetchImpl = fetch, sleep = 
         const reset = res.headers.get('x-ratelimit-reset');
         const retryAfter = res.headers.get('retry-after');
         let waitMs = 10_000 * (i + 1);
-        if (retryAfter) waitMs = Number(retryAfter) * 1000;
-        else if (reset) waitMs = Math.max(0, Number(reset) * 1000 - Date.now()) + 1000;
+        if (retryAfter) {
+          const seconds = /^\d+(?:\.\d+)?$/.test(retryAfter.trim()) ? Number(retryAfter) : NaN;
+          const date = /^[A-Za-z]{3},/.test(retryAfter) ? Date.parse(retryAfter) : NaN;
+          const requested = Number.isFinite(seconds) ? seconds * 1000 : date - Date.now();
+          if (Number.isFinite(requested) && requested > 0) waitMs = requested;
+        } else if (reset && Number.isFinite(Number(reset))) waitMs = Math.max(0, Number(reset) * 1000 - Date.now()) + 1000;
         waitMs = Math.min(waitMs, 90_000);
         console.warn(`  rate-limited (${res.status}) on ${url}; waiting ${Math.round(waitMs / 1000)}s...`);
         await sleep(waitMs);
@@ -483,6 +545,13 @@ export async function main({
   const listing = await (await fetchWithRetry(API_URL, net)).json();
   if (!Array.isArray(listing)) {
     throw new Error(`unexpected GitHub API response: ${JSON.stringify(listing).slice(0, 200)}`);
+  }
+  for (const [i, file] of listing.entries()) {
+    if (!file || typeof file !== 'object' || Array.isArray(file)
+      || typeof file.type !== 'string' || typeof file.name !== 'string'
+      || (file.type === 'file' && /\.orc$/i.test(file.name) && typeof file.download_url !== 'string')) {
+      throw new Error(`unexpected GitHub API listing entry at index ${i}`);
+    }
   }
   const orcFiles = listing.filter((f) => f.type === 'file' && /\.orc$/i.test(f.name));
   console.log(`Found ${orcFiles.length} .orc files.`);
@@ -591,8 +660,8 @@ export async function main({
   }
 
   // ------- report (before the write: it is what a refused run is read by) -------
-  const byKind = {};
-  const byMfr = {};
+  const byKind = Object.create(null);
+  const byMfr = Object.create(null);
   for (const p of allPresets) {
     byKind[p.kind] = (byKind[p.kind] || 0) + 1;
     byMfr[p.manufacturer] = (byMfr[p.manufacturer] || 0) + 1;

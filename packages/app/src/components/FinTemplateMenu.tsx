@@ -14,7 +14,7 @@ export type FinTemplateFormat = 'svg-white' | 'svg-transparent' | 'png' | 'jpeg'
  * PNG/JPG, which are filled white on a canvas. The transparent SVG stays for
  * anyone whose laser or CAD workflow wants the file exactly as it was.
  */
-export const FIN_TEMPLATE_FORMATS: Array<{ format: FinTemplateFormat; label: string; title: string }> = [
+const FIN_TEMPLATE_FORMATS: Array<{ format: FinTemplateFormat; label: string; title: string }> = [
   {
     format: 'svg-white',
     label: 'SVG, white background (recommended)',

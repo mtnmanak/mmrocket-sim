@@ -238,7 +238,7 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
 
   it('drops a cached entry whose samples are not numeric and re-fetches', async () => {
     const tc = await freshModule();
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples: [{ thrust: 5 }, { thrust: 7 }] }));
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples: [{ thrust: 5 }, { thrust: 7 }], massParser: 1 }));
     stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
     const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
     expect(spec.masses.every((m) => Number.isFinite(m))).toBe(true);
@@ -251,7 +251,7 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
     [{ time: 0, thrust: 0 }, { time: 1, thrust: 20000000 }],
   ])('S1c-g3/g5 evicts an unflyable cache entry (%j)', async (...samples) => {
     const tc = await freshModule();
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples }));
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples, massParser: 1 }));
     stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
     const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
@@ -610,8 +610,41 @@ describe('the curve cache is bounded and sweeps its retired generations', () => 
 });
 
 describe('cached masses are validated before they override the catalog', () => {
+  it.each([
+    { totalWeightG: 120, propWeightG: 60 },
+    { totalWeightG: 2000, propWeightG: 1000 },
+    null,
+  ])('flies legacy cached masses offline without any request: %j', async masses => {
+    const tc = await freshModule();
+    const entry = JSON.stringify({ samples: GOOD_SAMPLES, masses, t: 1 });
+    localStorage.setItem(CACHE_KEY, entry);
+    const spy = vi.fn(async () => { throw new Error('offline'); });
+    vi.stubGlobal('fetch', spy);
+    const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
+    expect(spy).not.toHaveBeenCalled();
+    expect(spec.masses[0]).toBeCloseTo((masses?.totalWeightG ?? QUEST_C6.totalWeightG!) / 1000, 12);
+    expect(localStorage.getItem(CACHE_KEY)).toBe(entry);
+    await tc.fetchMotorSpec(QUEST_C6, 5);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('keeps a legacy cache entry even when a bundle is available', async () => {
+    const tc = await freshModule();
+    const { MOTOR_DB } = await import('./motorDb.js');
+    let motor: TcMotor | undefined;
+    for (const candidate of MOTOR_DB) {
+      if ((await tc.bundledSimFiles(candidate.motorId)).length) { motor = candidate; break; }
+    }
+    expect(motor).toBeDefined();
+    await tc.fetchMotorSpec(motor!, 5, undefined, { bundleOnly: true });
+    localStorage.setItem(`tc:samples:v7:${motor!.motorId}`, JSON.stringify({ samples: GOOD_SAMPLES,
+      masses: { totalWeightG: 2000, propWeightG: 1000 } }));
+    const spy = stubDownload([]);
+    expect((await tc.fetchMotorSpec(motor!, 5)).masses[0]).toBeCloseTo(2, 12);
+    expect(spy).not.toHaveBeenCalled();
+  });
   const cacheWith = (masses: unknown): void => {
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples: GOOD_SAMPLES, masses, t: Date.now() }));
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples: GOOD_SAMPLES, masses, massParser: 1, t: Date.now() }));
   };
 
   it('a valid cached file pair still wins over the catalog', async () => {
@@ -638,7 +671,7 @@ describe('cached masses are validated before they override the catalog', () => {
   it('falls back when the cached pair parses to Infinity', async () => {
     const tc = await freshModule();
     localStorage.setItem(CACHE_KEY,
-      `{"samples":${JSON.stringify(GOOD_SAMPLES)},"masses":{"totalWeightG":1e999,"propWeightG":1}}`);
+      `{"samples":${JSON.stringify(GOOD_SAMPLES)},"massParser":1,"masses":{"totalWeightG":1e999,"propWeightG":1}}`);
     const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
     expect(spec.masses[0]).toBeCloseTo(0.021, 12);
     expect(spec.masses.every((m) => Number.isFinite(m))).toBe(true);
@@ -687,7 +720,7 @@ describe('fetchMotorSpec, bundle only', () => {
     // A valid cached entry for the same motor, 10 % hotter: the app's path flies it.
     const hot = plain.times.map((time, i) => ({ time, thrust: plain.thrusts[i]! * 1.1 }));
     const key = `tc:samples:v7:${motor.motorId}`;
-    localStorage.setItem(key, JSON.stringify({ samples: hot, masses: null, t: 1 }));
+    localStorage.setItem(key, JSON.stringify({ samples: hot, masses: null, massParser: 1, t: 1 }));
     localStorage.setItem('tc:samples:v6:retired', '{}');
     const viaCache = await tc.fetchMotorSpec(motor, 5);
     expect(Math.max(...viaCache.thrusts)).toBeGreaterThan(Math.max(...plain.thrusts) * 1.05);
@@ -755,7 +788,7 @@ describe('lane C sample and bundle guards', () => {
     const good: TcSimFile = { format: 'RASP', samples: GOOD_SAMPLES };
     const broken: TcSimFile = { format: 'RASP', samples: [...GOOD_SAMPLES, bad] };
     expect(tc.pickSampleFile([broken, good])).toBe(good);
-    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples: broken.samples, cachedAt: Date.now() }));
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples: broken.samples, massParser: 1, cachedAt: Date.now() }));
     const fetch = stubDownload([good]);
     await tc.fetchMotorSpec(QUEST_C6, 5);
     expect(fetch).toHaveBeenCalledTimes(1);

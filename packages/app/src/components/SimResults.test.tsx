@@ -178,6 +178,18 @@ const render = (node: React.ReactNode) => act(() => root.render(
   <PrefsProvider>{node}</PrefsProvider>,
 ));
 
+it('replaces all booster reports when a run with duplicate stage names is replaced', () => {
+  const branch = (name: string, apogee: number) => ({ name, apogee, landingRate: null, deployments: [], tumbles: false, safeLandingRate: null });
+  const first = { ...run(), branches: [branch('Booster', 100), branch('Booster', 200)] } as SimRun;
+  render(<SimRunDetails run={first} />);
+  expect(host.textContent?.match(/separate flight:/g)).toHaveLength(2);
+  const second = { ...run(), id: 'next', branches: [branch('Booster 1', 300)] } as SimRun;
+  render(<SimRunDetails run={second} />);
+  expect(host.textContent?.match(/separate flight:/g)).toHaveLength(1);
+  expect(host.textContent).toContain('Booster 1');
+  expect(host.textContent).not.toContain('Booster \u2014');
+});
+
 it('N032 reads all report altitudes in feet and landing drift in kilometres without changing the run', () => {
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
   const saved = { ...run(), maxAltitude: 304.8, altitudeAtDeployment: 152.4, landingDistanceM: 2000,

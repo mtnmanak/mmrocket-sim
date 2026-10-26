@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import { build } from 'esbuild';
 import { Miniflare, Log, LogLevel, convertV4MiniflareOptions } from 'miniflare';
 import { fileURLToPath } from 'node:url';
+import { readFileSync } from 'node:fs';
 import { autoBody, bytesOf } from './fixtures.testSupport.js';
 import { boosterBranches } from '@online-openrocket/engine';
 import { jsXmlParser, setXmlParser, simulateFile } from '../../app/src/headless/index.js';
@@ -10,6 +11,8 @@ import { jsXmlParser, setXmlParser, simulateFile } from '../../app/src/headless/
 // subrequest at the first macrotask opportunity. With microtask-only flight the target
 // may have already answered: this is a relay smoke test, not evidence of mid-lock cancellation.
 it('a relay abort signal after an event-loop turn leaves later direct dispatches usable', async () => {
+  const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  const compatibilityDate = toml.match(/^compatibility_date\s*=\s*"([^"]+)"/m)![1]!;
   const bundle = await build({ entryPoints: [fileURLToPath(new URL('./index.ts', import.meta.url))],
     bundle: true, write: false, format: 'esm', platform: 'browser', conditions: ['browser'],
     mainFields: ['browser', 'module', 'main'], logLevel: 'silent' });
@@ -26,8 +29,8 @@ it('a relay abort signal after an event-loop turn leaves later direct dispatches
   } };`;
   const mf = new Miniflare(convertV4MiniflareOptions({ log: new Log(LogLevel.ERROR), cf: false,
     workers: [
-      { name: 'relay', modules: true, script: relay, compatibilityDate: '2026-09-28', serviceBindings: { TARGET: 'target' } },
-      { name: 'target', modules: true, script: bundle.outputFiles[0]!.text, compatibilityDate: '2026-09-28' },
+      { name: 'relay', modules: true, script: relay, compatibilityDate, serviceBindings: { TARGET: 'target' } },
+      { name: 'target', modules: true, script: bundle.outputFiles[0]!.text, compatibilityDate },
     ] }));
   try {
     await mf.ready;

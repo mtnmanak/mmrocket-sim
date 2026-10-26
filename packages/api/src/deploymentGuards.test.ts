@@ -24,6 +24,21 @@ it('pins the production CPU budget and its README disclosure', () => {
   const readme = readFileSync(new URL('../README.md', import.meta.url), 'utf8');
   expect(readme).toContain(`limits.cpu_ms = ${cpuMs}`);
   expect(readme).toContain(`(${cpuMs / 1000} s)`);
+  for (const text of [toml, readme]) {
+    expect(text).toMatch(/P999.*124/);
+    expect(text).toMatch(/129\/129/);
+    expect(text).toMatch(/0 kills/);
+    expect(text).toContain('KERNEL_UNAVAILABLE');
+  }
+  expect(readme).toMatch(/headersTimeout.*300 s/);
+  expect(readme).toMatch(/60.120 s.*proxy|prox.*60.120 s/);
+  expect(readme).toMatch(/continues.*CPU|CPU.*continues/);
+});
+
+it('uses the deployed compatibility date in every Worker smoke test', () => {
+  const source = readFileSync(new URL('./cancel.test.ts', import.meta.url), 'utf8');
+  expect(source).not.toMatch(/compatibilityDate:\s*['"]/);
+  expect(source).toContain('wrangler.toml');
 });
 
 it('counts the initial cross-runtime comparison as responses, flights and refusals', () => {

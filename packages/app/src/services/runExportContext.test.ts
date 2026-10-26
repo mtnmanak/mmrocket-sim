@@ -5,6 +5,13 @@ import { runExportContext, validRunExportContext } from './runExportContext.js';
 import { loadRuns } from './simStore.js';
 
 beforeEach(() => localStorage.clear());
+
+it.each([undefined, []].map(levels => [levels]))('refuses orphan wind provenance when levels are %j', windLevels => {
+  const context = runExportContext(DEFAULT_CONDITIONS);
+  const damaged = { ...context, launch: { ...context.launch, windLevels, windProfileSource: { kind: 'ork' } } };
+  expect(validRunExportContext(damaged)).toBe(false);
+});
+
 it('preserves a valid saved context and drops corrupt contexts without dropping their runs', () => {
   const context = runExportContext(DEFAULT_CONDITIONS);
   expect(validRunExportContext(context)).toBe(true);

@@ -228,3 +228,33 @@ export const unreadableFinPoints = (n: number): string =>
   `${n === 1 ? 'one point' : `${n.toLocaleString('en-US')} points`} of its outline could not be read as `
   + `a pair of numbers and ${n === 1 ? 'was' : 'were'} left out, as desktop OpenRocket also does — `
   + 'check the outline in the fin editor.';
+/** Inline CDATA for parsers that lack it, skipping comments and processing instructions. */
+export function inlineXmlCdata(xml: string): string {
+  if (xml.includes('<![CDATA[')) {
+    const OPEN = '<![CDATA[';
+    const CLOSE = ']]>';
+    let rebuilt = '';
+    let at = 0;
+    let scan = 0;
+    for (;;) {
+      const open = xml.indexOf('<', scan);
+      if (open < 0) break;
+      const skip = xml.startsWith('<!--', open) ? '-->' : xml.startsWith('<?', open) ? '?>' : null;
+      if (skip) {
+        const end = xml.indexOf(skip, open + (skip === '-->' ? 4 : 2));
+        if (end < 0) break;
+        scan = end + skip.length;
+        continue;
+      }
+      if (!xml.startsWith(OPEN, open)) { scan = open + 1; continue; }
+      const close = xml.indexOf(CLOSE, open + OPEN.length);
+      if (close < 0) break;
+      rebuilt += xml.slice(at, open) + xml.slice(open + OPEN.length, close)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      at = close + CLOSE.length;
+      scan = at;
+    }
+    xml = rebuilt + xml.slice(at);
+  }
+  return xml;
+}

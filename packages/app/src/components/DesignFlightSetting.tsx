@@ -13,7 +13,7 @@ import { stages } from '../tree/treeModel.js';
 import { numOrNull } from '../tree/nodeNum.js';
 
 /** The tab every flight setting below is edited on (CFG-SPEC D1/D2a). */
-export const CONFIG_TAB_LINK = 'Set on Motors & Configuration ▸';
+const CONFIG_TAB_LINK = 'Set on Motors & Configuration ▸';
 
 /**
  * What the Design tab needs to show a part's flight settings read-only

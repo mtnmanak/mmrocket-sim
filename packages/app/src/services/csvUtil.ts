@@ -22,7 +22,7 @@
  * CR are in the list because Excel strips leading whitespace and then reads
  * the '=' behind it.
  */
-export const FORMULA_LEAD = /^[=+\-@\t\r]/;
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
 
 export const CSV_APOSTROPHE_HELP = "CSV text uses an apostrophe to protect spreadsheet formulas. For a literal apostrophe before =, @, + or -, double it (for example, ''@example).";
 

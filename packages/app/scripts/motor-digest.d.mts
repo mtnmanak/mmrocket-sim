@@ -19,3 +19,5 @@ export declare function md5Hex(data: Uint8Array): string;
 export declare function digestRasp(text: string): string[];
 export declare function digestRse(text: string): string[];
 export declare function digestMotorFile(text: string, format?: string | null): string[];
+export declare function motorHeaderMasses(text: string): { totalWeightG: number; propWeightG: number } | null;
+export declare function javaSplitWs(text: string): string[];

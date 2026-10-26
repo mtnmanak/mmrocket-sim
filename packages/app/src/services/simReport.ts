@@ -741,7 +741,7 @@ export interface SimRun extends WindProfileConditions, AeroProvenance {
 export type CommentLevel = 'info' | 'caution' | 'warning';
 
 /** What `SimRun.comments` is joined on — see commentsOf(). */
-export const COMMENT_SEP = ' | ';
+const COMMENT_SEP = ' | ';
 
 /**
  * A run THIS build just produced, as opposed to one revived from localStorage.

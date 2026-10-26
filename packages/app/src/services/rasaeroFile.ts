@@ -1044,6 +1044,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   const simNumbers = new Map<string, number>();
   const unattached = new Set<string>();
   const sims = Array.from(doc.querySelectorAll('SimulationList > Simulation'));
+  const simulationOrdinals = new Map(sims.map((sim, i) => [sim, i + 1]));
   /*
    * NOZZLE EXIT DIAMETER — RASAero keeps it in TWO places and flies with one.
    *
@@ -1098,7 +1099,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       const inches = simIn > 0 ? simIn : designIn;
       const diameter = inches / IN;
       if (diameter > MAX_DIMENSION_M && (simIn > 0 || !warnedDesignNozzles.has(t.design))) {
-        const simNr = simNumbers.get(cfgId) ?? (sim ? sims.indexOf(sim) + 1 : undefined);
+        const simNr = simNumbers.get(cfgId) ?? (sim ? simulationOrdinals.get(sim) : undefined);
         const where = simIn > 0 ? `simulation ${simNr ?? 1}` : 'the Design tab';
         const limitIn = MAX_DIMENSION_M * IN;
         const roundedIn = inches.toFixed(2);

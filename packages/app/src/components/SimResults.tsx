@@ -321,7 +321,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
       {(run.branches ?? []).map((b, i) => {
         const landBad = b.safeLandingRate === false;
         return (
-          <div key={`${b.stageId ?? b.name}-${i}`} style={{ marginTop: 10 }}>
+          <div key={`${run.id}-branch-${i}`} style={{ marginTop: 10 }}>
             <p style={{ margin: '4px 0', fontWeight: 600 }}>
               {b.name}{b.motorLabel ? ` (${b.motorLabel})` : ''} — separate flight:
               {' '}apogee {b.apogee === null ? '—' : fmtSi('altitude', alt, b.apogee)} <UnitChip quantity="altitude" />

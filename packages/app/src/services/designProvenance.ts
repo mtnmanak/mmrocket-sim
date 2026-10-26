@@ -2,7 +2,7 @@ import type { RocketTree } from '@online-openrocket/engine';
 import type { DesignProvenance, DesignRevision, FlightTree } from '../model/design.js';
 import type { XmlElement } from './xmlParse.js';
 
-export const PROVENANCE_TAG = 'mmrsimprovenance';
+const PROVENANCE_TAG = 'mmrsimprovenance';
 export const PROVENANCE_FIELDS = {
   designer: 'Designer', kitName: 'Kit name', kitManufacturer: 'Kit manufacturer', kitPartNumber: 'Kit part number',
   comment: 'Design comments', revision: 'Revision',

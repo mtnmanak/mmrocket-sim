@@ -5,7 +5,7 @@ import { absoluteStations, startFromPosition } from '../tree/position.js';
 import { oneLine } from './textFold.js';
 
 /** One nanometre, in metres: ignore arithmetic roundoff, not placement changes. */
-export const LEGACY_STATION_TOLERANCE_M = 1e-9;
+const LEGACY_STATION_TOLERANCE_M = 1e-9;
 const CHAIN_TYPES = new Set(['nosecone', 'bodytube', 'transition']);
 
 /** Frozen d9185db^ position.ts axialLength and absoluteStations start walk.

@@ -30,6 +30,24 @@ async function watch(html = page, body = bytes, baseline = snapshot) {
 }
 
 describe('AeroTech published delay source watch (offline)', () => {
+  it.each([
+    'İstanbul<script><a href="/fake.pdf">fake</a></script><a href="/real.pdf">real</a>',
+    '<p>Delay < 5 s <a href="/real.pdf">real</a></p>',
+    '<a title="Impulse > 160 Ns" href="/real.pdf">real</a>',
+    "<a title='Impulse > 160 Ns' href='/real.pdf'>real</a>",
+    '<a href="/real.pdf">real</a> delay < 5',
+  ])('preserves certification links around literal text and quoted attributes: %s', html => {
+    expect(aerotechDocumentLinks(html, snapshot.publishedOn)).toEqual(['https://www.rocketmotorparts.com/real.pdf']);
+  });
+  it.each(['<!--', '<script>', '<style>', '<a '])('refuses unclosed HTML spans without rescanning %s openers', opener => {
+    expect(() => aerotechDocumentLinks('<a href="/real.pdf">real</a>' + opener.repeat(10_000), snapshot.publishedOn))
+      .toThrow(/unclosed HTML/i);
+  });
+  it('ignores script, style and comment PDF links in mixed-case spans', () => {
+    const fake = '<a href="/fake.pdf">fake</a>';
+    const html = `<ScRiPt>${fake}</sCrIpT><STYLE>${fake}</STYLE><!--${fake}--><a href="/real.pdf">real</a>`;
+    expect(aerotechDocumentLinks(html, snapshot.publishedOn)).toEqual(['https://www.rocketmotorparts.com/real.pdf']);
+  });
   it('reads only PDF hrefs, normalizes spaces/entities, and ignores labels and unrelated navigation', () => {
     expect(aerotechDocumentLinks(page, snapshot.publishedOn)).toEqual(urls);
     expect(aerotechDocumentLinks('<a href="/new motor.pdf?a=1&amp;b=2">motor</a>', snapshot.publishedOn))

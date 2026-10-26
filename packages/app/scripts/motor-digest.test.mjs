@@ -24,6 +24,12 @@ const here = (name) => fileURLToPath(new URL(name, import.meta.url));
 const fixture = (name) => readFileSync(here(`./fixtures/motor-digest/${name}`), 'latin1');
 const md5 = (bytes) => createHash('md5').update(bytes).digest('hex');
 
+it('uses Java ASCII whitespace when splitting RASP headers', () => {
+  const text = 'K100 29 100 P 0.05 0.1 Aero\u00a0Tech\n0 0\n1 10\n';
+  expect(digestMotorFile(text, 'RASP')).toEqual(digestRasp(text.replace('\u00a0', '')));
+  expect(digestMotorFile(text, 'RASP')).toHaveLength(1);
+});
+
 describe('MotorDigestTest.java, carried over', () => {
   it('testMotorDigest: the ints it digests, big-endian, behind each block\'s order and length', () => {
     // The Java test's own arrays; Math.nextAfter(Math.nextAfter(1.4445, 0), 0)

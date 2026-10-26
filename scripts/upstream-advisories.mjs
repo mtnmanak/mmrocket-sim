@@ -107,13 +107,14 @@ export function checkAdvisories(root, say = console.log, run = spawnSync, read =
   }
   try {
     const pins = wranglerPins(read(join(root, '.github/workflows/deploy.yml'), 'utf8'));
+    say('  warn Deploy-path dependencies and bundled undici are not covered by the lockfile audit or the direct Wrangler package query. Their advisory status is unknown.');
     if (pins.length > 1) say('  warn deploy.yml has different wrangler pins; checking each');
     for (const pin of pins) {
       try {
         const pages = commandJSON(run('gh', ['api', '--paginate', '--slurp',
           `/advisories?ecosystem=npm&affects=wrangler@${pin}&per_page=100`], options));
         const lines = wranglerAdvisories(pages, pin);
-        if (!lines.length) say(`  ok   wrangler@${pin} (deploy, outside lockfile): no advisories`);
+        if (!lines.length) say(`  note wrangler@${pin} (deploy, outside lockfile): no direct package advisories`);
         for (const line of lines) say(`  note ${line}`);
       } catch (err) {
         say(`  warn could not check wrangler@${pin} advisories (${err.message}) — gh may be missing or offline`);

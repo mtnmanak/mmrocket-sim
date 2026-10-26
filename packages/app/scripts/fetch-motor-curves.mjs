@@ -58,7 +58,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { digestMotorFile } from './motor-digest.mjs';
+import { digestMotorFile, motorHeaderMasses } from './motor-digest.mjs';
+import { sampleListProblem } from './motor-samples.mjs';
 
 const API = 'https://www.thrustcurve.org/api/v1';
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -70,9 +71,8 @@ export const BATCH = 50;
 const PAUSE_MS = 250;
 
 /**
- * The two masses in a RASP or RockSim header — a MIRROR of thrustcurve.ts
- * headerMasses, and it has to stay one: RockSim attributes are tried first
- * whatever the declared format, then the RASP header line, and a pair is kept
+ * The two masses in a RASP or RockSim header, parsed by the same helper as
+ * thrustcurve.ts. The file text identifies the format; a pair is kept
  * only if both are finite and positive and the propellant does not outweigh
  * the loaded motor. A bundled curve must yield exactly the masses a live
  * download of the same file would. RockSim states grams and a RASP header
@@ -82,23 +82,7 @@ export function headerMasses(file) {
   if (!file.data) return null;
   let text;
   try { text = Buffer.from(file.data, 'base64').toString('utf8'); } catch { return null; }
-  const ok = (m) => Number.isFinite(m.totalWeightG) && Number.isFinite(m.propWeightG)
-    && m.totalWeightG > 0 && m.propWeightG > 0 && m.propWeightG <= m.totalWeightG;
-  const init = /\binitWt\s*=\s*(["'])([\d.eE+-]+)\1/.exec(text);
-  const prop = /\bpropWt\s*=\s*(["'])([\d.eE+-]+)\1/.exec(text);
-  if (init && prop) {
-    const m = { totalWeightG: Number(init[2]), propWeightG: Number(prop[2]) };
-    if (ok(m)) return m;
-  }
-  for (const raw of text.split('\n')) {
-    const line = raw.trim();
-    if (!line || line.startsWith(';')) continue;
-    const f = line.split(/\s+/);
-    if (f.length < 7) return null;
-    const m = { totalWeightG: Number(f[5]) * 1000, propWeightG: Number(f[4]) * 1000 };
-    return ok(m) ? m : null;
-  }
-  return null;
+  return motorHeaderMasses(text);
 }
 
 /**
@@ -107,14 +91,15 @@ export function headerMasses(file) {
  * of a newton, plus the header masses when the file states them.
  */
 export function compactFile(f) {
-  const s = f.samples;
-  if (!Array.isArray(s) || s.length < 2) return null;
-  if (!s.every((p) => Number.isFinite(p?.time) && Number.isFinite(p?.thrust))) return null;
+  const s = f?.samples;
+  if (!Array.isArray(s) || !s.every(p => p && Number.isFinite(p.time) && Number.isFinite(p.thrust))) return null;
+  const samples = s.map((p) => [Number(p.time.toFixed(4)), Number(p.thrust.toFixed(2))]);
+  if (sampleListProblem(samples.map(([time, thrust]) => ({ time, thrust }))) !== null) return null;
   const compact = {
     simfileId: f.simfileId,
     source: f.source,
     format: f.format,
-    samples: s.map((p) => [Number(p.time.toFixed(4)), Number(p.thrust.toFixed(2))]),
+    samples,
   };
   const masses = headerMasses(f);
   if (masses) compact.masses = masses;
@@ -169,12 +154,46 @@ export function addDigests(bundle, results) {
  * motors as failed too. `fetchImpl` and `sleep` are injectable so the
  * test can stand in for the network and the courtesy pause.
  */
+export function downloadResults(body) {
+  if (!body || typeof body !== 'object' || !Array.isArray(body.results)
+    || !body.results.every(f => f && typeof f === 'object' && !Array.isArray(f)
+      && typeof f.motorId === 'string' && f.motorId.length > 0)) {
+    throw new Error('download.json: invalid response shape');
+  }
+  return body.results;
+}
+
+/** Raw census downloads stop on failure and always pause before returning. */
+export async function downloadRawFiles(ids, {
+  fetchImpl = fetch, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
+  log = s => process.stdout.write(s),
+} = {}) {
+  const raw = Object.create(null);
+  for (let i = 0; i < ids.length; i += BATCH) {
+    try {
+      const res = await fetchImpl(`${API}/download.json`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
+        body: JSON.stringify({ motorIds: ids.slice(i, i + BATCH), data: 'file' }),
+      });
+      if (!res.ok) throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
+      for (const f of downloadResults(await res.json())) {
+        if (f.simfileId && f.data) raw[f.simfileId] = { motorId: f.motorId, format: f.format, source: f.source, data: f.data };
+      }
+      log(`  raw files: ${Math.min(i + BATCH, ids.length)} / ${ids.length} motors\r`);
+    } finally {
+      await sleep(250);
+    }
+  }
+  return raw;
+}
+
 export async function fetchCurves(motors, {
   fetchImpl = fetch,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   log = (s) => process.stdout.write(s),
 } = {}) {
-  const curves = {};
+  const curves = Object.create(null);
   let files = 0, points = 0;
   const failed = [];
   for (let i = 0; i < motors.length; i += BATCH) {
@@ -193,6 +212,7 @@ export async function fetchCurves(motors, {
       rateLimited = res.status === 429;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       body = await res.json();
+      downloadResults(body);
     } catch (err) {
       const skipped = rateLimited ? motors.slice(i) : batch;
       failed.push(...skipped.map((m) => `${m.manufacturerAbbrev} ${m.designation}: ${err.message}`));
@@ -285,7 +305,7 @@ export async function addDigestsMain({ outPath = OUT, fetchImpl = fetch, sleep, 
       const res = await fetchImpl(url, opts);
       if (!res.ok) return res;
       const body = await res.json();
-      for (const f of body.results ?? []) record(f);
+      for (const f of downloadResults(body)) record(f);
       return { ok: true, status: res.status, json: async () => body };
     },
     sleep, log,

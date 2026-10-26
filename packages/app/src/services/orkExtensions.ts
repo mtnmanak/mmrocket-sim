@@ -4,7 +4,7 @@ import { cautionNote } from './importNotes.js';
 
 /** Separate from the inflated-file cap: retained opaque payload survives autosave.
  * Count UTF-8 bytes across ALL simulations, not characters or per-extension sizes. */
-export const MAX_SIMULATION_EXTENSION_BYTES = 1024 * 1024;
+const MAX_SIMULATION_EXTENSION_BYTES = 1024 * 1024;
 const SIZE_REFUSAL = 'Simulation extension XML exceeds the limit of 1,048,576 bytes total. '
   + 'The file was not opened or saved. Reduce the extensions in desktop OpenRocket and try again.';
 

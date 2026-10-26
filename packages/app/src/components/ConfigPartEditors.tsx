@@ -19,7 +19,7 @@ export type FlightEditScope = 'own' | 'override';
 export type PartFamily = 'recovery' | 'separation';
 
 /** Desktop OR's wording for the own-setting scope; shared by the part rows and the motor cards. */
-export const OWN_SCOPE_TEXT = "Change the part's own setting — every configuration that uses it";
+const OWN_SCOPE_TEXT = "Change the part's own setting — every configuration that uses it";
 
 /** The override scope's wording, or null when no configuration or working set owns overrides. */
 export function overrideScopeText(configLabel: string | null, detached: boolean): string | null {

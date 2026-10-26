@@ -9,8 +9,8 @@ import { engineTree, suppressingAncestor } from '../tree/treeModel.js';
 
 // N028: tenfold differences catch likely unit/decimal slips without treating a
 // normal measured/catalogue mass as an error. The 1 g floor avoids tiny parts.
-export const MASS_RATIO_LIMIT = 10;
-export const MASS_DIFFERENCE_FLOOR_KG = 0.001;
+const MASS_RATIO_LIMIT = 10;
+const MASS_DIFFERENCE_FLOOR_KG = 0.001;
 // A family's shipped min/max, widened tenfold on each side, is a screening
 // range, not a physical limit. Separate tables prevent kg/m² or kg/m becoming kg/m³.
 export const DENSITY_RANGE_FACTOR = 10;
