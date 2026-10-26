@@ -243,6 +243,14 @@ describe('buildDesign — the warning strip', () => {
       .toHaveLength(1);
   }, 60_000);
 
+  it('keeps a real fin warning when a shroud has the identical name', () => {
+    const warning = '[Warning.THICK_FIN]:  "Fins"';
+    const { handles } = recordingFactory({ warningTexts: [warning] });
+    const built = buildDesign(noMotors(camTree('Fins', 0.04)), handles);
+    if ('error' in built) throw new Error(built.error);
+    expect(built.info.warningTexts).toContain(warning);
+  });
+
   /**
    * WHICH THICK-FIN WARNING IS THE SHROUD'S (audit 2026-09-30). The filter
    * looked for each shroud's name ANYWHERE in a warning: a shroud whose Name

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DeploymentTuple, FlightTree, LayeredSavedConfig, MountMotor } from '../model/design.js';
 import { holdsOverrides, overrideFor, resetOverride, resolveFlightState, setOverride, sparsify, useOverrideEverywhere,
-  workingSettingsOwnOverrides } from './flightState.js';
+  workingSettingsOwnOverrides, snapshotFlightOverrides } from './flightState.js';
 import { sameDeployment } from './deployOverrideNote.js';
 
 const own: DeploymentTuple = { deployEvent: 'apogee', deployAltitude: 91.44, deployDelay: 0 };
@@ -19,6 +19,10 @@ const config = (rest: Partial<LayeredSavedConfig> = {}): LayeredSavedConfig =>
   ({ id: 'A', name: null, isDefault: true, motors: {}, ...rest });
 
 describe('flight-state layer algebra (FC-1)', () => {
+  it.each(['constructor', 'toString'])('does not snapshot an inherited default for %s', id => {
+    expect(snapshotFlightOverrides({ components: [], ignitionDefaults: {} }, [], null, {}, { [id]: motor }).ignitions)
+      .toEqual({});
+  });
   it('inherits defaults without materializing recovery fields and uses the supplied working motors', () => {
     const input = tree();
     const result = resolveFlightState(input, [config()], 'A', {}, { mount: motor });

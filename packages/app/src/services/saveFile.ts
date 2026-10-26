@@ -34,6 +34,7 @@ interface FsWritable {
 }
 interface FsFileHandle {
   name: string;
+  isSameEntry?(other: FsFileHandle): Promise<boolean>;
   createWritable(): Promise<FsWritable>;
 }
 type PickerWindow = Window & {
@@ -52,7 +53,7 @@ export interface SaveOptions {
 
 export type SaveOutcome =
   /** Written where the user chose, through a real Save-As dialog. */
-  | { kind: 'saved'; name: string }
+  | { kind: 'saved'; name: string; destination?: object }
   /**
    * Handed to the browser's download machinery — folder not our choice.
    * `fellBack` is set when a Save-As dialog WAS used and the write to the
@@ -62,6 +63,26 @@ export type SaveOutcome =
   | { kind: 'downloaded'; name: string; fellBack?: string }
   /** The user pressed Cancel in the dialog. Say nothing; do nothing. */
   | { kind: 'cancelled' };
+
+const destinations: { handle: FsFileHandle; token: object }[] = [];
+let destinationQueue = Promise.resolve();
+
+/** Picker handles can be new objects for the same file; basenames are not identities. */
+function destinationOf(handle: FsFileHandle): Promise<object> {
+  const result = destinationQueue.then(async () => {
+    for (const previous of destinations) {
+      if (handle === previous.handle) return previous.token;
+      try {
+        if (await handle.isSameEntry?.(previous.handle)) return previous.token;
+      } catch { /* An unreadable old handle cannot prove this is the same file. */ }
+    }
+    const token = {};
+    destinations.push({ handle, token });
+    return token;
+  });
+  destinationQueue = result.then(() => {});
+  return result;
+}
 
 function pickerAvailable(): boolean {
   return typeof window !== 'undefined'
@@ -132,10 +153,11 @@ export async function saveFile(data: BlobPart, opts: SaveOptions): Promise<SaveO
     }
     if (handle) {
       try {
+        const destination = await destinationOf(handle);
         const w = await handle.createWritable();
         await w.write(data);
         await w.close();
-        return { kind: 'saved', name: handle.name || opts.suggestedName };
+        return { kind: 'saved', name: handle.name || opts.suggestedName, destination };
       } catch (e) {
         // Past the picker, a failure is a real failure — a full disk, a
         // revoked permission, a file locked by another program. AbortError

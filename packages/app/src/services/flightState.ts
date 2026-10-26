@@ -155,13 +155,13 @@ export function snapshotFlightOverrides(
   const defaults = snapshotLoadedConfig(tree, {});
   const flown = snapshotLoadedConfig(effective.tree, {});
   const deployments = Object.fromEntries(Object.entries(flown.deployments).filter(([id, d]) =>
-    JSON.stringify(d) !== JSON.stringify(defaults.deployments[id]))) as Record<string, DeploymentTuple>;
+    JSON.stringify(d) !== JSON.stringify(overrideFor(defaults.deployments, id)))) as Record<string, DeploymentTuple>;
   const separations = Object.fromEntries(Object.entries(flown.separations).filter(([id, d]) =>
-    JSON.stringify(d) !== JSON.stringify(defaults.separations[id]))) as Record<string, SeparationTuple>;
+    JSON.stringify(d) !== JSON.stringify(overrideFor(defaults.separations, id)))) as Record<string, SeparationTuple>;
   // Unloaded mounts still own ignition choices; New must retain them too.
   const ignitionChoices = { ...activeFlightOverrides(configs, activeId, detached).ignitions,
     ...Object.fromEntries(Object.entries(effective.mountMotors).map(([id, m]) => [id, m.ignition])) };
   const ignitions = Object.fromEntries(Object.entries(ignitionChoices).filter(([id, tuple]) =>
-    sparsify(tree.ignitionDefaults?.[id] ?? motors[id]?.ignition ?? { event: 'automatic', delay: 0 }, tuple)));
+    sparsify(overrideFor(tree.ignitionDefaults, id) ?? overrideFor(motors, id)?.ignition ?? { event: 'automatic', delay: 0 }, tuple)));
   return { deployments, separations, ignitions };
 }

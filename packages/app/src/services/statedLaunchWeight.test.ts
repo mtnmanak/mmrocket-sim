@@ -10,6 +10,7 @@ import { importCdx1 } from './rasaeroFile.js';
 import { fetchMotorSpec } from './thrustcurve.js';
 import { findDbMotor, MOTOR_DB } from './motorDb.js';
 import { num } from '../tree/nodeNum.js';
+import { captureStageMass } from './stageMassOverrides.js';
 import {
   includedMotorOf, namesSameMotor, OVERRIDE_INCLUDES_MOTOR, reconcileAllIncludedMotors,
   reconcileIncludedMotor,
@@ -276,6 +277,31 @@ describe('a design whose motors are all in the catalogue is untouched', () => {
 });
 
 describe('the refusals — a wrong override is worse than none', () => {
+  it('S7b-g2 respects an explicitly cleared mark even when the mass number stays the same', () => {
+    const imported = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
+    const stage = imported.tree.components[0]!;
+    const mass = stage.overrideMass;
+    delete stage[OVERRIDE_INCLUDES_MOTOR];
+    const next = reconcileIncludedMotor(imported.tree, mountOf(stage).id!, {
+      designation: 'M787', launchMassKg: 2, lengthM: 0.3, cgXFromFrontM: 0.15,
+    }, TEXT)!;
+    expect(next.tree.components[0]!.overrideMass).toBe(mass);
+    expect(next.note).toBeNull();
+  });
+  it.each(['M787', 'Different'])('S7b-g2 leaves edited unresolved launch overrides alone when loading %s', designation => {
+    const imported = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
+    const stage = imported.tree.components[0]!;
+    const mount = mountOf(stage);
+    stage.overrideMass = 9.5;
+    stage.overrideCGX = 0.4;
+    expect(captureStageMass(stage).overrideIncludesMotor).toBeUndefined();
+    const next = reconcileIncludedMotor(imported.tree, mount.id!, {
+      designation, launchMassKg: 2, lengthM: 0.3, cgXFromFrontM: 0.15,
+    }, TEXT)!;
+    expect(next.tree.components[0]).toMatchObject({ overrideMass: 9.5, overrideCGX: 0.4 });
+    expect(next.tree.components[0]![OVERRIDE_INCLUDES_MOTOR]).toBeUndefined();
+    expect(next.note).toBeNull();
+  });
   const marked = (over: Partial<ComponentNode> = {}): RocketTree => ({
     components: [{
       type: 'stage',
@@ -305,6 +331,14 @@ describe('the refusals — a wrong override is worse than none', () => {
     expect(fix.severity).toBe('warn');
     expect(fix.note).toContain('cannot be right for this motor');
     expect(fix.note).toContain('back on its computed geometry');
+  });
+
+  it('S7b-b1 recovers stated launch inputs after a rejected first motor pick', () => {
+    const rejected = reconcileIncludedMotor(marked({ overrideMass: 10 }), 'bt', motor(11), TEXT)!;
+    const corrected = reconcileIncludedMotor(rejected.tree, 'bt', motor(2), TEXT)!;
+    expect(corrected).not.toBeNull();
+    expect(corrected.tree.components[0]!.overrideMass).toBeCloseTo(8, 9);
+    expect(corrected.tree.components[0]!.overrideCGX).toBeCloseTo((10 * 0.5 - 2 * 0.85) / 8, 9);
   });
 
   it('clears rather than subtracts when the motor is NOT the one the file named', () => {
@@ -472,6 +506,17 @@ describe('the refusals — a wrong override is worse than none', () => {
 });
 
 describe('the mark survives Save .ork — the motor may only turn up next session', () => {
+  it('S7b-g2 protects a user edit after reopening a motor-inclusive .ork', () => {
+    const imported = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
+    const reopened = importOrk(exportOrk({ name: 'Marked', tree: imported.tree }));
+    const stage = reopened.tree.components[0]!;
+    stage.overrideMass = 9.5;
+    const result = reconcileIncludedMotor(reopened.tree, mountOf(stage).id!, {
+      designation: 'M787', launchMassKg: 2, lengthM: 0.3, cgXFromFrontM: 0.15,
+    }, TEXT)!;
+    expect(result.tree.components[0]!.overrideMass).toBeCloseTo(9.5, 9);
+    expect(result.note).toBeNull();
+  });
   it('round-trips beside the mass override it belongs to', () => {
     const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
     const xml = exportOrk({ name: 'MESOS', tree: r.tree });

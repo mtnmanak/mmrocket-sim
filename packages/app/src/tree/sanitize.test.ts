@@ -30,6 +30,36 @@ const rocket = (kids: Record<string, unknown>[], extraStages: Record<string, unk
 
 const kid = (tree: RocketTree, i = 0): ComponentNode => tree.components[0]!.children![1]!.children![i]!;
 
+it.each([{ method: 'absolute' }, { method: 'absolute', offset: 'bad' }])(
+  'repairs unreadable absolute offsets before converting position %j', position => {
+    const notes: string[] = [];
+    const fixed = normalizeTree(rocket([{ type: 'masscomponent', id: 'bad', position }]), notes);
+    expect(kid(fixed).position!.method).toBe('top');
+    // The body starts 0.1 m aft of the nose; rocket station 0 is -0.1 m from it.
+    expect(kid(fixed).position!.offset).toBeCloseTo(-0.1, 10);
+    expect(notes.join(' ')).toMatch(/position.*could not be read/);
+  },
+);
+
+it('repairs a parent offset before converting an absolute child', () => {
+  const notes: string[] = [];
+  const fixed = normalizeTree(rocket([{ type: 'innertube', id: 'parent', position: { method: 'top' },
+    children: [{ type: 'masscomponent', id: 'absolute', position: { method: 'absolute', offset: 0.25 } }] }]), notes);
+  expect(kid(fixed).position).toEqual({ method: 'top', offset: 0 });
+  expect(kid(fixed).children![0]!.position!.offset).toBeCloseTo(0.15, 10);
+  expect(notes.join(' ')).toMatch(/position.*could not be read/);
+});
+
+it.each([{ method: 'top' }, { method: 'top', offset: '0.2' }, { method: 'bogus', offset: 0 },
+  { method: 'bogus', offset: 1e6 }, 'bad'])(
+  'S4a-3 repairs an unreadable restored position %j', position => {
+    const notes: string[] = [];
+    const fixed = normalizeTree(rocket([{ id: 'bad', type: 'masscomponent', position }]), notes);
+    expect(kid(fixed).position).toEqual({ method: 'top', offset: 0 });
+    expect(notes.join(' ')).toMatch(/position.*could not be read/);
+  },
+);
+
 it.each(['length', 'position'])('S4a-6 does not claim to repair a NaN %s', field => {
   const node: ComponentNode = { type: 'bodytube', id: 'nan',
     ...(field === 'length' ? { length: NaN } : { position: { method: 'top', offset: NaN } }) };

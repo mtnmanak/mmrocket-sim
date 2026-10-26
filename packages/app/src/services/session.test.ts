@@ -58,6 +58,45 @@ it('bounds saved and restored session warnings', () => {
 });
 
 describe('audit 2026-10-11 persisted state', () => {
+  it.each(['stageMassOverrides', 'nozzles', 'deployments', 'separations', 'ignitions'])(
+    'S7a-g1 retains a pre-v0.160 motorless configuration owning %s', family => {
+      const values = { stageMassOverrides: { s: { overrideMass: 2.5 } }, nozzles: { s: 0.01 },
+        deployments: { chute: { deployEvent: 'apogee', deployAltitude: 200, deployDelay: 0 } },
+        separations: { s: { separationEvent: 'never', separationDelay: 0, separationAltitude: 200 } },
+        ignitions: { m: { event: 'never', delay: 0 } } };
+      const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'm' }] }] };
+      localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), tree,
+        savedConfigs: [{ id: 'c', name: null, motors: {}, [family]: values[family as keyof typeof values] }] }));
+      const restored = designStateFromSession(loadSession(), { legacyMaxMotorLengthM: null });
+      expect(restored.state.savedConfigs).toHaveLength(1);
+    },
+  );
+  it.each([true, 7, {}, []])('S1d-b1 removes motor records with an unreadable weighing identity (%j)', padMassWeighedWith => {
+    const bad = { label: 'Test', spec: { designation: 'Test', ejectionDelay: 5 }, meta: {},
+      ignition: { event: 'automatic', delay: 0 }, padMassKg: 1, padMassWeighedWith };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(),
+      mountMotors: { bad }, savedConfigs: [{ id: 'c', name: 'C', motors: { bad } }] }));
+    const loaded = loadSession()!;
+    expect(loaded.mountMotors).toEqual({});
+    expect(loaded.savedConfigs![0]!.motors).toEqual({});
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(restoreTier(restored, 'Unreadable motor records were removed.')).toBe('caution');
+  });
+
+  it.each([undefined, 1])('S7d-g1 restores malformed flight tuples with configLayers %s', configLayers => {
+    const bad = { label: 'Test', spec: { designation: 'Test', ejectionDelay: 5 }, meta: {} };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), configLayers,
+      tree: { ...state().tree, ignitionDefaults: { m: true } }, mountMotors: { m: bad },
+      detachedOverrides: { ignitions: { m: false }, deployments: { chute: { deployEvent: 3 } } },
+      savedConfigs: [{ id: 'c', name: 'C', motors: { m: bad }, separations: { s: { separationEvent: false } } }] }));
+    const loaded = loadSession()!;
+    expect(loaded).not.toBeNull();
+    expect(loaded.mountMotors!.m!.ignition).toEqual({ event: 'automatic', delay: 0 });
+    expect(loaded.tree.ignitionDefaults).toEqual({});
+    expect(loaded.detachedOverrides).toEqual({ ignitions: {}, deployments: {} });
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(restored.restoreNoteTiers).toContainEqual(expect.objectContaining({ tier: 'caution', kind: 'G04.flight-settings-repaired' }));
+  });
   it.each([null, {}, 5, [null, false, []]].map(v => [v]))('S1d-2 keeps the design when configurations are malformed (%j)', savedConfigs => {
     localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs }));
     const loaded = loadSession();

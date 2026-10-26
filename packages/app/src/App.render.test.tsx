@@ -529,6 +529,19 @@ describe('a weighed rocket whose stage stands in for its own mass', () => {
     expect(button(host, `Pin “${sustainer}” to my measured mass & CG`)).toBeTruthy();
   }, 30000);
 
+  it('S7b-g2 clears the unresolved launch mark when pinning a measured dry airframe', async () => {
+    const sustainer = await pinnedSession(false);
+    const saved = JSON.parse(localStorage.getItem(SESSION_KEY)!);
+    saved.tree.components[0].overrideIncludesMotor = 'M787';
+    localStorage.setItem(SESSION_KEY, JSON.stringify(saved));
+    const host = await mountApp();
+    await settle(50);
+    await act(async () => { button(host, `Pin “${sustainer}” to my measured mass & CG`).click(); });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(peekSession()!.tree.components[0]!.overrideIncludesMotor).toBeUndefined();
+    expect(peekSession()!.tree.components[0]!.overrideMass).toBeCloseTo(saved.measured.massKg, 9);
+  }, 30000);
+
   it('offers nothing when two stages are pinned, and says why', async () => {
     await pinnedSession(true);
     const host = await mountApp();

@@ -197,7 +197,7 @@ import {
   createLoadedConfig, duplicateActiveConfig, renameConfig, deleteConfig,
 } from './services/configSync.js';
 import {
-  reconcileAllIncludedMotors,
+  reconcileAllIncludedMotors, OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES,
 } from './services/statedLaunchWeight.js';
 import { RecoverySizingPanel } from './components/RecoverySizingPanel.js';
 import {
@@ -907,8 +907,8 @@ export function App() {
   const saveCounter = useRef(0);
   const appliedSave = useRef(0);
   const appliedOrkSave = useRef(0);
-  const appliedSaveName = useRef<string | null>(null);
-  const appliedOrkSaveName = useRef<string | null>(null);
+  const appliedSaveDestination = useRef<object | null>(null);
+  const appliedOrkSaveDestination = useRef<object | null>(null);
   /**
    * WHICH BUILD'S IMPORTER produced the tree now in state — not which build is
    * running.
@@ -1073,6 +1073,7 @@ export function App() {
     // A stale "Loaded <old rocket>…" banner over a fresh design
     // reads like the import happened again - clear both notes.
     setFileNote(null);
+    setRecentNote(null);
     setSimError(null);
     setMotorLoadoutRepair(null);
     setShroudPrompt(null);
@@ -1812,6 +1813,8 @@ export function App() {
       overrideSubcomponentsMass: true,
       overrideCGX: measured.cgM,
       overrideSubcomponentsCG: true,
+      [OVERRIDE_INCLUDES_MOTOR]: undefined,
+      [STATED_STAGE_FIGURES]: undefined,
     } as Partial<ComponentNode>));
     setFileNote(`“${blocker.name ?? 'Stage'}” is now pinned to your measured `
       + `${fmtSi('mass', prefs.units.mass, measured.massKg)} ${prefs.units.mass}`
@@ -2363,13 +2366,19 @@ export function App() {
   // outside the design snapshot, so they are dependencies too.
   }, [autosavePaused, designSnapshot, importedDocument, dirtyTick, unmatchedRefs, savedMark, flownSinceSave, weather, flownForAutosave, fileMachAlt, designFile, lossySaved, currentMark, lossyFlights]);
 
+  const documentNote = (generation: number, text: string, severity: NoticeSeverity = 'info', expand?: boolean, tier?: NoteTier) => {
+    if (generation === documentGeneration.current) setFileNote(text, severity, expand, tier);
+    else showEarlierSaveNote({ text, tier: tier ?? (severity === 'error' ? 'danger' : severity === 'warn' ? 'caution' : 'information') });
+  };
+
   const downloadAutosavedDesign = async () => {
+    const generation = documentGeneration.current;
     const file = autosavedDesignFile();
     if (!file) { setFileNote('There is no autosaved design to download.', 'warn', true, 'caution'); return; }
     const out = await saveFile(file.data, { suggestedName: file.name, mime: file.mime,
       extensions: [file.extension], description: file.description });
     const note = saveOutcomeNote(out);
-    if (note) setFileNote(file.ork ? note.text : `${note.text} The design could not be written as an .ork; this file keeps the raw autosave as JSON.`, note.severity, true);
+    if (note) documentNote(generation, file.ork ? note.text : `${note.text} The design could not be written as an .ork; this file keeps the raw autosave as JSON.`, note.severity, true);
   };
 
   /**
@@ -2498,16 +2507,16 @@ export function App() {
         // a newer lossy write cannot supersede a successful .ork snapshot.
         // For the same picked file, the last close determines its bytes, even
         // when an older snapshot finishes last. Downloads may be renamed.
-        if (saveId > appliedOrkSave.current || (out.kind === 'saved' && out.name === appliedOrkSaveName.current)) {
+        if (saveId > appliedOrkSave.current || (out.kind === 'saved' && out.destination && out.destination === appliedOrkSaveDestination.current)) {
           appliedOrkSave.current = Math.max(appliedOrkSave.current, saveId);
-          appliedOrkSaveName.current = out.kind === 'saved' ? out.name : null;
+          appliedOrkSaveDestination.current = out.kind === 'saved' ? out.destination ?? null : null;
           // eslint-disable-next-line no-restricted-syntax -- a .ork is the one format that round-trips everything
           markSaved(mark, flightsAtSnapshot);
         }
-        if (saveId > appliedSave.current || (out.kind === 'saved' && out.name === appliedSaveName.current)) {
+        if (saveId > appliedSave.current || (out.kind === 'saved' && out.destination && out.destination === appliedSaveDestination.current)) {
           // A cancelled or failed newer attempt must not supersede a real write.
           appliedSave.current = Math.max(appliedSave.current, saveId);
-          appliedSaveName.current = out.kind === 'saved' ? out.name : null;
+          appliedSaveDestination.current = out.kind === 'saved' ? out.destination ?? null : null;
           setDesignFile({ name: out.name, via: out.kind === 'saved' ? 'saved' : 'downloaded', format: 'ork' });
           setLossySaved(null);
         }
@@ -2601,10 +2610,10 @@ export function App() {
             ...(fileMachAlt ? { machAlt: fileMachAlt } : {}) });
         const out = await download(xml, format === 'rkt' ? 'rkt' : 'CDX1', '', report.losses, undefined, generation);
         if (generation === documentGeneration.current
-            && (saveId > appliedSave.current || (out.kind === 'saved' && out.name === appliedSaveName.current))
+            && (saveId > appliedSave.current || (out.kind === 'saved' && out.destination && out.destination === appliedSaveDestination.current))
             && (out.kind === 'saved' || out.kind === 'downloaded')) {
           appliedSave.current = Math.max(appliedSave.current, saveId);
-          appliedSaveName.current = out.kind === 'saved' ? out.name : null;
+          appliedSaveDestination.current = out.kind === 'saved' ? out.destination ?? null : null;
           const file: DesignFileRef = { name: out.name, via: out.kind, format };
           setDesignFile(file);
           setLossySaved({ mark, flights, format, lossCount: report.losses.length, ...(report.incomplete ? { incomplete: true } : {}) });
@@ -2632,7 +2641,7 @@ export function App() {
       const { rocketToObj } = await import('./services/objExport.js');
       await download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj', '', [], undefined, generation);
     } catch (e) {
-      setFileNote(`OBJ export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
+      documentNote(generation, `OBJ export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
     }
   };
 
@@ -2642,7 +2651,7 @@ export function App() {
       const { rocketToGlb } = await import('./services/gltfExport.js');
       await download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb', '', [], undefined, generation);
     } catch (e) {
-      setFileNote(`glTF export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
+      documentNote(generation, `glTF export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
     }
   };
 
@@ -2656,7 +2665,7 @@ export function App() {
       const { pieces } = buildPieces(tree);
       await download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl', '', [], undefined, generation);
     } catch (e) {
-      setFileNote(`STL export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
+      documentNote(generation, `STL export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
     }
   };
 
@@ -2697,6 +2706,7 @@ export function App() {
     if (!openSeq.isCurrent(openId)) return;
     documentGeneration.current++;
     setHiddenPartIds(new Set());
+    setRecentNote(null);
     // Only a winning open replaces the old parse on screen and its notice
     // (audit 2026-10-11, S2-4).
     setRestoredByOlderBuild(false);
@@ -3106,6 +3116,7 @@ export function App() {
    * reaches a server (see services/shareLink.ts).
    */
   const onCopyShareLink = async () => {
+    const generation = documentGeneration.current;
     try {
       const flown = flownAutoDelaysNow();
       const saveNotes: string[] = [];
@@ -3135,19 +3146,19 @@ export function App() {
         : '';
       try {
         await navigator.clipboard.writeText(url);
-        setFileNote([`Share link copied — opening it loads “${tree.name ?? 'My Rocket'}” with its motors and launch conditions.${sizeNote}`,
+        documentNote(generation, [`Share link copied — opening it loads “${tree.name ?? 'My Rocket'}” with its motors and launch conditions.${sizeNote}`,
           ...saveNotes].join('\n'), saveNotes.length ? 'warn' : 'info', undefined, omittedMotor ? 'caution' : 'information');
       } catch {
         // Clipboard refused (permissions, iframe embed, non-secure context):
         // hand the link over for a manual Ctrl+C — prompt() pre-selects it.
         window.prompt('Copy this share link (Ctrl+C):', url);
         const fallbackNotes = [sizeNote.trim(), ...saveNotes].filter(Boolean).join('\n');
-        if (fallbackNotes) setFileNote(fallbackNotes, 'warn', undefined, omittedMotor ? 'caution' : 'information');
+        if (fallbackNotes) documentNote(generation, fallbackNotes, 'warn', undefined, omittedMotor ? 'caution' : 'information');
       }
     } catch (e) {
       // 'error' — nothing was copied and nothing is on screen to say so
       // otherwise, matching what onSaveRkt/onSaveCdx1 already do.
-      setFileNote(`Share link failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      documentNote(generation, `Share link failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
     }
   };
 

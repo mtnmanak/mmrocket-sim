@@ -1,4 +1,5 @@
-import { withoutLines } from './importNotes.js';
+import { highestTier, withoutLines } from './importNotes.js';
+import { overrideFor } from './flightState.js';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/design.js';
 import { motorMounts, primaryMountOf } from '../tree/treeModel.js';
@@ -35,7 +36,7 @@ export function planMotorAssignment(input: MotorAssignmentInput) {
   const { tree, targetMountId, label, spec, meta, refs, savedConfigs, activeConfigId, massText, statedWeightText } = input;
   const fresh: MountMotor = { label, spec, meta,
     ignition: ignitionDefaultFor(tree, { mountId: targetMountId, propellant: meta.propellant }) };
-  const droppedRef = refs[targetMountId];
+  const droppedRef = overrideFor(refs, targetMountId);
   const { [targetMountId]: _dropped, ...remainingRefs } = refs;
   const repairedConfig = savedConfigs.find(c => c.id === activeConfigId && c.motorLoadoutRefusal);
   const repairNotice = repairedConfig ? {
@@ -76,7 +77,7 @@ export function assignMotorRecords(
   return assignMotorRecord(prev, targetMountId, plan.fresh, {
     tree,
     primaryMountId: primaryMountOf(tree, motorMounts(tree)
-      .map((m) => m.id).filter((id): id is string => typeof id === 'string' && id in prev)),
+      .map((m) => m.id).filter((id): id is string => typeof id === 'string' && Object.hasOwn(prev, id))),
     droppedRef: plan.droppedRef,
     remainingRefs: plan.remainingRefs,
   });
@@ -90,5 +91,7 @@ export function retireLoadoutNote(prev: HeldNote | null, repairedConfig: SavedCo
   // The group loses the same line; every other line keeps its tier.
   const group = prev.group && repairedConfig.motorLoadoutRefusal
     ? withoutLines(prev.group, new Set([repairedConfig.motorLoadoutRefusal])) : prev.group;
-  return { ...prev, text, ...(group ? { group } : {}) };
+  return { ...prev, text, ...(group ? { group } : {}),
+    ...(group && prev.severity === 'warn' && highestTier(group.lines) === 'information'
+      && !group.lines.some(l => l.text.startsWith('Warning: this file uses format ')) ? { severity: 'info' } : {}) };
 }

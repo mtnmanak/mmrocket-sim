@@ -91,7 +91,7 @@ vi.mock('./services/schematicExport.js', async (importOriginal) => {
 });
 vi.mock('./services/shareLink.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/shareLink.js')>();
-  return { ...real, decodeShareFragment: vi.fn(real.decodeShareFragment) };
+  return { ...real, decodeShareFragment: vi.fn(real.decodeShareFragment), encodeShareFragment: vi.fn(real.encodeShareFragment) };
 });
 // C-A6: the print report opens a preview window rather than writing a file.
 vi.mock('./services/printDocument.js', async (importOriginal) => {
@@ -302,15 +302,16 @@ describe('lane H regressions', () => {
     await waitFor(starterStored, 'starter motor');
     const entry = format === 'cdx1' ? 'Save .CDX1' : `Save .${format}`;
     let finish!: (out: SaveOutcome) => void;
+    const destination = {};
     vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
     await saveAs(host, entry);
     await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Newer work');
-    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: `Same.${format}` });
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: `Same.${format}`, ...{ destination } });
     await saveAs(host, entry);
     window.dispatchEvent(new Event('pagehide'));
     const newer = storedSession()!;
     expect(host.querySelector('[aria-label="Design save status"]')!.textContent).not.toBe('Unsaved changes');
-    await act(async () => { finish({ kind: 'saved', name: `Same.${format}` }); });
+    await act(async () => { finish({ kind: 'saved', name: `Same.${format}`, ...{ destination } }); });
     window.dispatchEvent(new Event('pagehide'));
     const older = storedSession()!;
     if (format === 'ork') expect(older.savedMark).not.toBe(newer.savedMark);
@@ -321,6 +322,144 @@ describe('lane H regressions', () => {
     }
     expect(host.querySelector('[aria-label="Design save status"]')!.textContent).toBe('Unsaved changes');
     expect(await guarded(host)).toBe(true);
+  }, 30000);
+
+  it.each(['ork', 'rkt', 'cdx1'] as const)('S2-1 keeps the newer save to a different folder with basename Rocket.%s', async format => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    const entry = format === 'cdx1' ? 'Save .CDX1' : `Save .${format}`;
+    let finish!: (out: SaveOutcome) => void;
+    vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await saveAs(host, entry);
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Newer work');
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: `Rocket.${format}`, ...{ destination: {} } });
+    await saveAs(host, entry);
+    window.dispatchEvent(new Event('pagehide'));
+    const newer = storedSession()!;
+    await act(async () => { finish({ kind: 'saved', name: `Rocket.${format}`, ...{ destination: {} } }); });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(storedSession()!.savedMark).toBe(newer.savedMark);
+    expect(storedSession()!.lossySaved).toEqual(newer.lossySaved);
+    expect(host.querySelector('.design-save-status')?.textContent).not.toBe('Unsaved changes');
+  }, 30000);
+
+  it.each([['obj', 'Open'], ['glb', 'New'], ['stl', 'Open']])(
+    'S2-2/S2-g2 keeps replacement notes after a delayed %s failure and %s', async (ext, replace) => {
+      const module = ext === 'obj' ? './services/objExport.js' : ext === 'glb' ? './services/gltfExport.js' : './services/stlExport.js';
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      let loading = false;
+      vi.doMock(module, async () => { loading = true; await gate; throw new Error('old chunk unavailable'); });
+      try {
+        const host = await mountApp();
+        await waitFor(starterStored, 'starter motor');
+        await saveAs(host, `Export .${ext}`);
+        await waitFor(() => loading, 'chunk load', 30000);
+        if (replace === 'Open') {
+          await pick(host, new File([fixture(RKT)], 'Replacement.rkt'));
+          await waitFor(() => shownName(host) === RKT_NAME, 'replacement');
+        } else await act(async () => { button(host, '✕ New').click(); });
+        const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+        if (toggle) await act(async () => { toggle.click(); });
+        const notes = host.querySelector('[aria-label="Notices"]')?.textContent ?? '';
+        await act(async () => { release(); });
+        await waitFor(() => !!host.textContent?.includes('export failed:'), 'export failure');
+        expect(host.querySelector('[aria-label="Notices"]')?.textContent ?? '').toBe(notes);
+        expect(host.querySelector('.earlier-save-note')?.textContent).toContain('export failed:');
+      } finally { release(); vi.doUnmock(module); }
+    }, 60000,
+  );
+
+  it.each(['encode', 'clipboard'].flatMap(stage => ['success', 'failure'].map(outcome => [stage, outcome])))(
+    'S2-g2 keeps opened import notes after delayed share %s %s', async (stage, outcome) => {
+      const host = await mountApp();
+      await waitFor(starterStored, 'starter motor');
+      let release!: () => void;
+      const gate = new Promise<void>(resolve => { release = resolve; });
+      const writeText = vi.fn(async () => {
+        if (stage === 'clipboard') { await gate; if (outcome === 'failure') throw new Error('clipboard refused'); }
+      });
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+      const prompt = vi.fn(() => null);
+      const previousPrompt = window.prompt;
+      Object.defineProperty(window, 'prompt', { configurable: true, value: prompt });
+      const real = vi.mocked(encodeShareFragment).getMockImplementation()!;
+      if (stage === 'encode') vi.mocked(encodeShareFragment).mockImplementationOnce(async xml => {
+        await gate;
+        if (outcome === 'failure') throw new Error('encoding refused');
+        return real(xml);
+      });
+      if (stage === 'clipboard' && outcome === 'failure') {
+        const writer = vi.mocked(exportOrk).getMockImplementation()!;
+        vi.mocked(exportOrk).mockImplementationOnce(data => {
+          data.notes?.push('The earlier share could not keep a motor.');
+          data.onOmittedMotor?.();
+          return writer(data);
+        });
+      }
+      try {
+        await saveAs(host, 'Copy share link');
+        if (stage === 'clipboard') await waitFor(() => writeText.mock.calls.length > 0, 'clipboard await');
+        await pick(host, new File([fixture(RKT)], 'Replacement.rkt'));
+        await waitFor(() => shownName(host) === RKT_NAME, 'replacement');
+        const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+        if (toggle) await act(async () => { toggle.click(); });
+        const notes = host.querySelector('[aria-label="Notices"]')!.textContent;
+        await act(async () => { release(); });
+        await waitFor(() => !!host.querySelector('.earlier-save-note') || prompt.mock.calls.length > 0, 'share completion');
+        expect(host.querySelector('[aria-label="Notices"]')!.textContent).toBe(notes);
+        if (stage === 'clipboard' && outcome === 'failure') {
+          expect(host.querySelector('.earlier-save-note')?.textContent).toContain('The earlier share could not keep a motor.');
+          expect(host.querySelector('.earlier-save-note')?.textContent).toContain('Caution:');
+        }
+      } finally {
+        release();
+        delete (navigator as { clipboard?: unknown }).clipboard;
+        Object.defineProperty(window, 'prompt', { configurable: true, value: previousPrompt });
+      }
+    }, 30000,
+  );
+
+  it.each(['New', 'share'])('S2-g4 clears an old Recent caution on %s', async replace => {
+    let host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    if (replace === 'share') {
+      await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Earlier unsaved design');
+      await unmountAll();
+      window.location.hash = await encodeShareFragment(exportOrk({ name: 'Linked', tree: defaultTree() }));
+      host = await mountApp();
+      await waitFor(() => !!host.querySelector('[aria-label="Open design from link"]'), 'share offer');
+    }
+    vi.mocked(recentDesigns.rememberRecentDesign).mockResolvedValue('Old file could not be kept in Recent.');
+    if (replace === 'share') await act(async () => { button(host, 'Save mine first').click(); });
+    else await saveAs(host, 'Save .ork');
+    await waitFor(() => !!host.querySelector('.recent-storage-note'), 'Recent caution');
+    await act(async () => { button(host, replace === 'New' ? '✕ New' : 'Open “Linked”').click(); });
+    await waitFor(() => shownName(host) === (replace === 'New' ? 'New Rocket' : 'Linked'), 'replacement');
+    expect(host.querySelector('.recent-storage-note')).toBeNull();
+  }, 30000);
+
+  it('S2-g2 keeps import cautions when an autosave recovery picker settles late', async () => {
+    let body: ComponentNode = { type: 'bodytube', id: 'original', length: 0.1, outerRadius: 0.01 };
+    for (let i = 0; i < 4; i++) body = { type: 'podset', instanceCount: 32, children: [body] };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: { name: 'Over limit', components: [
+      { type: 'stage', children: [body] },
+    ] }, launch: DEFAULT_CONDITIONS, savedAt: 0 }));
+    const host = await mountApp();
+    let finish!: (out: SaveOutcome) => void;
+    vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await act(async () => { button(host, 'Download the autosaved design (.ork)').click(); });
+    await pick(host, new File([fixture(RKT)], 'Replacement.rkt'));
+    const discard = [...host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')]
+      .find(b => b.textContent?.includes('Discard & open'));
+    if (discard) await act(async () => { discard.click(); });
+    await waitFor(() => shownName(host) === RKT_NAME, 'replacement');
+    const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+    if (toggle) await act(async () => { toggle.click(); });
+    const notes = host.querySelector('[aria-label="Notices"]')!.textContent;
+    await act(async () => { finish({ kind: 'saved', name: 'Recovered.ork' }); });
+    expect(host.querySelector('[aria-label="Notices"]')!.textContent).toBe(notes);
+    expect(host.querySelector('.earlier-save-note')?.textContent).toContain('Recovered.ork');
   }, 30000);
 
   it.each([
@@ -1281,7 +1420,9 @@ describe('lane C2 save and share fidelity', () => {
       { ...b, overrideMass: 32, overrideCGX: 1.8 }, {}];
     expect(await snapshots()).toEqual(scaled);
     await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true })); });
-    expect(await snapshots()).toEqual([a, b, pending]);
+    expect(await snapshots()).toEqual([a, b, { ...pending, statedStageFigures: {
+      motor: 'Z999TEST', includesMotor: true, launchKg: 4, massKg: 4, launchCgM: 0.9, cgM: 0.9,
+    } }]);
     await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true })); });
     expect(await snapshots()).toEqual(scaled);
     await openTab(host, 'Motors & Configuration');

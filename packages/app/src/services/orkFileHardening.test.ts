@@ -747,7 +747,7 @@ describe('.ork configuration count limit', () => {
       mount: { designation: 'C6', manufacturer: 'Estes', diameter: 0.018, length: 0.07, delay: 5 },
     };
     expect(() => exportOrk({ ...input, motors, activeConfigId: null }))
-      .toThrow(/257 flight configurations, past the 256.*Choose a saved configuration, or None \(no motors\), in the Flight configuration chooser before saving\./);
+      .toThrow(/257 flight configurations, past the 256.*Choose a saved configuration in the Flight configuration chooser, or remove an unused configuration, before saving\./);
     // Applying None clears the live motors, so no custom configuration is minted.
     expect(importOrk(exportOrk({ ...input, motors: {}, activeConfigId: null })).configs)
       .toHaveLength(MAX_ORK_CONFIGURATIONS);
@@ -755,6 +755,18 @@ describe('.ork configuration count limit', () => {
     expect(importOrk(exportOrk({ ...input, motors, activeConfigId: configs[0]!.id })).configs)
       .toHaveLength(MAX_ORK_CONFIGURATIONS);
     expect(importOrk(exportOrk({ ...input, configs: configs.slice(1), motors })).configs)
+      .toHaveLength(MAX_ORK_CONFIGURATIONS);
+  });
+
+  it('counts a motorless working stage-mass snapshot at the configuration limit', () => {
+    const opened = importOrk(withConfigs(MAX_ORK_CONFIGURATIONS));
+    const stage = opened.tree.components[0]!;
+    const configs = opened.configs.map(c => ({ ...c, motors: {},
+      stageMassOverrides: { [stage.id!]: { overrideMass: 2.5 } } }));
+    const input = { name: opened.name, tree: { ...opened.tree, components: [{ ...stage, overrideMass: 5 }] }, configs };
+    expect(() => exportOrk({ ...input, activeConfigId: null }))
+      .toThrow(/257 flight configurations, past the 256/);
+    expect(importOrk(exportOrk({ ...input, activeConfigId: configs[0]!.id })).configs)
       .toHaveLength(MAX_ORK_CONFIGURATIONS);
   });
 

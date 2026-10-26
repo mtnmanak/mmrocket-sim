@@ -280,7 +280,8 @@ it('empty saved snapshots clear bare values; CG-only marks survive; ordinary ove
   const configs = a.savedConfigs.map((c, i) => ({ ...c, stageMassOverrides: { [stage.id!]: i === 0 ? {} : values } }));
   const xml = exportOrk({ name: 'snapshot', tree: a.tree, configs: configs.map(c => ({ ...c, motors: {} })) });
   expect(captureStageMass(importOrk(xml, { configId: configs[0]!.id }).tree.components[0]!)).toEqual({});
-  expect(captureStageMass(importOrk(xml, { configId: configs[1]!.id }).tree.components[0]!)).toEqual(values);
+  expect(captureStageMass(importOrk(xml, { configId: configs[1]!.id }).tree.components[0]!)).toEqual({ ...values,
+    statedStageFigures: { motor: 'Z999TEST', includesMotor: true, launchCgM: 0.8, cgM: 0.8 } });
   const noConfig = { name: 'normal', components: [{ type: 'stage' as const, id: 's', overrideMass: 2 }] };
   expect(applyStageMass(noConfig)).toBe(noConfig);
   expect(captureStageMass({ overrideMass: NaN, overrideCGX: Infinity, overrideIncludesMotor: 'stale' })).toEqual({});

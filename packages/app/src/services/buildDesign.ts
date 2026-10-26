@@ -200,13 +200,17 @@ export function buildDesign<R extends BuildHandle>(
     // field (the empty string is in every warning) or one named "Fin" (in
     // "Fins") took the real fins' thick-fin warning with it (audit 2026-09-30).
     const fairingNames = new Set<string>();
+    const finNames = new Set<string>();
     const scanF = (nodes: ComponentNode[]) => {
       for (const nd of nodes) {
         if (nd.type === 'fairing') fairingNames.add(shroudKernelName(nd));
+        if (['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'].includes(nd.type) && nd.name) finNames.add(nd.name);
         scanF(nd.children ?? []);
       }
     };
     scanF(tree.components);
+    // The kernel warning text has names, not ids: keep an ambiguous source.
+    for (const name of finNames) fairingNames.delete(name);
     if (fairingNames.size > 0) {
       info.warningTexts = info.warningTexts.filter((wtext) =>
         !(wtext.includes('THICK_FIN') && [...fairingNames].some((fn) => wtext.includes(`"${fn}"`))));

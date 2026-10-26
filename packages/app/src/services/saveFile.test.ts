@@ -45,6 +45,20 @@ afterEach(() => {
 });
 
 describe('saveFile — with a Save-As dialog (Chrome, Edge)', () => {
+  it('S2-1 distinguishes equal basenames and recognizes different handles for the same entry', async () => {
+    const handle = (path: string) => ({ name: 'Rocket.ork',
+      isSameEntry: async (other: { path: string }) => path === other.path, path,
+      createWritable: async () => ({ write: async () => {}, close: async () => {} }) });
+    const picker = vi.fn().mockResolvedValueOnce(handle('folder-a/Rocket.ork'))
+      .mockResolvedValueOnce(handle('folder-b/Rocket.ork')).mockResolvedValueOnce(handle('folder-a/Rocket.ork'));
+    (window as PickerWin).showSaveFilePicker = picker;
+    const a = await saveFile('A', OPTS) as { destination?: object };
+    const b = await saveFile('B', OPTS) as { destination?: object };
+    const again = await saveFile('C', OPTS) as { destination?: object };
+    expect(a.destination).toBeDefined();
+    expect(b.destination).not.toBe(a.destination);
+    expect(again.destination).toBe(a.destination);
+  });
   it('opens the picker with the name prefilled and the type named, and writes', async () => {
     const write = vi.fn(() => Promise.resolve());
     const close = vi.fn(() => Promise.resolve());
@@ -55,7 +69,7 @@ describe('saveFile — with a Save-As dialog (Chrome, Edge)', () => {
     (window as PickerWin).showSaveFilePicker = picker;
 
     const blob = new Blob(['<openrocket/>']);
-    await expect(saveFile(blob, OPTS)).resolves.toEqual({ kind: 'saved', name: 'Mach2.ork' });
+    await expect(saveFile(blob, OPTS)).resolves.toEqual({ kind: 'saved', name: 'Mach2.ork', destination: expect.any(Object) });
     // Prefilled AND editable — "Save As should allow saving to a different
     // name" is answered by the picker itself, and the name it comes back with
     // is the one reported to the user.
@@ -126,7 +140,7 @@ describe('saveFile — with a Save-As dialog (Chrome, Edge)', () => {
     (window as PickerWin).showSaveFilePicker = picker;
     const blob = new Blob(['a,b'], { type: 'text/csv;charset=utf-8' });
     await expect(saveFile(blob, { ...OPTS, suggestedName: 'runs.csv', mime: blob.type, extensions: ['.csv'] }))
-      .resolves.toEqual({ kind: 'saved', name: 'runs.csv' });
+      .resolves.toEqual({ kind: 'saved', name: 'runs.csv', destination: expect.any(Object) });
     expect(picker.mock.calls[0]![0].types[0]!.accept).toEqual({ 'text/csv': ['.csv'] });
     expect(clicked).toEqual([]);
     // downloadBlob — the path those two CSV buttons take — hands the Blob's

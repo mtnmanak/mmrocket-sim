@@ -32,7 +32,7 @@ import { gunzipCapped, unzipMember } from './zipMember.js';
 import { MAX_ORK_CONFIGURATIONS, type OrkFlightConfig, type OrkMotorRef } from './orkFile.js';
 import {
   type BackedOutMotor, cgFromCombined, OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES, stageCgWithoutMotor, stageLength,
-  stageMassWithoutMotor, type StatedStageFigures,
+  stageMassWithoutMotor, includedMotorFigures, type StatedStageFigures,
 } from './statedLaunchWeight.js';
 import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 import type { FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
@@ -1582,6 +1582,10 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       }
     }
 
+    for (const stage of overrideStages) {
+      const figures = includedMotorFigures(stage);
+      if (figures) stage[STATED_STAGE_FIGURES] = { ...figures, mountId: aftTube(stage)?.id };
+    }
     const values = Object.fromEntries(overrideStages.map(s => [s.id!, captureStageMass(s)]));
     return { values, massDetail, cgDetail, skipped, motorless, overrideMassKg };
   };

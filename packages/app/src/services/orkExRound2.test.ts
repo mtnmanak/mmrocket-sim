@@ -7,7 +7,7 @@ import { exportOrk, importOrk } from './orkFile.js';
 import { fetchMotorSpec, type RepairedMotorSpec } from './thrustcurve.js';
 import { matchImportedMotor, mountMotorFromDb } from './motorMatch.js';
 import { toOrkMotor } from './orkExportMotors.js';
-import { autosaveToOrk } from './autosaveBackup.js';
+import { autosavedDesignFile, autosaveToOrk } from './autosaveBackup.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { encodeShareFragment, MAX_INFLATED_BYTES } from './shareLink.js';
 import { applyImportPlan, openShareLink, planImport, resolveImportMotors, type ImportSinks } from './importApply.js';
@@ -55,13 +55,12 @@ it.each(['deleted', 'changed', 'invalid'])('saves the loaded snapshot when its l
   }
 });
 
-it('a recovery record with no MotorSpec still produces an incomplete design archive', async () => {
+it('a recovery record with no MotorSpec refuses an incomplete design archive', async () => {
   const { loaded, tree, mount } = await fixture();
   Reflect.deleteProperty(loaded, 'spec');
   deleteExMotor(motor().motorId);
-  const xml = autosaveToOrk({ tree, mountMotors: { [mount]: loaded }, launch: DEFAULT_CONDITIONS, savedAt: 1 });
-  expect(importOrk(xml).motors).toEqual({});
-  expect(importOrk(xml).notes.join(' ')).toContain('no valid loaded snapshot');
+  expect(() => autosaveToOrk({ tree, mountMotors: { [mount]: loaded }, launch: DEFAULT_CONDITIONS, savedAt: 1 }))
+    .toThrow(/omit a motor/);
 });
 
 it.each(['abandoned', 'declined', 'superseded'])('parsing an %s open never changes storage', async kind => {
@@ -223,21 +222,20 @@ it('bounds the loaded snapshot sample count independently of source sample count
   expect(validArchivedExMotor({ ...motor(), flightSnapshot: snapshot })).toBe(false);
 });
 
-it('no valid snapshot still saves geometry, shares, and recovers without the motor and with a persistent note', async () => {
+it('no valid snapshot still saves and shares geometry with a note but refuses lossy recovery', async () => {
   const { loaded, tree, mount, write } = await fixture();
   delete (loaded.spec as RepairedMotorSpec).exDefinition;
   loaded.spec.thrusts[1] = NaN;
   deleteExMotor(motor().motorId);
   const notes: string[] = [];
   const xml = write(notes);
-  const recovery = autosaveToOrk({ tree, mountMotors: { [mount]: loaded }, launch: DEFAULT_CONDITIONS, savedAt: 1 });
+  expect(() => autosaveToOrk({ tree, mountMotors: { [mount]: loaded }, launch: DEFAULT_CONDITIONS, savedAt: 1 }))
+    .toThrow(/omit a motor/);
   await expect(encodeShareFragment(xml)).resolves.toBeTruthy();
-  for (const file of [xml, recovery]) {
-    const reopened = importOrk(file);
-    expect(motorMounts(reopened.tree)).toHaveLength(motorMounts(tree).length);
-    expect(Object.values(reopened.motors)).toEqual([]);
-    expect(reopened.notes.join(' ')).toMatch(/C6.*no valid loaded snapshot.*without this motor/);
-  }
+  const reopened = importOrk(xml);
+  expect(motorMounts(reopened.tree)).toHaveLength(motorMounts(tree).length);
+  expect(Object.values(reopened.motors)).toEqual([]);
+  expect(reopened.notes.join(' ')).toMatch(/C6.*no valid loaded snapshot.*without this motor/);
   expect(notes.join(' ')).toContain('without this motor');
 });
 
@@ -258,8 +256,11 @@ it('disk budget fallback saves and names the omitted motor, with matching reader
   const xml = write(notes);
   expect(notes.join(' ')).toMatch(/C6.*disk archive budget.*without this motor/);
   expect(importOrk(xml).motors).toEqual({});
-  const recovery = autosaveToOrk({ tree, mountMotors: { [mount]: loaded }, launch: DEFAULT_CONDITIONS, savedAt: 1 });
-  expect(importOrk(recovery).notes.join(' ')).toContain('disk archive budget');
+  const session = { tree, mountMotors: { [mount]: loaded }, launch: DEFAULT_CONDITIONS, savedAt: 1 };
+  expect(() => autosaveToOrk(session)).toThrow(/omit a motor/);
+  const raw = JSON.stringify(session);
+  localStorage.setItem('online-openrocket.session.v1', raw);
+  expect(autosavedDesignFile()).toMatchObject({ ork: false, extension: '.json', data: raw });
   await expect(encodeShareFragment(xml)).resolves.toBeTruthy();
 });
 

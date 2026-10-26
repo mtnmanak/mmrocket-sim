@@ -9,6 +9,7 @@ import { num } from '../tree/nodeNum.js';
 import { separationEventOrDefault } from '../tree/sanitize.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { overrideFor, sparsify } from './flightState.js';
+import { sanitizeSessionFlightLayers } from './sessionFlightLayers.js';
 
 export type ConfigLayersSession = Omit<SessionState, 'tree' | 'savedConfigs' | 'mountMotors' | 'activeConfigId'>
   & ConfigurationLayers & { mountMotors: Record<string, MountMotor>; activeConfigId: string | null };
@@ -44,6 +45,7 @@ function fingerprint(state: SessionState): string {
 export function migrateConfigLayers(
   input: ConfigLayersInput, migratedFingerprint: (state: ConfigLayersSession) => string = fingerprint,
 ): { state: ConfigLayersSession; note: string | null; noteTier?: NoteTier } {
+  input = sanitizeSessionFlightLayers(input);
   if (input.configLayers === 1) return { state: input as ConfigLayersSession, note: null };
   const wasClean = !!input.savedMark && input.savedMark === fingerprint(input);
   const nodes = new Map<string, ComponentNode>();
