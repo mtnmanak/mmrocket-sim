@@ -1,7 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
 import { axialLength, offsetForStart } from '../tree/position.js';
-import { findNode, suppressingAncestor } from '../tree/treeModel.js';
+import { addChild, findNode, findParent, makeNode, removeNode, suppressingAncestor, updateNode } from '../tree/treeModel.js';
 
 /**
  * "Measured mass & CG" — turning what your scale and balance point say into a
@@ -130,6 +130,24 @@ export function findAllowance(tree: RocketTree): ComponentNode | null {
   return found;
 }
 
+/** Apply one solved allowance in a single tree edit, including a change of host. */
+export function applyAllowance(tree: RocketTree, sol: Extract<BallastSolution, { kind: 'ok' }>): RocketTree {
+  const allowance = findAllowance(tree);
+  const lengthM = allowance ? numOpt(allowance, 'length') ?? 0.02 : 0.02;
+  const place = placeAtStation(tree, sol.stationM, lengthM);
+  if (!place) return tree;
+  const patch = { mass: sol.massKg, position: { method: 'top', offset: place.offset },
+    overrideMass: undefined, overrideCGX: undefined,
+    overrideSubcomponentsMass: false, overrideSubcomponentsCG: false } as Partial<ComponentNode>;
+  if (allowance?.id) {
+    const parent = findParent(tree, allowance.id);
+    if (parent && parent !== 'stage' && parent.id === place.parentId) return updateNode(tree, allowance.id, patch);
+    return addChild(removeNode(tree, allowance.id), place.parentId, { ...allowance, ...patch });
+  }
+  return addChild(tree, place.parentId, { ...makeNode('masscomponent'), name: BUILD_ALLOWANCE_NAME,
+    length: lengthM, ...patch } as ComponentNode);
+}
+
 export interface AllowancePlacement {
   /** Body component the ballast becomes a child of. */
   parentId: string;
@@ -178,8 +196,8 @@ export function coveringMassOverride(
 }
 
 /**
- * The ONE top-level stage whose mass override covers everything inside it —
- * null when none is, and null when more than one is.
+ * The single top-level stage whose mass override covers the whole rocket —
+ * null when any other top-level component remains outside that override.
  *
  * It decides whether the Measured box may offer to pin the component that
  * swallows an allowance (`coveringMassOverride`) to the scale reading instead.
@@ -192,6 +210,7 @@ export function coveringMassOverride(
  * 513), and App.render.test.tsx counts its calls to hold App to that.
  */
 export function solePinnedStage(components: readonly ComponentNode[]): ComponentNode | null {
+  if (components.length !== 1 || components[0]?.type !== 'stage') return null;
   const pinned = components.filter((n) =>
     n['overrideSubcomponentsMass'] === true && numOpt(n, 'overrideMass') !== undefined);
   return pinned.length === 1 ? pinned[0]! : null;

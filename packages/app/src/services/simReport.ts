@@ -322,7 +322,8 @@ export function deploymentVerdict(run: Pick<SimRun, 'deployments' | 'branches' |
 
 /**
  * Did the kernel stop this flight before it finished — on the main flight or
- * any booster's branch? buildSimRun folds each SIM_ABORT into `simWarnings`
+ * any booster's branch? buildSimRun folds each SIM_ABORT, and a branch without
+ * ground contact, into `simWarnings`
  * (abortWarnings, below), because the kernel returns a normal, truncated result
  * rather than raising one. The numbers are wherever the rocket had got to when
  * the kernel gave up, so no grade built on them may read safe or accepted.
@@ -334,7 +335,7 @@ export function deploymentVerdict(run: Pick<SimRun, 'deployments' | 'branches' |
  * A run stored before warnings were recorded cannot say, and reads false.
  */
 export function runStoppedEarly(run: Pick<SimRun, 'simWarnings'>): boolean {
-  return run.simWarnings?.some((w) => w.key === 'SIM_ABORT') ?? false;
+  return run.simWarnings?.some((w) => w.key === 'SIM_ABORT' || w.key === 'INCOMPLETE_FLIGHT') ?? false;
 }
 
 /** One recovery-device deployment (dual deploy: drogue + main = two rows). */
@@ -1708,14 +1709,14 @@ function extractDeployments(
       ? (tGroundHit ?? series.time[series.time.length - 1] ?? ev.time)
       : Math.max(ev.time, groupStart[group + 1]! - SETTLE_MARGIN_S);
     // VERTICAL — the rate the safety limits are written about. See verticalRateAt.
-    const descentRate = verticalRateAt(series, tSettled)
+    const descentRate = isLanding && tGroundHit === null ? null : verticalRateAt(series, tSettled)
       // A branch too short to difference (an immediate ground hit) keeps the old
       // reading rather than reporting nothing.
       ?? (isLanding && groundHit !== null && Number.isFinite(groundHit) ? Math.abs(groundHit) : null);
     // Speed over the ground at the same instant: descent AND drift. Reported
     // beside the descent rate rather than in place of it, because it is what a
     // rocket actually hits the ground at.
-    const groundSpeedRaw = isLanding
+    const groundSpeedRaw = isLanding && tGroundHit === null ? null : isLanding
       ? (groundHit !== null && Number.isFinite(groundHit) ? groundHit : null)
       : at(series.time, series.velocity, tSettled);
     const groundSpeed = groundSpeedRaw === null ? null : Math.abs(groundSpeedRaw);
@@ -1763,14 +1764,37 @@ function abortWarnings(result: FlightResult): EngineWarning[] {
   // branch, and the kernel can abort that one alone — leaving the sustainer's
   // numbers perfectly good while the booster's truncated apogee is rendered
   // beside them as if it were a real flight. `result.events` is branch 0.
-  const branches: { name?: string; events: FlightEvent[] }[] = [
-    { events: result.events ?? [] },
-    ...boosterBranches(result).map((b) => ({ name: b.name, events: b.events ?? [] })),
+  const branches: { name?: string; events: FlightEvent[]; series: FlightSeries }[] = [
+    { events: result.events ?? [], series: result.series },
+    ...boosterBranches(result).map((b) => ({ name: b.name, events: b.events ?? [], series: b.series })),
   ];
   const out: EngineWarning[] = [];
-  for (const b of branches) {
+  const landedAt: (number | undefined)[] = [];
+  for (const [index, b] of branches.entries()) {
+    let ground = b.events.find(e => e.type === 'GROUND_HIT')?.time;
+    const split = b.events.find(e => e.type === 'STAGE_SEPARATION');
+    if (index > 0 && ground === undefined && split) {
+      // The birth separation is recorded on both parent and child. A child
+      // inherits landed=true, but the source-less GROUND_HIT is not copied.
+      const parents = branches.slice(0, index).flatMap((parent, i) => parent.events.some(e =>
+        e.type === 'STAGE_SEPARATION' && e.time === split.time
+        && (split.sourceId !== undefined ? e.sourceId === split.sourceId
+          : split.source !== undefined && e.source === split.source)) ? [i] : []);
+      if (parents.length > 0 && parents.every(i => landedAt[i] !== undefined && landedAt[i]! <= split.time)) {
+        ground = split.time;
+      }
+    }
+    landedAt.push(ground);
     const abort = b.events.find((e) => e.type === 'SIM_ABORT');
-    if (!abort) continue;
+    if (!abort) {
+      if (ground === undefined) {
+        const end = b.events.find(e => e.type === 'SIMULATION_END')?.time ?? b.series.time.at(-1);
+        out.push({ key: 'INCOMPLETE_FLIGHT', priority: 'HIGH',
+          message: `${b.name ? `The ${b.name} stage's flight` : 'The flight'} ended${Number.isFinite(end) ? ` at T+${end!.toFixed(2)} s` : ''} before ground contact was recorded. ${index > 0 ? 'That stage\'s flight is incomplete; its landing rate is unavailable.' : 'The flight is incomplete; landing rate and landing drift are unavailable.'}`,
+        });
+      }
+      continue;
+    }
     const when = Number.isFinite(abort.time) ? ` at T+${abort.time.toFixed(2)} s` : '';
     const why = ABORT_CAUSES[abort.cause ?? ''] ?? null;
     const whose = b.name ? `The ${b.name} stage's flight` : 'The flight';
@@ -1977,7 +2001,7 @@ export function buildSimRun(input: {
   rocketName: string;
   execMs: number;
   /** Per-stage motor info by STAGE NAME (staged rockets; booster-recovery checks). */
-  stageMotorInfo?: Record<string, { label: string; highPower: boolean }>;
+  stageMotorInfo?: Record<string, { label?: string; highPower?: boolean }>;
   boosterMotors?: string[];
   aeroModel?: 'classic' | 'supersonic' | 'auto-supersonic' | 'hybrid';
   rogersKbf?: boolean;
@@ -2149,7 +2173,7 @@ export function buildSimRun(input: {
     const landing = vHit !== null && Number.isFinite(vHit) ? Math.abs(vHit) : null;
     const bDeployments = extractDeployments(
       b.events, b.series, landing, groundEv?.time ?? null, flownRecovery);
-    const bLanding = bDeployments.length > 0
+    const bLanding = !groundEv ? null : bDeployments.length > 0
       ? (bDeployments[bDeployments.length - 1]!.descentRate ?? landing)
       : (verticalRateAt(b.series,
         groundEv?.time ?? b.series.time[b.series.time.length - 1] ?? 0) ?? landing);
@@ -2167,7 +2191,7 @@ export function buildSimRun(input: {
       ...(recoveryStages ? { recoveryFitted: recoveryStages.includes(b.name) } : {}),
     });
   }
-  const landingRaw = Number.isFinite(summary.groundHitVelocity)
+  const landingRaw = tGround === null ? null : Number.isFinite(summary.groundHitVelocity)
     ? summary.groundHitVelocity : (tGround !== null ? at(series.time, series.velocity, tGround) : null);
   /** Speed over the ground at impact: descent AND wind drift. */
   const landingGroundSpeed = landingRaw === null ? null : Math.abs(landingRaw);
@@ -2180,7 +2204,7 @@ export function buildSimRun(input: {
    * device at all, where a tumbling arrival has no settled rate to speak of and
    * the ground speed IS the honest number.
    */
-  const landingRate = deployments.length > 0
+  const landingRate = tGround === null ? null : deployments.length > 0
     ? (deployments[deployments.length - 1]!.descentRate ?? landingGroundSpeed)
     : (verticalRateAt(series,
       tGround ?? series.time[series.time.length - 1] ?? 0) ?? landingGroundSpeed);
@@ -2192,7 +2216,7 @@ export function buildSimRun(input: {
 
   // Landing drift + peak roll rate come from the symbol-keyed series (Pl /
   // θl / dΦ) — null on an engine artifact that predates that export.
-  const drift = extractLandingDrift(series);
+  const drift = tGround === null ? { distanceM: null, bearingDeg: null } : extractLandingDrift(series);
   const maxRollRateRadS = extractMaxRollRate(series);
 
   const safeLiftoffSpeed = rodExitVelocity !== null
@@ -2428,6 +2452,7 @@ export function buildSimRun(input: {
     flushDevices();
   }
 
+  const stopWarnings = abortWarnings(result);
   return {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     when: Date.now(),
@@ -2486,16 +2511,16 @@ export function buildSimRun(input: {
     safeDeployment,
     staticMarginOk,
     weathercockRisk,
-    // Only stored when the engine emitted the field at all — an old artifact
-    // must leave simWarnings ABSENT (unknown), not [] (flew clean).
+    // Preserve an old artifact's absent warnings unless flight events themselves
+    // establish an abort or an incomplete branch.
     //
     // A SIM_ABORT is folded in as a HIGH warning. The kernel does NOT raise one
     // of its own for an abort — it stops the flight and returns normally — so
     // before this a design that never left the pad came back with apogee 0, an
     // empty warning list and nothing anywhere saying why. On the beta test
     // corpus 17 of the 72 flyable designs end this way, almost all .CDX1.
-    ...(result.warnings !== undefined
-      ? { simWarnings: storedWarnings([...abortWarnings(result), ...result.warnings]) }
+    ...(result.warnings !== undefined || stopWarnings.length > 0
+      ? { simWarnings: storedWarnings([...stopWarnings, ...(result.warnings ?? [])]) }
       : {}),
     landingDistanceM: drift.distanceM,
     landingBearingDeg: drift.bearingDeg,

@@ -48,7 +48,7 @@ import { NoticeBar, type Notice, type NoticeSeverity } from './components/Notice
 import { MeasuredMassBox } from './components/MeasuredMassBox.js';
 import { MotorPadMass } from './components/MotorPadMass.js';
 import {
-  BUILD_ALLOWANCE_NAME, coveringMassOverride, findAllowance, placeAtStation, solveBallast,
+  applyAllowance as applySolvedAllowance, coveringMassOverride, findAllowance, solveBallast,
   solePinnedStage, withoutAllowance, type BallastSolution,
 } from './services/buildAllowance.js';
 import { MotorPicker } from './components/MotorPicker.js';
@@ -150,7 +150,7 @@ import { sessionDebugLog } from './services/sessionDebugLog.js';
 import { offlineStatusText, useOfflineStatus } from './services/offlineStatus.js';
 import {
   addChild, addStage, nozzleStages, nozzleEditableStageIds, applyStageNozzles, autoDelayBox, cloneSubtree, duplicateNode, findNode,
-  findParent, hasParallelStage, makeNode, motorMounts, moveNode,
+  hasParallelStage, motorMounts, moveNode,
   isPristineDefault, mountCountNote, mountMotorCount, mountName, removeNode, stageIndexOf, stages,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
@@ -973,10 +973,10 @@ export function App() {
     // a non-edit rewrite (catalogue relabel, restore migration, starter landing)
     // moves it too, or a design identical to the saved file reads as unsaved.
     { onMarkMigrated: moveLossyMark });
-  // Conflicted changes and dirty edits while autosave is paused are in no
+  // Conflicted changes and dirty edits while autosave is paused or failing are in no
   // storage slot, so closing this tab would lose them without a leave prompt.
   useEffect(() => {
-    if (!sessionConflict && !(autosavePaused && dirty)) return;
+    if (!sessionConflict && !((autosavePaused || autosaveFailing) && dirty)) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       if (leavingForOtherTab.current) return;
       e.preventDefault();
@@ -984,7 +984,7 @@ export function App() {
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => { window.removeEventListener('beforeunload', onBeforeUnload); };
-  }, [sessionConflict, autosavePaused, dirty]);
+  }, [sessionConflict, autosavePaused, autosaveFailing, dirty]);
   // The hook's counter is session-local; saved provenance carries its prior count.
   const lossyFlights = (session?.lossySaved?.flights ?? 0) + flightCount.current;
   const lossyStatus = designFile && (designFile.format === 'rkt' || designFile.format === 'cdx1')
@@ -1724,41 +1724,11 @@ export function App() {
    * setTree, so it is a single undoable edit like any other.
    */
   const applyAllowance = (sol: Extract<BallastSolution, { kind: 'ok' }>) => {
-    const lengthM = allowanceNode ? num(allowanceNode, 'length', 0.02) : 0.02;
-    const place = placeAtStation(tree, sol.stationM, lengthM);
-    if (!place) return;
-
-    if (allowanceNode?.id) {
-      const parent = findParent(tree, allowanceNode.id);
-      const parentId = parent && parent !== 'stage' ? parent.id : null;
-      if (parentId === place.parentId) {
-        setTree(updateNode(tree, allowanceNode.id, {
-          mass: sol.massKg,
-          position: { method: 'top', offset: place.offset },
-        }));
-      } else {
-        // The new station is in a different body section: there is no
-        // move-between-parents helper, so re-home it in one edit.
-        const moved = {
-          ...allowanceNode,
-          mass: sol.massKg,
-          position: { method: 'top', offset: place.offset },
-        } as ComponentNode;
-        setTree(addChild(removeNode(tree, allowanceNode.id), place.parentId, moved));
-      }
-      setSelectedId(allowanceNode.id);
-      return;
-    }
-
-    const node = {
-      ...makeNode('masscomponent'),
-      name: BUILD_ALLOWANCE_NAME,
-      mass: sol.massKg,
-      length: lengthM,
-      position: { method: 'top', offset: place.offset },
-    } as ComponentNode;
-    setTree(addChild(tree, place.parentId, node));
-    if (node.id) setSelectedId(node.id);
+    const next = applySolvedAllowance(tree, sol);
+    if (next === tree) return;
+    setTree(next);
+    const id = findAllowance(next)?.id;
+    if (id) setSelectedId(id);
   };
 
   /**
@@ -1807,7 +1777,7 @@ export function App() {
    */
   const pinBlockerToMeasured = useCallback(() => {
     const blocker = allowanceBlocker;
-    if (!blocker?.id || measured.massKg === null || measured.cgM === null) return;
+    if (!canPinBlocker || !blocker?.id || measured.massKg === null || measured.cgM === null) return;
     setTree(updateNode(tree, blocker.id, {
       overrideMass: measured.massKg,
       overrideSubcomponentsMass: true,
@@ -1821,7 +1791,7 @@ export function App() {
       + ` and CG ${fmtSi('length', prefs.units.length, measured.cgM, 3)} ${prefs.units.length}. `
       + 'Clear it under Overrides to go back to the computed geometry.');
     setSelectedId(blocker.id);
-  }, [allowanceBlocker, measured, tree, prefs.units, setFileNote, setTree, setSelectedId]);
+  }, [canPinBlocker, allowanceBlocker, measured, tree, prefs.units, setFileNote, setTree, setSelectedId]);
 
   /**
    * Everything transient the user should see, in one channel with a severity
@@ -4427,6 +4397,7 @@ export function App() {
           {built && (
             <PanelBoundary what="The drag chart" resetKey={built}>
               <DragPanel rocket={built.rocket} supersonicModel={effectiveSupersonic || aeroMode === 'hybrid'} hybridModel={aeroMode === 'hybrid'}
+                effectiveKbf={effectiveKbf}
                 aeroLabel={currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}
                 designName={tree.name} fileMachAlt={fileMachAlt}
                 open={dragOpen} onOpenChange={setDragOpen} />
@@ -4881,7 +4852,7 @@ export function App() {
 
         {tab === 'results' && (
         <main className="results-column" data-tour="results-panel" ref={resultsMainRef} tabIndex={-1}>
-          {!inspectedSummary && shownResult && aeroMode === 'classic' && shownResult.summary.maxMachNumber > MACH_AUTO_THRESHOLD && (
+          {!inspectedSummary && shownResult && lastRun?.aeroModel === 'classic' && shownResult.summary.maxMachNumber > MACH_AUTO_THRESHOLD && (
             <div className="file-note file-note-warn" role="alert">
               ⚠ This flight reaches <strong>Mach {shownResult.summary.maxMachNumber.toFixed(2)}</strong> on
               the classic aero model, which is approximate past ~Mach {MACH_AUTO_THRESHOLD} — supersonic CP travel

@@ -26,14 +26,14 @@ it('S7a-4 formats a malformed message safely even before hydration', () => {
   expect(() => formatWarning({ key: 'LargeAOA', message: {} } as EngineWarning)).not.toThrow();
 });
 
-it('bounds critical fallback output and keeps a late stop signal', () => {
+it.each(['SIM_ABORT', 'INCOMPLETE_FLIGHT'])('bounds critical fallback output and keeps a late %s stop signal', key => {
   const warnings: EngineWarning[] = Array.from({ length: MAX_STORED_WARNINGS + 1 }, (_, i) => ({
     key: 'Danger', message: 'Unsafe ' + i, priority: 'HIGH',
   }));
-  warnings.push({ key: 'SIM_ABORT', message: 'Stopped' });
+  warnings.push({ key, message: 'Stopped', priority: 'HIGH' });
   const recovered = restoredWarnings(warnings)!;
   expect(recovered).toHaveLength(MAX_STORED_WARNINGS);
-  expect(recovered[0]).toEqual({ key: 'SIM_ABORT', message: 'Stopped' });
+  expect(recovered[0]).toEqual({ key, message: 'Stopped', priority: 'HIGH' });
   expect(recovered.at(-1)!.key).toBe('StoredWarningsUnavailable');
   expect(boundedWarningEvidence(recovered)).toBe(true);
   expect(restoredWarnings(recovered)).toBe(recovered);

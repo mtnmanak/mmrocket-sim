@@ -212,12 +212,9 @@ function verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
               {onPinStage
                 ? <>Either clear that mass override under <strong>Overrides</strong>, or pin
                   it to what you measured.</>
-                // No pin offered: more than one stage is pinned, and what you
-                // weighed is the whole airframe. There is no rule for which of
-                // them should absorb the difference, and a wrong override is
-                // worse than none.
-                : <>You weighed the whole airframe and more than one stage is pinned, so there
-                  is no telling which should carry the difference — clear the mass overrides
+                // Whole-airframe measurements cannot replace a partial override.
+                : <>You weighed the whole airframe, but this mass override does not cover the whole airframe.
+                  Pinning it to that measurement would give the wrong total mass — clear the covering mass override
                   under <strong>Overrides</strong> and weigh again.</>}
             </Note>
           ),

@@ -21,7 +21,7 @@ import {
   deleteExMotor, exToDbEntry, loadExMotors,
 } from '../services/exMotors.js';
 import {
-  bundledSimFiles, defaultDelay, delayOptions, fetchMotorSpec, headerMasses, pickSampleFile,
+  bundledFiles, defaultDelay, delayOptions, fetchMotorSpec, headerMasses, pickSampleFile,
 } from '../services/thrustcurve.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { siToUi } from '../prefs/units.js';
@@ -309,17 +309,24 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
    * Cesaroni 320H565-14A, Klima B2, ...), and desktop flies every one. Found
    * the way fetchMotorSpec will find the curve: the same bundle and the same
    * pickSampleFile. Empty until the bundle chunk loads, so a row unlocks a
-   * moment after the dialog opens rather than ever the other way round.
+   * moment after the dialog opens. Unknown evidence after a chunk failure
+   * also permits an on-demand load, whose mass validation still applies.
    */
-  const [fileMassed, setFileMassed] = useState<ReadonlySet<string>>(() => new Set());
+  const [massLoadable, setMassLoadable] = useState<ReadonlySet<string>>(() => new Set());
   useEffect(() => {
     let live = true;
     const need = catalogue.filter((m) => !hasMassData(m));
     void Promise.all(need.map(async (m) => {
-      const file = pickSampleFile(await bundledSimFiles(m.motorId), m);
-      return file && headerMasses(file) ? m.motorId : null;
+      try {
+        const file = pickSampleFile(await bundledFiles(m.motorId), m);
+        return file && headerMasses(file) ? m.motorId : null;
+      } catch {
+        // A missing chunk is unknown evidence. Let Load try the network;
+        // fetchMotorSpec still refuses a file with unusable masses.
+        return m.motorId;
+      }
     })).then((ids) => {
-      if (live) setFileMassed(new Set(ids.filter((id): id is string => id !== null)));
+      if (live) setMassLoadable(new Set(ids.filter((id): id is string => id !== null)));
     });
     return () => { live = false; };
   }, [catalogue]);
@@ -853,8 +860,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                 // thrustcurve.org has no usable catalogue weights for ~13% of the
                 // catalog; the ones whose data file has none either cannot be
                 // simulated at all, so they stay listed (they are real motors)
-                // but are not pickable. See motorDb.hasMassData and fileMassed.
-                const noMass = !hasMassData(m) && !fileMassed.has(m.motorId);
+                // but are not pickable. Unknown bundle evidence permits Load.
+                const noMass = !hasMassData(m) && !massLoadable.has(m.motorId);
                 return (
                   <tr
                     key={m.motorId}

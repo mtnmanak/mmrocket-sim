@@ -429,6 +429,12 @@ describe('fin cut profiles', () => {
 });
 
 describe('disc cut profiles', () => {
+  it('refuses an automatic centered opening for an off-axis or clustered mount', () => {
+    const ring = node('centeringring', { length: 0.003 });
+    const ctx = { parentInnerRadius: 0.029, mountOuterRadius: 0.01, mountLayoutUnresolved: true };
+    expect(componentDxf(ring, ctx, 'Offset mount')).toBeNull();
+    expect(componentDxf({ ...ring, innerRadius: 0.012 }, ctx, 'Stated bore')).not.toBeNull();
+  });
   it('centering ring: concentric CIRCLEs at the tube bore and the mount OD', () => {
     const ents = entities(parse(dxf(node('centeringring', { length: 0.003 }), RING_CTX)));
     const circles = ents.filter((e) => e.type === 'CIRCLE');

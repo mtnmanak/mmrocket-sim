@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
@@ -294,6 +294,40 @@ async function openSavedRuns(host: HTMLElement): Promise<void> {
 
 /** Starter motor present in the stored session — the async C6 has landed and been autosaved. */
 const starterStored = () => Object.keys(storedSession()?.mountMotors ?? {}).length > 0;
+
+it.each(['autosave recovery', 'explicit file save'])('guards dirty edits after a failed autosave until %s', async recovery => {
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter autosave');
+  const own = localStorage.setItem;
+  let fail = true;
+  Object.defineProperty(localStorage, 'setItem', { configurable: true, value: (key: string, value: string) => {
+    if (fail && key === SESSION_KEY) throw new DOMException('full', 'QuotaExceededError');
+    return own.call(localStorage, key, value);
+  } });
+  onTestFinished(() => { Object.defineProperty(localStorage, 'setItem', { configurable: true, value: own }); });
+  await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Unsaved storage failure');
+  await waitFor(() => !!host.querySelector('.autosave-warn'), 'failed autosave banner');
+  const leave = () => {
+    const event = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(event);
+    return event.defaultPrevented;
+  };
+  expect(leave()).toBe(true);
+  if (recovery === 'autosave recovery') {
+    fail = false;
+    await act(async () => { window.dispatchEvent(new Event('pagehide')); });
+    await waitFor(() => !host.querySelector('.autosave-warn'), 'autosave recovery');
+    expect(storedSession()!.tree.name).toBe('Unsaved storage failure');
+  } else {
+    const made = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:failed-autosave');
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    onTestFinished(() => { made.mockRestore(); revoked.mockRestore(); });
+    await act(async () => { button(host, 'Save As / Export').click(); });
+    await act(async () => { button(host, 'Save .ork').click(); });
+    expect(host.querySelector('.autosave-warn')).not.toBeNull();
+  }
+  expect(leave()).toBe(false);
+}, 30000);
 
 it.each(['damaged-root', 'legacy'] as const)('restores the starter motor for a %s autosave', async (kind) => {
   const tree = kind === 'damaged-root' ? null

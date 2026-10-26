@@ -47,7 +47,7 @@ const RESOLVE_SELECT: Record<string, (n: ComponentNode) => string | undefined> =
   fairingAftShape: (n) => shroudEnds(n).aft,
 };
 import { shapeUsesParameter } from '../tree/shapeProfile.js';
-import { componentSolid, finPrintShape, type FinPrintFallback } from '../tree/solidMesh.js';
+import { centeringRingBore, componentSolid, finPrintShape, ringOuterRadius, type FinPrintFallback } from '../tree/solidMesh.js';
 import { finSectionLaw, type FinSectionLaw } from '../tree/finSection.js';
 import { finSectionFlatReason } from '../tree/finChords.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
@@ -277,13 +277,17 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
   const current = node[nameKey];
   const named = typeof current === 'string' && current !== '' ? current : null;
   const kind: MaterialKind = densityKey === 'surfaceDensity' ? 'surface' : densityKey === 'lineDensity' ? 'line' : 'bulk';
-  const known = named !== null && list.some(m => m.name === named);
+  const foreignDensity = numOpt(node, densityKey);
+  const effectiveDensity = foreignDensity === undefined || (kind === 'bulk' && foreignDensity <= 0)
+    ? KERNEL_DEFAULT_MATERIALS[kind].density : foreignDensity;
+  // Unit conversions in file formats can move a density by a few ULPs.
+  const known = named !== null && list.some(m => m.name === named
+    && Math.abs(m.density - effectiveDensity) <= 1e-12 * m.density);
   // The node names a material this list has never heard of — a catalogue part's
   // own material, almost always. Offer it, selected, with the density the node
   // is actually flying, rather than silently calling it Custom.
   const foreign = named !== null && !known ? named : null;
   // A non-finite density is no density (audit row 522): the option would read "(NaN kg/m³)".
-  const foreignDensity = numOpt(node, densityKey);
   const id = useId();
   const selectRef = useRef<HTMLSelectElement>(null);
   const restoringNameFocus = useRef(false);
@@ -300,6 +304,7 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
   const names = [...list, ...allDesign, ...mine].map(m => m.name).concat(named ?? []);
   let prefix = `${id}:`;
   while (names.some(name => name.startsWith(prefix))) prefix += ':';
+  const foreignValue = foreign !== null && list.some(m => m.name === foreign) ? `${prefix}part` : foreign;
   const groupValue = (source: 'design' | 'mine', m: Pick<MaterialDef, 'name' | 'density'>) => `${prefix}${source}:${JSON.stringify([m.name, m.density])}`;
   const pickedMaterial = allDesign.find(m => groupValue('design', m) === picked)
     ?? mine.find(m => groupValue('mine', m) === picked);
@@ -308,7 +313,7 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
   const sourceLabel = foreignSource ?? "this part's material";
   const saveProblem = materialProblem({ kind, name: foreign, density: foreignDensity ?? NaN });
   const saved = named ? mine.find(m => materialNameKey(m.name) === materialNameKey(named)) : undefined;
-  const value = keepPicked ? picked! : named ?? '';
+  const value = keepPicked ? picked! : foreignValue ?? named ?? '';
   const commitName = (restoreFocus: boolean) => {
     const name = draft.trim();
     if (!name) { setDraft(''); return; }
@@ -349,13 +354,13 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
           // part's original values, including an absent density.
           else {
             setPicked(null);
-            if (e.target.value !== foreign) onPatch({ [nameKey]: undefined });
+            if (e.target.value !== foreignValue) onPatch({ [nameKey]: undefined });
           }
         }}
       >
         <option value="">Custom</option>
         {foreign !== null && !keepPicked && (
-          <option value={foreign}>
+          <option value={foreignValue!}>
             {foreign}{foreignDensity !== undefined ? ` (${foreignDensity} ${densityUnit})` : ''}
             {` — ${sourceLabel}`}
           </option>
@@ -1406,7 +1411,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             // a planform that collapses under three distinct corners, and a
             // button that silently does nothing reads as a broken button.
             if (!dxf) {
-              setExportNote(node.type.endsWith('finset')
+              setExportNote(node.type === 'centeringring'
+                ? 'The app cannot lay out this mount’s holes; one centred opening would not fit. Lay out the holes by hand, or state the ring ID if one centred opening is right.'
+                : node.type.endsWith('finset')
                 ? 'This fin outline crosses itself or encloses no area — fix the '
                   + 'fin points before exporting.'
                 : 'Nothing to cut for this component.');
@@ -1447,12 +1454,15 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   downloadBlob(new Blob([pack.bytes as BlobPart], { type: ZIP_MIME }),
                     pack.filename, 'ZIP of printable segments');
                 } else {
-                  const solid = await componentSolid(node, solidContextFor(tree, node));
+                  const ctx = solidContextFor(tree, node);
+                  const solid = await componentSolid(node, ctx);
                   // componentSolid now returns null for a fin whose planform is
                   // unusable as well as for a type that is not printable, and a
                   // button that silently does nothing reads as a broken button.
                   if (!solid) {
-                    setExportNote(node.type === 'tubefinset' && numOpt(node, 'outerRadius') === 0
+                    setExportNote(node.type === 'centeringring' && centeringRingBore(node, ctx, ringOuterRadius(node, ctx).r) === null
+                      ? 'The app cannot lay out this mount’s holes; one centred opening would not fit. Lay out the holes by hand, or state the ring ID if one centred opening is right.'
+                      : node.type === 'tubefinset' && numOpt(node, 'outerRadius') === 0
                       ? `This tube-fin set has an Outer ${prefs.radiusMode} of 0, so there is nothing to print — `
                         + `clear the field for automatic sizing or enter a ${prefs.radiusMode}.`
                       : node.type.endsWith('finset') && node.type !== 'tubefinset'

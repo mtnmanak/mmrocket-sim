@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
 import {
   BUILD_ALLOWANCE_NAME,
+  applyAllowance,
   coveringMassOverride,
   findAllowance,
   placeAtStation,
@@ -19,6 +20,24 @@ import {
  * balancing at 415 mm, needs 60 g at 540 mm.
  */
 describe('solveBallast', () => {
+  it.each([0.2, 0.7])('replaces conflicting allowance overrides at station %s, including rehoming', async stationM => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
+      { type: 'bodytube', id: 'front', length: 0.5, outerRadius: 0.03, overrideMass: 0.5,
+        children: [{ type: 'masscomponent', id: 'a', name: BUILD_ALLOWANCE_NAME, mass: 0.1,
+          length: 0.02, overrideMass: 0.1, overrideCGX: 0.09, overrideSubcomponentsMass: true,
+          overrideSubcomponentsCG: true, position: { method: 'top', offset: 0.19 } }] },
+      { type: 'bodytube', id: 'aft', length: 0.5, outerRadius: 0.03, overrideMass: 0.5 },
+    ] }] };
+    const changed = applyAllowance(tree, { kind: 'ok', massKg: 0.2, stationM });
+    resetEngine();
+    const rocket = OrkRocket.buildTree(changed);
+    expect(rocket.staticInfo().massEmpty).toBeCloseTo(1.2, 12);
+    const part = rocket.componentInfo('a');
+    expect(part.positionX + part.cgX).toBeCloseTo(stationM, 12);
+    expect(findAllowance(changed)).toMatchObject({ overrideMass: undefined, overrideCGX: undefined,
+      overrideSubcomponentsMass: false, overrideSubcomponentsCG: false });
+  });
   const base = {
     computedMassKg: 0.5,
     computedCgM: 0.4,
@@ -238,13 +257,33 @@ describe('coveringMassOverride — what would swallow a Build allowance', () => 
 });
 
 describe('solePinnedStage — whether pinning to the scale is unambiguous', () => {
+  it('refuses a 1.3 kg whole-airframe pin on a 1 kg sustainer with a 0.2 kg booster', async () => {
+    const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
+    const tree: RocketTree = { components: [
+      { type: 'stage', id: 's', overrideMass: 1, overrideSubcomponentsMass: true,
+        children: [{ type: 'bodytube', id: 's-body', length: 0.5, outerRadius: 0.03 }] },
+      { type: 'stage', id: 'b', children: [
+        { type: 'bodytube', id: 'b-body', length: 0.2, outerRadius: 0.03, overrideMass: 0.2 },
+      ] },
+    ] };
+    resetEngine();
+    const info = OrkRocket.buildTree(tree).staticInfo();
+    expect(info.massEmpty).toBeCloseTo(1.2, 12);
+    const solution = solveBallast({ computedMassKg: info.massEmpty, computedCgM: info.cgEmpty,
+      measuredMassKg: 1.3, measuredCgM: (info.massEmpty * info.cgEmpty + 0.1 * 0.2) / 1.3,
+      rocketLengthM: info.length });
+    expect(solution).toMatchObject({ kind: 'ok', stationM: expect.closeTo(0.2, 12) });
+    expect(coveringMassOverride(tree, 0.2, 0.02)?.id).toBe('s');
+    expect(solePinnedStage(tree.components)).toBeNull();
+  });
   const stage = (id: string, extra: Record<string, unknown> = {}) =>
     ({ id, type: 'stage', name: id, children: [], ...extra }) as unknown as RocketTree['components'][number];
   const PINNED = { overrideMass: 0.5, overrideSubcomponentsMass: true };
 
   it('names the one stage that stands in for its contents', () => {
     const sustainer = stage('sustainer', PINNED);
-    expect(solePinnedStage([sustainer, stage('booster')])).toBe(sustainer);
+    expect(solePinnedStage([sustainer])).toBe(sustainer);
+    expect(solePinnedStage([sustainer, stage('booster', { overrideMass: 0.2 })])).toBeNull();
   });
 
   it('names none when no stage is pinned, or when more than one is', () => {
@@ -256,7 +295,8 @@ describe('solePinnedStage — whether pinning to the scale is unambiguous', () =
 
   it('counts a stage only with BOTH the flag and a value — the kernel’s rule', () => {
     const sustainer = stage('sustainer', PINNED);
-    expect(solePinnedStage([sustainer, stage('booster', { overrideSubcomponentsMass: true })])).toBe(sustainer);
-    expect(solePinnedStage([sustainer, stage('booster', { overrideMass: 0.2 })])).toBe(sustainer);
+    expect(solePinnedStage([stage('sustainer', { overrideSubcomponentsMass: true })])).toBeNull();
+    expect(solePinnedStage([stage('sustainer', { overrideMass: 0.2 })])).toBeNull();
+    expect(solePinnedStage([sustainer, stage('booster', { overrideSubcomponentsMass: true })])).toBeNull();
   });
 });

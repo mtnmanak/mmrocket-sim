@@ -72,7 +72,8 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
    */
   const [presets, setPresets] = useState<Preset[] | null>(null);
   const [catalogueFailed, setCatalogueFailed] = useState(false);
-  const wanted = recovery.state === 'ok';
+  const wanted = byStage?.state === 'ok'
+    ? byStage.groups.some(g => g.mass.state === 'ok') : recovery.state === 'ok';
   useEffect(() => {
     if (!wanted || presets !== null || catalogueFailed) return;
     let live = true;
@@ -108,7 +109,7 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
   );
 
   const sustainer = sizings[0]!;
-  if (sustainer.state === 'no-motor') {
+  if (objects.length === 1 && sustainer.state === 'no-motor') {
     return (
       <Shell summary="needs a motor">
         <p className="recovery-sizing-hint">
@@ -118,7 +119,7 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
       </Shell>
     );
   }
-  if (sustainer.state === 'unavailable') {
+  if (objects.length === 1 && sustainer.state === 'unavailable') {
     return (
       <Shell summary="no recommendation">
         <p className="recovery-sizing-hint">
@@ -147,8 +148,9 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
   // of the app means by "the rocket" — with a count of the others.
   const sizeSummary = (advice: BandAdvice): string => advice.diameter === null
     ? `${advice.role} —` : `${advice.role} ~${roughLength(advice.diameter)} ${lenSym}`;
-  const summary = sizeSummary(sustainer.main)
-    + ` · ${sizeSummary(sustainer.drogue)}`
+  const summary = (sustainer.state === 'ok'
+    ? sizeSummary(sustainer.main) + ` · ${sizeSummary(sustainer.drogue)}`
+    : sustainer.state === 'no-motor' ? 'needs a motor' : 'no recommendation')
     + (objects.length > 1 ? ` · +${objects.length - 1} stage${objects.length > 2 ? 's' : ''}` : '');
 
   const fmt = { roughLength, rate, lenSym, velSym, massSym, altSym };

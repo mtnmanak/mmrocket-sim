@@ -1,4 +1,5 @@
 import { Note } from './Note.js';
+import { ISA_RADIUS_M, ISA_TOP_M, usesGeopotentialIsa } from '../services/atmosphere.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
@@ -328,11 +329,12 @@ type MachAlt = [number, number][];
  * its typography folded to ASCII (services/dragTable.ts) — the same words, "20 degC" for
  * "20 °C" — so the file opens clean in Excel.
  */
-function conditionsText(mode: Conditions, altM: number, table: MachAlt | undefined, altUnit: string): string {
+function conditionsText(mode: Conditions, altM: number, table: MachAlt | undefined, altUnit: string, correctedIsa: boolean): string {
   // fmtSi's precision ladder gives sub-1 values three decimals, so a sea-level
   // row would print as "0.000". Zero is just zero.
-  const ceilingNote = (max: number) => max > 84500
-    ? ' (atmosphere conditions above 84.5 km are held at that layer)' : '';
+  const ceiling = correctedIsa ? ISA_RADIUS_M * ISA_TOP_M / (ISA_RADIUS_M - ISA_TOP_M) : 84500;
+  const ceilingNote = (max: number) => max > ceiling
+    ? ` (atmosphere conditions above ${correctedIsa ? '86' : '84.5'} km are held at that layer)` : '';
   const fmtAlt = (v: number) => (v === 0 ? '0' : fmtSi('altitude', altUnit, v));
   if (mode === 'file' && table && table.length > 0) {
     const machs = table.map(([m]) => m);
@@ -484,7 +486,7 @@ function SweepAltitudeBox({ altM, altUnit, onCommit }: {
   );
 }
 
-export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, designName, fileMachAlt, open: openProp, onOpenChange }: {
+export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, aeroLabel, designName, fileMachAlt, open: openProp, onOpenChange }: {
   rocket: OrkRocket;
   /**
    * Controlled open state. Design holds it (CFG-SPEC B2) so the panel stays as
@@ -496,6 +498,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
   /** Whether the opt-in supersonic aero model is active. */
   supersonicModel?: boolean;
   hybridModel?: boolean;
+  effectiveKbf?: boolean;
   /**
    * The FULL model label for the CSV metadata header. Passed in rather than
    * reassembled here: the panel is handed only the supersonic half, and read
@@ -665,7 +668,10 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, aeroLabel, des
   }, [open, cpAoa, sweepRocket, machTop, machAlt]);
   const aoaCpSweep = aoaSweep && !('error' in aoaSweep) ? aoaSweep : null;
 
-  const condText = conditionsText(conditions, altM, fileMachAlt, altUnit);
+  const condText = conditionsText(conditions, altM, fileMachAlt, altUnit, usesGeopotentialIsa({
+    aeroMode: hybridModel ? 'hybrid' : supersonicModel ? 'supersonic' : 'classic',
+    effectiveKbf: effectiveKbf ?? prefs.rogersKbf ?? true,
+  }));
 
   // The design's static figures, read only while a sweep is showing: the CP
   // chart needs the length to scale by, and the roll note below needs the

@@ -351,6 +351,7 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string,
       // The ring's own stated bore first, then the mount's OD — the kernel's
       // order, shared with componentLoop (centeringRingBore).
       const raw = centeringRingBore(node, ctx, R);
+      if (raw === null) return null;
       const found = typeof raw === 'number';
       const known = found && raw > EPS && raw < R - EPS;
       // Same fallback componentSolid() takes: a ring with no mount tube to

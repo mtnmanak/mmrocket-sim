@@ -1072,9 +1072,15 @@ describe('the Launch button and simulateFile fly an opened file the same', () =>
   }, 60000);
 
   it('F5: a two-stage .CDX1 that names itself generically — named after its file', async () => {
-    const { out } = await fileCase(fixture('Complex.Two-Stage.CDX1'), 'My_Test_Rocket.CDX1', CLASSIC);
+    const { app, out } = await fileCase(fixture('Complex.Two-Stage.CDX1'), 'My_Test_Rocket.CDX1', CLASSIC);
     expect(out.run.rocket).toBe('My Test Rocket');
     expect(out.run.motor).toBe('J90W');
+    for (const run of [app.out.run, out.run]) {
+      expect(run.branches).toEqual([expect.objectContaining({
+        name: 'Booster', motorLabel: 'I170G-0', recoveryFitted: false, deployments: [],
+      })]);
+      expect(run.comments).toContain('Booster has NO recovery device');
+    }
   }, 60000);
 
   it('F11: a .ork flown with Rogers Kbf off (Extended Barrowman) — stamped as flown', async () => {

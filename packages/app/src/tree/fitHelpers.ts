@@ -4,6 +4,7 @@ import { num, numOrNull } from './nodeNum.js';
 import { applyFieldLimit, fieldLimit } from './schema.js';
 import { isTailCone } from './tailCone.js';
 import { kernelNum } from './kernelDefaults.js';
+import { clusterCount, clusterOffsets } from './cluster.js';
 
 /**
  * The property panel's two one-shot FIT buttons — "Fit tab to motor tube" and
@@ -63,6 +64,7 @@ export function finTabFit(fin: ComponentNode, parent: ComponentNode | 'stage' | 
   const outerR = numOrNull(parent, 'outerRadius');
   if (outerR === null) return null;
   const mountR = mountRadiusAlongside(parent, fin);
+  if (mountR === undefined) return null;
   // One-shot sizes obey the typed field's limits too (open-items, 22–23
   // September: "Fit shoulder can still write what it repairs").
   const depth = applyFieldLimit(fieldLimit(fin.type, 'tabHeight')!,
@@ -102,7 +104,7 @@ export function finTabFit(fin: ComponentNode, parent: ComponentNode | 'stage' | 
  * Black_Brant_VC.rkt's own 18.0 mm tab passes its sleeve to the motor tube.
  * The button promises the motor tube; this keeps it.
  */
-function mountRadiusAlongside(parent: ComponentNode, fin: ComponentNode): number | null {
+function mountRadiusAlongside(parent: ComponentNode, fin: ComponentNode): number | null | undefined {
   const pLen = axialLength(parent);
   const span = (n: ComponentNode): [number, number] => {
     const len = axialLength(n);
@@ -111,6 +113,14 @@ function mountRadiusAlongside(parent: ComponentNode, fin: ComponentNode): number
   };
   const holdsMount = (n: ComponentNode): boolean => (n.children ?? [])
     .some((c) => c.type === 'innertube' && (c['motorMount'] === true || holdsMount(c)));
+  // Conservative radial bound in the containing tube's frame, including any
+  // descendants. A contained offset mount cannot change the holder's exterior.
+  const radialReach = (n: ComponentNode): number => {
+    const r = kernelNum(n, 'outerRadius');
+    const offsets = clusterOffsets(n['cluster'] as string | undefined, r, num(n, 'clusterScale', 1));
+    const displacement = Math.abs(num(n, 'radialPosition', 0)) + Math.max(...offsets.map(p => Math.hypot(p.y, p.z)));
+    return displacement + Math.max(r, ...(n.children ?? []).filter(c => c.type === 'innertube').map(radialReach));
+  };
   const [finFore, finAft] = span(fin);
   let widest: number | null = null;
   let widestMotor: number | null = null;
@@ -122,6 +132,9 @@ function mountRadiusAlongside(parent: ComponentNode, fin: ComponentNode): number
     const alongside = (fore >= finFore && fore < finAft) || (aft > finFore && aft <= finAft)
       || (fore <= finFore && aft >= finAft);
     if (!alongside) continue;
+    // The tab contacts this tube's exterior, not the mounts inside its holder.
+    if (num(tube, 'radialPosition', 0) !== 0 || clusterCount(tube['cluster'] as string | undefined) > 1) return undefined;
+    if ((tube.children ?? []).some(c => c.type === 'innertube' && radialReach(c) > r)) return undefined;
     widest = Math.max(widest ?? r, r);
     if (tube['motorMount'] === true || holdsMount(tube)) widestMotor = Math.max(widestMotor ?? r, r);
   }

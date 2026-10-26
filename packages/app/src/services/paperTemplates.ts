@@ -34,7 +34,7 @@ export function paperRingDimensions(node: ComponentNode, ctx: SolidContext): { o
   if (node.type !== 'centeringring') return { outer };
   const statedBore = node['innerRadius'] != null;
   const bore = statedBore ? numOpt(node, 'innerRadius') : centeringRingBore(node, ctx, outer);
-  if (bore === undefined || !Number.isFinite(bore) || bore < 0 || bore >= outer || (!statedBore && bore === 0)) {
+  if (bore == null || !Number.isFinite(bore) || bore < 0 || bore >= outer || (!statedBore && bore === 0)) {
     throw new Error('The ring bore is unknown or does not fit inside the ring. Check its ID and the overlapping motor mount.');
   }
   return { outer, bore };

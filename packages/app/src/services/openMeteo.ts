@@ -1,5 +1,6 @@
 import { NETWORK_HOSTS, getJsonCapped, NetError, type NetErrorKind } from './net.js';
 import { coordinatesLabel } from './coordinates.js';
+import { ISA_RADIUS_M } from './atmosphere.js';
 export { coordinatesLabel } from './coordinates.js';
 
 /**
@@ -414,7 +415,8 @@ export function readWindsAloft(h: Record<string, unknown>, units: Record<string,
   const highestFixed = Math.max(10, ...levels.map((l) => l.altitude));
   for (const pressure of PRESSURE_LEVELS) {
     const height = value(`geopotential_height_${pressure}hPa`, 'm');
-    if (height !== null && height - elevation > highestFixed) add(height - elevation, `${pressure}hPa`);
+    const geometric = height !== null ? ISA_RADIUS_M * height / (ISA_RADIUS_M - height) : null;
+    if (geometric !== null && geometric - elevation > highestFixed) add(geometric - elevation, `${pressure}hPa`);
   }
   return levels.sort((a, b) => a.altitude - b.altitude)
     .filter((l, i, a) => i === 0 || l.altitude !== a[i - 1]!.altitude);

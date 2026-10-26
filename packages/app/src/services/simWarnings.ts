@@ -75,6 +75,7 @@ export const WARNING_LABEL: Record<string, string> = lookupTable({
   // Synthesised by simReport from a SIM_ABORT event — the kernel raises no
   // warning of its own when it stops a flight early.
   SIM_ABORT: 'The flight stopped early — the results are incomplete',
+  INCOMPLETE_FLIGHT: 'The flight ended before ground contact — the results are incomplete',
   // Aerodynamic-model warnings (Barrowman calculators, raised in flight)
   SUPERSONIC: 'Flight is supersonic — aerodynamic predictions are approximate',
   DISCONTINUITY: 'Airframe diameter steps abruptly — drag predictions suffer',
@@ -142,7 +143,7 @@ export function formatWarning(w: EngineWarning, units: UnitSelection = INITIAL_U
 /** D7: classify stable event keys, never priority or translated English. The
  * fixed 20 m/s deployment flag is not the report's upper opening limit. */
 export function warningTier(key: string): NoteTier {
-  if (['NO_RECOVERY_DEVICE', 'RECOVERY_LAUNCH_ROD', 'TUMBLE_UNDER_THRUST', 'SIM_ABORT'].includes(key)) return 'danger';
+  if (['NO_RECOVERY_DEVICE', 'RECOVERY_LAUNCH_ROD', 'TUMBLE_UNDER_THRUST', 'SIM_ABORT', 'INCOMPLETE_FLIGHT'].includes(key)) return 'danger';
   if (['ZERO_AREA_FIN', 'FILE_INVALID_PARAMETER'].includes(key)) return 'caution';
   return 'information';
 }

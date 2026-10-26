@@ -814,7 +814,7 @@ export async function knownNoPublishedCurve(motorId: string): Promise<boolean> {
 }
 
 /** bundledSimFiles, but a bundle chunk that would not load THROWS rather than reading as "no files". */
-async function bundledFiles(motorId: string): Promise<TcSimFile[]> {
+export async function bundledFiles(motorId: string): Promise<TcSimFile[]> {
   const curves = await loadBundledCurves();
   return (Object.hasOwn(curves, motorId) ? curves[motorId]! : []).map((f) => ({
     // Carried so the picker can tell two files apart by what they are, not by

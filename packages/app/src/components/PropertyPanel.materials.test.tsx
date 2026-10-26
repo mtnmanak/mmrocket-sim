@@ -9,7 +9,7 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { makeNode } from '../tree/treeModel.js';
 import { KERNEL_DEFAULT_MATERIALS } from '../tree/kernelDefaults.js';
 import { loadBundledPresets, presetPatch } from '../services/presets.js';
-import { BULK_MATERIALS } from '../data/materials.js';
+import { BULK_MATERIALS, SURFACE_MATERIALS, LINE_MATERIALS } from '../data/materials.js';
 import { loadUserMaterials, saveUserMaterials, USER_MATERIALS_CHANGED, USER_MATERIALS_KEY } from '../services/userMaterials.js';
 import { exportOrk, importOrk } from '../services/orkFile.js';
 import { exportRkt, importRkt } from '../services/rocksimFile.js';
@@ -41,6 +41,49 @@ const pick = (el: HTMLSelectElement, value: string) => act(() => {
 beforeEach(() => {
   localStorage.clear(); patches = [];
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+});
+
+it.each([
+  ['bodytube', 'Material', 'materialName', 'density', 'Cardboard', 680],
+  ['parachute', 'Canopy material', 'surfaceMaterialName', 'surfaceDensity', 'Ripstop nylon', 0.067],
+  ['shockcord', 'Cord material', 'lineMaterialName', 'lineDensity', 'Elastic cord (round 2 mm, 1/16 in)', 0.0018],
+] as const)('matches the default material on a %s with absent density', (type, label, nameKey, densityKey, name, density) => {
+  const node = { type, id: 'default', [nameKey]: name } as ComponentNode;
+  show(node);
+  expect(select(label).value).toBe(name);
+  expect(select(label).selectedOptions[0]!.textContent).toContain(`(${density} `);
+  expect(patches).toEqual([]);
+  expect(node[densityKey]).toBeUndefined();
+});
+
+it.each(['parachute', 'streamer'] as const)('keeps built-in canopy selection after a %s .rkt round-trip', type => {
+  const node: ComponentNode = { type, id: 'paper', name: 'Paper canopy', surfaceMaterialName: 'Crêpe paper',
+    surfaceDensity: 0.025, diameter: 0.3, stripLength: 0.5, stripWidth: 0.05 };
+  const result = importRkt(exportRkt({ name: 'Paper', tree: treeOf(tube('body', { children: [node] })) }));
+  const all = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...all(n.children ?? [])]);
+  const restored = all(result.tree.components).find(n => n.name === 'Paper canopy')!;
+  expect(restored.surfaceDensity).toBeCloseTo(0.025, 14);
+  show(restored, result.tree);
+  expect(select('Canopy material').value).toBe('Crêpe paper');
+  expect(select('Canopy material').selectedOptions[0]!.textContent).toContain('(0.025 kg/m²)');
+  expect(patches).toEqual([]);
+});
+
+it.each([
+  ['bodytube', 'Material', 'materialName', 'density', BULK_MATERIALS],
+  ['parachute', 'Canopy material', 'surfaceMaterialName', 'surfaceDensity', SURFACE_MATERIALS],
+  ['shockcord', 'Cord material', 'lineMaterialName', 'lineDensity', LINE_MATERIALS],
+] as const)('shows the exact name and density pair on a %s', (type, label, nameKey, densityKey, materials) => {
+  const builtIn = materials[0]!;
+  const density = builtIn.density * 0.75;
+  show({ type, id: 'different-density', [nameKey]: builtIn.name, [densityKey]: density } as ComponentNode);
+  const selected = select(label).selectedOptions[0]!;
+  expect(selected.textContent).toContain(`${builtIn.name} (${density} `);
+  expect(selected.value).not.toBe(builtIn.name);
+  pick(select(label), selected.value);
+  expect(patches).toEqual([]);
+  pick(select(label), builtIn.name);
+  expect(patches).toEqual([{ [nameKey]: builtIn.name, [densityKey]: builtIn.density }]);
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); vi.restoreAllMocks(); });
 
