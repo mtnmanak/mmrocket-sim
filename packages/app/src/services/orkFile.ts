@@ -43,7 +43,7 @@ import { cautionNote, flagNote, noteFlags, type ImportNote } from './importNotes
 import type { NoteTier } from '../components/Note.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
-import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
+import { parseXml, preflightXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 import { checkFileLongitude, fileLongitudeNote, type FileLongitudeCheck } from './longitudeCheck.js';
 import { deployAltitudeText } from '../components/recoveryContext.js';
 import { deployOverrideNote, flightParameterOverrideNote, sameDeployment, type DeployOverride, type DeploySetting } from './deployOverrideNote.js';
@@ -384,6 +384,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     ({ xml, note: encodingNote } = decodeXml(bytes));
   }
 
+  preflightXml(xml, 'Not a valid .ork file (XML parse error)');
   // OpenRocket writes a single-quoted XML declaration. Of the parsers measured
   // (2026-10-01) only happy-dom, the test stand-in, refuses it — Chrome and the
   // JS parser (xmlParseJs.ts) both accept it — so this strip is for the tests;

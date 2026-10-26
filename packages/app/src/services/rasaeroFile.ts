@@ -34,7 +34,7 @@ import {
   type BackedOutMotor, cgFromCombined, OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES, stageCgWithoutMotor, stageLength,
   stageMassWithoutMotor, type StatedStageFigures,
 } from './statedLaunchWeight.js';
-import { parseXml, type XmlElement, type XmlDocument } from './xmlParse.js';
+import { parseXml, preflightXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 import type { FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
 import type { LayeredOrkFlightConfig, LayeredOrkImportResult } from './orkFile.js';
 import { resolveFlightState, sparsify } from './flightState.js';
@@ -353,6 +353,8 @@ export async function importCdx1Flown(data: ArrayBuffer | string, opts: Omit<Non
 const RASAERO_OUTPUT_TAGS: ReadonlySet<string> = new Set(['CP']);
 
 export function importCdx1(data: ArrayBuffer | string, opts?: {
+  /** Optional host cap; browser imports retain the shared 64 MiB default. */
+  maxInflatedBytes?: number;
   /** Subtracted motor mass and moment must agree with the later match (2026-10-01). */
   catalogue?: MotorDbEntry[];
   /** Choice when the import began, including a session override. Omit when unknown. */
@@ -379,10 +381,11 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // the first entry named .CDX1, past a macOS `__MACOSX/._` sidecar, else the
   // first real entry, which then reads as whatever it is.
   const inflated = (bytes: Uint8Array) => (bytes[0] === 0x50 && bytes[1] === 0x4b
-    ? unzipMember(bytes, '.cdx1', '.CDX1')
-    : bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipCapped(bytes, '.CDX1') : bytes);
+    ? unzipMember(bytes, '.cdx1', '.CDX1', opts?.maxInflatedBytes)
+    : bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipCapped(bytes, '.CDX1', opts?.maxInflatedBytes) : bytes);
   const decoded: { xml: string; note?: string } =
     typeof data === 'string' ? { xml: data } : decodeXml(inflated(new Uint8Array(data)));
+  preflightXml(decoded.xml, 'Not a valid RASAero file (XML parse error)');
   const xml = decoded.xml.replace(/^\uFEFF?/, '');
   refuseOversizedForeignXml(xml, 'cdx1');
   // Through the parser seam (xmlParse.ts); same message as before it.

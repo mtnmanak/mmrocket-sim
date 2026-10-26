@@ -34,7 +34,7 @@ import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { indexRocksimMotors, rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
 import { defaultDelay } from './thrustcurve.js';
 import { deployAltitudeText } from '../components/recoveryContext.js';
-import { declaresDoctype, parseXml, XmlDoctypeRefused, type XmlElement } from './xmlParse.js';
+import { declaresDoctype, parseXml, preflightXml, XmlDoctypeRefused, type XmlElement } from './xmlParse.js';
 import { importLaunchValue } from './launchConditions.js';
 import { SITE_ALTITUDE_M_RANGE } from './atmosphere.js';
 import { checkFileLongitude, fileLongitudeNote } from './longitudeCheck.js';
@@ -254,6 +254,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       + '.ork — either opens here.',
     );
   }
+  // The prolog/binary sniff above retains no element structure; keep its
+  // format-specific refusal before the host's XML gate and lexical pre-passes.
+  preflightXml(xml, 'Not a valid RockSim file (XML parse error)');
   // RockSim files may lack an XML declaration and can carry stray BOMs.
   xml = xml.replace(/^\uFEFF?/, '');
   // happy-dom, the test stand-in, refuses CDATA sections (Chrome and the JS

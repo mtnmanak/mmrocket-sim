@@ -27,7 +27,7 @@ The Worker requests summary series and uses primitive sample columns: the shippe
 
 API flights use a time step of at least 0.05 s, including auto-delay and Mach probes. The floor is applied before import planning, so the plan, its step-change note and the flight all use the floored step; the reader's own caution for a file below the 0.01 s Time step minimum still describes the app (flown at 0.01 s there). If this raises the step the app would fly after its reader clamp, `notes.api` says, for example, "This API flies at a time step of at least 0.05 s; in the app this design flies at 0.01 s." Otherwise `notes.api` is an empty array. The app's own chosen time step is unchanged.
 
-Results come from the same engine as the app, but the Worker's JavaScript runtime computes some floating-point Math differently. The same 127 designs were flown on the deployed Worker and in Node: Worker-versus-Node differences reached 0.26% in flight time and 0.026% in apogee; most were in the 11th-13th significant digit. A browser is a third runtime, so app results may also differ slightly; those measurements do not quantify browser differences.
+Results come from the same engine as the app, but the Worker's JavaScript runtime computes some floating-point Math differently. The initial deployed Worker comparison against Node covered 127 responses: 109 HTTP 200 flight results and 18 HTTP 422 refusals. Across those 109 flights, Worker-versus-Node differences reached 0.26% in flight time and 0.026% in apogee; most were in the 11th-13th significant digit. A browser is a third runtime, so app results may also differ slightly; those measurements do not quantify browser differences.
 
 - S1 only: local Worker/kernel/file-to-flight; S2 measures, S3 describes, S4 measures fragments, S5 comes later.
 - Thin app-owned headless exports; no moved or copied importer/flight implementation.
@@ -35,7 +35,7 @@ Results come from the same engine as the app, but the Worker's JavaScript runtim
 - Fixed `network: 'forbid'`; bundled motor snapshot, no thrustcurve.org calls or caller options.
 - Raw design files only; no scripts, accounts or persisted state.
 - `simulateFile` owns its kernel lock; never wrap it in `withKernel`.
-- Install `setXmlParser(jsXmlParser)` once at Worker module scope; browser entry cannot import the headless entry.
+- Install `setXmlParser(createJsXmlParser({ maxElements: 50_000, maxDepth: 64 }))` once at Worker module scope; browser entry cannot import the headless entry. The SAX gate refuses excessive structure before building a DOM with HTTP 413 `FILE_TOO_LARGE`. The budgets include stored flight data and exceed all 185 local XML/design files measured (40,610 elements, depth 14); the app keeps its native parser without these structural limits.
 - Wrangler selects fflate's browser ESM build; no `nodejs_compat`.
 - API-only 8 MiB whole-file and 16 MiB inflated XML caps, including streamed bodies; errors are JSON without stacks.
 - No CORS, routes, custom domains or account configuration in S1.

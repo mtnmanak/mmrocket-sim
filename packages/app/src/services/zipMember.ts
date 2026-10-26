@@ -85,11 +85,14 @@ export const MAX_ZIP_ENTRIES = 10_000;
 const CD_RECORD_BYTES = 46;
 
 /**
- * Compressed bytes handed to the inflater per push. DEFLATE's ~1032:1 ceiling
- * means one push can still produce ~66 MB before the size check sees it, so
- * this bounds the overshoot rather than eliminating it.
+ * Compressed bytes handed to the inflater per push. At DEFLATE's ~1032:1
+ * ceiling this produces about 258 KiB, rather than 64 MiB before a cap check.
+ * Allowing an unfinished token and a buffered stored block, output per push
+ * stays below 384 KiB. fflate also retains its 32 KiB history and grows its
+ * decode buffer geometrically; decode/output working buffers fit within 3 MiB
+ * (excluding the supplied compressed input and a buffered gzip header).
  */
-const INFLATE_CHUNK = 64 * 1024;
+const INFLATE_CHUNK = 256;
 
 const SIG_EOCD = 0x06054b50;
 const SIG_ZIP64_LOCATOR = 0x07064b50;
@@ -297,6 +300,31 @@ export function crc32(d: Uint8Array): number {
 /** Maximum concatenated gzip members; real design files normally have one. */
 export const MAX_GZIP_MEMBERS = 1000;
 
+/** Find one complete RFC 1952 header without repeatedly buffering its fields. */
+function gzipHeaderEnd(bytes: Uint8Array, at: number): number {
+  // An incomplete header goes to fflate once, in the final push. Preserve its
+  // existing damaged-file/checksum refusal instead of inventing a new error.
+  if (at + 10 > bytes.length) return bytes.length;
+  if (bytes[at] !== 0x1f || bytes[at + 1] !== 0x8b || bytes[at + 2] !== 8) {
+    throw new Error('invalid gzip data');
+  }
+  const flags = bytes[at + 3]!;
+  let end = at + 10;
+  if (flags & 4) {
+    if (end + 2 > bytes.length) return bytes.length;
+    end += 2 + b2(bytes, end);
+    if (end > bytes.length) return bytes.length;
+  }
+  for (const flag of [8, 16]) {
+    if (!(flags & flag)) continue;
+    const zero = bytes.indexOf(0, end);
+    if (zero < 0) return bytes.length;
+    end = zero + 1;
+  }
+  if (flags & 2) end += 2;
+  return Math.min(end, bytes.length);
+}
+
 /**
  * Inflate a GZIP-compressed design file (magic 1f 8b): the form older
  * OpenRocket releases saved a compressed .ork in, which desktop 24.12 still
@@ -341,9 +369,25 @@ export function gunzipCapped(bytes: Uint8Array, kind: string, maxBytes = MAX_ZIP
     members.push({ at, out: total });
   };
   try {
-    for (let p = 0; p < bytes.length; p += INFLATE_CHUNK) {
-      const q = Math.min(p + INFLATE_CHUNK, bytes.length);
+    for (let p = 0; p < bytes.length;) {
+      let q = Math.min(p + INFLATE_CHUNK, bytes.length);
+      // fflate 0.8.x exposes only completed headers via onmember. Its pending
+      // header state is needed here to avoid quadratic buffering BEFORE that
+      // callback, including when a later member starts inside the last push.
+      // v - 1 is the header offset in pending input p; zero means DEFLATE.
+      // Fail closed if an upstream change removes this framing contract.
+      const state = gunzip as unknown as { v: number; p: Uint8Array };
+      if (!Number.isInteger(state.v) || !(state.p instanceof Uint8Array)) {
+        throw new Error('unsupported gzip inflater framing');
+      }
+      if (state.v) {
+        const header = p - state.p.length + state.v - 1;
+        if (header < bytes.length) q = Math.max(q, gzipHeaderEnd(bytes, header));
+      }
+      // A large push contains only a complete header (and any pending trailer),
+      // never more than INFLATE_CHUNK new DEFLATE bytes.
       gunzip.push(bytes.subarray(p, q), q === bytes.length);
+      p = q;
     }
   } catch (err) {
     if (err === tooBig || err === tooMany) throw err;
