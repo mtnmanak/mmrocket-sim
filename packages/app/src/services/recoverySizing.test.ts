@@ -1226,8 +1226,11 @@ describe('K5 packed bay fit', () => {
     const bundle = preset({ packedDiameter: 0.06 });
     expect(recoveryFit(tree, null, bundle).reason).toBe('The packed length exceeds the bay length.');
     other['outerRadius'] = 0.051;
-    other.children = [{ type: 'transition', id: 'unknown', length: 0.01,
-      position: { method: 'top', offset: 0 }, aftShoulderLength: 0.3 }];
+    other.children = [{ type: 'transition', id: 'unknown', length: 0.3,
+      position: { method: 'top', offset: 0 }, children: [
+        { type: 'tubecoupler', id: 'automatic-coupler', length: 0.3,
+          position: { method: 'top', offset: 0 } },
+      ] }];
     expect(recoveryFit(tree, null, bundle)).toMatchObject({ fits: true, known: false });
     tree.components[0]!.children!.push({ type: 'bodytube', id: 'clear', length: 0.3,
       outerRadius: 0.051, thickness: 0.001 });
@@ -1391,6 +1394,58 @@ describe('K5 packed bay fit', () => {
     chute.position = { method: kind === 'tailcone' ? 'bottom' : 'top', offset: 0 };
     expect(recoveryFit(tree, chute, preset()).fits).toBe(true);
   });
+  it.each([undefined, 0])('does not extend a cavity through an absent shoulder (radius=%s)', (radius) => {
+    const { tree, bay, chute } = setup();
+    Object.assign(bay, { type: 'transition', length: 0.1, foreRadius: 0.05, aftRadius: 0.05,
+      thickness: 0.002, aftShoulderLength: 0.08, aftShoulderRadius: radius });
+    expect(recoveryFit(tree, chute, preset({ packedLength: 0.15, packedDiameter: 0.04 })))
+      .toMatchObject({ fits: false, known: true });
+  });
+  it.each(['nosecone', 'transition'] as const)('ignores an absent adjacent %s shoulder even if capped', (type) => {
+    const { tree, bay, chute } = setup();
+    bay['length'] = 0.05;
+    const prefix = type === 'nosecone' ? 'shoulder' : 'aftShoulder';
+    const forward: ComponentNode = { type, id: 'nose', length: 0.1, aftRadius: 0.05,
+      [prefix + 'Length']: 0.05, [prefix + 'Capped']: true };
+    tree.components[0]!.children!.unshift(forward);
+    for (const radius of [undefined, 0]) {
+      forward[prefix + 'Radius'] = radius;
+      expect(recoveryFit(tree, chute, preset({ packedLength: 0.04 })))
+        .toMatchObject({ fits: true, known: true });
+    }
+  });
+  it.each([undefined, 0])('uses the nose body bore for an absent shoulder (radius=%s)', (radius) => {
+    const { tree, bay, chute } = setup();
+    Object.assign(bay, { type: 'nosecone', aftRadius: 0.05, thickness: 0.002,
+      length: 0.1, shoulderLength: 0.05, shoulderRadius: radius, shoulderCapped: true });
+    expect(recoveryBayBore(tree, chute)).toBeCloseTo(0.096, 9);
+    expect(recoveryFit(tree, chute, preset({ packedLength: 0.15 })))
+      .toMatchObject({ fits: false, known: true });
+  });
+  it.each([undefined, 0])('uses both transition body openings for absent shoulders (radius=%s)', (radius) => {
+    const { tree, bay, chute } = setup();
+    Object.assign(bay, { type: 'transition', length: 0.1, foreRadius: 0.05, aftRadius: 0.05,
+      thickness: 0.002, foreShoulderLength: 0.05, aftShoulderLength: 0.05,
+      foreShoulderRadius: radius, aftShoulderRadius: radius,
+      foreShoulderCapped: true, aftShoulderCapped: true });
+    expect(recoveryBayBore(tree, chute)).toBeCloseTo(0.096, 9);
+    expect(recoveryFit(tree, chute, preset({ packedLength: 0.04, packedDiameter: 0.04 })))
+      .toMatchObject({ fits: true, known: true });
+  });
+  it.each(['nosecone', 'transition'] as const)('does not extend a body bay into a %s without a shoulder', (type) => {
+    const { tree, bay, chute } = setup();
+    bay['length'] = 0.08;
+    const prefix = type === 'nosecone' ? 'shoulder' : 'aftShoulder';
+    const forward: ComponentNode = { type, id: 'forward', length: 0.2,
+      aftRadius: 0.05, foreRadius: 0.01, thickness: 0.002, shape: 'conical',
+      [prefix + 'Length']: 0.04 };
+    tree.components[0]!.children!.unshift(forward);
+    for (const radius of [undefined, 0]) {
+      forward[prefix + 'Radius'] = radius;
+      expect(recoveryFit(tree, chute, preset({ packedLength: 0.14 })))
+        .toMatchObject({ fits: false, known: true });
+    }
+  });
   it('ROUND-F enters a reducing transition through its wide fore end', () => {
     const { tree, bay, chute } = setup();
     Object.assign(bay, { type: 'transition', length: 0.3, foreRadius: 0.08, aftRadius: 0.03,
@@ -1425,12 +1480,14 @@ describe('K5 packed bay fit', () => {
       .toMatchObject({ fits: false, known: true });
   });
   it.each(['foreRadius', 'aftRadius', 'foreShoulderRadius', 'aftShoulderRadius'])(
-    'ROUND-F leaves an automatic transition %s unverified', (field) => {
+    'ROUND-F distinguishes automatic transition ends from absent shoulders (%s)', (field) => {
       const { tree, bay, chute } = setup();
       Object.assign(bay, { type: 'transition', length: 0.3, foreRadius: 0.08, aftRadius: 0.08,
         foreShoulderLength: 0.01, aftShoulderLength: 0.01, foreShoulderRadius: 0.075, aftShoulderRadius: 0.075 });
       delete bay[field];
-      expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: false });
+      expect(recoveryFit(tree, chute, preset())).toMatchObject({
+        fits: true, known: field === 'foreShoulderRadius' || field === 'aftShoulderRadius',
+      });
     },
   );
   it('ROUND-F counts a booster coupler bulkhead intruding into the sustainer bay', () => {
@@ -1483,7 +1540,8 @@ describe('K5 packed bay fit', () => {
   it('ROUND2 moves a TOP zero chute behind a 50 mm nose shoulder', () => {
     const { tree, chute } = setup();
     chute.position = { method: 'top', offset: 0 };
-    tree.components[0]!.children!.unshift({ type: 'nosecone', id: 'nose', length: 0.2, shoulderLength: 0.05, shoulderCapped: true });
+    tree.components[0]!.children!.unshift({ type: 'nosecone', id: 'nose', length: 0.2,
+      aftRadius: 0.05, shoulderRadius: 0.048, shoulderLength: 0.05, shoulderCapped: true });
     expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: true });
     expect(recoveryFit(tree, chute, preset()).reason).toContain('modelled position overlaps');
   });
@@ -1565,7 +1623,7 @@ describe('K5 packed bay fit', () => {
     part['filled'] = true;
     expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: false });
   });
-  it('ROUND3 resolves an automatic coupler from its parent and leaves unresolved openings unverified', () => {
+  it('ROUND3 resolves an automatic coupler and checks adjacent shoulders', () => {
     const { tree, bay, chute } = setup();
     bay['length'] = 0.2;
     const sleeve: ComponentNode = { type: 'tubecoupler', id: 'sleeve', length: 0.2, thickness: 0.01,
@@ -1578,9 +1636,10 @@ describe('K5 packed bay fit', () => {
     tree.components[0]!.children = [sleeve];
     expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: false });
     tree.components[0]!.children = [bay]; bay.children = [chute];
-    const nose: ComponentNode = { type: 'nosecone', id: 'nose', length: 0.1, shoulderLength: 0.2 };
+    const nose: ComponentNode = { type: 'nosecone', id: 'nose', length: 0.1,
+      aftRadius: 0.05, shoulderRadius: 0.018, shoulderLength: 0.2 };
     tree.components[0]!.children!.unshift(nose);
-    expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: false });
+    expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: false, known: true });
     nose['shoulderLength'] = 0.05;
     expect(recoveryFit(tree, chute, preset())).toMatchObject({ fits: true, known: true });
   });

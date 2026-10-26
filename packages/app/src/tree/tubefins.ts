@@ -15,8 +15,6 @@ export function tubeFinWall(node: ComponentNode, radius: number, bodyThickness?:
  * body — r = R·sin(π/N) / (1 − sin(π/N)) (TubeFinSet.getOuterRadius).
  */
 export function tubeFinRadius(node: ComponentNode, bodyRadius: number): number {
-  // Preserve the explicit in-memory value, as the fin-count field reader does.
-  if (node['outerRadius'] === Infinity) return Infinity;
   const explicit = numOpt(node, 'outerRadius');
   if (explicit !== undefined && explicit >= 0) return explicit;
   // The count the kernel flies (1..8), so the drawn and printed tube is the

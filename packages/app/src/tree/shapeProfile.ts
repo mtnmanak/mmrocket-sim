@@ -223,7 +223,8 @@ export function profileRadius(
 ): (x: number) => number {
   const p = Math.min(Math.max(param ?? shapeParamDefault(shape), 0), shapeParamMax(shape));
 
-  if (foreR === aftR || length <= 0) return () => foreR;
+  if (length <= 0) return (x) => x < 0 ? foreR : aftR;
+  if (foreR === aftR) return () => foreR;
 
   // Transition.getRadius() normalizes to the small end first: r1 < r2,
   // x measured from the small end, flipped back afterwards.

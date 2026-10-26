@@ -12,6 +12,11 @@ import { CLUSTER_OPTIONS, CLUSTER_POINTS, clusterCount, clusterOffsets } from '.
  * `<clusterconfiguration>`, so it is untrusted input.
  */
 describe('cluster patterns', () => {
+  it('collapses negative spacing to the axis even before sanitization', () => {
+    for (const point of clusterOffsets('double', 0.0095, -1)) {
+      expect(Math.hypot(point.y, point.z)).toBe(0);
+    }
+  });
   it('counts the patterns the kernel knows', () => {
     expect(clusterCount('single')).toBe(1);
     expect(clusterCount('double')).toBe(2);

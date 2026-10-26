@@ -183,6 +183,14 @@ describe('.ork permissive handling', () => {
             <thickness>0.0005</thickness><clusterconfiguration>${pattern}</clusterconfiguration></innertube>`,
   );
 
+  it('clamps negative cluster spacing on import', () => {
+    const result = importOrk(CLUSTERED('double').replace('</clusterconfiguration>',
+      '</clusterconfiguration><clusterscale>-1</clusterscale>'));
+    const tube = flatten(result.tree.components).find((c) => c.type === 'innertube')!;
+    expect(tube['clusterScale']).toBe(0);
+    expect(result.notes.join(' ')).not.toMatch(/-1000 mm|set to 0 mm/);
+  });
+
   it('keeps a cluster pattern it knows', () => {
     const result = importOrk(CLUSTERED('4-ring'));
     const tube = flatten(result.tree.components).find((c) => c.type === 'innertube')!;

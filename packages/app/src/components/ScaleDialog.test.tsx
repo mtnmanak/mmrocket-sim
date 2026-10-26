@@ -117,6 +117,33 @@ afterEach(() => {
 });
 
 describe('ScaleDialog', () => {
+  it('accepts a positive custom mount bore below 1 mm when the scaled bay permits it', async () => {
+    const design = tree();
+    design.components[0]!.children![1]!['outerRadius'] = 0.012;
+    await render({}, design);
+    type(numberInputs()[0]!, '0.03');
+    const mount = [...host.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'custom'))!;
+    act(() => { mount.value = 'custom'; mount.dispatchEvent(new Event('change', { bubbles: true })); });
+    const custom = host.querySelector<HTMLInputElement>('input[aria-label^="Custom mount bore"]')!;
+    type(custom, '0.5');
+    expect(custom.getAttribute('aria-invalid')).toBeNull();
+    type(custom, '0');
+    expect(custom.getAttribute('aria-invalid')).toBe('true');
+    type(custom, '0.5');
+    expect(applyButton().disabled).toBe(false);
+    act(() => applyButton().click());
+    expect(applied).not.toBeNull();
+  });
+
+  it('retires an oversized standard choice when Custom starts with an invalid seed', async () => {
+    await render();
+    const mount = [...host.querySelectorAll('select')].find(s => [...s.options].some(o => o.value === 'custom'))!;
+    act(() => { mount.value = 'c54'; mount.dispatchEvent(new Event('change', { bubbles: true })); });
+    type(numberInputs()[0]!, '0.01');
+    act(() => { mount.value = 'custom'; mount.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(text()).not.toContain('mount you chose');
+    expect(applyButton().disabled).toBe(false);
+  });
   it('shows the design it is about to scale, in the preference units', async () => {
     await render();
     // Metric default: 1050 mm long, 52 mm across, doubling by default.
@@ -464,6 +491,76 @@ describe('ScaleDialog', () => {
    * scaled walls are 1.6 mm, so the widest bore that fits is 98 − 3.2 = 94.8 mm.
    */
   describe('bounds', () => {
+    it.each([0.04, 0.96])('shows an accepted sub-mm bore limit (%s mm)', async maxBoreMm => {
+      const design: RocketTree = { components: [{ type: 'bodytube', outerRadius: (maxBoreMm + 0.4) / 4000,
+        thickness: 0.00005, children: [{ type: 'innertube', id: 'm', motorMount: true,
+          outerRadius: 0.00006, thickness: 0.00005 }] }] };
+      await render({}, design);
+      pick(mountSelect(), 'custom');
+      const hint = text().match(/at most ([\d.]+) mm fits/);
+      expect(hint).not.toBeNull();
+      const displayed = Number(hint![1]);
+      expect(displayed).toBeGreaterThan(0);
+      expect(displayed).toBeLessThanOrEqual(maxBoreMm + 1e-6);
+      type(customBore(), String(displayed));
+      expect(customBore().getAttribute('aria-invalid')).toBeNull();
+      type(customBore(), String(maxBoreMm === 0.04 ? 0.03 : maxBoreMm / 2));
+      expect(customBore().getAttribute('aria-invalid')).toBeNull();
+      type(customBore(), '1');
+      expect(customBore().getAttribute('aria-invalid')).toBe('true');
+    });
+    it('keeps choices applicable and explains an unresolved transition bore', async () => {
+      const design: RocketTree = { components: [{ type: 'stage', children: [
+        { type: 'transition', foreRadius: 0.03, length: 0.05 },
+        { type: 'transition', aftRadius: 0.05, length: 0.2, thickness: 0.001,
+          children: [{ type: 'tubecoupler', thickness: 0.001, length: 0.2, children: [{
+            type: 'innertube', id: 'm', motorMount: true, outerRadius: 0.015,
+            thickness: 0.0005, length: 0.15,
+          }] }] },
+      ] }] };
+      await render({}, design);
+      expect(text()).toContain('Available bore is unknown');
+      expect(text()).not.toContain('NaN');
+      expect(text()).not.toContain('has no room left');
+      const snap = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+      act(() => snap.click());
+      expect(applyButton().disabled).toBe(false);
+      expect([...mountSelect().options].find(o => o.value === 'c54')!.disabled).toBe(false);
+      pick(mountSelect(), 'c54');
+      expect(applyButton().disabled).toBe(false);
+      pick(mountSelect(), 'custom');
+      type(customBore(), '38');
+      expect(applyButton().disabled).toBe(false);
+      act(() => applyButton().click());
+      expect(applied).not.toBeNull();
+    });
+    it('blocks an enclosed 98 mm choice after its enclosing mount shrinks to 54 mm', async () => {
+      const design: RocketTree = { components: [{ type: 'bodytube', outerRadius: 0.15, thickness: 0.001,
+        children: [{ type: 'innertube', id: 'outer', motorMount: true, outerRadius: 0.04,
+          thickness: 0.001, children: [{ type: 'tubecoupler', thickness: 0.001,
+            children: [{ type: 'innertube', id: 'inner', motorMount: true, outerRadius: 0.015,
+              thickness: 0.0005 }] }] }] }] };
+      await render({}, design);
+      const choose = (id: string, value: string) => act(() => {
+        const select = host.querySelector<HTMLSelectElement>(`#mount-size-${id}`)!;
+        select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      });
+      choose('inner', 'c98');
+      choose('outer', 'c54');
+      expect(text()).toContain('at most 48.0 mm');
+      expect(applyButton().disabled).toBe(true);
+      const inner = host.querySelector<HTMLSelectElement>('#mount-size-inner')!;
+      expect([...inner.options].find(o => o.value === 'c98')!.disabled).toBe(true);
+      act(() => applyButton().click());
+      expect(applied).toBeNull();
+      choose('inner', 'c38');
+      expect(applyButton().disabled).toBe(false);
+      act(() => applyButton().click());
+      const outer = applied!.tree.components[0]!.children![0]!;
+      expect(outer['outerRadius']).toBeCloseTo(0.029, 12);
+      expect(outer.children![0]!.children![0]!['outerRadius']).toBeCloseTo(0.020, 12);
+    });
     const mountSelect = () => host.querySelector<HTMLSelectElement>('#mount-size-m')!;
     const customBore = () =>
       host.querySelector<HTMLInputElement>('input[aria-label^="Custom mount bore"]')!;

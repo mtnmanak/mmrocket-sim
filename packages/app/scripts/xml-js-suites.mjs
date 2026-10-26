@@ -24,6 +24,8 @@
 export const XML_JS_SUITES = [
   'src/App.instances.test.tsx',
   'src/tree/sanitize.instances.test.ts',
+  // E7 S4a-g1: motor room on real tester designs (local corpus) through either XML parser.
+  'src/tree/motorRoom.tester.test.ts',
   'src/components/PropertyPanel.filled.test.tsx',
   // S7b-3: a zero-Cd .ork canopy must reach sizing unchanged through either XML parser.
   'src/services/recoverySizing.import.test.ts',

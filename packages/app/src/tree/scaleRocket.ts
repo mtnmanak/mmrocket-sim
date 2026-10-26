@@ -5,12 +5,14 @@ import {
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { kernelDefault, kernelNum, KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import { finOutlineProblem, kernelFinPoints, type FinOutlinePoint } from './finOutline.js';
-import { findParent, motorMounts, mountName } from './treeModel.js';
-import { axialLength } from './position.js';
+import { ancestorsOf, findParent, motorMounts, mountName } from './treeModel.js';
+import { axialLength, positionOf, startFromPosition } from './position.js';
 import { lookupTable } from '../services/xmlUtil.js';
 import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
 import { limitPatch } from './sanitize.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
+import { profileRadius } from './shapeProfile.js';
+import { noseEnds } from './tailCone.js';
 // Under its old local name: this module's field walk carried a private copy
 // of numOrNull until 2026-09-22, and ten call sites read it as `num`.
 import { numOrNull as num } from './nodeNum.js';
@@ -456,6 +458,36 @@ export function previewMounts(
   const assigned = opts.assignedMotorDiameters ?? {};
   const snapMounts = opts.snapMounts ?? false;
   const choices = opts.mountChoices ?? {};
+  const targetBore = (m: ComponentNode, scaledBoreMm: number): number | null => {
+    if (m.type !== 'innertube') return null;
+    const nearest = nearestCommonClass(scaledBoreMm);
+    const onStandardClass = Math.abs(scaledBoreMm - nearest) < CLASS_TOLERANCE_MM;
+    const choice = m.id ? choices[m.id] : undefined;
+    return choice === 'scaled' ? null
+      : choice === 'nearest' ? nearest
+        : typeof choice === 'object' ? choice.boreMm
+          : snapMounts && !onStandardClass ? nearest
+            : null;
+  };
+  const defaultEnds = new Map<ComponentNode, Set<string>>();
+  resolveTransitionRadii(tree, (n, key) => {
+    if (!defaultEnds.has(n)) defaultEnds.set(n, new Set());
+    defaultEnds.get(n)!.add(key);
+  });
+  const scaleNodes = (nodes: ComponentNode[]): ComponentNode[] => nodes.map(n => {
+    const scaled = scaleNode(n, factor);
+    for (const key of defaultEnds.get(n) ?? []) {
+      Object.assign(scaled, limitPatch(n, { [key]: round(0.025 * factor) }));
+    }
+    // Resolve automatic couplers from the enclosing sizes that Apply writes.
+    // Each ancestor is resized before descending to its children.
+    if (n['motorMount'] === true) {
+      const target = targetBore(scaled, mountBore(scaled) * 1000);
+      if (target !== null) scaled['outerRadius'] = round(outerRadiusForBore(scaled, target / 1000));
+    }
+    return { ...scaled, ...(n.children ? { children: scaleNodes(n.children) } : {}) };
+  });
+  const scaledTree = resolveTransitionRadii({ ...tree, components: scaleNodes(tree.components) });
   return motorMounts(tree).map((m) => {
     const boreMm = mountBore(m) * 1000;
     // NOT boreMm * factor. Whether a key scales is `scaleNode`'s decision, and
@@ -492,12 +524,7 @@ export function previewMounts(
     // writer, the summary and the notice alike. A mount that IS the airframe is
     // never resized whatever is asked: resizing it would silently change the
     // rocket's skin and leave it discontinuous with the tube above.
-    const targetBoreMm: number | null = isAirframe ? null
-      : choice === 'scaled' ? null
-        : choice === 'nearest' ? nearestMm
-          : typeof choice === 'object' ? choice.boreMm
-            : snapMounts && snappable ? nearestMm
-              : null;
+    const targetBoreMm = targetBore(m, scaledBoreMm);
     const finalBoreMm = targetBoreMm ?? scaledBoreMm;
     // `airframe-left` means "you asked for a snap and this one could not take
     // it", so it is gated on snapMounts: with the box unticked nothing was
@@ -529,11 +556,42 @@ export function previewMounts(
     // `outerRadiusForBore` at a zero bore IS the wall, case-airframe branch
     // included. Both through the real `scaleNode`, as the bore above is.
     const parent = choosable && m.id ? findParent(tree, m.id) : null;
+    const ancestors = choosable && m.id ? ancestorsOf(scaledTree, m.id) : [];
+    let inSolidTube = false;
+    // Physical bores have no printable-radius floor. An automatic coupler
+    // follows its parent's bore, including zero, through any coupler ancestors.
+    const boreRadius = (i: number, child: ComponentNode): number | null => {
+      const host = ancestors[i];
+      if (!host || host.type === 'stage') return null;
+      if (isSolidTube(host) || ((host.type === 'nosecone' || host.type === 'transition') && host['filled'] === true)) {
+        inSolidTube = true;
+        return 0;
+      }
+      if (host.type === 'tubecoupler') {
+        const outer = num(host, 'outerRadius') ?? boreRadius(i + 1, host);
+        return outer === null ? null : Math.max(0, outer - mountWall(host));
+      }
+      if (host.type === 'nosecone' || host.type === 'transition') {
+        const length = axialLength(host);
+        const ends = host.type === 'nosecone' ? noseEnds(host, kernelNum(host, 'aftRadius'))
+          : { fore: num(host, 'foreRadius'), aft: num(host, 'aftRadius') };
+        if (ends.fore === null || ends.aft === null) return null;
+        const radiusAt = profileRadius(typeof host['shape'] === 'string' ? host['shape'] : host.type === 'nosecone' ? 'ogive' : 'conical',
+          num(host, 'shapeParameter') ?? undefined, length, ends.fore, ends.aft,
+          typeof host['clipped'] === 'boolean' ? host['clipped'] : undefined);
+        const start = startFromPosition(positionOf(child), axialLength(child), length);
+        const at = (x: number) => radiusAt(Math.min(length, Math.max(0, x)));
+        return Math.max(0, Math.min(at(start), at(start + axialLength(child))) - kernelNum(host, 'thickness'));
+      }
+      return TUBE_PARENTS.has(host.type) ? Math.max(0, mountBore(host) / 2) : null;
+    };
+    const parentRadius = boreRadius(0, scaledMount);
+    const parentBore = parentRadius === null ? null : 2 * parentRadius;
     const maxBoreMm = parent && parent !== 'stage' && TUBE_PARENTS.has(parent.type)
       && parent['caseAirframe'] !== true
-      ? Math.max(0, (mountBore(scaleNode(parent, factor)) - 2 * outerRadiusForBore(scaledMount, 0)) * 1000)
+      && parentBore !== null
+      ? Math.max(0, (parentBore - 2 * outerRadiusForBore(scaledMount, 0)) * 1000)
       : null;
-    const inSolidTube = !!parent && parent !== 'stage' && isSolidTube(parent);
     return {
       id: m.id ?? '',
       name: mountName(m),
@@ -592,6 +650,7 @@ function scaleNode(n: ComponentNode, k: number, notes?: string[]): ComponentNode
   const type = n.type as string;
   const fixed = FIXED_SIZE.has(type);
   const out: ComponentNode = { ...n };
+  const marked = typeof n[OVERRIDE_INCLUDES_MOTOR] === 'string' && n[OVERRIDE_INCLUDES_MOTOR] !== '';
 
   // A key the part leaves to the kernel scales from the constant the kernel
   // flies for it; one with no constant is AUTOMATIC and stays absent (see the
@@ -635,17 +694,18 @@ function scaleNode(n: ComponentNode, k: number, notes?: string[]): ComponentNode
   if (!fixed) {
     const exp = MASS_EXPONENT[type] ?? 3;
     for (const key of MASS_KEYS) {
+      if (marked && key === 'overrideMass') continue;
       // A mass component with no mass flies the kernel's 10 g; an absent
       // override is no override, and has no constant.
       const v = num(n, key) ?? kernelDefault(type, key) ?? null;
-      if (v !== null) out[key] = round(v * k ** exp, 15);
+      if (v !== null) Object.assign(out, limitPatch(n, { [key]: round(v * k ** exp, 15) }, notes));
     }
     // An override CG is a station measured from the component's own front — a
     // length, whatever the mass above it does. It belongs INSIDE the
     // !fixed guard: a rail button that kept its 9.7 mm size must keep the CG
     // station measured within it, or the override points outside the part.
     const cg = num(n, 'overrideCGX');
-    if (cg !== null) out['overrideCGX'] = round(cg * k);
+    if (cg !== null && !marked) Object.assign(out, limitPatch(n, { overrideCGX: round(cg * k) }, notes));
   }
 
   // Axial placement. startFromPosition is homogeneous of degree 1 in
@@ -658,7 +718,7 @@ function scaleNode(n: ComponentNode, k: number, notes?: string[]): ComponentNode
   // is NaN, round(±Infinity · k) is ±Infinity), so this test cannot change it.
   // eslint-disable-next-line no-restricted-syntax -- a pass-through, not a read (audit row 522)
   if (pos && typeof pos.offset === 'number') {
-    out.position = { ...pos, offset: round(pos.offset * k) };
+    Object.assign(out, limitPatch(n, { position: { ...pos, offset: round(pos.offset * k) } }, notes));
   } else if (pos && typeof pos === 'object') {
     // Nothing to scale, but still this tree's own object, not the input's.
     out.position = { ...pos };
@@ -721,7 +781,9 @@ export function scaleRocket(
     if (!FIXED_SIZE.has(type) && !marked
       && MASS_KEYS.some((key) => (num(n, key) ?? kernelDefault(type, key) ?? 0) !== 0)) massPinned++;
     const scaled = scaleNode(n, k, limitNotes);
-    for (const key of defaultEnds.get(n) ?? []) scaled[key] = round(0.025 * k);
+    for (const key of defaultEnds.get(n) ?? []) {
+      Object.assign(scaled, limitPatch(n, { [key]: round(0.025 * k) }, limitNotes));
+    }
     // A RASAero stage whose overrides are the file's stated LAUNCH figures,
     // motor still inside them (services/statedLaunchWeight.ts). Scaling has
     // just multiplied that motor's weight by k³ along with the airframe's,

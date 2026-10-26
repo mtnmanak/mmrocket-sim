@@ -82,7 +82,8 @@ const sig = (v: number): string => String(Number(v.toPrecision(6)));
 
 function fmt(kind: LimitKind, v: number): string {
   switch (kind) {
-    case 'count': return sig(v);
+    case 'count':
+    case 'scalar': return sig(v);
     case 'length': return Math.abs(v) >= 1 ? `${sig(v)} m` : `${sig(v * 1000)} mm`;
     case 'mass': return Math.abs(v) >= 1 ? `${sig(v)} kg` : `${sig(v * 1000)} g`;
     case 'density': return `${sig(v)} kg/m³`;
@@ -337,8 +338,8 @@ export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
  * The panel's CG-override box, which sits outside the schema fields' commit,
  * goes through it too, with no note (audit 2026-09-30).
  *
- * Numeric keys only: a preset writes no position and none of ENUM_LIMITS'
- * fields. The note names the part as it will be after the patch, so a pick
+ * Numeric keys and axial position offsets; enum fields are left alone.
+ * The note names the part as it will be after the patch, so a pick
  * reads '“SEMROC HTC-11”: wall thickness …' — the words a reopened file would
  * have given. The SAME patch object when nothing needed it.
  */
@@ -347,6 +348,17 @@ export function limitPatch(
 ): Partial<ComponentNode> {
   const after = { ...node, ...patch } as ComponentNode;
   let out: Partial<ComponentNode> | null = null;
+  const pos = patch.position;
+  if (pos && Number.isFinite(pos.offset)) {
+    const fixed = applyFieldLimit(POSITION_LIMIT, pos.offset);
+    if (fixed !== pos.offset) {
+      (out ??= { ...patch }).position = { ...pos, offset: fixed };
+      if (notes) {
+        const f = limitFinding(after, 'position', POSITION_LIMIT, pos.offset, fixed);
+        notes.push(`${f.problem} — ${f.repair}.`);
+      }
+    }
+  }
   for (const [key, raw] of Object.entries(patch)) {
     if (typeof raw !== 'number') continue;
     const limit = fieldLimit(after.type, key);

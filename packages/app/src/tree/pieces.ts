@@ -462,6 +462,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         const len = axialLength(child);
         const wid = kernelNum(child, 'width');
         const hgt = kernelNum(child, 'height');
+        if (!(len > 0 && wid > 0 && hgt > 0)) continue;
         const start = axialStart(child, len, pStart, pLen);
         reach(pRadius + hgt);
         const ends = shroudEnds(child);
@@ -478,6 +479,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         const len = axialLength(child);
         const wid = kernelNum(child, 'width');
         const hgt = kernelNum(child, 'height');
+        if (!(len > 0 && wid > 0 && hgt > 0)) continue;
         const start = axialStart(child, len, pStart, pLen);
         reach(pRadius + hgt);
         const geo = new THREE.BoxGeometry(len, hgt, wid);
@@ -488,6 +490,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
       } else if (child.type === 'launchlug') {
         const len = axialLength(child);
         const r = kernelNum(child, 'outerRadius');
+        if (!(len > 0 && r > 0)) continue;
         const start = axialStart(child, len, pStart, pLen);
         const geo = new THREE.CylinderGeometry(r, r, len, 16);
         // Euler order XYZ gives Rx*Ry*Rz, so the -pi/2 about Z still lays the
@@ -526,6 +529,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         // the property panel so the three cannot drift again.
         const bd = num(child, 'outerDiameter', 0.0097);
         const bh = num(child, 'totalHeight', 0.0097);
+        if (!(bd > 0 && bh > 0)) continue;
         const station = axialStart(child, axialLength(child), pStart, pLen);
         const bGeo = new THREE.CylinderGeometry(bd / 2, bd / 2, bh, 16);
         const ba = num(child, 'angleOffset', 0);

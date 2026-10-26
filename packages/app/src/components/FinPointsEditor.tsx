@@ -2,7 +2,7 @@ import { GlossaryHelp } from './GlossaryHelp.js';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { niceStep, siToUi, uiToSi } from '../prefs/units.js';
-import { finOutlineProblem } from '../tree/finOutline.js';
+import { finOutlineProblem, kernelFinPoints } from '../tree/finOutline.js';
 import { arrowPan, startsGesture, wheelZoomFactor } from '../chartPanZoom.js';
 import { FIN_VIEW_W as VIEW_W, FIN_VIEW_H as VIEW_H, fitFin as makeTransform,
   finToScreen as toScreen, screenToFin as toModel, panFin, zoomFin,
@@ -67,6 +67,14 @@ interface Press {
 
 const samePoints = (a: FinPoint[], b: FinPoint[]): boolean =>
   a.length === b.length && a.every((p, i) => p[0] === b[i]![0] && p[1] === b[i]![1]);
+
+const outlineProblem = (points: FinPoint[]): string | null => {
+  const [x0, y0] = points[0] ?? [0, 0];
+  const relative = points.map(([x, y]): FinPoint => [x - x0, y - y0]);
+  return finOutlineProblem(points)
+    ?? (kernelFinPoints(relative).some(([x, y], i) => x !== relative[i]![0] || y !== relative[i]![1])
+      ? 'The simulator would change this outline at its 2.5 m coordinate limit. Choose a smaller coordinate.' : null);
+};
 
 /** Index of the edge (segment i -> i+1) closest to screen point s. */
 function nearestEdge(t: Transform, pts: FinPoint[], s: [number, number]): number {
@@ -159,10 +167,10 @@ export function FinPointsEditor({ points, onChange }: {
     emittedPoints.current = null;
   }, [points]);
 
-  const committedProblem = useMemo(() => finOutlineProblem(committed), [committed]);
+  const committedProblem = useMemo(() => outlineProblem(committed), [committed]);
   // What is on screen right now — the live drag if there is one. Drives the red
   // outline, so a crossing shows up under the pointer before the user lets go.
-  const shownProblem = livePts ? finOutlineProblem(livePts) : committedProblem;
+  const shownProblem = livePts ? outlineProblem(livePts) : committedProblem;
 
   /**
    * Commit an edited point array, unless the edit is what breaks the outline.
@@ -179,8 +187,8 @@ export function FinPointsEditor({ points, onChange }: {
    * to edit their way out of. Then we let the edit through and just say so.
    */
   const commit = (next: FinPoint[]): boolean => {
-    const problem = finOutlineProblem(next);
-    if (problem && !committedProblem) {
+    const problem = outlineProblem(next);
+    if (problem && (!committedProblem || (finOutlineProblem(next) && !finOutlineProblem(committed)))) {
       setRefused(problem);
       return false;
     }

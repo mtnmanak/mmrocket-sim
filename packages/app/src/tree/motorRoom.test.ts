@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { estimateMotorRoom, noBoreReason } from './motorRoom.js';
+import { defaultParams } from './schema.js';
 
 /**
  * The "how long a motor fits" estimate (owner, 2026-08-30). Measured forward
@@ -713,6 +714,114 @@ describe('a solid mount has no room for a motor', () => {
     expect(noBoreReason({ ...mount({ thickness: 0.016 }), type: 'innertube' } as ComponentNode)).toBe('wall');
     // A case airframe's bore is its outside, whatever else it says.
     expect(noBoreReason(mount({ filled: true, caseAirframe: true }))).toBeNull();
+  });
+});
+
+describe('resolved transition ends and enclosing shells', () => {
+  it.each([false, true])('keeps room through a flush 54/29 mm boat tail (filled=%s)', filled => {
+    const t: RocketTree = { components: [{ type: 'stage', children: [{
+      type: 'bodytube', id: 'body', length: 0.6, outerRadius: 0.027, children: [{
+        type: 'innertube', id: 'mt', length: 0.15, outerRadius: 0.0155, thickness: 0.0005,
+        position: { method: 'bottom', offset: 0.05 },
+        children: [{ type: 'engineblock', id: 'block', length: 0.0001, position: { method: 'top', offset: -0.15 } }],
+      }],
+    }, { type: 'transition', id: 'tail', shape: 'conical', length: 0.05, foreRadius: 0.027, aftRadius: 0.0155,
+      thickness: 0.002, filled }] }] };
+    expect(estimateMotorRoom(t, 'mt')?.lengthM).toBeCloseTo(0.2999, 9);
+  });
+  it.each([0.07, 0.1, 0.2].flatMap(length => [0, -1e-7].map(offset => ({ length, offset }))))(
+    'keeps room through the app-default boat-tail walls ($length m nose, $offset m recess)', ({ length, offset }) => {
+    const t: RocketTree = { components: [{ type: 'stage', children: [
+      { type: 'nosecone', id: 'nose', length, aftRadius: 0.0335 },
+      { type: 'bodytube', id: 'body', length: 0.6, outerRadius: 0.0335 },
+      { ...defaultParams('transition'), type: 'transition', id: 'tail', length: 0.08, foreRadius: 0.0335, aftRadius: 0.0205,
+        children: [{ ...defaultParams('innertube'), type: 'innertube', id: 'mt', outerRadius: 0.0205,
+          position: { method: 'bottom', offset } }] },
+    ] }] };
+    expect(estimateMotorRoom(t, 'mt')?.lengthM).toBeCloseTo(0.68 + offset, 9);
+  });
+  it.each(['fore', 'aft'] as const)('refuses an enclosing transition with an unresolved %s radius', (side) => {
+    const shell: ComponentNode = { type: 'transition', id: 'shell', length: 0.15,
+      thickness: 0.002, ...(side === 'fore' ? { aftRadius: 0.045 } : { foreRadius: 0.045 }),
+      children: [{ type: 'innertube', id: 'mt', length: 0.1, outerRadius: 0.01,
+        thickness: 0.001, position: { method: 'bottom', offset: 0 } }] };
+    const neighbour: ComponentNode = { type: 'transition', id: 'neighbour', length: 0.05,
+      ...(side === 'fore' ? { foreRadius: 0.02 } : { aftRadius: 0.02 }) };
+    const t: RocketTree = { name: 'Unknown shell', components: [{ type: 'stage',
+      children: side === 'fore' ? [neighbour, shell] : [shell, neighbour] }] };
+    expect(estimateMotorRoom(t, 'mt')).toBeNull();
+    shell.children![0]!['motorOverhang'] = 0.005;
+    expect(estimateMotorRoom(t, 'mt')).toBeNull();
+  });
+
+  it.each(['fore', 'aft'] as const)('uses a flush coaxial sleeve for the automatic %s radius', (side) => {
+    const host: ComponentNode = { id: 'host', type: 'bodytube', length: 0.4,
+      outerRadius: side === 'fore' ? 0.02 : 0.015, children: [{
+        type: 'podset', radiusMethod: 'coaxial', instanceCount: 1,
+        position: { method: side === 'fore' ? 'bottom' : 'top', offset: 0 },
+        children: [{ type: 'bodytube', length: 0.1, outerRadius: side === 'fore' ? 0.05 : 0.038 }],
+      }] };
+    const tr: ComponentNode = { id: 'tr', type: 'transition', length: 0.05,
+      ...(side === 'fore' ? { aftRadius: 0.03 } : { foreRadius: 0.02 }) };
+    const mountTube: ComponentNode = { type: 'bodytube', length: 0.6, outerRadius: 0.03,
+      children: [{ id: 'mt', type: 'innertube', length: 0.2, outerRadius: 0.01,
+        position: { method: 'bottom', offset: 0 } }] };
+    const t: RocketTree = { name: 'Sleeve', components: [{ type: 'stage',
+      children: side === 'fore' ? [host, tr, mountTube] : [tr, { ...host, length: 0.6, children: [...host.children!, ...mountTube.children!] }] }] };
+    const explicit = structuredClone(t);
+    findIn(explicit, 'tr')[`${side}Radius`] = side === 'fore' ? 0.05 : 0.038;
+    expect(estimateMotorRoom(t, 'mt')).toEqual(estimateMotorRoom(explicit, 'mt'));
+    expect(estimateMotorRoom(t, 'mt')!.lengthM).toBeCloseTo(side === 'fore' ? 1.05 : 0.6, 9);
+  });
+
+  it('resolves an inline pod transition from its enclosing tube', () => {
+    const t = treeWith([]);
+    const host = findIn(t, 'b1');
+    host['outerRadius'] = 0.015;
+    host.children = [{ id: 'pod', type: 'podset', radiusMethod: 'coaxial',
+      position: { method: 'top', offset: 0.1 }, children: [
+        { id: 'tr', type: 'transition', length: 0.05, aftRadius: 0.02 },
+        { type: 'bodytube', length: 0.3, outerRadius: 0.02,
+          children: [{ id: 'mt', type: 'innertube', length: 0.1, outerRadius: 0.01,
+            position: { method: 'bottom', offset: 0 } }] },
+      ] }];
+    const explicit = structuredClone(t);
+    findIn(explicit, 'tr')['foreRadius'] = 0.015;
+    expect(estimateMotorRoom(t, 'mt')).toEqual(estimateMotorRoom(explicit, 'mt'));
+    expect(estimateMotorRoom(t, 'mt')!.lengthM).toBeCloseTo(0.3, 9);
+  });
+
+  it.each(['transition', 'nosecone'] as const)('bounds room at the mount fore end inside a filled enclosing %s', (type) => {
+    const t = { components: [{ type, id: 'shell', filled: true, length: 0.15,
+      foreRadius: 0.02, aftRadius: 0.045, shape: 'conical', children: [{
+        type: 'innertube', id: 'mt', length: 0.1, outerRadius: 0.01,
+        position: { method: 'bottom', offset: 0 }, motorOverhang: 0.005,
+      }] }] } as RocketTree;
+    expect(estimateMotorRoom(t, 'mt')?.lengthM).toBeCloseTo(0.105, 9);
+  });
+  it.each(['transition', 'nosecone'] as const)('bounds motor room at the enclosing %s inner profile', (type) => {
+    const t = { components: [{ type, id: 'shell', length: 0.15, thickness: 0.002,
+      foreRadius: 0.02, aftRadius: 0.045, shape: 'conical', children: [{
+        type: 'innertube', id: 'mt', length: 0.1, outerRadius: 0.028, thickness: 0.001,
+        position: { method: 'bottom', offset: 0 },
+      }] }] } as RocketTree;
+    const room = estimateMotorRoom(t, 'mt')!;
+    // Inner radius 27 mm occurs at outer radius 29 mm, measured from the aft base.
+    const expected = Math.max(0.1, 0.15 * (0.045 - 0.029) / (0.045 - (type === 'nosecone' ? 0 : 0.02)));
+    expect(room.lengthM).toBeCloseTo(expected, 9);
+    expect(room.limitedBy).not.toBeNull();
+  });
+  it.each(['transition', 'nosecone'] as const)('does not mistake an enclosing %s base for a wall', (type) => {
+    const t = { name: 'Skirt', components: [{ type: 'stage', children: [{
+      id: 'shell', type, length: 0.15, foreRadius: 0.02, aftRadius: 0.045, shape: 'conical',
+      children: [{ id: 'mt', type: 'innertube', length: 0.1, outerRadius: 0.01,
+        position: { method: 'bottom', offset: 0 } }],
+    }] }] } as RocketTree;
+    const room = estimateMotorRoom(t, 'mt');
+    expect(room).not.toBeNull();
+    expect(room!.lengthM).toBeGreaterThan(0.1);
+    findIn(t, 'mt')['motorOverhang'] = 0.005;
+    expect(estimateMotorRoom(t, 'mt')!.lengthM).toBeCloseTo(room!.lengthM + 0.005, 9);
   });
 });
 

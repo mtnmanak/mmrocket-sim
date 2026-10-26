@@ -27,8 +27,8 @@ describe('tube-fin collision geometry (issue 2026-08-05e)', () => {
     }
   });
 
-  it('preserves an explicit positive Infinity like the fin-count field reader', () => {
-    expect(tubeFinRadius(set({ finCount: 6, outerRadius: Infinity }), 0.027)).toBe(Infinity);
+  it('treats a non-finite radius as automatic, as the kernel JSON bridge does', () => {
+    expect(tubeFinRadius(set({ finCount: 6, outerRadius: Infinity }), 0.027)).toBeCloseTo(0.027, 12);
   });
 
   it('touching radius is the ceiling for the explicit field', () => {
