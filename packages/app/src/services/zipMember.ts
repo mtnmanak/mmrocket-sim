@@ -34,8 +34,8 @@ import { Gunzip, Inflate, strFromU8 } from 'fflate';
  *    (ninja_4in_54mm-MMT.ork: 4.5 MB of PNG/JPG against 32 KB of XML), and a
  *    crafted one can park a bomb beside a small valid rocket.ork.
  *  - that entry is refused on its declared `originalSize` BEFORE anything is
- *    inflated, and then inflated as a STREAM, INFLATE_CHUNK compressed bytes
- *    at a time, stopping the moment the output passes that declared size. The
+ *    inflated, and then inflated as a STREAM, in cap-scaled chunks of compressed
+ *    bytes, stopping the moment the output passes that declared size. The
  *    declared size alone bounded memory but not time: `inflateSync` into a
  *    fixed buffer keeps decoding the member's TRUE stream and drops what does
  *    not fit, so a member whose directory size was patched small cost ~1.75 s
@@ -85,14 +85,16 @@ export const MAX_ZIP_ENTRIES = 10_000;
 const CD_RECORD_BYTES = 46;
 
 /**
- * Compressed bytes handed to the inflater per push. At DEFLATE's ~1032:1
- * ceiling this produces about 258 KiB, rather than 64 MiB before a cap check.
+ * Compressed bytes handed to the inflater per push. The API's 16 MiB cap
+ * uses 4 KiB; the browser's 64 MiB cap uses 16 KiB. At DEFLATE's ~1032:1
+ * ceiling, 4/16/64 KiB pushes produce about 4/16/64 MiB before a cap check.
  * Allowing an unfinished token and a buffered stored block, output per push
- * stays below 384 KiB. fflate also retains its 32 KiB history and grows its
- * decode buffer geometrically; decode/output working buffers fit within 3 MiB
- * (excluding the supplied compressed input and a buffered gzip header).
+ * stays below 5/17/65 MiB respectively, bounding overshoot past the output cap.
+ * fflate can retain a power-of-two output buffer plus a sliced copy: about
+ * 12/48/192 MiB transiently at those ceilings, in addition to caller buffers.
+ * Moderate pushes also avoid fflate's fixed buffer-copy cost every 256 bytes.
  */
-const INFLATE_CHUNK = 256;
+const inflateChunk = (maxBytes: number): number => Math.min(64 * 1024, Math.max(4 * 1024, Math.floor(maxBytes / 4096)));
 
 const SIG_EOCD = 0x06054b50;
 const SIG_ZIP64_LOCATOR = 0x07064b50;
@@ -261,6 +263,7 @@ export function unzipMember(bytes: Uint8Array, extension: string, kind: string, 
     throw damaged(`uses compression method ${chosen.compression}, which this app cannot read`);
   }
   const out = new Uint8Array(chosen.originalSize);
+  const chunkBytes = inflateChunk(maxBytes);
   let total = 0;
   const inflater = new Inflate((chunk) => {
     if (total + chunk.length > out.length) throw overflow;
@@ -268,8 +271,8 @@ export function unzipMember(bytes: Uint8Array, extension: string, kind: string, 
     total += chunk.length;
   });
   try {
-    for (let p = start; p < end; p += INFLATE_CHUNK) {
-      const q = Math.min(p + INFLATE_CHUNK, end);
+    for (let p = start; p < end; p += chunkBytes) {
+      const q = Math.min(p + chunkBytes, end);
       inflater.push(bytes.subarray(p, q), q === end);
     }
   } catch (err) {
@@ -335,8 +338,8 @@ function gzipHeaderEnd(bytes: Uint8Array, at: number): number {
  * parser and a valid file was reported as "Not a valid .ork file".
  *
  * Under the SAME ceiling as a zip member, enforced the same way: as a STREAM,
- * INFLATE_CHUNK compressed bytes at a time, refused the moment the output
- * passes MAX_ZIP_MEMBER_BYTES. Nothing can be refused up front: a gzip's only
+ * in cap-scaled chunks of compressed bytes, refused the moment the output
+ * passes maxBytes. Nothing can be refused up front: a gzip's only
  * size field is its trailer's, modulo 2^32 and describing the LAST member
  * alone, so the stream is the one place a bomb can be stopped.
  *
@@ -356,6 +359,7 @@ export function gunzipCapped(bytes: Uint8Array, kind: string, maxBytes = MAX_ZIP
     + `${maxBytes / (1024 * 1024)} MB this app will open — that is not a rocket design.`);
   const tooMany = new Error(`This compressed ${kind} file has more than ${MAX_GZIP_MEMBERS.toLocaleString('en-US')} gzip members, past the limit this app will open.`);
   const chunks: Uint8Array[] = [];
+  const chunkBytes = inflateChunk(maxBytes);
   let total = 0;
   const gunzip = new Gunzip((chunk) => {
     if (total + chunk.length > maxBytes) throw tooBig;
@@ -372,7 +376,7 @@ export function gunzipCapped(bytes: Uint8Array, kind: string, maxBytes = MAX_ZIP
   };
   try {
     for (let p = 0; p < bytes.length;) {
-      let q = Math.min(p + INFLATE_CHUNK, bytes.length);
+      let q = Math.min(p + chunkBytes, bytes.length);
       // fflate 0.8.x exposes only completed headers via onmember. Its pending
       // header state is needed here to avoid quadratic buffering BEFORE that
       // callback, including when a later member starts inside the last push.
@@ -387,7 +391,7 @@ export function gunzipCapped(bytes: Uint8Array, kind: string, maxBytes = MAX_ZIP
         if (header < bytes.length) q = Math.max(q, gzipHeaderEnd(bytes, header));
       }
       // A large push contains only a complete header (and any pending trailer),
-      // never more than INFLATE_CHUNK new DEFLATE bytes.
+      // never more than chunkBytes new DEFLATE bytes.
       gunzip.push(bytes.subarray(p, q), q === bytes.length);
       p = q;
     }

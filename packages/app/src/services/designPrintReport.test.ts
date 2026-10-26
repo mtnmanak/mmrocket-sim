@@ -273,6 +273,20 @@ it('prints stated solid discs and marks invalid ring dimensions without substitu
   }
   expect(JSON.stringify(tree)).toBe(before);
 });
+it('keeps the known outside diameter but refuses the opening around a four-tube offset cluster', () => {
+  const tree: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', id: 'body',
+    outerRadius: 0.1016, thickness: 0.003, length: 1, children: [
+      { type: 'innertube', id: 'mount', outerRadius: 0.0375, length: 1, motorMount: true, cluster: '4-ring' },
+      { type: 'centeringring', id: 'ring', outerRadius: 0.0986, innerRadius: 0.04, length: 0.003 },
+    ] }] }] };
+  const d = doc(designPrintHtml({ ...input, tree, units: INITIAL_UNITS, run: null }));
+  const row = [...d.querySelectorAll('tbody tr')].find(r => r.textContent?.includes('Opening diameter:'))!;
+  expect(row.textContent).toContain('Outside diameter: 197.2 mm');
+  expect(row.textContent).not.toContain('Outside diameter: Unknown');
+  expect(row.textContent).toContain('Opening diameter: Unknown');
+  expect(row.textContent).toContain('Caution:');
+  expect(row.textContent).toMatch(/cluster/);
+});
 it('prints the recorded delays for each mount and branch rather than one cluster recommendation', () => {
   const resolution = testResolution([['primary', testMotor()], ['secondary', testMotor()]], [7, 3]);
   resolution.mounts.forEach((m, i) => {

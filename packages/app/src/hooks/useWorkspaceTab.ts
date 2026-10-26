@@ -35,29 +35,33 @@ const isTab = (t: unknown): t is WorkspaceTab =>
   t === 'fly' || t === 'motors' || t === 'results' || t === 'design';
 
 export function useWorkspaceTab(): [WorkspaceTab, (t: WorkspaceTab) => void] {
-  const [tab, setTabRaw] = useState<WorkspaceTab>(() => {
+  const [view, setView] = useState<{ tab: WorkspaceTab; automatic: boolean }>(() => {
+    const home = homeTab();
+    let chosen = home;
     try {
       const t = localStorage.getItem(WORKSPACE_KEY);
-      if (isTab(t)) return t === 'fly' && homeTab() !== 'fly' ? 'design' : t;
+      if (isTab(t)) chosen = t;
     } catch { /* fall through */ }
-    return homeTab();
+    const automatic = chosen === 'fly' && home !== 'fly';
+    return { tab: automatic ? 'design' : chosen, automatic };
   });
   const setTab = useCallback((t: WorkspaceTab) => {
-    setTabRaw(t);
+    setView({ tab: t, automatic: false });
     try { localStorage.setItem(WORKSPACE_KEY, t); } catch { /* ignore */ }
   }, []);
   useEffect(() => {
     if (typeof matchMedia === 'undefined') return;
     const media = matchMedia(PHONE_QUERY);
     const change = () => {
-      if (!media.matches) setTabRaw(current => {
-        if (current !== 'fly') return current;
-        try { localStorage.setItem(WORKSPACE_KEY, 'design'); } catch { /* ignore */ }
-        return 'design';
+      const phone = media.matches;
+      setView(current => {
+        if (!phone && current.tab === 'fly') return { tab: 'design', automatic: true };
+        if (phone && current.automatic) return { tab: 'fly', automatic: false };
+        return current;
       });
     };
     media.addEventListener?.('change', change);
     return () => media.removeEventListener?.('change', change);
   }, []);
-  return [tab, setTab];
+  return [view.tab, setTab];
 }

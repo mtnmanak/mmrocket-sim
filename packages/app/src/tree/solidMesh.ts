@@ -54,9 +54,8 @@ export interface SolidContext {
    */
   mountOuterRadius?: number;
   /**
-   * C-A7: true when the tubes through that ring are not one centred tube (a
-   * cluster, an off-centre tube, or several tubes), so one centred bore cannot
-   * stand for its holes on a cutting template.
+   * C-A7: true when a cluster or off-centre tube needs holes that one centred
+   * bore cannot represent. Concentric tubes share one centred opening.
    */
   mountLayoutUnresolved?: boolean;
   /** parent body outer radius (m) — tube-fin auto sizing */
@@ -1350,13 +1349,13 @@ export function ringOuterRadius(node: ComponentNode, ctx: SolidContext): { r: nu
  * overlaps the ring (`ctx.mountOuterRadius`). The exports read the
  * mount alone until the 2026-09-22 audit's review, so an imported ring of OD 40
  * / ID 29 mm in a tube with no inner tube printed and cut with a made-up 20 mm
- * bore labelled "no motor mount found". A stated 0, or one at or past `R`,
- * leaves no ring to cut, so both fall through to the mount as before.
+ * bore labelled "no motor mount found". A stated zero is a solid disc.
+ * Unresolved mount layouts refuse fabrication even with a stated bore.
  */
 export function centeringRingBore(node: ComponentNode, ctx: SolidContext, R: number): number | null | undefined {
   const own = numOpt(node, 'innerRadius');
-  if (own !== undefined && own > EPS && own < R - EPS) return own;
   if (ctx.mountLayoutUnresolved) return null;
+  if (own !== undefined && own >= 0 && own < R - EPS) return own;
   return ctx.mountOuterRadius;
 }
 
@@ -1458,7 +1457,7 @@ export function componentLoop(
       const bore = centeringRingBore(node, ctx, R);
       if (bore === null) return null;
       const size = assumed ? { sizeAssumed: true } : {};
-      if (typeof bore === 'number' && bore > EPS && bore < R - EPS) {
+      if (typeof bore === 'number' && (bore > EPS || (bore === 0 && numOpt(node, 'innerRadius') === 0)) && bore < R - EPS) {
         return {
           loop: ringLoop(R, bore, L), label: `Centering ring${assumed ? ' (assumed size)' : ''}`,
           bodySpan: [0, L], wall: R - bore, ...size,

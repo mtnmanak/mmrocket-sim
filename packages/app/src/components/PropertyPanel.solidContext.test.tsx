@@ -87,8 +87,8 @@ it.each([undefined, 0.01])('reports an empty ring STL without blaming mount hole
   expect(host.textContent).not.toContain('cannot lay out');
 });
 
-it.each(['✂', '🖨'])('refuses the %s ring export with an off-axis automatic bore and explains the fit risk', async glyph => {
-  const ring = { type: 'centeringring', id: 'ring', length: 0.003 } as ComponentNode;
+it.each(['✂', '🖨'])('refuses the %s ring export with an off-axis stated bore and gives usable advice', async glyph => {
+  const ring = { type: 'centeringring', id: 'ring', length: 0.003, innerRadius: 0.015 } as ComponentNode;
   const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
     { type: 'bodytube', id: 'body', length: 0.3, outerRadius: 0.03, thickness: 0.001, children: [
       { type: 'innertube', id: 'mount', outerRadius: 0.01, length: 0.3, radialPosition: 0.012 }, ring,
@@ -100,6 +100,9 @@ it.each(['✂', '🖨'])('refuses the %s ring export with an off-axis automatic 
   await act(async () => button.click());
   expect(made).not.toHaveBeenCalled();
   expect(host.textContent).toContain('one centred opening would not fit');
+  expect(host.textContent).toContain('Lay out the holes by hand.');
+  expect(host.textContent).toContain('The ring’s stated ID cannot place off-axis holes.');
+  expect(host.textContent).not.toContain('or state the ring ID');
 });
 
 beforeEach(() => {

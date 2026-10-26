@@ -67,10 +67,11 @@ function summary(out: TimedSimulateFileResult) {
     ...boosterBranches(out.result),
   ].flatMap(branch => branch.events.filter(event => event.type === 'SIM_ABORT' || event.type === 'EXCEPTION')
     .map(event => ({ branch: branch.name, reason: event.cause ?? event.type, event })));
+  const incomplete = out.run.simWarnings?.some(warning => warning.key === 'INCOMPLETE_FLIGHT') ?? false;
   return {
     experimental: true,
-    outcome: aborts.length ? 'aborted' : 'completed',
-    partial: aborts.length > 0,
+    outcome: aborts.length ? 'aborted' : incomplete ? 'incomplete' : 'completed',
+    partial: aborts.length > 0 || incomplete,
     aborts,
     motorFailures: out.build.motorFailures.map(failure => ({ ...failure, mount: mountNames[failure.mountId] })),
     appVersion: out.appVersion,

@@ -429,11 +429,18 @@ describe('fin cut profiles', () => {
 });
 
 describe('disc cut profiles', () => {
-  it('refuses an automatic centered opening for an off-axis or clustered mount', () => {
+  it('refuses automatic and stated centered openings for an off-axis or clustered mount', () => {
     const ring = node('centeringring', { length: 0.003 });
     const ctx = { parentInnerRadius: 0.029, mountOuterRadius: 0.01, mountLayoutUnresolved: true };
     expect(componentDxf(ring, ctx, 'Offset mount')).toBeNull();
-    expect(componentDxf({ ...ring, innerRadius: 0.012 }, ctx, 'Stated bore')).not.toBeNull();
+    expect(componentDxf({ ...ring, innerRadius: 0.012 }, ctx, 'Stated bore')).toBeNull();
+  });
+  it('cuts only the outside circle for a stated zero ring ID with an overlapping mount', () => {
+    const out = componentDxf(node('centeringring', { outerRadius: 0.04, innerRadius: 0, length: 0.003 }),
+      { mountOuterRadius: 0.01 }, 'Solid disc')!;
+    const ents = entities(parse(out.text));
+    expect(ents.filter(e => e.type === 'CIRCLE').map(e => real(e, 40))).toEqual([40]);
+    expect(out.text).not.toContain('BORE ASSUMED');
   });
   it('centering ring: concentric CIRCLEs at the tube bore and the mount OD', () => {
     const ents = entities(parse(dxf(node('centeringring', { length: 0.003 }), RING_CTX)));

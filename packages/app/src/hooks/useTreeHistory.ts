@@ -285,9 +285,9 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
     const onKey = (e: KeyboardEvent) => {
       if (e.altKey || e.isComposing) return;
       // Trust Latin layout letters (QWERTZ/AZERTY); physical keys are only
-      // a fallback for non-Latin layouts (audit 2026-10-11, S7d-4).
+      // a fallback for other layouts, including combining marks.
       const key = /^[a-z]$/i.test(e.key) ? e.key.toLowerCase()
-        : /^\p{L}$/u.test(e.key) ? e.code.replace(/^Key/, '').toLowerCase() : '';
+        : e.code.replace(/^Key/, '').toLowerCase();
       const z = key === 'z';
       const y = key === 'y';
       if (!(e.ctrlKey || e.metaKey) || !(z || y)) return;

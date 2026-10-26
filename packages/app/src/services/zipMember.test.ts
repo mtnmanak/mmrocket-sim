@@ -15,6 +15,28 @@ const u32 = (d: Uint8Array, at: number, v: number): void =>
 const u16 = (d: Uint8Array, at: number, v: number): void =>
   new DataView(d.buffer, d.byteOffset, d.byteLength).setUint16(at, v, true);
 
+it.each([
+  { cap: 16 * 1024 * 1024, pushBytes: 4096, maxPushes: 800 },
+  { cap: undefined, pushBytes: 16384, maxPushes: 200 },
+  { cap: 512 * 1024 * 1024, pushBytes: 65536, maxPushes: 50 },
+])('opens multi-MiB ZIP and gzip members with cap-scaled pushes: %j', ({ cap, pushBytes, maxPushes }) => {
+  let seed = 1;
+  const data = Uint8Array.from({ length: 3 * 1024 * 1024 }, () =>
+    (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) >>> 24);
+  const zip = zipSync({ 'rocket.ork': data });
+  const gz = gzipSync(data);
+  for (const kind of ['zip', 'gzip'] as const) {
+    const spy = vi.spyOn(kind === 'zip' ? Inflate.prototype : Gunzip.prototype, 'push');
+    try {
+      const out = kind === 'zip' ? unzipMember(zip, '.ork', '.ork', cap) : gunzipCapped(gz, '.ork', cap);
+      expect(out.length).toBe(data.length);
+      expect(out.every((byte, i) => byte === data[i])).toBe(true);
+      expect(spy.mock.calls.length).toBeLessThanOrEqual(maxPushes);
+      expect(Math.max(...spy.mock.calls.map(([chunk]) => chunk.length))).toBe(pushBytes);
+    } finally { spy.mockRestore(); }
+  }
+});
+
 // RFC 1952 optional fields, including FHCRC; use the writer's CRC rather than
 // the reader's checksum helper when constructing the header checksum.
 function gzipWithLongHeader(field: 'FNAME' | 'FCOMMENT' | 'FEXTRA', data: Uint8Array): Uint8Array {
@@ -70,7 +92,7 @@ describe('gzip optional header work stays linear', () => {
     try {
       expect(() => gunzipCapped(bytes, '.ork', 16 * 1024 * 1024)).toThrow(InflatedFileTooLargeError);
       expect(maxOutput).toBeGreaterThan(0);
-      expect(maxOutput).toBeLessThanOrEqual(384 * 1024);
+      expect(maxOutput).toBeLessThanOrEqual(5 * 1024 * 1024);
     } finally { spy.mockRestore(); }
   });
 });
@@ -126,8 +148,8 @@ it.each(['gzip', 'zip', 'false-small zip'] as const)('bounds each inflater push 
       .toThrow(kind === 'false-small zip' ? /inflates past/ : InflatedFileTooLargeError);
     // An honest oversized ZIP is rejected from its directory, without a push.
     if (kind !== 'zip') expect(maxOutput).toBeGreaterThan(0);
-    expect.soft(maxInput).toBeLessThanOrEqual(256);
-    expect.soft(maxOutput).toBeLessThanOrEqual(384 * 1024);
+    expect.soft(maxInput).toBeLessThanOrEqual(4096);
+    expect.soft(maxOutput).toBeLessThanOrEqual(5 * 1024 * 1024);
   } finally { spy.mockRestore(); }
 });
 

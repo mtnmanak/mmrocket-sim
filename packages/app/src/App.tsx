@@ -3679,11 +3679,12 @@ export function App() {
         {recentNote && <Note tier="caution" role="status" className="recent-storage-note">
           {recentNote} <button className="file-btn" onClick={() => setRecentNote(null)} aria-label="Dismiss recent storage note">Dismiss</button>
         </Note>}
-        {earlierSaveNote && <Note tier={earlierSaveNote.tier}
-          role="status" className="file-note earlier-save-note">
-          An earlier export finished: {earlierSaveNote.text}
+        <Note tier={earlierSaveNote?.tier ?? 'information'}
+          role="status" className={`earlier-save-note ${earlierSaveNote ? 'file-note' : 'sr-only'}`}>
+          {earlierSaveNote && <>An earlier export finished: {earlierSaveNote.text}
           {' '}<button className="file-btn" onClick={() => setEarlierSaveNote(null)} aria-label="Dismiss earlier save note">Dismiss</button>
-        </Note>}
+          </>}
+        </Note>
       </header>
       {showPrefs && <PreferencesDialog onClose={() => setShowPrefs(false)} />}
       {showGuide && (

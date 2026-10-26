@@ -142,18 +142,17 @@ function overlappingTubes(parent: ComponentNode, node: ComponentNode): { widest?
   };
   const [fore, aft] = span(node);
   let widest: number | undefined;
-  let count = 0, unresolved = false;
+  let unresolved = false;
   for (const tube of parent.children ?? []) {
     if (tube.type !== 'innertube' || tube === node) continue;
     const [tubeFore, tubeAft] = span(tube);
     if (aft < tubeFore || fore > tubeAft) continue;
-    count++;
     const cluster = typeof tube['cluster'] === 'string' ? tube['cluster'] : undefined;
     if (clusterCount(cluster) > 1 || Math.abs(numOpt(tube, 'radialPosition') ?? 0) > 1e-9) unresolved = true;
     const r = numOpt(tube, 'outerRadius');
     if (r !== undefined) widest = Math.max(widest ?? r, r);
   }
-  return { widest, unresolved: unresolved || count > 1 };
+  return { widest, unresolved };
 }
 
 /** The node's ancestors, nearest first (stage last), or null if it is not in the tree. */

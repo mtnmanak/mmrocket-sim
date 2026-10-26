@@ -15,7 +15,7 @@ import { runExportContext, type RunExportContext } from './runExportContext.js';
 import type { WeatherSnapshot } from './weatherSnapshot.js';
 import { motorIdentity } from './hardwareMass.js';
 import { displayDesignation } from './motorDb.js';
-import { formatWarningText } from './simWarnings.js';
+import { formatWarningText, staticWarningTier } from './simWarnings.js';
 import { AERO_NAME, aeroOptionLabel } from '../prefs/aeroChoice.js';
 import { densityAltitudeM, padFieldsAsFlown, usesGeopotentialIsa, type AtmosphereModel } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
@@ -1788,7 +1788,7 @@ function abortWarnings(result: FlightResult): EngineWarning[] {
     const abort = b.events.find((e) => e.type === 'SIM_ABORT');
     if (!abort) {
       if (ground === undefined) {
-        const end = b.events.find(e => e.type === 'SIMULATION_END')?.time ?? b.series.time.at(-1);
+        const end = b.series.time.at(-1);
         out.push({ key: 'INCOMPLETE_FLIGHT', priority: 'HIGH',
           message: `${b.name ? `The ${b.name} stage's flight` : 'The flight'} ended${Number.isFinite(end) ? ` at T+${end!.toFixed(2)} s` : ''} before ground contact was recorded. ${index > 0 ? 'That stage\'s flight is incomplete; its landing rate is unavailable.' : 'The flight is incomplete; landing rate and landing drift are unavailable.'}`,
         });
@@ -2275,11 +2275,11 @@ export function buildSimRun(input: {
   // Format the kernel's static warnings into the app's voice here too: this
   // blob becomes the launch report AND the Comments column of the saved-runs
   // CSV/XLSX, where a raw "[Warning.DISCONTINUITY]" token is just noise. They
-  // are 'info': the kernel describing the model's limits, not the app judging
-  // the rocket, and `SimResults` already renders the kernel's HIGH-priority
-  // ones separately in red from `simWarnings`. Everything the APP checks is
-  // levelled below.
-  for (const t of info.warningTexts) say(formatWarningText(t));
+  // retain their design-note tier in the report and API notes too.
+  for (const t of info.warningTexts) {
+    const tier = staticWarningTier(t);
+    say(formatWarningText(t), tier === 'danger' ? 'warning' : tier === 'caution' ? 'caution' : 'info');
+  }
   // Supersonic flight on the classic model: the flyer should know a validated
   // model exists — and that switching changes the model for the WHOLE flight.
   if ((aeroModel ?? 'classic') === 'classic' && summary.maxMachNumber > MACH_AUTO_THRESHOLD) {

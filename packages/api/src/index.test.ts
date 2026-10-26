@@ -1,6 +1,6 @@
 import { gzipSync, zipSync } from 'fflate';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { unstable_startWorker } from 'wrangler';
 import {
@@ -15,7 +15,7 @@ interface FlightResponse {
   experimental: boolean;
   appVersion: string;
   partial: boolean;
-  outcome: 'completed' | 'aborted';
+  outcome: 'completed' | 'aborted' | 'incomplete';
   aborts: { reason: string; event: { type: string; time: number; cause?: string } }[];
   motorFailures: { mountId: string; mount: string; text: string }[];
   apogeeM: number;
@@ -28,6 +28,7 @@ interface FlightResponse {
   timing: { basis: string; parseMs: number; flyMs: number; totalMs: number };
 }
 const FIXTURES = ['reference.ork', 'TubeFins2.rkt', 'Show-off.CDX1'] as const;
+const INCOMPLETE_FILE = new URL('../../../docs/User files/TRF RASAero Files/SS Wild Bash 20260623v0.rkt', import.meta.url);
 let normal: LocalWorker | undefined;
 let trapped: LocalWorker | undefined;
 let overlay: LocalWorker | undefined;
@@ -62,6 +63,16 @@ afterAll(async () => {
 });
 
 describe('S1 in real workerd', () => {
+  it.skipIf(!existsSync(INCOMPLETE_FILE))('marks a time-capped descent incomplete without inventing an abort event', async () => {
+    const response = await normal!.fetch('http://local/experimental/fly?filename=slow-descent.rkt',
+      { method: 'POST', body: new Uint8Array(readFileSync(INCOMPLETE_FILE)) });
+    expect(response.status, await response.clone().text()).toBe(200);
+    const result = await response.json() as FlightResponse;
+    expect(result.warnings.some(w => /flight is incomplete/.test(w.message))).toBe(true);
+    expect(result.aborts).toEqual([]);
+    expect(result.outcome).toBe('incomplete');
+    expect(result.partial).toBe(true);
+  }, 60_000);
   it('returns 503 with retry guidance when a dead holder poisons the kernel', async () => {
     const response = await trapped!.fetch('http://local/__test/dead-kernel',
       { method: 'POST', body: bytesOf('reference.ork') });
@@ -156,10 +167,11 @@ describe('S1 in real workerd', () => {
       sameNumeric(result.motors, expectedMotors(node));
       const aborts = [node.result, ...boosterBranches(node.result)].flatMap(branch =>
         branch.events.filter(e => e.type === 'SIM_ABORT' || e.type === 'EXCEPTION'));
-      expect(result.outcome).toBe(aborts.length ? 'aborted' : 'completed');
+      const expectedOutcome = name === 'Show-off.CDX1' ? 'aborted' : 'completed';
+      expect(result.outcome).toBe(expectedOutcome);
       sameNumeric(result.aborts.map(a => a.event), aborts);
-      // Outcome and abort events follow the fresh Node oracle; catalogue refreshes may change them.
-      expect(result.partial).toBe(result.outcome === 'aborted');
+      // Fixture outcomes are independent expectations; numeric comparisons still use the fresh Node oracle.
+      expect(result.partial).toBe(name === 'Show-off.CDX1');
       expect(result.motorFailures).toEqual(expectedFailures(node));
       // A literal kernel warning from this fixture; independent of the formatter implementation.
       if (name === 'TubeFins2.rkt') expect(result.warnings.map(w => w.message)).toContain(

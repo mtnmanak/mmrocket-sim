@@ -9,6 +9,15 @@ import { finTabFit, shoulderFit } from './fitHelpers.js';
 const node = (o: Record<string, unknown>) => o as unknown as ComponentNode;
 
 describe('finTabFit', () => {
+  it.each(['rounded', 'airfoil'])('ignores structural rod clusters beside %s fins', crossSection => {
+    const fin = node({ type: 'freeformfinset', crossSection, points: [[0, 0], [0.04, 0.05], [0.1, 0]] });
+    const rods = node({ type: 'innertube', outerRadius: 0.003175, length: 0.3,
+      cluster: '3-ring', clusterScale: 16.28, clusterRotation: 5 * Math.PI / 6 });
+    const mount = node({ type: 'innertube', outerRadius: 0.05065, length: 0.3, motorMount: true });
+    const parent = node({ type: 'bodytube', outerRadius: 0.06985, thickness: 0.002, length: 0.3, children: [rods, mount, fin] });
+    expect(finTabFit(fin, parent)).toMatchObject({ toMount: true, depth: expect.closeTo(0.0192, 12) });
+    expect(finTabFit(fin, { ...parent, children: [rods, fin] })).toMatchObject({ toMount: false, depth: 0.002 });
+  });
   it.each([{ radialPosition: 0.005 }, { cluster: 'double' }])('fits to a concentric holder enclosing a smaller mount %j', layout => {
     const fin = node({ type: 'freeformfinset', crossSection: 'rounded', points: [[0, 0], [0.04, 0.05], [0.1, 0]] });
     const holder = node({ type: 'innertube', outerRadius: 0.02, length: 0.3, children: [
@@ -34,7 +43,7 @@ describe('finTabFit', () => {
   const FIN = node({
     id: 'f1', type: 'trapezoidfinset', rootChord: 0.1, tipChord: 0.05, sweep: 0.03, height: 0.06,
   });
-  const MMT = node({ id: 'mmt', type: 'innertube', outerRadius: 0.0286 });
+  const MMT = node({ id: 'mmt', type: 'innertube', outerRadius: 0.0286, motorMount: true });
   const tube = (children: ComponentNode[], extra: Record<string, unknown> = {}) =>
     node({ id: 'b1', type: 'bodytube', length: 0.5, outerRadius: 0.0508, thickness: 0.0015, children, ...extra });
 
@@ -60,10 +69,10 @@ describe('finTabFit', () => {
     expect(finTabFit(fin, tube([MMT, fin]))!.patch).toEqual({ tabHeight: 0.0508 - 0.0286 });
   });
 
-  it('takes an inner tube that states a usable radius as the mount', () => {
+  it('takes a motor mount that states a usable radius', () => {
     const fit = finTabFit(FIN, tube([
       node({ id: 'a', type: 'innertube' }), node({ id: 'n', type: 'innertube', outerRadius: NaN }),
-      node({ id: 'c', type: 'coupler', outerRadius: 0.04 }), node({ id: 'm', type: 'innertube', outerRadius: 0.019 }),
+      node({ id: 'c', type: 'coupler', outerRadius: 0.04 }), node({ id: 'm', type: 'innertube', outerRadius: 0.019, motorMount: true }),
     ]))!;
     expect(fit.depth).toBeCloseTo(0.0508 - 0.019, 15);
   });
@@ -119,11 +128,13 @@ describe('finTabFit', () => {
     expect(finTabFit(AFT_FINS, air([piston, holder, AFT_FINS]))!.depth).toBeCloseTo(0.0381 - 0.0153, 15);
   });
 
-  it('with no motor tube alongside, reaches the widest tube there, as desktop does', () => {
-    // Two unmarked tubes alongside the fins: the tab meets the wider one first.
+  it('with no motor mount alongside, reaches the widest tube there, as desktop does', () => {
+    // Neither structural tube is a motor mount.
     const tube29 = node({ ...MOUNT, motorMount: undefined });
     const sleeve = node({ ...tube29, id: 'sl', length: 0.15, outerRadius: 0.0175 });
-    expect(finTabFit(AFT_FINS, air([tube29, sleeve, AFT_FINS]))).toMatchObject({ toMount: true, depth: expect.closeTo(0.0381 - 0.0175, 15) });
+    expect(finTabFit(AFT_FINS, air([tube29, sleeve, AFT_FINS]))).toMatchObject({
+      toMount: true, depth: expect.closeTo(0.0381 - 0.0175, 12),
+    });
   });
 
   it('a tube clear of the fins is not their mount — strictly, as desktop tests the fin span', () => {

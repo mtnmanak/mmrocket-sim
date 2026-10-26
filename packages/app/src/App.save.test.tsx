@@ -268,6 +268,9 @@ describe('lane H regressions', () => {
     const host = await mountApp();
     await waitFor(starterStored, 'starter motor');
     let finishWrite!: (out: SaveOutcome) => void;
+    const status = host.querySelector('.earlier-save-note');
+    expect(status).not.toBeNull();
+    expect(status!.textContent).toBe('');
     vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { finishWrite = resolve; }));
     let finishCopy!: (note: string | null) => void;
     const copy = new Promise<string | null>(resolve => { finishCopy = resolve; });
@@ -289,12 +292,16 @@ describe('lane H regressions', () => {
     expect(host.querySelector('.earlier-save-note')?.textContent).toContain(originalWarning);
     await act(async () => { finishCopy('The app could not keep a copy in Recent.'); });
     const receipt = host.querySelector('.earlier-save-note')!;
+    expect(receipt).toBe(status);
     expect(receipt.textContent).toContain(originalWarning);
     expect(receipt.textContent).toContain('could not keep a copy in Recent');
     expect(receipt.textContent).toContain('Earlier.ork');
     expect(receipt.textContent).toContain('Caution:');
     expect(receipt.getAttribute('role')).toBe('status');
     if (warning === 'fallback') expect(receipt.textContent).toContain("your browser's download folder instead");
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Dismiss earlier save note"]')!.click(); });
+    expect(host.querySelector('.earlier-save-note')).toBe(status);
+    expect(status!.textContent).toBe('');
   }, 30000);
 
   it.each(['ork', 'rkt', 'cdx1'] as const)('the last write to Same.%s owns the saved snapshot', async format => {
@@ -406,7 +413,7 @@ describe('lane H regressions', () => {
         if (toggle) await act(async () => { toggle.click(); });
         const notes = host.querySelector('[aria-label="Notices"]')!.textContent;
         await act(async () => { release(); });
-        await waitFor(() => !!host.querySelector('.earlier-save-note') || prompt.mock.calls.length > 0, 'share completion');
+        await waitFor(() => !!host.querySelector('.earlier-save-note')?.textContent || prompt.mock.calls.length > 0, 'share completion');
         expect(host.querySelector('[aria-label="Notices"]')!.textContent).toBe(notes);
         if (stage === 'clipboard' && outcome === 'failure') {
           expect(host.querySelector('.earlier-save-note')?.textContent).toContain('The earlier share could not keep a motor.');
@@ -544,7 +551,7 @@ describe('lane H regressions', () => {
     expect(warning).toContain('Caution:');
     expect(warning).toContain("your browser's download folder instead");
     await act(async () => { button(host.querySelector('.earlier-save-note')!, 'Dismiss').click(); });
-    expect(host.querySelector('.earlier-save-note')).toBeNull();
+    expect(host.querySelector('.earlier-save-note')?.textContent).toBe('');
   }, 30000);
 
   // The STL variant is left out: under a full-suite load its chunk never started within 30 s in three runs
@@ -628,7 +635,7 @@ describe('lane H regressions', () => {
         expect(await importNotes()).not.toContain('Obsolete.ork');
       }
       const receipt = host.querySelector('.earlier-save-note');
-      if (outcome === 'cancelled') expect(receipt).toBeNull();
+      if (outcome === 'cancelled') expect(receipt?.textContent).toBe('');
       else {
         expect(receipt?.getAttribute('role')).toBe('status');
         expect(receipt?.textContent).toContain('Obsolete.ork');
@@ -638,7 +645,8 @@ describe('lane H regressions', () => {
           expect(receipt?.textContent).toContain('Caution:');
         }
         await act(async () => { button(receipt!, 'Dismiss').click(); });
-        expect(host.querySelector('.earlier-save-note')).toBeNull();
+        expect(host.querySelector('.earlier-save-note')).toBe(receipt);
+        expect(receipt!.textContent).toBe('');
         if (replacement === 'Open') expect(await importNotes()).toBe(notesBefore);
       }
     }, 30000);

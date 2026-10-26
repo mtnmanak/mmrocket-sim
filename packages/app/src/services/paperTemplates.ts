@@ -24,14 +24,23 @@ export interface PaperTemplateGeometry {
 const f = (m: number) => (m * 1000).toFixed(4);
 
 /** C-A6/C-A7: display helpers may substitute invalid radii; fabrication must not. */
-export function paperRingDimensions(node: ComponentNode, ctx: SolidContext): { outer: number; bore?: number } {
+export function paperRingOuterRadius(node: ComponentNode, ctx: SolidContext): number {
   const statedOuter = node['outerRadius'] != null;
   const resolved = ringOuterRadius(node, ctx);
   const outer = statedOuter ? numOpt(node, 'outerRadius') : resolved.assumed ? undefined : resolved.r;
   if (outer === undefined || !Number.isFinite(outer) || outer <= 0) {
     throw new Error('The outside diameter is unknown or invalid. State a positive diameter or fit the part inside a tube.');
   }
+  return outer;
+}
+
+export function paperRingDimensions(node: ComponentNode, ctx: SolidContext): { outer: number; bore?: number } {
+  const outer = paperRingOuterRadius(node, ctx);
   if (node.type !== 'centeringring') return { outer };
+  if (ctx.mountLayoutUnresolved) {
+    throw new Error('This ring surrounds a cluster or an off-centre tube. The app cannot lay out their '
+      + 'holes, so it prints no template with one centred opening. Lay the holes out by hand.');
+  }
   const statedBore = node['innerRadius'] != null;
   const bore = statedBore ? numOpt(node, 'innerRadius') : centeringRingBore(node, ctx, outer);
   if (bore == null || !Number.isFinite(bore) || bore < 0 || bore >= outer || (!statedBore && bore === 0)) {
@@ -49,17 +58,7 @@ export function paperTemplateGeometry(node: ComponentNode, ctx: SolidContext): P
   const g: PaperTemplateGeometry = { name: node.name ?? node.type, kind: 'disc', width: 0, height: 0,
     path: '', circles: [], stations: [], dimensions: [], notes: [] };
   if (node.type === 'centeringring' || node.type === 'bulkhead') {
-    // The kernel's bore is the widest overlapping tube, centred; a cutting template must not stand that in for a
-    // cluster's or an off-centre tube's holes (release claim check, 2026-10-13).
-    const clusterRing = node.type === 'centeringring' && ctx.mountLayoutUnresolved === true;
-    if (clusterRing && node['innerRadius'] == null) {
-      throw new Error('This ring surrounds a cluster, an off-centre tube or several tubes. The app cannot lay out their '
-        + 'holes, so it prints no template with one centred opening. Lay the holes out by hand, or state the ring ID '
-        + 'if one centred opening is right.');
-    }
     const { outer: r, bore } = paperRingDimensions(node, ctx);
-    if (clusterRing) g.notes.push('Caution: this ring surrounds a cluster, an off-centre tube or several tubes; '
-      + 'the template has only the stated centred opening. Lay out the other holes by hand.');
     g.width = 2 * r; g.height = 2 * r;
     g.circles = [r];
     g.dimensions.push(['Outside diameter', 2 * r]);

@@ -3,6 +3,11 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { ringFitFor } from './ringFit.js';
 
 describe('Round 5 certain-or-silent catalogue fit', () => {
+  it('keeps catalogue advice silent for concentric tubes even though one centred export bore is resolved', () => {
+    const { tree, ring } = fit(0.04, 0.015);
+    tree.components[0]!.children!.push({ id: 'sleeve', type: 'innertube', length: 0.3, outerRadius: 0.008 });
+    expect(ringFitFor(tree, ring, { outside: true, inside: true }).notes).toEqual([]);
+  });
   it('S3c-g3 checks an explicit inside diameter when the outside is automatic', () => {
     const ring: ComponentNode = { id: 'ring', type: 'centeringring', length: 0.003, innerRadius: 0.008 };
     const tree: RocketTree = { components: [{ id: 'body', type: 'bodytube', length: 0.3,

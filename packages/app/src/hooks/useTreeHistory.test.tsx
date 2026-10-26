@@ -78,10 +78,10 @@ const editApart = (h: { current: TreeHistory }, next: RocketTree) => {
 
 it.each([
   { key: 'z', code: 'KeyZ', ctrlKey: true, altKey: true },
-  { key: 'Dead', code: 'KeyZ', ctrlKey: true },
+  { key: 'Dead', code: 'KeyZ', ctrlKey: true, isComposing: true },
   { key: 'Process', code: 'KeyZ', ctrlKey: true, isComposing: true },
-  { key: 'Unidentified', code: 'KeyY', ctrlKey: true },
-])('leaves Alt and non-character key events alone: %j', options => {
+  { key: 'Unidentified', code: 'KeyY', ctrlKey: true, altKey: true },
+])('leaves Alt-modified and composing shortcut events alone: %j', options => {
   const h = renderHistory(t('before'));
   editApart(h, t('after'));
   const event = new KeyboardEvent('keydown', { ...options, cancelable: true });
@@ -491,6 +491,8 @@ describe('S7d-4: layout-aware undo shortcuts', () => {
   it.each([
     ['я', 'KeyZ', 'н', 'KeyY'],
     ['z', 'KeyY', 'y', 'KeyZ'],
+    ['\u0301', 'KeyZ', '\u0302', 'KeyY'],
+    ['Dead', 'KeyZ', 'Unidentified', 'KeyY'],
   ])('undoes and redoes with %s/%s', (undoKey, undoCode, redoKey, redoCode) => {
     const h = renderHistory(t('before'));
     editApart(h, t('after'));

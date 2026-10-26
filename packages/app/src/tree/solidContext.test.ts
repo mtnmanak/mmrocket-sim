@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { componentDxf } from '../services/dxfExport.js';
 import { finTemplateSvg } from '../services/finTemplate.js';
+import { paperTemplateGeometry } from '../services/paperTemplates.js';
 import { massObjectParentRadius, solidContextFor } from './solidContext.js';
 import { componentLoop, componentSolid, finCutOutline, solidVolume } from './solidMesh.js';
 
@@ -376,11 +377,50 @@ describe('C-A7: a ring around more than one centred tube', () => {
     ] });
     return solidContextFor(t, find(t, 'cr'));
   };
-  it('flags a cluster, an off-centre tube or several tubes, and not one centred tube', () => {
+  it('flags clusters and off-centre tubes, while concentric tubes share one opening', () => {
     expect(ringIn({}).mountLayoutUnresolved).toBeUndefined();
     expect(ringIn({}).mountOuterRadius).toBe(0.01);
     expect(ringIn({ cluster: '3-ring' }).mountLayoutUnresolved).toBe(true);
     expect(ringIn({ radialPosition: 0.012 }).mountLayoutUnresolved).toBe(true);
-    expect(ringIn({}, { outerRadius: 0.008 }).mountLayoutUnresolved).toBe(true);
+    expect(ringIn({}, { outerRadius: 0.008 }).mountLayoutUnresolved).toBeUndefined();
+  });
+  it.each([undefined, 0.02])('exports concentric 20/15 mm sleeves with bore radius %s', async innerRadius => {
+    const t = tree({ id: 'bt', type: 'bodytube', length: 0.3, outerRadius: 0.03, thickness: 0.001, children: [
+      { id: 'sleeve', type: 'innertube', length: 0.3, outerRadius: 0.02 },
+      { id: 'mount', type: 'innertube', length: 0.3, outerRadius: 0.015, motorMount: true },
+      { id: 'ring', type: 'centeringring', length: 0.003, innerRadius },
+    ] });
+    const ring = find(t, 'ring'), ctx = solidContextFor(t, ring);
+    expect(componentLoop(ring, ctx)).not.toBeNull();
+    expect(await componentSolid(ring, ctx)).not.toBeNull();
+    expect(componentDxf(ring, ctx, 'Sleeves')).not.toBeNull();
+    expect(paperTemplateGeometry(ring, ctx).circles).toEqual([0.03 - 0.001, 0.02]);
+  });
+  it('keeps a stated ninja-style bore where centred tubes touch end-to-end', async () => {
+    const t = tree({ id: 'bt', type: 'bodytube', length: 0.5, outerRadius: 0.0508, thickness: 0.0013, children: [
+      { id: 'mount', type: 'innertube', length: 0.4, outerRadius: 0.0287,
+        position: { method: 'top', offset: 0 } },
+      { id: 'retainer', type: 'innertube', length: 0.016, outerRadius: 0.029,
+        position: { method: 'top', offset: 0.4 } },
+      { id: 'ring', type: 'centeringring', length: 0.00635, outerRadius: 0.0494919, innerRadius: 0.0287401,
+        position: { method: 'top', offset: 0.4 - 0.00635 } },
+    ] });
+    const ring = find(t, 'ring'), ctx = solidContextFor(t, ring);
+    expect(componentLoop(ring, ctx)).not.toBeNull();
+    expect(await componentSolid(ring, ctx)).not.toBeNull();
+    expect(componentDxf(ring, ctx, 'Ninja')).not.toBeNull();
+    expect(paperTemplateGeometry(ring, ctx).circles).toEqual([0.0494919, 0.0287401]);
+  });
+  it('refuses Goblin-style four off-axis 75 mm mounts even with a stated 80 mm ID', async () => {
+    const t = tree({ id: 'bt', type: 'bodytube', length: 1, outerRadius: 0.1016, thickness: 0.0021, children: [
+      ...[0, 1, 2, 3].map(i => ({ id: `mount${i}`, type: 'innertube', length: 1, outerRadius: 0.0375,
+        radialPosition: 0.0566, radialDirection: i * Math.PI / 2, motorMount: true })),
+      { id: 'ring', type: 'centeringring', length: 0.003, outerRadius: 0.0995, innerRadius: 0.04 },
+    ] });
+    const ring = find(t, 'ring'), ctx = solidContextFor(t, ring);
+    expect(componentLoop(ring, ctx)).toBeNull();
+    expect(await componentSolid(ring, ctx)).toBeNull();
+    expect(componentDxf(ring, ctx, 'Goblin')).toBeNull();
+    expect(() => paperTemplateGeometry(ring, ctx)).toThrow(/holes/);
   });
 });

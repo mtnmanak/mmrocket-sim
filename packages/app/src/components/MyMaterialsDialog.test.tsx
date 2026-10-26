@@ -39,10 +39,21 @@ it.each(['0', '-5', '', '1,250'])('S3c-g1 refuses the visible invalid density %j
   saveUserMaterials([{ kind: 'bulk', name: 'Mix', density: 900 }]); mount();
   click(button('Edit bulk material Mix'));
   type(input('Density (kg/m³)'), value);
+  act(() => button('Save material').focus());
+  const density = input('Density (kg/m³)');
+  const focused: { invalid: string | null; description: string | null | undefined }[] = [];
+  density.addEventListener('focus', () => focused.push({ invalid: density.getAttribute('aria-invalid'),
+    description: document.getElementById(density.getAttribute('aria-describedby') ?? '')?.textContent }));
   act(() => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
   expect(host.querySelector('form')).not.toBeNull();
   expect(host.textContent).not.toContain('Material updated.');
   expect(loadUserMaterials()[0]?.density).toBe(900);
+  expect(focused).toEqual([{ invalid: 'true', description: expect.stringMatching(/density/i) }]);
+  expect(density.getAttribute('aria-invalid')).toBe('true');
+  expect(document.activeElement).toBe(density);
+  const errorId = density.getAttribute('aria-describedby');
+  expect(errorId).toBeTruthy();
+  expect(document.getElementById(errorId!)?.textContent).toMatch(/density/i);
 });
 it('S3c-g1 does not report an update after another tab deleted the edited material', () => {
   saveUserMaterials([{ kind: 'bulk', name: 'Mix', density: 900 }]); mount();

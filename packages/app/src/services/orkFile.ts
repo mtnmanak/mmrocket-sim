@@ -385,12 +385,12 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     ({ xml, note: encodingNote } = decodeXml(bytes));
   }
 
-  preflightXml(xml, 'Not a valid .ork file (XML parse error)');
   // OpenRocket writes a single-quoted XML declaration. Of the parsers measured
   // (2026-10-01) only happy-dom, the test stand-in, refuses it — Chrome and the
   // JS parser (xmlParseJs.ts) both accept it — so this strip is for the tests;
   // it is harmless under every parser, and kept.
   xml = xml.replace(/^\uFEFF?\s*<\?xml[^?]*\?>/, '');
+  preflightXml(xml, 'Not a valid .ork file (XML parse error)');
   // Through the parser seam (xmlParse.ts): the browser's own DOMParser, as
   // before, or the JS parser a Node/Workers entry installs. Same message.
   const rawExtensions = extensionXmlBySimulation(xml);

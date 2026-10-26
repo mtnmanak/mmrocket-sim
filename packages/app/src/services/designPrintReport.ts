@@ -7,7 +7,7 @@ import { solidContextFor } from '../tree/solidContext.js';
 import { kernelFinPoints } from '../tree/finOutline.js';
 import { finRootChord } from '../tree/finTab.js';
 import { finOutline } from './finTemplate.js';
-import { paperRingDimensions } from './paperTemplates.js';
+import { paperRingDimensions, paperRingOuterRadius } from './paperTemplates.js';
 import { validDelayResolution } from './autoDelaySolver.js';
 import { formatWarning } from './simWarnings.js';
 import { recordedConfiguration, runConfigurationHeading } from './runConfiguration.js';
@@ -73,11 +73,13 @@ export function designPrintHtml(input: DesignPrintInput): string {
     let ringCaution = '';
     if (n && (n.type === 'centeringring' || n.type === 'bulkhead')) {
       try {
-        const { outer, bore } = paperRingDimensions(n, solidContextFor(tree, n));
+        const ctx = solidContextFor(tree, n);
+        const outer = paperRingOuterRadius(n, ctx);
         ringDimensions.push(`Outside diameter: ${val('length', 2 * outer, 3)}`);
+        const { bore } = paperRingDimensions(n, ctx);
         if (bore !== undefined) ringDimensions.push(`Opening diameter: ${val('length', 2 * bore, 3)}`);
       } catch (error) {
-        ringDimensions.push('Outside diameter: Unknown');
+        if (!ringDimensions.length) ringDimensions.push('Outside diameter: Unknown');
         if (n.type === 'centeringring') ringDimensions.push('Opening diameter: Unknown');
         ringCaution = note(`${error instanceof Error ? error.message : 'Ring dimensions unavailable.'} Do not cut from unresolved dimensions.`, 'caution');
       }

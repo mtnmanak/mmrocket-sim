@@ -70,6 +70,24 @@ const motor = {
   cgX: 0.035, ejectionDelay: 5,
 };
 
+it('keeps static warning tiers in the flight report and exported comments', () => {
+  const run = buildSimRun({ result: fakeResult(), info: { ...info, warningTexts: [
+    '[Warning.RAIL_CHECK_INCOMPLETE] Check every button and fin before flying.',
+  ] }, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Test', execMs: 1 });
+  expect(commentsOf(run).find(c => /button and fin/.test(c.text))?.level).toBe('caution');
+  expect(runsToCsv([run])).toContain('Check every button and fin before flying.');
+});
+
+it('uses the reported flight time for an incomplete flight instead of the later end event', () => {
+  const result = fakeResult();
+  result.events = result.events.filter(e => e.type !== 'GROUND_HIT');
+  result.events.push({ type: 'SIMULATION_END', time: 104.5 });
+  const run = buildSimRun({ result, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Test', execMs: 1 });
+  const text = run.simWarnings!.find(w => w.key === 'INCOMPLETE_FLIGHT')!.message;
+  expect(text).toContain('T+104.00 s');
+  expect(text).not.toContain('104.50');
+});
+
 it('records detached launch metadata for later flight-data collection without changing results', () => {
   const launch = { ...DEFAULT_CONDITIONS, longitudeDeg: -149.765432 };
   const result = fakeResult();

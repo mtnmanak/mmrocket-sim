@@ -90,6 +90,7 @@ describe('useWorkspaceTab', () => {
   });
 
   it('leaves Fly when the viewport grows and removes its listener on unmount', () => {
+    localStorage.setItem(WORKSPACE_KEY, 'fly');
     const media = new EventTarget() as MediaQueryList;
     Object.defineProperty(media, 'matches', { value: true, writable: true });
     vi.stubGlobal('matchMedia', () => media);
@@ -99,10 +100,40 @@ describe('useWorkspaceTab', () => {
     Object.defineProperty(media, 'matches', { value: false });
     act(() => { media.dispatchEvent(new Event('change')); });
     expect(h.tab).toBe('design');
-    expect(localStorage.getItem(WORKSPACE_KEY)).toBe('design');
+    expect(localStorage.getItem(WORKSPACE_KEY)).toBe('fly');
+    Object.defineProperty(media, 'matches', { value: true });
+    act(() => { media.dispatchEvent(new Event('change')); });
+    expect(h.tab).toBe('fly');
     act(() => root!.unmount());
     root = null;
     expect(remove).toHaveBeenCalledWith('change', expect.any(Function));
+  });
+
+  it('keeps an explicit tab choice made during the automatic landscape fallback', () => {
+    const media = new EventTarget() as MediaQueryList;
+    Object.defineProperty(media, 'matches', { value: true, writable: true });
+    vi.stubGlobal('matchMedia', () => media);
+    const h = mount();
+    Object.defineProperty(media, 'matches', { value: false });
+    act(() => { media.dispatchEvent(new Event('change')); });
+    expect(h.tab).toBe('design');
+    act(() => h.setTab('design'));
+    Object.defineProperty(media, 'matches', { value: true });
+    act(() => { media.dispatchEvent(new Event('change')); });
+    expect(h.tab).toBe('design');
+    expect(localStorage.getItem(WORKSPACE_KEY)).toBe('design');
+  });
+
+  it('restores a saved Fly choice after a wide-screen reload returns to phone width', () => {
+    localStorage.setItem(WORKSPACE_KEY, 'fly');
+    const media = new EventTarget() as MediaQueryList;
+    Object.defineProperty(media, 'matches', { value: false, writable: true });
+    vi.stubGlobal('matchMedia', () => media);
+    const h = mount();
+    expect(h.tab).toBe('design');
+    Object.defineProperty(media, 'matches', { value: true });
+    act(() => { media.dispatchEvent(new Event('change')); });
+    expect(h.tab).toBe('fly');
   });
 
   it('ignores a stored value that is not a tab, and a storage that throws', () => {

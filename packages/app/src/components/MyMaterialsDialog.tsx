@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { Modal } from './Modal.js';
 import { readDecimal } from '../prefs/units.js';
 import { useUserMaterials } from './useUserMaterials.js';
@@ -14,6 +15,8 @@ export const MATERIAL_STORAGE_FAILURE = 'My materials could not be saved in this
 export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
   const { materials, note } = useUserMaterials();
   const [message, setMessage] = useState('');
+  const [densityError, setDensityError] = useState('');
+  const densityField = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<{ key: string; draft: UserMaterial; density: string } | null>(null);
   const [deleting, setDeleting] = useState<UserMaterial | null>(null);
   const [reading, setReading] = useState(false);
@@ -93,7 +96,14 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
                   ? readDecimal(editing.density, false) : readDecimal(editing.density);
                 const draft = { ...editing.draft, density: density ?? NaN };
                 const problem = materialProblem(draft);
-                if (problem) { setMessage(problem); return; }
+                if (problem) {
+                  setMessage(problem);
+                  const densityProblem = materialProblem({ ...m, density: draft.density });
+                  flushSync(() => setDensityError(densityProblem ?? ''));
+                  if (densityProblem) densityField.current?.focus();
+                  return;
+                }
+                setDensityError('');
                 const current = loadUserMaterials();
                 if (!current.some(old => userMaterialKey(old) === key)) {
                   setMessage('This material is no longer in My materials. Close the editor and check the library.'); return;
@@ -111,8 +121,10 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
                   <input id={`${uid}-name`} maxLength={80} value={editing.draft.name}
                     onChange={e => setEditing({ ...editing, draft: { ...editing.draft, name: e.target.value } })} /></div>
                 <div className="field"><label htmlFor={`${uid}-density`}>Density ({MATERIAL_UNITS[kind]})</label>
-                  <input id={`${uid}-density`} inputMode="decimal" value={editing.density}
-                    onChange={e => setEditing({ ...editing, density: e.target.value })} /></div>
+                  <input ref={densityField} id={`${uid}-density`} inputMode="decimal" value={editing.density}
+                    aria-invalid={densityError ? true : undefined} aria-describedby={densityError ? `${uid}-density-error` : undefined}
+                    onChange={e => { setDensityError(''); setEditing({ ...editing, density: e.target.value }); }} />
+                  {densityError && <p id={`${uid}-density-error`}>{densityError}</p>}</div>
                 <button className="file-btn" type="submit">Save material</button>{' '}
                 <button className="file-btn" type="button" onClick={() => { focusAfterEdit.current = key; setEditing(null); }}>Cancel</button>
               </form> : <>
@@ -120,7 +132,7 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
                 <button className="file-btn" type="button" aria-label={`Edit ${kind} material ${m.name}`} ref={el => {
                   if (el) editButtons.current.set(key, el);
                   else editButtons.current.delete(key);
-                }} onClick={() => { focusEditName.current = true; setEditing({ key, draft: { ...m }, density: String(m.density) }); setMessage(''); }}>Edit</button>{' '}
+                }} onClick={() => { focusEditName.current = true; setDensityError(''); setEditing({ key, draft: { ...m }, density: String(m.density) }); setMessage(''); }}>Edit</button>{' '}
                 <button className="file-btn" type="button" aria-label={`Delete ${kind} material ${m.name}`} onClick={() => { setMessage(''); setDeleting(m); }}>Delete</button>
               </>}
             </li>;

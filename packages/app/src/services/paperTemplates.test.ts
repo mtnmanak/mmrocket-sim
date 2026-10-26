@@ -176,13 +176,11 @@ it('labels the fore/aft wrap diameters and ring opening in the selected unit', (
 });
 
 describe('C-A7 rings around a cluster or off-centre mount', () => {
-  it('refuses to invent one centred opening, and cautions when the ID is stated', () => {
+  it('refuses one centred opening even when the ID is stated', () => {
     expect(() => paperTemplateGeometry(node('centeringring'),
       { parentInnerRadius: 0.05, mountOuterRadius: 0.02, mountLayoutUnresolved: true })).toThrow(/cluster/);
-    const stated = paperTemplateGeometry(node('centeringring', { innerRadius: 0.015 }),
-      { parentInnerRadius: 0.05, mountOuterRadius: 0.02, mountLayoutUnresolved: true });
-    expect(stated.circles).toEqual([0.05, 0.015]);
-    expect(stated.notes.join(' ')).toMatch(/Caution:.*cluster/);
+    expect(() => paperTemplateGeometry(node('centeringring', { innerRadius: 0.015 }),
+      { parentInnerRadius: 0.05, mountOuterRadius: 0.02, mountLayoutUnresolved: true })).toThrow(/cluster/);
     expect(paperTemplateGeometry(node('bulkhead'), { parentInnerRadius: 0.04, mountLayoutUnresolved: true }).circles)
       .toEqual([0.04]);
   });

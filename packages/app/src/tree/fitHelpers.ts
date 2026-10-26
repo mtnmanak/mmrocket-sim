@@ -86,23 +86,22 @@ export function finTabFit(fin: ComponentNode, parent: ComponentNode | 'stage' | 
 
 /**
  * The outer radius (m) of the motor tube beside `fin` that the tab is fitted
- * to, or null when no inner tube that states one sits alongside the fin.
+ * to, or null when no usable centred inner tube sits alongside the fin.
  *
  * "Alongside" is desktop's own test (FinSetConfig.isComponentInsideFinSpan on
  * the fin's ROOT chord, term for term): a tube that only touches either end of
  * the root is not alongside it. Stations are in the parent's frame.
  *
  * Among the tubes alongside, the widest MOTOR tube — one marked as a motor
- * mount, or holding one (a 38 mm tube around a 29 mm adapter) — and only when
- * there is none, the widest tube of all, which is desktop's whole rule
- * (calculateAutoTab keeps the largest outer radius alongside). Desktop's rule
+ * mount, or holding one (a 38 mm tube around a 29 mm adapter). Desktop's rule
  * alone loses the motor tube to a wider tube beside it — measured on the
  * RockSim corpus, 25 fin sets: 20 in kits whose piston, insulator tube or
  * sleeve overlaps the fins' root (Hydra, Matrix, Pterodactyl, 1/2-scale
  * Patriot, Black Brant VC) fell from the motor tube's 12.8-68.5 mm to
  * 1.6-46.3 mm, and 5 whose full-width inner tube left no depth lost the button.
  * Black_Brant_VC.rkt's own 18.0 mm tab passes its sleeve to the motor tube.
- * The button promises the motor tube; this keeps it.
+ * The button promises the motor tube; this keeps it. Without a flagged mount,
+ * use the widest centred inner tube alongside, as desktop does.
  */
 function mountRadiusAlongside(parent: ComponentNode, fin: ComponentNode): number | null | undefined {
   const pLen = axialLength(parent);
@@ -122,8 +121,8 @@ function mountRadiusAlongside(parent: ComponentNode, fin: ComponentNode): number
     return displacement + Math.max(r, ...(n.children ?? []).filter(c => c.type === 'innertube').map(radialReach));
   };
   const [finFore, finAft] = span(fin);
-  let widest: number | null = null;
   let widestMotor: number | null = null;
+  let widest: number | null = null;
   for (const tube of parent.children ?? []) {
     if (tube.type !== 'innertube') continue;
     const r = numOrNull(tube, 'outerRadius');
@@ -132,11 +131,15 @@ function mountRadiusAlongside(parent: ComponentNode, fin: ComponentNode): number
     const alongside = (fore >= finFore && fore < finAft) || (aft > finFore && aft <= finAft)
       || (fore <= finFore && aft >= finAft);
     if (!alongside) continue;
+    const isMount = tube['motorMount'] === true || holdsMount(tube);
     // The tab contacts this tube's exterior, not the mounts inside its holder.
-    if (num(tube, 'radialPosition', 0) !== 0 || clusterCount(tube['cluster'] as string | undefined) > 1) return undefined;
-    if ((tube.children ?? []).some(c => c.type === 'innertube' && radialReach(c) > r)) return undefined;
+    if (num(tube, 'radialPosition', 0) !== 0 || clusterCount(tube['cluster'] as string | undefined) > 1
+      || (tube.children ?? []).some(c => c.type === 'innertube' && radialReach(c) > r)) {
+      if (isMount) return undefined;
+      continue;
+    }
     widest = Math.max(widest ?? r, r);
-    if (tube['motorMount'] === true || holdsMount(tube)) widestMotor = Math.max(widestMotor ?? r, r);
+    if (isMount) widestMotor = Math.max(widestMotor ?? r, r);
   }
   return widestMotor ?? widest;
 }

@@ -4,7 +4,7 @@ import {
 } from '../tree/solidMesh.js';
 import { asciiOnly } from './textFold.js';
 import { kernelNum } from '../tree/kernelDefaults.js';
-import { num } from '../tree/nodeNum.js';
+import { num, numOpt } from '../tree/nodeNum.js';
 import { axialLength } from '../tree/position.js';
 import { finRootChord, finTabSpan } from '../tree/finTab.js';
 
@@ -353,7 +353,7 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string,
       const raw = centeringRingBore(node, ctx, R);
       if (raw === null) return null;
       const found = typeof raw === 'number';
-      const known = found && raw > EPS && raw < R - EPS;
+      const known = found && (raw > EPS || (raw === 0 && numOpt(node, 'innerRadius') === 0)) && raw < R - EPS;
       // Same fallback componentSolid() takes: a ring with no mount tube to
       // center is really a bulkhead, so assume a half-radius bore and put
       // the assumption in the label where it can be caught before cutting.

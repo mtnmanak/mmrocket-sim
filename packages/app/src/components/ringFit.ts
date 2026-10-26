@@ -48,6 +48,9 @@ export function ringFitFor(tree: RocketTree, node: ComponentNode, written: { out
     const [tubeFore, tubeAft] = span(tube, parent);
     return aft >= tubeFore && fore <= tubeAft;
   });
+  // One centred cutting bore can serve concentric tubes, but catalogue fit
+  // advice still needs a certain single tube to compare and name.
+  if (overlapping.filter(tube => tube.type === 'innertube').length > 1) return result;
   for (const tube of overlapping) {
     const r = numOpt(tube, 'outerRadius')
       ?? (tube.type === 'tubecoupler' ? solidContextFor(tree, tube).parentInnerRadius : undefined);

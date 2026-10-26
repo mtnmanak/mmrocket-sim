@@ -1412,7 +1412,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             // button that silently does nothing reads as a broken button.
             if (!dxf) {
               setExportNote(node.type === 'centeringring'
-                ? 'The app cannot lay out this mount’s holes; one centred opening would not fit. Lay out the holes by hand, or state the ring ID if one centred opening is right.'
+                ? 'The app cannot lay out this mount’s holes; one centred opening would not fit. Lay out the holes by hand. The ring’s stated ID cannot place off-axis holes.'
                 : node.type.endsWith('finset')
                 ? 'This fin outline crosses itself or encloses no area — fix the '
                   + 'fin points before exporting.'
@@ -1461,7 +1461,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   // button that silently does nothing reads as a broken button.
                   if (!solid) {
                     setExportNote(node.type === 'centeringring' && centeringRingBore(node, ctx, ringOuterRadius(node, ctx).r) === null
-                      ? 'The app cannot lay out this mount’s holes; one centred opening would not fit. Lay out the holes by hand, or state the ring ID if one centred opening is right.'
+                      ? 'The app cannot lay out this mount’s holes; one centred opening would not fit. Lay out the holes by hand. The ring’s stated ID cannot place off-axis holes.'
                       : node.type === 'tubefinset' && numOpt(node, 'outerRadius') === 0
                       ? `This tube-fin set has an Outer ${prefs.radiusMode} of 0, so there is nothing to print — `
                         + `clear the field for automatic sizing or enter a ${prefs.radiusMode}.`

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it, vi } from 'vitest';
 import { currentXmlParser, setXmlParser } from './xmlParse.js';
+import { createJsXmlParser } from './xmlParseJs.js';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { isaPressurePa, isaTemperatureK } from './atmosphere.js';
@@ -48,6 +49,13 @@ const orkXml = (body: string, extra = ''): string =>
 
 const BODY_TUBE = '<bodytube><name>Tube</name><length>0.3</length>'
   + '<radius>0.025</radius><thickness>0.001</thickness></bodytube>';
+
+it.each(['\n', '\r\n  ', '\uFEFF  '])('preflights the same normalized .ork XML with prefix %j', prefix => {
+  const parser = currentXmlParser();
+  setXmlParser(createJsXmlParser({ maxElements: 50_000, maxDepth: 64 }));
+  try { expect(importOrk(prefix + orkXml(BODY_TUBE)).tree.name).toBe('Test'); }
+  finally { setXmlParser(parser); }
+});
 
 const buf = (u: Uint8Array): ArrayBuffer =>
   u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
