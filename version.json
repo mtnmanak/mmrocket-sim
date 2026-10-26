@@ -1,5 +1,5 @@
 {
-  "version": "0.193",
+  "version": "0.194",
   "released": "2026-10-26",
-  "note": "Incomplete-flight reporting, file and motor validation, restore, materials, geometry and accessibility fixes; compared tester-flight numbers unchanged."
+  "note": "Physical numbers in warnings and notes now come first in your chosen unit with the other system after it, and fixes from the 17 and 25 October audits are carried to the paths they had missed."
 }
