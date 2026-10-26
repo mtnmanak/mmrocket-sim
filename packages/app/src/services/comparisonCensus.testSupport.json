@@ -150,7 +150,7 @@
     "tree/glossaryTerms.ts": 1,
     "tree/motorLength.ts": 1,
     "tree/mountAngle.ts": 1,
-    "tree/sanitize.ts": 26,
+    "tree/sanitize.ts": 28,
     "tree/scaleRocket.ts": 12,
     "tree/schema.ts": 5,
     "tree/schematicLayout.ts": 1,
