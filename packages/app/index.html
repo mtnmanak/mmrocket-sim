@@ -17,19 +17,27 @@
     </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="Design, simulate, fly — OpenRocket-derived physics, validated to Mach 4.6 against NASA wind-tunnel data. In your browser, offline-capable." />
-    <meta name="theme-color" content="#111110" />
+    <!-- Brand navy in every theme (mmr-brand SPEC §5.2): the browser chrome
+         sits beside the navy site strip, so it is NOT the page ground. -->
+    <meta name="theme-color" content="#03254F" />
     <script>
       // Paint the page ground BEFORE React mounts. The theme lives in
       // .viz-root tokens, which don't exist until the app renders — without
       // this, every load of the (default-dark) app opens on browser-white
       // and flips dark a beat later. Reads the same pref blob PrefsContext
       // owns; any failure falls through to dark, the app default. Values
-      // MUST match --surface-0 in styles.css (light #f4f2ee / dark #111110).
+      // MUST match --surface-0 in styles.css, which is the brand ground
+      // --mmr-bg (light paper #f6faff / dark navy #03254f).
       // Daylight forces a WHITE page whatever the theme (the data-contrast
       // block in styles.css) — it must be read too, or the phone-in-sunlight
       // users the mode serves get the flash inverted (dark pre-paint, then
-      // white on mount). App.tsx re-writes both the ground and the meta on
-      // every live theme/daylight change; this script only covers the load.
+      // white on mount). Daylight is the brand's LIGHT theme with a contrast
+      // layer on top (mmr-brand SPEC §3.1), so it sets data-theme="light".
+      // data-theme goes on <html> as well as .viz-root, so the brand tokens'
+      // own selectors and the OS-preference fallback see the app's choice.
+      // App.tsx re-writes both on every live theme/daylight change; this
+      // script only covers the load. theme-color is NOT written: it stays
+      // brand navy (the meta above).
       (function () {
         var theme = 'dark';
         var daylight = false;
@@ -41,14 +49,34 @@
             ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
             : (t === 'light' ? 'light' : 'dark');
         } catch (e) { /* default dark, daylight off */ }
-        var bg = daylight ? '#ffffff' : theme === 'light' ? '#f4f2ee' : '#111110';
-        document.documentElement.style.background = bg;
-        var m = document.querySelector('meta[name="theme-color"]');
-        if (m) m.setAttribute('content', bg);
+        var root = document.documentElement;
+        root.style.background = daylight ? '#ffffff' : theme === 'light' ? '#f6faff' : '#03254f';
+        root.setAttribute('data-theme', daylight ? 'light' : theme);
       })();
     </script>
-    <link rel="icon" type="image/png" href="./favicon.png" />
-    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
+    <!-- mmr-brand, vendored by scripts/sync-brand.mjs into public/ (never
+         edit the copies; re-sync instead). Fonts, then tokens, then the chart
+         and UI-kit layers — all BEFORE the app's own stylesheet, which maps
+         its variables onto these tokens. -->
+    <link rel="stylesheet" href="/brand/fonts.css" />
+    <link rel="stylesheet" href="/brand/tokens.css" />
+    <link rel="stylesheet" href="/brand/chart.css" />
+    <link rel="stylesheet" href="/brand/mmr-ui.css" />
+    <!-- From mmr-brand properties/mmrocket-sim/head-snippet.html. The manifest
+         link is injected by vite-plugin-pwa. -->
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:site_name" content="MMRocket Sim" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="MMRocket Sim" />
+    <meta property="og:description" content="MMRocket Sim lets you build a rocket model and simulate its flight." />
+    <meta property="og:url" content="https://mmrsim.mountainmanrockets.com/" />
+    <meta property="og:image" content="https://mmrsim.mountainmanrockets.com/og-card.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="MMRocket Sim logo" />
+    <meta name="twitter:card" content="summary_large_image" />
     <title>MMRocket Sim — Rocket Design & Flight Simulator</title>
   </head>
   <body>
@@ -83,7 +111,7 @@
           box.setAttribute('data-startup-failure', '');
           box.setAttribute('role', 'alert');
           box.style.cssText = 'font-family:system-ui,sans-serif;max-width:36em;margin:48px auto;'
-            + 'padding:20px 24px;border-radius:8px;background:#f4f2ee;color:#111110;line-height:1.5';
+            + 'padding:20px 24px;border-radius:8px;background:#f6faff;color:#03254f;line-height:1.5';
           var p = document.createElement('p');
           p.style.margin = '0 0 12px';
           p.textContent = 'MMRocket Sim could not start because part of it failed to load or run; '

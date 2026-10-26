@@ -97,24 +97,30 @@ export default defineConfig({
     // copy of itself — see services/versionCheck.ts.
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.png', 'apple-touch-icon.png'],
+      includeAssets: ['favicon.ico', 'favicon.svg', 'apple-touch-icon.png', 'og-card.jpg'],
+      // From mmr-brand properties/mmrocket-sim/public/site.webmanifest (that
+      // file is excluded from the sync because this plugin writes the manifest).
       manifest: {
         id: '/',
         name: 'MMRocket Sim',
         short_name: 'MMRocket Sim',
-        description: 'Design model rockets and simulate flights — the real OpenRocket physics engine in your browser, offline-capable.',
-        theme_color: '#101623',
-        background_color: '#101623',
+        description: 'MMRocket Sim lets you build a rocket model and simulate its flight.',
+        theme_color: '#03254F',
+        background_color: '#03254F',
         display: 'standalone',
+        lang: 'en',
         icons: [
-          { src: 'pwa-192.png', sizes: '192x192', type: 'image/png' },
-          { src: 'pwa-512.png', sizes: '512x512', type: 'image/png' },
-          { src: 'pwa-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+          { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: 'icon-192-maskable.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+          { src: 'icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
         ],
       },
       workbox: {
-        // woff/woff2: the self-hosted Rajdhani display face must work offline.
-        globPatterns: ['**/*.{js,css,html,png,webmanifest,woff,woff2}'],
+        // woff/woff2: the self-hosted brand fonts (Archivo, IBM Plex Mono) must
+        // work offline. svg/ico: the header logo, the icon sprite and the
+        // favicons (brand checklist step 4).
+        globPatterns: ['**/*.{js,css,html,png,svg,ico,webmanifest,woff,woff2}'],
         // The release-notes page is NOT precached (scripts/release-notes.mjs:
         // ~560 KB of text on every user's download), and the navigation
         // fallback must not answer its URL with the app — without the

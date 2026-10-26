@@ -318,17 +318,24 @@ export function App() {
     prefs, setPrefs, resolvedTheme, daylight,
     saveFailing: prefsSaveFailing, aeroOverride, setAeroOverride,
   } = usePrefs();
+  // Daylight is the brand's LIGHT theme with a contrast layer on top (mmr-brand
+  // SPEC §3.1): under it every --mmr-* token must resolve light, whatever the
+  // user's theme, or a dark-theme user in Daylight gets dark brand values on a
+  // white page.
+  const themeAttr = daylight ? 'light' : resolvedTheme;
   // Keep the document-level ground and the browser-chrome tint in step with
   // the LIVE theme. index.html paints both before React mounts (no white
   // flash), but that inline write is once-per-load: without this, switching
   // theme or Daylight in-app left the stale color behind overscroll and in
   // the scrollbar-gutter strip until a full reload (review finding, v0.076).
   // Values MUST match --surface-0 in styles.css and the index.html script.
+  // data-theme is mirrored onto <html> so the brand tokens' own selectors see
+  // the app's choice; theme-color is left alone (brand navy, set in index.html).
   useEffect(() => {
-    const bg = daylight ? '#ffffff' : resolvedTheme === 'light' ? '#f4f2ee' : '#111110';
-    document.documentElement.style.background = bg;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', bg);
-  }, [resolvedTheme, daylight]);
+    const root = document.documentElement;
+    root.style.background = daylight ? '#ffffff' : resolvedTheme === 'light' ? '#f6faff' : '#03254f';
+    root.setAttribute('data-theme', themeAttr);
+  }, [resolvedTheme, daylight, themeAttr]);
   // "Am I on the current version?" — one cache-busted read of the deployed
   // version.json, plus an on-demand recheck. Never polls.
   const { state: updateState, recheck: recheckVersion } = useVersionCheck();
@@ -3397,7 +3404,7 @@ export function App() {
   ) : null;
 
   return (
-    <div className="viz-root" data-theme={resolvedTheme} data-contrast={daylight ? 'high' : undefined}
+    <div className="viz-root" data-theme={themeAttr} data-contrast={daylight ? 'high' : undefined}
       data-tab={tab}>
       <SiteBand nav={mmrNav} source={mmrNavSource} />
       <header className="app-header">

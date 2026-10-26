@@ -30,7 +30,15 @@ import { join, relative, sep } from 'node:path';
 
 // releases/: the public release-notes page (scripts/release-notes.mjs) — the
 // whole changelog as one page, kept off every user's download on purpose.
-export const DELIBERATELY_UNCACHED = [/^sw\.js$/, /^workbox-[0-9a-f]+\.js$/, /^version\.json$/, /^releases\//];
+// brand/: four vendored mmr-brand files the running app never loads — the sync
+// manifest, the JSON copy of the tokens (the app reads the CSS; chartTheme.ts
+// carries the chart values as literals, checked against this file by a test),
+// the two font licences and the icon sprite's usage note. They ship because
+// sync-brand.mjs vendors the folder whole and --verify checks every file.
+export const DELIBERATELY_UNCACHED = [
+  /^sw\.js$/, /^workbox-[0-9a-f]+\.js$/, /^version\.json$/, /^releases\//,
+  /^brand\/brand-manifest\.json$/, /^brand\/tokens\.json$/, /^brand\/fonts\/OFL-[A-Za-z]+\.txt$/, /^brand\/icons\/USAGE\.md$/,
+];
 
 /**
  * The URLs a generated sw.js precaches: the `url` of every entry in workbox's
