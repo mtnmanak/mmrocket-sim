@@ -240,11 +240,14 @@ describe('S1 in real workerd', () => {
       expect(result.motors).toHaveLength(1);
     }
     if (kind === 'refused') {
-      // The archive gate now refuses the out-of-range snapshot before build (U3).
+      // The archive gate now refuses the out-of-range snapshot before build (U3),
+      // that motor alone (C1: invalid captured EX motors are refused one by one;
+      // indexGuards.test.ts holds the in-process worker to the same note).
       expect(node.build.motorFailures).toHaveLength(0);
       expect(result.motorFailures).toEqual([]);
-      expect(node.importNote.text).toMatch(/Embedded EX motors were refused/);
-      expect(result.notes.import.text).toContain('Embedded EX motors were refused');
+      expect(node.importNote.text).toMatch(/Embedded EX motor Bad-C6 was not loaded: .*captured CG outside the motor/);
+      expect(result.notes.import.text).toContain('Embedded EX motor Bad-C6 was not loaded');
+      expect(node.importNote.text).not.toContain('Embedded EX motors were refused');
       expect(result.motors).toHaveLength(1);
       expect(result.motors.some(m => m.mount === 'Secondary mount')).toBe(false);
     }

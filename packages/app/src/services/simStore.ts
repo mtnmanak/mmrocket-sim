@@ -119,23 +119,23 @@ export function loadRuns(): SimRun[] {
         if (!(k in r)) continue;
         const entries = r[k];
         if (!Array.isArray(entries)) delete r[k];
+        // An unreadable deployment device or branch name is blanked below, not
+        // dropped here: the entry carries the opening speed, and dropping it
+        // could turn the history's Safe deployment verdict to ✓ for a flight
+        // whose only flagged opening was the entry removed.
         else Object.assign(r, { [k]: entries.filter((v) => k === 'boosterMotors'
-          ? typeof v === 'string' : v !== null && typeof v === 'object' && !Array.isArray(v)
-            && (k !== 'deployments' || ('device' in v && typeof v.device === 'string'))
-            && (k !== 'branches' || ('name' in v && typeof v.name === 'string'))) });
+          ? typeof v === 'string' : v !== null && typeof v === 'object' && !Array.isArray(v)) });
       }
       if (r.windLevels !== undefined && !validWindLevels(r.windLevels)) delete r.windLevels;
       if (r.windProfileSource !== undefined
         && (!r.windLevels?.length || !validWindProfileSource(r.windProfileSource))) delete r.windProfileSource;
       if (r.simWarnings !== undefined) r.simWarnings = restoredWarnings(r.simWarnings);
-      if (r.windLevels !== undefined && !validWindLevels(r.windLevels)) delete r.windLevels;
       for (const b of r.branches ?? []) {
         if (typeof b.name !== 'string') b.name = '';
         if (typeof b.stageId !== 'string') delete b.stageId;
         if (typeof b.motorLabel !== 'string') delete b.motorLabel;
         if (!Array.isArray(b.deployments)) b.deployments = [];
-        else b.deployments = b.deployments.filter((d) => d !== null && typeof d === 'object' && !Array.isArray(d)
-          && typeof d.device === 'string');
+        else b.deployments = b.deployments.filter((d) => d !== null && typeof d === 'object' && !Array.isArray(d));
       }
       for (const d of [...(r.deployments ?? []), ...(r.branches ?? []).flatMap(b => b.deployments)]) {
         if (typeof d.device !== 'string') d.device = '';

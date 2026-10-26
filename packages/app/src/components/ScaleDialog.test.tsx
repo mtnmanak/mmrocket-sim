@@ -497,7 +497,7 @@ describe('ScaleDialog', () => {
           outerRadius: 0.00006, thickness: 0.00005 }] }] };
       await render({}, design);
       pick(mountSelect(), 'custom');
-      const hint = text().match(/at most ([\d.]+) mm fits/);
+      const hint = text().match(/at most ([\d.]+) mm \([\d.]+ in\) fits/);
       expect(hint).not.toBeNull();
       const displayed = Number(hint![1]);
       expect(displayed).toBeGreaterThan(0);
@@ -548,7 +548,7 @@ describe('ScaleDialog', () => {
       });
       choose('inner', 'c98');
       choose('outer', 'c54');
-      expect(text()).toContain('at most 48.0 mm');
+      expect(text()).toContain('at most 48 mm (1.89 in) does');
       expect(applyButton().disabled).toBe(true);
       const inner = host.querySelector<HTMLSelectElement>('#mount-size-inner')!;
       expect([...inner.options].find(o => o.value === 'c98')!.disabled).toBe(true);

@@ -29,7 +29,7 @@ it('snaps an oversized RASAero transition fin through the same load boundary', (
     <Span>118.11023622</Span><Count>3</Count></Fin></Transition>
     </RocketDesign></RASAeroDocument>`);
   expect((fins(result.tree.components)[0]!['points'] as number[][])[1]![1]).toBe(2.5);
-  expect(result.notes.join(' ')).toMatch(/2.5/);
+  expect(result.notes.join(' ')).toMatch(/2500 mm \(98\.425 in\)/);
 });
 
 it.each(['tf', undefined])('preserves inherited tube-fin wall thickness through an ork save (id %s)', id => {
@@ -80,8 +80,8 @@ it.each(['rounded', 'airfoil'].flatMap(section => [
     const twice = normalizeTree(once);
     expect(fins(once.components)[0]!['points']).toEqual(outline);
     expect(fins(twice.components)[0]!['points']).toEqual(outline);
-    expect(notes.join(' ')).toMatch(/2.5/);
-    expect(treeProblems(twice).join(' ')).toMatch(/2.5/);
+    expect(notes.join(' ')).toMatch(/2500 mm \(98\.425 in\)/);
+    expect(treeProblems(twice).join(' ')).toMatch(/2500 mm \(98\.425 in\)/);
     resetEngine();
     const after = OrkRocket.buildTree(engineTree(twice)).staticInfo();
     expect(after.mass).toBeCloseTo(before.mass, 10);
@@ -90,15 +90,15 @@ it.each(['rounded', 'airfoil'].flatMap(section => [
 
 it.each(['rounded', 'airfoil'])('snaps restored and imported %s fins to the outline actually flown', crossSection => {
   const raw = fixture(crossSection);
-  expect(treeProblems(raw).join(' ')).toMatch(/2.5/);
+  expect(treeProblems(raw).join(' ')).toMatch(/2500 mm \(98\.425 in\)/);
   const notes: string[] = [];
   const normalized = normalizeTree(raw, notes);
   expect((fins(normalized.components)[0]!['points'] as number[][])[1]![1]).toBe(2.5);
-  expect(notes.join(' ')).toMatch(/2.5/);
+  expect(notes.join(' ')).toMatch(/2500 mm \(98\.425 in\)/);
   const ork = importOrk(exportOrk({ name: 'R', tree: raw }));
   const rkt = importRkt(exportRkt({ name: 'R', tree: raw }));
   for (const imported of [ork, rkt]) {
     expect((fins(imported.tree.components)[0]!['points'] as number[][])[1]![1]).toBe(2.5);
-    expect(imported.notes.join(' ')).toMatch(/2.5/);
+    expect(imported.notes.join(' ')).toMatch(/2500 mm \(98\.425 in\)/);
   }
 });

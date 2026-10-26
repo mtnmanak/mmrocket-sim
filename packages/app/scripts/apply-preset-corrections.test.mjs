@@ -2,10 +2,15 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { presetKey } from './manufacturers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
+// Scratch copies live in the OS temp folder, as every other script test's do: a
+// folder of copied .mjs files under scripts/ is read mid-test by the repository
+// scans (repository-policy.test.mjs walks this folder) and outlives a crashed run.
+const scratch = tmpdir();
 const shipped = JSON.parse(readFileSync(join(here, '../src/data/presets.json'), 'utf8'));
 const retiredMasses = {
   'Transition|semroc|ta5055lr': [0.020128161401],
@@ -42,7 +47,7 @@ describe.each(Object.entries(retiredMasses).filter(([key]) => !(key in retiredCo
   const isTarget = (p) => presetKey(p) === key;
   let dir, path, script, db;
   beforeEach(() => {
-    dir = mkdtempSync(join(here, '.preset-corrections-'));
+    dir = mkdtempSync(join(scratch, 'preset-corrections-'));
     mkdirSync(join(dir, 'scripts'));
     mkdirSync(join(dir, 'src/data'), { recursive: true });
     for (const file of ['apply-preset-corrections.mjs', 'manufacturers.mjs']) {
@@ -55,7 +60,7 @@ describe.each(Object.entries(retiredMasses).filter(([key]) => !(key in retiredCo
     db.presets.find(isTarget).mass = bad;
   });
   afterEach(() => {
-    if (dir && dirname(dir) === here) rmSync(dir, { recursive: true, force: true });
+    if (dir && dirname(dir) === scratch) rmSync(dir, { recursive: true, force: true });
   });
   const run = () => spawnSync(process.execPath, [script], { encoding: 'utf8' });
 
@@ -115,7 +120,7 @@ describe.each(Object.entries(retiredCorrections))('%s: a retired correction', (k
   const isTarget = (p) => presetKey(p) === key;
   let dir, path, script;
   beforeEach(() => {
-    dir = mkdtempSync(join(here, '.preset-corrections-'));
+    dir = mkdtempSync(join(scratch, 'preset-corrections-'));
     mkdirSync(join(dir, 'scripts'));
     mkdirSync(join(dir, 'src/data'), { recursive: true });
     for (const file of ['apply-preset-corrections.mjs', 'manufacturers.mjs']) {
@@ -125,7 +130,7 @@ describe.each(Object.entries(retiredCorrections))('%s: a retired correction', (k
     path = join(dir, 'src/data/presets.json');
   });
   afterEach(() => {
-    if (dir && dirname(dir) === here) rmSync(dir, { recursive: true, force: true });
+    if (dir && dirname(dir) === scratch) rmSync(dir, { recursive: true, force: true });
   });
   const run = () => spawnSync(process.execPath, [script], { encoding: 'utf8' });
 

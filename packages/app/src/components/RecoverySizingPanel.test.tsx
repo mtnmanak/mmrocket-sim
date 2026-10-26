@@ -366,7 +366,7 @@ describe('RecoverySizingPanel', () => {
       expect([...host.querySelectorAll('.recovery-object')].map(h => h.textContent)).toEqual(['Sustainer', 'Booster']);
       expect(text()).toContain('pod sets are not supported');
       expect(bands()).toHaveLength(2);
-      expect(text()).toMatch(/BoosterSized for 2[.,]80/);
+      expect(text()).toMatch(/BoosterSized for 2[.,]8 kg \(6[.,]17 lb\)/);
       expect(host.querySelectorAll('.recovery-part-name').length).toBeGreaterThan(0);
       expect(loads).toHaveBeenCalled();
     });

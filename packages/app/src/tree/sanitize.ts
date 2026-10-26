@@ -4,7 +4,7 @@ import { sanitizeDesignProvenance } from '../services/designProvenance.js';
 import { sanitizeDocumentMaterials } from '../services/documentMaterials.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { finOutlineProblem, kernelFinPoints, type FinOutlinePoint } from './finOutline.js';
+import { finOutlineProblem, kernelFinPoints, MAX_FIN_POINT_M, type FinOutlinePoint } from './finOutline.js';
 import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
 import { num } from './nodeNum.js';
 import { clusterCount } from './cluster.js';
@@ -168,9 +168,10 @@ function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = 
       const stable = kernelFinPoints(placed).every((p, i) => p[0] === placed[i]![0] && p[1] === placed[i]![1]);
       const safe = stable && !finOutlineProblem(placed);
       if (safe) edit()['points'] = placed;
-      found.push({ problem: `${partName(n)}: the simulator adjusts the fin outline at its origin or 2.5 m limit`,
+      const limitText = noticeQuantity('length', MAX_FIN_POINT_M, units);
+      found.push({ problem: `${partName(n)}: the simulator adjusts the fin outline at its origin or ${limitText} limit`,
         repair: safe ? 'set to the outline actually flown; check the fin shape before flying'
-          : 'original coordinates kept to preserve the simulated fin; drawing and simulator differ. Reduce the outline below 2.5 m before flying or cutting it' });
+          : `original coordinates kept to preserve the simulated fin; drawing and simulator differ. Reduce the outline below ${limitText} before flying or cutting it` });
     }
   }
   if ((n.type as string) === 'tubehole') {
@@ -205,7 +206,7 @@ function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = 
       || pos.offset === Infinity || pos.offset === -Infinity)) {
     const method = pos && ['top', 'middle', 'bottom', 'absolute'].includes(pos.method) ? pos.method : 'top';
     edit().position = { method, offset: 0 };
-    found.push({ problem: `${partName(n)}: position could not be read`, repair: 'set to offset 0 m' });
+    found.push({ problem: `${partName(n)}: position could not be read`, repair: `set to offset ${noticeQuantity('length', 0, units)}` });
   // eslint-disable-next-line no-restricted-syntax -- the load clamp, as the field loop above: it clamps a number, it does not read one (audit row 522)
   } else if (pos && typeof pos.offset === 'number') {
     const fixed = applyFieldLimit(POSITION_LIMIT, pos.offset);

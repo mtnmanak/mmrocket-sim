@@ -6,7 +6,7 @@ import {
 } from './simStore.js';
 import { INITIAL_UNITS, IMPERIAL_UNITS, noticeQuantity } from '../prefs/units.js';
 import { densityAltitudeM } from './atmosphere.js';
-import { commentsOf, deploymentVerdict, runStoppedEarly, type DesignMatchKey, type SimRun } from './simReport.js';
+import { commentsOf, deploymentVerdict, runStoppedEarly, SAFETY, type DesignMatchKey, type SimRun } from './simReport.js';
 import { runStatus } from './runConfiguration.js';
 import { MAX_STORED_WARNINGS } from './storedWarnings.js';
 
@@ -90,16 +90,20 @@ it.each([
   expect(runsToCsv([run], units)).toContain(expected);
 });
 
-it.each([{}, { toString: null }, [], null, 42].map(value => [value]))('removes corrupt saved deployment/branch labels without losing the run: %j', bad => {
+it.each([{}, { toString: null }, [], null, 42].map(value => [value]))('blanks corrupt saved deployment/branch labels without losing the run or its openings: %j', bad => {
   const deployment = { device: 'Main', time: 1, altitude: 20, velocityAtDeployment: 1, descentRate: 2, isLanding: true };
+  // The unlabelled opening is the flagged one: losing it would grade the run safe.
+  const hard = { ...deployment, velocityAtDeployment: SAFETY.warnDeploymentVelocity * 2 };
   localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('labels'),
-    deployments: [{ ...deployment, device: bad }, deployment],
+    deployments: [{ ...hard, device: bad }, deployment],
     branches: [{ name: bad, deployments: [deployment] }, { name: 'Booster', motorLabel: bad, deployments: [{ device: bad }, deployment] }],
   }]));
   const runs = loadRuns();
   expect(runs).toHaveLength(1);
-  expect(runs[0]!.deployments).toEqual([deployment]);
-  expect(runs[0]!.branches).toEqual([{ name: 'Booster', deployments: [deployment] }]);
+  expect(runs[0]!.deployments).toEqual([{ ...hard, device: '' }, deployment]);
+  expect(runs[0]!.branches).toEqual([{ name: '', deployments: [deployment] },
+    { name: 'Booster', deployments: [{ device: '' }, deployment] }]);
+  expect(deploymentVerdict(runs[0]!)).toBe(false);
   expect(() => runsToCsv(runs)).not.toThrow();
   expect(() => runsToTable(runs)).not.toThrow();
 });

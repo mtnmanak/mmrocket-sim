@@ -58,6 +58,8 @@ const field = (m: MotorDbEntry, f: string): unknown => (m as unknown as Record<s
 const NUMERIC_FIELDS = new Set([
   'diameter', 'length', 'avgThrustN', 'maxThrustN', 'totImpulseNs', 'burnTimeS', 'totalWeightG', 'propWeightG',
 ]);
+/** Numbers whose own check in screenEntry quotes a text token it cannot read ('diameter "oops" is not a motor'). */
+const QUOTED_NUMERIC_FIELDS = new Set(['diameter', 'length', 'totalWeightG', 'propWeightG']);
 
 // ------------------------------------------------------------------ screening
 
@@ -69,6 +71,10 @@ const NUMERIC_FIELDS = new Set([
  */
 export function screenEntry(m: Partial<MotorDbEntry>, units: UnitSelection = INITIAL_UNITS): string | null {
   for (const key of CATALOGUE_FIELDS) {
+    // A text token in a field whose own check below quotes it is left to that
+    // check, so the refusal names what the row said; anything else of the
+    // wrong type (an object's own toString can throw) is refused here.
+    if (typeof m[key] === 'string' && QUOTED_NUMERIC_FIELDS.has(key)) continue;
     if (m[key] != null && typeof m[key] !== (NUMERIC_FIELDS.has(key) ? 'number' : 'string')) {
       return `${key} is not ${NUMERIC_FIELDS.has(key) ? 'a number' : 'text'}`;
     }

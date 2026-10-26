@@ -197,7 +197,7 @@ it('names a display-equal metre print-fit bound once', () => {
 });
 
 it('names a display-equal ring/motor bound once in metres', () => {
-  const note = printOffer({ type: 'centeringring', length: 0.01, outerRadius: 0.096, innerRadius: 0 },
+  const note = printOffer({ type: 'centeringring', length: 0.01, outerRadius: 0.096 },
     { mountOuterRadius: 0.0962 }, null, 'Printer', { ...INITIAL_UNITS, length: 'm' }).note;
   expect(note).toContain("motor mount is just over this ring's 0.192 m (7.559 in) OD and does not fit");
   expect(note).not.toContain('0.192 m (7.575 in)');

@@ -844,3 +844,11 @@ it.each([
 ] as const)('quotes an unreadable live %s token', (field, raw, reason) => {
   expect(screenEntry({ ...row(), [field]: raw } as unknown as MotorDbEntry)).toBe(reason);
 });
+it.each([
+  ['diameter', { toString: 0, valueOf: 0 }, 'diameter is not a number'],
+  ['totalWeightG', [], 'totalWeightG is not a number'],
+  ['avgThrustN', '12', 'avgThrustN is not a number'],
+  ['burnTimeS', '1.5', 'burnTimeS is not a number'],
+] as const)('still refuses a live %s that is not a number when there is no token to quote', (field, raw, reason) => {
+  expect(screenEntry({ ...row(), [field]: raw } as unknown as MotorDbEntry)).toBe(reason);
+});

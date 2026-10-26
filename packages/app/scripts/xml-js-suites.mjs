@@ -169,6 +169,8 @@ export const XML_JS_SUITES = [
   'src/services/flightDataBundle.test.ts',
   // N045: vent / marking holes round-trip as .ork tube metadata.
   'src/services/tubeHoles.test.ts',
+  // S7c-2 (C3): an imported rounded freeform fin's unused fillet material stays off the build sheet.
+  'src/services/designPrintReport.test.ts',
 ];
 
 /** Files that call an importer but are NOT run twice, each with the reason. */

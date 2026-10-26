@@ -52,7 +52,10 @@ it('reports inactive snapshot clamps and pinned-mass advice after scaling', () =
   expect(diagnostics.notes.join(' ')).toMatch(/re-weigh/);
   expect(diagnostics.needsAttention).toBe(true);
   expect(diagnostics.notes.join(' ')).toContain('Real stage');
-  expect(diagnostics.notes.join(' ')).not.toMatch(/no fin set|0 mm|Scaled the whole|Ctrl\+Z|simulator cannot scale/);
+  // The clamp quotes the length in the selected units with its counterpart (units lane).
+  expect(diagnostics.notes.join(' ')).toContain('is over the limit of 1000000 mm (39370.1 in)');
+  // A bare zero length, not the trailing zeros of the clamp's 1000000 mm.
+  expect(diagnostics.notes.join(' ')).not.toMatch(/no fin set|(?<![\d.])0 mm|Scaled the whole|Ctrl\+Z|simulator cannot scale/);
   const active = { notes: [] as string[], needsAttention: false };
   scaleConfigStageMass(configs, 'B', { components: [{ ...tree.components[0]!, overrideMass: 0.5 }] }, 100, active);
   expect(active).toEqual({ notes: [], needsAttention: false });

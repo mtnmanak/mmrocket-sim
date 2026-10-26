@@ -33,7 +33,7 @@ const GOOD: FinPoint[] = [[0, 0], [0.020, 0.030], [0.045, 0.030], [0.060, 0]];
 
 it('explains a restored over-limit outline immediately', () => {
   render([[0, 0], [0.02, 3], [0.06, 0]]);
-  expect(host.querySelector('[role="alert"]')?.textContent).toMatch(/2.5/);
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain('2500 mm (98.425 in) coordinate limit');
 });
 
 const render = (points: FinPoint[]) => {
@@ -130,7 +130,7 @@ describe('FinPointsEditor — the outline guard', () => {
     renderStateful([[0, 0], [0.04, 3], [0.02, 3], [0.06, 0]]);
     type(field('Point 2 x'), '10');
     expect(committed).toHaveLength(1);
-    expect(alertText()).toContain('2.5 m');
+    expect(alertText()).toContain('2500 mm (98.425 in) coordinate limit');
     expect(alertText()).not.toContain('The fin is unchanged.');
   });
   it('allows one-cell repairs of multiple oversized points and labels a refused worsening', () => {
@@ -156,7 +156,7 @@ describe('FinPointsEditor — the outline guard', () => {
     render([[0, 0], [0.02, 3], [0.06, 0]]);
     type(field('Point 2 y'), '3100');
     expect(committed).toEqual([]);
-    expect(alertText()).toContain('2.5 m');
+    expect(alertText()).toContain('2500 mm (98.425 in) coordinate limit');
     type(field('Point 2 y'), '2400');
     expect(committed.at(-1)![1]![1]).toBe(2.4);
   });
@@ -175,7 +175,7 @@ describe('FinPointsEditor — the outline guard', () => {
     render([[0, 0], [0.02, 0.03], [0.06, 0]]);
     type(field('Point 2 y'), '3000');
     expect(committed).toEqual([]);
-    expect(alertText()).toContain('2.5 m');
+    expect(alertText()).toContain('2500 mm (98.425 in) coordinate limit');
   });
   it('renders the table in the preference unit (mm) with point 1 locked', () => {
     render(GOOD);

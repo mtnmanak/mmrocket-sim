@@ -218,8 +218,10 @@ const cases: BoundaryCase[] = [
   { id:'C31',run:(u,d)=>importCdx1(cdx('<Temperature>'+(140+d*1.8)+'</Temperature>'),{units:u}).notes.find(n=>n.includes('outside the'))??'' },
   { id:'C32',run:(u,d)=>importCdx1(cdx('<Pressure>'+((1100+d)/33.8639)+'</Pressure>'),{units:u}).notes.find(n=>n.includes('outside the'))??'' },
   { id:'C33',run:(u,d)=>importOrk(ork('<launchrodlength>'+(-d)+'</launchrodlength>'),{units:u}).notes.find(n=>n.includes('accepts'))??'',sign:-1 },
-  { id:'C34',run:(u,d)=>{const offer=printOffer({type:'centeringring',length:0.01,outerRadius:0.025,innerRadius:0},{mountOuterRadius:0.025+d},null,'Printer',u);return offer.note?.split('motor mount ')[1]??'';},at:'equal-refusal' },
-  { id:'C35',run:(u,d)=>{const text=componentDxf({type:'centeringring',length:0.01,outerRadius:0.025,innerRadius:0},{mountOuterRadius:0.025+d},'Boundary',dxfUnitFor(u.length))!.text;return text.split('\n').find(n=>n.includes('does not fit'))??'';},single:true },
+  // C34/C35 rings state no bore, so the mount supplies it: a stated zero
+  // inner radius is a solid disc, which has no bore to refuse.
+  { id:'C34',run:(u,d)=>{const offer=printOffer({type:'centeringring',length:0.01,outerRadius:0.025},{mountOuterRadius:0.025+d},null,'Printer',u);return offer.note?.split('motor mount ')[1]??'';},at:'equal-refusal' },
+  { id:'C35',run:(u,d)=>{const text=componentDxf({type:'centeringring',length:0.01,outerRadius:0.025},{mountOuterRadius:0.025+d},'Boundary',dxfUnitFor(u.length))!.text;return text.split('\n').find(n=>n.includes('does not fit'))??'';},single:true },
   { id:'C36',run:async(u,d)=>rendered(u,async host=>{
     const run=buildSimRun({result:flight(),info,motor:testMotor().spec,launch:DEFAULT_CONDITIONS,rocketName:'Boundary',execMs:1,units:u});
     run.railProfile={segments:[[0,15-d,0,1]],railM:2,offsetM:0,allowance:false,thrustEnded:false};

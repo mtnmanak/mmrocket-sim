@@ -250,8 +250,9 @@ export function printOffer(
   if (plan.fits) {
     // The angle comes from the plan, never from a constant: the lean is capped
     // by the part's own steepest wall, so a haack or ellipsoid nose that leans
-    // at all leans by less than 30 (tree/splitSolid.ts, MAX_LEAN).
-    const how = plan.leanUsed ? `leaned ${noticeQuantity('angle', (plan.leanDeg ?? 30) * Math.PI / 180, units)} off vertical` : 'upright';
+    // at all leans by less than 30 (tree/splitSolid.ts, MAX_LEAN). The planner
+    // certified this printed value, so it is quoted as is, in degrees.
+    const how = plan.leanUsed ? `leaned ${plan.leanDeg ?? 30}° off vertical` : 'upright';
     return single(`${dim(total)} — fits your ${printerLabel} ${how}.`, 'info');
   }
 

@@ -109,9 +109,12 @@ describe('DragPanel — sweep conditions', () => {
   const caption = () => Array.from(host.querySelectorAll('p'))
     .map((p) => p.textContent ?? '').find((t) => t.startsWith('Conditions:')) ?? '';
 
+  // The default preferences leave KBF on, and an effective KBF uses the
+  // corrected (geopotential) ISA, so the ceiling here is 86 km; the plain
+  // Classic 84.5 km ceiling is covered by the S3b-2 and 84600 m cases.
   it.each([
-    [INITIAL_UNITS, '1013.25 mbar (29.921 inHg)', '20 °C (68 °F)', '84500 m (277231 ft)'],
-    [{ ...IMPERIAL_UNITS, pressure: 'inHg' }, '29.921 inHg (1013.25 mbar)', '68 °F (20 °C)', '277231 ft (84500 m)'],
+    [INITIAL_UNITS, '1013.25 mbar (29.921 inHg)', '20 °C (68 °F)', '86000 m (282152 ft)'],
+    [{ ...IMPERIAL_UNITS, pressure: 'inHg' }, '29.921 inHg (1013.25 mbar)', '68 °F (20 °C)', '282152 ft (86000 m)'],
   ] as const)('R12 pairs atmosphere conditions in the selected units (%j)', async (units, pressure, temperature, ceiling) => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units }));
     mount([[0, 0], [2, 100000]]); openPanel();
@@ -120,7 +123,7 @@ describe('DragPanel — sweep conditions', () => {
     setSelect(condSelect(), 'file');
     expect(caption()).toContain(`above ${ceiling} are held at that layer`);
     const { csv } = await exportCsv();
-    expect(csv).toContain('above 84.5 km are held at that layer');
+    expect(csv).toContain('above 86 km are held at that layer');
   });
 
   it.each(['navigation', 'reload', 'blocked storage'])('N015: retains analysis inputs after %s and recomputes for the current rocket', (leaving) => {
@@ -203,7 +206,7 @@ describe('DragPanel — sweep conditions', () => {
     expect(caption()).not.toContain('held at that layer');
     expect((await exportCsv()).csv).not.toContain('held at that layer');
     type(altInput()!, '87000');
-    expect(caption()).toContain('above 86 km are held at that layer');
+    expect(caption()).toContain('above 86000 m (282152 ft) are held at that layer');
     expect((await exportCsv()).csv).toContain('above 86 km are held at that layer');
   });
 
@@ -213,7 +216,7 @@ describe('DragPanel — sweep conditions', () => {
     openPanel();
     setSelect(condSelect(), mode);
     if (mode === 'altitude') type(altInput()!, '84600');
-    expect(caption()).toContain('above 84.5 km are held at that layer');
+    expect(caption()).toContain('above 84500 m (277231 ft) are held at that layer');
     expect((await exportCsv()).csv).toContain('above 84.5 km are held at that layer');
   });
 
