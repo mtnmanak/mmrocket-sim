@@ -1581,7 +1581,7 @@ describe('.rkt export writes a stage\'s known mass where RockSim keeps it', () =
     // every stage's is named in a note, the booster's included.
     const back = importRkt(xml);
     expect(back.measured).toBeUndefined();
-    expect(back.notes.join(' ')).toMatch(/“Sustainer” 400 g, “Booster” 300 g/);
+    expect(back.notes.join(' ')).toMatch(/“Sustainer” 400 g \[14\.1 oz\], “Booster” 300 g \[10\.6 oz\]/);
     expect(notes).toEqual([
       expect.stringMatching(/“Sustainer”: its mass override goes out .*as a note only/),
       expect.stringMatching(/“Booster”: its mass and CG overrides go out .*as a note only/),
@@ -3356,7 +3356,7 @@ describe('RockSim bulkhead with a hole', () => {
     // own bore can differ (US Rockets 2.25 V2.rkt's baffle still flies solid,
     // RadiusRingComponent.setInnerRadius), and the estimate still stops at it.
     expect(r.notes.filter((n) => /hole/.test(n))).toEqual([
-      expect.stringMatching(/^Bulkhead “Bulkplate Nose cone” has a 50\.8 mm hole through it\. RockSim weighs the part with that hole, .*centering ring with that bore; desktop OpenRocket imports it solid\. The ⌾ Estimate of Max motor length still stops at it unless the hole is wide enough for the motor\.$/),
+      expect.stringMatching(/^Bulkhead “Bulkplate Nose cone” has a 50\.8 mm \(2 in\) hole through it\. RockSim weighs the part with that hole, .*centering ring with that bore; desktop OpenRocket imports it solid\. The ⌾ Estimate of Max motor length still stops at it unless the hole is wide enough for the motor\.$/),
     ]);
   });
 
@@ -3406,7 +3406,7 @@ describe('RockSim bulkhead with a hole', () => {
     expect(part(r, 'Ring Disc T Coupler').type).toBe('bulkhead');
     expect(part(r, 'Ring Disc T Coupler')['innerRadius']).toBeUndefined();
     expect(r.notes.filter((n) => /hole/.test(n))).toEqual([
-      expect.stringMatching(/^2 bulkheads have a hole through them \(“Ring Disc - Nose Cone” 101\.6 mm, “Bulkplate Nose cone” 50\.8 mm\)/),
+      expect.stringMatching(/^2 bulkheads have a hole through them \(“Ring Disc - Nose Cone” 101\.6 mm \[4 in\], “Bulkplate Nose cone” 50\.8 mm \[2 in\]\)/),
     ]);
   });
 });
@@ -3716,7 +3716,7 @@ describe('.rkt clusters and off-axis tubes round-trip: count, place, motors', ()
     expect(mounts[0]!['radialPosition']).toBeCloseTo(0.006, 9);
     // Its motor rides the cluster: three motors, as the design flew.
     expect(Object.keys(back.motors)).toEqual([mounts[0]!.id]);
-    expect(back.notes.join('\n')).toMatch(/imported as one 3-ring cluster, 6\.0 mm off the centerline/);
+    expect(back.notes.join('\n')).toMatch(/imported as one 3-ring cluster, 6 mm \(0\.236 in\) off the centerline/);
     // And every tube where the kernel put it: written again, the same three centres.
     const again = exportRkt({ name: 'C', tree: back.tree, motors: { [mounts[0]!.id!]: D12 } });
     const [a, b] = [centres(first), centres(again)];
@@ -3806,7 +3806,7 @@ describe('.rkt clusters and off-axis tubes round-trip: count, place, motors', ()
     expect(cluster!['overrideCGX']).toBeCloseTo(0.2794, 12);
     expect(mountsOf(apart.tree).map((m) => m['overrideMass'])).toEqual(Array(4).fill(expect.closeTo(0.44175, 12)));
     expect(merged.notes).toContain('Cluster: 4 identical motor tubes in “Body” imported as one 4-ring cluster. '
-      + 'Its mass is the 4 tube masses the file states, added together: 1767 g.');
+      + 'Its mass is the 4 tube masses the file states, added together: 1767 g (3.9 lb).');
     // The kernel's own sum agrees: the same rocket, whichever way it came in.
     const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
     const { engineTree } = await import('../tree/treeModel.js');
@@ -3861,7 +3861,7 @@ describe('.rkt clusters and off-axis tubes round-trip: count, place, motors', ()
     expect(tubes).toHaveLength(1);
     expect(tubes[0]!['cluster']).toBe('double');
     expect(tubes[0]!['radialPosition']).toBeCloseTo(0.000127, 9);
-    expect(r.notes.join('\n')).toContain('Cluster: 2 identical tubes in “Nose cone” imported as one double cluster, 0.1 mm off the centerline.');
+    expect(r.notes.join('\n')).toContain('Cluster: 2 identical tubes in “Nose cone” imported as one double cluster, 0.127 mm (0.005 in) off the centerline.');
   });
 
   /**

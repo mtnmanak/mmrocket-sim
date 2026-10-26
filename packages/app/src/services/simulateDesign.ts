@@ -455,7 +455,7 @@ export function simulateDesign(state: DesignState, opts: SimulateDesignOptions =
 }
 
 function buildOrThrow(
-  state: DesignState, aero: AeroState, handles: HandleFactory<OrkRocket>,
+  state: DesignState, aero: AeroState, handles: HandleFactory<OrkRocket>, units?: UnitSelection,
 ): { derived: LaunchDerivation; built: BuiltDesign } {
   const derived = deriveLaunchInputs(state, aero);
   const built = buildDesign(designBuildInputOf({
@@ -467,6 +467,7 @@ function buildOrThrow(
     measuredDryMassKg: state.measured.massKg,
     primaryMountId: derived.primaryMountId,
     currentSetKey: derived.currentSetKey,
+    units,
   }), handles);
   if ('error' in built) throw new SimulateDesignError('build', built.error);
   return { derived, built };
@@ -483,7 +484,7 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
   // audit 2026-10-11, FC-4: every build and re-flight shares this projection.
   const resolved = resolveFlightState(input.tree, input.savedConfigs, input.activeConfigId, input.detachedOverrides ?? {}, input.mountMotors);
   let state = resolved.tree === input.tree && resolved.mountMotors === input.mountMotors ? input : { ...input, ...resolved };
-  let { derived, built } = buildOrThrow(state, aero, handles);
+  let { derived, built } = buildOrThrow(state, aero, handles, opts.units);
   // THE LEGACY PAD-MASS SETTLE. App's reconcile effect runs after the first
   // build, before anyone can press Launch: a value keyed 'legacy' (a
   // v0.116/v0.117 session, a bare-form .ork) is re-keyed to the set now loaded
@@ -495,7 +496,7 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
   });
   if (step) {
     state = applyLegacyPadMassStep(state, step);
-    ({ derived, built } = buildOrThrow(state, aero, handles));
+    ({ derived, built } = buildOrThrow(state, aero, handles, opts.units));
   }
   // The Launch gate (App: the button is disabled with no primary mount).
   const { primaryMountId } = derived;

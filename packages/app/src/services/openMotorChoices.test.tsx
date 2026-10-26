@@ -8,7 +8,8 @@ import { useNozzleFollow } from '../hooks/useNozzleFollow.js';
 import { nozzleForMotorId } from './nozzleDb.js';
 import { stageMotors, type StageMotors } from './nozzleFollow.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
-import { findDbMotor } from './motorDb.js';
+import { IMPERIAL_UNITS } from '../prefs/units.js';
+import { MOTOR_DB, findDbMotor } from './motorDb.js';
 import { matchImportedMotor, type fetchSpecByDigest } from './motorMatch.js';
 import { parseEng } from './exMotors.js';
 import { planConfigSwitch, resolveImportMotors, type ImportedDesign } from './importApply.js';
@@ -327,4 +328,15 @@ describe('ask at open choices', () => {
       expect(current).toEqual(next);
     } finally { act(() => root.unmount()); }
   });
+});
+
+it('keeps selected units when an open-motor choice refuses invalid curve masses', async () => {
+  const { state, groups } = await fixture();
+  const row = { ...MOTOR_DB[0]!, motorId: 'unit-choice-refusal', totalWeightG: 100, propWeightG: 200 };
+  const key = 'tc:samples:v7:unit-choice-refusal';
+  localStorage.setItem(key, JSON.stringify({ samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }, { time: 2, thrust: 0 }], masses: null, t: Date.now() }));
+  try {
+    await expect(applyOpenMotorChoices(state, 'a', groups, { [groups[0]!.key]: { kind: 'catalogue', motor: row } }, undefined, IMPERIAL_UNITS))
+      .rejects.toThrow('more propellant (7.05 oz [200 g]) than loaded mass (3.53 oz [100 g])');
+  } finally { localStorage.removeItem(key); }
 });

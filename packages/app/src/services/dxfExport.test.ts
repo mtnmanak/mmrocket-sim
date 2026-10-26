@@ -18,6 +18,16 @@ interface Ent { type: string; groups: Pair[] }
 const node = (type: string, params: Record<string, unknown> = {}): ComponentNode =>
   ({ type, ...params } as unknown as ComponentNode);
 
+it.each([
+  ['mm', '0.05 mm', '0.15 mm'],
+  ['in', '0.00197 in', '0.00591 in'],
+] as const)('retains sub-millimetre stock and wall labels in %s DXF', (unit, stock, wall) => {
+  const fin = node('freeformfinset', { points: [[0, 0], [0.02, 0.03], [0.06, 0]], thickness: 0.00005, crossSection: 'rounded' });
+  expect(componentDxf(fin, {}, 'Thin fin', unit)!.text).toContain(`stock thickness ${stock}`);
+  const coupler = node('tubecoupler', { outerRadius: 0.025, length: 0.04, thickness: 0.00015 });
+  expect(componentDxf(coupler, {}, 'Thin wall', unit)!.text).toContain(`wall ${wall}`);
+});
+
 /** Split the stream into group-code pairs, proving the pairing as it goes. */
 const parse = (text: string): Pair[] => {
   const lines = text.split('\r\n');
@@ -585,4 +595,9 @@ describe('DXF_CUTTABLE', () => {
   it('exports the registered DXF media type', () => {
     expect(DXF_MIME).toBe('image/vnd.dxf');
   });
+});
+
+
+it('retains the default engine-block wall of 0.95 mm in its DXF label', () => {
+  expect(componentDxf(node('engineblock'), {}, 'Default wall')!.text).toContain('wall 0.95 mm');
 });

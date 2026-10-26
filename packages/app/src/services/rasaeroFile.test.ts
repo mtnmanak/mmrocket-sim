@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { INITIAL_UNITS } from '../prefs/units.js';
 import { describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { applyStageNozzles, protuberanceFrontalArea } from '../tree/treeModel.js';
@@ -282,7 +283,7 @@ describe('RASAero import — overlapping parts become inline pods', () => {
         <Location>28</Location></Booster>
       </RocketDesign></RASAeroDocument>`;
     const bad = importCdx1(stale);
-    expect(bad.notes.join(' ')).toMatch(/Booster: the file says it starts at 28 in, but the parts above it add up to 30\.000 in/);
+    expect(bad.notes.join(' ')).toMatch(/Booster: the file says it starts at 711\.201 mm \(28 in\), but the parts above it add up to 762\.002 mm \(30 in\)/);
 
     // …and it stays quiet on the files that agree, which is every other one.
     for (const name of ['Complex.Two-Stage.CDX1', 'Show-off.CDX1', 'Three-stage rocket.CDX1',
@@ -401,7 +402,7 @@ describe('RASAero import — supersonic airfoils, launch site, simulations', () 
     expect((tube.children ?? []).some((c) => c.id === p.id)).toBe(true);
     // …and the note SAYS it imported, with the area, instead of the old
     // "protuberance drag is not modeled".
-    expect(r.notes.join(' ')).toContain('Imported 1 RASAero protuberance on Body tube (0.1780 in²)');
+    expect(r.notes.join(' ')).toContain('Imported 1 RASAero protuberance on Body tube (114.839 mm² [0.178 in²])');
     expect(r.notes.join(' ')).not.toMatch(/protuberance drag is not modeled/);
   });
 
@@ -517,7 +518,7 @@ describe('RASAero import — supersonic airfoils, launch site, simulations', () 
     expect(rma.machAlt![2]![1]).toBeCloseTo(4750 / 3.28084, 3); // the one non-zero row
     // The note quotes the table's HIGHEST altitude, not its last row (which is
     // back at sea level here).
-    expect(rma.notes.join(' ')).toMatch(/5 points, to 4750 ft/);
+    expect(rma.notes.join(' ')).toMatch(/5 points, to 1447\.8 m \[4750 ft\]/);
     // Files with no <MachAlt> element carry no table and gain no note.
     const plain = importCdx1(fixture('Complex.Two-Stage.CDX1'));
     expect(plain.machAlt).toBeUndefined();
@@ -1505,8 +1506,8 @@ describe('RASAero import — measured launch weight and CG', () => {
     // 5.6x too heavy — the failure the cumulative inversion exists to prevent.
     expect(booster['overrideMass']).not.toBeCloseTo(lbToKg(5.64) - i170g, 3);
     // The note carries the arithmetic in the file's own units.
-    expect(r.notes.join(' ')).toMatch(/Applied from simulation 1.*4\.060 lb − J90W.*= 2\.180 lb/);
-    expect(r.notes.join(' ')).toMatch(/5\.640 lb − I170G 1\.164 lb − 4\.060 lb above = 0\.416 lb/);
+    expect(r.notes.join(' ')).toMatch(/Applied from simulation 1.*1842 g \(4\.06 lb\) − J90W.*= 989 g \(2\.18 lb\)/);
+    expect(r.notes.join(' ')).toMatch(/2558 g \(5\.64 lb\) − I170G 528 g \(1\.16 lb\) − 1842 g \(4\.06 lb\) above = 189 g \(6\.66 oz\)/);
     // …and the note that used to say the opposite is gone.
     expect(r.notes.join(' ')).not.toMatch(/not applied to the stages/);
   });
@@ -1590,7 +1591,7 @@ describe('RASAero import — measured launch weight and CG', () => {
     expect(sustainer['overrideCGX']).toBeCloseTo(37.42 / IN, 9);
     expect(sustainer['overrideSubcomponentsCG']).toBe(true);
     // With a stage still on its computed mass, the 2 mm-wall caveat stands.
-    expect(r.notes.join(' ')).toMatch(/walls default to 2 mm; review masses/);
+    expect(r.notes.join(' ')).toMatch(/walls default to 2 mm \(0\.079 in\); review masses/);
   });
 
   it('skips a booster whose LaunchWt is 0 even with IncludeBooster1 True', () => {
@@ -1618,7 +1619,7 @@ describe('RASAero import — measured launch weight and CG', () => {
     expect(booster['overrideMass']).toBeUndefined();
     expect(booster['overrideCGX']).toBeUndefined();
     expect(r.notes.join(' ')).toMatch(/NOT applied from the RASAero simulation/);
-    expect(r.notes.join(' ')).toMatch(/leaves -0\.100 lb, which is not a mass/);
+    expect(r.notes.join(' ')).toMatch(/leaves -45\.3 g \(-1\.6 oz\), which is not a mass/);
   });
 
   it('applies the booster CG once the airframe matches RASAero’s own', () => {
@@ -1635,7 +1636,7 @@ describe('RASAero import — measured launch weight and CG', () => {
     expect(booster['overrideCGX']).toBeCloseTo(0.138803089, 9); // 5.465 in from the booster's own front
     expect(booster['overrideSubcomponentsCG']).toBe(true);
     expect(booster['overrideMass']).toBeDefined();
-    expect(r.notes.join(' ')).toMatch(/CG 5\.46 in from its own front/);
+    expect(r.notes.join(' ')).toMatch(/CG 138\.803 mm \(5\.465 in\) from its own front/);
     expect(r.notes.join(' ')).not.toMatch(/which is outside the stage/);
   });
 
@@ -1651,7 +1652,7 @@ describe('RASAero import — measured launch weight and CG', () => {
     expect(booster['overrideCGX']).toBeUndefined();
     expect(booster['overrideSubcomponentsCG']).toBeUndefined();
     expect(booster['overrideMass']).toBeDefined(); // mass is frame-independent
-    expect(r.notes.join(' ')).toMatch(/stated CG 45\.00 in works out to .*which is outside the stage/);
+    expect(r.notes.join(' ')).toMatch(/stated CG 1143 mm \(45 in\) works out to .*which is outside the stage/);
   });
 
   it('applies nothing at all to a file with no <Simulation> block', () => {
@@ -2058,7 +2059,7 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
     // Said once, in the file's own units, naming the source.
     const noteLines = r.notes.filter((n) => /Nozzle exit diameter/.test(n));
     expect(noteLines.length).toBe(1);
-    expect(noteLines[0]).toMatch(/Sustainer 2\.15 in, Booster 3\.33 in from simulation 1/);
+    expect(noteLines[0]).toMatch(/Sustainer 54\.61 mm \(2\.15 in\), Booster 84\.582 mm \(3\.33 in\) from simulation 1/);
     expect(noteLines[0]).not.toMatch(/Design tab/);
     expect(noteLines[0]).not.toMatch(/Other simulations/); // one simulation: nothing to switch to
   });
@@ -2067,14 +2068,14 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
     // The family whose Design tab went stale while the user maintained the simulation.
     const r = importCdx1(fixture('LEM-M2B Scratch.CDX1'));
     expect(stageNozzle(r, 0)).toBeCloseTo(0.44 / IN, 9);
-    expect(r.notes.join(' ')).toMatch(/Sustainer 0\.44 in from simulation 1/);
+    expect(r.notes.join(' ')).toMatch(/Sustainer 11\.176 mm \(0\.44 in\) from simulation 1/);
   });
 
   it('vb38-dragstudy02: falls back to the Design tab (0.3125 in) when the simulation says 0', () => {
     const r = importCdx1(fixture('vb38-dragstudy02.CDX1'));
     expect(stageNozzle(r, 0)).toBeCloseTo(0.3125 / IN, 9);
     const note = r.notes.find((n) => /Nozzle exit diameter/.test(n))!;
-    expect(note).toMatch(/Sustainer 0\.31 in from the Design tab, because simulation 1 leaves it at 0/);
+    expect(note).toMatch(/Sustainer 7\.938 mm \(0\.313 in\) from the Design tab, because simulation 1 leaves it at 0/);
   });
 
   it('both 0 leaves the property UNSET — not 0 — and says nothing', () => {
@@ -2142,7 +2143,7 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
     expect(r.configs).toEqual([]);
     expect(stageNozzle(r, 0)).toBeCloseTo(0.5 / IN, 9);
     const note = r.notes.find((n) => /Nozzle exit diameter/.test(n))!;
-    expect(note).toMatch(/Sustainer 0\.50 in from the Design tab \(this file carries no simulation\)/);
+    expect(note).toMatch(/Sustainer 12\.7 mm \(0\.5 in\) from the Design tab \(this file carries no simulation\)/);
   });
 
   it('an engine-less simulation still supplies its nozzle when no configuration is built', () => {
@@ -2153,7 +2154,7 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
     expect(r.configs).toEqual([]);
     expect(stageNozzle(r, 0)).toBeCloseTo(1.25 / IN, 9);
     const note = r.notes.find((n) => /Nozzle exit diameter/.test(n))!;
-    expect(note).toMatch(/Sustainer 1\.25 in from the RASAero simulation/);
+    expect(note).toMatch(/Sustainer 31\.75 mm \(1\.25 in\) from the RASAero simulation/);
     expect(note).not.toMatch(/carries no simulation/);
   });
 
@@ -2172,7 +2173,7 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
     expect(note).toMatch(/Rogers Kbf and Supersonic/);
     expect(note).toMatch(/clear it under the stage/);
     // And still leads with where each value came from.
-    expect(note).toMatch(/^Nozzle exit diameter: Sustainer 2\.15 in, Booster 3\.33 in from simulation 1/);
+    expect(note).toMatch(/^Nozzle exit diameter: Sustainer 54\.61 mm \(2\.15 in\), Booster 84\.582 mm \(3\.33 in\) from simulation 1/);
   });
 
   /**
@@ -2305,8 +2306,8 @@ describe('RASAero import — the pad pressure note', () => {
     // where a barometer reads about 25.94 in-Hg.
     const note = padNote(withSite(3900, 30, 90))!;
     expect(note).toBeDefined();
-    expect(note).toMatch(/this file's pressure, 30\.00 in-Hg, is about sea-level pressure/);
-    expect(note).toMatch(/the pad is at 3900 ft where a barometer reads about 878 mbar \(25\.94 in-Hg\)/);
+    expect(note).toMatch(/this file's pressure, 1015\.92 mbar \(30 inHg\), is about sea-level pressure/);
+    expect(note).toMatch(/the pad is at 1188\.7 m \(3900 ft\) where a barometer reads about 878\.362 mbar \(25\.938 inHg\)/);
     expect(note).toMatch(/altimeter setting rather than the pressure at the pad/);
     // The fix it offers is the blank field, not a barometer reading.
     expect(note).toMatch(/Clear the field under Launch conditions/);
@@ -2327,8 +2328,8 @@ describe('RASAero import — the pad pressure note', () => {
   });
 
   it('says nothing at a low site, stated pressure or not', () => {
-    expect(padNote(fixture('vb38-dragstudy02.CDX1'))).toBeUndefined(); // 700 ft, 29.92 in-Hg
-    expect(padNote(fixture('LEM-M2B Scratch.CDX1'))).toBeUndefined(); // 10 ft, 29.91 in-Hg
+    expect(padNote(fixture('vb38-dragstudy02.CDX1'))).toBeUndefined(); // 700 ft altitude, 29.92 inHg pressure
+    expect(padNote(fixture('LEM-M2B Scratch.CDX1'))).toBeUndefined(); // 10 ft altitude, 29.91 inHg pressure
     expect(padNote(fixture('RMA53D02 - 2.CDX1'))).toBeUndefined(); // sea level, no pressure
     expect(padNote(withSite(400, 0, 74))).toBeUndefined(); // no pressure, but only 122 m up
   });
@@ -2338,7 +2339,7 @@ describe('RASAero import — the pad pressure note', () => {
     // against the 1013 the flight used to use. The file itself states
     // <Pressure>0</Pressure> and is now silent, so the number is asserted
     // through the branch that still speaks.
-    expect(padNote(withSite(8800, 29.92, 55))).toMatch(/about 730 mbar \(21\.55 in-Hg\)/);
+    expect(padNote(withSite(8800, 29.92, 55))).toMatch(/about 729\.882 mbar \(21\.553 inHg\)/);
   });
 
   /**
@@ -2352,7 +2353,7 @@ describe('RASAero import — the pad pressure note', () => {
     expect(r.launch!.pressureHPa).toBeNull();
     expect(r.launch!.temperatureC).toBeCloseTo((80 - 32) * 5 / 9, 9); // the good half survives
     const note = padNote(withSite(3900, 1013.25, 80))!;
-    expect(note).toMatch(/this file's pressure, 1013\.25 in-Hg \(34313 mbar\), is outside the 8\.86 to 32\.48 in-Hg/);
+    expect(note).toMatch(/this file's pressure, 34312\.6 mbar \(1013\.25 inHg\), is outside the 300 mbar \(8\.859 inHg\) to 1100 mbar \(32\.483 inHg\)/);
     expect(note).toMatch(/sea level is 29\.92 in it, not 1013\.25/);
     // One line: the altimeter-setting note has nothing left to fire on.
     expect(r.notes.filter((n) => n.startsWith('Launch site:'))).toHaveLength(1);
@@ -2365,7 +2366,7 @@ describe('RASAero import — the pad pressure note', () => {
     const r = importCdx1(withSite(3900, 0, -300));
     expect(r.launch!.temperatureC).toBeNull();
     const note = padNote(withSite(3900, 0, -300))!;
-    expect(note).toMatch(/this file's temperature, -300 °F \(-184\.4 °C\), is outside the -76 to 140 °F/);
+    expect(note).toMatch(/this file's temperature, -184\.4 °C \(-300 °F\), is outside the -60 °C \(-76 °F\) to 60 °C \(140 °F\)/);
     // Both blank now, so the kernel flies its own standard day for the site.
     const o = kernelSimOptions({ ...DEFAULT_CONDITIONS, ...r.launch });
     expect(o.temperature).toBeUndefined();
@@ -2412,15 +2413,15 @@ describe('RASAero import — the launch site is held to the panel’s own bounds
     expect(r.launch!.windAverage).toBe(0);
     const said = boundNotes(r.notes).join('\n');
     expect(said).toMatch(/launch rod angle is 80°, .*accepts -30° to 30° — imported as 30°/);
-    expect(said).toMatch(/launch rod length is -10 ft, .*accepts nothing below 0 ft — imported as 0 ft/);
-    expect(said).toMatch(/wind speed is -5 mph, .*accepts nothing below 0 mph/);
+    expect(said).toMatch(/launch rod length is -3048 mm \(-120 in\), .*accepts nothing below 0 mm \(0 in\) — imported as 0 mm \(0 in\)/);
+    expect(said).toMatch(/wind speed is -2\.2 m\/s \(-7 ft\/s\), .*accepts nothing below 0 m\/s \(0 ft\/s\)/);
   });
 
   it('holds the site altitude to the field’s 0-10,000 m', () => {
     // 150,000 ft once reached the atmosphere unclamped (atmosphere.ts's NaN note).
     const r = importCdx1(site('<Altitude>150000</Altitude>'));
     expect(r.launch!.launchAltitudeM).toBe(10000);
-    expect(boundNotes(r.notes).join('\n')).toMatch(/launch site altitude is 150000 ft, .*imported as 32808\.4 ft/);
+    expect(boundNotes(r.notes).join('\n')).toMatch(/launch site altitude is 45720 m \(150000 ft\), .*imported as 10000 m \(32808\.4 ft\)/);
   });
 });
 
@@ -2542,7 +2543,7 @@ describe('RASAero export — a blank recovery field writes what the kernel flies
     ] }] },
   };
 
-  it('writes 200 m, 0.3 m and Cd 0.8', () => {
+  it('writes 200 m deployment altitude, 0.3 m canopy diameter and Cd 0.8', () => {
     const xml = exportCdx1(bare);
     expect(xml).toContain('<Altitude1>656.168</Altitude1>'); // 200 m in ft
     expect(xml).toContain('<Size1>11.811</Size1>'); // 0.3 m in in
@@ -2773,7 +2774,7 @@ describe('RASAero import — the stored prediction', () => {
     const r = importCdx1(fixture('LEM-M2B Scratch.CDX1'));
     const line = r.notes.find((n) => n.startsWith('RASAero\u2019s stored prediction'));
     expect(line).toBe('RASAero\u2019s stored prediction for simulation 1, as last run in RASAero with the J1026 (LR): '
-      + 'apogee 13,355 ft, maximum velocity 2,270 ft/s. It is RASAero\u2019s prediction, not a measurement; '
+      + 'apogee 4,070.6 m (13,355.1 ft) (file: 13355.11 ft), maximum velocity 691.9 m/s (2,270 ft/s). It is RASAero\u2019s prediction, not a measurement; '
       + 'the app flies the design with its own models.');
   });
 
@@ -2791,7 +2792,7 @@ describe('RASAero import — the stored prediction of a staged simulation', () =
     const line = importCdx1(xml).notes.find((n) => n.startsWith('RASAero\u2019s stored prediction'));
     // By the name the stage has on screen, with RASAero's own beside it (batch 6).
     expect(line).toContain('on “Booster” (RASAero’s Booster 1) and the K627LR (Loki) on the sustainer');
-    expect(line).toContain('apogee 12,345 ft');
+    expect(line).toContain('apogee 3,762.8 m (12,345 ft)');
   });
 
   it('says nothing, and adds no "check these dimensions" line, for an unreadable stored apogee', () => {
@@ -3011,4 +3012,18 @@ describe('lane C S1c-2 Mach-Alt limits', () => {
     const api = await import('./rasaeroFile.js');
     expect(Object.hasOwn(api, 'cdx1RecoverySlots')).toBe(false);
   });
+});
+
+it('keeps near-equal cumulative stage weight refusals distinct', () => {
+  const xml = fixture('Complex.Two-Stage.CDX1').replace('<Booster1LaunchWt>5.64', '<Booster1LaunchWt>4.05999');
+  const result = importCdx1(xml, { units: { ...INITIAL_UNITS, mass: 'lb' } });
+  expect(result.notes.join(' ')).toContain('its weight is slightly LESS than the 4.06 lb (1.84 kg) stated for the stack above it');
+});
+
+it('names the built station once for a display-equal booster location mismatch in metres', () => {
+  const xml = '<RASAeroDocument><RocketDesign><NoseCone><Length>10</Length><Diameter>3</Diameter><Shape>Tangent Ogive</Shape></NoseCone>'
+    + '<BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube><Booster><Length>15</Length><Diameter>3</Diameter>'
+    + '<InsideDiameter>3</InsideDiameter><ShoulderLength>2</ShoulderLength><Location>30.011</Location></Booster></RocketDesign></RASAeroDocument>';
+  expect(importCdx1(xml, { units: { ...INITIAL_UNITS, length: 'm' } }).notes.join(' '))
+    .toContain('starts at a slightly different station, but the parts above it add up to 0.762 m (30 in)');
 });

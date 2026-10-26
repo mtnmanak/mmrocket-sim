@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
+import { INITIAL_UNITS } from '../prefs/units.js';
 import { NETWORK_HOSTS, NetError } from './net.js';
 import * as openMeteoModule from './openMeteo.js';
 import {
@@ -644,4 +645,11 @@ describe('context helpers', () => {
     }
     expect('fetchGeocode' in openMeteoModule).toBe(false);
   });
+});
+
+it('keeps an elevation mismatch distinct with kilometre preferences', () => {
+  const body = fixture('forecast-blackrock-1190m.json') as { elevation: number };
+  body.elevation = 0.6;
+  expect(() => parseForecast(body, [1.2], { ...INITIAL_UNITS, altitude: 'km' }))
+    .toThrow('Open-Meteo answered for 0.0006 km (2 ft), not the 0.0012 km (3.9 ft) asked for.');
 });

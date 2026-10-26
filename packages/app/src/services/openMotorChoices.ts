@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import type { MountMotor, SavedConfig } from '../model/design.js';
 import { overrideFor } from './flightState.js';
 import { ownEntry } from './ownEntry.js';
@@ -89,8 +90,9 @@ export function collectOpenMotorIdentities(
 
 export async function applyOpenMotorChoices(
   state: OpenMotorState & Pick<DesignSnapshot, 'tree'>, activeConfigId: string | null, groups: OpenMotorIdentity[],
-  choices: Record<string, OpenMotorChoice>, fetchSpec: NonNullable<MotorMatchDeps['fetchSpec']> = fetchSpecByDigest,
+  choices: Record<string, OpenMotorChoice>, fetchSpec?: NonNullable<MotorMatchDeps['fetchSpec']>, units: UnitSelection = INITIAL_UNITS,
 ): Promise<OpenMotorState> {
+  const loadSpec = fetchSpec ?? ((motor, delay, digest) => fetchSpecByDigest(motor, delay, digest, units));
   const mountMotors = Object.assign(Object.create(null) as Record<string, MountMotor>, state.mountMotors);
   const unmatchedRefs = { ...state.unmatchedRefs };
   const savedConfigs = state.savedConfigs.map(c => ({ ...c, motors: Object.assign(Object.create(null) as Record<string, MountMotor>, c.motors) }));
@@ -117,7 +119,7 @@ export async function applyOpenMotorChoices(
     // The file's <digest> goes along: on the motor the file named, it is the
     // curve desktop flew (thrustcurve.ts pickDigestFile); on another, it names
     // none of its files and changes nothing.
-    const spec = choice.kind === 'ex' ? exToMotorSpec(choice.motor, delay) : await fetchSpec(db, delay, ref.digest);
+    const spec = choice.kind === 'ex' ? exToMotorSpec(choice.motor, delay) : await loadSpec(db, delay, ref.digest);
     const identity = fileMotorIdentity(ref);
     if (choice.kind === 'catalogue' && namesOtherMaker(ref, db)) delete identity.orkManufacturer;
     const motor = mountMotorFromDb(db, spec, delay,

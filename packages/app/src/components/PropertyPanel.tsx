@@ -59,7 +59,7 @@ import { buildPrintPack, printOffer, SINGLE_BUTTON, ZIP_MIME } from '../services
 import { AERO_NAME } from '../prefs/aeroChoice.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { printerName, toPrinterVolume } from '../prefs/printers.js';
-import { fmtFieldValue, fmtSi, fmtSig, niceStep, QUANTITY_LABEL, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { noticeComparison, noticeQuantity, fmtFieldValue, fmtSi, fmtSig, niceStep, QUANTITY_LABEL, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { PresetPicker } from './PresetPicker.js';
 import { SaveMyPartDialog } from './SaveMyPartDialog.js';
@@ -292,6 +292,7 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
   const id = useId();
   const selectRef = useRef<HTMLSelectElement>(null);
   const restoringNameFocus = useRef(false);
+  const { prefs } = usePrefs();
   const { materials } = useUserMaterials();
   const [message, setMessage] = useState('');
   const [draft, setDraft] = useState('');
@@ -312,7 +313,7 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
   const keepPicked = pickedMaterial !== undefined && pickedMaterial.name === named && pickedMaterial.density === foreignDensity;
   const inDesign = allDesign.filter(m => keepPicked || m.name !== named || m.density !== foreignDensity);
   const sourceLabel = foreignSource ?? "this part's material";
-  const saveProblem = materialProblem({ kind, name: foreign, density: foreignDensity ?? NaN });
+  const saveProblem = materialProblem({ kind, name: foreign, density: foreignDensity ?? NaN }, prefs.units);
   const saved = named ? mine.find(m => materialNameKey(m.name) === materialNameKey(named)) : undefined;
   const value = keepPicked ? picked! : foreignValue ?? named ?? '';
   const commitName = (restoreFocus: boolean) => {
@@ -346,7 +347,7 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
           setMessage('');
           if (mat) {
             if (kind === 'bulk' && mat.density > MAX_BULK_DENSITY) {
-              setMessage(`Bulk material density has a limit of ${MAX_BULK_DENSITY} kg/m³`); return;
+              setMessage(`Bulk material density has a limit of ${noticeQuantity('density', MAX_BULK_DENSITY, prefs.units)}`); return;
             }
             setPicked(groupMaterial ? e.target.value : null);
             onPatch({ [nameKey]: mat.name, [densityKey]: mat.density });
@@ -391,14 +392,14 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); commitName(true); } }} />
         <p id={`${id}-hint`} className="prefs-hint">{kind === 'bulk'
           ? `Typing a ${label === 'Fillet material' ? 'fillet density' : 'density'} afterwards removes the name; set the density first.`
-          : `The name applies to this part's current density, ${foreignDensity ?? KERNEL_DEFAULT_MATERIALS[kind].density} ${densityUnit}; to change a canopy or line density, edit a saved entry in My materials, then pick it again from this list.`}</p>
+          : `The name applies to this part's current density, ${noticeQuantity(kind === 'surface' ? 'surfaceDensity' : 'lineDensity', foreignDensity ?? KERNEL_DEFAULT_MATERIALS[kind].density, prefs.units)}; to change a canopy or line density, edit a saved entry in My materials, then pick it again from this list.`}</p>
       </div>}
       {foreign !== null && saveProblem === null && <button type="button" className="finish-all-btn"
         aria-label={saved ? saved.density === foreignDensity ? `Saved in My materials: ${label}` : `Update in My materials: ${label}` : `Save to My materials: ${label}`}
         disabled={saved?.density === foreignDensity && saved !== undefined}
         onClick={() => {
           const entry = { kind, name: foreign, density: foreignDensity ?? NaN };
-          const problem = materialProblem(entry);
+          const problem = materialProblem(entry, prefs.units);
           if (problem) { setMessage(problem); return; }
           if (!saved && materials.length >= USER_MATERIALS_LIMIT) { setMessage('My materials has a limit of 500 entries. Delete an entry before saving another.'); return; }
           const next = materials.filter(m => userMaterialKey(m) !== userMaterialKey(entry));
@@ -575,7 +576,7 @@ function FinPrintScope({ tree, node, lengthSym }: { tree: RocketTree; node: Comp
     );
   }
   if (shape.kind === 'shaped') {
-    const edge = `${fmtSig(siToUi('length', lengthSym, shape.minEdge), 2, 1)} ${lengthSym}`;
+    const edge = noticeQuantity('length', shape.minEdge, lengthSym);
     return (
       <p className="hint fin-print-scope">
         The STL is ONE fin{withTab}. The fin carries this fin&rsquo;s <strong>{finSectionWords(node, shape.law)}</strong>,
@@ -737,12 +738,12 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
    * a 540 kg chute, which a restored session then repaired with no word said.
    */
   const applyPreset = (patch: Partial<ComponentNode>, notes: string[] = []) => {
-    const limited = limitPatch(node, patch, notes);
+    const limited = limitPatch(node, patch, notes, prefs.units);
     const picked = { ...node, ...limited };
     const wroteDiameter = limited['outerRadius'] !== undefined || limited['innerRadius'] !== undefined;
     const fit = node.id && wroteDiameter ? ringFitFor(updateNode(tree, node.id, limited), picked, {
       outside: limited['outerRadius'] !== undefined, inside: limited['innerRadius'] !== undefined,
-    }) : null;
+    }, prefs.units) : null;
     if (fit) notes.push(...fit.notes);
     onPatch(limited);
     setPresetNoteFor(notes.length > 0 ? { id: node.id, text: notes.join(' '),
@@ -892,9 +893,9 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
   const printer = prefs.printer;
   const offer = useMemo(
     () => (PRINTABLE.has(node.type)
-      ? printOffer(node, solidContextFor(tree, node), toPrinterVolume(printer), printerName(printer))
+      ? printOffer(node, solidContextFor(tree, node), toPrinterVolume(printer), printerName(printer), prefs.units)
       : null),
-    [tree, node, printer],
+    [tree, node, printer, prefs.units],
   );
 
   const lengthSym = prefs.units.length;
@@ -1186,7 +1187,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
     const emptyShoulder = shoulderLengthKey !== undefined && (raw === undefined || raw === 0)
       && num(node, shoulderLengthKey, 0) > 0 && node['filled'] !== true;
     const wall = numOpt(node, 'thickness') ?? blankFor('thickness') ?? 0;
-    const wallLabel = `${fmtSi('length', lengthSym, wall, 3)} ${lengthSym}`;
+    const wallLabel = noticeQuantity('length', wall, prefs.units);
 
     const fieldLabel = (
       <div className="field-label-help"><label htmlFor={inputId}>
@@ -1370,7 +1371,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           let svg: string;
           try {
             svg = finTemplateSvg(node, tree.name ?? 'Rocket', solidContextFor(tree, node),
-              format === 'svg-transparent' ? 'transparent' : 'white');
+              format === 'svg-transparent' ? 'transparent' : 'white', prefs.units);
           } catch {
             setExportNote('Could not export this fin template. Check the outline in the fin editor before exporting.');
             return;
@@ -1445,7 +1446,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
             title={offer?.kind === 'split'
               ? 'This part is taller than your printer, so it exports as a ZIP: one STL per segment plus a README with the print orientation, the glue, and the shrinkage rule that decides whether the halves fit each other. Each cut adds a tapered spigot and a flat land — the land sets the assembled length, so nothing is lost at the joint.'
-              : 'Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin with its tab — a rounded or airfoil fin carries its cross-section with sharp edges thickened to a printable 0.4 mm and a flat tab, except that an outline with more than one chord at some height (a W or hook, as drawn or as seated on the body), a step in its leading or trailing edge, or stock no thicker than 0.4 mm prints as the flat prism, as the note under this button says; a square fin is a flat prism, and neither bakes in cant or prints root fillets; rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (a warning appears under this button when neither can be found). Verify fit before a long print.'}
+              : `Watertight solid STL in millimetres, ready to slice. Hollow noses/transitions include shoulders and end caps at your wall thickness; fin sets export ONE fin with its tab — a rounded or airfoil fin carries its cross-section with sharp edges thickened to a printable ${noticeQuantity('length', 0.0004, prefs.units)} and a flat tab, except that an outline with more than one chord at some height (a W or hook, as drawn or as seated on the body), a step in its leading or trailing edge, or stock no thicker than ${noticeQuantity('length', 0.0004, prefs.units)} prints as the flat prism, as the note under this button says; a square fin is a flat prism, and neither bakes in cant or prints root fillets; rings, bulkheads and couplers take their own stated diameter, else the bore of the tube, coupler, nose or transition they sit in (a warning appears under this button when neither can be found). Verify fit before a long print.`}
             // eslint-disable-next-line @typescript-eslint/no-misused-promises -- every await is inside the try below, whose catch reports into exportNote, so the promise React drops cannot reject
             onClick={async () => {
               // Every await below can reject — the mesher, the print-pack
@@ -1462,7 +1463,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
                   const vol = toPrinterVolume(printer);
                   if (!vol) return;
                   const name = node.name ?? offer.split.label;
-                  const pack = await buildPrintPack(offer.split, name, vol, printerName(printer));
+                  const pack = await buildPrintPack(offer.split, name, vol, printerName(printer), prefs.units);
                   // A successful retry supersedes the earlier failure (audit 2026-10-11, S3a-3).
                   setExportNote(null);
                   downloadBlob(new Blob([pack.bytes as BlobPart], { type: ZIP_MIME }),
@@ -1531,15 +1532,17 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         const at = railButtonPlacement(node, {
           rocketLength: rocketInfo.length, cg: rocketInfo.cg, positionX: info.positionX, parentLength: parentLenSi,
         });
-        const mm = (m: number) => (m * 1000).toFixed(0);
+        const mm = (m: number, parenthesized = false) => noticeQuantity('length', m, prefs.units, { parenthesized });
+        const [fwd, start] = noticeComparison('length', at.fwdX, at.parentStart, prefs.units, { parenthesized: true });
+        const [aft, end] = noticeComparison('length', at.aftX, at.parentEnd, prefs.units, { parenthesized: true });
         return (
           <button className="file-btn" style={{ marginTop: 6, width: '100%' }}
             disabled={!at.feasible}
             title={at.feasible
-              ? `Places two buttons: forward one at the CG (${mm(at.fwdX)} mm — the loaded CG when a motor is loaded), aft one ${mm(RAIL_BUTTON_AFT_GAP)} mm from the aft end. Press again after the CG moves; typed values always win afterwards.`
+              ? `Places two buttons: forward one at the CG (${mm(at.fwdX, true)} — the loaded CG when a motor is loaded), aft one ${mm(RAIL_BUTTON_AFT_GAP)} from the aft end. Press again after the CG moves; typed values always win afterwards.`
               : !at.fits
-                ? `Both buttons would have to sit outside this tube (they want ${mm(at.fwdX)}–${mm(at.aftX)} mm from the nose; this tube spans ${mm(at.parentStart)}–${mm(at.parentEnd)} mm). Move the rail button to the tube that spans the CG and the aft end, or place them by hand.`
-                : 'The CG sits within an inch of the aft end — two buttons cannot straddle it. Place them by hand.'}
+                ? `The button pair does not fit this tube (they want ${fwd.startsWith('just ') ? at.fwdX < at.parentStart ? 'just before this tube' : 'just inside this tube' : fwd}–${aft.startsWith('just ') ? at.aftX > at.parentEnd ? 'just after this tube' : 'just inside this tube' : aft} from the nose; this tube spans ${start}–${end}). Move the rail button to the tube that spans the CG and the aft end, or place them by hand.`
+                : `The CG is too close to the aft button, placed ${noticeQuantity('length', RAIL_BUTTON_AFT_GAP, prefs.units, { defined: { value: 1, symbol: 'in' } })} from the aft end — two buttons cannot straddle it. Place them by hand.`}
             onClick={() => onPatch(at.patch as Partial<ComponentNode>)}>
             📍 Auto-place rail buttons
           </button>
@@ -1814,7 +1817,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           : null;
         return (
           <p className="comp-stats" style={{ marginTop: 6 }}>
-            {(protuberanceFrontalArea(node) * 1e6).toFixed(0)} mm² frontal
+            {noticeQuantity('area', protuberanceFrontalArea(node), prefs.units)} frontal
             {' × '}Cd {protuberanceCd(tree, node).toFixed(3)}
             {' = '}<strong>+{protuberanceDeliveredCd(tree, node).toFixed(5)}</strong> on the
             rocket&rsquo;s CD
@@ -1889,16 +1892,16 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           : null;
         return (
           <p className="comp-stats" style={{ marginTop: 6 }}>
-            {(area * 1e6).toFixed(0)} mm² frontal
+            {noticeQuantity('area', area, prefs.units)} frontal
             {' × '}Cd {fairingCd(node).toFixed(3)}
             {' = '}<strong>+{fairingDeliveredCd(tree, node).toFixed(5)}</strong> on the
             rocket&rsquo;s CD{followsBody ? <> at Mach {body.mach}. In flight the shroud’s drag scales with the body’s Mach curve.</> : ', at every Mach.'}
             {crescent > 1e-12 && bodyR > 0 ? (
               <>
                 {' '}The area is measured from the <em>tube surface</em>, not from the
-                shroud&rsquo;s own base: {(flat * 1e6).toFixed(0)} mm² of shroud plus{' '}
-                {(crescent * 1e6).toFixed(0)} mm² of the gap its flat underside leaves
-                over a {(bodyR * 2000).toFixed(0)} mm tube, which the flow is blocked by
+                shroud&rsquo;s own base: {noticeQuantity('area', flat, prefs.units)} of shroud plus{' '}
+                {noticeQuantity('area', crescent, prefs.units)} of the gap its flat underside leaves
+                over a {noticeQuantity('length', bodyR * 2, prefs.units)} tube, which the flow is blocked by
                 either way. Conformal or not makes no difference to this — a conformal
                 shroud fills that gap with material instead of dead air.
               </>
@@ -2179,7 +2182,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
             <strong>On a stage, pod set or booster, tick the box.</strong> These
             are containers with no mass, CG or drag of their own. Unticked, your
             figure describes a <em>point mass the container adds</em> rather than
-            replacing anything: a mass of 1 kg makes the rocket 1 kg heavier, a
+            replacing anything: a mass of {noticeQuantity('mass', 1, prefs.units)} makes the rocket {noticeQuantity('mass', 1, prefs.units)} heavier, a
             Cd of 1.0 adds 1.0 to its drag, and a CG says <em>where</em> that
             added mass sits — so a CG on its own moves nothing, because it is
             positioning zero kilograms. Ticked, your figure sets that quantity

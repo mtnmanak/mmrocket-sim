@@ -377,7 +377,7 @@ it('N007 App Launch freezes personal limits in the selected imperial units', asy
     [...host.querySelectorAll('button')].find(b => b.textContent?.trim() === 'Launch')!.click();
   });
   await waitFor(() => loadRuns().length === 1, 'saved flight');
-  expect(loadRuns()[0]!.comments).toContain('10 ft/s [3.0 m/s]');
+  expect(loadRuns()[0]!.comments).toContain('10 ft/s (3 m/s)');
 }, 30_000);
 
 it('N003 mount-card status stays mounted across fixed zero and Auto delay edits', async () => {
@@ -907,8 +907,8 @@ describe('restored limits-table repairs (open-items, 22–23 September)', () => 
     const notice = await repairNotice(host);
     expect(notice).not.toBeNull();
     for (const note of notes) expect(notice!.textContent).toContain(note);
-    expect(notice!.textContent).toContain('“Nose”: shoulder radius -13 mm cannot be negative — set to 0 mm.');
-    expect(notice!.textContent).toContain('“Camera shroud”: height 0 mm is below the minimum of 0.1 mm');
+    expect(notice!.textContent).toContain('“Nose”: shoulder radius -13 mm (-0.512 in) cannot be negative — set to 0 mm (0 in).');
+    expect(notice!.textContent).toContain('“Camera shroud”: height 0 mm (0 in) is below the minimum of 0.1 mm (0.00394 in)');
     await settle(600);
     expect(await repairNotice(host)).not.toBeNull(); // autosave must not erase the note
     await unmountAll();
@@ -1377,4 +1377,25 @@ it('ROUND3 clears stored shroud overrides through the tree and Undo restores the
   await settle(600);
   expect(findNode(storedSession()!.tree, shroud.id!)).toMatchObject(shroud);
   expect(host.textContent).toContain('Clear stored overrides');
+}, 30000);
+
+
+it('uses preferred units in the camera-shroud conversion notice after file open', async () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: IMPERIAL_UNITS }));
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  const tree: SessionState['tree'] = { name: 'Camera units', components: [{ type: 'stage', children: [{ type: 'bodytube',
+    length: 0.3, outerRadius: 0.02, thickness: 0.001, children: [{ type: 'freeformfinset',
+      name: 'Camera Shroud', finCount: 1, thickness: 0.025, crossSection: 'rounded', overrideMass: 0.05,
+      points: [[0, 0], [0, 0.02], [0.08, 0.02], [0.08, 0]] }] }] }] };
+  const xml = exportOrk({ name: 'Camera units', tree, launch: DEFAULT_CONDITIONS, motors: {} });
+  const picker = input(host, 'Open a design file');
+  Object.defineProperty(picker, 'files', { configurable: true, value: [new File([xml], 'Camera.ork')] });
+  await act(async () => { picker.dispatchEvent(new Event('change', { bubbles: true })); });
+  const discard = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('Open without saving'));
+  if (discard) await act(async () => { discard.click(); });
+  await waitFor(() => !!host.querySelector('[aria-label="Convert camera shrouds"]'), 'shroud conversion prompt');
+  await act(async () => { button(host, 'Convert to camera shroud').click(); });
+  expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain(
+    '3.15 in [80 mm] × 0.984 in [25 mm] × 0.787 in [20 mm], 1.76 oz [50 g]');
 }, 30000);

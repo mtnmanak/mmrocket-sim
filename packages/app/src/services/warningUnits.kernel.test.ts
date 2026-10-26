@@ -120,8 +120,9 @@ describe.each(['rounded', 'airfoil'])('real kernel warning quantities (%s freefo
     const rounded = (n: number) => String(Number(n.toFixed(3)));
     for (const units of [METRIC_UNITS, IMPERIAL_UNITS]) {
       const v = speed.quantity!.value / (units.velocity === 'ft/s' ? 0.3048 : 1);
-      expect(formatWarning(speed, units).detail).toBe(`(${rounded(v)} ${units.velocity}): "${CHUTE_NAME}"`);
-      expect(formatWarning(aoa, units).detail).toBe(`(${rounded(aoa.quantity!.value * 180 / Math.PI)} \u00b0)`);
+      const companion = units.velocity === 'ft/s' ? `${Number(speed.quantity!.value.toFixed(1))} m/s` : `${Math.round(speed.quantity!.value / 0.3048)} ft/s`;
+      expect(formatWarning(speed, units).detail).toBe(`(${rounded(v)} ${units.velocity} [${companion}]): "${CHUTE_NAME}"`);
+      expect(formatWarning(aoa, units).detail).toBe(`(${rounded(aoa.quantity!.value * 180 / Math.PI)}\u00b0)`);
     }
     expect(formatWarning(aoa, { ...METRIC_UNITS, angle: 'rad' }).detail)
       .toBe(`(${rounded(aoa.quantity!.value)} rad)`);

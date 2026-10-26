@@ -972,7 +972,7 @@ describe('K1 matching flight recovery', () => {
     const i = input();
     Object.assign(i.tree.components[1]!, { separationEvent: 'altitudedescending', separationAltitude: 1234 });
     const r = recoveryMass(i);
-    expect(recoveryMassTitle(r).replaceAll(',', '')).toContain('1234 m above the pad (descending)');
+    expect(recoveryMassTitle(r).replaceAll(',', '')).toContain('1234 m (4048.6 ft) above the pad (descending)');
     expect(recoveryMassTitle(r)).toContain('Launch to confirm');
     expect(r).toMatchObject({ estimate: true });
   });
@@ -981,7 +981,7 @@ describe('K1 matching flight recovery', () => {
     const i = input();
     Object.assign(i.tree.components[1]!, { separationEvent: 'altitudeascending', separationAltitude: 376.1232 });
     const title = recoveryMassTitle(recoveryMass({ ...i, distanceUnit: 'ft' }));
-    expect(title.replaceAll(',', '')).toContain('1234 ft above the pad');
+    expect(title.replaceAll(',', '')).toContain('1234 ft (376.1 m) above the pad');
     expect(title).not.toContain('376.1232');
   });
 

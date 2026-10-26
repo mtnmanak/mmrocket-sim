@@ -12,6 +12,7 @@ import { openPrintDocument } from './services/printDocument.js';
 import { INITIAL_UNITS, IMPERIAL_UNITS } from './prefs/units.js';
 import type { OrkMotorRef } from './services/orkFile.js';
 import * as reportComposer from './services/designPrintReport.js';
+import { flushSession } from './services/session.js';
 
 vi.mock('./services/printDocument.js', async original => ({
   ...await original<typeof import('./services/printDocument.js')>(), openPrintDocument: vi.fn(),
@@ -168,7 +169,12 @@ it.each(['preview', 'preparation'] as const)('keeps the export-menu %s error vis
     savedConfigs: [], mountMotors: {}, savedAt: Date.now(), configLayers: 1, emptyConfigVersion: 1 }));
   vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline (test)'); }));
   await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+  // The initial restore schedules a real autosave; finish it before measuring
+  // whether either print attempt changes the persisted session.
+  act(() => flushSession());
   const session = localStorage.getItem('online-openrocket.session.v1');
+  // Exercise the autosave window even when the machine runs this test quickly.
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 450)); });
   const exportButton = [...host.querySelectorAll('button')].find(b => b.textContent!.includes('Save As / Export'))!;
   await act(async () => exportButton.click());
   const menu = host.querySelector('[role="group"][aria-label="Save As / Export"]')!;

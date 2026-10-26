@@ -1,4 +1,5 @@
 import { lookupTable } from './xmlUtil.js';
+import { noticeEqual, type UnitSelection } from '../prefs/units.js';
 import { applyStageMass, pruneStageMass } from './stageMassOverrides.js';
 import { ownEntry } from './ownEntry.js';
 import { hasSimulationExtensions } from './orkExtensions.js';
@@ -361,7 +362,7 @@ export interface ImportPlan {
 export function planImport(
   imported: ImportedDesign,
   resolved: ResolvedImportMotors,
-  ctx: { launch: LaunchConditions; text: StatedWeightText },
+  ctx: { launch: LaunchConditions; text: StatedWeightText; units?: UnitSelection },
 ): ImportPlan {
   const massText = ctx.text.mass;
   // The configuration to show: the reader's, unless it cannot leave the pad
@@ -424,7 +425,7 @@ export function planImport(
   // applies only nozzle and mass state; flight layers remain independent.
   // `let`, because the stated-launch-weight reconcile below may rewrite a
   // stage's overrides once the applied configuration's motors are known.
-  let importedTree = normalizeTree(imported.tree, notes);
+  let importedTree = normalizeTree(imported.tree, notes, { units: ctx.units });
   if (pick) importedTree = configOntoTree(importedTree, pick.cfg);
   const nextConfigs: SavedConfig[] = [];
   for (const cfg of imported.configs ?? []) {
@@ -570,16 +571,18 @@ export function planImport(
   // why it was refused, is that note's job.
   const prevStepS = ctx.launch.timeStepS ?? DEFAULT_TIME_STEP_S;
   const nextStepS = imported.launch?.timeStepS ?? DEFAULT_TIME_STEP_S;
-  if (prevStepS !== nextStepS) {
+  if (!noticeEqual(prevStepS, nextStepS)) {
     // The file's own step is a receipt of a setting it states; a step the
     // panel held, replaced by the default because the file states none, is a
     // replaced flight input (D7 I24).
     if (imported.launch?.timeStepS != null) {
-      notes.push(`Flights here now use a ${fmtStepS(nextStepS)} s simulation time step, replacing `
-        + `the ${fmtStepS(prevStepS)} s they were using.`);
+      if (fmtStepS(nextStepS) === fmtStepS(prevStepS)) notes.push(`The simulation time step changed slightly (now ${fmtStepS(nextStepS)} s).`);
+      else notes.push(`Flights here now use a ${fmtStepS(nextStepS, prevStepS)} s simulation time step, replacing `
+        + `the ${fmtStepS(prevStepS, nextStepS)} s they were using.`);
     } else {
-      cautionNote(notes, 'I24.timestep-default', `The simulation time step is back to the ${fmtStepS(DEFAULT_TIME_STEP_S)} s default `
-        + `— this file carries none, and the ${fmtStepS(prevStepS)} s in the Launch panel `
+      if (fmtStepS(DEFAULT_TIME_STEP_S) === fmtStepS(prevStepS)) cautionNote(notes, 'I24.timestep-default', `The simulation time step changed slightly (now ${fmtStepS(DEFAULT_TIME_STEP_S)} s, the default). This file carries none; the previous value belonged to the design it was set for.`);
+      else cautionNote(notes, 'I24.timestep-default', `The simulation time step is back to the ${fmtStepS(DEFAULT_TIME_STEP_S, prevStepS)} s default `
+        + `— this file carries none, and the ${fmtStepS(prevStepS, DEFAULT_TIME_STEP_S)} s in the Launch panel `
         + 'belonged to the design it was set for.');
     }
   }

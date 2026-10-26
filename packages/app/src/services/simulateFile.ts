@@ -1,3 +1,4 @@
+import { noticeEqual } from '../prefs/units.js';
 import { InflatedFileTooLargeError } from './zipMember.js';
 import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
@@ -96,11 +97,12 @@ export async function simulateFile(
     const aero = opts.aero ?? APP_DEFAULT_AERO;
     // The curve load the default match below flies, so a .CDX1's stated launch
     // weight is backed out with the mass that flight carries.
-    imported = await openDesignFile(buffer, fileName, { maxInflatedBytes: opts.maxInflatedBytes, presets, distanceUnit: (opts.units ?? INITIAL_UNITS).altitude,
+    imported = await openDesignFile(buffer, fileName, { units: opts.units ?? INITIAL_UNITS, maxInflatedBytes: opts.maxInflatedBytes, presets, distanceUnit: (opts.units ?? INITIAL_UNITS).altitude,
       horizontalDistanceUnit: (opts.units ?? INITIAL_UNITS).distance,
       aeroChoice: aero.aeroMode === 'classic' ? (aero.effectiveKbf ? 'kbf' : 'eb') : aero.aeroMode,
       catalogue: opts.network === 'allow' ? undefined : MOTOR_DB,
-      flownSpec: opts.network === 'allow' ? (m, d) => fetchMotorSpec(m, d, opts.signal) : bundledOnlyFetchSpec });
+      flownSpec: opts.network === 'allow' ? (m, d) => fetchMotorSpec(m, d, opts.signal, { units: opts.units })
+        : (m, d) => bundledOnlyFetchSpec(m, d, undefined, opts.units) });
   } catch (e) {
     if (e instanceof XmlBudgetExceededError) throw e;
     if (opts.maxInflatedBytes !== undefined && e instanceof InflatedFileTooLargeError) throw e;
@@ -108,7 +110,7 @@ export async function simulateFile(
   }
   const parsed = now();
   const appStepS = imported.launch?.timeStepS ?? DEFAULT_TIME_STEP_S;
-  const timeStepFloor = opts.minTimeStepS !== undefined && appStepS < opts.minTimeStepS
+  const timeStepFloor = opts.minTimeStepS !== undefined && appStepS < opts.minTimeStepS && !noticeEqual(appStepS, opts.minTimeStepS)
     ? { appStepS, flownStepS: opts.minTimeStepS } : undefined;
   if (timeStepFloor) {
     imported = { ...imported, launch: { ...imported.launch, timeStepS: timeStepFloor.flownStepS } };
@@ -132,9 +134,11 @@ export async function simulateImported(
   // Browser-local EX entries are not shipped inputs (audit 2026-10-11, S7a-6).
   const match = opts.match ?? (opts.network === 'allow'
     ? (ref: OrkMotorRef) => matchImportedMotor(ref, {
-      fetchSpec: (m, d, digest) => fetchMotorSpec(m, d, signal, digest ? { digest } : {}),
+      units: opts.units,
+      fetchSpec: (m, d, digest) => fetchMotorSpec(m, d, signal, { digest, units: opts.units }),
     })
-    : (ref: OrkMotorRef) => matchImportedMotor(ref, { catalogue: MOTOR_DB, fetchSpec: bundledOnlyFetchSpec, exMotors: [] }));
+    : (ref: OrkMotorRef) => matchImportedMotor(ref, { catalogue: MOTOR_DB, units: opts.units,
+      fetchSpec: (m, d, digest) => bundledOnlyFetchSpec(m, d, digest, opts.units), exMotors: [] }));
   // The awaits of an open: every motor the file names, resolved — none after a
   // cancel. A download the cancel cut short is reported by the matcher as an
   // unloaded motor; the kernel lock (simulateDesign's withKernel) then refuses
@@ -147,7 +151,7 @@ export async function simulateImported(
   // What goes on screen, decided as App decides it: the file's conditions
   // merged onto the panel's, the configuration to open, the import note.
   const plan = planImport(imported, resolved, {
-    launch: opts.launch ?? DEFAULT_CONDITIONS, text: statedWeightTextFor(opts.units ?? INITIAL_UNITS),
+    launch: opts.launch ?? DEFAULT_CONDITIONS, text: statedWeightTextFor(opts.units ?? INITIAL_UNITS), units: opts.units,
   });
   const { tree, mountMotors, launch, measured, savedConfigs, activeConfigId } = plan.snapshot;
   try {

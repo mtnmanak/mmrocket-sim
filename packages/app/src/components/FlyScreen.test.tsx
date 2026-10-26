@@ -187,7 +187,7 @@ describe('FlyScreen', () => {
 
   it('shows the winds aloft summary on the phone', () => {
     mount({ launch: { ...DEFAULT_CONDITIONS, windLevels: [{ altitude: 10, speed: 4, direction: 0 }, { altitude: 500, speed: 10, direction: 0.2 }] } });
-    expect(host.textContent).toContain('Winds aloft: 2 levels to 500 m above ground');
+    expect(host.textContent).toContain('Winds aloft: 2 levels to 500 m (1,640.4 ft) above ground');
     expect(host.textContent).toContain('Wind avg is the surface wind');
   });
 

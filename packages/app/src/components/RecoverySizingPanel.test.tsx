@@ -80,6 +80,22 @@ describe('RecoverySizingPanel', () => {
     }
   };
 
+  it('keeps an interactive velocity-unit selector in each sizing band', async () => {
+    await mount();
+    for (const [index, band] of [...host.querySelectorAll('.recovery-band')].entries()) {
+      const select = band.querySelector<HTMLSelectElement>('select[aria-label="Velocity unit"]');
+      expect(select).not.toBeNull();
+      const symbol = index === 0 ? 'm/s' : 'ft/s';
+      act(() => { select!.value = symbol; select!.dispatchEvent(new Event('change', { bubbles: true })); });
+      expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).units.velocity).toBe(symbol);
+      const range = host.querySelector('.recovery-band-range')!;
+      const text = [...range.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim();
+      expect(text).toBe(index === 0 ? '4.6 m/s (15 ft/s)–6.1 m/s (20 ft/s)' : '15 ft/s (4.6 m/s)–20 ft/s (6.1 m/s)');
+      expect([...host.querySelectorAll<HTMLSelectElement>('select[aria-label="Velocity unit"]')].map(s => s.value))
+        .toEqual([symbol, symbol]);
+    }
+  });
+
   it('S7b-3 explains unavailable zero-Cd sizing without a NaN headline', async () => {
     const design = tree([{ cd: 0, diameter: 1, deployEvent: 'apogee' }]);
     const before = structuredClone(design);
@@ -228,7 +244,7 @@ describe('RecoverySizingPanel', () => {
       children: [{ type: 'parachute', id: 'drogue', diameter: 0.6, deployEvent: 'apogee' }],
     } as ComponentNode);
     await mount({ tree: t });
-    expect(bands()[1]!.querySelector('.recovery-band-foot')!.textContent).toContain('1.18 in bore');
+    expect(bands()[1]!.querySelector('.recovery-band-foot')!.textContent).toContain('1.181 in (30 mm) bore');
   });
 
   const text = () => host.textContent ?? '';
@@ -421,13 +437,13 @@ describe('RecoverySizingPanel', () => {
       expect(sizeLine(2).replace(/\s+/g, ' ')).toContain('Cd 1.5');
       // Each against its own weight — 6.00 kg for the sustainer, 2.80 for the
       // booster, in the order they land.
-      expect(text()).toMatch(/SustainerSized for 6[.,]00\s*kg/);
-      expect(text()).toMatch(/BoosterSized for 2[.,]80\s*kg/);
+      expect(text()).toMatch(/SustainerSized for 6 kg \(13\.2 lb\)/);
+      expect(text()).toMatch(/BoosterSized for 2\.8 kg \(6\.17 lb\)/);
       // And the booster's bay is its own: the sustainer's 3.94 in bore excludes
       // wide canopies, the booster's 7.87 in bore excludes none. (Three
       // significant figures since the 2026-09-22 audit: it read "3.9 in".)
       const foot = (i: number) => bands()[i]?.querySelector('.recovery-band-foot')?.textContent ?? '';
-      expect(foot(0)).toContain('3.94 in bore');
+      expect(foot(0)).toContain('3.937 in (100 mm) bore');
       expect(foot(2)).not.toMatch(/canopies that hit this band exceed/);
     });
 
@@ -544,8 +560,8 @@ describe('RecoverySizingPanel', () => {
       .map((el) => Array.from(el.childNodes)
         .filter((n) => n.nodeType === 3)
         .map((n) => n.textContent).join('').trim());
-    expect(ranges[0]).toBe('15–20');
-    expect(ranges[1]).toBe('50–75');
+    expect(ranges[0]).toBe('15 ft/s (4.6 m/s)–20 ft/s (6.1 m/s)');
+    expect(ranges[1]).toBe('50 ft/s (15.2 m/s)–75 ft/s (22.9 m/s)');
   });
 
   it('says how many canopies were dropped for fit, rather than looking arbitrary', async () => {
@@ -607,7 +623,7 @@ describe('RecoverySizingPanel', () => {
       } as unknown as ComponentNode],
     };
     await mount({ tree: narrow });
-    expect(text()).toContain('0.054 m bore');
+    expect(text()).toContain('0.054 m (2.126 in) bore');
     const packed = rows(0).map((r) => /packs ([\d.]+) × ([\d.]+) m/
       .exec(r.querySelector('.recovery-part-meta')?.textContent ?? ''));
     expect(packed.some((m) => m !== null)).toBe(true);
@@ -630,7 +646,7 @@ describe('RecoverySizingPanel', () => {
     // The report's three tiers, in the report's words (audit 2026-09-22): the
     // panel used to call 70 ft/s "the accepted" drogue band while the report
     // called 70-90 "still inside the accepted band".
-    expect(drogue.textContent).toContain('is above the preferred 70 ft/s for a drogue');
+    expect(drogue.textContent).toContain('is above the preferred 70 ft/s (21.3 m/s) for a drogue');
     expect(drogue.textContent).toContain('in the caution band up to 90 ft/s');
     expect(drogue.textContent).toContain('the launch report will flag it as a caution');
     expect(drogue.textContent).not.toContain('accepted');
@@ -679,10 +695,10 @@ describe('RecoverySizingPanel', () => {
     expect(text()).not.toContain('faster than sea level');
     // The elevation itself stays in the lede: every rate below it was computed
     // at that site's density, not at sea level's.
-    expect(text().replace(/\s+/g, ' ')).toContain('coming down at 150 ft.');
+    expect(text().replace(/\s+/g, ' ')).toContain('coming down at 149.9 ft (45.7 m).');
   });
 
-  it.each([['km', '0.3 km'], ['mi', '0.19 mi']])('names a sub-unit site height in %s rather than rounding it to sea level', async (unit, shown) => {
+  it.each([['km', '0.305 km (1000 ft)'], ['mi', '0.189 mi (304.8 m)']])('names a sub-unit site height in %s rather than rounding it to sea level', async (unit, shown) => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({
       units: { length: 'in', velocity: 'ft/s', mass: 'kg', altitude: unit, distance: 'ft' },
     }));

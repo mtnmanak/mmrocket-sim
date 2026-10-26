@@ -7,7 +7,7 @@ import { deploymentVerdict, openingVerdict, descentVerdict, SAFETY, type SimRun 
 import { railNeeded, railNeededResultCell, railNeededHeader } from './railNeeded.js';
 import { createWarningMergeBudget, mergeImportedWarnings, mergeStoredWarnings, sameStoredFlight, verifiesStoredRow, type WarningMergeBudget } from './storedRunIdentity.js';
 import { warningKeysCell } from './simWarnings.js';
-import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
+import { INITIAL_UNITS, noticeQuantity, siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
 import { validWindLevels } from './windProfile.js';
 
@@ -477,7 +477,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   [`Altitude at deployment (${sym('altitude', 'm')})`, (r) => cv('altitude', r.altitudeAtDeployment)],
   [`Velocity at deployment (${sym('velocity', 'm/s')})`, (r) => cv('velocity', r.velocityAtDeployment)],
   ['Deployments', (r) => (r.deployments ?? [])
-    .map((d) => `${d.device}@${Number.isFinite(d.time) ? `${d.time.toFixed(1)}s` : '?'} opens ${Number.isFinite(d.velocityAtDeployment) ? d.velocityAtDeployment!.toFixed(1) : '?'}m/s descent ${Number.isFinite(d.descentRate) ? d.descentRate!.toFixed(1) : '?'}m/s${openingVerdict(d.velocityAtDeployment) === false || descentVerdict(d) === false ? ' (!)' : openingVerdict(d.velocityAtDeployment) === 'caution' || descentVerdict(d) === 'caution' ? ' (caution)' : ''}`)
+    .map((d) => `${d.device}@${Number.isFinite(d.time) ? `${d.time.toFixed(1)}s` : '?'} opens ${Number.isFinite(d.velocityAtDeployment) ? noticeQuantity('velocity', d.velocityAtDeployment!, u ?? INITIAL_UNITS) : '?'} descent ${Number.isFinite(d.descentRate) ? noticeQuantity('velocity', d.descentRate!, u ?? INITIAL_UNITS) : '?'}${openingVerdict(d.velocityAtDeployment) === false || descentVerdict(d) === false ? ' (!)' : openingVerdict(d.velocityAtDeployment) === 'caution' || descentVerdict(d) === 'caution' ? ' (caution)' : ''}`)
     .join('; ')],
   [`Drogue descent rate (${sym('velocity', 'm/s')})`, (r) => {
     const drogue = (r.deployments ?? []).find((d) => !d.isLanding);

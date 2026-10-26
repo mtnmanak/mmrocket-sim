@@ -207,6 +207,117 @@ export function fmtSi(quantity: Quantity, symbol: string, si: number, digits?: n
   return v.toFixed(a >= 100 ? 0 : a >= 10 ? 1 : a >= 1 ? 2 : 3);
 }
 
+/** Equality for notice decisions, including arithmetic residue around zero (SI). */
+export function noticeEqual(a: number, b: number): boolean {
+  return a === b || (Number.isFinite(a) && Number.isFinite(b)
+    && Math.abs(a - b) <= Math.max(1e-12, 8 * Number.EPSILON * Math.max(Math.abs(a), Math.abs(b))));
+}
+
+/** Notice numbers keep field precision and never exceed six significant digits. */
+export function noticeNumber(value: number, digits?: number): string {
+  if (!Number.isFinite(value)) return '—';
+  const a = Math.abs(value);
+  const places = digits ?? (a >= 100 ? 0 : a >= 10 ? 1 : a >= 1 ? 2 : 3);
+  return String(Number(Number(value.toFixed(Math.min(20, places))).toPrecision(6)));
+}
+
+/** A physical quantity in advice: selected unit first, other system second.
+ * Say just above/below when display rounding would hide a threshold crossing. */
+export function noticeQuantity(quantity: Quantity | 'area' | 'surfaceDensity' | 'lineDensity', si: number, units: UnitSelection | string = INITIAL_UNITS,
+  options: { digits?: number; otherDigits?: number; otherUnit?: string; against?: number; grouped?: boolean; parenthesized?: boolean; signed?: boolean; preserveSmall?: boolean; defined?: { value: number; symbol: string } } = {}): string {
+  if (si === null || si === undefined || !Number.isFinite(si)) return '—';
+  if (quantity === 'angle') {
+    const symbol = typeof units === 'string' ? units : units.angle;
+    const text = (sym: string) => `${noticeNumber(siToUi('angle', sym, si), sym === 'rad' ? 3 : 1)}${sym === '°' ? '' : ' '}${sym}`;
+    return symbol === 'rad' ? `${text(symbol)} (${text('°')})` : text('°');
+  }
+  const derived = quantity === 'area' || quantity === 'surfaceDensity' || quantity === 'lineDensity';
+  const selected = typeof units === 'string' ? units : units[quantity === 'area' ? 'length' : derived ? 'density' : quantity as Quantity];
+  const imperial = ['in', 'ft', 'yd', 'mi', 'ft/s', 'mph', 'kt', 'oz', 'lb', '°F', 'inHg', 'psi', 'ft/s²', 'oz/in³', 'lb/ft³'].includes(selected);
+  const counterpart = {
+    length: imperial ? 'mm' : 'in', motorDimensions: imperial ? 'mm' : 'in',
+    altitude: imperial ? 'm' : 'ft', distance: imperial ? 'm' : 'ft',
+    velocity: imperial ? 'm/s' : 'ft/s', windspeed: imperial ? 'm/s' : 'ft/s',
+    mass: imperial ? (Math.abs(si) >= 1 ? 'kg' : 'g') : (Math.abs(si) >= 0.45359237 ? 'lb' : 'oz'),
+    temperature: imperial ? '°C' : '°F', pressure: imperial ? 'mbar' : 'inHg',
+    acceleration: imperial ? 'm/s²' : 'ft/s²', density: imperial ? 'kg/m³' : 'lb/ft³',
+    area: imperial ? 'mm' : 'in', surfaceDensity: imperial ? 'kg/m³' : 'lb/ft³', lineDensity: imperial ? 'kg/m³' : 'lb/ft³',
+  };
+  const other = options.otherUnit ?? counterpart[quantity];
+  const converted = (symbol: string, value: number): number => {
+    if (quantity === 'area') return value / unitDef('length', symbol).toSI ** 2;
+    if (quantity === 'surfaceDensity' || quantity === 'lineDensity') {
+      const length = ({ 'kg/m³': 1, 'g/cm³': 0.01, 'oz/in³': 0.0254, 'lb/ft³': 0.3048 } as Record<string, number>)[symbol] ?? 1;
+      return value / (unitDef('density', symbol).toSI * length ** (quantity === 'surfaceDensity' ? 1 : 2));
+    }
+    return siToUi(quantity, symbol, value);
+  };
+  const label = (symbol: string) => quantity === 'area' ? `${symbol}²`
+    : derived ? symbol.replace('³', quantity === 'surfaceDensity' ? '²' : '') : symbol;
+  const digitsFor = (symbol: string): number | undefined => {
+    if (derived) return 3;
+    if (symbol === 'ft/s') return 0;
+    if (symbol === 'm/s') return 1;
+    if (symbol === 'mph') return 2;
+    if (quantity === 'altitude' || quantity === 'distance') return symbol === 'km' || symbol === 'mi' ? 3 : 1;
+    if (['length', 'motorDimensions', 'density', 'pressure'].includes(quantity)) return 3;
+    if (quantity === 'temperature') return 1;
+    return undefined;
+  };
+  const shown = (symbol: string, value: number, digits = digitsFor(symbol)): string => {
+    const convertedValue = converted(symbol, value);
+    const zeroTolerance = quantity === 'temperature' ? 1e-12
+      : converted(symbol, 1e-12 * (quantity === 'area' ? 1e-6 : derived ? 1 : unitDef(quantity as Quantity, INITIAL_UNITS[quantity as Quantity]).toSI));
+    const residue = Math.abs(convertedValue) <= zeroTolerance;
+    const number = residue ? 0 : convertedValue;
+    const preserveSmall = options.preserveSmall !== false && !options.signed && !residue && (derived || !(unitDef(quantity as Quantity, symbol).offset ?? 0));
+    if (preserveSmall && (derived
+      || ((quantity === 'length' || quantity === 'motorDimensions') && Math.abs(number) < 1)
+      || ((quantity === 'altitude' || quantity === 'distance') && Math.abs(number) < 1)
+      || Number(noticeNumber(number, digits)) === 0)) {
+      const text = fmtSig(number, 3, digits ?? 0);
+      const capped = Number(Number(text).toPrecision(6));
+      return Number(text) === capped ? text : String(capped);
+    }
+    return noticeNumber(number, digits);
+  };
+  const against = options.against;
+  if (against !== undefined && Number.isFinite(against) && !noticeEqual(si, against)
+    && shown(selected, si, options.digits) === shown(selected, against, options.digits)) {
+    return `just ${si > against ? 'above' : 'below'} ${noticeQuantity(quantity, against, units, { ...options, against: undefined })}`;
+  }
+  const value = (symbol: string, digits?: number) => {
+    const text = shown(symbol, si, digits);
+    const display = options.grouped ? Number(text).toLocaleString('en-US', { maximumSignificantDigits: 6 }) : text;
+    const n = Number(display.replaceAll(',', ''));
+    return `${options.signed ? `${n < 0 ? '−' : '+'}${display.replace(/^-/, '')}` : display} ${label(symbol)}`;
+  };
+  const definition = options.defined;
+  const suffix = definition && selected !== definition.symbol && other !== definition.symbol
+    ? ` ${options.parenthesized ? '[' : '('}defined as ${noticeNumber(definition.value)} ${definition.symbol}${options.parenthesized ? ']' : ')'}` : '';
+  return `${value(selected, options.digits)}${options.parenthesized ? ' [' : ' ('}${value(other, options.otherDigits)}${options.parenthesized ? ']' : ')'}${suffix}`;
+}
+
+/** A pair uses normal field precision, with a direction when rounding hides it.
+ * The bound is always numeric; callers must name it only once. */
+export function noticeComparison(
+  quantity: Parameters<typeof noticeQuantity>[0], actual: number, limit: number,
+  units: UnitSelection | string = INITIAL_UNITS,
+  options: Parameters<typeof noticeQuantity>[3] = {},
+): [string, string] {
+  const selected = typeof units === 'string' ? units : units.mass;
+  const magnitude = Math.max(Math.abs(actual), Math.abs(limit));
+  const otherUnit = options.otherUnit ?? (quantity === 'mass'
+    ? ['oz', 'lb'].includes(selected) ? magnitude >= 1 ? 'kg' : 'g' : magnitude >= 0.45359237 ? 'lb' : 'oz'
+    : undefined);
+  const bound = noticeQuantity(quantity, limit, units, { ...options, otherUnit, against: undefined });
+  return [noticeEqual(actual, limit) ? bound : noticeQuantity(quantity, actual, units, { ...options, otherUnit, against: limit }), bound];
+}
+
+/** A real change whose normal displays coincide names the new value once. */
+export function noticeChange(before: string, after: string, displayEqual = false): string {
+  return before === after || displayEqual ? `changed slightly (now ${after})` : `${before} → ${after}`;
+}
 /**
  * An ALTITUDE for reading, not for editing: whole metres, feet or yards, and
  * two decimals of a kilometre or a mile. The density-altitude readout's
@@ -245,7 +356,8 @@ export function fmtSig(v: number, sig: number, places = 0): string {
   // Only a string WITH a point has trailing zeros to lose ("100" must stay),
   // and toFixed answers in exponential form from 1e21, whose exponent's zeros
   // are not trailing decimals ("1e+30" read "1e+3").
-  return d > 0 && !s.includes('e') ? s.replace(/\.?0+$/, '') : s;
+  const text = d > 0 && !s.includes('e') ? s.replace(/\.?0+$/, '') : s;
+  return Number(text) === 0 ? '0' : text;
 }
 
 /**

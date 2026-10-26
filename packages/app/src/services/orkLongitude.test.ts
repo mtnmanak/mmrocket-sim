@@ -30,8 +30,8 @@ describe('.ork longitude check at open', () => {
     expect(result.longitudeCheck).toMatchObject({ siblingCount: 5, sibling: { latitudeDeg: 28.1, longitudeDeg: -80.63 } });
     const notes = result.notes.filter((n) => n.includes('longitude’s sign flipped'));
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toContain('“K535” is at 26.380273, 80.126879 (east); 5 of its other simulations are at 28.1, -80.63 (west), 13,600 km away.');
-    expect(notes[0]).toContain('200 km from them. The file’s value was kept.');
+    expect(notes[0]).toContain('“K535” is at 26.380273, 80.126879 (east); 5 of its other simulations are at 28.1, -80.63 (west), 13,600 km (8,451 mi) away.');
+    expect(notes[0]).toContain('200 km (124 mi) from them. The file’s value was kept.');
   });
 
   it('checks the chosen configuration, including an explicit choice, rather than the first simulation', () => {

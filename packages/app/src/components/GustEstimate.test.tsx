@@ -71,8 +71,8 @@ describe('the gust-to-σ chip', () => {
       <GustEstimate value={value} onChange={v => changes.push(v)} forecastWind={{ meanMs: 1.0625, gustMs: 8.25 }} />
     </PrefsProvider>));
     expect([...host.querySelectorAll('input')].map(x => x.value)).toEqual(['1.0625', '1.0625']);
-    expect(text()).toContain('(8.25 − 1.0625 m/s)');
-    expect(text()).toContain('= 2.3958 m/s, capped at 1.0625 m/s');
+    expect(text()).toContain('(8.25 m/s [27.067 ft/s] − 1.0625 m/s [3.486 ft/s])');
+    expect(text()).toContain('= 2.3958 m/s (7.86 ft/s), capped at 1.0625 m/s (3.486 ft/s)');
     expect(changes).toEqual([]);
   });
   it('writes nothing by rendering', () => {
@@ -92,7 +92,7 @@ describe('the gust-to-σ chip', () => {
 
   it('offers σ, and one click writes it — and nothing else', () => {
     render({ ...FIVE, windStdDev: 0.7 });
-    expect(text()).toMatch(/^Estimate from forecast gustσ ≈ 2 m\/s from an 11 m\/s gust\./);
+    expect(text()).toMatch(/^Estimate from forecast gustσ ≈ 2 m\/s \(6\.562 ft\/s\) from an 11 m\/s \(36\.089 ft\/s\) gust\./);
     expect(button()!.title).toBe('Works out σ from the forecast’s gust and average wind. Nothing changes until you click.');
     const description = document.getElementById(button()!.getAttribute('aria-describedby')!)!;
     expect(description.textContent).toContain('σ ≈ 2 m/s');
@@ -108,7 +108,7 @@ describe('the gust-to-σ chip', () => {
   it('once applied, says it is an estimate, how it was worked out, and warns on a convective gust', () => {
     render({ ...FIVE, windStdDev: 2 });
     expect(button()).toBeNull();
-    expect(text()).toMatch(/^Wind gusts σ is an estimate from the forecast: \(11 − 5 m\/s\)\s+÷ 3 = 2 m\/s, taking 11 m\/s as the hour’s strongest 3-second gust\./);
+    expect(text()).toMatch(/^Wind gusts σ is an estimate from the forecast: \(11 m\/s \[36\.089 ft\/s\] − 5 m\/s \[16\.404 ft\/s\]\)\s+÷ 3 = 2 m\/s \(6\.562 ft\/s\), taking 11 m\/s \(36\.089 ft\/s\) as the hour’s strongest 3-second gust\./);
     expect(text()).toContain('Good to about ±25 %.');
     expect(text()).toContain('(σ is 40 % of it)');
     expect(chip()!.classList.contains('gust-estimate-warn')).toBe(true);
@@ -125,7 +125,7 @@ describe('the gust-to-σ chip', () => {
   it('says so when Wind avg moves after applying — and never rescales σ', () => {
     render({ ...FIVE, windAverage: 3, windStdDev: 2 });
     expect(button()).toBeNull();
-    expect(text()).toBe('⚠ Caution: Wind gusts σ, 2 m/s, was estimated against the forecast’s 5 m/s average; Wind avg now reads 3 m/s.');
+    expect(text()).toBe('⚠ Caution: Wind gusts σ, 2 m/s (6.562 ft/s), was estimated against the forecast’s 5 m/s (16.404 ft/s) average; Wind avg now reads 3 m/s (9.843 ft/s).');
     expect(chip()!.classList.contains('message-caution')).toBe(true);
     expect(chip()!.classList.contains('gust-estimate-muted')).toBe(true);
     expect(changes).toHaveLength(0);
@@ -138,11 +138,11 @@ describe('the gust-to-σ chip', () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { windspeed: 'mph' } }));
     render(FIVE);
     // The digits the mph boxes show (NumField: three decimals), not 0.1 mph.
-    expect(text()).toContain('σ ≈ 4.474 mph from a 24.606 mph gust.');
+    expect(text()).toContain('σ ≈ 4.474 mph (2 m/s) from a 24.606 mph (11 m/s) gust.');
     act(() => button()!.click());
     expect(changes[0]!.windStdDev).toBe(2);
     render({ ...FIVE, windStdDev: 2 });
-    expect(text()).toMatch(/\(24\.606 − 11\.185 mph\)\s+÷ 3 = 4\.474 mph/);
+    expect(text()).toMatch(/\(24\.606 mph \[11 m\/s\] − 11\.185 mph \[5 m\/s\]\)\s+÷ 3 = 4\.474 mph \(2 m\/s\)/);
   });
 
   // Review of 2026-09-23: the chip printed σ and the average to 0.1 m/s while
@@ -152,12 +152,12 @@ describe('the gust-to-σ chip', () => {
   it('prints σ and the average with the digits their boxes show', () => {
     const GERLACH = { meanMs: 1.75, gustMs: 4.6 };
     render({ ...FIVE, windAverage: 1.75 }, GERLACH);
-    expect(text()).toContain('σ ≈ 0.95 m/s from a 4.6 m/s gust.');
+    expect(text()).toContain('σ ≈ 0.95 m/s (3.117 ft/s) from a 4.6 m/s (15.092 ft/s) gust.');
     act(() => button()!.click());
     const written = changes[0]!.windStdDev;
     expect(written).toBe(0.95);
     render({ ...FIVE, windAverage: 1.75, windStdDev: written }, GERLACH);
-    expect(text()).toMatch(/\(4\.6 − 1\.75 m\/s\)\s+÷ 3 = 0\.95 m\/s, taking 4\.6 m\/s/);
+    expect(text()).toMatch(/\(4\.6 m\/s \[15\.092 ft\/s\] − 1\.75 m\/s \[5\.741 ft\/s\]\)\s+÷ 3 = 0\.95 m\/s \(3\.117 ft\/s\), taking 4\.6 m\/s \(15\.092 ft\/s\)/);
     expect(text()).not.toMatch(/\b0\.9 m\/s|\b1\.8 m\/s/);
   });
 
@@ -166,11 +166,11 @@ describe('the gust-to-σ chip', () => {
     expect(text()).toContain('Capped at the average wind, the most desktop OpenRocket’s panel allows.');
     // Applied and capped: the arithmetic still adds up — the quotient, THEN the cap.
     render({ ...FIVE, windAverage: 1, windStdDev: 1 }, { meanMs: 1, gustMs: 6 });
-    expect(text()).toMatch(/\(6 − 1 m\/s\)\s+÷ 3 = 1\.667 m\/s, capped at 1 m\/s, taking 6 m\/s as the hour’s strongest 3-second gust\./);
+    expect(text()).toMatch(/\(6 m\/s \[19\.685 ft\/s\] − 1 m\/s \[3\.281 ft\/s\]\)\s+÷ 3 = 1\.667 m\/s \(5\.468 ft\/s\), capped at 1 m\/s \(3\.281 ft\/s\), taking 6 m\/s \(19\.685 ft\/s\) as the hour’s strongest 3-second gust\./);
     expect(text()).toContain('Capped at the average wind, the most desktop OpenRocket’s panel allows.');
     // Not capped (raw exactly the mean): the plain equation.
     render({ ...FIVE, windAverage: 1, windStdDev: 1 }, { meanMs: 1, gustMs: 4 });
-    expect(text()).toMatch(/\(4 − 1 m\/s\)\s+÷ 3 = 1 m\/s, taking/);
+    expect(text()).toMatch(/\(4 m\/s \[13\.123 ft\/s\] − 1 m\/s \[3\.281 ft\/s\]\)\s+÷ 3 = 1 m\/s \(3\.281 ft\/s\), taking/);
     expect(text()).not.toMatch(/capped/i);
     render(FIVE, { meanMs: 5, gustMs: 9.5 });
     expect(text()).toContain('σ ≈ 1.5 m/s');

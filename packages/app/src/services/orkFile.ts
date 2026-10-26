@@ -6,6 +6,7 @@ import { tubeHoleMarks } from '../tree/tubeHoles.js';
 import { captureStageMass, completeStageMass, replaceStageMass } from './stageMassOverrides.js';
 import { configUuid as uuid, MAX_ORK_CONFIGURATIONS, snapshotLoadedConfig } from './configSnapshot.js';
 import { isLoneEmptyConfig } from './emptyConfig.js';
+import { INITIAL_UNITS, noticeEqual, noticeNumber, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { StageMassOverride } from './stageMassOverrides.js';
 import { KERNEL_DEFAULT_FIN_POINTS, kernelDefault, kernelNum } from '../tree/kernelDefaults.js';
 import { BASE_DRAG_DECLARATION, BASE_DRAG_DECLARATION_TAG } from './baseDragImportNotes.js';
@@ -356,6 +357,7 @@ export interface LayeredOrkImportResult extends OrkImportResult {
 }
 
 export function importOrk(data: ArrayBuffer | string, opts?: {
+  units?: UnitSelection;
   configId?: string; presets?: readonly Preset[];
   /** N032: the caller's Altitude selection, for newly composed height notes. */
   distanceUnit?: string;
@@ -363,6 +365,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   /** Optional host cap; browser imports retain the shared 64 MiB default. */
   maxInflatedBytes?: number;
 }): LayeredOrkImportResult {
+  const units = opts?.units ?? { ...INITIAL_UNITS, altitude: opts?.distanceUnit ?? INITIAL_UNITS.altitude };
   let xml: string;
   // Set when the bytes were not valid UTF-8 and named no other encoding (see
   // decodeXml): the first import note, once there are notes.
@@ -631,14 +634,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       : configs.find((c) => c.id === id);
     if (!target) {
       cautionNote(notes, 'I16.pad-mass-dropped', id === null
-        ? `The file's weighed pad mass (${v} kg) belongs to no flight configuration — the file declares none — so it was not kept.`
-        : `The file's weighed pad mass (${v} kg) names a flight configuration this file does not declare, so it was not kept.`);
+        ? `The file's weighed pad mass (${noticeQuantity('mass', v, units, { parenthesized: true })}) belongs to no flight configuration — the file declares none — so it was not kept.`
+        : `The file's weighed pad mass (${noticeQuantity('mass', v, units, { parenthesized: true })}) names a flight configuration this file does not declare, so it was not kept.`);
       continue;
     }
     target.padMassKg = v; // last one wins for a duplicated configid
     if (id === null) {
       target.padMassLegacy = true;
-      notes.push(`This file's weighed pad mass (${v} kg) was saved by an earlier version beside the airframe figures. It now belongs to the motor it was weighed with, in configuration “${target.name ?? target.id}”, and is checked against that motor the first time the design is built — the notice will say whether it was kept.`);
+      notes.push(`This file's weighed pad mass (${noticeQuantity('mass', v, units, { parenthesized: true })}) was saved by an earlier version beside the airframe figures. It now belongs to the motor it was weighed with, in configuration “${target.name ?? target.id}”, and is checked against that motor the first time the design is built — the notice will say whether it was kept.`);
     }
   }
 
@@ -1090,7 +1093,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         // says so, rather than taking the whole rocket down with it.
         const outlineProblem = ptEls.length > MAX_FIN_POINTS
           ? TOO_MANY_FIN_POINTS
-          : finOutlineProblem(pts);
+          : finOutlineProblem(pts, units);
         if (!outlineProblem) {
           n['points'] = pts;
         } else {
@@ -1496,7 +1499,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   if (tooDeep) cautionNote(notes, 'I03.too-deep', TOO_DEEP_NESTING);
   const noteConfig = configs.find(cf => cf.id === chosenConfigId);
   const noteName = noteConfig ? configLabel(noteConfig) : null;
-  const overrideNotes = [deployOverrideNote(deployOverrides, noteName, opts?.distanceUnit)].filter((s): s is string => s !== null);
+  const overrideNotes = [deployOverrideNote(deployOverrides, noteName, units?.altitude ?? opts?.distanceUnit)].filter((s): s is string => s !== null);
   // The deployment note lists only devices whose flown setting differs
   // (sameDeployment), so it is Caution whenever it exists (D7 I10). A stored
   // separation/ignition tuple that flies the same as the component's own is
@@ -1510,7 +1513,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
           separationEvent: separationEventOf(String(node['separationEvent'] ?? 'ejection')) ?? 'ejection',
           separationDelay: nodeNum(node, 'separationDelay', 0), separationAltitude: nodeNum(node, 'separationAltitude', 200),
         };
-        const t = flightParameterOverrideNote('separation', String(node['name'] ?? 'Stage'), own, separation, noteName, opts?.distanceUnit);
+        const t = flightParameterOverrideNote('separation', String(node['name'] ?? 'Stage'), own, separation, noteName, units?.altitude ?? opts?.distanceUnit);
         overrideNotes.push(t);
         overrideTiers.set(t, !sparsify(flownSeparation(own), flownSeparation(separation)) ? 'information' : 'caution');
       }
@@ -1542,8 +1545,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   };
   if (autoInferred.length > 0) {
     const k = autoInferred.length;
-    const dias = [...new Set(autoInferred.map((a) => (a.radius * 2000).toFixed(1)))]
-      .map((mm) => `${mm} mm`).join(' / ');
+    const dias = [...new Set(autoInferred.map((a) => noticeQuantity('length', a.radius * 2, units)))].join(' / ');
     notes.push(
       `${k} component${k === 1 ? '' : 's'} (${nameList(autoInferred.map((a) => a.name))}) `
       + 'had an automatic diameter with no value stored — how OpenRocket 15.03 and earlier '
@@ -1566,7 +1568,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     // Only 25 mm is OpenRocket's own number. Crediting the 5 mm one to the
     // desktop too would just move the false claim to the other clause.
     const clauses = [...byFallback].map(([radius, names]) => {
-      const mm = `${(radius * 2000).toFixed(0)} mm`;
+      const mm = noticeQuantity('length', radius * 2, units);
       const verb = new Set(names).size === 1 ? 'uses' : 'use';
       return radius === DEFAULT_AUTO_RADIUS
         ? `${nameList(names)} ${verb} OpenRocket’s own ${mm} default`
@@ -1596,7 +1598,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       else byKept.set(a.radius, [a.name]);
     }
     const clauses = [...byKept].map(([radius, names]) =>
-      `${nameList(names)} ${new Set(names).size === 1 ? 'keeps' : 'keep'} OpenRocket’s own ${(radius * 2000).toFixed(0)} mm`);
+      `${nameList(names)} ${new Set(names).size === 1 ? 'keeps' : 'keep'} OpenRocket’s own ${noticeQuantity('length', radius * 2, units)}`);
     const k = new Set(autoNoCavity.map((a) => a.el)).size;
     cautionNote(notes, 'I07.auto-diameter-no-cavity',
       `${k} component${k === 1 ? '' : 's'} had an automatic diameter inside a part with no cavity to size `
@@ -1711,7 +1713,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   applyPresetLinks(pendingLinks, opts?.presets, notes, {
     ownFile: doc.documentElement?.getAttribute('creator') === ORK_CREATOR,
   });
-  const launch = readLaunchConditions(doc, notes, chosenConfigId, opts?.distanceUnit);
+  const launch = readLaunchConditions(doc, notes, chosenConfigId, opts?.distanceUnit, units);
   const { simEls, simEl } = simulationForConfig(doc, chosenConfigId);
   const siteOf = (sim: XmlElement) => {
     const conditions = sim.querySelector(':scope > conditions');
@@ -1721,7 +1723,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     };
   };
   const longitudeCheck = simEl ? checkFileLongitude(siteOf(simEl), simEls.filter((s) => s !== simEl).map(siteOf)) : undefined;
-  if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck, text(simEl!, ':scope > name') || 'Unnamed simulation', opts?.horizontalDistanceUnit));
+  if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck, text(simEl!, ':scope > name') || 'Unnamed simulation', opts?.horizontalDistanceUnit ?? units.distance));
 
   // THE LIMITS TABLE, applied here where its notes still reach the import
   // banner (audit 2026-09-22): every count, dimension and enum string outside
@@ -1740,7 +1742,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   const provenance = readDesignProvenance(rocketEl, notes);
   const documentMaterials = readDocumentMaterials(root!, notes);
   const importedTree = sanitizeTree({ name, components, ...(provenance ? { provenance } : {}),
-    ...(documentMaterials.length ? { documentMaterials } : {}) }, notes);
+    ...(documentMaterials.length ? { documentMaterials } : {}) }, notes, units);
   // Desktop/current imports retain their placement origin through autosave.
   // A clean unknown file needs no XML stamp, but its checked state must follow
   // future edits. Legacy writer versions never establish a clean origin.
@@ -1824,7 +1826,11 @@ export const ORK_CREATOR = 'MMRocket Sim';
  * anything the desktop's spinner can produce and shed the noise, so a note
  * quotes the number the file's author meant, not the bits.
  */
-export const fmtStepS = (s: number): string => String(Number(s.toPrecision(6)));
+export const fmtStepS = (s: number, against?: number): string => {
+  const value = String(Number(s.toPrecision(6)));
+  return against !== undefined && !noticeEqual(s, against) && value === String(Number(against.toPrecision(6)))
+    ? `just ${s < against ? 'below' : 'above'} ${value}` : value;
+};
 
 /**
  * The envelope an imported `<atmosphere>` is believed inside: EXACTLY the
@@ -1838,9 +1844,6 @@ export const fmtStepS = (s: number): string => String(Number(s.toPrecision(6)));
  */
 const IMPORTED_TEMP_C_RANGE: readonly [number, number] = PAD_TEMP_C_RANGE;
 const IMPORTED_PRESSURE_HPA_RANGE: readonly [number, number] = PAD_PRESSURE_HPA_RANGE;
-
-/** Shed float noise no one typed, the way fmtStepS does for a time step. */
-const fmt6 = (v: number): string => String(Number(v.toPrecision(6)));
 
 /**
  * The direction (rad, the file's "from" convention) of the AVERAGE wind desktop
@@ -1955,7 +1958,7 @@ function simulationForConfig(doc: XmlDocument, chosenConfigId?: string | null) {
 }
 
 function readLaunchConditions(
-  doc: XmlDocument, notes: string[], chosenConfigId?: string | null, altitudeUnit?: string,
+  doc: XmlDocument, notes: string[], chosenConfigId?: string | null, altitudeUnit?: string, units: UnitSelection = INITIAL_UNITS,
 ): Partial<LaunchConditions> | undefined {
   const { simEl } = simulationForConfig(doc, chosenConfigId);
   const condEl = simEl?.querySelector(':scope > conditions');
@@ -1976,13 +1979,13 @@ function readLaunchConditions(
   // flies reversed), so a file could fly an 80° rail or a negative rod length
   // that the panel would refuse to have typed. Clamped into the panel's range,
   // with a note quoting the file's own number.
-  const m = (x: number): string => `${fmt6(x)} m`;
-  const deg = (x: number): string => `${fmt6(x)}°`;
-  const ms = (x: number): string => `${fmt6(x)} m/s`;
+  const m = (x: number, against?: number): string => noticeQuantity('altitude', x, altitudeUnit ?? units.altitude, { against });
+  const deg = (x: number, against?: number): string => against !== undefined && !noticeEqual(x, against) && noticeNumber(x, 6) === noticeNumber(against, 6) ? `just ${x < against ? 'below' : 'above'} ${noticeNumber(against, 6)}°` : `${noticeNumber(x, 6)}°`;
+  const ms = (x: number, against?: number): string => noticeQuantity('windspeed', x, units, { against });
   const rodLen = num(condEl, 'launchrodlength', NaN, notes);
   if (!Number.isNaN(rodLen)) {
     launch.launchRodLengthM = importLaunchValue(rodLen, ROD_LENGTH_M_RANGE,
-      { what: 'launch rod length', field: 'Rod length', show: m }, notes);
+      { what: 'launch rod length', field: 'Rod length', show: (x, against) => noticeQuantity('length', x, units, { against }) }, notes);
   }
   const rodAngle = num(condEl, 'launchrodangle', NaN, notes);
   if (!Number.isNaN(rodAngle)) {
@@ -2141,13 +2144,13 @@ function readLaunchConditions(
       const tK = num(atmEl, 'basetemperature', NaN, notes);
       if (!Number.isNaN(tK)) {
         const c = tK - 273.15;
-        if (c >= IMPORTED_TEMP_C_RANGE[0] && c <= IMPORTED_TEMP_C_RANGE[1]) {
-          launch.temperatureC = c;
+        if (noticeEqual(c, Math.min(IMPORTED_TEMP_C_RANGE[1], Math.max(IMPORTED_TEMP_C_RANGE[0], c)))) {
+          launch.temperatureC = Math.min(IMPORTED_TEMP_C_RANGE[1], Math.max(IMPORTED_TEMP_C_RANGE[0], c));
         } else {
           launch.temperatureC = null;
           cautionNote(notes, 'I25.temperature',
-            `The file's launch site states ${fmt6(tK)} K (${fmt6(c)} °C) — outside the `
-            + `${IMPORTED_TEMP_C_RANGE[0]} to ${IMPORTED_TEMP_C_RANGE[1]} °C the Temperature `
+            `The file's launch site states ${noticeNumber(tK, 6)} K — ${noticeComparison('temperature', tK, (c < IMPORTED_TEMP_C_RANGE[0] ? IMPORTED_TEMP_C_RANGE[0] : IMPORTED_TEMP_C_RANGE[1]) + 273.15, units)[0].startsWith('just ') ? 'just outside the supported range' : noticeQuantity('temperature', tK, units)} — outside the `
+            + `${noticeQuantity('temperature', IMPORTED_TEMP_C_RANGE[0] + 273.15, units)} to ${noticeQuantity('temperature', IMPORTED_TEMP_C_RANGE[1] + 273.15, units)} the Temperature `
             + 'field accepts, so it is not a launch site this app can fly. (That element holds '
             + 'KELVIN: a plain 20 in it is 20 K, not 20 °C.) Flying the standard atmosphere '
             + 'instead — set the temperature under Launch conditions if you know it.');
@@ -2156,13 +2159,13 @@ function readLaunchConditions(
       const pPa = num(atmEl, 'basepressure', NaN, notes);
       if (!Number.isNaN(pPa)) {
         const hPa = pPa / 100;
-        if (hPa >= IMPORTED_PRESSURE_HPA_RANGE[0] && hPa <= IMPORTED_PRESSURE_HPA_RANGE[1]) {
-          launch.pressureHPa = hPa;
+        if (noticeEqual(hPa, Math.min(IMPORTED_PRESSURE_HPA_RANGE[1], Math.max(IMPORTED_PRESSURE_HPA_RANGE[0], hPa)))) {
+          launch.pressureHPa = Math.min(IMPORTED_PRESSURE_HPA_RANGE[1], Math.max(IMPORTED_PRESSURE_HPA_RANGE[0], hPa));
         } else {
           launch.pressureHPa = null;
           cautionNote(notes, 'I25.pressure',
-            `The file's launch site states ${fmt6(pPa)} Pa (${fmt6(hPa)} hPa) — outside the `
-            + `${IMPORTED_PRESSURE_HPA_RANGE[0]} to ${IMPORTED_PRESSURE_HPA_RANGE[1]} hPa the `
+            `The file's launch site states ${noticeNumber(pPa, 6)} Pa — ${noticeComparison('pressure', pPa, (hPa < IMPORTED_PRESSURE_HPA_RANGE[0] ? IMPORTED_PRESSURE_HPA_RANGE[0] : IMPORTED_PRESSURE_HPA_RANGE[1]) * 100, units)[0].startsWith('just ') ? 'just outside the supported range' : noticeQuantity('pressure', pPa, units)} — outside the `
+            + `${noticeQuantity('pressure', IMPORTED_PRESSURE_HPA_RANGE[0] * 100, units)} to ${noticeQuantity('pressure', IMPORTED_PRESSURE_HPA_RANGE[1] * 100, units)} the `
             + 'Station pressure field accepts, so it is not a launch site this app can fly. (That '
             + 'element holds PASCALS: sea level is 101325 in it, not 1013.25.) Flying the standard '
             + 'atmosphere instead — set the station pressure under Launch conditions if you know it.');
@@ -2201,8 +2204,13 @@ function readLaunchConditions(
     }
   }
 
-  const step = num(condEl, 'timestep', NaN, notes);
+  let step = num(condEl, 'timestep', NaN, notes);
   if (Number.isFinite(step) && step > 0) {
+    // Eight relative ULPs at a floor are serialization/arithmetic residue,
+    // not a request for a different integration ceiling.
+    for (const floor of [PANEL_TIME_STEP_FLOOR_S, MIN_IMPORTED_TIME_STEP_S]) {
+      if (noticeEqual(step, floor)) step = floor;
+    }
     // The file's step is a CEILING on an adaptive step, not the step itself —
     // the RK4 stepper already shortens it wherever the flight is changing fast,
     // and already lands exactly on the next queued event. Below OpenRocket's own
@@ -2240,18 +2248,22 @@ function readLaunchConditions(
       // with an unexplained second number: a foreign file asking 0.005 is
       // below the panel's 0.01 AND lands on the 0.05 an imported design
       // starts at. Say which number came from where.
-      cautionNote(notes, 'I24.timestep',
-        `This design's simulation asks for a ${fmtStepS(step)} s time step — below the `
+      if (fmtStepS(step, PANEL_TIME_STEP_FLOOR_S).startsWith('just ')) {
+        cautionNote(notes, 'I24.timestep', `This design's simulation asks for a time step just below the ${fmtStepS(PANEL_TIME_STEP_FLOOR_S)} s minimum of the Time step field. It is being flown at ${fmtStepS(floorS)} s instead; a finer step costs run time.`);
+      } else cautionNote(notes, 'I24.timestep',
+        `This design's simulation asks for a ${fmtStepS(step, PANEL_TIME_STEP_FLOOR_S)} s time step — below the `
         + `${fmtStepS(PANEL_TIME_STEP_FLOOR_S)} s minimum of the Time step field, which matches `
         + `desktop OpenRocket's own. It is being flown at ${fmtStepS(floorS)} s instead`
         + (floorS === PANEL_TIME_STEP_FLOOR_S ? '' : ', the step an imported design starts at')
-        + ': a finer step costs multiples of the run time and buys no accuracy you can read.');
+        + ': a finer step costs run time; choose it only when its accuracy matters for this design.');
     } else if (step < MIN_IMPORTED_TIME_STEP_S && !ourOwnFile) {
-      cautionNote(notes, 'I24.timestep',
-        `This design's simulation asks for a ${fmtStepS(step)} s time step. It is being flown at `
-        + `${MIN_IMPORTED_TIME_STEP_S} s instead, which is several times faster and — measured `
-        + 'against a converged reference on four designs — lands apogee within 0.06 m on a 6.4 km '
-        + `flight and raises exactly the same warnings. You can set it back to ${fmtStepS(step)} s `
+      if (fmtStepS(step, floorS).startsWith('just ')) {
+        cautionNote(notes, 'I24.timestep', `This design's simulation asks for a time step just below the ${fmtStepS(floorS)} s import minimum. It is being flown at that minimum instead. To choose a finer step, use Time step in the Launch panel; a finer step costs run time.`);
+      } else cautionNote(notes, 'I24.timestep',
+        `This design's simulation asks for a ${fmtStepS(step, floorS)} s time step. It is being flown at `
+        + `${MIN_IMPORTED_TIME_STEP_S} s instead, which — measured `
+        + `against a converged reference on four designs — lands apogee within ${noticeQuantity('altitude', 0.06, units, { digits: 3, otherDigits: 3 })} on a ${noticeQuantity('altitude', 6400, units)} `
+        + `flight and raises exactly the same warnings. You can set it back to ${fmtStepS(step, floorS)} s `
         + 'under Time step in the Launch panel; it will tell you what that costs.');
     }
   }

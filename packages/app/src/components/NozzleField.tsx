@@ -1,7 +1,7 @@
 import { Note } from './Note.js';
 import { useEffect, useId, useState, useSyncExternalStore } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { noticeQuantity, fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
 import { equivalentExitDiameterM, motorNozzleKey } from '../services/nozzleFollow.js';
 import { exMotorRevision, subscribeExMotors } from '../services/exMotors.js';
@@ -136,7 +136,7 @@ export function NozzleField({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fill once, on arrival
   }, [published, exitDiameterM]);
 
-  const ui = (m: number) => `${fmtSi('motorDimensions', sym, m)} ${sym}`;
+  const ui = (m: number) => noticeQuantity('motorDimensions', m, prefs.units);
   // 0.05 mm: finer than any drawing states, coarse enough that a unit
   // round-trip through the display never reads as a disagreement.
   const differs = published !== null && exitDiameterM !== null && exitDiameterM > 0

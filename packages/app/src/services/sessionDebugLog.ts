@@ -58,13 +58,16 @@ const SAFE_IMPORT_MESSAGES = [
 
 // C-H3: motor parsers name refused motors and may quote raw values. Return fixed categories only.
 const MOTOR_NUMBER = '(?:NaN|-?Infinity|-?[0-9]+(?:\\.[0-9]+)?(?:e[+-]?[0-9]+)?)';
+const MOTOR_MASS = `(?:—|(?:just (?:above|below) )?${MOTOR_NUMBER} (?:g|kg|oz|lb)(?: \\(${MOTOR_NUMBER} (?:g|kg|oz|lb)\\)| \\[${MOTOR_NUMBER} (?:g|kg|oz|lb)\\]|, ${MOTOR_NUMBER} (?:g|kg|oz|lb))?)`;
 const SAFE_MOTOR_REFUSALS: readonly [RegExp, string][] = [
   [/^[\s\S]+: fewer than two distinct thrust points$/, 'fewer than two distinct thrust points'],
   [new RegExp(`^[\\s\\S]+: more than ${MAX_EX_MOTOR_SAMPLES} thrust samples$`), 'thrust sample limit exceeded'],
   [/^[\s\S]+: initial mass \(initWt\) missing or zero$/, 'initial mass missing or zero'],
-  [new RegExp(`^[\\s\\S]+: loaded mass ${MOTOR_NUMBER} g is not a mass$`), 'invalid loaded mass'],
-  [new RegExp(`^[\\s\\S]+: propellant mass ${MOTOR_NUMBER} g is not a mass$`), 'invalid propellant mass'],
-  [new RegExp(`^[\\s\\S]+: more propellant \\(${MOTOR_NUMBER} g\\) than loaded mass \\(${MOTOR_NUMBER} g\\)$`), 'propellant exceeds loaded mass'],
+  [new RegExp(`^[\\s\\S]+: loaded mass ${MOTOR_MASS} is not a mass$`), 'invalid loaded mass'],
+  [new RegExp(`^[\\s\\S]+: propellant mass ${MOTOR_MASS} is not a mass$`), 'invalid propellant mass'],
+  [/^[\s\S]+: propellant mass \(propWt\) (?:missing|"[\s\S]*" is not a finite number)$/, 'invalid propellant mass'],
+  [new RegExp(`^[\\s\\S]+: slightly more propellant than loaded mass \\(${MOTOR_MASS}\\)$`), 'propellant exceeds loaded mass'],
+  [new RegExp(`^[\\s\\S]+: more propellant \\(${MOTOR_MASS}\\) than loaded mass \\(${MOTOR_MASS}\\)$`), 'propellant exceeds loaded mass'],
   [/^Propellant and total mass must be numbers in "[\s\S]*" — read "[\s\S]*" and "[\s\S]*"\.$/, 'nonnumeric mass'],
   [/^[\s\S]+: diameter\/length missing or not a positive number$/, 'invalid diameter/length'],
   [/^[\s\S]+: diameter \(dia\) missing or not a positive number$/, 'invalid diameter'],

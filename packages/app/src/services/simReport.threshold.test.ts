@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { FlightResult, StaticInfo } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { buildSimRun } from './simReport.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 
 // A changed policy must reach both the condition and the report wording.
 vi.mock('./machProbe.js', async (original) => ({
@@ -57,6 +58,67 @@ const motor = {
   times: [0, 2], thrusts: [10, 0], masses: [0.024, 0.013],
   cgX: 0.035, ejectionDelay: 5,
 };
+
+describe('U: report notification units', () => {
+  it.each([14.85, 14.9, 14.95])('R12 names rod guidance once when %s m/s rounds to the same primary feet', velocity => {
+    const result = fakeResult();
+    result.summary.launchRodVelocity = velocity;
+    result.series.velocity[1] = velocity;
+    const run = buildSimRun({ result, info, motor, units: IMPERIAL_UNITS,
+      launch: DEFAULT_CONDITIONS, rocketName: 'Units', execMs: 0 });
+    expect(run.comments).toContain('Rod-exit speed just below 49 ft/s (15 m/s) guidance.');
+    expect(run.comments).not.toContain('49 ft/s (14.9 m/s) <');
+  });
+  it('R12 names the landing target once when the primary display coincides', () => {
+    const result = fakeResult();
+    result.summary.groundHitVelocity = 6.15;
+    result.series.velocity[result.series.velocity.length - 1] = 6.15;
+    result.series.Vz = [0, 18.4, 100, 116.2, 0, -4.2, -6.15];
+    result.series.altitude[result.series.altitude.length - 2] = 1000;
+    const run = buildSimRun({ result, info, motor, units: IMPERIAL_UNITS,
+      launch: DEFAULT_CONDITIONS, rocketName: 'Units', execMs: 0 });
+    expect(run.comments).toContain('just above the 20 ft/s (6.1 m/s) landing target');
+    expect(run.comments).not.toContain('20 ft/s (6.2 m/s) of descent');
+  });
+  it('retains the defining rod guidance near the limit with km/h selected', () => {
+    const result = fakeResult();
+    result.summary.launchRodVelocity = 14.99999;
+    result.series.velocity[1] = 14.99999;
+    const run = buildSimRun({ result, info, motor, meta: { label: 'C6' }, units: { ...INITIAL_UNITS, velocity: 'km/h' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'Units', execMs: 0 });
+    expect(run.comments).toContain('Rod-exit speed just below 54 km/h (49 ft/s) (defined as 15 m/s) guidance.');
+  });
+  it('keeps the defining landing target when velocity is displayed in mph', () => {
+    const result = fakeResult();
+    result.series.altitude[result.series.altitude.length - 2] = 1000;
+    const run = buildSimRun({ result, info, motor, meta: { label: 'C6' }, units: { ...IMPERIAL_UNITS, velocity: 'mph' },
+      launch: DEFAULT_CONDITIONS, rocketName: 'Units', execMs: 0 });
+    expect(run.comments).toContain('13.65 mph (6.1 m/s) (defined as 20 ft/s) landing target');
+  });
+  it.each([INITIAL_UNITS, IMPERIAL_UNITS])('does not display a near-limit rod exit as equal to guidance (%j)', units => {
+    const result = fakeResult();
+    result.summary.launchRodVelocity = 14.99999;
+    result.series.velocity[1] = 14.99999;
+    const run = buildSimRun({ result, info, motor, meta: { label: 'C6' }, units,
+      launch: DEFAULT_CONDITIONS, rocketName: 'Units', execMs: 0 });
+    expect(run.comments).toContain(units.velocity === 'm/s'
+      ? 'Rod-exit speed just below 15 m/s (49 ft/s) guidance.'
+      : 'Rod-exit speed just below 49 ft/s (15 m/s) guidance.');
+  });
+  it.each([
+    [INITIAL_UNITS, '10.6 m/s (35 ft/s)', '15 m/s (49 ft/s)', '6.1 m/s (20 ft/s)'],
+    [IMPERIAL_UNITS, '35 ft/s (10.6 m/s)', '49 ft/s (15 m/s)', '20 ft/s (6.1 m/s)'],
+  ] as const)('uses both systems with the selected unit first (%j)', (units, speed, guidance, landing) => {
+    const result = fakeResult();
+    result.summary.launchRodVelocity = 10.6;
+    result.series.velocity[1] = 10.6;
+    result.series.altitude[result.series.altitude.length - 2] = 1000;
+    const run = buildSimRun({ result, info, motor, meta: { label: 'C6' }, units,
+      launch: DEFAULT_CONDITIONS, rocketName: 'Units', execMs: 0 });
+    expect(run.comments).toContain(`Rod-exit speed ${speed} < ${guidance} guidance.`);
+    expect(run.comments).toContain(`${landing} landing target`);
+  });
+});
 
 describe('S7a-7: reports use the shared Mach threshold', () => {
   it.each([[0.7, false], [0.8, true]])('at Mach %s warns=%s', (maxMachNumber, warns) => {

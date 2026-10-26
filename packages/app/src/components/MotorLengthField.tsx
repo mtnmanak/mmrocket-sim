@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtFieldValue, fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { fmtFieldValue, noticeQuantity, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import type { MotorRoom, NoBore } from '../tree/motorRoom.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
@@ -61,7 +61,7 @@ export function MotorLengthField({ mountName, value, onCommit, room, noBore, inp
       {' '}They remain selectable unless “only motors that fit” is on.
     </p>
     {room !== undefined && <p className="comp-stats" style={{ margin: '3px 0 0' }}>
-      {room ? <>Room for {fmtSi('motorDimensions', unit, room.lengthM)} {unit} to {room.limitedBy}.</>
+      {room ? <>Room for {noticeQuantity('motorDimensions', room.lengthM, prefs.units)} to {room.limitedBy}.</>
         : noBore ? noBoreText(noBore)
           : 'No positive motor-room estimate is available for this mount. Check its length, position and overhang.'}
     </p>}

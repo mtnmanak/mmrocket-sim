@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, fmtSig, noticeEqual, noticeNumber, noticeComparison, type UnitSelection } from '../prefs/units.js';
 import { parseDecimal } from './xmlUtil.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import { deadline } from './net.js';
@@ -179,7 +180,7 @@ export function isHeaderMasses(m: unknown): m is TcHeaderMasses {
   return typeof t === 'number' && typeof p === 'number'
     // Number.isFinite, not just typeof: JSON.parse('1e999') yields Infinity.
     && Number.isFinite(t) && Number.isFinite(p)
-    && t > 0 && p > 0 && p <= t;
+    && t > 0 && p > 0 && (p <= t || noticeEqual(p / 1000, t / 1000));
 }
 
 /**
@@ -467,9 +468,15 @@ export function impulseNote(motor: Pick<TcMotor, 'designation' | 'totImpulseNs'>
   if (!(typeof ref === 'number' && ref > 0)) return null;
   const got = fileImpulseNs({ samples: [...samples] });
   const pct = (got / ref - 1) * 100;
-  if (Math.abs(pct) <= IMPULSE_FLAG * 100) return null;
-  return `${IMPULSE_NOTE_LEAD}${motor.designation} integrates to ${got.toFixed(0)} N·s, `
-    + `${pct > 0 ? '+' : ''}${pct.toFixed(1)} % against the ${ref} N·s it is certified for — `
+  const threshold = IMPULSE_FLAG * 100;
+  // The integral/division can leave a few ULPs above exactly five percent.
+  if (Math.abs(pct) <= threshold || noticeEqual(Math.abs(pct), threshold)) return null;
+  const rounded = Number(fmtSig(got, 3));
+  const actual = String(Number((Math.sign(rounded - ref) === Math.sign(got - ref) ? rounded : got).toPrecision(6)));
+  const delta = noticeNumber(pct, 1);
+  const percent = Number.isInteger(Number(delta)) && Math.abs(Number(delta)) < 1e5 ? Number(delta).toFixed(1) : delta;
+  return `${IMPULSE_NOTE_LEAD}${motor.designation} integrates to ${actual} N·s, `
+    + `${pct > 0 ? '+' : ''}${percent} % against the ${String(Number(ref.toPrecision(6)))} N·s it is certified for — `
     + `expect apogee to read ${pct > 0 ? 'high' : 'low'} by roughly that much. `
     + 'thrustcurve.org publishes no closer file for it; import the motor\'s own .eng/.rse if you have one.';
 }
@@ -941,6 +948,7 @@ export function samplesToMotorSpec(
   ejectionDelay: number,
   /** The data file's own masses; they win over the catalog (see headerMasses). */
   fromFile?: TcHeaderMasses | null,
+  units: UnitSelection = INITIAL_UNITS,
 ): RepairedMotorSpec {
   // Normalize: repaired (strictly increasing times), starting at t=0 — the
   // curve the file flies, which the picker's impulse gate measures too.
@@ -975,16 +983,18 @@ export function samplesToMotorSpec(
         'so it cannot be simulated. Pick another motor, or import its .rse/.eng file.',
     );
   }
-  if (!file && motor.propWeightG > motor.totalWeightG) {
+  if (!file && motor.propWeightG > motor.totalWeightG && !noticeEqual(motor.propWeightG / 1000, motor.totalWeightG / 1000)) {
+    const [propellant, loaded] = noticeComparison('mass', motor.propWeightG / 1000, motor.totalWeightG / 1000, units, { parenthesized: true });
     throw new Error(
-      `${motor.designation} is catalogued with more propellant (${motor.propWeightG} g) than ` +
-        `loaded mass (${motor.totalWeightG} g), so its burn would end at a negative mass. ` +
+      (propellant.startsWith('just ') ? `${motor.designation} is catalogued with slightly more propellant than loaded mass (${loaded}), so its burn would end at a negative mass. ` :
+      `${motor.designation} is catalogued with more propellant (${noticeComparison('mass', motor.propWeightG / 1000, motor.totalWeightG / 1000, units, { parenthesized: true })[0]}) than ` +
+        `loaded mass (${noticeComparison('mass', motor.propWeightG / 1000, motor.totalWeightG / 1000, units, { parenthesized: true })[1]}), so its burn would end at a negative mass. `) +
         'Pick another motor, or import a corrected .rse/.eng file.',
     );
   }
 
   const totalMass = (file?.totalWeightG ?? motor.totalWeightG) / 1000;
-  const propMass = (file?.propWeightG ?? motor.propWeightG) / 1000;
+  const propMass = Math.min(totalMass, (file?.propWeightG ?? motor.propWeightG) / 1000);
 
   // Cumulative impulse via trapezoid rule.
   const cumImpulse: number[] = [0];
@@ -1205,6 +1215,7 @@ export async function fetchMotorSpec(
    */
   opts: {
     bundleOnly?: boolean;
+    units?: UnitSelection;
     /**
      * A desktop .ork's motor `<digest>` (motorMatch passes the file's own).
      * The file it names is flown instead of pickSampleFile's choice, when the
@@ -1421,7 +1432,7 @@ export async function fetchMotorSpec(
     }
   }
 
-  const spec = samplesToMotorSpec(motor, samples, ejectionDelay, fromFile);
+  const spec = samplesToMotorSpec(motor, samples, ejectionDelay, fromFile, opts.units);
   // Say when the curve flown disagrees with the motor's certification, in the
   // list the app already shows curve repairs from (services/notices.ts, which
   // tells this sentence apart from a repair and shows it as written). Found
@@ -1438,6 +1449,6 @@ export async function fetchMotorSpec(
  * `fetchMotorSpec` reading the shipped bundle only — motorMatch's `fetchSpec`
  * injection point takes it as it stands (simulateFile's `network: 'forbid'`).
  */
-export function bundledOnlyFetchSpec(motor: TcMotor, ejectionDelay: number, digest?: string): Promise<RepairedMotorSpec> {
-  return fetchMotorSpec(motor, ejectionDelay, undefined, { bundleOnly: true, ...(digest ? { digest } : {}) });
+export function bundledOnlyFetchSpec(motor: TcMotor, ejectionDelay: number, digest?: string, units?: UnitSelection): Promise<RepairedMotorSpec> {
+  return fetchMotorSpec(motor, ejectionDelay, undefined, { bundleOnly: true, digest, units });
 }

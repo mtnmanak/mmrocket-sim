@@ -1,6 +1,7 @@
 import { useId, useMemo, useRef, useState } from 'react';
 import type { MotorSpec } from '@online-openrocket/engine';
 import { MotorBrowser } from './MotorBrowser.js';
+import { usePrefs } from '../prefs/PrefsContext.js';
 import { useCatalogue } from './useCatalogue.js';
 import type { MotorMeta } from '../services/simReport.js';
 import { loadCatalogueMotor } from '../services/motorMatch.js';
@@ -65,6 +66,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
 }) {
   const [browsing, setBrowsing] = useState(false);
   const [loading, setLoading] = useState<string | null>(null);
+  const { prefs } = usePrefs();
   const [problem, setProblem] = useState<string | null>(null);
   const ownPicksId = useId();
 
@@ -103,7 +105,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
     setProblem(null);
     setLoading(pickLabel(p));
     try {
-      const m = await loadCatalogueMotor(p.mfr, p.des, p.delay);
+      const m = await loadCatalogueMotor(p.mfr, p.des, p.delay, { units: prefs.units });
       if (mine !== latest.current || !mayLand()) return;
       if (!m) throw new Error(`${pickLabel(p)} is not in the motor database.`);
       onSelect(m.label, m.spec, m.meta);

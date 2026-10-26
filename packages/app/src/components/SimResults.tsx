@@ -12,7 +12,7 @@ import { MACH_AUTO_THRESHOLD } from '../services/machProbe.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtAltitude, fmtSi } from '../prefs/units.js';
+import { noticeQuantity, fmtAltitude, fmtSi } from '../prefs/units.js';
 import { clickable } from './clickable.js';
 import { Modal } from './Modal.js';
 import { UnitChip } from './UnitChip.js';
@@ -138,9 +138,11 @@ function compassPoint8(deg: number): string {
  * flight, and "drogue descent too fast" says which chute to look at.
  */
 function DeploymentRoleNote({ deployments }: { deployments: readonly DeploymentReport[] }) {
+  const { prefs } = usePrefs();
+  const speed = (si: number) => noticeQuantity('velocity', si, prefs.units, { defined: { value: Math.round(si / 0.3048), symbol: 'ft/s' } });
   return <p className="simdet-comments">
     {deployments.map(d => `${d.device}: ${openingPolicy(deploymentRole(d)).expectation}`).join(' ')}{' '}
-    Preferred opening speed ≤70 ft/s (21.34 m/s); Caution above 70 through 90 ft/s (27.432 m/s), Danger above 90.
+    Preferred opening speed ≤{speed(SAFETY.maxDeploymentVelocity)}; Caution above {speed(SAFETY.maxDeploymentVelocity)} through {speed(SAFETY.warnDeploymentVelocity)}, Danger above {speed(SAFETY.warnDeploymentVelocity)}.
     These are the app owner&rsquo;s advice limits, not recovery hardware ratings.
     A simulator opening-speed flag, when recorded, remains separate and visible above with its measured speed.
   </p>;
@@ -227,7 +229,10 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
   const acc = prefs.units.acceleration;
   const safeDeployment = deploymentVerdict(run);
   const limits = normalizeFlightAdvisories(run.advisoryLimits);
-  const railLine = railNeededLine(run.railProfile, SAFETY.minRodExitVelocity, len, vel, run.launchGuideReason);
+  const limitQuantity = (kind: 'velocity' | 'altitude', value: number) =>
+    noticeQuantity(kind, value, prefs.units, { digits: 3, otherDigits: 3, grouped: true });
+  const railLine = railNeededLine(run.railProfile, SAFETY.minRodExitVelocity, len, vel, run.launchGuideReason,
+    { value: SAFETY.minRodExitVelocity, symbol: 'm/s' });
 
   return (
     <div className="panel" style={{ marginTop: 10 }}>
@@ -288,10 +293,10 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
       {limits && <p className="simdet-comments">
         Limits used for this flight ({run.flightConfig ?? 'Working settings'}):{' '}
         {[
-          limits.maxAirspeedMs !== undefined ? `maximum airspeed ${fmtSi('velocity', vel, limits.maxAirspeedMs)} ${vel}` : null,
+          limits.maxAirspeedMs !== undefined ? `maximum airspeed ${limitQuantity('velocity', limits.maxAirspeedMs)}` : null,
           limits.maxMach !== undefined ? `maximum Mach ${limits.maxMach}` : null,
-          limits.armingAltitudeM !== undefined ? `arming ${fmtSi('altitude', alt, limits.armingAltitudeM)} ${alt} AGL, caution band ${fmtSi('altitude', alt, limits.armingCautionBandM ?? 0)} ${alt}` : null,
-          limits.armingAltitudeM === undefined && limits.armingCautionBandM !== undefined ? `arming band ${fmtSi('altitude', alt, limits.armingCautionBandM)} ${alt} (off without an arming altitude)` : null,
+          limits.armingAltitudeM !== undefined ? `arming ${limitQuantity('altitude', limits.armingAltitudeM)} AGL, caution band ${limitQuantity('altitude', limits.armingCautionBandM ?? 0)}` : null,
+          limits.armingAltitudeM === undefined && limits.armingCautionBandM !== undefined ? `arming band ${limitQuantity('altitude', limits.armingCautionBandM)} (off without an arming altitude)` : null,
         ].filter(Boolean).join('; ')}. Your limits are not a structural rating or proof that electronics armed.
       </p>}
       {(['danger', 'caution', 'information'] as const).map(tier => {
@@ -457,7 +462,7 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
               <Row label="Lift-off speed OK" {...(() => { const v = verdict(run.safeLiftoffSpeed); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Thrust : weight OK" {...(() => { const v = verdict(run.safeThrustToWeight); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Safe deployment" good={safeDeployment === true} {...(() => { const v = verdict(safeDeployment); return { value: v.text, bad: v.bad, warn: v.warn }; })()} />
-              <Row label="Landing rate OK (≤ 20 ft/s)" {...(() => { const v = verdict(run.safeLandingRate ?? null); return { value: v.text, bad: v.bad }; })()} />
+              <Row label={`Landing rate OK (≤ ${noticeQuantity('velocity', SAFETY.maxLandingRate, prefs.units, { parenthesized: true, defined: { value: 20, symbol: 'ft/s' } })})`} {...(() => { const v = verdict(run.safeLandingRate ?? null); return { value: v.text, bad: v.bad }; })()} />
               <Row label="Static margin" {...(() => {
                 // Tiered: under-stable is the red failure; over-stable is a
                 // yellow caution (weathercocks in wind), matching the design

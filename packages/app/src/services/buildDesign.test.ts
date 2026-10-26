@@ -244,13 +244,13 @@ describe('buildDesign — the warning strip', () => {
     expect(built.info.warningTexts[0]).toBe('[Warning.DISCONTINUITY]:  "Body tube"');
     // The wake sentence names the shroud — and the token — and survives.
     expect(built.info.warningTexts).toHaveLength(2);
-    expect(built.info.warningTexts[1]).toContain(`"${name}" at 0° sits 220 mm ahead of a fin of "Fins"`);
+    expect(built.info.warningTexts[1]).toContain(`"${name}" at 0° sits 220 mm (8.661 in) ahead of a fin of "Fins"`);
   });
 
   it('the same on the real kernel', () => {
     const built = buildDesign(noMotors(camTree('THICK_FIN cam')), KERNEL_HANDLES);
     if ('error' in built) throw new Error(built.error);
-    expect(built.info.warningTexts.filter((w) => w.includes('"THICK_FIN cam" at 0° sits 220 mm ahead')))
+    expect(built.info.warningTexts.filter((w) => w.includes('"THICK_FIN cam" at 0° sits 220 mm (8.661 in) ahead')))
       .toHaveLength(1);
   }, 60_000);
 

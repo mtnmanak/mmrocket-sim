@@ -1,3 +1,4 @@
+import { usePrefs } from '../prefs/PrefsContext.js';
 import { useEffect, useId, useRef, useState } from 'react';
 import { CSV_APOSTROPHE_HELP } from '../services/csvUtil.js';
 import { flushSync } from 'react-dom';
@@ -15,6 +16,7 @@ export const MATERIAL_STORAGE_FAILURE = 'My materials could not be saved in this
 
 export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
   const { materials, note } = useUserMaterials();
+  const { prefs } = usePrefs();
   const [message, setMessage] = useState('');
   const [densityError, setDensityError] = useState('');
   const densityField = useRef<HTMLInputElement>(null);
@@ -69,7 +71,7 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
               const csv = await picked.text();
               if (!alive.current) return;
               // Read the current store after await, so another tab's edit is retained.
-              const result = importUserMaterialsCsv(csv, loadUserMaterials());
+              const result = importUserMaterialsCsv(csv, loadUserMaterials(), prefs.units);
               const summary = `${result.added} added, ${result.replaced} replaced, ${result.refused} refused.`;
               const details = result.reasons.slice(0, 10).join('; ')
                 + (result.reasons.length > 10 ? `; and ${result.reasons.length - 10} more` : '');
@@ -97,10 +99,10 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
                 const density = editing.density.trim() === String(editing.draft.density)
                   ? readDecimal(editing.density, false) : readDecimal(editing.density);
                 const draft = { ...editing.draft, density: density ?? NaN };
-                const problem = materialProblem(draft);
+                const problem = materialProblem(draft, prefs.units);
                 if (problem) {
                   setMessage(problem);
-                  const densityProblem = materialProblem({ ...m, density: draft.density });
+                  const densityProblem = materialProblem({ ...m, density: draft.density }, prefs.units);
                   flushSync(() => setDensityError(densityProblem ?? ''));
                   if (densityProblem) densityField.current?.focus();
                   return;

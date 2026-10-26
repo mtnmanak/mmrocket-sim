@@ -117,7 +117,7 @@ describe('open motor dialog', () => {
     expect(host.querySelectorAll('fieldset')).toHaveLength(2);
     expect(host.textContent).toContain('The file names Enerjet F67. The motor database has no Enerjet F67.');
     expect(host.textContent).toContain('Mount 2 — Configuration 2');
-    expect(host.textContent).toContain('AeroTech F67C (29 mm, 77.5 Ns, Classic)');
+    expect(host.textContent).toContain('AeroTech F67C (29 mm [1.142 in], 77.5 Ns, Classic)');
     expect(host.querySelectorAll('input[type=radio]:checked')).toHaveLength(2);
     await act(async () => button('Apply').click());
     expect(apply).toHaveBeenCalledWith(Object.fromEntries(identities.map(g => [g.key, { kind: 'catalogue', motor: g.candidates[0] }])));

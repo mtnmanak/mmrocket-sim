@@ -12,6 +12,7 @@
  * ogive nose: 304.8 mm of cone plus a 76.2 mm shoulder = 381 mm printed.
  */
 import { describe, expect, it } from 'vitest';
+import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 
 it('prints a readable certified angle when rounding up six decimals misses the bed', () => {
   const printer = { x: 0.2205, y: 0.2205, z: 0.389, margin: 0 };
@@ -50,6 +51,12 @@ import {
 
 const node = (type: string, params: Record<string, unknown>): ComponentNode =>
   ({ type, ...params } as unknown as ComponentNode);
+
+it('retains a thin wall measurement when a spigot cannot fit', () => {
+  const part = componentLoop(node('bodytube', { length: 0.2, outerRadius: 0.025, thickness: 0.00005 }), {})!;
+  expect(() => splitBodyLoop(part.loop, [0.1], { spigot: 0.001, bodySpan: part.bodySpan, wall: part.wall }))
+    .toThrow('wall 0.05 mm');
+});
 
 /** Bambu H2D and Prusa MK4S, meters. Both with the default 8 mm margin. */
 const H2D: PrinterVolume = { x: 0.350, y: 0.320, z: 0.325, margin: 0.008 };
@@ -1144,4 +1151,22 @@ describe('outerProfile extraX is purely additive', () => {
     expect(Math.max(...onPlane.map((p) => p[1]))).toBeCloseTo(exact, 12);
     expect(Math.min(...onPlane.map((p) => p[1]))).toBeCloseTo(exact - WALL, 12);
   });
+});
+
+
+it.each([INITIAL_UNITS, IMPERIAL_UNITS])('pairs split wall and cut refusals in selected units (%j)', units => {
+  const part = componentLoop(node('bodytube', { length: 0.2, outerRadius: 0.025, thickness: 0.00005 }), {})!;
+  expect(() => splitBodyLoop(part.loop, [0.1], { spigot: 0.001, bodySpan: part.bodySpan, wall: part.wall }, units))
+    .toThrow(units.length === 'in' ? 'wall 0.00197 in [0.05 mm]' : 'wall 0.05 mm [0.00197 in]');
+  expect(() => splitBodyLoop(part.loop, [0.3], {}, units))
+    .toThrow(units.length === 'in' ? '11.811 in (300 mm)' : '300 mm (11.811 in)');
+});
+
+it('keeps close usable-Z and spigot comparisons distinct in metres', () => {
+  const printer = { x: 0.3, y: 0.3, z: 0.2, margin: 0, lean: false };
+  const units = { ...INITIAL_UNITS, length: 'm' };
+  expect.soft(planAxialSplit(0.2004, 0.02, printer, 0, units).reason)
+    .toContain('0.2 m (7.89 in) does not fit 0.2 m (7.874 in) of usable Z');
+  expect.soft(planAxialSplit(0.3, 0.02, { ...printer, spigot: 0.2004 }, 0, units).reason)
+    .toBe('A 0.2 m (7.89 in) spigot leaves no usable height in 0.2 m (7.874 in) of Z.');
 });

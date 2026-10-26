@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { csvCell, unescapeCsvText } from './csvUtil.js';
 import { parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
@@ -10,7 +11,7 @@ export const USER_MATERIALS_CHANGED = 'user-materials-changed';
 export const USER_MATERIALS_LIMIT = 500;
 export const userMaterialKey = (m: Pick<UserMaterial, 'kind' | 'name'>): string => `${m.kind}:${materialNameKey(m.name)}`;
 
-export function materialProblem(value: unknown): string | null {
+export function materialProblem(value: unknown, units: UnitSelection = INITIAL_UNITS): string | null {
   if (!value || typeof value !== 'object') return 'Expected a material entry';
   const m = value as { kind?: unknown; name?: unknown; density?: unknown };
   if (m.kind !== 'bulk' && m.kind !== 'surface' && m.kind !== 'line') return 'Kind must be bulk, surface or line';
@@ -21,7 +22,7 @@ export function materialProblem(value: unknown): string | null {
   if (density === undefined || !usableMaterialDensity(density)) {
     return 'Density must be a finite number greater than zero';
   }
-  if (m.kind === 'bulk' && density > MAX_BULK_DENSITY) return `Bulk material density has a limit of ${MAX_BULK_DENSITY} kg/m³`;
+  if (m.kind === 'bulk' && density > MAX_BULK_DENSITY) return `Bulk material density has a limit of ${noticeQuantity('density', MAX_BULK_DENSITY, units)}`;
   return null;
 }
 
@@ -112,7 +113,7 @@ function csvRecords(csv: string): { cells: string[]; line: number }[] {
   return rows.filter(r => r.cells.some(c => c.trim()));
 }
 
-export function importUserMaterialsCsv(csv: string, existing: readonly UserMaterial[]) {
+export function importUserMaterialsCsv(csv: string, existing: readonly UserMaterial[], units: UnitSelection = INITIAL_UNITS) {
   const result = { materials: [...existing], added: 0, replaced: 0, refused: 0, reasons: [] as string[] };
   const originalKeys = new Set(existing.map(userMaterialKey));
   const importedKeys = new Set<string>();
@@ -128,7 +129,7 @@ export function importUserMaterialsCsv(csv: string, existing: readonly UserMater
     // Undo precisely the formula guard written by csvCell, including quoted commas.
     const name = unescapeCsvText(rawName);
     const entry = { kind, name, density: parseDecimal(density) };
-    let problem = cells.length !== 4 ? 'Expected four columns' : materialProblem(entry);
+    let problem = cells.length !== 4 ? 'Expected four columns' : materialProblem(entry, units);
     if (!problem) {
       const m = entry as UserMaterial;
       const expected = m.kind === 'bulk' ? 'kg/m3' : m.kind === 'surface' ? 'kg/m2' : 'kg/m';

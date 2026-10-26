@@ -1,4 +1,5 @@
 import type { ComponentNode } from '@online-openrocket/engine';
+import { fmtSig, noticeNumber } from '../prefs/units.js';
 import {
   centeringRingBore, collapseLoop, finCutContours, ringOuterRadius, type SolidContext,
 } from '../tree/solidMesh.js';
@@ -159,7 +160,12 @@ export const dxfUnitWord = (unit: DxfUnit): string => DRAWING_UNITS[unit].word;
 /** Geometry group value. */
 const geomVal = (u: DrawingUnits, meters: number): string => u.fromM(meters).toFixed(u.geomDp);
 /** The same number for human eyes in the label block. */
-const dimVal = (u: DrawingUnits, meters: number): string => u.fromM(meters).toFixed(u.dimDp);
+const dimVal = (u: DrawingUnits, meters: number): string => {
+  const value = u.fromM(meters);
+  const fixed = value.toFixed(u.dimDp);
+  const significant = fmtSig(value, 3, u.dimDp);
+  return Math.abs(meters) < 0.001 && Number(fixed) !== Number(significant) ? significant : fixed;
+};
 
 /**
  * The fixed lengths in the TABLES section, in meters so they scale with the
@@ -369,8 +375,15 @@ function partProfile(node: ComponentNode, ctx: SolidContext, rocketName: string,
       // Not "no motor mount found": the bore is the widest inner tube that
       // OVERLAPS this ring (solidContextFor), so a ring forward of a mount
       // that is there has none, and the builder must not go looking for one.
+      const fitDim = (m: number) => {
+        const text = dim(m);
+        const capped = noticeNumber(u.fromM(m), u.dimDp);
+        return Number(text) === Number(capped) ? text : capped;
+      };
       const why = found
-        ? `motor mount ⌀ ${dim(raw * 2)} ${U} does not fit this ring's ${dim(R * 2)} ${U} OD`
+        ? fitDim(raw * 2) === fitDim(R * 2)
+          ? `motor mount is just over this ring's ${fitDim(R * 2)} ${U} OD and does not fit`
+          : `motor mount ⌀ ${fitDim(raw * 2)} ${U} does not fit this ring's ${fitDim(R * 2)} ${U} OD`
         : 'no motor mount passes through this ring';
       // The ring's length is its stock: componentLoop's, the kernel's when absent.
       const dims = `OD ${dim(R * 2)} ${U} | bore ${dim(bore * 2)} ${U}`

@@ -144,7 +144,7 @@ describe('MotorPadMass — the unit boundary', () => {
 describe('MotorPadMass — the line under the field', () => {
   it('blank: says it is flying at the catalogue weight, what to do, and to re-weigh for each motor', () => {
     show();
-    expect(text()).toBe('Blank — flying at the catalogue motor weight, 10392 g on the pad. Weigh the rocket ready to fly, with this motor in, and type it here: it is used at once and carries the adapter, retainer and closure the catalogue weight leaves out. Re-weigh for each motor.');
+    expect(text()).toBe('Blank — flying at the catalogue motor weight, 10392 g (22.9 lb) on the pad. Weigh the rocket ready to fly, with this motor in, and type it here: it is used at once and carries the adapter, retainer and closure the catalogue weight leaves out. Re-weigh for each motor.');
     // A plain state, not a status: nothing has been refused.
     expect(line().className).toBe('comp-stats');
     expect(line().getAttribute('role')).toBeNull();
@@ -170,11 +170,11 @@ describe('MotorPadMass — the line under the field', () => {
   it('names what it carried against which catalogue motor, the motor it was weighed with, and that the next Launch flies it — the Mamba', () => {
     show({ valueKg: 10.574, hardware: MAMBA });
     expect(input().value).toBe('10574');
-    expect(text()).toBe('182 g carried as hardware — adapter, retainer, closure: 10574 g weighed − dry 9308 g as you measured it − catalogue J540R 1084 g. Weighed with J540R; re-weigh if you change it. The next Launch flies it.');
+    expect(text()).toBe('182 g (6.42 oz) carried as hardware — adapter, retainer, closure: 10574 g (23.3 lb) weighed − dry 9308 g (20.5 lb) as you measured it − catalogue J540R 1084 g (2.39 lb). Weighed with J540R; re-weigh if you change it. The next Launch flies it.');
     expect(text()).not.toContain('Carried on');
     expect(text()).not.toContain('check the entry');
     // The carried figure is the highlighted one, like the deltas in the box.
-    expect(host.querySelector('#pad-mass-mmt-line .measured-delta')!.textContent).toBe('182 g');
+    expect(host.querySelector('#pad-mass-mmt-line .measured-delta')!.textContent).toBe('182 g (6.42 oz)');
     expect(line().className).toBe('comp-stats');
     expect(host.querySelector('.field-stale')).toBeNull();
   });
@@ -183,10 +183,10 @@ describe('MotorPadMass — the line under the field', () => {
     imperial();
     show({ valueKg: 10.574, hardware: MAMBA });
     // 0.182 kg = 6.42 oz; 1.084 kg = 38.2 oz; 10.574 kg = 373 oz.
-    expect(text()).toMatch(/^6\.4\d* oz carried as hardware/);
+    expect(text()).toMatch(/^6\.4\d* oz \(182 g\) carried as hardware/);
     expect(text()).toMatch(/38\.\d+ oz/);
-    expect(text()).toMatch(/\b373 oz weighed/);
-    expect(host.querySelector('.measured-delta')!.textContent).toMatch(/^6\.4\d* oz$/);
+    expect(text()).toMatch(/\b373 oz \(10\.6 kg\) weighed/);
+    expect(host.querySelector('.measured-delta')!.textContent).toMatch(/^6\.4\d* oz \(182 g\)$/);
   });
 
   it('says how the delta is split across a cluster, and cautions a large one', () => {
@@ -197,9 +197,9 @@ describe('MotorPadMass — the line under the field', () => {
         motorMassKg: 0.3, mountCount: 1, dryMassKg: 1.0, drySource: 'computed', large: true,
       },
     });
-    expect(text()).toContain('200 g carried as hardware');
+    expect(text()).toContain('200 g (7.05 oz) carried as hardware');
     expect(text()).toContain('as computed');
-    expect(text()).toContain('(×3, 66.7 g each)');
+    expect(text()).toContain('(×3, 66.7 g [2.35 oz] each)');
     expect(text()).toContain('More than half the motor’s own weight — check the entry.');
     expect(text()).toContain('Weighed with D12;');
   });
@@ -214,8 +214,8 @@ describe('MotorPadMass — the line under the field', () => {
         motorMassKg: 1.584, mountCount: 2, dryMassKg: 9.308, drySource: 'measured', large: false,
       },
     });
-    expect(text()).toContain('266 g carried as hardware');
-    expect(text()).toContain('11158 g weighed');
+    expect(text()).toContain('266 g (9.38 oz) carried as hardware');
+    expect(text()).toContain('11158 g (24.6 lb) weighed');
     expect(text()).toContain('catalogue motors on 2 mounts 1584 g');
     expect(text()).not.toContain('J540R 1584');
     expect(text()).toContain(' Carried on Sustainer MMT.');
@@ -325,7 +325,7 @@ describe('MotorPadMass — the line under the field', () => {
         mountCount: 1, dryMassKg: 6.55, drySource: 'computed',
       },
     });
-    expect(text()).toBe('\u26a0 Caution: Weighed pad mass is 351 g LIGHTER than the dry rocket plus the catalogue J460T (801 g) — a typo or a different motor. Nothing is carried.');
+    expect(text()).toBe('\u26a0 Caution: Weighed pad mass is 351 g (12.4 oz) LIGHTER than the dry rocket plus the catalogue J460T with mass 801 g (1.77 lb) — a typo or a different motor. Nothing is carried.');
     expect(line().getAttribute('role')).toBe('status');
     expect(line().classList.contains('print-note-warn')).toBe(true);
     expect(host.querySelector('.measured-delta')).toBeNull();
@@ -337,7 +337,7 @@ describe('MotorPadMass — the line under the field', () => {
         mountCount: 2, dryMassKg: 6.55, drySource: 'computed',
       },
     });
-    expect(text()).toContain('plus the catalogue motors on 2 mounts (1301 g)');
+    expect(text()).toContain('plus the catalogue motors on 2 mounts with mass 1301 g (2.87 lb)');
   });
 
   it('refuses hardware heavier than the airframe', () => {
@@ -348,7 +348,7 @@ describe('MotorPadMass — the line under the field', () => {
         mountCount: 1, dryMassKg: 9.308, drySource: 'measured',
       },
     });
-    expect(text()).toBe('\u26a0 Caution: That would carry 95348 g as hardware — more than the airframe itself. A typo or a different motor; nothing is carried.');
+    expect(text()).toBe('\u26a0 Caution: That would carry 95348 g (210 lb) as hardware — more than the airframe itself. A typo or a different motor; nothing is carried.');
     expect(line().getAttribute('role')).toBe('status');
     expect(host.querySelector('.measured-delta')).toBeNull();
   });

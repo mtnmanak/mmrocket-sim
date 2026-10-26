@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { finOutlineIntersection } from './finOutline.js';
 import { num, numOpt } from './nodeNum.js';
@@ -171,7 +172,8 @@ export interface ShroudConvertResult {
 }
 
 /** Replaces the candidate sets (by id) with native fairing nodes, in place in the tree. */
-export function convertShrouds(tree: RocketTree, ids: string[]): ShroudConvertResult {
+export function convertShrouds(tree: RocketTree, ids: string[], units: UnitSelection = INITIAL_UNITS): ShroudConvertResult {
+  const dim = (si: number) => noticeQuantity('length', si, units, { parenthesized: true });
   const wanted = new Set(ids);
   const notes: string[] = [];
   const walk = (nodes: ComponentNode[]): ComponentNode[] =>
@@ -183,9 +185,9 @@ export function convertShrouds(tree: RocketTree, ids: string[]): ShroudConvertRe
         if (kids?.length) fairing.children = kids;
         notes.push(
           `Converted “${fairing.name}” to a native camera shroud `
-          + `(${Math.round((fairing['length'] as number) * 1000)}×${Math.round((fairing['width'] as number) * 1000)}`
-          + `×${Math.round((fairing['height'] as number) * 1000)} mm, `
-          + `${Math.round((fairing['mass'] as number) * 1000)} g — check mass/shape in its properties).`
+          + `(${dim(fairing['length'] as number)} × ${dim(fairing['width'] as number)}`
+          + ` × ${dim(fairing['height'] as number)}, `
+          + `${noticeQuantity('mass', fairing['mass'] as number, units, { parenthesized: true })} — check mass/shape in its properties).`
           + (numOpt(n, 'overrideCGX') !== undefined
             ? ' The stored CG override is kept for saving but does not reach the flight as a shroud; check the balance before flying.' : ''),
         );

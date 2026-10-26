@@ -1,10 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { checkFileLongitude, deviceMirrorsDesign, likelyFlippedLongitude } from './longitudeCheck.js';
+import { checkFileLongitude, deviceMirrorsDesign, fileLongitudeNote, likelyFlippedLongitude } from './longitudeCheck.js';
 
 const BOCA = { latitudeDeg: 26.380273, longitudeDeg: 80.126879 };
 const SIBLING = { latitudeDeg: 28.1, longitudeDeg: -80.63 };
 
 describe('file longitude evidence', () => {
+  it.each([['km', '100 km (62 mi)'], ['mi', '0 mi (0 km)']])('R12 derives the counterpart from the rounded primary %s distance', (unit, expected) => {
+    const note = fileLongitudeNote({ opened: BOCA, sibling: SIBLING, siblingCount: 1,
+      distanceKm: 13618, flippedDistanceKm: 60 }, 'Test', unit);
+    expect(note).toContain(`With the sign flipped it is ${expected} from them.`);
+    expect(note).not.toContain('100 km (0 mi)');
+    expect(note).not.toContain('0 mi (100 km)');
+  });
   it('finds five matching siblings without replacing the opened site', () => {
     const result = checkFileLongitude(BOCA, [BOCA, ...Array.from({ length: 5 }, () => SIBLING)])!;
     expect(result.opened).toEqual(BOCA);

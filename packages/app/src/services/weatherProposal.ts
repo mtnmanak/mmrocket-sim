@@ -1,3 +1,4 @@
+import { noticeEqual } from '../prefs/units.js';
 import {
   LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE, WIND_MS_RANGE, type LaunchConditions,
 } from './launchConditions.js';
@@ -116,10 +117,18 @@ export function buildProposal(q: {
   const forAltitudeM = choice === 'ground' ? groundAltitudeM! : siteM;
 
   const row = (key: ProposalRow['key'], nowV: number | null, nowFromSite: boolean, value: number | null,
-      range: readonly [number, number]): ProposalRow => ({
-    key, now: nowV, nowFromSite, value,
-    refusal: value === null ? { why: 'missing' } : !inRange(value, range) ? { why: 'range', range } : null,
-  });
+      range: readonly [number, number]): ProposalRow => {
+    // Only eight relative ULPs at a finite endpoint count as arithmetic residue.
+    // Normalize the stored proposal too, so Apply never receives an out-of-range
+    // value that the converted cell displays as an accepted endpoint.
+    if (value !== null && Number.isFinite(value)) {
+      const bound = value < range[0] ? range[0] : value > range[1] ? range[1] : undefined;
+      if (bound !== undefined && Number.isFinite(bound)
+        && noticeEqual(value, bound)) value = bound;
+    }
+    return { key, now: nowV, nowFromSite, value,
+      refusal: value === null ? { why: 'missing' } : !inRange(value, range) ? { why: 'range', range } : null };
+  };
 
   const pressure = row('pressureHPa', now.pressurePa / 100, now.pressureFromSite, sample.pressureHPa, PAD_PRESSURE_HPA_RANGE);
   // The BACKSTOP. A pressure fetched for one elevation and flown at another

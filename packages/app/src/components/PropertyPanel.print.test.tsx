@@ -83,7 +83,7 @@ describe('PropertyPanel — the print button', () => {
   it('with no printer configured: unchanged caption, one advisory line', () => {
     mount();
     expect(printButton().textContent).toBe('🖨 STL for printing (mm)');
-    expect(note()!.textContent).toBe('381 mm long — set your printer in Preferences to check it fits.');
+    expect(note()!.textContent).toBe('381 mm (15 in) long — set your printer in Preferences to check it fits.');
     expect(note()!.className).toBe('print-note');
   });
 
@@ -95,7 +95,7 @@ describe('PropertyPanel — the print button', () => {
     mount();
     expect(printButton().textContent).toBe('🖨 STL for printing (mm)');
     expect(note()!.textContent)
-      .toBe('381 mm — fits your Elegoo Neptune 4 Plus leaned 30° off vertical.');
+      .toBe('381 mm (15 in) — fits your Elegoo Neptune 4 Plus leaned 30° off vertical.');
     expect(note()!.className).toBe('print-note');
   });
 
@@ -105,7 +105,7 @@ describe('PropertyPanel — the print button', () => {
     // 325 mm of Z less the 8 mm kept clear at the TOP (the part stands on the
     // bed, so nothing comes off the bottom) is 317 usable; 381 - 317 = 64.
     expect(printButton().textContent).toBe('🖨 STL for printing — 2 pieces');
-    expect(note()!.textContent).toContain('64 mm too long for your Bambu H2D');
+    expect(note()!.textContent).toContain('64 mm (2.52 in) too long for your Bambu H2D');
     expect(note()!.className).toContain('print-note-warn');
   });
 
@@ -124,4 +124,10 @@ describe('PropertyPanel — the print button', () => {
     expect(printButton().textContent).toBe('🖨 STL for printing (mm)');
     expect(note()).toBeNull();
   });
+});
+
+it('pairs the rounded and airfoil STL printable-edge threshold in the tooltip', () => {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify({ units: { length: 'in' } }));
+  mount();
+  expect(printButton().title).toContain('0.0157 in (0.4 mm)');
 });

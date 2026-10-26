@@ -1,3 +1,4 @@
+import { PrefsProvider } from '../prefs/PrefsContext.js';
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -56,4 +57,15 @@ it('finds another code, explains it, handles no matches and clears immediately',
   expect(input.value).toBe('');
   expect(document.activeElement).toBe(input);
   expect(dialog.querySelectorAll('.warning-lookup-list button').length).toBeGreaterThan(1);
+});
+
+it('orders the explanation list as well as the selected explanation by preference', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { velocity: 'ft/s' } }));
+  try {
+    act(() => root.render(<PrefsProvider><WarningCode code="HighSpeedDeployment" /></PrefsProvider>));
+    act(() => host.querySelector<HTMLButtonElement>('button')!.click());
+    const list = document.querySelector('.warning-lookup-list')!;
+    const entry = [...list.querySelectorAll('button')].find(b => b.textContent?.includes('HighSpeedDeployment'))!;
+    expect(entry.textContent).toContain('65.6 ft/s (20 m/s)');
+  } finally { localStorage.clear(); }
 });

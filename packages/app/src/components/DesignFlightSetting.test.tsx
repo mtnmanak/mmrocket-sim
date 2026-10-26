@@ -179,7 +179,7 @@ describe('Max motor length is edited on Design, with its Estimate (A4)', () => {
     expect(field.value).toBe('150');
     const estimate = host.querySelector<HTMLButtonElement>('[aria-label="Estimate maximum motor length for Mount"]')!;
     expect(estimate).not.toBeNull();
-    expect(host.textContent).toMatch(/Room for [\d.]+ mm to /);
+    expect(host.textContent).toMatch(/Room for [\d.]+ mm \([\d.]+ in\) to /);
     act(() => estimate.click());
     expect(patches).toHaveLength(1);
     expect(typeof patches[0]!['maxMotorLength']).toBe('number');

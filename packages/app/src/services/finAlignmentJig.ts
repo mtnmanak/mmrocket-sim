@@ -2,7 +2,7 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { finCountOf } from '../tree/counts.js';
 import { kernelNum } from '../tree/kernelDefaults.js';
 import { num } from '../tree/nodeNum.js';
-import { fmtSi, type UnitSelection } from '../prefs/units.js';
+import { INITIAL_UNITS, noticeQuantity, fmtSi, fmtSig, siToUi, type UnitSelection } from '../prefs/units.js';
 import { escapeXml } from './xmlUtil.js';
 import { WRAP_FINS } from './tubeWrapGuide.js';
 import type { FinTemplateBackground } from './finTemplate.js';
@@ -18,9 +18,9 @@ export interface FinJigGeometry {
 }
 
 /** N049: thickness is the stock thickness, including rounded and airfoil sections. */
-export function finAlignmentJigGeometry(tube: ComponentNode, fin: ComponentNode, clearance: number): FinJigGeometry {
+export function finAlignmentJigGeometry(tube: ComponentNode, fin: ComponentNode, clearance: number, units: Pick<UnitSelection, 'length'> = INITIAL_UNITS): FinJigGeometry {
   if (tube.type !== 'bodytube' || !WRAP_FINS.has(fin.type)) throw new Error('Select a fin set on a straight round body tube.');
-  if (!(Number.isFinite(clearance) && clearance >= 0 && clearance <= 0.01)) throw new Error('Clearance must be between 0 and 10 mm.');
+  if (!(Number.isFinite(clearance) && clearance >= 0 && clearance <= 0.01)) throw new Error(`Clearance must be between ${noticeQuantity('length', 0, units.length)} and ${noticeQuantity('length', 0.01, units.length)}.`);
   const radius = kernelNum(tube, 'outerRadius');
   const thickness = kernelNum(fin, 'thickness');
   if (!(radius > 0 && Number.isFinite(radius))) throw new Error('Check the tube outside diameter.');
@@ -58,8 +58,8 @@ export function finAlignmentJigSvg(
   tube: ComponentNode, fin: ComponentNode, clearance: number, rocketName: string,
   units: Pick<UnitSelection, 'length' | 'angle'>, background: FinTemplateBackground = 'white',
 ): string {
-  const g = finAlignmentJigGeometry(tube, fin, clearance);
-  const dim = (m: number) => `${fmtSi('length', units.length, m, 3)} ${units.length}`;
+  const g = finAlignmentJigGeometry(tube, fin, clearance, units);
+  const dim = (m: number) => `${fmtSig(siToUi('length', units.length, m), 3, 3)} ${units.length}`;
   const labels = [
     `${rocketName} — ${fin.name ?? 'Fin set'}: fin alignment jig`,
     `Tube OD ${dim(g.tubeRadius * 2)} · ${g.slots.length} fins · slot width ${dim(g.slotWidth)}`,

@@ -4,7 +4,7 @@ import type { RocketTree } from '@online-openrocket/engine';
 import { NumField } from './NumField.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi, fmtSig, niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { noticeComparison, noticeQuantity, fmtSig, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { loadPresets, type Preset } from '../services/presets.js';
 import { COMMON_CLASSES, classLabel } from '../services/motorDb.js';
 import {
@@ -239,7 +239,7 @@ export function ScaleDialog({
   const apply = () => {
     if (busy || !usable) return;
     setBusy(true);
-    onApply(scaleRocket(tree, factor, { snapMounts, assignedMotorDiameters, mountChoices: choices }));
+    onApply(scaleRocket(tree, factor, { snapMounts, assignedMotorDiameters, mountChoices: choices, units: prefs.units }));
     onClose();
   };
 
@@ -249,7 +249,7 @@ export function ScaleDialog({
    * catalogue could set any factor at all, and Apply took it.
    */
   const factorInRange = Number.isFinite(factor) && factor >= FACTOR_MIN && factor <= FACTOR_MAX;
-  const finProblems = useMemo(() => factorInRange ? scaledFinProblems(tree, factor) : [], [tree, factor, factorInRange]);
+  const finProblems = useMemo(() => factorInRange ? scaledFinProblems(tree, factor, prefs.units) : [], [tree, factor, factorInRange, prefs.units]);
   const usable = factorInRange && factor !== 1 && baseD > 0 && !mounts.some(overflows) && finProblems.length === 0;
 
   return (
@@ -421,8 +421,8 @@ export function ScaleDialog({
                 <ul aria-labelledby="scale-mounts" className="comp-stats" style={{ margin: 0, paddingLeft: 18 }}>
                   {mounts.map((m) => (
                     <li key={m.id}>
-                      {m.name}: {m.boreMm.toFixed(1)} →{' '}
-                      <strong>{m.finalBoreMm.toFixed(1)} mm</strong>
+                      {m.name}: {noticeQuantity('motorDimensions', m.boreMm / 1000, prefs.units)} →{' '}
+                      <strong>{noticeQuantity('motorDimensions', m.finalBoreMm / 1000, prefs.units)}</strong>
                       {/* One discriminant, computed in previewMounts — see
                           MountPreview.verdict. Re-deriving it here from
                           onStandardClass/snappable/isAirframe is what let this
@@ -435,12 +435,12 @@ export function ScaleDialog({
                           : <> — solid (filled), so it has no bore and no motor fits it, scaled or
                           not. Untick Solid (filled) on it to make it a tube.</>
                         : m.verdict === 'resized'
-                        ? <> — the {m.targetBoreMm!.toFixed(1)} mm mount you chose.</>
+                        ? <> — the {noticeQuantity('motorDimensions', m.targetBoreMm! / 1000, prefs.units)} mount you chose.</>
                         : m.verdict === 'on-class'
                         ? <> — a standard {classLabel(m.nearestMm)} mm.</>
                         : m.verdict === 'snapped'
                           ? <> — snapped {m.nearestMm > m.scaledBoreMm ? 'up' : 'down'} from{' '}
-                            {m.scaledBoreMm.toFixed(1)} mm to the
+                            {noticeQuantity('motorDimensions', m.scaledBoreMm / 1000, prefs.units)} to the
                             standard {classLabel(m.nearestMm)} mm.</>
                           : m.verdict === 'airframe-left'
                             ? <> — not a motor size you can buy (nearest is{' '}
@@ -449,21 +449,22 @@ export function ScaleDialog({
                             : <> — not a motor size you can buy; nearest is{' '}
                               {classLabel(m.nearestMm)} mm.</>}
                       {!m.motorStillFits && m.motorMm !== null && m.verdict !== 'solid' && (
-                        <> <strong>The {m.motorMm.toFixed(0)} mm motor loaded in it will no longer
+                        <> <strong>The {noticeQuantity('motorDimensions', m.motorMm / 1000, prefs.units)} motor loaded in it will no longer
                           fit.</strong>
                           {m.verdict === 'snapped' && m.motorFitsUnsnapped && (
                             <> Snapping is what loses it — the scaled{' '}
-                              {m.scaledBoreMm.toFixed(1)} mm bore still takes it.</>
+                              {noticeQuantity('motorDimensions', m.scaledBoreMm / 1000, prefs.units)} bore still takes it.</>
                           )}</>
                       )}
                       {/* Why Apply is off: the size chosen (or snapped to) no
                           longer fits the tube around it — `usable`. */}
                       {overflows(m) && (m.maxBoreMm === 0
-                        ? <> <strong>A {m.finalBoreMm.toFixed(1)} mm mount does not fit inside the
+                        ? <> <strong>A {noticeQuantity('motorDimensions', m.finalBoreMm / 1000, prefs.units)} mount does not fit inside the
                           tube around it once scaled — that tube {noRoomWhy(m)}, so no size does.</strong>
                           {' '}Choose the scaled size.</>
-                        : <> <strong>A {m.finalBoreMm.toFixed(1)} mm mount does not fit inside the
-                          tube around it once scaled — at most {m.maxBoreMm!.toFixed(1)} mm does.</strong>
+                        : <> <strong>{noticeComparison('motorDimensions', m.finalBoreMm / 1000, m.maxBoreMm! / 1000, prefs.units)[0].startsWith('just ')
+                          ? <>The mount is just over the {noticeQuantity('motorDimensions', m.maxBoreMm! / 1000, prefs.units)} maximum bore and does not fit inside the tube around it once scaled.</>
+                          : <>A {noticeQuantity('motorDimensions', m.finalBoreMm / 1000, prefs.units)} mount does not fit inside the tube around it once scaled — at most {noticeQuantity('motorDimensions', m.maxBoreMm! / 1000, prefs.units)} does.</>}</strong>
                           {' '}Choose the scaled size or a smaller one.</>
                       )}
                       {m.choosable && (
@@ -480,7 +481,7 @@ export function ScaleDialog({
                             onChange={(e) => onChooseMount(m, e.target.value)}
                           >
                             <option value="scaled">
-                              Scaled size ({m.scaledBoreMm.toFixed(1)} mm)
+                              Scaled size ({noticeQuantity('motorDimensions', m.scaledBoreMm / 1000, prefs.units, { parenthesized: true })})
                             </option>
                             {/* A size that would not fit the tube around the
                                 mount is offered but greyed (`fitsRoom`). */}
@@ -518,7 +519,10 @@ export function ScaleDialog({
                               {' mm'}
                               {m.maxBoreMm !== null && (m.maxBoreMm === 0
                                 ? <> — no size fits inside the tube around it, which {noRoomWhy(m)}</>
-                                : <> — at most {m.maxBoreMm < 1 ? Number(m.maxBoreMm.toPrecision(12)) : m.maxBoreMm.toFixed(1)} mm fits inside the tube around it</>
+                                // A sub-mm limit keeps full precision, so the figure shown is one
+                                // the custom-bore box accepts when typed (3 figures could round up past it).
+                                : <> — at most {noticeQuantity('motorDimensions', m.maxBoreMm / 1000, prefs.units,
+                                  m.maxBoreMm < 1 ? { digits: 12, otherDigits: 12 } : {})} fits inside the tube around it</>
                               )}
                             </>
                           )}
@@ -604,12 +608,12 @@ export function ScaleDialog({
                     <li>
                       the <strong>Measured mass &amp; CG</strong> box
                       {lossDetail && (lossDetail.massKg !== null || lossDetail.cgM !== null) && (
-                        <> ({[
+                        <>: {[
                           lossDetail.massKg !== null
-                            ? `mass ${fmtSi('mass', prefs.units.mass, lossDetail.massKg)} ${prefs.units.mass}` : null,
+                            ? `mass ${noticeQuantity('mass', lossDetail.massKg, prefs.units)}` : null,
                           lossDetail.cgM !== null
-                            ? `CG ${fmtSi('length', lenSym, lossDetail.cgM, 3)} ${lenSym}` : null,
-                        ].filter(Boolean).join(', ')})</>
+                            ? `CG ${noticeQuantity('length', lossDetail.cgM, prefs.units)}` : null,
+                        ].filter(Boolean).join(', ')}</>
                       )}
                     </li>
                   )}

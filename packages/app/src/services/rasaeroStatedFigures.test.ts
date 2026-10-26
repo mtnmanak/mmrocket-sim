@@ -118,7 +118,9 @@ describe('the stated launch weight is backed out with the curve file the flight 
     const plain = importCdx1(xml);
     expect(stage0(offline.tree)['overrideMass']).toBe(stage0(plain.tree)['overrideMass']);
     expect(stage0(offline.tree)['overrideCGX']).toBe(stage0(plain.tree)['overrideCGX']);
-    expect(offline.notes.join(' ')).toMatch(/The thrust curve for G12ST \(0\.331 lb\) could not be loaded during the import/);
+    const catalogueMassG = g12().totalWeightG;
+    const ounces = String(Number((catalogueMassG / 28.349523125).toFixed(2)));
+    expect(offline.notes.join(' ')).toContain(`The thrust curve for G12ST (${catalogueMassG.toFixed(0)} g [${ounces} oz]) could not be loaded during the import`);
     // Never asked (no flownSpec) is not a failure, and says nothing.
     expect(plain.notes.join(' ')).not.toContain('could not be loaded during the import');
   }, 30_000);

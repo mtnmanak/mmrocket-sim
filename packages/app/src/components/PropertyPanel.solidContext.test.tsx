@@ -151,7 +151,7 @@ describe('PropertyPanel — a ring part sizes to the tube it sits in', () => {
     } as unknown as RocketTree;
     mount(tree, tipBulkhead);
     expect(note()!.textContent).toBe(
-      'Diameter assumed: 24.0 mm is a placeholder — the app could not find the tube this part '
+      'Diameter assumed: 24 mm (0.945 in) is a placeholder — the app could not find the tube this part '
       + 'sits in. Measure the bore before you print or cut it.');
     expect(note()!.className).toContain('print-note-warn');
     const dxf = await dxfText();
@@ -182,7 +182,7 @@ describe('PropertyPanel — a ring part sizes to the tube it sits in', () => {
       }] }],
     } as unknown as RocketTree;
     mount(tree, plate);
-    expect(note()!.textContent).toBe('Bore assumed: 49.5 mm is a placeholder — no motor mount passes '
+    expect(note()!.textContent).toBe('Bore assumed: 49.53 mm (1.95 in) is a placeholder — no motor mount passes '
       + 'through this ring. Measure what goes through it before you print or cut it.');
     expect(note()!.className).toContain('print-note-warn');
     const dxf = await dxfText();

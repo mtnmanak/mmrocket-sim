@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { TcMotor } from './thrustcurve.js';
 import { lookupTable } from './xmlUtil.js';
 import { IMPULSE_PREFIX, looseDesignation as loose, prefixWithoutSplit } from './designationText.js';
@@ -871,6 +872,7 @@ export function matchDbMotor(
   motors: MotorDbEntry[] = getCatalogue(),
   manufacturer?: string,
   context?: MotorMatchContext,
+  units: UnitSelection = INITIAL_UNITS,
 ): DbMotorMatch | null {
   const want = designation.trim().toLowerCase();
   if (!want) return null;
@@ -884,7 +886,7 @@ export function matchDbMotor(
   if (evidenced && fits(evidenced) && physicalEvidenceFits(context, evidenced)) {
     return { motor: evidenced, tier: 2, rivals: [], reason: evidenceId === MOTOR_MATCH_POLICY.whiteThunderE31
       ? E31_CORROBORATED
-      : 'RockSim used K700BB for both Blue Baboon and Black Bear. The single-motor file’s stored motor mass and burn time fit the 2088 g Black Bear, so the app loaded it; check the motor.' };
+      : `RockSim used K700BB for both Blue Baboon and Black Bear. The single-motor file’s stored motor mass and burn time fit the ${noticeQuantity('mass', 2.088, units)} Black Bear, so the app loaded it; check the motor.` };
   }
   const whole = rankMatches(want, diameterMm, motors, manufacturer, () => true, context);
   if (whole && want === 'g80' && (!manufacturer?.trim() || /^(unknown|custom)$/i.test(manufacturer.trim()))) {

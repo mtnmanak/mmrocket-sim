@@ -140,7 +140,7 @@ describe('simulateDesign flies the design', () => {
     const s = await starter();
     const out = await simulateDesign(s, { units: IMPERIAL_UNITS,
       advisoryLimits: { maxAirspeedMs: uiToSi('velocity', 'ft/s', 10) } });
-    expect(out.run.comments).toContain('10 ft/s [3.0 m/s]');
+    expect(out.run.comments).toContain('10 ft/s (3 m/s)');
   });
   it.each([1000, 10])('N003 a charge at late ignition %s s has conditional configuration advice, not deployment attribution', async (ignitionDelay) => {
     const s = await starter();

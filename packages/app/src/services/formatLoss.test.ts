@@ -434,7 +434,7 @@ describe('design-specific format losses', () => {
     // In the user's distance unit, which the input carries (RKT-ALT-UNIT).
     const main = input({ type: 'parachute', name: 'Main', deployEvent: 'altitude', deployAltitude: 152.4, deployDelay: 1 });
     expect(checkFormatLoss('rkt', { ...main, distanceUnit: 'ft' }).refused)
-      .toContain('cannot faithfully save altitude deployment at 500 ft with 1 s delay');
+      .toContain('cannot faithfully save altitude deployment at 500 ft (152.4 m) with 1 s delay');
     expect(checkFormatLoss('cdx1', input({ type: 'freeformfinset', points: [[0, 0], [0, 0.03], [0.04, 0.01], [0.05, 0]] })).refused)
       .toContain("isn't a simple 3/4-point trapezoid");
   });

@@ -326,7 +326,7 @@ describe('matchImportedMotor against the shipped catalog', () => {
       const res = await open(rkt('K1075-SK', 'Cesaroni Technology Inc.', Infinity));
       expect(res.motor?.meta.manufacturer).toBe('AMW');
       expect(res.openNote).toBe('Motor “K1075-SK”: the file names Cesaroni Technology Inc., but it loaded as '
-        + 'AMW 2245K1075-P (54 mm, 2245.1 Ns, Skidmark) — the motor the database matched to it. '
+        + 'AMW 2245K1075-P (54 mm [2.126 in], 2245.1 Ns, Skidmark) — the motor the database matched to it. '
         + 'Check it is the motor you fly, or pick another via Browse motor database.');
       // The motor carries it, so applying its configuration says it again.
       expect(res.motor?.openNote).toBe(res.openNote);
@@ -337,8 +337,8 @@ describe('matchImportedMotor against the shipped catalog', () => {
 
     it('one of two motors that match equally well', async () => {
       const res = await open(rkt('H123-SK', 'CTI'));
-      expect(res.openNote).toBe('Motor “H123-SK” loaded as Cesaroni H123-12A (29 mm, 176.5 Ns, Skidmark). '
-        + 'Another motor matches it as well: Cesaroni H123-14A (38 mm, 232.4 Ns, Skidmark). '
+      expect(res.openNote).toBe('Motor “H123-SK” loaded as Cesaroni H123-12A (29 mm [1.142 in], 176.5 Ns, Skidmark). '
+        + 'Another motor matches it as well: Cesaroni H123-14A (38 mm [1.496 in], 232.4 Ns, Skidmark). '
         + 'Check it is the motor you fly, or pick another via Browse motor database.');
       // The file's own maker IS the row's, so it is kept for Save.
       expect(res.motor?.meta.orkManufacturer).toBe('CTI');
@@ -347,7 +347,7 @@ describe('matchImportedMotor against the shipped catalog', () => {
     it('an out-of-production motor for a file that names no maker', async () => {
       // 25 Public Missiles MAC-8 files name a bare “H55”; the only H55 is this.
       const res = await open(rkt('H55', 'unknown', 6));
-      expect(res.openNote).toMatch(/^Motor “H55”: the file names no manufacturer, and it loaded as AeroTech H55W \(29 mm, 162\.3 Ns, White Lightning, out of production\)/);
+      expect(res.openNote).toMatch(/^Motor “H55”: the file names no manufacturer, and it loaded as AeroTech H55W \(29 mm \[1\.142 in\], 162\.3 Ns, White Lightning, out of production\)/);
     });
 
     it('the maker’s only motor of that name, with letters it could not read', async () => {
@@ -368,8 +368,8 @@ describe('matchImportedMotor against the shipped catalog', () => {
       expect(d12.openNote).not.toMatch(/\.0000/);
       expect(d12.openNote).toContain('Jambol D12 (18 mm');
       const h45 = await open(rkt('H45W', 'unknown', 10));
-      expect(h45.openNote).toMatch(/loaded as AeroTech HP-H45W \(38 mm, 320 Ns/);
-      expect(h45.openNote).toContain('Another motor matches it as well: AeroTech H45W (38 mm, 289 Ns');
+      expect(h45.openNote).toMatch(/loaded as AeroTech HP-H45W \(38 mm \[1\.496 in\], 320 Ns/);
+      expect(h45.openNote).toContain('Another motor matches it as well: AeroTech H45W (38 mm [1.496 in], 289 Ns');
     });
 
     it('a cluster of mounts says it once, with the count', () => {

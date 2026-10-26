@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act } from 'react';
+import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
@@ -156,6 +156,19 @@ describe('MeasuredMassBox — imperial (oz and in)', () => {
 });
 
 describe('MeasuredMassBox — the verdict quotes the same numbers back', () => {
+  it.each([
+    ['g', 'mm', 0.99, 0.499, '−10 g (−0.353 oz)', '−1 mm (−0.039 in)'],
+    ['oz', 'in', 0.99, 0.499, '−0.353 oz (−10 g)', '−0.039 in (−1 mm)'],
+    ['g', 'mm', 1.01, 0.501, '+10 g (+0.353 oz)', '+1 mm (+0.039 in)'],
+    ['oz', 'in', 1.01, 0.501, '+0.353 oz (+10 g)', '+0.039 in (+1 mm)'],
+    ['g', 'mm', 1, 0.5, '+0 g (+0 oz)', '+0 mm (+0 in)'],
+  ] as const)('signs both counterparts for %s/%s differences', (mass, length, massKg, cgM, massDelta, cgDelta) => {
+    localStorage.setItem(PREFS_KEY, JSON.stringify({ units: { mass, length } }));
+    show({ massKg, cgM });
+    expect([...host.querySelectorAll('.measured-delta')].map(el => el.textContent?.trim()))
+      .toEqual([massDelta, cgDelta]);
+  });
+
   it('offers the ballast in the display unit and applies SI', () => {
     // 1.100 kg measured against 1.000 kg computed, both balancing at 500 mm:
     // 100 g of ballast, and it must go AT the CG or the balance point moves.
@@ -176,7 +189,7 @@ describe('MeasuredMassBox — the verdict quotes the same numbers back', () => {
     localStorage.setItem(PREFS_KEY, JSON.stringify({ units: { mass: 'oz', length: 'in' } }));
     show({ massKg: 1.1, cgM: 0.5 });
     const verdict = host.querySelector('.measured-verdict')!.textContent!;
-    // 0.1 kg = 3.53 oz, 0.5 m = 19.685 in. The SI handed to onApply is
+    // 0.1 kg = 3.53 oz; 0.5 m = 19.685 in. The SI handed to onApply is
     // unchanged — only the wording moves.
     expect(verdict).toMatch(/3\.5\d* oz/);
     expect(verdict).toMatch(/19\.68\d* in/);
@@ -232,7 +245,7 @@ describe('MeasuredMassBox — the verdict is announced from one always-mounted r
     expect(live.textContent).toBe('');
     show({ massKg: 1.1, cgM: 0.5 });
     expect(region()).toBe(live);
-    expect(live.textContent).toBe('Add 100 g at 500 mm from the nose tip.');
+    expect(live.textContent).toBe('Add 100 g (3.53 oz) at 500 mm (19.685 in) from the nose tip.');
   });
 
   it('stays the same element as the verdict changes, a box is cleared, and the next verdict comes', () => {
@@ -254,7 +267,7 @@ describe('MeasuredMassBox — the verdict is announced from one always-mounted r
     expect(live.textContent).toBe('');
     show({ massKg: 1.05, cgM: 0.5 }); // …and the verdict on the new figure
     expect(region()).toBe(live);
-    expect(live.textContent).toBe('Add 50.0 g at 500 mm from the nose tip.');
+    expect(live.textContent).toBe('Add 50 g (1.76 oz) at 500 mm (19.685 in) from the nose tip.');
   });
 
   it('keeps the Apply and Pin buttons out of the region, so an announcement is the verdict alone', () => {
@@ -305,4 +318,23 @@ describe('S3c-1 obsolete Build allowance', () => {
     act(() => remove!.click());
     expect(removed).toBe(1);
   });
+});
+
+
+it('shows zero deltas when a typed measurement matches a summed model mass and CG', () => {
+  function Harness() {
+    const [measured, setMeasured] = useState<MeasuredFigures>({ massKg: null, cgM: null });
+    return <MeasuredMassBox
+      bareMassKg={0.1 + 0.2} bareCgM={0.1 + 0.2} rocketLengthM={1}
+      hasAllowance={false} onRemove={() => {}} measured={measured}
+      onChange={n => { changes.push(n); setMeasured(n); }} onApply={s => applied.push(s)}
+    />;
+  }
+  act(() => root.render(<PrefsProvider><Harness /></PrefsProvider>));
+  type(massBox(), '300');
+  type(cgBox(), '300');
+  expect(changes.at(-1)).toEqual({ massKg: 0.3, cgM: 0.3 });
+  expect([...host.querySelectorAll('.measured-delta')].map(el => el.textContent?.trim()))
+    .toEqual(['+0 g (+0 oz)', '+0 mm (+0 in)']);
+  expect(host.textContent).toContain('Your build matches the model. Nothing to add.');
 });

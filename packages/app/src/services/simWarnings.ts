@@ -1,7 +1,8 @@
+import { PREFERRED_OPENING_SPEED_MS, MAX_CAUTION_OPENING_SPEED_MS } from './recoveryLimits.js';
 import type { EngineWarning } from '@online-openrocket/engine';
 import { lookupTable } from './xmlUtil.js';
 import type { NoteTier } from '../components/Note.js';
-import { fmtSi, INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
+import { INITIAL_UNITS, fmtSi, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 
 /**
  * Plain-language presentation of the kernel's simulation warnings.
@@ -24,9 +25,7 @@ import { fmtSi, INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
  * (' — (21.0 m/s): "Main"'), so the label ENDS on the words that speed belongs
  * to.
  */
-const HIGH_SPEED_DEPLOYMENT = 'Recovery device opened faster than the simulator’s fixed 20 m/s '
-  + '(65.6 ft/s) — a stricter flag than the report’s Safe deployment check, which prefers 70 ft/s '
-  + 'or less and cautions up to 90 ft/s; the speed at opening';
+const HIGH_SPEED_DEPLOYMENT = highSpeedDeployment(INITIAL_UNITS);
 
 /**
  * Every key the kernel can emit during a flight, with a flyer-facing label.
@@ -132,14 +131,30 @@ export interface FormattedWarning {
 
 /** One warning in current units; unknown/legacy payloads keep their raw text. */
 export function formatWarning(w: EngineWarning, units: UnitSelection = INITIAL_UNITS): FormattedWarning {
-  const label = Object.hasOwn(WARNING_LABEL, w.key) ? WARNING_LABEL[w.key] : undefined;
+  const typedDetail = quantityDetail(w, units);
+  const actual = w.key === 'HighSpeedDeployment' && w.quantity?.kind === 'velocity'
+    && w.quantity.value > 20 && typedDetail !== null ? w.quantity.value : undefined;
+  const label = warningLabel(w.key, units);
   const detail = stripBrackets(w.message ?? '');
   if (label === undefined) {
     // Unknown key (new kernel warning, or "Other"): the stripped message IS
     // the label; show the raw text rather than hiding the warning.
     return { code: w.key, label: detail || w.key, detail: null, high: isHighPriority(w), tier: warningTier(w.key) };
   }
-  return { code: w.key, label, detail: quantityDetail(w, units) ?? (detail || null), high: isHighPriority(w), tier: warningTier(w.key) };
+  return { code: w.key, label, detail: (actual === undefined ? typedDetail : quantityDetail(w, units, 20)?.replace(/\(just above .+?\)(?=:|$)/, '(slightly above this threshold)')) ?? (detail || null), high: isHighPriority(w), tier: warningTier(w.key) };
+}
+
+function highSpeedDeployment(units: UnitSelection): string {
+  const speed = (si: number) => noticeQuantity('velocity', si, units, { defined: { value: Math.round(si / 0.3048), symbol: 'ft/s' } });
+  return `Recovery device opened faster than the simulator’s fixed ${noticeQuantity('velocity', 20, units, { digits: units.velocity === 'ft/s' ? 1 : undefined, otherDigits: units.velocity === 'm/s' ? 1 : undefined, defined: { value: 20, symbol: 'm/s' } })} — a stricter flag than the report’s Safe deployment check, which prefers ${speed(PREFERRED_OPENING_SPEED_MS)} `
+    + `or less and cautions up to ${speed(MAX_CAUTION_OPENING_SPEED_MS)}; the speed at opening`;
+}
+
+function warningLabel(key: string, units: UnitSelection): string | undefined {
+  if (key === 'HighSpeedDeployment' || key === 'RECOVERY_HIGH_SPEED') {
+    return highSpeedDeployment(units);
+  }
+  return Object.hasOwn(WARNING_LABEL, key) ? WARNING_LABEL[key] : undefined;
 }
 
 /** D7: classify stable event keys, never priority or translated English. The
@@ -157,7 +172,7 @@ export function staticWarningTier(text: string): NoteTier {
 }
 
 /** Only typed warnings have enough evidence to replace the entire text suffix. */
-function quantityDetail(w: EngineWarning, units: UnitSelection): string | null {
+function quantityDetail(w: EngineWarning, units: UnitSelection, against?: number): string | null {
   const q = w.quantity;
   const kind = w.key === 'HighSpeedDeployment' ? 'velocity' : w.key === 'LargeAOA' ? 'angle' : null;
   // Stored JSON and future kernels can carry unknown shapes. Fall back as a
@@ -165,7 +180,10 @@ function quantityDetail(w: EngineWarning, units: UnitSelection): string | null {
   if (!kind || q?.kind !== kind || !Number.isFinite(q.value)
     || !Array.isArray(w.sources) || !w.sources.every(s => s === null
       || (typeof s === 'object' && typeof s.name === 'string'))) return null;
-  const value = `(${fmtSi(kind, units[kind], q.value, 3)} ${units[kind]})`;
+  const value = kind === 'angle'
+    ? `(${fmtSi('angle', units.angle, q.value, 3)}${units.angle === '°' ? '' : ' '}${units.angle})`
+    : `(${against === undefined ? noticeQuantity(kind, q.value, units, { digits: 3, parenthesized: true })
+      : noticeComparison(kind, q.value, against, units, { digits: 3, parenthesized: true })[0]})`;
   const sources = w.sources.map(s => s === null ? 'Removed component' : `"${s.name}"`);
   return sources.length ? `${value}: ${sources.join(', ')}` : value;
 }
@@ -188,10 +206,10 @@ function quantityDetail(w: EngineWarning, units: UnitSelection): string | null {
  * reason (the rail one since AUDIT row 238); simWarnings.test.ts pins both
  * halves, and mountAngle.test.ts the rail names.
  */
-export function formatWarningText(text: string): string {
+export function formatWarningText(text: string, units: UnitSelection = INITIAL_UNITS): string {
   const m = /^\[Warning\.([^\]]+)\]/.exec(text);
   const key = m?.[1];
-  const label = key !== undefined && Object.hasOwn(WARNING_LABEL, key) ? WARNING_LABEL[key] : undefined;
+  const label = key !== undefined ? warningLabel(key, units) : undefined;
   const rest = stripBrackets(text);
   if (label === undefined) return rest || text;
   return rest ? `${label} — ${rest}` : label;

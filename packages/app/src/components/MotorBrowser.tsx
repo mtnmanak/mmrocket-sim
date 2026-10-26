@@ -24,7 +24,7 @@ import {
   bundledFiles, defaultDelay, delayOptions, fetchMotorSpec, headerMasses, knownNoPublishedCurve, pickSampleFile,
 } from '../services/thrustcurve.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { siToUi } from '../prefs/units.js';
+import { noticeQuantity, siToUi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import type { MotorMeta } from '../services/simReport.js';
@@ -226,7 +226,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
         signal: ctrl.signal,
         onProgress: (done, total, mfr) => setCheckProgress(total ? `${done}/${total}${mfr ? ` ${mfr}` : ''}` : ''),
       });
-      const lines = describeOverlay(o);
+      const lines = describeOverlay(o, prefs.units);
       if (silent.length) {
         lines.push(`thrustcurve.org returned no motors at all for ${silent.join(', ')} — `
           + 'read as a failed answer, so none of them were marked out of production.');
@@ -270,7 +270,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   // loader's own (D7 I15: a stored motor that did not load is Caution).
   const [initialEx] = useState(() => {
     const notes: string[] = [];
-    const motors = loadExMotors(notes);
+    const motors = loadExMotors(notes, prefs.units);
     return { motors, notice: notes.join(' ') || null, tier: highestTier(noteFlags(notes)) };
   });
   const [importTier, setImportTier] = useState<NoteTier>(initialEx.tier);
@@ -408,7 +408,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const importMotorFiles = async (files: File[]) => {
     setError(null);
     setNotice(null);
-    const { parsed, write, error, notice, tier, noticeTier: noticeOnly } = await readMotorFiles(files);
+    const { parsed, write, error, notice, tier, noticeTier: noticeOnly } = await readMotorFiles(files, prefs.units);
     if (!mounted.current) return;
     setImportTier(tier);
     setNoticeTier(noticeOnly);
@@ -513,7 +513,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       const chosen = delay === 'auto' ? finite[finite.length - 1] ?? 0
         : delay === 'custom' ? customDelay
         : delay;
-      const spec = await fetchMotorSpec(picked, chosen, ctrl.signal);
+      const spec = await fetchMotorSpec(picked, chosen, ctrl.signal, { units: prefs.units });
       // Closed while the download was in flight: the abort above fires, but a
       // cached spec can also resolve without ever touching the network, so the
       // check is on the signal rather than on the throw.
@@ -689,7 +689,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             />
             <label className="motor-inline-label"
               title={maxMotorLengthM !== null
-                ? `Hide motors longer than ${siToUi('motorDimensions', motorSym, maxMotorLengthM).toFixed(motorSym === 'mm' ? 0 : 2)} ${motorSym} — the limit for this mount. When off, longer motors stay flagged and selectable.`
+                ? `Hide motors longer than ${noticeQuantity('motorDimensions', maxMotorLengthM, prefs.units)} — the limit for this mount. When off, longer motors stay flagged and selectable.`
                 // The card's line is read-only since CFG-3 (A4): the limit is set
                 // on the physical mount, on Design (CFG-3 review, finding 3).
                 : 'This mount has no maximum motor length set. Set one on the mount in Design (the motor card’s “set on Design ▸” link takes you there).'}>

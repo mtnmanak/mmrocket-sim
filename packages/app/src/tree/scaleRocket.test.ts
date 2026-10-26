@@ -8,6 +8,29 @@ import { engineTree, findNode } from './treeModel.js';
 import { axialLength, startFromPosition } from './position.js';
 import { FIELDS, MIN_POSITIVE_DIMENSION_M } from './schema.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
+
+it.each([INITIAL_UNITS, IMPERIAL_UNITS])('pairs post-Scale dimensions and motor-fit notices (%j)', units => {
+  const tree: RocketTree = { components: [{ type: 'bodytube', id: 'body', length: 0.5,
+    outerRadius: 0.0254, thickness: 0.001, children: [{ type: 'innertube', id: 'mount',
+      name: 'Mount', motorMount: true, length: 0.1, outerRadius: 0.016875, thickness: 0.001 }] }] };
+  const text = scaleRocket(tree, 2, { units, snapMounts: true, assignedMotorDiameters: { mount: 0.064 } }).notes.join(' ');
+  expect(text).toContain(units.length === 'mm'
+    ? '500 mm (19.685 in) long and 50.8 mm (2 in) across becomes 1000 mm (39.37 in) and 101.6 mm (4 in)'
+    : '19.685 in (500 mm) long and 2 in (50.8 mm) across becomes 39.37 in (1000 mm) and 4 in (101.6 mm)');
+  expect(text).toContain(units.motorDimensions === 'mm'
+    ? '31.75 mm (1.25 in) bore becomes 63.5 mm (2.5 in)'
+    : '1.25 in (31.75 mm) bore becomes 2.5 in (63.5 mm)');
+  expect(text).toContain(units.motorDimensions === 'mm'
+    ? '64 mm (2.52 in) motor loaded in it no longer fits the 54 mm (2.126 in) bore'
+    : '2.52 in (64 mm) motor loaded in it no longer fits the 2.126 in (54 mm) bore');
+  expect(text).toContain(units.motorDimensions === 'mm'
+    ? 'scaled 63.5 mm (2.5 in) bore still takes it' : 'scaled 2.5 in (63.5 mm) bore still takes it');
+  expect(text).toContain('standard 54 mm'); // A class name keeps its fixed label.
+  const chosen = scaleRocket(tree, 2, { units, mountChoices: { mount: { boreMm: 64 } } }).notes.join(' ');
+  expect(chosen).toContain(units.motorDimensions === 'mm'
+    ? '64 mm (2.52 in) mount you chose' : '2.52 in (64 mm) mount you chose');
+});
 
 describe('F2 scale regressions', () => {
   it.each(['__proto__', 'constructor', 'toString'])('uses no inherited mount choice for %s', id => {
@@ -965,7 +988,7 @@ describe('scaleRocket — motor mounts', () => {
     // box, the note has to name the bore they are getting.
     const t = withMount(0.0274);
     const unsnapped = scaleRocket(t, 1.9, { assignedMotorDiameters: { mt: 0.054 } });
-    expect(unsnapped.notes.join(' ')).toContain('no longer fits the 52.1 mm bore');
+    expect(unsnapped.notes.join(' ')).toContain('no longer fits the 52.06 mm (2.05 in) bore');
     const snapped = scaleRocket(t, 1.9, {
       snapMounts: true, assignedMotorDiameters: { mt: 0.054 },
     });
@@ -977,8 +1000,8 @@ describe('scaleRocket — motor mounts', () => {
     const shrunk = scaleRocket(t, 0.5, {
       snapMounts: true, assignedMotorDiameters: { mt: 0.029 },
     }).notes.join(' ');
-    expect(shrunk).toContain('no longer fits the 13.0 mm bore');
-    expect(shrunk).not.toContain('13.7 mm bore');
+    expect(shrunk).toContain('no longer fits the 13 mm (0.512 in) bore');
+    expect(shrunk).not.toContain('fits the 13.7 mm');
   });
 
   it('counts a protuberance’s typed weight in the re-weigh note too', () => {
@@ -1070,7 +1093,7 @@ describe('scaleRocket — motor mounts', () => {
     const notes = scaleRocket(t, 2, { snapMounts: true, assignedMotorDiameters: { mt: 0.064 } })
       .notes.join(' ');
     expect(notes).toContain('Snapping to the standard size is what lost it');
-    expect(notes).toContain('63.5 mm bore still takes it');
+    expect(notes).toContain('63.5 mm (2.5 in) bore still takes it');
   });
 
   it('does NOT blame the snap when the scale is what lost the motor', () => {
@@ -1186,7 +1209,7 @@ describe('scaleRocket — motor mounts', () => {
     const out = scaleRocket(t, 2, { mountChoices: { mt: { boreMm: 64 } } });
     expect(mountBore(findNode(out.tree, 'mt')!) * 1000).toBeCloseTo(64, 9);
     // Named as a plain number, NOT dressed up as a standard class.
-    expect(out.notes.join(' ')).toContain('resized to the 64.0 mm mount you chose');
+    expect(out.notes.join(' ')).toContain('resized to the 64 mm (2.52 in) mount you chose');
     expect(out.notes.join(' ')).not.toContain('standard 64');
   });
 
@@ -1644,6 +1667,15 @@ it('only attributes newly introduced freeform problems to scaling', () => {
   expect(scaledFinProblems(t, 1.1)).toEqual([]);
   expect(scaledFinProblems(t, 0.5)).toEqual([]);
   fin['points'] = [[0, 0], [1.3, 0.5], [1.35, 1], [1.5, 0]];
-  expect(scaledFinProblems(t, 2).join(' ')).toContain('2.5 m');
+  expect(scaledFinProblems(t, 2).join(' ')).toContain('2500 mm (98.425 in)');
   expect(scaledFinProblems(t, 1.1)).toEqual([]);
+});
+
+
+it.each([INITIAL_UNITS, IMPERIAL_UNITS])('pairs the freeform scaling limit in selected units (%j)', units => {
+  const t = kitchenSink();
+  findNode(t, 'ff')!['points'] = [[0, 0], [1.3, 0.5], [1.35, 1], [1.5, 0]];
+  expect(scaledFinProblems(t, 2, units).join(' ')).toContain(units.length === 'in' ? '98.425 in (2500 mm)' : '2500 mm (98.425 in)');
+  findNode(t, 'ff')!['points'] = [[0, 0], [1.4, 0.4], [1.5, 0]];
+  expect(scaledFinProblems(t, 2, units).join(' ')).toContain(units.length === 'in' ? '98.425 in (2500 mm)' : '2500 mm (98.425 in)');
 });

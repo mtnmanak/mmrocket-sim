@@ -5,7 +5,7 @@ import { captureStageMass } from './stageMassOverrides.js';
 import { filletExportNotes } from './filletExport.js';
 import { simulationExtensionLossNotes } from './orkExtensions.js';
 import { AERO_NAME, type AeroChoice } from '../prefs/aeroChoice.js';
-import { fmtAltitude } from '../prefs/units.js';
+import { INITIAL_UNITS, noticeEqual, noticeNumber, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { deployAltitudeText } from '../components/recoveryContext.js';
 import { retainBaseDragDeclaration } from './baseDragImportNotes.js';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
@@ -357,6 +357,7 @@ const RASAERO_OUTPUT_TAGS: ReadonlySet<string> = new Set(['CP']);
 export function importCdx1(data: ArrayBuffer | string, opts?: {
   /** Optional host cap; browser imports retain the shared 64 MiB default. */
   maxInflatedBytes?: number;
+  units?: UnitSelection;
   /** Subtracted motor mass and moment must agree with the later match (2026-10-01). */
   catalogue?: MotorDbEntry[];
   /** Choice when the import began, including a session override. Omit when unknown. */
@@ -399,7 +400,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   if (doc.querySelectorAll('RASAeroDocument > RocketDesign').length > 1) {
     cautionNote(notes, 'I22.multiple-designs', 'This file contains multiple RASAero designs. The app opened one design; check the parts and flight settings before flying.');
   }
-  const altitudeUnit = opts?.distanceUnit ?? 'ft';
+  const units = opts?.units ?? { ...INITIAL_UNITS, altitude: opts?.distanceUnit ?? INITIAL_UNITS.altitude };
+  const altitudeUnit = units.altitude;
   // Only an explicit False states the author's intent; missing or malformed
   // values must not be mistaken for switching the model off.
   if (text(design, ':scope > ModifiedBarrowman')?.toLowerCase() === 'false'
@@ -562,7 +564,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     const made = (tube.children ?? []).filter((c) => (c.type as string) === 'protuberance');
     if (made.length > 0) {
       notes.push(`Imported ${made.length} RASAero protuberance${made.length === 1 ? '' : 's'} on ${name} `
-        + `(${made.map((c) => `${((c['width'] as number) * (c['height'] as number) * IN2).toFixed(4)} in²`).join(', ')}) `
+        + `(${made.map((c) => noticeQuantity('area', (c['width'] as number) * (c['height'] as number), units, { parenthesized: true })).join(', ')}) `
         + '— drag only, entered as equal-area squares; edit the shape in its properties.');
     }
   };
@@ -647,7 +649,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         if (finish && finish !== 'normal') nose['finish'] = finish;
         const blunt = num(el, 'BluntRadius', 0);
         if (blunt > 0) {
-          cautionNote(notes, 'I21.blunt-radius', `Ignored RASAero nose <BluntRadius> ${blunt} in — tip blunting is not modeled.`);
+          cautionNote(notes, 'I21.blunt-radius', `Ignored RASAero nose <BluntRadius> ${noticeQuantity('length', blunt / IN, units)} — tip blunting is not modeled.`);
         }
         sustainer.children!.push(nose);
         stationIn += num(el, 'Length', 12);
@@ -790,7 +792,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
           if (Math.abs(delta) > 0.001) {
             bottomOffM = delta / IN;
             notes.push(`This file’s fin can is not flush with the tube’s aft end — its <Location> ${locIn} `
-              + `and <Offset> ${offIn} put it ${Math.abs(delta).toFixed(3)} in `
+              + `and <Offset> ${offIn} put it ${noticeQuantity('length', Math.abs(delta) / IN, units)} `
               + `${delta > 0 ? 'aft of' : 'ahead of'} that tube’s end. Imported that way; no RASAero file `
               + 'we hold does this, so check it.');
           }
@@ -857,8 +859,9 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
          */
         const boosterLocIn = num(el, 'Location', NaN);
         if (Number.isFinite(boosterLocIn) && Math.abs(boosterLocIn - stationIn) > 0.01) {
-          cautionNote(notes, 'I21.booster-location', `${stageName}: the file says it starts at ${boosterLocIn} in, but the parts above `
-            + `it add up to ${stationIn.toFixed(3)} in. Built from the parts — a stale <Location> is the `
+          const [actual, built] = noticeComparison('length', boosterLocIn / IN, stationIn / IN, units);
+          cautionNote(notes, 'I21.booster-location', `${stageName}: the file says it starts at ${actual.startsWith('just ') ? 'a slightly different station' : actual}, but the parts above `
+            + `it add up to ${built}. Built from the parts — a stale <Location> is the `
             + 'usual cause, but check this one against RASAero.');
         }
         stationIn += shoulderLen + num(el, 'Length', 12) + btLen;
@@ -932,7 +935,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     // them as stored), so a <RodAngle>80</RodAngle> used to fly an 80° rail,
     // and the <Altitude> reached the atmosphere unclamped (150,000 ft once made
     // an import note read "about NaN mbar").
-    const ft = (m: number): string => `${Number((m * FT).toPrecision(6))} ft`;
+    const ft = (m: number, against?: number): string => noticeQuantity('altitude', m, units, { against });
     const alt = num(site, 'Altitude', NaN);
     if (!Number.isNaN(alt)) {
       launch.launchAltitudeM = importLaunchValue(alt / FT, SITE_ALTITUDE_M_RANGE,
@@ -951,16 +954,16 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     const temp = num(site, 'Temperature', NaN);
     if (!Number.isNaN(temp)) {
       const c = (temp - 32) * 5 / 9;
-      if (c >= PAD_TEMP_C_RANGE[0] && c <= PAD_TEMP_C_RANGE[1]) {
-        launch.temperatureC = c;
+      if (noticeEqual(c, Math.min(PAD_TEMP_C_RANGE[1], Math.max(PAD_TEMP_C_RANGE[0], c)))) {
+        launch.temperatureC = Math.min(PAD_TEMP_C_RANGE[1], Math.max(PAD_TEMP_C_RANGE[0], c));
       } else {
         launch.temperatureC = null;
         // Bound by bound, not `.map`, which hands back number[] and loses the pair.
-        const toF = (b: number) => Math.round(b * 9 / 5 + 32);
+        const toF = (b: number) => noticeQuantity('temperature', b + 273.15, units);
         const loF = toF(PAD_TEMP_C_RANGE[0]);
         const hiF = toF(PAD_TEMP_C_RANGE[1]);
-        cautionNote(notes, 'I25.temperature', `Launch site: this file's temperature, ${Number(temp.toPrecision(6))} °F `
-          + `(${Number(c.toPrecision(4))} °C), is outside the ${loF} to ${hiF} °F the Temperature field `
+        cautionNote(notes, 'I25.temperature', `Launch site: this file's temperature, ${noticeComparison('temperature', c + 273.15, (c < PAD_TEMP_C_RANGE[0] ? PAD_TEMP_C_RANGE[0] : PAD_TEMP_C_RANGE[1]) + 273.15, units)[0].startsWith('just ') ? 'just outside the supported range' : noticeQuantity('temperature', c + 273.15, units)}, `
+          + `is outside the ${loF} to ${hiF} the Temperature field `
           + 'accepts, so it is not a launch site this app can fly. Flying the standard temperature for '
           + 'the site altitude instead — set it under Launch conditions if you know it.');
       }
@@ -973,15 +976,15 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     const hPa = press * INHG;
     if (!(press > 0)) {
       launch.pressureHPa = null;
-    } else if (hPa >= PAD_PRESSURE_HPA_RANGE[0] && hPa <= PAD_PRESSURE_HPA_RANGE[1]) {
-      launch.pressureHPa = hPa;
+    } else if (noticeEqual(hPa, Math.min(PAD_PRESSURE_HPA_RANGE[1], Math.max(PAD_PRESSURE_HPA_RANGE[0], hPa)))) {
+      launch.pressureHPa = Math.min(PAD_PRESSURE_HPA_RANGE[1], Math.max(PAD_PRESSURE_HPA_RANGE[0], hPa));
     } else {
       launch.pressureHPa = null;
-      const toInHg = (b: number) => (b / INHG).toFixed(2);
+      const toInHg = (b: number) => noticeQuantity('pressure', b * 100, units);
       const loIn = toInHg(PAD_PRESSURE_HPA_RANGE[0]);
       const hiIn = toInHg(PAD_PRESSURE_HPA_RANGE[1]);
-      cautionNote(notes, 'I25.pressure', `Launch site: this file's pressure, ${Number(press.toPrecision(6))} in-Hg `
-        + `(${Math.round(hPa)} mbar), is outside the ${loIn} to ${hiIn} in-Hg the Station pressure `
+      cautionNote(notes, 'I25.pressure', `Launch site: this file's pressure, ${noticeComparison('pressure', hPa * 100, (hPa < PAD_PRESSURE_HPA_RANGE[0] ? PAD_PRESSURE_HPA_RANGE[0] : PAD_PRESSURE_HPA_RANGE[1]) * 100, units)[0].startsWith('just ') ? 'just outside the supported range' : noticeQuantity('pressure', hPa * 100, units)}, `
+        + `is outside the ${loIn} to ${hiIn} the Station pressure `
         + 'field accepts, so it is not a launch site this app can fly. (That field holds in-Hg: sea '
         + 'level is 29.92 in it, not 1013.25.) Flying the standard pressure for the site altitude '
         + 'instead — set the station pressure under Launch conditions if you know it.');
@@ -989,7 +992,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     const rodAngle = num(site, 'RodAngle', NaN);
     if (!Number.isNaN(rodAngle)) {
       launch.launchRodAngleDeg = importLaunchValue(rodAngle, ROD_ANGLE_DEG_RANGE,
-        { what: 'launch rod angle', field: 'Rod angle', show: (d) => `${Number(d.toPrecision(6))}°` }, notes);
+        { what: 'launch rod angle', field: 'Rod angle', show: (d, bound) => bound !== undefined && !noticeEqual(d, bound) && noticeNumber(d, 6) === noticeNumber(bound, 6) ? `just ${d < bound ? 'below' : 'above'} ${noticeNumber(bound, 6)}°` : `${noticeNumber(d, 6)}°` }, notes);
     }
     // The format has no rod direction, so the rail leans into the wind — and
     // that is STATED, as aim 0, for the same reason the pressure above is: App
@@ -999,12 +1002,12 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     const rodLen = num(site, 'RodLength', NaN); // FEET, unlike the part geometry
     if (!Number.isNaN(rodLen)) {
       launch.launchRodLengthM = importLaunchValue(rodLen / FT, ROD_LENGTH_M_RANGE,
-        { what: 'launch rod length', field: 'Rod length', show: ft }, notes);
+        { what: 'launch rod length', field: 'Rod length', show: (m, against) => noticeQuantity('length', m, units, { against }) }, notes);
     }
     const wind = num(site, 'WindSpeed', NaN);
     if (!Number.isNaN(wind)) {
       launch.windAverage = importLaunchValue(wind / MPH, WIND_MS_RANGE,
-        { what: 'wind speed', field: 'Wind avg', show: (v) => `${Number((v * MPH).toPrecision(6))} mph` }, notes);
+        { what: 'wind speed', field: 'Wind avg', show: (v, against) => noticeQuantity('windspeed', v, units, { against }) }, notes);
     }
   }
 
@@ -1400,8 +1403,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
    * not load leaves the catalogue's figures, with the CG at the midpoint.
    */
 
-  const lbTxt = (kg: number): string => `${(kg * LB).toFixed(3)} lb`;
-  const inTxt = (m: number): string => `${(m * IN).toFixed(2)} in`;
+  const lbTxt = (kg: number, parenthesized = false): string => noticeQuantity('mass', kg, units, { parenthesized });
+  const inTxt = (m: number): string => noticeQuantity('length', m, units);
 
   // Derive EVERY simulation against its own motors, with the same refusals
   // and cumulative stack arithmetic as direct open.
@@ -1521,11 +1524,12 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
 
         // ---- mass (desktop applySustainer/Booster1/Booster2MassOverride) ----
         if (hasWt) {
-          if (i > 0 && above > wt[i]) {
+          if (i > 0 && above > wt[i] && !noticeEqual(above, wt[i])) {
             // Desktop warns here and overrides with a mass of 0 (:286-288). A
             // zero-mass stage is exactly the authoritative-looking wrong number
             // this whole block exists to avoid, so we skip instead and say why.
-            skipped.push(`${stageName(i)}: its ${lbTxt(wt[i])} is LESS than the ${lbTxt(above)} stated for `
+            const [actual, limit] = noticeComparison('mass', wt[i], above, units);
+            skipped.push(`${stageName(i)}: its ${actual.startsWith('just ') ? `weight is slightly LESS than the ${limit}` : `${actual} is LESS than the ${limit}`} stated for `
               + 'the stack above it, which cannot be — the file’s weights disagree with themselves.');
           } else {
             const launchKg = wt[i] - above;
@@ -1553,7 +1557,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
               massDetail[i] = `${lbTxt(wt[i])}${m ? ` − ${m.label} ${lbTxt(m.massKg)}` : ''}`
                 + `${above > 0 ? ` − ${lbTxt(above)} above` : ''} = ${lbTxt(dry)}`;
             } else {
-              skipped.push(`${stageName(i)}: backing ${m ? `${m.label} (${lbTxt(m.massKg)}) ` : ''}`
+              skipped.push(`${stageName(i)}: backing ${m ? `${m.label} (${lbTxt(m.massKg, true)}) ` : ''}`
                 + `out of its ${lbTxt(wt[i])} leaves ${lbTxt(dry)}, which is not a mass.`);
             }
           }
@@ -1596,7 +1600,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
           // With the pods in place that file's override applies, and this branch
           // is back to meaning what it says.)
           skipped.push(`${stageName(i)}: its stated CG ${inTxt(cg[i])} works out to `
-            + `${Number.isFinite(stageCg) ? inTxt(stageCg) : 'no computable place'} into a ${inTxt(len)} `
+            + `${Number.isFinite(stageCg) ? noticeComparison('length', stageCg, stageCg < 0 ? 0 : len, units)[0].startsWith('just ') ? stageCg < 0 ? 'just before the front of a' : 'just beyond the end of a' : `${noticeQuantity('length', stageCg, units)} into a` : 'no computable place in a'} ${noticeQuantity('length', len, units)} `
             + 'stage once the motor and the stack above are backed out, which is outside the stage.');
           continue;
         }
@@ -1621,7 +1625,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // cannot silently install a rejected weight (audit 2026-10-11, S1c-3).
   const overrideNotes = ({ skipped, motorless }: { skipped: string[]; motorless: string[] }): string[] => [
     ...(skipped.length ? ['NOT applied from the RASAero simulation, because the numbers don’t support an override '
-      + `— these stages keep the computed 2 mm-wall mass and CG: ${skipped.join(' ')}`] : []),
+      + `— these stages keep the computed ${noticeQuantity('length', 0.002, units, { preserveSmall: false })}-wall mass and CG: ${skipped.join(' ')}`] : []),
     ...(motorless.length ? ['Applied WITH the motor still included, because the file names a motor that isn’t in '
       + `the database — nothing is loaded on those stages, so the figure is right for the rocket as it `
       + `stands here: ${motorless.join(' ')} If you load that motor later — Browse motor database takes `
@@ -1661,14 +1665,12 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     const withMotors = flown.length === 0 ? ''
       : flown.length === 1 && flown[0]![0] === 'the sustainer' ? ` with the ${flown[0]![1]}`
         : ` with ${flown.map(([stage, e]) => `the ${e} on ${stage}`).join(' and ')}`;
-    const ft = (v: number) => Math.round(v).toLocaleString('en-US');
-    // N032: the new readout follows Altitude; keep the file's stored feet as evidence.
-    const apogee = opts?.distanceUnit === undefined ? `${ft(storedApogeeFt)} ft`
-      : `${fmtAltitude(altitudeUnit, storedApogeeFt / FT)} ${altitudeUnit} (file: ${storedApogeeFt} ft)`;
+    // N032: keep the file's stored feet as evidence beside the selected readout.
+    const apogee = `${noticeQuantity('altitude', storedApogeeFt / FT, units, { grouped: true })} (file: ${storedApogeeFt} ft)`;
     const vFps = xmlNum(storedSim, 'MaxVelocity', 0);
     notes.push(`RASAero’s stored prediction for simulation ${chosenSimNr}, as last run in RASAero`
       + `${withMotors}: apogee ${apogee}`
-      + `${vFps > 0 ? `, maximum velocity ${ft(vFps)} ft/s` : ''}. It is RASAero’s prediction, not a `
+      + `${vFps > 0 ? `, maximum velocity ${noticeQuantity('velocity', vFps / FT, units, { grouped: true })}` : ''}. It is RASAero’s prediction, not a `
       + 'measurement; the app flies the design with its own models.');
   }
   const selected = chosen ? derived.get(chosen.id)! : deriveOverrides(undefined, sims.find(carriesWeights));
@@ -1699,12 +1701,12 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // D7 I22: Caution while the 2 mm-wall default drives some stage's mass; the
   // all-stage measured branch is Information (its override warning is I17's).
   if (overrodeEveryStage) {
-    notes.push('RASAero designs carry no material or wall data — walls default to 2 mm, but every stage’s '
+    notes.push(`RASAero designs carry no material or wall data — walls default to ${noticeQuantity('length', 0.002, units, { preserveSmall: false })}, but every stage’s `
       + 'mass and CG come from the simulation’s measured launch weight below, so the wall default '
       + 'does not drive the numbers.');
   } else {
     cautionNote(notes, 'I22.default-walls',
-      'RASAero designs carry no material or wall data — walls default to 2 mm; review masses before trusting the numbers.');
+      `RASAero designs carry no material or wall data — walls default to ${noticeQuantity('length', 0.002, units, { preserveSmall: false })}; review masses before trusting the numbers.`);
   }
   // ---- the pad's own pressure (2026-09-08, narrowed 2026-09-08b) ----
   // Down from three branches to one, for the same reason PadPressureCaution
@@ -1721,21 +1723,21 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // is now a real fix rather than half of a "type both" instruction.
   if (launch?.launchAltitudeM !== undefined) {
     const issue = padPressureIssue(launch);
-    const altitude = fmtAltitude(altitudeUnit, launch.launchAltitudeM);
+    const altitude = noticeQuantity('altitude', launch.launchAltitudeM, units);
     const standingMbar = isaPressurePa(launch.launchAltitudeM) / 100;
-    const standing = `${standingMbar.toFixed(0)} mbar (${(standingMbar / INHG).toFixed(2)} in-Hg)`;
+    const standing = noticeQuantity('pressure', standingMbar * 100, units);
     if (issue === 'sea-level') {
-      notes.push(`Launch site: this file's pressure, ${(launch.pressureHPa! / INHG).toFixed(2)} in-Hg, `
-        + `is about sea-level pressure, and the pad is at ${altitude} ${altitudeUnit} where a barometer reads about `
+      notes.push(`Launch site: this file's pressure, ${noticeQuantity('pressure', launch.pressureHPa! * 100, units)}, `
+        + `is about sea-level pressure, and the pad is at ${altitude} where a barometer reads about `
         + `${standing}. That is an altimeter setting rather than the pressure at the pad. Clear the `
         + 'field under Launch conditions and the app uses the standing pressure for the site; left '
         + 'as it is, the air is too dense and the motor loses the extra thrust thin air gives it.');
     }
   }
   if (machAlt) {
-    const top = fmtAltitude(altitudeUnit, machAlt.reduce((top, [, altitude]) => Math.max(top, altitude), 0));
+    const top = noticeQuantity('altitude', machAlt.reduce((top, [, altitude]) => Math.max(top, altitude), 0), units, { parenthesized: true });
     notes.push(`This file carries a Mach-Alt conditions table (${machAlt.length} point${machAlt.length === 1 ? '' : 's'}, `
-      + `to ${top} ${altitudeUnit}) — pick it under Drag analysis → Conditions to sweep at the `
+      + `to ${top}) — pick it under Drag analysis → Conditions to sweep at the `
       + 'file’s altitudes instead of sea level.');
   }
   if (unattached.size) {
@@ -1753,13 +1755,13 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     const simTxt = chosenSimNr !== undefined ? `simulation ${chosenSimNr}` : 'the RASAero simulation';
     cautionNote(notes, 'I17.stage-overrides', `Applied from ${simTxt}, as stage overrides with the motor backed out (desktop OpenRocket `
       + `does the same): ${appliedParts.join('; ')}. Each replaces the computed mass or CG for that whole `
-      + 'stage — clear it under Overrides to go back to the 2 mm-wall geometry.');
+      + `stage — clear it under Overrides to go back to the ${noticeQuantity('length', 0.002, units)}-wall geometry.`);
   }
   if (catalogueStandIns.size > 0) {
     // Board Tier 0 row 81: the stated weight is backed out with the curve file's
     // own header mass, which is what flies. Without the curve that number is
     // not to be had, and the catalogue's is the nearest the app has.
-    const list = [...catalogueStandIns].map(([d, kg]) => `${d} (${lbTxt(kg)})`).join(', ');
+    const list = [...catalogueStandIns].map(([d, kg]) => `${d} (${lbTxt(kg, true)})`).join(', ');
     cautionNote(notes, 'I17.stand-in-mass', `The thrust curve for ${list} could not be loaded during the import, so the motor `
       + 'database’s loaded weight was backed out of the stated launch weight instead of the curve file’s '
       + 'own, which is what the flight carries; the two can differ by tens of grams on some motors. When '
@@ -1818,7 +1820,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     || 'Imported RASAero rocket';
   // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
   refuseTooManyParts(stages);
-  const tree: FlightTree = { ...sanitizeTree({ name, components: stages, ...(comment ? { provenance: { comment } } : {}) }, notes),
+  const tree: FlightTree = { ...sanitizeTree({ name, components: stages, ...(comment ? { provenance: { comment } } : {}) }, notes, units),
     ...(Object.keys(ignitionDefaults).length ? { ignitionDefaults } : {}) };
   retainBaseDragDeclaration(tree, text(design, ':scope > Comments') ?? '');
   return {

@@ -3114,7 +3114,7 @@ describe('a RockSim import note in the user’s distance unit', () => {
     const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
     if (toggle) await act(async () => { toggle.click(); });
     const notes = host.querySelector('[aria-label="Notices"]')?.textContent ?? '';
-    expect(notes).toContain('recovery: Main at 400 ft descending.');
+    expect(notes).toContain('recovery: Main at 400 ft (121.9 m) descending.');
     expect(notes).not.toContain('121.92');
   }, 30000);
 });
@@ -3139,8 +3139,8 @@ it('Save .rkt quotes a refused altitude deployment in the user’s distance unit
   const host = await mountApp();
   await saveAs(host, 'Save .rkt', false);
   const dialog = host.ownerDocument.querySelector('[role="dialog"]')?.textContent ?? '';
-  expect(dialog).toContain('Recovery device “Main”: .rkt cannot faithfully save altitude deployment at 500 ft with 1 s delay.');
-  expect(dialog).not.toContain('152.4');
+  expect(dialog).toContain('Recovery device “Main”: .rkt cannot faithfully save altitude deployment at 500 ft (152.4 m) with 1 s delay.');
+  expect(dialog).not.toContain('deployment at 152.4 m');
 }, 30000);
 
 
@@ -3276,8 +3276,26 @@ it('N032 new .ork share override notes use Altitude independently of Horizontal 
   const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
   if (toggle) await act(async () => { toggle.click(); });
   const notes = host.querySelector('[aria-label="Notices"]')?.textContent ?? '';
-  expect(notes).toContain('Main flies at Altitude (descending), 0.152 km, not at its own setting (Altitude (descending), 0.0914 km)');
-  expect(notes).toContain("it uses Altitude (descending), 0.152 km, not the stage's own setting (Altitude (descending), 0.0914 km)");
+  expect(notes).toContain('Main flies at Altitude (descending), 0.152 km (500 ft), not at its own setting (Altitude (descending), 0.0914 km [300 ft])');
+  expect(notes).toContain("it uses Altitude (descending), 0.152 km (500 ft), not the stage's own setting (Altitude (descending), 0.0914 km [300 ft])");
+}, 30000);
+
+it.each(['file', 'share'])('R12 selected position-repair units reach the App %s door', async door => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units: { length: 'ft' } }));
+  const xml = '<openrocket version="1.10"><rocket><name>Absolute units</name><subcomponents><stage><subcomponents>'
+    + '<bodytube><length>20</length><radius>0.02</radius></bodytube><bodytube><length>1</length><radius>0.02</radius><subcomponents>'
+    + '<masscomponent><name>Offset mass</name><mass>0.01</mass><axialoffset method="absolute">-1000</axialoffset></masscomponent>'
+    + '</subcomponents></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>';
+  if (door === 'share') window.location.hash = (await encodeShareFragment(xml)).replace(/^#/, '');
+  const host = await mountApp();
+  if (door === 'file') {
+    await waitFor(starterStored, 'the starter motor');
+    await pick(host, new File([xml], 'absolute.ork'));
+  }
+  await waitFor(() => shownName(host) === 'Absolute units', 'the absolute-position design to open');
+  const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
+  if (toggle) await act(async () => { toggle.click(); });
+  expect(host.querySelector('[aria-label="Notices"]')?.textContent).toContain('-3280.84 ft (-1000000 mm)');
 }, 30000);
 
 it.each(['file', 'share'])('N032 site note units reach the App %s door', async door => {
@@ -3293,9 +3311,9 @@ it.each(['file', 'share'])('N032 site note units reach the App %s door', async d
   const toggle = host.querySelector<HTMLButtonElement>('.notice-toggle[aria-expanded="false"]');
   if (toggle) await act(async () => { toggle.click(); });
   const notes = host.querySelector('[aria-label="Notices"]')?.textContent ?? '';
-  expect.soft(notes).toContain('accepts 0 km to 10 km');
-  expect.soft(notes).toContain('imported as 10 km');
-  expect.soft(notes).toContain('8,500 mi away. With the sign flipped it is 100 mi from them.');
+  expect.soft(notes).toContain('accepts 0 km (0 ft) to 10 km (32808.4 ft)');
+  expect.soft(notes).toContain('imported as 10 km (32808.4 ft)');
+  expect.soft(notes).toContain('8,500 mi (13,679 km) away. With the sign flipped it is 100 mi (161 km) from them.');
   await waitFor(() => storedSession()?.launch?.launchAltitudeM === 10000, 'the imported launch conditions to be autosaved');
   expect(storedSession()!.launch).toMatchObject({ launchAltitudeM: 10000, latitudeDeg: 26.380273, longitudeDeg: 80.126879 });
 }, 30000);

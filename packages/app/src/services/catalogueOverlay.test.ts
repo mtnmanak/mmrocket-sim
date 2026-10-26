@@ -304,7 +304,7 @@ describe('screenEntry — a live row must be a possible motor', () => {
       }
     }
     // A number that is there but impossible is still quoted.
-    expect(screenEntry(row({ diameter: 0 }))).toBe('diameter 0 mm is not a motor');
+    expect(screenEntry(row({ diameter: 0 }))).toBe('diameter 0 mm (0 in) is not a motor');
   });
 });
 
@@ -624,7 +624,7 @@ describe('the words the browser shows', () => {
     baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-10-01T09:00:00Z', liveCount: 1200,
     added: [row({ motorId: 'n' })],
     changed: [{ motorId: c6.motorId, before: c6, after: { ...c6, totImpulseNs: 9.1 }, fields: ['totImpulseNs'] }],
-    removed: [], rejected: [{ entry: { manufacturerAbbrev: 'X', designation: 'Q1' }, reason: 'diameter 0 mm is not a motor' }],
+    removed: [], rejected: [{ entry: { manufacturerAbbrev: 'X', designation: 'Q1' }, reason: 'diameter 0 mm (0 in) is not a motor' }],
   };
 
   it('leads with the counts and names each change field by field', () => {
@@ -834,4 +834,13 @@ it('names a renamed loaded motor by id, with both rename sides as the no-id fall
     expect(changedMotorsInDesign(overlay, [{ manufacturer: 'AeroTech', label }])).toEqual(overlay.changed);
     expect(changedMotorsInDesign(overlay, [{ manufacturer: 'Quest', label }])).toEqual([]);
   }
+});
+
+it.each([
+  ['diameter', 'oops', 'diameter "oops" is not a motor'],
+  ['length', Infinity, 'length "Infinity" is not a motor'],
+  ['totalWeightG', 'bad', 'loaded weight "bad"'],
+  ['propWeightG', NaN, 'propellant weight "NaN"'],
+] as const)('quotes an unreadable live %s token', (field, raw, reason) => {
+  expect(screenEntry({ ...row(), [field]: raw } as unknown as MotorDbEntry)).toBe(reason);
 });

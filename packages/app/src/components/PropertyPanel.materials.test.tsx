@@ -14,6 +14,7 @@ import { loadUserMaterials, saveUserMaterials, USER_MATERIALS_CHANGED, USER_MATE
 import { exportOrk, importOrk } from '../services/orkFile.js';
 import { exportRkt, importRkt } from '../services/rocksimFile.js';
 import { designMaterials } from '../services/designMaterials.js';
+import { INITIAL_UNITS, noticeQuantity } from '../prefs/units.js';
 import type { FlightTree } from '../model/design.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -414,7 +415,7 @@ it('labels a zero-density user material neutrally and explains density editing b
   // A blur leaves focus where the user sent it; only Enter returns it to the select.
   expect(document.activeElement).not.toBe(select());
   show(makeNode('parachute'));
-  expect(host.textContent).toContain(`The name applies to this part's current density, ${KERNEL_DEFAULT_MATERIALS.surface.density} kg/m²; to change a canopy or line density, edit a saved entry in My materials, then pick it again from this list.`);
+  expect(host.textContent).toContain(`The name applies to this part's current density, ${noticeQuantity('surfaceDensity', KERNEL_DEFAULT_MATERIALS.surface.density, INITIAL_UNITS)}; to change a canopy or line density, edit a saved entry in My materials, then pick it again from this list.`);
 });
 it('shows a blocked-storage note only in My materials, once for a part with two material selectors', () => {
   storageSpy('getItem').mockImplementation(() => { throw Error('blocked'); });
@@ -544,7 +545,7 @@ it.each([
     const field = input(`${label} name`);
     const effective = density ?? KERNEL_DEFAULT_MATERIALS[kind].density;
     expect(host.querySelector(`[id="${field.getAttribute('aria-describedby')}"]`)?.textContent)
-      .toBe(`The name applies to this part's current density, ${effective} ${unit}; to change a canopy or line density, edit a saved entry in My materials, then pick it again from this list.`);
+      .toBe(`The name applies to this part's current density, ${noticeQuantity(unit === 'kg/m²' ? 'surfaceDensity' : 'lineDensity', effective, INITIAL_UNITS)}; to change a canopy or line density, edit a saved entry in My materials, then pick it again from this list.`);
     type(field, 'Named cloth or cord');
     void act(() => field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
     expect(patches).toEqual([{ [nameKey]: 'Named cloth or cord', ...(density === undefined ? { [densityKey]: effective } : {}) }]);

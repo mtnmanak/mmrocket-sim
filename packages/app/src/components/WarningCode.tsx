@@ -1,3 +1,4 @@
+import { usePrefs } from '../prefs/PrefsContext.js';
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { explanationFor, NOTE_EXPLANATIONS, staticWarningCode } from '../services/noteExplanations.js';
@@ -10,8 +11,9 @@ function WarningLookup({ code, onClose }: { code: string; onClose: () => void })
   const input = useRef<HTMLInputElement>(null);
   const dialog = useDialog(onClose);
   const backdrop = useBackdropClose(onClose);
-  const explanation = explanationFor(selected);
-  const matches = [...NOTE_EXPLANATIONS].filter(([key, value]) =>
+  const { prefs } = usePrefs();
+  const explanation = explanationFor(selected, prefs.units);
+  const matches = [...NOTE_EXPLANATIONS.keys()].map(key => [key, explanationFor(key, prefs.units)] as const).filter(([key, value]) =>
     `${key} ${value.meaning}`.toLowerCase().includes(query.trim().toLowerCase()));
   return <div className="prefs-overlay" role="presentation" {...backdrop}>
     <div className="prefs-dialog panel warning-lookup" role="dialog" aria-modal="true" aria-label="Note explanations"
@@ -54,5 +56,6 @@ export function WarningCode({ code }: { code: string | undefined }) {
 }
 
 export function StaticWarning({ text }: { text: string }) {
-  return <span>{formatWarningText(text)}<WarningCode code={staticWarningCode(text)} /></span>;
+  const { prefs } = usePrefs();
+  return <span>{formatWarningText(text, prefs.units)}<WarningCode code={staticWarningCode(text)} /></span>;
 }

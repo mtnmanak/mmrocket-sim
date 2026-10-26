@@ -294,7 +294,7 @@ describe('the impulse note measures the curve flown', () => {
   it('quotes the flown figure, and warns where only the flown curve is off', async () => {
     // Raw, 36 against 37.8 is −4.8 %: inside 5 %, no note. Flown, 40.5 is +7.1 %.
     expect(await notesFor(37.8)).toEqual([expect.stringMatching(
-      /^The thrust curve flown for C6 integrates to 41 N·s, \+7\.1 % against the 37\.8 N·s it is certified for — expect apogee to read high/)]);
+      /^The thrust curve flown for C6 integrates to 40\.5 N·s, \+7\.1 % against the 37\.8 N·s it is certified for — expect apogee to read high/)]);
   });
 });
 

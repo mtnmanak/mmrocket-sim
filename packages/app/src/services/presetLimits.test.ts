@@ -27,7 +27,7 @@ describe('limitPatch — a preset patch brought inside the limits table', () => 
     const fixed = limitPatch(coupler, patch, notes);
     expect(fixed['thickness']).toBe(0);
     expect(fixed['outerRadius']).toBe(patch['outerRadius']);
-    expect(notes).toEqual(['“SEMROC HTC-11”: wall thickness -10.668 mm cannot be negative — set to 0 mm.']);
+    expect(notes).toEqual(['“SEMROC HTC-11”: wall thickness -10.668 mm (-0.42 in) cannot be negative — set to 0 mm (0 in).']);
   });
 
   it('caps a CSV canopy of a million shroud lines, which weighed 540 kg', () => {

@@ -36,7 +36,7 @@ describe('FC-3 foreign configuration layers', () => {
     const layers = r.configs.map(c => ({ ...c, motors: {} }));
     expect(chute(resolveFlightState(r.tree, layers, r.configs[0]!.id, {}, {}).tree)).toMatchObject(ejection);
     expect(chute(resolveFlightState(r.tree, layers, r.configs[1]!.id, {}, {}).tree)).toMatchObject(altitude);
-    expect(r.configNotes![r.configs[1]!.id]!.join(' ')).toContain('121.92 m descending');
+    expect(r.configNotes![r.configs[1]!.id]!.join(' ')).toContain('121.92 m (400 ft) descending');
     const legacy = { tree: resolveFlightState(r.tree, layers, r.chosenConfigId, {}, {}).tree, configs: r.configs };
     expect(chute(legacy.tree)).toMatchObject(ejection);
     expect(legacy.configs[1]!.deployments[id]).toBeUndefined();

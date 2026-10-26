@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { strToU8, zipSync } from 'fflate';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { componentLoop, revolveProfile, type SolidContext } from '../tree/solidMesh.js';
@@ -60,11 +61,6 @@ const HINT_LENGTH = 0.180 - DEFAULT_MARGIN;
  * Refusing here would block a perfectly good body-tube export.
  */
 const CLOCKED_CHILDREN = new Set(['railbutton', 'launchlug']);
-
-const mmInt = (m: number): string => String(Math.round(m * 1000));
-const mm1 = (m: number): string => (m * 1000).toFixed(1);
-/** Clearances live in hundredths — 0.15 mm rounded to 0.2 would misstate the fit. */
-const mm2 = (m: number): string => (m * 1000).toFixed(2);
 
 /**
  * The tallest spigot the user will actually see (m), measured off the cut
@@ -201,8 +197,9 @@ function safeZipStem(name: string): string {
  */
 export function printOffer(
   node: ComponentNode, ctx: SolidContext,
-  printer: PrinterVolume | null, printerLabel = 'printer',
+  printer: PrinterVolume | null, printerLabel = 'printer', units: UnitSelection = INITIAL_UNITS,
 ): PrintOffer {
+  const dim = (si: number) => noticeQuantity('length', si, units);
   const single = (note: string | null, tone: PrintTone): PrintOffer =>
     ({ kind: 'single', button: SINGLE_BUTTON, note, tone, split: null });
 
@@ -218,7 +215,7 @@ export function printOffer(
         + 'Measure both end diameters before you print it.', 'warn');
     }
     return single(
-      `Diameter assumed: ${mm1(od)} mm is a placeholder — the app could not find the tube `
+      `Diameter assumed: ${dim(od)} is a placeholder — the app could not find the tube `
         + 'this part sits in. Measure the bore before you print or cut it.'
         + (base.boreAssumed ? ' The hole through it is a placeholder too.' : ''),
       'warn',
@@ -227,11 +224,12 @@ export function printOffer(
   if (base.boreAssumed) {
     const hole = 2 * Math.min(...base.loop.map(([, r]) => r));
     const mount = ctx.mountOuterRadius;
+    const [mountSize, ringSize] = noticeComparison('length', (mount ?? 0) * 2, od, units);
     const why = mount === undefined
       ? 'no motor mount passes through this ring'
-      : `motor mount ⌀ ${mm1(2 * mount)} mm does not fit this ring's ${mm1(od)} mm OD`;
+      : mountSize === ringSize ? `motor mount equals this ring's ${ringSize} OD and does not fit` : mountSize.startsWith('just ') ? `motor mount is just over this ring's ${ringSize} OD and does not fit` : `motor mount ⌀ ${mountSize} does not fit this ring's ${ringSize} OD`;
     return single(
-      `Bore assumed: ${mm1(hole)} mm is a placeholder — ${why}. `
+      `Bore assumed: ${dim(hole)} is a placeholder — ${why}. `
         + 'Measure what goes through it before you print or cut it.',
       'warn',
     );
@@ -241,11 +239,11 @@ export function printOffer(
   if (!printer) {
     if (total <= HINT_LENGTH) return single(null, 'none');
     return single(
-      `${mmInt(total)} mm long — set your printer in Preferences to check it fits.`, 'info',
+      `${dim(total)} long — set your printer in Preferences to check it fits.`, 'info',
     );
   }
 
-  const split = splitComponent(node, ctx, printer);
+  const split = splitComponent(node, ctx, printer, units);
   if (!split) return single(null, 'none');
   const { plan } = split;
 
@@ -253,8 +251,8 @@ export function printOffer(
     // The angle comes from the plan, never from a constant: the lean is capped
     // by the part's own steepest wall, so a haack or ellipsoid nose that leans
     // at all leans by less than 30 (tree/splitSolid.ts, MAX_LEAN).
-    const how = plan.leanUsed ? `leaned ${plan.leanDeg ?? 30}° off vertical` : 'upright';
-    return single(`${mmInt(total)} mm — fits your ${printerLabel} ${how}.`, 'info');
+    const how = plan.leanUsed ? `leaned ${noticeQuantity('angle', (plan.leanDeg ?? 30) * Math.PI / 180, units)} off vertical` : 'upright';
+    return single(`${dim(total)} — fits your ${printerLabel} ${how}.`, 'info');
   }
 
   if (plan.segments < 2 || split.loops.length < 2) {
@@ -266,7 +264,7 @@ export function printOffer(
     return {
       kind: 'refuse',
       button: SINGLE_BUTTON,
-      note: `${mmInt(total)} mm — does not fit your ${printerLabel}, and cannot be split: `
+      note: `${dim(total)} — does not fit your ${printerLabel}, and cannot be split: `
         + `${plan.reason} The button exports the whole part.`,
       tone: 'warn',
       split: null,
@@ -277,8 +275,8 @@ export function printOffer(
   const over = total - usableZ(printer);
   const spigot = longestSpigot(split);
   const lead = over > 0
-    ? `${mmInt(total)} mm — ${mmInt(over)} mm too long for your ${printerLabel}.`
-    : `${mmInt(total)} mm — too big for your ${printerLabel} in one piece.`;
+    ? `${dim(total)} — ${dim(over)} too long for your ${printerLabel}.`
+    : `${dim(total)} — too big for your ${printerLabel} in one piece.`;
   const overhead = jointOverhead(split);
   // Filament and hours are the two things a builder plans around, so a third
   // more of both is not a detail to leave in the geometry.
@@ -288,7 +286,7 @@ export function printOffer(
   return {
     kind: 'split',
     button: `🖨 STL for printing — ${n} pieces`,
-    note: `${lead} Exports as ${n} segments with a ${mmInt(spigot)} mm glued spigot.`
+    note: `${lead} Exports as ${n} segments with a ${dim(spigot)} glued spigot.`
       + cost + clockingNote(node),
     tone: 'warn',
     split,
@@ -319,10 +317,11 @@ function assembledLength(split: ComponentSplit): number {
  * each other at all.
  */
 export function printPackReadme(
-  split: ComponentSplit, partName: string, printer: PrinterVolume, printerLabel = 'printer',
+  split: ComponentSplit, partName: string, printer: PrinterVolume, printerLabel = 'printer', units: UnitSelection = INITIAL_UNITS,
 ): string {
   const n = split.plan.segments;
   const base = safeZipStem(partName);
+  const dim = (m: number, digits = 1, parenthesized = false) => noticeQuantity('length', m, units, { digits: units.length === 'mm' ? digits : 4, otherDigits: 4, parenthesized });
   const assembled = assembledLength(split);
   // Cut planes are offsets from the fore end, so these are the segment ends.
   const ends = [0, ...split.plan.cuts, assembled];
@@ -358,23 +357,23 @@ export function printPackReadme(
     const why = i < n - 1 ? ' (the segment plus its spigot)' : '';
     return `  ${base}-print-${i + 1}of${n}.stl\n`
       + `      piece ${i + 1} of ${n} — ${where}.\n`
-      + `      ${mm1(segLen)} mm of the finished part; prints ${mm1(span(loop))} mm tall${why}.`;
+      + `      ${dim(segLen)} of the finished part; prints ${dim(span(loop))} tall${why}.`;
   }).join('\n');
 
   return `${partName} — printed in ${n} pieces
-Made by MMRocket Sim. Dimensions are millimetres; the STLs are too.
+Made by MMRocket Sim. STL coordinates are millimetres.
 
 WHAT IS IN HERE
 ${files}
 
-  Assembled length ${mm1(assembled)} mm. The segment lengths above add up to it exactly:
+  Assembled length ${dim(assembled)}. The segment lengths above add up to it exactly:
   the spigot is a plug that vanishes inside the joint, and the two flat faces meeting
   are what set the length, so gluing neither adds nor loses millimetres.
 ${cost}
 ORIENTATION
   Print every piece BASE DOWN, TIP UP, with NO supports. That is the orientation the
   parts were cut for: each one stands on the flat face the cut made (or on the part's
-  own base), the walls stay inside the ~45° overhang every slicer can bridge, and the
+  own base), the walls stay inside the ~${noticeQuantity('angle', Math.PI / 4, units)} overhang every slicer can bridge, and the
   layer lines end up ACROSS the joint rather than along it — which is the direction an
   ejection charge loads a nose or a coupler. Laying a piece on its side fits more on
   the bed and gives you a part that delaminates along the axis.
@@ -382,35 +381,35 @@ ORIENTATION
 MATERIAL — the mistake that ruins the fit
   Print every segment in the SAME MATERIAL on the SAME PRINTER, ideally back to back.
   Filament shrinks as it cools: PLA by roughly 0.3%, ASA and ABS by 0.6-0.8%. On this
-  part's ${mm1(bore)} mm joint bore, 0.7% is ${mm2(shrink)} mm off the DIAMETER — ${times}x the
-  ${mm2(2 * clearance)} mm diametral joint clearance these parts were cut with.
+  part's ${dim(bore)} joint bore, 0.7% is ${dim(shrink, 2)} off the DIAMETER — ${times}x the
+  ${dim(2 * clearance, 2)} diametral joint clearance these parts were cut with.
   The joint survives that only because BOTH halves shrink by the
   same amount and the error cancels. Mix a PLA half with an ASA half, or print one half
   on another machine with a different flow calibration, and the spigot either seizes
   solid or rattles.
 
 GLUING
-  Joint clearance is ${mm2(clearance)} mm per side (${mm2(2 * clearance)} mm on the diameter).
+  Joint clearance is ${dim(clearance, 2)} per side (${dim(2 * clearance, 2, true)} on the diameter).
   Use 30-minute epoxy: it fills that gap, it is what the clearance was chosen for, and
   the working time lets you seat the piece against the flat land and check it is square
-  before it grabs. Do NOT use thin CA — at ${mm2(clearance)} mm it wicks, then seizes half
-  way in; CA wants about 0.05 mm and an instant, final push.
+  before it grabs. Do NOT use thin CA — at ${dim(clearance, 2)} it wicks, then seizes half
+  way in; CA wants about ${dim(0.00005, 2)} and an instant, final push.
   DRY-FIT EVERY JOINT FIRST, with no glue. It should slide to the flat stop with hand
   pressure and no rock. If it is tight, scrape or sand the spigot — never the socket.
 
 BEFORE YOU COMMIT TO THE LONG PRINT
-  If you are unsure of the fit, print a 20 mm test ring: slice a 20 mm slab off each
+  If you are unsure of the fit, print a ${dim(0.02)} test ring: slice a ${dim(0.02)} slab off each
   side of one joint in your slicer and print just those two. Ten minutes tells you what
   an eight-hour print would have told you tomorrow. Adjust the clearance in
   Preferences → 3D printing and re-export if it is tight or loose.
 
-Printer this was planned for: ${printerLabel} `
-    + `(${mmInt(printer.x)} × ${mmInt(printer.y)} × ${mmInt(printer.z)} mm build volume,\n`
+Printer this was planned for: ${printerLabel}: `
+    + `${dim(printer.x)} × ${dim(printer.y)} × ${dim(printer.z)} build volume,\n`
     // usableBox (tree/splitSolid.ts) takes the margin off X and Y at both
     // edges but off Z ONCE, at the top — see usableZ above. This line said "at
     // each end of every axis" until the 2026-09-22 audit, so the README
     // disagreed with the split it was describing.
-    + `${mmInt(printer.margin ?? DEFAULT_MARGIN)} mm kept clear at both edges of X and Y, and at the top of Z).\n`;
+    + `${dim(printer.margin ?? DEFAULT_MARGIN)} kept clear at both edges of X and Y, and at the top of Z.\n`;
 }
 
 export interface PrintPack {
@@ -431,7 +430,7 @@ export interface PrintPack {
  * actual click on "STL for printing" pays for it.
  */
 export async function buildPrintPack(
-  split: ComponentSplit, partName: string, printer: PrinterVolume, printerLabel = 'printer',
+  split: ComponentSplit, partName: string, printer: PrinterVolume, printerLabel = 'printer', units: UnitSelection = INITIAL_UNITS,
 ): Promise<PrintPack> {
   const { solidToStl } = await import('./stlExport.js');
   const n = split.plan.segments;
@@ -441,7 +440,7 @@ export async function buildPrintPack(
     const name = `${base}-print-${i + 1}of${n}.stl`;
     files[name] = solidToStl(revolveProfile(loop), `${partName} ${i + 1}/${n}`);
   });
-  files['README.txt'] = strToU8(printPackReadme(split, partName, printer, printerLabel));
+  files['README.txt'] = strToU8(printPackReadme(split, partName, printer, printerLabel, units));
   return { bytes: zipSync(files), filename: `${base}-print-${n}-pieces.zip` };
 }
 

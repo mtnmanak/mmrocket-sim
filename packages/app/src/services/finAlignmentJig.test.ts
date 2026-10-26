@@ -17,6 +17,19 @@ it.each(['rounded', 'airfoil'])('refuses a zero-area %s fin set with positive he
 });
 
 describe('N049 fin alignment jig', () => {
+  it.each([
+    ['mm', '0.15 mm', '0.2 mm'],
+    ['cm', '0.015 cm', '0.02 cm'],
+    ['m', '0.00015 m', '0.0002 m'],
+    ['in', '0.00591 in', '0.00787 in'],
+    ['ft', '0.000492 ft', '0.000656 ft'],
+  ])('retains small clearance and slot dimensions in %s', (length, clearance, slot) => {
+    const svg = finAlignmentJigSvg(tube, { ...fins(), thickness: 0.00005 }, 0.00015, 'Rocket', { length, angle: '\u00b0' });
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    expect(doc.documentElement.textContent).toContain(`slot width ${slot}`);
+    expect(doc.documentElement.textContent).toContain(`fin thickness + ${clearance} total clearance`);
+  });
+
   it.each([3, 4])('contains the full rectangular freeform fin section in all %i closed slots', count => {
     for (const crossSection of ['rounded', 'airfoil']) {
       const fin = { ...fins(count), crossSection,

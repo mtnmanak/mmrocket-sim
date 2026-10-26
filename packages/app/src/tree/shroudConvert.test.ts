@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
+import { INITIAL_UNITS } from '../prefs/units.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { finOutlineProblem } from './finOutline.js';
 import { absoluteStations } from './position.js';
@@ -228,4 +229,14 @@ describe('shroud → fairing conversion', () => {
     // Source tree untouched.
     expect(findNode(t, 'c1')!.type).toBe('freeformfinset');
   });
+});
+
+
+it.each([
+  [undefined, '80 mm [3.15 in] × 25 mm [0.984 in] × 20 mm [0.787 in], 50 g [1.76 oz]'],
+  [{ length: 'in', mass: 'oz' }, '3.15 in [80 mm] × 0.984 in [25 mm] × 0.787 in [20 mm], 1.76 oz [50 g]'],
+])('pairs the converted shroud dimensions and mass (%j)', (selected, quantities) => {
+  const units = selected ? { ...INITIAL_UNITS, ...selected } : undefined;
+  const result = convertShrouds(wrap([freeform({ id: 'c1', name: 'Camera Shroud', overrideMass: 0.05 })]), ['c1'], units);
+  expect(result.notes).toEqual([`Converted “Camera Shroud” to a native camera shroud (${quantities} — check mass/shape in its properties).`]);
 });

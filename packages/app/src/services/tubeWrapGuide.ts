@@ -4,7 +4,7 @@ import { finRootChord, finTabSpan } from '../tree/finTab.js';
 import { kernelNum, KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 import { num } from '../tree/nodeNum.js';
 import { absoluteStations, axialLength, axialStart } from '../tree/position.js';
-import { fmtSi, type UnitSelection } from '../prefs/units.js';
+import { fmtSi, fmtSig, siToUi, type UnitSelection } from '../prefs/units.js';
 import type { FinTemplateBackground } from './finTemplate.js';
 import { escapeXml } from './xmlUtil.js';
 import { tubeHoleMarks, TUBE_HOLE_ADVICE, type TubeHoleMark } from '../tree/tubeHoles.js';
@@ -125,7 +125,7 @@ export function tubeWrapPages(
   if (!Number.isFinite(columns * rows) || columns * rows > 100) {
     throw new Error('This wrap needs more than 100 pages. Check the tube dimensions before exporting.');
   }
-  const dim = (m: number) => `${fmtSi('length', units.length, m, 3)} ${units.length}`;
+  const dim = (m: number) => `${fmtSig(siToUi('length', units.length, m), 3, 3)} ${units.length}`;
   const inches = units.length === 'in' || units.length === 'ft';
   const ruler = inches ? 50.8 : 50;
   const rulerCaption = inches ? '2 in' : dim(0.05);

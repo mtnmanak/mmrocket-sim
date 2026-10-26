@@ -6,7 +6,7 @@ import 'uplot/dist/uPlot.min.css';
 import type { DragSweep, OrkRocket, StaticInfo } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { DEFAULT_DRAG_ANALYSIS, type DragAnalysisPrefs } from '../prefs/dragAnalysis.js';
-import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { fmtSi, niceStep, noticeQuantity, siToUi, uiToSi, type UnitSelection } from '../prefs/units.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { chartInk, seriesPalette, seriesStyle } from '../chartTheme.js';
@@ -212,9 +212,9 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
       </label>
       <Note as="p" tier="information" className="motor-db-meta">
         <strong>Sampling:</strong> {conditions}, 360 planes at 1° steps. Angle of attack follows the CP chart above.
-        {' '}Air: sea level at 20°C, independent of the drag sweep&apos;s Conditions choice.
-        {' '}Launch CG: {fmtSi('length', lenUnit, info.cg, 3)} {lenUnit} from nose;
-        {' '}launch mass: {fmtSi('mass', prefs.units.mass, info.mass, 3)} {prefs.units.mass}.
+        {' '}Air: sea level at {noticeQuantity('temperature', 293.15, prefs.units)}, independent of the drag sweep&apos;s Conditions choice.
+        {' '}Launch CG: {noticeQuantity('length', info.cg, prefs.units)} from nose;
+        {' '}launch mass: {noticeQuantity('mass', info.mass, prefs.units)}.
         {' '}The margin uses this launch CG at every plane; CG changes as propellant burns.
         {' '}This is a diagnostic view; no flight changes. Roll-plane angle is the direction around the body, not roll rate.
         {aoaDeg > 0 && <> Above the fins&apos; stall angle the CP is not validated; the selector stops at 20°.</>}
@@ -321,31 +321,36 @@ type MachAlt = [number, number][];
 
 /**
  * One comma-free sentence naming the atmosphere a curve was computed in.
- * Printed under the CD chart AND into the CSV metadata header, from the same
- * function so the two can never disagree — the failure that put a mislabeled
+ * Printed under the CD chart and into the CSV metadata header. On-screen
+ * notices pair units; the CSV retains its established format. Both describe
+ * the same sampling conditions — the failure that put a mislabeled
  * curve on The Rocketry Forum was exactly a chart and a file disagreeing about
  * what produced them. Commas are avoided for the same reason the design-name
  * line avoids them (naive CSV parsers read them as cells). The CSV's copy has
  * its typography folded to ASCII (services/dragTable.ts) — the same words, "20 degC" for
  * "20 °C" — so the file opens clean in Excel.
  */
-function conditionsText(mode: Conditions, altM: number, table: MachAlt | undefined, altUnit: string, correctedIsa: boolean): string {
+function conditionsText(mode: Conditions, altM: number, table: MachAlt | undefined, altUnit: string, correctedIsa: boolean, units?: UnitSelection): string {
   // fmtSi's precision ladder gives sub-1 values three decimals, so a sea-level
   // row would print as "0.000". Zero is just zero.
   const ceiling = correctedIsa ? ISA_RADIUS_M * ISA_TOP_M / (ISA_RADIUS_M - ISA_TOP_M) : 84500;
   const ceilingNote = (max: number) => max > ceiling
-    ? ` (atmosphere conditions above ${correctedIsa ? '86' : '84.5'} km are held at that layer)` : '';
-  const fmtAlt = (v: number) => (v === 0 ? '0' : fmtSi('altitude', altUnit, v));
+    ? ` (atmosphere conditions above ${units
+      ? noticeQuantity('altitude', correctedIsa ? 86000 : 84500, units)
+      : `${correctedIsa ? '86' : '84.5'} km`} are held at that layer)` : '';
+  const fmtAlt = (v: number) => units ? noticeQuantity('altitude', v, units) : v === 0 ? '0' : fmtSi('altitude', altUnit, v);
   if (mode === 'file' && table && table.length > 0) {
     const machs = table.map(([m]) => m);
     const alts = table.map(([, a]) => a);
     return `file Mach-Alt table — ${table.length} points from Mach ${Math.min(...machs)} to ${Math.max(...machs)}`
-      + ` (${fmtAlt(Math.min(...alts))}–${fmtAlt(Math.max(...alts))} ${altUnit} ISA)` + ceilingNote(Math.max(...alts));
+      + ` (${fmtAlt(Math.min(...alts))}–${fmtAlt(Math.max(...alts))}${units ? '' : ` ${altUnit}`} ISA)` + ceilingNote(Math.max(...alts));
   }
   if (mode === 'altitude' && altM > 0) {
-    return `ISA at ${fmtAlt(altM)} ${altUnit}` + ceilingNote(altM);
+    return `ISA at ${fmtAlt(altM)}${units ? '' : ` ${altUnit}`}` + ceilingNote(altM);
   }
-  return 'sea level (101325 Pa; 20 °C — the kernel default)';
+  return units
+    ? `sea level (${noticeQuantity('pressure', 101325, units)}; ${noticeQuantity('temperature', 293.15, units)} — the kernel default)`
+    : 'sea level (101325 Pa; 20 °C — the kernel default)';
 }
 
 /**
@@ -668,10 +673,11 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
   }, [open, cpAoa, sweepRocket, machTop, machAlt]);
   const aoaCpSweep = aoaSweep && !('error' in aoaSweep) ? aoaSweep : null;
 
-  const condText = conditionsText(conditions, altM, fileMachAlt, altUnit, usesGeopotentialIsa({
+  const correctedIsa = usesGeopotentialIsa({
     aeroMode: hybridModel ? 'hybrid' : supersonicModel ? 'supersonic' : 'classic',
     effectiveKbf: effectiveKbf ?? prefs.rogersKbf ?? true,
-  }));
+  });
+  const condText = conditionsText(conditions, altM, fileMachAlt, altUnit, correctedIsa, prefs.units);
 
   // The design's static figures, read only while a sweep is showing: the CP
   // chart needs the length to scale by, and the roll note below needs the
@@ -807,9 +813,11 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
               // model the sweep actually ran on, not a fixed string.
               aeroModel: aeroLabel ?? aeroModelLabel(supersonicModel ? 'supersonic' : 'classic', prefs.rogersKbf ?? true),
               lengthUnit: lenUnit,
-              // The SAME string the chart caption prints, so an exported table
-              // and a screenshot of the chart can't claim different air.
-              conditions: condText,
+              // The SAME conditions the chart caption describes (same ceiling,
+              // same ISA), so an exported table and a screenshot of the chart
+              // can't claim different air; the file keeps its established
+              // single-unit format while the caption pairs units.
+              conditions: conditionsText(conditions, altM, fileMachAlt, altUnit, correctedIsa),
               rollCp: rollNote,
               // The CP chart's angle, when above 0: one more cp column, named
               // for the angle (services/dragTable.ts). At 0 the file is unchanged.

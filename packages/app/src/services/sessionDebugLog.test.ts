@@ -3,12 +3,45 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createSessionDebugLog, MAX_DEBUG_LOG_BYTES, MAX_DEBUG_LOG_EVENTS, startSessionDebugCapture } from './sessionDebugLog.js';
 import { DEFAULT_PREFS } from '../prefs/preferences.js';
 import type { AeroChoice } from '../prefs/aeroChoice.js';
+import { parseRse } from './exMotors.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 
 const context = vi.hoisted(() => ({ version: 'test-version' }));
 vi.mock('../version.js', () => ({ get APP_VERSION() { return context.version; } }));
 afterEach(() => { context.version = 'test-version'; vi.restoreAllMocks(); });
 
 describe('C-H3 session diagnostics', () => {
+  it.each([INITIAL_UNITS, IMPERIAL_UNITS].flatMap(units =>
+    ([[null, 'invalid propellant mass'], ['private value', 'invalid propellant mass'],
+      ['100.00001', 'propellant exceeds loaded mass']] as const).map(([prop, category]) => ({ units, prop, category }))))('R12 retains category $category for propWt=$prop with $units', ({ units, prop, category }) => {
+      const notes: string[] = [];
+      let refusal: unknown;
+      try {
+        parseRse(`<engine-database><engine-list><engine code="Private motor" mfg="Private maker" dia="29" len="120" initWt="100"${prop === null ? '' : ` propWt="${prop}"`} delays="5"><data><eng-data t="0" f="0"/><eng-data t="1" f="30"/></data></engine></engine-list></engine-database>`, notes, units);
+      } catch (error) { refusal = error; }
+      expect(refusal).toBeInstanceOf(Error);
+      const log = createSessionDebugLog();
+      log.record('import-failed', refusal);
+      expect(log.text()).toContain(`Motor import refused: ${category} (file detail omitted)`);
+      expect(log.text()).not.toContain('Private');
+      expect(log.text()).not.toContain('100.00001');
+  });
+  it.each([
+    ['loaded mass 0 g (0 oz) is not a mass', 'invalid loaded mass'],
+    ['loaded mass 0 oz (0 g) is not a mass', 'invalid loaded mass'],
+    ['propellant mass -100 g (-3.53 oz) is not a mass', 'invalid propellant mass'],
+    ['propellant mass -3.53 oz (-100 g) is not a mass', 'invalid propellant mass'],
+    ['more propellant (200 g [7.05 oz]) than loaded mass (100 g [3.53 oz])', 'propellant exceeds loaded mass'],
+    ['more propellant (7.05 oz [200 g]) than loaded mass (3.53 oz [100 g])', 'propellant exceeds loaded mass'],
+    ['more propellant (200 g (7.05 oz)) than loaded mass (100 g (3.53 oz))', 'propellant exceeds loaded mass'],
+    ['more propellant (7.05 oz (200 g)) than loaded mass (3.53 oz (100 g))', 'propellant exceeds loaded mass'],
+  ])('U preserves privacy-safe diagnostic categories for %s', (reason, category) => {
+    const log = createSessionDebugLog();
+    log.record('import-failed', new Error(`Private motor: ${reason}`));
+    expect(log.text()).toContain(`Motor import refused: ${category} (file detail omitted)`);
+    expect(log.text()).not.toContain('Private motor');
+    expect(log.text()).not.toContain('3.53');
+  });
   it.each(['eb', 'kbf', 'auto', 'supersonic', 'hybrid', null] as const)('exports the session aero override %s with stored preferences intact', aeroOverride => {
     const log = createSessionDebugLog();
     log.preferences({ ...DEFAULT_PREFS, aeroModel: 'supersonic', rogersKbf: false }, aeroOverride);

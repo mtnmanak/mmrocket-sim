@@ -1,3 +1,5 @@
+import { noticeEqual } from '../prefs/units.js';
+import { PREFERRED_OPENING_SPEED_MS, MAX_CAUTION_OPENING_SPEED_MS } from './recoveryLimits.js';
 import type { RecordedFlightOverride } from './flightOverrideSummary.js';
 import { shroudWarningFilter } from './shroudWarnings.js';
 import { stageMotorInfo as motorInfoOf } from './flightPipeline.js';
@@ -28,7 +30,7 @@ import { affectsPodsOnlyBase, affectsStrapOnNozzle } from './revisionNozzle.js';
 import { completedRecoveryEvents, type RecoveryEvent } from './recoveryMass.js';
 import { flightLimitAdvice, groundWindAdvice, peakAirspeed, zeroDelayRecoveryAdvice } from './flightAdvisories.js';
 import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
-import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
+import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 
 /**
  * Post-simulation report: every attribute the owner's flight-day workflow needs,
@@ -115,7 +117,7 @@ export const SAFETY = {
    * report called 70-90 "still inside the accepted band to 90", so the app
    * contradicted itself on the very threshold v0.114 existed to make one rule.
    */
-  maxDeploymentVelocity: 21.34,
+  maxDeploymentVelocity: PREFERRED_OPENING_SPEED_MS,
   /**
    * Descent under a drogue: the PREFERRED rate tops out at 70 ft/s (the
    * owner); 70-90 is a caution and above 90 a warning (`warnDrogueDescentRate`).
@@ -139,7 +141,7 @@ export const SAFETY = {
    */
   warnDrogueDescentRate: 27.432,
   /** The same 90 ft/s step for opening shock. See `warnDrogueDescentRate`. */
-  warnDeploymentVelocity: 27.432,
+  warnDeploymentVelocity: MAX_CAUTION_OPENING_SPEED_MS,
   /** Landing descent rate: 20 ft/s or lower (the owner). */
   maxLandingRate: 6.1,
   /** Static margin sanity band (calibers). */
@@ -269,8 +271,6 @@ export function formatRunStability(
   return { value: `${calText} cal · ${pct.toFixed(1)}`, unit: '%' };
 }
 
-const FPS = 3.28084;
-const fps = (v: number) => `${(v * FPS).toFixed(0)} ft/s`;
 
 /** K16 (open-items.md): every opening-speed readout uses the comment's tiers. */
 export type DeploymentVerdict = boolean | 'caution' | null;
@@ -295,17 +295,17 @@ export function openingVerdict(velocity: number | null | undefined, role: Recove
   if (velocity == null || !Number.isFinite(velocity)) return null;
   const speed = Math.abs(velocity);
   const policy = openingPolicy(role);
-  return speed <= policy.preferred ? true
-    : speed <= policy.upper ? 'caution' : false;
+  return speed <= policy.preferred || noticeEqual(speed, policy.preferred) ? true
+    : speed <= policy.upper || noticeEqual(speed, policy.upper) ? 'caution' : false;
 }
 
 /** Re-grade measured descent independently of the stored preferred-limit flag. */
 export function descentVerdict(d: Pick<DeploymentReport, 'descentRate' | 'isLanding'>): DeploymentVerdict {
   if (!Number.isFinite(d.descentRate)) return null;
   const speed = Math.abs(d.descentRate!);
-  if (d.isLanding) return speed <= SAFETY.maxLandingRate;
-  return speed <= SAFETY.maxDrogueDescentRate ? true
-    : speed <= SAFETY.warnDrogueDescentRate ? 'caution' : false;
+  if (d.isLanding) return speed <= SAFETY.maxLandingRate || noticeEqual(speed, SAFETY.maxLandingRate);
+  return (speed <= SAFETY.maxDrogueDescentRate || noticeEqual(speed, SAFETY.maxDrogueDescentRate)) ? true
+    : (speed <= SAFETY.warnDrogueDescentRate || noticeEqual(speed, SAFETY.warnDrogueDescentRate)) ? 'caution' : false;
 }
 
 /** Re-grade recorded speeds so saved runs also follow K16, including boosters. */
@@ -1782,7 +1782,8 @@ function extractDeployments(
       // abs like openingOk — descent velocities are magnitudes today, but a
       // signed series would make an unsigned ≤ check pass vacuously.
       descentOk: descentRate === null ? null
-        : Math.abs(descentRate) <= (isLanding ? SAFETY.maxLandingRate : SAFETY.maxDrogueDescentRate),
+        : Math.abs(descentRate) <= (isLanding ? SAFETY.maxLandingRate : SAFETY.maxDrogueDescentRate)
+          || noticeEqual(Math.abs(descentRate), isLanding ? SAFETY.maxLandingRate : SAFETY.maxDrogueDescentRate),
     };
   });
 }
@@ -2241,7 +2242,7 @@ export function buildSimRun(input: {
       // Vertical, like the sustainer's — a booster drifts in the same wind, and
       // judging its arrival on ground speed charged the wind against it too.
       landingRate: bLanding,
-      safeLandingRate: bLanding === null ? null : bLanding <= SAFETY.maxLandingRate,
+      safeLandingRate: bLanding === null ? null : (bLanding <= SAFETY.maxLandingRate || noticeEqual(bLanding, SAFETY.maxLandingRate)),
       ...(recoveryFitted !== undefined ? { recoveryFitted } : {}),
     });
   }
@@ -2262,7 +2263,7 @@ export function buildSimRun(input: {
     ? (deployments[deployments.length - 1]!.descentRate ?? landingGroundSpeed)
     : (verticalRateAt(series,
       tGround ?? series.time[series.time.length - 1] ?? 0) ?? landingGroundSpeed);
-  const safeLandingRate = landingRate === null ? null : landingRate <= SAFETY.maxLandingRate;
+  const safeLandingRate = landingRate === null ? null : (landingRate <= SAFETY.maxLandingRate || noticeEqual(landingRate, SAFETY.maxLandingRate));
 
   const primaryDelay = input.delayResolution?.mounts.find((m) => m.mountId === input.primaryMountId);
   const optimumDelayS = primaryDelay?.mode === 'auto' ? primaryDelay.rawOptimum : summary.optimumDelay ?? null;
@@ -2274,7 +2275,7 @@ export function buildSimRun(input: {
   const maxRollRateRadS = extractMaxRollRate(series);
 
   const safeLiftoffSpeed = rodExitVelocity !== null
-    ? rodExitVelocity >= SAFETY.minRodExitVelocity : null;
+    ? (rodExitVelocity >= SAFETY.minRodExitVelocity || noticeEqual(rodExitVelocity, SAFETY.minRodExitVelocity)) : null;
   const safeThrustToWeight = thrustToWeightAtRod !== null
     ? thrustToWeightAtRod >= SAFETY.minThrustToWeight : null;
   const safeDeployment = deploymentVerdict({ deployments, branches, velocityAtDeployment });
@@ -2316,6 +2317,22 @@ export function buildSimRun(input: {
     levels.push(level);
   };
   const units = input.units ?? INITIAL_UNITS;
+  const speed = (si: number, against?: number) => noticeQuantity('velocity', si, units, { against });
+  const limitSpeed = (si: number, fps: number) => noticeQuantity('velocity', si, units, { defined: { value: fps, symbol: 'ft/s' } });
+  const openingText = (si: number, hard: boolean): string => {
+    const limit = hard ? SAFETY.warnDeploymentVelocity : SAFETY.maxDeploymentVelocity;
+    const bound = limitSpeed(limit, hard ? 90 : 70);
+    const measured = speed(si, limit);
+    if (measured.startsWith('just ')) return `just above the ${bound} ${hard ? 'limit — hard opening.' : 'preferred speed — fast opening; watch for a zippered tube.'}`;
+    return `at ${measured} — ${hard ? `hard opening, past the ${bound} limit.` : `fast opening, above the preferred ${bound}; watch for a zippered tube.`}`;
+  };
+  const landingText = (si: number, cd = ''): string => {
+    const measured = speed(si, SAFETY.maxLandingRate);
+    const bound = limitSpeed(SAFETY.maxLandingRate, 20);
+    return measured.startsWith('just ') ? `just above the ${bound} landing target${cd}.`
+      : `at ${measured} of descent${cd} — above the ${bound} landing target.`;
+  };
+  const rodGuidance = noticeQuantity('velocity', SAFETY.minRodExitVelocity, units, { defined: { value: SAFETY.minRodExitVelocity, symbol: 'm/s' } });
   const windAdvice = groundWindAdvice(launch.windAverage, units);
   if (windAdvice) say(windAdvice, 'caution');
   for (const note of flightLimitAdvice(result, advisoryLimits, flightConfig ?? 'Working settings', input.advisoryTree, units)) say(note.text, note.level);
@@ -2332,7 +2349,7 @@ export function buildSimRun(input: {
   // retain their design-note tier in the report and API notes too.
   for (const t of info.warningTexts) {
     const tier = staticWarningTier(t);
-    say(formatWarningText(t), tier === 'danger' ? 'warning' : tier === 'caution' ? 'caution' : 'info');
+    say(formatWarningText(t, units), tier === 'danger' ? 'warning' : tier === 'caution' ? 'caution' : 'info');
   }
   // Supersonic flight on the classic model: the flyer should know a validated
   // model exists — and that switching changes the model for the WHOLE flight.
@@ -2362,7 +2379,9 @@ export function buildSimRun(input: {
       + 'fly Classic Extended Barrowman, to fly the published curve.');
   }
   if (safeLiftoffSpeed === false) {
-    say(`Rod-exit speed ${rodExitVelocity!.toFixed(1)} m/s < ${SAFETY.minRodExitVelocity} m/s guidance.`, 'warning');
+    const measurement = speed(rodExitVelocity!, SAFETY.minRodExitVelocity);
+    const measured = measurement.startsWith('just below') ? `just below ${rodGuidance}` : measurement;
+    say(`Rod-exit speed ${measured}${measured.startsWith('just below') ? '' : ` < ${rodGuidance}`} guidance.`, 'warning');
   }
   if (safeThrustToWeight === false) {
     say(`Thrust:weight ${thrustToWeightAtRod!.toFixed(1)}:1 at rod exit < ${SAFETY.minThrustToWeight}:1.`, 'warning');
@@ -2398,11 +2417,13 @@ export function buildSimRun(input: {
   // wording, so a failed branch descent check always has an explanation.
   const sayDrogueDescent = (d: DeploymentReport, prefix = '') => {
     if (d.descentOk === false && !d.isLanding) {
-      const fast = Math.abs(d.descentRate!) > SAFETY.warnDrogueDescentRate;
-      sayDevice(d.device, (who) => `${prefix}Descent under ${who} is ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) — `
+      const fast = Math.abs(d.descentRate!) > SAFETY.warnDrogueDescentRate && !noticeEqual(Math.abs(d.descentRate!), SAFETY.warnDrogueDescentRate);
+      const limit = fast ? SAFETY.warnDrogueDescentRate : SAFETY.maxDrogueDescentRate;
+      const slight = speed(d.descentRate!, limit).startsWith('just ');
+      sayDevice(d.device, (who) => `${prefix}Descent under ${who} is ${slight ? '' : `${speed(d.descentRate!)} — `}`
         + (fast
-          ? `past the ${fps(SAFETY.warnDrogueDescentRate)} limit for a drogue.`
-          : `above the preferred ${fps(SAFETY.maxDrogueDescentRate)}, in the caution band up to ${fps(SAFETY.warnDrogueDescentRate)}.`),
+          ? `${slight ? 'just above' : 'past'} the ${limitSpeed(SAFETY.warnDrogueDescentRate, 90)} limit for a drogue.`
+          : `${slight ? 'just above' : 'above'} the preferred ${limitSpeed(SAFETY.maxDrogueDescentRate, 70)}, in the caution band up to ${limitSpeed(SAFETY.warnDrogueDescentRate, 90)}.`),
       fast ? 'warning' : 'caution');
     }
   };
@@ -2414,16 +2435,13 @@ export function buildSimRun(input: {
       // contradiction of the other.
       const air = Math.abs(d.velocityAtDeployment!);
       const over = d.groundSpeedAtDeployment != null && d.groundSpeedAtDeployment - air > 0.1
-        ? ` It is moving ${d.groundSpeedAtDeployment.toFixed(1)} m/s (${fps(d.groundSpeedAtDeployment)}) over the ground, the rest of that being wind drift.`
+        ? ` It is moving ${speed(d.groundSpeedAtDeployment)} over the ground, the rest of that being wind drift.`
         : '';
       // Three tiers since 2026-09-07: preferred to 70 ft/s, caution to 90,
       // warning above. The sentence says which it is rather than leaving the
       // reader to compare two numbers.
       const hard = d.openingOk === false;
-      sayDevice(d.device, (who, many) => `${who} ${many ? 'open' : 'opens'} at ${air.toFixed(1)} m/s (${fps(air)}) — `
-        + (hard
-          ? `hard opening, past the ${fps(SAFETY.warnDeploymentVelocity)} limit.`
-          : `fast opening, above the preferred ${fps(SAFETY.maxDeploymentVelocity)}; watch for a zippered tube.`)
+      sayDevice(d.device, (who, many) => `${who} ${many ? 'open' : 'opens'} ${openingText(air, hard)}`
         + over + ` ${openingPolicy(deploymentRole(d)).expectation} These speed limits do not rate your recovery hardware.`, hard ? 'warning' : 'caution');
     }
     sayDrogueDescent(d);
@@ -2441,21 +2459,20 @@ export function buildSimRun(input: {
         : ` on a drag coefficient of ${d.cd.toFixed(2)}${d.cdAutomatic ? ', the automatic value for a canopy with none typed' : ''}`;
       const drift = d.groundSpeed !== null && d.descentRate !== null
         && d.groundSpeed - d.descentRate > 0.1
-        ? ` It touches down at ${d.groundSpeed.toFixed(1)} m/s (${fps(d.groundSpeed)}) over the ground, the rest of that being wind drift.`
+        ? ` It touches down at ${speed(d.groundSpeed)} over the ground, the rest of that being wind drift.`
         : '';
-      sayDevice(d.device, (who) => `Landing under ${who} at ${d.descentRate!.toFixed(1)} m/s (${fps(d.descentRate!)}) of descent${cdSaid} — above the ${fps(SAFETY.maxLandingRate)} landing target.${drift}`, 'warning');
+      sayDevice(d.device, (who) => `Landing under ${who} ${landingText(d.descentRate!, cdSaid)}${drift}`, 'warning');
     }
   }
   flushDevices();
   const fallbackOpening = openingVerdict(velocityAtDeployment);
   if (deployments.length === 0 && (fallbackOpening === false || fallbackOpening === 'caution')) {
     const hard = fallbackOpening === false;
-    say(`Deployment at ${Math.abs(velocityAtDeployment!).toFixed(1)} m/s (${fps(Math.abs(velocityAtDeployment!))}) — `
-      + (hard ? 'hard opening.' : 'fast opening; watch for a zippered tube.'),
+    say(`Deployment ${openingText(Math.abs(velocityAtDeployment!), hard)}`,
     hard ? 'warning' : 'caution');
   }
   if (deployments.length === 0 && safeLandingRate === false) {
-    say(`Landing at ${landingRate!.toFixed(1)} m/s (${fps(landingRate!)}) of descent — above the ${fps(SAFETY.maxLandingRate)} landing target.`, 'warning');
+    say(`Landing ${landingText(landingRate!)}`, 'warning');
   }
   if (staticMarginOk === false && launchStaticMarginCal !== null) {
     say(launchStaticMarginCal < SAFETY.minStaticMargin
@@ -2483,13 +2500,13 @@ export function buildSimRun(input: {
   // speed, high power or not. b.safeLandingRate is computed for every branch,
   // so the data was always there and only the branching hid it.
   for (const b of branches) {
-    const landTxt = b.landingRate !== null ? `${b.landingRate.toFixed(1)} m/s (${fps(b.landingRate)})` : 'unknown speed';
+    const landTxt = b.landingRate !== null ? speed(b.landingRate) : 'unknown speed';
     if (b.deployments.length === 0 && b.highPower === true) {
       say(b.recoveryFitted
         ? `${b.name}'s recovery device never opened — a booster this size must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}. Check its deployment event.`
         : `${b.name} has NO recovery device — a booster this size must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}.`, 'warning');
     } else if (b.safeLandingRate === false) {
-      say(`${b.name} lands at ${landTxt} — above the ${fps(SAFETY.maxLandingRate)} landing target.`, 'warning');
+      say(`${b.name} lands ${landingText(b.landingRate!)}`, 'warning');
     }
     for (const d of b.deployments) {
       sayDrogueDescent(d, `${b.name}: `);
@@ -2497,8 +2514,7 @@ export function buildSimRun(input: {
         // Same three tiers as the sustainer's own devices, above.
         const v = Math.abs(d.velocityAtDeployment!);
         const hard = d.openingOk === false;
-        sayDevice(d.device, (who, many) => `${b.name}: ${who} ${many ? 'open' : 'opens'} at ${v.toFixed(1)} m/s (${fps(v)}) — `
-          + (hard ? 'hard opening.' : `fast opening, above the preferred ${fps(SAFETY.maxDeploymentVelocity)}; watch for a zippered tube.`)
+        sayDevice(d.device, (who, many) => `${b.name}: ${who} ${many ? 'open' : 'opens'} ${openingText(v, hard)}`
           + ` ${openingPolicy(deploymentRole(d)).expectation} These speed limits do not rate your recovery hardware.`,
         hard ? 'warning' : 'caution');
       }

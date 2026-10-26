@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { cautionNote } from '../services/importNotes.js';
 import { sanitizeDesignProvenance } from '../services/designProvenance.js';
 import { sanitizeDocumentMaterials } from '../services/documentMaterials.js';
@@ -80,13 +81,13 @@ function fieldLabel(type: string, key: string, fallback?: string): string {
 /** Six significant digits, float noise shed — how every other import note quotes a number. */
 const sig = (v: number): string => String(Number(v.toPrecision(6)));
 
-function fmt(kind: LimitKind, v: number, key?: string): string {
+function fmt(kind: LimitKind, v: number, units: UnitSelection = INITIAL_UNITS, key = '', against?: number): string {
   switch (kind) {
     case 'count':
     case 'scalar': return sig(v);
-    case 'length': return Math.abs(v) >= 1 ? `${sig(v)} m` : `${sig(v * 1000)} mm`;
-    case 'mass': return Math.abs(v) >= 1 ? `${sig(v)} kg` : `${sig(v * 1000)} g`;
-    case 'density': return `${sig(v)} ${key === 'surfaceDensity' ? 'kg/m²' : key === 'lineDensity' ? 'kg/m' : 'kg/m³'}`;
+    case 'length': return against === undefined ? noticeQuantity('length', v, units) : noticeComparison('length', v, against, units, { digits: units.length === 'mm' ? 4 : 6 })[0];
+    case 'mass': return against === undefined ? noticeQuantity('mass', v, units) : noticeComparison('mass', v, against, units)[0];
+    case 'density': return against === undefined ? noticeQuantity(key === 'surfaceDensity' || key === 'lineDensity' ? key : 'density', v, units) : noticeComparison(key === 'surfaceDensity' || key === 'lineDensity' ? key : 'density', v, against, units)[0];
   }
 }
 
@@ -99,10 +100,15 @@ interface Finding {
 }
 
 function limitFinding(
-  node: ComponentNode, key: string, limit: FieldLimit, raw: number, fixed: number,
+  node: ComponentNode, key: string, limit: FieldLimit, raw: number, fixed: number, units: UnitSelection = INITIAL_UNITS,
 ): Finding {
-  const format = (value: number) => fmt(limit.kind, value, key);
-  const what = `${partName(node)}: ${fieldLabel(node.type, key, limit.label)} ${format(raw)}`;
+  const format = (value: number) => fmt(limit.kind, value, units, key);
+  const actual = fmt(limit.kind, raw, units, key, fixed);
+  const what = `${partName(node)}: ${fieldLabel(node.type, key, limit.label)} ${actual}`;
+  if (actual.startsWith('just ')) return {
+    problem: `${partName(node)}: ${fieldLabel(node.type, key, limit.label)} is ${actual.replace('just above', 'just over the').replace('just below', 'just under the')} ${raw > fixed ? 'maximum' : 'minimum'}`,
+    repair: `set to the ${raw > fixed ? 'maximum' : 'minimum'}`,
+  };
   const why = limit.why ? ` (${limit.why})` : '';
   let problem: string;
   if (limit.kind === 'count' && !Number.isInteger(raw) && Math.round(raw) === fixed) {
@@ -145,7 +151,7 @@ const ENUM_LABEL: Record<string, string> = {
  * One node's repairs, and the repaired node (the same object when nothing
  * changed). Children are NOT visited here — `sanitizeTree` walks them.
  */
-function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
+function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = INITIAL_UNITS): ComponentNode {
   let next: ComponentNode | null = null;
   const edit = (): ComponentNode => (next ??= { ...n });
   if (n.type === 'freeformfinset' && Array.isArray(n['points'])) {
@@ -190,7 +196,7 @@ function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
     // NaN cannot be clamped and must not produce a repair (audit 2026-10-11, S4a-6).
     if (!Number.isFinite(raw) || fixed === raw) continue;
     edit()[key] = fixed;
-    found.push(limitFinding(n, key, limit, raw, fixed));
+    if (limit.kind === 'count' || limit.kind === 'scalar' || !noticeEqual(raw, fixed)) found.push(limitFinding(n, key, limit, raw, fixed, units));
   }
   const pos = n.position;
   if (pos !== undefined && (!pos || typeof pos !== 'object' || Array.isArray(pos)
@@ -205,7 +211,7 @@ function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
     const fixed = applyFieldLimit(POSITION_LIMIT, pos.offset);
     if (Number.isFinite(pos.offset) && fixed !== pos.offset) {
       edit().position = { ...pos, offset: fixed };
-      found.push(limitFinding(n, 'position', POSITION_LIMIT, pos.offset, fixed));
+      if (!noticeEqual(fixed, pos.offset)) found.push(limitFinding(n, 'position', POSITION_LIMIT, pos.offset, fixed, units));
     }
   }
   for (const [key, limit] of Object.entries(ENUM_LIMITS[n.type] ?? {})) {
@@ -225,10 +231,10 @@ function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
   return next ?? n;
 }
 
-function walk(nodes: ComponentNode[], found: Finding[]): ComponentNode[] | null {
+function walk(nodes: ComponentNode[], found: Finding[], units: UnitSelection): ComponentNode[] | null {
   let out: ComponentNode[] | null = null;
   nodes.forEach((n, i) => {
-    let fixed = sanitizeOwn(n, found);
+    let fixed = sanitizeOwn(n, found, units);
     if (n.name !== undefined && typeof n.name !== 'string') {
       fixed = { ...fixed };
       delete fixed.name;
@@ -243,7 +249,7 @@ function walk(nodes: ComponentNode[], found: Finding[]): ComponentNode[] | null 
     if (n.type === 'freeformfinset' && n['points'] == null) {
       fixed = { ...fixed, points: KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]) };
     }
-    const kids = n.children ? walk(n.children, found) : null;
+    const kids = n.children ? walk(n.children, found, units) : null;
     if (kids) fixed = { ...fixed, children: kids };
     if (fixed !== n) (out ??= nodes.slice())[i] = fixed;
   });
@@ -352,7 +358,7 @@ export function refusePartCount(parts: number): void {
  * needed it, including when reached through normalizeTree.
  * Each repair pushes one note onto `notes`, when given.
  */
-export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
+export function sanitizeTree(tree: RocketTree, notes?: string[], units: UnitSelection = INITIAL_UNITS): RocketTree {
   tree = sanitizeDesignProvenance(tree, notes);
   tree = sanitizeDocumentMaterials(tree, notes);
   const found: Finding[] = [];
@@ -360,7 +366,7 @@ export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
     tree = { ...tree, name: 'Rocket' };
     found.push({ problem: 'The rocket name could not be read', repair: 'using Rocket as its name' });
   }
-  const components = walk(tree.components, found);
+  const components = walk(tree.components, found, units);
   refuseTooManyInstances(components ?? tree.components);
   // D7 I04: a repaired value replaces what the file or session held — Caution.
   if (notes) for (const f of found) cautionNote(notes, 'I04.limits', `${f.problem} — ${f.repair}.`);
@@ -386,7 +392,7 @@ export function sanitizeTree(tree: RocketTree, notes?: string[]): RocketTree {
  * have given. The SAME patch object when nothing needed it.
  */
 export function limitPatch(
-  node: ComponentNode, patch: Partial<ComponentNode>, notes?: string[],
+  node: ComponentNode, patch: Partial<ComponentNode>, notes?: string[], units: UnitSelection = INITIAL_UNITS,
 ): Partial<ComponentNode> {
   const after = { ...node, ...patch } as ComponentNode;
   let out: Partial<ComponentNode> | null = null;
@@ -395,8 +401,8 @@ export function limitPatch(
     const fixed = applyFieldLimit(POSITION_LIMIT, pos.offset);
     if (fixed !== pos.offset) {
       (out ??= { ...patch }).position = { ...pos, offset: fixed };
-      if (notes) {
-        const f = limitFinding(after, 'position', POSITION_LIMIT, pos.offset, fixed);
+      if (notes && !noticeEqual(fixed, pos.offset)) {
+        const f = limitFinding(after, 'position', POSITION_LIMIT, pos.offset, fixed, units);
         notes.push(`${f.problem} — ${f.repair}.`);
       }
     }
@@ -409,8 +415,8 @@ export function limitPatch(
     // Match the load boundary for unrepairable values (audit 2026-10-11, S4a-6).
     if (!Number.isFinite(raw) || fixed === raw) continue;
     (out ??= { ...patch })[key] = fixed;
-    if (notes) {
-      const f = limitFinding(after, key, limit, raw, fixed);
+    if (notes && (limit.kind === 'count' || limit.kind === 'scalar' || !noticeEqual(raw, fixed))) {
+      const f = limitFinding(after, key, limit, raw, fixed, units);
       notes.push(`${f.problem} — ${f.repair}.`);
     }
   }
@@ -451,16 +457,16 @@ export function configSeparationNote(stage: ComponentNode, raw: string): string 
  * sanitize table read as a validator, plus the freeform outline check the fin
  * editor and the importers already use. Pure: nothing is repaired.
  */
-export function treeProblems(tree: RocketTree): string[] {
+export function treeProblems(tree: RocketTree, units: UnitSelection = INITIAL_UNITS): string[] {
   const found: Finding[] = [];
   const outlines: string[] = [];
   const visit = (nodes: ComponentNode[]) => {
     for (const n of nodes) {
-      sanitizeOwn(n, found);
+      sanitizeOwn(n, found, units);
       // Only a STATED outline: a freeform set with no points flies the
       // kernel's own default planform, which is not a problem.
       if (n.type === 'freeformfinset' && Array.isArray(n['points'])) {
-        const why = finOutlineProblem(n['points'] as FinOutlinePoint[]);
+        const why = finOutlineProblem(n['points'] as FinOutlinePoint[], units);
         if (why) outlines.push(`${partName(n)}: ${why.replace(/\.$/, '')}`);
       }
       visit(n.children ?? []);
@@ -535,11 +541,11 @@ export function partBlockingBuild(
  * the design.
  */
 export function explainBuildFailure(
-  tree: RocketTree, kernelMessage: string, builds?: (t: RocketTree) => boolean,
+  tree: RocketTree, kernelMessage: string, builds?: (t: RocketTree) => boolean, units: UnitSelection = INITIAL_UNITS,
 ): string {
   let problems: string[];
   try {
-    problems = treeProblems(tree);
+    problems = treeProblems(tree, units);
     if (problems.length === 0 && builds) {
       const part = partBlockingBuild(tree, builds);
       if (part) {

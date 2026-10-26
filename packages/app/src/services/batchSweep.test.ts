@@ -42,7 +42,7 @@ import {
 
 afterEach(() => { vi.restoreAllMocks(); });
 
-/** One 45 cm, 42 mm airframe; the options change only what each test is about. */
+/** One 45 cm long, 42 mm diameter airframe; options change only what each test is about. */
 function rocket(opts: {
   deployEvent?: string; nozzleExitDiameter?: number; sideMount?: boolean;
 } = {}): RocketTree {
@@ -268,7 +268,7 @@ it('N003 mixed zero-delay rows keep the recovery caution for both temporary grou
   expect(rows).toHaveLength(3);
   for (const row of rows) {
     expect(row.error).toBeUndefined();
-    expect(row.run!.comments).toContain('1 ft/s [0.3 m/s]');
+    expect(row.run!.comments).toContain('1 ft/s (0.3 m/s)');
     const notes = commentsOf(row.run!).filter(c => c.text.includes('zero-second'));
     expect(notes).toHaveLength(row.combo ? 2 : 1);
     expect(notes.every(c => c.level === 'caution' && c.text.includes('Main'))).toBe(true);

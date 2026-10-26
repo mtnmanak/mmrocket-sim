@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { importRkt } from './rocksimFile.js';
 import { importedLaunch, planImport, retainedLaunchNote } from './importApply.js';
+import { DEFAULT_PREFS } from '../prefs/preferences.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -60,7 +61,7 @@ describe('.rkt launch site (board row 80)', () => {
     const note = siteNote(r.notes)!;
     expect(note).toContain('latitude 37°');
     expect(note).toContain('longitude 0°');
-    expect(note).toContain('213.36 m');
+    expect(note).toContain('213.4 m (700 ft)');
     expect(note).toContain('Simulation 1');
     expect(r.launchSiteRefused).toBe(true);
   });
@@ -76,8 +77,8 @@ describe('.rkt launch site (board row 80)', () => {
     expect(refused).toHaveLength(1);
     const unset = opened(rkt([{ lat: '1.571', lon: '-101.593', alt: '0.' }]));
     expect(unset).toHaveLength(1);
-    expect(unset[0]).toMatch(/latitude 1\.571°, longitude -101\.593°, site altitude 0 m; that latitude looks unset .* so the Launch panel keeps the settings you had\.$/);
-    expect(refused[0]).toMatch(/states its launch site as latitude 37°, longitude 0°, site altitude 213\.36 m; .* reads no other launch condition from a \.rkt, so the Launch panel keeps the settings you had\.$/);
+    expect(unset[0]).toMatch(/latitude 1\.571°, longitude -101\.593°, site altitude 0 m \(0 ft\); that latitude looks unset .* so the Launch panel keeps the settings you had\.$/);
+    expect(refused[0]).toMatch(/states its launch site as latitude 37°, longitude 0°, site altitude 213\.4 m \(700 ft\); .* reads no other launch condition from a \.rkt, so the Launch panel keeps the settings you had\.$/);
     // A file that states no site at all still hears the open's own line.
     expect(opened(rkt([{}]))).toEqual([
       'From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had.',
@@ -201,4 +202,10 @@ describe('.rkt launch site (board row 80)', () => {
     expect(wm.launch).toBeUndefined();
     expect(siteNote(wm.notes)).toContain('longitude 0°');
   }, 30_000);
+});
+
+it('uses the units-only preference for longitude evidence', () => {
+  const result = importRkt(rkt([{ lat: '26.380273', lon: '80.126879' }, { lat: '28.1', lon: '-80.63' }]),
+    { units: { ...DEFAULT_PREFS.units, distance: 'mi' } });
+  expect(result.notes.join(' ')).toContain('8,500 mi (13,679 km) away. With the sign flipped it is 100 mi (161 km) from them.');
 });

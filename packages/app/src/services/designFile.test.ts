@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
+import { INITIAL_UNITS } from '../prefs/units.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import {
@@ -116,7 +117,7 @@ describe('parseDesignFile and openDesignFile', () => {
   };
 
   it.each(['ork', 'rkt', 'CDX1'])('N032 clamped %s site notes quote file evidence but read field bounds in Altitude', async format => {
-    for (const [altitude, upper] of [['km', '10 km'], ['ft', '32808.399 ft']]) {
+    for (const altitude of ['km', 'ft']) {
       for (const high of [true, false]) {
         const source = format === 'CDX1' ? (high ? 150000 : -1000) : (high ? 20000 : -100);
         const data = siteFile(format, source);
@@ -124,9 +125,15 @@ describe('parseDesignFile and openDesignFile', () => {
         const imported = await parseDesignFile(data, `site.${format}`, { presets: [], distanceUnit: altitude,
           horizontalDistanceUnit: altitude === 'km' ? 'ft' : 'km' });
         const note = imported.notes.find(n => n.includes('Site altitude field'));
-        expect.soft(note).toContain(`altitude is ${source} ${format === 'CDX1' ? 'ft' : 'm'}`);
-        expect.soft(note).toContain(`accepts 0 ${altitude} to ${upper}`);
-        expect.soft(note).toContain(`imported as ${high ? upper : `0 ${altitude}`}`);
+        const metres = format === 'CDX1' ? source / 3.28084 : source;
+        const rounded = (value: number, places: number) => String(Number(value.toFixed(places)));
+        const evidence = altitude === 'km' ? `${rounded(metres / 1000, 3)} km (${rounded(metres / 0.3048, 1)} ft)`
+          : `${rounded(metres / 0.3048, 1)} ft (${rounded(metres, 1)} m)`;
+        const lo = altitude === 'km' ? '0 km (0 ft)' : '0 ft (0 m)';
+        const hi = altitude === 'km' ? '10 km (32808.4 ft)' : '32808.4 ft (10000 m)';
+        expect.soft(note).toContain(`altitude is ${evidence}`);
+        expect.soft(note).toContain(`accepts ${lo} to ${hi}`);
+        expect.soft(note).toContain(`imported as ${high ? hi : lo}`);
         expect(imported.launch).toEqual(baseline.launch);
         expect(imported.launch!.launchAltitudeM).toBe(high ? 10000 : 0);
         expect(imported.noteTiers?.filter(n => n.kind === 'I25.clamped').map(n => n.tier)).toEqual(['caution']);
@@ -135,12 +142,19 @@ describe('parseDesignFile and openDesignFile', () => {
     }
   });
 
+it.each(['ork', 'rkt'])('uses a units-only preference for %s longitude evidence', async format => {
+  const result = await parseDesignFile(siteFile(format, 100, true), `site.${format}`, {
+    presets: [], units: { ...INITIAL_UNITS, distance: 'mi' },
+  });
+  expect(result.notes.join(' ')).toContain('8,500 mi (13,679 km) away. With the sign flipped it is 100 mi (161 km) from them.');
+});
+
   it.each(['ork', 'rkt'])('N032 new %s longitude distances follow Horizontal distance independently of Altitude', async format => {
     const data = siteFile(format, 100, true);
     const baseline = await parseDesignFile(data, `site.${format}`, { presets: [] });
     for (const [altitude, horizontalDistanceUnit, away, nearby] of [
-      ['ft', 'mi', '8,500 mi', '100 mi'], ['km', 'yd', '8,500 mi', '100 mi'],
-      ['mi', 'm', '13,600 km', '200 km'], ['ft', 'km', '13,600 km', '200 km'],
+      ['ft', 'mi', '8,500 mi (13,679 km)', '100 mi (161 km)'], ['km', 'yd', '8,500 mi (13,679 km)', '100 mi (161 km)'],
+      ['mi', 'm', '13,600 km (8,451 mi)', '200 km (124 mi)'], ['ft', 'km', '13,600 km (8,451 mi)', '200 km (124 mi)'],
     ]) {
       const imported = await parseDesignFile(data, `site.${format}`, { presets: [], distanceUnit: altitude, horizontalDistanceUnit });
       const note = imported.notes.find(n => n.includes('sign flipped'));
@@ -157,8 +171,8 @@ describe('parseDesignFile and openDesignFile', () => {
   });
 
   it.each([
-    ['m', '152.4 m', '91.44 m'], ['km', '0.152 km', '0.0914 km'],
-    ['ft', '500 ft', '300 ft'], ['yd', '166.667 yd', '100 yd'], ['mi', '0.0947 mi', '0.0568 mi'],
+    ['m', '152.4 m (500 ft)', '91.44 m [300 ft]'], ['km', '0.152 km (500 ft)', '0.0914 km [300 ft]'],
+    ['ft', '500 ft (152.4 m)', '300 ft [91.4 m]'], ['yd', '166.667 yd (152.4 m)', '100 yd [91.4 m]'], ['mi', '0.0947 mi (152.4 m)', '0.0568 mi [91.4 m]'],
   ])('N032 new .ork override heights follow Altitude %s without changing SI or the file', async (altitude, flown, own) => {
     const recovery = (kind: string) => `<${kind}><name>${kind}</name>
       <deployevent>altitude</deployevent><deployaltitude>91.44</deployaltitude><deploydelay>0</deploydelay>
@@ -219,8 +233,8 @@ describe('parseDesignFile and openDesignFile', () => {
   });
 
   it.each([
-    ['m', '305 m', '1189 m'], ['km', '0.3 km', '1.19 km'],
-    ['ft', '1000 ft', '3900 ft'], ['yd', '333 yd', '1300 yd'], ['mi', '0.19 mi', '0.74 mi'],
+    ['m', '304.8 m [1000 ft]', '1188.7 m (3900 ft)'], ['km', '0.305 km [1000 ft]', '1.189 km (3900 ft)'],
+    ['ft', '1000 ft [304.8 m]', '3900 ft (1188.7 m)'], ['yd', '333.3 yd [304.8 m]', '1300 yd (1188.7 m)'], ['mi', '0.189 mi [304.8 m]', '0.739 mi (1188.7 m)'],
   ])('N032 new RASAero height notes follow Altitude %s without changing SI or the file', async (distanceUnit, top, pad) => {
     const xml = '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>'
       + '</RocketDesign><MachAlt><Item>0, 0</Item><Item>1, 1000</Item><Item>2, 500</Item></MachAlt>'
@@ -231,8 +245,8 @@ describe('parseDesignFile and openDesignFile', () => {
     const imported = await parseDesignFile(data, 'heights.CDX1', { presets: [], distanceUnit });
     expect(imported.notes.find(note => note.includes('Mach-Alt conditions table'))).toContain(`3 points, to ${top})`);
     expect(imported.notes.find(note => note.startsWith('Launch site:'))).toContain(`the pad is at ${pad} where`);
-    expect(baseline.notes.find(note => note.includes('Mach-Alt conditions table'))).toContain('to 1000 ft)');
-    expect(baseline.notes.find(note => note.startsWith('Launch site:'))).toContain('at 3900 ft where');
+    expect(baseline.notes.find(note => note.includes('Mach-Alt conditions table'))).toContain('to 304.8 m [1000 ft])');
+    expect(baseline.notes.find(note => note.startsWith('Launch site:'))).toContain('at 1188.7 m (3900 ft) where');
     expect(imported.machAlt).toEqual(baseline.machAlt);
     expect(imported.launch).toEqual(baseline.launch);
     // RASAero's existing approximate feet conversion differs by under 0.1 mm.
@@ -244,7 +258,7 @@ describe('parseDesignFile and openDesignFile', () => {
   });
 
   it.each([
-    ['m', '1326 m'], ['km', '1.33 km'], ['ft', '4352 ft'], ['yd', '1451 yd'], ['mi', '0.82 mi'],
+    ['m', '1,326.5 m (4,352 ft)'], ['km', '1.326 km (4,352 ft)'], ['ft', '4,352 ft (1,326.5 m)'], ['yd', '1,450.7 yd (1,326.5 m)'], ['mi', '0.824 mi (1,326.5 m)'],
   ])('N032 stored RASAero apogee follows Altitude %s independently of Horizontal distance', async (distanceUnit, apogee) => {
     const data = fixture('Complex.Two-Stage.CDX1');
     const original = data.slice(0);
@@ -252,9 +266,9 @@ describe('parseDesignFile and openDesignFile', () => {
     const prediction = (d: ImportedDesign) => d.notes.find(n => n.startsWith('RASAero\u2019s stored prediction'));
     const legacy = prediction(baseline);
     expect(legacy).toContain('simulation 1, as last run in RASAero');
-    expect(legacy).toContain('apogee 4,352 ft, maximum velocity 578 ft/s');
+    expect(legacy).toContain('apogee 1,326.5 m (4,352 ft) (file: 4351.988 ft), maximum velocity 176.1 m/s (578 ft/s)');
     expect(legacy).toContain('prediction, not a measurement');
-    expect(legacy).not.toContain('(file:');
+    expect(legacy).toContain('(file: 4351.988 ft)');
     const flightInputs = (d: ImportedDesign) => {
       // Each import mints fresh c<number> identities; retain their reference relationships.
       const ids = new Map<string, string>();
@@ -268,7 +282,7 @@ describe('parseDesignFile and openDesignFile', () => {
       const imported = await parseDesignFile(data, 'Complex.Two-Stage.CDX1', { presets: [], distanceUnit, horizontalDistanceUnit });
       // MaxAltitude is 4351.988 ft in the fixture; display expectations are hand-converted.
       // Only the apogee readout changes: attribution, motors, velocity and caveat stay intact.
-      expect(prediction(imported)).toBe(legacy!.replace('apogee 4,352 ft', `apogee ${apogee} (file: 4351.988 ft)`));
+      expect(prediction(imported)).toBe(legacy!.replace('apogee 1,326.5 m (4,352 ft)', `apogee ${apogee}`));
       expect(imported.launch).toEqual(baseline.launch);
       expect(imported.machAlt).toEqual(baseline.machAlt);
       expect(flightInputs(imported)).toBe(flightInputs(baseline));

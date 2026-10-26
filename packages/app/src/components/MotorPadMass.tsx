@@ -2,7 +2,7 @@ import { Note } from './Note.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { noticeQuantity, fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import type { HardwareMassResult, MountChange } from '../services/hardwareMass.js';
 
 /**
@@ -79,7 +79,7 @@ export function MotorPadMass({
 }) {
   const { prefs } = usePrefs();
   const massSym = prefs.units.mass;
-  const mass = (kg: number) => `${fmtSi('mass', massSym, kg)} ${massSym}`;
+  const mass = (kg: number, parenthesized = false) => noticeQuantity('mass', kg, prefs.units, { parenthesized });
 
   const id = `pad-mass-${mountId}`;
   const lineId = `${id}-line`;
@@ -191,7 +191,7 @@ function padMassLineContent({
   /** The input shows a number (a value, not legacy-pending). */
   hasValue: boolean;
   multiMotor: boolean;
-  mass: (kg: number) => string;
+  mass: (kg: number, parenthesized?: boolean) => string;
   motorLabel: string;
   mountName: string;
   computedPadMassKg: number | null;
@@ -240,7 +240,7 @@ function padMassLineContent({
     // and the user cannot check that against a number they cannot see.
     case 'implausible':
       return warn(hardware.reason === 'negative'
-        ? `Weighed pad mass is ${mass(-hardware.deltaKg)} LIGHTER than the dry rocket plus the ${catalogue(hardware)} (${mass(hardware.motorMassKg)}) — a typo or a different motor. Nothing is carried.`
+        ? `Weighed pad mass is ${mass(-hardware.deltaKg)} LIGHTER than the dry rocket plus the ${catalogue(hardware)} with mass ${mass(hardware.motorMassKg)} — a typo or a different motor. Nothing is carried.`
         : `That would carry ${mass(hardware.deltaKg)} as hardware — more than the airframe itself. A typo or a different motor; nothing is carried.`);
 
     case 'ok':
@@ -249,7 +249,7 @@ function padMassLineContent({
           <span className="measured-delta">{mass(hardware.deltaKg)}</span>
           {` carried as hardware — adapter, retainer, closure: ${mass(hardware.dryMassKg + hardware.motorMassKg + hardware.deltaKg)} weighed − dry ${mass(hardware.dryMassKg)} ${hardware.drySource === 'measured' ? 'as you measured it' : 'as computed'} − ${catalogue(hardware)} ${mass(hardware.motorMassKg)}.`}
           {hardware.mountCount > 1 && ` Carried on ${mountName}.`}
-          {hardware.motorCount > 1 && ` (×${hardware.motorCount}, ${mass(hardware.perMotorShiftKg)} each)`}
+          {hardware.motorCount > 1 && ` (×${hardware.motorCount}, ${mass(hardware.perMotorShiftKg, true)} each)`}
           {hardware.large && ' More than half the motor’s own weight — check the entry.'}
           {/* With motors on more than one mount the weighing was of the SET,
               and a booster swap stops it applying just as a sustainer swap

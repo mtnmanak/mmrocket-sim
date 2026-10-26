@@ -47,6 +47,13 @@ describe('tab outline', () => {
 });
 
 describe('finTemplateSvg', () => {
+  it.each(['rounded', 'airfoil'])('retains sub-millimetre %s stock and tab dimensions', crossSection => {
+    const svg = finTemplateSvg({ type: 'freeformfinset', thickness: 0.00005, crossSection,
+      points: [[0, 0], [0.02, 0.03], [0.06, 0]], tabHeight: 0.00015, tabLength: 0.03 }, 'Thin fin');
+    expect(svg).toContain('thickness 0.05 mm');
+    expect(svg).toContain('tab 0.15 mm deep');
+  });
+
   const fin: ComponentNode = {
     type: 'trapezoidfinset', name: 'Main fins', finCount: 4,
     rootChord: 0.08, tipChord: 0.04, sweep: 0.03, height: 0.05, thickness: 0.003,
@@ -289,6 +296,9 @@ it.each([undefined, null])('B6 exports the implicit freeform fin with its real r
  * The page colour (@atestani, TRF 2026-10-11: the SVG's background shows grey
  * and turns black as a JPEG). 'transparent' must stay byte-for-byte the v0.179
  * file — the hashes were taken from it — and 'white' must add no geometry.
+ * Follow-up U restores the printed ruler's original label. These ORIGINAL
+ * HEAD hashes compare every byte, including the calibration notice and page
+ * dimensions; no normalization or new baseline can hide a geometry change.
  */
 describe('finTemplateSvg — white or transparent page', () => {
   const FIN = {
@@ -305,9 +315,11 @@ describe('finTemplateSvg — white or transparent page', () => {
   const sha = (s: string): string => createHash('sha256').update(s).digest('hex');
   const ctx = { tabMaxDepth: 0.02 };
 
-  it.each(GOLDEN)('%s: the transparent page is the v0.179 file, byte for byte', (_k, n, hash) => {
-    expect(sha(finTemplateSvg(n, 'Gö “Rocket”', ctx))).toBe(hash);
-    expect(sha(finTemplateSvg(n, 'Gö “Rocket”', ctx, 'transparent'))).toBe(hash);
+  it.each(GOLDEN)('%s: retains the v0.179 geometry and adds paired calibration advice', (_k, n, hash) => {
+    for (const svg of [finTemplateSvg(n, 'Gö “Rocket”', ctx), finTemplateSvg(n, 'Gö “Rocket”', ctx, 'transparent')]) {
+      expect(svg).toContain('exactly 50 mm (1.969 in).');
+      expect(sha(svg.replace('exactly 50 mm (1.969 in).', 'exactly 50 mm.'))).toBe(hash);
+    }
   });
 
   it.each(GOLDEN)('%s: the white page differs only by a CSS background on the root <svg>', (_k, n) => {

@@ -2,7 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   EXIT_MAX_FRACTION_OF_CASE, EXIT_MIN_FRACTION_OF_CASE, addExMotors, exToDbEntry, exitDiameterFromRse,
-  getExMotor, impulseClassOf, loadExMotors, parseEng, parseRse,
+  getExMotor, impulseClassOf, loadExMotors, parseEng, parseRse, exToMotorSpec, validExMotor,
 } from './exMotors.js';
 import { defaultDelay, delayOptions, fetchMotorSpec, fileImpulseNs } from './thrustcurve.js';
 
@@ -43,6 +43,36 @@ const RSE = `<engine-database>
   </engine>
  </engine-list>
 </engine-database>`;
+
+describe('R10 accepted mass residue round trips', () => {
+  afterEach(() => localStorage.clear());
+
+  it.each(['eng', 'rse', 'rse-auto'])('normalizes %s header masses before library admission and conversion', format => {
+    const notes: string[] = [];
+    const parsed = format === 'eng'
+      ? parseEng('R10 29 100 P 0.1000000000000001 0.1 Home\n0 0\n0.5 10\n1 0\n', notes)
+      : parseRse('<engine-database><engine code="R10" mfg="Home" dia="29" len="100"'
+        + ' initWt="100" propWt="100.0000000000001" auto-calc-mass="' + (format === 'rse' ? '0' : '1') + '"><data>'
+        + '<eng-data t="0" f="0" m="100.0000000000001"/>'
+        + '<eng-data t="0.5" f="10" m="50"/><eng-data t="1" f="0" m="0"/>'
+        + '</data></engine></engine-database>', notes);
+    expect(parsed).toHaveLength(1);
+    const importedSpec = exToMotorSpec(parsed[0]!, Infinity);
+    expect(importedSpec.masses.every(m => m >= 0)).toBe(true);
+    const write = addExMotors(parsed);
+    expect(write.stored).toBe(true);
+    const reloaded = loadExMotors();
+    expect(reloaded).toHaveLength(1);
+    expect(reloaded).toEqual(parsed);
+    const motor = reloaded[0]!;
+    expect(validExMotor(motor)).toBe(true);
+    expect(motor.propWeightG).toBe(motor.totalWeightG);
+    expect(notes).toEqual([]);
+    const spec = exToMotorSpec(motor, Infinity);
+    expect(spec.masses.at(-1)).toBe(0);
+    expect(spec.masses.every(m => m >= 0)).toBe(true);
+  });
+});
 
 describe('storage hardening: EX motors', () => {
   afterEach(() => { localStorage.clear(); });
@@ -101,7 +131,7 @@ describe('B5b EX motor regressions', () => {
   it('formats the dry-case boundary without subtraction noise when rejecting masses', () => {
     const notes: string[] = [];
     expect(parseRse(xml([100, 95, 1]).replace('propWt="50"', 'propWt="90.1"'), notes)[0]!.sampleMassesKg).toBeUndefined();
-    expect(notes.join(' ')).toContain('9.9\u2013100 g');
+    expect(notes.join(' ')).toContain('9.9 g (0.349 oz)–100 g (3.53 oz)');
     expect(notes.join(' ')).not.toContain('9.900000000000006');
   });
 
@@ -316,7 +346,7 @@ describe('.rse files with missing mass data', () => {
     const notes: string[] = [];
     const motors = parseRse(`<engine-database><engine-list>${heavy}${good}</engine-list></engine-database>`, notes);
     expect(motors.map((m) => m.designation)).toEqual(['OK1']);
-    expect(notes).toEqual([expect.stringMatching(/skipped 1 motor — Motor HEAVY: more propellant \(150 g\)/)]);
+    expect(notes).toEqual([expect.stringMatching(/skipped 1 motor — Motor HEAVY: more propellant \(150 g \[5\.29 oz\]\)/)]);
   });
 });
 
@@ -426,7 +456,7 @@ M1297 75 1000 P ${propKg} ${totKg} Loki
   // propellant than it weighs imported and failed at fly time — and a bad
   // header sank every other motor in the file with it.
   it('refuses a header with more propellant than loaded mass', () => {
-    expect(() => parseEng(bad('3.9', '3.5'))).toThrow(/more propellant \(3900 g\) than loaded mass \(3500 g\)/);
+    expect(() => parseEng(bad('3.9', '3.5'))).toThrow(/more propellant \(3900 g \[8\.6 lb\]\) than loaded mass \(3500 g \[7\.72 lb\]\)/);
   });
 
   it('skips only the bad motor in a multi-motor file, and names it', () => {
@@ -622,7 +652,7 @@ describe('a .rse nozzle exit diameter', () => {
     const [m] = parseRse(rse('exitDia="1.5"'), notes);
     expect(m!.exitDiameterM).toBeUndefined();
     expect(notes).toHaveLength(1);
-    expect(notes[0]).toMatch(/^B2: its nozzle exit, exitDia 1\.5 \(only 8% of the 18 mm case.*inches.*was not used\.$/);
+    expect(notes[0]).toMatch(/^B2: its nozzle exit, exitDia 1\.5 \(only 8% of the 18 mm \[0\.709 in\] case.*inches.*was not used\.$/);
     const high: string[] = [];
     parseRse(rse('exitDia="18."'), high);
     expect(high[0]).toMatch(/case diameter/);
@@ -815,4 +845,25 @@ describe('lane C EX import regressions', () => {
     const engine = RSE.match(/<engine mfg=[\s\S]*?<\/engine>/)![0];
     expect(parseRse('<engine-database>' + engine.repeat(1100) + '</engine-database>')).toHaveLength(1100);
   });
+});
+
+it.each([undefined, 'junk', 'Infinity'])('names an unreadable RSE propellant token (%s)', token => {
+  const attr = token === undefined ? '' : ` propWt="${token}"`;
+  expect(() => parseRse(`<engine-database><engine code="H100" initWt="20" dia="29" len="100"${attr}/></engine-database>`))
+    .toThrow(token === undefined ? 'Motor H100: propellant mass (propWt) missing' : `Motor H100: propellant mass (propWt) "${token}" is not a finite number`);
+});
+
+it('names corrupt stored mass tokens without inventing a physical quantity', () => {
+  const good = parseEng(ENG)[0]!;
+  localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([
+    { ...good, totalWeightG: 'bad' }, { ...good, propWeightG: null },
+    { ...good, samples: null },
+  ]));
+  try {
+    const notes: string[] = [];
+    expect(loadExMotors(notes)).toEqual([]);
+    expect(notes[0]).toContain('loaded mass "bad" is not a finite number');
+    expect(notes[1]).toContain('propellant mass "null" is not a finite number');
+    expect(notes[2]).toContain('invalid dimensions, curve or motor fields');
+  } finally { localStorage.clear(); }
 });

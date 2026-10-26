@@ -93,14 +93,14 @@ import { PanelBoundary } from './components/PanelBoundary.js';
 import { motorTooltip, restoreConfigLabels, restoreMotorLabels } from './services/motorLabels.js';
 import { getCatalogue, subscribeCatalogue } from './services/motorDb.js';
 import { useCatalogue } from './components/useCatalogue.js';
-import { loadCatalogueMotor } from './services/motorMatch.js';
+import { loadCatalogueMotor, matchImportedMotor } from './services/motorMatch.js';
 import { restoreCatalogueOverlay } from './services/catalogueOverlay.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { SiteBand, SiteBandFooter } from './components/SiteBand.js';
 import { MMR_NAV_FALLBACK, useMmrNav } from './services/useMmrNav.js';
 import { AERO_NAME, aeroChoiceOf, effectiveAero, usePrefs, type AeroChoice } from './prefs/PrefsContext.js';
 import { UnitChip } from './components/UnitChip.js';
-import { fmtSi } from './prefs/units.js';
+import { noticeQuantity, fmtSi } from './prefs/units.js';
 import { classLabel, diameterClass } from './services/motorDb.js';
 import type { FlownAutoDelays } from './services/orkExportMotors.js';
 import { withAuto, withDelay, withPlugged } from './services/mountDelayEdits.js';
@@ -342,7 +342,7 @@ export function App() {
   // normalizeTree wraps pre-v0.009 flat trees in one stage. Lazy useState:
   // loadSession parses the whole tree — never re-run it on re-renders.
   const [loadedSession] = useState(loadSession);
-  const [restored] = useState(() => designStateFromSession(loadedSession, { legacyMaxMotorLengthM: legacyMaxMotorLength() }));
+  const [restored] = useState(() => designStateFromSession(loadedSession, { legacyMaxMotorLengthM: legacyMaxMotorLength(), units: prefs.units }));
   const session = restored.refused ? null : loadedSession;
   const [autosavePaused, setAutosavePaused] = useState(restored.refused);
   const [importedDocument, setImportedDocument] = useState(() => session?.importedDocument);
@@ -1389,7 +1389,7 @@ export function App() {
     measuredDryMassKg: measured.massKg,
     primaryMountId,
     currentSetKey,
-    lengthUnit: prefs.units.length,
+    lengthUnit: prefs.units.length, units: prefs.units,
   }), {
     ...KERNEL_HANDLES,
     // Auto yields between probes. A render may build a newer design while the
@@ -1413,7 +1413,7 @@ export function App() {
     // changes when they do.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   [flightTree.components, assigned, effectiveKbf, effectiveSupersonic, effectiveHybrid, measured.massKg, primaryMountId, currentSetKey,
-    prefs.units.length]);
+    prefs.units]);
   const built = 'error' in buildResult ? null : buildResult;
   const auditCanReadMass = built !== null;
   const auditMasses = useMemo(() => auditCanReadMass ? readAuditMasses(flightTree) : {},
@@ -1421,9 +1421,9 @@ export function App() {
     // not change computed own-part mass (N028). Keep numeric evidence, not a handle.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- components deliberately: no rocket-name dependency
     [flightTree.components, auditCanReadMass]);
-  const designAudit = useMemo(() => preflightAudit(flightTree, auditMasses, built?.info.warningTexts),
+  const designAudit = useMemo(() => preflightAudit(flightTree, auditMasses, built?.info.warningTexts, prefs.units),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- components deliberately: no rocket-name dependency
-    [flightTree.components, auditMasses, built]);
+    [flightTree.components, auditMasses, built, prefs.units]);
   const stabilityRangeInput = useMemo(() => ({
     tree: { components: tree.components, ignitionDefaults: (tree as FlightTree).ignitionDefaults },
     configs: withActiveConfigTreeSynced(liveConfigs, activeConfigId, tree),
@@ -1787,8 +1787,8 @@ export function App() {
       [STATED_STAGE_FIGURES]: undefined,
     } as Partial<ComponentNode>));
     setFileNote(`“${blocker.name ?? 'Stage'}” is now pinned to your measured `
-      + `${fmtSi('mass', prefs.units.mass, measured.massKg)} ${prefs.units.mass}`
-      + ` and CG ${fmtSi('length', prefs.units.length, measured.cgM, 3)} ${prefs.units.length}. `
+      + noticeQuantity('mass', measured.massKg, prefs.units)
+      + ` and CG ${noticeQuantity('length', measured.cgM, prefs.units)}. `
       + 'Clear it under Overrides to go back to the computed geometry.');
     setSelectedId(blocker.id);
   }, [canPinBlocker, allowanceBlocker, measured, tree, prefs.units, setFileNote, setTree, setSelectedId]);
@@ -1816,7 +1816,7 @@ export function App() {
     padMassNote,
     fileNote: fileNoteState,
     runsCapped,
-    lengthText: (m) => `${fmtSi('length', prefs.units.length, m)} ${prefs.units.length}`,
+    lengthText: (m) => noticeQuantity('motorDimensions', m, prefs.units),
   }, {
     simError: () => setSimError(null),
     staleSession: () => setRestoredByOlderBuild(false),
@@ -1829,7 +1829,7 @@ export function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- components and legacy check deliberately: a rename must not re-run this (row 513)
   [buildError, buildFailed, motorFailures, fileNoteState, setFileNote, motorLoadoutRepair,
     restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote, runsCapped,
-    tree.components, legacyPositionCheck, treeRef, writeTree, assigned, prefs.units.length]);
+    tree.components, legacyPositionCheck, treeRef, writeTree, assigned, prefs.units.motorDimensions]);
 
   /** Assigns a motor to a mount, with the propellant-aware ignition default. */
   const assignMotor = (targetMountId: string, label: string, spec: MotorSpec, meta: MotorMeta) => {
@@ -2029,8 +2029,8 @@ export function App() {
         setSimError(null);
         setFlightSaid((prev) => ({
           seq: prev.seq + 1,
-          text: `Flight complete — apogee ${fmtSi('altitude', prefs.units.altitude, res.summary.maxAltitude)}`
-            + ` ${prefs.units.altitude}.`,
+          text: `Flight complete — apogee ${noticeQuantity('altitude', res.summary.maxAltitude, prefs.units)}`
+            + `.`,
         }));
       } catch (e) {
         // The error is the launched design's, and dies with it like the rest.
@@ -2678,7 +2678,7 @@ export function App() {
     // `dirty` false so the next Open discarded the work silently.
     const openId = seq ?? openSeq.begin();
     // The awaits of an open: every motor the file names, resolved.
-    const resolved = await resolveImportMotors(imported);
+    const resolved = await resolveImportMotors(imported, ref => matchImportedMotor(ref, { units: prefs.units }));
     // EVERY await is behind us; from here on this function writes state. A
     // newer open started while those fetches were outstanding owns the screen
     // now, so this one stops here rather than overwriting it — and, crucially,
@@ -2705,9 +2705,9 @@ export function App() {
     // assembled apart. The launch is merged ONCE, from the mirror, now that
     // every await is behind us (audit 2026-09-22). The history starts over
     // from the opened design: Ctrl+Z does not reach across a file open.
-    const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText });
+    const plan = planImport(imported, resolved, { launch: launchRef.current, text: statedWeightText, units: prefs.units });
     const quietLines = new Set(planImport(imported, acceptedOtherMakerNotes(resolved),
-      { launch: launchRef.current, text: statedWeightText }).note.text.split('\n'));
+      { launch: launchRef.current, text: statedWeightText, units: prefs.units }).note.text.split('\n'));
     const acceptedLines = plan.note.text.split('\n').filter(line => !quietLines.has(line));
     motorChoices.current.clear();
     setAutosavePaused(false);
@@ -3011,9 +3011,10 @@ export function App() {
       const presets = await loadPresets();
       // A .CDX1's stated launch weight is backed out with the curve the motor
       // match below will fly (`fetchMotorSpec`, its default), loaded here first.
-      const imported = await openDesignFile(buffer, file.name, { presets, distanceUnit: prefs.units.altitude,
+      const imported = await openDesignFile(buffer, file.name, { units: prefs.units, presets, distanceUnit: prefs.units.altitude,
         horizontalDistanceUnit: prefs.units.distance,
-        aeroChoice: aeroOverride ?? aeroChoiceOf(prefs), flownSpec: fetchMotorSpec });
+        aeroChoice: aeroOverride ?? aeroChoiceOf(prefs),
+        flownSpec: (motor, delay) => fetchMotorSpec(motor, delay, undefined, { units: prefs.units }) });
       // A multi-configuration .ork used to stop here and ask which one to
       // open. Two testers found that modal the worst moment in the app — it
       // was the FIRST thing a new user saw, and it listed configurations by
@@ -3079,7 +3080,7 @@ export function App() {
         if (h.length > MAX_FRAGMENT_CHARS) {
           throw new Error('the link is far longer than any real design — refusing to decode it');
         }
-        return importOrk(await decodeShareFragment(h), { presets: await loadPresets(), distanceUnit: prefs.units.altitude,
+        return importOrk(await decodeShareFragment(h), { units: prefs.units, presets: await loadPresets(), distanceUnit: prefs.units.altitude,
           horizontalDistanceUnit: prefs.units.distance });
       },
       // Include non-tree edits and work done while the link was decoding.
@@ -3875,7 +3876,7 @@ export function App() {
         shroudPrompt={shroudPrompt} setShroudPrompt={setShroudPrompt} hasOpenMotorQuestion={openMotorQuestion !== null}
         onConvertShrouds={() => {
           if (!shroudPrompt) return;
-          const res = convertShrouds(tree, shroudPrompt.map((s) => s.id));
+          const res = convertShrouds(tree, shroudPrompt.map((s) => s.id), prefs.units);
           setTree(res.tree);
           setFileNote(res.notes.join('\n'));
           setShroudPrompt(null);
@@ -3885,7 +3886,7 @@ export function App() {
           onLater={() => setOpenMotorQuestion(null)}
           onApply={async choices => {
             const { identities, openId } = openMotorQuestion;
-            const next = await applyOpenMotorChoices({ tree, mountMotors, savedConfigs, unmatchedRefs }, activeConfigId, identities, choices);
+            const next = await applyOpenMotorChoices({ tree, mountMotors, savedConfigs, unmatchedRefs }, activeConfigId, identities, choices, undefined, prefs.units);
             if (!openSeq.isCurrent(openId)) return;
             // The chosen motor and its back-out are one undo step (audit 2026-10-11, S2-2).
             const spent = reconcileAllIncludedMotors(treeRef.current, attachedSet(next.mountMotors), statedWeightText);
@@ -4399,7 +4400,7 @@ export function App() {
               // block, each with the parts it names one click away, where the
               // rail button's snap controls are. The same sentences buildDesign
               // appended, matched by identity, so nothing is said twice.
-              const railFindings = railInterferenceFindings(tree).filter(f => staticWarningTier(f.text) === 'information');
+              const railFindings = railInterferenceFindings(tree, prefs.units).filter(f => staticWarningTier(f.text) === 'information');
               const railTexts = new Set(railFindings.map(f => f.text));
               const rest = built.info.warningTexts.filter(t => !railTexts.has(t));
               return <div id="design-notes" tabIndex={-1}>
