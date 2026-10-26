@@ -121,7 +121,9 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
           if (worstAngle === null || worstAngle < u.scales['x']!.min! || worstAngle > u.scales['x']!.max!) return;
           const ctx = u.ctx;
           const px = u.valToPos(worstAngle, 'x', true);
-          ctx.save(); ctx.strokeStyle = ink.axis; ctx.lineWidth = 2; ctx.setLineDash([2, 4]);
+          // The brand's reference ink. Dotted, not the reference dash: the panel's
+          // own copy and the user guide call it "a dotted vertical line".
+          ctx.save(); ctx.strokeStyle = ink.reference; ctx.lineWidth = 2; ctx.setLineDash([2, 4]);
           ctx.beginPath(); ctx.moveTo(px, u.bbox.top); ctx.lineTo(px, u.bbox.top + u.bbox.height); ctx.stroke(); ctx.restore();
         } } }],
       series: [

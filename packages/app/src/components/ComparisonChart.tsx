@@ -173,7 +173,7 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
         if (phase) setZoom({ zoomed: plotIsZoomed(u), percent: zoomPercent(u) });
         else notify.current(plotIsZoomed(u), zoomPercent(u));
       }), tooltipPlugin(prepared ? (si, idx, label) => `${label}; ${phaseLabel(si, idx)}` : undefined),
-      ...(!phase ? [eventPlugin(events, selectedEvents, ink.axis)] : [])],
+      ...(!phase ? [eventPlugin(events, selectedEvents, ink.reference)] : [])],
     };
     const plot = new uPlot(opts, data, el);
     plotRef.current = plot;
