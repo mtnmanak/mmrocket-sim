@@ -14,10 +14,10 @@
   "devDependencies": {
     "@types/node": "^26.6.5",
     "esbuild": "0.28.2",
-    "miniflare": "5.20260921.0-alpha",
+    "miniflare": "5.20261006.1-alpha",
     "typescript": "^5.5.0",
     "vitest": "^5.0.5",
-    "wrangler": "4.136.3"
+    "wrangler": "4.149.0"
   },
   "scripts": {
     "dev": "wrangler dev --local",
