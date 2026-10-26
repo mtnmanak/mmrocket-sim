@@ -6,7 +6,7 @@ import type { FlightTree } from '../model/design.js';
 import { cleanDocumentMaterials } from './documentMaterials.js';
 
 export type MaterialKind = 'bulk' | 'surface' | 'line';
-export const MATERIAL_LISTS = { bulk: BULK_MATERIALS, surface: SURFACE_MATERIALS, line: LINE_MATERIALS };
+const MATERIAL_LISTS = { bulk: BULK_MATERIALS, surface: SURFACE_MATERIALS, line: LINE_MATERIALS };
 export const MATERIAL_UNITS = { bulk: 'kg/m³', surface: 'kg/m²', line: 'kg/m' };
 export const materialNameKey = (name: string): string => name.trim().toLowerCase();
 export const builtInMaterial = (kind: MaterialKind, name: string): boolean =>

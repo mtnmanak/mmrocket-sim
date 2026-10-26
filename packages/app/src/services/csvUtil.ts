@@ -22,7 +22,7 @@
  * CR are in the list because Excel strips leading whitespace and then reads
  * the '=' behind it.
  */
-export const FORMULA_LEAD = /^[=+\-@\t\r]/;
+const FORMULA_LEAD = /^[=+\-@\t\r]/;
 
 export function csvCell(v: unknown): string {
   const s = v === undefined || v === null ? '' : String(v);

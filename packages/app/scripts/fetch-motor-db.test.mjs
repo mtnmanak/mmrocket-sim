@@ -69,6 +69,19 @@ const correctedRows = () => MOTOR_CORRECTIONS.map((c) => ({
 }));
 
 describe('fetchCatalogue', () => {
+  it.each([null, { manufacturers: [null] }, { manufacturers: [{ abbrev: 42 }] },
+    { manufacturers: [{ abbrev: 'A' }], impulseClasses: [null] }])('rejects invalid metadata: %j', async body => {
+    let calls = 0;
+    await expect(fetchCatalogue({ fetchImpl: async () => {
+      calls++; return { ok: true, json: async () => body };
+    }, log: quiet })).rejects.toThrow(/metadata.*(shape|manufacturers|impulseClasses)/);
+    expect(calls).toBe(1);
+  });
+
+  it.each([null, { matches: 1, results: [null] }, { matches: 1, results: {} }])('rejects invalid search: %j', async body => {
+    const api = fakeApi({ tamper: () => body });
+    await expect(fetchCatalogue({ fetchImpl: api.fetchImpl, log: quiet })).rejects.toThrow(/search.*(shape|results)/);
+  });
   it('pages a maker over the cap by impulse class and returns the whole catalogue', async () => {
     const { fetchImpl, calls } = fakeApi();
     const motors = await fetchCatalogue({ fetchImpl, log: quiet });

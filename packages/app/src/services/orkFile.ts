@@ -337,7 +337,7 @@ const DESKTOP_PRESET_TYPE: Partial<Record<ComponentType, string>> = lookupTable<
 });
 
 // Bound retained predictions, summaries, extensions and per-simulation diagnostics.
-export const MAX_ORK_SIMULATIONS = 1000;
+const MAX_ORK_SIMULATIONS = 1000;
 
 // Bound the dense configuration-by-component recovery and separation tables.
 export { MAX_ORK_CONFIGURATIONS } from './configSnapshot.js';

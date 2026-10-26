@@ -303,7 +303,7 @@ export function crc32(d: Uint8Array): number {
 }
 
 /** Maximum concatenated gzip members; real design files normally have one. */
-export const MAX_GZIP_MEMBERS = 1000;
+const MAX_GZIP_MEMBERS = 1000;
 
 /** Find one complete RFC 1952 header without repeatedly buffering its fields. */
 function gzipHeaderEnd(bytes: Uint8Array, at: number): number {

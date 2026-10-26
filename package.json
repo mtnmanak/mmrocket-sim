@@ -11,11 +11,11 @@
     "node": "^22.13.0 || ^24.0.0 || >=26.0.0"
   },
   "scripts": {
-    "dev": "npm run dev -w @online-openrocket/app",
-    "build": "npm run build -w @online-openrocket/engine && npm run build -w @online-openrocket/app",
-    "typecheck": "npm run build -w @online-openrocket/engine && npm run typecheck -w @online-openrocket/app && npm run typecheck -w @online-openrocket/api",
-    "lint": "npm run build -w @online-openrocket/engine && eslint .",
-    "test": "npm run build -w @online-openrocket/engine && npm run test -w @online-openrocket/engine && npm run test -w @online-openrocket/app && npm run test -w @online-openrocket/api",
+    "dev": "node scripts/check-workspace-links.mjs && npm run dev -w @online-openrocket/app",
+    "build": "node scripts/check-workspace-links.mjs && npm run build -w @online-openrocket/engine && npm run build -w @online-openrocket/app",
+    "typecheck": "node scripts/check-workspace-links.mjs && npm run build -w @online-openrocket/engine && npm run typecheck -w @online-openrocket/app && npm run typecheck -w @online-openrocket/api",
+    "lint": "node scripts/check-workspace-links.mjs && npm run build -w @online-openrocket/engine && eslint .",
+    "test": "node scripts/check-workspace-links.mjs && npm run build -w @online-openrocket/engine && npm run test -w @online-openrocket/engine && npm run test -w @online-openrocket/app && npm run test -w @online-openrocket/api",
     "engine:carve": "node engine-java/scripts/carve.mjs",
     "engine:difftest": "node engine-java/scripts/difftest.mjs",
     "engine:js": "node engine-java/scripts/build-engine.mjs",

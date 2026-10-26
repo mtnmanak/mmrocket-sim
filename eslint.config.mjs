@@ -63,7 +63,7 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import jsxA11y from 'eslint-plugin-jsx-a11y';
 import globals from 'globals';
 import { fileURLToPath } from 'node:url';
-import { existsSync } from 'node:fs';
+import { gitInfoExclude } from './scripts/git-info-exclude.mjs';
 
 // `typeof <member> === 'number'` (or `!==`, `==`, `!=`; `x?.[k]` too): true of
 // NaN and of ±Infinity. The no-restricted-syntax rule in the browser-source
@@ -176,8 +176,8 @@ export default tseslint.config(
   // `npm run lint -- --max-warnings 0` on the laptop, a gate CI's fresh clone always passed. The file is absent in a
   // worktree (its .git is a file) and holds only comments in CI's checkout, so it is read only when it exists. It
   // drops nothing CI lints: `git ls-files -ci --exclude-standard`, which applies this file too, prints nothing.
-  ...(existsSync(fileURLToPath(new URL('.git/info/exclude', import.meta.url)))
-    ? [includeIgnoreFile(fileURLToPath(new URL('.git/info/exclude', import.meta.url)))]
+  ...(gitInfoExclude(fileURLToPath(new URL('.', import.meta.url)))
+    ? [includeIgnoreFile(gitInfoExclude(fileURLToPath(new URL('.', import.meta.url))))]
     : []),
 
   js.configs.recommended,
@@ -662,13 +662,13 @@ export default tseslint.config(
     // picker): fetch-motor-curves.mjs stores each bundled file's desktop digest with it, and
     // the browser computes one for a curve downloaded live (src/services/motorDigest.ts).
     // motor-digest.test.mjs scans for what this rule cannot see.
-    files: ['packages/app/scripts/motor-digest.mjs'],
+    files: ['packages/app/scripts/motor-digest.mjs', 'packages/app/scripts/motor-samples.mjs'],
     rules: {
       'no-restricted-imports': ['error', {
         patterns: [{
           group: ['node:*', 'fs', 'path', 'url', 'os', 'crypto', 'child_process'],
           message:
-            'motor-digest.mjs is bundled into the browser app (imported by src/services/motorDigest.ts). '
+            'This motor helper is bundled into the browser app. '
             + 'A node: import here deploys a module that throws when a design opens. Put pipeline-only '
             + 'code in fetch-motor-curves.mjs instead.',
         }],

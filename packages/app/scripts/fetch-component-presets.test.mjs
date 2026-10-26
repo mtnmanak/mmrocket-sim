@@ -1,10 +1,10 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   DENSITY_UNITS, LENGTH_UNITS, MASS_UNITS, byNtfsName, convertDensity, convertLength, convertMass,
-  main, parseOrc, round,
+  main, parseMaterials, parseOrc, round, fetchWithRetry, stripComments,
 } from './fetch-component-presets.mjs';
 
 /**
@@ -24,6 +24,60 @@ const IN = 0.0254;
 const FT = 12 * IN;
 const LB = 0.45359237;
 const OZ = LB / 16;
+
+it('refuses an unclosed comment without rescanning later openers', () => {
+  expect(stripComments('<r><!-- closed --><x/></r>')).toBe('<r><x/></r>');
+  expect(() => stripComments('<r>' + '<!--'.repeat(20_000))).toThrow(/unclosed.*comment/i);
+});
+
+it('preserves literal comment openers in CDATA', () => {
+  const xml = '<Components><BodyTube><Manufacturer>Home</Manufacturer><PartNumber>T</PartNumber>'
+    + '<Description><![CDATA[Use <!-- as literal text]]></Description></BodyTube></Components>';
+  expect(stripComments(`<!-- discard -->${xml}<!-- after -->`)).toBe(xml);
+  expect(parseOrc(stripComments(xml), 'cdata.orc', new Map()).presets[0].description).toBe('Use <!-- as literal text');
+});
+
+it.each([
+  ['İstanbul', 'İstanbul'],
+  ['<![CDATA[see </Description> &amp; <BodyTube>]]> &amp; text', 'see </Description> &amp; <BodyTube> & text'],
+  ['before<!-- </Description> -->after<?example </Description>?>', 'beforeafter'],
+])('reads preset text without treating its contents as markup: %s', (body, expected) => {
+  const xml = '<Components><BodyTube><Manufacturer>Home</Manufacturer><PartNumber>T</PartNumber>'
+    + `<Description>${body}</Description></BodyTube></Components>`;
+  expect(parseOrc(xml, 'text.orc', new Map()).presets[0].description).toBe(expected);
+});
+
+it.each(['"', "'"])('keeps quoted > characters in material start tags (%s)', quote => {
+  const xml = `<Materials><Material Notes=${quote}d > 0.9${quote} UnitsOfMeasure="g/cm3">`
+    + '<Name>Kraft</Name><Density>0.95</Density><Type>BULK</Type></Material></Materials>';
+  const warnings = [];
+  expect(parseMaterials(xml, 'quoted.orc', warnings).get('Kraft')).toEqual({ BULK: 950 });
+  expect(warnings).toEqual([]);
+});
+
+it.each(['Components', 'BodyTube', 'Manufacturer'])('refuses unclosed %s elements without rescanning later openers', tag => {
+  const repeated = `<${tag}>`.repeat(20_000);
+  const xml = tag === 'Components' ? repeated
+    : `<Components>${tag === 'BodyTube' ? repeated : `<BodyTube>${repeated}</BodyTube>`}</Components>`;
+  expect(() => parseOrc(xml, 'unclosed.orc', new Map())).toThrow(/unclosed.*element/i);
+});
+
+it('refuses unclosed material elements without rescanning later openers', () => {
+  expect(() => parseMaterials(`<Materials>${'<Material>'.repeat(20_000)}</Materials>`, 'unclosed.orc', []))
+    .toThrow(/unclosed.*element/i);
+});
+
+it.each(['Wed, 21 Oct 2099 07:28:00 GMT', 'invalid', '-1', 'Infinity'])('backs off on Retry-After %s', async retryAfter => {
+  const delays = [];
+  await expect(fetchWithRetry('https://example.invalid', {
+    fetchImpl: async () => ({ status: 429, headers: new Headers({ 'retry-after': retryAfter }) }),
+    sleep: async ms => { delays.push(ms); },
+  })).rejects.toThrow();
+  expect(delays).toHaveLength(4);
+  expect(delays.every(ms => Number.isFinite(ms) && ms > 0 && ms <= 90_000)).toBe(true);
+  expect(delays).toEqual(retryAfter.includes('2099') ? [90_000, 90_000, 90_000, 90_000]
+    : [10_000, 20_000, 30_000, 40_000]);
+});
 
 /** Relative agreement to 1e-12: the tables are products of exact definitions. */
 const same = (actual, want) => Math.abs(actual - want) <= 1e-12 * Math.abs(want);
@@ -137,6 +191,19 @@ describe('byNtfsName', () => {
 });
 
 describe('main', () => {
+  it('counts prototype-named manufacturers accurately in the report', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const xml = '<Components>' + ['constructor', '__proto__', 'toString'].map(maker =>
+      `<BodyTube><Manufacturer>${maker}</Manufacturer><PartNumber>T</PartNumber></BodyTube>`).join('') + '</Components>';
+    try {
+      const result = await run({ fetchImpl: async url => url.includes('api.github.com')
+        ? { ok: true, json: async () => [{ type: 'file', name: 'a.orc', download_url: 'https://raw/a.orc' }] }
+        : { ok: true, text: async () => xml } });
+      expect(result.code).toBe(0);
+      const output = log.mock.calls.flat().join('\n');
+      for (const maker of ['constructor', '__proto__', 'toString']) expect(output).toContain(`  ${maker}: 1`);
+    } finally { log.mockRestore(); }
+  });
   const orc = (part) => `<OpenRocketComponent><Components><BodyTube><Manufacturer>Estes</Manufacturer>`
     + `<PartNumber>${part}</PartNumber><Length Unit="mm">100</Length></BodyTube></Components></OpenRocketComponent>`;
 
@@ -166,6 +233,16 @@ describe('main', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   }
+
+  it.each([null, 42, [], {}, { type: 'file', name: null }, { type: 'file', name: 'a.orc', download_url: null }].map(entry => [entry]))(
+    'refuses a malformed listing entry before requesting files: %j', async entry => {
+      let requests = 0;
+      await expect(run({ fetchImpl: async () => {
+        requests++;
+        return { ok: true, json: async () => [entry] };
+      } })).rejects.toThrow(/unexpected GitHub API.*entry/i);
+      expect(requests).toBe(1);
+    });
 
   it('writes the catalogue when every file arrives', async () => {
     const { code, written } = await run({ fetchImpl: github() });

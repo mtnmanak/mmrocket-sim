@@ -80,12 +80,16 @@ export function infoLine(text: string, kind = 'note'): ImportNote {
  * that exact line (each record used once), else Information.
  */
 export function tierLines(texts: readonly string[], records: readonly ImportNote[] = []): ImportNote[] {
-  const pool = [...records];
+  const pool = new Map<string, { entries: ImportNote[]; next: number }>();
+  for (const record of records) {
+    const text = record.text;
+    const group = pool.get(text);
+    if (group) group.entries.push(record);
+    else pool.set(text, { entries: [record], next: 0 });
+  }
   return texts.map((text) => {
-    const i = pool.findIndex((r) => r.text === text);
-    if (i < 0) return infoLine(text);
-    const [hit] = pool.splice(i, 1);
-    return hit!;
+    const group = pool.get(text);
+    return group && group.next < group.entries.length ? group.entries[group.next++]! : infoLine(text);
   });
 }
 

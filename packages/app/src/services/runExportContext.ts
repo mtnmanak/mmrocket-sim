@@ -32,6 +32,8 @@ export function validRunExportContext(value: unknown): value is RunExportContext
   if (launch['geodeticMethod'] !== undefined && (typeof launch['geodeticMethod'] !== 'string'
     || !['flat', 'spherical', 'wgs84'].includes(launch['geodeticMethod']))) return false;
   if (launch['windLevels'] !== undefined && !validWindLevels(launch['windLevels'])) return false;
-  if (launch['windProfileSource'] !== undefined && !validWindProfileSource(launch['windProfileSource'])) return false;
+  if (launch['windProfileSource'] !== undefined
+    && (!Array.isArray(launch['windLevels']) || !launch['windLevels'].length
+      || !validWindProfileSource(launch['windProfileSource']))) return false;
   return v['weather'] === null || validWeatherSnapshot(v['weather']) !== null;
 }

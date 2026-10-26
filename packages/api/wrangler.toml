@@ -9,7 +9,8 @@ ip = "127.0.0.1"
 port = 8787
 
 
-# Deployed 2026-10-23: the heaviest corpus design took 47-56 s warm and was killed at 60 s
-# on cold isolates. Paid Workers' maximum is 300 s; local workerd does not enforce it.
+# Raised to 300 s on 2026-10-24 after cold-isolate CPU P999 about 124 s (47-56 s warm).
+# Deploy B: 129/129 corpus responses, 0 kills; 503 KERNEL_UNAVAILABLE verified on Cloudflare.
+# The budget gives about 2.4x the measured P999. Local workerd does not enforce it.
 [limits]
 cpu_ms = 300000

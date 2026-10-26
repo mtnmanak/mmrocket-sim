@@ -41,6 +41,8 @@ import { ESLint, Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
 import jsxA11y from 'eslint-plugin-jsx-a11y';
 import { existsSync, readFileSync, statSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -114,6 +116,11 @@ describe('eslint.config.mjs — app accessibility guards', () => {
 });
 
 describe('eslint.config.mjs — the browser-source guards resolve and fire', () => {
+  it('refuses Node imports in the browser-bundled motor sample validator', async () => {
+    const motorRules = await rulesFor('packages/app/scripts/motor-samples.mjs', ['no-restricted-imports']);
+    expect(lint("import { readFileSync } from 'node:fs';", motorRules)).toEqual(['no-restricted-imports@1']);
+  });
+
   it('refuses all-inline type imports but permits erased and mixed imports', async () => {
     const rule = '@typescript-eslint/no-import-type-side-effects';
     for (const rel of ['packages/app/src/App.tsx', 'packages/app/src/App.session.test.tsx',
@@ -444,13 +451,13 @@ describe('eslint.config.mjs — a lint from the repo root reaches what CI’s do
     // .git/info/exclude is read too, when there is one (audit 2026-10-17, O-1): the laptop's .b10/ is listed there,
     // not in .gitignore, and its 30 no-undef errors made the local gate red while CI was green. A worktree's .git is
     // a file and CI's exclude holds only comments, so the probe runs only where the file lists a folder.
-    const exclude = new URL('../../../.git/info/exclude', import.meta.url);
+    const exclude = resolve(execFileSync('git', ['rev-parse', '--git-path', 'info/exclude'], { encoding: 'utf8' }).trim());
     const excluded = existsSync(exclude) && statSync(exclude).isFile()
       ? readFileSync(exclude, 'utf8').split(/\r?\n/).map((l) => l.trim())
         .filter((l) => l.endsWith('/') && !l.startsWith('#') && !l.startsWith('!') && !l.includes('*'))
       : [];
     for (const dir of excluded) {
-      for (const probe of [`${dir}probe.mjs`, `${dir}nested/probe.ts`]) {
+      for (const probe of [`${dir.replace(/^\//, '')}probe.mjs`, `${dir.replace(/^\//, '')}nested/probe.ts`]) {
         expect(await eslint.isPathIgnored(probe), probe).toBe(true);
       }
     }
@@ -470,7 +477,7 @@ describe('eslint.config.mjs — a lint from the repo root reaches what CI’s do
     // last, so the `--max-warnings 0` in `npm run lint -- --max-warnings 0`
     // reaches it and not the build.
     const { scripts } = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8'));
-    expect(scripts.lint).toBe('npm run build -w @online-openrocket/engine && eslint .');
+    expect(scripts.lint).toBe('node scripts/check-workspace-links.mjs && npm run build -w @online-openrocket/engine && eslint .');
   });
 });
 

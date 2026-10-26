@@ -26,6 +26,57 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     ...over,
   }) as SimRun;
 
+it.each([{}, { toString: null }, [], null, 42].map(value => [value]))('removes corrupt saved deployment/branch labels without losing the run: %j', bad => {
+  const deployment = { device: 'Main', time: 1, altitude: 20, velocityAtDeployment: 1, descentRate: 2, isLanding: true };
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('labels'),
+    deployments: [{ ...deployment, device: bad }, deployment],
+    branches: [{ name: bad, deployments: [deployment] }, { name: 'Booster', motorLabel: bad, deployments: [{ device: bad }, deployment] }],
+  }]));
+  const runs = loadRuns();
+  expect(runs).toHaveLength(1);
+  expect(runs[0]!.deployments).toEqual([deployment]);
+  expect(runs[0]!.branches).toEqual([{ name: 'Booster', deployments: [deployment] }]);
+  expect(() => runsToCsv(runs)).not.toThrow();
+  expect(() => runsToTable(runs)).not.toThrow();
+});
+
+it.each([[[{}]], [[{ altitude: { toString: null }, speed: 1, direction: 0 }]],
+  [[{ altitude: 100, speed: -1, direction: 0 }]]])('discards invalid historical wind levels: %j', windLevels => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('bad'), windLevels }]));
+  expect(loadRuns()[0]).not.toHaveProperty('windLevels');
+});
+
+it.each([null, 42, [], {}].map(entry => [entry]))('discards the whole wind profile containing %j and its source', entry => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('bad'),
+    windLevels: [{ altitude: 0, speed: 5, direction: 0 }, entry], windProfileSource: { kind: 'ork' } }]));
+  const [run] = loadRuns();
+  expect(run?.id).toBe('bad');
+  expect(run).not.toHaveProperty('windLevels');
+  expect(run).not.toHaveProperty('windProfileSource');
+});
+
+it.each([undefined, [], [{}]].map(levels => [levels]))('removes an orphan wind source when levels are %j', windLevels => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('orphan'),
+    windLevels, windProfileSource: { kind: 'open-meteo', place: 'Field', validUnix: 1, surfaceFromDeg: 0, method: 'search' } }]));
+  expect(loadRuns()[0]).not.toHaveProperty('windProfileSource');
+});
+
+it.each([null, {}, { kind: 'open-meteo', method: 'search', place: { toString: null }, validUnix: null, surfaceFromDeg: null }])(
+  'discards invalid wind source %j while preserving valid levels', windProfileSource => {
+    const windLevels = [{ altitude: 0, speed: 5, direction: 0 }];
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('source'), windLevels, windProfileSource }]));
+    const [run] = loadRuns();
+    expect(run?.windLevels).toEqual(windLevels);
+    expect(run).not.toHaveProperty('windProfileSource');
+  });
+
+it('retains a valid stored wind profile and its source', () => {
+  const windLevels = [{ altitude: 0, speed: 5, direction: 0 }];
+  const windProfileSource = { kind: 'open-meteo', place: 'Field', validUnix: 1, surfaceFromDeg: 0, method: 'search' };
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('source'), windLevels, windProfileSource }]));
+  expect(loadRuns()[0]).toMatchObject({ windLevels, windProfileSource });
+});
+
 it.each(['', '0x10', true, null])('S1d-4 blanks nonnumeric lead and detail values: %j', value => {
   localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('bad'),
     maxVelocity: value, rodExitVelocity: value, maxAcceleration: value,
@@ -200,7 +251,7 @@ it('W2-WARN round-trips frozen limits and drops corrupt advice without losing th
   addRun(mkRun('advice', { advisoryLimits: limits, maxAirspeedMs: 101 }));
   expect(loadRuns()[0]?.advisoryLimits).toEqual(limits);
   localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
-    { ...mkRun('bad'), advisoryLimits: [], maxAirspeedMs: 'fast', deployments: [{ role: 'bogus', isLanding: true }] },
+    { ...mkRun('bad'), advisoryLimits: [], maxAirspeedMs: 'fast', deployments: [{ device: 'Main', role: 'bogus', isLanding: true }] },
   ]));
   const loaded = loadRuns()[0]!;
   expect(loaded.id).toBe('bad');
@@ -216,7 +267,7 @@ it('retains gust sigma and frozen flight advice together while normalizing corru
   localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
     { ...mkRun('bad-sigma'), windSigma: 'gusty', advisoryLimits, maxAirspeedMs: 101 },
     { ...mkRun('bad-advice'), windSigma: 0, advisoryLimits: [], maxAirspeedMs: 'fast',
-      deployments: [{ role: 'bogus', isLanding: true }] },
+      deployments: [{ device: 'Main', role: 'bogus', isLanding: true }] },
     mkRun('legacy'),
   ]));
   const loaded = loadRuns();
@@ -340,7 +391,8 @@ describe('storage hardening: run array entries', () => {
     expect(r.branches).toEqual([{ ...branch, deployments: [deployment] }, { name: 'Old', deployments: [] }]);
     expect(r.boosterMotors).toEqual(['C6']);
     expect(r.simWarnings).toEqual([warning]);
-    expect(r.windLevels).toEqual([wind]);
+    // A profile is a single measurement: removing a bad level changes its meaning.
+    expect(r).not.toHaveProperty('windLevels');
     expect(deploymentVerdict(r)).toBe(false);
     expect(() => runsToTable(loaded)).not.toThrow();
     expect(runsToCsv(loaded)).toContain('Main@6.0s');

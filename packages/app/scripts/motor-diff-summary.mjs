@@ -293,7 +293,7 @@ export function summarise({ before, after, now = Date.now(), bytes = {} }) {
 
   // motorId -> display name, for the curve sections, which carry ids and nothing else.
   // `after` wins, so a motor renamed upstream shows its new name.
-  const names = {};
+  const names = Object.create(null);
   for (const m of beforeMotors) names[m?.motorId] = nameOf(m);
   for (const m of afterMotors) names[m?.motorId] = nameOf(m);
 
@@ -477,7 +477,7 @@ function capped(items, maxRows, render) {
 export function renderMarkdown(summary, { maxRows = MAX_ROWS, budget = BODY_BUDGET } = {}) {
   const c = summary.catalogue;
   const s = summary.curves.stats;
-  const name = (id) => summary.names[id] ?? id;
+  const name = (id) => Object.hasOwn(summary.names, id) ? summary.names[id] : id;
 
   const head = [];
   if (summary.massChange) {

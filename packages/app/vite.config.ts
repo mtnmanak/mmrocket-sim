@@ -8,6 +8,9 @@ import { checkDist } from './scripts/precache-coverage.mjs';
 import { RELEASES_NAVIGATION, releaseNotesPlugin } from './scripts/release-notes.mjs';
 import { CHANGELOG, PRE_VERSIONING_NOTE } from './src/changelog';
 import { XML_JS_SETUP, XML_JS_SUITES } from './scripts/xml-js-suites.mjs';
+import { assertWorkspaceLinks } from '../../scripts/check-workspace-links.mjs';
+
+assertWorkspaceLinks();
 
 /**
  * Fails `vite build` when the offline precache misses a built file (audit

@@ -14,6 +14,7 @@ import {
 } from './launchConditions.js';
 import { asStageNodes, flownInstanceCount, freshId, mountMotorCount, mountsIn, protuberanceFrontalArea } from '../tree/treeModel.js';
 import { KERNEL_DEFAULT_FIN_POINTS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
+import { finOutlineProblem } from '../tree/finOutline.js';
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
 import { refuseTooManyParts, sanitizeTree } from '../tree/sanitize.js';
 import { refuseOversizedForeignXml } from './foreignPartPrecount.js';
@@ -479,6 +480,11 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       fin['points'] = tipChord > 1e-9
         ? [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]]
         : [[0, 0], [sweep, height], [rootChord, 0]];
+      const problem = finOutlineProblem(fin['points'] as [number, number][]);
+      if (problem) {
+        fin['points'] = KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]);
+        cautionNote(notes, 'I05.fin-outline', `Fin set "Fins": its outline was not used - ${problem} The set keeps a default outline; redraw it in the fin editor.`);
+      }
     } else {
       fin['rootChord'] = rootChord;
       fin['tipChord'] = tipChord;
@@ -1036,6 +1042,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   const simNumbers = new Map<string, number>();
   const unattached = new Set<string>();
   const sims = Array.from(doc.querySelectorAll('SimulationList > Simulation'));
+  const simulationOrdinals = new Map(sims.map((sim, i) => [sim, i + 1]));
   /*
    * NOZZLE EXIT DIAMETER — RASAero keeps it in TWO places and flies with one.
    *
@@ -1090,7 +1097,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       const inches = simIn > 0 ? simIn : designIn;
       const diameter = inches / IN;
       if (diameter > MAX_DIMENSION_M && (simIn > 0 || !warnedDesignNozzles.has(t.design))) {
-        const simNr = simNumbers.get(cfgId) ?? (sim ? sims.indexOf(sim) + 1 : undefined);
+        const simNr = simNumbers.get(cfgId) ?? (sim ? simulationOrdinals.get(sim) : undefined);
         const where = simIn > 0 ? `simulation ${simNr ?? 1}` : 'the Design tab';
         const limitIn = MAX_DIMENSION_M * IN;
         const roundedIn = inches.toFixed(2);

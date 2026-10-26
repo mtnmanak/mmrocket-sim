@@ -87,6 +87,16 @@ function rocksimCount(root: ElementCount): number | undefined {
   if (declared === undefined) return;
   const stages = Math.floor(Math.max(1, Math.min(3, declared)));
   let count = stages;
+  let fins = 0;
+  let retainedFins = 0;
+  for (const slot of ['Stage3Parts', 'Stage2Parts', 'Stage1Parts'].slice(0, stages)) {
+    const pending = [...(child(design, slot)?.children ?? [])];
+    while (pending.length) {
+      const el = pending.pop()!;
+      if (FINS.has(el.tag) || el.tag === 'TubeFinSet') fins++;
+      for (const c of el.children) pending.push(c);
+    }
+  }
   const visit = (el: ElementCount, parent: string, level: number): boolean => {
     const tag = el.tag;
     if (tag === 'SubAssembly') return false; // Flattening has its own independent depth cap.
@@ -100,6 +110,7 @@ function rocksimCount(root: ElementCount): number | undefined {
     if (!holds) return true;
     if (tag === 'ExternalPod') return false; // Direct and wrapped pod chains need the full importer.
     count++;
+    if (fin || tag === 'TubeFinSet') retainedFins++;
     if (tag !== 'BodyTube' && !BODY.has(tag)) return true; // Leaf handlers never visit AttachedParts.
     const inside = tag === 'BodyTube' ? number(el, 'IsInsideTube', 0) : 0;
     if (inside === undefined) return false;
@@ -110,9 +121,14 @@ function rocksimCount(root: ElementCount): number | undefined {
   };
   for (const slot of ['Stage3Parts', 'Stage2Parts', 'Stage1Parts'].slice(0, stages)) {
     const wrap = child(design, slot);
-    if (wrap && !wrap.children.every(c => visit(c, 'stage', 1))) return;
+    if (wrap && !wrap.children.every(c => visit(c, 'stage', 1))) {
+      // Even when retention is unproven, fins alone can exceed the budget.
+      refusePartCount(stages + fins);
+      return;
+    }
   }
-  return count;
+  // Count retained hosts before refusing; fins include those their hosts drop.
+  return count + fins - retainedFins;
 }
 
 /** Flat RASAero chains with no conditional/synthesised extra parts. */

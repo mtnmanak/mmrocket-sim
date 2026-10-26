@@ -71,7 +71,7 @@ it('a failed bundle still lets Batch fly candidates with cached curves without r
   input.splits = [];
   const files: Record<string, { samples: number[][] }[]> = bundle.curves;
   const samples = files[candidate.motorId]![0]!.samples.map(([time, thrust]) => ({ time, thrust }));
-  localStorage.setItem(`tc:samples:v7:${candidate.motorId}`, JSON.stringify({ samples, masses: null }));
+  localStorage.setItem(`tc:samples:v7:${candidate.motorId}`, JSON.stringify({ samples, masses: null, massParser: 1 }));
   const fetcher = vi.fn(async () => { throw new Error('unexpected download'); });
   vi.stubGlobal('fetch', fetcher);
   const out = await sweep();
@@ -80,6 +80,12 @@ it('a failed bundle still lets Batch fly candidates with cached curves without r
   expect(out.rows[0]!.run).toBeDefined();
   expect(fetcher).not.toHaveBeenCalled();
 
+  // Legacy entries fly too, even when the bundle cannot load.
+  localStorage.setItem(`tc:samples:v7:${candidate.motorId}`, JSON.stringify({ samples, masses: null }));
+  const legacy = await sweep();
+  expect(legacy.rows[0]!.run).toBeDefined();
+  expect(legacy.rows[0]!.error).toBeUndefined();
+  expect(fetcher).not.toHaveBeenCalled();
   // One uncached candidate must still stop the whole run before downloading.
   input.candidates = [...input.candidates, { ...candidate, motorId: 'uncached' }];
   await expect(sweep()).rejects.toThrow('reload the app and run again');

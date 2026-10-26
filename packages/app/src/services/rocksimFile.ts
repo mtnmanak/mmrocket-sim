@@ -11,14 +11,14 @@ import { asStageNodes, flownInstanceCount, freshId, mountsIn } from '../tree/tre
 import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterCount, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
-import { countParts, MAX_DESIGN_PARTS, refuseTooManyParts, sanitizeTree, TOO_MANY_PARTS_ERROR_NAME } from '../tree/sanitize.js';
+import { countParts, MAX_DESIGN_PARTS, refusePartCount, refuseTooManyParts, sanitizeTree, TOO_MANY_PARTS_ERROR_NAME } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { foldDeployEvent } from '../tree/deployEvent.js';
 import { finRootChord, finTabFront } from '../tree/finTab.js';
 import { finCountOf } from '../tree/counts.js';
 import { spansOverlap } from '../tree/finAlign.js';
 import { axialLength, positionOf, startFromPosition } from '../tree/position.js';
-import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
+import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, inlineXmlCdata, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
 import { shapeParamDefault } from '../tree/shapeProfile.js';
 import { solidContextFor } from '../tree/solidContext.js';
@@ -281,32 +281,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   // opener with no terminator after it is not a section, and neither is
   // anything after it (no later opener can find a "]]>" the first could not),
   // so the rest of the file passes through verbatim, as the regex left it.
-  if (xml.includes('<![CDATA[')) {
-    const OPEN = '<![CDATA[';
-    const CLOSE = ']]>';
-    let rebuilt = '';
-    let at = 0;
-    let scan = 0;
-    for (;;) {
-      const open = xml.indexOf('<', scan);
-      if (open < 0) break;
-      const skip = xml.startsWith('<!--', open) ? '-->' : xml.startsWith('<?', open) ? '?>' : null;
-      if (skip) {
-        const end = xml.indexOf(skip, open + (skip === '-->' ? 4 : 2));
-        if (end < 0) break;
-        scan = end + skip.length;
-        continue;
-      }
-      if (!xml.startsWith(OPEN, open)) { scan = open + 1; continue; }
-      const close = xml.indexOf(CLOSE, open + OPEN.length);
-      if (close < 0) break;
-      rebuilt += xml.slice(at, open) + xml.slice(open + OPEN.length, close)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      at = close + CLOSE.length;
-      scan = at;
-    }
-    xml = rebuilt + xml.slice(at);
-  }
+  xml = inlineXmlCdata(xml);
   refuseOversizedForeignXml(xml, 'rkt');
   // Through the parser seam (xmlParse.ts); same message as before it.
   const doc = parseXml(xml, 'Not a valid RockSim file (XML parse error)');
@@ -1201,6 +1176,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
 
   // Stage slots are TOP-DOWN: Stage3Parts is the sustainer.
   const slotNames = ['Stage3Parts', 'Stage2Parts', 'Stage1Parts'].slice(0, stageCount);
+  let fileFins = 0;
+  let attachedFinCount = 0;
+  const attachedFinDetails: string[] = [];
   const components: ComponentNode[] = slotNames.map((slot, i) => {
     const stage: ComponentNode = {
       type: 'stage',
@@ -1211,12 +1189,25 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const slotEl = design.querySelector(`:scope > ${slot}`);
     // Tier 2 fin-attached pod note: disclose even under a fin/host that is
     // itself left out. Keep desktop-parity trees; moving a pod is Eric's row 92.
-    for (const tag of ['FinSet', 'CustomFinSet', 'TubeFinSet']) {
-      for (const fin of Array.from(slotEl?.querySelectorAll(tag) ?? [])) {
-        if (fin.parentElement?.closest('FinSet, CustomFinSet, TubeFinSet')) continue;
+    const finTags = ['FinSet', 'CustomFinSet', 'TubeFinSet'];
+    const fins = new Map(finTags.map(tag => [tag, [] as XmlElement[]]));
+    const pending = Array.from(slotEl?.children ?? []).reverse().map(el => ({ el, inFin: false }));
+    while (pending.length) {
+      const { el, inFin } = pending.pop()!;
+      const group = fins.get(el.tagName);
+      if (group) {
+        refusePartCount(stageCount + ++fileFins);
+        if (!inFin) group.push(el);
+      }
+      for (const child of Array.from(el.children).reverse()) pending.push({ el: child, inFin: inFin || !!group });
+    }
+    for (const group of fins.values()) {
+      for (const fin of group) {
         const parts = Array.from(fin.children).filter(c => c.tagName === 'AttachedParts')
           .flatMap(wrap => Array.from(wrap.children));
         if (!parts.length) continue;
+        attachedFinCount++;
+        if (attachedFinDetails.length >= 3) continue;
         const names: string[] = [];
         for (let at = 0; at < parts.length; at++) {
           const part = parts[at]!;
@@ -1228,9 +1219,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
             else if (part.tagName === 'ExternalPod' && ['NoseCone', 'BodyTube', 'Transition'].includes(c.tagName)) parts.push(c);
           }
         }
-        cautionNote(notes, 'I03.fin-attached', `Left out the parts attached to ${named(PART_KIND[fin.tagName]?.word ?? 'fin set', text(fin, ':scope > Name'))}: `
-          + `${names.join('; ')}. The app, like desktop OR, leaves out every part attached to a fin set.`,
-        { part: text(fin, ':scope > Name') ?? 'unnamed' });
+        attachedFinDetails.push(`${named(PART_KIND[fin.tagName]?.word ?? 'fin set', text(fin, ':scope > Name'))}: ${names.join('; ')}`);
       }
     }
     stageBeingRead = stage.name ?? '';
@@ -1245,6 +1234,20 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     }
     return stage;
   });
+  if (attachedFinCount) {
+    cautionNote(notes, 'I03.fin-attached', `Left out the parts attached to ${attachedFinCount === 1 ? '' : `${attachedFinCount} fin sets: `}`
+      + attachedFinDetails.join('; ') + (attachedFinCount > attachedFinDetails.length ? `; and ${attachedFinCount - attachedFinDetails.length} more fin sets` : '')
+      + '. The app, like desktop OR, leaves out every part attached to a fin set.');
+  }
+
+  let retainedFins = 0;
+  const retained = [...components];
+  while (retained.length) {
+    const node = retained.pop()!;
+    if (['trapezoidfinset', 'ellipticalfinset', 'freeformfinset', 'tubefinset'].includes(node.type)) retainedFins++;
+    for (const child of node.children ?? []) retained.push(child);
+  }
+  refusePartCount(countParts(components) + fileFins - retainedFins);
 
   // Refuse before tube grouping and fin de-collision can do quadratic work
   // (audit 2026-10-11, S1b-3). Count the file's parts, even if merging could

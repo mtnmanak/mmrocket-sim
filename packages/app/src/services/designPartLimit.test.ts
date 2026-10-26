@@ -134,10 +134,11 @@ describe('foreign-format pre-count (board Tier 2 part-cap early refusal)', () =>
     expect(countParts(importRkt(xml).tree.components)).toBe(3);
   }, 30_000);
 
-  it('RockSim does not count fins on inner tubes or attachments of leaf handlers', () => {
+  it('RockSim bounds fins dropped from inner tubes while keeping ordinary leaf attachments ignored', () => {
     const xml = rktOf(2).replace('<AttachedParts>', '<IsInsideTube>1</IsInsideTube><AttachedParts>'
       + '<FinSet/>'.repeat(2001) + '<Ring><AttachedParts>' + '<MassObject/>'.repeat(2001) + '</AttachedParts></Ring>');
-    expect(countParts(importRkt(xml).tree.components)).toBe(3);
+    expect(() => importRkt(xml)).toThrow(/2,000/);
+    expect(countParts(importRkt(xml.replace('<FinSet/>'.repeat(2001), '<FinSet/>')).tree.components)).toBe(3);
   }, 30_000);
 
   it('RockSim counts only the first AttachedParts wrapper and clamps stage count as the importer does', () => {

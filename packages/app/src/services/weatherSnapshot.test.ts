@@ -320,6 +320,12 @@ describe('profile weather receipts', () => {
       expect(validWeatherSnapshot({ ...receipt, [key]: { windProfileSource: { kind: 'bad' } } })).toBeNull();
     }
   });
+  it.each(['before', 'applied'] as const)('refuses orphan wind provenance in the %s receipt', key => {
+    for (const windLevels of [undefined, []]) {
+      const receipt = snap({ [key]: { windLevels, windProfileSource: source } });
+      expect(validWeatherSnapshot(JSON.parse(JSON.stringify(receipt)))).toBeNull();
+    }
+  });
   it('Undo removes the profile even after the forecast gust chip scales it, while preserving edited profiles', () => {
     const patch = { windAverage: 5, windLevels, windProfileSource: source };
     const receipt = snap({ applied: patch, before: beforeOf(HOT_PAD, patch) });

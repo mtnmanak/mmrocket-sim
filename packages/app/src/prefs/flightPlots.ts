@@ -1,9 +1,9 @@
 import { DEFAULT_PLOT_EVENTS } from '../flightPlotEvents.js';
 
 /** N041: viewer layouts only; no units, design, branch data or .ork state. */
-export const PLOT_KEYS = ['altitude', 'velocity', 'Vz', 'acceleration', 'mass', 'thrust', 'drag',
+const PLOT_KEYS = ['altitude', 'velocity', 'Vz', 'acceleration', 'mass', 'thrust', 'drag',
   'mach', 'stability', 'stabilityPercent', 'cpLocation', 'cgLocation', 'aoa', 'dynamicPressure', 'qAlpha'] as const;
-export const COMPARISON_IDS = ['', 'altitude-velocity', 'altitude-vertical', 'velocity-acceleration', 'stability', 'phase', 'custom', 'ground-track'] as const;
+const COMPARISON_IDS = ['', 'altitude-velocity', 'altitude-vertical', 'velocity-acceleration', 'stability', 'phase', 'custom', 'ground-track'] as const;
 export const MAX_FLIGHT_PLOTS = 50;
 export interface SavedFlightPlot {
   id: string;

@@ -11,7 +11,7 @@ import { useOnline } from '../hooks/useOnline.js';
  * "Weather", not "forecast": for a date more than 92 days back the dialog
  * fetches the ERA5 reanalysis, the weather as it was (review of 2026-09-23).
  */
-export const WEATHER_BUTTON_TITLE =
+const WEATHER_BUTTON_TITLE =
   'Fetch one hour’s weather for your launch site from Open-Meteo, review it, then apply what you want.';
 export const WEATHER_OFFLINE_TITLE =
   'Needs a connection — the weather comes from Open-Meteo. Everything else works offline.';

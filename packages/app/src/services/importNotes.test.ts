@@ -53,6 +53,23 @@ const TUBE = (thickness = '0.001') => '<bodytube><name>Tube</name><length>0.3</l
   + `<radius>0.025</radius><thickness>${thickness}</thickness></bodytube>`;
 
 describe('the line record (services/importNotes.ts)', () => {
+  it('joins 100k reversed records with linear record reads and preserves occurrence order', () => {
+    let reads = 0;
+    const records: ImportNote[] = Array.from({ length: 100_000 }, (_, i) => ({
+      kind: `k${i}`, tier: 'caution', get text() {
+        if (++reads > 200_000) throw new Error('record join exceeded linear read budget');
+        return `line${i}`;
+      },
+    }));
+    const texts = Array.from({ length: records.length }, (_, i) => `line${records.length - i - 1}`);
+    const result = tierLines(texts, records);
+    expect(result[0]).toBe(records.at(-1));
+    expect(result.at(-1)).toBe(records[0]);
+    expect(reads).toBeLessThanOrEqual(records.length * 2);
+    const a: ImportNote = { kind: 'first', tier: 'caution', text: 'same' };
+    const b: ImportNote = { kind: 'second', tier: 'danger', text: 'same' };
+    expect(tierLines(['same', 'same', 'same'], [a, b])).toEqual([a, b, { kind: 'note', tier: 'information', text: 'same' }]);
+  }, 30_000);
   it('joins each record to ITS line once; an unrecorded line is Information whatever it says', () => {
     const notes: string[] = [];
     // Bland words, Caution: the producer knew the input was replaced.

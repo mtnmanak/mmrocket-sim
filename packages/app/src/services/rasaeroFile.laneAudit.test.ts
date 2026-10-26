@@ -9,12 +9,20 @@ import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { applyStageNozzles } from '../tree/treeModel.js';
 import { MAX_DIMENSION_M } from '../tree/schema.js';
 import { checkFormatLoss } from './formatLoss.js';
-import { kernelRecoveryCd } from '../tree/kernelDefaults.js';
+import { kernelRecoveryCd, KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 
 const xml = (more: string) => `<RASAeroDocument><RocketDesign><BodyTube><PartType>BodyTube</PartType>
   <Length>20</Length><Diameter>3</Diameter></BodyTube></RocketDesign>${more}</RASAeroDocument>`;
 const all = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...all(n.children ?? [])]);
 describe('RASAero audit regressions', () => {
+  it.each(['BoatTail', 'Transition'])('refuses an invalid synthesized fin outline on %s', tag => {
+    const r = importCdx1(xml('').replace('</RocketDesign>', `<${tag}><Length>3</Length><Diameter>3</Diameter>
+      <RearDiameter>2</RearDiameter><Fin><Chord>-2</Chord><Span>1.2</Span><SweepDistance>0</SweepDistance>
+      <TipChord>1.2</TipChord></Fin></${tag}></RocketDesign>`));
+    const fin = all(r.tree.components).find(n => n.type === 'freeformfinset')!;
+    expect(fin?.['points']).toEqual(KERNEL_DEFAULT_FIN_POINTS);
+    expect(r.notes.join('\n')).toMatch(/outline was not used/);
+  });
   it.each([[0.00004, 0], [0.0001, 0.8]])('F5 save discloses Cd %s rounded to zero with vent %s', (cd, hole) => {
     const first = importCdx1(xml(`<Recovery><Event1>True</Event1><EventType1>Apogee</EventType1>
       <Size1>36</Size1><CD1>0.8</CD1></Recovery>`));

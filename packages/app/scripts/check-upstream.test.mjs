@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  checkMotorCorrections, checkOpenMeteoShape, main, motorCorrectionVerdicts, OPEN_METEO_HOURLY_UNITS,
+  checkMotorCorrections, checkOpenMeteoShape, checkOpenMeteoTerms, main, motorCorrectionVerdicts, OPEN_METEO_HOURLY_UNITS,
   openMeteoHourlyProblems,
 } from '../../../scripts/check-upstream.mjs';
 import {
@@ -56,6 +56,16 @@ function runSection(npm = result(audit, 1), gh = result(github), read = reader) 
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+it.each(['İstanbul<script>hidden</script>', '<p title="x > y">Delay < 5</p>'])('reads Open-Meteo terms after %s', async prefix => {
+  const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+  await checkOpenMeteoTerms(async () => prefix + '<p>We do not share this data with any third party.</p>');
+  expect(log.mock.calls.flat().join('\n')).toContain('ok   still says: “We do not share this data with any third party.”');
+});
+
+it.each(['<!--', '<script>', '<style>', '<p '])('refuses unclosed Open-Meteo HTML spans (%s)', async opener => {
+  await expect(checkOpenMeteoTerms(async () => opener.repeat(10_000))).rejects.toThrow(/unclosed HTML/);
+});
 
 describe('lockfile runtime reachability', () => {
   it('walks only app/engine production edges, including workspaces, peers, optionals and cycles', () => {
@@ -161,14 +171,17 @@ describe('report-only execution, without network', () => {
     const { output, run } = runSection();
     expect(output).toContain('esbuild moderate');
     expect(output).toContain('GHSA-36p8-mvp6-cv38');
-    expect(output).not.toContain('warn');
+    expect(output).not.toContain('warn could not check');
+    expect(output).toContain('Deploy-path dependencies and bundled undici are not covered');
     expect(run).toHaveBeenNthCalledWith(1, 'npm audit --package-lock-only --json --include=dev --include=optional --include=peer', expect.objectContaining({ shell: true, timeout: 30_000 }));
     expect(run).toHaveBeenNthCalledWith(2, 'gh', ['api', '--paginate', '--slurp', '/advisories?ecosystem=npm&affects=wrangler@4.136.3&per_page=100'], expect.objectContaining({ timeout: 30_000 }));
   });
   it('reports both clean results', () => {
     const { output } = runSection(result({ vulnerabilities: {} }), result([[]]));
     expect(output).toContain('ok   npm audit: no advisories');
-    expect(output).toContain('ok   wrangler@4.136.3 (deploy, outside lockfile): no advisories');
+    expect(output).toContain('wrangler@4.136.3 (deploy, outside lockfile): no direct package advisories');
+    expect(output).toContain('Deploy-path dependencies and bundled undici are not covered');
+    expect(output).not.toContain('ok   wrangler@4.136.3');
   });
   it('preserves the spawn error reason', () => {
     const failure = { status: null, error: new Error('ENOENT'), stdout: '' };
@@ -208,7 +221,7 @@ describe('report-only execution, without network', () => {
     const output = say.mock.calls.flat().join('\n');
     expect(output).toContain('different wrangler pins');
     expect(output).toContain('could not check wrangler@4.136.3');
-    expect(output).toContain('ok   wrangler@5.0.0');
+    expect(output).toContain('wrangler@5.0.0 (deploy, outside lockfile): no direct package advisories');
   });
   it('keeps exit 0 despite findings, missing commands, and an unexpected reporter error', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});

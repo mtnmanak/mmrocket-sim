@@ -24,7 +24,7 @@ export interface FinAlignResult {
 }
 
 // Corpus whole-design upper bound: 4 sets, 276,864 fin-pair comparisons.
-export const MAX_FIN_ALIGN_COMPARISONS = 2_000_000;
+const MAX_FIN_ALIGN_COMPARISONS = 2_000_000;
 
 const rotOf = (n: ComponentNode, patches: Map<string, number>): number => {
   if (n.id && patches.has(n.id)) return patches.get(n.id)!;

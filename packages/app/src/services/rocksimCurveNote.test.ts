@@ -12,6 +12,11 @@ const ref = (designation = 'E15', rktBurnTimeS = 2.7225): OrkMotorRef => ({
 const e15 = findDbMotor('E15', undefined, undefined, 'AeroTech')!;
 
 describe('RockSim published-curve disclosure', () => {
+  it('never offers an unflyable bundled alternative', async () => {
+    const spec = await bundledOnlyFetchSpec(e15, 7);
+    const samples = [{ time: 0, thrust: 1 }, { time: 2.7, thrust: -1 }];
+    expect(await rocksimCurveNote(ref(), e15, spec, async () => [{ simfileId: 'unflyable', samples }])).toBeUndefined();
+  });
   it('names all three historical E15 alternatives while keeping the certified default', async () => {
     const spec = await bundledOnlyFetchSpec(e15, 7);
     const result = await matchImportedMotor(ref(), { fetchSpec: bundledOnlyFetchSpec });

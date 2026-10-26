@@ -90,6 +90,22 @@ const side = (motors, curves = {}, generated) => ({
 
 const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
 
+it('renders prototype-key motor names and orphan curve IDs as text', () => {
+  const samples = [[0, 0], [1, 10], [2, 0]];
+  const before = side([motor('__proto__')], Object.fromEntries(['constructor', 'toString'].map(id => [id, [curve(id, samples)]])));
+  const after = side([motor('__proto__')], Object.fromEntries(['__proto__', 'constructor', 'toString'].map(id =>
+    [id, [curve(id, [[0, 0], [1, 20], [2, 0]])]])));
+  const summary = summarise({ before, after });
+  expect(summary.names.__proto__).toContain('F52T-__proto__');
+  // Render also accepts a JSON-round-tripped name map, which has Object.prototype.
+  summary.names = JSON.parse(JSON.stringify(summary.names));
+  const text = renderMarkdown(summary);
+  expect(text).toContain('F52T-__proto__');
+  expect(text).toContain('constructor');
+  expect(text).toContain('toString');
+  expect(text).not.toMatch(/\[object Object\]|native code/);
+});
+
 describe('sameValue', () => {
   // The exact case catalogueOverlay.ts documents, and the reason FLOAT_TOL exists at all:
   // motors.json's first row really does carry totalWeightG 23.900000000000002.

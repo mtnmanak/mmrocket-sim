@@ -183,8 +183,8 @@ export function publicationSummary(plan, { motorsBytes, curvesBytes, previousMot
   const curves = JSON.parse(Buffer.from(curvesBytes).toString('utf8')).curves;
   const curveChanges = [], fileSets = [], samples = [], other = [], fileAdded = [], fileRemoved = [];
   for (const id of new Set([...Object.keys(priorCurves), ...Object.keys(curves)])) {
-    const oldFiles = new Map((priorCurves[id] ?? []).map((f) => [f.simfileId, f]));
-    const newFiles = new Map((curves[id] ?? []).map((f) => [f.simfileId, f]));
+    const oldFiles = new Map((Object.hasOwn(priorCurves, id) ? priorCurves[id] : []).map((f) => [f.simfileId, f]));
+    const newFiles = new Map((Object.hasOwn(curves, id) ? curves[id] : []).map((f) => [f.simfileId, f]));
     const addedFiles = [...newFiles.keys()].filter((key) => !oldFiles.has(key));
     const removedFiles = [...oldFiles.keys()].filter((key) => !newFiles.has(key));
     const sampleChange = [...newFiles.keys()].some((key) => oldFiles.has(key)

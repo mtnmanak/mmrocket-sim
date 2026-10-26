@@ -500,7 +500,7 @@ export function integrateVelocity(t, aAxG, { scale = 1, tBurnout = null } = {}) 
   let i0 = -1;
   for (let i = 0; i < n; i++) {
     if (t[i] <= 0) i0 = i;
-    else break;
+    else if (t[i] > 0) break;
   }
   if (i0 < 0) {
     const after = tBurnout != null && t[0] >= tBurnout
@@ -528,7 +528,7 @@ export function integrateAltitude(t, v) {
   let i0 = -1;
   for (let i = 0; i < n; i++) {
     if (t[i] <= 0) i0 = i;
-    else break;
+    else if (t[i] > 0) break;
   }
   if (i0 < 0) i0 = 0;
   const h = new Float64Array(n);
@@ -558,9 +558,10 @@ function trailingMean(t, y, windowS) {
   let sum = 0;
   let count = 0;
   for (let i = 0; i < n; i++) {
+    if (!Number.isFinite(t[i])) { out[i] = NaN; continue; }
     if (Number.isFinite(y[i])) { sum += y[i]; count++; }
-    while (lo < i && t[lo] <= t[i] - windowS) {
-      if (Number.isFinite(y[lo])) { sum -= y[lo]; count--; }
+    while (lo < i && (!Number.isFinite(t[lo]) || t[lo] <= t[i] - windowS)) {
+      if (Number.isFinite(t[lo]) && Number.isFinite(y[lo])) { sum -= y[lo]; count--; }
       lo++;
     }
     out[i] = count > 0 ? sum / count : NaN;
@@ -673,6 +674,9 @@ export function atmosphere({ altitudeM, pressurePa = null, padTempK = null, site
         + '--site-elevation-m so an ISA pad temperature can be used.');
     }
     tempK = padTempK - LAPSE * altitudeM;
+    if (altitudeM + (Number.isFinite(siteElevationM) ? siteElevationM : 0) > 11000) {
+      fail('R5', 'the measured-pressure temperature model supports only the troposphere, up to 11 km MSL (11 km above the pad when site elevation is unknown); Cd cannot be inferred above that boundary.');
+    }
     pPa = pressurePa;
   } else {
     if (siteElevationM == null || !Number.isFinite(siteElevationM)) {
@@ -836,6 +840,15 @@ const PRESSURE_COLUMNS = ['Baro_Press_(atm)', 'Baro_Press_(hPa)', 'Baro_Press_(m
 const ALTITUDE_COLUMNS = ['Baro_Altitude_AGL_(feet)', 'Baro_Altitude_AGL_(m)', 'Altitude_AGL_(feet)',
   'Altitude_AGL_(m)', 'Altitude_(feet)', 'Altitude_(m)', 'altitude_ft', 'altitude_m'];
 
+function requireSamples(values, label, { increasing = false, offset = 0 } = {}) {
+  if (values.length < 2) fail('R6', `${label} needs at least two samples.`);
+  for (let i = 0; i < values.length; i++) {
+    if (!Number.isFinite(values[i]) || (increasing && i > 0 && values[i] < values[i - 1])) {
+      fail('R6', `${label} has an invalid ${increasing ? 'or decreasing time ' : ''}sample at data row ${offset + i + 1}; supply a complete numeric log. Cd cannot be inferred from missing readings.`);
+    }
+  }
+}
+
 /** Pressure unit multipliers to Pa, keyed off the unit written in the column name. */
 const PRESSURE_UNITS = [
   { re: /\(atm\)/i, toPa: ATM_PA, label: 'atm' },
@@ -919,12 +932,14 @@ function readBaro(text, { label, altitudeUnitOverride = null }) {
 }
 
 /**
- * Linear interpolation of `y` sampled at `xs` onto a single `x`, clamped at both
- * ends. Clamped rather than extrapolated: outside the companion file's own time
- * range there is no measurement, and extrapolating a pressure is inventing one.
+ * Linear interpolation only within measured coverage; neither clamping nor
+ * extrapolating can supply a reading outside the companion's time range.
  */
-function interpAt(xs, ys, x, cursor) {
+function interpAt(xs, ys, x, cursor, label) {
   const n = xs.length;
+  if (x < xs[0] || x > xs[n - 1]) {
+    fail('R6', `${label} does not cover the required sample at ${x.toFixed(3)} s; Cd cannot be inferred from missing readings.`);
+  }
   let i = cursor.i;
   if (i >= n - 1) i = n - 2;
   if (i < 0) i = 0;
@@ -1039,7 +1054,8 @@ export function solve(prepared, options) {
       + 'Cd scales as 1/d^2, so a 2.5 % diameter error is a 5 % Cd error. There is no default.');
   }
 
-  const { t, aAxG, unit, rateHz, baro } = prepared;
+  const { aAxG, unit, rateHz } = prepared;
+  let { t, baro } = prepared;
 
   // ── the scale factor k ──────────────────────────────────────────────────
   // A 3 % lever, so the branch taken is part of the report, never a silent
@@ -1124,21 +1140,52 @@ export function solve(prepared, options) {
   const hasBaroAlt = !!(baro && baro.altitudeM);
   const pCursor = { i: 0 };
   const hCursor = { i: 0 };
-  const altAt = (i) => (hasBaroAlt ? interpAt(baro.t, baro.altitudeM, t[i], hCursor) : inertialAltitude[i]);
+  const altAt = (i) => (hasBaroAlt ? interpAt(baro.t, baro.altitudeM, t[i], hCursor, baro.label) : inertialAltitude[i]);
 
   // ── apogee ──────────────────────────────────────────────────────────────
   let apogee;
   if (apogeeS != null) {
     apogee = { t: apogeeS, source: 'given (--apogee-s)' };
   } else if (hasBaroAlt) {
-    // Resample the companion's altitude onto the accel time base so apogee is
-    // found on the same clock every other number here is on.
-    const alt = new Float64Array(t.length);
-    const c = { i: 0 };
-    for (let i = 0; i < t.length; i++) alt[i] = interpAt(baro.t, baro.altitudeM, t[i], c);
-    apogee = detectApogee(t, v, { tBurnout, altitude: alt });
+    apogee = detectApogee(baro.t, v, { tBurnout, altitude: baro.altitudeM });
+    const peak = Array.from(baro.t).indexOf(apogee.t);
+    if (!Number.isFinite(apogee.t) || peak <= 0 || peak >= baro.t.length - 1) {
+      fail('R6', `${baro.label} does not cover a confirmed apogee; supply altitude readings before and after the peak, or pass --apogee-s with a known time.`);
+    }
+    requireSamples(baro.t.subarray(peak, peak + 2), `${baro.label} time`, { increasing: true, offset: peak });
+    requireSamples(baro.altitudeM.subarray(peak, peak + 2), `${baro.label} altitude`, { offset: peak });
   } else {
     apogee = detectApogee(t, v, { tBurnout });
+  }
+  // Apogee can fall between samples; check coverage before trimming the coast.
+  if (apogee.t > t[t.length - 1]) fail('R6', 'the accelerometer file does not cover apogee; supply the complete coast trace.');
+  // Integration needs the launch prefix; companion interpolation needs only
+  // the coast and its bracketing samples. Landing-time gaps are irrelevant.
+  let accelEnd = -1;
+  for (let i = 0; i < t.length; i++) if (t[i] <= apogee.t) accelEnd = i;
+  const usedEnd = accelEnd + 1;
+  let launch = 0;
+  for (let i = 0; i < usedEnd; i++) {
+    if (t[i] <= 0) launch = i;
+    else if (t[i] > 0) break;
+  }
+  requireSamples(t.subarray(launch, usedEnd), `${prepared.label} time`, { increasing: true, offset: launch });
+  requireSamples(prepared.rawAxial.subarray(launch, usedEnd), `${prepared.label} ${prepared.accelColumnName}`, { offset: launch });
+  t = t.subarray(0, usedEnd);
+  if (baro && (useMeasured || hasBaroAlt)) {
+    const start = baro.t.findIndex(time => time >= tBurnout);
+    let end = -1;
+    for (let i = 0; i < baro.t.length; i++) if (baro.t[i] <= apogee.t) end = i;
+    const lo = Math.max(0, start - 1);
+    const hi = Math.min(baro.t.length, end + 2);
+    baro = { ...baro, t: baro.t.subarray(lo, hi),
+      altitudeM: baro.altitudeM?.subarray(lo, hi), pressurePa: baro.pressurePa?.subarray(lo, hi) };
+    requireSamples(baro.t, `${baro.label} time`, { increasing: true, offset: lo });
+    if (hasBaroAlt) requireSamples(baro.altitudeM, `${baro.label} altitude`, { offset: lo });
+  }
+  if (baro && (useMeasured || hasBaroAlt)
+    && (baro.t[0] > tBurnout || baro.t[baro.t.length - 1] < apogee.t)) {
+    fail('R6', `${baro.label} does not cover burnout through apogee (${tBurnout.toFixed(3)} to ${apogee.t.toFixed(3)} s); Cd cannot be inferred from missing readings.`);
   }
 
   // ── R10: the altitude sanity check ──────────────────────────────────────
@@ -1159,7 +1206,7 @@ export function solve(prepared, options) {
     let peakBaro = -Infinity;
     let peakInertial = -Infinity;
     for (let i = 0; i < t.length; i++) {
-      if (t[i] < tBurnout || t[i] > apogee.t) continue;
+      if (!(t[i] >= tBurnout && t[i] <= apogee.t)) continue;
       if (altAt(i) > peakBaro) peakBaro = altAt(i);
       if (inertialAltitude[i] > peakInertial) peakInertial = inertialAltitude[i];
     }
@@ -1180,11 +1227,11 @@ export function solve(prepared, options) {
   const samples = [];
   const preSettle = [];
   for (let i = 0; i < t.length; i++) {
-    if (t[i] < tBurnout || t[i] > apogee.t) continue;
+    if (!(t[i] >= tBurnout && t[i] <= apogee.t)) continue;
     const altitudeM = altAt(i);
     const atm = atmosphere({
       altitudeM,
-      pressurePa: useMeasured ? interpAt(baro.t, baro.pressurePa, t[i], pCursor) : null,
+      pressurePa: useMeasured ? interpAt(baro.t, baro.pressurePa, t[i], pCursor, baro.label) : null,
       padTempK,
       siteElevationM,
     });
