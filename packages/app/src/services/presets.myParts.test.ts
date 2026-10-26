@@ -20,6 +20,73 @@ const values: Partial<Record<ComponentType, Record<string, unknown>>> = {
 };
 
 describe('M2.1 componentToPreset', () => {
+  it.each(['nosecone', 'transition'] as const)('S7c-4 ignores unused saved %s profile fields', type => {
+    for (const shape of ['conical', 'ellipsoid']) {
+      const original: ComponentNode = { type, ...shapes, shape, shapeParameter: 0.63, clipped: true };
+      const row = componentToPreset(original);
+      expect(row).not.toHaveProperty('shapeParameter');
+      if (type === 'nosecone' || shape === 'conical') expect(row).not.toHaveProperty('clipped');
+      const legacy = { ...row, shapeParameter: 0.63, clipped: true };
+      const reopened = { ...original, shapeParameter: undefined, clipped: type === 'transition' && shape === 'ellipsoid' };
+      expect(catalogueDifferences(reopened, legacy).filter(d => d.key === 'shapeParameter' || d.key === 'clipped')).toEqual([]);
+    }
+  });
+
+  it.each([0.333333, 0.333])('S7c-4 accepts Haack parameter rounding to %s but detects a changed profile', shapeParameter => {
+    const row = componentToPreset({ type: 'nosecone', ...shapes, shape: 'haack', shapeParameter: 1 / 3 });
+    const picked = { type: 'nosecone', ...presetPatch('nosecone', row, undefined, undefined, { saved: true }) } as ComponentNode;
+    expect(catalogueDifferences({ ...picked, shapeParameter }, row)).toEqual([]);
+    expect(catalogueDifferences({ ...picked, shapeParameter: 0.332 }, row).map(d => d.key)).toContain('shapeParameter');
+  });
+
+  it.each(['nosecone', 'transition'] as const)('S7c-4 offers the saved shape with its parameter after changing a %s shape', type => {
+    const row = componentToPreset({ type, ...shapes, clipped: false, aftRadius: 0.032, foreRadius: 0.02 });
+    const picked = { type, ...presetPatch(type, row, undefined, undefined, { saved: true }) } as ComponentNode;
+    const changed = { ...picked, shape: 'haack', shapeParameter: 0.2, clipped: true };
+    const diffs = catalogueDifferences(changed, row);
+    expect(diffs.map(d => d.key)).toEqual(['shape']);
+    expect(diffs[0]!.patch).toMatchObject({ shape: 'power', shapeParameter: 0.63 });
+    if (type === 'transition') expect(diffs[0]!.patch).toHaveProperty('clipped', false);
+    const restored = { ...changed, ...diffs[0]!.patch };
+    expect(catalogueDifferences(restored, row)).toEqual([]);
+  });
+
+  it.each(['nosecone', 'transition'] as const)('S7c-4 ignores unused legacy %s profile fields when picking and restoring', type => {
+    for (const shape of ['conical', 'ellipsoid']) {
+      const saved = componentToPreset({ type, ...shapes, shape, aftRadius: 0.032, foreRadius: 0.02 });
+      const legacy = { ...saved, partNo: 'LEGACY', shapeParameter: 0.63, clipped: false };
+      for (const row of [legacy, csvToPresets(presetsToCsv([legacy]))[0]!]) {
+        const patch = presetPatch(type, row, undefined, undefined, { saved: true });
+        expect(patch).toHaveProperty('shapeParameter', undefined);
+        if (type === 'transition') expect(patch).toHaveProperty('clipped', shape === 'ellipsoid' ? false : undefined);
+        const changed: ComponentNode = { type, ...patch, shape: 'power', shapeParameter: 0.2, clipped: true };
+        const diffs = catalogueDifferences(changed, row);
+        expect(diffs.map(d => d.key)).toEqual(['shape']);
+        const restored = { ...changed, ...diffs[0]!.patch };
+        expect(restored['shapeParameter']).toBeUndefined();
+        if (type === 'transition') expect(restored['clipped']).toBe(shape === 'ellipsoid' ? false : undefined);
+        expect(catalogueDifferences(restored, row)).toEqual([]);
+      }
+    }
+  });
+
+  it.each(['nosecone', 'transition'] as const)('S7c-4 compares a saved %s profile after picking it', type => {
+    const row = componentToPreset({ type, ...shapes, clipped: false, aftRadius: 0.032, foreRadius: 0.02 });
+    const picked = { type, ...presetPatch(type, row, undefined, undefined, { saved: true }) } as ComponentNode;
+    expect(catalogueDifferences(picked, row)).toEqual([]);
+    const changed = { ...picked, shapeParameter: 0.2, ...(type === 'transition' ? { clipped: true } : {}) };
+    const diffs = catalogueDifferences(changed, row);
+    expect(diffs.map(d => d.key)).toContain('shapeParameter');
+    if (type === 'transition') expect(diffs.map(d => d.key)).toContain('clipped');
+    const restored = Object.assign({}, changed, ...diffs.map(d => d.patch));
+    expect(catalogueDifferences(restored, row)).toEqual([]);
+    const cleared = catalogueDifferences({ ...picked, shapeParameter: undefined, clipped: undefined }, row);
+    expect(cleared.map(d => d.key)).toContain('shapeParameter');
+    if (type === 'transition') expect(cleared.map(d => d.key)).toContain('clipped');
+    const bundled = { ...row, savedComponent: undefined };
+    expect(catalogueDifferences(changed, bundled).some(d => d.key === 'shapeParameter' || d.key === 'clipped')).toBe(false);
+  });
+
   it.each(Object.keys(KIND_FOR_TYPE) as ComponentType[])('round-trips %s dimensions, material and own mass through CSV', (type) => {
     const surface = type === 'parachute' || type === 'streamer';
     const materials = surface ? { surfaceMaterialName: 'My fabric', surfaceDensity: 0.052 }

@@ -135,11 +135,9 @@ function readCentralDirectory(d: Uint8Array, kind: string): ZipEntry[] {
   }
   let count = b2(d, e + 8);
   let offset = b4(d, e + 16);
-  let zip64 = false;
   if (e >= 20 && b4(d, e - 20) === SIG_ZIP64_LOCATOR) {
     const ze = b4(d, e - 12);
     if (ze + 56 <= d.length && b4(d, ze) === SIG_ZIP64_EOCD) {
-      zip64 = true;
       count = b4(d, ze + 32);
       offset = b4(d, ze + 48);
     }
@@ -170,13 +168,17 @@ function readCentralDirectory(d: Uint8Array, kind: string): ZipEntry[] {
     const wideSize = size === 0xffffffff;
     const wideOriginal = originalSize === 0xffffffff;
     const wideOffset = localHeader === 0xffffffff;
-    if (zip64 && (wideSize || wideOriginal || wideOffset)) {
+    if (wideSize || wideOriginal || wideOffset) {
       // The zip64 extra field (id 1) carries the 64-bit values in the fixed
       // order original size, compressed size, local-header offset — each
       // present only when its 32-bit field is saturated (fflate `z64hs`).
       let found = false;
-      for (let x = extraStart; x + 4 < extraEnd; x += 4 + b2(d, x + 2)) {
+      for (let x = extraStart; x + 4 <= extraEnd; x += 4 + b2(d, x + 2)) {
+        const fieldEnd = x + 4 + b2(d, x + 2);
+        if (fieldEnd > extraEnd) throw damaged(`directory entry ${i + 1} has a truncated zip64 extra field`);
         if (b2(d, x) !== 1) continue;
+        const required = 8 * (Number(wideOriginal) + Number(wideSize) + Number(wideOffset));
+        if (b2(d, x + 2) < required) throw damaged(`directory entry ${i + 1} has truncated zip64 sizes`);
         if (wideOriginal) originalSize = b8(d, x + 4);
         if (wideSize) size = b8(d, x + 4 + 8 * Number(wideOriginal));
         if (wideOffset) localHeader = b8(d, x + 4 + 8 * (Number(wideOriginal) + Number(wideSize)));

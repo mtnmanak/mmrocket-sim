@@ -1,6 +1,6 @@
 import { cautionNote } from './importNotes.js';
 import type { MotorDbEntry } from './motorDb.js';
-import { clearCurveCache, flownCurve, repairSamples, samplesToMotorSpec, type RepairedMotorSpec } from './thrustcurve.js';
+import { clearCurveCache, flownCurve, MAX_MOTOR_THRUST_N, repairSamples, samplesToMotorSpec, type RepairedMotorSpec } from './thrustcurve.js';
 import { parseDecimal } from './xmlUtil.js';
 import { parseXml, type XmlElement } from './xmlParse.js';
 import { EX_SAMPLE_LIMIT_NOTE, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
@@ -139,7 +139,7 @@ export function validExMotorFields(v: unknown): v is ExMotor {
     && Array.isArray(v['samples']) && v['samples'].length >= 2 && v['samples'].length <= MAX_EX_MOTOR_SAMPLES
     // Negative samples cannot fly; refuse them before the kernel (audit 2026-10-11, S1c-4).
     && v['samples'].every((s: unknown) => record(s) && finite(s['time']) && s['time'] >= 0
-      && finite(s['thrust']) && s['thrust'] >= 0)
+      && finite(s['thrust']) && s['thrust'] >= 0 && s['thrust'] <= MAX_MOTOR_THRUST_N)
     && (v['sampleMassesKg'] === undefined || (Array.isArray(v['sampleMassesKg'])
       && v['sampleMassesKg'].length === v['samples'].length
       && v['sampleMassesKg'].every((m: unknown) => finite(m)
@@ -150,7 +150,8 @@ export function validExMotorFields(v: unknown): v is ExMotor {
 
 function hasDistinctThrustPoints(samples: { time: number; thrust: number }[]): boolean {
   const curve = flownCurve(samples).samples;
-  return curve.length >= 2 && curve[curve.length - 1]!.time > 0;
+  return curve.length >= 2 && curve[curve.length - 1]!.time > 0
+    && curve.every((p, i) => Number.isFinite(p.time) && (i === 0 || p.time > curve[i - 1]!.time));
 }
 
 /** Exact loaded data is accepted only when every array can fly unchanged. */
@@ -159,8 +160,9 @@ export function validFlightSnapshot(v: unknown): v is ExFlightSnapshot {
     || !positive(v['diameter']) || !positive(v['length']) || !finite(v['cgX'])) return false;
   const times = v['times'], thrusts = v['thrusts'], masses = v['masses'];
   return Array.isArray(times) && times.length >= 2 && times.length <= MAX_EX_MOTOR_SAMPLES
+    && times[0] === 0
     && times.every((t: unknown, i: number) => finite(t) && t >= 0 && (i === 0 || t > times[i - 1]))
-    && Array.isArray(thrusts) && thrusts.length === times.length && thrusts.every((f: unknown) => finite(f) && f >= 0)
+    && Array.isArray(thrusts) && thrusts.length === times.length && thrusts.every((f: unknown) => finite(f) && f >= 0 && f <= MAX_MOTOR_THRUST_N)
     && Array.isArray(masses) && masses.length === times.length && positive(masses[0])
     && masses.every((m: unknown) => finite(m) && m >= 0);
 }
@@ -447,6 +449,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
  * 175 g motor; L1000S 1,301 in 1,248).
  */
 function massProblem(propG: number, totG: number): string | null {
+  if (!Number.isFinite(propG) || !Number.isFinite(totG)) return 'propellant and loaded mass must be finite numbers in grams';
   if (!(totG > 0)) return `loaded mass ${totG} g is not a mass`;
   if (!(propG > 0)) return `propellant mass ${propG} g is not a mass`;
   if (propG > totG) return `more propellant (${propG} g) than loaded mass (${totG} g)`;
@@ -567,6 +570,10 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
     // after a successful import (audit 2026-10-11, S1c-4).
     if (t! < 0 || f! < 0) {
       refused = `${header[0]!}: data point ${samples.length + 1} has negative time or thrust (${t!}, ${f!})`;
+      continue;
+    }
+    if (f! > MAX_MOTOR_THRUST_N) {
+      refused = `${header[0]!}: data point ${samples.length + 1} exceeds the maximum thrust of 10,000,000 N`;
       continue;
     }
     samples.push({ time: t!, thrust: f! });
@@ -709,6 +716,10 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
       time: parseDecimal(d.getAttribute('t')),
       thrust: parseDecimal(d.getAttribute('f')),
     }));
+    if (samples.some(s => s.thrust > MAX_MOTOR_THRUST_N)) {
+      skipped.push(`Motor ${name}: a data point exceeds the maximum thrust of 10,000,000 N`);
+      continue;
+    }
     // Match the RASP refusal before storing an unflyable curve (audit 2026-10-11, S1c-4).
     const negative = samples.findIndex(s => s.time < 0 || s.thrust < 0);
     if (negative >= 0) {

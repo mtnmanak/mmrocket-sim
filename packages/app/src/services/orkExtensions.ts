@@ -100,7 +100,7 @@ export function preserveSimulationExtensions(
   // The DOM and lexical scanner must agree before promising retention (audit 2026-10-11, S1a-5).
   if (raw.length !== sims.length) throw new Error('Simulation extension slices do not match the file’s simulations.');
   const retained = sims.map((sim, i) => {
-    const elements = Array.from(sim.querySelectorAll(':scope > extension'));
+    const elements = Array.from(sim.querySelectorAll(':scope > extension')).filter(el => el.tagName === 'extension');
     const slices = raw[i]!;
     if (slices.length !== elements.length) throw new Error('Simulation extension slices do not match the file’s extensions.');
     return slices.filter((slice, j) => {

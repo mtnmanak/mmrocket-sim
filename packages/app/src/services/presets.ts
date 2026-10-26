@@ -4,6 +4,7 @@ import { csvCell, FORMULA_LEAD } from './csvUtil.js';
 import { lookupTable, parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { blankValue } from '../tree/schema.js';
+import { shapeIsClippable, shapeParamDefault, shapeUsesParameter } from '../tree/shapeProfile.js';
 // The ONE manufacturer alias table + part-number key, shared with the preset
 // pipeline so the app matches a file's part the same way the database dedupes.
 import { mfrKey, partKey } from '../../scripts/manufacturers.mjs';
@@ -227,7 +228,9 @@ export function componentToPreset(node: ComponentNode): Preset {
   const p: Preset = {
     kind, manufacturer: 'My parts', partNo: '', description: node.name ?? '', savedComponent: true,
   };
+  const shape = String(flown(node, 'shape'));
   for (const [key, column, scale = 1] of SAVED_FIELDS[node.type] ?? []) {
+    if (key === 'shapeParameter' && !shapeUsesParameter(shape)) continue;
     const value = numOpt(node, key);
     if (value !== undefined) p[column] = value * scale;
   }
@@ -235,6 +238,7 @@ export function componentToPreset(node: ComponentNode): Preset {
   const wall = numOpt(node, 'thickness');
   if (outer !== undefined && wall !== undefined) p['insideDiameter'] = Math.max(0, outer - 2 * wall);
   for (const key of ['shape', 'filled', 'clipped'] as const) {
+    if (key === 'clipped' && (node.type !== 'transition' || !shapeIsClippable(shape))) continue;
     if (typeof node[key] === (key === 'shape' ? 'string' : 'boolean')) p[key] = node[key];
   }
   const surface = materialTypeFor(kind) === 'SURFACE';
@@ -534,7 +538,9 @@ export function presetPatch(
       break;
   }
   if (p['savedComponent'] === true && options?.saved) {
+    const shape = String(flown({ type, ...patch }, 'shape'));
     for (const [key, column, scale = 1] of SAVED_FIELDS[type] ?? []) {
+      if (key === 'shapeParameter' && !shapeUsesParameter(shape)) continue;
       // A placed canopy was already fitted to its new bay above.
       if (type === 'parachute' && place && (key === 'packedRadius' || key === 'packedLength')) continue;
       const raw = n(p, column);
@@ -556,7 +562,7 @@ export function presetPatch(
     if (type === 'bodytube' || type === 'nosecone' || type === 'transition') {
       own('filled', typeof p['filled'] === 'boolean' ? p['filled'] : undefined);
     }
-    if (type === 'transition') own('clipped', typeof p['clipped'] === 'boolean' ? p['clipped'] : undefined);
+    if (type === 'transition') own('clipped', shapeIsClippable(shape) && typeof p['clipped'] === 'boolean' ? p['clipped'] : undefined);
     // The catalogue branch's ring rule holds for a saved My part too: an inside diameter that is not smaller than the
     // outside one cannot be cut or flown, so neither is applied (integration of lanes E and M2, changelog claim check).
     if (type === 'centeringring') {
@@ -891,6 +897,8 @@ const RECOVERY: CatalogueTolerance = { abs: 0.002, rel: 0.01 };
 const DENSITY: CatalogueTolerance = { rel: 0.01 };
 /** Text and flags: the same or not. */
 const SAME: CatalogueTolerance = {};
+/** Half a unit at the panel's three decimal places also covers file rounding. */
+const SHAPE_PARAMETER: CatalogueTolerance = { abs: 0.0005 };
 
 const NEVER = null;
 
@@ -1122,11 +1130,23 @@ export function catalogueDifferences(node: ComponentNode, row: Preset): Catalogu
   }
   for (const [key, want] of Object.entries(patch)) {
     if (!(typeof want === 'number' || typeof want === 'string' || typeof want === 'boolean')) continue;
-    const field = catalogueField(node.type, key);
+    const savedProfile = row['savedComponent'] === true && (key === 'shapeParameter' || key === 'clipped')
+      && Object.hasOwn(row, key);
+    const shape = String(flown(node, 'shape'));
+    if (key === 'shapeParameter'
+      && (!shapeUsesParameter(shape) || shape !== flown({ type: node.type, ...patch }, 'shape'))) continue;
+    if (key === 'clipped' && (node.type !== 'transition' || !shapeIsClippable(shape)
+      || shape !== flown({ type: node.type, ...patch }, 'shape'))) continue;
+    const ordinaryField = catalogueField(node.type, key);
+    const field = savedProfile && ordinaryField
+      ? { ...ordinaryField, differs: key === 'shapeParameter' ? SHAPE_PARAMETER : SAME } : ordinaryField;
     if (!field?.differs) continue;
     if (isCanopy && (key === 'cd' || key === 'spillHoleDiameter')) continue; // the pair, below
     if (DENSITY_KEYS.has(key) && !byDensity) continue;
     let have = flown(node, key);
+    if (savedProfile && have === undefined) {
+      have = key === 'clipped' ? shapeIsClippable(shape) : shapeParamDefault(shape);
+    }
     if (key === 'overrideMass') {
       if (node['overrideSubcomponentsMass'] === true) continue;
       have = numOpt(node, 'overrideMass');

@@ -75,7 +75,12 @@ export function decodeXml(bytes: Uint8Array): { xml: string; note?: string } {
   if ((b0 === 0xfe && b1 === 0xff) || (b0 === 0x00 && b1 === 0x3c)) {
     return { xml: new TextDecoder('utf-16be').decode(bytes) };
   }
-  const head = String.fromCharCode(...bytes.subarray(0, 256));
+  let declarationEnd = 0;
+  for (let i = 0; i + 1 < bytes.length; i++) {
+    if (bytes[i] === 0x3f && bytes[i + 1] === 0x3e) { declarationEnd = i + 2; break; }
+    if (bytes[i] === 0x3e) break;
+  }
+  const head = new TextDecoder('windows-1252').decode(bytes.subarray(0, declarationEnd));
   const label = /^\s*<\?xml\s[^>]*?\bencoding\s*=\s*["']([A-Za-z][\w.:-]*)["']/.exec(head)?.[1];
   if (label) {
     let decoder: TextDecoder | null = null;

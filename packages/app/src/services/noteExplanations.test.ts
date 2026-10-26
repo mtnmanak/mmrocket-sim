@@ -18,3 +18,8 @@ it('recognizes only explicit static tokens and typed import identities', () => {
   expect(explanationFor('I03.left-out').remedy).toContain('missing parts');
   expect(explanationFor('I03.future').meaning).toContain('No explanation');
 });
+
+it.each(['I04.recovery-cd', 'I04.nozzle-dimension'])('explains the RASAero caution %s', code => {
+  expect(explanationFor(code).meaning).not.toContain('No explanation');
+  expect(explanationFor(code).remedy).toMatch(/check/i);
+});

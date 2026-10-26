@@ -19,6 +19,7 @@ import {
 import { asStageNodes, freshId } from '../tree/treeModel.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
+import { applyFieldLimit, fieldLimit } from '../tree/schema.js';
 import {
   configSeparationNote, refuseTooManyParts, sanitizeTree, separationEventOf, MAX_DESIGN_PARTS, TOO_MANY_PARTS_ERROR_NAME,
 } from '../tree/sanitize.js';
@@ -902,7 +903,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
           if (digest) node[ORK_PRESET_KEYS.digest] = digest;
         }
       }
-      const density = matDensity(el);
+      const density = matDensity(el, notes);
       if (density !== undefined) node.density = density;
       const matName = matName_(el, 'bulk');
       if (matName) node['materialName'] = matName;
@@ -910,7 +911,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       if (fin && fin !== 'normal') node['finish'] = fin;
       readOverrides(el, node, notes);
       if (withPosition) {
-        const pos = readPosition(el);
+        const pos = readPosition(el, notes);
         if (pos) node.position = pos;
       }
       return node;
@@ -1275,8 +1276,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         readAutoCd(el, n, notes);
         n['lineCount'] = Math.round(num(el, 'linecount', 6, notes));
         n['lineLength'] = num(el, 'linelength', 0.3, notes);
-        readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
-        readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName', ':scope > linematerial');
+        readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName', notes);
+        readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName', notes, ':scope > linematerial');
         // <deploymentconfiguration> only overrides when a config was chosen —
         // with no declarations the bare tags stay the whole story (a stray
         // block in an undeclared file was never read, keep it that way).
@@ -1295,7 +1296,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         n['stripLength'] = num(el, 'striplength', 0.5, notes);
         n['stripWidth'] = num(el, 'stripwidth', 0.05, notes);
         readAutoCd(el, n, notes);
-        readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName');
+        readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName', notes);
         readDeployment(el, n, null, notes);
         captureDeployments(el, n);
         noteDeployOverride(el, n, 'streamer');
@@ -1306,7 +1307,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         readRadialPlacement(el, n, notes);
         readPackedSize(el, n);
         n['cordLength'] = num(el, 'cordlength', 0.3, notes);
-        readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName');
+        readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName', notes);
         return n;
       }
       case 'masscomponent': {
@@ -1923,7 +1924,8 @@ function simulationForConfig(doc: XmlDocument, chosenConfigId?: string | null) {
   // standard ISA at 3 m while its default declares a 24 °C Florida afternoon,
   // worth 1.15 % of apogee. Match the configuration actually being opened, and
   // keep the first as the fallback for files that name no configid.
-  const simEls = Array.from(doc.documentElement.querySelectorAll(':scope > simulations > simulation'));
+  const simEls = Array.from(doc.documentElement.querySelectorAll(':scope > simulations > simulation'))
+    .filter(s => s.tagName === 'simulation' && s.parentElement?.tagName === 'simulations');
   if (simEls.length > MAX_ORK_SIMULATIONS) {
     throw new Error(`This .ork file declares ${simEls.length.toLocaleString('en-US')} simulations, past the ${MAX_ORK_SIMULATIONS.toLocaleString('en-US')} the app will open. Reduce the simulations in OpenRocket and save it again.`);
   }
@@ -2865,7 +2867,7 @@ export function exportOrk({
     };
     sep(depth, liveEv, liveDelay, liveAlt);
     for (const c of writeConfigs) {
-      const o = node.id ? c.separations[node.id] : undefined;
+      const o = node.id && Object.hasOwn(c.separations, node.id) ? c.separations[node.id] : undefined;
       if (!o) continue;
       emit(depth, `<separationconfiguration configid="${escapeXmlAttr(c.id)}">`);
       sep(depth + 1, o?.separationEvent ?? liveEv, o?.separationDelay ?? liveDelay,
@@ -2933,7 +2935,7 @@ export function exportOrk({
 
   /** The write-configs that hold a motor for this mount, in write order. */
   const mountConfigs = (nodeId: string | undefined) =>
-    nodeId ? writeConfigs.filter((c) => c.motors[nodeId]) : [];
+    nodeId ? writeConfigs.filter((c) => Object.hasOwn(c.motors, nodeId) && c.motors[nodeId]) : [];
 
   // Configs may all be empty here: a mount with no motor loaded still writes
   // <motormount> so the mount flag survives the round trip (desktop same).
@@ -2942,7 +2944,8 @@ export function exportOrk({
     // Defaults belong to the mount. Existing API callers without a default
     // layer retain the previous default-config/first-motor fallback.
     const bare = (withMotor.find((c) => c.id === defaultId) ?? withMotor[0])?.motors[nodeId!];
-    const own = nodeId ? tree.ignitionDefaults?.[nodeId] : undefined;
+    const own = nodeId && tree.ignitionDefaults && Object.hasOwn(tree.ignitionDefaults, nodeId)
+      ? tree.ignitionDefaults[nodeId] : undefined;
     const ev = own?.event ?? bare?.ignitionEvent ?? 'automatic';
     const evDelay = own?.delay ?? bare?.ignitionDelay ?? 0;
     emit(depth, '<motormount>');
@@ -2974,8 +2977,8 @@ export function exportOrk({
     for (const c of writeConfigs) {
       // Explicit layer maps include unloaded mounts. For legacy API callers
       // without a mount default, difference motor ignition against the fallback.
-      const m = nodeId ? c.motors[nodeId] : undefined;
-      const ignition = (nodeId ? c.ignitions?.[nodeId] : undefined) ?? (!own && m ? sparsify(
+      const m = nodeId && Object.hasOwn(c.motors, nodeId) ? c.motors[nodeId] : undefined;
+      const ignition = (nodeId && c.ignitions && Object.hasOwn(c.ignitions, nodeId) ? c.ignitions[nodeId] : undefined) ?? (!own && m ? sparsify(
         { event: knownIgnitionEvent(ev) ?? 'automatic', delay: evDelay },
         { event: knownIgnitionEvent(m.ignitionEvent ?? null) ?? 'automatic', delay: m.ignitionDelay ?? 0 }) : undefined);
       if (!ignition) continue;
@@ -4147,6 +4150,10 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
   };
   const resolved = (v: number | null, fb: () => number): number =>
     v !== null ? v : fb();
+  const dimension = (el: XmlElement, key: string, value: number): number => {
+    const limit = fieldLimit(el.tagName as ComponentNode['type'], key);
+    return limit ? applyFieldLimit(limit, value) : value;
+  };
   /** `BodyTube.getInnerRadius()`: the bore of a body tube, its own radius resolved as `packed` below describes. */
   const tubeBore = (tube: XmlElement): number => {
     // A SOLID tube (<thickness>filled</thickness>) has no cavity:
@@ -4154,11 +4161,13 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
     // as no answer and keeps the device's own radius — what autoDim does
     // with a 0. The word `filled` read as no wall gave the full radius.
     if (text(tube, ':scope > thickness') === 'filled') return 0;
-    const r = resolved(stated(tube, 'radius'), () => {
+    const r = dimension(tube, 'outerRadius', resolved(stated(tube, 'radius'), () => {
+      if (!tube.querySelector(':scope > radius')) return 0.012;
       const b = bodyTube(tube);
       return b > 0 ? b : DEFAULT_AUTO_RADIUS;
-    });
-    return r > 0 ? Math.max(r - (stated(tube, 'thickness') ?? 0), 0) : UNRESOLVED;
+    }));
+    const wall = dimension(tube, 'thickness', stated(tube, 'thickness') ?? 0.0005);
+    return r > 0 ? Math.max(r - wall, 0) : UNRESOLVED;
   };
   /**
    * `RingComponent.getInnerRadius()` of an inner tube, tube coupler or engine
@@ -4175,10 +4184,9 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
   const ringBore = (ring: XmlElement): number => {
     let wall = 0;
     for (let el: XmlElement | null = ring; el; ) {
-      wall += stated(el, 'thickness') ?? 0;
-      const outer = stated(el, 'outerradius');
-      if (outer !== null) return Math.max(outer - wall, 0);
-      if (el.tagName === 'innertube') return UNRESOLVED;
+      wall += dimension(el, 'thickness', stated(el, 'thickness') ?? (el.tagName === 'engineblock' ? 0.001 : 0.0005));
+      const outer = stated(el, 'outerradius') ?? (el.tagName === 'innertube' ? 0.0095 : null);
+      if (outer !== null) return Math.max(dimension(el, 'outerRadius', outer) - wall, 0);
       const host: XmlElement | null = el.parentElement?.parentElement ?? null;
       if (host?.tagName === 'bodytube') {
         const bore = tubeBore(host);
@@ -4275,10 +4283,11 @@ function num(el: XmlElement, tag: string, fallback: number, notes: string[]): nu
   return fallback;
 }
 
-function matDensity(el: XmlElement): number | undefined {
+function matDensity(el: XmlElement, notes: string[]): number | undefined {
   const m = el.querySelector(':scope > material');
   if (!m || m.getAttribute('type') !== 'bulk') return undefined;
   const d = parseDecimal(m.getAttribute('density'));
+  if (m.hasAttribute('density') && !(Number.isFinite(d) && d >= 0)) invalidNumberNote(el, 'material density', notes);
   return Number.isFinite(d) && d > 0 ? d : undefined;
 }
 
@@ -4292,11 +4301,12 @@ function matName_(el: XmlElement, type: string, selector = ':scope > material'):
 
 /** Surface/line material density+name for recovery devices and cords. */
 function readSoftMaterial(el: XmlElement, node: ComponentNode, kind: 'surface' | 'line',
-    densityKey: string, nameKey: string, selector = ':scope > material'): void {
+    densityKey: string, nameKey: string, notes: string[], selector = ':scope > material'): void {
   const m = el.querySelector(selector);
   if (!m || m.getAttribute('type') !== kind) return;
   const d = parseDecimal(m.getAttribute('density'));
   if (Number.isFinite(d) && d >= 0) node[densityKey] = d;
+  else if (m.hasAttribute('density')) invalidNumberNote(el, `${m.tagName} density`, notes);
   const name = matName_(el, kind, selector);
   if (name) node[nameKey] = name;
 }
@@ -4500,7 +4510,7 @@ function readSeparation(el: XmlElement, node: ComponentNode, configEl: XmlElemen
 /** The axial-position methods an .ork carries — the exporter's closed set for `method=`/`type=`. */
 const AXIAL_METHODS: readonly string[] = ['top', 'middle', 'bottom', 'absolute'];
 
-function readPosition(el: XmlElement): ComponentPosition | undefined {
+function readPosition(el: XmlElement, notes: string[]): ComponentPosition | undefined {
   // Modern files write <axialoffset method="...">; OpenRocket ≤ 15.03 wrote
   // only <position type="..."> — fall back to it or old files lose every
   // fin/lug/inner-tube offset.
@@ -4508,6 +4518,7 @@ function readPosition(el: XmlElement): ComponentPosition | undefined {
   if (!off) return undefined;
   const method = (off.getAttribute('method') ?? off.getAttribute('type') ?? 'top') as ComponentPosition['method'];
   const offset = parseDecimal(off.textContent);
+  if (!Number.isFinite(offset)) invalidNumberNote(el, off.tagName, notes, 'using the default (0)');
   if (!['top', 'middle', 'bottom', 'absolute'].includes(method)) return undefined;
   return { method, offset: Number.isFinite(offset) ? offset : 0 };
 }

@@ -44,6 +44,12 @@ const QUANTITY: Partial<Record<FieldDef['unit'], Quantity>> = {
 };
 
 const round = (v: number): number => Number(v.toPrecision(6));
+// Lug/button material selectors carry bulk density outside their geometry schemas.
+const bulkDensity = FIELDS.bodytube.find(f => f.key === 'density')!;
+const fieldsFor = (type: string): FieldDef[] => {
+  const fields = FIELDS[type as ComponentNode['type']] ?? [];
+  return type === 'launchlug' || type === 'railbutton' ? [...fields, bulkDensity] : fields;
+};
 
 export interface ComponentTable {
   headers: string[];
@@ -86,11 +92,11 @@ export function componentTable(
   walkTypes(tree.components);
   const fieldCols: FieldDef[] = [];
   const seen = new Set<string>();
-  for (const [type, fields] of Object.entries(FIELDS)) {
+  for (const type of Object.keys(FIELDS)) {
     // Stage rows aren't emitted (stages are the grouping column), so stage
     // fields (separation etc.) would be permanently-empty columns.
     if (!present.has(type) || type === 'stage') continue;
-    for (const f of fields) {
+    for (const f of fieldsFor(type)) {
       if (f.key === 'length' || seen.has(f.key)) continue;
       seen.add(f.key);
       fieldCols.push(f);
@@ -103,6 +109,7 @@ export function componentTable(
     'Copies flown', `Mass (${massSym})`, `Mass with children (${massSym})`,
     `CG (${lenSym} from component front)`,
     ...fieldCols.map(fieldHeader),
+    'Surface material', 'Surface density (kg/m²)', 'Line material', 'Line density (kg/m)',
   ];
 
   const rows: Cell[][] = [];
@@ -150,7 +157,7 @@ export function componentTable(
       const info = infoOf(n);
       const section = info && (n.children ?? []).length > 0 ? flownSection(n, mult) : null;
       const fieldCells = fieldCols.map((f): Cell => {
-        const own = FIELDS[n.type]?.find((d) => d.key === f.key);
+        const own = fieldsFor(n.type).find((d) => d.key === f.key);
         if (!own) return '';
         const raw = f.key === 'fairingForeShape' ? shroudEnds(n).fore
           : f.key === 'fairingAftShape' ? shroudEnds(n).aft
@@ -166,12 +173,19 @@ export function componentTable(
       });
       const ownLength = numOpt(n, 'length');
       const kStage = n.id ? kernelStage.get(n.id) : undefined;
+      const surface = n.type === 'parachute' || n.type === 'streamer';
+      const line = n.type === 'shockcord' || n.type === 'parachute';
+      const material = (key: string): string => typeof n[key] === 'string' ? n[key] as string : '';
+      const density = (key: string): Cell => {
+        const v = numOpt(n, key);
+        return v === undefined ? '' : round(v);
+      };
       rows.push([
         n.name ?? DISPLAY_NAME[n.type] ?? n.type,
         DISPLAY_NAME[n.type] ?? n.type,
         (kStage !== undefined ? stageNames.get(kStage) : undefined) ?? stageName,
         parentName,
-        typeof n['materialName'] === 'string' ? (n['materialName'] as string) : '',
+        material(surface ? 'surfaceMaterialName' : n.type === 'shockcord' ? 'lineMaterialName' : 'materialName'),
         info ? uiLen(info.positionX) : '',
         info ? uiLen(info.length) : ownLength !== undefined ? uiLen(ownLength) : '',
         mult,
@@ -179,6 +193,8 @@ export function componentTable(
         info && section != null && section > info.mass * mult + 1e-9 ? uiMass(section) : '',
         info ? uiLen(info.cgX) : '',
         ...fieldCells,
+        surface ? material('surfaceMaterialName') : '', surface ? density('surfaceDensity') : '',
+        line ? material('lineMaterialName') : '', line ? density('lineDensity') : '',
       ]);
       walk(n.children ?? [], stageName, n.name ?? DISPLAY_NAME[n.type] ?? n.type, mult * copiesInside(n));
     }
