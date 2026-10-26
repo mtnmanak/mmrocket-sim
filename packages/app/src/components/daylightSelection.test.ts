@@ -58,7 +58,9 @@ describe('the chart drag-selection box is visible', () => {
   it('overrides uPlot default with a themed tint', () => {
     const rule = block('.chart-panel .u-select');
     expect(rule).not.toBe('');
-    expect(rule).toContain('color-mix(in srgb, var(--accent)');
+    // The state-graphic orange since brand v1 (the accent is split by role;
+    // a zoom box is a state-carrying mark, so --accent-graphic).
+    expect(rule).toContain('color-mix(in srgb, var(--accent-graphic)');
     // Per-theme via tokens, never a baked literal.
     expect(rule).not.toMatch(/rgba?\(/);
   });
@@ -76,6 +78,6 @@ describe('the chart drag-selection box is visible', () => {
   it('doubles that edge in Daylight, and keeps it off the axis colour', () => {
     const rule = block(".viz-root[data-contrast='high'] .chart-panel .u-select");
     expect(rule).not.toBe('');
-    expect(rule).toMatch(/box-shadow:\s*inset 0 0 0 2px var\(--accent\)/);
+    expect(rule).toMatch(/box-shadow:\s*inset 0 0 0 2px var\(--accent-graphic\)/);
   });
 });

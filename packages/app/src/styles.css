@@ -20,106 +20,170 @@ html {
   scrollbar-gutter: stable;
 }
 
-/* Palette roles from the validated reference palette (dataviz skill).
-   v0.076 surface ramp: FOUR levels instead of two, so elevation exists —
-     --surface-0  the page (the ground everything sits on)
-     --surface-1  recessed wells cut INTO a panel: inputs, tables, tree box
-     --surface-2  panels, tiles, chart cards — lifted above the page
-     --surface-3  raised controls ON a panel: buttons, chips, menus, tooltips
-   --border is the everyday hairline; --border-strong outlines whole panels.
-   Light runs page < panel (gray ground, near-white panels); dark runs the
-   same direction from black. Daylight overrides ALL of these later — any
-   token added here must also be set in the [data-contrast='high'] block or
-   daylight inherits a dark value under a white page. */
+/* Palette roles. Since brand v1 (mmr-brand 1.0.2, approved table in
+   docs/testing/response-2026-10-26b.md §2) every role below is an ALIAS of a
+   brand semantic token (`--mmr-*`, public/brand/tokens.css, linked in
+   index.html before this sheet) — SPEC §8.3's "alias first" step. The theme
+   attribute sits on .viz-root (and <html>), so the `--mmr-*` tokens resolve
+   per theme right here; a role written once in this light block would follow
+   the dark theme on its own, and the dark block restates every role only so
+   the mapping can be read in one place.
+     --surface-0  the page (the ground everything sits on)       → --mmr-bg
+     --surface-1  recessed wells: tables, tree box, plot area     → --mmr-bg
+     --field-bg   input / select / textarea fill                  → --mmr-surface
+     --surface-2  panels, tiles, chart cards                      → --mmr-surface
+     --surface-3  raised controls ON a panel: buttons, chips      → --mmr-surface
+   (brand buttons are flat with an edge, so a raised control is the panel's
+   own surface; navy-high is kept for hover only — see --hover.)
+   --border is the everyday hairline (decorative, 1.6:1); --border-control is
+   the edge of an input, select or textarea, which must clear 3:1 against
+   --field-bg (WCAG 1.4.11); --border-strong outlines whole panels.
+   The accent is split by ROLE, never used raw:
+     --accent-text     orange WORDS at body size          (#AD3C00 / #FF9A62)
+     --accent-graphic  state-carrying orange lines/marks  (#AD3C00 / #FF6509)
+     --link            links (D1: blue, as the brand specifies)
+     --focus           the ONE keyboard focus ring colour, drawn 3px
+     --launch          the primary-action fill (Launch, a dialog's own primary,
+                       the tour's Next — D2), with --on-accent as its label
+   Brand orange itself (`--mmr-accent`) is for decorative/large marks only.
+   `--accent` survives as an alias of --accent-graphic for any caller not yet
+   moved; nothing in this sheet reads it.
+   Daylight overrides what it must at the END of this file — any role added
+   here must also be set in the [data-contrast='high'] block. */
 .viz-root {
-  --surface-0: #f4f2ee;
-  --surface-1: #f1efea;
-  --surface-2: #fcfcfb;
-  --surface-3: #ffffff;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --text-muted: #6d6b63;
-  /* Non-chart data ink (schematic marks, tiles). NOT slot-synced to the
-     chart palette since the v0.076 CVD re-order — the chart palette lives in
-     chartTheme.ts (SERIES/SERIES_DARK); do not wire "the velocity color"
-     from here. */
-  --series-1: #2a78d6;
-  /* Status TEXT, so AA (4.5:1) on every light surface AND on the 2D stage's
-     gradient, where the CP and stability callouts are drawn (audit
-     2026-09-22). They were #008300 / #a06b00 / #e34948: 3.20–3.95:1 for the
-     red on the surfaces and 2.93:1 on the stage — a safety colour at 11 px.
-     Same hues, darkened; the ratios are recomputed from these tokens by
-     components/contrastTokens.test.ts. schematicExport's EXPORT_VARS bakes
-     the same three values into exported SVGs. */
-  --status-good: #007100;
-  --status-warn: #845800;
-  --callout-caution-bg: #ffcf66;
-  --callout-caution-fg: #17130a;
-  --callout-danger-bg: #970f21;
-  --callout-danger-fg: #ffffff;
-  --status-serious: #bd1e1d;
-  --border: #d9d6cf;
-  --border-strong: #c6c2b8;
-  --shadow-1: 0 1px 2px rgba(35, 30, 20, 0.05), 0 3px 12px rgba(35, 30, 20, 0.06);
-  --hover: #eae7e0;
-  --selected: #dceafc;
-  --note-bg: #fdf6e3;
-  --note-border: #e6d9a8;
-  /* Identity: exhaust orange — the Mountain Man Rockets accent. All
-     INTERACTIVE color goes through --accent; the blue/green/amber series
-     colors are data-only (charts, schematic marks). */
-  --accent: #b8511d;
-  /* White label on it (Launch, the active 2D/3D/Aft): #c65420 was 4.48:1,
-     under AA for 12-17 px text. #c45320 is 4.56:1 and looks the same (review
-     of the audit 2026-09-22 branch); the schematic export bakes this value. */
-  --launch: #c45320;
-  --chart-axis: #6d6b63;
-  --chart-grid: #e3e1da;
-  --chart-tick: #d9d6cf;
+  --surface-0: var(--mmr-bg);
+  --surface-1: var(--mmr-bg);
+  --field-bg: var(--mmr-surface);
+  --surface-2: var(--mmr-surface);
+  --surface-3: var(--mmr-surface);
+  --text-primary: var(--mmr-text);
+  /* The brand has two text levels; secondary and muted collapse onto the
+     muted one (slate: 6.03:1 on paper, 4.69:1 on the selected tint). */
+  --text-secondary: var(--mmr-text-muted);
+  --text-muted: var(--mmr-text-muted);
+  /* Non-chart data ink: since brand v1 its ONLY use is the unit chip's hover
+     TEXT, so it is the brand's text-safe chart blue (5.75:1 on white). Not
+     slot-synced to the chart palette, which lives in chartTheme.ts. */
+  --series-1: var(--mmr-chart-altitude);
+  /* Status TEXT, AA (4.5:1) on every surface it is drawn on and on the 2D
+     stage (components/contrastTokens.test.ts recomputes every pair from the
+     brand tokens). schematicExport's EXPORT_VARS bakes the light values. */
+  --status-good: var(--mmr-success);
+  --status-warn: var(--mmr-warning);
+  --status-serious: var(--mmr-danger);
+  /* Callouts (D3, SPEC §4.3): a TINT of the status colour over the surface,
+     never a solid slab and never a left stripe. Body ink on the tint: 12.18:1
+     caution, 12.46:1 danger. Daylight keeps the solid boxes. */
+  --callout-caution-bg: color-mix(in srgb, var(--mmr-warning) 15%, var(--mmr-surface));
+  --callout-caution-fg: var(--mmr-text);
+  --callout-danger-bg: color-mix(in srgb, var(--mmr-danger) 12%, var(--mmr-surface));
+  --callout-danger-fg: var(--mmr-text);
+  --border: var(--mmr-border);
+  --border-control: var(--mmr-border-control);
+  --border-strong: var(--mmr-border);
+  /* SPEC §7.2: no drop shadows. Panels separate by their edge alone. */
+  --shadow-1: none;
+  --hover: var(--mmr-surface-2);
+  /* No brand token: a tint of two brand tokens. Navy 11.29:1, slate 4.69:1,
+     the --accent-graphic bar 4.56:1 on it. Selected rows also carry that bar,
+     because the tint is only 1.17:1 from --hover. */
+  --selected: color-mix(in srgb, var(--mmr-link-color) 20%, var(--mmr-surface));
+  --note-bg: var(--mmr-surface-2);
+  --note-border: var(--mmr-border);
+  --accent-text: var(--mmr-accent-text);
+  --link: var(--mmr-link-color);
+  /* Brand orange on white is 2.95:1, under the 3:1 a state graphic needs, so
+     the light theme draws state lines in the orange INK. */
+  --accent-graphic: var(--mmr-accent-text);
+  --accent: var(--accent-graphic);
+  --focus: var(--mmr-focus);
+  --on-accent: var(--mmr-btn-primary-text);
+  /* White on #BB4100 5.43:1; hover #9B3500, active #7C2A00. */
+  --launch: var(--mmr-btn-primary-bg);
+  --launch-hover: var(--mmr-btn-primary-bg-hover);
+  --launch-active: var(--mmr-btn-primary-bg-active);
+  --chart-axis: var(--mmr-text);
+  --chart-grid: var(--mmr-chart-grid);
+  --chart-tick: var(--mmr-border);
   --chart-series-width: 2.5;
+  --chart-axis-font: 500 12px var(--mmr-font-data);
+  /* Type (SPEC §2.6): Archivo for headings, tab labels, instrument numerals
+     and body text; IBM Plex Mono with tabular figures for buttons, field
+     labels, inputs, tables, units and chart text. Self-hosted through
+     /brand/fonts.css. */
+  --font-display: var(--mmr-font-display);
+  --font-data: var(--mmr-font-data);
   color-scheme: light;
 
   background: var(--surface-0);
   color: var(--text-primary);
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
-  /* Display face (identity pass 3): the wordmark, headings, tab labels and
-     instrument numerals speak Rajdhani; body text stays system-ui for
-     data density. Self-hosted — see main.tsx imports. */
-  --font-display: 'Rajdhani', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-family: var(--font-display);
+  font-weight: 400;
   min-height: 100vh;
   margin: 0;
 }
 
 .viz-root[data-theme='dark'] {
-  --surface-0: #111110;
-  --surface-1: #1a1917;
-  --surface-2: #232120;
-  --surface-3: #2d2b28;
-  --text-primary: #f0efec;
-  --text-secondary: #c0beb5;
-  --text-muted: #94918a;
-  --series-1: #5a9be0; /* lifted for dark; see the light block's note — not chart-slot-synced */
-  --status-good: #4dbd4d;
-  --status-warn: #e0a53d;
-  --callout-caution-bg: #ffcf66;
-  --callout-caution-fg: #17130a;
-  --callout-danger-bg: #970f21;
-  --callout-danger-fg: #ffffff;
-  --status-serious: #f0716f;
-  --border: #403c35;
-  --border-strong: #57524a;
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35), 0 4px 16px rgba(0, 0, 0, 0.22);
-  --hover: #383530;
-  --selected: #2a4a72;
-  --note-bg: #2e2a1c;
-  --note-border: #57503a;
-  --accent: #ef8a52;
-  --launch: #c45320; /* the light value, AA under white — see there */
-  --chart-axis: #94918a;
-  --chart-grid: #353330;
-  --chart-tick: #45423b;
+  --surface-0: var(--mmr-bg);
+  --surface-1: var(--mmr-bg);
+  --field-bg: var(--mmr-surface);
+  --surface-2: var(--mmr-surface);
+  /* Not navy-high: navy-high on navy-raised is only 1.24:1, and danger-dark
+     on navy-high is 4.31:1 (see --status-serious). */
+  --surface-3: var(--mmr-surface);
+  --text-primary: var(--mmr-text);
+  --text-secondary: var(--mmr-text-muted);
+  --text-muted: var(--mmr-text-muted);
+  --series-1: var(--mmr-chart-altitude);
+  --status-good: var(--mmr-success);
+  --status-warn: var(--mmr-warning);
+  /* pending mmr-brand 1.0.3 (D7): danger-dark #FF8A93 is 4.31:1 on navy-high
+     and 4.38:1 on the dark selected tint, so it must not sit on either. */
+  --status-serious: var(--mmr-danger);
+  --callout-caution-bg: color-mix(in srgb, var(--mmr-warning) 15%, var(--mmr-surface));
+  --callout-caution-fg: var(--mmr-text);
+  --callout-danger-bg: color-mix(in srgb, var(--mmr-danger) 12%, var(--mmr-surface));
+  --callout-danger-fg: var(--mmr-text);
+  --border: var(--mmr-border);
+  --border-control: var(--mmr-border-control);
+  --border-strong: var(--mmr-border);
+  --shadow-1: none;
+  --hover: var(--mmr-surface-2);
+  /* Paper 9.42:1, slate-light 5.40:1, the orange bar 3.35:1 on it. */
+  --selected: color-mix(in srgb, var(--mmr-link-color) 20%, var(--mmr-bg));
+  /* pending mmr-brand 1.0.3 (D7): the brand's note surface is surface-2
+     (navy-high), where danger-dark measures 4.31:1. Until danger-dark is
+     lightened, dark notes sit on navy (6.74:1), below the raised panels. */
+  --note-bg: var(--mmr-bg);
+  --note-border: var(--mmr-border);
+  --accent-text: var(--mmr-accent-text);
+  --link: var(--mmr-link-color);
+  /* Brand orange: 4.10:1 on navy-raised, 5.15:1 on navy. */
+  --accent-graphic: var(--mmr-accent);
+  --accent: var(--accent-graphic);
+  --focus: var(--mmr-focus);
+  /* NAVY on the orange fill: white on #FF6509 is 2.95:1 (SPEC "Avoid"). */
+  --on-accent: var(--mmr-btn-primary-text);
+  --launch: var(--mmr-btn-primary-bg);
+  --launch-hover: var(--mmr-btn-primary-bg-hover);
+  --launch-active: var(--mmr-btn-primary-bg-active);
+  --chart-axis: var(--mmr-text);
+  --chart-grid: var(--mmr-chart-grid);
+  --chart-tick: var(--mmr-border);
   --chart-series-width: 2.5;
+  --chart-axis-font: 500 12px var(--mmr-font-data);
+  --font-display: var(--mmr-font-display);
+  --font-data: var(--mmr-font-data);
   color-scheme: dark;
+}
+
+/* ONE keyboard focus ring for the whole app (SPEC §4.4: visible focus
+   everywhere, 3px, --mmr-focus). Early in the sheet and only (0,2,0), so a
+   rule written later for a particular control — a ring on a coloured fill,
+   the Launch landing <main> that must show none — still decides. */
+.viz-root :focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 2px;
 }
 
 /* --- Workspace: vitals strip + tabs + one layout per task ---
@@ -153,18 +217,25 @@ html {
   min-width: 0;
 }
 
+/* A field label: Plex Mono, the brand eyebrow voice (SPEC §2.6). Mono runs
+   wider than the old condensed face, so the tracking drops from 0.18em to the
+   brand's 0.12em rather than the size dropping. */
 .vitals-label {
-  font-family: var(--font-display);
+  font-family: var(--font-data);
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted);
   white-space: nowrap;
 }
 
+/* Instrument numerals in Archivo (SPEC §4.3 stat tile). Archivo is wider
+   than the Rajdhani it replaced; 90 % width keeps the strip's rows (CHECKLIST
+   step 2: narrow the face rather than shrink the text). */
 .vitals-value {
   font-family: var(--font-display);
+  font-stretch: 90%;
   font-size: 16px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -231,7 +302,7 @@ html {
 }
 
 .vitals-aero {
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 12.5px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -242,6 +313,12 @@ html {
    the strip's own colours, chrome only on hover/focus. */
 .vitals-aero-select {
   font-family: var(--font-display);
+  /* Archivo at 85 % width (brand v1): the names below were measured in
+     Rajdhani; Archivo at full width is roughly a third wider, so the face is
+     narrowed and the cap raised to 290px — still inside the ~294px a 360px
+     phone leaves the cell. NOT re-measured in a browser yet (brand v1 lane S
+     report); the screenshot pass checks it. */
+  font-stretch: 85%;
   font-size: 15px;
   font-weight: 700;
   line-height: 1.15;
@@ -262,7 +339,7 @@ html {
      2026-10-11) the longest grew, and at 200 the cell clipped it. The strip
      wraps (flex-wrap above), so a wider cell costs a wrapped row on a narrow
      window, never an overflow: a 360px phone leaves the cell about 294px. */
-  max-width: 236px;
+  max-width: 290px;
   cursor: pointer;
 }
 
@@ -282,7 +359,7 @@ html {
   padding: 0 5px;
   font-size: 12px;
   line-height: 1.4;
-  color: var(--accent);
+  color: var(--accent-text);
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 5px;
@@ -374,8 +451,11 @@ html {
 .workspace-tabs button {
   font: inherit;
   font-family: var(--font-display);
+  font-stretch: 90%;
   font-size: 15px;
-  font-weight: 600;
+  /* 500 at rest, 600 when active: the weight is one of the active tab's
+     three cues (SPEC §4.3 tabs: underline + weight, not colour alone). */
+  font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   padding: 7px 16px;
@@ -397,8 +477,9 @@ html {
 }
 
 .workspace-tabs button.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  font-weight: 600;
+  color: var(--accent-text);
+  border-bottom-color: var(--accent-graphic);
 }
 
 /* Design: tree | view | properties. minmax(0,1fr) lets the schematic shrink. */
@@ -468,7 +549,7 @@ html {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--accent);
+  color: var(--accent-text);
   white-space: nowrap;
 }
 
@@ -507,13 +588,14 @@ html {
   min-width: 240px;
   padding: 4px;
   background: var(--surface-3);
+  /* No drop shadow (SPEC §7.2): the 1px edge separates it. */
   border: 1px solid var(--border);
   border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }
 
 .file-menu button {
   font: inherit;
+  font-family: var(--font-data);
   font-size: 12.5px;
   text-align: left;
   padding: 7px 10px;
@@ -559,7 +641,9 @@ html {
   position: relative;
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  /* center, not baseline: the brand is a 40px logo image now (brand v1), and
+     an image's baseline is its bottom edge, which hung the buttons low. */
+  align-items: center;
   gap: 8px;
 }
 
@@ -594,6 +678,7 @@ html {
 }
 .design-loss-warning {
   font: inherit;
+  font-family: var(--font-data);
   font-size: 0.8rem;
   background: transparent;
   border: 1px solid currentColor;
@@ -616,7 +701,7 @@ html {
 .app-header-brand {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   margin-right: auto;
   /* Basis 0 with a min-content floor: the row breaks on the brand's NARROWEST
@@ -652,6 +737,8 @@ html {
   border: 1px solid var(--border);
   border-radius: 999px;
   padding: 2px 9px;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
   color: var(--text-primary);
   font-weight: 600;
   white-space: nowrap;
@@ -678,23 +765,52 @@ html {
   border-top: 2px solid var(--border);
 }
 
-/* Wordmark: tracked caps, echoing the Mountain Man Rockets tagline treatment;
-   the rocket glyph is the one accent-colored element in the header. */
+/* The header lockup (CHECKLIST step 5, SPEC §2.4): the tool's header logo,
+   -on-dark in the dark theme and -on-light in light and Daylight (App.tsx
+   picks the file from the same theme attribute .viz-root carries). It is a
+   span, not a link: the app IS the destination, and navigating would reload
+   it. The h1 stays for the document outline; the image's alt is its name.
+   40px tall from mmr-ui.css's .mmr-lockup img (32px at <= 480px). */
 .app-header h1 {
-  font-family: var(--font-display);
-  font-size: 19px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.13em;
   margin: 0;
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  white-space: nowrap;
+  line-height: 0;
 }
 
-.app-header h1 svg {
-  color: var(--accent);
+/* Below ~480px the 40px wordmark would push the version badge off the row:
+   the square mark plus the name as live Archivo text instead (CHECKLIST
+   step 5: "square mark + name at narrow widths"). CSS picks one, so the
+   first paint is right with no measurement — the same way the site band
+   picks its search form. */
+.mmr-lockup-narrow {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  line-height: 1;
+}
+
+.mmr-lockup .mmr-lockup-narrow img {
+  height: 28px;
+  width: 28px;
+}
+
+.mmr-lockup-name {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 800;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+
+@media (max-width: 480px) {
+  .mmr-lockup-wide {
+    display: none;
+  }
+
+  .mmr-lockup-narrow {
+    display: inline-flex;
+  }
 }
 
 .app-header p {
@@ -703,10 +819,11 @@ html {
   margin: 4px 0 0;
 }
 
-/* All in-app links take the accent (browser default blue fights the palette).
-   The site band keeps quiet primary-text links (orange on hover only). */
+/* All in-app links are the brand link blue (D1: orange is the "go" colour,
+   and orange links would compete with Launch). The site band keeps its own
+   paper links (orange on hover only). */
 .viz-root a {
-  color: var(--accent);
+  color: var(--link);
 }
 
 /* ===================================================================
@@ -724,9 +841,14 @@ html {
    accent-orange. (That exact regression cost a session on 2026-08-04, back
    when this was `.site-nav`.)
 
-   Colors come only from the existing theme tokens, so the band follows dark
-   mode and Daylight mode for free — `[data-contrast='high']` already repaints
-   --surface-2 white and --border black at the bottom of this file.
+   Colours (brand v1, SPEC §4.3 "Site strip", table C of the approved
+   mapping): NAVY in every theme, Daylight included, matching the website
+   header — paper text 14.50:1, orange-soft hover 7.28:1, the line-dark rule
+   3.22:1. They are the brand PRIMITIVES (--mmr-c-*), never the themed roles,
+   because the strip must not follow the theme. color-scheme: dark makes the
+   UA draw the search box's own chrome (caret, clear button) for a dark
+   ground. The keyboard ring here is sky (7.96:1 on navy): the theme's
+   #006AAB ring would be 2.64:1 on this ground.
    =================================================================== */
 .mmr-band {
   display: flex;
@@ -745,8 +867,10 @@ html {
   flex-wrap: nowrap;
   gap: 0 18px;
   padding: 8px 16px;
-  background: var(--surface-2);
-  border-bottom: 1px solid var(--border);
+  background: var(--mmr-c-navy);
+  border-bottom: 1px solid var(--mmr-c-line-dark);
+  color: var(--mmr-c-paper);
+  color-scheme: dark;
   /* The site's nav voice, inherited from the bar this replaced: tracked
      caps, orange hover. */
   font-size: 11.5px;
@@ -754,11 +878,23 @@ html {
   letter-spacing: 0.09em;
 }
 
+/* The square MMR mark, then the name in Archivo (SPEC §4.3). The mark is
+   decorative (alt=""): the link's text already names the site. */
 .mmr-band-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
   font-family: var(--font-display);
   font-weight: 700;
   letter-spacing: 0.14em;
   flex: 0 0 auto;
+}
+
+.mmr-band-mark {
+  display: block;
+  width: 20px;
+  height: 20px;
+  flex: none;
 }
 
 /* The menu is the ONE element in the strip that gives. `overflow-x: auto`
@@ -783,9 +919,10 @@ html {
    hint anything is cut off. The two `local` covers ride the content and park
    over the two `scroll` shadows whenever that edge has nothing more to show,
    so the edge fade paints ONLY while the nav actually overflows in that
-   direction. No extra element, no JS. Fade color = var(--border): every
-   theme (dark, light, daylight's black-on-white) keeps it visible against
-   var(--surface-2), which is also the cover color. */
+   direction. No extra element, no JS. Covers are the band's navy and the fade
+   is line-dark, in every theme, because the band is navy in every theme. A
+   gradient is a stated exception to SPEC §7.2 (D11): it is the only cue that
+   the menu scrolls. */
 .mmr-band-nav {
   display: flex;
   flex-wrap: nowrap;
@@ -799,10 +936,10 @@ html {
   margin: -4px;
   padding: 4px;
   background-image:
-    linear-gradient(to right, var(--surface-2) 50%, transparent),
-    linear-gradient(to left, var(--surface-2) 50%, transparent),
-    radial-gradient(farthest-side at 0 50%, var(--border), transparent),
-    radial-gradient(farthest-side at 100% 50%, var(--border), transparent);
+    linear-gradient(to right, var(--mmr-c-navy) 50%, transparent),
+    linear-gradient(to left, var(--mmr-c-navy) 50%, transparent),
+    radial-gradient(farthest-side at 0 50%, var(--mmr-c-line-dark), transparent),
+    radial-gradient(farthest-side at 100% 50%, var(--mmr-c-line-dark), transparent);
   background-position: left center, right center, left center, right center;
   background-size: 32px 100%, 32px 100%, 12px 100%, 12px 100%;
   background-repeat: no-repeat;
@@ -826,14 +963,23 @@ html {
 }
 
 .viz-root .mmr-band a {
-  color: var(--text-primary);
+  color: var(--mmr-c-paper);
   text-decoration: none;
   padding: 2px 0;
   white-space: nowrap;
 }
 
 .viz-root .mmr-band a:hover {
-  color: var(--accent);
+  color: var(--mmr-c-orange-soft);
+}
+
+/* The band's own ring: sky on navy. Offset 1px, not the app's 2px, so the
+   3px ring still fits the nav's 4px focus-ring gutter (above). Daylight
+   restates this at (0,4,0) inside its block, which comes last. */
+.viz-root .mmr-band :focus-visible,
+.viz-root .mmr-band-footer :focus-visible {
+  outline: 3px solid var(--mmr-c-sky);
+  outline-offset: 1px;
 }
 
 /* Search sits hard right so the menu reads as one run of links, not two. */
@@ -848,14 +994,20 @@ html {
 .mmr-band-search input {
   width: 130px;
   padding: 2px 7px;
-  background: var(--surface-1);
-  border: 1px solid var(--border);
+  background: var(--mmr-c-navy-raised);
+  border: 1px solid var(--mmr-c-control-dark);
   border-radius: 999px;
-  color: var(--text-primary);
+  color: var(--mmr-c-paper);
   font: inherit;
   font-size: 11px;
   letter-spacing: normal;
   text-transform: none;
+}
+
+/* Placeholder 6.62:1 on navy-raised (the UA grey was the theme's guess). */
+.mmr-band-search input::placeholder {
+  color: var(--mmr-c-slate-light);
+  opacity: 1;
 }
 
 .mmr-band-search button {
@@ -865,12 +1017,12 @@ html {
   background: none;
   border: none;
   border-radius: 4px;
-  color: var(--text-secondary);
+  color: var(--mmr-c-slate-light);
   cursor: pointer;
 }
 
 .mmr-band-search button:hover {
-  color: var(--accent);
+  color: var(--mmr-c-orange-soft);
 }
 
 /* The narrow-screen half of the affordance; CSS picks one (see SiteBand.tsx). */
@@ -878,7 +1030,9 @@ html {
   display: none;
 }
 
-/* Footer strip (spec §4, opted in — this app had no footer at all). */
+/* Footer strip (spec §4, opted in — this app had no footer at all). Navy
+   like the top strip (D5), so the two bracket the page the way the website's
+   header and footer do: slate-light line 8.32:1, paper links 14.50:1. */
 .mmr-band-footer {
   display: flex;
   flex-wrap: wrap;
@@ -891,9 +1045,10 @@ html {
      bar's measured height, 0px when nothing is showing, so this tracks an
      expanded multi-notice bar too — the old static 40px reserve did not. */
   padding: 10px clamp(16px, 2vw, 40px) calc(10px + var(--notice-h, 0px));
-  background: var(--surface-2);
-  border-top: 1px solid var(--border);
-  color: var(--text-secondary);
+  background: var(--mmr-c-navy);
+  border-top: 1px solid var(--mmr-c-line-dark);
+  color: var(--mmr-c-slate-light);
+  color-scheme: dark;
   font-size: 11.5px;
 }
 
@@ -908,13 +1063,13 @@ html {
 }
 
 .viz-root .mmr-band-footer a {
-  color: var(--text-secondary);
+  color: var(--mmr-c-paper);
   text-decoration: none;
   white-space: nowrap;
 }
 
 .viz-root .mmr-band-footer a:hover {
-  color: var(--accent);
+  color: var(--mmr-c-orange-soft);
 }
 
 /* Phones: the band tightens to a SINGLE ~29px row (spec §3) and the full
@@ -973,7 +1128,8 @@ html {
 }
 
 /* Elevation (v0.076): whole panels separate from the page with the structural
-   border and a soft shadow; .file-note and .panel-dormant stay flat on purpose. */
+   border. Since brand v1 --shadow-1 is none (SPEC §7.2: no drop shadows), so
+   the edge alone carries it; .file-note and .panel-dormant stay flat. */
 .panel,
 .vitals-strip,
 .stat-tile,
@@ -1021,12 +1177,14 @@ html {
   margin: 0 0 4px;
 }
 
+/* Tinted callouts (D3, SPEC §4.3): the status colour at ~15 % over the
+   panel surface, OPAQUE — a tint over "whatever is behind" measured 4.42:1
+   for slate over mist — and no left stripe anywhere. */
 .field-caution {
   margin: 0.6rem 0 0;
   padding: 0.5rem 0.65rem;
-  border-left: 3px solid var(--status-warn);
-  background: color-mix(in srgb, var(--status-warn) 10%, transparent);
-  border-radius: 3px;
+  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
+  border-radius: 6px;
   font-size: 0.78rem;
   line-height: 1.45;
   color: var(--text-secondary);
@@ -1061,19 +1219,25 @@ html {
    type step and Daylight's bold carry it too. */
 .field label,
 .field .field-caption {
+  font-family: var(--font-data);
   font-size: 11px;
   color: var(--text-secondary);
 }
 
+/* Brand form control (mmr-ui.css .mmr-input): white/navy-raised fill, the
+   3:1 control edge (3.18:1 light, 4.26:1 dark), Plex Mono with tabular
+   figures. The decorative --border measured 1.69:1 here. */
 .field input,
 .field select,
 .field textarea {
   font: inherit;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
   font-size: 13px;
   padding: 5px 7px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control);
   border-radius: 5px;
-  background: var(--surface-1);
+  background: var(--field-bg);
   color: var(--text-primary);
   width: 100%;
   box-sizing: border-box;
@@ -1086,8 +1250,8 @@ html {
 
 .design-notes { margin-bottom: 8px; min-width: 0; }
 .design-notes summary { cursor: pointer; color: var(--text-primary); }
-.design-notes summary:hover { color: var(--accent); }
-.design-notes summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.design-notes summary:hover { color: var(--accent-text); }
+.design-notes summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .design-notes-fields { display: grid; gap: 8px; padding-top: 8px; min-width: 0; }
 .design-notes-fields h3, .design-notes-fields p { margin: 0; }
 .design-notes-fields p { font-size: 12px; overflow-wrap: anywhere; }
@@ -1144,6 +1308,7 @@ html {
    Tokens only, so every theme (Daylight and high contrast included) gets it. */
 .field output {
   display: block;
+  font-family: var(--font-data);
   font-size: 13px;
   padding: 5px 7px;
   border: 1px dashed var(--border);
@@ -1199,11 +1364,12 @@ html {
 .weather-dialog input[type='date'],
 .weather-dialog select {
   font: inherit;
+  font-family: var(--font-data);
   font-size: 13px;
   padding: 4px 7px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control);
   border-radius: 5px;
-  background: var(--surface-1);
+  background: var(--field-bg);
   color: var(--text-primary);
   box-sizing: border-box;
 }
@@ -1229,15 +1395,13 @@ html {
   font-size: 12.5px;
   margin: 6px 0;
   padding: 0.45rem 0.6rem;
-  border-radius: 3px;
-  border-left: 3px solid var(--status-warn);
-  background: color-mix(in srgb, var(--status-warn) 10%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
   color: var(--text-secondary);
 }
 
 .weather-error {
-  border-left-color: var(--status-serious);
-  background: color-mix(in srgb, var(--status-serious) 10%, transparent);
+  background: color-mix(in srgb, var(--status-serious) 12%, var(--surface-2));
 }
 
 .weather-places {
@@ -1265,6 +1429,7 @@ html {
 .weather-review table {
   width: 100%;
   border-collapse: collapse;
+  font-family: var(--font-data);
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
 }
@@ -1338,12 +1503,14 @@ html {
 }
 
 /* Where the applied weather came from, under the Launch panel's grid. */
+/* Information, not a warning: the brand's NOTE callout (surface-2, no
+   stripe). It was an accent stripe over an accent tint. */
 .weather-strip {
   margin: 0.6rem 0 0;
   padding: 0.45rem 0.65rem;
-  border-left: 3px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border-radius: 3px;
+  background: var(--note-bg);
+  border: 1px solid var(--note-border);
+  border-radius: 6px;
   font-size: 0.78rem;
   line-height: 1.5;
   color: var(--text-secondary);
@@ -1372,9 +1539,9 @@ html {
   align-items: baseline;
   gap: 4px 8px;
   padding: 0.35rem 0.55rem;
-  border-left: 3px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
-  border-radius: 3px;
+  background: var(--note-bg);
+  border: 1px solid var(--note-border);
+  border-radius: 6px;
   font-size: 11.5px;
   line-height: 1.45;
   color: var(--text-secondary);
@@ -1386,8 +1553,8 @@ html {
 }
 
 .gust-estimate-warn {
-  border-left-color: var(--status-warn);
-  background: color-mix(in srgb, var(--status-warn) 8%, transparent);
+  border-color: color-mix(in srgb, var(--status-warn) 30%, var(--border));
+  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
 }
 
 .gust-estimate-muted {
@@ -1420,7 +1587,7 @@ html {
   background: transparent;
   height: 16px;
   cursor: pointer;
-  accent-color: var(--accent);
+  accent-color: var(--accent-graphic);
 }
 
 /* Numeric field: text input + custom spinner (see NumField.tsx). */
@@ -1444,9 +1611,11 @@ html {
   box-sizing: border-box;
 }
 
+/* No `outline: none` (brand v1): at (0,2,1) it outranked the app's focus
+   ring, so a keyboard user lost the ring on exactly the field that needs
+   attention. The red edge and halo say "invalid"; the ring says "here". */
 .numfield input.num-invalid {
   border-color: var(--status-serious);
-  outline: none;
   box-shadow: 0 0 0 1px color-mix(in srgb, var(--status-serious) 40%, transparent);
 }
 
@@ -1476,17 +1645,21 @@ html {
   color: var(--text-primary);
 }
 
+/* THE primary action (D2: the one orange fill on the screen). Brand primary
+   button: Plex Mono 600 caps on --mmr-btn-primary-bg, labelled
+   --mmr-btn-primary-text — white on #BB4100 (5.43:1) in light, NAVY on
+   #FF6509 (5.15:1) in dark, white on #9B3500 (7.23:1) in Daylight. */
 .launch-btn {
   width: 100%;
   margin-top: 12px;
   padding: 10px;
   font: inherit;
-  font-family: var(--font-display);
+  font-family: var(--font-data);
   font-size: 17px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  color: #fff;
+  color: var(--on-accent);
   background: var(--launch);
   border: none;
   border-radius: 6px;
@@ -1497,8 +1670,12 @@ html {
   gap: 7px;
 }
 
-.launch-btn:hover {
-  filter: brightness(1.08);
+.launch-btn:hover:not(:disabled) {
+  background: var(--launch-hover);
+}
+
+.launch-btn:active:not(:disabled) {
+  background: var(--launch-active);
 }
 
 .launch-btn:disabled {
@@ -1521,7 +1698,7 @@ html {
 }
 
 .stat-tile .stat-label {
-  font-family: var(--font-display);
+  font-family: var(--font-data);
   font-size: 11.5px;
   font-weight: 600;
   color: var(--text-secondary);
@@ -1531,6 +1708,7 @@ html {
 
 .stat-tile .stat-value {
   font-family: var(--font-display);
+  font-stretch: 90%;
   font-size: 25px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -1540,6 +1718,7 @@ html {
 }
 
 .stat-tile .stat-unit {
+  font-family: var(--font-data);
   font-size: 12px;
   font-weight: 400;
   color: var(--text-muted);
@@ -1612,6 +1791,8 @@ html {
 /* Chart legends read as instrument readouts — full strength since v0.076
    (10.5px at 0.8 opacity was part of the lines-hard-to-see report). */
 .chart-panel .u-legend {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   color: var(--text-secondary);
   opacity: 1;
@@ -1633,8 +1814,8 @@ html {
    between drags by zeroing its width and height, and a border on a 0x0 box
    still paints — a permanent 2px accent square in the corner of every plot. */
 .chart-panel .u-select {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  box-shadow: inset 0 0 0 1px var(--accent);
+  background: color-mix(in srgb, var(--accent-graphic) 12%, transparent);
+  box-shadow: inset 0 0 0 1px var(--accent-graphic);
 }
 
 /* Chart heading row: title + (optional) toggles + the ↺/⤢ buttons. Riding
@@ -1684,7 +1865,7 @@ html {
 
 /* Small chart control button (↺ Reset view, ⤢ Expand). */
 .chart-btn {
-  font-family: inherit;
+  font-family: var(--font-data);
   font-size: 12px;
   line-height: 1.2;
   padding: 2px 7px;
@@ -1734,6 +1915,7 @@ html {
    twitch as the number changes under the wheel, and a min-width wide enough
    for "5000%" for the same reason. */
 .chart-zoom-pct {
+  font-family: var(--font-data);
   min-width: 5ch;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
@@ -1816,23 +1998,26 @@ html {
   color: var(--text-muted);
 }
 
-/* The rocket viewport gets a stage: a whisper of dusk launch sky, so the
-   vehicle reads as the lit subject rather than floating on panel gray. */
+/* The rocket viewport's stage. FLAT since brand v1 (SPEC §7.2: no
+   gradients; the old one was a dusk-sky gradient): mist in light — 1.16:1
+   from the white panel, so the stage keeps its own 1px edge — and navy in
+   dark. The drafting grid stays, drawn in the theme hairline at low alpha;
+   the two 1px line layers are a pattern, not a gradient fill. */
 .rocket-stage {
+  background-color: var(--mmr-surface-2);
   background-image:
-    linear-gradient(rgba(82, 81, 78, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(82, 81, 78, 0.06) 1px, transparent 1px),
-    linear-gradient(180deg, #f2f4f8 0%, #e9edf4 60%, #e4e7ee 100%);
-  background-size: 22px 22px, 22px 22px, 100% 100%;
+    linear-gradient(color-mix(in srgb, var(--border) 30%, transparent) 1px, transparent 1px),
+    linear-gradient(90deg, color-mix(in srgb, var(--border) 30%, transparent) 1px, transparent 1px);
+  background-size: 22px 22px, 22px 22px;
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 4px;
 }
 
-/* N009: replace decoration only in the 2D viewer, including when its grid is off. */
+/* N009: the 2D viewer draws its own grid, so the stage drops its decoration
+   there, whether that grid is on or off. The flat ground stays. */
 .rocket-stage[data-view='2d'] {
-  background-image: linear-gradient(180deg, #f2f4f8 0%, #e9edf4 60%, #e4e7ee 100%);
-  background-size: 100% 100%;
+  background-image: none;
 }
 
 /* The hero stage is the containing block for the canvas overlays (stats chip,
@@ -1947,8 +2132,10 @@ html {
   gap: 3px;
   min-width: 170px;
   padding: 9px 26px 9px 12px;
-  background: rgba(13, 14, 18, 0.78);
-  border: 1px solid var(--border);
+  /* Brand navy at 92 %: at 85 % over the white Daylight stage danger-dark
+     measured only 4.28:1 (brand v1 table D). */
+  background: color-mix(in srgb, var(--mmr-c-navy) 92%, transparent);
+  border: 1px solid var(--mmr-c-line-dark);
   border-radius: 8px;
   z-index: 2;
   cursor: grab;
@@ -1971,7 +2158,7 @@ html {
   right: 4px;
   border: none;
   background: none;
-  color: #b3b1a9;
+  color: var(--mmr-c-slate-light);
   font-size: 11px;
   cursor: pointer;
   padding: 2px 4px;
@@ -1985,34 +2172,32 @@ html {
 }
 
 .stats-chip-label {
-  font-family: var(--font-display);
+  font-family: var(--font-data);
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #b3b1a9;
+  color: var(--mmr-c-slate-light);
 }
 
 .stats-chip-value {
   font-family: var(--font-display);
+  font-stretch: 90%;
   font-size: 14px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  color: #f0efec;
+  color: var(--mmr-c-paper);
   white-space: nowrap;
 }
 
-/* The stability row keeps the tiered colors — lifted dark-theme values,
-   because the chip is a fixed dark card on the canvas in EVERY theme. But the
-   card is 78 % opaque, so over light's pale sky and Daylight's white it is a
-   mid-grey, and the dark theme's own inks failed there (audit 2026-09-22):
-   the "unstable" red was 3.43:1 in Daylight and 3.57:1 in light, the green
-   4.09:1, the labels 3.95:1. Each is lifted just past 4.5:1 over the
-   lightest sky; over the dark theme's sky they only gain. */
-.stats-chip-value.stability-good { color: #64c664; }
-.stats-chip-value.stability-warn { color: #e1a740; }
-.stats-chip-value.stability-bad { color: #ff928f; }
-.stats-chip-value.stability-unknown { color: #adb2b7; }
+/* The stability row keeps the tiered colours — the brand's DARK status
+   colours, because the chip is a fixed navy card in EVERY theme. At 92 %
+   over the lightest stage (Daylight white) the worst, danger-dark, is
+   5.38:1; contrastTokens.test.ts recomputes every one over every stage. */
+.stats-chip-value.stability-good { color: var(--mmr-c-success-dark); }
+.stats-chip-value.stability-warn { color: var(--mmr-c-warning-dark); }
+.stats-chip-value.stability-bad { color: var(--mmr-c-danger-dark); }
+.stats-chip-value.stability-unknown { color: var(--mmr-c-slate-light); }
 
 /* Clear of the roll column (ROLL_COL = 26): the column runs the full height of
    the drawing and the readout sits at its foot, so a 12px inset put the chip
@@ -2031,9 +2216,9 @@ html {
   bottom: 12px;
   padding: 10px 12px;
   background: var(--surface-2);
+  /* No drop shadow (SPEC §7.2): the 1px edge separates it. */
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2075,7 +2260,7 @@ html {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-family: var(--font-display);
+  font-family: var(--font-data);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.14em;
@@ -2104,14 +2289,14 @@ html {
   right: 12px;
   margin: 0;
   padding: 4px 10px;
-  background: rgba(13, 14, 18, 0.85);
-  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--mmr-c-navy) 92%, transparent);
+  border: 1px solid var(--mmr-c-line-dark);
   border-radius: 12px;
-  color: #b8b6ae;
+  color: var(--mmr-c-slate-light);
   z-index: 2;
 }
 
-/* The mount pill is a fixed DARK card in every theme (like .stats-chip), so its
+/* The mount pill is a fixed NAVY card in every theme (like .stats-chip), so its
    label has to take the card's own color. .mount-sizes-label sets
    var(--text-secondary), which follows the theme — in the light theme that put
    #52514e on a near-black pill (1.66:1) and in Daylight #141414 (1.41:1), so the
@@ -2210,6 +2395,7 @@ html {
 .fly-motor,
 .fly-compare {
   font: inherit;
+  font-family: var(--font-data);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -2232,7 +2418,7 @@ html {
 }
 
 .fly-go {
-  color: var(--accent);
+  color: var(--accent-text);
   font-size: 13px;
   white-space: nowrap;
 }
@@ -2319,7 +2505,7 @@ html {
   }
 
   .workspace-tabs button.active {
-    border-top-color: var(--accent);
+    border-top-color: var(--accent-graphic);
   }
 
   .fly-rocket {
@@ -2327,18 +2513,10 @@ html {
   }
 }
 
+/* Dark: the flat navy ground. Only the colour changes, so the 2D rule above
+   still removes the grid here; the grid lines follow --border by themselves. */
 .viz-root[data-theme='dark'] .rocket-stage {
-  background-image:
-    linear-gradient(rgba(148, 145, 138, 0.055) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 145, 138, 0.055) 1px, transparent 1px),
-    linear-gradient(180deg, #14161d 0%, #191c25 55%, #20222b 100%);
-  background-size: 22px 22px, 22px 22px, 100% 100%;
-}
-
-/* N009: match the dark stage's specificity while still yielding to Daylight. */
-.viz-root[data-theme='dark'] [data-view='2d'] {
-  background-image: linear-gradient(180deg, #14161d 0%, #191c25 55%, #20222b 100%);
-  background-size: 100% 100%;
+  background-color: var(--mmr-bg);
 }
 
 /* 3D viewport: grows with the monitor instead of a fixed 300px letterbox. */
@@ -2384,7 +2562,7 @@ html {
   background: var(--surface-3);
   color: var(--text-primary);
   cursor: pointer;
-  font-family: inherit;
+  font-family: var(--font-data);
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -2397,17 +2575,31 @@ html {
 /* Button tiers (v0.076). One class styled every button — exports, destructive
    Clear all, navigation — so intent had no visual voice. The default .file-btn
    is the secondary tier; these modify it at the call sites that matter.
-   Launch keeps its own dedicated style. */
+   Launch keeps its own dedicated style.
+   D2 (brand v1: ONE orange primary per screen): on a working screen, where
+   Launch is the primary, .file-btn-primary is the brand SECONDARY button —
+   an ink edge and weight, no fill. Inside a dialog (a dialog is its own
+   screen) it is that dialog's primary and takes the Launch fill and label. */
 .file-btn-primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--surface-3); /* NOT #fff — the .tour-next contrast reasoning */
+  border-color: var(--text-primary);
+  color: var(--text-primary);
   font-weight: 600;
 }
 
-.file-btn-primary:hover {
-  background: var(--accent);
-  filter: brightness(1.08);
+:is([role='dialog'], .modal-card, .prefs-dialog) .file-btn-primary {
+  background: var(--launch);
+  border-color: var(--launch);
+  color: var(--on-accent);
+}
+
+:is([role='dialog'], .modal-card, .prefs-dialog) .file-btn-primary:hover:not(:disabled):not([aria-disabled='true']) {
+  background: var(--launch-hover);
+  border-color: var(--launch-hover);
+}
+
+:is([role='dialog'], .modal-card, .prefs-dialog) .file-btn-primary:active:not(:disabled):not([aria-disabled='true']) {
+  background: var(--launch-active);
+  border-color: var(--launch-active);
 }
 
 .file-btn-danger {
@@ -2497,7 +2689,7 @@ html {
 /* Scoped with :has so plain .file-btn buttons keep the browser's own
    :focus-visible behavior (no ring on mouse clicks). */
 .file-btn:has(> .file-btn-input):focus-within {
-  outline: 2px solid var(--accent);
+  outline: 3px solid var(--focus);
   outline-offset: 1px;
 }
 
@@ -2515,19 +2707,17 @@ html {
   color: var(--text-primary);
 }
 
-/* One warning voice (v0.076): severity = left bar + tint + colored glyph,
-   the construction .field-caution established. Plain .file-note stays the
-   neutral tan for file-load information. */
+/* One warning voice: severity = tint + coloured glyph (D3, SPEC §4.3 — the
+   left bar is gone, brand v1). Plain .file-note stays the neutral note
+   surface for file-load information. */
 .file-note-warn {
-  background: color-mix(in srgb, var(--status-warn) 10%, var(--surface-2));
+  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
   border-color: color-mix(in srgb, var(--status-warn) 30%, var(--border));
-  border-left: 3px solid var(--status-warn);
 }
 
 .file-note-error {
-  background: color-mix(in srgb, var(--status-serious) 10%, var(--surface-2));
+  background: color-mix(in srgb, var(--status-serious) 12%, var(--surface-2));
   border-color: color-mix(in srgb, var(--status-serious) 32%, var(--border));
-  border-left: 3px solid var(--status-serious);
 }
 
 .file-note-dismiss {
@@ -2574,7 +2764,7 @@ html {
 }
 .preflight-select:focus-visible,
 .preflight-limits summary:focus-visible {
-  outline: 2px solid currentColor;
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
 .preflight-select:active { transform: translateY(1px); }
@@ -2603,9 +2793,13 @@ html {
   background: var(--hover);
 }
 
+/* The tint is 1.17:1 from --hover, so the selected row also carries a 3px
+   --accent-graphic bar down its leading edge — a shape, not a colour alone
+   (4.56:1 on the light tint, 3.35:1 on the dark one, 4.31:1 in Daylight). */
 .tree-row-selected,
 .tree-row-selected:hover {
   background: var(--selected);
+  box-shadow: inset 3px 0 0 var(--accent-graphic);
 }
 
 .tree-row-root {
@@ -2641,7 +2835,7 @@ html {
 }
 
 .tree-visibility:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -2670,6 +2864,7 @@ html {
 }
 
 .tree-badge {
+  font-family: var(--font-data);
   font-size: 9px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -2721,7 +2916,7 @@ html {
   border-radius: 5px;
   background: var(--surface-3);
   cursor: pointer;
-  font-family: inherit;
+  font-family: var(--font-data);
 }
 
 .add-menu-item:hover {
@@ -2742,13 +2937,18 @@ html {
   border: none;
   background: var(--surface-3);
   cursor: pointer;
-  font-family: inherit;
+  font-family: var(--font-data);
   color: var(--text-secondary);
 }
 
+/* A segmented control, not a second Launch (D2, SPEC §4.3): the selected
+   segment is marked by a 2px --accent-graphic underline, weight and full ink
+   — three cues, none of them colour alone. It used to wear the Launch fill. */
 .view-toggle button.active {
-  background: var(--launch);
-  color: #fff;
+  background: var(--surface-3);
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent-graphic);
 }
 
 /* --- Series picker (filter bar above charts) --- */
@@ -2768,7 +2968,7 @@ html {
   align-items: center;
   gap: 5px;
   font-size: 12px;
-  font-family: inherit;
+  font-family: var(--font-data);
   padding: 3px 9px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -2808,6 +3008,8 @@ html {
   width: 100%;
   border-collapse: collapse;
   margin-top: 8px;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
 }
 
@@ -2828,9 +3030,9 @@ html {
   font: inherit;
   font-size: 12px;
   padding: 3px 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control);
   border-radius: 4px;
-  background: var(--surface-1);
+  background: var(--field-bg);
   box-sizing: border-box;
 }
 
@@ -2859,6 +3061,7 @@ html {
 /* --- Version badge + changelog --- */
 .version-badge {
   font: inherit;
+  font-family: var(--font-data);
   font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
@@ -2893,6 +3096,7 @@ html {
 .version-ok,
 .version-update {
   font: inherit;
+  font-family: var(--font-data);
   font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
@@ -2914,16 +3118,18 @@ html {
   background: var(--hover);
 }
 
-/* An update IS worth the accent — it is the one state that asks for an action.
-   Surface-colored text, NOT #fff — same 2.49:1 trap .tour-next documents. */
+/* An update is worth the accent — it is the one state that asks for an
+   action — but not a second orange FILL beside Launch (D2): an outlined pill,
+   like the brand's .mmr-pill. Orange words 5.85:1 on paper, 7.28:1 on navy;
+   the edge is the state graphic. */
 .version-update {
-  color: var(--surface-3);
-  background: var(--accent);
-  border-color: var(--accent);
+  color: var(--accent-text);
+  background: transparent;
+  border-color: var(--accent-graphic);
 }
 
 .version-update:hover {
-  filter: brightness(1.08);
+  background: var(--hover);
 }
 
 .version-badge:hover {
@@ -3012,7 +3218,7 @@ html {
 .schematic-tool-notes label { display: flex; align-items: center; gap: 4px; }
 .schematic-ruler-settings { position: static; }
 .schematic-ruler-settings summary { cursor: pointer; }
-.schematic-ruler-settings summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.schematic-ruler-settings summary:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .schematic-ruler-card {
   position: absolute;
   right: 0;
@@ -3092,7 +3298,7 @@ html {
   min-height: 60px;
   width: 14px;
   margin: 0;
-  accent-color: var(--accent);
+  accent-color: var(--accent-graphic);
   cursor: ns-resize;
   /* The standard vertical range; -webkit-slider-vertical is the pre-Chrome-121
      spelling and is ignored where writing-mode works. */
@@ -3102,7 +3308,7 @@ html {
 }
 
 .roll-reset {
-  font: 600 9px/1 system-ui, sans-serif;
+  font: 600 9px/1 var(--font-data);
   color: var(--text-secondary);
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -3216,7 +3422,7 @@ html {
 
 .batch-progress-fill {
   height: 100%;
-  background: var(--accent);
+  background: var(--accent-graphic);
   transition: width 0.15s;
 }
 
@@ -3229,6 +3435,8 @@ html {
 }
 
 .simdet-grid td {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
   padding: 3px 6px;
 }
@@ -3284,9 +3492,9 @@ html {
   max-height: calc(100dvh - 32px);
   overflow-y: auto;
   background: var(--surface-2);
+  /* No drop shadow (SPEC §7.2): the 1px edge separates it; the scrim stays. */
   border: 1px solid var(--border);
   border-radius: 8px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
   padding: 18px 20px;
   max-width: 440px;
 }
@@ -3304,17 +3512,17 @@ html {
 .flight-bundle label { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; color: var(--text-secondary); font-size: 13px; }
 .flight-bundle input, .flight-bundle textarea { min-width: 0; width: 100%; box-sizing: border-box; }
 .flight-bundle input:not([type='checkbox']), .flight-bundle textarea {
-  font: inherit; padding: 5px 7px; border: 1px solid var(--border); border-radius: 5px;
-  background: var(--surface-1); color: var(--text-primary);
+  font: inherit; font-family: var(--font-data); padding: 5px 7px; border: 1px solid var(--border-control); border-radius: 5px;
+  background: var(--field-bg); color: var(--text-primary);
 }
 .flight-bundle textarea.resize-none { resize: none; min-height: 7em; overflow-y: auto; }
-.flight-bundle input:focus-visible, .flight-bundle textarea:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.flight-bundle input:focus-visible, .flight-bundle textarea:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .flight-bundle .bundle-coordinate-choice { flex-direction: row; align-items: center; }
 .flight-bundle input[type='checkbox'] { width: auto; }
 .flight-bundle p, .flight-bundle summary { overflow-wrap: anywhere; }
 .flight-bundle summary { cursor: pointer; padding: 8px 0; }
 .flight-bundle pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
-.flight-bundle summary:focus-visible, .flight-bundle pre:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.flight-bundle summary:focus-visible, .flight-bundle pre:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
 /* N038: keep all editor controls reachable on supported clients predating dvh. */
 .flight-export-layout-editor {
@@ -3371,7 +3579,7 @@ html {
    part of the UI it is pointing at. */
 .tour-ring {
   position: fixed;
-  border: 2px solid var(--accent);
+  border: 2px solid var(--accent-graphic);
   border-radius: 8px;
   pointer-events: none;
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
@@ -3395,9 +3603,10 @@ html {
      it") hung off the viewport and clipped its own Next button. */
   box-sizing: border-box;
   background: var(--note-bg);
-  border: 1.5px solid var(--accent);
+  /* The orange edge sets it apart from the UI it points at; no drop shadow
+     (SPEC §7.2) — the ring's spotlight scrim already dims everything else. */
+  border: 1.5px solid var(--accent-graphic);
   border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   padding: 12px 14px;
   z-index: 120;
 }
@@ -3443,24 +3652,30 @@ html {
   padding: 4px 2px;
 }
 
+/* The tour's own primary (D2): the Launch fill and its label. The label is
+   --on-accent, NOT #fff: white on the dark theme's #FF6509 is 2.95:1, and
+   dark is the default theme, so this is the first control a new tester sees.
+   Navy there (5.15:1), white on #BB4100 in light (5.43:1), white on #9B3500
+   in Daylight (7.23:1) — contrastTokens.test.ts. */
 .tour-next {
   font: inherit;
+  font-family: var(--font-data);
   font-size: 12.5px;
   font-weight: 600;
-  /* NOT #fff: --accent is a dark burnt orange on the light palette but a
-     bright one on dark, where white lands at 2.49:1 — and dark is the default
-     theme, so this was the first control a new tester ever saw. Inverting to
-     the surface color passes in both, same reasoning as .hc-toggle.hc-on —
-     but --surface-3, the raised-control surface, not --surface-1: the well
-     color is off-white in light and made 4.32:1 there, a fail this comment
-     claimed was a pass (audit 2026-09-22). --surface-3 is 4.96:1 in light,
-     5.66:1 in dark, 7.56:1 in Daylight (contrastTokens.test.ts). */
-  color: var(--surface-3);
-  background: var(--accent);
+  color: var(--on-accent);
+  background: var(--launch);
   border: none;
   border-radius: 5px;
   padding: 6px 12px;
   cursor: pointer;
+}
+
+.tour-next:hover {
+  background: var(--launch-hover);
+}
+
+.tour-next:active {
+  background: var(--launch-active);
 }
 
 /* --- Preferences dialog --- */
@@ -3479,14 +3694,12 @@ html {
 .prefs-dialog {
   width: 100%;
   max-width: 520px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
 }
 
 /* --- User guide dialog --- */
 .guide-dialog {
   width: 100%;
   max-width: 960px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 80px);
@@ -3513,11 +3726,12 @@ html {
   min-width: 0;
   width: 100%;
   padding: 6px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control);
   border-radius: 6px;
-  background: var(--surface-1);
+  background: var(--field-bg);
   color: var(--text-primary);
   font: inherit;
+  font-family: var(--font-data);
 }
 
 .guide-search-count { min-width: 7em; }
@@ -3544,16 +3758,20 @@ html {
 .guide-letters [aria-disabled] { color: var(--text-muted); }
 .guide-letters a:hover { background: var(--surface-1); }
 .guide-content mark {
-  background: color-mix(in srgb, var(--accent) 22%, var(--surface-2));
+  background: color-mix(in srgb, var(--accent-graphic) 22%, var(--surface-2));
   color: var(--text-primary);
 }
+/* The CURRENT match: the selected treatment (D2) rather than an orange fill —
+   the selected tint, a 2px --accent-graphic ring and weight, so it differs
+   from the other (orange-tinted) matches by shape and weight, not hue alone. */
 .guide-content .guide-match-current {
-  background: var(--accent);
-  color: var(--surface-3);
-  outline: 2px solid var(--text-primary);
+  background: var(--selected);
+  color: var(--text-primary);
+  font-weight: 600;
+  outline: 2px solid var(--accent-graphic);
 }
 .guide-search :focus-visible, .guide-letters a:focus-visible, .guide-content [id^="glossary-"]:focus {
-  outline: 2px solid var(--accent);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
 
@@ -3584,6 +3802,7 @@ html {
   text-align: left;
   background: none;
   border: none;
+  font-family: var(--font-display);
   color: var(--text-secondary);
   font-size: 13px;
   padding: 6px 8px;
@@ -3597,21 +3816,32 @@ html {
   color: var(--text-primary);
 }
 
+/* The selected treatment (D2): tint, a 2px --accent-graphic bar on the
+   leading edge, weight — not a second orange fill beside the dialog's own
+   controls. */
 .guide-toc-item.active {
-  background: var(--accent);
-  /* Same accent/white contrast trap as .tour-next above. */
-  color: var(--surface-3);
+  background: var(--selected);
+  color: var(--text-primary);
   font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--accent-graphic);
 }
 
+/* Long prose in Archivo 400 — a stated exception to SPEC §7.2 ("no Archivo
+   for long body copy"; Literata is website-only), recorded as D6 — with the
+   line length capped near 70 characters, which is what keeps it readable. */
 .guide-content {
   min-width: 0;
   overflow-wrap: anywhere;
   overflow-y: auto;
   padding-right: 8px;
   font-size: 13.5px;
+  font-weight: 400;
   line-height: 1.6;
   color: var(--text-primary);
+}
+
+.guide-content :is(p, ul, ol, h2, h3, h4, blockquote, dl) {
+  max-width: 70ch;
 }
 
 .guide-section-title {
@@ -3666,13 +3896,14 @@ html {
 }
 
 .guide-content a {
-  color: var(--accent);
+  color: var(--link);
 }
 
 .guide-content table {
   border-collapse: collapse;
   width: 100%;
   margin: 4px 0 14px;
+  font-family: var(--font-data);
   font-size: 12.5px;
   display: block;
   overflow-x: auto;
@@ -3774,8 +4005,9 @@ html {
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface-3);
-  box-shadow: 0 2px 8px rgb(0 0 0 / 18%);
   color: var(--text-primary);
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
   font-size: 11px;
   line-height: 1.45;
   white-space: nowrap;
@@ -3823,7 +4055,10 @@ html {
   color: var(--text-primary);
 }
 
-.viz-root[data-theme='dark'] .u-legend {
+/* uPlot's legend outside a .chart-panel takes the theme's secondary ink in
+   every theme (this was a dark-only rule, which Daylight — now data-theme
+   light — would no longer have matched). */
+.viz-root .u-legend {
   color: var(--text-secondary);
 }
 
@@ -3838,9 +4073,9 @@ select.unit-chip {
   -webkit-appearance: none;
   border: none;
   background: transparent;
-  font-family: inherit;
+  font-family: var(--font-data);
   font-size: inherit;
-  color: var(--accent);
+  color: var(--accent-text);
   padding: 0 1px;
   cursor: pointer;
   text-decoration: underline dotted;
@@ -3897,7 +4132,7 @@ select.unit-chip:hover {
 
 .preset-sort:hover { background: var(--hover); }
 .preset-sort:active { background: var(--surface-3); }
-.preset-sort:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.preset-sort:focus-visible { outline: 3px solid var(--focus); outline-offset: 1px; }
 
 .motor-db-meta {
   font-size: 11px;
@@ -3949,11 +4184,12 @@ select.unit-chip:hover {
 
 .motor-filter-row input[type='search'] {
   font: inherit;
+  font-family: var(--font-data);
   font-size: 13px;
   padding: 5px 7px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control);
   border-radius: 5px;
-  background: var(--surface-1);
+  background: var(--field-bg);
   color: var(--text-primary);
   min-width: 160px;
 }
@@ -3985,11 +4221,12 @@ select.unit-chip:hover {
 .motor-inline-label input,
 .motor-inline-label select {
   font: inherit;
+  font-family: var(--font-data);
   font-size: 12px;
   padding: 3px 6px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control);
   border-radius: 5px;
-  background: var(--surface-1);
+  background: var(--field-bg);
   color: var(--text-primary);
 }
 
@@ -4005,6 +4242,8 @@ select.unit-chip:hover {
 .motor-table {
   width: 100%;
   border-collapse: collapse;
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
   font-size: 12px;
 }
 
@@ -4048,7 +4287,7 @@ select.unit-chip:hover {
    non-colour cue: it is a shape, and as a graphic it clears 3:1 against the
    tint in every theme. On the cell, because a <tr> takes no box-shadow. */
 .motor-row-picked td:first-child {
-  box-shadow: inset 3px 0 0 var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent-graphic);
 }
 
 .motor-row-long td {
@@ -4254,268 +4493,16 @@ select.unit-chip:hover {
   }
 }
 
-/* ===================================================================
-   DAYLIGHT MODE — dark ink on white, for reading the screen in direct sun
-   (the header Daylight button, or Preferences → Display).
-
-   `data-contrast='high'` OVERRIDES the theme rather than layering on it:
-   in sunlight the polarity is the whole point — a phone can't emit its way
-   past the sun, so the screen has to be mostly white and the ink has to be
-   black. High-contrast dark (white on black) is the right answer indoors
-   and the wrong one on the field, and the app's default theme is dark, so
-   "add contrast to whatever theme you're on" would hand most users exactly
-   the wrong thing. Turning Daylight off returns to the chosen theme
-   untouched — `data-theme` is still there, just outvoted.
-
-   These rules must stay at the END of this file: the sheet is one flat
-   cascade, and every override below ties the theme rules on specificity
-   (both are one class + one attribute), so source order is what decides.
-   Keep this block to COLOR TOKENS, BORDER WIDTHS AND FONT WEIGHTS only —
-   the wide-screen layout block above says "keep last" for the same
-   source-order reason, and a layout rule added down here would outrank it.
-
-   The principle is luminance, not decoration: push text to the extremes of
-   the range, replace fills with borders, thicken every hairline, and drop
-   the soft-focus effects (low opacity, gradients, shadows) that a sunlit
-   screen turns into mud. Contrast targets: body text >= 12:1, every chart
-   hue and control edge >= 4.5:1 against white.
-   =================================================================== */
-
-.viz-root[data-contrast='high'] {
-  --surface-0: #ffffff;
-  --surface-1: #ffffff;
-  --surface-2: #ffffff;
-  --surface-3: #ffffff;
-  --border-strong: #000000;
-  --shadow-1: none;
-  --text-primary: #000000;
-  --text-secondary: #141414;
-  --text-muted: #2e2e2e;
-  --series-1: #0b4ea2;
-  --status-good: #005c00;
-  --status-warn: #6b4a00;
-  --callout-caution-bg: #ffcf66;
-  --callout-caution-fg: #17130a;
-  --callout-danger-bg: #970f21;
-  --callout-danger-fg: #ffffff;
-  --status-serious: #b00016;
-  --border: #000000;
-  --hover: #d8d8d8;
-  --selected: #ffd18a;
-  --note-bg: #fff8d0;
-  --note-border: #000000;
-  --accent: #8f3a0d;
-  --launch: #9c3d0e;
-  --chart-axis: #000000;
-  --chart-grid: #9a9a9a;
-  --chart-tick: #000000;
-  --chart-series-width: 3;
-  --chart-axis-font: 600 12px system-ui;
-  color-scheme: light;
-}
-
-/* Every hairline doubles: at arm's length in sun, a 1px #dedcd7 edge is gone. */
-.viz-root[data-contrast='high'] .panel,
-.viz-root[data-contrast='high'] .vitals-strip,
-.viz-root[data-contrast='high'] .stat-tile,
-.viz-root[data-contrast='high'] .series-picker,
-.viz-root[data-contrast='high'] .series-chip,
-.viz-root[data-contrast='high'] .view-toggle,
-.viz-root[data-contrast='high'] .file-btn,
-.viz-root[data-contrast='high'] .chart-btn,
-.viz-root[data-contrast='high'] .version-badge,
-.viz-root[data-contrast='high'] .rocket-stage,
-.viz-root[data-contrast='high'] .field input,
-.viz-root[data-contrast='high'] .field select,
-.viz-root[data-contrast='high'] .field textarea,
-.viz-root[data-contrast='high'] .fin-table input,
-.viz-root[data-contrast='high'] .color-swatch,
-.viz-root[data-contrast='high'] .prefs-dialog,
-.viz-root[data-contrast='high'] .mmr-band-search input,
-.viz-root[data-contrast='high'] .file-menu {
-  border-width: 2px;
-  border-style: solid;
-  border-color: var(--border);
-}
-
-/* The density-altitude readout keeps its DASHED edge in Daylight — the dash is
-   what says "not editable" — and only thickens it like every other hairline. */
-.viz-root[data-contrast='high'] .field output {
-  border-width: 2px;
-  border-color: var(--border);
-}
-
-/* The site band is the one surface Daylight can erase completely. Daylight
-   paints --surface-1 AND --surface-2 the same #ffffff, so the band strip, the
-   footer strip and the search box are white on a white page and the ONLY
-   thing separating them is a hairline — the same hairline the rule above
-   thickens everywhere else. The search input is in that list; these two carry
-   a single edge each (bottom, top) rather than a box, so a plain
-   `border-width` would draw three edges that were never there.
-
-   This lives in the Daylight block, not in the `.mmr-band` block, on purpose:
-   MUST 5 keeps the band's own CSS to the `.mmr-band-*` namespace and the
-   contrast POLICY belongs where the rest of the policy is, so a future
-   Daylight tune finds every hairline in one place. */
-.viz-root[data-contrast='high'] .mmr-band {
-  border-bottom-width: 2px;
-}
-
-.viz-root[data-contrast='high'] .mmr-band-footer {
-  border-top-width: 2px;
-}
-
-/* Small type carries most of the readings — give it weight to survive glare. */
-.viz-root[data-contrast='high'] {
-  font-weight: 500;
-}
-
-.viz-root[data-contrast='high'] .vitals-label,
-.viz-root[data-contrast='high'] .download-caption,
-.viz-root[data-contrast='high'] .comp-stats,
-.viz-root[data-contrast='high'] .prefs-hint,
-.viz-root[data-contrast='high'] .session-note,
-.viz-root[data-contrast='high'] .chart-hints,
-.viz-root[data-contrast='high'] .stat-label,
-.viz-root[data-contrast='high'] .series-chip,
-.viz-root[data-contrast='high'] .fin-table th,
-.viz-root[data-contrast='high'] .field label,
-.viz-root[data-contrast='high'] .field .field-caption {
-  font-weight: 700;
-  color: var(--text-secondary);
-}
-
-/* Dimming is a subtlety the sun erases — keep faded states legible. */
-.viz-root[data-contrast='high'] .empty-state svg,
-.viz-root[data-contrast='high'] .series-dot,
-.viz-root[data-contrast='high'] .fin-row-del:disabled,
-.viz-root[data-contrast='high'] .file-btn:is(:disabled, [aria-disabled='true']),
-.viz-root[data-contrast='high'] .schematic-controls .file-btn:disabled,
-.viz-root[data-contrast='high'] .chart-btn:disabled,
-.viz-root[data-contrast='high'] .launch-btn:disabled,
-.viz-root[data-contrast='high'] .chart-panel .u-legend {
-  opacity: 1;
-}
-
-/* High contrast: the readout is a floating panel over the plot, so it needs a
-   harder edge than the 1px hairline the normal themes use. */
-.viz-root[data-contrast='high'] .chart-tooltip {
-  border-width: 2px;
-  box-shadow: none;
-}
-
-.viz-root[data-contrast='high'] .chart-tooltip-x,
-.viz-root[data-contrast='high'] .chart-tooltip-label {
-  color: var(--text-primary);
-}
-
-.viz-root[data-contrast='high'] .series-chip:not(.series-chip-on) .series-dot {
-  opacity: 0.55;
-}
-
-/* Double the zoom box's edge in sun, keeping --accent rather than the black
-   every other hairline doubles to — at 2px of black it reads as an axis. */
-.viz-root[data-contrast='high'] .chart-panel .u-select {
-  box-shadow: inset 0 0 0 2px var(--accent);
-}
-
-/* Disabled chart buttons keep full opacity in sun (rule above); the state
-   reads through ink instead — muted text on a gray border vs. black-on-black
-   for a live button. File buttons the same (issues-2026-10-13a.md). */
-.viz-root[data-contrast='high'] .file-btn:is(:disabled, [aria-disabled='true']),
-.viz-root[data-contrast='high'] .chart-btn:disabled {
-  color: var(--text-muted);
-  border-color: var(--chart-grid);
-}
-
-/* Selection must read without relying on a tint alone. */
-.viz-root[data-contrast='high'] .view-toggle button.active {
-  outline: 2px solid var(--border);
-  outline-offset: -2px;
-  font-weight: 700;
-}
-
-/* A SELECTED CHIP NEEDS A FILL IN SUN, and until now it had none: the outline
-   above is 2px of var(--border) inset by -2px, which lands exactly on the 2px
-   black border every chip already carries in this theme (the hairline-doubling
-   rule near the top of the block), and the font-weight is already 700 on ALL
-   chips. So `on` and `off` painted identically — white on white — and a user
-   picking motor diameters could not tell which were chosen. Fill it instead.
-   --selected (#ffd18a) against black text is 14:1; the worst Daylight series
-   dot, #8a5000 in SERIES_DAYLIGHT (chartTheme.ts:41), is 4.57:1 on it. */
-.viz-root[data-contrast='high'] .series-chip-on {
+/* Header Daylight toggle: shows its own state (it is the control users reach
+   for when they can barely see the screen). The selected treatment (D2), not
+   an orange fill: the selected tint, a 2px --accent-graphic underline and
+   weight. It is only ever "on" while Daylight is, so the pair that matters is
+   black on #FFD18A (14:1). */
+.hc-toggle.hc-on {
   background: var(--selected);
   color: var(--text-primary);
   font-weight: 700;
-}
-
-/* Keyboard focus, visible in glare. */
-.viz-root[data-contrast='high'] :focus-visible {
-  outline: 3px solid var(--accent);
-  outline-offset: 1px;
-}
-
-/* Soft shadows and the dusk-sky gradient behind the rocket both turn to haze
-   in sunlight — flatten them so the drawing sits on clean paper. */
-.viz-root[data-contrast='high'] .rocket-stage {
-  background: var(--surface-1);
-}
-
-.viz-root[data-contrast='high'] .panel,
-.viz-root[data-contrast='high'] .file-menu,
-.viz-root[data-contrast='high'] .prefs-dialog,
-.viz-root[data-contrast='high'] .add-menu {
-  box-shadow: none;
-}
-
-/* The 2D schematic draws its outlines as SVG presentation attributes; the
-   attribute-value selector reaches exactly the default component stroke and
-   leaves the CG/CP markers and user colors alone. */
-/* Ink retarget applies to every schematic; the WIDTH bump must not reach the
-   aft view — its viewBox is in METERS (~0.4 units across), so "1.6" there is
-   a 1.6 m stroke that floods the whole drawing black (the Daylight aft-view
-   black-box defect, owner report 2026-08-29). */
-.viz-root[data-contrast='high'] .rocket-stage svg [stroke='#7a786f'],
-.viz-root[data-contrast='high'] .rocket-stage svg [stroke='#9a978f'] {
-  stroke: var(--text-primary);
-}
-
-.viz-root[data-contrast='high'] .rocket-stage svg:not(.aft-svg) [stroke='#7a786f'],
-.viz-root[data-contrast='high'] .rocket-stage svg:not(.aft-svg) [stroke='#9a978f'] {
-  stroke-width: 1.6;
-}
-
-/* The launch button is the one saturated surface — keep its label at full
-   strength and give it an edge against a white or black page. (The 2D/3D
-   toggle keeps its outline instead of a border: a border would resize only
-   the active half and make the pair jump on every switch.) */
-.viz-root[data-contrast='high'] .launch-btn {
-  color: #ffffff;
-  border: 2px solid var(--border);
-}
-
-.viz-root[data-contrast='high'] .view-toggle button.active {
-  color: #ffffff;
-}
-
-/* Modal scrims: opaque enough that the dialog wins over what's behind it.
-   .prefs-overlay is the dialogs' backdrop, .modal-backdrop the confirmation
-   modals' (Modal.tsx). */
-.viz-root[data-contrast='high'] .prefs-overlay,
-.viz-root[data-contrast='high'] .modal-backdrop {
-  background: rgba(0, 0, 0, 0.72);
-}
-
-/* Header Daylight toggle: shows its own state (it is the control users reach
-   for when they can barely see the screen). */
-/* Label color is a surface, not white: the accent is a dark burnt orange on
-   the light palette and a bright one on the dark palette, so only an inverted
-   label stays readable in both — --surface-3, per .tour-next's note. */
-.hc-toggle.hc-on {
-  background: var(--accent);
-  color: var(--surface-3);
-  border-color: var(--accent);
-  font-weight: 700;
+  box-shadow: inset 0 -2px 0 var(--accent-graphic);
 }
 
 /* Override panel: the "…and everything inside" flag, and the stage hint. */
@@ -4552,28 +4539,30 @@ select.unit-chip:hover {
   line-height: 1.4;
   color: var(--text-muted);
   background: var(--note-bg);
-  border-left: 2px solid var(--text-muted);
-  border-radius: 3px;
+  border: 1px solid var(--note-border);
+  border-radius: 6px;
 }
 
 /* A container CG override with no mass to position: the one case where a typed
-   number provably changes nothing. Warm border rather than the muted one, so it
-   reads as "act on this" and not as the neighbouring "for information". */
+   number provably changes nothing. The caution tint rather than the note
+   surface, so it reads as "act on this" and not as the neighbouring "for
+   information" (brand v1: the warm stripe became the tint, D3). */
 .override-inert {
   margin: 4px 0 0;
   padding: 5px 7px;
   font-size: 11px;
   line-height: 1.45;
   color: var(--text-primary);
-  background: var(--note-bg);
-  border-left: 2px solid var(--status-warn);
-  border-radius: 3px;
+  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--status-warn) 30%, var(--border));
+  border-radius: 6px;
 }
 .override-inert-fix {
   display: block;
   margin-top: 5px;
   padding: 2px 8px;
   font: inherit;
+  font-family: var(--font-data);
   font-size: 11px;
   cursor: pointer;
   color: var(--text-primary);
@@ -4581,7 +4570,7 @@ select.unit-chip:hover {
   border: 1px solid var(--border);
   border-radius: 4px;
 }
-.override-inert-fix:hover { border-color: var(--accent); }
+.override-inert-fix:hover { border-color: var(--accent-graphic); }
 
 /* "Choose metrics" on the Results tab. It sits at the end of a row of tall
    stat tiles, where a bare glyph disappeared; centred on their axis with its
@@ -4629,8 +4618,8 @@ select.unit-chip:hover {
   line-height: 1.5;
   color: var(--text-primary);
   background: var(--note-bg);
+  /* No drop shadow (SPEC §7.2): the top edge separates it. */
   border-top: 1px solid var(--note-border);
-  box-shadow: 0 -2px 10px rgb(0 0 0 / 12%);
 }
 
 /* THE PHONE LIFT. It must stay AFTER the rule above: both selectors are the
@@ -4649,7 +4638,7 @@ select.unit-chip:hover {
    a tan strip distinguished from an info strip by a 2px border. */
 .notice-bar.notice-warn {
   border-top-color: var(--status-warn);
-  background: color-mix(in srgb, var(--status-warn) 10%, var(--surface-2));
+  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
 }
 .notice-bar.notice-error {
   border-top-color: var(--status-serious);
@@ -4752,8 +4741,8 @@ select.unit-chip:hover {
   font-size: 11px;
 }
 .measured-compare dt { color: var(--text-muted); }
-.measured-compare dd { margin: 0; font-variant-numeric: tabular-nums; }
-.measured-delta { color: var(--accent); font-weight: 600; }
+.measured-compare dd { margin: 0; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+.measured-delta { color: var(--accent-text); font-weight: 600; }
 .measured-verdict {
   margin: 10px 0 0;
   padding: 8px 10px;
@@ -4763,7 +4752,7 @@ select.unit-chip:hover {
   background: var(--surface-2);
   border: 1px solid var(--border);
 }
-.measured-verdict.measured-ok { border-color: var(--accent); }
+.measured-verdict.measured-ok { border-color: var(--accent-graphic); }
 .measured-verdict.measured-bad {
   border-color: var(--status-warn);
   color: var(--text-primary);
@@ -4779,9 +4768,8 @@ select.unit-chip:hover {
   font-size: 12px;
   line-height: 1.4;
   color: var(--text-secondary);
-  background: color-mix(in srgb, var(--status-warn) 10%, var(--surface-2));
+  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
   border: 1px solid color-mix(in srgb, var(--status-warn) 30%, var(--border));
-  border-left: 3px solid var(--status-warn);
   border-radius: 6px;
 }
 
@@ -4942,7 +4930,7 @@ select.unit-chip:hover {
 .wind-profile details { margin-block: 0.4rem; }
 .wind-profile summary { cursor: pointer; }
 .wind-profile-table { max-width: 100%; overflow-x: auto; }
-.wind-profile-table table { width: 100%; border-collapse: collapse; }
+.wind-profile-table table { width: 100%; border-collapse: collapse; font-family: var(--font-data); font-variant-numeric: tabular-nums; }
 .wind-profile-table th, .wind-profile-table td { padding: 0.35rem; text-align: left; }
 
 /* Comparison charts inherit chart tokens in light, dark and Daylight. */
@@ -4955,7 +4943,7 @@ select.unit-chip:hover {
 .comparison-controls select { min-width: 0; max-width: 100%; min-height: 36px; }
 .saved-flight-plots input { min-width: 0; max-width: 100%; flex: 1 1 140px; min-height: 36px; }
 .saved-flight-plots .chart-btn { min-height: 36px; }
-.saved-flight-plots :is(input, select, button):focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.saved-flight-plots :is(input, select, button):focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .comparison-axis-keys { margin: 8px 0; font-size: 12px; }
 .comparison-axis-key > span { display: inline-flex; align-items: center; gap: 4px; }
 .chart-comparison-note { color: var(--text-secondary); font-size: 12px; line-height: 1.5; margin: 6px 0; }
@@ -4964,13 +4952,12 @@ select.unit-chip:hover {
 .flight-series-legend > span { flex-basis: 100%; }
 .flight-event-picker { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 8px 0; }
 .flight-event-picker button { min-height: 36px; }
-.flight-event-picker button:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.flight-event-picker button:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .plot-event-key, .plot-image-control { overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
 .plot-image-control .chart-btn { min-height: 36px; }
 .flight-series-legend .series-emphasized { outline: 2px solid currentColor; outline-offset: 1px; }
 .flight-series-legend .series-emphasis-mark { width: 1em; }
 .flight-series-legend .series-dot { opacity: 1; }
-.viz-root[data-contrast='high'] .flight-series-legend .series-chip .series-dot { opacity: 1; }
 .roll-plane-panel .chart-panel-head h4 { flex: 1; min-width: 0; }
 .comparison-panel .u-legend .u-series { margin-right: 10px; }
 .comparison-panel .chart-btn { min-height: 36px; }
@@ -4978,9 +4965,9 @@ select.unit-chip:hover {
 .comparison-panel summary:hover { color: var(--text-primary); }
 .comparison-panel :is(button, summary, select):focus-visible,
 .comparison-controls select:focus-visible,
-.comparison-table-scroll:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.comparison-table-scroll:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .comparison-table-scroll { max-width: 100%; overflow: auto; max-height: 360px; margin-top: 8px; }
-.comparison-table-scroll table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.comparison-table-scroll table { width: 100%; border-collapse: collapse; font-family: var(--font-data); font-size: 12px; font-variant-numeric: tabular-nums; }
 .comparison-table-scroll :is(th, td) { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .comparison-table-scroll caption { text-align: left; white-space: normal; padding: 6px; }
 
@@ -4993,13 +4980,15 @@ select.unit-chip:hover {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+/* Tinted in light and dark (D3), solid in Daylight; the fallbacks are the
+   light tints, should a token ever go missing. */
 .message-tier.message-tier.message-danger {
-  background: var(--callout-danger-bg, #970f21);
-  color: var(--callout-danger-fg, #ffffff);
+  background: var(--callout-danger-bg, #f5e5e7);
+  color: var(--callout-danger-fg, #03254f);
 }
 .message-tier.message-tier.message-caution {
-  background: var(--callout-caution-bg, #ffcf66);
-  color: var(--callout-caution-fg, #17130a);
+  background: var(--callout-caution-bg, #ede5d9);
+  color: var(--callout-caution-fg, #03254f);
 }
 .message-tier.message-tier :where(p, li, strong, a, .comp-stats, .simdet-comments, .hero-fallback-detail) {
   color: inherit;
@@ -5010,7 +4999,7 @@ select.unit-chip:hover {
 .warning-code {
   box-sizing: border-box;
   min-height: 24px;
-  font: 0.8em ui-monospace, monospace;
+  font: 0.8em var(--font-data);
   color: inherit;
   background: transparent;
   border: 1px solid currentColor;
@@ -5021,21 +5010,21 @@ select.unit-chip:hover {
   cursor: pointer;
 }
 .warning-code:hover { text-decoration: underline; }
-.warning-code:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.warning-code:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .warning-lookup { box-sizing: border-box; min-width: 0; color: var(--text-primary); overflow-wrap: anywhere; }
 .warning-lookup-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .warning-lookup-header h2 { flex: 1; margin: 0; }
 .warning-lookup h3 { margin-bottom: 4px; }
-.warning-lookup-code { font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
+.warning-lookup-code { font-family: var(--font-data); overflow-wrap: anywhere; }
 .warning-lookup label { display: block; }
 .warning-lookup input { display: block; box-sizing: border-box; width: 100%; margin: 6px 0; }
 .warning-lookup-list { list-style: none; padding: 0; max-height: 180px; overflow-y: auto; }
 .warning-lookup-list .file-btn { box-sizing: border-box; width: 100%; white-space: normal; text-align: left; margin-bottom: 4px; }
-.warning-lookup :is(button, input):focus-visible { outline: 2px solid var(--text-primary); outline-offset: 2px; }
+.warning-lookup :is(button, input):focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 
 /* W3-DIAG: normal document flow reserves its actual height on a phone too.
    Outside React's root, the tier fallbacks also work if startup never draws. */
-.fatal-error-bar { font: 13px/1.5 system-ui, sans-serif; margin: 0; }
+.fatal-error-bar { font: 13px/1.5 var(--mmr-font-display, system-ui), sans-serif; margin: 0; }
 .fatal-error-bar p { margin: 0 0 6px; }
 .fatal-error-bar p:empty { display: none; }
 .fatal-error-actions { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -5075,6 +5064,9 @@ select.unit-chip:hover {
   color: inherit;
   border-color: currentColor;
 }
+/* A ring on a FILLED tier takes the fill's own ink (Daylight's solid boxes,
+   where #006AAB on #970F21 would vanish) — the one exception to the single
+   --focus ring, with forced colours. Daylight restates it inside its block. */
 .message-tier.message-tier :focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 .simdet-comments.stability-bad, .comp-stats.stability-bad { color: var(--status-serious); }
 .simdet-comments.stability-warn, .comp-stats.stability-warn { color: var(--status-warn); }
@@ -5114,7 +5106,7 @@ select.unit-chip:hover {
 .glossary-help:hover { background: var(--surface-1); }
 .glossary-help:active { background: var(--surface-2); }
 .glossary-help:focus-visible, .config-stability-range summary:focus-visible {
-  outline: 2px solid var(--text-primary); outline-offset: 2px;
+  outline: 3px solid var(--focus); outline-offset: 2px;
 }
 .config-stability-range { margin-top: 8px; min-height: 5em; font-size: 12px; overflow-wrap: anywhere; }
 .range-worst { display: block; }
@@ -5122,3 +5114,316 @@ select.unit-chip:hover {
 .config-stability-range summary { cursor: pointer; padding: 6px 0; }
 .config-stability-range summary:hover { text-decoration: underline; }
 .config-stability-range ul { max-height: 14em; overflow: auto; padding-left: 20px; }
+
+/* ===================================================================
+   DAYLIGHT MODE — dark ink on white, for reading the screen in direct sun
+   (the header Daylight button, or Preferences → Display).
+
+   Since brand v1 Daylight is the brand's LIGHT theme with a contrast layer
+   on top (mmr-brand SPEC §3.1): App.tsx and index.html set
+   data-theme="light" whenever Daylight is on, so every --mmr-* token below
+   resolves LIGHT, and a `.viz-root[data-theme='dark'] …` rule never matches
+   in Daylight. This block overrides only what contrast needs: in sunlight
+   the polarity is the whole point — a phone can't emit its way past the sun,
+   so the screen has to be mostly white and the ink has to be black.
+
+   THIS BLOCK IS THE LAST THING IN THE FILE, and must stay so: the sheet is
+   one flat cascade, and every override below ties the theme rules on
+   specificity (both are one class + one attribute), so source order is what
+   decides. Until brand v1 about 615 lines followed it, and the message-tier
+   rules among them beat it by order; the ones that were MEANT to beat it are
+   restated near the end of this block (see "Rules that must outrank
+   Daylight"). Keep this block to COLOR TOKENS, BORDER WIDTHS AND FONT
+   WEIGHTS only — the wide-screen layout block above says "keep last of the
+   layout rules" for the same source-order reason, and a layout rule added
+   down here would outrank it.
+
+   The principle is luminance, not decoration: push text to the extremes of
+   the range, replace fills with borders, thicken every hairline, and drop
+   the soft-focus effects (low opacity, gradients, shadows) that a sunlit
+   screen turns into mud. Contrast targets: body text >= 12:1, every chart
+   hue and control edge >= 4.5:1 against white.
+   =================================================================== */
+
+.viz-root[data-contrast='high'] {
+  --surface-0: var(--mmr-c-white);
+  --surface-1: var(--mmr-c-white);
+  --field-bg: var(--mmr-c-white);
+  --surface-2: var(--mmr-c-white);
+  --surface-3: var(--mmr-c-white);
+  --border-strong: #000000;
+  --shadow-1: none;
+  /* The brand has nothing at 12:1 or more except navy (15.2:1), so the
+     sunlight inks stay: 21 / 18.4 / 13.6 on white. */
+  --text-primary: #000000;
+  --text-secondary: #141414;
+  --text-muted: #2e2e2e;
+  --series-1: #0b4ea2;
+  /* D8: Daylight keeps its darker status colours (8.30 / 8.06 / 7.35 on white;
+     the brand's are 6.44 / 6.49 / 6.81). */
+  --status-good: #005c00;
+  --status-warn: #6b4a00;
+  /* D3: Daylight keeps the SOLID callouts — sunlight is what they were built
+     for. Body ink on them 13.9:1 and 9.96:1. */
+  --callout-caution-bg: #ffcf66;
+  --callout-caution-fg: #17130a;
+  --callout-danger-bg: #970f21;
+  --callout-danger-fg: #ffffff;
+  --status-serious: #b00016;
+  --border: #000000;
+  --border-control: #000000;
+  --hover: var(--mmr-c-mist);
+  /* Kept: brand amber (#FFB23E) would drop the #8a5000 series dot to 3.62:1. */
+  --selected: #ffd18a;
+  --note-bg: #fff8d0;
+  --note-border: #000000;
+  /* The checklist's Daylight accent: the brand's orange INK, 6.13:1 on white. */
+  --accent-text: var(--mmr-c-orange-ink);
+  --accent-graphic: var(--mmr-c-orange-ink);
+  --accent: var(--accent-graphic);
+  --link: var(--mmr-c-link);
+  --focus: var(--mmr-c-link);
+  --on-accent: var(--mmr-c-white);
+  /* D8: the Launch ramp starts one step darker than the brand's #BB4100:
+     white on #9B3500 is 7.23:1; hover and active #7C2A00 (9.60:1). */
+  --launch: var(--mmr-c-action-hover);
+  --launch-hover: var(--mmr-c-action-active);
+  --launch-active: var(--mmr-c-action-active);
+  --chart-axis: #000000;
+  --chart-grid: #9a9a9a;
+  --chart-tick: #000000;
+  --chart-series-width: 3;
+  --chart-axis-font: 600 12px var(--mmr-font-data);
+  --font-display: var(--mmr-font-display);
+  --font-data: var(--mmr-font-data);
+  color-scheme: light;
+}
+
+/* Every hairline doubles: at arm's length in sun, a 1px pale edge is gone. */
+.viz-root[data-contrast='high'] .panel,
+.viz-root[data-contrast='high'] .vitals-strip,
+.viz-root[data-contrast='high'] .stat-tile,
+.viz-root[data-contrast='high'] .series-picker,
+.viz-root[data-contrast='high'] .series-chip,
+.viz-root[data-contrast='high'] .view-toggle,
+.viz-root[data-contrast='high'] .file-btn,
+.viz-root[data-contrast='high'] .chart-btn,
+.viz-root[data-contrast='high'] .version-badge,
+.viz-root[data-contrast='high'] .rocket-stage,
+.viz-root[data-contrast='high'] .field input,
+.viz-root[data-contrast='high'] .field select,
+.viz-root[data-contrast='high'] .field textarea,
+.viz-root[data-contrast='high'] .fin-table input,
+.viz-root[data-contrast='high'] .color-swatch,
+.viz-root[data-contrast='high'] .prefs-dialog,
+.viz-root[data-contrast='high'] .file-menu {
+  border-width: 2px;
+  border-style: solid;
+  border-color: var(--border);
+}
+
+/* The density-altitude readout keeps its DASHED edge in Daylight — the dash is
+   what says "not editable" — and only thickens it like every other hairline. */
+.viz-root[data-contrast='high'] .field output {
+  border-width: 2px;
+  border-color: var(--border);
+}
+
+/* The site band and footer strip are NAVY in Daylight too (brand v1, table C:
+   the strip does not follow the theme), so they keep their own line-dark rule
+   rather than the black above — the rule just doubles like every hairline.
+   The band's search box is deliberately NOT in the black-border list: black
+   on navy-raised is 1.74:1; it keeps its control-dark edge (4.26:1). */
+.viz-root[data-contrast='high'] .mmr-band {
+  border-bottom-width: 2px;
+}
+
+.viz-root[data-contrast='high'] .mmr-band-footer {
+  border-top-width: 2px;
+}
+
+/* Small type carries most of the readings — give it weight to survive glare. */
+.viz-root[data-contrast='high'] {
+  font-weight: 500;
+}
+
+.viz-root[data-contrast='high'] .vitals-label,
+.viz-root[data-contrast='high'] .download-caption,
+.viz-root[data-contrast='high'] .comp-stats,
+.viz-root[data-contrast='high'] .prefs-hint,
+.viz-root[data-contrast='high'] .session-note,
+.viz-root[data-contrast='high'] .chart-hints,
+.viz-root[data-contrast='high'] .stat-label,
+.viz-root[data-contrast='high'] .series-chip,
+.viz-root[data-contrast='high'] .fin-table th,
+.viz-root[data-contrast='high'] .field label,
+.viz-root[data-contrast='high'] .field .field-caption {
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+/* Dimming is a subtlety the sun erases — keep faded states legible. */
+.viz-root[data-contrast='high'] .empty-state svg,
+.viz-root[data-contrast='high'] .series-dot,
+.viz-root[data-contrast='high'] .fin-row-del:disabled,
+.viz-root[data-contrast='high'] .file-btn:is(:disabled, [aria-disabled='true']),
+.viz-root[data-contrast='high'] .schematic-controls .file-btn:disabled,
+.viz-root[data-contrast='high'] .chart-btn:disabled,
+.viz-root[data-contrast='high'] .launch-btn:disabled,
+.viz-root[data-contrast='high'] .chart-panel .u-legend {
+  opacity: 1;
+}
+
+/* High contrast: the readout is a floating panel over the plot, so it needs a
+   harder edge than the 1px hairline the normal themes use. */
+.viz-root[data-contrast='high'] .chart-tooltip {
+  border-width: 2px;
+  box-shadow: none;
+}
+
+.viz-root[data-contrast='high'] .chart-tooltip-x,
+.viz-root[data-contrast='high'] .chart-tooltip-label {
+  color: var(--text-primary);
+}
+
+.viz-root[data-contrast='high'] .series-chip:not(.series-chip-on) .series-dot {
+  opacity: 0.55;
+}
+
+/* The flight-series legend's dots stay full strength even on an unselected
+   chip (it was a stray rule below this block until brand v1; it must follow
+   the 0.55 rule above, which it ties). */
+.viz-root[data-contrast='high'] .flight-series-legend .series-chip .series-dot { opacity: 1; }
+
+/* Double the zoom box's edge in sun, keeping the orange rather than the black
+   every other hairline doubles to — at 2px of black it reads as an axis. */
+.viz-root[data-contrast='high'] .chart-panel .u-select {
+  box-shadow: inset 0 0 0 2px var(--accent-graphic);
+}
+
+/* Disabled chart buttons keep full opacity in sun (rule above); the state
+   reads through ink instead — muted text on a gray border vs. black-on-black
+   for a live button. File buttons the same (issues-2026-10-13a.md). */
+.viz-root[data-contrast='high'] .file-btn:is(:disabled, [aria-disabled='true']),
+.viz-root[data-contrast='high'] .chart-btn:disabled {
+  color: var(--text-muted);
+  border-color: var(--chart-grid);
+}
+
+/* Selection must read without relying on a tint alone. */
+.viz-root[data-contrast='high'] .view-toggle button.active {
+  outline: 2px solid var(--border);
+  outline-offset: -2px;
+  font-weight: 700;
+}
+
+/* A SELECTED CHIP NEEDS A FILL IN SUN, and until now it had none: the outline
+   above is 2px of var(--border) inset by -2px, which lands exactly on the 2px
+   black border every chip already carries in this theme (the hairline-doubling
+   rule near the top of the block), and the font-weight is already 700 on ALL
+   chips. So `on` and `off` painted identically — white on white — and a user
+   picking motor diameters could not tell which were chosen. Fill it instead.
+   --selected (#ffd18a) against black text is 14:1; the worst Daylight series
+   dot, #8a5000 in SERIES_DAYLIGHT (chartTheme.ts:41), is 4.57:1 on it. */
+.viz-root[data-contrast='high'] .series-chip-on {
+  background: var(--selected);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+/* Keyboard focus, visible in glare: the checklist's Daylight focus, link blue
+   #006AAB (5.75:1 on white), through the one --focus role. */
+.viz-root[data-contrast='high'] :focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* Soft shadows and the stage's tint both turn to haze in sunlight — flatten
+   them so the drawing sits on clean paper. */
+.viz-root[data-contrast='high'] .rocket-stage {
+  background: var(--surface-1);
+}
+
+.viz-root[data-contrast='high'] .panel,
+.viz-root[data-contrast='high'] .file-menu,
+.viz-root[data-contrast='high'] .prefs-dialog,
+.viz-root[data-contrast='high'] .add-menu {
+  box-shadow: none;
+}
+
+/* The 2D schematic draws its outlines as SVG presentation attributes; the
+   attribute-value selector reaches exactly the default component stroke and
+   leaves the CG/CP markers and user colors alone. */
+/* Ink retarget applies to every schematic; the WIDTH bump must not reach the
+   aft view — its viewBox is in METERS (~0.4 units across), so "1.6" there is
+   a 1.6 m stroke that floods the whole drawing black (the Daylight aft-view
+   black-box defect, owner report 2026-08-29). */
+.viz-root[data-contrast='high'] .rocket-stage svg [stroke='#7a786f'],
+.viz-root[data-contrast='high'] .rocket-stage svg [stroke='#9a978f'] {
+  stroke: var(--text-primary);
+}
+
+.viz-root[data-contrast='high'] .rocket-stage svg:not(.aft-svg) [stroke='#7a786f'],
+.viz-root[data-contrast='high'] .rocket-stage svg:not(.aft-svg) [stroke='#9a978f'] {
+  stroke-width: 1.6;
+}
+
+/* The launch button is the one saturated surface — keep its label at full
+   strength and give it an edge against a white page. */
+.viz-root[data-contrast='high'] .launch-btn {
+  color: var(--on-accent);
+  border: 2px solid var(--border);
+}
+
+/* Modal scrims: opaque enough that the dialog wins over what's behind it.
+   .prefs-overlay is the dialogs' backdrop, .modal-backdrop the confirmation
+   modals' (Modal.tsx). */
+.viz-root[data-contrast='high'] .prefs-overlay,
+.viz-root[data-contrast='high'] .modal-backdrop {
+  background: rgba(0, 0, 0, 0.72);
+}
+
+/* --- Rules that must outrank Daylight ---------------------------------
+   Until brand v1 these sat AFTER this block and beat its (0,3,0) rules by
+   source order alone. Moving the block to the end would have flipped them,
+   so each is restated here at a specificity that wins outright. */
+
+/* The site strips are navy in Daylight too, so their ring stays sky
+   (7.96:1 on navy): the Daylight ring above (#006AAB) is 2.64:1 there. */
+.viz-root[data-contrast='high'] .mmr-band :focus-visible,
+.viz-root[data-contrast='high'] .mmr-band-footer :focus-visible {
+  outline: 3px solid var(--mmr-c-sky);
+  outline-offset: 1px;
+}
+
+/* A control inside a filled (solid, in Daylight) Caution or Danger block
+   draws its edge and ring in the fill's own ink: black on the #970F21 danger
+   fill is 2.2:1, and a #006AAB ring on it would vanish. Was
+   `.message-tier.message-tier .file-btn` and `… :focus-visible`. */
+.viz-root[data-contrast='high'] .message-tier.message-tier .file-btn {
+  border-color: currentColor;
+}
+
+.viz-root[data-contrast='high'] .message-tier.message-tier :focus-visible {
+  outline: 3px solid currentColor;
+  outline-offset: 3px;
+}
+
+/* A filled block's own ink beats Daylight's small-type ink even when the
+   block itself carries one of those classes (ScaleDialog's comp-stats Danger
+   block: #141414 on #970F21 is 2.11:1). Was the (0,3,0)
+   `.message-tier.message-tier.message-danger` rule, winning by order. */
+.viz-root[data-contrast='high'] .message-tier.message-tier.message-danger {
+  color: var(--callout-danger-fg);
+}
+
+.viz-root[data-contrast='high'] .message-tier.message-tier.message-caution {
+  color: var(--callout-caution-fg);
+}
+
+/* Supporting prose inside a filled block takes the fill's ink, not Daylight's
+   #141414 secondary (1.88:1 on the danger fill). Was
+   `.message-tier.message-tier .comp-stats { color: inherit }`. */
+.viz-root[data-contrast='high'] .message-tier.message-tier .comp-stats {
+  color: inherit;
+}

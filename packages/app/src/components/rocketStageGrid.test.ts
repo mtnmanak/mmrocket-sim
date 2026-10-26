@@ -26,11 +26,25 @@ it.each(['light', 'dark'])('N009 removes fixed decoration from the %s schematic 
   const stage = host.querySelector<HTMLElement>('.rocket-stage')!;
   for (const grid of [true, false]) {
     host.querySelector('svg')!.innerHTML = grid ? '<g data-grid="view"><line /></g>' : '';
+    // Brand v1: the stage is FLAT (SPEC §7.2, no gradients), so in 2D there is
+    // no decoration left at all — no CSS grid lines and no sky gradient. The
+    // ground is a plain background-color (checked below).
     const computed = getComputedStyle(stage);
-    expect(computed.backgroundSize).toBe('100% 100%');
-    expect(computed.backgroundImage).not.toContain('transparent');
-    expect(computed.backgroundImage).toContain(theme === 'dark' ? '#14161d' : '#f2f4f8');
+    expect(['none', 'initial']).toContain(computed.backgroundImage);
   }
+});
+
+it('the stage ground is a flat brand colour in each theme, with no gradient fill anywhere', () => {
+  const stripped = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const ruleOf = (sel: string) => {
+    const at = stripped.indexOf(`${sel} {`);
+    expect(at, sel).toBeGreaterThan(-1);
+    return stripped.slice(at, stripped.indexOf('}', at));
+  };
+  expect(ruleOf('.rocket-stage')).toMatch(/background-color:\s*var\(--mmr-surface-2\);/);
+  expect(ruleOf(".viz-root[data-theme='dark'] .rocket-stage")).toMatch(/background-color:\s*var\(--mmr-bg\);/);
+  // The old dusk-sky gradients, light and dark.
+  expect(stripped).not.toMatch(/linear-gradient\(180deg/);
 });
 
 it.each(['light', 'dark'])('N009 retains %s decoration for sibling 3D and aft stages', (theme) => {
@@ -38,7 +52,9 @@ it.each(['light', 'dark'])('N009 retains %s decoration for sibling 3D and aft st
   host.dataset.theme = theme;
   host.innerHTML = '<div class="rocket-stage"><div class="rocket3d-wrap"></div></div><div class="rocket-stage"><svg></svg></div>';
   for (const stage of host.querySelectorAll<HTMLElement>('.rocket-stage')) {
-    expect(getComputedStyle(stage).backgroundSize).toBe('22px 22px, 22px 22px, 100% 100%');
+    // The drafting grid's two line layers; the gradient sky layer is gone.
+    expect(getComputedStyle(stage).backgroundSize).toBe('22px 22px, 22px 22px');
+    expect(getComputedStyle(stage).backgroundImage).toContain('linear-gradient');
   }
 });
 

@@ -41,11 +41,42 @@ function tokens(sel: string): Record<string, string> {
   for (const m of body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) out[m[1]!] = m[2]!.trim();
   return out;
 }
+/**
+ * THE BRAND LAYER (brand v1). Since mmr-brand 1.0.2 the app's roles are
+ * aliases of brand tokens (`--surface-0: var(--mmr-bg)`), defined in the
+ * vendored public/brand/tokens.css and chart.css, which index.html links
+ * before styles.css. The tokens resolve per theme on .viz-root: LIGHT values
+ * (`:root` / `[data-theme="light"]`) for light and for Daylight — which sets
+ * data-theme="light" — and the `[data-theme="dark"]` values for dark. The
+ * OS-preference @media copy is skipped: the app always sets data-theme.
+ */
+function brandTokens(): { light: Record<string, string>; dark: Record<string, string> } {
+  const text = ['tokens.css', 'chart.css']
+    .map((f) => read(`../../public/brand/${f}`)).join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+  const lightT: Record<string, string> = {};
+  const darkT: Record<string, string> = {};
+  let depth = 0;
+  for (const m of text.matchAll(/([^{}]*)\{|\}/g)) {
+    if (m[0] === '}') { depth--; continue; }
+    const prelude = m[1]!.trim();
+    depth++;
+    if (depth !== 1 || prelude.startsWith('@')) continue;
+    const open = m.index! + m[0].length;
+    const body = text.slice(open, text.indexOf('}', open));
+    const sels = prelude.split(',').map((s) => s.trim());
+    const decls = Object.fromEntries([...body.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((d) => [d[1]!, d[2]!.trim()]));
+    if (sels.some((s) => s === ':root' || s === '[data-theme="light"]')) Object.assign(lightT, decls);
+    if (sels.includes('[data-theme="dark"]')) Object.assign(darkT, decls);
+  }
+  return { light: lightT, dark: { ...lightT, ...darkT } };
+}
+const BRAND = brandTokens();
+
 const light = tokens('.viz-root');
 const THEMES: Record<string, Record<string, string>> = {
-  light,
-  dark: { ...light, ...tokens(".viz-root[data-theme='dark']") },
-  daylight: { ...light, ...tokens(".viz-root[data-contrast='high']") },
+  light: { ...BRAND.light, ...light },
+  dark: { ...BRAND.dark, ...light, ...tokens(".viz-root[data-theme='dark']") },
+  daylight: { ...BRAND.light, ...light, ...tokens(".viz-root[data-contrast='high']") },
 };
 
 /** The declaration block of the first rule whose selector list contains `sel`. */
@@ -85,21 +116,45 @@ const ratio = (a: RGB, b: RGB) => {
   const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p) as [number, number];
   return (x + 0.05) / (y + 0.05);
 };
+/** A colour expression (hex, var() chains into the brand tokens, color-mix) resolved under `t`. */
+const colourIn = (t: Record<string, string>, value: string): RGBA => {
+  const resolved = resolveVars(value, t);
+  expect(resolved, `unresolved in ${value}`).not.toContain('__missing');
+  const c = parseColour(resolved);
+  if (!c) throw new Error(`not a colour: ${value} → ${resolved}`);
+  return c;
+};
+/** An opaque role, resolved through the brand tokens. */
 const tok = (t: Record<string, string>, name: string): RGB => {
-  const v = t[name];
-  expect(v, `missing ${name}`).toBeDefined();
-  const ref = /^var\((--[\w-]+)\)$/.exec(v!);
-  return ref ? tok(t, ref[1]!) : rgb(v!);
+  expect(t[name], `missing ${name}`).toBeDefined();
+  const c = colourIn(t, `var(${name})`);
+  expect(c[3], `${name} is not opaque`).toBe(1);
+  return c.slice(0, 3) as RGB;
+};
+const hex = (c: RGB) => `#${c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+/** A declaration's value in a block, e.g. decl(rule('.x {'), 'background-color'). */
+const decl = (block: string, prop: string): string => {
+  const m = new RegExp(`(?:^|[;\\s])${prop}:\\s*([^;]+);`).exec(block);
+  expect(m, `no ${prop} in { ${block.trim().slice(0, 120)} }`).not.toBeNull();
+  return m![1]!.trim();
 };
 
-/** The 2D stage behind the schematic: its gradient stops, and a grid line on the darkest. */
+/**
+ * The 2D stage behind the schematic, FLAT since brand v1 (SPEC §7.2): its
+ * ground, and a drafting-grid line composited over that ground.
+ */
 function stage(theme: string): RGB[] {
-  if (theme === 'daylight') return [tok(THEMES.daylight!, '--surface-1')];
-  const block = rule(theme === 'dark' ? ".viz-root[data-theme='dark'] .rocket-stage" : '.rocket-stage {');
-  const stops = [...block.matchAll(/#[0-9a-f]{6}/gi)].map((m) => rgb(m[0]));
-  const grid = /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(block)!;
-  const darkest = stops[stops.length - 1]!;
-  return [...stops, over([+grid[1]!, +grid[2]!, +grid[3]!], +grid[4]!, darkest)];
+  const t = THEMES[theme]!;
+  if (theme === 'daylight') return [tok(t, '--surface-1')];
+  const base = rule('.rocket-stage {');
+  const ground = colourIn(t, decl(theme === 'dark' ? rule(".viz-root[data-theme='dark'] .rocket-stage") : base,
+    'background-color'));
+  expect(ground[3], 'the stage ground is opaque').toBe(1);
+  const grid = /linear-gradient\((color-mix\([^()]*(?:\([^()]*\)[^()]*)*\))\s+1px/.exec(base);
+  expect(grid, 'the grid line colour').not.toBeNull();
+  const line = colourIn(t, grid![1]!);
+  const g = ground.slice(0, 3) as RGB;
+  return [g, over(line.slice(0, 3) as RGB, line[3], g)];
 }
 
 const AA = 4.5;
@@ -117,22 +172,30 @@ describe('status text is AA on every surface it is drawn on (row 451)', () => {
     });
   }
 
-  it('the floating chip: every verdict and label over the lightest sky it floats on', () => {
-    // A fixed dark card at 78 % over the stage — so over Daylight's white and
-    // light's pale gradient it is a mid-grey, and that is where it fails.
-    const bg = /\.stats-chip\s*\{[^}]*background:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(css)!;
-    const card: RGB = [+bg[1]!, +bg[2]!, +bg[3]!];
-    const skies = [...stage('light'), ...stage('daylight'), ...stage('dark')]
-      .map((s) => over(card, +bg[4]!, s));
-    const inks: [string, string][] = [
-      ...['good', 'warn', 'bad', 'unknown'].map((m): [string, string] =>
-        [m, /color:\s*(#[0-9a-f]{6})/i.exec(rule(`.stats-chip-value.stability-${m}`))![1]!]),
-      ['label', /color:\s*(#[0-9a-f]{6})/i.exec(rule('.stats-chip-label {'))![1]!],
-      ['fold', /color:\s*(#[0-9a-f]{6})/i.exec(rule('.stats-chip-fold {'))![1]!],
-    ];
-    for (const [what, ink] of inks) {
-      for (const sky of skies) {
-        expect(ratio(rgb(ink), sky), `chip ${what} ${ink}`).toBeGreaterThanOrEqual(AA);
+  it('the floating chip and mount pill: every verdict and label over every stage they float on', () => {
+    // A fixed navy card (brand primitives, so the same in every theme) at 92 %
+    // over the stage — over Daylight's white it is lightest, and that is where
+    // it would fail first (at 85 % danger-dark was 4.28:1, brand v1 table D).
+    const primitives = THEMES.light!;
+    const skies = [...stage('light'), ...stage('daylight'), ...stage('dark')];
+    for (const sel of ['.stats-chip {', '.hero-mounts {']) {
+      const card = colourIn(primitives, decl(rule(sel), 'background'));
+      expect(card[3], `${sel} alpha`).toBeGreaterThanOrEqual(0.92);
+      const grounds = skies.map((s) => over(card.slice(0, 3) as RGB, card[3], s));
+      const inks: [string, string][] = sel === '.hero-mounts {'
+        ? [['mount pill', decl(rule(sel), 'color')]]
+        : [
+          ...['good', 'warn', 'bad', 'unknown'].map((m): [string, string] =>
+            [m, decl(rule(`.stats-chip-value.stability-${m}`), 'color')]),
+          ['label', decl(rule('.stats-chip-label {'), 'color')],
+          ['fold', decl(rule('.stats-chip-fold {'), 'color')],
+          ['value', decl(rule('.stats-chip-value {'), 'color')],
+        ];
+      for (const [what, ink] of inks) {
+        const c = colourIn(primitives, ink).slice(0, 3) as RGB;
+        for (const g of grounds) {
+          expect(ratio(c, g), `${sel} ${what} ${ink} on ${hex(g)}`).toBeGreaterThanOrEqual(AA);
+        }
       }
     }
   });
@@ -145,55 +208,229 @@ describe('row 466', () => {
     expect(src).toMatch(/role="alert" style=\{\{ fontSize: 11, color: 'var\(--status-serious\)'/);
   });
 
-  it('text on the accent is --surface-3, and passes in every theme', () => {
-    for (const sel of ['.file-btn-primary {', '.version-update {', '.tour-next {',
-      '.guide-toc-item.active {', '.hc-toggle.hc-on {']) {
-      // Every rule for the selector: .version-update also has a shared block
-      // with .version-ok that sets no colour.
-      const colours = rules(sel)
-        .flatMap((b) => [...b.matchAll(/(?:^|[;\s])color:\s*([^;]+);/g)].map((c) => c[1]!.trim()));
-      expect(colours, sel).toEqual(['var(--surface-3)']);
-    }
-    for (const [name, t] of Object.entries(THEMES)) {
-      expect(ratio(tok(t, '--surface-3'), tok(t, '--accent')), name).toBeGreaterThanOrEqual(AA);
+  /**
+   * LABELS ON A FILL (re-pinned for brand v1, D2). Until v0.194 six controls
+   * wore the orange fill with --surface-3 as their label. The brand allows
+   * one orange primary per screen, so the fill is now only Launch, a dialog's
+   * own primary and the tour's Next — labelled --on-accent (white on #BB4100
+   * light, NAVY on #FF6509 dark: white there is 2.95:1) — and the guide's
+   * active TOC item, its current search match and the Daylight-on toggle take
+   * the SELECTED treatment: --text-primary on the --selected tint, plus a
+   * shape (bar, ring or underline) and weight. Every rule for each selector
+   * is checked, so a Daylight restatement cannot slip a different ink in.
+   */
+  const LABEL_ON_FILL: [selector: string, colour: string, fill: string][] = [
+    ['.launch-btn {', 'var(--on-accent)', 'var(--launch)'],
+    [":is([role='dialog'], .modal-card, .prefs-dialog) .file-btn-primary {", 'var(--on-accent)', 'var(--launch)'],
+    ['.tour-next {', 'var(--on-accent)', 'var(--launch)'],
+    ['.guide-toc-item.active {', 'var(--text-primary)', 'var(--selected)'],
+    ['.guide-content .guide-match-current {', 'var(--text-primary)', 'var(--selected)'],
+    ['.hc-toggle.hc-on {', 'var(--text-primary)', 'var(--selected)'],
+  ];
+  const colours = (sel: string) => rules(sel)
+    .flatMap((b) => [...b.matchAll(/(?:^|[;\s])color:\s*([^;]+);/g)].map((c) => c[1]!.trim()));
+
+  it('every label on a fill is its pair\'s ink, and passes AA in every theme', () => {
+    for (const [sel, colour, fill] of LABEL_ON_FILL) {
+      const inks = colours(sel);
+      expect(inks.length, sel).toBeGreaterThan(0);
+      expect(new Set(inks), sel).toEqual(new Set([colour]));
+      expect(decl(rule(sel), 'background'), sel).toBe(fill);
+      for (const [name, t] of Object.entries(THEMES)) {
+        const r = ratio(colourIn(t, colour).slice(0, 3) as RGB, colourIn(t, fill).slice(0, 3) as RGB);
+        expect(r, `${name} ${sel}`).toBeGreaterThanOrEqual(AA);
+      }
     }
   });
 
-  it('a picked or selected table row is marked by more than a tint', () => {
-    // The tint alone is 1.06:1 in light. The cue is an accent bar, which as a
+  it('the orange FILL belongs to the primary action alone (D2)', () => {
+    // Every rule that paints a background from the Launch ramp.
+    const filled = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => /background(?:-color)?:\s*var\(--launch(?:-hover|-active)?\)/.test(m[2]!))
+      .flatMap((m) => splitTop(m[1]!.trim()));
+    const allowed = /^(\.launch-btn|:is\(\[role='dialog'\], \.modal-card, \.prefs-dialog\) \.file-btn-primary|\.tour-next)(:hover|:active)?(:not\([^)]*\))*$/;
+    expect(filled.filter((s) => !allowed.test(s))).toEqual([]);
+    // And no fill is painted in the accent's WORD colour or the bare alias.
+    // (--accent-graphic may fill a state mark: the batch progress bar.)
+    expect(css).not.toMatch(/background(?:-color)?:\s*var\(--accent(?:-text)?\)/);
+  });
+
+  it('the version-update badge is an outlined pill, not a second fill', () => {
+    const block = rules('.version-update {').find((b) => /(?:^|[;\s])color:/.test(b))!;
+    expect(decl(block, 'color')).toBe('var(--accent-text)');
+    expect(decl(block, 'background')).toBe('transparent');
+    expect(decl(block, 'border-color')).toBe('var(--accent-graphic)');
+    for (const [name, t] of Object.entries(THEMES)) {
+      // It sits in the header, on the page ground.
+      expect(ratio(tok(t, '--accent-text'), tok(t, '--surface-0')), name).toBeGreaterThanOrEqual(AA);
+      expect(ratio(tok(t, '--accent-graphic'), tok(t, '--surface-0')), name).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('the active 2D/3D/Aft segment and workspace tab are marked by shape and weight, not a fill', () => {
+    const seg = rule('.view-toggle button.active {');
+    expect(seg).not.toMatch(/var\(--launch/);
+    expect(decl(seg, 'color')).toBe('var(--text-primary)');
+    expect(decl(seg, 'box-shadow')).toBe('inset 0 -2px 0 var(--accent-graphic)');
+    expect(Number(decl(seg, 'font-weight'))).toBeGreaterThanOrEqual(600);
+    const tab = rule('.workspace-tabs button.active {');
+    expect(decl(tab, 'color')).toBe('var(--accent-text)');
+    expect(decl(tab, 'border-bottom-color')).toBe('var(--accent-graphic)');
+    expect(Number(decl(tab, 'font-weight'))).toBeGreaterThanOrEqual(600);
+    for (const [name, t] of Object.entries(THEMES)) {
+      expect(ratio(tok(t, '--accent-graphic'), tok(t, '--surface-3')), `${name} segment underline`).toBeGreaterThanOrEqual(3);
+      expect(ratio(tok(t, '--accent-text'), tok(t, '--surface-0')), `${name} tab label`).toBeGreaterThanOrEqual(AA);
+      expect(ratio(tok(t, '--accent-graphic'), tok(t, '--surface-0')), `${name} tab underline`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('a picked or selected row is marked by more than a tint', () => {
+    // The tint alone is 1.17:1 from hover (it was 1.06:1 against the table in
+    // light before brand v1). The cue is an --accent-graphic bar, which as a
     // graphic needs 3:1 against the tint it sits on (WCAG 1.4.11).
-    const bar = rule('.motor-row-picked td:first-child');
-    expect(bar).toMatch(/box-shadow:\s*inset\s+3px\s+0\s+0\s+var\(--accent\)/);
+    for (const sel of ['.motor-row-picked td:first-child', '.tree-row-selected,']) {
+      expect(decl(rule(sel), 'box-shadow'), sel).toBe('inset 3px 0 0 var(--accent-graphic)');
+    }
     for (const [name, t] of Object.entries(THEMES)) {
-      expect(ratio(tok(t, '--accent'), tok(t, '--selected')), name).toBeGreaterThanOrEqual(3);
+      expect(ratio(tok(t, '--accent-graphic'), tok(t, '--selected')), name).toBeGreaterThanOrEqual(3);
+      // The selected row's own text stays AA on the tint.
+      for (const ink of ['--text-primary', '--text-secondary']) {
+        expect(ratio(tok(t, ink), tok(t, '--selected')), `${name} ${ink}`).toBeGreaterThanOrEqual(AA);
+      }
     }
   });
 
-  it('the schematic export bakes the light theme\'s own status and launch tokens', () => {
+  it('the schematic export bakes the light theme\'s own status and launch colours', () => {
     // The exported SVG is drawn on white in the light palette — so when the
-    // tokens moved, the baked copies had to move with them.
+    // tokens moved, the baked copies had to move with them. Since brand v1 the
+    // light roles are brand aliases, so the comparison is on resolved colour.
     const baked = new Map(EXPORT_VARS);
     for (const s of ['--status-serious', '--status-warn', '--status-good', '--launch']) {
-      expect(baked.get(`var(${s})`), s).toBe(light[s]);
+      expect(baked.get(`var(${s})`)?.toLowerCase(), s).toBe(hex(tok(THEMES.light!, s)));
     }
   });
 });
 
-describe('the Launch orange under its white label', () => {
+describe('the Launch fill under its label, at rest, hovered and pressed', () => {
   /**
-   * Review of the audit branch: the Launch button (17 px bold — "large" text
-   * starts at 18.66 px bold) and the active 2D/3D/Aft toggle put #fff on
-   * --launch #c65420, 4.48:1, in light and dark alike.
+   * The Launch button is 17 px semibold — under "large" text — so its label
+   * needs AA on every step of the ramp. Hovers used to be brightness(1.08),
+   * a colour nobody measured; they are now the brand ramp itself.
    */
-  it('white on --launch is AA in every theme, wherever it is the background', () => {
-    for (const sel of ['.launch-btn {', '.view-toggle button.active {']) {
-      const block = rule(sel);
-      expect(block, sel).toMatch(/background:\s*var\(--launch\)/);
-      expect(block, sel).toMatch(/(^|[;\s])color:\s*#fff(fff)?;/);
-    }
+  it('--on-accent is AA on --launch, --launch-hover and --launch-active in every theme', () => {
+    expect(rule('.launch-btn:hover:not(:disabled) {')).toMatch(/background:\s*var\(--launch-hover\)/);
+    expect(rule('.launch-btn:active:not(:disabled) {')).toMatch(/background:\s*var\(--launch-active\)/);
+    expect(css).not.toMatch(/brightness\(/);
     for (const [name, t] of Object.entries(THEMES)) {
-      expect(ratio(rgb('#ffffff'), tok(t, '--launch')), name).toBeGreaterThanOrEqual(AA);
+      for (const fill of ['--launch', '--launch-hover', '--launch-active']) {
+        expect(ratio(tok(t, '--on-accent'), tok(t, fill)), `${name} ${fill}`).toBeGreaterThanOrEqual(AA);
+      }
     }
+  });
+});
+
+describe('brand v1: links, focus, inputs, callouts and the site strip', () => {
+  it('links and the one focus ring read on every ground they meet', () => {
+    expect(decl(rule('.viz-root a {'), 'color')).toBe('var(--link)');
+    for (const [name, t] of Object.entries(THEMES)) {
+      for (const g of ['--surface-0', '--surface-2', '--note-bg']) {
+        expect(ratio(tok(t, '--link'), tok(t, g)), `${name} link on ${g}`).toBeGreaterThanOrEqual(AA);
+        expect(ratio(tok(t, '--focus'), tok(t, g)), `${name} focus on ${g}`).toBeGreaterThanOrEqual(3);
+      }
+      expect(ratio(tok(t, '--focus'), tok(t, '--hover')), `${name} focus on hover`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('every focus ring is the one --focus ring, 3px, except rings on a coloured fill', () => {
+    // A ring on a coloured fill (a filled tier, the caution callout's button,
+    // the fatal bar) takes the fill's own ink; the band rings are sky on navy.
+    const rings = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => /:focus/.test(m[1]!) && /(?:^|[;\s])outline:/.test(m[2]!));
+    const exempt = /message-tier|launch-override-callout|fatal-error|mmr-band/;
+    for (const [, sel, body] of rings) {
+      if (exempt.test(sel!) || /outline:\s*none/.test(body!)) continue;
+      expect(decl(body!, 'outline'), sel!.trim()).toBe('3px solid var(--focus)');
+    }
+  });
+
+  it('input, select and textarea edges clear 3:1 on their fill in every theme', () => {
+    const fields = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter((m) => /background:\s*var\(--field-bg\)/.test(m[2]!));
+    expect(fields.length).toBeGreaterThanOrEqual(7);
+    for (const [, sel, body] of fields) expect(body, sel!.trim()).toMatch(/border:\s*1px solid var\(--border-control\)/);
+    for (const [name, t] of Object.entries(THEMES)) {
+      expect(ratio(tok(t, '--border-control'), tok(t, '--field-bg')), name).toBeGreaterThanOrEqual(3);
+      expect(ratio(tok(t, '--text-primary'), tok(t, '--field-bg')), name).toBeGreaterThanOrEqual(AA);
+    }
+  });
+
+  it('callouts are tinted (D3) with no left stripe, and their text pairs pass', () => {
+    // SPEC §4.3 / §7.2: tinted callouts, never a left-border stripe.
+    expect(css).not.toMatch(/border-left(?:-color|-width|-style)?\s*:/);
+    for (const sel of ['.field-caution {', '.file-note-warn {', '.fly-stale {', '.override-inert {']) {
+      expect(decl(rule(sel), 'background'), sel).toBe('color-mix(in srgb, var(--status-warn) 15%, var(--surface-2))');
+    }
+    expect(decl(rule('.file-note-error {'), 'background')).toBe('color-mix(in srgb, var(--status-serious) 12%, var(--surface-2))');
+    for (const [name, t] of Object.entries(THEMES)) {
+      const panel = tok(t, '--surface-2');
+      for (const [tint, a] of [['--status-warn', 0.15], ['--status-serious', 0.12]] as const) {
+        const bg = over(tok(t, tint), a, panel);
+        for (const ink of ['--text-primary', '--text-secondary', '--text-muted']) {
+          expect(ratio(tok(t, ink), bg), `${name} ${ink} on ${tint} ${a}`).toBeGreaterThanOrEqual(AA);
+        }
+        expect(ratio(tok(t, '--focus'), bg), `${name} focus on ${tint}`).toBeGreaterThanOrEqual(3);
+      }
+      // The filled-tier tokens: AA for the body (the 7:1 floor is checked above).
+      expect(ratio(tok(t, '--callout-caution-fg'), tok(t, '--callout-caution-bg')), name).toBeGreaterThanOrEqual(AA);
+      expect(ratio(tok(t, '--callout-danger-fg'), tok(t, '--callout-danger-bg')), name).toBeGreaterThanOrEqual(AA);
+    }
+  });
+
+  it('the site strip is navy in every theme: text, hover, placeholder, edge and ring all read on it', () => {
+    const band = rule('.mmr-band {');
+    expect(decl(band, 'background')).toBe('var(--mmr-c-navy)');
+    expect(decl(band, 'border-bottom')).toBe('1px solid var(--mmr-c-line-dark)');
+    expect(decl(band, 'color-scheme')).toBe('dark');
+    const footer = rule('.mmr-band-footer {');
+    expect(decl(footer, 'background')).toBe('var(--mmr-c-navy)');
+    const pairs: [string, string, string, number][] = [
+      ['band links', decl(rule('.viz-root .mmr-band a {'), 'color'), 'var(--mmr-c-navy)', AA],
+      ['band hover', decl(rule('.viz-root .mmr-band a:hover {'), 'color'), 'var(--mmr-c-navy)', AA],
+      ['footer line', decl(footer, 'color'), 'var(--mmr-c-navy)', AA],
+      ['footer links', decl(rule('.viz-root .mmr-band-footer a {'), 'color'), 'var(--mmr-c-navy)', AA],
+      ['footer hover', decl(rule('.viz-root .mmr-band-footer a:hover {'), 'color'), 'var(--mmr-c-navy)', AA],
+      ['search text', decl(rule('.mmr-band-search input {'), 'color'), decl(rule('.mmr-band-search input {'), 'background'), AA],
+      ['placeholder', decl(rule('.mmr-band-search input::placeholder {'), 'color'), decl(rule('.mmr-band-search input {'), 'background'), AA],
+      ['search button', decl(rule('.mmr-band-search button {'), 'color'), 'var(--mmr-c-navy)', AA],
+      ['search hover', decl(rule('.mmr-band-search button:hover {'), 'color'), 'var(--mmr-c-navy)', AA],
+      ['search edge', decl(rule('.mmr-band-search input {'), 'border').replace(/^1px solid /, ''), decl(rule('.mmr-band-search input {'), 'background'), 3],
+      ['rule', 'var(--mmr-c-line-dark)', 'var(--mmr-c-navy)', 3],
+      ['ring', decl(rule('.viz-root .mmr-band :focus-visible,'), 'outline').replace(/^3px solid /, ''), 'var(--mmr-c-navy)', 3],
+    ];
+    // Primitives: identical in every theme, so any theme's table resolves them.
+    for (const [what, fg, bg, need] of pairs) {
+      expect(fg, what).toMatch(/^var\(--mmr-c-/);
+      const r = ratio(colourIn(THEMES.light!, fg).slice(0, 3) as RGB, colourIn(THEMES.light!, bg).slice(0, 3) as RGB);
+      expect(r, `${what} ${fg} on ${bg}`).toBeGreaterThanOrEqual(need);
+    }
+    // Daylight's own ring (0,3,0) is the theme blue, 2.64:1 on navy: the band's
+    // ring is restated inside the Daylight block at (0,4,0), and the band's
+    // search box is not given Daylight's black control edge (1.74:1 on navy).
+    expect(decl(rule(".viz-root[data-contrast='high'] .mmr-band :focus-visible,"), 'outline')).toBe('3px solid var(--mmr-c-sky)');
+    expect(css.lastIndexOf(".viz-root[data-contrast='high'] .mmr-band :focus-visible"))
+      .toBeGreaterThan(css.lastIndexOf(".viz-root[data-contrast='high'] :focus-visible"));
+    expect(css).not.toContain(".viz-root[data-contrast='high'] .mmr-band-search input");
+  });
+
+  it('the Daylight block is the last thing in the stylesheet', () => {
+    const start = css.search(/\n\.viz-root\[data-contrast='high'\]\s*\{/);
+    expect(start).toBeGreaterThan(-1);
+    const after = css.slice(start);
+    // Every rule from the Daylight token block to the end is a Daylight rule.
+    for (const m of after.matchAll(/([^{}]+)\{[^{}]*\}/g)) {
+      for (const s of splitTop(m[1]!.trim())) expect(s, 'a non-Daylight rule after the Daylight block').toMatch(/^\.viz-root\[data-contrast='high'\]/);
+    }
+    // And nothing before it carries a Daylight selector.
+    expect(css.slice(0, start)).not.toMatch(/\.viz-root\[data-contrast='high'\]\s*[^{]*\{/);
   });
 });
 
@@ -216,8 +453,10 @@ describe('NOTES-1 supporting text and startup contrast', () => {
     expect(rules('.gust-estimate-muted').at(-1)).toContain('color: var(--text-secondary)');
     for (const [name, t] of Object.entries(THEMES)) {
       const panel = tok(t, '--surface-2');
-      for (const bg of [panel, over(tok(t, '--status-warn'), 0.10, panel),
-        over(tok(t, '--status-serious'), 0.12, panel), over(tok(t, '--status-warn'), 0.08, panel)]) {
+      // Brand v1 (D3): the warn tints are 15 % (they were 10 % and 8 %), the
+      // serious ones 12 %, all over the panel surface; and the note surface.
+      for (const bg of [panel, over(tok(t, '--status-warn'), 0.15, panel),
+        over(tok(t, '--status-serious'), 0.12, panel), tok(t, '--note-bg')]) {
         expect(ratio(tok(t, '--text-secondary'), bg), name).toBeGreaterThanOrEqual(AA);
       }
     }
