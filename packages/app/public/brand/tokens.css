@@ -1,0 +1,154 @@
+/*
+  Mountain Man Rockets — brand tokens  (mmr-brand)
+  Source of truth: mtnmanak/mmr-brand  ·  vendored into each repo by scripts/sync-brand.mjs — do not edit the copy.
+
+  Two layers, two name spaces, no overlap:
+    --mmr-c-*   primitive colors. Fixed hex values. Never themed.
+    --mmr-*     semantic roles (bg, surface, text, accent…). Themed: light by default,
+                dark under [data-theme="dark"] or the OS preference.
+  A primitive and a semantic token never share a name, so a theme can never overwrite
+  a primitive. (v3 had --mmr-border as both; that bug is gone.)
+
+  The website's generated public/chrome/tokens.css (--mmr-ink, --mmr-sky, --mmr-igniter…) is
+  advisory; no tool loads it. The tools' site strip is coloured per tool (--mmr-band-* for chrome.js,
+  SiteBand.tsx in the React apps; SPEC §3.1). None of those names are used here.
+  The brand version is recorded in brand-manifest.json, not in these files.
+
+  Contrast: every text/background pair named below is measured in SPEC.md §3.3.
+*/
+
+:root {
+  /* ---- Primitives: identity ---- */
+  --mmr-c-navy: #03254f;          /* brand navy — wordmark, dark ground */
+  --mmr-c-navy-raised: #123859;   /* dark cards / panels; on-dark logo fills */
+  --mmr-c-navy-high: #1c476a;     /* dark surface-2, hover rows */
+  --mmr-c-blue: #167ec0;          /* brand blue — mountains, graphics. NOT for small text on light (4.19:1) */
+  --mmr-c-sky: #6bc6f3;           /* on-dark links, keylines, focus on dark */
+  --mmr-c-orange: #ff6509;        /* brand orange — ROCKETS, flame, graphics, large display type */
+  --mmr-c-amber: #ffb23e;         /* flame core, gauge, recovery accents */
+  --mmr-c-paper: #f6faff;         /* light page ground */
+  --mmr-c-white: #ffffff;         /* light cards */
+  --mmr-c-mist: #e5f0f8;          /* light surface-2, bands */
+
+  /* ---- Primitives: text & lines ---- */
+  --mmr-c-slate: #45637b;         /* muted text on light */
+  --mmr-c-slate-light: #a9c3d9;   /* muted text on dark */
+  --mmr-c-line: #b3cadc;          /* hairlines / dividers on light (decorative, 1.6:1) */
+  --mmr-c-line-dark: #557793;     /* hairlines / dividers on dark (decorative) */
+  --mmr-c-control: #7c93a8;       /* input borders on light — 3:1 non-text contrast */
+  --mmr-c-control-dark: #7e9db8;  /* input borders on dark — 4.3:1 */
+
+  /* ---- Primitives: functional ---- */
+  --mmr-c-action: #bb4100;        /* primary button fill on light (white label 5.43:1) */
+  --mmr-c-action-hover: #9b3500;
+  --mmr-c-action-active: #7c2a00;
+  --mmr-c-orange-ink: #ad3c00;    /* orange TEXT on light grounds (5.3–6.1:1) */
+  --mmr-c-orange-soft: #ff9a62;   /* orange TEXT on dark grounds incl. raised (4.66–7.28:1) */
+  --mmr-c-orange-hover: #ff7d33;  /* dark-theme primary hover (navy label 5.96:1) */
+  --mmr-c-link: #006aab;          /* links on light */
+  --mmr-c-success: #226b47;
+  --mmr-c-warning: #855300;
+  --mmr-c-danger: #ad2436;
+  --mmr-c-success-dark: #6fd39a;
+  --mmr-c-warning-dark: #ffb23e;
+  --mmr-c-danger-dark: #ff8a93;
+
+  /* ---- Type ---- */
+  --mmr-font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --mmr-font-body: "Literata", Georgia, serif;          /* website prose only; tools use display + data */
+  --mmr-font-data: "IBM Plex Mono", Consolas, "Liberation Mono", monospace;
+
+  /* ---- Space (4/8 rhythm) ---- */
+  --mmr-space-1: 4px;
+  --mmr-space-2: 8px;
+  --mmr-space-3: 12px;
+  --mmr-space-4: 16px;
+  --mmr-space-5: 24px;
+  --mmr-space-6: 32px;
+  --mmr-space-7: 48px;
+  --mmr-space-8: 64px;
+
+  /* ---- Shape & motion ---- */
+  --mmr-radius-control: 6px;
+  --mmr-radius-panel: 8px;
+  --mmr-radius-card: 12px;
+  --mmr-radius-pill: 999px;
+  --mmr-touch-min: 44px;
+  --mmr-dur-fast: 0.14s;
+  --mmr-dur: 0.26s;
+  --mmr-ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* ---- Semantic roles: LIGHT (default) ---- */
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+  --mmr-bg: var(--mmr-c-paper);
+  --mmr-surface: var(--mmr-c-white);
+  --mmr-surface-2: var(--mmr-c-mist);
+  --mmr-text: var(--mmr-c-navy);
+  --mmr-text-muted: var(--mmr-c-slate);
+  --mmr-border: var(--mmr-c-line);
+  --mmr-border-control: var(--mmr-c-control);
+  --mmr-link-color: var(--mmr-c-link);
+  --mmr-accent: var(--mmr-c-orange);               /* graphics, rules, large display only */
+  --mmr-accent-text: var(--mmr-c-orange-ink);      /* orange words at body size */
+  --mmr-focus: var(--mmr-c-link);
+  --mmr-btn-primary-bg: var(--mmr-c-action);
+  --mmr-btn-primary-bg-hover: var(--mmr-c-action-hover);
+  --mmr-btn-primary-bg-active: var(--mmr-c-action-active);
+  --mmr-btn-primary-text: var(--mmr-c-white);
+  --mmr-success: var(--mmr-c-success);
+  --mmr-warning: var(--mmr-c-warning);
+  --mmr-danger: var(--mmr-c-danger);
+  --mmr-theme-color: #03254f;                      /* <meta name="theme-color"> */
+}
+
+/* ---- Semantic roles: DARK ---- */
+[data-theme="dark"] {
+  color-scheme: dark;
+  --mmr-bg: var(--mmr-c-navy);
+  --mmr-surface: var(--mmr-c-navy-raised);
+  --mmr-surface-2: var(--mmr-c-navy-high);
+  --mmr-text: var(--mmr-c-paper);
+  --mmr-text-muted: var(--mmr-c-slate-light);
+  --mmr-border: var(--mmr-c-line-dark);
+  --mmr-border-control: var(--mmr-c-control-dark);
+  --mmr-link-color: var(--mmr-c-sky);
+  --mmr-accent: var(--mmr-c-orange);
+  --mmr-accent-text: var(--mmr-c-orange-soft);
+  --mmr-focus: var(--mmr-c-sky);
+  --mmr-btn-primary-bg: var(--mmr-c-orange);
+  --mmr-btn-primary-bg-hover: var(--mmr-c-orange-hover);
+  --mmr-btn-primary-bg-active: var(--mmr-c-orange-soft);
+  --mmr-btn-primary-text: var(--mmr-c-navy);
+  --mmr-success: var(--mmr-c-success-dark);
+  --mmr-warning: var(--mmr-c-warning-dark);
+  --mmr-danger: var(--mmr-c-danger-dark);
+  --mmr-theme-color: #03254f;
+}
+
+/* OS preference applies only when the page has not chosen a theme explicitly. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+    --mmr-bg: var(--mmr-c-navy);
+    --mmr-surface: var(--mmr-c-navy-raised);
+    --mmr-surface-2: var(--mmr-c-navy-high);
+    --mmr-text: var(--mmr-c-paper);
+    --mmr-text-muted: var(--mmr-c-slate-light);
+    --mmr-border: var(--mmr-c-line-dark);
+    --mmr-border-control: var(--mmr-c-control-dark);
+    --mmr-link-color: var(--mmr-c-sky);
+    --mmr-accent: var(--mmr-c-orange);
+    --mmr-accent-text: var(--mmr-c-orange-soft);
+    --mmr-focus: var(--mmr-c-sky);
+    --mmr-btn-primary-bg: var(--mmr-c-orange);
+    --mmr-btn-primary-bg-hover: var(--mmr-c-orange-hover);
+    --mmr-btn-primary-bg-active: var(--mmr-c-orange-soft);
+    --mmr-btn-primary-text: var(--mmr-c-navy);
+    --mmr-success: var(--mmr-c-success-dark);
+    --mmr-warning: var(--mmr-c-warning-dark);
+    --mmr-danger: var(--mmr-c-danger-dark);
+  }
+}

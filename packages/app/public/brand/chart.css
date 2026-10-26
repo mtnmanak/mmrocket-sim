@@ -1,0 +1,40 @@
+/*
+  Mountain Man Rockets — chart series colors (mmr-brand). Requires tokens.css.
+  Every series also gets a distinct dash or marker and a text label: color is never the only cue.
+  JS charting libraries: read the same values from brand/tokens.json → "chart".
+*/
+:root,
+[data-theme="light"] {
+  --mmr-chart-thrust: #ad3c00;
+  --mmr-chart-altitude: #006aab;
+  --mmr-chart-pressure: #855300;
+  --mmr-chart-velocity: #226b47;
+  --mmr-chart-acceleration: #7049a8;
+  --mmr-chart-reference: #45637b;
+  --mmr-chart-grid: #b3cadc;
+}
+[data-theme="dark"] {
+  --mmr-chart-thrust: #ff6509;
+  --mmr-chart-altitude: #6bc6f3;
+  --mmr-chart-pressure: #ffb23e;
+  --mmr-chart-velocity: #78ce9a;
+  --mmr-chart-acceleration: #c0a0f2;
+  --mmr-chart-reference: #a9c3d9;
+  --mmr-chart-grid: #557793;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --mmr-chart-thrust: #ff6509;
+    --mmr-chart-altitude: #6bc6f3;
+    --mmr-chart-pressure: #ffb23e;
+    --mmr-chart-velocity: #78ce9a;
+    --mmr-chart-acceleration: #c0a0f2;
+    --mmr-chart-reference: #a9c3d9;
+    --mmr-chart-grid: #557793;
+  }
+}
+.mmr-chart { font: 500 12px var(--mmr-font-data); }
+.mmr-chart .series { fill: none; stroke-width: 2; }
+.mmr-chart .reference { stroke-dasharray: 6 4; }
+.mmr-chart .grid { stroke: var(--mmr-chart-grid); stroke-width: 1; }
+.mmr-chart text { fill: var(--mmr-text); }

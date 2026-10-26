@@ -1,0 +1,7 @@
+{
+  "property": "mmrocket-sim",
+  "brandDir": "packages/app/public/brand",
+  "publicDir": "packages/app/public",
+  "brandInclude": ["tokens.css", "tokens.json", "fonts.css", "mmr-ui.css", "chart.css", "fonts", "icons", "marks"],
+  "exclude": ["site.webmanifest"]
+}

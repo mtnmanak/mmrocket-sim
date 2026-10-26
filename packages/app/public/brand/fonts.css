@@ -1,0 +1,40 @@
+/*
+  Mountain Man Rockets — brand fonts (mmr-brand). Paths are relative to this file,
+  so it works wherever the brand/ folder is served from. Load it BEFORE tokens.css.
+
+  Archivo is one variable file: weight 100–900 and width 62–125%. Use weights 400–900 for UI and
+  headings; tool names in the logos are Archivo 800 at width 100.
+  IBM Plex Mono is three static subset weights.
+  Literata (website prose) is NOT here — the website already self-hosts it through Astro's
+  font pipeline, and the tools do not use it.
+  Licenses: OFL-Archivo.txt, OFL-IBMPlexMono.txt (SIL Open Font License 1.1).
+*/
+@font-face {
+  font-family: "Archivo";
+  src: url("./fonts/archivo-variable.woff2") format("woff2-variations"), url("./fonts/archivo-variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-stretch: 62% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("./fonts/ibm-plex-mono-400.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("./fonts/ibm-plex-mono-500.woff2") format("woff2");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("./fonts/ibm-plex-mono-600.woff2") format("woff2");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}

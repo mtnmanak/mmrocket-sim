@@ -1,0 +1,148 @@
+/*
+  Mountain Man Rockets — shared UI primitives (mmr-brand).
+  Requires tokens.css (and fonts.css for the brand faces). Every class is prefixed .mmr-
+  so it can sit beside an app's own CSS without collisions. Adopt per component; nothing
+  here styles bare elements.
+
+  Rules carried from the spec:
+  - Real <button>, <a>, <input>, <label>. Never pictures of controls.
+  - Visible keyboard focus everywhere (3px ring, --mmr-focus).
+  - 44px minimum touch target.
+  - Hover/active styles apply only to enabled controls.
+  - prefers-reduced-motion removes transitions and the spinner animation.
+*/
+
+/* ---------- Buttons ---------- */
+.mmr-button {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mmr-space-2);
+  min-height: var(--mmr-touch-min);
+  padding: 10px 18px;
+  border: 2px solid transparent;
+  border-radius: var(--mmr-radius-control);
+  font: 600 14px/1.2 var(--mmr-font-data);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--mmr-dur-fast), color var(--mmr-dur-fast), border-color var(--mmr-dur-fast);
+}
+.mmr-button svg { width: 20px; height: 20px; flex: none; }
+.mmr-button:focus-visible { outline: 3px solid var(--mmr-focus); outline-offset: 3px; }
+
+.mmr-button--primary { background: var(--mmr-btn-primary-bg); color: var(--mmr-btn-primary-text); }
+.mmr-button--primary:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--mmr-btn-primary-bg-hover); }
+.mmr-button--primary:active:not(:disabled):not([aria-disabled="true"]) { background: var(--mmr-btn-primary-bg-active); }
+
+.mmr-button--secondary { background: transparent; border-color: var(--mmr-text); color: var(--mmr-text); }
+.mmr-button--quiet { background: transparent; color: var(--mmr-text); }
+.mmr-button--secondary:hover:not(:disabled):not([aria-disabled="true"]),
+.mmr-button--quiet:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--mmr-surface-2); }
+.mmr-button--secondary:active:not(:disabled):not([aria-disabled="true"]),
+.mmr-button--quiet:active:not(:disabled):not([aria-disabled="true"]) { background: var(--mmr-surface-2); box-shadow: inset 0 0 0 1px var(--mmr-text); }
+
+.mmr-button--danger { background: var(--mmr-c-danger); color: var(--mmr-c-white); }
+.mmr-button--danger:hover:not(:disabled):not([aria-disabled="true"]) { background: #8e1a29; }
+.mmr-button--danger:active:not(:disabled):not([aria-disabled="true"]) { background: #70121f; }
+
+/* Disabled: one stable look in both themes (no muddy half-transparent orange on navy). */
+.mmr-button:disabled,
+.mmr-button[aria-disabled="true"] {
+  background: var(--mmr-surface-2);
+  border-color: transparent;
+  color: var(--mmr-text-muted);
+  box-shadow: none;
+  cursor: not-allowed;
+}
+.mmr-button--loading { cursor: progress; }
+.mmr-button--loading::before {
+  content: "";
+  width: 14px; height: 14px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: mmr-spin 0.8s linear infinite;
+}
+
+/* ---------- Form fields ---------- */
+.mmr-field { display: grid; gap: 6px; }
+.mmr-field__label {
+  font: 600 12px/1.3 var(--mmr-font-data);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mmr-text-muted);
+}
+.mmr-input {
+  box-sizing: border-box;
+  min-height: var(--mmr-touch-min);
+  padding: 8px 12px;
+  border: 1px solid var(--mmr-border-control);
+  border-radius: var(--mmr-radius-control);
+  background: var(--mmr-surface);
+  color: var(--mmr-text);
+  font: 500 15px/1.3 var(--mmr-font-data);
+  font-variant-numeric: tabular-nums;
+}
+.mmr-input:focus-visible { outline: 3px solid var(--mmr-focus); outline-offset: 2px; }
+.mmr-input[aria-invalid="true"] { border-color: var(--mmr-danger); }
+.mmr-field__error { font: 500 13px/1.4 var(--mmr-font-data); color: var(--mmr-danger); }
+
+/* ---------- Text roles ---------- */
+.mmr-eyebrow {
+  font: 600 12px/1.3 var(--mmr-font-data);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mmr-accent-text);
+}
+.mmr-tagline {
+  font: 600 12px/1.3 var(--mmr-font-data);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mmr-text-muted);
+}
+.mmr-link { color: var(--mmr-link-color); text-decoration: underline; text-underline-offset: 3px; }
+.mmr-link:focus-visible { outline: 3px solid var(--mmr-focus); outline-offset: 2px; border-radius: 2px; }
+
+/* ---------- Surfaces ---------- */
+.mmr-panel {
+  background: var(--mmr-surface);
+  border: 1px solid var(--mmr-border);
+  border-radius: var(--mmr-radius-panel);
+}
+.mmr-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 10px;
+  border: 1px solid var(--mmr-border);
+  border-radius: var(--mmr-radius-pill);
+  font: 500 12px/1.5 var(--mmr-font-data);
+  color: var(--mmr-text-muted);
+}
+.mmr-pill--beta { border-color: var(--mmr-link-color); color: var(--mmr-link-color); }
+.mmr-pill--alpha { border-color: var(--mmr-warning); color: var(--mmr-warning); }
+
+/* ---------- Brand lockup in a header ----------
+   <a class="mmr-lockup" href="/"><img src="/brand/marks/<id>-header-on-dark.svg" alt="Mountain Man Rockets"></a>
+   The SVG carries its own colors; pick -on-dark or -on-light to match the ground. */
+.mmr-lockup { display: inline-flex; align-items: center; line-height: 0; }
+.mmr-lockup img { height: 40px; width: auto; }
+@media (max-width: 480px) { .mmr-lockup img { height: 32px; } }
+.mmr-lockup:focus-visible { outline: 3px solid var(--mmr-focus); outline-offset: 4px; border-radius: 4px; }
+
+/* ---------- Icons (sprite) ----------
+   <svg class="mmr-icon" aria-hidden="true"><use href="/brand/icons/icons.svg#mmr-save"/></svg> */
+.mmr-icon { width: 24px; height: 24px; flex: none; color: currentColor; }
+.mmr-icon--sm { width: 20px; height: 20px; }
+
+.mmr-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+@keyframes mmr-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .mmr-button { transition: none; }
+  .mmr-button--loading::before { animation: none; }
+}
