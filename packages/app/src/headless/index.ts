@@ -8,8 +8,8 @@ export function simulateFile(
 ) {
   return simulateFileService(data, fileName, { ...options, yieldToUi: options.yieldToUi ?? (() => Promise.resolve()) });
 }
-export { setXmlParser } from '../services/xmlParse.js';
-export { jsXmlParser } from '../services/xmlParseJs.js';
+export { setXmlParser, XmlBudgetExceededError } from '../services/xmlParse.js';
+export { jsXmlParser, createJsXmlParser } from '../services/xmlParseJs.js';
 export { KernelUnavailableError, SimulateDesignError } from '../services/simulateDesign.js';
 export { InflatedFileTooLargeError } from '../services/zipMember.js';
 export { MAX_DESIGN_FILE_BYTES, designFileTooLarge } from '../services/designFile.js';

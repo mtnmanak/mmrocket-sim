@@ -161,7 +161,7 @@ describe('C-H3 real import diagnostics', () => {
     expect(zipError.message).toBe(`Not a readable ${kind} archive — it has no end-of-directory record.`);
     expect(logged(zipError)).toContain(zipError.message);
     const gzipError = await refusal(() => gunzipCapped(new Uint8Array([0x1f, 0x8b]), kind));
-    expect(gzipError.message).toMatch(/^Not a readable compressed/);
+    expect(gzipError.message).toBe(`Not a readable compressed ${kind} file \u2014 it is damaged (does not match its own checksum \u2014 the file is cut short or corrupted).`);
     expect(logged(gzipError)).toContain(gzipError.message);
   });
 

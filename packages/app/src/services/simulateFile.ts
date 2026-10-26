@@ -3,7 +3,8 @@ import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
 import { designFileOpenFailure, designFileTooLarge, openDesignFile } from './designFile.js';
 import { planImport, resolveImportMotors, type ImportedDesign, type ImportPlan } from './importApply.js';
-import { DEFAULT_CONDITIONS, type LaunchConditions } from './launchConditions.js';
+import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, type LaunchConditions } from './launchConditions.js';
+import { XmlBudgetExceededError } from './xmlParse.js';
 import { MOTOR_DB } from './motorDb.js';
 import { matchImportedMotor, type MotorMatchResult } from './motorMatch.js';
 import type { OrkMotorRef } from './orkFile.js';
@@ -101,12 +102,13 @@ export async function simulateFile(
       catalogue: opts.network === 'allow' ? undefined : MOTOR_DB,
       flownSpec: opts.network === 'allow' ? (m, d) => fetchMotorSpec(m, d, opts.signal) : bundledOnlyFetchSpec });
   } catch (e) {
+    if (e instanceof XmlBudgetExceededError) throw e;
     if (opts.maxInflatedBytes !== undefined && e instanceof InflatedFileTooLargeError) throw e;
     throw new SimulateDesignError('parse', designFileOpenFailure(fileName, e), { cause: e });
   }
   const parsed = now();
-  const appStepS = imported.launch?.timeStepS;
-  const timeStepFloor = opts.minTimeStepS !== undefined && typeof appStepS === 'number' && appStepS < opts.minTimeStepS
+  const appStepS = imported.launch?.timeStepS ?? DEFAULT_TIME_STEP_S;
+  const timeStepFloor = opts.minTimeStepS !== undefined && appStepS < opts.minTimeStepS
     ? { appStepS, flownStepS: opts.minTimeStepS } : undefined;
   if (timeStepFloor) {
     imported = { ...imported, launch: { ...imported.launch, timeStepS: timeStepFloor.flownStepS } };

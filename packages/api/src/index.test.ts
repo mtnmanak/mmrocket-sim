@@ -71,7 +71,7 @@ describe('S1 in real workerd', () => {
       message: expect.stringMatching(/previous flight.*stopped part-way.*retry/i) } });
   }, 60_000);
 
-  it.each([['ork', 'zip'], ['ork', 'gzip'], ['rkt', 'zip'], ['rkt', 'gzip']] as const)(
+  it.each([['ork', 'zip'], ['ork', 'gzip'], ['rkt', 'zip'], ['rkt', 'gzip'], ['CDX1', 'zip'], ['CDX1', 'gzip']] as const)(
     'rejects oversized inflated %s XML in %s as 413', async (extension, compression) => {
       const xml = new Uint8Array(16 * 1024 * 1024 + 1);
       const body = compression === 'zip' ? zipSync({ ['rocket.' + extension]: xml }) : gzipSync(xml);
@@ -81,6 +81,17 @@ describe('S1 in real workerd', () => {
       expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
         message: expect.stringMatching(/16 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
     });
+
+  it.each([
+    ['elements', '<x/>'.repeat(50_000)],
+    ['depth', '<x>'.repeat(63) + '</x>'.repeat(63)],
+  ])('refuses excessive XML %s as JSON inside workerd', async (_kind, payload) => {
+    const response = await normal!.fetch('http://local/experimental/fly?filename=structure.ork',
+      { method: 'POST', body: `<openrocket><rocket>${payload}</rocket></openrocket>` });
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
+      message: expect.stringMatching(/XML.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
+  });
 
   it.each([0.005, 0.01, 0.05, 0.1])('flies an own-file step of %s s with the API floor and reports any change', async step => {
     const body = timeStepBody(step);

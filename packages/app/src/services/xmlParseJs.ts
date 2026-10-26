@@ -63,20 +63,15 @@
  * has no third-party-notices mechanism yet: that lands with the bundle. The
  * ranges are `^`, as the rest of package.json's are, not pinned exact.
  *
- * NO SIZE, ELEMENT OR DEPTH CAPS HERE (ruling (c), critique F6). Chrome refuses
- * nesting somewhere between 4,000 and 5,000 levels; this parser accepts far
- * deeper (20,000 measured), and xmldom costs ~1.3–1.5 KB of heap per element.
- * Those limits belong to the future server package, applied BEFORE this parser
- * runs — with their own message, not "XML parse error", and with <datapoint>
- * runs (95 % of the largest corpus file's elements, read by no importer)
- * stripped or not counted, or an ordinary desktop .ork with stored flights
- * would be refused on a server that the browser opens.
+ * No structural caps by default, for browser parity. Server hosts can install
+ * createJsXmlParser(limits): its SAX gate applies measured element/depth
+ * budgets before DOM construction, with a distinct size-refusal error.
  */
 import { SaxesParser } from 'saxes';
 import * as CSSselect from 'css-select';
 import { DOMParser, Document as XDocument, Element as XElement } from '@xmldom/xmldom';
 import type { Document as XmldomDocument, Element as XmldomElement, Node as XmldomNode } from '@xmldom/xmldom';
-import { XmlDoctypeRefused, XmlParseError, type XmlDocument, type XmlElement, type XmlParser } from './xmlParse.js';
+import { XmlBudgetExceededError, XmlDoctypeRefused, XmlParseError, type XmlDocument, type XmlElement, type XmlParser } from './xmlParse.js';
 
 const ELEMENT_NODE = 1;
 const DOCUMENT_NODE = 9;
@@ -182,16 +177,28 @@ const closestMatch = (start: XmldomElement, query: (e: XmldomElement) => boolean
 /** XML 1.0 §2.11: CRLF and a lone CR become LF — and nothing else does. */
 const normalizeLineEndingsXml10 = (s: string): string => s.replace(/\r\n?/g, '\n');
 
+export interface XmlLimits { maxElements: number; maxDepth: number }
+
 /**
- * The well-formedness gate (piece 1 above). Throws XmlParseError; never
- * builds anything. Its own throws from inside an event handler propagate out
+ * The well-formedness gate (piece 1 above). Never builds a DOM. Throws
+ * XmlParseError, XmlDoctypeRefused, or the host's XmlBudgetExceededError.
+ * Its own throws from inside an event handler propagate out
  * of `write()` untouched, and are caught with the rest below. `xmlns: true`
  * makes it apply the Namespaces constraints too, as Chrome does: an unbound
  * prefix, and `xmlns:xml` bound to anything but its own URI, are refused here
  * (the second one xmldom ACCEPTS — critique F4).
  */
-export function xmlGate(text: string): void {
+export function xmlGate(text: string, limits?: XmlLimits): void {
   const sax = new SaxesParser({ xmlns: true });
+  if (limits) {
+    let elements = 0;
+    let depth = 0;
+    sax.on('opentag', () => {
+      if (++elements > limits.maxElements) throw new XmlBudgetExceededError(`XML element limit is ${limits.maxElements.toLocaleString('en-US')}.`);
+      if (++depth > limits.maxDepth) throw new XmlBudgetExceededError(`XML nesting limit is ${limits.maxDepth}.`);
+    });
+    sax.on('closetag', () => { depth--; });
+  }
   // The same refusal, and the same message, as the browser parser's backstop
   // and parseXml's pre-parse scan (Tier 0 row 59, 2026-10-01), so the two
   // parsers give one answer for a DOCTYPE even when called directly.
@@ -206,7 +213,7 @@ export function xmlGate(text: string): void {
   try {
     sax.write(text).close();
   } catch (e) {
-    if (e instanceof XmlParseError || e instanceof XmlDoctypeRefused) throw e;
+    if (e instanceof XmlParseError || e instanceof XmlDoctypeRefused || e instanceof XmlBudgetExceededError) throw e;
     throw new XmlParseError(`XML parse error: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
   }
 }
@@ -248,11 +255,20 @@ export function xmlDom(text: string): XmlDocument {
 /** The Node/Workers parser: one leading BOM off, the gate, then the DOM.
  *  Throws XmlParseError for anything Chrome reports as a parse error, and for
  *  the refusals listed in the header. */
-export const jsXmlParser: XmlParser = (input) => {
-  const text = input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
-  xmlGate(text);
-  return xmlDom(text);
-};
+export function createJsXmlParser(limits?: XmlLimits): XmlParser {
+  const parser: XmlParser = (input) => {
+    const text = input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
+    xmlGate(text, limits);
+    return xmlDom(text);
+  };
+  // One shared gate/host budget, also available before importer lexical scans.
+  // The parser still validates its own input: callers may use it directly or
+  // normalize text after preflight. No request-scoped validation cache is kept.
+  if (limits) parser.preflight = (text) => xmlGate(text, limits);
+  return parser;
+}
+
+export const jsXmlParser: XmlParser = createJsXmlParser();
 
 // What the prototypes above add, told to the compiler (module augmentation:
 // it describes this module instance's xmldom, which is the only one the

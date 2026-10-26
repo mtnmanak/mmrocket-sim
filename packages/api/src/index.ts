@@ -1,11 +1,13 @@
 import { boosterBranches } from '@online-openrocket/engine';
 import {
   APP_VERSION, CURVES_GENERATED, MOTORS_GENERATED, KernelUnavailableError, InflatedFileTooLargeError,
-  commentsOf, formatWarning, jsXmlParser, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser,
+  commentsOf, formatWarning, createJsXmlParser, XmlBudgetExceededError, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser,
   simulateFile, SimulateDesignError, type TimedSimulateFileResult,
 } from '../../app/src/headless/index.js';
 
-setXmlParser(jsXmlParser);
+// 185 local XML/design files: max 40,610 elements, depth 14, including stored
+// flight data (Wildman Mach 2). Leave 23% element headroom and >4x depth.
+setXmlParser(createJsXmlParser({ maxElements: 50_000, maxDepth: 64 }));
 
 const MAX_API_BODY_BYTES = 8 * 1024 * 1024;
 const MAX_API_INFLATED_BYTES = 16 * 1024 * 1024;
@@ -145,6 +147,9 @@ export const worker = {
       }
       if (e instanceof InflatedFileTooLargeError) {
         return error('FILE_TOO_LARGE', `${filename}: the API inflated XML limit is 16 MiB. Use ${APP_URL} for larger files.`, 413);
+      }
+      if (e instanceof XmlBudgetExceededError) {
+        return error('FILE_TOO_LARGE', `${filename}: ${e.message} Use ${APP_URL} for larger files.`, 413);
       }
       if (e instanceof KernelUnavailableError) {
         return error('KERNEL_UNAVAILABLE', e.message, 503, { 'Retry-After': '5' });

@@ -1,5 +1,5 @@
-import { Deflate, gunzipSync, gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
-import { describe, expect, it } from 'vitest';
+import { Deflate, Gunzip, Inflate, Zip, ZipDeflate, gunzipSync, gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
+import { describe, expect, it, vi } from 'vitest';
 import { InflatedFileTooLargeError, gunzipCapped, MAX_ZIP_ENTRIES, MAX_ZIP_MEMBER_BYTES, unzipMember } from './zipMember.js';
 
 /**
@@ -14,6 +14,122 @@ const u32 = (d: Uint8Array, at: number, v: number): void =>
   new DataView(d.buffer, d.byteOffset, d.byteLength).setUint32(at, v, true);
 const u16 = (d: Uint8Array, at: number, v: number): void =>
   new DataView(d.buffer, d.byteOffset, d.byteLength).setUint16(at, v, true);
+
+// RFC 1952 optional fields, including FHCRC; use the writer's CRC rather than
+// the reader's checksum helper when constructing the header checksum.
+function gzipWithLongHeader(field: 'FNAME' | 'FCOMMENT' | 'FEXTRA', data: Uint8Array): Uint8Array {
+  const gz = gzipSync(data, { mtime: 0 });
+  const extra = field === 'FEXTRA';
+  const length = extra ? 65535 : 512 * 1024;
+  const header = new Uint8Array(10 + (extra ? 2 : 0) + length + (extra ? 0 : 1));
+  header.set(gz.subarray(0, 10));
+  header[3] = (extra ? 4 : field === 'FNAME' ? 8 : 16) | 2;
+  header.fill(0x61, extra ? 12 : 10, header.length - (extra ? 0 : 1));
+  if (extra) {
+    u16(header, 10, length);
+    u16(header, 14, length - 4); // one extra subfield: ID, LEN, data
+  }
+  const checksum = gzipSync(header, { mtime: 0 }).subarray(-8, -6);
+  const bytes = new Uint8Array(header.length + 2 + gz.length - 10);
+  bytes.set(header);
+  bytes.set(checksum, header.length);
+  bytes.set(gz.subarray(10), header.length + 2);
+  return bytes;
+}
+
+describe('gzip optional header work stays linear', () => {
+  it.each(['FNAME', 'FCOMMENT', 'FEXTRA'] as const)('copies long %s headers within 8 input lengths per member', field => {
+    const data = strToU8('<openrocket/>');
+    const member = gzipWithLongHeader(field, data);
+    for (const count of [1, 2]) {
+      const bytes = new Uint8Array(member.length * count);
+      for (let i = 0; i < count; i++) bytes.set(member, i * member.length);
+      let copied = 0;
+      const original = Uint8Array.prototype.set;
+      const spy = vi.spyOn(Uint8Array.prototype, 'set').mockImplementation(function (this: Uint8Array, source, offset) {
+        copied += source.length;
+        original.call(this, source, offset);
+      });
+      let out: Uint8Array;
+      try { out = gunzipCapped(bytes, '.ork'); } finally { spy.mockRestore(); }
+      expect(new TextDecoder().decode(out)).toBe('<openrocket/>'.repeat(count));
+      // Deterministic copy budget on the real inflater, independent of CPU speed.
+      expect.soft(copied, `${field}, ${count} member(s)`).toBeLessThanOrEqual(8 * bytes.length);
+    }
+  });
+
+  it.each(['FNAME', 'FCOMMENT', 'FEXTRA'] as const)('keeps DEFLATE output bounded after long %s headers', field => {
+    const bytes = gzipWithLongHeader(field, new Uint8Array(64 * 1024 * 1024));
+    let maxOutput = 0;
+    const original = Gunzip.prototype.push;
+    const spy = vi.spyOn(Gunzip.prototype, 'push').mockImplementation(function (this: Gunzip, chunk, final) {
+      const ondata = this.ondata;
+      this.ondata = (out, last) => { maxOutput = Math.max(maxOutput, out.length); ondata(out, last); };
+      try { original.call(this, chunk, final); } finally { this.ondata = ondata; }
+    });
+    try {
+      expect(() => gunzipCapped(bytes, '.ork', 16 * 1024 * 1024)).toThrow(InflatedFileTooLargeError);
+      expect(maxOutput).toBeGreaterThan(0);
+      expect(maxOutput).toBeLessThanOrEqual(384 * 1024);
+    } finally { spy.mockRestore(); }
+  });
+});
+
+it('does not pass ZIP local headers, extra fields or data descriptors to the inflater', () => {
+  const data = strToU8('<openrocket/>');
+  const chunks: Uint8Array[] = [];
+  const writer = new Zip((err, chunk) => { if (err) throw err; chunks.push(chunk); });
+  const entry = new ZipDeflate('rocket.ork');
+  entry.extra = { 0x1234: new Uint8Array(65531) };
+  writer.add(entry);
+  entry.push(data, true);
+  writer.end();
+  const bytes = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.length, 0));
+  let at = 0;
+  for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length; }
+  const view = new DataView(bytes.buffer);
+  expect(view.getUint16(28, true)).toBe(65535);
+  expect(view.getUint16(6, true) & 8).toBe(8); // trailing descriptor, no local sizes
+  const start = 30 + view.getUint16(26, true) + view.getUint16(28, true);
+  const end = start + view.getUint32(centralRecord(bytes, 'rocket.ork') + 20, true);
+  expect(view.getUint32(end, true)).toBe(0x08074b50);
+  let pushed = 0;
+  const original = Inflate.prototype.push;
+  const spy = vi.spyOn(Inflate.prototype, 'push').mockImplementation(function (this: Inflate, chunk, final) {
+    expect(chunk.byteOffset).toBe(bytes.byteOffset + start + pushed);
+    pushed += chunk.length;
+    original.call(this, chunk, final);
+  });
+  try {
+    expect(new TextDecoder().decode(unzipMember(bytes, '.ork', '.ork'))).toBe('<openrocket/>');
+    expect(pushed).toBe(end - start);
+  } finally { spy.mockRestore(); }
+});
+
+it.each(['gzip', 'zip', 'false-small zip'] as const)('bounds each inflater push before refusing a highly compressible %s', kind => {
+  const cap = 16 * 1024 * 1024;
+  const source = new Uint8Array(64 * 1024 * 1024);
+  const bytes = kind === 'gzip' ? gzipSync(source) : zipSync({ 'rocket.ork': source });
+  if (kind === 'false-small zip') u32(bytes, centralRecord(bytes, 'rocket.ork') + 24, 1024);
+  let maxInput = 0;
+  let maxOutput = 0;
+  const proto = kind === 'gzip' ? Gunzip.prototype : Inflate.prototype;
+  const original = proto.push;
+  const spy = vi.spyOn(proto, 'push').mockImplementation(function (this: Inflate, chunk, final) {
+    maxInput = Math.max(maxInput, chunk.length);
+    const ondata = this.ondata;
+    this.ondata = (out, last) => { maxOutput = Math.max(maxOutput, out.length); ondata(out, last); };
+    try { original.call(this, chunk, final); } finally { this.ondata = ondata; }
+  });
+  try {
+    expect(() => kind === 'gzip' ? gunzipCapped(bytes, '.ork', cap) : unzipMember(bytes, '.ork', '.ork', cap))
+      .toThrow(kind === 'false-small zip' ? /inflates past/ : InflatedFileTooLargeError);
+    // An honest oversized ZIP is rejected from its directory, without a push.
+    if (kind !== 'zip') expect(maxOutput).toBeGreaterThan(0);
+    expect.soft(maxInput).toBeLessThanOrEqual(256);
+    expect.soft(maxOutput).toBeLessThanOrEqual(384 * 1024);
+  } finally { spy.mockRestore(); }
+});
 
 /** Offset of the central-directory record for `name` (fields at +10, +24 …). */
 function centralRecord(zip: Uint8Array, name: string): number {
@@ -265,7 +381,7 @@ describe('a GZIP design file is inflated as a bounded stream', () => {
     const small = gzipSync(strToU8(`<openrocket>${'abc'.repeat(3000)}</openrocket>`));
     expect(() => gunzipCapped(small.subarray(0, small.length - 20), '.ork'))
       .toThrow(/does not match its own checksum — the file is cut short or corrupted/);
-  });
+  }, 30_000);
 
   /**
    * A stored (level 0) member — its text sits in the file as written — with

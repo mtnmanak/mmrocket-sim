@@ -4,6 +4,9 @@ import { worker } from './index.js';
 import { bytesOf, timeStepBody } from './fixtures.testSupport.js';
 import { simulateFile } from '../../app/src/headless/index.js';
 import { resetKernelForTests, withKernel } from '../../app/src/services/simulateDesign.js';
+import { DOMParser } from '@xmldom/xmldom';
+import * as foreignParts from '../../app/src/services/foreignPartPrecount.js';
+import * as extensions from '../../app/src/services/orkExtensions.js';
 
 afterEach(() => { vi.useRealTimers(); resetKernelForTests(); });
 
@@ -50,7 +53,7 @@ it('cancels streaming input on the first byte above 8 MiB, even if cancellation 
   expect(sent).toBe(8 * 1024 * 1024 + 1);
 });
 
-it.each([['ork', 'zip'], ['ork', 'gzip'], ['rkt', 'zip'], ['rkt', 'gzip']] as const)(
+it.each([['ork', 'zip'], ['ork', 'gzip'], ['rkt', 'zip'], ['rkt', 'gzip'], ['CDX1', 'zip'], ['CDX1', 'gzip']] as const)(
   'classifies oversized inflated %s in %s as 413 rather than a parse failure', async (ext, compression) => {
     const xml = new Uint8Array(16 * 1024 * 1024 + 1);
     const body = compression === 'zip' ? zipSync({ ['rocket.' + ext]: xml }) : gzipSync(xml);
@@ -59,6 +62,85 @@ it.each([['ork', 'zip'], ['ork', 'gzip'], ['rkt', 'zip'], ['rkt', 'gzip']] as co
     expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
       message: expect.stringMatching(/16 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
   });
+
+it.each([
+  ['elements', '<x/>'.repeat(50_000)],
+  ['depth', '<x>'.repeat(63) + '</x>'.repeat(63)],
+])('refuses excessive XML %s before constructing any DOM', async (_kind, payload) => {
+  const dom = vi.spyOn(DOMParser.prototype, 'parseFromString');
+  try {
+    const response = await worker.fetch(request(`<openrocket><rocket>${payload}</rocket></openrocket>`), undefined, ctx);
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
+      message: expect.stringMatching(/XML.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
+    expect(dom).not.toHaveBeenCalled();
+  } finally { dom.mockRestore(); }
+});
+
+it.each([
+  ['rkt', '<RockSimDocument><DesignInformation><RocketDesign>', '</RocketDesign></DesignInformation></RockSimDocument>', '<x/>'.repeat(50_000)],
+  ['CDX1', '<RASAeroDocument><RocketDesign>', '</RocketDesign></RASAeroDocument>', '<x/>'.repeat(50_000)],
+  ['rkt', '<RockSimDocument><DesignInformation><RocketDesign>', '</RocketDesign></DesignInformation></RockSimDocument>', '<x>'.repeat(64) + '</x>'.repeat(64)],
+  ['CDX1', '<RASAeroDocument><RocketDesign>', '</RocketDesign></RASAeroDocument>', '<x>'.repeat(64) + '</x>'.repeat(64)],
+  ['ork', '<openrocket><simulations>', '</simulations></openrocket>', '<simulation/>'.repeat(50_000)],
+  ['ork', '<openrocket>', '</openrocket>', '<x>'.repeat(64) + '</x>'.repeat(64)],
+].flatMap(([ext, open, close, payload]) => ['plain', 'zip', 'gzip'].map(compression => ({
+  ext: ext!, compression, xml: open! + payload! + close!,
+}))))('refuses excessive $ext XML ($compression) before importer pre-passes', async ({ ext, compression, xml }) => {
+  const parts = vi.spyOn(foreignParts, 'refuseOversizedForeignXml');
+  const slices = vi.spyOn(extensions, 'extensionXmlBySimulation');
+  const dom = vi.spyOn(DOMParser.prototype, 'parseFromString');
+  try {
+    const bytes = new TextEncoder().encode(xml);
+    const body = compression === 'plain' ? bytes
+      : compression === 'zip' ? zipSync({ ['rocket.' + ext]: bytes }) : gzipSync(bytes);
+    const response = await worker.fetch(request(body, 'flood.' + ext), undefined, ctx);
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
+      message: expect.stringMatching(/XML.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
+    expect(parts.mock.calls.length).toBe(0);
+    expect(slices.mock.calls.length).toBe(0);
+    expect(dom).not.toHaveBeenCalled();
+  } finally { parts.mockRestore(); slices.mockRestore(); dom.mockRestore(); }
+});
+
+it.each([
+  ['ork', '<openrocket><rocket><x></rocket></openrocket>', 'Not a valid .ork file (XML parse error)'],
+  ['rkt', '<RockSimDocument><x></RockSimDocument>', 'Not a valid RockSim file (XML parse error)'],
+  ['CDX1', '<RASAeroDocument><x></RASAeroDocument>', 'Not a valid RASAero file (XML parse error)'],
+])('keeps the %s malformed-XML message while refusing before pre-passes', async (ext, xml, message) => {
+  const parts = vi.spyOn(foreignParts, 'refuseOversizedForeignXml');
+  const slices = vi.spyOn(extensions, 'extensionXmlBySimulation');
+  try {
+    const response = await worker.fetch(request(xml!, 'broken.' + ext), undefined, ctx);
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: 'INVALID_FILE', message: expect.stringContaining(message!) } });
+    expect(parts.mock.calls.length).toBe(0);
+    expect(slices.mock.calls.length).toBe(0);
+  } finally { parts.mockRestore(); slices.mockRestore(); }
+});
+
+it('keeps the binary RockSim refusal before XML parsing', async () => {
+  const response = await worker.fetch(request('[[RS001024RS]]', 'old.rkt'), undefined, ctx);
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ error: { code: 'INVALID_FILE', message: expect.stringContaining('older BINARY RockSim file') } });
+});
+
+it('keeps the extension-byte refusal for XML within the structural budgets', async () => {
+  const xml = '<openrocket><simulations><simulation><extension>' + 'x'.repeat(1024 * 1024)
+    + '</extension></simulation></simulations></openrocket>';
+  const response = await worker.fetch(request(gzipSync(new TextEncoder().encode(xml))), undefined, ctx);
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({ error: { code: 'INVALID_FILE',
+    message: expect.stringContaining('Simulation extension XML exceeds the limit of 1,048,576 bytes total.') } });
+});
+
+it('discloses a floor above the default when the file omits its time step', async () => {
+  const out = await simulateFile(bytesOf('reference.ork'), 'reference.ork', { minTimeStepS: 0.1, reportSeries: 'summary' });
+  expect(out.timeStepFloor).toEqual({ appStepS: 0.05, flownStepS: 0.1 });
+  expect(out.plan.snapshot.launch.timeStepS).toBe(0.1);
+  expect(out.run.timeStepS).toBe(0.1);
+});
 
 it.each([0.005, 0.01, 0.05, 0.1])('flies at the API floor for an own-file step of %s s and reports changes', async step => {
   const body = timeStepBody(step);

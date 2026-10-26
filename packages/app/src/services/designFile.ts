@@ -123,7 +123,7 @@ export async function parseDesignFile(
         ...(opts.horizontalDistanceUnit !== undefined ? { horizontalDistanceUnit: opts.horizontalDistanceUnit } : {}),
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) }), sourceFormat: 'rkt' };
     case 'cdx1':
-      return { ...await importCdx1Flown(data, { catalogue: opts.catalogue, aeroChoice: opts.aeroChoice,
+      return { ...await importCdx1Flown(data, { maxInflatedBytes: opts.maxInflatedBytes, catalogue: opts.catalogue, aeroChoice: opts.aeroChoice,
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}),
         ...(opts.flownSpec ? { flownSpec: opts.flownSpec } : {}) }), sourceFormat: 'cdx1' };
     case 'ork':

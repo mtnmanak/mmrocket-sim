@@ -98,7 +98,10 @@ export class XmlParseError extends Error {
 
 /** A parser: text in, document out, or THROW XmlParseError. It must never
  *  return a document that carries a parse error. */
-export type XmlParser = (text: string) => XmlDocument;
+export type XmlParser = ((text: string) => XmlDocument) & {
+  /** Optional host gate, run before importer lexical scans allocate anything. */
+  preflight?: (text: string) => void;
+};
 
 /**
  * What the user reads when a file carries a DOCTYPE — Eric's wording, ruled
@@ -177,6 +180,14 @@ export const browserXmlParser: XmlParser = (text) => {
   return doc;
 };
 
+/** A host's structural XML budget, distinct from malformed XML. */
+export class XmlBudgetExceededError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'XmlBudgetExceededError';
+  }
+}
+
 let current: XmlParser = browserXmlParser;
 
 /**
@@ -195,6 +206,18 @@ export function setXmlParser(parser: XmlParser | null): void {
 /** The parser `parseXml` would use now. For tests that must restore it. */
 export function currentXmlParser(): XmlParser {
   return current;
+}
+
+/** Hosts with structural budgets must check decoded input before any importer
+ * pre-pass. Browser and unrestricted parsers keep their existing behaviour. */
+export function preflightXml(text: string, refusal: string): void {
+  if (declaresDoctype(text)) throw new XmlDoctypeRefused();
+  try {
+    current.preflight?.(text);
+  } catch (e) {
+    if (!(e instanceof XmlParseError)) throw e;
+    throw new Error(refusal, { cause: e });
+  }
 }
 
 /**
