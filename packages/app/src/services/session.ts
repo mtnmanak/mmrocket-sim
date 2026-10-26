@@ -17,6 +17,7 @@ import { defaultTree } from '../tree/treeModel.js';
 import { validDesignFileRef, type DesignFileRef } from './designFileName.js';
 import { validLossySaveMark, type LossySaveMark } from './lossySave.js';
 import { designFingerprint } from './dirtyState.js';
+import { sanitizeSessionFlightLayers } from './sessionFlightLayers.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -431,7 +432,10 @@ function readSession(restoreRoot: boolean): SessionState | null {
       }
       s.nozzleModeVersion = 1;
     }
-    const validMotor = (mm: unknown): mm is MountMotor => isTable(mm) && isTable(mm['spec']) && isTable(mm['meta']);
+    const validMotor = (mm: unknown): mm is MountMotor => isTable(mm) && isTable(mm['spec']) && isTable(mm['meta'])
+      && typeof mm['label'] === 'string'
+      && ['padMassWeighedWith', 'openNote'].every(key => mm[key] === undefined || typeof mm[key] === 'string')
+      && (mm['padMassKg'] === undefined || (typeof mm['padMassKg'] === 'number' && Number.isFinite(mm['padMassKg']) && mm['padMassKg'] > 0));
     let motorsRemoved = false;
     if (s.mountMotors !== undefined) {
       if (isTable(s.mountMotors)) {
@@ -455,6 +459,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
     if (motorsRemoved) {
       cautionNote(s.treeRestoreNotes ??= [], 'G04.motors-removed', 'Unreadable motor records were removed.');
     }
+    s = sanitizeSessionFlightLayers(s);
     // Revive plugged ejection delays (persisted as "Infinity" — JSON has no
     // Infinity literal; a plain stringify would have stored null). The
     // Stage B config presets carry the same MountMotor shape.

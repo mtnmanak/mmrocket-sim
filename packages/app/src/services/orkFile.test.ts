@@ -18,6 +18,21 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+it.each([5, undefined])('S7a-g1 retains working mass %s and an unnamed motorless configuration', overrideMass => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', overrideMass, overrideSubcomponentsMass: true,
+    children: [{ type: 'bodytube', id: 'b', length: 1, outerRadius: 0.03, thickness: 0.001 }] }] };
+  const xml = exportOrk({ name: 'Mass configurations', tree, activeConfigId: null,
+    configs: [{ id: 'c1', name: null, isDefault: true, motors: {},
+      stageMassOverrides: { s: { overrideMass: 2.5, overrideSubcomponentsMass: true } } }] });
+  const imported = importOrk(xml);
+  expect(imported.tree.components[0]!['overrideMass']).toBe(overrideMass);
+  expect(imported.configs).toHaveLength(2);
+  const stored = imported.configs.find(c => c.id === 'c1')!;
+  expect(Object.values(stored.stageMassOverrides!)[0]!.overrideMass).toBeCloseTo(2.5, 9);
+  expect(imported.chosenConfigId).not.toBe('c1');
+  expect(importOrk(xml, { configId: 'c1' }).tree.components[0]!['overrideMass']).toBeCloseTo(2.5, 9);
+});
+
 /** Golden .ork files produced by the REAL OpenRocket 24.12 GeneralRocketSaver. */
 function golden(name: string): ArrayBuffer {
   const buf = readFileSync(join(here, '__fixtures__', name));

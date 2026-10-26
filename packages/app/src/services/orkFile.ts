@@ -31,7 +31,7 @@ import { axialLength, positionOf } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
 import { applyPresetLinks, ORK_PRESET_KEYS, type PendingPresetLink, type Preset } from './presets.js';
-import { OVERRIDE_INCLUDES_MOTOR } from './statedLaunchWeight.js';
+import { includedMotorFigures, OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES } from './statedLaunchWeight.js';
 import {
   isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
@@ -1444,6 +1444,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     if (included
       && (numOpt(stage, 'overrideMass') !== undefined || numOpt(stage, 'overrideCGX') !== undefined)) {
       stage[OVERRIDE_INCLUDES_MOTOR] = included;
+      stage[STATED_STAGE_FIGURES] = includedMotorFigures(stage);
     }
     // App extension: a COMPLETE snapshot per stage/configuration, so an
     // empty block clears bare overrides. Desktop keeps the bare active values.
@@ -1454,7 +1455,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       const value: ComponentNode = { type: 'stage' };
       readOverrides(block, value, notes);
       const mark = text(block, ':scope > overrideincludesmotor');
-      if (mark) value['overrideIncludesMotor'] = mark;
+      if (mark) {
+        value['overrideIncludesMotor'] = mark;
+        value[STATED_STAGE_FIGURES] = includedMotorFigures(value);
+      }
       const snapshot = captureStageMass(value);
       (c.stageMassOverrides ??= {})[stage.id!] = snapshot;
       if (c.id === chosenConfigId) {
@@ -2663,15 +2667,17 @@ export function exportOrk({
         stageMassOverrides: c.stageMassOverrides,
       }))
       : [{ ...snapshotLoadedConfig(tree, motorMap, { deployments: false, separations: false }), ...workingOverrides }];
-  // Active = none but motors loaded: mint an extra config carrying the live
+  // Active = none with working inputs: mint an extra config carrying the live
   // set, unnamed (the desktop renders unnamed configs as their motor list).
-  const minted = configs && configs.length > 0 && !active && (Object.keys(motorMap).length > 0 || Object.values(workingOverrides).some(map => Object.keys(map ?? {}).length > 0))
+  const minted = configs && configs.length > 0 && !active && (Object.keys(motorMap).length > 0
+    || configs.some(c => !!c.stageMassOverrides)
+    || Object.values(workingOverrides).some(map => Object.keys(map ?? {}).length > 0))
     ? { ...snapshotLoadedConfig(tree, motorMap, { deployments: false, separations: false,
       stageMass: configs.some(c => !!c.stageMassOverrides) }), ...workingOverrides }
     : null;
   if (minted) writeConfigs.push(minted);
   if (writeConfigs.length > MAX_ORK_CONFIGURATIONS) {
-    throw new Error(`This design would write ${writeConfigs.length} flight configurations, past the ${MAX_ORK_CONFIGURATIONS} the app will open. Choose a saved configuration, or None (no motors), in the Flight configuration chooser before saving.`);
+    throw new Error(`This design would write ${writeConfigs.length} flight configurations, past the ${MAX_ORK_CONFIGURATIONS} the app will open. Choose a saved configuration in the Flight configuration chooser, or remove an unused configuration, before saving.`);
   }
   // default="true" (also what <simulation> references): the active config,
   // else the minted custom one, else the original default.

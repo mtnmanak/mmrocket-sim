@@ -1,6 +1,7 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import type { DeploymentTuple, FlightOverrides, FlightTree } from '../model/design.js';
 import { num } from '../tree/nodeNum.js';
+import { overrideFor } from './flightState.js';
 
 export function deploymentTuple(node: ComponentNode): DeploymentTuple {
   return { deployEvent: String(node['deployEvent'] ?? 'ejection'),
@@ -13,7 +14,7 @@ export function exportIgnitions<M extends { ignitionEvent?: string; ignitionDela
 ): Record<string, M> | undefined {
   if (!motors) return motors;
   return Object.fromEntries(Object.entries(motors).map(([id, m]) => {
-    const ignition = overrides.ignitions?.[id] ?? tree.ignitionDefaults?.[id];
+    const ignition = overrideFor(overrides.ignitions, id) ?? overrideFor(tree.ignitionDefaults, id);
     return [id, ignition ? { ...m, ignitionEvent: ignition.event, ignitionDelay: ignition.delay } : m];
   }));
 }

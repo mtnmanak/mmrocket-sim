@@ -111,6 +111,8 @@ export function normalizeTree(
 ): RocketTree {
   tree = repairTreeShape(tree, notes);
   reseedIds(tree);
+  // Position conversion also reads ancestor offsets: repair them before arithmetic.
+  tree = sanitizeTree(tree, notes);
   // A load-time historical placement check needs the stored absolute fields
   // after shape validation, before today's equivalent top-offset conversion.
   tree = sanitizeTree(options?.preserveAbsolutePositions ? tree : resolveAbsolutePositions(tree), notes);

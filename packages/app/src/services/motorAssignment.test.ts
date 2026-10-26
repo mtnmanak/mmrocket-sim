@@ -5,6 +5,7 @@ import type { OrkMotorRef } from './orkFile.js';
 import { testMotor } from './autoDelay.testSupport.js';
 import { assignMotorRecords, planMotorAssignment, retireLoadoutNote } from './motorAssignment.js';
 import { padMassSetKey } from './configSync.js';
+import { infoLine } from './importNotes.js';
 
 const tree: RocketTree = { components: [
   { type: 'stage', id: 'upper', children: [{ type: 'innertube', id: 'a', motorMount: true }] },
@@ -19,6 +20,40 @@ const input = () => ({ tree, targetMountId: 'a', label: picked.label, spec: pick
   massText: (kg: number) => `${kg} kg`, statedWeightText: { mass: (kg: number) => `${kg} kg`, length: (m: number) => `${m} m` } });
 
 describe('motor assignment plan (S2-8)', () => {
+  it.each(['constructor', 'toString'])('does not adopt an inherited motor reference for %s', targetMountId => {
+    const plan = planMotorAssignment({ ...input(), targetMountId, refs: {} });
+    expect(plan.droppedRef).toBeUndefined();
+  });
+
+  it('downgrades a grouped import receipt after its last caution is repaired', () => {
+    const text = 'Loaded “test.ork”.';
+    const remaining = infoLine('Kept the file settings');
+    const group = { heading: text, lines: [remaining, { kind: 'refused', tier: 'caution' as const, text: 'ambiguous' }] };
+    const next = retireLoadoutNote({ text: `${text}\nambiguous`, severity: 'warn', group }, configs[0]!);
+    expect(next).toMatchObject({ text, severity: 'info', group: { lines: [remaining] } });
+  });
+
+  it('keeps the newer-format warning after repairing a refused loadout', () => {
+    const warning = 'Warning: this file uses format 1.11 from a newer OpenRocket than the app understands. '
+      + 'Some settings may be ignored or lost if you save it again.';
+    const heading = 'Loaded test.ork.';
+    const next = retireLoadoutNote({ text: [heading, warning, 'ambiguous'].join('\n'), severity: 'warn',
+      group: { heading, lines: [infoLine(warning), { kind: 'refused', tier: 'caution', text: 'ambiguous' }] } }, configs[0]!);
+    expect(next).toMatchObject({ severity: 'warn', text: [heading, warning].join('\n'),
+      group: { lines: [infoLine(warning)] } });
+  });
+
+  it.each(['constructor', 'toString'])('S7d-g2 ignores an unloaded %s mount when rekeying the actual primary weighing', id => {
+    const mounts: RocketTree = { components: [{ type: 'stage', id: 's', children: [
+      { type: 'innertube', id, motorMount: true }, { type: 'innertube', id: 'real', motorMount: true },
+      { type: 'innertube', id: 'new', motorMount: true },
+    ] }] };
+    const refs = { new: { ...ref, mountId: 'new', padMassKg: undefined } };
+    const prev = { real: { ...picked, padMassKg: 2, padMassWeighedWith: padMassSetKey(mounts, { real: picked }, refs) } };
+    const plan = planMotorAssignment({ ...input(), tree: mounts, targetMountId: 'new', refs });
+    const next = assignMotorRecords(prev, mounts, 'new', plan);
+    expect(next.real!.padMassWeighedWith).toBe(padMassSetKey(mounts, next, {}));
+  });
   it('plans propellant ignition, reference adoption and the exact repair notice without changing inputs', () => {
     const state = input();
     const before = structuredClone({ tree, configs, ref });

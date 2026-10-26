@@ -167,8 +167,14 @@ function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
     found.push(limitFinding(n, key, limit, raw, fixed));
   }
   const pos = n.position;
+  if (pos !== undefined && (!pos || typeof pos !== 'object' || Array.isArray(pos)
+      // eslint-disable-next-line no-restricted-syntax -- shape repair for non-numeric offsets; NaN retains the existing unrepairable-number path
+      || !['top', 'middle', 'bottom', 'absolute'].includes(pos.method) || typeof pos.offset !== 'number')) {
+    const method = pos && ['top', 'middle', 'bottom', 'absolute'].includes(pos.method) ? pos.method : 'top';
+    edit().position = { method, offset: 0 };
+    found.push({ problem: `${partName(n)}: position could not be read`, repair: 'set to offset 0 m' });
   // eslint-disable-next-line no-restricted-syntax -- the load clamp, as the field loop above: it clamps a number, it does not read one (audit row 522)
-  if (pos && typeof pos.offset === 'number') {
+  } else if (pos && typeof pos.offset === 'number') {
     const fixed = applyFieldLimit(POSITION_LIMIT, pos.offset);
     if (Number.isFinite(pos.offset) && fixed !== pos.offset) {
       edit().position = { ...pos, offset: fixed };

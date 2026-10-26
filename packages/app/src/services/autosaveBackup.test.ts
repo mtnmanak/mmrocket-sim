@@ -42,6 +42,27 @@ afterEach(() => {
 });
 
 describe('autosavedDesignFile', () => {
+  it('S1d-b2 keeps the complete raw autosave when the EX archive would omit a motor', () => {
+    const mounts = Array.from({ length: 5 }, (_, i) => ({ type: 'innertube' as const, id: `m${i}`, motorMount: true }));
+    const configs = Array.from({ length: 205 }, (_, c) => ({ id: `c${c}`, name: `Config ${c}`, isDefault: c === 0,
+      motors: Object.fromEntries(mounts.map((mount, m) => {
+        const designation = `EX${c * 5 + m}`;
+        return [mount.id, { ...c6(), label: designation, meta: { manufacturer: 'EX', label: designation },
+          spec: { designation, diameter: 0.018, length: 0.07, ejectionDelay: 5,
+            times: [0, 0.2, 1.9], thrusts: [0, 14, 0], masses: [0.024, 0.02, 0.013], cgX: 0.035 } }];
+      })) }));
+    const session = { tree: { components: [{ type: 'stage', id: 's', children: mounts }] },
+      launch: DEFAULT_CONDITIONS, savedAt: 0, savedConfigs: configs, configLayers: 1,
+      detachedOverrides: {}, mountMotors: {}, activeConfigId: null } satisfies SessionState;
+    const raw = JSON.stringify(session);
+    localStorage.setItem(KEY, raw);
+    const file = autosavedDesignFile()!;
+    expect(file.ork).toBe(false);
+    expect(file.extension).toBe('.json');
+    expect(file.data).toBe(raw);
+    expect(JSON.parse(file.data).savedConfigs.flatMap((c: { motors: Record<string, unknown> }) => Object.keys(c.motors)))
+      .toHaveLength(1025);
+  });
   it('recovers the original over-limit tree as ork instead of the starter', () => {
     let body: ComponentNode = { type: 'bodytube', name: 'Deep original', length: 0.1, outerRadius: 0.01 };
     for (let i = 0; i < 4; i++) body = { type: 'bodytube', length: 0.1, outerRadius: 0.02, children: [

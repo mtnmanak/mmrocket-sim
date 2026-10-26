@@ -6,6 +6,11 @@ interface ConfigContent {
   unmatchedRefs?: Record<string, unknown>;
   stageActiveness?: Record<string, boolean>;
   padMassKg?: number;
+  stageMassOverrides?: Record<string, unknown>;
+  nozzles?: Record<string, unknown>;
+  deployments?: Record<string, unknown>;
+  separations?: Record<string, unknown>;
+  ignitions?: Record<string, unknown>;
 }
 
 /** Dry saves carry launch conditions in a simulation, but need no empty panel row. */
@@ -17,6 +22,8 @@ export function isLoneEmptyConfig(
     && !lone.motorLoadoutRefusal
     && Object.keys(lone.unmatchedRefs ?? {}).length === 0
     && !Object.values(lone.stageActiveness ?? {}).includes(false)
+    && [lone.stageMassOverrides, lone.nozzles, lone.deployments, lone.separations, lone.ignitions]
+      .every(map => Object.keys(map ?? {}).length === 0)
     // A v0.116/v0.117 file hangs its weighed pad mass on this configuration;
     // dropping it would lose the value under a note promising to keep it.
     && lone.padMassKg === undefined

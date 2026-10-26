@@ -76,6 +76,20 @@ const editApart = (h: { current: TreeHistory }, next: RocketTree) => {
   vi.advanceTimersByTime(HISTORY_COALESCE_MS + 1);
 };
 
+it.each([
+  { key: 'z', code: 'KeyZ', ctrlKey: true, altKey: true },
+  { key: 'Dead', code: 'KeyZ', ctrlKey: true },
+  { key: 'Process', code: 'KeyZ', ctrlKey: true, isComposing: true },
+  { key: 'Unidentified', code: 'KeyY', ctrlKey: true },
+])('leaves Alt and non-character key events alone: %j', options => {
+  const h = renderHistory(t('before'));
+  editApart(h, t('after'));
+  const event = new KeyboardEvent('keydown', { ...options, cancelable: true });
+  act(() => { window.dispatchEvent(event); });
+  expect(h.current.tree.name).toBe('after');
+  expect(event.defaultPrevented).toBe(false);
+});
+
 it.each(['setTree', 'commitStep', 'writeTree', 'reset'] as const)(
   'S4a-1 refuses multiplied instance edits through %s without changing the tree or history', (writer) => {
     const initial: RocketTree = { components: [{ type: 'stage', name: 'Original' }] };

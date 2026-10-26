@@ -71,7 +71,9 @@ export function autosaveToOrk(s: SessionState): string {
   // without expanding instances or substituting the starter design.
   if (!restored.refused) s = { ...restored.session!, ...restored.state };
   const active = s.savedConfigs?.find((c) => c.id === s.activeConfigId);
-  return exportOrk({
+  let omitted = false;
+  const xml = exportOrk({
+    onOmittedMotor: () => { omitted = true; },
     name: s.tree.name ?? 'My Rocket',
     tree: s.tree,
     // The working set's references are the SESSION's own, as a reload reads
@@ -96,6 +98,8 @@ export function autosaveToOrk(s: SessionState): string {
     workingOverrides: s.detachedOverrides,
     ...(s.measured ? { measured: s.measured } : {}),
   });
+  if (omitted) throw new Error('The recovery .ork would omit a motor; keep the complete raw autosave.');
+  return xml;
 }
 
 /**

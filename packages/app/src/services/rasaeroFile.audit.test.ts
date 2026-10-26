@@ -5,6 +5,7 @@ import { attachedOf, planConfigSwitch, planImport, resolveImportMotors } from '.
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { addExMotors, parseEng } from './exMotors.js';
 import { captureStageMass } from './stageMassOverrides.js';
+import { exportOrk, importOrk } from './orkFile.js';
 import { num } from '../tree/nodeNum.js';
 import { reconcileAllIncludedMotors, reconcileIncludedMotor, OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES } from './statedLaunchWeight.js';
 
@@ -22,6 +23,27 @@ const motor = (designation: string, launchMassKg: number) => ({
   designation, launchMassKg, lengthM: 0.4, cgXFromFrontM: 0.2,
 });
 beforeEach(() => localStorage.clear());
+
+it.each(['overrideSubcomponentsMass', 'overrideSubcomponentsCG'])(
+  'keeps unresolved launch provenance across capture and reopen with unticked %s', flag => {
+    const imported = importCdx1(file(simulation('M787  (KIP)')));
+    const stage = { ...imported.tree.components[0]!, [flag]: false };
+    const snapshot = captureStageMass(stage);
+    expect(snapshot.overrideIncludesMotor).toBe('M787');
+    expect(snapshot.statedStageFigures).toMatchObject({ includesMotor: true, motor: 'M787' });
+    const reopened = importOrk(exportOrk({ name: 'Unresolved', tree: { ...imported.tree, components: [stage] },
+      activeConfigId: 'c', configs: [{ id: 'c', name: null, isDefault: true, motors: {},
+        stageMassOverrides: { [stage.id!]: snapshot } }] }));
+    const restored = captureStageMass(reopened.tree.components[0]!);
+    expect(restored).toEqual({ overrideMass: 10, overrideCGX: 0.7, overrideIncludesMotor: 'M787',
+      [flag === 'overrideSubcomponentsMass' ? 'overrideSubcomponentsCG' : 'overrideSubcomponentsMass']: true,
+      statedStageFigures: { motor: 'M787', includesMotor: true, launchKg: 10, massKg: 10, launchCgM: 0.7, cgM: 0.7 } });
+    const mount = reopened.tree.components[0]!.children!.find(c => c['motorMount'])!.id!;
+    const changed = reconcileIncludedMotor(reopened.tree, mount, motor('M1297', 1), TEXT)!;
+    expect(changed.tree.components[0]!['overrideMass']).toBeUndefined();
+    expect(changed.tree.components[0]!['overrideCGX']).toBeUndefined();
+    expect(changed.severity).toBe('warn');
+  });
 
 it('S1c-1 backs out the same-maker EX motor despite a differently named catalogue fallback', async () => {
   addExMotors(parseEng('K1075-SK 54 400 P 0.5 1.5 CTI\n0 0\n0.1 2000\n2 0'));

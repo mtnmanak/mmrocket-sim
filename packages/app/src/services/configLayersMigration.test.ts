@@ -30,6 +30,44 @@ const mark = (s: SessionState) => designFingerprint({ ...s, mountMotors: s.mount
   measured: s.measured ?? { massKg: null, cgM: null } });
 
 describe('configuration-layer migration (FC-1)', () => {
+  it('canonicalizes persisted ignition and separation events in every layered owner', () => {
+    const input = session();
+    input.configLayers = 1;
+    // Stored JSON can contain spellings outside the typed canonical event union.
+    const raw = (event: string, delay: number) => ({ event, delay }) as MountMotor['ignition'];
+    input.tree.ignitionDefaults = { mount: raw('NEVER', 0) };
+    input.mountMotors!.mount!.ignition = raw('EJECTION_CHARGE', 1);
+    input.detachedOverrides = { ignitions: { mount: raw('NEVER', 0) },
+      separations: { stage: { separationEvent: 'ALTITUDE_ASCENDING', separationDelay: 0, separationAltitude: 20 } } };
+    input.savedConfigs![0]!.ignitions = { mount: raw('EJECTION_CHARGE', 2) };
+    input.savedConfigs![0]!.motors.mount!.ignition = raw('NEVER', 0);
+    input.savedConfigs![0]!.separations!.stage!.separationEvent = 'ALTITUDE_ASCENDING';
+    const { state } = migrateConfigLayers(input);
+    expect(state.tree.ignitionDefaults!.mount!.event).toBe('never');
+    expect(state.mountMotors.mount!.ignition).toEqual({ event: 'ejectioncharge', delay: 1 });
+    expect(state.detachedOverrides.ignitions!.mount!.event).toBe('never');
+    expect(state.detachedOverrides.separations!.stage!.separationEvent).toBe('altitudeascending');
+    expect(state.savedConfigs[0]!.ignitions!.mount!.event).toBe('ejectioncharge');
+    expect(state.savedConfigs[0]!.motors.mount!.ignition.event).toBe('never');
+    expect(state.savedConfigs[0]!.separations!.stage!.separationEvent).toBe('altitudeascending');
+    expect(migrateConfigLayers(state).state).toBe(state);
+    expect(input.mountMotors!.mount!.ignition.event).toBe('EJECTION_CHARGE');
+  });
+  it.each([undefined, 1] as const)('sanitizes flight tuples before even the layered early return (%s)', configLayers => {
+    const input = session();
+    input.configLayers = configLayers;
+    input.detachedOverrides = { deployments: { chute: { ...deployment, children: [] } }, ignitions: { mount: null } } as unknown as SessionState['detachedOverrides'];
+    delete (input.mountMotors!.mount as Partial<MountMotor>).ignition;
+    input.savedConfigs![1]!.separations = { stage: { separationEvent: 7 } } as unknown as SavedConfig['separations'];
+    const { state } = migrateConfigLayers(input);
+    expect(state.mountMotors.mount!.ignition).toEqual({ event: 'automatic', delay: 0 });
+    expect(state.savedConfigs[1]!.separations).toEqual({});
+    if (configLayers === 1) {
+      expect(state.detachedOverrides.deployments!.chute).toEqual(deployment);
+      expect(state.detachedOverrides.ignitions).toEqual({});
+    }
+    expect(state.treeRestoreNotes).toContain('Unreadable flight settings were removed or reset. Check ignition, deployment and separation before launching.');
+  });
   it('sparsifies full legacy maps with identical per-configuration effective inputs', () => {
     const input = session();
     const before = structuredClone(input);

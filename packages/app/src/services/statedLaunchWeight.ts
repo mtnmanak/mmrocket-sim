@@ -334,6 +334,8 @@ export function stageCgWithoutMotor(
 export const STATED_STAGE_FIGURES = 'statedStageFigures';
 
 export interface StatedStageFigures {
+  /** The recorded outputs still contain the unresolved motor's mass and moment. */
+  includesMotor?: true;
   /** The originally backed-out motor: catalogue name, or the unresolved file name. */
   motor: string;
   /** The file's designation, which can differ from another maker's catalogue fallback. */
@@ -358,6 +360,16 @@ export interface StatedStageFigures {
   cgM?: number;
 }
 
+/** Remember the imported launch figures while their motor is still unresolved. */
+export function includedMotorFigures(stage: ComponentNode): StatedStageFigures | undefined {
+  const motor = stage[OVERRIDE_INCLUDES_MOTOR];
+  if (typeof motor !== 'string' || !motor) return undefined;
+  const massKg = numOpt(stage, 'overrideMass');
+  const cgM = numOpt(stage, 'overrideCGX');
+  return { motor, includesMotor: true, ...(massKg !== undefined ? { launchKg: massKg, massKg } : {}),
+    ...(cgM !== undefined ? { launchCgM: cgM, cgM } : {}) };
+}
+
 /** A stage's stated figures, or null when it carries none (or a malformed record). */
 export function statedFiguresOf(stage: ComponentNode): StatedStageFigures | null {
   const rec = stage[STATED_STAGE_FIGURES] as unknown;
@@ -366,6 +378,7 @@ export function statedFiguresOf(stage: ComponentNode): StatedStageFigures | null
   if (typeof r['motor'] !== 'string' || r['motor'] === '') return null;
   const fin = (k: string) => (typeof r[k] === 'number' && Number.isFinite(r[k]) ? (r[k] as number) : undefined);
   const out: StatedStageFigures = { motor: r['motor'] };
+  if (r['includesMotor'] === true) out.includesMotor = true;
   if (typeof r['fileMotor'] === 'string' && r['fileMotor'] !== '') out.fileMotor = r['fileMotor'];
   if (typeof r['mountId'] === 'string' && r['mountId'] !== '') out.mountId = r['mountId'];
   for (const k of ['launchKg', 'massKg', 'launchCgM', 'cgM'] as const) {
@@ -392,9 +405,10 @@ export function statedFiguresHold(
 ): boolean {
   const holds = (want: number | undefined, cur: number | undefined) =>
     (want === undefined ? cur === undefined : cur !== undefined && nearly(want, cur));
-  // Unticking a subcomponents override is a user edit too (audit 2026-10-11, S7b-2).
+  // Unresolved launch figures still need their motor removed with unticked boxes.
+  // Dry figures stop tracking the file when their replacement boxes are unticked.
   return holds(rec.massKg, overrideMass) && holds(rec.cgM, overrideCGX)
-    && (rec.massKg === undefined || subMass === true) && (rec.cgM === undefined || subCg === true);
+    && (rec.includesMotor || ((rec.massKg === undefined || subMass === true) && (rec.cgM === undefined || subCg === true)));
 }
 
 /**
@@ -430,7 +444,7 @@ export function restateBackedOutMotor(
   const { [STATED_STAGE_FIGURES]: _rec, ...rest } = stage as ComponentNode & Record<string, unknown>;
   const unrecorded = rest as ComponentNode;
   const near = nearly;
-  if (!statedFiguresHold(rec, numOpt(stage, 'overrideMass'), numOpt(stage, 'overrideCGX'),
+  if (rec.includesMotor || !statedFiguresHold(rec, numOpt(stage, 'overrideMass'), numOpt(stage, 'overrideCGX'),
     stage['overrideSubcomponentsMass'], stage['overrideSubcomponentsCG'])) {
     return { tree: replaceStage(tree, index, unrecorded), note: null, severity: 'info' };
   }
@@ -548,6 +562,13 @@ export function reconcileIncludedMotor(
     [OVERRIDE_INCLUDES_MOTOR]: _mark, ...unmarked
   } = stage as ComponentNode & Record<string, unknown>;
   const cleared = unmarked as ComponentNode;
+  const recorded = statedFiguresOf(stage);
+  if (recorded?.includesMotor && recorded.motor === named && !statedFiguresHold(recorded, numOpt(stage, 'overrideMass'), numOpt(stage, 'overrideCGX'),
+    stage['overrideSubcomponentsMass'], stage['overrideSubcomponentsCG'])) {
+    delete cleared[STATED_STAGE_FIGURES];
+    return { tree: replaceStage(tree, index, cleared), note: null, severity: 'info' };
+  }
+  delete cleared[STATED_STAGE_FIGURES];
   const name = stage.name ?? 'Stage';
   const who = `“${named}”`;
 
@@ -630,6 +651,8 @@ export function reconcileIncludedMotor(
     delete bare['overrideSubcomponentsMass'];
     delete bare['overrideCGX'];
     delete bare['overrideSubcomponentsCG'];
+    bare[STATED_STAGE_FIGURES] = { motor: named, mountId, launchKg: stated,
+      ...(numOpt(cleared, 'overrideCGX') !== undefined ? { launchCgM: numOpt(cleared, 'overrideCGX') } : {}) } satisfies StatedStageFigures;
     return {
       tree: replaceStage(tree, index, bare),
       severity: 'warn',
