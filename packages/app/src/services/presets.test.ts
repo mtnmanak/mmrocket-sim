@@ -10,6 +10,36 @@ import { centeringRingBore, ringOuterRadius } from '../tree/solidMesh.js';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
 
+it.each(['=', '+', '-', '@', '\t', '\r', '-1', '+1'])('S7c-1 preserves apostrophes before %j through CSV', lead => {
+  for (const prefix of ['', "'", "''", "'''"]) {
+    const value = `${prefix}${lead}example`;
+    const part: Preset = { kind: 'BodyTube', manufacturer: value, partNo: value, description: value,
+      material: { name: value, type: 'BULK', density: 680 } };
+    expect(csvToPresets(presetsToCsv([part]))[0]).toEqual({ ...part,
+      manufacturer: value.trim(), partNo: value.trim(), material: { ...part.material!, name: value.trim() } });
+  }
+});
+
+it('S7c-1 preserves literal apostrophes before numeric formula leads', () => {
+  for (const value of ["'-1", "''-1", "'+1", "''+1"]) {
+    const part: Preset = { kind: 'Parachute', manufacturer: 'My parts', partNo: value, description: value,
+      lineMaterial: { name: value, type: 'LINE', density: 0.001 } };
+    expect(csvToPresets(presetsToCsv([part]))[0]).toEqual(part);
+  }
+});
+
+it('S7c-g6 trims identity/material cells and refuses non-decimal densities', () => {
+  const head = 'kind,manufacturer,partNo,materialName,materialDensity,lineMaterialName,lineMaterialDensity\n';
+  expect(csvToPresets(head + ' ,EX, , , , , \n')).toEqual([]);
+  expect(csvToPresets(head + ' BodyTube , EX , T1 , , , , \n')[0]).toEqual({
+    kind: 'BodyTube', manufacturer: 'EX', partNo: 'T1', description: '',
+  });
+  const part = csvToPresets(head + 'BodyTube,EX,T1, Wood ,0x10, Cord , \n')[0]!;
+  expect(part.material?.name).toBe('Wood');
+  expect(part.material?.density).toBeNaN();
+  expect(part.lineMaterial?.density).toBeNaN();
+});
+
 describe('storage hardening: custom presets', () => {
   it.each([{}, null, 'parts', [null, 1, [], {}, { kind: 'BodyTube' }]].map((v) => [v]))('ignores malformed presets (%j)', async (value) => {
     const good: Preset = { kind: 'BodyTube', manufacturer: 'EX', partNo: 'BT-2+', description: 'Tube' };
@@ -984,7 +1014,7 @@ describe('preset CSV round trip', () => {
     // part kept its old weight under a new material's name.
     const [named] = csvToPresets(csvOf('BodyTube,Acme,BT-50,Tube,Kraft,BULK,,0.024,,'));
     expect(named!.material).toBeDefined();
-    expect(named!.material!.density).toBe(0);
+    expect(named!.material!.density).toBeNaN();
     const [numbered] = csvToPresets(csvOf('BodyTube,Acme,BT-51,Tube,,BULK,680,0.024,,'));
     expect(numbered!.material).toBeDefined();
     expect(numbered!.material!.name).toBe('');

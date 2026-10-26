@@ -1,17 +1,17 @@
 /** One back-off window for all thrustcurve.org requests in this tab. */
 let retryAt = 0;
-let refusing = false;
+let refuseUntil = 0;
 const DEFAULT_BACKOFF_MS = 10 * 60_000;
 
 /** Test isolation only; production resets on a successful response or reconnect. */
-export function resetThrustcurveBackoffForTests(): void { retryAt = 0; }
+export function resetThrustcurveBackoffForTests(): void { retryAt = 0; refuseUntil = 0; }
 
-if (typeof window !== 'undefined') window.addEventListener('online', () => { retryAt = 0; });
+if (typeof window !== 'undefined') window.addEventListener('online', () => { retryAt = 0; refuseUntil = 0; });
 
 export class ThrustcurveBackoffError extends Error {
   constructor() {
     const minutes = Math.max(1, Math.ceil((retryAt - Date.now()) / 60_000));
-    super(`thrustcurve.org is ${refusing ? 'refusing requests' : 'not answering'} right now; the app will not ask it again for about `
+    super(`thrustcurve.org is ${Date.now() < refuseUntil ? 'refusing requests' : 'not answering'} right now; the app will not ask it again for about `
       + `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}.`);
     this.name = 'ThrustcurveBackoffError';
   }
@@ -26,10 +26,12 @@ export function assertThrustcurveAvailable(): void {
   clampBackoff();
   if (Date.now() < retryAt) throw new ThrustcurveBackoffError();
   retryAt = 0;
+  refuseUntil = 0;
 }
 
 function clampBackoff(): void {
   retryAt = Math.min(retryAt, Date.now() + 3_600_000);
+  refuseUntil = Math.min(refuseUntil, Date.now() + 3_600_000);
 }
 
 /** Keep service errors and the pause advice as separate sentences. */
@@ -46,8 +48,8 @@ function backOff(retryAfter?: string | null, status?: number): void {
     const parsed = /^\d+(?:\.\d+)?$/.test(value) ? Number(value) * 1000 : Date.parse(value) - now;
     if (Number.isFinite(parsed)) ms = Math.max(60_000, Math.min(60 * 60_000, parsed));
   }
+  if (status === 429) refuseUntil = Math.max(refuseUntil, now + ms);
   retryAt = Math.max(retryAt, now + ms);
-  refusing = status === 429;
 }
 
 /** A caller's Stop never opens the breaker; a deadline or lost connection does. */
@@ -67,6 +69,7 @@ export function thrustcurveFetch(fetchImpl: typeof fetch = (input, init) => fetc
         backOff(res.headers?.get('retry-after'), res.status);
       } else if (res.ok) {
         retryAt = 0;
+        refuseUntil = 0;
       }
       return res;
     } catch (err) {

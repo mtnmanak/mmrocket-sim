@@ -569,9 +569,10 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     const makers = [...new Set(rows.map((m) => m.manufacturerAbbrev))];
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       const u = new URL(url);
+      const results = rows.filter((m) => m.manufacturerAbbrev === u.searchParams.get('manufacturer'));
       const body = u.pathname.endsWith('/metadata.json')
         ? { manufacturers: makers.map((abbrev) => ({ abbrev })), impulseClasses: [] }
-        : { results: rows.filter((m) => m.manufacturerAbbrev === u.searchParams.get('manufacturer')) };
+        : { results, matches: results.length };
       return new Response(JSON.stringify(body), { status: 200 });
     }));
   };
@@ -665,9 +666,10 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     const makers = [...new Set(live.map((m) => m.manufacturerAbbrev))];
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       const u = new URL(url);
+      const results = live.filter((m) => m.manufacturerAbbrev === u.searchParams.get('manufacturer'));
       const body = u.pathname.endsWith('/metadata.json')
         ? { manufacturers: makers.map((abbrev) => ({ abbrev })), impulseClasses: [] }
-        : { results: live.filter((m) => m.manufacturerAbbrev === u.searchParams.get('manufacturer')) };
+        : { results, matches: results.length };
       // A real Response: the check reads bodies through getJsonCapped (audit 2026-09-30).
       return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
     }));

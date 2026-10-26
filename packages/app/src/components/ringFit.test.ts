@@ -3,6 +3,13 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { ringFitFor } from './ringFit.js';
 
 describe('Round 5 certain-or-silent catalogue fit', () => {
+  it('S3c-g3 checks an explicit inside diameter when the outside is automatic', () => {
+    const ring: ComponentNode = { id: 'ring', type: 'centeringring', length: 0.003, innerRadius: 0.008 };
+    const tree: RocketTree = { components: [{ id: 'body', type: 'bodytube', length: 0.3,
+      outerRadius: 0.033, thickness: 0.001, children: [ring,
+        { id: 'mount', type: 'innertube', length: 0.3, outerRadius: 0.01 }] }] };
+    expect(ringFitFor(tree, ring, { outside: false, inside: true }).comparisons.map(c => c.dimension)).toEqual(['inside']);
+  });
   function fit(outside: number, inside: number) {
     const ring: ComponentNode = { id: 'ring', name: 'Picked ring', type: 'centeringring',
       length: 0.003, outerRadius: outside / 2, innerRadius: inside / 2 };

@@ -39,7 +39,7 @@ const row = (over: Partial<MotorDbEntry> = {}): MotorDbEntry => ({
  * as real Responses: the check reads each body capped, as a stream.
  * `pad` adds that many bytes to every search page — a runaway answer.
  */
-function stubApi(live: MotorDbEntry[], opts: { cap?: string[]; pad?: number } = {}): ReturnType<typeof vi.fn> {
+function stubApi(live: MotorDbEntry[], opts: { cap?: string[]; pad?: number } = {}) {
   const mfrs = [...new Set(live.map((m) => m.manufacturerAbbrev))];
   const spy = vi.fn(async (url: string) => {
     const u = new URL(url);
@@ -52,8 +52,9 @@ function stubApi(live: MotorDbEntry[], opts: { cap?: string[]; pad?: number } = 
       let results = live.filter((m) => m.manufacturerAbbrev === mfr && (!ic || m.impulseClass === ic));
       // Simulate the 500 cap for a named manufacturer: the un-subdivided
       // query returns 500 stub rows so the caller must page by class.
-      if (!ic && opts.cap?.includes(mfr!)) results = Array.from({ length: 500 }, (_, i) => row({ motorId: `cap-${i}`, manufacturerAbbrev: mfr! }));
-      body = { results, ...(opts.pad ? { pad: 'x'.repeat(opts.pad) } : {}) };
+      const matches = results.length;
+      if (!ic && opts.cap?.includes(mfr!)) results = results.slice(0, 500);
+      body = { results, matches, ...(opts.pad ? { pad: 'x'.repeat(opts.pad) } : {}) };
     }
     return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
   });
@@ -69,13 +70,135 @@ const stalled = (): typeof fetch => (_input, init) => new Promise<Response>((_re
 });
 
 beforeEach(() => { resetThrustcurveBackoffForTests(); localStorage.clear(); setCatalogueOverlay(null); });
+
+it.each([
+  { fields: null }, { fields: ['length', null] }, { before: null },
+  { before: {} }, { motorId: 'wrong-id' },
+])('S7c-5 / S7c-g4 repairs stored change metadata %j with a visible refusal', broken => {
+  const before = MOTOR_DB[0]!;
+  const change = { motorId: before.motorId, before, after: { ...before, length: before.length + 1 }, fields: ['length'], ...broken };
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(),
+    liveCount: 1, added: [], changed: [change], removed: [], rejected: [] }));
+  const loaded = restoreCatalogueOverlay()!;
+  expect(loaded.changed).toEqual([]);
+  expect(loaded.rejected).toHaveLength(1);
+  expect(describeOverlay(loaded).join(' ')).toContain('stored');
+  expect(getCatalogue()).toBe(MOTOR_DB);
+});
+
+it('S7c-g4 repairs stored rejected wrappers, removed IDs and invalid fetch dates with notes', () => {
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE, fetchedAt: 'not a date',
+    liveCount: 0, added: [], changed: [], removed: [null, 7], rejected: [{ entry: null, reason: 'bad' }, null] }));
+  const loaded = restoreCatalogueOverlay()!;
+  expect(loaded.fetchedAt).toBe('');
+  expect(loaded.removed).toEqual([]);
+  expect(() => describeOverlay(loaded)).not.toThrow();
+  expect(describeOverlay(loaded).join(' ')).toContain('stored');
+});
+
+it.each([null, { manufacturers: [null] }, { manufacturers: [7, 'wrong', { abbrev: 42 }] }])('S7c-g7 reports metadata API shape for %j', async meta => {
+  const fetchImpl = vi.fn(async () => new Response(JSON.stringify(meta)));
+  await expect(checkForCatalogueUpdates({ force: true, fetchImpl })).rejects.toThrow(/API shape/);
+});
+
+it.each([null, { results: [null], matches: 1 }])('S7c-g7 reports search API shape for %j', async body => {
+  const fetchImpl = vi.fn(async (url: RequestInfo | URL) => new Response(JSON.stringify(String(url).includes('metadata.json')
+    ? { manufacturers: [{ abbrev: 'Estes' }], impulseClasses: ['A'] } : body)));
+  await expect(checkForCatalogueUpdates({ force: true, fetchImpl })).rejects.toThrow(/API shape/);
+});
+
+it('S7c-g7 skips null/non-text metadata entries instead of coercing them into searches', async () => {
+  const api = stubApi([row()]);
+  const fetchImpl: typeof fetch = async url => String(url).includes('metadata.json')
+    ? new Response(JSON.stringify({ manufacturers: [null, { abbrev: 42 }, { abbrev: 'Estes' }], impulseClasses: [null, 42, 'A'] }))
+    : api(String(url));
+  const result = await checkForCatalogueUpdates({ force: true, fetchImpl });
+  expect(result.overlay.added.map(m => m.motorId)).toEqual(['live-1']);
+  expect(api).toHaveBeenCalledOnce();
+  expect(api.mock.calls[0]![0]).toContain('manufacturer=Estes');
+});
+
+it.each([undefined, -1, 1.5, 3])('S7c-b1 rejects an unproven or short page (matches %s) without replacing the overlay', async matches => {
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi([row()]) as unknown as typeof fetch });
+  const previous = localStorage.getItem(OVERLAY_KEY);
+  const fetchImpl: typeof fetch = async url => new Response(JSON.stringify(String(url).includes('metadata.json')
+    ? { manufacturers: [{ abbrev: 'Estes' }] } : { results: [row()], matches }));
+  await expect(checkForCatalogueUpdates({ force: true, fetchImpl })).rejects.toThrow(/complete|matches/);
+  expect(localStorage.getItem(OVERLAY_KEY)).toBe(previous);
+});
+
+it('S7c-b1 rejects incomplete impulse-class totals', async () => {
+  const live = Array.from({ length: 501 }, (_, i) => row({ motorId: `cap-${i}`, impulseClass: 'A' }));
+  const api = stubApi(live, { cap: ['Estes'] });
+  const fetchImpl: typeof fetch = async url => {
+    const response = await api(String(url));
+    const body = await response.json();
+    if (String(url).includes('search.json') && !String(url).includes('impulseClass')) body.matches++;
+    return new Response(JSON.stringify(body));
+  };
+  await expect(checkForCatalogueUpdates({ force: true, fetchImpl })).rejects.toThrow(/classes|matches/);
+  expect(localStorage.getItem(OVERLAY_KEY)).toBeNull();
+});
+
+it('S7c-b2 retains previous additions and changes when their maker is silent on the next check', async () => {
+  const before = MOTOR_DB[0]!;
+  const added = row({ motorId: 'previous-new', manufacturerAbbrev: before.manufacturerAbbrev });
+  const after = { ...before, length: before.length + 1 };
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi([...MOTOR_DB.filter(m => m.motorId !== before.motorId), after, added]) as unknown as typeof fetch });
+  const live = MOTOR_DB.filter(m => m.manufacturerAbbrev !== before.manufacturerAbbrev);
+  const result = await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi(live) as unknown as typeof fetch });
+  expect(result.silent).toContain(before.manufacturerAbbrev);
+  expect(getCatalogue().find(m => m.motorId === added.motorId)).toEqual(added);
+  expect(getCatalogue().find(m => m.motorId === before.motorId)).toEqual(after);
+  expect(loadStoredOverlay()?.added.map(m => m.motorId)).toContain(added.motorId);
+});
+
+it.each(['added', 'changed'] as const)('fresh same-ID results supersede a silent maker previous %s row', async kind => {
+  const before = MOTOR_DB[0]!;
+  const previous = kind === 'added' ? row({ motorId: 'moved-maker' }) : before;
+  const old = { ...previous, manufacturerAbbrev: 'Previous maker', length: previous.length + 1 };
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi([
+    ...MOTOR_DB.filter(m => m.motorId !== previous.motorId), old,
+  ]) as unknown as typeof fetch });
+  const fresh = { ...previous, manufacturerAbbrev: before.manufacturerAbbrev, length: previous.length + 2 };
+  const result = await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi([
+    ...MOTOR_DB.filter(m => m.motorId !== previous.motorId), fresh,
+  ]) as unknown as typeof fetch });
+  expect(getCatalogue().find(m => m.motorId === previous.motorId)).toEqual(fresh);
+  expect(result.overlay[kind].filter(m => ('after' in m ? m.after.motorId : m.motorId) === previous.motorId)).toHaveLength(1);
+  expect(result.silent).not.toContain('Previous maker');
+});
+
+it('a newly removed motor cannot retain a stale change attributed to a silent maker', async () => {
+  const before = MOTOR_DB.find(m => MOTOR_DB.some(other => other.motorId !== m.motorId && other.manufacturerAbbrev === m.manufacturerAbbrev))!;
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi([
+    ...MOTOR_DB.filter(m => m.motorId !== before.motorId), { ...before, manufacturerAbbrev: 'Previous maker' },
+  ]) as unknown as typeof fetch });
+  const result = await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi(
+    MOTOR_DB.filter(m => m.motorId !== before.motorId),
+  ) as unknown as typeof fetch });
+  expect(result.overlay.removed).toContain(before.motorId);
+  expect(result.overlay.changed.find(c => c.motorId === before.motorId)).toBeUndefined();
+  expect(getCatalogue().find(m => m.motorId === before.motorId)?.availability).toBe('OOP');
+});
+
+it.each(['garbage', '2026-02-31'])('a stored invalid check date (%s) stays unknown and permits a fresh check', async fetchedAt => {
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE, fetchedAt,
+    liveCount: 0, added: [], changed: [], removed: [], rejected: [] }));
+  const restored = restoreCatalogueOverlay()!;
+  expect(restored.fetchedAt).toBe('');
+  expect(describeOverlay(restored)[0]).not.toMatch(/1970|2026-02-31/);
+  const result = await checkForCatalogueUpdates({ fetchImpl: stubApi([row()]) as unknown as typeof fetch });
+  expect(result.skipped).toBeNull();
+  expect(result.overlay.added.map(m => m.motorId)).toContain('live-1');
+});
 afterEach(() => {
   resetThrustcurveBackoffForTests();
   vi.useRealTimers();
 });
 
 it('pauses 250 ms between every catalogue request, including impulse-class pages', async () => {
-  const live = [row({ manufacturerAbbrev: 'A' }), row({ motorId: 'b', manufacturerAbbrev: 'B' })];
+  const live = [...Array.from({ length: 501 }, (_, i) => row({ motorId: `a-${i}`, manufacturerAbbrev: 'A', impulseClass: 'A' })), row({ motorId: 'b', manufacturerAbbrev: 'B' })];
   const api = stubApi(live, { cap: ['A'] });
   const fetchApi = api as unknown as typeof fetch;
   const events: string[] = [];
@@ -300,12 +423,12 @@ describe('checkForCatalogueUpdates — the button', () => {
   });
 
   it('pages by impulse class when a manufacturer hits the 500 cap', async () => {
-    const live = [row({ motorId: 'a1', manufacturerAbbrev: 'Big', impulseClass: 'A' }), row({ motorId: 'b1', manufacturerAbbrev: 'Big', impulseClass: 'B' })];
+    const live = Array.from({ length: 501 }, (_, i) => row({ motorId: `big-${i}`, manufacturerAbbrev: 'Big', impulseClass: i % 2 ? 'A' : 'B' }));
     const spy = stubApi(live, { cap: ['Big'] });
     const { overlay } = await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, force: true });
     // metadata + the capped query + one per class (A, B, C)
     expect(spy).toHaveBeenCalledTimes(1 + 1 + 3);
-    expect(overlay.added.map((m) => m.motorId).sort()).toEqual(['a1', 'b1']);
+    expect(overlay.added.map((m) => m.motorId).sort()).toEqual(live.map(m => m.motorId).sort());
   });
 
   it('reads a live row still carrying a figure the shipped catalogue corrects as no change at all', async () => {

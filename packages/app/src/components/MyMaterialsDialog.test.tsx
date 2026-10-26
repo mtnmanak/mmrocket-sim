@@ -8,6 +8,11 @@ import { loadUserMaterials, saveUserMaterials, USER_MATERIALS_KEY } from '../ser
 import { downloadBlob } from '../services/saveFile.js';
 
 vi.mock('../services/saveFile.js', () => ({ downloadBlob: vi.fn() }));
+const locale = vi.hoisted(() => ({ decimalComma: undefined as boolean | undefined }));
+vi.mock('../prefs/units.js', async importOriginal => {
+  const actual = await importOriginal<typeof import('../prefs/units.js')>();
+  return { ...actual, readDecimal: (text: string, decimalComma = locale.decimalComma) => actual.readDecimal(text, decimalComma) };
+});
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement, root: Root;
 const click = (el: HTMLElement) => act(() => el.click());
@@ -30,7 +35,42 @@ beforeEach(() => {
   localStorage.clear();
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
-afterEach(() => { act(() => root.unmount()); host.remove(); localStorage.clear(); vi.restoreAllMocks(); });
+it.each(['0', '-5', '', '1,250'])('S3c-g1 refuses the visible invalid density %j on submit', value => {
+  saveUserMaterials([{ kind: 'bulk', name: 'Mix', density: 900 }]); mount();
+  click(button('Edit bulk material Mix'));
+  type(input('Density (kg/m³)'), value);
+  act(() => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(host.querySelector('form')).not.toBeNull();
+  expect(host.textContent).not.toContain('Material updated.');
+  expect(loadUserMaterials()[0]?.density).toBe(900);
+});
+it('S3c-g1 does not report an update after another tab deleted the edited material', () => {
+  saveUserMaterials([{ kind: 'bulk', name: 'Mix', density: 900 }]); mount();
+  click(button('Edit bulk material Mix'));
+  localStorage.setItem(USER_MATERIALS_KEY, '[]');
+  act(() => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(host.textContent).not.toContain('Material updated.');
+  expect(loadUserMaterials()).toEqual([]);
+  expect(host.textContent).toContain('no longer in My materials');
+});
+it('renames an unchanged app-seeded density in a decimal-comma locale without accepting a new ambiguous draft', () => {
+  locale.decimalComma = true;
+  saveUserMaterials([{ kind: 'bulk', name: 'Mix', density: 900.125 }]); mount();
+  click(button('Edit bulk material Mix'));
+  type(input('Material name'), 'Renamed');
+  act(() => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(loadUserMaterials()).toEqual([{ kind: 'bulk', name: 'Renamed', density: 900.125 }]);
+  expect(host.textContent).toContain('Material updated.');
+  click(button('Edit bulk material Renamed'));
+  type(input('Density (kg/m³)'), '800.125');
+  act(() => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(host.querySelector('form')).not.toBeNull();
+  expect(loadUserMaterials()[0]?.density).toBe(900.125);
+  type(input('Density (kg/m³)'), '800,125');
+  act(() => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  expect(loadUserMaterials()[0]?.density).toBe(800.125);
+});
+afterEach(() => { locale.decimalComma = undefined; act(() => root.unmount()); host.remove(); localStorage.clear(); vi.restoreAllMocks(); });
 it('imports and displays added/replaced/refused counts with a built-in refusal reason', async () => {
   saveUserMaterials([{ kind: 'bulk', name: 'Mix', density: 900 }]); mount();
   const status = host.querySelector('[role="status"]');

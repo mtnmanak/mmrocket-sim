@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { Modal } from './Modal.js';
-import { NumField } from './NumField.js';
+import { readDecimal } from '../prefs/units.js';
 import { useUserMaterials } from './useUserMaterials.js';
 import { MATERIAL_UNITS, type MaterialKind } from '../services/designMaterials.js';
 import {
@@ -14,7 +14,7 @@ export const MATERIAL_STORAGE_FAILURE = 'My materials could not be saved in this
 export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
   const { materials, note } = useUserMaterials();
   const [message, setMessage] = useState('');
-  const [editing, setEditing] = useState<{ key: string; draft: UserMaterial } | null>(null);
+  const [editing, setEditing] = useState<{ key: string; draft: UserMaterial; density: string } | null>(null);
   const [deleting, setDeleting] = useState<UserMaterial | null>(null);
   const [reading, setReading] = useState(false);
   const alive = useRef(true);
@@ -89,13 +89,20 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
             return <li key={key} style={{ marginBottom: 12 }}>
               {editing?.key === key ? <form onSubmit={e => {
                 e.preventDefault();
-                const problem = materialProblem(editing.draft);
+                const density = editing.density.trim() === String(editing.draft.density)
+                  ? readDecimal(editing.density, false) : readDecimal(editing.density);
+                const draft = { ...editing.draft, density: density ?? NaN };
+                const problem = materialProblem(draft);
                 if (problem) { setMessage(problem); return; }
-                const nextKey = userMaterialKey(editing.draft);
-                if (nextKey !== key && materials.some(other => userMaterialKey(other) === nextKey)) {
+                const current = loadUserMaterials();
+                if (!current.some(old => userMaterialKey(old) === key)) {
+                  setMessage('This material is no longer in My materials. Close the editor and check the library.'); return;
+                }
+                const nextKey = userMaterialKey(draft);
+                if (nextKey !== key && current.some(other => userMaterialKey(other) === nextKey)) {
                   setMessage('That name is already in My materials for this kind. Choose another name.'); return;
                 }
-                if (persist(materials.map(old => userMaterialKey(old) === key ? editing.draft : old), 'Material updated.')) {
+                if (persist(current.map(old => userMaterialKey(old) === key ? draft : old), 'Material updated.')) {
                   focusAfterEdit.current = nextKey;
                   setEditing(null);
                 }
@@ -104,9 +111,8 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
                   <input id={`${uid}-name`} maxLength={80} value={editing.draft.name}
                     onChange={e => setEditing({ ...editing, draft: { ...editing.draft, name: e.target.value } })} /></div>
                 <div className="field"><label htmlFor={`${uid}-density`}>Density ({MATERIAL_UNITS[kind]})</label>
-                  <NumField id={`${uid}-density`} value={editing.draft.density} min={0}
-                    validate={v => v > 0} step={kind === 'bulk' ? 10 : 0.001}
-                    onCommit={v => { if (v !== null) setEditing({ ...editing, draft: { ...editing.draft, density: v } }); }} /></div>
+                  <input id={`${uid}-density`} inputMode="decimal" value={editing.density}
+                    onChange={e => setEditing({ ...editing, density: e.target.value })} /></div>
                 <button type="submit">Save material</button>{' '}
                 <button type="button" onClick={() => { focusAfterEdit.current = key; setEditing(null); }}>Cancel</button>
               </form> : <>
@@ -114,7 +120,7 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
                 <button type="button" aria-label={`Edit ${kind} material ${m.name}`} ref={el => {
                   if (el) editButtons.current.set(key, el);
                   else editButtons.current.delete(key);
-                }} onClick={() => { focusEditName.current = true; setEditing({ key, draft: { ...m } }); setMessage(''); }}>Edit</button>{' '}
+                }} onClick={() => { focusEditName.current = true; setEditing({ key, draft: { ...m }, density: String(m.density) }); setMessage(''); }}>Edit</button>{' '}
                 <button type="button" aria-label={`Delete ${kind} material ${m.name}`} onClick={() => { setMessage(''); setDeleting(m); }}>Delete</button>
               </>}
             </li>;

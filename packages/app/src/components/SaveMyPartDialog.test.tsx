@@ -6,7 +6,7 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { SaveMyPartDialog } from './SaveMyPartDialog.js';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { loadBundledPresets, loadCustomPresets, saveCustomPresets } from '../services/presets.js';
+import { loadBundledPresets, loadCustomPresets, presetPatch, saveCustomPresets } from '../services/presets.js';
 
 vi.mock('../data/presets.json', () => ({ default: { presets: [
   { kind: 'BodyTube', manufacturer: 'Estes', partNo: 'BT-2', description: 'Bundled tube', altPartNos: ['BT-2-ALT'] },
@@ -43,6 +43,26 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
 describe('M2.2 save dialog', () => {
+  it.each(['parachute', 'streamer'] as const)('S3c-2 saves and restores a zero-density %s', async type => {
+    act(() => root.render(<SaveMyPartDialog node={{ type, surfaceDensity: 0, lineDensity: 0 }} onClose={close} />));
+    input('Part number', 'ZERO'); await save();
+    const notes: string[] = [];
+    const stored = loadCustomPresets(notes)[0]!;
+    expect(notes).toEqual([]);
+    expect(presetPatch(type, stored, undefined, undefined, { saved: true })['surfaceDensity']).toBe(0);
+    if (type === 'parachute') expect(presetPatch(type, stored, undefined, undefined, { saved: true })['lineDensity']).toBe(0);
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it('S3a-1 keeps fields read-only while the catalogue is loading', async () => {
+    let finish!: (rows: readonly never[]) => void;
+    vi.mocked(loadBundledPresets).mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
+    input('Part number', 'A'); field('Part number').focus();
+    act(() => { host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+    for (const label of ['Manufacturer', 'Part number', 'Description']) expect(field(label).readOnly).toBe(true);
+    expect(document.activeElement).toBe(field('Part number'));
+    await act(async () => finish([]));
+    expect(loadCustomPresets()[0]?.partNo).toBe('A');
+  });
   it('prefills the part name and requires a nonblank part number', async () => {
     expect(field('Manufacturer').value).toBe('My parts');
     expect(field('Description').value).toBe('Handmade tube');

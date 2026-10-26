@@ -70,12 +70,12 @@ export function SaveMyPartDialog({ node, onClose, onSaved }: { node: ComponentNo
     <h2>Save as My part</h2>
     <form noValidate onSubmit={(e) => { e.preventDefault(); void save(); }}>
       <div className="field"><label htmlFor={`${uid}-manufacturer`}>Manufacturer</label>
-        <input id={`${uid}-manufacturer`} value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} /></div>
+        <input id={`${uid}-manufacturer`} readOnly={busy} value={manufacturer} onChange={(e) => setManufacturer(e.target.value)} /></div>
       <div className="field"><label htmlFor={`${uid}-part`}>Part number</label>
-        <input id={`${uid}-part`} ref={partInput} required value={partNo} aria-invalid={error && !partNo.trim() ? true : undefined}
+        <input id={`${uid}-part`} ref={partInput} readOnly={busy} required value={partNo} aria-invalid={error && !partNo.trim() ? true : undefined}
           aria-describedby={error ? `${uid}-error` : undefined} onChange={(e) => setPartNo(e.target.value)} /></div>
       <div className="field"><label htmlFor={`${uid}-description`}>Description</label>
-        <input id={`${uid}-description`} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
+        <input id={`${uid}-description`} readOnly={busy} value={description} onChange={(e) => setDescription(e.target.value)} /></div>
       <p className="hint">Dimensions and materials are saved. Blank optional dimensions stay automatic or use their defaults; blank required dimensions keep the receiving part’s values.
         Only this part’s positive mass override is applied; computed mass and a weighing of everything inside are excluded.
         A saved parachute is fitted to its new tube when picked. A matching My part is replaced. My parts live in this browser only — export CSV to keep them.</p>

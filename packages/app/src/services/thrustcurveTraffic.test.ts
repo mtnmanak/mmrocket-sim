@@ -40,6 +40,48 @@ afterEach(() => {
   vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.doUnmock('../data/motorCurves.json'); localStorage.clear();
 });
 
+it.each(['timeout', '503'] as const)('S7d-g6 retains a governing 429 refusal after %s', async failure => {
+  vi.useFakeTimers();
+  let finish!: (response: Response) => void;
+  const overlapping = traffic.thrustcurveFetch(() => new Promise(resolve => { finish = resolve; }))('https://www.thrustcurve.org/api/v1/search.json');
+  await traffic.thrustcurveFetch(async () => response({}, 429, { 'Retry-After': '1800' }))('https://www.thrustcurve.org/api/v1/search.json');
+  if (failure === 'timeout') traffic.recordThrustcurveFailure(true, false, false);
+  else { finish(response({}, 503)); await overlapping; }
+  expect(traffic.thrustcurveBackoffMessage()).toContain('refusing requests');
+  expect(traffic.thrustcurveBackoffMessage()).toContain('30 minutes');
+  if (failure === 'timeout') { finish(response({}, 511)); await overlapping; }
+  await vi.advanceTimersByTimeAsync(1800_000);
+  traffic.recordThrustcurveFailure(true, false, false);
+  expect(traffic.thrustcurveBackoffMessage()).toContain('not answering');
+});
+
+it.each([undefined, '60', '600'])('retains the active 429 reason with Retry-After %s when a later failure extends the pause', async retryAfter => {
+  vi.useFakeTimers();
+  let finish!: (response: Response) => void;
+  const overlapping = traffic.thrustcurveFetch(() => new Promise(resolve => { finish = resolve; }))('https://www.thrustcurve.org/api/v1/search.json');
+  await traffic.thrustcurveFetch(async () => response({}, 429, retryAfter ? { 'Retry-After': retryAfter } : undefined))('https://www.thrustcurve.org/api/v1/search.json');
+  await vi.advanceTimersByTimeAsync(1);
+  traffic.recordThrustcurveFailure(true, false, false);
+  expect(traffic.thrustcurveBackoffMessage()).toContain('refusing requests');
+  finish(response({}, 503)); await overlapping;
+  expect(traffic.thrustcurveBackoffMessage()).toContain('refusing requests');
+  await vi.advanceTimersByTimeAsync((retryAfter ? Number(retryAfter) * 1000 : 600_000) - 1);
+  expect(traffic.thrustcurveBackoffMessage()).toContain('not answering');
+});
+
+it.each(['garbage', '2026-02-31'])('a corrupt persisted overlay date (%s) preserves the shipped-date negative cache', async fetchedAt => {
+  localStorage.setItem(catalogue.OVERLAY_KEY, JSON.stringify({ baseGenerated: db.MOTOR_DB_DATE, fetchedAt,
+    liveCount: 0, added: [], changed: [], removed: [], rejected: [] }));
+  localStorage.setItem(KEY, JSON.stringify({ retained: db.MOTOR_DB_DATE }));
+  catalogue.restoreCatalogueOverlay();
+  const fetcher = vi.fn(async () => response({ results: [] }));
+  vi.stubGlobal('fetch', fetcher);
+  await miss(tc.fetchMotorSpec(motor, 5));
+  await miss(tc.fetchMotorSpec(motor, 5));
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ retained: db.MOTOR_DB_DATE, [motor.motorId]: db.MOTOR_DB_DATE });
+});
+
 it('remembers empty answers across module reloads, and retries once the catalogue date changes', async () => {
   const fetcher = vi.fn(async () => response({ results: [] }));
   vi.stubGlobal('fetch', fetcher);

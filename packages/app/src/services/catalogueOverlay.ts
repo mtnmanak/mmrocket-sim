@@ -4,7 +4,7 @@ import {
 } from './motorDb.js';
 import { baseDesignation } from './motorMatch.js';
 import { getJsonCapped, NetError, type JsonAnswer } from './net.js';
-import { API } from './thrustcurve.js';
+import { API, validCatalogueDate } from './thrustcurve.js';
 import { correctMotorRow } from '../../scripts/motor-corrections.mjs';
 import { assertThrustcurveAvailable, recordThrustcurveFailure, thrustcurveFetch, thrustcurveBackoffMessage, withThrustcurveBackoff } from './thrustcurveTraffic.js';
 
@@ -157,17 +157,40 @@ const isOverlay = (v: unknown): v is CatalogueOverlay => {
  * a check refuses them, and a refused change keeps the shipped row.
  */
 function rescreen(o: CatalogueOverlay): CatalogueOverlay {
-  const rejected = [...o.rejected];
+  const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value);
+  let repaired = false;
+  const rejected: CatalogueOverlay['rejected'] = o.rejected.map(r => {
+    if (object(r) && object(r.entry) && typeof r.reason === 'string') return r;
+    repaired = true;
+    return { entry: {}, reason: 'unreadable stored refusal record discarded' };
+  });
   const passes = (entry: unknown): boolean => {
-    const reason = entry && typeof entry === 'object'
+    const reason = object(entry)
       ? screenEntry(entry as Partial<MotorDbEntry>) : 'not a motor row';
-    if (reason) rejected.push({ entry: (entry ?? {}) as Partial<MotorDbEntry>, reason });
+    if (reason) rejected.push({ entry: object(entry) ? entry : {}, reason });
     return !reason;
   };
   const added = o.added.filter(passes);
-  const changed = o.changed.filter((c) => passes((c as CatalogueChange | null)?.after));
-  if (added.length === o.added.length && changed.length === o.changed.length) return o;
-  return { ...o, added, changed, rejected };
+  const changed = o.changed.filter(c => {
+    if (!passes((c as CatalogueChange | null)?.after)) return false;
+    if (object(c) && object(c.before) && screenEntry(c.before) === null
+      && c.motorId === c.after.motorId && c.motorId === c.before.motorId
+      && Array.isArray(c.fields) && c.fields.every(f => typeof f === 'string')) return true;
+    rejected.push({ entry: c.after, reason: 'unreadable stored change metadata discarded; the shipped motor was kept' });
+    return false;
+  });
+  const removed = o.removed.filter(id => typeof id === 'string' && id.length > 0);
+  if (removed.length !== o.removed.length) {
+    repaired = true;
+    rejected.push({ entry: {}, reason: 'unreadable stored removed motor IDs discarded' });
+  }
+  const fetchedAt = validCatalogueDate(o.fetchedAt) ? o.fetchedAt : '';
+  if (fetchedAt !== o.fetchedAt) {
+    repaired = true;
+    rejected.push({ entry: {}, reason: 'unreadable stored check date reset; check the catalogue again' });
+  }
+  if (!repaired && added.length === o.added.length && changed.length === o.changed.length) return o;
+  return { ...o, fetchedAt, added, changed, removed, rejected };
 }
 
 /**
@@ -288,28 +311,46 @@ async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<MotorDbEntry
     requested = true;
     return getJson(url, opts);
   };
-  const meta = await pacedJson(`${API}/metadata.json?availability=all`) as {
-    manufacturers?: { abbrev: string }[]; impulseClasses?: string[];
-  };
-  const manufacturers = (meta.manufacturers ?? []).map((m) => m.abbrev).filter(Boolean);
-  const classes = meta.impulseClasses ?? [];
+  const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const meta = await pacedJson(`${API}/metadata.json?availability=all`);
+  if (!object(meta) || !Array.isArray(meta['manufacturers'])) throw new Error('thrustcurve.org returned unreadable metadata — the API shape may have changed.');
+  const manufacturers = [...new Set(meta['manufacturers'].flatMap(m => object(m) && typeof m['abbrev'] === 'string' && m['abbrev'].trim() ? [m['abbrev'].trim()] : []))];
+  const classes = Array.isArray(meta['impulseClasses'])
+    ? [...new Set(meta['impulseClasses'].filter((ic): ic is string => typeof ic === 'string' && !!ic.trim()).map(ic => ic.trim()))] : [];
   if (!manufacturers.length) throw new Error('thrustcurve.org returned no manufacturers — the API shape may have changed.');
 
-  const search = async (params: Record<string, string>): Promise<Record<string, unknown>[]> => {
+  const search = async (params: Record<string, string>): Promise<{ results: Record<string, unknown>[]; matches: number }> => {
     const qs = new URLSearchParams({ ...params, maxResults: String(SEARCH_CAP) });
-    const body = await pacedJson(`${API}/search.json?${qs}`) as { results?: Record<string, unknown>[] };
-    return Array.isArray(body.results) ? body.results : [];
+    const body = await pacedJson(`${API}/search.json?${qs}`);
+    if (!object(body) || !Array.isArray(body['results']) || !body['results'].every(m => object(m) && typeof m['motorId'] === 'string' && !!m['motorId'])) {
+      throw new Error('thrustcurve.org returned unreadable search results — the API shape may have changed.');
+    }
+    if (typeof body['matches'] !== 'number' || !Number.isInteger(body['matches']) || body['matches'] < 0) {
+      throw new Error(`thrustcurve.org search ${qs} returned no usable matches count; the catalogue cannot be shown to be complete.`);
+    }
+    return { results: body['results'], matches: body['matches'] };
+  };
+
+  const complete = (page: { results: Record<string, unknown>[]; matches: number }) => {
+    if (page.results.length !== page.matches || new Set(page.results.map(m => m['motorId'])).size !== page.matches) {
+      throw new Error(`thrustcurve.org returned ${page.results.length} rows for ${page.matches} matches; the catalogue is incomplete.`);
+    }
+    return page.results;
   };
 
   const byId = new Map<string, Record<string, unknown>>();
   let done = 0;
   for (const mfr of manufacturers) {
     opts.onProgress?.(done, manufacturers.length, mfr);
-    let results = await search({ manufacturer: mfr, availability: 'all' });
-    if (results.length >= SEARCH_CAP) {
+    const whole = await search({ manufacturer: mfr, availability: 'all' });
+    let results: Record<string, unknown>[];
+    if (whole.results.length >= SEARCH_CAP) {
       results = [];
-      for (const ic of classes) results.push(...await search({ manufacturer: mfr, impulseClass: ic, availability: 'all' }));
-    }
+      for (const ic of classes) results.push(...complete(await search({ manufacturer: mfr, impulseClass: ic, availability: 'all' })));
+      if (new Set(results.map(m => m['motorId'])).size !== whole.matches) {
+        throw new Error(`thrustcurve.org impulse classes do not cover ${mfr}'s ${whole.matches} matches; the catalogue is incomplete.`);
+      }
+    } else results = complete(whole);
     for (const m of results) if (typeof m['motorId'] === 'string') byId.set(m['motorId'], m);
     done++;
   }
@@ -348,7 +389,7 @@ export async function checkForCatalogueUpdates(
 }> {
   const now = opts.now ?? Date.now;
   const previous = loadStoredOverlay();
-  if (previous && !opts.force && now() - Date.parse(previous.fetchedAt) < RECHECK_MIN_MS) {
+  if (previous?.fetchedAt && !opts.force && now() - Date.parse(previous.fetchedAt) < RECHECK_MIN_MS) {
     setCatalogueOverlay(previous);
     return { overlay: previous, skipped: 'recent', stored: true, silent: [] };
   }
@@ -375,8 +416,8 @@ export async function checkForCatalogueUpdates(
   // once (audit 2026-09-22). A manufacturer whose pull came back with no rows
   // at all — a failed page, an API hiccup, a maker missing from metadata.json —
   // marked its entire shipped line out of production, and that stuck until the
-  // next check. A maker that answered with even one row is trusted about the
-  // rest; one that answered with none keeps its shipped rows, and is named.
+  // next check. A complete maker response is trusted about the rest; one that
+  // answered with none keeps its previous effective rows, and is named.
   const answered = new Set(live.map((m) => m.manufacturerAbbrev));
   const shippedMaker = new Map(MOTOR_DB.map((m) => [m.motorId, m.manufacturerAbbrev]));
   const silent = new Set<string>();
@@ -384,8 +425,18 @@ export async function checkForCatalogueUpdates(
     const maker = shippedMaker.get(id) ?? '';
     if (answered.has(maker)) return true;
     silent.add(maker);
-    return false;
+    return previous?.removed.includes(id) ?? false;
   });
+  const resolved = new Set([...live.map(m => m.motorId), ...removed]);
+  // An empty maker response also keeps motors learned by an earlier check.
+  for (const m of previous?.added ?? []) if (!resolved.has(m.motorId) && !answered.has(m.manufacturerAbbrev)) {
+    silent.add(m.manufacturerAbbrev);
+    added.push(m);
+  }
+  for (const c of previous?.changed ?? []) if (!resolved.has(c.motorId) && !answered.has(c.after.manufacturerAbbrev)) {
+    silent.add(c.after.manufacturerAbbrev);
+    changed.push(c);
+  }
   const overlay: CatalogueOverlay = {
     baseGenerated: MOTOR_DB_DATE,
     fetchedAt: new Date(now()).toISOString(),
@@ -407,7 +458,7 @@ export function describeOverlay(o: CatalogueOverlay): string[] {
   const lines: string[] = [];
   lines.push(`${o.added.length} new, ${o.changed.length} changed, ${o.removed.length} no longer listed`
     + (o.rejected.length ? `, ${o.rejected.length} refused as implausible` : '')
-    + ` — thrustcurve.org checked ${o.fetchedAt.slice(0, 10)} against the catalogue of ${o.baseGenerated}.`);
+    + ` — thrustcurve.org checked ${o.fetchedAt ? o.fetchedAt.slice(0, 10) : "on an unknown date"} against the catalogue of ${o.baseGenerated}.`);
   for (const c of o.changed.slice(0, 12)) {
     const parts = c.fields.map((f) => {
       const a = field(c.before, f); const b = field(c.after, f);

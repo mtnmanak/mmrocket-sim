@@ -125,6 +125,16 @@ describe('sanitizeTree — counts', () => {
 });
 
 describe('sanitizeTree — dimensions', () => {
+  it('S4a-g8 reports line and bulk density repairs in their physical units', () => {
+    const notes: string[] = [];
+    const tree = sanitizeTree(rocket([
+      { id: 'cord', type: 'shockcord', name: 'Cord', lineDensity: -0.001 },
+      { id: 'tube', type: 'bodytube', name: 'Tube', density: -1 },
+    ]), notes);
+    expect(kid(tree, 0)['lineDensity']).toBe(0);
+    expect(notes).toContain('“Cord”: line material density -0.001 kg/m cannot be negative — set to 0 kg/m.');
+    expect(notes).toContain('“Tube”: material density -1 kg/m³ cannot be negative — set to 0 kg/m³.');
+  });
   it('raises a negative dimension to zero and a kernel-fatal zero to the hard minimum', () => {
     const notes: string[] = [];
     const t = sanitizeTree(rocket([
@@ -140,7 +150,7 @@ describe('sanitizeTree — dimensions', () => {
     expect(kid(t, 3)['surfaceDensity']).toBe(0);
     expect(notes).toContain('“Fins”: height -30 mm cannot be negative — set to 0 mm.');
     expect(notes).toContain('“Tubes”: length 0 mm is below the minimum of 0.1 mm — set to 0.1 mm.');
-    expect(notes).toContain('“Streamer”: canopy material density -0.067 kg/m³ cannot be negative — set to 0 kg/m³.');
+    expect(notes).toContain('“Streamer”: canopy material density -0.067 kg/m² cannot be negative — set to 0 kg/m².');
     expect(notes).toHaveLength(5);
   });
 

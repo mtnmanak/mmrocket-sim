@@ -89,6 +89,23 @@ const importCsv = async (text: string) => {
 
 const text = () => host.textContent ?? '';
 
+it('S3c-4 verifies imported padded material names against normalized storage', async () => {
+  await render();
+  await importCsv(CSV.replace('Cardboard', ' Cardboard '));
+  expect(loadCustomPresets()[0]?.material?.name).toBe('Cardboard');
+  expect(text()).toContain('Imported 1 preset(s)');
+  expect(text()).not.toContain('values were not saved');
+});
+
+it('S7c-g2 imports and picks saved zero-density canopy and lines', async () => {
+  await render();
+  await importCsv('kind,manufacturer,partNo,description,savedComponent,materialName,materialType,materialDensity,lineMaterialName,lineMaterialDensity\n'
+    + 'Parachute,My parts,Z1,Weightless,true,Nylon,SURFACE,0,Cord,0\n');
+  expect(text()).toContain('Imported 1 preset(s)');
+  const stored = loadCustomPresets()[0]!;
+  expect(presetPatch('parachute', stored, undefined, undefined, { saved: true })).toMatchObject({ surfaceDensity: 0, lineDensity: 0 });
+});
+
 it('restores readable custom preset dimensions and cautions about removed material', async () => {
   localStorage.setItem('online-openrocket.custom-presets.v1', JSON.stringify([{
     kind: 'BodyTube', manufacturer: 'EX', partNo: 'OLD-TUBE', description: 'Legacy tube',
