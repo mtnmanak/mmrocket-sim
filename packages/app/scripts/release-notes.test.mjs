@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -6,7 +6,7 @@ import { CHANGELOG, PRE_VERSIONING_NOTE } from '../src/changelog.ts';
 import { APP_VERSION } from '../src/version.ts';
 import { DELIBERATELY_UNCACHED } from './precache-coverage.mjs';
 import {
-  escapeHtml, releaseAnchor, releaseNotesPlugin, RELEASES_FILE, RELEASES_NAVIGATION, renderReleaseNotes,
+  BRAND_FONTS, escapeHtml, releaseAnchor, releaseNotesPlugin, RELEASES_FILE, RELEASES_NAVIGATION, renderReleaseNotes,
 } from './release-notes.mjs';
 
 /**
@@ -66,6 +66,65 @@ describe('the release-notes page', () => {
     expect(page).not.toMatch(/<script/i);
     expect(page).toContain('<a href="../">Open the app</a>');
     expect(page).toContain('https://github.com/mtnmanak/mmrocket-sim');
+  });
+});
+
+/** WCAG 2 contrast ratio of two #rrggbb colours. */
+function contrast(a, b) {
+  const lum = (hex) => {
+    const [r, g, bl] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+    return 0.2126 * r + 0.7152 * g + 0.0722 * bl;
+  };
+  const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+/** The custom properties one `:root{...}` block of the page's style sets. */
+function palette(block) {
+  return Object.fromEntries([...block.matchAll(/--([a-z-]+):(#[0-9a-f]{6})/g)].map((m) => [m[1], m[2]]));
+}
+
+describe('the page wears the brand (mmr-brand 1.0.2, rollout D9)', () => {
+  const style = page.slice(page.indexOf('<style>'), page.indexOf('</style>'));
+  const light = palette(style.slice(0, style.indexOf('@media (prefers-color-scheme:dark)')));
+  const dark = palette(style.slice(style.indexOf('@media (prefers-color-scheme:dark)')));
+
+  it('uses the brand primitives in both themes, links blue/sky (D1)', () => {
+    // Re-pinned 2026-10-26 from the old warm palette (#fbfaf7 / #101623, links #b8511d / #f08a4b).
+    expect(light).toMatchObject({
+      bg: '#f6faff', panel: '#ffffff', text: '#03254f', muted: '#45637b', border: '#b3cadc', link: '#006aab', focus: '#006aab',
+    });
+    expect(dark).toMatchObject({
+      bg: '#03254f', panel: '#123859', text: '#f6faff', muted: '#a9c3d9', border: '#557793', link: '#6bc6f3', focus: '#6bc6f3',
+    });
+    expect(page).toContain('<meta name="theme-color" content="#03254F">');
+  });
+
+  it('every text colour clears 4.5:1 on both the page ground and the card, in both themes', () => {
+    for (const [name, p] of [['light', light], ['dark', dark]]) {
+      for (const fg of ['text', 'muted', 'link']) {
+        for (const bg of ['bg', 'panel']) expect(contrast(p[fg], p[bg]), `${name} ${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
+      }
+      expect(contrast(p.focus, p.bg), `${name} focus ring`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('loads the vendored brand fonts from where the app ships them, and sets the brand type', () => {
+    expect(page).toContain(`<link rel="stylesheet" href="${BRAND_FONTS}">`);
+    // The page is served at /releases/; the app's public/brand/ is served at /brand/.
+    expect(new URL(BRAND_FONTS, 'https://mmrsim.mountainmanrockets.com/releases/').pathname).toBe('/brand/fonts.css');
+    expect(existsSync(join(HERE, '..', 'public', 'brand', 'fonts.css'))).toBe(true);
+    expect(style).toMatch(/--font:"Archivo"/);
+    expect(style).toMatch(/--font-data:"IBM Plex Mono"/);
+    expect(style).toContain('h1,h2{font-family:var(--font);font-weight:800');
+    expect(style).toContain('font-variant-numeric:tabular-nums');
+    expect(style).toContain('max-width:calc(70ch + 32px)');
+    expect(style).toContain('outline:3px solid var(--focus)');
+  });
+
+  it('has no shadows, gradients or left-border stripes', () => {
+    expect(style).not.toMatch(/shadow|gradient|border-left/i);
   });
 });
 
