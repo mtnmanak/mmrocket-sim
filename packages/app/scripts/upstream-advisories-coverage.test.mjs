@@ -97,6 +97,7 @@ it.each([
     expect(missing).toEqual([]);
   } finally {
     await new Promise((resolve) => server.close(resolve));
-    rmSync(temp, { recursive: true, force: true });
+    // Windows: the offline npm child can still hold the folder for a moment after exit (EBUSY under load).
+    rmSync(temp, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
   }
 }, 20_000);
