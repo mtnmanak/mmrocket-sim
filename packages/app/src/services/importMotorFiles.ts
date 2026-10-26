@@ -9,7 +9,8 @@ import { decodeXml } from './xmlUtil.js';
 export async function importMotorFiles(files: File[], units: UnitSelection = INITIAL_UNITS) {
   sessionDebugLog.record('import-start');
   let notice: string | null = null;
-  const matching = files.filter((f) => /\.(eng|rse)$/i.test(f.name));
+  // RockSim XML motor files are often named .txt; main accepted them and the guide says so.
+  const matching = files.filter((f) => /\.(eng|rse|txt)$/i.test(f.name));
   matching.sort((a, b) => {
     const x = a.webkitRelativePath || a.name, y = b.webkitRelativePath || b.name;
     return x < y ? -1 : x > y ? 1 : 0;
