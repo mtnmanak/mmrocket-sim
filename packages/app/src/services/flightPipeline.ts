@@ -37,26 +37,38 @@ export type AeroMode = 'classic' | 'supersonic' | 'auto' | 'hybrid';
  * Branches are named after the SERIAL stage, EXCEPT mounts inside a parallel
  * stage (a strap-on booster), whose branch carries the parallelstage node's own
  * name. Keyed by the name the branch will actually have, so a strap-on booster
- * neither misses its warning nor overwrites its host stage's entry.
+ * neither misses its warning nor overwrites its host stage's entry. Motors are
+ * grouped by stage identity; namesakes contribute only facts they all share.
  */
 export function stageMotorInfo(
   tree: RocketTree,
   assigned: [string, MountMotor][],
   stageList: ComponentNode[],
-): Record<string, { label: string; highPower: boolean }> {
+): Record<string, { label?: string; highPower?: boolean }> {
   // Keyed by a STAGE NAME, which is file or user text: on a plain object a
   // stage called `constructor` found Object as its "previous" entry and was
   // labelled "undefined + H128W" (audit 2026-09-22).
-  const out = lookupTable<{ label: string; highPower: boolean }>({});
+  const out = lookupTable<{ label?: string; highPower?: boolean }>({});
+  const byStage = new Map<ComponentNode, { label: string; highPower: boolean }>();
+  // Serial mounts below use stageList; App's projected flight tree can clone
+  // those nodes. Namesake checks must use the same objects as attribution.
+  const branchStages: ComponentNode[] = [...stageList];
+  const collect = (nodes: ComponentNode[]) => {
+    for (const n of nodes) {
+      if (n.type === 'parallelstage') branchStages.push(n);
+      collect(n.children ?? []);
+    }
+  };
+  collect(tree.components);
   for (const [id, mm] of assigned) {
-    let branchName: string | undefined;
+    let branchStage: ComponentNode | undefined;
     let p = findParent(tree, id);
     while (p && p !== 'stage') {
-      if (p.type === 'parallelstage') { branchName = p.name; break; }
+      if (p.type === 'parallelstage') { branchStage = p; break; }
       p = p.id ? findParent(tree, p.id) : null;
     }
-    branchName ??= stageList[stageIndexOf(tree, id)]?.name;
-    if (branchName) {
+    branchStage ??= stageList[stageIndexOf(tree, id)];
+    if (branchStage?.name) {
       // MERGE, never overwrite (2026-09-21, from the 19 Sep review). A branch
       // can carry more than one mount, and `assigned` arrives in assignment
       // order, so writing the entry outright let the LAST motor decide the
@@ -65,12 +77,23 @@ export function stageMotorInfo(
       // line. Any high-power motor on a branch makes the branch high power —
       // a second, smaller motor cannot un-certify the first — and the label
       // names every motor rather than an arbitrary one of them.
-      const prev = out[branchName];
-      out[branchName] = {
+      const prev = byStage.get(branchStage);
+      byStage.set(branchStage, {
         label: prev ? `${prev.label} + ${mm.label}` : mm.label,
         highPower: prev?.highPower === true || mm.meta.highPower === true,
-      };
+      });
     }
+  }
+  for (const [stage, info] of byStage) {
+    // The kernel reports names without ids. Keep only facts true for every
+    // namesake, including stages with no assigned motor.
+    const namesakes = branchStages.filter(s => s.name === stage.name);
+    const sameLabel = namesakes.every(s => byStage.get(s)?.label === info.label);
+    const samePower = namesakes.every(s => byStage.get(s)?.highPower === info.highPower);
+    if (sameLabel || samePower) out[stage.name!] = {
+      ...(sameLabel ? { label: info.label } : {}),
+      ...(samePower ? { highPower: info.highPower } : {}),
+    };
   }
   return out;
 }

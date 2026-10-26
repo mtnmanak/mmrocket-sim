@@ -71,6 +71,37 @@ const circleRadii = (dxf: string): number[] => {
 
 const note = (): HTMLElement | null => host.querySelector('.print-note');
 
+it.each([undefined, 0.01])('reports an empty ring STL without blaming mount holes (ID radius %s)', async innerRadius => {
+  const ring = { type: 'centeringring', id: 'ring', length: 0, innerRadius } as ComponentNode;
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
+    { type: 'bodytube', id: 'body', length: 0.3, outerRadius: 0.03, thickness: 0.001, children: [
+      { type: 'innertube', id: 'mount', outerRadius: 0.01, length: 0.3 }, ring,
+    ] },
+  ] }] };
+  const made = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:should-not-export');
+  mount(tree, ring);
+  const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(b => b.title.startsWith('Watertight solid STL'))!;
+  await act(async () => button.click());
+  expect(made).not.toHaveBeenCalled();
+  expect(host.textContent).toContain('Nothing to export for this component.');
+  expect(host.textContent).not.toContain('cannot lay out');
+});
+
+it.each(['✂', '🖨'])('refuses the %s ring export with an off-axis automatic bore and explains the fit risk', async glyph => {
+  const ring = { type: 'centeringring', id: 'ring', length: 0.003 } as ComponentNode;
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
+    { type: 'bodytube', id: 'body', length: 0.3, outerRadius: 0.03, thickness: 0.001, children: [
+      { type: 'innertube', id: 'mount', outerRadius: 0.01, length: 0.3, radialPosition: 0.012 }, ring,
+    ] },
+  ] }] };
+  const made = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:should-not-export');
+  mount(tree, ring);
+  const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.startsWith(glyph))!;
+  await act(async () => button.click());
+  expect(made).not.toHaveBeenCalled();
+  expect(host.textContent).toContain('one centred opening would not fit');
+});
+
 beforeEach(() => {
   localStorage.clear();
   host = document.createElement('div');

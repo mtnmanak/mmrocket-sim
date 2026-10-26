@@ -9,6 +9,28 @@ import { finTabFit, shoulderFit } from './fitHelpers.js';
 const node = (o: Record<string, unknown>) => o as unknown as ComponentNode;
 
 describe('finTabFit', () => {
+  it.each([{ radialPosition: 0.005 }, { cluster: 'double' }])('fits to a concentric holder enclosing a smaller mount %j', layout => {
+    const fin = node({ type: 'freeformfinset', crossSection: 'rounded', points: [[0, 0], [0.04, 0.05], [0.1, 0]] });
+    const holder = node({ type: 'innertube', outerRadius: 0.02, length: 0.3, children: [
+      node({ type: 'innertube', outerRadius: 0.005, length: 0.3, motorMount: true, ...layout }),
+    ] });
+    const parent = node({ type: 'bodytube', length: 0.3, outerRadius: 0.03, children: [holder, fin] });
+    expect(finTabFit(fin, parent)).toMatchObject({ toMount: true, depth: expect.closeTo(0.01, 12) });
+  });
+  it.each([{ radialPosition: 0.01 }, { cluster: 'double' }])('withholds a common tab depth for an unresolved mount %j', (layout) => {
+    const fin = node({ type: 'freeformfinset', points: [[0, 0], [0.04, 0.05], [0.1, 0]] });
+    const mount = node({ type: 'innertube', outerRadius: 0.01, length: 0.3, motorMount: true, ...layout });
+    const parent = node({ type: 'bodytube', length: 0.3, outerRadius: 0.03, children: [mount, fin] });
+    expect(finTabFit(fin, parent)).toBeNull();
+  });
+  it.each([{ radialPosition: 0.018 }, { cluster: 'double', clusterScale: 4 }])('refuses a nested mount protruding beyond the holder %j', layout => {
+    const fin = node({ type: 'freeformfinset', crossSection: 'airfoil', points: [[0, 0], [0.04, 0.05], [0.1, 0]] });
+    const holder = node({ type: 'innertube', outerRadius: 0.02, length: 0.3, children: [
+      node({ type: 'innertube', outerRadius: 0.005, length: 0.3, motorMount: true, ...layout }),
+    ] });
+    const parent = node({ type: 'bodytube', length: 0.3, outerRadius: 0.03, children: [holder, fin] });
+    expect(finTabFit(fin, parent)).toBeNull();
+  });
   const FIN = node({
     id: 'f1', type: 'trapezoidfinset', rootChord: 0.1, tipChord: 0.05, sweep: 0.03, height: 0.06,
   });

@@ -77,8 +77,9 @@ export function restoredWarnings(warnings: EngineWarning[] | undefined, cache?: 
   for (const aborts of [true, false]) {
     for (const warning of warnings) {
       if (critical.length >= MAX_STORED_WARNINGS - 1) break;
-      if (!readableWarning(warning) || (aborts ? warning.key !== 'SIM_ABORT'
-        : warning.key === 'SIM_ABORT' || warning.priority !== 'HIGH')) continue;
+      if (!readableWarning(warning)) continue;
+      const stop = warning.key === 'SIM_ABORT' || warning.key === 'INCOMPLETE_FLIGHT';
+      if (aborts ? !stop : stop || warning.priority !== 'HIGH') continue;
       critical.push({ key: warning.key, message: warning.message ?? '',
         ...(['LOW', 'NORMAL', 'HIGH'].includes(warning.priority ?? '') ? { priority: warning.priority } : {}),
       });

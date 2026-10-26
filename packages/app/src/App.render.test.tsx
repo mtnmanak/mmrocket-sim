@@ -534,7 +534,7 @@ describe('a weighed rocket whose stage stands in for its own mass', () => {
     const host = await mountApp();
     await settle(50);
     expect(host.textContent).toContain('stands in for the mass of everything inside it');
-    expect(host.textContent).toContain('more than one stage is pinned');
+    expect(host.textContent).toContain('this mass override does not cover the whole airframe');
     expect([...host.querySelectorAll('button')].some((b) => b.textContent?.startsWith('Pin “'))).toBe(false);
   }, 30000);
 });

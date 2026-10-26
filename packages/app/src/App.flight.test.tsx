@@ -1235,6 +1235,25 @@ it.each(['pad mass', 'other motor', 'other delay'] as const)(
 );
 
 
+it.each(['supersonic', 'hybrid'] as const)('keeps the flown %s model on a retained fast flight after selecting Classic', async model => {
+  const host = await mountApp();
+  await waitFor(starterStored, 'starter motor');
+  const choice = host.querySelector<HTMLSelectElement>('.vitals-aero-select')!;
+  await act(async () => { choice.value = model; choice.dispatchEvent(new Event('change', { bubbles: true })); });
+  const real = vi.mocked(flyLaunch).getMockImplementation()!;
+  vi.mocked(flyLaunch).mockImplementationOnce(async (...args) => {
+    const flight = await real(...args);
+    return { ...flight, result: { ...flight.result, summary: { ...flight.result.summary, maxMachNumber: 1.2 } } };
+  });
+  await launch(host);
+  await waitFor(() => !!charts?.result, 'flight results');
+  await act(async () => { choice.value = 'eb'; choice.dispatchEvent(new Event('change', { bubbles: true })); });
+  await openTab(host, 'Results');
+  expect(host.textContent).toContain('flown on');
+  expect(hasButton(host, 'Try Auto & re-fly')).toBe(false);
+  expect(host.textContent).not.toContain('on the classic aero model');
+}, 30000);
+
 it.each([true, false])('LW relaunch latch describes active overrides only when present (%s)', async hasOverride => {
   const tree = defaultTree();
   const mount = motorMounts(tree)[0]!.id!;

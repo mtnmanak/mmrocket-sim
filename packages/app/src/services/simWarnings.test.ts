@@ -3,7 +3,7 @@ import { formatWarning, formatWarningText, warningKeysCell, WARNING_LABEL } from
 import { SAFETY } from './simReport.js';
 
 describe('D7 visual consequence, independent of kernel priority', () => {
-  it.each(['NO_RECOVERY_DEVICE', 'RECOVERY_LAUNCH_ROD', 'TUMBLE_UNDER_THRUST', 'SIM_ABORT'])('%s is Danger even at low priority', key => {
+  it.each(['NO_RECOVERY_DEVICE', 'RECOVERY_LAUNCH_ROD', 'TUMBLE_UNDER_THRUST', 'SIM_ABORT', 'INCOMPLETE_FLIGHT'])('%s is Danger even at low priority', key => {
     expect(formatWarning({ key, message: key, priority: 'LOW' })).toMatchObject({ tier: 'danger', high: false });
   });
   it.each(['HighSpeedDeployment', 'RECOVERY_HIGH_SPEED', 'SUPERSONIC', 'Other', 'constructor'])('%s is Information even at high priority', key => {
@@ -15,6 +15,10 @@ describe('D7 visual consequence, independent of kernel priority', () => {
 });
 
 describe('formatWarning', () => {
+  it('explains an incomplete flight while keeping its branch detail', () => {
+    expect(formatWarning({ key: 'INCOMPLETE_FLIGHT', message: 'Booster ended airborne at T+1200 s', priority: 'HIGH' }))
+      .toMatchObject({ tier: 'danger', label: expect.stringContaining('incomplete'), detail: 'Booster ended airborne at T+1200 s' });
+  });
   it('N046 preserves known and future warning codes without changing their presentation', () => {
     expect(formatWarning({ key: 'NO_RECOVERY_DEVICE', message: '[Warning.NO_RECOVERY_DEVICE]', priority: 'HIGH' }))
       .toMatchObject({ code: 'NO_RECOVERY_DEVICE', label: 'No recovery device — the rocket comes down ballistic', tier: 'danger', high: true });

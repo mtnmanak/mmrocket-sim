@@ -23,6 +23,57 @@ const stage = (id: string, name: string, children: ComponentNode[]): ComponentNo
   ({ id, type: 'stage', name, children } as unknown as ComponentNode);
 
 describe('stageMotorInfo', () => {
+  it('retains serial-stage motor facts when the flight tree clones the listed stages', () => {
+    const tree: RocketTree = { components: [
+      stage('s0', 'Sustainer', [mount('m0')]),
+      stage('s1', 'Booster', [mount('m1')]),
+    ] };
+    const stageList = stages(tree);
+    const flightTree = structuredClone(tree);
+    expect(stageMotorInfo(flightTree, [
+      ['m0', motor('J90W', true)], ['m1', motor('I170G-0', true)],
+    ], stageList)).toEqual({
+      Sustainer: { label: 'J90W', highPower: true },
+      Booster: { label: 'I170G-0', highPower: true },
+    });
+  });
+
+  it.each([
+    ['H128-0', { label: 'H128-0', highPower: true }],
+    ['I600-0', { highPower: true }],
+  ])('keeps agreed facts on same-name high-power strap-ons with %s', (secondLabel, expected) => {
+    const tree: RocketTree = { components: [stage('s', 'Sustainer', [
+      { type: 'parallelstage', id: 'p1', name: 'Strap-on booster', children: [mount('m1')] },
+      { type: 'parallelstage', id: 'p2', name: 'Strap-on booster', children: [mount('m2')] },
+    ])] };
+    expect(stageMotorInfo(tree, [['m1', motor('H128-0', true)], ['m2', motor(secondLabel, true)]], stages(tree)))
+      .toEqual({ 'Strap-on booster': expected });
+  });
+  it('omits ambiguous names instead of merging motors on different stages', () => {
+    const tree: RocketTree = { components: [
+      stage('s0', 'Sustainer', [mount('m0')]),
+      stage('s1', 'Booster', [mount('m1')]),
+      stage('s2', 'Booster', [mount('m2')]),
+    ] };
+    expect(stageMotorInfo(tree, [['m1', motor('H128', true)], ['m2', motor('D12', false)]], stages(tree)))
+      .toEqual({});
+    // Even an empty namesake makes attribution by branch name ambiguous.
+    expect(stageMotorInfo(tree, [['m1', motor('H128', true)]], stages(tree))).toEqual({});
+  });
+  it('keeps namesake attribution conservative across a projected serial tree and strap-on', () => {
+    const tree: RocketTree = { components: [
+      stage('s0', 'Sustainer', [{ type: 'parallelstage', id: 'p0', name: 'Booster', children: [mount('m0')] }]),
+      stage('s1', 'Booster', [mount('m1')]),
+    ] };
+    const flightTree = structuredClone(tree);
+    expect(stageMotorInfo(flightTree, [
+      ['m0', motor('H128-0', true)], ['m1', motor('I170G-0', true)],
+    ], stages(tree))).toEqual({ Booster: { highPower: true } });
+    expect(stageMotorInfo(flightTree, [
+      ['m0', motor('H128-0', true)], ['m1', motor('D12-0', false)],
+    ], stages(tree))).toEqual({});
+    expect(stageMotorInfo(flightTree, [['m0', motor('H128-0', true)]], stages(tree))).toEqual({});
+  });
   it('names a branch after the serial stage its mount lives in', () => {
     const tree: RocketTree = {
       name: 'Two-stage',

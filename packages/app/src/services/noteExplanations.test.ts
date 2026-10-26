@@ -2,6 +2,19 @@ import { expect, it } from 'vitest';
 import { explanationFor, importNoteCode, staticWarningCode } from './noteExplanations.js';
 import { WARNING_LABEL } from './simWarnings.js';
 
+it('explains missing landing evidence for an incomplete flight', () => {
+  const explanation = explanationFor('INCOMPLETE_FLIGHT');
+  expect(explanation.meaning).toContain('incomplete');
+  expect(explanation.remedy).toContain('landing');
+  expect(explanation.remedy).toContain('rely');
+});
+
+it('scopes INCOMPLETE_FLIGHT to the stage it names: a booster cut off airborne leaves the main flight’s landing figures', () => {
+  const { remedy } = explanationFor('INCOMPLETE_FLIGHT');
+  expect(remedy).toContain('the flight or stage the note names');
+  expect(remedy).not.toContain('so landing rate and landing drift are unavailable');
+});
+
 it.each(Object.keys(WARNING_LABEL))('explains recognized kernel key %s, including geometry warnings', code => {
   const explanation = explanationFor(code);
   expect(explanation.meaning).toBe(WARNING_LABEL[code]);

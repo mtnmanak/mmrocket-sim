@@ -423,6 +423,7 @@ export function mountMotorCount(tree: RocketTree, mountId: string): number {
   let k = clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
   for (const a of ancestorsOf(tree, mountId)) {
     if (a.type === 'podset' || a.type === 'parallelstage') k *= flownInstanceCount(a);
+    if (a.type === 'innertube') k *= clusterCount(a['cluster'] as string | undefined);
   }
   return k;
 }
@@ -465,8 +466,9 @@ export function mountCountNote(tree: RocketTree, mountId: string): string {
   if (total <= 1) return '';
   const cluster = clusterCount(findNode(tree, mountId)?.['cluster'] as string | undefined);
   if (total === cluster) return `cluster ×${total}`;
-  const nearest = ancestorsOf(tree, mountId).find((a) => a.type === 'podset' || a.type === 'parallelstage');
-  const per = nearest?.type === 'parallelstage' ? 'strap-on' : 'pod';
+  const nearest = ancestorsOf(tree, mountId).find((a) => a.type === 'podset' || a.type === 'parallelstage'
+    || (a.type === 'innertube' && clusterCount(a['cluster'] as string | undefined) > 1));
+  const per = nearest?.type === 'innertube' ? 'enclosing tube' : nearest?.type === 'parallelstage' ? 'strap-on' : 'pod';
   return `×${total} — ${cluster > 1 ? `a cluster of ${cluster}` : 'one'} per ${per}`;
 }
 
@@ -581,6 +583,7 @@ export function nozzleMotorCount(tree: RocketTree, mountId: string): number {
   for (const a of ancestorsOf(tree, mountId)) {
     if (a.type === 'stage' || a.type === 'parallelstage') break;
     if (a.type === 'podset') count *= flownInstanceCount(a);
+    if (a.type === 'innertube') count *= clusterCount(a['cluster'] as string | undefined);
   }
   return count;
 }

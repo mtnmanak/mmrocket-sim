@@ -87,7 +87,7 @@ describe('weather wind profile', () => {
     };
     put('80m', 6, 30); put('120m', null, 40); put('180m', 8, 50);
     put('1000hPa', 20, 60, 900); // below ground
-    put('975hPa', 20, 60, 1180); // equal to the highest fixed level
+    put('975hPa', 20, 60, 6356766 * 1180 / (6356766 + 1180)); // geometric height equals the highest fixed level
     put('950hPa', 20, 60, 1150); // inside the fixed-height span
     put('925hPa', 11, 70, 1500); put('900hPa', 9, 80, 1300);
     put('850hPa', 22, 60, 1500); // duplicate, first wins
@@ -97,15 +97,22 @@ describe('weather wind profile', () => {
     units['wind_speed_300hPa'] = 'km/h';
     expect(readWindsAloft(h, units, 1, 1000)).toEqual([
       { altitude: 80, speed: 6, fromDeg: 30 }, { altitude: 180, speed: 8, fromDeg: 50 },
-      { altitude: 300, speed: 9, fromDeg: 80 }, { altitude: 500, speed: 11, fromDeg: 70 },
+      { altitude: expect.closeTo(6356766 * 1300 / (6356766 - 1300) - 1000, 9), speed: 9, fromDeg: 80 },
+      { altitude: expect.closeTo(6356766 * 1500 / (6356766 - 1500) - 1000, 9), speed: 11, fromDeg: 70 },
     ]);
     h['wind_speed_180m'] = [99, null];
-    expect(readWindsAloft(h, units, 1, 1000).map((l) => l.altitude)).toContain(150);
+    expect(readWindsAloft(h, units, 1, 1000).map((l) => l.altitude)).toContainEqual(expect.closeTo(6356766 * 1150 / (6356766 - 1150) - 1000, 9));
     expect(readWindsAloft({}, {}, 0, 1000)).toEqual([]);
     expect(readWindsAloft(h, units, 1, Infinity).map((l) => l.altitude)).toEqual([80]);
     expect(readWindsAloft(h, units, 1, -Infinity).map((l) => l.altitude)).toEqual([80]);
     expect(readWindsAloft(h, units, 1, -1000).map((l) => l.altitude)).not.toContain(1000);
     expect(readWindsAloft({ ...h, wind_speed_80m: undefined }, units, 1, 1000).map((l) => l.altitude)).not.toContain(80);
+  });
+
+  it('converts pressure-level geopotential metres to geometric AGL before filtering', () => {
+    const h = { wind_speed_50hPa: [12], wind_direction_50hPa: [90], geopotential_height_50hPa: [20000] };
+    const units = { wind_speed_50hPa: 'm/s', wind_direction_50hPa: '°', geopotential_height_50hPa: 'm' };
+    expect(readWindsAloft(h, units, 0, 1000)[0]?.altitude).toBeCloseTo(6356766 * 20000 / (6356766 - 20000) - 1000, 9);
   });
 
   it('rotates through north, retains signed turns and scales sigma including calm and zero turbulence', () => {

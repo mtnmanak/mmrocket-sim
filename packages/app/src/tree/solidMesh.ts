@@ -1340,7 +1340,8 @@ export function ringOuterRadius(node: ComponentNode, ctx: SolidContext): { r: nu
 /**
  * The bore (m) a centering ring of outer radius `R` is cut to, before the
  * fits-inside-R check its two callers (componentLoop, the DXF writer) make —
- * undefined when nothing gives one.
+ * undefined when nothing gives one; null when automatic hole placement cannot
+ * represent the mount layout and fabrication must refuse it.
  *
  * The same order as ringOuterRadius, and the kernel's: the ring's OWN stated
  * inner radius first — every .ork and .rkt ring that states an ID carries one,
@@ -1352,9 +1353,10 @@ export function ringOuterRadius(node: ComponentNode, ctx: SolidContext): { r: nu
  * bore labelled "no motor mount found". A stated 0, or one at or past `R`,
  * leaves no ring to cut, so both fall through to the mount as before.
  */
-export function centeringRingBore(node: ComponentNode, ctx: SolidContext, R: number): number | undefined {
+export function centeringRingBore(node: ComponentNode, ctx: SolidContext, R: number): number | null | undefined {
   const own = numOpt(node, 'innerRadius');
   if (own !== undefined && own > EPS && own < R - EPS) return own;
+  if (ctx.mountLayoutUnresolved) return null;
   return ctx.mountOuterRadius;
 }
 
@@ -1454,6 +1456,7 @@ export function componentLoop(
       const { r: R, assumed } = ringOuterRadius(node, ctx);
       const L = axialLength(node);
       const bore = centeringRingBore(node, ctx, R);
+      if (bore === null) return null;
       const size = assumed ? { sizeAssumed: true } : {};
       if (typeof bore === 'number' && bore > EPS && bore < R - EPS) {
         return {

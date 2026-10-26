@@ -45,6 +45,19 @@ const ORK = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket>
   </subcomponents></stage></subcomponents></rocket></openrocket>`;
 
 describe('.ork reads, flies and writes a filled body tube', () => {
+  it('keeps the default hollow wall, bore and mass after unticking filled and saving', () => {
+    const tree = importOrk(ORK).tree;
+    const rod = find(tree.components, 'Rod');
+    rod['filled'] = false;
+    resetEngine();
+    const mass = OrkRocket.buildTree(engineTree(tree)).componentInfo(rod.id!).mass;
+    const reopened = importOrk(exportOrk({ name: 'Dowel', tree })).tree;
+    const savedRod = find(reopened.components, 'Rod');
+    expect(savedRod['thickness']).toBeCloseTo(0.0003, 12);
+    expect(Math.min(...componentLoop(savedRod, {})!.loop.map(([, r]) => r))).toBeCloseTo(R - 0.0003, 12);
+    resetEngine();
+    expect(OrkRocket.buildTree(engineTree(reopened)).componentInfo(savedRod.id!).mass).toBeCloseTo(mass, 12);
+  });
   it('reads <thickness>filled</thickness> as solid, not as a 0.5 mm wall', () => {
     const rod = find(importOrk(ORK).tree.components, 'Rod');
     expect(rod['filled']).toBe(true);

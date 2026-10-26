@@ -33,6 +33,13 @@ const solid = async (n: ComponentNode, ctx: Record<string, number> = {}) => {
 };
 
 describe('revolveProfile', () => {
+  it('refuses an automatic centered ring bore for unresolved mount layouts', async () => {
+    const ring = node('centeringring', { length: 0.003 });
+    const ctx = { parentInnerRadius: 0.029, mountOuterRadius: 0.01, mountLayoutUnresolved: true };
+    expect(componentLoop(ring, ctx)).toBeNull();
+    expect(await componentSolid(ring, ctx)).toBeNull();
+    expect(componentLoop({ ...ring, innerRadius: 0.012 }, ctx)).not.toBeNull();
+  });
   it('annular rectangle profile hits the tube volume within 1%', async () => {
     const v = check(revolveProfile([[0, 0.01], [0, 0.02], [0.1, 0.02], [0.1, 0.01]]));
     expect(relErr(v, Math.PI * (0.02 ** 2 - 0.01 ** 2) * 0.1)).toBeLessThan(0.01);

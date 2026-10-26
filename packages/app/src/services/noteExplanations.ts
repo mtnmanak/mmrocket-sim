@@ -16,6 +16,7 @@ const flightRemedies: Record<string, string> = {
   MissingMotor: 'Check the motors in the selected flight configuration, including booster mounts.',
   EMPTY_BRANCH: 'Check the stage’s ignition and separation settings. Missing data is not evidence of a successful flight.',
   SIM_ABORT: 'Read the event timeline for the stopping cause. Treat the reported values as incomplete and correct the cause before relying on them.',
+  INCOMPLETE_FLIGHT: 'Review the event timeline and recovery settings. Ground contact was not recorded for the flight or stage the note names, so its landing rate is unavailable; when that is the main flight, landing drift is unavailable too. Do not rely on it as a completed descent; resolve the incomplete descent before using its landing predictions.',
   SUPERSONIC: 'Check the aerodynamic model used by this run and its documented range. Compare predictions with flight measurements; a simulated result does not establish structural survival.',
   DISCONTINUITY: 'Check adjacent outside diameters and positions. If the step is intentional, allow for uncertainty in predicted drag.',
   OPEN_AIRFRAME_FORWARD: 'Check the forward body and nose cone. If the opening is intentional, allow for uncertainty in predicted aerodynamics.',

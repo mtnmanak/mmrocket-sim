@@ -101,13 +101,15 @@ it('unaffected XML matches measured pre-change HEAD bytes with deterministic UUI
   try {
     for (const pod of [false, true]) {
       const tree: RocketTree = { name: 'Byte fixture', components: [{ type: 'stage', id: 's', children: [
-        { type: 'bodytube', id: 'body', length: 1, children: pod ? [
+        { type: 'bodytube', id: 'body', length: 1, thickness: 0.0005, children: pod ? [
           { type: 'podset', id: 'pod', position: { method: 'top', offset: 0 }, children: [
-            { type: 'bodytube', id: 'pt', length: 0.2 },
+            { type: 'bodytube', id: 'pt', length: 0.2, thickness: 0.0005 },
           ] },
         ] : [] },
       ] }] };
       const input = { tree, name: tree.name! };
+      // Explicit walls keep this fixture outside the corrected absent-wall
+      // default (0.3 mm). The recorded bytes used the previous 0.5 mm default.
       // Measured from the HEAD exporter before this task; full XML compared
       // byte-for-byte against that exporter before recording these digests.
       const xml = exportOrk(input);

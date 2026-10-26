@@ -7,7 +7,7 @@ import { captureStageMass, completeStageMass, replaceStageMass } from './stageMa
 import { configUuid as uuid, MAX_ORK_CONFIGURATIONS, snapshotLoadedConfig } from './configSnapshot.js';
 import { isLoneEmptyConfig } from './emptyConfig.js';
 import type { StageMassOverride } from './stageMassOverrides.js';
-import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
+import { KERNEL_DEFAULT_FIN_POINTS, kernelNum } from '../tree/kernelDefaults.js';
 import { BASE_DRAG_DECLARATION, BASE_DRAG_DECLARATION_TAG } from './baseDragImportNotes.js';
 import { isAeroModel, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
 import type { ComponentNode, ComponentPosition, ComponentType, EngineWarning, MotorSpec, RocketTree } from '@online-openrocket/engine';
@@ -3115,7 +3115,7 @@ export function exportOrk({
         finishXml(depth + 1, node);
         material(depth + 1, node);
         emit(depth + 1, `<length>${axialLength(node)}</length>`);
-        thicknessXml(depth + 1, node, 0.0005); // `filled` for a solid tube
+        thicknessXml(depth + 1, node, kernelNum(node, 'thickness')); // `filled` for a solid tube
         emit(depth + 1, `<radius>${n(node, 'outerRadius', 0.012)}</radius>`);
         // Extension tag (desktop warns-and-ignores): sub-minimum flag.
         if (node['caseAirframe'] === true) {

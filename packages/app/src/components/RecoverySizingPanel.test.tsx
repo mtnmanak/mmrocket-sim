@@ -314,6 +314,21 @@ describe('RecoverySizingPanel', () => {
       ],
     };
 
+    it('sizes and loads the catalogue for a usable booster when the sustainer is unavailable', async () => {
+      const groups = structuredClone(twoGroups);
+      if (groups.state !== 'ok') throw new Error('expected groups');
+      const unavailable: RecoveryMass = { state: 'unavailable', reason: 'pod sets are not supported' };
+      groups.groups[0]!.mass = unavailable;
+      const loads = vi.spyOn(presetService, 'loadPresets');
+      await mount({ tree: twoStageTree, recovery: unavailable, byStage: groups });
+      expect([...host.querySelectorAll('.recovery-object')].map(h => h.textContent)).toEqual(['Sustainer', 'Booster']);
+      expect(text()).toContain('pod sets are not supported');
+      expect(bands()).toHaveLength(2);
+      expect(text()).toMatch(/BoosterSized for 2[.,]80/);
+      expect(host.querySelectorAll('.recovery-part-name').length).toBeGreaterThan(0);
+      expect(loads).toHaveBeenCalled();
+    });
+
     it('keeps booster sections when the sustainer Cd is zero', async () => {
       const design = structuredClone(twoStageTree);
       design.components[0]!.children![0]!.children![0]!['cd'] = 0;

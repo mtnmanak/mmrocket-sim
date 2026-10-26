@@ -2,6 +2,7 @@ import { deflateSync, strToU8 } from 'fflate';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { decodeShareFragment, encodeShareFragment, hasSharePayload, MAX_FRAGMENT_CHARS, MAX_INFLATED_BYTES, shareLinkOpenFailure } from './shareLink.js';
 import { refuseTooManyInstances } from '../tree/sanitize.js';
+import { exportOrk } from './orkFile.js';
 
 it('S4a-1 reports an instance refusal as a limit, keeping the readable reason', () => {
   let error: unknown;
@@ -30,6 +31,13 @@ const XML = `<?xml version='1.0' encoding='utf-8'?>
 </subcomponents></rocket></openrocket>`;
 
 describe('share-link codec', () => {
+  it('shares the kernel default hollow wall after a filled body tube is made hollow', async () => {
+    const tree = { components: [{ type: 'stage' as const, children: [
+      { type: 'bodytube' as const, length: 0.2, outerRadius: 0.0125, filled: false },
+    ] }] };
+    const shared = await decodeShareFragment(await encodeShareFragment(exportOrk({ name: 'Hollowed tube', tree })));
+    expect(shared).toContain('<thickness>0.0003</thickness>');
+  });
   it('round-trips XML exactly, non-ASCII included', async () => {
     const frag = await encodeShareFragment(XML);
     expect(await decodeShareFragment(frag)).toBe(XML);

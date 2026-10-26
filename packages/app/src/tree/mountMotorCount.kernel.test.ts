@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
-import { engineTree, mountCountNote, mountMotorCount } from './treeModel.js';
+import { engineTree, mountCountNote, mountMotorCount, nozzleMotorCount } from './treeModel.js';
+import { catalogueMotorMass, hardwareMass } from '../services/hardwareMass.js';
 
 /**
  * EVERY MOTOR COUNT CHECKED AGAINST THE KERNEL THAT FLIES IT (audit
@@ -84,6 +85,22 @@ async function kernelCount(tree: RocketTree, mountId: string): Promise<number> {
 }
 
 describe('mountMotorCount — what the kernel flies (pod set)', () => {
+  it('counts nested inner-tube clusters in pad mass and within the nozzle stage', async () => {
+    const tree = withAssembly('parallelstage', { instanceCount: 2 });
+    const body = tree.components[0]!.children![1]!.children![1]!.children![1]!;
+    const mount = body.children![0]!;
+    body.children = [{ type: 'innertube', id: 'outer', length: 0.1, outerRadius: 0.011,
+      cluster: 'double', children: [{ ...mount, cluster: '3-ring' }] } as ComponentNode];
+    expect(await kernelCount(tree, 'pm')).toBeCloseTo(12, 9);
+    expect.soft(mountMotorCount(tree, 'pm')).toBe(12);
+    expect.soft(nozzleMotorCount(tree, 'pm')).toBe(6);
+    const motors: [string, { spec: MotorSpec }][] = [['pm', { spec: MOTOR() }]];
+    expect(catalogueMotorMass(tree, motors)).toBeCloseTo(1.2, 12);
+    const reconciled = hardwareMass({ tree, motors, primaryMountId: 'pm',
+      measuredDryMassKg: 1, computedDryMassKg: 1, padMassKg: 2.2 });
+    expect(reconciled.state).toBe('ok');
+    if (reconciled.state === 'ok') expect(reconciled.deltaKg).toBeCloseTo(0, 12);
+  });
   const cases: [string, Record<string, unknown>, Partial<ComponentNode>, number][] = [
     ['three pods', { instanceCount: 3 }, {}, 3],
     ['two pods, each a 3-ring cluster', { instanceCount: 2 }, { cluster: '3-ring' }, 6],
@@ -159,6 +176,12 @@ describe('mountMotorCount — what the kernel flies (strap-on booster)', () => {
  * printed the cluster alone, so a motor in a three-pod set read as one.
  */
 describe('mountCountNote', () => {
+  it('names an enclosing clustered tube rather than inventing pods', () => {
+    const tree = withAssembly('podset', { instanceCount: 1 });
+    const body = tree.components[0]!.children![1]!.children![1]!.children![1]!;
+    body.children = [{ type: 'innertube', id: 'outer', cluster: 'double', children: body.children } as ComponentNode];
+    expect(mountCountNote(tree, 'pm')).toBe('×2 — one per enclosing tube');
+  });
   it('says nothing for one motor, and "cluster ×N" when the cluster is all of it', () => {
     expect(mountCountNote(withAssembly('podset', { instanceCount: 1 }), 'pm')).toBe('');
     expect(mountCountNote(withAssembly('podset', { instanceCount: 3 }), 'core')).toBe('');

@@ -14,7 +14,9 @@ import {
 import { runsToCsv } from './simStore.js';
 import { idFree } from './simulate.testSupport.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from '../components/LaunchPanel.js';
-import { engineTree, flownRecoveryDevices } from '../tree/treeModel.js';
+import { engineTree, flownRecoveryDevices, stages } from '../tree/treeModel.js';
+import { stageMotorInfo } from './flightPipeline.js';
+import type { MountMotor } from '../model/design.js';
 import { densityAltitudeM } from './atmosphere.js';
 import { INITIAL_UNITS, IMPERIAL_UNITS, uiToSi } from '../prefs/units.js';
 
@@ -597,6 +599,22 @@ describe('buildSimRun — staged branches (Release C)', () => {
     const run = buildSimRun(stagedInput(false, true));
     expect(run.comments).toMatch(/Booster has NO recovery device — a booster this size must recover actively/);
     expect(run.branches![0]!.safeLandingRate).toBe(false);
+  });
+
+  it('warns for both same-name high-power boosters even when their motor labels differ', () => {
+    const input = stagedInput(false, true);
+    input.result.branches!.push(structuredClone(input.result.branches![1]!));
+    const tree: RocketTree = { components: [{ type: 'stage', id: 's', name: 'Sustainer', children: [
+      { type: 'parallelstage', id: 'p1', name: 'Booster', children: [{ type: 'innertube', id: 'm1' }] },
+      { type: 'parallelstage', id: 'p2', name: 'Booster', children: [{ type: 'innertube', id: 'm2' }] },
+    ] }] };
+    const assigned: [string, MountMotor][] = ['m1', 'm2'].map((id, i) => [id, {
+      label: `H${128 + i}-0`, spec: motor, meta: { label: `H${128 + i}-0`, highPower: true },
+      ignition: { event: 'automatic', delay: 0 },
+    }]);
+    const run = buildSimRun({ ...input, stageMotorInfo: stageMotorInfo(tree, assigned, stages(tree)) });
+    expect(run.comments.match(/Booster has NO recovery device/g)).toHaveLength(2);
+    expect(run.branches!.map(b => b.motorLabel)).toEqual([undefined, undefined]);
   });
 
   /**
@@ -1720,6 +1738,108 @@ describe('stability margin display', () => {
  * into the HIGH warning the report, the notices and the CSV all read.
  */
 describe('SIM_ABORT surfacing', () => {
+  it.each([[104, 'booster'], [110, 'booster'], [110, undefined]] as const)(
+    'does not call a booster separated at T+%s s after landing incomplete (sourceId=%s)', (time, sourceId) => {
+    const base = fakeResult();
+    const split = { type: 'STAGE_SEPARATION', time, source: 'Booster', sourceId };
+    // The kernel copies landed=true and the parent's samples, but not its
+    // source-less GROUND_HIT event (FlightDataBranch.copyValuesFromBranch).
+    const series = Object.fromEntries(Object.entries(base.series).map(([key, values]) =>
+      [key, key === 'time' ? [...values!, time, time + 0.1] : [...values!, 0, 0]])) as FlightSeries;
+    const events = [...base.events, split, { type: 'SIMULATION_END', time: time + 0.1 }];
+    const result = { ...base, warnings: [], events, series, branches: [
+      { name: 'Sustainer', events, series },
+      { name: 'Booster', events: [split, { type: 'SIMULATION_END', time: time + 0.1 }], series },
+    ] };
+    const run = buildSimRun({ result, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Late split', execMs: 1 });
+    expect(run.simWarnings?.filter(w => w.key === 'INCOMPLETE_FLIGHT')).toEqual([]);
+    expect(runStoppedEarly(run)).toBe(false);
+    // No separate booster impact was measured; do not invent one.
+    expect(run.branches![0]!.landingRate).toBeNull();
+    expect(run.landingRate).not.toBeNull();
+  });
+
+  it('uses the landed parent booster rather than the still-flying sustainer for a later split', () => {
+    const base = fakeResult();
+    const first = { type: 'STAGE_SEPARATION', time: 2, source: 'Carrier', sourceId: 'carrier' };
+    const second = { type: 'STAGE_SEPARATION', time: 104, source: 'Lower', sourceId: 'lower' };
+    const events = [...base.events, second, { type: 'SIMULATION_END', time: 104 }];
+    const primaryEvents = [first, { type: 'SIMULATION_END', time: 1200 }];
+    const run = buildSimRun({ result: { ...base, events: primaryEvents, branches: [
+      { name: 'Sustainer', events: primaryEvents, series: base.series },
+      { name: 'Carrier', events: [first, ...events], series: base.series },
+      { name: 'Lower', events: [second, { type: 'SIMULATION_END', time: 104 }], series: base.series },
+    ] }, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Nested split', execMs: 1 });
+    const warnings = run.simWarnings!.filter(w => w.key === 'INCOMPLETE_FLIGHT');
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.message).not.toMatch(/Lower/);
+  });
+
+  it('does not use an unrelated landed branch with a same-name simultaneous separation', () => {
+    const base = fakeResult();
+    const ownSplit = { type: 'STAGE_SEPARATION', time: 104, source: 'Booster', sourceId: 'airborne' };
+    const otherSplit = { ...ownSplit, sourceId: 'landed' };
+    const events = [...base.events.filter(e => e.type !== 'GROUND_HIT'), ownSplit, { type: 'SIMULATION_END', time: 1200 }];
+    const run = buildSimRun({ result: { ...base, events, branches: [
+      { name: 'Sustainer', events, series: base.series },
+      { name: 'Carrier', events: [...base.events, otherSplit], series: base.series },
+      { name: 'Booster', events: [ownSplit, { type: 'SIMULATION_END', time: 1200 }], series: base.series },
+    ] }, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Independent splits', execMs: 1 });
+    expect(run.simWarnings!.filter(w => w.key === 'INCOMPLETE_FLIGHT')).toHaveLength(2);
+    expect(run.simWarnings!.some(w => w.key === 'INCOMPLETE_FLIGHT' && /Booster stage/.test(w.message))).toBe(true);
+  });
+
+  it('scopes an airborne booster cutoff to its stage while retaining the sustainer landing and drift', () => {
+    const base = fakeResult();
+    const split = { type: 'STAGE_SEPARATION', time: 2, source: 'Booster', sourceId: 'booster' };
+    const events = [...base.events, split];
+    const series = { ...base.series, Pl: base.series.time.map(() => 200), '\u03b8l': base.series.time.map(() => 0.5) };
+    const airborne = { ...base.series, time: [100, 1190, 1200], altitude: [6000, 550, 500], velocity: [0, 5, 5] };
+    const run = buildSimRun({ result: { ...base, events, series, branches: [
+      { name: 'Sustainer', events, series },
+      { name: 'Booster', events: [split, { type: 'SIMULATION_END', time: 1200 }], series: airborne },
+    ] }, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Booster cutoff', execMs: 1 });
+    const warning = run.simWarnings!.find(w => w.key === 'INCOMPLETE_FLIGHT')!;
+    expect(warning.priority).toBe('HIGH');
+    expect(warning.message).toMatch(/Booster stage's flight.*before ground contact/);
+    expect(warning.message).toMatch(/its landing rate is unavailable/i);
+    expect(warning.message).not.toMatch(/landing drift|The flight is incomplete/);
+    expect(runStoppedEarly(run)).toBe(true);
+    expect(run.branches![0]!.landingRate).toBeNull();
+    expect(run.branches![0]!.safeLandingRate).toBeNull();
+    expect(run.landingRate).not.toBeNull();
+    expect(run.safeLandingRate).toBe(true);
+    expect(run.landingDistanceM).toBeCloseTo(200, 9);
+    expect(run.landingBearingDeg).not.toBeNull();
+  });
+
+  it.each([true, false])('does not turn a time-limited airborne branch into a landing (primary=%s)', (primary) => {
+    const base = fakeResult();
+    const airborne = {
+      events: [
+        { type: 'APOGEE', time: 100 },
+        { type: 'RECOVERY_DEVICE_DEPLOYMENT', time: 100, source: 'Main' },
+        { type: 'SIMULATION_END', time: 1200 },
+      ],
+      series: { ...base.series, time: [100, 1190, 1200], altitude: [6000, 550, 500],
+        velocity: [0, 5, 5], Pl: [0, 100, 200], Px: [0, 100, 200], Py: [0, 0, 0] },
+    };
+    const result = primary ? { ...base, ...airborne } : { ...base, branches: [
+      { name: 'Sustainer', events: base.events, series: base.series }, { name: 'Booster', ...airborne },
+    ] };
+    const run = buildSimRun({ result, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Time limit', execMs: 1 });
+    expect(runStoppedEarly(run)).toBe(true);
+    expect(run.simWarnings?.some(w => /before.*ground|ground.*not.*recorded/i.test(w.message))).toBe(true);
+    const branch = primary ? run : run.branches![0]!;
+    expect(branch.landingRate).toBeNull();
+    expect(branch.safeLandingRate).toBeNull();
+    expect(branch.deployments![0]!.descentRate).toBeNull();
+    expect(branch.deployments![0]!.descentOk).toBeNull();
+    if (primary) {
+      expect(run.landingDistanceM).toBeNull();
+      expect(run.landingBearingDeg).toBeNull();
+    }
+  });
   const abortedAt = (time: number, cause: string, events = fakeResult().events) =>
     [...events, { type: 'SIM_ABORT', time, cause }];
 
