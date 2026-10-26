@@ -110,6 +110,20 @@ describe('useNozzleFollow', () => {
     await h.show(set('K1'));
     expect(exitOf(h.treeRef.current)).toBeCloseTo(0.016, 12);
   });
+
+  it.each(['constructor', 'toString', '__proto__'])('follows and clears published exits for stage %s', async id => {
+    const initial = tree(0.012);
+    initial.components[0]!.id = id;
+    const h = harness(initial);
+    const stages = (motorId: string) => loadout(motorId).map(s => ({ ...s, stageId: id }));
+    await h.show(stages('J1'));
+    await h.show(stages('K1'));
+    expect(exitOf(h.treeRef.current)).toBe(0.016);
+    await h.show(stages('unknown'));
+    expect(exitOf(h.treeRef.current)).toBeUndefined();
+    expect(Object.hasOwn(h.out.cleared, id)).toBe(true);
+    expect(h.out.cleared[id]).toEqual({ previousLabel: 'K1-label', previousM: 0.016 });
+  });
   it('S3c-2 refreshes the cached exit when seeding an inactive re-import before deletion and clustering', async () => {
     const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
     addExMotors([ex]);

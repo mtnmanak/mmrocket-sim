@@ -1422,6 +1422,9 @@ describe('C-A2 and C-B8 file workflow', () => {
     const host = await mountApp();
     await waitFor(starterStored, 'starter motor');
     const file = new File([fixture(RKT)], 'Private-recent.rkt');
+    const status = host.querySelector('.recent-storage-note[role="status"]');
+    expect(status).not.toBeNull();
+    expect(status!.classList.contains('sr-only')).toBe(true);
     const completeCount = () => sessionDebugLog.text().match(/ms import-complete\n/g)?.length ?? 0;
     const before = completeCount();
     await pick(host, file);
@@ -1433,6 +1436,9 @@ describe('C-A2 and C-B8 file workflow', () => {
     expect(name).toBe(file.name);
     expect(new TextDecoder().decode(bytes)).toBe(fixture(RKT));
     await act(async () => { finishStorage(note); });
+    expect(host.querySelector('.recent-storage-note[role="status"]')).toBe(status);
+    expect(status!.textContent).toContain(note ?? '');
+    expect(status!.classList.contains('sr-only')).toBe(note === null);
     expect(completeCount()).toBe(before + 1);
     expect(host.querySelector('.notice-bar')?.textContent).toContain('states its launch site as latitude 43°');
     expect(host.querySelector('.recent-storage-note')?.textContent).toEqual(note === null ? '' : expect.stringContaining(note));

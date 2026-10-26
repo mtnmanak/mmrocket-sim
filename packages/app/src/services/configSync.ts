@@ -404,7 +404,7 @@ export function withoutStoredRef(configs: SavedConfig[], activeId: string | null
   const at = configs.findIndex((c) => c.id === activeId);
   if (at === -1) return configs;
   const c = configs[at]!;
-  if (!c.motorLoadoutRefusal && (!c.unmatchedRefs || !(mountId in c.unmatchedRefs))) return configs;
+  if (!c.motorLoadoutRefusal && (!c.unmatchedRefs || !Object.hasOwn(c.unmatchedRefs, mountId))) return configs;
   const { [mountId]: _gone, ...refs } = c.unmatchedRefs ?? {};
   // Called by explicit motor assignment/unload, never by config sync or a
   // geometry edit. The user's chosen loadout replaces the ambiguous import.

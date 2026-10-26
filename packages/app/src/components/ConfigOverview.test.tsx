@@ -61,6 +61,15 @@ const config: SavedConfig = { id: 'a', name: 'Flight A', isDefault: true,
 };
 
 describe('CFG-1 comparison and summary', () => {
+  it.each(['constructor', 'toString', '__proto__'])('does not invent an inherited configuration override for %s', id => {
+    const host = document.createElement('div'), root = createRoot(host);
+    const copy: FlightTree = { components: [{ type: 'stage', children: [{ type: 'parachute', id, name: 'Main', deployEvent: 'apogee' }] }] };
+    try {
+      act(() => root.render(<PrefsProvider><ConfigOverview tree={copy} configs={[{ ...config, motors: {}, deployments: {}, separations: {}, ignitions: {} }]}
+        activeConfigId="a" onApply={noop} onShowPart={noop} /></PrefsProvider>));
+      expect(host.querySelector('tbody td')!.textContent).not.toContain('override');
+    } finally { act(() => root.unmount()); }
+  });
   it('N032 All configurations quotes deployment altitude using Altitude', () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { altitude: 'ft', distance: 'km' } }));
     const host = document.createElement('div'), root = createRoot(host);

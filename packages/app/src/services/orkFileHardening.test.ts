@@ -267,8 +267,8 @@ describe('.ork numbers are decimal, as the desktop reads them', () => {
         + '<thickness>0.001</thickness></bodytube>'));
       return flatten(tree.components).find((c) => c.type === 'bodytube')!;
     };
-    expect(tube('0x10', '0.025')['length']).toBe(0.3); // the reader's default
-    expect(tube('0b11', '0.025')['length']).toBe(0.3);
+    expect(tube('0x10', '0.025')['length']).toBe(0.2); // desktop's constructor default
+    expect(tube('0b11', '0.025')['length']).toBe(0.2);
     expect(tube('0.5', '0.025')['length']).toBe(0.5);
     // `auto 0x1` is a bare `auto` with no readable last value: resolved like
     // one (no neighbour here, so the desktop's 25 mm DEFAULT_RADIUS), never 1 m.

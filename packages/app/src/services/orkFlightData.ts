@@ -1,3 +1,4 @@
+import { ownEntry } from './ownEntry.js';
 import { restoredWarnings, storedWarnings } from './storedWarnings.js';
 import { delayMountsOf, readDelay, resolutionMatchesPolicy, type DelayResolution } from './autoDelaySolver.js';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/design.js';
@@ -371,7 +372,7 @@ export function flightDataForExport(
     // and carries no flight data.
     if (!resolutionMatchesPolicy(resolution, delayMountsOf(motors))) continue;
     if (!motors.every(([id, mm]) => {
-      const named = mm.meta.autoDelay ? autoDelays[r.flightConfigId!]?.[id] ?? mm.spec.ejectionDelay : mm.spec.ejectionDelay;
+      const named = mm.meta.autoDelay ? ownEntry(ownEntry(autoDelays, r.flightConfigId!), id) ?? mm.spec.ejectionDelay : mm.spec.ejectionDelay;
       return readDelay(resolution.mounts.find((m) => m.mountId === id)!.flownDelay) === named;
     })) continue;
     out[r.flightConfigId] = summaryOf(r);

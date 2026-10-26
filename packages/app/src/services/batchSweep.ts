@@ -1,3 +1,4 @@
+import { lookupTable } from './xmlUtil.js';
 import {
   OrkRocket, type ComponentNode, type IgnitionEvent, type MotorSpec, type RocketTree,
   type StaticInfo,
@@ -477,9 +478,10 @@ export async function runBatchSweep(
     yieldToUi = () => new Promise<void>((r) => { setTimeout(r, 0); }),
   } = deps;
   const {
-    tree, info, mounts, target, candidates, splits, assignedMotors, assignedMotorIds, assignedIgnitions,
+    tree, info, mounts, target, candidates, splits, assignedMotors, assignedMotorIds,
     weighed, model, autoDelay, launch, rocketName,
   } = input;
+  const assignedIgnitions = lookupTable(input.assignedIgnitions);
   const { signal } = hooks;
   if (candidates.some((m) => !m.motorId.startsWith('ex:')) && !deps.fetchSpec) await requireCurveBundle(candidates);
   const retainedHardware = input.retainedHardware ?? weighed;

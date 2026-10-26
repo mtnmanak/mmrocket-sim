@@ -84,6 +84,13 @@ const staged = (autoDelay: boolean): LaunchInput => ({
   onSupersonicUpgrade: () => {},
 });
 
+it.each(['constructor', 'toString', '__proto__'])('names a refused Auto mount %s without an inherited label', async id => {
+  const { handle } = recordingHandle();
+  await expect(flyLaunch(handle, { ...staged(false), assigned: [[id, testMotor()]],
+    primaryMountId: id, refusedMountIds: [id], mountNames: {},
+  })).rejects.toThrow(`Auto delay did not settle for ${id}:`);
+});
+
 describe('Hybrid handle protocol', () => {
   it('keeps Kbf on, disables inherited Supersonic, and never runs the Auto upgrade', async () => {
     const { handle, calls } = recordingHandle({ maxMachNumber: 2 });

@@ -48,8 +48,8 @@ import { NoticeBar, type Notice, type NoticeSeverity } from './components/Notice
 import { MeasuredMassBox } from './components/MeasuredMassBox.js';
 import { MotorPadMass } from './components/MotorPadMass.js';
 import {
-  applyAllowance as applySolvedAllowance, coveringMassOverride, findAllowance, solveBallast,
-  solePinnedStage, withoutAllowance, type BallastSolution,
+  applyAllowance as applySolvedAllowance, bareWithoutAllowance, coveringCGOverride, coveringMassOverride, findAllowance, solveBallast,
+  solePinnedStage, type BallastSolution,
 } from './services/buildAllowance.js';
 import { MotorPicker } from './components/MotorPicker.js';
 import { zeroDelayRecoveryAdvice } from './services/flightAdvisories.js';
@@ -154,7 +154,7 @@ import {
   isPristineDefault, mountCountNote, mountMotorCount, mountName, removeNode, stageIndexOf, stages,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
-import { num, numOrNull } from './tree/nodeNum.js';
+import { num, numOpt, numOrNull } from './tree/nodeNum.js';
 import {
   flightDataForExport as flightDataForExportPure, flownAutoDelays, planSummaryImport, summaryImportCounts, summaryDocument,
 } from './services/orkFlightData.js';
@@ -1709,8 +1709,7 @@ export function App() {
       return { massKg, cgM };
     }
     try {
-      const ci = built.rocket.componentInfo(allowanceNode.id);
-      return withoutAllowance(massKg, cgM, ci.mass, ci.positionX + ci.cgX);
+      return bareWithoutAllowance(tree, allowanceNode.id, massKg, cgM, id => built.rocket.componentInfo(id));
     } catch {
       return { massKg, cgM };
     }
@@ -1751,7 +1750,8 @@ export function App() {
     // Same default length applyAllowance uses for a not-yet-created allowance,
     // read the same way (a non-finite length is none, audit row 522).
     const lengthM = allowanceNode ? num(allowanceNode, 'length', 0.02) : 0.02;
-    return coveringMassOverride(tree, sol.stationM, lengthM);
+    return coveringMassOverride(tree, sol.stationM, lengthM)
+      ?? coveringCGOverride(tree, sol.stationM, lengthM, id => built.rocket.componentInfo(id));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   }, [built, bare, measured, tree.components, allowanceNode]);
 
@@ -1852,7 +1852,7 @@ export function App() {
     }
     if (plan.padMassNote !== undefined) setFileNote(plan.padMassNote, 'info', undefined, plan.padMassTier);
     setUnmatchedRefs((prev) => {
-      if (!(targetMountId in prev)) return prev;
+      if (!Object.hasOwn(prev, targetMountId)) return prev;
       const next = { ...prev };
       delete next[targetMountId];
       return next;
@@ -4272,7 +4272,8 @@ export function App() {
                 setTree(removeNode(tree, allowanceNode.id));
                 if (selectedId === allowanceNode.id) setSelectedId(null);
               }}
-              blockedBy={allowanceBlocker}
+              blockedBy={allowanceBlocker ? { name: allowanceBlocker.name,
+                kind: allowanceBlocker['overrideSubcomponentsMass'] === true && numOpt(allowanceBlocker, 'overrideMass') !== undefined ? 'mass' : 'cg' } : null}
               onPinStage={allowanceBlocker && canPinBlocker ? pinBlockerToMeasured : undefined}
             />
           )}

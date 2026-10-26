@@ -112,14 +112,15 @@ describe('RockSim discloses losses without moving or retaining the lost parts', 
     expect(loss?.text).not.toContain('“unnamed”');
   });
 
-  // Pre-change measurements: exact imported nodes (IDs removed), mass in kg.
+  // Imported nodes (IDs removed), mass in kg. U21 retains the explicitly zero
+  // canopy density on Jayhawk/Andromeda; their known-mass overrides keep mass unchanged.
   for (const [name, parts, massKg, digest] of [
     ['Examples of Complex Rockets/Centuri_Jayhawk.rkt', 17, 0.34982745861690456,
-      'b91faa1bd9647cd85e0184f8828897a081f07fb92331a9595991c786e025ad4f'],
+      '48b9fe8fec2789c04ea43b8da13c3db7cbdab665fedcd06a667d132f653043f8'],
     ['DynaStar/LexxJet.rkt', 26, 0.15933711814860874,
       'e53b2988715ec6be04ed33478eceeafd2d8145704a54f8cb13d72dc99f0aed87'],
     ['Semroc/USS-Andromeda.rkt', 16, 0.04578676407442068,
-      '02237f64282b2ee40ae45faab3a609141d52483528b72764b6e78fd144e3852a'],
+      'e45bcbb0436aed786075699401fdebe5fe40ab5272971998811f9eefa83d8b5d'],
   ] as const) {
     // Local-only corpus, as in the other corpus-backed suites. Prefer docs when present.
     const path = [join(here, '../../../../docs/User files/Rocksim Designs', name),

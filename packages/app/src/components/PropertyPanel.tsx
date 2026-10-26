@@ -33,7 +33,8 @@ import { shroudEnds } from '../tree/shroud.js';
 import { finTabFit, shoulderFit } from '../tree/fitHelpers.js';
 import { ventLimit } from '../tree/canopyVent.js';
 import { num, numOpt } from '../tree/nodeNum.js';
-import { KERNEL_DEFAULT_MATERIALS } from '../tree/kernelDefaults.js';
+import { KERNEL_DEFAULT_MATERIALS, kernelNum } from '../tree/kernelDefaults.js';
+import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
 import { RAIL_BUTTON_AFT_GAP, railButtonPlacement } from '../services/railButtonPlacement.js';
 
 /**
@@ -51,8 +52,6 @@ import { centeringRingBore, componentSolid, finPrintShape, ringOuterRadius, type
 import { finSectionLaw, type FinSectionLaw } from '../tree/finSection.js';
 import { finSectionFlatReason } from '../tree/finChords.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
-import { kernelNum } from '../tree/kernelDefaults.js';
-import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
 import { finRootChord, finTabSpan } from '../tree/finTab.js';
 import { massObjectParentRadius, solidContextFor } from '../tree/solidContext.js';
 import { componentDxf, DXF_CUTTABLE, DXF_MIME, dxfUnitFor, dxfUnitWord } from '../services/dxfExport.js';
@@ -410,7 +409,7 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
         {saved ? saved.density === foreignDensity ? 'Saved in My materials' : 'Update in My materials' : '☆ Save to My materials'}
       </button>}
       <button type="button" className="finish-all-btn" aria-label={`My materials for ${label}`} onClick={() => setManaging(true)}>My materials…</button>
-      <div role="status">{message && <p id={`${id}-message`}>{message}</p>}</div>
+      <div role="status" className={message ? undefined : 'sr-only'}>{message && <p id={`${id}-message`}>{message}</p>}</div>
       {managing && <MyMaterialsDialog onClose={() => setManaging(false)} />}
       {catalogue && (() => {
         const { diff, row, onUse } = catalogue;
@@ -963,6 +962,13 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
     && kernelNum(parent, 'outerRadius') > 0
     ? kernelNum(parent, 'outerRadius')
     : null;
+  const tubeFinDefaultRadius = node.type === 'tubefinset' && parent && parent !== 'stage' && parent.type === 'bodytube'
+    ? tubeFinRadius(node, kernelNum(parent, 'outerRadius')) : undefined;
+  const tubeFinDefaultWall = tubeFinDefaultRadius !== undefined && parent && parent !== 'stage'
+    ? tubeFinWall(node, tubeFinDefaultRadius,
+      kernelNum(parent, parent['filled'] === true ? 'outerRadius' : 'thickness')) : undefined;
+  const blankFor = (key: string) => key === 'thickness' && tubeFinDefaultWall !== undefined
+    ? tubeFinDefaultWall : blankValue(node.type, key);
 
   /**
    * Where "in line with a fin" and "between two fins" actually are, for THIS
@@ -1066,7 +1072,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
     // `blankValue`). A blank with no such figure keeps no base, so NumField's
     // spinner stays inert on it, as the audit made it.
     if (raw === undefined && autoValue === undefined && autoPlaceholder === undefined) {
-      const blank = blankValue(node.type, f.key);
+      const blank = blankFor(f.key);
       if (blank !== undefined) {
         autoValue = toDisplay(blank);
         autoPlaceholder = `default: ${fmtSig(autoValue, 3, 3)}`;
@@ -1179,7 +1185,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         ? f.key.replace('Thickness', 'Length') : undefined;
     const emptyShoulder = shoulderLengthKey !== undefined && (raw === undefined || raw === 0)
       && num(node, shoulderLengthKey, 0) > 0 && node['filled'] !== true;
-    const wall = numOpt(node, 'thickness') ?? blankValue(node.type, 'thickness') ?? 0;
+    const wall = numOpt(node, 'thickness') ?? blankFor('thickness') ?? 0;
     const wallLabel = `${fmtSi('length', lengthSym, wall, 3)} ${lengthSym}`;
 
     const fieldLabel = (
@@ -1347,7 +1353,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           )}
           {/* Mounted while the part is linked, so Detach's sentence lands in a
               live region that already exists (PresetPicker's note, for why). */}
-          <div role="status">
+          <div role="status" className={detachNote ? undefined : 'sr-only'}>
             {detachNote && <p className="print-note">{detachNote}</p>}
           </div>
         </>
@@ -1732,8 +1738,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           // .getInnerRadius is 0 when filled), and the box showed the stated
           // wall's bore — 38 mm on a solid 40 mm rod with a 1 mm wall.
           const outerR = numOpt(node, 'outerRadius')
-            ?? (node.type === 'nosecone' ? numOpt(node, 'aftRadius') : undefined);
-          const wall = numOpt(node, 'thickness') ?? blankValue(node.type, 'thickness');
+            ?? (node.type === 'nosecone' ? numOpt(node, 'aftRadius') : tubeFinDefaultRadius);
+          const wall = numOpt(node, 'thickness') ?? blankFor('thickness');
           if (f.key === 'thickness' && outerR !== undefined && wall !== undefined && node['filled'] !== true) {
             const innerSi = Math.max(0, outerR - wall) * 2;
             const idQuantity: Quantity = 'length';

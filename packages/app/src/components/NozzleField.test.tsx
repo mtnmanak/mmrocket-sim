@@ -441,7 +441,7 @@ describe('NozzleField — a figure that came from an imported motor file', () =>
     addExMotors([{
       motorId: EX_ID, designation: 'B2', realManufacturer: 'Klima',
       diameter: 18, length: 70, totalWeightG: 17, propWeightG: 6, delays: '0,4',
-      samples: [{ time: 0, thrust: 0 }, { time: 2.5, thrust: 0 }],
+      samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 2 }, { time: 2.5, thrust: 0 }],
       exitDiameterM: EX_EXIT_M, source: 'rse', addedAt: 0,
     }]);
   });
@@ -493,7 +493,7 @@ describe('NozzleField — a figure that came from an imported motor file', () =>
     addExMotors([{
       motorId: 'ex:no-exit', designation: 'M1234', realManufacturer: 'EX Labs',
       diameter: 75, length: 620, totalWeightG: 4200, propWeightG: 2400, delays: '',
-      samples: [{ time: 0, thrust: 0 }, { time: 2, thrust: 0 }],
+      samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 1234 }, { time: 2, thrust: 0 }],
       source: 'rse', addedAt: 0,
     }]);
     await render({ exitDiameterM: null, motorIds: ['ex:no-exit'], motorLabel: 'M1234' });

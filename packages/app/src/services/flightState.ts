@@ -1,5 +1,6 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import { snapshotLoadedConfig } from './configSnapshot.js';
+import { ownEntry } from './ownEntry.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SavedConfig,
   MountMotor, SeparationTuple } from '../model/design.js';
 
@@ -14,7 +15,7 @@ export function sparsify<T extends FlightTuple>(defaultTuple: T, tuple: T): T | 
 }
 
 export function overrideFor<T>(overrides: OverrideMap<T>, id: string): T | undefined {
-  return overrides && Object.hasOwn(overrides, id) ? overrides[id] : undefined;
+  return ownEntry(overrides, id);
 }
 
 /** Reset drops ownership rather than copying today's default into the configuration. */

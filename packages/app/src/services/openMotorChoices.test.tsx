@@ -64,6 +64,27 @@ describe('ask at open choices', () => {
     expect(Object.hasOwn(next.mountMotors, mountId)).toBe(true);
     expect(next.mountMotors[mountId]?.spec.designation).toBe('G100');
   });
+
+  it.each(['constructor', 'toString', '__proto__'])('owns initial motors for restored mount %s', async id => {
+    const { state, groups } = await fixture();
+    const group = { ...groups[0]!, locations: [{ configId: 'a', mountId: id, ref }] };
+    const current = { ...state, mountMotors: {}, savedConfigs: [{ ...state.savedConfigs[0]!, motors: {}, nozzles: {}, unmatchedRefs: {}, unmatched: ['keep'] }] };
+    const choice = { [group.key]: { kind: 'catalogue' as const, motor: group.candidates[0]! } };
+    const next = await applyOpenMotorChoices(current, 'a', [group], choice, fetchSpec);
+    expect(Object.hasOwn(next.mountMotors, id)).toBe(true);
+    expect(Object.hasOwn(next.savedConfigs[0]!.motors, id)).toBe(true);
+    expect(Object.hasOwn(JSON.parse(JSON.stringify(next.mountMotors)), id)).toBe(true);
+    expect(next.savedConfigs[0]!.unmatched).toEqual(['keep']);
+  });
+
+  it.each(['constructor', 'toString', '__proto__'])('does not clear an inherited stage nozzle %s on a motor swap', async id => {
+    const { state, groups } = await fixture();
+    const tree: RocketTree = { components: [{ type: 'stage', id, children: [{ type: 'bodytube', id: 'm', motorMount: true }] }] };
+    const current = { ...state, tree, savedConfigs: state.savedConfigs.map(c => ({ ...c, nozzles: {} })) };
+    const group = groups[0]!;
+    const next = await applyOpenMotorChoices(current, 'a', groups, { [group.key]: { kind: 'catalogue', motor: findDbMotor('H128W')! } }, fetchSpec);
+    expect(next.savedConfigs.map(c => c.nozzles)).toEqual([{}, {}, {}]);
+  });
   it.each([
     { nozzles: undefined, initialExit: undefined, label: 'absent map fills the published exit' },
     { nozzles: undefined, initialExit: 0, label: 'absent map preserves whole-rocket OFF' },

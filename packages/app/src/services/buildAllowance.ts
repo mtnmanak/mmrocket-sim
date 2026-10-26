@@ -1,7 +1,7 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
 import { axialLength, offsetForStart } from '../tree/position.js';
-import { addChild, findNode, findParent, makeNode, removeNode, suppressingAncestor, updateNode } from '../tree/treeModel.js';
+import { addChild, ancestorsOf, findNode, findParent, makeNode, removeNode, suppressingAncestor, updateNode } from '../tree/treeModel.js';
 
 /**
  * "Measured mass & CG" — turning what your scale and balance point say into a
@@ -117,6 +117,21 @@ export function withoutAllowance(
   };
 }
 
+/** A covering CG override moves the allowance's moment to that component's station. */
+export function bareWithoutAllowance(
+  tree: RocketTree, allowanceId: string, massKg: number, cgM: number,
+  componentInfo: (id: string) => { mass: number; positionX: number; cgX: number },
+): { massKg: number; cgM: number } {
+  if (suppressingAncestor(tree, allowanceId, 'overrideSubcomponentsMass', 'overrideMass')) return { massKg, cgM };
+  const ci = componentInfo(allowanceId);
+  const covering = ancestorsOf(tree, allowanceId)
+    .filter(n => n['overrideSubcomponentsCG'] === true && numOpt(n, 'overrideCGX') !== undefined).at(-1);
+  const station = covering?.id
+    ? componentInfo(covering.id).positionX + numOpt(covering, 'overrideCGX')!
+    : ci.positionX + ci.cgX;
+  return withoutAllowance(massKg, cgM, ci.mass, station);
+}
+
 /** The existing allowance, if this design already carries one. */
 export function findAllowance(tree: RocketTree): ComponentNode | null {
   let found: ComponentNode | null = null;
@@ -187,12 +202,33 @@ export function coveringMassOverride(
   stationM: number,
   lengthM: number,
 ): ComponentNode | null {
+  return coveringOverride(tree, stationM, lengthM, 'overrideSubcomponentsMass', 'overrideMass');
+}
+
+export function coveringCGOverride(
+  tree: RocketTree, stationM: number, lengthM: number,
+  componentInfo?: (id: string) => { positionX: number },
+): ComponentNode | null {
   const place = placeAtStation(tree, stationM, lengthM);
   if (!place) return null;
   const host = findNode(tree, place.parentId);
-  if (host && host['overrideSubcomponentsMass'] === true
-    && numOpt(host, 'overrideMass') !== undefined) return host;
-  return suppressingAncestor(tree, place.parentId, 'overrideSubcomponentsMass', 'overrideMass');
+  const covering = [...(host ? [host] : []), ...ancestorsOf(tree, place.parentId)]
+    .filter(n => n['overrideSubcomponentsCG'] === true && numOpt(n, 'overrideCGX') !== undefined).at(-1);
+  if (!covering) return null;
+  // An allowance at the overridden station still supplies exactly the solved moment.
+  if (componentInfo && covering.id
+    && Math.abs(componentInfo(covering.id).positionX + numOpt(covering, 'overrideCGX')! - stationM) < 1e-9) return null;
+  return covering;
+}
+
+function coveringOverride(
+  tree: RocketTree, stationM: number, lengthM: number, flag: string, value: string,
+): ComponentNode | null {
+  const place = placeAtStation(tree, stationM, lengthM);
+  if (!place) return null;
+  const host = findNode(tree, place.parentId);
+  if (host && host[flag] === true && numOpt(host, value) !== undefined) return host;
+  return suppressingAncestor(tree, place.parentId, flag, value);
 }
 
 /**

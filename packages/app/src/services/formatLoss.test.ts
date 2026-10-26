@@ -206,10 +206,6 @@ const cases: [LossyFormat, string, ComponentNode, ComponentNode][] = [
   ['rkt', 'Packed recovery', { type: 'parachute', packedLength: 0.1 }, { type: 'parachute', packedLength: 0.027, packedRadius: 0.027 }],
   ['rkt', 'Packed recovery', { type: 'streamer', packedLength: 0.1 }, { type: 'streamer' }],
   ['rkt', 'Mass-object size', { type: 'masscomponent', radius: 0.01 }, { type: 'masscomponent' }],
-  ['rkt', 'Zero-density parachute', { type: 'parachute', lineDensity: 0 }, { type: 'parachute', lineDensity: 0.002 }],
-  ['rkt', 'Zero-density canopies', { type: 'parachute', surfaceDensity: 0 }, { type: 'parachute', surfaceDensity: 0.067 }],
-  ['rkt', 'Zero-density canopies', { type: 'streamer', surfaceDensity: 0 }, { type: 'streamer', surfaceDensity: 0.067 }],
-  ['rkt', 'Zero-density shock cords', { type: 'shockcord', lineDensity: 0 }, { type: 'shockcord', lineDensity: 0.0018 }],
   ['rkt', 'CG overrides at or ahead', { type: 'bodytube', overrideCGX: 0 }, { type: 'bodytube' }],
   ['rkt', 'CG overrides at or ahead', { type: 'nosecone', overrideCGX: -0.02 }, { type: 'nosecone', overrideCGX: 0.02 }],
   ['rkt', 'CG overrides at or ahead', { type: 'bodytube', overrideCGX: -0.02 }, { type: 'masscomponent', overrideCGX: -0.02 }],
@@ -250,6 +246,13 @@ const cases: [LossyFormat, string, ComponentNode, ComponentNode][] = [
   ['cdx1', 'Freeform fins', { type: 'freeformfinset', points: [[0, 0], [0.02, 0.03], [0.04, 0.03], [0.05, 0]] }, { type: 'trapezoidfinset' }],
 ];
 describe('design-specific format losses', () => {
+  it.each([
+    ['parachute', 'lineDensity'], ['parachute', 'surfaceDensity'],
+    ['streamer', 'surfaceDensity'], ['shockcord', 'lineDensity'],
+  ] as const)('does not report preserved zero-density %s %s as a loss', (type, key) => {
+    expect(line('rkt', input({ type, [key]: 0 }), 'Zero-density')).toBe(false);
+    expect(line('rkt', input({ type, [key]: 0.001 }), 'Zero-density')).toBe(false);
+  });
   it.each(cases)('%s: %s only when present', (format, text, present, absent) => {
     expect(line(format, input(present), text)).toBe(true);
     expect(line(format, input(absent), text)).toBe(false);

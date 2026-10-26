@@ -36,8 +36,10 @@ beforeEach(() => localStorage.clear());
 it.each(['deleted', 'changed', 'invalid'])('saves the loaded snapshot when its library entry is %s', async divergence => {
   const { tree, mount, loaded, write } = await fixture();
   if (divergence === 'deleted') deleteExMotor(motor().motorId);
-  else addExMotors([{ ...motor(), ...(divergence === 'invalid' ? { totalWeightG: -1 }
-    : { samples: motor().samples.map(s => ({ ...s, thrust: s.thrust * 2 })) }) }]);
+  else if (divergence === 'invalid') {
+    // A stale/corrupt storage record, not a newly accepted import.
+    localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([{ ...motor(), totalWeightG: -1 }]));
+  } else addExMotors([{ ...motor(), samples: motor().samples.map(s => ({ ...s, thrust: s.thrust * 2 })) }]);
   const notes: string[] = [];
   const xml = write(notes);
   expect(notes.join(' ')).toMatch(/C6.*(missing|changed|invalid|deleted)/);

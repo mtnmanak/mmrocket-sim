@@ -39,6 +39,7 @@ import { parseXml, preflightXml, type XmlElement, type XmlDocument } from './xml
 import type { FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
 import type { LayeredOrkFlightConfig, LayeredOrkImportResult } from './orkFile.js';
 import { overrideFor, resolveFlightState, sparsify } from './flightState.js';
+import { repairImportedFinOutline } from './importFinOutline.js';
 import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 
@@ -395,6 +396,9 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   if (!design) throw new Error('Not a RASAero design file (missing RocketDesign)');
 
   const notes: string[] = decoded.note ? [decoded.note] : [];
+  if (doc.querySelectorAll('RASAeroDocument > RocketDesign').length > 1) {
+    cautionNote(notes, 'I22.multiple-designs', 'This file contains multiple RASAero designs. The app opened one design; check the parts and flight settings before flying.');
+  }
   const altitudeUnit = opts?.distanceUnit ?? 'ft';
   // Only an explicit False states the author's intent; missing or malformed
   // values must not be mistaken for switching the model off.
@@ -479,6 +483,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       fin['points'] = tipChord > 1e-9
         ? [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]]
         : [[0, 0], [sweep, height], [rootChord, 0]];
+      repairImportedFinOutline(fin, notes);
     } else {
       fin['rootChord'] = rootChord;
       fin['tipChord'] = tipChord;

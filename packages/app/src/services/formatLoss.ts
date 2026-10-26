@@ -233,12 +233,6 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     'Packed recovery dimensions are not kept');
     parts(n => n.type === 'masscomponent' && (has(n, 'radius') || Boolean(n['massComponentType'])),
       'Mass-object size and type (such as electronics) are not kept');
-    parts(n => n.type === 'parachute' && numOpt(n, 'lineDensity') === 0,
-      'Zero-density parachute lines and their material are not kept; the reader supplies its own defaults');
-    parts(n => ['parachute', 'streamer'].includes(n.type) && numOpt(n, 'surfaceDensity') === 0,
-      'Zero-density canopies and streamer strips and their material are not kept; the reader supplies its own defaults');
-    parts(n => n.type === 'shockcord' && numOpt(n, 'lineDensity') === 0,
-      'Zero-density shock cords and their material are not kept; the reader supplies its own defaults');
     parts(n => ['parachute', 'streamer'].includes(n.type) && numOpt(n, 'cd') === 0.75,
       'Fixed recovery Cd of 0.75 reopens on Auto');
     // exportRkt writes a blank Cd as the one the kernel flies (kernelRecoveryCd),

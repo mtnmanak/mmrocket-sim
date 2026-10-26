@@ -176,6 +176,23 @@ it.each(['constructor', 'toString', '__proto__'])('ignores an unloaded sibling i
   expect(requested.every(value => typeof value === 'string')).toBe(true);
 });
 
+it.each(['constructor', 'toString', '__proto__'])('sweeps beside legacy motor %s without inherited IDs or ignition', async id => {
+  const tree = rocket({ sideMount: true });
+  motorMounts(tree).find(m => m.id === 'side')!.id = id;
+  const requested: unknown[] = [];
+  const result = await sweep(input(tree, { autoDelay: false, candidates: [entry('a', 'Acme', 'E20', '5')],
+    mounts: [MOUNT, { ...MOUNT, id }], assignedMotors: { [id]: curve('Side') },
+  }), { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: async motorId => {
+    requested.push(motorId);
+    if (motorId !== undefined && typeof motorId !== 'string') throw new Error('Non-string motor ID');
+    return null;
+  } });
+  expect(requested.every(v => v === undefined || typeof v === 'string')).toBe(true);
+  expect(result.rows).toHaveLength(1);
+  expect(result.rows[0]!.error).toBeUndefined();
+  expect(result.rows[0]!.run!.delayResolution!.mounts.map(m => m.mountId)).toContain(id);
+});
+
 it('bundle metadata freezes scalar weather before single and mixed batch flights without changing their numbers', async () => {
   const tree = clusterRocket('4-ring');
   const target = { ...MOUNT, motorCount: 4 };

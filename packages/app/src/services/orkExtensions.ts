@@ -43,6 +43,8 @@ export function extensionXmlBySimulation(xml: string): string[][] {
   let extensionDepth = -1;
   let total = 0;
   let i = 0;
+  let simulationsSeen = false;
+  let firstSimulations = false;
   while ((i = xml.indexOf('<', i)) !== -1) {
     const start = i;
     const terminator = xml.startsWith('<!--', i) ? '-->'
@@ -69,7 +71,11 @@ export function extensionXmlBySimulation(xml: string): string[][] {
     const closing = token.startsWith('</');
     const selfClosing = /\/\s*>$/.test(token);
     if (!closing) {
-      if (tag === 'simulation' && stack.length === 2 && stack[0] === 'openrocket' && stack[1] === 'simulations') {
+      if (tag === 'simulations' && stack.length === 1 && stack[0] === 'openrocket') {
+        firstSimulations = !simulationsSeen;
+        simulationsSeen = true;
+      }
+      if (firstSimulations && tag === 'simulation' && stack.length === 2 && stack[0] === 'openrocket' && stack[1] === 'simulations') {
         simulation = [];
         result.push(simulation);
       }

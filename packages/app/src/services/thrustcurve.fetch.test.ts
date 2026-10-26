@@ -246,6 +246,7 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
   });
   it.each([
     [{ time: 0, thrust: 10 }],
+    [{ time: 0, thrust: 0 }, { time: 1, thrust: 0 }],
     [{ time: 0, thrust: 10 }, { time: 0, thrust: 10 }],
     [{ time: 0, thrust: 0 }, { time: 1, thrust: 20000000 }],
   ])('S1c-g3/g5 evicts an unflyable cache entry (%j)', async (...samples) => {
@@ -256,6 +257,14 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     expect(spec.times.length).toBeGreaterThanOrEqual(2);
     expect(spec.thrusts.every(f => f <= 10000000)).toBe(true);
+    expect(JSON.parse(localStorage.getItem(CACHE_KEY)!).samples).toEqual(GOOD_SAMPLES);
+  });
+  it('skips a zero-thrust download in favour of its usable sibling', async () => {
+    const tc = await freshModule();
+    stubDownload([{ format: 'RASP', samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 0 }] },
+      { format: 'RockSim', samples: GOOD_SAMPLES }]);
+    const spec = await tc.fetchMotorSpec({ ...QUEST_C6, totImpulseNs: 0 }, 5);
+    expect(spec.thrusts.some(f => f > 0)).toBe(true);
     expect(JSON.parse(localStorage.getItem(CACHE_KEY)!).samples).toEqual(GOOD_SAMPLES);
   });
 });

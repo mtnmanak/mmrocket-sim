@@ -208,6 +208,7 @@ function sampleListProblem(arr: unknown): string | null {
   if (samples.some(p => p.time < 0 || p.thrust < 0)) return 'it has a negative time or thrust value';
   if (samples.some(p => p.thrust > MAX_MOTOR_THRUST_N)) return 'its thrust exceeds the 10,000,000 N limit';
   const flown = flownCurve(samples).samples;
+  if (!flown.some(p => p.thrust > 0)) return 'it has no positive thrust';
   return flown.length >= 2 && flown[flown.length - 1]!.time > 0
     && flown.every((p, i) => Number.isFinite(p.time) && (i === 0 || p.time > flown[i - 1]!.time))
     ? null : 'it needs at least two distinct, increasing time points and a positive duration';

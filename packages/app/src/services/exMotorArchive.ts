@@ -132,7 +132,7 @@ export function readArchivedExMotors(rocket: XmlElement, notes: string[]): Map<s
     const usable = value.filter(m => {
       const name = m.designation.slice(0, 160);
       if (validArchivedExMotor(m)) return true;
-      cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motor ${name} was not loaded: fewer than two distinct thrust points. Re-import its original .eng/.rse file.`);
+      cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motor ${name} was not loaded: fewer than two distinct thrust points, no positive thrust, or a captured CG outside the motor. Re-import its original .eng/.rse file.`);
       return false;
     });
     return new Map(usable.map(m => [m.motorId, m]));

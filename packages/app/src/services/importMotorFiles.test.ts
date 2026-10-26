@@ -120,7 +120,7 @@ it('round1 derives the byte refusal from the shared cap and never reads oversize
 
 const motorXml = (declaration = '') => `${declaration}<engine-database><engine code="E20" mfg="Créateur" dia="29" len="100" initWt="100" propWt="50"><data><eng-data t="0" f="0"/><eng-data t="1" f="40"/><eng-data t="2" f="0"/></data></engine></engine-database>`;
 
-it.each(['rse', 'txt'])('round2 uses motor wording for undecodable Windows-1252 XML in .%s', async extension => {
+it.each(['rse', 'eng'])('round2 uses motor wording for undecodable Windows-1252 XML in .%s', async extension => {
   const bytes = Uint8Array.from(motorXml().replace('</engine-database>', '<!-- 20° --></engine-database>'), ch => ch.charCodeAt(0));
   const out = await importMotorFiles([new File([bytes], `legacy.${extension}`)]);
   expect(out.error).toBeNull();
@@ -132,7 +132,7 @@ it.each(['rse', 'txt'])('round2 uses motor wording for undecodable Windows-1252 
 });
 
 it.each(['UTF-16LE', 'UTF-16BE', 'UTF-16LE-no-BOM', 'ISO-8859-1', 'UTF-8-BOM'])(
-  'round2 detects %s RockSim XML stored as .txt', async encoding => {
+  'round2 detects %s RockSim XML stored as .eng', async encoding => {
     const xml = motorXml(encoding === 'ISO-8859-1' ? '<?xml version="1.0" encoding="ISO-8859-1"?>' : '');
     let bytes: Uint8Array<ArrayBuffer>;
     if (encoding.startsWith('UTF-16')) {
@@ -150,7 +150,7 @@ it.each(['UTF-16LE', 'UTF-16BE', 'UTF-16LE-no-BOM', 'ISO-8859-1', 'UTF-8-BOM'])(
       bytes.set([0xef, 0xbb, 0xbf]);
       bytes.set(encoded, 3);
     }
-    const out = await importMotorFiles([new File([bytes], 'encoded.txt')]);
+    const out = await importMotorFiles([new File([bytes], 'encoded.eng')]);
     expect(out.error).toBeNull();
     expect(out.parsed[0]!.realManufacturer).toBe('Créateur');
     expect(out.noticeTier).toBe('information');

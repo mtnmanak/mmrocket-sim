@@ -1,6 +1,6 @@
 import type { NoteTier } from '../components/Note.js';
 import { addExMotors, parseMotorFile, type ExMotor } from './exMotors.js';
-import { EX_IMPORT_BYTES_NOTE, MAX_EX_IMPORT_BYTES } from './exMotorLimits.js';
+import { EX_IMPORT_BYTES_NOTE, EX_MOTOR_COUNT_NOTE, MAX_EX_IMPORT_BYTES, MAX_EX_IMPORT_FILES, MAX_EX_IMPORT_MOTORS, MAX_EX_SELECTION_BYTES } from './exMotorLimits.js';
 import { sessionDebugLog } from './sessionDebugLog.js';
 import { decodeXml } from './xmlUtil.js';
 
@@ -8,7 +8,19 @@ import { decodeXml } from './xmlUtil.js';
 export async function importMotorFiles(files: File[]) {
   sessionDebugLog.record('import-start');
   let notice: string | null = null;
-  const motorFiles = files.filter((f) => /\.(eng|rse|txt)$/i.test(f.name));
+  const matching = files.filter((f) => /\.(eng|rse)$/i.test(f.name));
+  matching.sort((a, b) => {
+    const x = a.webkitRelativePath || a.name, y = b.webkitRelativePath || b.name;
+    return x < y ? -1 : x > y ? 1 : 0;
+  });
+  const motorFiles = matching.slice(0, MAX_EX_IMPORT_FILES);
+  const skippedFiles = matching.length - motorFiles.length;
+  const selectionBytes = motorFiles.reduce((total, file) => total + (file.size <= MAX_EX_IMPORT_BYTES ? file.size : 0), 0);
+  if (selectionBytes > MAX_EX_SELECTION_BYTES) {
+    return { parsed: [], write: null, notice: null,
+      error: `Motor selection exceeds the limit of ${MAX_EX_IMPORT_FILES} files or ${MAX_EX_SELECTION_BYTES / (1024 * 1024)} MiB total; split it into smaller selections.`,
+      tier: 'information' as NoteTier, noticeTier: 'information' as NoteTier };
+  }
   if (motorFiles.length === 0) {
     sessionDebugLog.record('import-failed', new Error('No .eng or .rse files found in that selection.'));
     return {
@@ -20,6 +32,7 @@ export async function importMotorFiles(files: File[]) {
   const failed: string[] = [];
   /** What the parsers had to say about motors they DID import (a refused nozzle exit, …). */
   const said: string[] = [];
+  if (skippedFiles) said.push(`Skipped ${skippedFiles} motor files beyond the first ${MAX_EX_IMPORT_FILES} files in path order.`);
 
   for (const f of motorFiles) {
     try {
@@ -44,8 +57,9 @@ export async function importMotorFiles(files: File[]) {
       }
       if (decoded.note) notes.push(decoded.note.replace('Check the part and material names.', 'Check the motor and maker names.'));
       const motors = parseMotorFile(f.name, xml ? decoded.xml.trimStart() : decoded.xml, notes);
-      parsed.push(...motors);
-      said.push(...notes.map((n) => `${f.name}: ${n}`));
+      if (parsed.length + motors.length > MAX_EX_IMPORT_MOTORS) throw new Error(EX_MOTOR_COUNT_NOTE);
+      for (const motor of motors) parsed.push(motor);
+      for (const note of notes) said.push(`${f.name}: ${note}`);
     } catch (e) {
       sessionDebugLog.record('import-failed', e);
       failed.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
@@ -90,6 +104,7 @@ export async function importMotorFiles(files: File[]) {
   if (failed.length) {
     problems.push(`Skipped ${failed.length} file${failed.length === 1 ? '' : 's'} — ${failed.join(' · ')}`);
   }
+  if (!write && skippedFiles) notice = said.join(' ');
   const tier: NoteTier = parsed.length > 0 && (repaired || unsaved || failed.length > 0) ? 'caution' : 'information';
   // The part of that tier the NOTICE carries on its own (a repair it names):
   // what is left once something else replaces this import's error (review of

@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { gzipSync, zipSync } from 'fflate';
 import { worker } from './index.js';
-import { bytesOf, timeStepBody } from './fixtures.testSupport.js';
+import { bytesOf, secondaryBody, timeStepBody } from './fixtures.testSupport.js';
 import { simulateFile } from '../../app/src/headless/index.js';
 import { resetKernelForTests, withKernel } from '../../app/src/services/simulateDesign.js';
 import { DOMParser } from '@xmldom/xmldom';
@@ -13,6 +13,21 @@ afterEach(() => { vi.useRealTimers(); resetKernelForTests(); });
 const request = (body: Uint8Array | string, filename = 'test.ork', headers?: HeadersInit) =>
   new Request('http://local/experimental/fly?filename=' + filename, { method: 'POST', body: typeof body === 'string' ? body : new Uint8Array(body).buffer, headers });
 const ctx = { waitUntil: (_p: Promise<unknown>) => {} };
+
+it('reports an out-of-motor EX snapshot as an import refusal before installation', async () => {
+  const body = secondaryBody('refused');
+  const node = await simulateFile(body, 'refused.ork', { network: 'forbid', reportSeries: 'summary' });
+  expect(node.importNote.text).toContain('Embedded EX motor Bad-C6 was not loaded');
+  expect(node.build.motorFailures).toEqual([]);
+  const response = await worker.fetch(request(body, 'refused.ork'), undefined, ctx);
+  expect(response.status).toBe(200);
+  const result = await response.json() as { motorFailures: unknown[]; motors: { mount: string }[];
+    notes: { import: { text: string } } };
+  expect(result.notes.import.text).toContain('Embedded EX motor Bad-C6 was not loaded');
+  expect(result.motorFailures).toEqual([]);
+  expect(result.motors).toHaveLength(1);
+  expect(result.motors.some(m => m.mount === 'Secondary mount')).toBe(false);
+});
 
 it('refuses 9 MiB bodies and declared sizes above 8 MiB with app guidance', async () => {
   for (const input of [request(new Uint8Array(9 * 1024 * 1024)),
@@ -66,6 +81,11 @@ it.each([['ork', 'zip'], ['ork', 'gzip'], ['rkt', 'zip'], ['rkt', 'gzip'], ['CDX
 it.each([
   ['elements', '<x/>'.repeat(50_000)],
   ['depth', '<x>'.repeat(63) + '</x>'.repeat(63)],
+  ['comments', '<!---->'.repeat(200_000)],
+  ['processing instructions', '<?a?>'.repeat(200_000)],
+  ['text siblings', 'x<!---->'.repeat(100_000)],
+  ['CDATA siblings', '<![CDATA[x]]>'.repeat(200_000)],
+  ['attributes', '<x ' + Array.from({ length: 200_000 }, (_, i) => `a${i}=""`).join(' ') + '/>'],
 ])('refuses excessive XML %s before constructing any DOM', async (_kind, payload) => {
   const dom = vi.spyOn(DOMParser.prototype, 'parseFromString');
   try {

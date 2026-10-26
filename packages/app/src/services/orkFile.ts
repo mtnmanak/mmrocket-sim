@@ -41,7 +41,7 @@ import { knownIgnitionEvent } from './ignitionEvent.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
 import { sparsify } from './flightState.js';
 import { flownIgnition, flownSeparation } from './flightOverrideSummary.js';
-import { cautionNote, flagNote, noteFlags, type ImportNote } from './importNotes.js';
+import { cautionNote, flagNote, noteFlags, zeroBulkDensityNote, type ImportNote } from './importNotes.js';
 import type { NoteTier } from '../components/Note.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
@@ -398,7 +398,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   const doc = parseXml(xml, 'Not a valid .ork file (XML parse error)');
   // The lexical extension scan and version read require this root (audit 2026-10-11, S1a-5).
   if (doc.documentElement.tagName !== 'openrocket') throw new Error('Not a .ork file (root must be <openrocket>)');
-  const rocketEl = doc.querySelector('openrocket > rocket');
+  const rocketEl = Array.from(doc.documentElement.children).find(el => el.tagName === 'rocket');
   if (!rocketEl) throw new Error('Not a .ork file (missing <rocket>)');
   // Refuse before conversion and its per-part diagnostics (audit 2026-10-11, S1a-7).
   // Only component wrappers count: configuration <stage> flags and extension
@@ -535,9 +535,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     const field = el.querySelector(`:scope > ${tag}`);
     if (!field) return fallback;
     const raw = field.textContent ?? '';
-    const last = parseDecimal(raw.trim().split(/\s+/).pop()); // decimal only, as num() below
+    const last = parseDecimal(raw.trim().split(/\s+/).pop());
     if (Number.isFinite(last)) return last; // plain number, or `auto <lastvalue>`
-    if (!/^auto\b/i.test(raw.trim())) {
+    if (raw.trim().toLowerCase() !== 'auto') {
       // Desktop leaves malformed centreline radii automatic (audit 2026-10-11, S1a-4).
       invalidNumberNote(el, tag, notes, tag === 'packedradius' ? `using the default (${fallback})` : 'using an automatic radius');
       if (tag === 'packedradius') return fallback;
@@ -1005,7 +1005,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       }
       case 'bodytube': {
         const n = base('bodytube', false);
-        n['length'] = num(el, 'length', 0.3, notes);
+        n['length'] = num(el, 'length', 0.2, notes);
         // THE auto-radius bug: OpenRocket 15.03 writes a bare `auto` here and
         // num()'s trailing-token parse made that the 12 mm fallback, so a
         // 6-inch airframe imported as a pencil and carried ~3x the drag.
@@ -1016,7 +1016,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         if (text(el, ':scope > thickness') === 'filled') {
           n['filled'] = true;
         } else {
-          n['thickness'] = num(el, 'thickness', 0.0005, notes);
+          n['thickness'] = num(el, 'thickness', 0.002, notes);
         }
         readMotor(el, n);
         const mml = num(el, 'maxmotorlength', -1, notes);
@@ -1156,8 +1156,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       case 'tubecoupler': {
         const n = base('tubecoupler', true);
         readRadialPlacement(el, n, notes);
-        n['length'] = num(el, 'length', 0.05, notes);
-        n['thickness'] = num(el, 'thickness', 0.0005, notes);
+        n['length'] = num(el, 'length', 0.06, notes);
+        n['thickness'] = num(el, 'thickness', 0, notes);
         readRingRadii(el, n, notes);
         return n;
       }
@@ -1183,15 +1183,15 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         const n = base('engineblock', true);
         readRadialPlacement(el, n, notes);
         n['length'] = num(el, 'length', 0.005, notes);
-        n['thickness'] = num(el, 'thickness', kernelDefault('engineblock', 'thickness')!, notes);
+        n['thickness'] = num(el, 'thickness', 0, notes);
         readRingRadii(el, n, notes);
         return n;
       }
       case 'launchlug': {
         const n = base('launchlug', true);
-        n['length'] = num(el, 'length', 0.05, notes);
-        n['outerRadius'] = num(el, 'radius', 0.0022, notes);
-        n['thickness'] = num(el, 'thickness', 0.0003, notes);
+        n['length'] = num(el, 'length', 0.03, notes);
+        n['outerRadius'] = num(el, 'radius', 0.005, notes);
+        n['thickness'] = num(el, 'thickness', 0.001, notes);
         readMountAngle(el, n, notes);
         readInstances(el, n, notes);
         return n;
@@ -1347,15 +1347,13 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         n['instanceCount'] = Math.round(num(el, 'instancecount', 2, notes));
         const radEl = el.querySelector(':scope > radiusoffset');
         if (radEl) {
-          const rv = parseDecimal(radEl.textContent);
-          n['radiusOffset'] = Number.isFinite(rv) ? rv : 0; // metres, no conversion
+          n['radiusOffset'] = num(el, 'radiusoffset', 0, notes);
           n['radiusMethod'] = (radEl.getAttribute('method') ?? 'relative').toLowerCase() === 'free'
             ? 'free' : 'relative';
         }
         const angEl = el.querySelector(':scope > angleoffset');
         if (angEl) {
-          const av = parseDecimal(angEl.textContent);
-          n['angleOffset'] = (Number.isFinite(av) ? av : 0) * Math.PI / 180; // deg → rad, like cant
+          n['angleOffset'] = num(el, 'angleoffset', 0, notes) * Math.PI / 180;
           if (asmType === 'parallelstage') {
             n['angleMethod'] = (angEl.getAttribute('method') ?? 'relative').toLowerCase() === 'fixed'
               ? 'fixed' : 'relative';
@@ -1855,19 +1853,23 @@ const fmt6 = (v: number): string => String(Number(v.toPrecision(6)));
  * last direction stated; a negative speed with no direction after it is the
  * case where it is not (review of 2026-09-23).
  */
-function averageWindFromRad(condEl: XmlElement): number {
+function averageWindFromRad(condEl: XmlElement, notes: string[]): number {
   let dir = Math.PI / 2;
   const turn = (v: number) => { if (v < 0) dir += Math.PI; };
-  const set = (v: number) => { if (Number.isFinite(v)) dir = v; };
+  const set = (el: XmlElement) => {
+    const v = parseDecimal(el.textContent);
+    if (Number.isFinite(v)) dir = v;
+    else invalidNumberNote(el.parentElement!, el.tagName, notes, 'ignoring this direction and keeping the previous wind direction');
+  };
   for (const el of Array.from(condEl.children)) {
     const tag = el.tagName.toLowerCase();
     if (tag === 'windaverage') turn(parseDecimal(el.textContent));
-    else if (tag === 'winddirection') set(parseDecimal(el.textContent));
+    else if (tag === 'winddirection') set(el);
     else if (tag === 'wind' && el.getAttribute('model') === 'average') {
       for (const c of Array.from(el.children)) {
         const t = c.tagName.toLowerCase();
         if (t === 'speed') turn(parseDecimal(c.textContent));
-        else if (t === 'direction') set(parseDecimal(c.textContent));
+        else if (t === 'direction') set(c);
       }
     }
   }
@@ -1940,8 +1942,8 @@ function simulationForConfig(doc: XmlDocument, chosenConfigId?: string | null) {
   // standard ISA at 3 m while its default declares a 24 °C Florida afternoon,
   // worth 1.15 % of apogee. Match the configuration actually being opened, and
   // keep the first as the fallback for files that name no configid.
-  const simEls = Array.from(doc.documentElement.querySelectorAll(':scope > simulations > simulation'))
-    .filter(s => s.tagName === 'simulation' && s.parentElement?.tagName === 'simulations');
+  const block = Array.from(doc.documentElement.children).find(el => el.tagName === 'simulations');
+  const simEls = block ? Array.from(block.children).filter(s => s.tagName === 'simulation') : [];
   if (simEls.length > MAX_ORK_SIMULATIONS) {
     throw new Error(`This .ork file declares ${simEls.length.toLocaleString('en-US')} simulations, past the ${MAX_ORK_SIMULATIONS.toLocaleString('en-US')} the app will open. Reduce the simulations in OpenRocket and save it again.`);
   }
@@ -2064,11 +2066,12 @@ function readLaunchConditions(
   // wind) on a vertical rod — so no local file's flight moves.
   const iw = text(condEl, ':scope > launchintowind');
   const intoWind = iw === null || iw.trim().toLowerCase() === 'true';
+  const averageFrom = averageWindFromRad(condEl, notes);
   let aim = 0;
   if (!intoWind) {
     const rodDeg = num(condEl, 'launchroddirection', 90, notes);
     let windRad = profileFrom;
-    if (Number.isNaN(windRad)) windRad = averageWindFromRad(condEl);
+    if (Number.isNaN(windRad)) windRad = averageFrom;
     const a = canonicalRodAimDeg(rodDeg - (windRad * 180) / Math.PI);
     if (Number.isFinite(a)) aim = a;
   }
@@ -3238,10 +3241,10 @@ export function exportOrk({
         material(depth + 1, node);
         emit(depth + 1, `<radius>${numOpt(node, 'outerRadius') ?? 'auto'}</radius>`);
         emit(depth + 1, `<length>${n(node, 'length', 0.1)}</length>`);
-        const body = parent;
-        const bodyRadius = body ? n(body, 'outerRadius', 0.012) : 0.012;
-        const bodyWall = body?.['filled'] === true ? bodyRadius : body ? kernelNum(body, 'thickness') : undefined;
-        emit(depth + 1, `<thickness>${tubeFinWall(node, tubeFinRadius(node, bodyRadius), bodyWall)}</thickness>`);
+        emit(depth + 1, `<thickness>${parent?.type === 'bodytube'
+          ? tubeFinWall(node, tubeFinRadius(node, kernelNum(parent, 'outerRadius')),
+            kernelNum(parent, parent['filled'] === true ? 'outerRadius' : 'thickness'))
+          : tubeFinWall(node, n(node, 'outerRadius', 0.012))}</thickness>`);
         close('tubefinset');
         break;
       }
@@ -3905,7 +3908,7 @@ function readOverrides(el: XmlElement, node: ComponentNode, notes: string[]): vo
 
 /** Complete decimal grammar shared by ring nodes and packed-child sizing. */
 function ringRadiusNumber(value: string): number {
-  return parseDecimal(value.trim().replace(/^auto\s+/i, ''));
+  return parseDecimal(value);
 }
 
 /**
@@ -4081,7 +4084,8 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
     // way the neighbour's own node reads it.
     const ringRadius = (tag === 'outerradius' || tag === 'innerradius')
       && ['centeringring', 'bulkhead', 'tubecoupler', 'engineblock'].includes(el.tagName);
-    const v = ringRadius ? ringRadiusNumber(t) : parseDecimal(t.trim().split(/\s+/).pop());
+    const automatic = SYMMETRIC_TAGS.has(el.tagName) && ['radius', 'aftradius', 'foreradius'].includes(tag);
+    const v = ringRadius ? ringRadiusNumber(t) : parseDecimal(automatic ? t.trim().split(/\s+/).pop() : t);
     return Number.isFinite(v) ? v : null;
   };
 
@@ -4187,7 +4191,7 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
       const b = bodyTube(tube);
       return b > 0 ? b : DEFAULT_AUTO_RADIUS;
     }));
-    const wall = dimension(tube, 'thickness', stated(tube, 'thickness') ?? 0.0005);
+    const wall = dimension(tube, 'thickness', stated(tube, 'thickness') ?? 0.002);
     return r > 0 ? Math.max(r - wall, 0) : UNRESOLVED;
   };
   /**
@@ -4205,7 +4209,10 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
   const ringBore = (ring: XmlElement): number => {
     let wall = 0;
     for (let el: XmlElement | null = ring; el; ) {
-      wall += dimension(el, 'thickness', stated(el, 'thickness') ?? kernelDefault(el.tagName, 'thickness') ?? 0.0005);
+      // An omitted wall is read exactly as the importer reads it: 0 for a coupler or engine block (desktop OR's
+      // constructor wall, clamped to the 0 outer radius it has before any parent), else the kernel default.
+      const omitted = el.tagName === 'engineblock' || el.tagName === 'tubecoupler' ? 0 : kernelDefault(el.tagName, 'thickness') ?? 0.0005;
+      wall += dimension(el, 'thickness', stated(el, 'thickness') ?? omitted);
       const outer = stated(el, 'outerradius') ?? (el.tagName === 'innertube' ? 0.0095 : null);
       if (outer !== null) return Math.max(dimension(el, 'outerRadius', outer) - wall, 0);
       const host: XmlElement | null = el.parentElement?.parentElement ?? null;
@@ -4263,7 +4270,7 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
  */
 function readAutoCd(el: XmlElement, node: ComponentNode, notes: string[]): void {
   const t = text(el, ':scope > cd');
-  if (t === null || /^auto\b/i.test(t)) return;
+  if (t === null || /^auto$/i.test(t)) return;
   const v = parseDecimal(t);
   if (Number.isFinite(v) && v >= 0) node['cd'] = v;
   else invalidNumberNote(el, 'cd', notes);
@@ -4295,8 +4302,8 @@ function num(el: XmlElement, tag: string, fallback: number, notes: string[]): nu
   // Other automatic dimensions use autoDim/autoNum; tube fins leave bare
   // auto to the kernel. Ordinary numeric fields must be one decimal value.
   const automatic = el.tagName === 'tubefinset' && tag === 'radius';
-  if (automatic && t === 'auto') return fallback;
-  const v = parseDecimal(automatic ? t.replace(/^auto\s+/, '') : t);
+  if (automatic && t.toLowerCase() === 'auto') return fallback;
+  const v = parseDecimal(t);
   if (Number.isFinite(v)) return v;
   const label = text(el, ':scope > name') ?? el.tagName;
   const note = `“${label}”: invalid <${tag}> value; ${Number.isFinite(fallback) ? `using the default (${fallback})` : 'the value was not used'}.`;
@@ -4309,6 +4316,11 @@ function matDensity(el: XmlElement, notes: string[]): number | undefined {
   if (!m || m.getAttribute('type') !== 'bulk') return undefined;
   const d = parseDecimal(m.getAttribute('density'));
   if (m.hasAttribute('density') && !(Number.isFinite(d) && d >= 0)) invalidNumberNote(el, 'material density', notes);
+  if (d === 0 && !Number.isFinite(parseDecimal(text(el, ':scope > overridemass')))
+    && !['podset', 'parallelstage', 'boosterset', 'parachute', 'streamer', 'shockcord',
+    'masscomponent', 'fairing', 'protuberance'].includes(el.tagName)) {
+    zeroBulkDensityNote(notes, text(el, ':scope > name') ?? el.tagName);
+  }
   return Number.isFinite(d) && d > 0 ? d : undefined;
 }
 
@@ -4406,6 +4418,10 @@ function readFillet(el: XmlElement, node: ComponentNode, notes: string[]): void 
   if (!m) return;
   const d = parseDecimal(m.getAttribute('density'));
   if (Number.isFinite(d) && d > 0) node['filletDensity'] = d;
+  else if (d === 0) {
+    if (r > 0 && numOpt(node, 'overrideMass') === undefined) zeroBulkDensityNote(notes, `${text(el, ':scope > name') ?? el.tagName} fillets`);
+  }
+  else if (m.hasAttribute('density')) invalidNumberNote(el, 'filletmaterial density', notes, 'using the default fillet density (680 kg/m³), which changes fin mass');
   const group = m.getAttribute('group');
   if (group) node['filletMaterialGroup'] = group;
   const name = (m.textContent ?? '').trim();
@@ -4479,6 +4495,7 @@ function readFinTabs(el: XmlElement, node: ComponentNode, notes: string[]): void
       : 'middle';
     node['tabOffsetMethod'] = method;
     const v = parseDecimal(last.textContent);
+    if (!Number.isFinite(v)) invalidNumberNote(el, 'tabposition', notes, 'using the default (0)');
     node['tabOffset'] = Number.isFinite(v) ? v : 0;
   }
 }

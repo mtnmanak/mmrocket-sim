@@ -38,8 +38,10 @@ it('reads an omitted engine-block wall and its automatic packing cavity consiste
     </subcomponents></bodytube>
   </subcomponents></stage></subcomponents></rocket></openrocket>`);
   const parts = flatten(loaded.tree.components);
-  expect(parts.find(n => n.type === 'engineblock')!['thickness']).toBeCloseTo(0.00095, 12);
-  expect(parts.find(n => n.name === 'Packing probe')!['radius']).toBeCloseTo(0.01 - 0.00095, 12);
+  // Desktop OR's EngineBlock() clamps its 5 mm wall to the 0 outer radius it has before any parent (EngineBlock.java:15;
+  // ThicknessRingComponent.setThickness, :89-91), so an omitted <thickness> reads as 0 and the cavity is the full bore.
+  expect(parts.find(n => n.type === 'engineblock')!['thickness']).toBe(0);
+  expect(parts.find(n => n.name === 'Packing probe')!['radius']).toBeCloseTo(0.01, 12);
 });
 
 it.each([5, undefined])('S7a-g1 retains working mass %s and an unnamed motorless configuration', overrideMass => {
@@ -3925,8 +3927,8 @@ describe('.ork numeric field syntax', () => {
 
   it.each(['garbage 0.5', '1 2', 'auto 0.5', 'garbage', '0x10', ''])('defaults and reports invalid length %j', value => {
     const result = importOrk(tube(value));
-    expect(firstStageChildren(result)[0]!['length']).toBeCloseTo(0.3, 12);
-    expect(result.notes.join(' ')).toMatch(/Tube.*invalid <length> value.*default \(0.3\)/);
+    expect(firstStageChildren(result)[0]!['length']).toBeCloseTo(0.2, 12);
+    expect(result.notes.join(' ')).toMatch(/Tube.*invalid <length> value.*default \(0.2\)/);
   });
 
   it.each(['0.5', ' 5e-1 '])('keeps a decimal length %j and automatic radius suffix', value => {

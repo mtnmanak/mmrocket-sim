@@ -21,7 +21,7 @@ import {
   deleteExMotor, exToDbEntry, loadExMotors,
 } from '../services/exMotors.js';
 import {
-  bundledFiles, defaultDelay, delayOptions, fetchMotorSpec, headerMasses, pickSampleFile,
+  bundledFiles, defaultDelay, delayOptions, fetchMotorSpec, headerMasses, knownNoPublishedCurve, pickSampleFile,
 } from '../services/thrustcurve.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { siToUi } from '../prefs/units.js';
@@ -318,7 +318,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     const need = catalogue.filter((m) => !hasMassData(m));
     void Promise.all(need.map(async (m) => {
       try {
-        const file = pickSampleFile(await bundledFiles(m.motorId), m);
+        const files = await bundledFiles(m.motorId);
+        if (!files.length && !await knownNoPublishedCurve(m.motorId)) return m.motorId;
+        const file = pickSampleFile(files, m);
         return file && headerMasses(file) ? m.motorId : null;
       } catch {
         // A missing chunk is unknown evidence. Let Load try the network;
@@ -329,7 +331,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       if (live) setMassLoadable(new Set(ids.filter((id): id is string => id !== null)));
     });
     return () => { live = false; };
-  }, [catalogue]);
+  }, [catalogue, overlay?.fetchedAt]);
 
   const fittingClasses = useMemo(
     () => classesFittingMount(mountDiameterMm, allMotors),
@@ -734,7 +736,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                   e.target.value = '';
                 }} />
             </label>
-            <label className="file-btn" title="Pick the folder where you keep your EX motor files — every .eng/.rse inside is added to the library in one go">
+            <label className="file-btn" title="Pick your EX motor folder: imports up to 1,000 .eng/.rse files in path order, within file and total size limits; reports any skipped files">
               📁 Import EX folder
               <input type="file" className="file-btn-input"
                 aria-label="Import every EX motor file in a folder"

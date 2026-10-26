@@ -79,6 +79,14 @@ const base = (over: Partial<FlightDataForExportInput> = {}): FlightDataForExport
 const ids = (over: Partial<FlightDataForExportInput> = {}) =>
   Object.keys(flightDataForExport(base(over)));
 
+it.each(['constructor', 'toString', '__proto__'])('ignores inherited Auto delays for mount %s', id => {
+  const motor = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } };
+  const assigned: [string, MountMotor][] = [[id, motor]];
+  const runs = [{ ...RUN, motorDataKey: motorDataKeyOf(assigned), delayResolution: testResolution(assigned, [7]) }];
+  const input = base({ assigned, mountIds: [id], runs, savedConfigs: [{ ...CONFIG, motors: { [id]: motor } }] });
+  expect(Object.keys(flightDataForExport(input, { c1: {} }))).toEqual(['c1']);
+});
+
 describe('Round 2 atmosphere export provenance', () => {
   it.each([['0.178', false], ['0.179', true]] as const)('uses dated v6 Auto delay evidence from app %s', (appVersion, accepted) => {
     const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } };

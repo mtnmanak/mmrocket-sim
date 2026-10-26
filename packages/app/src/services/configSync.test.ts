@@ -87,6 +87,32 @@ it.each(['__proto__', 'constructor', 'toString'])('keeps every own id while clea
 });
 
 describe('configuration editing', () => {
+  it('retains owned __proto__ entries while updating configuration mass and nozzle maps', () => {
+    const tree: RocketTree = { components: [{ type: 'stage', id: '__proto__', overrideMass: 2, nozzleExitDiameter: 0.02 }] };
+    const configs: SavedConfig[] = [{ id: 'A', name: null, isDefault: true, motors: {},
+      stageMassOverrides: { ['__proto__']: {} }, nozzles: { ['__proto__']: null } }];
+    const updated = withActiveConfigTreeSynced(configs, 'A', tree)[0]!;
+    expect(updated.stageMassOverrides).toEqual({ ['__proto__']: { overrideMass: 2 } });
+    expect(updated.nozzles).toEqual({ ['__proto__']: 0.02 });
+  });
+  it.each(['constructor', 'toString', 'valueOf', '__proto__'])('restores an unmatched %s reference with no owned motor', id => {
+    const reference = ref('Missing');
+    expect(restoreUnmatchedRefs([], null, {}, { [id]: reference })).toEqual({ [id]: reference });
+  });
+  it('retains __proto__ motors and unmatched references when clearing pad mass', () => {
+    const loaded = motor('C6', 5);
+    const reference = ref('Missing');
+    const motors = stripPadMass({ ['__proto__']: loaded, other: { ...loaded, padMassKg: 1 } });
+    const refs = stripRefPadMass({ ['__proto__']: reference, other: { ...reference, padMassKg: 1 } });
+    expect(Object.hasOwn(motors, '__proto__')).toBe(true);
+    expect(Object.hasOwn(refs, '__proto__')).toBe(true);
+    expect(motors['__proto__']).toEqual(loaded);
+    expect(refs['__proto__']).toEqual(reference);
+  });
+  it.each(['constructor', 'toString', 'valueOf', '__proto__'])('does not create an empty loaded configuration for inherited mount %s', id => {
+    const tree: RocketTree = { components: [{ type: 'stage', children: [{ type: 'innertube', id, motorMount: true }] }] };
+    expect(createLoadedConfig({ tree, savedConfigs: [], activeConfigId: null, mountMotors: {}, unmatchedRefs: {} })).toBeNull();
+  });
   const working = () => {
     const tree = twoStage();
     Object.assign(tree.components[0]!, { nozzleExitDiameter: 0.012, overrideMass: 2.5, overrideCGX: 0.4 });
