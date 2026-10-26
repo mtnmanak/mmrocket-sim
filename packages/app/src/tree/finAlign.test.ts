@@ -25,6 +25,13 @@ const straight = (params: Record<string, unknown> = {}): ComponentNode => ({
 } as ComponentNode);
 
 describe('autoAlignFinSets (issue 2026-08-05e: one-click interleave)', () => {
+  it('E3 leaves the whole design alone when alignment exceeds its work budget', () => {
+    const input = tree(Array.from({ length: 60 }, (_, i) => straight({ id: `f${i}`, finCount: 8 })));
+    const result = autoAlignFinSets(input);
+    expect(result.tree === input).toBe(true);
+    expect(result.changes).toEqual([]);
+    expect(result).toHaveProperty('caution', expect.stringMatching(/too many.*fin sets|too much.*work/i));
+  }, 30_000);
   it('rotates 3 straight fins between 6 tube fins (Ultra Neon case) — 30°', () => {
     const res = autoAlignFinSets(tree([tubes(), straight()]));
     expect(res.changes.length).toBe(1);

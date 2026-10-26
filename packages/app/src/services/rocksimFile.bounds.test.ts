@@ -1,8 +1,226 @@
 // @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest';
-import { importRkt, MAX_RKT_SIMULATION_RECORDS } from './rocksimFile.js';
+import { exportRkt, importRkt, MAX_RKT_SIMULATION_RECORDS } from './rocksimFile.js';
+import { exportOrk, importOrk } from './orkFile.js';
+import type { ComponentNode } from '@online-openrocket/engine';
+import { indexRocksimMotors, MAX_RKT_SERIAL_CHARACTERS, MAX_RKT_SERIAL_LENGTH, MAX_RKT_SERIAL_RECORDS } from './rocksimMotorEvidence.js';
+import { noteFlags } from './importNotes.js';
+import { parseXml } from './xmlParse.js';
 import * as nodeNumbers from '../tree/nodeNum.js';
 import { currentXmlParser, setXmlParser } from './xmlParse.js';
+import * as sanitize from '../tree/sanitize.js';
+
+// Inject only the budget. The refusal retains sanitize.ts's real count,
+// message and Error name; conversion and reconstruction stay real.
+function withPartBudget(limit: number, run: () => void): void {
+  const limits: { readonly MAX_DESIGN_PARTS: number } = sanitize;
+  const budget = vi.spyOn(limits, 'MAX_DESIGN_PARTS', 'get').mockReturnValue(limit);
+  const refusal = vi.spyOn(sanitize, 'refuseTooManyParts').mockImplementation(nodes => {
+    const parts = sanitize.countParts(nodes);
+    if (parts <= limit) return;
+    const error = new Error(`This design has ${parts.toLocaleString('en-US')} parts, past the `
+      + `${limit.toLocaleString('en-US')} the app will open. Desktop OR has no such limit.`);
+    error.name = sanitize.TOO_MANY_PARTS_ERROR_NAME;
+    throw error;
+  });
+  try { run(); } finally { refusal.mockRestore(); budget.mockRestore(); }
+}
+
+it('E3 disables serial evidence for nested and oversized fields', () => {
+  const doc = parseXml(`<RockSimDocument><Design><BodyTube><SerialNo>7</SerialNo></BodyTube>
+    <Future><SerialNo>bad<SerialNo>nested</SerialNo></SerialNo></Future>
+    <BodyTube><SerialNo>${'x'.repeat(257)}</SerialNo></BodyTube></Design></RockSimDocument>`, 'bad');
+  const notes: string[] = [];
+  const index = indexRocksimMotors(doc, doc.querySelector('Design')!, new Map(), notes);
+  expect(index.mountsBySerial.size).toBe(0);
+  expect(noteFlags(notes)).toEqual([expect.objectContaining({ tier: 'caution', text: expect.stringMatching(/motor.*checks/i) })]);
+});
+
+it('E3 never reads descendant text from a nested serial field', () => {
+  const doc = parseXml('<Design><BodyTube><SerialNo>outer<SerialNo>inner</SerialNo></SerialNo></BodyTube></Design>', 'bad');
+  const serial = doc.querySelector('SerialNo')!;
+  Object.defineProperty(serial, 'textContent', { get: () => { throw new Error('descendant read'); } });
+  const notes: string[] = [];
+  expect(indexRocksimMotors(doc, doc.documentElement, new Map(), notes).mountsBySerial.size).toBe(0);
+  expect(noteFlags(notes)[0]?.tier).toBe('caution');
+});
+
+it('E3 drops all serial evidence when a nested field could conceal a duplicate', () => {
+  const doc = parseXml('<Design><BodyTube><SerialNo>7</SerialNo></BodyTube>'
+    + '<Future><SerialNo>7<SerialNo/></SerialNo></Future></Design>', 'bad');
+  const notes: string[] = [];
+  expect(indexRocksimMotors(doc, doc.documentElement, new Map(), notes).mountsBySerial.has('7')).toBe(false);
+  expect(noteFlags(notes)[0]?.tier).toBe('caution');
+});
+
+it.each(['records', 'characters'] as const)('E3 permits the serial %s budget and drops the entire index above it', budget => {
+  const length = budget === 'characters' ? MAX_RKT_SERIAL_LENGTH : 1;
+  const count = budget === 'characters' ? MAX_RKT_SERIAL_CHARACTERS / length : MAX_RKT_SERIAL_RECORDS;
+  const field = `<BodyTube><SerialNo>${'x'.repeat(length)}</SerialNo></BodyTube>`;
+  for (const extra of [0, 1]) {
+    const doc = parseXml(`<Design>${field.repeat(count + extra)}</Design>`, 'bad');
+    const notes: string[] = [];
+    const result = indexRocksimMotors(doc, doc.documentElement, new Map(), notes);
+    expect(result.mountsBySerial.size).toBe(extra ? 0 : 1);
+    expect(noteFlags(notes).length).toBe(extra);
+  }
+});
+
+it('E3 warns in both export passes when expanded RockSim parts cannot reopen', () => {
+  const mass = Array.from({ length: 62 }, (_, i) => ({ type: 'masscomponent', id: `m${i}`, mass: 0.001 } as ComponentNode));
+  const tree = { components: [{ type: 'stage', children: [{ type: 'bodytube', length: 1, outerRadius: 0.05,
+    children: [{ type: 'podset', instanceCount: 32, radiusOffset: 0.1, children: [
+      { type: 'bodytube', length: 0.5, outerRadius: 0.02, children: mass },
+    ] }],
+  }] } as ComponentNode] };
+  for (const dryRun of [true, false]) {
+    const notes: string[] = [];
+    exportRkt({ name: 'Expanded', tree, notes, dryRun });
+    expect(notes).toContainEqual(expect.stringMatching(/2,050.*parts.*cannot reopen.*\.ork/i));
+  }
+});
+
+it.each([true, false])('E3 warns that neither format reopens a 2,001-part design with dryRun=%s', dryRun => {
+  const tree = { components: [{ type: 'stage', children: [
+    { type: 'bodytube', length: 1, outerRadius: 0.05,
+      children: Array.from({ length: 1999 }, () => ({ type: 'masscomponent', mass: 0.001 })) },
+  ] } as ComponentNode] };
+  expect(sanitize.countParts(tree.components)).toBe(2001);
+  const notes: string[] = [];
+  const xml = exportRkt({ name: 'Over opening limit', tree, notes, dryRun });
+  if (!dryRun) {
+    // 2,000 emitted parts plus the stage: no pod, cluster or extension expansion.
+    expect(xml.match(/<SerialNo>/g)).toHaveLength(2000);
+    expect(() => importRkt(xml)).toThrow(/2,001 parts, past the 2,000/);
+    expect(() => importOrk(exportOrk({ name: 'Over opening limit', tree }))).toThrow(/more than 2,000 parts/);
+  }
+  expect(notes).toContainEqual(expect.stringMatching(
+    /design has 2,001 parts.*2,000.*neither \.rkt nor \.ork.*reopen.*remove parts/i,
+  ));
+  expect(notes.join('\n')).not.toMatch(/expands to|Save as \.ork to keep a file the app can reopen/i);
+}, 60_000);
+
+it.each([[1, true], [1, false], [32, true], [32, false]] as const)(
+  'E3 counts folded base extensions in %s copies with dryRun=%s', (copies, dryRun) => {
+    withPartBudget(copies === 1 ? 20 : 66, () => {
+      const cone = { type: 'nosecone', id: 'cone', length: 0.1, aftRadius: 0.02, thickness: 0.001,
+        children: [] } as ComponentNode;
+      const extension = { type: 'bodytube', id: 'ext', length: 0.05, outerRadius: 0.02,
+        thickness: 0.001, rktBaseExtension: true } as ComponentNode;
+      const tree = { components: [{ type: 'stage', children: [
+        ...(copies === 1 ? [cone, extension] : []),
+        { type: 'bodytube', length: 1, outerRadius: 0.05, children: [
+          { type: 'podset', instanceCount: copies === 1 ? 2 : copies, radiusOffset: 0.1,
+            children: copies === 1
+              ? [{ type: 'bodytube', length: 0.5, outerRadius: 0.02 }]
+              : [cone, extension] },
+          ...(copies === 1 ? Array.from({ length: 13 }, () => ({ type: 'masscomponent', mass: 0.001 })) : []),
+        ] },
+      ] } as ComponentNode] };
+      const count = copies === 1 ? '21' : '98';
+      const notes: string[] = [];
+      const xml = exportRkt({ name: 'Folded extension', tree, notes, dryRun });
+      if (!dryRun) {
+        const doc = parseXml(xml, 'bad');
+        expect(doc.querySelectorAll('SerialNo')).toHaveLength(copies === 1 ? 19 : 65);
+        expect([...doc.querySelectorAll('BaseExtensionLen')].filter(el => Number(el.textContent) > 0)).toHaveLength(copies);
+        expect(() => importRkt(xml)).toThrow(new RegExp(`${count} parts`));
+      }
+      expect(notes).toContainEqual(expect.stringMatching(new RegExp(`${count}.*parts.*cannot reopen.*\\.ork`, 'i')));
+    });
+  });
+
+it.each([[6, 0.05], [7, 1e-6], [7, 0]])(
+  'E3 allows reopenable folded extensions with %s masses and length %s m', (masses, length) => {
+    withPartBudget(10, () => {
+      const tree = { components: [{ type: 'stage', children: [
+        { type: 'nosecone', id: 'cone', length: 0.1, aftRadius: 0.02, thickness: 0.001 },
+        { type: 'bodytube', length, outerRadius: 0.02, thickness: 0.001, rktBaseExtension: true },
+        { type: 'bodytube', length: 0.5, outerRadius: 0.02,
+          children: Array.from({ length: masses }, () => ({ type: 'masscomponent', mass: 0.001 })) },
+      ] } as ComponentNode] };
+      for (const dryRun of [true, false]) {
+        const notes: string[] = [];
+        const xml = exportRkt({ name: 'At limit', tree, notes, dryRun });
+        expect(notes.join('\n')).not.toMatch(/cannot reopen/);
+        if (!dryRun) expect(sanitize.countParts(importRkt(xml).tree.components)).toBe(10);
+      }
+    });
+  });
+
+// Keep the reviewer's exact 2,000-part initial count here. The smaller-budget
+// cases above cover the same extension boundaries cheaply. This round trip
+// takes several seconds under load; its timeout follows the ORK heavy tests.
+it.each([true, false])('E3 allows the exact cluster and extension counterexample to reopen with dryRun=%s', dryRun => {
+  const tree = { components: [{ type: 'stage', children: [
+    { type: 'nosecone', id: 'cone', length: 0.1, aftRadius: 0.02, thickness: 0.001 },
+    { type: 'bodytube', length: 0.05, outerRadius: 0.02, thickness: 0.001, rktBaseExtension: true },
+    { type: 'bodytube', length: 0.5, outerRadius: 0.02, children: [
+      ...Array.from({ length: 1994 }, () => ({ type: 'masscomponent', mass: 0.001 })),
+      { type: 'innertube', length: 0.2, outerRadius: 0.005, thickness: 0.001, cluster: '3-ring' },
+    ] },
+  ] } as ComponentNode] };
+  const notes: string[] = [];
+  const xml = exportRkt({ name: 'Cluster and extension', tree, notes, dryRun });
+  if (!dryRun) {
+    expect(xml.match(/<SerialNo>/g)).toHaveLength(1999);
+    const reopened = importRkt(xml);
+    expect(sanitize.countParts(reopened.tree.components)).toBe(1999);
+    expect(reopened.notes.join('\n')).toMatch(/one 3-ring cluster/);
+  }
+  expect(notes.join('\n')).not.toMatch(/cannot reopen/);
+}, 60_000);
+
+it.each([true, false])('E3 keeps the initial and unmerged cluster limits with dryRun=%s', dryRun => {
+  withPartBudget(10, () => {
+    for (const kind of ['initial', 'unmerged', 'separate'] as const) {
+      const tube = { type: 'innertube', length: 0.2, outerRadius: 0.005, thickness: 0.001 };
+      const tree = { components: [{ type: 'stage', children: [
+        { type: 'nosecone', id: 'cone', length: 0.1, aftRadius: 0.02, thickness: 0.001 },
+        { type: 'bodytube', length: 0.05, outerRadius: 0.02, thickness: 0.001, rktBaseExtension: true },
+        { type: 'bodytube', length: 0.5, outerRadius: 0.02, children: [
+          ...Array.from({ length: kind === 'unmerged' ? 2 : 5 }, () => ({ type: 'masscomponent', mass: 0.001 })),
+          ...(kind === 'separate' ? [
+            { ...tube, radialPosition: 0.005, radialDirection: 0 },
+            { ...tube, radialPosition: 0.005, radialDirection: Math.PI },
+          ] : [{ ...tube, cluster: '3-ring' }]),
+          ...(kind === 'unmerged' ? [{ ...tube }, { ...tube }] : []),
+        ] },
+      ] } as ComponentNode] };
+      const notes: string[] = [];
+      const xml = exportRkt({ name: kind, tree, notes, dryRun });
+      if (kind === 'separate') {
+        expect(notes.join('\n')).not.toMatch(/cannot reopen/);
+        if (!dryRun) expect(sanitize.countParts(importRkt(xml).tree.components)).toBe(10);
+      } else {
+        expect(notes.join('\n')).toMatch(/11 parts.*cannot reopen/);
+        if (!dryRun) expect(() => importRkt(xml)).toThrow(/11 parts, past the 10/);
+      }
+    }
+  });
+});
+
+it.each([true, false])('E3 reports the reader count after cluster merging and extension refusal with dryRun=%s', dryRun => {
+  withPartBudget(11, () => {
+    const tree = { components: [{ type: 'stage', children: [
+      { type: 'bodytube', length: 0.5, outerRadius: 0.03, children: [
+        { type: 'innertube', length: 0.2, outerRadius: 0.005, thickness: 0.001, cluster: '3-ring' },
+        { type: 'podset', instanceCount: 3, radiusOffset: 0.1, children: [
+          { type: 'nosecone', id: 'pod-cone', length: 0.1, aftRadius: 0.02, thickness: 0.001 },
+          { type: 'bodytube', id: 'pod-extension', length: 0.05, outerRadius: 0.02, thickness: 0.001, rktBaseExtension: true },
+        ] },
+      ] },
+    ] } as ComponentNode] };
+    const notes: string[] = [];
+    const xml = exportRkt({ name: 'Cluster merge then extensions', tree, notes, dryRun });
+    if (!dryRun) {
+      expect(xml.match(/<SerialNo>/g)).toHaveLength(10);
+      expect(() => importRkt(xml)).toThrow(/12 parts, past the 11/);
+    }
+    expect(notes.join('\n')).toMatch(/12 parts.*cannot reopen/);
+    expect(notes.join('\n')).not.toMatch(/14 parts/);
+  });
+});
 
 // Count the real node reads, including each grouping/de-collision comparison,
 // rather than timing the machine (audit 2026-10-11, S1b-3).
@@ -135,7 +353,7 @@ describe('S1b-g2 bounds raw RockSim simulation work before folding', () => {
       let scans = 0;
       setXmlParser(xml => {
         const doc = parser(xml);
-        const mount = doc.querySelector('Junk')!;
+        const mount = doc.querySelector('Ring')!;
         const query = mount.querySelector.bind(mount);
         vi.spyOn(mount, 'querySelector').mockImplementation(selector => {
           queries++;
@@ -145,8 +363,8 @@ describe('S1b-g2 bounds raw RockSim simulation work before folding', () => {
         Object.defineProperty(mount, 'children', { configurable: true, get: () => { scans++; return children; } });
         return doc;
       });
-      const junk = `<Junk><SerialNo>9</SerialNo>${'<Pad/>'.repeat(1500)}${present ? '<ID>18</ID>' : ''}<IsMotorMount>1</IsMotorMount></Junk>`;
-      const result = importRkt(file(sim(engine.replace('<MountSerialNo>7', '<MountSerialNo>9')).repeat(count), junk));
+      const ring = `<Ring><SerialNo>9</SerialNo>${'<Pad/>'.repeat(1500)}${present ? '<ID>18</ID>' : ''}<IsMotorMount>1</IsMotorMount></Ring>`;
+      const result = importRkt(file(sim(engine.replace('<MountSerialNo>7', '<MountSerialNo>9')).repeat(count), ring));
       expect(result.configs).toHaveLength(1);
       expect(Object.values(result.motors)[0]!.matchContext?.mountBoreMm).toBeUndefined();
       return { queries, scans };

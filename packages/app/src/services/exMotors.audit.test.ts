@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from 'vitest';
-import { exToDbEntry, exToMotorSpec, loadExMotorIdentities, loadExMotors, parseEng, parseRse } from './exMotors.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { exToDbEntry, exToMotorSpec, loadExMotorIdentities, loadExMotors, parseEng, parseRse, restoreExMotors } from './exMotors.js';
 import { validArchivedExMotor } from './exMotorArchive.js';
 import { matchingExMotors, matchImportedMotor } from './motorMatch.js';
 import { applyOpenMotorChoices } from './openMotorChoices.js';
@@ -9,6 +9,21 @@ import type { OrkMotorRef } from './orkFile.js';
 const eng = 'E20 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0';
 const motor = () => parseEng(eng)[0]!;
 afterEach(() => localStorage.clear());
+
+it('E3 serializes archived EX identities once per definition', () => {
+  const added = Array.from({ length: 128 }, (_, i) => ({ ...motor(), motorId: `ex:m${i}`, designation: `M${i}` }));
+  const original = JSON.stringify;
+  let identities = 0;
+  const spy = vi.spyOn(JSON, 'stringify').mockImplementation((...args: Parameters<typeof JSON.stringify>) => {
+    if (Array.isArray(args[0]) && typeof args[0][0] === 'string') identities++;
+    return original(...args);
+  });
+  try {
+    const restored = restoreExMotors(added, []);
+    expect(restored.size).toBe(128);
+    expect(identities).toBeLessThanOrEqual(128);
+  } finally { spy.mockRestore(); }
+});
 
 describe('S1c-5 integration: saved identity is separate from loadable flight data', () => {
   it('retains legacy makers without admitting their rejected curves or leaking flight fields', () => {

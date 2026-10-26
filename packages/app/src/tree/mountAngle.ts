@@ -236,6 +236,24 @@ export interface RailFinding {
 
 export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
   const out: RailFinding[] = [];
+  const seen = new Set<string>();
+  let comparisons = 0;
+  let characters = 0;
+  let limited = false;
+  // Corpus whole-design upper bound: 144 comparisons (including assemblies).
+  const canCompare = () => {
+    if (++comparisons > 100_000 || out.length >= 1000) limited = true;
+    return !limited;
+  };
+  const canReport = (...names: string[]) => {
+    // Reserve more than the fixed sentence and summary before copying names.
+    characters += 512 + names.reduce((n, name) => n + name.length, 0);
+    if (characters > 1024 * 1024) limited = true;
+    return !limited;
+  };
+  const addFinding = (finding: RailFinding) => {
+    if (!seen.has(finding.text)) { seen.add(finding.text); out.push(finding); }
+  };
   // ASSEMBLIES BELONG HERE, and they are the biggest things on the list. A pod
   // set or a parallel booster hangs off the airframe at its own `angleOffset`
   // in the PARENT's frame — collectFrame pushes the assembly NODE into
@@ -266,6 +284,7 @@ export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
   });
 
   const checkFrame = (roots: ComponentNode[]) => {
+    if (limited) return;
     // The SAME frame walker the snap buttons use — see collectFrame.
     const { members, assemblies } = collectFrame(roots);
     const frame = {
@@ -308,16 +327,20 @@ export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
     // lost its name.
     for (const b of frame.buttons) {
       for (const f of frame.fins) {
+        if (!canCompare()) return;
         const g = angleGap(b.angle, f.angle);
         if (g <= IN_LINE_TOLERANCE) {
-          out.push({ text: `"${b.name}" at ${deg(b.angle)} is in line with a fin of "${f.owner}" (${deg(g)} apart) — the rail runs down that line, so the fin fouls it. Move one of them.`,
+          if (!canReport(b.name, f.owner)) return;
+          addFinding({ text: `"${b.name}" at ${deg(b.angle)} is in line with a fin of "${f.owner}" (${deg(g)} apart) — the rail runs down that line, so the fin fouls it. Move one of them.`,
             parts: [{ id: b.id, name: b.name }, { id: f.id, name: f.owner }] });
         }
       }
       for (const o of frame.others) {
+        if (!canCompare()) return;
         const g = angleGap(b.angle, o.angle);
         if (g <= IN_LINE_TOLERANCE) {
-          out.push({ text: `"${b.name}" at ${deg(b.angle)} is in line with "${o.name}" (${deg(g)} apart) — both sit on the rail's line.`,
+          if (!canReport(b.name, o.name)) return;
+          addFinding({ text: `"${b.name}" at ${deg(b.angle)} is in line with "${o.name}" (${deg(g)} apart) — both sit on the rail's line.`,
             parts: [{ id: b.id, name: b.name }, { id: o.id, name: o.name }] });
         }
       }
@@ -326,7 +349,9 @@ export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
       const first = frame.buttons[0]!.angle;
       const odd = frame.buttons.find((b) => angleGap(b.angle, first) > 1e-6);
       if (odd) {
-        out.push({ text: `Rail buttons on this airframe are at different angles (${deg(first)} and ${deg(odd.angle)}) — one rail is a straight line, so they cannot both engage it.`,
+        if (!canCompare()) return;
+        if (!canReport(frame.buttons[0]!.name, odd.name)) return;
+        addFinding({ text: `Rail buttons on this airframe are at different angles (${deg(first)} and ${deg(odd.angle)}) — one rail is a straight line, so they cannot both engage it.`,
           parts: [{ id: frame.buttons[0]!.id, name: frame.buttons[0]!.name }, { id: odd.id, name: odd.name }] });
       }
     }
@@ -341,8 +366,8 @@ export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
   checkFrame(tree.components);
 
   // Two buttons at the same angle raise the same sentence twice; say it once.
-  const seen = new Set<string>();
-  return out.filter((f) => !seen.has(f.text) && !!seen.add(f.text));
+  if (limited) out.push({ text: '[Warning.RAIL_CHECK_INCOMPLETE] Not all rail clearances were checked; a part may still foul the rail and prevent a clean launch. Check every rail button and fin for clearance before flying.', parts: [] });
+  return out;
 }
 
 /**

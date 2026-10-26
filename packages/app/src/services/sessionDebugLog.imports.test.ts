@@ -13,6 +13,7 @@ import { decodeShareFragment } from './shareLink.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
 import { currentXmlParser, setXmlParser, XmlParseError } from './xmlParse.js';
 import { jsXmlParser } from './xmlParseJs.js';
+import { csvToPresets, MAX_PRESET_CSV_ROWS, PRESET_CSV_SIZE_CAUTION } from './presets.js';
 
 const parser = currentXmlParser();
 afterEach(() => setXmlParser(parser));
@@ -32,6 +33,44 @@ function logged(error: Error): string {
 }
 
 describe('C-H3 real import diagnostics', () => {
+  it('retains the real over-limit .ork refusal without private design fields', async () => {
+    const xml = '<openrocket><rocket><name>Private Fairbanks 61.234</name><subcomponents><stage><subcomponents>'
+      + '<bodytube/>'.repeat(2000) + '</subcomponents></stage></subcomponents></rocket></openrocket>';
+    const error = await refusal(() => importOrk(xml));
+    expect(error.message).toMatch(/more than 2,000 parts/);
+    expect(logged(error)).toContain(error.message);
+    expect(logged(new Error(`${error.message} Private Fairbanks 61.234`))).toContain('Message omitted for privacy');
+    for (const secret of ['Private', 'Fairbanks', '61.234']) expect(logged(error)).not.toContain(secret);
+  });
+
+  it('retains the exported preset CSV size refusal', () => {
+    expect(logged(new Error(PRESET_CSV_SIZE_CAUTION))).toContain(PRESET_CSV_SIZE_CAUTION);
+    expect(logged(new Error(`${PRESET_CSV_SIZE_CAUTION} Private`))).toContain('Message omitted for privacy');
+  });
+
+  it.each([
+    ['.rkt', importRkt, '<RockSimDocument><DesignInformation><RocketDesign><StageCount>1</StageCount><Stage3Parts>'
+      + '<BodyTube><OD>60</OD><ID>58</ID><Len>400</Len><AttachedParts>' + '<MassObject/>'.repeat(1999)
+      + '</AttachedParts></BodyTube></Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>'],
+    ['.CDX1', importCdx1, '<RASAeroDocument><RocketDesign>'
+      + '<BodyTube><Length>2</Length><Diameter>3</Diameter></BodyTube>'.repeat(2000) + '</RocketDesign></RASAeroDocument>'],
+  ] as const)('retains the real %s part-count refusal', async (_format, read, xml) => {
+    const error = await refusal(() => read(xml));
+    expect(error.message).toMatch(/2,001 parts, past the 2,000/);
+    expect(logged(error)).toContain(error.message);
+    expect(logged(new Error(`${error.message} Private`))).toContain('Message omitted for privacy');
+  });
+
+  it('retains the real preset CSV row refusal without CSV contents', () => {
+    const notes: string[] = [];
+    expect(csvToPresets('kind,partNo\n' + 'BodyTube,Private\n'.repeat(MAX_PRESET_CSV_ROWS + 1), notes)).toEqual([]);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatch(/too many rows/);
+    expect(logged(new Error(notes[0]))).toContain(notes[0]);
+    expect(logged(new Error(`${notes[0]} Private`))).toContain('Message omitted for privacy');
+    expect(logged(new Error(notes[0]))).not.toContain('Private');
+  });
+
   it.each([
     EX_IMPORT_BYTES_NOTE,
     `Mach-Alt table exceeds the limit of ${MAX_MACH_ALT_ROWS.toLocaleString('en-US')} distinct rows.`,
@@ -182,7 +221,6 @@ describe('C-H3 real import diagnostics', () => {
     'This compressed .ork file has more than 1,000 gzip members, past the limit this app will open.',
     'This compressed .rkt file has more than 1,000 gzip members, past the limit this app will open.',
     'This compressed .CDX1 file has more than 1,000 gzip members, past the limit this app will open.',
-    'This design has 2,001 parts, past the 2,000 the app will open. Desktop OR has no such limit.',
     'This RockSim file contains nested simulations, which the app cannot open. Open it in RockSim and save it again.',
     'This RockSim file contains nested motor loadouts, which the app cannot open. Open it in RockSim and save it again.',
     'This file contains 4,097 simulations, past the 4,096 the app will open. Remove simulations in RockSim and save it again. Desktop OR has no such limit.',

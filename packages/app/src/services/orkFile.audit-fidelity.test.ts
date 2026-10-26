@@ -167,7 +167,7 @@ describe('audit 2026-10-11 .ork fidelity and bounds', () => {
   it('S1a-7 refuses excessive XML parts before converting any design numbers', () => {
     const numericReads = vi.spyOn(xmlUtil, 'parseDecimal');
     try {
-      expect(() => importOrk(fixture(tube.repeat(2000)))).toThrow(/2,001 parts/);
+      expect(() => importOrk(fixture(tube.repeat(2000)))).toThrow(/more than 2,000 parts/);
       expect(numericReads.mock.calls.length).toBe(0);
     } finally { numericReads.mockRestore(); }
   });
@@ -187,12 +187,13 @@ describe('lane A audit 2026-10-17 regression guards', () => {
   it('S1a-1 counts tube holes before any numeric conversion', () => {
     const numericReads = vi.spyOn(xmlUtil, 'parseDecimal');
     try {
-      expect(() => importOrk(fixture(holes(2001)))).toThrow(/2,003 parts.*2,000/);
+      // Stop at the first excess part, before numeric conversion or a full walk.
+      expect(() => importOrk(fixture(holes(2001)))).toThrow(/more than 2,000 parts/);
       expect(numericReads).not.toHaveBeenCalled();
     } finally { numericReads.mockRestore(); }
     // One stage + one tube + 1,998 holes is exactly 2,000 design parts.
     expect(importOrk(fixture(holes(1998))).tree.components[0]!.children![0]!.children).toHaveLength(1998);
-    expect(() => importOrk(fixture(holes(1999)))).toThrow(/2,001 parts/);
+    expect(() => importOrk(fixture(holes(1999)))).toThrow(/more than 2,000 parts/);
   });
   it('walks direct hole children without descendant queries in counting or conversion', () => {
     const parser = currentXmlParser();
@@ -214,7 +215,7 @@ describe('lane A audit 2026-10-17 regression guards', () => {
       return doc;
     });
     try {
-      expect(() => importOrk(fixture(holes(2001)))).toThrow(/2,003 parts/);
+      expect(() => importOrk(fixture(holes(2001)))).toThrow(/more than 2,000 parts/);
       const r = importOrk(fixture(holes(1).replace('</mmrsim-tube-holes>',
         '<junk><hole/></junk></mmrsim-tube-holes>')));
       expect(r.tree.components[0]!.children![0]!.children).toHaveLength(1);

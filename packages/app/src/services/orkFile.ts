@@ -400,28 +400,38 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   if (!rocketEl) throw new Error('Not a .ork file (missing <rocket>)');
   // Refuse before conversion and its per-part diagnostics (audit 2026-10-11, S1a-7).
   // Only component wrappers count: configuration <stage> flags and extension
-  // payloads are not design parts. Keep the existing named refusal and count.
-  const partElements = Array.from(rocketEl.querySelector(':scope > subcomponents')?.children ?? []);
+  // payloads are not design parts. Keep the existing named refusal.
+  const convertedTags = new Set(['nosecone', 'transition', 'bodytube', 'trapezoidfinset', 'freeformfinset',
+    'ellipticalfinset', 'tubefinset', 'innertube', 'tubecoupler', 'centeringring', 'bulkhead', 'engineblock',
+    'launchlug', 'railbutton', 'fairing', 'protuberance', 'parachute', 'streamer', 'shockcord', 'masscomponent',
+    'podset', 'parallelstage', 'boosterset']);
   let partCount = 0;
   const refusePartCount = () => {
     if (partCount <= MAX_DESIGN_PARTS) return;
-    const error = new Error(`This design has ${partCount.toLocaleString('en-US')} parts, past the `
-      + `${MAX_DESIGN_PARTS.toLocaleString('en-US')} the app will open. Desktop OR has no such limit.`);
+    const error = new Error(`This design has more than ${MAX_DESIGN_PARTS.toLocaleString('en-US')} parts, `
+      + 'the most the app will open. Desktop OR has no such limit.');
     error.name = TOO_MANY_PARTS_ERROR_NAME;
     throw error;
   };
-  for (let i = 0; i < partElements.length; i++) {
+  const countPart = (el: XmlElement, depth: number): void => {
     partCount++;
-    if (partElements[i]!.tagName === 'bodytube') {
-      for (const child of partElements[i]!.children) {
+    refusePartCount();
+    if (el.tagName === 'bodytube') {
+      for (const child of el.children) {
         if (child.tagName !== 'mmrsim-tube-holes') continue;
-        for (const hole of child.children) if (hole.tagName === 'hole') partCount++;
+        for (const hole of child.children) if (hole.tagName === 'hole') {
+          partCount++;
+          refusePartCount();
+        }
       }
     }
-    const children = partElements[i]!.querySelector(':scope > subcomponents')?.children;
-    if (children) for (const child of Array.from(children)) partElements.push(child);
-  }
-  refusePartCount();
+    if (depth >= MAX_NESTING) return;
+    const children = el.querySelector(':scope > subcomponents')?.children;
+    if (children) for (const child of children) {
+      if (convertedTags.has(child.tagName)) countPart(child, depth + 1);
+    }
+  };
+  for (const stage of rocketEl.querySelectorAll(':scope > subcomponents > stage')) countPart(stage, 0);
 
   simulationForConfig(doc);
   const configEls = Array.from(rocketEl.querySelectorAll(':scope > motorconfiguration'));

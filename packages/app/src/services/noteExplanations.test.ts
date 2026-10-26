@@ -1,5 +1,6 @@
+import { readdirSync, readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
-import { explanationFor, importNoteCode, staticWarningCode } from './noteExplanations.js';
+import { explanationFor, importNoteCode, NOTE_EXPLANATIONS, staticWarningCode } from './noteExplanations.js';
 import { WARNING_LABEL } from './simWarnings.js';
 
 it('explains missing landing evidence for an incomplete flight', () => {
@@ -13,6 +14,21 @@ it('scopes INCOMPLETE_FLIGHT to the stage it names: a booster cut off airborne l
   const { remedy } = explanationFor('INCOMPLETE_FLIGHT');
   expect(remedy).toContain('the flight or stage the note names');
   expect(remedy).not.toContain('so landing rate and landing drift are unavailable');
+});
+
+it('explains every import note code emitted by services', () => {
+  const codes = new Set<string>();
+  for (const file of readdirSync(new URL('.', import.meta.url), { recursive: true, encoding: 'utf8' })) {
+    if (!/\.tsx?$/.test(file) || /\.test\.tsx?$/.test(file) || file === 'noteExplanations.ts') continue;
+    const source = readFileSync(new URL(file.replace(/\\/g, '/'), import.meta.url), 'utf8');
+    for (const [code] of source.matchAll(/\bI\d{2}\.[a-z-]+\b/g)) codes.add(code);
+  }
+  expect(codes.has('I03.ignored-components')).toBe(true);
+  expect([...codes].filter(code => !NOTE_EXPLANATIONS.has(code))).toEqual([]);
+  for (const code of codes) {
+    expect(explanationFor(code).meaning.length, code).toBeGreaterThan(20);
+    expect(explanationFor(code).remedy.length, code).toBeGreaterThan(20);
+  }
 });
 
 it.each(Object.keys(WARNING_LABEL))('explains recognized kernel key %s, including geometry warnings', code => {

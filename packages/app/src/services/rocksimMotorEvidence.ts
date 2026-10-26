@@ -1,6 +1,14 @@
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { parseDecimal } from './xmlUtil.js';
 import type { XmlDocument, XmlElement } from './xmlParse.js';
+import { cautionNote } from './importNotes.js';
+
+// Corpus maxima: 51 fields, 2 characters per field, 93 total characters.
+export const MAX_RKT_SERIAL_LENGTH = 256;
+export const MAX_RKT_SERIAL_RECORDS = 8192;
+export const MAX_RKT_SERIAL_CHARACTERS = 1024 * 1024;
+const SERIAL_PARTS = new Set(['BodyTube', 'NoseCone', 'Transition', 'Ring', 'FinSet', 'CustomFinSet',
+  'LaunchLug', 'TubeFinSet', 'Parachute', 'Streamer', 'MassObject', 'ExternalPod', 'SubAssembly']);
 
 const value = (el: XmlElement | null, tag: string): number => {
   const raw = el?.querySelector(`:scope > ${tag}`)?.textContent?.trim();
@@ -19,12 +27,32 @@ export interface RocksimMotorIndex {
 
 /** One design walk per import; duplicate serials remain ambiguous. */
 export function indexRocksimMotors(
-  doc: XmlDocument, design: XmlElement, simulationSets: RocksimMotorIndex['simulationSets'],
+  doc: XmlDocument, design: XmlElement, simulationSets: RocksimMotorIndex['simulationSets'], notes: string[] = [],
 ): RocksimMotorIndex {
   const mountsBySerial = new Map<string, XmlElement | null>();
+  let records = 0;
+  let characters = 0;
+  let omitted = false;
   for (const el of design.querySelectorAll('SerialNo')) {
+    if (el.parentElement?.tagName === 'SerialNo') continue;
+    // Never read descendant text: nested serials otherwise share and amplify it.
+    if (el.children.length > 0) { omitted = true; continue; }
     const serial = el.textContent?.trim() ?? '';
-    mountsBySerial.set(serial, mountsBySerial.has(serial) ? null : el.parentElement);
+    if (serial.length > MAX_RKT_SERIAL_LENGTH) { omitted = true; continue; }
+    if (++records > MAX_RKT_SERIAL_RECORDS || (characters += serial.length) > MAX_RKT_SERIAL_CHARACTERS) {
+      // A partial index could mistake a duplicate serial for an unambiguous mount.
+      mountsBySerial.clear();
+      omitted = true;
+      break;
+    }
+    const mount = el.parentElement && SERIAL_PARTS.has(el.parentElement.tagName) ? el.parentElement : null;
+    mountsBySerial.set(serial, mountsBySerial.has(serial) ? null : mount);
+  }
+  if (omitted) {
+    // Even one skipped field can conceal a duplicate of an otherwise valid serial.
+    mountsBySerial.clear();
+    cautionNote(notes, 'I15.serial-evidence-limited',
+      'Some motor mount serial fields were too large, nested or too numerous. Motor size and loaded-mass checks may be missing; check the selected motors before flying.');
   }
   return { mountsBySerial, mountFacts: new Map(), simulationSets, fileVersion: value(doc.documentElement, 'FileVersion'),
     stageCount: value(design, 'StageCount'), useKnownMass: value(design, 'UseKnownMass'),

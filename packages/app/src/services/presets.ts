@@ -10,6 +10,8 @@ import { mfrKey, partKey } from '../../scripts/manufacturers.mjs';
 // Small generated history only; the full catalogue below remains lazy-loaded.
 // Never import apply-preset-corrections.mjs here: it depends on Node's fs/path.
 import retiredPresetMasses from '../data/retiredPresetMasses.json';
+import { MAX_PRESET_CSV_ROWS, PRESET_CSV_ROWS_CAUTION } from './presetCsvLimits.js';
+export { MAX_PRESET_CSV_BYTES, MAX_PRESET_CSV_ROWS, PRESET_CSV_ROWS_CAUTION, PRESET_CSV_SIZE_CAUTION } from './presetCsvLimits.js';
 
 /**
  * Component preset database (openrocket-database .orc files → presets.json,
@@ -657,11 +659,18 @@ export function presetsToCsv(presets: Preset[]): string {
  * Full-text CSV parser: records split on unquoted newlines (a quoted cell
  * may contain commas, quotes AND newlines — presetsToCsv writes all three).
  */
-function parseCsv(csv: string): string[][] {
+function parseCsv(csv: string, notes: string[]): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let cur = '';
   let quoted = false;
+  const addRow = () => {
+    if (row.some(c => c.trim() !== '')) rows.push(row);
+    row = [];
+    if (rows.length <= MAX_PRESET_CSV_ROWS + 1) return true;
+    notes.push(PRESET_CSV_ROWS_CAUTION);
+    return false;
+  };
   for (let i = 0; i < csv.length; i++) {
     const ch = csv[i]!;
     if (quoted) {
@@ -673,16 +682,16 @@ function parseCsv(csv: string): string[][] {
     else if (ch === '\n' || ch === '\r') {
       if (ch === '\r' && csv[i + 1] === '\n') i++;
       row.push(cur); cur = '';
-      rows.push(row); row = [];
+      if (!addRow()) return [];
     } else cur += ch;
   }
-  if (cur !== '' || row.length > 0) { row.push(cur); rows.push(row); }
-  return rows.filter((r) => r.some((c) => c.trim() !== ''));
+  if (cur !== '' || row.length > 0) { row.push(cur); if (!addRow()) return []; }
+  return rows;
 }
 
 /** Parses an edited CSV back into presets (SI values, same columns as export). */
-export function csvToPresets(csv: string): Preset[] {
-  const records = parseCsv(csv);
+export function csvToPresets(csv: string, notes: string[] = []): Preset[] {
+  const records = parseCsv(csv, notes);
   if (records.length < 2) return [];
   const header = records[0]!.map((h) => h.trim());
   const out: Preset[] = [];

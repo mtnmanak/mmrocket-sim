@@ -5,7 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, onTestFinished,
 import type { ComponentNode } from '@online-openrocket/engine';
 import { PresetPicker } from './PresetPicker.js';
 import { DEFAULT_PREFS, PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
-import { loadCustomPresets, loadPresets, presetPatch, saveCustomPresets, type Preset } from '../services/presets.js';
+import { loadCustomPresets, loadPresets, mergeCustomPresetImport, presetPatch, saveCustomPresets, type Preset } from '../services/presets.js';
 import { sessionDebugLog } from '../services/sessionDebugLog.js';
 
 /**
@@ -29,7 +29,7 @@ vi.mock('../data/presets.json', () => ({ default: { presets: [] } }));
 // Passed through by default; individual tests override one load or reload.
 vi.mock('../services/presets.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../services/presets.js')>();
-  return { ...real, loadPresets: vi.fn(real.loadPresets) };
+  return { ...real, loadPresets: vi.fn(real.loadPresets), mergeCustomPresetImport: vi.fn(real.mergeCustomPresetImport) };
 });
 
 /**
@@ -104,6 +104,43 @@ it('S7c-g2 imports and picks saved zero-density canopy and lines', async () => {
   expect(text()).toContain('Imported 1 preset(s)');
   const stored = loadCustomPresets()[0]!;
   expect(presetPatch('parachute', stored, undefined, undefined, { saved: true })).toMatchObject({ surfaceDensity: 0, lineDensity: 0 });
+});
+
+it('E3 refuses oversized CSV files before reading or writing them', async () => {
+  await render();
+  const file = new File(['kind,partNo\nBodyTube,X'], 'large.csv', { type: 'text/csv' });
+  Object.defineProperty(file, 'size', { value: 16 * 1024 * 1024 + 1 });
+  const read = vi.spyOn(file, 'text');
+  const el = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(el, 'files', { configurable: true, value: [file] });
+  await act(async () => { el.dispatchEvent(new Event('change', { bubbles: true })); });
+  await flush();
+  expect(read).not.toHaveBeenCalled();
+  expect(loadCustomPresets()).toEqual([]);
+  expect(host.querySelector('.message-caution')?.textContent).toMatch(/too large.*nothing imported/i);
+});
+
+it('E3 refuses too many CSV rows before merging or storing any', async () => {
+  await render();
+  const before = { kind: 'BodyTube', manufacturer: 'EX', partNo: 'KEEP', description: '' };
+  saveCustomPresets([before]);
+  vi.mocked(mergeCustomPresetImport).mockClear();
+  await importCsv('kind,partNo\n' + 'BodyTube,X\n'.repeat(100001));
+  expect(mergeCustomPresetImport).not.toHaveBeenCalled();
+  expect(loadCustomPresets()).toHaveLength(1);
+  expect(loadCustomPresets()).toEqual([before]);
+  expect(host.querySelector('.message-caution')?.textContent).toMatch(/too many.*rows.*nothing imported/i);
+});
+
+it('E3 accepts a CSV file at the byte limit', async () => {
+  await render();
+  const file = new File(['kind,partNo\nBodyTube,BYTE-BOUNDARY'], 'parts.csv', { type: 'text/csv' });
+  Object.defineProperty(file, 'size', { value: 16 * 1024 * 1024 });
+  const el = host.querySelector<HTMLInputElement>('input[type="file"]')!;
+  Object.defineProperty(el, 'files', { configurable: true, value: [file] });
+  await act(async () => { el.dispatchEvent(new Event('change', { bubbles: true })); });
+  await flush();
+  expect(loadCustomPresets()[0]?.partNo).toBe('BYTE-BOUNDARY');
 });
 
 it('restores readable custom preset dimensions and cautions about removed material', async () => {
