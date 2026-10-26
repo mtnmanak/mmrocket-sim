@@ -80,12 +80,12 @@ function fieldLabel(type: string, key: string, fallback?: string): string {
 /** Six significant digits, float noise shed — how every other import note quotes a number. */
 const sig = (v: number): string => String(Number(v.toPrecision(6)));
 
-function fmt(kind: LimitKind, v: number): string {
+function fmt(kind: LimitKind, v: number, key?: string): string {
   switch (kind) {
     case 'count': return sig(v);
     case 'length': return Math.abs(v) >= 1 ? `${sig(v)} m` : `${sig(v * 1000)} mm`;
     case 'mass': return Math.abs(v) >= 1 ? `${sig(v)} kg` : `${sig(v * 1000)} g`;
-    case 'density': return `${sig(v)} kg/m³`;
+    case 'density': return `${sig(v)} ${key === 'surfaceDensity' ? 'kg/m²' : key === 'lineDensity' ? 'kg/m' : 'kg/m³'}`;
   }
 }
 
@@ -100,19 +100,20 @@ interface Finding {
 function limitFinding(
   node: ComponentNode, key: string, limit: FieldLimit, raw: number, fixed: number,
 ): Finding {
-  const what = `${partName(node)}: ${fieldLabel(node.type, key, limit.label)} ${fmt(limit.kind, raw)}`;
+  const format = (value: number) => fmt(limit.kind, value, key);
+  const what = `${partName(node)}: ${fieldLabel(node.type, key, limit.label)} ${format(raw)}`;
   const why = limit.why ? ` (${limit.why})` : '';
   let problem: string;
   if (limit.kind === 'count' && !Number.isInteger(raw) && Math.round(raw) === fixed) {
     problem = `${what} is not a whole number`;
   } else if (limit.hmax !== undefined && raw > limit.hmax) {
-    problem = `${what} is over the limit of ${fmt(limit.kind, limit.hmax)}${why}`;
+    problem = `${what} is over the limit of ${format(limit.hmax)}${why}`;
   } else if (limit.hmin === 0 && raw < 0) {
     problem = `${what} cannot be negative`;
   } else {
-    problem = `${what} is below the minimum of ${fmt(limit.kind, limit.hmin)}`;
+    problem = `${what} is below the minimum of ${format(limit.hmin)}`;
   }
-  return { problem, repair: `set to ${fmt(limit.kind, fixed)}` };
+  return { problem, repair: `set to ${format(fixed)}` };
 }
 
 function enumFinding(node: ComponentNode, label: string, raw: string, limit: EnumLimit): Finding {

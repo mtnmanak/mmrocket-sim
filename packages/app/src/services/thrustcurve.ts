@@ -734,7 +734,7 @@ const NO_CURVE_KEY = 'online-openrocket.no-curve.v1';
 const MAX_NO_CURVES = 2000;
 // A successful live check advances the catalogue too, allowing another try for
 // newly published files without waiting for the next app release.
-function validCatalogueDate(date: unknown): date is string {
+export function validCatalogueDate(date: unknown): date is string {
   return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z)?$/.test(date)
     && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date.slice(0, 10);
 }

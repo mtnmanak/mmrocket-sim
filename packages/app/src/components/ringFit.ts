@@ -53,7 +53,8 @@ export function ringFitFor(tree: RocketTree, node: ComponentNode, written: { out
       ?? (tube.type === 'tubecoupler' ? solidContextFor(tree, tube).parentInnerRadius : undefined);
     // An enclosing sibling can be the real container (av-bay bulkheads), and
     // the kernel's automatic size still follows the parent. Stay silent.
-    if (outside === undefined || r === undefined || r >= outside) return result;
+    const ringOutside = outside ?? bore;
+    if (ringOutside === undefined || r === undefined || r >= ringOutside) return result;
     if (tube.type === 'innertube') mountTube = tube;
   }
   if (parent.type === 'innertube' || parent.type === 'tubecoupler') {

@@ -177,8 +177,8 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
 
   /**
    * A material density that did not parse is worse than a missing one.
-   * `csvToPresets` sets `density: Number(cell)` with no finite check (unlike
-   * the dimensional columns beside it), and a spreadsheet round-trip readily
+   * `csvToPresets` keeps invalid densities as NaN so this picker can refuse
+   * them, and a spreadsheet round-trip readily
    * writes "1,250" (thousands separator, or a non-en locale) or "0.68 g/cm3" —
    * both `NaN`. Storing that row puts the material NAME on the component while
    * the density is silently dropped (JSON.stringify turns NaN into null and
@@ -186,7 +186,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
    * weighed as cardboard, with no error and no red field anywhere. Reject the
    * row at import instead, and name it.
    */
-  const badDensity = (d: unknown) => !(typeof d === 'number' && Number.isFinite(d) && d > 0);
+  const badDensity = (d: unknown, saved: boolean) => !(typeof d === 'number' && Number.isFinite(d) && (saved ? d >= 0 : d > 0));
   // A material needs BOTH halves. A name with no density used to skip the
   // material block at parse time and import as a clean success, so the part
   // kept its old weight under a new label — silent, which is the one outcome
@@ -195,7 +195,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
   // typo, LINE, or the other kind's type imported clean too, and presetPatch
   // then applied no density at all — the same old weight under a new label.
   const matBad = (m: { name: string; type: string; density: number } | undefined, type: string, saved: boolean) =>
-    !!m && (badDensity(m.density) || (!saved && !m.name.trim()) || m.type !== type);
+    !!m && (badDensity(m.density, saved) || (!saved && !m.name.trim()) || m.type !== type);
   const rowIsSound = (p: Preset) => !matBad(p.material, materialTypeFor(p.kind), p['savedComponent'] === true)
     && !matBad(p.lineMaterial, 'LINE', p['savedComponent'] === true);
 

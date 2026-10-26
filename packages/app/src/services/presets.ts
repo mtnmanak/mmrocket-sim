@@ -1,6 +1,6 @@
 import { cautionNote } from './importNotes.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
-import { csvCell, FORMULA_LEAD } from './csvUtil.js';
+import { csvCell } from './csvUtil.js';
 import { lookupTable, parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { blankValue } from '../tree/schema.js';
@@ -85,7 +85,7 @@ export async function loadPresets(notes?: string[]): Promise<Preset[]> {
 
 const CUSTOM_KEY = 'online-openrocket.custom-presets.v1';
 
-const validMaterial = (m: unknown, wantType: string): boolean => {
+const validMaterial = (m: unknown, wantType: string, saved: boolean): boolean => {
   if (m === undefined) return true;
   if (m === null || typeof m !== 'object' || Array.isArray(m)) return false;
   const { name, type, density } = m as Record<string, unknown>;
@@ -93,7 +93,7 @@ const validMaterial = (m: unknown, wantType: string): boolean => {
   // clears the part's material name. Only a non-string name, a wrong type or a bad density is unreadable.
   return typeof name === 'string'
     && type === wantType
-    && typeof density === 'number' && Number.isFinite(density) && density > 0;
+    && typeof density === 'number' && Number.isFinite(density) && (saved ? density >= 0 : density > 0);
 };
 
 export function loadCustomPresets(notes?: string[]): Preset[] {
@@ -112,7 +112,7 @@ export function loadCustomPresets(notes?: string[]): Preset[] {
           if (m && typeof m.type === 'string') repaired[key] = { ...m, type: m.type.trim().toUpperCase() };
           const named = repaired[key];
           if (named && typeof named.name === 'string' && named.name !== named.name.trim()) repaired[key] = { ...named, name: named.name.trim() };
-          if (!validMaterial(repaired[key], key === 'material' ? materialTypeFor(p.kind) : 'LINE')) {
+          if (!validMaterial(repaired[key], key === 'material' ? materialTypeFor(p.kind) : 'LINE', p['savedComponent'] === true)) {
             delete repaired[key];
             removed = true;
           }
@@ -644,7 +644,11 @@ export function presetsToCsv(presets: Preset[]): string {
       lineMaterialName: p.lineMaterial?.name,
       lineMaterialDensity: p.lineMaterial?.density,
     };
-    rows.push(CSV_COLS.map((c) => csvCell(flat[c])).join(','));
+    rows.push(CSV_COLS.map((c) => {
+      const value = flat[c];
+      // Pair literal apostrophes before formula leads with the import decoder.
+      return csvCell(typeof value === 'string' && /^'+[=+\-@\t\r]/.test(value) ? `'${value}` : value);
+    }).join(','));
   }
   return rows.join('\n') + '\n';
 }
@@ -692,8 +696,11 @@ export function csvToPresets(csv: string): Preset[] {
       'materialName', 'lineMaterialName']);
     header.forEach((h, i) => {
       const c = cells[i] ?? '';
-      row[h] = c.startsWith("'") && (!textColumns.has(h) || FORMULA_LEAD.test(c.slice(1))) ? c.slice(1) : c;
+      row[h] = c.startsWith("'") && (!textColumns.has(h) || /^'*[=+\-@\t\r]/.test(c.slice(1))) ? c.slice(1) : c;
     });
+    for (const key of ['kind', 'partNo', 'manufacturer', 'materialName', 'materialType', 'materialDensity', 'lineMaterialName', 'lineMaterialDensity']) {
+      row[key] = (row[key] ?? '').trim();
+    }
     if (!row['kind'] || !row['partNo']) continue;
     const p: Preset = {
       kind: CANONICAL_KIND.get(row['kind']!.trim().toLowerCase()) ?? row['kind']!.trim(),
@@ -721,14 +728,14 @@ export function csvToPresets(csv: string): Preset[] {
         // `=== 'BULK'`, so a typed `surface` passed rowIsSound and then wrote no
         // fabric weight, and a lone space was not blank. Blank takes the kind's.
         type: (row['materialType'] ?? '').trim().toUpperCase() || materialTypeFor(p.kind),
-        density: Number(row['materialDensity']),
+        density: parseDecimal(row['materialDensity']),
       };
     }
     if (row['lineMaterialName'] || row['lineMaterialDensity']) {
       p.lineMaterial = {
         name: row['lineMaterialName'] ?? '',
         type: 'LINE',
-        density: Number(row['lineMaterialDensity']),
+        density: parseDecimal(row['lineMaterialDensity']),
       };
     }
     for (const c of CSV_COLS) {

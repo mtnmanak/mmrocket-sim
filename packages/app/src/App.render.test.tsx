@@ -2184,9 +2184,10 @@ describe('the Motor vitals designation and tooltip', () => {
     const rows = MOTOR_DB.map(m => m.motorId === mm.meta.motorId ? { ...m, designation: 'F67C-UPDATED' } : m);
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       const u = new URL(url);
+      const results = rows.filter(m => m.manufacturerAbbrev === u.searchParams.get('manufacturer'));
       const body = u.pathname.endsWith('/metadata.json')
         ? { manufacturers: [...new Set(rows.map(m => m.manufacturerAbbrev))].map(abbrev => ({ abbrev })), impulseClasses: [] }
-        : { results: rows.filter(m => m.manufacturerAbbrev === u.searchParams.get('manufacturer')) };
+        : { results, matches: results.length };
       return new Response(JSON.stringify(body), { status: 200 });
     }));
     await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Check thrustcurve.org for newer motors"]')!.click(); });
