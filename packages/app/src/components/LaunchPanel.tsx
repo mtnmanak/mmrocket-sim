@@ -4,7 +4,7 @@ import { LaunchOverrideWarning, type LaunchOverrideProps } from './LaunchOverrid
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { useId } from 'react';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtAltitude, fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
+import { INITIAL_UNITS, type UnitSelection, noticeQuantity, fmtAltitude, fmtSi, niceStep, siToUi, uiToSi, type Quantity } from '../prefs/units.js';
 import {
   densityAltitudeM, isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir,
   padPressureIssue, SITE_ALTITUDE_M_RANGE,
@@ -247,6 +247,7 @@ export function TimeStepCaution({ dt, lastRun, flights = 1 }: {
    */
   flights?: number;
 }) {
+  const { prefs } = usePrefs();
   if (dt == null || dt >= DEFAULT_TIME_STEP_S) return null;
   const factor = timeStepCostFactor(dt);
   // The last flight was measured at ITS OWN step, which is usually not the one
@@ -272,7 +273,7 @@ export function TimeStepCaution({ dt, lastRun, flights = 1 }: {
             , and the page cannot respond while one runs.</>}
       {' '}In our testing it buys no
       accuracy you can read: against a converged reference, {DEFAULT_TIME_STEP_S} s
-      lands apogee within 0.06 m on a 6.4 km flight and raises exactly the same
+      lands apogee within {noticeQuantity('altitude', 0.06, prefs.units, { digits: 3, otherDigits: 3 })} on a {noticeQuantity('altitude', 6400, prefs.units.altitude === 'm' ? 'km' : prefs.units.altitude, { grouped: true })} flight and raises exactly the same
       warnings. See <em>Launch Conditions → Time step</em> in the Guide.
     </p>
   );
@@ -302,16 +303,16 @@ export function TimeStepCaution({ dt, lastRun, flights = 1 }: {
  * help no longer has a trap to describe — it says what the field is for, and
  * that typing one is how you try a different day.
  */
-const STATION_PRESSURE_HELP =
+export const stationPressureHelp = (units: UnitSelection = INITIAL_UNITS): string =>
   'Filled in from your Site altitude — the greyed number is what a blank field flies, and it '
   + 'follows the altitude when you change it. Type a value only to try a specific day’s air, and '
   + 'then it must be STATION pressure: the raw barometer reading at the pad, not the sea-level '
-  + 'altimeter setting a weather app or an airport gives you. At a 3,900 ft pad those are about '
-  + '878 and 1,013 hPa, and typing the sea-level one makes the app fly air about 15 % too dense.';
+  + `altimeter setting a weather app or an airport gives you. At a ${noticeQuantity('altitude', 3900 * 0.3048, units, { grouped: true })} pad those are about `
+  + `${noticeQuantity('pressure', 87800, units)} and ${noticeQuantity('pressure', 101300, units, { grouped: true })}, and typing the sea-level one makes the app fly air about 15 % too dense.`;
 
-const SITE_TEMPERATURE_HELP =
+export const siteTemperatureHelp = (units: UnitSelection = INITIAL_UNITS): string =>
   'Filled in from your Site altitude — the greyed number is what a blank field flies (the ISA '
-  + 'standard, 15 °C at sea level falling 6.5 °C per km), and it follows the altitude when '
+  + `standard, ${noticeQuantity('temperature', 288.15, units, { parenthesized: true, grouped: true })} at sea level falling to ${noticeQuantity('temperature', 281.65, units, { parenthesized: true, grouped: true })} at ${noticeQuantity('altitude', 1000, units, { parenthesized: true, grouped: true })}), and it follows the altitude when `
   + 'you change it. Type a value only to try a specific day’s air: a hot pad thins it and '
   + 'raises the speed of sound, which moves both apogee and the Mach numbers.';
 
@@ -327,11 +328,11 @@ const SITE_TEMPERATURE_HELP =
  * field it is 105.5 ft per °C on a 95 °F day and 118.6 on a standard one — the
  * spec's 114 was a mis-measure — so "roughly 110" sits between the two.
  */
-export const DENSITY_ALTITUDE_HELP =
+export const densityAltitudeHelp = (units: UnitSelection = INITIAL_UNITS): string =>
   'How thin the pad’s air is, stated as an altitude: the height at which a standard day has air '
   + 'this dense. Worked out from the Temperature and Station pressure the flight uses — typed, or '
   + 'filled in from your Site altitude — so with both boxes blank it equals your site altitude, and a '
-  + 'hot afternoon or a low barometer pushes it up (roughly 110 ft, 33 m, for each °C at a 4,000 ft '
+  + `hot afternoon or a low barometer pushes it up (roughly ${noticeQuantity('altitude', 110 * 0.3048, units, { parenthesized: true, grouped: true })} for warming from ${noticeQuantity('temperature', 288.15, units, { parenthesized: true, grouped: true })} to ${noticeQuantity('temperature', 289.15, units, { parenthesized: true, grouped: true })} at a ${noticeQuantity('altitude', 4000 * 0.3048, units, { parenthesized: true, grouped: true })} `
   + 'field). A readout, not a setting: the flight already flies this air. It is not the same as '
   + 'launching from that altitude — the speed of sound and the motor’s pressure thrust still follow '
   + 'your real temperature and pressure. Dry air: humid air is slightly thinner, so on a muggy day '
@@ -345,11 +346,14 @@ export const DENSITY_ALTITUDE_HELP =
  * (simReport.kernel.test.ts). The last sentence is the identity
  * packages/engine/src/rodDirection.test.ts measures: +5° aimed 180° flies as −5°.
  */
-export const ROD_AIM_HELP =
-  'Which way the rod leans, measured from straight into the wind: 0° (the default) leans it into the '
-  + 'wind, 180° downwind, ±90° across it — positive to your right as you face into the wind. It only '
+export const DENSITY_ALTITUDE_HELP = densityAltitudeHelp();
+
+export const rodAimHelp = (units: UnitSelection = INITIAL_UNITS): string =>
+  `Which way the rod leans, measured from straight into the wind: ${noticeQuantity('angle', 0, units)} (the default) leans it into the `
+  + `wind, ${noticeQuantity('angle', Math.PI, units)} downwind, ±${noticeQuantity('angle', Math.PI / 2, units)} across it — positive to your right as you face into the wind. It only `
   + 'matters when Rod angle is not 0; a vertical rod has no direction. A negative Rod angle already '
-  + 'leans the rod downwind, the same as adding 180° here.';
+  + `leans the rod downwind, the same as adding ${noticeQuantity('angle', Math.PI, units)} here.`;
+export const ROD_AIM_HELP = rodAimHelp();
 
 /**
  * Help for the Longitude field (weather build, step 3). Exported for the
@@ -430,9 +434,9 @@ function DensityAltitudeReadout({ value, atmosphereModel }: { value: LaunchCondi
   const da = densityAltitudeM(value, atmosphereModel);
   const delta = fmtAltitude(sym, da - air.altitudeM);
   return (
-    <div className="field field-readout" title={DENSITY_ALTITUDE_HELP} data-readout="density-altitude">
+    <div className="field field-readout" title={densityAltitudeHelp(prefs.units)} data-readout="density-altitude">
       <label id={labelId} htmlFor={id}>Density altitude <UnitChip quantity="altitude" /></label>
-      <span id={helpId} className="sr-only">{DENSITY_ALTITUDE_HELP}</span>
+      <span id={helpId} className="sr-only">{densityAltitudeHelp(prefs.units)}</span>
       <output id={id} aria-labelledby={labelId} aria-describedby={helpId} aria-live="off"
         className={air.standard ? 'readout-muted' : undefined}>
         {fmtAltitude(sym, da)}
@@ -464,18 +468,16 @@ function PadPressureCaution({ value, atmosphereModel }: { value: LaunchCondition
   const { prefs } = usePrefs();
   const issue = padPressureIssue(value, atmosphereModel);
   if (!issue) return null;
-  const sym = prefs.units.pressure;
-  const altSym = prefs.units.altitude;
   // The site the flight flies (`padAir` clamps the stored one into its range),
   // so "Clear the field and the app uses …" names the pressure it really would.
   const siteM = padAir(value, atmosphereModel).altitudeM;
-  const site = fmtSi('altitude', altSym, siteM);
-  const standing = `${fmtSi('pressure', sym, isaPressurePa(siteM, atmosphereModel))} ${sym}`;
+  const site = noticeQuantity('altitude', siteM, prefs.units);
+  const standing = noticeQuantity('pressure', isaPressurePa(siteM, atmosphereModel), prefs.units);
   return (
     <p className="field-caution" role="status" data-caution="pad-pressure">
       <Icon name="zap" size={13} />{' '}
-      <><strong>{fmtSi('pressure', sym, value.pressureHPa! * 100)} {sym} is about sea-level
-        pressure</strong>, and this pad is {site} {altSym} up, where a barometer reads about{' '}
+      <><strong>{noticeQuantity('pressure', value.pressureHPa! * 100, prefs.units)} is about sea-level
+        pressure</strong>, and this pad is {site} up, where a barometer reads about{' '}
         {standing}. That looks like an altimeter setting rather than what the pad reads. The flight would
         then fly air that is too dense — more drag, and less of the extra thrust a motor
         gains as the air thins — so it under-predicts apogee.{' '}
@@ -595,7 +597,7 @@ export function LaunchPanel({
         {numField('Rod angle', 'launchRodAngleDeg', 1, ...ROD_ANGLE_DEG_RANGE)}
         {/* Non-nullable, and absent (every design saved before the field)
             shows the 0 it flies — as a value, never fmtSi's "0.000". */}
-        {numField('Rod aim', 'launchRodAimDeg', 15, ...ROD_AIM_DEG_RANGE, false, ROD_AIM_HELP, undefined, 0)}
+        {numField('Rod aim', 'launchRodAimDeg', 15, ...ROD_AIM_DEG_RANGE, false, rodAimHelp(prefs.units), undefined, 0)}
         {numField('Wind avg', 'windAverage', 0.5, WIND_MS_RANGE[0])}
         {numField('Wind gusts σ', 'windStdDev', 0.1, WIND_MS_RANGE[0])}
         <GroundWindNote wind={value.windAverage} />
@@ -617,14 +619,14 @@ export function LaunchPanel({
         {/* The atmosphere bounds are atmosphere.ts's, not literals: the importers
             and kernelSimOptions's chokepoint read the same arrays, so the panel
             refusing a value and the flight refusing it are one rule. */}
-        {numField('Temperature', 'temperatureC', 1, ...PAD_TEMP_C_RANGE, true, SITE_TEMPERATURE_HELP,
+        {numField('Temperature', 'temperatureC', 1, ...PAD_TEMP_C_RANGE, true, siteTemperatureHelp(prefs.units),
           isaTemperatureK(siteM, atmosphereModel) - 273.15)}
         {/* "Station pressure", not "Pressure" (2026-09-08). The bare label let
             every reader supply their own meaning, and the common one — the
             altimeter setting an airport broadcasts, or the sea-level figure a
             weather app shows — is the wrong number by 15 % at 3,900 ft. Two
             words, sentence case, the same shape as "Site altitude" above it. */}
-        {numField('Station pressure', 'pressureHPa', 5, ...PAD_PRESSURE_HPA_RANGE, true, STATION_PRESSURE_HELP,
+        {numField('Station pressure', 'pressureHPa', 5, ...PAD_PRESSURE_HPA_RANGE, true, stationPressureHelp(prefs.units),
           isaPressurePa(siteM, atmosphereModel) / 100)}
         <DensityAltitudeReadout value={value} atmosphereModel={atmosphereModel} />
         {/* Blank = 0.05 s, the engine's and desktop OpenRocket's default. Smaller

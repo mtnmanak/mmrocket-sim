@@ -38,7 +38,7 @@ import { useCatalogue } from './useCatalogue.js';
 import { aeroOptionLabel, usePrefs } from '../prefs/PrefsContext.js';
 import { Icon } from './Icon.js';
 import { Modal } from './Modal.js';
-import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
+import { fmtSi, noticeQuantity, siToUi, uiToSi } from '../prefs/units.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { safeName } from '../services/fileName.js';
@@ -169,7 +169,6 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   const alt = prefs.units.altitude;
   const vel = prefs.units.velocity;
   const len = prefs.units.length;
-  const massSym = prefs.units.mass;
 
   const [criteria, setCriteriaRaw] = useState<Criteria>(loadCriteria);
   const railThreshold = criteria.minRodExit ?? SAFETY.minRodExitVelocity;
@@ -697,7 +696,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             mount is not the one being swept (its hardware rides along on
             every flight through assignedMotors). */}
         {weighed && (() => {
-          const delta = `${fmtSi('mass', massSym, weighed.deltaKg)} ${massSym}`;
+          const delta = noticeQuantity('mass', weighed.deltaKg, prefs.units);
           const matched = candidates.some((e) => isWeighedCandidate(e, weighed));
           const text = mountId === weighed.mountId
             ? (matched

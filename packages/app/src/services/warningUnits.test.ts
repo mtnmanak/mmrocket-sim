@@ -63,9 +63,9 @@ describe('saved warning units', () => {
 
   it('formats raw SI velocity and radians with the current units, without changing the payload', () => {
     const before = JSON.stringify([speed, aoa]);
-    expect(formatWarning(speed, METRIC_UNITS).detail).toBe('(30.48 m/s): "Main <&>"');
-    expect(formatWarning(speed, IMPERIAL_UNITS).detail).toBe('(100 ft/s): "Main <&>"');
-    expect(formatWarning(aoa, METRIC_UNITS).detail).toBe('(30 \u00b0)');
+    expect(formatWarning(speed, METRIC_UNITS).detail).toBe('(30.48 m/s [100 ft/s]): "Main <&>"');
+    expect(formatWarning(speed, IMPERIAL_UNITS).detail).toBe('(100 ft/s [30.5 m/s]): "Main <&>"');
+    expect(formatWarning(aoa, METRIC_UNITS).detail).toBe('(30°)');
     expect(formatWarning(aoa, { ...METRIC_UNITS, angle: 'rad' }).detail).toBe('(0.524 rad)');
     expect(JSON.stringify([speed, aoa])).toBe(before);
   });
@@ -113,14 +113,14 @@ describe('saved warning units', () => {
 
   it('preserves source names and removed sources without parsing the message', () => {
     expect(formatWarning({ ...speed, sources: [{ id: 'one', name: '[Warning.X]: "chute"' }, null] }, IMPERIAL_UNITS).detail)
-      .toBe('(100 ft/s): "[Warning.X]: "chute"", Removed component');
+      .toBe('(100 ft/s [30.5 m/s]): "[Warning.X]: "chute"", Removed component');
   });
 
   it('reloads run history with full-precision SI data and reformats it', () => {
     addRun(run());
     const warnings = loadRuns()[0]!.simWarnings!;
     expect(warnings).toEqual(savedWarnings);
-    expect(formatWarning(warnings[0]!, IMPERIAL_UNITS).detail).toBe('(100 ft/s): "Main <&>"');
+    expect(formatWarning(warnings[0]!, IMPERIAL_UNITS).detail).toBe('(100 ft/s [30.5 m/s]): "Main <&>"');
   });
 
   it('round-trips warnings through .ork app data, session autosave, import, and re-save', () => {
@@ -134,7 +134,7 @@ describe('saved warning units', () => {
     const restored = importedSummaryRuns(document)[0]!;
     expect(restored.simWarnings).toEqual(savedWarnings);
     const reopened = importedSummaryRuns(importOrk(write(summaryOf(restored))))[0]!;
-    expect(formatWarning(reopened.simWarnings![0]!, IMPERIAL_UNITS).detail).toBe('(100 ft/s): "Main <&>"');
+    expect(formatWarning(reopened.simWarnings![0]!, IMPERIAL_UNITS).detail).toBe('(100 ft/s [30.5 m/s]): "Main <&>"');
     expect(formatWarning(reopened.simWarnings![1]!, { ...METRIC_UNITS, angle: 'rad' }).detail).toBe('(0.524 rad)');
   });
 

@@ -1,6 +1,6 @@
 import type { ComponentNode } from '@online-openrocket/engine';
 import type { DeploymentTuple, IgnitionTuple, SeparationTuple } from '../model/design.js';
-import { fmtFieldValue, siToUi } from '../prefs/units.js';
+import { fmtFieldValue, noticeQuantity, siToUi } from '../prefs/units.js';
 import { num } from '../tree/nodeNum.js';
 import { DEPLOY_EVENTS, SEPARATION_EVENTS } from '../tree/schema.js';
 
@@ -19,7 +19,8 @@ export function describeComponentFlightTuple(tuple: ComponentFlightTuple, unit: 
   const delay = recovery ? tuple.deployDelay : tuple.separationDelay;
   const options = recovery ? DEPLOY_EVENTS : SEPARATION_EVENTS;
   const label = options.find(([key]) => key === event.toLowerCase())?.[1] ?? event;
-  const height = `${fmtFieldValue(siToUi('altitude', unit, altitude))} ${unit}`;
+  const height = mode === 'warning' ? noticeQuantity('altitude', altitude, unit, { digits: 3 })
+    : `${fmtFieldValue(siToUi('altitude', unit, altitude))} ${unit}`;
   if (mode === 'warning') {
     return `${label}${event.toLowerCase().startsWith('altitude') ? `, ${height}` : ''}${delay !== 0 ? `, delay ${fmtFieldValue(delay)} s` : ''}`;
   }

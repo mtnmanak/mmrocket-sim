@@ -54,6 +54,18 @@ const expectTextClearOfMarks = (doc: ReturnType<DOMParser['parseFromString']>) =
 };
 
 describe('tube wrap geometry (SI, hand-computed)', () => {
+  it.each([
+    ['mm', '0.15 mm'], ['cm', '0.015 cm'], ['m', '0.00015 m'],
+    ['in', '0.00591 in'], ['ft', '0.000492 ft'],
+  ])('retains sub-millimetre drilling guidance in %s', (length, diameter) => {
+    const { tree, tube } = fixture([node('tubehole', { name: 'Small vent', holeDiameter: 0.00015, holeCount: 1 })]);
+    const svg = tubeWrapPages(tubeWrapGeometry(tree, tube), 'Rocket', { length, angle: '\u00b0' })[0]!.svg;
+    const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+    const labels = [...doc.getElementsByTagName('text')].map(text => text.textContent).join(' ');
+    expect(labels).toContain(`Small vent: ${diameter}`);
+    expect(svg).toContain(`diameter ${diameter}; fabrication only`);
+  });
+
   it('50 mm OD, three fins: 157.0796 mm wrap, 120 degree intervals, middle tab', () => {
     const { tree, tube } = fixture([fin()]);
     const g = tubeWrapGeometry(tree, tube);

@@ -230,3 +230,11 @@ describe('FinPointsEditor — the outline guard', () => {
     expect(starterRows()).toEqual(['20', '30', '50']);
   });
 });
+
+
+it('shows an imported fin extent problem in preferred inches and counterpart millimetres', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'in' } }));
+  render([[0, 0], [2.6, 1], [2.7, 2], [3, 0]]);
+  type(field('Point 2 y'), '40');
+  expect(host.textContent).toContain('within 98.425 in (2500 mm)');
+});

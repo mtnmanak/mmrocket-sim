@@ -1,3 +1,4 @@
+import { noticeQuantity } from '../prefs/units.js';
 import type { AtmosphereModel } from '../services/atmosphere.js';
 import { effectiveAero } from '../prefs/aeroChoice.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -24,7 +25,7 @@ import { WeatherSkyInfo } from './WeatherSkyInfo.js';
 import { WindProfileTable } from './WindProfile.js';
 import { windProfileSummary } from '../services/windProfile.js';
 import {
-  altitudeText, capitalise, farText, FIELD_LABEL, fieldText, gustNote, showsYear, sourceHeading, sourceWord,
+  capitalise, farNoticeText, FIELD_LABEL, fieldNoticeText, fieldText, gustNote, showsYear, sourceHeading, sourceWord,
 } from './weatherText.js';
 
 /**
@@ -309,7 +310,7 @@ export function WeatherDialog({
       const p = placeFromDevice(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
       choosePlace(p);
       setLocatedHere(true);
-      setLocateNote(`Located to within ${farText(units.distance, Math.max(p.accuracyM ?? 0, 1000))}.`);
+      setLocateNote(`Located to within ${farNoticeText(units.distance, Math.max(p.accuracyM ?? 0, 1000))}.`);
     }, (err) => {
       if (!seq.current.isCurrent(id)) return;
       setBusy(null);
@@ -330,7 +331,7 @@ export function WeatherDialog({
     try {
       const a = await fetchWeather({
         place: target, siteM: padAir(launch).altitudeM, date, today: ymdInZone(now(), target.timezone),
-      }, { signal, fetchImpl, now });
+      }, { signal, fetchImpl, now, units });
       if (!seq.current.isCurrent(id)) return;
       const hs = hoursOnLocalDate(a.variants[0]?.samples ?? [], a.timezone, a.date);
       const nowUnix = now() / 1000;
@@ -386,7 +387,7 @@ export function WeatherDialog({
     onClose();
   };
 
-  const alt = (m: number) => altitudeText(units.altitude, m);
+  const alt = (m: number, parenthesized = false) => noticeQuantity('altitude', m, units, { parenthesized, grouped: true });
   const fmt = (k: ProposalRow['key'], v: number) => fieldText(k, v, units, prefs.fieldPrecision);
   const offerSite = launch.latitudeDeg !== DEFAULT_CONDITIONS.latitudeDeg && flownLongitudeDeg(launch) !== null;
   const siteKey = place ? `${place.latitudeDeg},${place.longitudeDeg}` : '';
@@ -443,7 +444,7 @@ export function WeatherDialog({
             </button>
           )}
         </div>
-        <p className="weather-small">{WEATHER_DIALOG_COPY.locateNote}</p>
+        <p className="weather-small">{WEATHER_DIALOG_COPY.locateNote.replace('1 km', farNoticeText(units.distance, 1000))}</p>
         {locateNote && <p className="weather-small" role="status">{locateNote}</p>}
         {locatedHere && place?.method === 'device' && deviceMirrorsDesign(launch, place) && (
           <div className="weather-note" role="status">
@@ -558,16 +559,23 @@ export function WeatherDialog({
                         {r.now === null
                           ? <>blank (80.6° W flown)</>
                           : fmt(r.key, r.now)}
-                        {r.nowFromSite && <span className="weather-small"> (standard for {alt(proposal.altitude.siteM)})</span>}
+                        {r.nowFromSite && <span className="weather-small"> (standard for {alt(proposal.altitude.siteM, true)})</span>}
                       </td>
                       <td>
-                        {r.value !== null ? fmt(r.key, r.value) : '—'}
+                        {r.value !== null ? r.refusal?.why === 'range'
+                          ? (() => {
+                            const below = r.value < r.refusal.range[0];
+                            const text = fieldNoticeText(r.key, r.value, units, prefs.fieldPrecision, false,
+                              below ? r.refusal.range[0] : r.refusal.range[1]);
+                            return text.startsWith('just ') ? `just ${below ? 'below the minimum' : 'above the maximum'}` : text;
+                          })()
+                          : fmt(r.key, r.value) : '—'}
                         {r.key === 'windAverage' && r.value !== null
-                          && <span className="weather-small"> ({source} at 10 m / 33 ft)</span>}
+                          && <span className="weather-small"> ({source} at {noticeQuantity('altitude', 10, units, { parenthesized: true })})</span>}
                         {r.key === 'latitudeDeg' && place.townCentre
                           && <span className="weather-small"> ({place.label} — town centre)</span>}
                         {r.refusal && (
-                          <span className="weather-refusal"> {refusalText(r.key, r.refusal, fmt, alt)}</span>
+                          <span className="weather-refusal"> {refusalText(r.key, r.refusal, (k, v) => fieldNoticeText(k, v, units, prefs.fieldPrecision, true), alt)}</span>
                         )}
                       </td>
                     </tr>
@@ -608,7 +616,7 @@ export function WeatherDialog({
                   checked={aloftTicked && applyingWind} disabled={!applyingWind}
                   onChange={(e) => setAloftTicked(e.target.checked)} /> Winds aloft</label>
                 <p>{windProfileSummary(proposal.windLevels, units.altitude)}, strongest{' '}
-                  {fieldText('windAverage', Math.max(...proposal.windLevels.map((l) => l.speed)), units, prefs.fieldPrecision)} at{' '}
+                  {noticeQuantity('windspeed', Math.max(...proposal.windLevels.map((l) => l.speed)), units)} at{' '}
                   {alt(proposal.windLevels.reduce((a, b) => b.speed > a.speed ? b : a).altitude)}.</p>
                 <details><summary>View wind levels</summary>
                   <WindProfileTable levels={proposal.windLevels} surfaceFromDeg={proposal.sample.windFromDeg!} />
@@ -631,15 +639,15 @@ export function WeatherDialog({
                 </li>
               )}
               {proposal.sample.windGustMs !== null && (
-                <li>Gust {fieldText('windAverage', proposal.sample.windGustMs, units, prefs.fieldPrecision)} (strongest in the hour before)
-                  {' — '}{gustNote(proposal.sample.windSpeedMs, proposal.sample.windGustMs)}</li>
+                <li>Gust {noticeQuantity('windspeed', proposal.sample.windGustMs, units, { digits: prefs.fieldPrecision === 4 ? 4 : 3, otherDigits: 3 })} (strongest in the hour before)
+                  {' — '}{gustNote(proposal.sample.windSpeedMs, proposal.sample.windGustMs, prefs.units)}</li>
               )}
               {gust.ok && (
-                <li>σ from this gust ≈ {fieldText('windAverage', gust.sigmaMs, units, prefs.fieldPrecision)} — offered beside Wind gusts σ
+                <li>σ from this gust ≈ {noticeQuantity('windspeed', gust.sigmaMs, units, { digits: prefs.fieldPrecision === 4 ? 4 : 3, otherDigits: 3 })} — offered beside Wind gusts σ
                   once this wind is applied; Apply never sets σ.</li>
               )}
               {proposal.gridDistanceM !== null && (
-                <li>{capitalise(source)} grid point {farText(units.distance, proposal.gridDistanceM)} from your site.</li>
+                <li>{capitalise(source)} grid point {farNoticeText(units.distance, proposal.gridDistanceM)} from your site.</li>
               )}
               <li>Density altitude {alt(densityAltitudeM(launch, atmosphereModel))} → {alt(densityAfter(launch, patch, atmosphereModel))}.</li>
             </ul>

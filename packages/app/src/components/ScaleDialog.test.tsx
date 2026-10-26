@@ -215,7 +215,7 @@ describe('ScaleDialog', () => {
       } as ComponentNode],
     };
     await render({ b: 0.024 }, rod);
-    expect(text()).toContain('Mount: 0.0 → 0.0 mm — solid (filled), so it has no bore and no motor fits it,'
+    expect(text()).toContain('Mount: 0 mm (0 in) → 0 mm (0 in) — solid (filled), so it has no bore and no motor fits it,'
       + ' scaled or not. Untick Solid (filled) on it to make it a tube.');
     expect(text()).not.toContain('nearest is 6');
     expect(text()).not.toContain('will no longer fit');
@@ -369,7 +369,7 @@ describe('ScaleDialog', () => {
     act(() => { btn.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     // The LIST must show the bore the user gets, or it contradicts the fit
     // verdict on the same line: 54.0, not the 54.8 it passed through.
-    expect(text()).toContain('54.0 mm');
+    expect(text()).toContain('54 mm (2.126 in)');
     // DOWN, and the word is not decorative. 54.8 snaps to 54: both the bore and
     // the outer radius get SMALLER, and the copy said "snapped up" in every
     // case because the direction was hard-coded. This fixture is one of the two
@@ -489,7 +489,7 @@ describe('ScaleDialog', () => {
       pick(mountSelect(), 'custom');
       type(customBore(), '38,5');
       expect(customBore().getAttribute('aria-invalid')).toBeNull();
-      expect(text()).toContain('the 38.5 mm mount you chose');
+      expect(text()).toContain('the 38.5 mm (1.516 in) mount you chose');
       act(() => applyButton().click());
       expect((mountOf(applied!)['outerRadius'] as number) * 2).toBeCloseTo(0.0385 + 0.0032, 9);
     });
@@ -503,7 +503,7 @@ describe('ScaleDialog', () => {
       expect(text()).toContain('at most 94.8 mm');
       type(customBore(), '94');
       expect(customBore().getAttribute('aria-invalid')).toBeNull();
-      expect(text()).toContain('the 94.0 mm mount you chose');
+      expect(text()).toContain('the 94 mm (3.701 in) mount you chose');
       type(customBore(), '95');
       expect(customBore().getAttribute('aria-invalid')).toBe('true');
       act(() => { applyButton().dispatchEvent(new MouseEvent('click', { bubbles: true })); });
@@ -530,8 +530,8 @@ describe('ScaleDialog', () => {
       type(numberInputs()[0]!, '1.13');
       const snap = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
       act(() => { snap.click(); });
-      expect(text()).toContain('snapped up from 52.4 mm');
-      expect(text()).toContain('at most 53.6 mm');
+      expect(text()).toContain('snapped up from 52.432 mm (2.064 in)');
+      expect(text()).toContain('at most 53.562 mm (2.109 in)');
       expect(applyButton().disabled).toBe(true);
       // Nearest is not offered as a choice either, and the scaled size still is.
       expect([...mountSelect().options].find((o) => o.value === 'nearest')!.disabled).toBe(true);
@@ -674,4 +674,50 @@ it.each(['constructor', '__proto__', 'toString'])('S3b-1: renders and edits a re
   act(() => { select.value = 'scaled'; select.dispatchEvent(new Event('change', { bubbles: true })); });
   expect(select.value).toBe('scaled');
   expect(applyButton().disabled).toBe(false);
+});
+
+it('keeps standard 75/76-mm class names and brackets the scaled-size option', async () => {
+  const design: RocketTree = { components: [{ type: 'bodytube', id: 'body', length: 1, outerRadius: 0.1, thickness: 0.001,
+    children: [{ type: 'innertube', id: 'mount', length: 0.3, outerRadius: 0.0385, thickness: 0.001, motorMount: true }] }] };
+  await render({}, design);
+  type(numberInputs()[0]!, '1.01');
+  const nearest = host.querySelector<HTMLOptionElement>('option[value="nearest"]');
+  expect(nearest?.textContent).toBe('Nearest standard (75/76 mm)');
+  const scaled = host.querySelector<HTMLOptionElement>('option[value="scaled"]');
+  expect(scaled?.textContent).toMatch(/^Scaled size \([\d.]+ mm \[[\d.]+ in\]\)$/);
+});
+
+
+it('shows the freeform scaling refusal in preferred inches and counterpart millimetres', async () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'in' } }));
+  const t = tree();
+  t.components[0]!.children![1]!.children!.push({ type: 'freeformfinset', name: 'Fins',
+    points: [[0, 0], [1.3, 0.5], [1.35, 1], [1.5, 0]], thickness: 0.003, crossSection: 'airfoil' });
+  await render({}, t);
+  type(numberInputs()[0]!, '2');
+  expect(text()).toContain('98.425 in (2500 mm)');
+  expect(applyButton().disabled).toBe(true);
+});
+
+
+it.each(['mm', 'in'])('keeps a close mount overflow ordered in both systems (%s)', async unit => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: unit, motorDimensions: unit } }));
+  const t = tree();
+  const body = t.components[0]!.children![1]!;
+  body['outerRadius'] = 28.9996 / 4000 + 0.0015 + 0.0008;
+  body.children![0]!['outerRadius'] = 0.0078;
+  await render({}, t);
+  act(() => { host.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click(); });
+  expect(applyButton().disabled).toBe(true);
+  if (text().includes('The mount is just over')) {
+    const refusal=text().match(/The mount is just over the (.+?) maximum bore and does not fit/)!;
+    expect(refusal).not.toBeNull();
+    expect([...refusal[1]!.matchAll(/[0-9.]+ (?:mm|in)/g)]).toHaveLength(2);
+    return;
+  }
+  const refusal = text().match(/A ([\d.]+ (?:mm|in) \([\d.]+ (?:mm|in)\)) mount does not fit inside the\s+tube around it once scaled — at most (.+?) does\./)!;
+  expect(refusal).not.toBeNull();
+  const nums = refusal.slice(1).map(s => [...s.matchAll(/([0-9.]+) (?:mm|in)/g)].map(m => Number(m[1])));
+  expect(nums[0]!.some((n,i)=>n>nums[1]![i]!)).toBe(true);
+  for (const i of [0, 1]) expect(nums[0]![i]).toBeGreaterThanOrEqual(nums[1]![i]!);
 });

@@ -283,7 +283,7 @@ describe('App — accessibility, as rendered', () => {
     expect(main.tagName).toBe('MAIN');
     expect(main.getAttribute('tabindex')).toBe('-1');
     expect(document.activeElement).toBe(main);
-    expect(region!.textContent).toMatch(/^Flight complete — apogee \d+(\.\d+)? m\.$/);
+    expect(region!.textContent).toMatch(/^Flight complete — apogee \d+(\.\d+)? m \(\d+(\.\d+)? ft\)\.$/);
     expect(region!.isConnected).toBe(true);
 
     // The same design flown again says the same words, and must be heard

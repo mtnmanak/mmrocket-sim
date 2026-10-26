@@ -214,7 +214,7 @@ describe('the import note tells the user what will happen when they load the mot
     const note = r.notes.find((n) => n.startsWith('Applied WITH the motor still included'))!;
     expect(note).toBeDefined();
     expect(note).toContain('“M787” isn’t in the motor database');
-    expect(note).toContain('the stated 23.310 lb is used as it stands');
+    expect(note).toContain('the stated 10573 g (23.3 lb) is used as it stands');
     expect(note).toContain('right for the rocket as it stands here');
     expect(note).toContain('takes its weight back out of the stage mass and CG first');
     expect(note).toContain('never counted twice');

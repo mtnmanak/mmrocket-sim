@@ -1,7 +1,7 @@
 import { DEPLOY_EVENTS, FIELDS } from '../tree/schema.js';
 import { foldDeployEvent } from '../tree/deployEvent.js';
 import type { IgnitionTuple, SeparationTuple } from '../model/design.js';
-import { deployAltitudeText } from '../components/recoveryContext.js';
+import { INITIAL_UNITS, noticeQuantity } from '../prefs/units.js';
 
 /**
  * A recovery device whose flight configuration OVERRIDES its own deployment
@@ -52,12 +52,11 @@ export function sameDeployment(a: DeploySetting, b: DeploySetting): boolean {
 const LABEL = new Map(DEPLOY_EVENTS);
 
 /** N032: quote the altitude box's units/digits; callers without preferences keep the legacy readout. */
-export function describeDeployment(d: DeploySetting, altitudeUnit?: string): string {
+export function describeDeployment(d: DeploySetting, altitudeUnit?: string, parenthesized = false): string {
   const event = foldDeployEvent(d.deployEvent);
   let s = LABEL.get(event) ?? event;
   if (event === 'altitude') {
-    s += `, ${altitudeUnit !== undefined ? deployAltitudeText(d.deployAltitude, altitudeUnit)
-      : `${d.deployAltitude.toFixed(1)} m (${Math.round(d.deployAltitude / 0.3048)} ft)`}`;
+    s += `, ${noticeQuantity('altitude', d.deployAltitude, altitudeUnit ?? INITIAL_UNITS.altitude, { digits: 3, parenthesized })}`;
   }
   if (d.deployDelay > 1e-9) s += ` + ${Number(d.deployDelay.toFixed(2))} s`;
   return s;
@@ -79,7 +78,7 @@ export function deployOverrideNote(overrides: readonly DeployOverride[], configN
   const where = configName ? `Flight configuration “${configName}”` : 'The flight configuration this file opens with';
   const lines = [...groups.values()].map(({ o, n }) =>
     `${o.name}${n > 1 ? ` (×${n})` : ''} flies at ${describeDeployment(o.flown, altitudeUnit)}, `
-    + `not at its own setting (${describeDeployment(o.own, altitudeUnit)})`);
+    + `not at its own setting (${describeDeployment(o.own, altitudeUnit, true)})`);
   // Both settings are shown, and edited, in the Recovery section of Motors &
   // Configuration since CFG-3 (ruling D2a); Design shows them read-only.
   return `Recovery: ${where} overrides the deployment setting — ${lines.join('; ')}. `
@@ -91,13 +90,12 @@ export function flightParameterOverrideNote(
   kind: 'separation' | 'ignition', name: string, own: SeparationTuple | IgnitionTuple,
   flown: SeparationTuple | IgnitionTuple, configName: string | null, altitudeUnit?: string,
 ): string {
-  const describe = (tuple: SeparationTuple | IgnitionTuple) => {
+  const describe = (tuple: SeparationTuple | IgnitionTuple, parenthesized = false) => {
     if ('separationEvent' in tuple) {
       const labels = new Map(FIELDS.stage?.find(f => f.key === 'separationEvent')?.options ?? []);
       const event = tuple.separationEvent;
       return (labels.get(event) ?? event)
-        + (event.startsWith('altitude') ? `, ${altitudeUnit !== undefined ? deployAltitudeText(tuple.separationAltitude, altitudeUnit)
-          : `${tuple.separationAltitude} m`}` : '')
+        + (event.startsWith('altitude') ? `, ${noticeQuantity('altitude', tuple.separationAltitude, altitudeUnit ?? INITIAL_UNITS.altitude, { digits: 3, parenthesized })}` : '')
         + (tuple.separationDelay ? ` + ${tuple.separationDelay} s` : '');
     }
     const labels: Record<IgnitionTuple['event'], string> = {
@@ -109,6 +107,6 @@ export function flightParameterOverrideNote(
   const where = configName ? `Flight configuration “${configName}”` : 'The flight configuration this file opens with';
   const component = kind === 'separation' ? 'stage' : 'mount';
   const panel = kind === 'separation' ? 'Stages section on Motors & Configuration' : 'motor card on Motors & Configuration';
-  return `${where} overrides ${kind} for ${name}: it uses ${describe(flown)}, not the ${component}'s own setting (${describe(own)}). `
+  return `${where} overrides ${kind} for ${name}: it uses ${describe(flown)}, not the ${component}'s own setting (${describe(own, true)}). `
     + `The ${panel} shows both; Reset to own setting there returns this configuration to the ${component}'s own setting.`;
 }

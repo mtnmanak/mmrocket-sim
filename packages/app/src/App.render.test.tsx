@@ -451,19 +451,20 @@ describe('a nozzle exit wider than the loaded motor', () => {
     expect(bar?.className).toContain('expanded');
     const item = [...(bar?.querySelectorAll('.notice-item') ?? [])]
       .find((li) => li.textContent?.includes('the nozzle exit diameter is'));
-    expect(item?.textContent).toContain('the nozzle exit diameter is 50.0 mm, wider than the 18.0 mm casing');
+    expect(item?.textContent).toContain('the nozzle exit diameter is 50 mm (1.969 in), wider than the 18 mm (0.709 in) casing');
     expect(item?.className).toContain('notice-warn');
     expect(item?.querySelector('.notice-dismiss')).toBeNull();
   }, 30000);
 
   /**
-   * The list is a memo, and the length unit is one of its keys: without it
+   * The list is a memo, and the motor dimension unit is one of its keys: without it
    * the bar keeps printing millimetres to someone who has just switched to
    * inches. nozzleWiring.test.ts held that key as a string match on the memo's
    * dependency list; this is the switch made where a user makes it (a unit
-   * chip on the Design tab) and the bar read back.
+   * chip on Motors & Configuration) and the bar read back.
    */
-  it('follows the length unit when it is switched', async () => {
+  it('follows motor dimensions independently of rocket dimensions when switched', async () => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { length: 'in', motorDimensions: 'mm' } }));
     await seedStarterSession({
       edit: (t) => ({
         ...t,
@@ -472,14 +473,18 @@ describe('a nozzle exit wider than the loaded motor', () => {
     });
     const host = await mountApp();
     await settle(50);
-    const unit = host.querySelector<HTMLSelectElement>('select[aria-label="Rocket dimensions unit"]')!;
+    const initial = [...(noticeBar()?.querySelectorAll('.notice-item') ?? [])]
+      .find((li) => li.textContent?.includes('the nozzle exit diameter is'));
+    expect(initial?.textContent).toContain('the nozzle exit diameter is 50 mm (1.969 in), wider than the 18 mm (0.709 in) casing');
+    await openTab(host, 'Motors & Configuration');
+    const unit = host.querySelector<HTMLSelectElement>('select[aria-label="Motor dimensions unit"]')!;
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(unit, 'in');
       unit.dispatchEvent(new Event('change', { bubbles: true }));
     });
     const item = [...(noticeBar()?.querySelectorAll('.notice-item') ?? [])]
       .find((li) => li.textContent?.includes('the nozzle exit diameter is'));
-    expect(item?.textContent).toContain('the nozzle exit diameter is 1.97 in, wider than the 0.709 in casing');
+    expect(item?.textContent).toContain('the nozzle exit diameter is 1.969 in (50 mm), wider than the 0.709 in (18 mm) casing');
   }, 30000);
 });
 
@@ -1393,7 +1398,7 @@ describe('FC-5 configuration editors', () => {
     // CFG-3 (ruling D2a): Design shows it read-only and links to the one editor.
     const block = host.querySelector<HTMLElement>('[role="group"][aria-label="Separation"]')!;
     expect(block.textContent).toContain("Own setting: This stage's ejection charge");
-    expect(block.textContent).toContain('In “a”: overridden — Altitude (descending), 91.44 m, delay 2 s');
+    expect(block.textContent).toContain('In “a”: overridden — Altitude (descending), 91.44 m (300 ft), delay 2 s');
     expect(host.querySelector('[aria-label^="Separation altitude"], [aria-label^="Separate at"]')).toBeNull();
     await act(async () => { button(block, 'Set on Motors & Configuration ▸').click(); });
     expect(document.activeElement?.textContent).toBe('Edit…');

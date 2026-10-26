@@ -592,7 +592,7 @@ describe('an imported atmosphere is checked before it reaches the engine', () =>
     expect(r.launch?.pressureHPa).toBeNull();
     expect(r.launch?.temperatureC).toBeCloseTo(20, 9);
     expect(atmosphereNotes(r.notes)).toHaveLength(1);
-    expect(atmosphereNotes(r.notes)[0]).toMatch(/1013\.25 Pa/);
+    expect(atmosphereNotes(r.notes)[0]).toMatch(/10\.133 mbar \(0\.299 inHg\)/);
     expect(atmosphereNotes(r.notes)[0]).toMatch(/standard atmosphere/);
   });
 
@@ -684,7 +684,7 @@ describe('an imported launch site is held to the panel’s own bounds', () => {
       launchRodLengthM: 0, launchAltitudeM: 0, latitudeDeg: 90, windStdDev: 0, windAverage: 2,
     });
     expect(boundNotes(r.notes)).toHaveLength(4);
-    expect(boundNotes(r.notes).join('\n')).toMatch(/launch rod length is -2 m, .*accepts nothing below 0 m/);
+    expect(boundNotes(r.notes).join('\n')).toMatch(/launch rod length is -2000 mm \(-78\.74 in\), .*accepts nothing below 0 mm \(0 in\)/);
     // Above the Site altitude field's top, too.
     expect(importOrk(withConditions('<launchaltitude>45720</launchaltitude>')).launch?.launchAltitudeM)
       .toBe(10000);
@@ -709,7 +709,7 @@ describe('an imported launch site is held to the panel’s own bounds', () => {
     const r = importOrk(withConditions('<windaverage>-4</windaverage><winddirection>1.5707963267948966</winddirection>'
       + '<wind model="average"><speed>-4</speed><direction>1.5707963267948966</direction></wind>'));
     const note = r.notes.find((n) => /average wind is -4 m\/s/.test(n));
-    expect(note).toBe('The file\'s average wind is -4 m/s, which desktop OpenRocket flies as 4 m/s; it was imported as 4 m/s.');
+    expect(note).toBe('The file\'s average wind is -4 m/s (-13 ft/s), which desktop OpenRocket flies as 4 m/s (13 ft/s); it was imported as 4 m/s (13 ft/s).');
   });
 
   // The Rod aim is measured from the wind DESKTOP flies, replaying its reads

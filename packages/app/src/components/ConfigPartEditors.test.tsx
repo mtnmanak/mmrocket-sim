@@ -53,7 +53,7 @@ describe('CFG-2 Recovery and Stages rows', () => {
       // D7 I10 (carried from the retired FlightOverrideBanner): the own setting
       // says when it is not the one that flies, and an override that flies
       // differently is a Caution note, in words as well as colour.
-      expect(lines('chute')).toEqual(['Own setting: Altitude (descending), 100 m — not flown in this configuration',
+      expect(lines('chute')).toEqual(['Own setting: Altitude (descending), 100 m (328.1 ft) — not flown in this configuration',
         '⚠ Caution: This configuration: overridden — Motor ejection charge, delay 1 s']);
       expect(lines('streamer')).toEqual(['Own setting: Apogee', 'This configuration: uses own setting']);
       expect(lines('lower')).toEqual(["Own setting: This stage's ejection charge — not flown in this configuration",

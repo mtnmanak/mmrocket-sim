@@ -149,6 +149,20 @@ describe('the review of one fetched hour', () => {
   });
 });
 
+
+it.each([
+  ['temperatureC', 60.00000000000001, 60],
+  ['temperatureC', -60.00000000000001, -60],
+  ['pressureHPa', 1100.0000000000002, 1100],
+  ['pressureHPa', 299.99999999999994, 300],
+] as const)('normalizes weather endpoint arithmetic residue in %s', (key, value, bound) => {
+  const a = TWO();
+  const sample = a.variants[0]!.samples.find(s => s.unix === SAT_2PM)!;
+  sample[key] = value;
+  const p = buildProposal({ launch: DEFAULT_CONDITIONS, answer: a, place: gerlach, unix: SAT_2PM, choice: 'site' });
+  expect(row(p.rows, key)).toMatchObject({ value: bound, refusal: null });
+});
+
 describe('the winds-aloft Apply patch (audit 2026-10-11, S3b-5)', () => {
   const levels = [{ altitude: 10, speed: 1.75, direction: 0, standardDeviation: 0.7 },
     { altitude: 100, speed: 4, direction: 0.2, standardDeviation: 1.6 }];

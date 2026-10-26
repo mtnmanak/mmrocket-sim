@@ -1,3 +1,5 @@
+import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
+
 /**
  * Freeform fin outline validation — the browser-side copy of the kernel's
  * `FreeformFinSet.intersects()`
@@ -40,7 +42,7 @@ const IGNORE_SMALLER_THAN = 1e-12;
  * FreeformFinSet.java:28 — `setPoints` pulls any x or y past this (metres)
  * back to it BEFORE it runs `intersects()`.
  */
-const SNAP_LARGER_THAN = 2.5;
+export const MAX_FIN_POINT_M = 2.5;
 
 /**
  * The outline as the kernel's `setPoints` hands it to `intersects()`
@@ -58,8 +60,8 @@ export function kernelFinPoints(points: readonly FinOutlinePoint[]): FinOutlineP
     const x = move ? px + -x0 : px;
     const y = move ? py + -y0 : py;
     let q: FinOutlinePoint = [x, y];
-    if (x > SNAP_LARGER_THAN) q = [SNAP_LARGER_THAN, y];
-    if (y > SNAP_LARGER_THAN) q = [x, SNAP_LARGER_THAN];
+    if (x > MAX_FIN_POINT_M) q = [MAX_FIN_POINT_M, y];
+    if (y > MAX_FIN_POINT_M) q = [x, MAX_FIN_POINT_M];
     return q;
   });
 }
@@ -152,7 +154,7 @@ export function finOutlineIntersection(
  *    with "Unknown format conversion: g".
  */
 export function finOutlineProblem(
-  points: readonly FinOutlinePoint[] | undefined | null,
+  points: readonly FinOutlinePoint[] | undefined | null, units: UnitSelection = INITIAL_UNITS,
 ): string | null {
   if (!points || points.length < 3) return 'A fin outline needs at least 3 points.';
   for (let i = 0; i < points.length; i++) {
@@ -179,19 +181,20 @@ export function finOutlineProblem(
   }
   const placed = kernelFinPoints(points);
   if (placed.every((p, i) => p[0] === points[i]![0] && p[1] === points[i]![1])) return null;
-  const PULLED = 'once the simulator pulls every point more than 2.5 m aft of or above the first one '
-    + 'back to 2.5 m';
+  const limit = noticeQuantity('length', MAX_FIN_POINT_M, units);
+  const PULLED = `once the simulator pulls every point more than ${limit} aft of or above the first one `
+    + `back to ${limit}`;
   for (let i = 1; i < placed.length; i++) {
     const a = placed[i - 1]!;
     const b = placed[i]!;
     if (Math.hypot(b[0] - a[0], b[1] - a[1]) <= COINCIDENT_M) {
-      return `Points ${i} and ${i + 1} land in the same place ${PULLED} — keep the fin within 2.5 m.`;
+      return `Points ${i} and ${i + 1} land in the same place ${PULLED} — keep the fin within ${limit}.`;
     }
   }
   const placedHit = finOutlineIntersection(placed);
   if (placedHit) {
     return `The outline crosses itself ${PULLED} — edge ${placedHit.target + 1}–${placedHit.target + 2} `
-      + `meets edge ${placedHit.comparison + 1}–${placedHit.comparison + 2}. Keep the fin within 2.5 m.`;
+      + `meets edge ${placedHit.comparison + 1}–${placedHit.comparison + 2}. Keep the fin within ${limit}.`;
   }
   return null;
 }

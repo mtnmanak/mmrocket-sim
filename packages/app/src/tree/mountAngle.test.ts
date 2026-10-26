@@ -20,6 +20,13 @@ const tree = (kids: Record<string, unknown>[]): RocketTree => ({
   name: 'T', components: [{ type: 'stage', id: 's1', children: [body(kids)] }],
 } as unknown as RocketTree);
 
+it.each(['freeformfinset', 'trapezoidfinset'])('snaps non-exact aligned %s angles to compact zero degrees', type => {
+  const t = tree([{ type, id: 'f', finCount: 3, rootChord: 0.05, height: 0.04, rotation: D(30), crossSection: 'airfoil' },
+    { type: 'railbutton', id: 'r', angleOffset: D(150) }]);
+  expect(railInterferenceWarnings(t).join(' ')).toContain('(0° apart)');
+  expect(railInterferenceWarnings(t).join(' ')).not.toContain('rad');
+});
+
 const FINS3 = { type: 'trapezoidfinset', id: 'f1', finCount: 3, rootChord: 0.05, height: 0.04 };
 
 describe('where the fins are', () => {
@@ -437,7 +444,7 @@ describe('a shroud in a fin\'s wake', () => {
     // Names both parts, and states the geometry rather than a verdict.
     expect(w[0]).toContain('"Camera shroud" at 0°');
     expect(w[0]).toContain('a fin of "Fins"');
-    expect(w[0]).toContain('220 mm ahead');
+    expect(w[0]).toContain('220 mm (8.661 in) ahead');
     expect(w[0]).toContain('11 times its own height');
     expect(w[0]).toContain('0° off that fin\'s line');
     expect(w[0]).toContain('not modelled');
@@ -610,7 +617,7 @@ describe('a shroud in a fin\'s wake', () => {
     const w = wakeShadowWarnings(twoStage);
     expect(w).toHaveLength(1);
     expect(w[0]).toContain('"Booster fins"');
-    expect(w[0]).toContain('200 mm ahead');
+    expect(w[0]).toContain('200 mm (7.874 in) ahead');
   });
 
   it('leaves the rail check exactly where it was', () => {

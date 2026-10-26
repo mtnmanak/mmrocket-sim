@@ -1,3 +1,4 @@
+import { noticeChange, noticeEqual } from '../prefs/units.js';
 import { cautionNote } from './importNotes.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
@@ -120,8 +121,8 @@ export interface AttachedMotor {
 
 /** Unit-aware formatters, injected — this module holds no unit preference. */
 export interface StatedWeightText {
-  mass: (kg: number) => string;
-  length: (m: number) => string;
+  mass: (kg: number, against?: number) => string;
+  length: (m: number, against?: number) => string;
 }
 
 export interface ReconciledStatedWeight {
@@ -161,6 +162,15 @@ export const nodeLength = (n: ComponentNode): number => axialLength(n);
 /** A stage's own length: its DIRECT children only, so pods add nothing. */
 export const stageLength = (st: ComponentNode | undefined): number =>
   (st?.children ?? []).reduce((sum, c) => sum + nodeLength(c), 0);
+
+/** Moment subtraction can leave a few ULPs beyond a valid stage endpoint.
+ * Use the shared arithmetic-residue band, in metres. */
+export function boundedStageCg(cg: number, length: number): number {
+  if (!Number.isFinite(cg) || !Number.isFinite(length)) return cg;
+  if (cg < 0 && noticeEqual(cg, 0)) return 0;
+  if (cg > length && noticeEqual(cg, length)) return length;
+  return cg;
+}
 
 /**
  * Do these two strings name the same motor?
@@ -277,7 +287,7 @@ export interface BackedOutMotor {
  * different figures, so a re-pick lands exactly where a re-open would.
  */
 export const stageMassWithoutMotor = (launchKg: number, motor: BackedOutMotor | null): number =>
-  launchKg - (motor?.massKg ?? 0);
+  motor && noticeEqual(launchKg, motor.massKg) ? 0 : launchKg - (motor?.massKg ?? 0);
 
 /**
  * Desktop `getStageCGWithoutMotorCG` (SimulationHandler.java:504-524): the
@@ -298,15 +308,15 @@ export function stageCgWithoutMotor(
   stage: ComponentNode, mount: ComponentNode | undefined, motor: BackedOutMotor | null,
   stageMassKg: number, launchCgM: number,
 ): number {
-  if (!motor) return launchCgM;
+  if (!motor) return boundedStageCg(launchCgM, stageLength(stage));
   if (!(stageMassKg > 0)) return NaN; // no overridden mass to divide by
-  if (!mount) return launchCgM;
+  if (!mount) return boundedStageCg(launchCgM, stageLength(stage));
   const kids = stage.children ?? [];
   const at = kids.indexOf(mount);
   if (at === -1) return NaN;
   const mountFrontX = kids.slice(0, at).reduce((sum, c) => sum + nodeLength(c), 0);
   const motorCgX = mountFrontX + nodeLength(mount) - motor.lengthM + motor.cgXFromFrontM;
-  return cgFromCombined(motor.massKg, stageMassKg, motorCgX, launchCgM);
+  return boundedStageCg(cgFromCombined(motor.massKg, stageMassKg, motorCgX, launchCgM), stageLength(stage));
 }
 
 /**
@@ -477,7 +487,7 @@ export function restateBackedOutMotor(
       next['overrideSubcomponentsMass'] = true;
       after.massKg = dry;
       if (rec.massKg === undefined) parts.push(`its mass override is now ${text.mass(dry)}`);
-      else if (!near(dry, rec.massKg)) parts.push(`its mass override ${text.mass(rec.massKg)} → ${text.mass(dry)}`);
+      else if (!near(dry, rec.massKg)) parts.push(`its mass override ${noticeChange(text.mass(rec.massKg), text.mass(dry), text.mass(rec.massKg, dry).startsWith('just '))}`);
     } else {
       delete next['overrideMass'];
       delete next['overrideSubcomponentsMass'];
@@ -491,7 +501,7 @@ export function restateBackedOutMotor(
       next['overrideSubcomponentsCG'] = true;
       after.cgM = cg;
       if (rec.cgM === undefined) parts.push(`its CG override is now ${text.length(cg)} from the stage’s own front`);
-      else if (!near(cg, rec.cgM)) parts.push(`its CG override ${text.length(rec.cgM)} → ${text.length(cg)} from the stage’s own front`);
+      else if (!near(cg, rec.cgM)) parts.push(`its CG override ${noticeChange(text.length(rec.cgM), text.length(cg), text.length(rec.cgM, cg).startsWith('just '))} from the stage’s own front`);
     } else {
       delete next['overrideCGX'];
       delete next['overrideSubcomponentsCG'];
@@ -620,7 +630,7 @@ export function reconcileIncludedMotor(
     };
   }
 
-  const dry = stated - motor.launchMassKg;
+  const dry = noticeEqual(stated, motor.launchMassKg) ? 0 : stated - motor.launchMassKg;
   if (!(dry > 0)) {
     // The stated weight cannot have contained this motor. A WRONG override is
     // worse than none — the doctrine the import block itself runs on — so both
@@ -630,12 +640,17 @@ export function reconcileIncludedMotor(
     delete bare['overrideSubcomponentsMass'];
     delete bare['overrideCGX'];
     delete bare['overrideSubcomponentsCG'];
+    const statedText = text.mass(stated);
+    const motorText = text.mass(motor.launchMassKg);
+    const sameDisplay = noticeEqual(stated, motor.launchMassKg) || text.mass(motor.launchMassKg, stated).startsWith('just ');
     return {
       tree: replaceStage(tree, index, bare),
       severity: 'warn',
-      note: `“${name}”: the ${text.mass(stated)} the RASAero file stated for that stage was a launch `
-        + `weight with its motor still inside it, but ${who} weighs ${text.mass(motor.launchMassKg)} on `
-        + 'its own — as much as the whole stage or more, so the file’s weight cannot be right for this '
+      note: `“${name}”: the ${statedText} the RASAero file stated for that stage was a launch `
+        + `weight with its motor still inside it, but ${who} `
+        + (sameDisplay ? `weighs ${noticeEqual(stated, motor.launchMassKg) ? 'as much as' : 'slightly more than'} that on its own`
+          : `weighs ${motorText} on its own — as much as the whole stage or more`)
+        + ', so the file’s weight cannot be right for this '
         + 'motor. The stage’s mass and CG overrides have been cleared and it is back on its computed '
         + 'geometry. Check the weight in the file, or type your own under Overrides.',
     };
@@ -669,8 +684,8 @@ export function reconcileIncludedMotor(
       ? kids.slice(0, at).reduce((sum, c) => sum + nodeLength(c), 0) + nodeLength(mount)
       : NaN;
     const motorCgX = mountAftX - motor.lengthM + motor.cgXFromFrontM;
-    const cg = cgFromCombined(motor.launchMassKg, dry, motorCgX, statedCg);
     const len = stageLength(stage);
+    const cg = boundedStageCg(cgFromCombined(motor.launchMassKg, dry, motorCgX, statedCg), len);
     if (cg >= 0 && cg <= len) {
       next['overrideCGX'] = cg;
       Object.assign(figures, { launchCgM: statedCg, cgM: cg });
@@ -679,8 +694,11 @@ export function reconcileIncludedMotor(
       delete next['overrideCGX'];
       delete next['overrideSubcomponentsCG'];
       severity = 'warn';
-      trailer = ' Its CG override could not be corrected the same way — backing the motor out puts the '
-        + `stage’s own CG ${Number.isFinite(cg) ? text.length(cg) : 'nowhere computable'} into a `
+      const cgText = Number.isFinite(cg) ? text.length(cg, cg < 0 ? 0 : len) : 'nowhere computable';
+      trailer = cgText.startsWith('just ')
+        ? ` Its CG override could not be corrected — backing the motor out puts the stage’s own CG ${cg < 0 ? 'just before the stage front' : `just beyond the ${text.length(len)} stage end`}, outside it. The CG override has been cleared; type your measured CG under Overrides.`
+        : ' Its CG override could not be corrected the same way — backing the motor out puts the '
+        + `stage’s own CG ${Number.isFinite(cg) ? text.length(cg, cg < 0 ? 0 : len) : 'nowhere computable'} into a `
         + `${text.length(len)} stage, which is outside it — so the CG override has been cleared and the `
         + 'stage is back on its computed CG. Type your own under Overrides if you have measured it.';
     }

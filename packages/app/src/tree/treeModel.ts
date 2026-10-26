@@ -1,3 +1,4 @@
+import type { UnitSelection } from '../prefs/units.js';
 // The engine is imported as a VALUE here, not only as types: the two
 // body-CD-referenced protuberance classes need the kernel to tell them what
 // this design's own body CD is (see bodyDragReference). This module is already
@@ -107,13 +108,13 @@ export function findNode(tree: RocketTree, id: string): ComponentNode | null {
  * notes; session restore collects its repairs here for the same load notice.
  */
 export function normalizeTree(
-  tree: RocketTree, notes?: string[], options?: { preserveAbsolutePositions?: boolean },
+  tree: RocketTree, notes?: string[], options?: { preserveAbsolutePositions?: boolean; units?: UnitSelection },
 ): RocketTree {
   tree = repairTreeShape(tree, notes);
   reseedIds(tree);
   // A load-time historical placement check needs the stored absolute fields
   // after shape validation, before today's equivalent top-offset conversion.
-  tree = sanitizeTree(options?.preserveAbsolutePositions ? tree : resolveAbsolutePositions(tree), notes);
+  tree = sanitizeTree(options?.preserveAbsolutePositions ? tree : resolveAbsolutePositions(tree), notes, options?.units);
   if (tree.components.length === 0) {
     return { ...tree, components: [makeStage('Sustainer')] };
   }

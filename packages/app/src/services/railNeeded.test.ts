@@ -90,9 +90,9 @@ describe('rail travel from the existing flight', () => {
     const profile = railProfileFromFlight(f, { ...launch, launchRodLengthM: 4.2 });
     expect(railNeeded(profile, 15)).toEqual({ status: 'thrust-ended', railM: 4.2 });
     expect(railNeededLine(profile, 15, 'm', 'm/s')).toContain(
-      'Cannot reach 15.0 m/s: thrust ended before reaching that speed while still guided.');
-    expect(railNeededLine(profile, 15, 'm', 'm/s')).toContain('The simulated limit was 4 m of travel');
-    expect(railNeededLine(profile, 15, 'm', 'm/s')).toContain('(4.2 m of rail if the tail sits at the bottom of the rail)');
+      'Cannot reach 15 m/s (49 ft/s): thrust ended before reaching that speed while still guided.');
+    expect(railNeededLine(profile, 15, 'm', 'm/s')).toContain('The simulated limit was 4 m (157.48 in) of travel');
+    expect(railNeededLine(profile, 15, 'm', 'm/s')).toContain('(4.2 m [165.354 in] of rail if the tail sits at the bottom of the rail)');
   });
 
   it('keeps a delayed cluster ignition indeterminate without a later burnout or positive thrust sample', () => {
@@ -143,14 +143,14 @@ describe('rail travel from the existing flight', () => {
   it('adds the design offset only with allowance on and says which in the report', () => {
     const on = extract();
     expect(railNeededLine(on, 15, 'ft', 'm/s')).toBe(
-      'Reaches 15.0 m/s after 0.7 ft of travel, measured from the bottom edge of the second rail button up from the tail on the line the rail runs through (the upper button on a two-button rocket) '
-      + '(1.3 ft of rail if the tail sits at the bottom of the rail). At the pad, measure the usable rail from that button edge to the end of the rail.');
+      'Reaches 15 m/s (49 ft/s) after 0.656 ft (200 mm) of travel, measured from the bottom edge of the second rail button up from the tail on the line the rail runs through (the upper button on a two-button rocket) '
+      + '(1.312 ft [400 mm] of rail if the tail sits at the bottom of the rail). At the pad, measure the usable rail from that button edge to the end of the rail.');
     const f = flight(); f.effectiveLaunchRodLength = 1;
     const off = railProfileFromFlight(f, { ...launch, launchGuideAllowance: false });
     expect(railNeeded(off, 15)).toEqual({ status: 'reached', travelM: 0.2, railM: 0.2 });
     expect(railNeededLine(off, 15, 'ft', 'm/s')).toContain('Guide-position allowance is off.');
-    expect(railNeededLine(on, 30, 'ft', 'm/s')).toContain('within 2.6 ft of travel');
-    expect(railNeededLine(on, 30, 'ft', 'm/s')).toContain('3.3 ft of rail if the tail sits at the bottom of the rail');
+    expect(railNeededLine(on, 30, 'ft', 'm/s')).toContain('within 2.625 ft (800 mm) of travel');
+    expect(railNeededLine(on, 30, 'ft', 'm/s')).toContain('3.281 ft [1000 mm] of rail if the tail sits at the bottom of the rail');
   });
 
   it.each(['buttons', 'lug', 'mixed-buttons', 'mixed-lug', 'none', 'off', 'single-button'] as const)(
@@ -180,14 +180,14 @@ describe('rail travel from the existing flight', () => {
         expect(lines[0]).toContain('No required travel or rail length can be determined');
       } else {
         const launcher = guideKind.includes('lug') ? 'rod' : 'rail';
-        const requiredM = guideKind === 'none' || guideKind === 'off' ? '0.2' : '0.4';
+        const required = guideKind === 'none' || guideKind === 'off' ? '0.2 m [7.874 in]' : '0.4 m [15.748 in]';
         expect(lines[0]).toMatch(/^Reaches/);
-        expect(lines[0]).toContain(`(${requiredM} m of ${launcher} if the tail sits at the bottom of the ${launcher})`);
+        expect(lines[0]).toContain(`(${required} of ${launcher} if the tail sits at the bottom of the ${launcher})`);
         expect(lines[1]).toMatch(/^Did not reach/);
         expect(lines[1]).toContain(`a longer ${launcher} has not been simulated`);
         expect(lines[2]).toMatch(/^Cannot reach/);
-        expect(lines[2]).toContain(`The simulated limit was ${guideKind === 'none' || guideKind === 'off' ? '1' : '0.8'} m of travel`);
-        expect(lines[2]).toContain(`(1 m of ${launcher} if the tail sits at the bottom of the ${launcher})`);
+        expect(lines[2]).toContain(`The simulated limit was ${guideKind === 'none' || guideKind === 'off' ? '1 m (39.37 in)' : '0.8 m (31.496 in)'} of travel`);
+        expect(lines[2]).toContain(`(1 m [39.37 in] of ${launcher} if the tail sits at the bottom of the ${launcher})`);
       }
     });
 
@@ -204,7 +204,7 @@ describe('rail travel from the existing flight', () => {
     expect(profile.offsetM).toBeNull();
     expect(railNeeded(profile, 15)).toEqual({ status: 'undetermined', railM: 0.4 });
     expect(railNeededLine(profile, 15, 'm', 'm/s')).toBe(
-      `Did not reach 15.0 m/s: the simulation provided no guided travel (measured from ${point}) on the entered 0.4 m ${launcher}. `
+      `Did not reach 15 m/s (49 ft/s): the simulation provided no guided travel (measured from ${point}) on the entered 0.4 m (15.748 in) ${launcher}. `
       + `No required travel or ${launcher} length can be determined. `
       + `At the pad, measure the usable ${launcher} from that ${edge} edge to the end of the ${launcher}.`
       + (guideKind.startsWith('mixed-') ? ` With both lugs and buttons fitted, the app used the shorter travel (${guideKind === 'mixed-lug' ? 'lug' : 'buttons'}).` : ''));
@@ -218,10 +218,10 @@ describe('rail travel from the existing flight', () => {
       ...launch, launchRodLengthM: 0, launchGuideAllowance: guideKind !== 'off',
     })!;
     expect(profile.offsetM).toBeNull();
-    for (const [threshold, speed] of [[0, '0.000'], [15, '15.0']] as const) {
+    for (const [threshold, speed] of [[0, '0 m/s (0 ft/s)'], [15, '15 m/s (49 ft/s)']] as const) {
       expect(railNeeded(profile, threshold)).toEqual({ status: 'undetermined', railM: 0 });
       expect(railNeededLine(profile, threshold, 'm', 'm/s')).toBe(
-        `Did not reach ${speed} m/s: the simulation provided no guided travel on the entered 0 m rail. `
+        `Did not reach ${speed}: the simulation provided no guided travel on the entered 0 m (0 in) rail. `
         + 'No required travel or rail length can be determined. '
         + (guideKind === 'off' ? 'Guide-position allowance is off.' : 'No launch guide is fitted.'));
     }
@@ -254,13 +254,13 @@ describe('rail travel from the existing flight', () => {
     expect(railNeededCell(profile, 15, 'ft')).toBe('1.3');
     expect(railNeededCell(profile, 15, 'm', 'travel')).toBe('0.2');
     expect(railNeededCell(profile, 15, 'm')).toBe('0.4');
-    expect(railNeededCell(profile, 30, 'm', 'travel')).toBe('Not reached within 0.8 m');
-    expect(railNeededCell(profile, 30, 'm')).toBe('Not reached within 1 m');
+    expect(railNeededCell(profile, 30, 'm', 'travel')).toBe('Not reached within 0.8 m (31.496 in)');
+    expect(railNeededCell(profile, 30, 'm')).toBe('Not reached within 1 m (39.37 in)');
     for (const measure of ['travel', 'rail'] as const) {
       expect(railNeededCell({ ...profile, thrustEnded: true }, 30, 'm', measure)).toBe('Cannot reach: thrust ended');
       expect(railNeededCell(undefined, 15, 'm', measure)).toBe('');
       expect(railNeededHeader(15, 'ft/s', 'ft', measure)).toBe(`${measure === 'travel' ? 'Travel' : 'Rail'} for 49.2 ft/s (ft)`);
     }
-    expect(railNeededLine(profile, 15, 'm', 'ft/s')).toContain('Reaches 49.2 ft/s after 0.2 m');
+    expect(railNeededLine(profile, 15, 'm', 'ft/s')).toContain('Reaches 49 ft/s (15 m/s) after 0.2 m (7.874 in)');
   });
 });

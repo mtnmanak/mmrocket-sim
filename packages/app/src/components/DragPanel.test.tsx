@@ -7,9 +7,8 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import type { DragSweep, OrkRocket } from '@online-openrocket/engine';
 import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
-import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS, LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
 import { DRAG_SWEEP_IDLE_MS, DragPanel } from './DragPanel.js';
-import { foldTypography } from '../services/textFold.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -110,6 +109,20 @@ describe('DragPanel — sweep conditions', () => {
   const caption = () => Array.from(host.querySelectorAll('p'))
     .map((p) => p.textContent ?? '').find((t) => t.startsWith('Conditions:')) ?? '';
 
+  it.each([
+    [INITIAL_UNITS, '1013.25 mbar (29.921 inHg)', '20 °C (68 °F)', '84500 m (277231 ft)'],
+    [{ ...IMPERIAL_UNITS, pressure: 'inHg' }, '29.921 inHg (1013.25 mbar)', '68 °F (20 °C)', '277231 ft (84500 m)'],
+  ] as const)('R12 pairs atmosphere conditions in the selected units (%j)', async (units, pressure, temperature, ceiling) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units }));
+    mount([[0, 0], [2, 100000]]); openPanel();
+    expect(caption()).toContain(pressure);
+    expect(caption()).toContain(temperature);
+    setSelect(condSelect(), 'file');
+    expect(caption()).toContain(`above ${ceiling} are held at that layer`);
+    const { csv } = await exportCsv();
+    expect(csv).toContain('above 84.5 km are held at that layer');
+  });
+
   it.each(['navigation', 'reload', 'blocked storage'])('N015: retains analysis inputs after %s and recomputes for the current rocket', (leaving) => {
     if (leaving === 'blocked storage') {
       vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked'); });
@@ -174,7 +187,7 @@ describe('DragPanel — sweep conditions', () => {
     openPanel();
     setSelect(condSelect(), mode);
     if (mode === 'altitude') type(altInput()!, '100000');
-    expect(caption()).toContain('above 84.5 km are held at that layer');
+    expect(caption()).toContain('above 84500 m (277231 ft) are held at that layer');
     const { csv } = await exportCsv();
     expect(csv).toContain('above 84.5 km are held at that layer');
   });
@@ -186,7 +199,7 @@ describe('DragPanel — sweep conditions', () => {
     for (const opts of calls) {
       expect(Object.keys(opts as object)).toEqual(['machMax']);
     }
-    expect(caption()).toMatch(/sea level \(101325 Pa; 20 °C/);
+    expect(caption()).toContain('sea level (1013.25 mbar (29.921 inHg); 20 °C (68 °F)');
   });
 
   it('offers the file Mach-Alt table only when the design carries one', () => {
@@ -213,7 +226,7 @@ describe('DragPanel — sweep conditions', () => {
     setSelect(condSelect(), 'file');
     const opts = calls[calls.length - 1] as { machMax: number; machAlt: [number, number][] };
     expect(opts.machAlt).toEqual(table);
-    expect(caption()).toMatch(/file Mach-Alt table — 3 points from Mach 0 to 5 \(0–19202 m ISA\)/);
+    expect(caption()).toContain('file Mach-Alt table — 3 points from Mach 0 to 5 (0 m (0 ft)–19202.4 m (63000 ft) ISA)');
     expect(caption()).toMatch(/Reynolds number is matched/);
   });
 
@@ -245,7 +258,7 @@ describe('DragPanel — sweep conditions', () => {
     return { saved, csv: await blobs[0]!.text() };
   };
 
-  it('stamps the SAME conditions into the exported CSV as the chart caption shows', async () => {
+  it('describes the same sampling conditions while retaining the established CSV format', async () => {
     mount([[0, 0], [0.9, 7620], [5, 19202.4]]);
     openPanel();
     setSelect(condSelect(), 'file');
@@ -255,11 +268,9 @@ describe('DragPanel — sweep conditions', () => {
     // the wrong model's name.
     expect(saved).toBe('Test_rocket-drag-table.csv');
     const line = csv.split('\n').find((l) => l.startsWith('# conditions:'))!;
-    // The same words as the caption, with its typography folded to ASCII
-    // (textFold.foldTypography) — the file carries no BOM, so an em dash here
-    // is what Excel opened as "â€”" (audit 2026-09-22).
-    expect(line).toBe(
-      `# conditions: ${foldTypography(caption().replace(/^Conditions: /, '').replace(/ — Reynolds.*$/, ''))}`);
+    // The CSV keeps its established units and ASCII typography; the screen
+    // adds counterparts for the same physical sampling conditions.
+    expect(caption()).toContain('file Mach-Alt table — 3 points from Mach 0 to 5 (0 m (0 ft)–19202.4 m (63000 ft) ISA)');
     expect(line).toBe('# conditions: file Mach-Alt table - 3 points from Mach 0 to 5 (0-19202 m ISA)');
     // Commas would read as extra cells in a naive parser — the header block is
     // deliberately comma-free even though the table below it is not.
@@ -281,7 +292,7 @@ describe('DragPanel — sweep conditions', () => {
     expect(header[1]).toBe('# design: Big "Bertha" Mk 2; rev B');
     expect(header[3]).toBe('# conditions: sea level (101325 Pa; 20 degC - the kernel default)');
     // ...while the chart caption on screen keeps the real typography.
-    expect(caption()).toMatch(/20 °C — the kernel default/);
+    expect(caption()).toContain('20 °C (68 °F) — the kernel default');
   });
 
   it('turns a typed altitude into a constant-altitude table, and blank back into sea level', () => {
@@ -810,7 +821,11 @@ describe('DragPanel chart rebuilds', () => {
     expect(resetBtn().disabled).toBe(true);
   });
 
-  it('does not re-run staticInfo or RollPlaneChart aeroDiagnostics when only sweep conditions change', () => {
+  it.each([
+    [INITIAL_UNITS, '20 °C (68 °F)', '700 mm (27.559 in)', '500 g (1.1 lb)'],
+    [IMPERIAL_UNITS, '68 °F (20 °C)', '27.559 in (700 mm)', '17.6 oz (500 g)'],
+  ] as const)('R12 pairs roll-plane sampling quantities without recomputing for sweep-only changes (%j)', (units, temperature, cg, mass) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units }));
     const staticInfoSpy = vi.fn(() => ({ length: 1.2, cg: 0.7, mass: 0.5, refDiameter: 0.05 }));
     const aeroDiagnosticsSpy = vi.fn(() => ({
       cp: [0.85, 0, 0, 10] as [number, number, number, number],
@@ -831,6 +846,10 @@ describe('DragPanel chart rebuilds', () => {
     act(() => { (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click(); });
     const rollToggle = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Show CP vs roll-plane angle'))!;
     act(() => { rollToggle.click(); });
+
+    expect(host.textContent).toContain(`Air: sea level at ${temperature}`);
+    expect(host.textContent).toContain(`Launch CG: ${cg} from nose`);
+    expect(host.textContent).toContain(`launch mass: ${mass}`);
 
     expect(staticInfoSpy).toHaveBeenCalledTimes(1);
     expect(aeroDiagnosticsSpy).toHaveBeenCalledTimes(1);

@@ -1,4 +1,5 @@
 import { OrkRocket, type ComponentNode, type RocketTree } from '@online-openrocket/engine';
+import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { NoteTier } from '../components/Note.js';
 import { BULK_MATERIALS, LINE_MATERIALS, SURFACE_MATERIALS, type MaterialDef } from '../data/materials.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
@@ -107,7 +108,7 @@ function densityFields(node: ComponentNode): DensityField[] {
 /** Read the EFFECTIVE flight tree (resolveFlightState), never the own-setting
  * editor tree. Findings are advice; nothing here repairs, persists or flies. */
 export function preflightAudit(
-  tree: RocketTree, masses: AuditMasses, existingNotes: readonly string[] = [],
+  tree: RocketTree, masses: AuditMasses, existingNotes: readonly string[] = [], units: UnitSelection = INITIAL_UNITS,
 ): PreflightAuditResult {
   const result: PreflightAuditResult = { findings: [], uncheckedMassParts: [], unknownMaterialCount: 0 };
   const parts = allParts(tree);
@@ -154,10 +155,15 @@ export function preflightAudit(
       const family = field.list.filter(m => m.group === material.group);
       const min = Math.min(...family.map(m => m.density)) / DENSITY_RANGE_FACTOR;
       const max = Math.max(...family.map(m => m.density)) * DENSITY_RANGE_FACTOR;
-      if (value < min || value > max) add(node, {
+      const quantity = field === SURFACE ? 'surfaceDensity' : field === LINE ? 'lineDensity' : 'density';
+      const density = (n: number, against?: number) => against === undefined ? noticeQuantity(quantity, n, units) : noticeComparison(quantity, n, against, units)[0];
+      // Eight relative ULPs cover arithmetic/serialization residue at a family
+      // bound, not measurement error (e.g. 0.4000000000000001 vs 0.4 kg/m2).
+      const bound = value < min ? min : max;
+      if ((value < min || value > max) && !noticeEqual(value, bound)) add(node, {
         kind: 'material-density', tier: 'caution', density: { field: field.field, unit: field.unit, value, min, max },
-        reason: `${field.field === 'filletDensity' ? 'Fillet material' : material.name}: density ${value} ${field.unit} is outside `
-          + `the screening range ${Number(min.toPrecision(5))}–${Number(max.toPrecision(5))} ${field.unit} for its material family. `
+        reason: `${field.field === 'filletDensity' ? 'Fillet material' : material.name}: density ${density(value, bound).startsWith('just ') ? 'is just outside' : `${density(value)} is outside`} `
+          + `the screening range ${density(min)}–${density(max)} for its material family. `
           + 'Check the material and units. A wrong density changes computed weight and can change the stability margin.',
       });
     }

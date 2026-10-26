@@ -66,7 +66,7 @@ describe('resolved RockSim recovery configurations', () => {
     expect(chute(tree)).toMatchObject(state({ deployEvent: 'altitude', deployAltitude: 121.92 }));
     expect(chute(effective(r, 0))).toMatchObject(state({ deployDelay: 2 }));
     expect(r.configNotes?.[r.configs[1]!.id]?.join(' ')).toContain('Main at the ejection charge');
-    expect(r.configNotes?.[r.configs[2]!.id]?.join(' ')).toContain('121.92 m descending');
+    expect(r.configNotes?.[r.configs[2]!.id]?.join(' ')).toContain('121.92 m (400 ft) descending');
   });
 
   /**
@@ -79,10 +79,10 @@ describe('resolved RockSim recovery configurations', () => {
   it('quotes a deployment altitude in the distance unit it is handed', () => {
     const file = fixture('', sim(event(12, 5, 121.92)));
     const notes = importRkt(file, { distanceUnit: 'ft' }).notes.join(' ');
-    expect(notes).toContain('recovery: Main at 400 ft descending; Streamer at the ejection charge.');
+    expect(notes).toContain('recovery: Main at 400 ft (121.9 m) descending; Streamer at the ejection charge.');
     expect(notes).not.toContain('121.92');
     // Handed no unit, it writes metres, as it always did.
-    expect(importRkt(file).notes.join(' ')).toContain('recovery: Main at 121.92 m descending;');
+    expect(importRkt(file).notes.join(' ')).toContain('recovery: Main at 121.92 m (400 ft) descending;');
   });
 
   it('inherits only design defaults, handles the legacy wrapper, and diagnoses unknown/Pro conditions', () => {
@@ -222,9 +222,9 @@ describe('RockSim recovery and cluster export', () => {
   it('quotes a refused altitude deployment in the user’s distance unit', () => {
     const tree = clusterTree(); Object.assign(chute(tree), { deployEvent: 'altitude', deployDelay: 1, deployAltitude: 152.4 });
     expect(() => exportRkt({ name: 'T', tree, distanceUnit: 'ft' }))
-      .toThrow('Recovery device “Main”: .rkt cannot faithfully save altitude deployment at 500 ft with 1 s delay.');
+      .toThrow('Recovery device “Main”: .rkt cannot faithfully save altitude deployment at 500 ft (152.4 m) with 1 s delay.');
     // Without one, metres, the unit the design stores.
-    expect(() => exportRkt({ name: 'T', tree })).toThrow('altitude deployment at 152.4 m with 1 s delay');
+    expect(() => exportRkt({ name: 'T', tree })).toThrow('altitude deployment at 152.4 m (500 ft) with 1 s delay');
   });
 
   it.each(['missing child', 'mass', 'position', 'recovery', 'overhang', 'preset'])('preserves separate tubes with differing %s', (difference) => {

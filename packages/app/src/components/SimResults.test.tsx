@@ -121,7 +121,7 @@ it('N032 reads all report altitudes in feet and landing drift in kilometres with
   expect(row('Landing distance from pad').cells[1]?.textContent).toContain('2.00');
   expect(row('Landing distance from pad').querySelector('select')?.value).toBe('km');
   expect(row('Density altitude').cells[1]?.textContent).toContain('2000');
-  expect(host.textContent).toContain('arming 100 ft AGL');
+  expect(host.textContent).toContain('arming 100 ft (30.48 m) AGL');
   expect(host.querySelector('select[aria-label="Altitude unit"]')?.getAttribute('title')).toBeTruthy();
   expect(saved).toEqual(before);
 });
@@ -153,6 +153,19 @@ it('W2-WARN renders personal advice in the Caution tier with frozen limits in cu
   expect(host.textContent).toContain('Limits used for this flight');
   expect(host.textContent).toContain('100');
   expect(host.textContent).toContain('structural rating');
+});
+
+it.each([units.INITIAL_UNITS, units.IMPERIAL_UNITS])('pairs the frozen flight-limit information (%j)', selected => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: selected }));
+  const r = run();
+  r.advisoryLimits = { maxAirspeedMs: 30.48, maxMach: 0.8, armingAltitudeM: 100, armingCautionBandM: 10 };
+  render(<SimRunDetails run={r} />);
+  const text = [...host.querySelectorAll('p')].find(p => p.textContent?.startsWith('Limits used for this flight'))!.textContent;
+  expect(text).toContain(selected.velocity === 'm/s' ? 'maximum airspeed 30.48 m/s (100 ft/s)' : 'maximum airspeed 100 ft/s (30.48 m/s)');
+  expect(text).toContain(selected.altitude === 'm' ? 'arming 100 m (328.084 ft) AGL, caution band 10 m (32.808 ft)' : 'arming 328.084 ft (100 m) AGL, caution band 32.808 ft (10 m)');
+  r.advisoryLimits = { armingCautionBandM: 10 };
+  render(<SimRunDetails run={r} />);
+  expect(host.textContent).toContain(selected.altitude === 'm' ? 'arming band 10 m (32.808 ft)' : 'arming band 32.808 ft (10 m)');
 });
 
 it('groups failed flight comments and consequential kernel events once, retaining quiet numeric bands', () => {
@@ -403,7 +416,7 @@ describe('SimRunDetails — where the raw flight data went', () => {
     render(<SimRunDetails run={r} />);
     act(() => { [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('Show all details'))!.click(); });
     const exit = [...host.querySelectorAll('tr')].find((tr) => tr.textContent?.includes('Velocity at launch guide exit'))!;
-    expect(exit.nextElementSibling?.textContent).toBe('Rail neededReaches 15.0 m/s after 4.9 ft of travel, measured from the bottom edge of the second rail button up from the tail on the line the rail runs through (the upper button on a two-button rocket) (6.6 ft of rail if the tail sits at the bottom of the rail). At the pad, measure the usable rail from that button edge to the end of the rail.');
+    expect(exit.nextElementSibling?.textContent).toBe('Rail neededReaches 15 m/s (49 ft/s) after 4.921 ft (1500 mm) of travel, measured from the bottom edge of the second rail button up from the tail on the line the rail runs through (the upper button on a two-button rocket) (6.562 ft [2000 mm] of rail if the tail sits at the bottom of the rail). At the pad, measure the usable rail from that button edge to the end of the rail.');
     expect(r.safeLiftoffSpeed).toBe(true);
     render(<SimRunDetails run={{ ...r, launchGuideReason: 'lug', railProfile: { ...r.railProfile, guideKind: undefined } }} />);
     expect(host.textContent).toContain('measured from the bottom of the lowest launch lug');
@@ -1146,8 +1159,23 @@ it('reformats saved warning quantities when the current units change', () => {
     return <button onClick={() => setPrefs({ ...prefs, units: { ...prefs.units, velocity: 'ft/s' } })}>Switch warning units</button>;
   }
   render(<><SwitchUnits /><SimRunDetails run={restored} /></>);
-  expect(host.textContent).toContain('(30.48 m/s): "Main"');
+  expect(host.textContent).toContain('(30.48 m/s [100 ft/s]): "Main"');
   act(() => Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Switch warning units')!.click());
-  expect(host.textContent).toContain('(100 ft/s): "Main"');
-  expect(host.textContent).not.toContain('(30.48 m/s): "Main"');
+  expect(host.textContent).toContain('(100 ft/s [30.5 m/s]): "Main"');
+  expect(host.textContent).not.toContain('(30.48 m/s [100 ft/s]): "Main"');
+});
+
+it('keeps the quoted vented Cd cell and brackets the landing-rate counterpart', () => {
+  const saved = run();
+  saved.deployments = [{ ...preV099Deployment, cd: 1.44, cdNominal: 1.5, spillHoleDiameter: 0.122 }];
+  render(<SimRunDetails run={saved} />);
+  expect(host.textContent).toContain('1.44 (1.50 less a 122 mm vent)');
+  act(() => [...host.querySelectorAll('button')].find(b => b.textContent === 'Show all details')!.click());
+  expect(host.textContent).toContain('Landing rate OK (≤ 6.1 m/s [20 ft/s])');
+});
+
+it('uses the report opening threshold in mph role guidance', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { velocity: 'mph' } }));
+  render(<SimRunDetails run={run()} />);
+  expect(host.textContent).toContain('Preferred opening speed ≤47.74 mph (21.3 m/s) (defined as 70 ft/s)');
 });

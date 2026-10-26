@@ -78,7 +78,7 @@ describe('recovery configuration context', () => {
       // The active row only navigates: re-applying it would reset Undo (whole-feature review, 2026-10-12).
       expect(buttons[0]!.getAttribute('aria-label')).toContain('Show Main');
       expect(buttons[0]!.getAttribute('aria-label')).not.toContain('Apply');
-      expect(buttons[1]!.getAttribute('aria-label')).toBe('Apply Same motors — configuration 2; Main: Altitude (descending), 121.92 m — override');
+      expect(buttons[1]!.getAttribute('aria-label')).toBe('Apply Same motors — configuration 2; Main: Altitude (descending), 121.92 m (400 ft) — override');
       expect(host.textContent).toContain('Motor ejection charge, delay 2 s');
       expect(buttons[0]!.textContent).toContain('override');
       expect(host.textContent).toContain('Altitude (descending), 121.92 m');
@@ -103,7 +103,7 @@ describe('recovery configuration context', () => {
       </PrefsProvider>));
       const buttons = [...host.querySelectorAll<HTMLButtonElement>('tbody td button')];
       expect(buttons[1]!.getAttribute('aria-label'))
-        .toBe('Apply Same motors — configuration 2; Main: Altitude (descending), 400 ft — override');
+        .toBe('Apply Same motors — configuration 2; Main: Altitude (descending), 400 ft (121.9 m) — override');
       expect(host.textContent).toContain('Altitude (descending), 400 ft');
       expect(host.textContent).not.toContain(' m AGL');
     } finally { act(() => root.unmount()); localStorage.clear(); }
@@ -132,5 +132,5 @@ describe('recovery configuration context', () => {
 
 it('S5-4 keeps the deployment formatter without the unused recovery summary', () => {
   expect('recoverySummary' in recoveryContext).toBe(false);
-  expect(recoveryContext.deployAltitudeText(121.92, 'ft')).toBe('400 ft');
+  expect(recoveryContext.deployAltitudeText(121.92, 'ft')).toBe('400 ft (121.9 m)');
 });

@@ -1,3 +1,4 @@
+import { noticeEqual } from '../prefs/units.js';
 import { cautionNote } from './importNotes.js';
 import {
   DEFAULT_TIME_STEP_S, KERNEL_WIND_FROM_RAD, type GeodeticMethod, type SimulationOptions,
@@ -399,15 +400,23 @@ export function flownGeodeticMethod(
 export function importLaunchValue(
   v: number,
   range: readonly [number, number],
-  say: { what: string; field: string; show: (x: number) => string; showField?: (x: number) => string },
+  say: { what: string; field: string; show: (x: number, against?: number) => string; showField?: (x: number) => string },
   notes: string[],
 ): number {
   const [lo, hi] = range;
   const b = Math.min(hi, Math.max(lo, v));
+  // Ignore only eight relative ULPs at the violated finite endpoint. The
+  // accepted value is still the exact bound that the field can store.
+  if (noticeEqual(v, b)) return b;
   if (b !== v) {
     const { what, field, show, showField = show } = say;
     const accepts = hi === Infinity ? `nothing below ${showField(lo)}` : `${showField(lo)} to ${showField(hi)}`;
-    cautionNote(notes, 'I25.clamped', `The file's ${what} is ${show(v)}, and the ${field} field under Launch conditions `
+    const actual = show(v, b);
+    if (actual.startsWith('just ')) {
+      cautionNote(notes, 'I25.clamped', `The file's ${what} is just ${v < b ? 'under' : 'over'} the ${showField(b)} ${v < b ? 'minimum' : 'maximum'} of the ${field} field under Launch conditions — imported at that limit. Change it there if you meant something else.`);
+      return b;
+    }
+    cautionNote(notes, 'I25.clamped', `The file's ${what} is ${actual}, and the ${field} field under Launch conditions `
       + `accepts ${accepts} — imported as ${showField(b)}. Change it there if you meant something else.`);
   }
   return b;

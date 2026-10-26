@@ -1,3 +1,4 @@
+import { noticeEqual } from '../prefs/units.js';
 import type { ComponentNode, ComponentPosition } from '@online-openrocket/engine';
 import { axialLength, offsetForStart, positionOf, startFromPosition } from '../tree/position.js';
 
@@ -76,7 +77,7 @@ export function railButtonPlacement(button: ComponentNode, at: {
   const fits = fwdX >= parentStart - EPS && aftX <= parentEnd + EPS;
   return {
     fwdX, aftX, parentStart, parentEnd, fits,
-    feasible: aftX - fwdX > MIN_SPACING && fits, // buttons must not collide
+    feasible: aftX - fwdX > MIN_SPACING && !noticeEqual(aftX - fwdX, MIN_SPACING) && fits, // buttons must not collide
     patch: {
       instanceCount: 2,
       instanceSeparation: aftX - fwdX,

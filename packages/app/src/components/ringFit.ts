@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, noticeComparison, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
 import { axialLength, positionOf, resolveAbsolutePositions, startFromPosition } from '../tree/position.js';
@@ -13,7 +14,7 @@ interface RingFitComparison {
 }
 
 /** Pick-only advice: compare written catalogue dimensions only in certain layouts. */
-export function ringFitFor(tree: RocketTree, node: ComponentNode, written: { outside: boolean; inside: boolean }): {
+export function ringFitFor(tree: RocketTree, node: ComponentNode, written: { outside: boolean; inside: boolean }, units: UnitSelection = INITIAL_UNITS): {
   notes: string[]; comparisons: RingFitComparison[];
 } {
   const result = { notes: [] as string[], comparisons: [] as RingFitComparison[] };
@@ -100,7 +101,9 @@ export function ringFitFor(tree: RocketTree, node: ComponentNode, written: { out
       : `the outside diameter of the ${tube['motorMount'] === true ? 'motor-mount ' : ''}tube it fits around (${tubeName})`;
     const direction = dimension === 'outside' && actualRadius > expectedRadius ? 'exceeds'
       : `is ${actualRadius < expectedRadius ? 'smaller' : 'larger'} than`;
-    return `${node.name || DISPLAY_NAME[node.type]}'s catalogue ${dimension} diameter (${(actualRadius * 2000).toFixed(2)} mm) ${direction} ${comparison} (${(expectedRadius * 2000).toFixed(2)} mm).`;
+    const [actual, limit] = noticeComparison('length', actualRadius * 2, expectedRadius * 2, units, { parenthesized: true });
+    if (actual.startsWith('just ')) return `${node.name || DISPLAY_NAME[node.type]}'s catalogue ${dimension} diameter is just ${actualRadius < expectedRadius ? 'under' : 'over'} ${comparison} (${limit}).`;
+    return `${node.name || DISPLAY_NAME[node.type]}'s catalogue ${dimension} diameter (${noticeComparison('length', actualRadius * 2, expectedRadius * 2, units, { parenthesized: true })[0]}) ${direction} ${comparison} (${noticeComparison('length', actualRadius * 2, expectedRadius * 2, units, { parenthesized: true })[1]}).`;
   });
   if (result.notes.length > 0) result.notes.push('The flight and print/cut exports use the catalogue dimensions just applied. Undo the pick (Ctrl+Z), or pick a part sized for this tube.');
   return result;

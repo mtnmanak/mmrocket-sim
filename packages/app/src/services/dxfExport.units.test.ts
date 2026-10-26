@@ -1,8 +1,8 @@
 /**
  * The DXF drawing unit follows the Rocket dimensions (`prefs.units.length`) preference (@atestani, TRF
  * 2026-10-11: "the DXF export doesn't respect my units preference"). Imperial
- * draws in inches; metric must stay byte-for-byte the file the app wrote
- * before inches existed, which the hashes below were taken from (v0.179).
+ * draws in inches; metric retains the v0.179 files except the engine-block
+ * wall label corrected from 0.9 to 0.95 mm (fabrication precision audit).
  */
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
@@ -22,7 +22,7 @@ const TABBED = node('trapezoidfinset', {
 });
 const RING_CTX: SolidContext = { parentInnerRadius: 0.0245, mountOuterRadius: 0.0146, bodyRadius: 0.0262 };
 
-/** [case, node, ctx, sha256 of the v0.179 millimetre file, its length]. */
+/** [case, node, ctx, millimetre file sha256, length]; engine-block label corrected. */
 const GOLDEN: Array<[string, ComponentNode, SolidContext, string, number]> = [
   ['trapezoid', FIN, {}, '9c85132824dfa25ef1137c5d83f1e2370b1bb2571ab65350ba0d4e39a7f6d19e', 1638],
   ['trapezoid with tab', TABBED, {}, 'da621933a525436bc482cd681a2c2373efa6fb2570eb45d31cf8952220ab4028', 1922],
@@ -42,7 +42,7 @@ const GOLDEN: Array<[string, ComponentNode, SolidContext, string, number]> = [
   ['coupler', node('tubecoupler', { thickness: 0.0015, length: 0.05 }), { parentInnerRadius: 0.0245 },
     'ff9a323e5639ec890c16df3a68e6f7cd12e607220cea23c5bb9349202c3bd772', 1569],
   ['engine block, assumed size', node('engineblock'), {},
-    '311fd8a3af572cc8eff7f454d5a7f6942e5173d8c15553cfb83cdb76eb5f8b9e', 1668],
+    'e0aad791e45bc78c62e09c42222bfadf08f7bc07ea7e5e476b1b70e902156369', 1669],
 ];
 
 const NAME = 'Gö “Rocket”';
@@ -98,7 +98,7 @@ describe('dxfUnitFor — the Rocket dimensions (`prefs.units.length`) preference
   });
 });
 
-describe('metric DXF is byte-identical to v0.179', () => {
+describe('metric DXF preserves its golden files and corrected wall label', () => {
   it.each(GOLDEN)('%s', (_k, n, ctx, hash, length) => {
     for (const text of [draw(n, ctx), draw(n, ctx, 'mm')]) {
       expect(text.length).toBe(length);
@@ -171,4 +171,12 @@ describe('imperial DXF draws in inches', () => {
     const dash = ps.slice(at).filter((p) => p.code === 40 || p.code === 49).slice(0, 3).map((p) => p.value);
     expect(dash).toEqual(['0.1378', '0.0787', '-0.0591']);
   });
+});
+
+it.each([
+  ['mm', "motor mount is just over this ring's 29.0 mm OD and does not fit"],
+  ['in', "motor mount is just over this ring's 1.142 in OD and does not fit"],
+] as const)('keeps a close ring/motor refusal distinct in %s drawing units', (unit, expected) => {
+  const text = texts(draw(node('centeringring'), { parentInnerRadius: 0.0145, mountOuterRadius: 0.01450001 }, unit)).join(' ');
+  expect(text).toContain(expected);
 });

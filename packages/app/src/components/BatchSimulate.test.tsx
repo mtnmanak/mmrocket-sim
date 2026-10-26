@@ -290,7 +290,7 @@ describe('the batch dialog', () => {
     expect(host.querySelector('.batch-weighed')).toBeNull();
     mount({}, { weighed: WEIGHED });
     const text = host.querySelector('.batch-weighed')?.textContent ?? '';
-    expect(text).toBe(`Weighed pad mass: ${first.commonName} flies with 182 g of hardware (adapter, retainer, closure), as on the design page — expect its apogee to read a little lower than another candidate of the same impulse. Every other candidate flies at its catalogue weight; only that motor was weighed.`);
+    expect(text).toBe(`Weighed pad mass: ${first.commonName} flies with 182 g (6.42 oz) of hardware (adapter, retainer, closure), as on the design page — expect its apogee to read a little lower than another candidate of the same impulse. Every other candidate flies at its catalogue weight; only that motor was weighed.`);
     expect(text).not.toMatch(new RegExp(`${first.commonName}-\\d`));
   });
 
@@ -307,7 +307,7 @@ describe('the batch dialog', () => {
     ];
     mount({}, { mounts, weighed: { ...WEIGHED, mountId: 'centre' } });
     expect(host.querySelector('.batch-weighed')?.textContent).toBe(
-      `Weighed pad mass: ${first.commonName} on Centre 29 mm keeps its 182 g of hardware in every flight; the candidates on this mount fly at their catalogue weight.`);
+      `Weighed pad mass: ${first.commonName} on Centre 29 mm keeps its 182 g (6.42 oz) of hardware in every flight; the candidates on this mount fly at their catalogue weight.`);
   });
 
   it('the note never names a mount "undefined" when the weighed one is not among the options (audit 2026-09-30)', () => {
@@ -316,7 +316,7 @@ describe('the batch dialog', () => {
     // same, and printed "on undefined" for a weighed mount it was not handed.
     mount({}, { weighed: { ...WEIGHED, mountId: 'gone' } });
     expect(host.querySelector('.batch-weighed')?.textContent).toBe(
-      `Weighed pad mass: ${first.commonName} on another mount keeps its 182 g of hardware in every flight; the candidates on this mount fly at their catalogue weight.`);
+      `Weighed pad mass: ${first.commonName} on another mount keeps its 182 g (6.42 oz) of hardware in every flight; the candidates on this mount fly at their catalogue weight.`);
   });
 
   /**

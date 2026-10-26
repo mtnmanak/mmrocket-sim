@@ -159,10 +159,10 @@ export function FinPointsEditor({ points, onChange }: {
     emittedPoints.current = null;
   }, [points]);
 
-  const committedProblem = useMemo(() => finOutlineProblem(committed), [committed]);
+  const committedProblem = useMemo(() => finOutlineProblem(committed, prefs.units), [committed, prefs.units]);
   // What is on screen right now — the live drag if there is one. Drives the red
   // outline, so a crossing shows up under the pointer before the user lets go.
-  const shownProblem = livePts ? finOutlineProblem(livePts) : committedProblem;
+  const shownProblem = livePts ? finOutlineProblem(livePts, prefs.units) : committedProblem;
 
   /**
    * Commit an edited point array, unless the edit is what breaks the outline.
@@ -179,7 +179,7 @@ export function FinPointsEditor({ points, onChange }: {
    * to edit their way out of. Then we let the edit through and just say so.
    */
   const commit = (next: FinPoint[]): boolean => {
-    const problem = finOutlineProblem(next);
+    const problem = finOutlineProblem(next, prefs.units);
     if (problem && !committedProblem) {
       setRefused(problem);
       return false;

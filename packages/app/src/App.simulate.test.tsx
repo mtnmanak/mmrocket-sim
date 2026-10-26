@@ -8,7 +8,7 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
-import { fmtSi, INITIAL_UNITS } from './prefs/units.js';
+import { fmtSi, INITIAL_UNITS, IMPERIAL_UNITS } from './prefs/units.js';
 import { diffCatalogue, OVERLAY_KEY } from './services/catalogueOverlay.js';
 import { padMassSetKey } from './services/configSync.js';
 import { applyDesignNameFallback } from './services/designFile.js';
@@ -27,7 +27,6 @@ import type { FreshSimRun } from './services/simReport.js';
 import type { MountMotor } from './model/design.js';
 import { flyBuiltDesign, simulateDesign, type SimulateDesignResult } from './services/simulateDesign.js';
 import { simulateFile, simulateImported } from './services/simulateFile.js';
-import { fetchMotorSpec } from './services/thrustcurve.js';
 import { unzipMember } from './services/zipMember.js';
 import { addChild, addStage, defaultTree, findNode, motorMounts, updateNode } from './tree/treeModel.js';
 import { resolveFlightState } from './services/flightState.js';
@@ -404,16 +403,29 @@ describe('RASAero import note uses the effective choice', () => {
     expect(notes.fileNote?.text).toBe(note);
   }, 30000);
 
-  it('Open backs a stated launch weight out with the curve the flight loads (flownSpec: fetchMotorSpec)', async () => {
-    // Dropped, the open would still land on exact figures (the restate runs on
-    // mounting), but with an extra "backed out again" note: pinned here.
+  it.each([
+    [INITIAL_UNITS, 'more propellant (200 g [7.05 oz]) than loaded mass (100 g [3.53 oz])'],
+    [IMPERIAL_UNITS, 'more propellant (7.05 oz [200 g]) than loaded mass (3.53 oz [100 g])'],
+  ] as const)('Open supplies the flight curve loader with current units (%j)', async (units, refusal) => {
     prefs(CLASSIC);
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, units }));
     const host = await mountApp();
     const xml = '<RASAeroDocument><RocketDesign><BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>'
       + '</RocketDesign></RASAeroDocument>';
     await pick(host, new File([xml], 'Flown spec.CDX1'));
     await waitFor(() => shownName(host) === 'Flown spec', 'RASAero open');
-    expect(cdx1Opts?.flownSpec).toBe(fetchMotorSpec);
+    const load = cdx1Opts?.flownSpec;
+    expect(load).toBeTypeOf('function');
+    const row = { ...MOTOR_DB[0]!, motorId: 'app-flown-unit-test', designation: 'UNIT', diameter: 18, length: 70,
+      totalWeightG: 100, propWeightG: 50 };
+    const key = 'tc:samples:v7:app-flown-unit-test';
+    localStorage.setItem(key, JSON.stringify({ samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }, { time: 2, thrust: 0 }], masses: null, t: Date.now() }));
+    const spec = await load!(row, 5);
+    expect(spec).toMatchObject({ designation: 'UNIT', diameter: 0.018, length: 0.07,
+      times: [0, 1, 2], thrusts: [0, 10, 0], ejectionDelay: 5 });
+    expect(spec.masses[0]).toBeCloseTo(0.1, 12);
+    expect(spec.masses[2]).toBeCloseTo(0.05, 12);
+    await expect(load!({ ...row, propWeightG: 200 }, 5)).rejects.toThrow(refusal);
   }, 30000);
 });
 
@@ -633,7 +645,7 @@ it('N032 header apogee and flight announcement follow Altitude with independent 
     expect(chip?.value).toBe('ft');
     expect(chip?.parentElement?.textContent).toContain(height);
     const statuses = [...host.querySelectorAll('[role="status"]')].map(el => el.textContent).join(' ');
-    expect(statuses).toContain(`Flight complete — apogee ${height} ft.`);
+    expect(statuses).toContain(`Flight complete — apogee ${String(Number((app.persistedRun.maxAltitude / 0.3048).toFixed(1)))} ft (${String(Number(app.persistedRun.maxAltitude.toFixed(1)))} m).`);
     expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).units.distance).toBe('km');
   });
 }, 60000);

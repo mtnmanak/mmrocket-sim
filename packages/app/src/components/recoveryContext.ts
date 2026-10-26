@@ -1,4 +1,4 @@
-import { fmtFieldValue, siToUi } from '../prefs/units.js';
+import { noticeQuantity } from '../prefs/units.js';
 
 /**
  * A deployment altitude as the Deploy altitude box shows it: the user's
@@ -7,5 +7,5 @@ import { fmtFieldValue, siToUi } from '../prefs/units.js';
  * quote it through here, so the one figure reads the same in both places.
  */
 export function deployAltitudeText(altM: number, distanceUnit: string): string {
-  return `${fmtFieldValue(siToUi('altitude', distanceUnit, altM))} ${distanceUnit}`;
+  return noticeQuantity('altitude', altM, distanceUnit, { digits: 3 });
 }

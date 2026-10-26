@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import type { NoteTier } from '../components/Note.js';
 import { addExMotors, parseMotorFile, type ExMotor } from './exMotors.js';
 import { EX_IMPORT_BYTES_NOTE, MAX_EX_IMPORT_BYTES } from './exMotorLimits.js';
@@ -5,7 +6,7 @@ import { sessionDebugLog } from './sessionDebugLog.js';
 import { decodeXml } from './xmlUtil.js';
 
 // @atestani TRF #162, Eric 2026-10-06: both pickers share parsing, storage and notices.
-export async function importMotorFiles(files: File[]) {
+export async function importMotorFiles(files: File[], units: UnitSelection = INITIAL_UNITS) {
   sessionDebugLog.record('import-start');
   let notice: string | null = null;
   const motorFiles = files.filter((f) => /\.(eng|rse|txt)$/i.test(f.name));
@@ -32,7 +33,7 @@ export async function importMotorFiles(files: File[]) {
         || (b0 === 0xef && b1 === 0xbb && b2 === 0xbf);
       const decoded = xml ? decodeXml(bytes) : { xml: new TextDecoder('utf-8').decode(bytes) };
       if (decoded.note) notes.push(decoded.note.replace('Check the part and material names.', 'Check the motor and maker names.'));
-      const motors = parseMotorFile(f.name, decoded.xml, notes);
+      const motors = parseMotorFile(f.name, decoded.xml, notes, units);
       parsed.push(...motors);
       said.push(...notes.map((n) => `${f.name}: ${n}`));
     } catch (e) {

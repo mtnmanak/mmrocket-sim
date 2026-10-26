@@ -1,10 +1,11 @@
+import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import {
   classLabel, fitsMount, nearestCommonClass,
 } from '../services/motorDb.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 import { kernelDefault, kernelNum, KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
-import { finOutlineProblem, kernelFinPoints, type FinOutlinePoint } from './finOutline.js';
+import { finOutlineProblem, kernelFinPoints, MAX_FIN_POINT_M, type FinOutlinePoint } from './finOutline.js';
 import { findParent, motorMounts, mountName } from './treeModel.js';
 import { axialLength } from './position.js';
 import { lookupTable } from '../services/xmlUtil.js';
@@ -205,6 +206,7 @@ export interface ScaleResult {
 export type MountChoice = 'scaled' | 'nearest' | { boreMm: number };
 
 export interface ScaleOptions {
+  units?: UnitSelection;
   /**
    * After scaling, snap every motor mount's bore to the nearest standard motor
    * size. Off by default: the scaled tube is the honest geometric answer, and
@@ -563,18 +565,18 @@ const round = (x: number, places = 12): number => {
 };
 
 /** Refuse newly introduced freeform failures or silent clamps. */
-export function scaledFinProblems(tree: RocketTree, factor: number): string[] {
+export function scaledFinProblems(tree: RocketTree, factor: number, units: UnitSelection = INITIAL_UNITS): string[] {
   const problems: string[] = [];
   const visit = (nodes: ComponentNode[]) => {
     for (const n of nodes) {
       if (n.type === 'freeformfinset') {
         const problem = (points: FinOutlinePoint[]) => {
-          const invalid = finOutlineProblem(points);
+          const invalid = finOutlineProblem(points, units);
           if (invalid) return invalid;
           const [x0, y0] = points[0] ?? [0, 0];
           const relative = points.map(([x, y]): FinOutlinePoint => [x - x0, y - y0]);
           return kernelFinPoints(relative).some(([x, y], i) => x !== relative[i]![0] || y !== relative[i]![1])
-            ? 'The simulator would change this outline at its 2.5 m limit.' : null;
+            ? `The simulator would change this outline at its ${noticeQuantity('length', MAX_FIN_POINT_M, units)} limit.` : null;
         };
         const before = problem(scaleNode(n, 1)['points'] as FinOutlinePoint[]);
         const why = before ? null : problem(scaleNode(n, factor)['points'] as FinOutlinePoint[]);
@@ -588,7 +590,7 @@ export function scaledFinProblems(tree: RocketTree, factor: number): string[] {
 }
 
 /** Scales one node's own fields. Children are handled by the caller. */
-function scaleNode(n: ComponentNode, k: number, notes?: string[]): ComponentNode {
+function scaleNode(n: ComponentNode, k: number, notes?: string[], units?: UnitSelection): ComponentNode {
   const type = n.type as string;
   const fixed = FIXED_SIZE.has(type);
   const out: ComponentNode = { ...n };
@@ -610,7 +612,7 @@ function scaleNode(n: ComponentNode, k: number, notes?: string[]): ComponentNode
       ?? (type === 'tubehole' ? TUBE_HOLE_DEFAULTS[key as keyof typeof TUBE_HOLE_DEFAULTS] : null);
     if (v !== null) lengths[key] = round(v * k);
   }
-  Object.assign(out, limitPatch(n, lengths, notes));
+  Object.assign(out, limitPatch(n, lengths, notes, units));
 
   // A freeform fin's planform lives entirely in `points` — [x along the body,
   // y off the surface], metres. Both coordinates scale. This is the path Eric
@@ -675,6 +677,9 @@ export function scaleRocket(
   tree: RocketTree, factor: number, opts: ScaleOptions = {},
 ): ScaleResult {
   const k = factor;
+  const units = opts.units ?? INITIAL_UNITS;
+  const dimension = (m: number) => noticeQuantity('length', m, units);
+  const motorDimension = (mm: number) => noticeQuantity('motorDimensions', mm / 1000, units);
   if (!(k > 0) || !Number.isFinite(k) || k === 1) {
     return { tree, factor: 1, notes: [], needsAttention: false };
   }
@@ -720,7 +725,7 @@ export function scaleRocket(
       && n[OVERRIDE_INCLUDES_MOTOR] !== '';
     if (!FIXED_SIZE.has(type) && !marked
       && MASS_KEYS.some((key) => (num(n, key) ?? kernelDefault(type, key) ?? 0) !== 0)) massPinned++;
-    const scaled = scaleNode(n, k, limitNotes);
+    const scaled = scaleNode(n, k, limitNotes, opts.units);
     for (const key of defaultEnds.get(n) ?? []) scaled[key] = round(0.025 * k);
     // A RASAero stage whose overrides are the file's stated LAUNCH figures,
     // motor still inside them (services/statedLaunchWeight.ts). Scaling has
@@ -789,7 +794,7 @@ export function scaleRocket(
     // in the note about the same mount in the same sitting — which reads to a
     // 76 mm casing owner as though their size was not the one targeted.
     const cls = `${classLabel(m.nearestMm)} mm`;
-    const head = `${m.name}: ${m.boreMm.toFixed(1)} mm bore becomes ${m.scaledBoreMm.toFixed(1)} mm`;
+    const head = `${m.name}: ${motorDimension(m.boreMm)} bore becomes ${motorDimension(m.scaledBoreMm)}`;
     // Switched on the SAME discriminant the dialog renders from — see
     // `MountPreview.verdict`.
     if (m.verdict === 'solid') {
@@ -802,7 +807,7 @@ export function scaleRocket(
       const standard = Math.abs(target - nearestCommonClass(target)) < CLASS_TOLERANCE_MM;
       mountNotes.push(`${head} — resized to the ${standard
         ? `standard ${classLabel(nearestCommonClass(target))} mm`
-        : `${target.toFixed(1)} mm`} mount you chose.`);
+        : motorDimension(target)} mount you chose.`);
     } else if (m.verdict === 'airframe-left') {
       mountNotes.push(`${head}, which is not a standard motor size (nearest is ${cls})`
         + ' — and it was NOT snapped, because this mount IS the airframe (a minimum-diameter'
@@ -831,11 +836,11 @@ export function scaleRocket(
       // Only a SNAP is undone by clearing the checkbox. A size the user chose
       // is undone by choosing another, so do not send them to the tick box.
       const snapLostIt = m.verdict === 'snapped' && m.motorFitsUnsnapped;
-      mountNotes.push(`${m.name}: the ${m.motorMm.toFixed(0)} mm motor loaded in it no longer `
-        + `fits the ${m.finalBoreMm.toFixed(1)} mm bore.`
+      mountNotes.push(`${m.name}: the ${motorDimension(m.motorMm)} motor loaded in it no longer `
+        + `fits the ${motorDimension(m.finalBoreMm)} bore.`
         + (snapLostIt
           ? ' Snapping to the standard size is what lost it — untick “Snap to standard motor'
-            + ` sizes” and the scaled ${m.scaledBoreMm.toFixed(1)} mm bore still takes it.`
+            + ` sizes” and the scaled ${motorDimension(m.scaledBoreMm)} bore still takes it.`
           : '')
         + ' Choose another motor on Motors & Configuration.');
     }
@@ -843,10 +848,10 @@ export function scaleRocket(
 
   const pct = `${(k * 100).toFixed(1)} %`;
   const notes: string[] = [
-    `Scaled the whole design to ${pct} — ${(rocketLength(tree) * 1000).toFixed(0)} mm long`
-    + ` and ${(maxBodyDiameter(tree) * 1000).toFixed(1)} mm across becomes`
-    + ` ${(rocketLength(next) * 1000).toFixed(0)} mm and`
-    + ` ${(maxBodyDiameter(next) * 1000).toFixed(1)} mm.`,
+    `Scaled the whole design to ${pct} — ${dimension(rocketLength(tree))} long`
+    + ` and ${dimension(maxBodyDiameter(tree))} across becomes`
+    + ` ${dimension(rocketLength(next))} and`
+    + ` ${dimension(maxBodyDiameter(next))}.`,
     'Scaled: every length, diameter, wall thickness, fin planform (freeform points included),'
     + ' shoulder, tab, fillet, chute and streamer size, cord length, and every axial position.',
     'Not scaled, on purpose: angles, fin and instance counts, material densities, drag'

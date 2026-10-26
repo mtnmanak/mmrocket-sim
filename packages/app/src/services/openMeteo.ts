@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, noticeEqual, noticeNumber, noticeComparison, type UnitSelection } from '../prefs/units.js';
 import { NETWORK_HOSTS, getJsonCapped, NetError, type NetErrorKind } from './net.js';
 import { coordinatesLabel } from './coordinates.js';
 export { coordinatesLabel } from './coordinates.js';
@@ -316,7 +317,7 @@ export function refusalReason(body: unknown): string | null {
  *  - `no-data` when every temperature, pressure and wind in every series is
  *    null (HTTP 200 can carry exactly that for a date the model lacks).
  */
-export function parseForecast(body: unknown, elevationsM: readonly number[]): ForecastVariant[] {
+export function parseForecast(body: unknown, elevationsM: readonly number[], noticeUnits: UnitSelection = INITIAL_UNITS): ForecastVariant[] {
   const reason = refusalReason(body);
   if (reason !== null) throw new WeatherError('refused', `Open-Meteo refused the request: ${reason}.`);
   const items = Array.isArray(body) ? body : [body];
@@ -337,7 +338,9 @@ export function parseForecast(body: unknown, elevationsM: readonly number[]): Fo
     }
     const e = finiteOrNull(item['elevation']);
     if (e === null || Math.abs(e - elevationsM[i]!) > 0.5) {
-      throw new WeatherError('shape', `Open-Meteo answered for ${e ?? 'no'} m, not the ${elevationsM[i]!} m asked for.`);
+      const [actual, requested] = noticeComparison('altitude', e ?? elevationsM[i]!, elevationsM[i]!, noticeUnits);
+      if (e !== null && actual.startsWith('just ')) throw new WeatherError('shape', `Open-Meteo answered for an elevation just ${e > elevationsM[i]! ? 'above' : 'below'} the requested ${requested}.`);
+      throw new WeatherError('shape', `Open-Meteo answered for ${e === null ? 'no elevation' : actual}, not the ${requested} asked for.`);
     }
     const h = item['hourly'];
     const time = h['time'];
@@ -494,7 +497,7 @@ export type ParsedCoordinates =
   | { ok: false; error: string };
 
 /** A signed number for a message, with a real minus sign. */
-const signed = (x: number) => (x < 0 ? `−${Math.abs(x)}` : String(x));
+const signed = (x: number) => (x < 0 ? `−${noticeNumber(Math.abs(x), 6)}` : noticeNumber(x, 6));
 
 /** What the place box says about a map link that carries no coordinates. */
 export const MAP_LINK_WITHOUT_COORDINATES = 'That link has no coordinates in it (a short share link only points at '
@@ -643,10 +646,12 @@ function assign(a: Coord, b: Coord): ParsedCoordinates | null {
 
 function checked(lat: number, lon: number): ParsedCoordinates {
   if (!Number.isFinite(lat) || !Number.isFinite(lon)) return { ok: false, error: 'Those are not coordinates.' };
+  if (noticeEqual(Math.abs(lat), 90)) lat = Math.sign(lat) * 90;
+  if (noticeEqual(Math.abs(lon), 180)) lon = Math.sign(lon) * 180;
   if (Math.abs(lat) > 90) {
-    return { ok: false, error: `Latitude ${signed(lat)} is outside ±90 — are these the other way round?` };
+    return { ok: false, error: `Latitude ${noticeNumber(Math.abs(lat), 6) === '90' ? `is just outside the ${lat < 0 ? '−' : '+'}90° limit` : `${signed(lat)} is outside ±90`} — are these the other way round?` };
   }
-  if (Math.abs(lon) > 180) return { ok: false, error: `Longitude ${signed(lon)} is outside ±180.` };
+  if (Math.abs(lon) > 180) return { ok: false, error: `Longitude ${noticeNumber(Math.abs(lon), 6) === '180' ? `is just outside the ${lon < 0 ? '−' : '+'}180° limit` : `${signed(lon)} is outside ±180`}.` };
   return { ok: true, latitudeDeg: lat, longitudeDeg: lon };
 }
 
@@ -882,6 +887,7 @@ export function requestElevations(siteM: number, demM: number | null): number[] 
 
 /** How the thin fetchers below are called — every one cancellable and injectable. */
 export interface FetchOpts {
+  units?: UnitSelection;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
   now?: () => number;
@@ -965,7 +971,7 @@ async function fetchForecastWithTime(q: Parameters<typeof forecastUrl>[0], o: Fe
   return cachedWithTime(url, async () => {
     const a = await getJsonCapped(url, { ...REQUEST, ...o, timeoutMs: REQUEST_TIMEOUT_MS });
     if (a.status < 200 || a.status >= 300) throw httpError(a.status, a.json);
-    return parseForecast(a.json, q.elevationsM);
+    return parseForecast(a.json, q.elevationsM, o.units);
   }, o.now);
 }
 

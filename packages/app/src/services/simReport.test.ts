@@ -150,7 +150,7 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
     const advice = commentsOf(run).filter(c => c.text.includes('your maximum'));
     expect(advice).toHaveLength(2);
     expect(advice.every(c => c.level === 'caution')).toBe(true);
-    expect(advice[0]!.text).toContain('105.0'); // 0.35 × 300, not 116.2 over the ground.
+    expect(advice[0]!.text).toContain('105 m/s (344.5 ft/s)'); // 0.35 × 300, not 116.2 over the ground.
     expect(advice[0]!.text).toContain('Low flight');
     expect(run.maxAirspeedMs).toBeCloseTo(105, 10); // synthetic telemetry, arithmetic precision.
     limits.maxAirspeedMs = 999;
@@ -173,24 +173,24 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
       armingAltitudeM: uiToSi('distance', 'ft', 1000), armingCautionBandM: uiToSi('distance', 'ft', 3) };
     const run = build({ result, advisoryLimits, units: { ...IMPERIAL_UNITS, distance: 'km' } });
     const notes = commentsOf(run);
-    expect(notes.find(c => c.text.includes('your maximum'))?.text).toContain('100 ft/s [30.5 m/s]');
+    expect(notes.find(c => c.text.includes('your maximum'))?.text).toContain('100 ft/s (30.5 m/s)');
     const arming = notes.find(c => c.text.includes('Apogee') && c.text.includes('arming'))!.text;
-    expect(arming).toContain('arming 1000 ft [304.8 m] AGL, band 3 ft [0.9 m]');
+    expect(arming).toContain('arming 1,000 ft [304.8 m] AGL, band 3 ft [0.914 m]');
     expect(arming).not.toContain('0.9144000000000001');
     expect(commentsOf(build({ advisoryLimits, units: { ...IMPERIAL_UNITS, distance: 'km' } }))
-      .find(c => c.text.includes('cannot check your airspeed'))?.text).toContain('100 ft/s [30.5 m/s]');
-    expect(runsToCsv([run])).toContain('100 ft/s [30.5 m/s]');
+      .find(c => c.text.includes('cannot check your airspeed'))?.text).toContain('100 ft/s (30.48 m/s)');
+    expect(runsToCsv([run])).toContain('100 ft/s (30.5 m/s)');
   });
   it.each([
     { units: INITIAL_UNITS, speed: 100.01, speedLimit: 100, altitude: 99.99, arming: 100,
-      air: '100.010 m/s exceeded your maximum of 100.000 m/s',
-      height: '99.990 m AGL is below your arming altitude (arming 100.000 m AGL' },
+      air: '100.01 m/s (328.1 ft/s) exceeded your maximum of 100 m/s (328.1 ft/s)',
+      height: '99.99 m (328.1 ft) AGL is below your arming altitude (arming 100 m [328.1 ft] AGL' },
     { units: IMPERIAL_UNITS, speed: 30.481, speedLimit: 30.48, altitude: 304.799, arming: 304.8,
-      air: '100.003 ft/s [30.481 m/s] exceeded your maximum of 100 ft/s [30.480 m/s]',
-      height: '999.997 ft [304.799 m] AGL is below your arming altitude (arming 1000 ft [304.800 m] AGL' },
+      air: '100.003 ft/s (30.5 m/s) exceeded your maximum of 100 ft/s (30.5 m/s)',
+      height: '999.997 ft (304.8 m) AGL is below your arming altitude (arming 1,000 ft [304.8 m] AGL' },
     { units: IMPERIAL_UNITS, speed: 30.4801, speedLimit: 30.48, altitude: 304.7999, arming: 304.8,
-      air: 'is just above your maximum of 100 ft/s [30.480 m/s]',
-      height: 'Apogee is just below your arming altitude (arming 1000 ft [304.800 m] AGL' },
+      air: 'is just above your maximum of 100 ft/s (30.5 m/s)',
+      height: 'Apogee is just below your arming altitude (arming 1,000 ft [304.8 m] AGL' },
   ])('N007/N010 keep near-limit report and CSV copy consistent in $units.velocity / $units.altitude',
     ({ units, speed, speedLimit, altitude, arming, air, height }) => {
       const result = fakeResult();
@@ -213,10 +213,10 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
     result.summary.maxMachNumber = 0.350001;
     const run = build({ result, advisoryLimits: { maxAirspeedMs: 100, maxMach: 0.35, armingAltitudeM: 100 } });
     const notes = commentsOf(run);
-    expect(notes.find(c => c.text.includes('recorded airspeed'))?.text).toContain('is just above your maximum of 100.000 m/s');
+    expect(notes.find(c => c.text.includes('recorded airspeed'))?.text).toContain('is just above your maximum of 100 m/s (328.1 ft/s)');
     expect(notes.find(c => c.text.includes('maximum Mach'))?.text).toContain('maximum Mach is just above your maximum of Mach 0.35');
     expect(notes.find(c => c.text.includes('Apogee') && c.text.includes('arming'))?.text)
-      .toContain('Apogee is just below your arming altitude (arming 100.000 m AGL');
+      .toContain('Apogee is just below your arming altitude (arming 100 m [328.1 ft] AGL');
     result.series.mach = result.series.time.map(() => 100 / 300);
     result.summary.maxMachNumber = 0.35;
     result.summary.maxAltitude = 100;
@@ -231,14 +231,14 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
     const advisoryTree: RocketTree = { components: [{ type: 'parachute', id: 'main', name: 'Electronic main', deployEvent: 'altitude' }] };
     const notes = commentsOf(build({ result, advisoryTree, advisoryLimits: { armingAltitudeM: 100 } }));
     expect(notes.find(c => c.text.includes('Electronic main deployment'))?.text)
-      .toContain('Electronic main deployment at 99.990 m AGL is below your arming altitude (arming 100.000 m AGL');
+      .toContain('Electronic main deployment at 99.99 m (328.1 ft) AGL is below your arming altitude (arming 100 m [328.1 ft] AGL');
     expect(notes.some(c => c.text.includes('Apogee') && c.text.includes('arming'))).toBe(false);
   });
   it('N010 uses near-limit wording when only the selected altitude unit rounds alike', () => {
     const result = fakeResult(); result.summary.maxAltitude = 999.9;
     const notes = commentsOf(build({ result, units: { ...INITIAL_UNITS, altitude: 'km', distance: 'ft' }, advisoryLimits: { armingAltitudeM: 1000 } }));
     expect(notes.find(c => c.text.includes('Apogee') && c.text.includes('arming'))?.text)
-      .toContain('Apogee is just below your arming altitude (arming 1 km [1000.000 m] AGL');
+      .toContain('Apogee is just below your arming altitude (arming 1 km [3,280.8 ft] AGL');
   });
   it.each([[99, 'below'], [100, 'within'], [110, 'within'], [110.01, null]] as const)('N010 apogee %s m AGL gives %s advice for the named configuration', (height, word) => {
     const result = fakeResult(); result.summary.maxAltitude = height;
@@ -343,7 +343,7 @@ describe('W2-WARN personal limits and frozen flight evidence', () => {
     expect(openings).toHaveLength(2);
     for (const [i, role] of ['Drogue', 'Main'].entries()) {
       expect(openings[i]!.level).toBe('warning');
-      expect(openings[i]!.text).toContain('30.0 m/s');
+      expect(openings[i]!.text).toContain('30 m/s (98 ft/s)');
       expect(openings[i]!.text).toContain(`${role} role, inferred from opening order`);
       expect(openings[i]!.text).toContain("the owner's shared opening-speed limits for drogue and main");
       expect(openings[i]!.text).toContain('does not check near-apogee timing or apply separate drogue opening limits');
@@ -822,7 +822,7 @@ it.each([
   if (level === null) expect(descent).toBeUndefined();
   else {
     expect(descent?.level).toBe(level);
-    expect(descent?.text).toContain(`${rate.toFixed(1)} m/s`);
+    expect(descent?.text).toContain(`${rate} m/s (${Math.round(rate / 0.3048)} ft/s)`);
     expect(descent?.text).toContain(level === 'warning' ? 'limit for a drogue' : 'caution band');
   }
 });
@@ -1004,7 +1004,7 @@ describe('the drogue band and opening shock have a caution tier (v0.114)', () =>
   it('70-90 ft/s is a CAUTION and says it is in the caution band', () => {
     const line = drogueLine(buildAt(80 * FT_S))!;
     expect(line.level).toBe('caution');
-    expect(line.text).toContain('above the preferred 70 ft/s, in the caution band up to 90 ft/s.');
+    expect(line.text).toContain('above the preferred 21.3 m/s (70 ft/s), in the caution band up to 27.4 m/s (90 ft/s).');
     // One vocabulary with the Recovery sizing panel (audit 2026-09-22): 70-90
     // used to be "still inside the accepted band" here while the panel called
     // 70 "the accepted" band — the app contradicting itself on one threshold.
@@ -1016,7 +1016,7 @@ describe('the drogue band and opening shock have a caution tier (v0.114)', () =>
   it('above 90 ft/s is a WARNING', () => {
     const line = drogueLine(buildAt(100 * FT_S))!;
     expect(line.level).toBe('warning');
-    expect(line.text).toContain('past the 90 ft/s limit');
+    expect(line.text).toContain('past the 27.4 m/s (90 ft/s) limit');
   });
 
   it('the two thresholds are 70 and 90 ft/s exactly, and 70 is unchanged', () => {
@@ -1144,7 +1144,7 @@ describe('dual deployment attribution', () => {
       const run = withWind(8); // 8 m/s down — really is too fast
       expect(run.safeLandingRate).toBe(false);
       const said = run.comments ?? '';
-      expect(said).toMatch(/8\.0 m\/s .* of descent/);
+      expect(said).toMatch(/8 m\/s \(26 ft\/s\) of descent/);
       expect(said).toMatch(/over the ground/); // so the two numbers cannot look contradictory
     });
 
@@ -1212,10 +1212,10 @@ describe('dual deployment attribution', () => {
         { time: T_MAIN, source: 'Parachute' }, { time: T_MAIN, source: 'Parachute (copy)' }]));
       const landing = said.filter((c) => c.text.startsWith('Landing under'));
       expect(landing).toHaveLength(1);
-      expect(landing[0]!.text.startsWith('Landing under Parachute and Parachute (copy) at 7.0 m/s')).toBe(true);
+      expect(landing[0]!.text.startsWith('Landing under Parachute and Parachute (copy) at 7 m/s (23 ft/s)')).toBe(true);
       const opening = said.filter((c) => / opens? at /.test(c.text));
       expect(opening).toHaveLength(1);
-      expect(opening[0]!.text.startsWith('Parachute and Parachute (copy) open at 64.0 m/s')).toBe(true);
+      expect(opening[0]!.text.startsWith('Parachute and Parachute (copy) open at 64 m/s (210 ft/s)')).toBe(true);
     });
 
     it('two canopies with the same name are counted, not repeated', () => {
@@ -1224,7 +1224,7 @@ describe('dual deployment attribution', () => {
         { time: T_MAIN, source: 'Parachute' }, { time: T_MAIN, source: 'Parachute' }]));
       const landing = said.filter((c) => c.text.startsWith('Landing under'));
       expect(landing).toHaveLength(1);
-      expect(landing[0]!.text.startsWith('Landing under Parachute (×2) at 7.0 m/s')).toBe(true);
+      expect(landing[0]!.text.startsWith('Landing under Parachute (×2) at 7 m/s (23 ft/s)')).toBe(true);
     });
 
     it('a drogue then a cluster of mains: one drogue stage, two landing devices', () => {
@@ -2105,7 +2105,7 @@ describe('WIND IS NOT AN OPENING SHOCK (services-rest-1)', () => {
     const run = inWind(30, 5);
     expect(run.deployments[1]!.openingOk).toBe(false);
     expect(run.safeDeployment).toBe(false);
-    expect(run.comments).toMatch(/Main opens at 30\.0 m\/s/);
+    expect(run.comments).toMatch(/Main opens at 30 m\/s \(98 ft\/s\)/);
     expect(run.comments).toMatch(/over the ground/);
   });
 
@@ -2433,7 +2433,7 @@ describe('the launch report says when thrust was corrected for ambient pressure'
  * LaunchConditions would enter conditionsKeyOf and move every stored key.
  */
 describe('a run stores the density altitude it flew in', () => {
-  it('records the worked example: 4,000 ft, 95 °F, pressure blank → 2,170.81 m', () => {
+  it('records the worked example: 4,000 ft altitude, 95 °F, pressure blank → 2,170.81 m', () => {
     const run = buildSimRun({
       result: fakeResult(), info, motor, meta: { label: 'C6-5' },
       launch: { ...DEFAULT_CONDITIONS, launchAltitudeM: 1219.2, temperatureC: 35, pressureHPa: null },
@@ -2481,7 +2481,7 @@ describe('K16 opening tiers', () => {
       const d = booster ? r.branches![0]!.deployments[0]! : r.deployments[0]!;
       expect(d.openingOk).toBe(state);
       expect(r.safeDeployment).toBe(state);
-      const comments = commentsOf(r).filter((c) => c.text.includes('opens at'));
+      const comments = commentsOf(r).filter((c) => c.text.includes('opens '));
       if (state === true) expect(comments).toEqual([]);
       else {
         expect(comments).toHaveLength(1);
@@ -2496,7 +2496,7 @@ describe('K16 opening tiers', () => {
     expect(r.deployments).toEqual([]);
     expect(r.safeDeployment).toBe(state);
     if (state !== true) {
-      const comment = commentsOf(r).find((c) => c.text.startsWith('Deployment at'))!;
+      const comment = commentsOf(r).find((c) => c.text.startsWith('Deployment '))!;
       expect(comment.level).toBe(state === false ? 'warning' : 'caution');
       expect(comment.text).toContain(state === false ? 'hard opening' : 'fast opening');
     } else expect(r.comments).not.toMatch(/opening/);
@@ -2746,5 +2746,25 @@ it('OR #2731 stores density altitude from the flown model, including Auto upgrad
         launch, rocketName: 'ISA', execMs: 1, aeroModel, rogersKbf });
       expect(run.densityAltitudeM).toBe(densityAltitudeM(launch, { aeroMode: aeroModel, effectiveKbf: rogersKbf }));
     }
+  }
+});
+
+
+it.each(['km/h', 'mph', 'kt'])('preserves defining opening rules in every report branch (%s)', velocity => {
+  for (const booster of [false, true]) for (const fallback of [false, true]) for (const fps of [70, 90]) {
+    if (booster && fallback) continue;
+    const fast = fakeResult();
+    fast.series.velocity[5] = fps === 70 ? 21.340001 : 27.432001;
+    fast.summary.deploymentVelocity = fps === 70 ? 21.340001 : 27.432001;
+    if (fallback) fast.events = fast.events.filter(e => e.type !== 'RECOVERY_DEVICE_DEPLOYMENT');
+    const main = fakeResult();
+    const result = booster ? { ...main, branches: [
+      { name: 'Sustainer', events: main.events, series: main.series },
+      { name: 'Booster', events: fast.events, series: fast.series },
+    ] } : fast;
+    const run = buildSimRun({ result, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'Boundary', execMs: 1,
+      units: { ...INITIAL_UNITS, velocity } });
+    const opening = commentsOf(run).find(c => /opens |Deployment /.test(c.text))!;
+    expect(opening.text).toContain(fps + ' ft/s');
   }
 });

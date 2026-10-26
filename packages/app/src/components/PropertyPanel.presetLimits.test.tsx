@@ -93,8 +93,8 @@ describe('PropertyPanel - pick-only fit', () => {
     picked = { ...picked, overrideMass: 0.0521, overrideSubcomponentsMass: false };
     f.render(); applyPick(); f.render();
     const note = host.querySelector('.message-caution[role="status"]');
-    expect(note?.textContent).toContain("BalsaMachining CR5060-W's catalogue outside diameter (40.46 mm)");
-    expect(note?.textContent).toContain('smaller than the bore of BT-80 (64.90 mm)');
+    expect(note?.textContent).toContain("BalsaMachining CR5060-W's catalogue outside diameter (40.46 mm [1.593 in])");
+    expect(note?.textContent).toContain('smaller than the bore of BT-80 (64.9 mm [2.555 in])');
     expect(note?.textContent).toContain('The flight and print/cut exports use the catalogue dimensions just applied.');
     expect(note?.textContent).toMatch(/Undo the pick \(Ctrl\+Z\), or pick a part sized for this tube\.$/);
     expect(note?.querySelector('button')).toBeNull();
@@ -152,8 +152,8 @@ describe('PropertyPanel - pick-only fit', () => {
     picked = { ...picked, outerRadius: 0.03245 };
     f.render(); applyPick(); f.render();
     const text = host.querySelector('.message-caution')?.textContent;
-    expect(text).toContain('catalogue inside diameter (24.84 mm) is smaller');
-    expect(text).toContain('tube it fits around (Payload tube) (26.00 mm)');
+    expect(text).toContain('catalogue inside diameter (24.84 mm [0.978 in]) is smaller');
+    expect(text).toContain('tube it fits around (Payload tube) (26 mm [1.024 in])');
     expect(text?.includes('motor-mount')).toBe(motorMount);
   });
   it.each(['sibling coupler', 'sibling inner tube', 'beyond parent', 'before parent', 'transition', 'nosecone', 'cluster', 'off-axis', 'overlapping tubes'] as const)(
@@ -204,7 +204,7 @@ describe('PropertyPanel - pick-only fit', () => {
     expect(host.querySelector('.message-caution[role="status"]')).not.toBeNull();
     expect(host.querySelector('.message-caution[role="status"]')?.textContent).toContain('catalogue bore was left automatic');
     expect(host.textContent).toContain(
-      '“SEMROC HTC-11”: wall thickness -10.668 mm cannot be negative — set to 0 mm.');
+      '“SEMROC HTC-11”: wall thickness -10.668 mm (-0.42 in) cannot be negative — set to 0 mm (0 in).');
   });
 
   it('does not carry the note to the next part selected', () => {

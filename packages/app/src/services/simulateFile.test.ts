@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { zipSync } from 'fflate';
 import presetsJson from '../data/presets.json';
-import { INITIAL_UNITS } from '../prefs/units.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 import { defaultTree, motorMounts } from '../tree/treeModel.js';
 import { APP_VERSION } from '../version.js';
 import { applyDesignNameFallback, designFileOpenFailure, MAX_DESIGN_FILE_BYTES, parseDesignFile } from './designFile.js';
@@ -72,6 +72,18 @@ const buffer = (name: string): ArrayBuffer => {
 };
 
 describe('simulateFile flies a design file offline, on the shipped data', () => {
+  it.each([INITIAL_UNITS, { ...IMPERIAL_UNITS, length: 'ft' }])('R12 preserves selected position-repair units through headless import (%j)', async units => {
+    const imported: ImportedDesign = { name: 'Absolute', motors: {}, notes: [], tree: { components: [{ type: 'stage', children: [
+      { type: 'bodytube', id: 'a', length: 20 },
+      { type: 'bodytube', id: 'b', length: 1, children: [
+        { type: 'masscomponent', id: 'absolute', position: { method: 'absolute', offset: -1000 } },
+      ] },
+    ] }] } };
+    const error = await simulateImported(imported, { units }).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SimulateDesignError);
+    expect((error as SimulateDesignError).importNote?.text).toContain(units.length === 'mm'
+      ? '-1000000 mm (-39370.1 in)' : '-3280.84 ft (-1000000 mm)');
+  });
   it('floors the parsed step before planning without mutating the imported launch', async () => {
     const imported = importOrk(buffer('reference.ork'));
     imported.launch = { ...imported.launch, timeStepS: 0.01 };
@@ -115,9 +127,9 @@ describe('simulateFile flies a design file offline, on the shipped data', () => 
     }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(SimulateDesignError);
     const failed = error as SimulateDesignError;
-    expect.soft(failed.importNote?.text).toContain('accepts 0 km to 10 km');
+    expect.soft(failed.importNote?.text).toContain('accepts 0 km (0 ft) to 10 km (32808.4 ft)');
     expect.soft(failed.importNote?.text).toContain('imported as 10 km');
-    expect.soft(failed.importNote?.text).toContain('8,500 mi away. With the sign flipped it is 100 mi from them.');
+    expect.soft(failed.importNote?.text).toContain('8,500 mi (13,679 km) away. With the sign flipped it is 100 mi (161 km) from them.');
   });
 
   it.each([
@@ -150,8 +162,8 @@ describe('simulateFile flies a design file offline, on the shipped data', () => 
     const data = new TextEncoder().encode(xml);
     const feet = await simulateFile(data, 'TubeFins2.rkt', { units: { ...INITIAL_UNITS, altitude: 'ft', distance: 'km' } });
     const metres = await simulateFile(data, 'TubeFins2.rkt', { units: { ...INITIAL_UNITS, altitude: 'm', distance: 'ft' } });
-    expect(feet.importNote.text).toContain('Parachute at 400 ft descending');
-    expect(metres.importNote.text).toContain('Parachute at 121.92 m descending');
+    expect(feet.importNote.text).toContain('Parachute at 400 ft (121.9 m) descending');
+    expect(metres.importNote.text).toContain('Parachute at 121.92 m (400 ft) descending');
     expect(feet.importNote.text).not.toBe(metres.importNote.text);
     // Same runtime and identical inputs: this compares kernel outputs directly,
     // with no hard-coded float oracle or tolerance across different Node versions.
@@ -449,3 +461,40 @@ it('S7a-6: ignores the browser EX library in the default headless matcher', asyn
   expect((error as SimulateDesignError).kind).toBe('no-motor');
   expect(fetchSpy).not.toHaveBeenCalled();
 }, 30_000);
+
+it.each([undefined, 'allow'] as const)('keeps preferred units in motor match notices (network %s)', async network => {
+  const imported = importOrk(buffer('reference.ork'));
+  for (const ref of Object.values(imported.motors)) ref.manufacturer = 'Unlisted test maker';
+  const out = await simulateImported(imported, { network, units: { ...INITIAL_UNITS, motorDimensions: 'in' } });
+  expect(out.importNote.text).toContain('0.709 in [18 mm]');
+}, 30_000);
+
+it('keeps preferred mass units in network-allowed motor refusal notes through both doors', async () => {
+  const original = MOTOR_DB.find(m => m.diameter === 18)!;
+  const row = { ...original, motorId: 'unit-refusal', designation: 'UNITREF', commonName: 'UNITREF',
+    totalWeightG: 100, propWeightG: 200 };
+  setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: MOTOR_DB.length + 1,
+    added: [row], changed: [], removed: [], rejected: [] });
+  localStorage.setItem('tc:samples:v7:unit-refusal', JSON.stringify({ samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }, { time: 2, thrust: 0 }], masses: null, t: Date.now() }));
+  const imported = importOrk(buffer('reference.ork'));
+  for (const ref of Object.values(imported.motors)) Object.assign(ref, {
+    designation: row.designation, manufacturer: row.manufacturerAbbrev, diameter: row.diameter / 1000, length: row.length / 1000, digest: undefined,
+  });
+  const opts = { network: 'allow' as const, units: { ...INITIAL_UNITS, mass: 'oz' } };
+  const parsedError = await simulateImported(imported, opts).catch((e: unknown) => e);
+  vi.mocked(importOrk).mockReturnValueOnce(imported);
+  const fileError = await simulateFile(bytes('reference.ork'), 'reference.ork', opts).catch((e: unknown) => e);
+  for (const error of [parsedError, fileError]) {
+    expect(error).toBeInstanceOf(SimulateDesignError);
+    expect((error as SimulateDesignError).importNote?.text).toContain('more propellant (7.05 oz [200 g]) than loaded mass (3.53 oz [100 g])');
+  }
+});
+
+it('uses the units-only preference for longitude evidence through the bytes door', async () => {
+  const error = await simulateFile(bytes('unit-site-notes.ork'), 'unit-site-notes.ork', {
+    presets: [], units: { ...INITIAL_UNITS, distance: 'mi' },
+  }).catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(SimulateDesignError);
+  expect((error as SimulateDesignError).importNote?.text)
+    .toContain('8,500 mi (13,679 km) away. With the sign flipped it is 100 mi (161 km) from them.');
+});

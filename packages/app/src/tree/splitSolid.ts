@@ -28,6 +28,7 @@
  * physics: a taper only inserts if it converges in the insertion direction.
  */
 import type { ComponentNode } from '@online-openrocket/engine';
+import { INITIAL_UNITS, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { collapseLoop, componentLoop, type SolidContext } from './solidMesh.js';
 
 const EPS = 1e-9;
@@ -151,7 +152,8 @@ const OVERHANG_LIMIT = (45 * Math.PI) / 180;
  */
 const MAX_LEAN = (30 * Math.PI) / 180;
 
-const mm = (v: number): string => (v * 1000).toFixed(1);
+const dimension = (v: number, units: UnitSelection, parenthesized = false): string =>
+  noticeQuantity('length', v, units, { parenthesized });
 
 /** max(0.25 x local diameter, 12 mm), capped at 30 mm. */
 function spigotLengthFor(diameter: number): number {
@@ -195,8 +197,9 @@ export function usableBox(printer: PrinterVolume): { x: number; y: number; z: nu
  * are never taller than what was reserved.
  */
 export function planAxialSplit(
-  totalLength: number, maxRadius: number, printer: PrinterVolume, maxSlope = 0,
+  totalLength: number, maxRadius: number, printer: PrinterVolume, maxSlope = 0, units: UnitSelection = INITIAL_UNITS,
 ): SplitPlan {
+  const dim = (v: number, parenthesized = false) => dimension(v, units, parenthesized);
   const none = (reason: string): SplitPlan =>
     ({ fits: false, cuts: [], segments: 0, tallestPrint: totalLength, reason });
 
@@ -206,15 +209,17 @@ export function planAxialSplit(
   const bed = Math.min(u.x, u.y);
   if (u.z <= 0 || bed <= 0) return none('Build volume is smaller than the margin.');
   if (dia > bed + EPS) {
+    const [actual, limit] = noticeComparison('length', dia, bed, units);
     return none(
-      `Ø${mm(dia)} mm is wider than the ${mm(bed)} mm usable bed — no axial cut makes a part narrower.`,
+      `${actual.startsWith('just ') ? `Diameter is just over the ${limit}` : `Ø${actual} is wider than the ${limit}`} usable bed — no axial cut makes a part narrower.`,
     );
   }
 
   if (totalLength <= u.z + EPS) {
+    const [actual, limit] = noticeComparison('length', totalLength, u.z, units, { parenthesized: true });
     return {
       fits: true, cuts: [], segments: 1, tallestPrint: totalLength,
-      reason: `Fits upright in one piece (${mm(totalLength)} mm of ${mm(u.z)} mm).`,
+      reason: actual === limit ? `Fits upright in one piece — uses the full ${limit} usable Z.` : actual.startsWith('just ') ? `Fits upright in one piece — just under the ${limit} usable Z.` : `Fits upright in one piece (${actual} of ${limit}).`,
     };
   }
 
@@ -252,7 +257,7 @@ export function planAxialSplit(
       if (h <= u.z + EPS && onBed) {
         return {
           fits: true, cuts: [], segments: 1, tallestPrint: h, leanUsed: true, leanDeg,
-          reason: `Fits in one piece leaned ${leanDeg}° off vertical (${mm(h)} mm tall) — its `
+          reason: `Fits in one piece leaned ${leanDeg}° off vertical (${dim(h, true)} tall) — its `
             + `steepest wall is ${Math.round((slope * 180) / Math.PI)}° off axis, so nothing `
             + 'overhangs past 45°, and there is no joint to glue.',
         };
@@ -263,7 +268,9 @@ export function planAxialSplit(
   const spigot = printer.spigot ?? spigotLengthFor(dia);
   const span = u.z - spigot;
   if (span <= 0) {
-    return none(`A ${mm(spigot)} mm spigot leaves no usable height in ${mm(u.z)} mm of Z.`);
+    const [actual, limit] = dim(spigot) === dim(u.z)
+      ? noticeComparison('length', spigot, u.z, units) : [dim(spigot), dim(u.z)];
+    return none(actual === limit ? `The spigot fills the ${limit} usable Z — it leaves no usable height.` : actual.startsWith('just ') ? `Spigot is just over the ${limit} usable Z — it leaves no usable height.` : `A ${actual} spigot leaves no usable height in ${limit} of Z.`);
   }
   // -EPS so an exact multiple does not round up to a spurious extra piece.
   const n = Math.ceil(totalLength / span - 1e-9);
@@ -279,8 +286,8 @@ export function planAxialSplit(
   const tallestPrint = totalLength / n + spigot;
   return {
     fits: false, cuts, segments: n, tallestPrint,
-    reason: `${mm(totalLength)} mm does not fit ${mm(u.z)} mm of usable Z — `
-      + `${n} pieces of ${mm(totalLength / n)} mm, tallest print ${mm(tallestPrint)} mm with its spigot.`,
+    reason: `${dim(totalLength) === dim(u.z) ? 'Part is just over' : `${dim(totalLength)} does not fit`} ${dim(u.z)} of usable Z — `
+      + `${n} pieces of ${dim(totalLength / n)}, tallest print ${dim(tallestPrint)} with its spigot.`,
   };
 }
 
@@ -429,7 +436,7 @@ function clipHalfPlane(
  */
 function spliceAtFace(
   piece: ReadonlyArray<[number, number]>, c: number,
-  insert: ReadonlyArray<[number, number]>, trimX?: number,
+  insert: ReadonlyArray<[number, number]>, trimX?: number, units: UnitSelection = INITIAL_UNITS,
 ): Array<[number, number]> {
   const n = piece.length;
   for (let i = 0; i < n; i++) {
@@ -460,7 +467,7 @@ function spliceAtFace(
     }
     return out;
   }
-  throw new SplitError(`No cut face found at ${mm(c)} mm.`);
+  throw new SplitError(`No cut face found at ${dimension(c, units)}.`);
 }
 
 /**
@@ -510,8 +517,9 @@ function spigotOuter(
  * two-crossing wall is refused with a sentence the UI can show.
  */
 export function splitBodyLoop(
-  loop: ReadonlyArray<[number, number]>, cuts: readonly number[], joint: SplitJoint = {},
+  loop: ReadonlyArray<[number, number]>, cuts: readonly number[], joint: SplitJoint = {}, units: UnitSelection = INITIAL_UNITS,
 ): Array<Array<[number, number]>> {
+  const dim = (v: number, parenthesized = false) => dimension(v, units, parenthesized);
   const src = collapseLoop(loop.map(([x, r]) => [x, Math.max(r, 0)] as [number, number]));
   if (src.length < 3) throw new SplitError('Profile is empty.');
   const sorted = [...cuts].sort((a, b) => a - b);
@@ -523,10 +531,10 @@ export function splitBodyLoop(
   for (let i = 0; i < sorted.length; i++) {
     const c = sorted[i]!;
     if (i > 0 && c - sorted[i - 1]! < MIN_SPIGOT) {
-      throw new SplitError(`Cuts at ${mm(sorted[i - 1]!)} and ${mm(c)} mm are too close together.`);
+      throw new SplitError(`Cuts at ${dim(sorted[i - 1]!)} and ${dim(c)} are too close together.`);
     }
     if (!(c > x0 + EPS && c < x1 - EPS)) {
-      throw new SplitError(`Cut at ${mm(c)} mm is outside the part.`);
+      throw new SplitError(`Cut at ${dim(c)} is outside the part.`);
     }
     if (joint.bodySpan) {
       const [b0, b1] = joint.bodySpan;
@@ -535,8 +543,8 @@ export function splitBodyLoop(
       const inset = Math.min(Math.max(joint.wall ?? 0, 0), (b1 - b0) / 4);
       if (c < b0 + inset - EPS || c > b1 - inset + EPS) {
         throw new SplitError(
-          `Cut at ${mm(c)} mm lands in a shoulder or against an end face — cuts are only legal `
-          + `between ${mm(b0 + inset)} and ${mm(b1 - inset)} mm, where the wall is plain. `
+          `Cut at ${dim(c)} lands in a shoulder or against an end face — cuts are only legal `
+          + `between ${dim(b0 + inset)} and ${dim(b1 - inset)}, where the wall is plain. `
           + 'A shoulder is a mating surface and the profile doubles back inside it.',
         );
       }
@@ -544,7 +552,7 @@ export function splitBodyLoop(
     const cr = crossingsAt(src, c);
     if (cr.length !== 2) {
       throw new SplitError(
-        `The profile crosses ${mm(c)} mm ${cr.length} times — that is not a plain wall, `
+        `The profile crosses ${dim(c)} ${cr.length} times — that is not a plain wall, `
         + 'and clipping there would produce a non-manifold shell.',
       );
     }
@@ -591,7 +599,7 @@ export function splitBodyLoop(
       const rs = Math.min(0.35 * outer, 0.008);
       if (rs < 0.001 || len < MIN_SPIGOT) {
         throw new SplitError(
-          `The part is solid at ${mm(c)} mm and too small (Ø${mm(2 * outer)} mm) for an on-axis `
+          `The part is solid at ${dim(c)} and too small (Ø${dim(2 * outer, true)}) for an on-axis `
           + 'stub — print it whole, or hollow it out first.',
         );
       }
@@ -671,7 +679,7 @@ export function splitBodyLoop(
         }
         if (cr[1]! < minOuter) {
           if (x === c) {
-            reason = 'has too little material at the cut for this socket clearance and a 1 mm wall';
+            reason = `has too little material at the cut for this socket clearance and a ${dim(0.001)} wall`;
             remedy = 'lower the joint clearance in Preferences → 3D printing, or print it whole';
           }
           break;
@@ -699,26 +707,26 @@ export function splitBodyLoop(
         len = Math.min(len, depth - relief);
       }
       if (len < MIN_SPIGOT) {
-        throw new SplitError(`The part is solid at ${mm(c)} mm and ${reason} — ${remedy}.`);
+        throw new SplitError(`The part is solid at ${dim(c)} and ${reason} — ${remedy}.`);
       }
       // No ramp on either side: a stub and its socket both overlap the solid
       // face radially, so they are already attached to it.
-      pieces[k] = spliceAtFace(pieces[k]!, c, [[c, rs], [c + len, rs], [c + len, 0]]);
+      pieces[k] = spliceAtFace(pieces[k]!, c, [[c, rs], [c + len, rs], [c + len, 0]], undefined, units);
       pieces[k + 1] = spliceAtFace(pieces[k + 1]!, c, [
         [c, rs + clearance + chamfer], [c + chamfer, rs + clearance],
         [c + depth, rs + clearance], [c + depth, 0],
-      ]);
+      ], undefined, units);
       continue;
     }
 
     const ts = Math.min(wallAtCut, SPIGOT_WALL);
     if (len < MIN_SPIGOT || ts <= EPS) {
-      throw new SplitError(`No room for a spigot at ${mm(c)} mm (wall ${mm(wallAtCut)} mm).`);
+      throw new SplitError(`No room for a spigot at ${dim(c)} (wall ${dim(wallAtCut, true)}).`);
     }
     const face = spigotOuter(src, c, len, clearance, ts);
     if (!face) {
       throw new SplitError(
-        `The bore at ${mm(c)} mm is too shallow or too narrow to register a spigot in.`,
+        `The bore at ${dim(c)} is too shallow or too narrow to register a spigot in.`,
       );
     }
     // Aft along the spigot's outer face, across its end, then fore along its
@@ -737,7 +745,7 @@ export function splitBodyLoop(
     }
     const ramp = Math.min(clearance + ts, 0.4 * (c - bounds[k]!));
     const rampR = crossingsAt(src, c - ramp)[0] ?? bore;
-    pieces[k] = spliceAtFace(pieces[k]!, c, [...face, ...back, [c - ramp, rampR]], c - ramp);
+    pieces[k] = spliceAtFace(pieces[k]!, c, [...face, ...back, [c - ramp, rampR]], c - ramp, units);
   }
 
   return pieces.map((p) => collapseLoop(p));
@@ -813,15 +821,16 @@ function placeCuts(
  * show `plan.reason`.
  */
 export function splitComponent(
-  node: ComponentNode, ctx: SolidContext, printer: PrinterVolume,
+  node: ComponentNode, ctx: SolidContext, printer: PrinterVolume, units: UnitSelection = INITIAL_UNITS,
 ): ComponentSplit | null {
+  const dim = (v: number, parenthesized = false) => dimension(v, units, parenthesized);
   const first = componentLoop(node, ctx);
   if (!first) return null;
   const [x0, x1] = extentOf(first.loop);
   const total = x1 - x0;
   const maxRadius = maxRadiusOf(first.loop);
   const wholeVolume = revolvedVolume(first.loop);
-  const plan = planAxialSplit(total, maxRadius, printer, maxOuterSlope(first.loop, first.bodySpan));
+  const plan = planAxialSplit(total, maxRadius, printer, maxOuterSlope(first.loop, first.bodySpan), units);
   if (plan.fits || plan.segments < 2) {
     return { plan, label: first.label, wholeVolume, loops: [] };
   }
@@ -861,8 +870,8 @@ export function splitComponent(
     return {
       plan: {
         fits: false, cuts: [], segments: 0, tallestPrint: plan.tallestPrint,
-        reason: `${mm(total)} mm needs at least ${plan.segments} pieces, but every cut has to `
-          + `land between ${mm(lo)} and ${mm(hi)} mm — the rest of the part is shoulder or end `
+        reason: `${dim(total)} needs at least ${plan.segments} pieces, but every cut has to `
+          + `land between ${dim(lo)} and ${dim(hi)} — the rest of the part is shoulder or end `
           + 'face, where a joint cannot go, and no set of cuts inside that window prints.',
       },
       label: first.label,
@@ -891,9 +900,9 @@ export function splitComponent(
       cuts: cuts.map((c) => c - x0),
       segments: n,
       tallestPrint: Math.max(...lens) + spigot,
-      reason: `${mm(total)} mm does not fit ${mm(u.z)} mm of usable Z — ${n} pieces of `
-        + `${mm(Math.min(...lens))}-${mm(Math.max(...lens))} mm, spaced to keep every cut out of `
-        + `the shoulders, tallest print ${mm(Math.max(...lens) + spigot)} mm with its spigot.`,
+      reason: `${noticeComparison('length', total, u.z, units)[0].startsWith('just ') ? 'Part is just over' : `${dim(total)} does not fit`} ${dim(u.z)} of usable Z — ${n} pieces of `
+        + `${dim(Math.min(...lens))}-${dim(Math.max(...lens))}, spaced to keep every cut out of `
+        + `the shoulders, tallest print ${dim(Math.max(...lens) + spigot)} with its spigot.`,
     };
   }
 
@@ -904,7 +913,7 @@ export function splitComponent(
       spigot: printer.spigot,
       bodySpan: exact.bodySpan,
       wall: exact.wall,
-    });
+    }, units);
     return { plan: used, label: exact.label, wholeVolume, loops };
   } catch (err) {
     const reason = err instanceof SplitError ? err.message : String(err);

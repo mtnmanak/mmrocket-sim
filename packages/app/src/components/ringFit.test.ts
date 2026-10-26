@@ -30,8 +30,8 @@ describe('Round 5 certain-or-silent catalogue fit', () => {
     const tree: RocketTree = { components: [{ id: 'body', type: 'bodytube', name: 'Airframe',
       length: 0.3, outerRadius: 0.033, thickness: 0.00055, children: [mount] }] };
     const result = ringFitFor(tree, ring, { outside: true, inside: true });
-    expect(result.notes.join(' ')).toContain('bore of Airframe (64.90 mm)');
-    expect(result.notes.join(' ')).toContain('tube it fits around (Av-bay tube) (20.00 mm)');
+    expect(result.notes.join(' ')).toContain('bore of Airframe (64.9 mm [2.555 in])');
+    expect(result.notes.join(' ')).toContain('tube it fits around (Av-bay tube) (20 mm [0.787 in])');
     ring['outerRadius'] = 0.015;
     ring['innerRadius'] = 0.01;
     expect(ringFitFor(tree, ring, { outside: true, inside: true }).notes).toEqual([]); // a sleeve need not reach the host

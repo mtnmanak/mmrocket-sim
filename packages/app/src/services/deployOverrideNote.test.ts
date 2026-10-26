@@ -63,9 +63,9 @@ describe('sameDeployment', () => {
 describe('describeDeployment', () => {
   it('uses the Deploy at labels, with metres and feet for an altitude and a delay when set', () => {
     expect(describeDeployment(EJECTION)).toBe('Motor ejection charge');
-    expect(describeDeployment(ALT_300)).toBe('Altitude (descending), 91.4 m (300 ft)');
+    expect(describeDeployment(ALT_300)).toBe('Altitude (descending), 91.44 m (300 ft)');
     expect(describeDeployment({ deployEvent: 'apogee', deployAltitude: 0, deployDelay: 1.5 })).toBe('Apogee + 1.5 s');
-    expect(describeDeployment({ ...ALT_300, deployEvent: 'Altitude' })).toBe('Altitude (descending), 91.4 m (300 ft)');
+    expect(describeDeployment({ ...ALT_300, deployEvent: 'Altitude' })).toBe('Altitude (descending), 91.44 m (300 ft)');
     expect(describeDeployment({ ...EJECTION, deployEvent: 'APOGEE' })).toBe('Apogee');
     expect(describeDeployment({ ...EJECTION, deployEvent: 'lowerstageseparation' })).toBe('lowerstageseparation');
   });
@@ -79,7 +79,7 @@ describe('deployOverrideNote', () => {
   it('counts identical devices once and names both settings and Reset in the panel', () => {
     const o = { name: 'Parachute', kind: 'parachute', own: ALT_300, flown: EJECTION };
     const note = deployOverrideNote([o, o], null)!;
-    expect(note).toContain('Parachute (×2) flies at Motor ejection charge, not at its own setting (Altitude (descending), 91.4 m (300 ft))');
+    expect(note).toContain('Parachute (×2) flies at Motor ejection charge, not at its own setting (Altitude (descending), 91.44 m [300 ft])');
     expect(note).toContain('Recovery: The flight configuration this file opens with overrides');
     // CFG-3: both settings, and Reset, live on Motors & Configuration's Recovery rows.
     expect(note).toContain('The Recovery section on Motors & Configuration shows both');
@@ -98,7 +98,7 @@ describe('importOrk — a configuration that overrides a recovery device', () =>
     const notes = overrideNotes(r.notes);
     expect(notes).toHaveLength(1);
     expect(notes[0]).toContain('Parachute (×2) flies at Motor ejection charge');
-    expect(notes[0]).toContain('91.4 m (300 ft)');
+    expect(notes[0]).toContain('91.44 m [300 ft]');
   });
 
   it('names the configuration when the file names it', () => {

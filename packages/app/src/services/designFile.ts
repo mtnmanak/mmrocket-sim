@@ -1,3 +1,4 @@
+import type { UnitSelection } from '../prefs/units.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { ImportedDesign } from './importApply.js';
 import type { AeroChoice } from '../prefs/aeroChoice.js';
@@ -75,6 +76,7 @@ export type DesignFormat = 'ork' | 'rkt' | 'cdx1';
 
 /** What the file door reads a design with; see {@link parseDesignFile}. */
 export interface DesignFileOptions {
+  units?: UnitSelection;
   /** Optional inflated XML cap for ZIP/gzip design files. */
   maxInflatedBytes?: number;
   presets: readonly Preset[];
@@ -119,15 +121,15 @@ export async function parseDesignFile(
 ): Promise<ImportedDesign> {
   switch (designFormatOf(fileName)) {
     case 'rkt':
-      return { ...importRkt(data, { maxInflatedBytes: opts.maxInflatedBytes, presets: opts.presets, catalogue: opts.catalogue,
+      return { ...importRkt(data, { units: opts.units, maxInflatedBytes: opts.maxInflatedBytes, presets: opts.presets, catalogue: opts.catalogue,
         ...(opts.horizontalDistanceUnit !== undefined ? { horizontalDistanceUnit: opts.horizontalDistanceUnit } : {}),
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) }), sourceFormat: 'rkt' };
     case 'cdx1':
-      return { ...await importCdx1Flown(data, { catalogue: opts.catalogue, aeroChoice: opts.aeroChoice,
+      return { ...await importCdx1Flown(data, { units: opts.units, catalogue: opts.catalogue, aeroChoice: opts.aeroChoice,
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}),
         ...(opts.flownSpec ? { flownSpec: opts.flownSpec } : {}) }), sourceFormat: 'cdx1' };
     case 'ork':
-      return { ...importOrk(data, { maxInflatedBytes: opts.maxInflatedBytes, presets: opts.presets,
+      return { ...importOrk(data, { units: opts.units, maxInflatedBytes: opts.maxInflatedBytes, presets: opts.presets,
         ...(opts.horizontalDistanceUnit !== undefined ? { horizontalDistanceUnit: opts.horizontalDistanceUnit } : {}),
         ...(opts.distanceUnit !== undefined ? { distanceUnit: opts.distanceUnit } : {}) }), sourceFormat: 'ork' };
   }

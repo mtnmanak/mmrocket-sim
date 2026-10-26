@@ -1,4 +1,4 @@
-import { fmtAltitude, fmtFieldValue, fmtSi, siToUi, type UnitSelection } from '../prefs/units.js';
+import { INITIAL_UNITS, noticeComparison, noticeQuantity, fmtAltitude, fmtFieldValue, fmtSi, siToUi, type UnitSelection } from '../prefs/units.js';
 import { GUST_RESOLUTION_MS, sigmaFromGust } from '../services/gustSigma.js';
 import type { Endpoint } from '../services/openMeteo.js';
 import { coordinateLabel } from '../services/coordinates.js';
@@ -14,14 +14,14 @@ import type { ApplyKey } from '../services/weatherSnapshot.js';
  * numbers — 30 of the 72 hours in the captured Gerlach forecast
  * (openMeteo.test pins that count, which the guide quotes).
  */
-export function gustNote(meanMs: number | null, gustMs: number): string {
+export function gustNote(meanMs: number | null, gustMs: number, units: UnitSelection = INITIAL_UNITS): string {
   const g = sigmaFromGust(meanMs, gustMs);
   if (g.ok) return 'see Wind gusts σ.';
   if (meanMs === null || !Number.isFinite(meanMs)) return 'Open-Meteo has no wind for this hour, so there is no σ estimate.';
   if (g.reason === 'calm') return 'the wind is calm this hour, so there is no σ estimate.';
   return gustMs <= meanMs
     ? 'no stronger than this hour’s wind, so there is no σ estimate.'
-    : `within Open-Meteo’s ${GUST_RESOLUTION_MS} m/s resolution of this hour’s wind, so there is no σ estimate.`;
+    : `within Open-Meteo’s ${noticeQuantity('windspeed', GUST_RESOLUTION_MS, units, { digits: 3, otherDigits: 3 })} resolution of this hour’s wind, so there is no σ estimate.`;
 }
 
 /**
@@ -61,6 +61,11 @@ export function farText(sym: string, m: number): string {
   const imperial = sym === 'ft' || sym === 'yd' || sym === 'mi';
   const v = imperial ? m / 1609.344 : m / 1000;
   return `${v < 10 ? v.toFixed(1) : Math.round(v)} ${imperial ? 'mi' : 'km'}`;
+}
+
+export function farNoticeText(sym: string, m: number): string {
+  const imperial = sym === 'ft' || sym === 'yd' || sym === 'mi';
+  return `${farText(sym, m)} (${farText(imperial ? 'm' : 'ft', m)})`;
 }
 
 /** Visibility keeps two decimals below 10 mi / 16 km, near the quoted five-mile figure. */
@@ -104,6 +109,26 @@ export function fieldText(key: ApplyKey, stored: number, units: UnitSelection, p
       return coordinateLabel(stored, 'latitude', 5);
     case 'longitudeDeg':
       return coordinateLabel(stored, 'longitude', 5);
+  }
+}
+
+export function fieldNoticeText(key: ApplyKey, stored: number, units: UnitSelection, precision: Parameters<typeof fmtFieldValue>[1] = 'auto', parenthesized = false, against?: number): string {
+  const digits = precision === 4 ? 4 : 3;
+  if (against !== undefined) {
+    const quantity = key === 'temperatureC' ? 'temperature' : key === 'pressureHPa' ? 'pressure'
+      : key === 'windAverage' ? 'windspeed' : key === 'launchAltitudeM' ? 'altitude' : null;
+    const si = (v: number) => key === 'temperatureC' ? v + 273.15 : key === 'pressureHPa' ? v * 100 : v;
+    if (quantity) return noticeComparison(quantity, si(stored), si(against), units, {
+      parenthesized, grouped: true,
+      digits: key === 'pressureHPa' ? Math.max(3, PRESSURE_DIGITS[units.pressure] ?? 2) : undefined,
+    })[0];
+  }
+  switch (key) {
+    case 'temperatureC': return noticeQuantity('temperature', stored + 273.15, units, { parenthesized, grouped: true });
+    case 'pressureHPa': return noticeQuantity('pressure', stored * 100, units, { parenthesized, grouped: true, digits: Math.max(3, PRESSURE_DIGITS[units.pressure] ?? 2) });
+    case 'windAverage': return noticeQuantity('windspeed', stored, units, { digits, otherDigits: digits, parenthesized });
+    case 'launchAltitudeM': return noticeQuantity('altitude', stored, units, { parenthesized, grouped: true });
+    default: return fieldText(key, stored, units, precision);
   }
 }
 

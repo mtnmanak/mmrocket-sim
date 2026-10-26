@@ -1,6 +1,6 @@
 import type { ComponentNode, FlightEvent, FlightResult, IgnitionEvent, MotorSpec, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { num } from '../tree/nodeNum.js';
-import { fmtSi } from '../prefs/units.js';
+import { noticeQuantity } from '../prefs/units.js';
 import { hasSeparatingParallelStage, mountMotorCount, stageIndexOf, stages } from '../tree/treeModel.js';
 
 /**
@@ -375,7 +375,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   const assumptions = separating.map((s) => {
     const trigger = s['separationEvent'];
     return trigger === 'altitudeascending' || trigger === 'altitudedescending'
-      ? `${s.name ?? 'Booster'} separation at ${fmtSi('altitude', input.distanceUnit ?? 'm', num(s, 'separationAltitude', 200))} ${input.distanceUnit ?? 'm'} above the pad (${trigger === 'altitudeascending' ? 'ascending' : 'descending'})`
+      ? `${s.name ?? 'Booster'} separation at ${noticeQuantity('altitude', num(s, 'separationAltitude', 200), input.distanceUnit ?? 'm')} above the pad (${trigger === 'altitudeascending' ? 'ascending' : 'descending'})`
       : `${s.name ?? 'Booster'} separation on its configured trigger and delay`;
   });
   const estimate = !flightEvents && separating.length > 0;

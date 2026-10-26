@@ -1,9 +1,10 @@
+import { UnitChip } from './UnitChip.js';
 import type { AtmosphereModel } from '../services/atmosphere.js';
 import { effectiveAero } from '../prefs/aeroChoice.js';
 import { useEffect, useMemo, useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtAltitude, fmtSi, fmtSig, siToUi } from '../prefs/units.js';
+import { noticeQuantity, fmtSi, fmtSig, siToUi } from '../prefs/units.js';
 import { loadPresets, type Preset } from '../services/presets.js';
 import type { RecoveryByStage, RecoveryMass } from '../services/recoveryMass.js';
 import {
@@ -11,7 +12,6 @@ import {
 } from '../services/recoverySizing.js';
 import type { LaunchConditions } from './LaunchPanel.js';
 import { stages } from '../tree/treeModel.js';
-import { UnitChip } from './UnitChip.js';
 
 /**
  * "Recovery sizing" — the design page's answer to "so what chute do I buy?".
@@ -138,7 +138,7 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
     const a = Math.abs(v);
     return v.toFixed(a >= 10 ? 0 : a >= 1 ? 1 : 2);
   };
-  const rate = (si: number): string => fmtSi('velocity', velSym, si, 1);
+  const rate = (si: number): string => noticeQuantity('velocity', si, velSym, { defined: { value: Math.round(si / 0.3048), symbol: 'ft/s' } });
 
   // What the header says when the panel is shut. The two size lines are the
   // conclusion; everything the panel expands to is the working behind them.
@@ -218,10 +218,10 @@ function ObjectSection({ label, sizing, note, catalogueReady, catalogueFailed, f
       {heading}
       {note && <p className="recovery-sizing-hint">{note}</p>}
       <p className="recovery-sizing-lede">
-        Sized for <strong>{fmtSi('mass', massSym, sizing.massKg)} {massSym}</strong> coming down
+        Sized for <strong>{noticeQuantity('mass', sizing.massKg, massSym)}</strong> coming down
         {sizing.elevationM > 0 && (
           <>
-            {' '}at <strong>{fmtAltitude(altSym, sizing.elevationM)} {altSym}</strong>
+            {' '}at <strong>{noticeQuantity('altitude', sizing.elevationM, altSym)}</strong>
             {/* The ELEVATION is always named — every rate on this panel was
                 computed at its density. The "% faster" clause is not: ISA
                 density falls ~1.16 % per 100 m, so siteRateFactor only reaches
@@ -368,7 +368,7 @@ function BandSection({
             {' '}at <strong>Cd {cdNum(advice.cd)}</strong>
           </p>
           <p className="recovery-size-note" title={`Cd ${advice.cd}: ${cdSaid}.`}>
-            for {rate(advice.band.target)} {velSym} — {cdSaid}
+            for {rate(advice.band.target)} — {cdSaid}
             {vented && (advice.cdSource === 'automatic'
               ? <>, {cdNum(advice.cdNominal)} scaled for its spill hole</>
               : <>, its rated Cd {cdNum(advice.cdNominal)} scaled for its spill hole</>)}.
@@ -408,7 +408,7 @@ function BandSection({
 
       <p className="recovery-band-foot">
         {advice.checkedFits > 0 && <>Fit assumes a cylindrical bundle; hollow couplers and open shoulders narrow the opening, while solid internals reserve their full axial span. Allow extra room for wadding and deployment.{' '}</>}
-        {boreM !== null && <>Bay opening: {fmtSig(siToUi('length', lenSym, boreM), 3, 1)} {lenSym} bore.{' '}</>}
+        {boreM !== null && <>Bay opening: {noticeQuantity('length', boreM, lenSym)} bore.{' '}</>}
         {advice.excludedForFit > 0 && (
           <>
             {advice.excludedForFit} of {advice.inBand} canopies that hit this band exceed the bay’s
@@ -437,8 +437,8 @@ function BandSection({
                 warning above — because it used to call 70 "the accepted" band
                 while the report called 70-90 still accepted (audit 2026-09-22). */}
             <span className="recovery-mark recovery-mark-warn">†</span> is above the preferred
-            {' '}{rate(advice.band.warnAbove!)} {velSym} for a drogue, in the caution band up
-            to {rate(advice.band.cautionTo!)} {velSym} — the launch report will flag it as a
+            {' '}{rate(advice.band.warnAbove!)} for a drogue, in the caution band up
+            to {rate(advice.band.cautionTo!)} — the launch report will flag it as a
             caution.
           </>
         )}

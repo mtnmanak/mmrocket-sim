@@ -1,3 +1,4 @@
+import type { UnitSelection } from '../prefs/units.js';
 import { carryFlags, cautionNote, flagNote, noteFlags, type ImportNote } from './importNotes.js';
 import { migrateConfigLayers } from './configLayersMigration.js';
 import { designFingerprint, legacyDesignFingerprint } from './dirtyState.js';
@@ -68,7 +69,7 @@ export interface RestoredDesign {
 export function designStateFromSession(
   session: SessionState | null,
   /** The pre-v0.005 motor-browser filter's limit (App reads it from localStorage); null when none. */
-  opts: { legacyMaxMotorLengthM: number | null },
+  opts: { legacyMaxMotorLengthM: number | null; units?: UnitSelection },
 ): RestoredDesign {
   // Normalize ONCE and derive every dependent value from the SAME tree: each
   // normalizeTree/defaultTree call mints fresh ids for nodes it creates, so a
@@ -93,7 +94,7 @@ export function designStateFromSession(
         mm.padMassWeighedWith ? (parseSetIdentity(mm.padMassWeighedWith) ?? []).map(([id]) => id) : []))]);
   let storedTree: RocketTree;
   try {
-    storedTree = normalizeTree(session?.tree ?? defaultTree(), restoreNotes, { preserveAbsolutePositions: true });
+    storedTree = normalizeTree(session?.tree ?? defaultTree(), restoreNotes, { preserveAbsolutePositions: true, units: opts.units });
   } catch (error) {
     if (!(error instanceof Error) || error.name !== TOO_MANY_INSTANCES_ERROR_NAME) throw error;
     const fallback = designStateFromSession({
@@ -107,7 +108,7 @@ export function designStateFromSession(
     fallback.restoreNoteTiers = noteFlags(fallback.restoreNotes);
     return fallback;
   }
-  const before = normalizeTree(checkLegacyPositions(storedTree, session !== null, restoreNotes), restoreNotes);
+  const before = normalizeTree(checkLegacyPositions(storedTree, session !== null, restoreNotes), restoreNotes, { units: opts.units });
   const limits = legacyStageLimits(before, session, opts.legacyMaxMotorLengthM);
   const tree = migrateMotorLengths(before, limits);
   const defaultMountId = session?.mountId ?? motorMounts(tree)[0]?.id;

@@ -6,6 +6,14 @@ import { INITIAL_UNITS, IMPERIAL_UNITS, siToUi, uiToSi } from '../prefs/units.js
 const node = (type: string, fields = {}): ComponentNode => ({ type, name: 'Part <&>', ...fields } as ComponentNode);
 
 describe('C-A7 paper geometry', () => {
+  it.each([
+    ['mm', '0.15 mm'], ['cm', '0.015 cm'], ['m', '0.00015 m'],
+    ['in', '0.00591 in'], ['ft', '0.000492 ft'],
+  ])('retains a small cutting-template opening in %s', (length, opening) => {
+    const g = paperTemplateGeometry(node('centeringring', { outerRadius: 0.025, innerRadius: 0.000075 }), {});
+    expect(paperTemplatePages(g, 'Small opening', { length })[0]!.svg).toContain(`Opening diameter ${opening}`);
+  });
+
   it('uses the stated ring ID before the adjacent mount OD, without changing the node', () => {
     const ring = node('centeringring', { outerRadius: 0.05, innerRadius: 0.015 });
     const before = JSON.stringify(ring);
@@ -160,7 +168,7 @@ describe('C-A7 physical pages', () => {
     for (const p of pages) {
       expect(p.svg).toContain('calibration-ruler');
       expect(p.svg).toContain('r="200.0000"');
-      expect(p.svg).toContain('10 mm overlap');
+      expect(p.svg).toContain('10 mm (0.394 in) overlap');
     }
     // Adjacent sheets must repeat GLOBAL grid coordinates in the overlap.
     expect(pages[0]!.svg).toContain('x="194" y="84"');

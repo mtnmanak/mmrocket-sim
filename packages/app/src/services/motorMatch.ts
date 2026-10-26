@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import {
@@ -159,6 +160,7 @@ export interface MotorMatchResult {
 
 /** Injection points, so the network and the catalog can be stubbed in tests. */
 export interface MotorMatchDeps {
+  units?: UnitSelection;
   findDb?: typeof findDbMotor;
   /** Keep match tiers, rivals and curve-equivalence policy on the chosen rows (2026-10-01). */
   catalogue?: MotorDbEntry[];
@@ -172,8 +174,8 @@ export interface MotorMatchDeps {
 }
 
 /** fetchMotorSpec in MotorMatchDeps.fetchSpec's shape. */
-export const fetchSpecByDigest = (motor: MotorDbEntry, ejectionDelay: number, digest?: string): Promise<MotorSpec> =>
-  fetchMotorSpec(motor, ejectionDelay, undefined, digest ? { digest } : {});
+export const fetchSpecByDigest = (motor: MotorDbEntry, ejectionDelay: number, digest?: string, units?: UnitSelection): Promise<MotorSpec> =>
+  fetchMotorSpec(motor, ejectionDelay, undefined, { digest, units });
 
 /**
  * A catalogue motor with its curve loaded, shaped the way App keeps a mounted
@@ -222,7 +224,7 @@ export async function loadCatalogueMotor(
   deps: MotorMatchDeps = {},
 ): Promise<MountMotor | null> {
   const findDb = deps.findDb ?? findDbMotor;
-  const fetchSpec = deps.fetchSpec ?? fetchMotorSpec;
+  const fetchSpec = deps.fetchSpec ?? ((motor, delay) => fetchMotorSpec(motor, delay, undefined, { units: deps.units }));
   const db = findDb(designation, undefined, deps.catalogue, manufacturer);
   if (!db) return null;
   const spec = await fetchSpec(db, delay);
@@ -253,7 +255,7 @@ export async function matchImportedMotor(
   ref: OrkMotorRef,
   deps: MotorMatchDeps = {},
 ): Promise<MotorMatchResult> {
-  const fetchSpec = deps.fetchSpec ?? fetchSpecByDigest;
+  const fetchSpec = deps.fetchSpec ?? ((motor, delay, digest) => fetchMotorSpec(motor, delay, undefined, { digest, units: deps.units }));
 
   // Never cast: an event none of the five reached the build verbatim, which put
   // the motor on the handle and then refused it (audit 2026-09-22). The .ork
@@ -282,7 +284,7 @@ export async function matchImportedMotor(
 
   // RockSim refs carry no motor diameter (0) — match by designation only.
   const diameterMm = ref.diameter > 0 ? ref.diameter * 1000 : undefined;
-  let how = deps.findDb ? null : matchDbMotor(ref.designation, diameterMm, deps.catalogue, ref.manufacturer, ref.matchContext);
+  let how = deps.findDb ? null : matchDbMotor(ref.designation, diameterMm, deps.catalogue, ref.manufacturer, ref.matchContext, deps.units);
   let dbMatch = deps.findDb
     ? (ref.matchContext ? deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer, ref.matchContext)
       : deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer))
@@ -343,7 +345,7 @@ export async function matchImportedMotor(
       // `ref.delay`, then re-flown at the optimum (flightRunner.flyLaunch).
       const motor = mountMotorFromDb(dbMatch, spec, matchedDelay, ignition,
         ref.autoDelay ? { ...identity, autoDelay: true } : identity);
-      const openNote = [(unconfirmedMatchNote(ref, dbMatch, how) ?? '') + exCandidatesNote, await rocksimCurveNote(ref, dbMatch, spec),
+      const openNote = [(unconfirmedMatchNote(ref, dbMatch, how, deps.units) ?? '') + exCandidatesNote, await rocksimCurveNote(ref, dbMatch, spec),
         await digestCurveNote(ref, dbMatch)]
         .filter(Boolean).join('\n') || undefined;
       return {
@@ -408,8 +410,8 @@ export function namesOtherMaker(ref: OrkMotorRef, db: MotorDbEntry): boolean {
  * another row in the same note would read the same — AeroTech's HP-H45W and
  * H45W both display as “H45W”, and the note named “AeroTech H45W” twice.
  */
-export function describeRow(m: MotorDbEntry, all: readonly MotorDbEntry[] = [m]): string {
-  const facts = [`${Number(m.diameter.toFixed(1))} mm`, `${Math.round(m.totImpulseNs * 10) / 10} Ns`,
+export function describeRow(m: MotorDbEntry, all: readonly MotorDbEntry[] = [m], units: UnitSelection = INITIAL_UNITS): string {
+  const facts = [noticeQuantity('motorDimensions', m.diameter / 1000, units, { parenthesized: true }), `${Math.round(m.totImpulseNs * 10) / 10} Ns`,
     ...(m.propInfo ? [m.propInfo] : []), ...(isAvailable(m) ? [] : ['out of production'])];
   const shown = displayDesignation(m.designation, m.manufacturerAbbrev);
   const twin = all.some((o) => o !== m && o.manufacturerAbbrev === m.manufacturerAbbrev
@@ -444,7 +446,7 @@ export function withMountCount(note: string, mounts: number): string {
  * picked this same row, so a stubbed lookup (tests) gets the maker check alone.
  */
 export function unconfirmedMatchNote(
-  ref: OrkMotorRef, db: MotorDbEntry, how: DbMotorMatch | null,
+  ref: OrkMotorRef, db: MotorDbEntry, how: DbMotorMatch | null, units: UnitSelection = INITIAL_UNITS,
 ): string | undefined {
   const firm = how && how.motor.motorId === db.motorId ? how : null;
   const other = namesOtherMaker(ref, db);
@@ -458,7 +460,7 @@ export function unconfirmedMatchNote(
   const rivals = firm?.rivals ?? [];
   if (!other && !unread && !oopGuess && rivals.length === 0 && !firm?.reason) return undefined;
   const named = [db, ...rivals];
-  const row = describeRow(db, named);
+  const row = describeRow(db, named, units);
   const opened = other
     ? `Motor “${ref.designation}”: the file names ${namedMaker(ref)!}, but it loaded as ${row} — the motor the database matched to it.`
     : unread
@@ -466,7 +468,7 @@ export function unconfirmedMatchNote(
       : oopGuess
         ? `Motor “${ref.designation}”: the file names no manufacturer, and it loaded as ${row} — the motor the database matched to it.`
         : `Motor “${ref.designation}” loaded as ${row}.`;
-  const shown = rivals.slice(0, 3).map((r) => describeRow(r, named));
+  const shown = rivals.slice(0, 3).map((r) => describeRow(r, named, units));
   const more = rivals.length > shown.length ? `; and ${rivals.length - shown.length} more` : '';
   const also = rivals.length === 0 ? ''
     : /^j360[- _]*sk$/i.test(ref.designation.trim())

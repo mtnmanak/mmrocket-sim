@@ -1,3 +1,4 @@
+import { noticeQuantity } from '../prefs/units.js';
 import { Note } from './Note.js';
 import { editProfileSurface } from '../services/windProfile.js';
 import { useId } from 'react';
@@ -51,7 +52,7 @@ export function GustEstimate({ value, onChange, onEstimate, forecastWind }: {
   // offered is the number the Wind gusts σ box then reads, and the average in
   // the arithmetic is the Wind avg box's.
   const num = (ms: number) => windNumber(sym, ms, prefs.fieldPrecision);
-  const speed = (ms: number) => `${num(ms)} ${sym}`;
+  const speed = (ms: number, parenthesized = false) => noticeQuantity('windspeed', ms, prefs.units, { digits: prefs.fieldPrecision === 4 ? 4 : 3, otherDigits: 3, parenthesized });
   const gust = speed(forecastWind.gustMs);
   const warn = est.convective;
   const source = forecastWind.source ?? 'forecast';
@@ -88,7 +89,7 @@ export function GustEstimate({ value, onChange, onEstimate, forecastWind }: {
         )}
         {meanMatches && applied && (
           <>
-            Wind gusts σ is an estimate from the {source}: ({num(forecastWind.gustMs)} − {speed(forecastWind.meanMs)})
+            Wind gusts σ is an estimate from the {source}: ({speed(forecastWind.gustMs, true)} − {speed(forecastWind.meanMs, true)})
             {/* Capped, the division's own result is printed and then the cap:
                 "= 1 m/s" after "(6 − 1 m/s) ÷ 3" would be an equation that
                 does not add up. */}

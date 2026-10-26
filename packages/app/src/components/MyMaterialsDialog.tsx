@@ -1,3 +1,4 @@
+import { usePrefs } from '../prefs/PrefsContext.js';
 import { useEffect, useId, useRef, useState } from 'react';
 import { Modal } from './Modal.js';
 import { NumField } from './NumField.js';
@@ -13,6 +14,7 @@ export const MATERIAL_STORAGE_FAILURE = 'My materials could not be saved in this
 
 export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
   const { materials, note } = useUserMaterials();
+  const { prefs } = usePrefs();
   const [message, setMessage] = useState('');
   const [editing, setEditing] = useState<{ key: string; draft: UserMaterial } | null>(null);
   const [deleting, setDeleting] = useState<UserMaterial | null>(null);
@@ -65,7 +67,7 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
               const csv = await picked.text();
               if (!alive.current) return;
               // Read the current store after await, so another tab's edit is retained.
-              const result = importUserMaterialsCsv(csv, loadUserMaterials());
+              const result = importUserMaterialsCsv(csv, loadUserMaterials(), prefs.units);
               const summary = `${result.added} added, ${result.replaced} replaced, ${result.refused} refused.`;
               const details = result.reasons.slice(0, 10).join('; ')
                 + (result.reasons.length > 10 ? `; and ${result.reasons.length - 10} more` : '');
@@ -89,7 +91,7 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
             return <li key={key} style={{ marginBottom: 12 }}>
               {editing?.key === key ? <form onSubmit={e => {
                 e.preventDefault();
-                const problem = materialProblem(editing.draft);
+                const problem = materialProblem(editing.draft, prefs.units);
                 if (problem) { setMessage(problem); return; }
                 const nextKey = userMaterialKey(editing.draft);
                 if (nextKey !== key && materials.some(other => userMaterialKey(other) === nextKey)) {

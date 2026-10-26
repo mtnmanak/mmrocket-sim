@@ -4,7 +4,7 @@ import {
   addRun, addRuns, appendImportedRuns, clearRuns, deleteRun, loadRuns, persistFailed, restoreRun, runCapNote, runsEvictedByLastWrite, runsEvictedForUndoByLastWrite,
   runsToCsv, runsToTable, runsUnsavedByLastWrite,
 } from './simStore.js';
-import { IMPERIAL_UNITS } from '../prefs/units.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS, noticeQuantity } from '../prefs/units.js';
 import { densityAltitudeM } from './atmosphere.js';
 import { commentsOf, deploymentVerdict, runStoppedEarly, type DesignMatchKey, type SimRun } from './simReport.js';
 import { runStatus } from './runConfiguration.js';
@@ -25,6 +25,19 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     maxAltitude: 300,
     ...over,
   }) as SimRun;
+
+it.each([
+  [INITIAL_UNITS, 'opens 35 m/s (115 ft/s) descent 7 m/s (23 ft/s) (!)'],
+  [IMPERIAL_UNITS, 'opens 115 ft/s (35 m/s) descent 23 ft/s (7 m/s) (!)'],
+] as const)('R12 pairs flagged deployment speeds in table and CSV (%j)', (units, expected) => {
+  const run = mkRun('deploy', { deployments: [{ device: 'Main', time: 6, altitude: 100,
+    velocityAtDeployment: 35, groundSpeedAtDeployment: 35, descentRate: 7, groundSpeed: 7,
+    isLanding: true, openingOk: false, descentOk: false, cd: 0.8, cdNominal: 0.8,
+    diameter: 0.3, spillHoleDiameter: 0 }] });
+  const { headers, rows } = runsToTable([run], units);
+  expect(rows[0]![headers.indexOf('Deployments')]).toContain(expected);
+  expect(runsToCsv([run], units)).toContain(expected);
+});
 
 it.each(['', '0x10', true, null])('S1d-4 blanks nonnumeric lead and detail values: %j', value => {
   localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('bad'),
@@ -81,7 +94,7 @@ it.each([[60, ''], [75, ' (caution)'], [95, ' (!)']] as const)('S3b-1 exports dr
     isLanding: false, descentOk: fps <= 70 } as NonNullable<SimRun['deployments']>[number];
   const { headers, rows } = runsToTable([mkRun('drogue', { deployments: [d] })]);
   const cell = rows[0]![headers.indexOf('Deployments')];
-  expect(cell).toBe(`Drogue@1.0s opens 5.0m/s descent ${(fps * 0.3048).toFixed(1)}m/s${suffix}`);
+  expect(cell).toBe(`Drogue@1.0s opens 5 m/s (16 ft/s) descent ${noticeQuantity('velocity', fps * 0.3048, INITIAL_UNITS)}${suffix}`);
 });
 
 
@@ -320,8 +333,8 @@ describe('storage hardening: run array entries', () => {
       { ...mkRun('kept'), deployments: [deployment, { ...deployment, device: 'Drogue', velocityAtDeployment: 35, descentRate: 5 }] },
     ]));
     const csv = runsToCsv(loadRuns());
-    expect(csv).toContain('Main@6.0s opens ?m/s descent ?m/s');
-    expect(csv).toContain('Drogue@6.0s opens 35.0m/s descent 5.0m/s');
+    expect(csv).toContain('Main@6.0s opens ? descent ?');
+    expect(csv).toContain('Drogue@6.0s opens 35 m/s (115 ft/s) descent 5 m/s (16 ft/s)');
   });
 
   it('keeps valid entries and rows while dropping non-object entries, including nested deployments', () => {
@@ -727,7 +740,7 @@ describe('the flight-day lead columns', () => {
       const csv = runsToCsv([r], units).split('\n');
       for (const measure of ['Travel', 'Rail']) {
         const at = table.headers.findIndex((header) => header.startsWith(`${measure} for `));
-        const limit = measure === 'Travel' ? (units ? '137.8 in' : '3.5 m') : (units ? '157.5 in' : '4 m');
+        const limit = measure === 'Travel' ? (units ? '137.795 in (3500 mm)' : '3.5 m (137.795 in)') : (units ? '157.48 in (4000 mm)' : '4 m (157.48 in)');
         const expected = thrustEnded ? 'Cannot reach: thrust ended' : `Not reached within ${limit}`;
         expect(at).toBeGreaterThan(-1);
         expect(table.rows[0]![at]).toBe(expected);

@@ -57,6 +57,16 @@ function build(tree: RocketTree): string | null {
   }
 }
 
+it('R10 normalizes negative wall residue before a kernel build', () => {
+  const tree = rocket([]);
+  tree.components[0]!.children![1]!['thickness'] = -1e-12;
+  const notes: string[] = [];
+  const fixed = normalizeTree(tree, notes);
+  expect(build(fixed)).toBeNull();
+  expect(fixed.components[0]!.children![1]!['thickness']).toBe(0);
+  expect(notes).toEqual([]);
+});
+
 describe('sanitizeTree — bulk density', () => {
   it('clamps bulk and fillet density with one note per repair, and normalizes idempotently', () => {
     const notes: string[] = [];
@@ -66,7 +76,7 @@ describe('sanitizeTree — bulk density', () => {
     expect(kid(fixed)['density']).toBe(MAX_BULK_DENSITY);
     expect(kid(fixed)['filletDensity']).toBe(MAX_BULK_DENSITY);
     expect(notes).toHaveLength(2);
-    for (const note of notes) expect(note).toMatch(/density .* is over the limit of 30000 kg\/m³ — set to 30000 kg\/m³\./);
+    for (const note of notes) expect(note).toMatch(/density .* is over the limit of 30000 kg\/m³ \(1872\.84 lb\/ft³\) — set to 30000 kg\/m³ \(1872\.84 lb\/ft³\)\./);
     expect(kid(normalizeTree(tree))['density']).toBe(MAX_BULK_DENSITY);
     const again: string[] = [];
     sanitizeTree(fixed, again);
@@ -138,9 +148,9 @@ describe('sanitizeTree — dimensions', () => {
     expect(kid(t, 2)['height']).toBe(MIN_POSITIVE_DIMENSION_M);
     expect(kid(t, 3)['stripLength']).toBe(0);
     expect(kid(t, 3)['surfaceDensity']).toBe(0);
-    expect(notes).toContain('“Fins”: height -30 mm cannot be negative — set to 0 mm.');
-    expect(notes).toContain('“Tubes”: length 0 mm is below the minimum of 0.1 mm — set to 0.1 mm.');
-    expect(notes).toContain('“Streamer”: canopy material density -0.067 kg/m³ cannot be negative — set to 0 kg/m³.');
+    expect(notes).toContain('“Fins”: height -30 mm (-1.181 in) cannot be negative — set to 0 mm (0 in).');
+    expect(notes).toContain('“Tubes”: length 0 mm (0 in) is below the minimum of 0.1 mm (0.00394 in) — set to 0.1 mm (0.00394 in).');
+    expect(notes).toContain('“Streamer”: canopy material density -0.067 kg/m² (-0.0137 lb/ft²) cannot be negative — set to 0 kg/m² (0 lb/ft²).');
     expect(notes).toHaveLength(5);
   });
 
@@ -156,8 +166,8 @@ describe('sanitizeTree — dimensions', () => {
     expect(kid(t, 1)['length']).toBe(MAX_DIMENSION_M);
     expect(kid(t, 1).position).toEqual({ method: 'top', offset: MAX_DIMENSION_M });
     expect(notes).toEqual([
-      '“Ballast”: length 1000000 m is over the limit of 1000 m — set to 1000 m.',
-      '“Ballast”: position 1000000000 m is over the limit of 1000 m — set to 1000 m.',
+      '“Ballast”: length 1000000000 mm (39370100 in) is over the limit of 1000000 mm (39370.1 in) — set to 1000000 mm (39370.1 in).',
+      '“Ballast”: position 1000000000000 mm (39370100000 in) is over the limit of 1000000 mm (39370.1 in) — set to 1000000 mm (39370.1 in).',
     ]);
   });
 });
@@ -346,8 +356,8 @@ describe('explainBuildFailure — naming the part (audit 2026-09-22)', () => {
     const kernel = build(t)!;
     expect(kernel).toMatch(/InertiaMatrix/);
     const msg = explainBuildFailure(t, kernel);
-    expect(msg).toBe('This design could not be built. The likely cause: “Tube fins”: length -100 mm is below'
-      + ' the minimum of 0.1 mm. (The simulation reported: ' + kernel + ')');
+    expect(msg).toBe('This design could not be built. The likely cause: “Tube fins”: length -100 mm (-3.937 in) is below'
+      + ' the minimum of 0.1 mm (0.00394 in). (The simulation reported: ' + kernel + ')');
   });
 
   it('names at most three, and counts the rest', () => {

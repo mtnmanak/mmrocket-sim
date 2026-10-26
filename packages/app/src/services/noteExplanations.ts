@@ -1,4 +1,5 @@
-import { WARNING_LABEL } from './simWarnings.js';
+import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
+import { formatWarning, WARNING_LABEL } from './simWarnings.js';
 
 export interface NoteExplanation { meaning: string; remedy: string }
 
@@ -67,8 +68,13 @@ export const NOTE_EXPLANATIONS: ReadonlyMap<string, NoteExplanation> = new Map([
   ...importGroups.flatMap(({ codes, meaning, remedy }) => codes.split(' ').map(code => [code, { meaning, remedy }] as const)),
 ]);
 
-export function explanationFor(code: string): NoteExplanation {
-  return NOTE_EXPLANATIONS.get(code) ?? {
+export function explanationFor(code: string, units: UnitSelection = INITIAL_UNITS): NoteExplanation {
+  const known = NOTE_EXPLANATIONS.get(code);
+  if (known && (code === 'RECOVERY_HIGH_SPEED' || code === 'HighSpeedDeployment')) return {
+    meaning: formatWarning({ key: code, message: '' }, units).label,
+    remedy: `Review the speed at opening, deployment timing and recovery hardware. The kernel flag uses ${noticeQuantity('velocity', 20, units, { digits: units.velocity === 'ft/s' ? 1 : undefined, otherDigits: units.velocity === 'm/s' ? 1 : undefined, defined: { value: 20, symbol: 'm/s' } })}; the report has separate opening-speed guidance. A fast opening can tear the chute or zipper the tube.`,
+  };
+  return known ?? {
     meaning: 'No explanation is available for this code in this version of the app.',
     remedy: 'Read the original note and keep its code and details with your bug report. Do not assume an unknown code means the result is safe.',
   };

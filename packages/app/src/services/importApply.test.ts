@@ -10,6 +10,7 @@ import { matchImportedMotor, type MotorMatchResult } from './motorMatch.js';
 import { parseEng } from './exMotors.js';
 import type { OrkFlightConfig, OrkMotorRef } from './orkFile.js';
 import { padMassSetKey } from './configSync.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 import {
   importedLaunch, retainedLaunchNote, importMark, openShareLink, planConfigSwitch, planImport, planNewDesign, planOrkSave,
   resolveImportMotors, starterMotorMayLand, type ImportedDesign, type ResolvedImportMotors,
@@ -87,6 +88,18 @@ const resolvedAll = (imported: ImportedDesign): ResolvedImportMotors => ({
 });
 
 const LAUNCH: LaunchConditions = { ...DEFAULT_CONDITIONS, windAverage: 4 };
+
+it.each([INITIAL_UNITS, { ...IMPERIAL_UNITS, length: 'ft' }])('R12 uses selected units for an absolute position resolved beyond bounds (%j)', units => {
+  const imported: ImportedDesign = { name: 'Absolute', motors: {}, notes: [], tree: { components: [{ type: 'stage', children: [
+    { type: 'bodytube', id: 'a', length: 20 },
+    { type: 'bodytube', id: 'b', length: 1, children: [
+      { type: 'masscomponent', id: 'absolute', position: { method: 'absolute', offset: -1000 } },
+    ] },
+  ] }] } };
+  const plan = planImport(imported, { working: {}, configs: {} }, { launch: LAUNCH, text: TEXT, units });
+  expect(plan.note.text).toContain(units.length === 'mm' ? '-1000000 mm (-39370.1 in)' : '-3280.84 ft (-1000000 mm)');
+  expect(plan.snapshot.tree.components[0]!.children![1]!.children![0]!.position!.offset).toBe(-1000);
+});
 
 describe('importedLaunch — THE launch merge', () => {
   it('applies every field the file carried, explicit nulls included, and keeps the rest', () => {

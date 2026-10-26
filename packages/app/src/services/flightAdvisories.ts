@@ -1,7 +1,7 @@
 import type { ComponentNode, FlightResult, FlightSeries, RocketTree } from '@online-openrocket/engine';
 import { boosterBranches } from '@online-openrocket/engine';
 import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
-import { fmtSi, INITIAL_UNITS, siToUi, type UnitSelection } from '../prefs/units.js';
+import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 
 // N004: NAR Model Rocket Safety Code §9 (Launch Site), NAR High Power Rocket
@@ -12,17 +12,18 @@ import { flownDeployEvent } from '../tree/deployEvent.js';
 // https://www.tripoli.org/safetycode (checked 2026-10-13)
 export const SURFACE_WIND_LIMIT_MS = 20 * 0.44704;
 
-export function groundWindAdvice(wind: number, units: UnitSelection): string | null {
-  if (!Number.isFinite(wind) || wind <= SURFACE_WIND_LIMIT_MS) return null;
-  const limit = siToUi('windspeed', units.windspeed, SURFACE_WIND_LIMIT_MS);
-  let speed = fmtSi('windspeed', units.windspeed, wind);
-  if (Number(speed) <= limit) speed = fmtSi('windspeed', units.windspeed, wind, 2);
+export function groundWindAdvice(wind: number, units: UnitSelection = INITIAL_UNITS): string | null {
+  if (!Number.isFinite(wind) || wind <= SURFACE_WIND_LIMIT_MS || noticeEqual(wind, SURFACE_WIND_LIMIT_MS)) return null;
+  const windText = noticeQuantity('windspeed', wind, units, { digits: 3, otherDigits: 3, against: SURFACE_WIND_LIMIT_MS });
+  const limitText = noticeQuantity('windspeed', SURFACE_WIND_LIMIT_MS, units,
+    { digits: 3, otherDigits: 3,
+      defined: { value: 20, symbol: 'mph' } });
   // N004: finite display precision must not turn an exceedance into equality.
-  const measurement = Number(speed) > limit
-    ? `Surface wind average ${speed} ${units.windspeed} exceeds 20 mph (8.9408 m/s). `
-    : 'Surface wind average is just above 20 mph (8.9408 m/s). ';
+  const measurement = !windText.startsWith('just above')
+    ? `Surface wind average ${windText} exceeds ${limitText}. `
+    : `Surface wind average is just above ${limitText}. `;
   return measurement
-    + 'NAR model and high-power codes limit launch wind to 20 mph; Tripoli applies this limit to sustained surface wind. '
+    + `NAR model and high-power codes apply that limit to launch wind; Tripoli applies this limit to sustained surface wind. `
     + 'Wind can carry the rocket outside the recovery area. Check wind at the pad, including gusts; the app does not block Launch.';
 }
 
@@ -87,19 +88,14 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
   const limits = normalizeFlightAdvisories(rawLimits);
   if (!limits) return [];
   const notes: { text: string; level: 'info' | 'caution' }[] = [];
-  const quantity = (kind: 'velocity' | 'altitude', si: number, digits = 1): string => {
-    const symbol = units[kind], siSymbol = kind === 'velocity' ? 'm/s' : 'm';
-    return symbol === siSymbol ? `${si.toFixed(digits)} ${siSymbol}`
-      : `${fmtSi(kind, symbol, si, 3)} ${symbol} [${si.toFixed(digits)} ${siSymbol}]`;
+  const quantity = (kind: 'velocity' | 'altitude', si: number, digits = 3, parenthesized = false): string => {
+    return noticeQuantity(kind, si, units, { digits: 3, otherDigits: digits, parenthesized, grouped: true });
   };
   const comparison = (kind: 'velocity' | 'altitude', actual: number, limit: number) => {
-    // N007/N010: neither the selected unit nor its SI companion may show a
-    // false equality. Keep tiny differences explicit when three decimals cannot.
-    const sameDisplay = (digits: number): boolean => Number(actual.toFixed(digits)) === Number(limit.toFixed(digits))
-      || Number(fmtSi(kind, units[kind], actual, 3)) === Number(fmtSi(kind, units[kind], limit, 3));
-    const digits = sameDisplay(1) ? 3 : 1;
-    return { actual: quantity(kind, actual, digits), limit: quantity(kind, limit, digits),
-      indistinguishable: sameDisplay(digits) };
+    const [actualText, limitText] = noticeComparison(kind, actual, limit, units, {
+      digits: 3, otherDigits: 1, grouped: true,
+    });
+    return { actual: actualText, limit: limitText, digits: 1, indistinguishable: actualText.startsWith('just ') };
   };
   const nodes: ComponentNode[] = [];
   const walk = (parts: ComponentNode[]): void => {
@@ -118,7 +114,7 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
     const context = `${configuration} — ${flight.name}`;
     if (limits.maxAirspeedMs !== undefined) {
       const peak = peakAirspeed(flight.series);
-      if (peak.value !== null && peak.value > limits.maxAirspeedMs) {
+      if (peak.value !== null && peak.value > limits.maxAirspeedMs && !noticeEqual(peak.value, limits.maxAirspeedMs)) {
         const pair = comparison('velocity', peak.value, limits.maxAirspeedMs);
         const measurement = pair.indistinguishable ? 'is just above' : `${pair.actual} exceeded`;
         notes.push({ text: `${context}: recorded airspeed ${measurement} your maximum of ${pair.limit}. This is your limit, not a structural rating.`, level: 'caution' });
@@ -141,12 +137,12 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
     const check = (label: string, altitude: number | null, unavailable = 'AGL altitude is unavailable'): void => {
       if (altitude === null || !Number.isFinite(altitude)) {
         notes.push({ text: `${context}: the app cannot check ${label} against your electronics arming altitude; ${unavailable}.`, level: 'info' });
-      } else if (altitude <= height + band) {
-        const below = altitude < height;
-        const pair = below ? comparison('altitude', altitude, height) : null;
-        const measurement = pair?.indistinguishable ? 'is just below your arming altitude'
+      } else if (altitude <= height + band || noticeEqual(altitude, height + band)) {
+        const below = altitude < height && !noticeEqual(altitude, height);
+        const pair = noticeEqual(altitude, height) ? null : comparison('altitude', altitude, height);
+        const measurement = !pair ? 'is at your arming altitude, within your arming caution band' : pair.indistinguishable ? `is just ${below ? 'below' : 'above'} your arming altitude`
           : `at ${pair?.actual ?? quantity('altitude', altitude)} AGL is ${below ? 'below your arming altitude' : 'within your arming caution band'}`;
-        notes.push({ text: `${context}: ${label} ${measurement} (arming ${pair?.limit ?? quantity('altitude', height)} AGL, band ${quantity('altitude', band)}). `
+        notes.push({ text: `${context}: ${label} ${measurement} (arming ${quantity('altitude', height, pair?.digits ?? 3, true)} AGL, band ${quantity('altitude', band, 3, true)}). `
           + 'If recovery depends on these electronics, they may not be armed when needed and recovery may fail. This comparison does not prove the electronics armed.', level: 'caution' });
       }
     };

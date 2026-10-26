@@ -221,7 +221,7 @@ it('says when a named Supersonic airfoil is flown but not drawn: on a Rounded or
 it("the 🖨 STL button's tooltip names every flat-print fallback for a shaped fin (N062 review, round 3)", () => {
   show('rounded', TAB);
   const title = stlButton().getAttribute('title') ?? '';
-  expect(title).toContain('a rounded or airfoil fin carries its cross-section with sharp edges thickened to a printable 0.4 mm and a flat tab');
-  expect(title).toContain('except that an outline with more than one chord at some height (a W or hook, as drawn or as seated on the body), a step in its leading or trailing edge, or stock no thicker than 0.4 mm prints as the flat prism, as the note under this button says');
-  expect(title).not.toContain('0.4 mm and a flat tab, a square fin');
+  expect(title).toContain('a rounded or airfoil fin carries its cross-section with sharp edges thickened to a printable 0.4 mm (0.0157 in) and a flat tab');
+  expect(title).toContain('except that an outline with more than one chord at some height (a W or hook, as drawn or as seated on the body), a step in its leading or trailing edge, or stock no thicker than 0.4 mm (0.0157 in) prints as the flat prism, as the note under this button says');
+  expect(title).not.toContain('0.4 mm (0.0157 in) and a flat tab, a square fin');
 });

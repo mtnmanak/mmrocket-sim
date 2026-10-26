@@ -176,3 +176,12 @@ describe('newRailButtonPair', () => {
     expect(newRailButtonPair(button(), 1, null).patch.position).toEqual({ method: 'middle', offset: 0 });
   });
 });
+
+it('R9 treats arithmetic residue above minimum button spacing as equality',()=>{
+  const at=(extra:number)=>railButtonPlacement(button({method:'top',offset:0}),{
+    rocketLength:0.5,cg:0.5-RAIL_BUTTON_AFT_GAP-0.02-extra,positionX:0,parentLength:0.5,
+  });
+  expect(at(Number.EPSILON/4).fits).toBe(true);
+  expect(at(Number.EPSILON/4).feasible).toBe(false);
+  expect(at(1e-6).feasible).toBe(true);
+});

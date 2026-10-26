@@ -2,6 +2,7 @@ import { cautionNote, flagNote, noteFlags, tierLines } from './importNotes.js';
 import { KERNEL_DEFAULT_FIN_POINTS, KERNEL_DEFAULT_MATERIALS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
 import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
+import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { nozzleExportNotes } from './nozzleExport.js';
 import { filletExportNotes } from './filletExport.js';
@@ -199,6 +200,7 @@ export function rktPackedChuteSize(parent: ComponentNode | null | undefined, dia
 // ============================ IMPORT ============================
 
 export function importRkt(data: ArrayBuffer | string, opts?: {
+  units?: UnitSelection;
   presets?: readonly Preset[];
   /** Every-delay must use the same rows as the later match (2026-10-01); App defaults to live rows. */
   catalogue?: MotorDbEntry[];
@@ -213,6 +215,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   /** Optional host cap; browser imports retain the shared 64 MiB default. */
   maxInflatedBytes?: number;
 }): LayeredOrkImportResult {
+  const units = opts?.units ?? { ...INITIAL_UNITS, altitude: opts?.distanceUnit ?? INITIAL_UNITS.altitude };
   let xml: string;
   // Set when the bytes were not valid UTF-8 and named no other encoding (see
   // decodeXml): the first import note, once there are notes.
@@ -397,7 +400,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     if (stated.length) {
       cautionNote(notes, 'I18.stage-masses-not-applied',
         `This ${stageCount}-stage file states a measured mass per stage `
-        + `(${stated.map((s) => `“${s.stage}” ${s.g} g`).join(', ')}). Measured mass & CG on the Design tab `
+        + `(${stated.map((s) => `“${s.stage}” ${noticeQuantity('mass', s.g / MASS, units, { parenthesized: true })}`).join(', ')}). Measured mass & CG on the Design tab `
         + 'covers the whole rocket, so nothing was filled in — enter what you '
         + 'weighed there if you want it applied.');
     }
@@ -405,8 +408,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const cgM = statedCgMm > 0 ? statedCgMm / LEN : null;
     measured = { massKg: statedMassG / MASS, cgM };
     cautionNote(notes, 'I18.measured-not-applied',
-      `This file states a measured mass of ${statedMassG} g`
-      + (cgM !== null ? ` balancing ${statedCgMm} mm from the nose tip` : '')
+      `This file states a measured mass of ${noticeQuantity('mass', statedMassG / MASS, units)}`
+      + (cgM !== null ? ` balancing ${noticeQuantity('length', statedCgMm / LEN, units)} from the nose tip` : '')
       + '. It is filled into Measured mass & CG on the Design tab, which '
       + 'reports the gap against your parts and can add it as ballast — '
       + 'nothing has been applied to the simulation yet. (Desktop OpenRocket '
@@ -893,7 +896,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
             const note = `Fin set "${n.name ?? 'freeform'}": ${unreadableFinPoints(parsed.unreadable)}`;
             if (!notes.includes(note)) cautionNote(notes, 'I05.fin-points', note);
           }
-          const outlineProblem = parsed.problem ?? finOutlineProblem(parsed.pts);
+          const outlineProblem = parsed.problem ?? finOutlineProblem(parsed.pts, units);
           if (!outlineProblem) {
             n['points'] = parsed.pts;
           } else {
@@ -1630,8 +1633,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         for (const node of dropped) remapSubtree(node, keep);
         parentNode.children = (parentNode.children ?? []).filter((k) => !dropped.has(k));
         notes.push(`Cluster: ${g.length} identical ${kind} in “${where}” imported as one ${m.pattern} cluster`
-          + `${off > 0 ? `, ${(off * LEN).toFixed(1)} mm off the centerline` : ''}.`
-          + (clusterG !== null ? ` Its mass is the ${g.length} tube masses the file states, added together: ${clusterG} g.` : ''));
+          + `${off > 0 ? `, ${noticeQuantity('length', off, units)} off the centerline` : ''}.`
+          + (clusterG !== null ? ` Its mass is the ${g.length} tube masses the file states, added together: ${noticeQuantity('mass', clusterG / MASS, units)}.` : ''));
       }
     }
   };
@@ -1837,11 +1840,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const n = holedBulkheads.length;
     const one = holedBulkheads[0]!;
     notes.push((n === 1
-      ? `Bulkhead “${one.name}” has a ${one.idMm} mm hole through it. RockSim weighs the part with that hole, and a `
+      ? `Bulkhead “${one.name}” has a ${noticeQuantity('length', one.idMm / LEN, units)} hole through it. RockSim weighs the part with that hole, and a `
         + 'bulkhead here is a solid disc, so it was imported as a centering ring with that bore; desktop OpenRocket '
         + 'imports it solid. The ⌾ Estimate of Max motor length still stops at it unless the hole is wide enough '
         + 'for the motor.'
-      : `${n} bulkheads have a hole through them (${holedBulkheads.map((b) => `“${b.name}” ${b.idMm} mm`).join(', ')}). `
+      : `${n} bulkheads have a hole through them (${holedBulkheads.map((b) => `“${b.name}” ${noticeQuantity('length', b.idMm / LEN, units, { parenthesized: true })}`).join(', ')}). `
         + 'RockSim weighs each part with its hole, and a bulkhead here is a solid disc, so they were imported as '
         + 'centering rings with those bores; desktop OpenRocket imports them solid. The ⌾ Estimate of Max motor '
         + 'length still stops at each unless its hole is wide enough for the motor.'));
@@ -2161,7 +2164,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   };
   // In the user's unit, as Flight configurations quotes it: this printed the
   // stored metres with a hard-coded "m", so a 500 ft main read "152.4 m".
-  const distanceUnit = opts?.distanceUnit ?? 'm';
+  const distanceUnit = units?.altitude ?? opts?.distanceUnit ?? INITIAL_UNITS.altitude;
   const recoveryNotesFor = (c: OrkFlightConfig): string[] => {
     const number = cfgSim.get(c)?.number;
     const summary = recoveryNodes.map((n) => {
@@ -2299,12 +2302,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       launch = { latitudeDeg: site.latitudeDeg, longitudeDeg: site.longitudeDeg };
       if (Number.isFinite(alt)) {
         launch.launchAltitudeM = importLaunchValue(alt, SITE_ALTITUDE_M_RANGE,
-          { what: 'site altitude', field: 'Site altitude', show: (x) => `${String(Number(x.toPrecision(6)))} m`,
+          { what: 'site altitude', field: 'Site altitude', show: (x, against) => noticeQuantity('altitude', x, units, { against }),
             showField: opts?.distanceUnit === undefined ? undefined : (x) => deployAltitudeText(x, distanceUnit) }, notes);
       }
       // Row 44 A: the same offline check a .ork open runs on its simulations.
       longitudeCheck = checkFileLongitude(site, simEls.filter((s) => s !== siteSim).map(siteOf).filter(usableSite));
-      if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck, chosen ? simLabel(chosen) : 'Simulation 1', opts?.horizontalDistanceUnit));
+      if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck, chosen ? simLabel(chosen) : 'Simulation 1', opts?.horizontalDistanceUnit ?? units.distance));
     } else {
       const latRaw = text(siteSim, ':scope > LaunchLatitude');
       const lonRaw = text(siteSim, ':scope > LaunchLongitude');
@@ -2317,7 +2320,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // line of its own after this one (retainedLaunchNote).
         cautionNote(notes, 'I24.site-retained', `${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
           + `${said(latRaw, site.latitudeDeg, 'latitude')}, ${said(lonRaw, site.longitudeDeg, 'longitude')}`
-          + `${Number.isFinite(alt) ? `, site altitude ${String(alt)} m` : ''}; `
+          + `${Number.isFinite(alt) ? `, site altitude ${noticeQuantity('altitude', alt, units)}` : ''}; `
           + (radianLatitude(site.latitudeDeg) || poleLatitude(site.latitudeDeg)
             ? `that latitude looks unset — it is ${radianLatitude(site.latitudeDeg)
               ? 'π/2, 90° written in radians' : '90°, the North Pole'}, a figure many RockSim files carry in `
@@ -2343,7 +2346,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
 
   // The part limit (board row 84): refused here, before a motor is matched or the kernel builds anything.
   refuseTooManyParts(components);
-  const tree: FlightTree = { ...sanitizeTree({ name, components }, notes),
+  const tree: FlightTree = { ...sanitizeTree({ name, components }, notes, units),
     ...(Object.keys(ignitionDefaults).length ? { ignitionDefaults } : {}) };
   return {
     sourceFormat: 'rkt',

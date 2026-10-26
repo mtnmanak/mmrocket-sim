@@ -147,7 +147,7 @@ export function describeFlightOverrides(
     const members = [...groups.values()].filter(g => g.family === family);
     if (!members.length) return [];
     const verb = family === 'recovery' ? 'deploy' : family === 'separation' ? 'separate' : 'ignite';
-    return [`${subject} ${configLabel ? 'overrides' : 'override'} ${members.map(g => `${name(g)}${short ? ' —' : ':'} ${g.names.length === 1 ? `it ${verb}s` : `they ${verb}`} at ${g.flown}${short ? '' : `, not at ${g.names.length === 1 ? 'its' : 'their'} own setting (${g.own})`}`).join('; ')}.`];
+    return [`${subject} ${configLabel ? 'overrides' : 'override'} ${members.map(g => `${name(g)}${short ? ' —' : ':'} ${g.names.length === 1 ? `it ${verb}s` : `they ${verb}`} at ${g.flown}${short ? '' : `, not at ${g.names.length === 1 ? 'its' : 'their'} own setting: ${g.own}`}`).join('; ')}.`];
   });
   return { text: sentences(false).join(' '), shortText: sentences(true).join(' '), first, records };
 }

@@ -584,7 +584,7 @@ describe('the table', () => {
     expect(headers().slice(4, 6)).toEqual(['Travel for 15.0 m/s (ft)', 'Rail for 15.0 m/s (ft)']);
     const lengths = (index: number) => [4, 5].map(i => bodyRows()[index]!.children[i]!.textContent);
     expect(lengths(0)).toEqual(['4.9', '6.6']);
-    expect(lengths(1)).toEqual(['Not reached within 11.5 ft', 'Not reached within 13.1 ft']);
+    expect(lengths(1)).toEqual(['Not reached within 11.483 ft (3500 mm)', 'Not reached within 13.123 ft (4000 mm)']);
     expect(lengths(2)).toEqual(['Cannot reach: thrust ended', 'Cannot reach: thrust ended']);
     expect(lengths(3)).toEqual(['', '']);
     expect(lengths(4)).toEqual(['', '']);
@@ -603,8 +603,8 @@ describe('the table', () => {
     expect(exportHeaders[railAt + 1]).toMatch(/^Max dynamic pressure/);
     expect(csv.split('\n')[1]!.split(',')[railAt]).toBe('8.202');
     expect(csv.split('\n')[1]!.split(',')[travelAt]!.trim()).toBe('6.562');
-    expect(csv).toContain('Not reached within 13.1 ft');
-    expect(csv).toContain('Not reached within 11.5 ft');
+    expect(csv).toContain('Not reached within 13.123 ft (4000 mm)');
+    expect(csv).toContain('Not reached within 11.483 ft (3500 mm)');
     expect(csv).toContain('Cannot reach: thrust ended');
     // The imported-summary comment contains quoted commas.
     const importedCsv = csv.split('\n')[4]!.trim().split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/);
@@ -617,8 +617,8 @@ describe('the table', () => {
     expect(xml).toContain('Travel for 20.0 m/s (ft)');
     expect(xml).toContain('<v>8.202</v>');
     expect(xml).toContain('<v>6.562</v>');
-    expect(xml).toContain('Not reached within 13.1 ft');
-    expect(xml).toContain('Not reached within 11.5 ft');
+    expect(xml).toContain('Not reached within 13.123 ft (4000 mm)');
+    expect(xml).toContain('Not reached within 11.483 ft (3500 mm)');
     // Inspect by column, including the imported summary's empty XLSX cells.
     const sheet = new DOMParser().parseFromString(xml, 'text/xml');
     const xlsxRows = [...sheet.querySelectorAll('sheetData row')];
@@ -757,6 +757,15 @@ it('hands retained hardware to the sweep without enabling weighed candidates', a
   expect(sweep).toHaveBeenCalledOnce();
   expect(sweep.mock.calls[0]![0].retainedHardware).toEqual({ mountId: 'other', deltaKg: 0.01 });
   expect(sweep.mock.calls[0]![0].weighed).toBeUndefined();
+});
+
+it.each([
+  [{ mass: 'g' }, '50 g (1.76 oz)'],
+  [{ mass: 'oz' }, '1.76 oz (50 g)'],
+] as const)('pairs the weighed hardware notice (%j)', (units, mass) => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units }));
+  mount({ weighed: { mountId: 'other', identity: 'Home/Test', pinned: false, name: 'Test', perMotorShiftKg: 0.05, deltaKg: 0.05 } });
+  expect(host.querySelector('.batch-weighed')?.textContent).toContain(`keeps its ${mass} of hardware in every flight`);
 });
 
 it.each(['auto', 'eb'] as const)('S3a-9: finished %s badges follow the flown model and mount', async (model) => {

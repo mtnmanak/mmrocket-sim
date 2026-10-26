@@ -1,13 +1,13 @@
 import type { PreflightAuditResult } from '../services/preflightAudit.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi } from '../prefs/units.js';
+import { noticeQuantity } from '../prefs/units.js';
 import { Note } from './Note.js';
 
 export function PreflightAudit({ result, onSelectPart }: {
   result: PreflightAuditResult; onSelectPart: (id: string) => void;
 }) {
   const { prefs } = usePrefs();
-  const mass = (kg: number) => `${fmtSi('mass', prefs.units.mass, kg)} ${prefs.units.mass}`;
+  const mass = (kg: number) => noticeQuantity('mass', kg, prefs.units);
   return <section className="preflight-audit" aria-labelledby="preflight-heading">
     <h3 id="preflight-heading">Preflight design check</h3>
     <p>Advice only. This check changes nothing and does not block Launch. It checks a few design settings; it does not establish flight safety.</p>
@@ -32,7 +32,7 @@ export function PreflightAudit({ result, onSelectPart }: {
     </Note>}
     <details className="preflight-limits">
       <summary>What this check covers</summary>
-      <p>Own mass overrides below one tenth or above ten times computed mass, with a difference of at least 1 g;
+      <p>Own mass overrides below one tenth or above ten times computed mass, with a difference of at least {noticeQuantity('mass', 0.001, prefs.units)};
         whole-airframe mass without a matching CG; nested mass overrides; and links to existing notes for covered mass overrides.
         Assembly replacements are not compared to shell mass.</p>
       <p>For a named material in the app’s material list, the density screening range runs from one tenth of its

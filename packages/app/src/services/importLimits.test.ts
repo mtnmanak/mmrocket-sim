@@ -119,7 +119,7 @@ describe('.rkt — degenerate dimensions', () => {
   it('a negative SemiSpan imports as zero, says so, and the design builds', () => {
     const r = importRkt(rkt(FINSET('<FinCount>4</FinCount><SemiSpan>-50</SemiSpan>')));
     expect(ofType(r.tree, 'trapezoidfinset')['height']).toBe(0);
-    expect(r.notes).toContain('“Fins”: height -50 mm cannot be negative — set to 0 mm.');
+    expect(r.notes).toContain('“Fins”: height -50 mm (-1.969 in) cannot be negative — set to 0 mm (0 in).');
     expect(build(r.tree)).toBeNull();
   });
 
@@ -127,7 +127,7 @@ describe('.rkt — degenerate dimensions', () => {
     const r = importRkt(rkt('<TubeFinSet><Name>Tubes</Name><TubeCount>6</TubeCount><Len>-80</Len>'
       + '<OD>20</OD><ID>19</ID></TubeFinSet>'));
     expect(ofType(r.tree, 'tubefinset')['length']).toBe(0.0001);
-    expect(r.notes).toContain('“Tubes”: length -80 mm is below the minimum of 0.1 mm — set to 0.1 mm.');
+    expect(r.notes).toContain('“Tubes”: length -80 mm (-3.15 in) is below the minimum of 0.1 mm (0.00394 in) — set to 0.1 mm (0.00394 in).');
     expect(build(r.tree)).toBeNull();
   });
 });
@@ -154,7 +154,7 @@ describe('.CDX1 — fin count and span', () => {
       + '<SweepDistance>1</SweepDistance><Location>3</Location><Thickness>0.1</Thickness>'));
     expect(ofType(r.tree, 'trapezoidfinset')['height']).toBe(0);
     // -2 in: RASAero's inches, so the millimetres carry the conversion's tail.
-    expect(r.notes).toContain('“Fins”: height -50.8001 mm cannot be negative — set to 0 mm.');
+    expect(r.notes).toContain('“Fins”: height -50.8001 mm (-2 in) cannot be negative — set to 0 mm (0 in).');
     expect(build(r.tree)).toBeNull();
   });
 });
@@ -201,7 +201,7 @@ describe('.ork — counts and dimensions', () => {
     const raw = ork(ORK_FINS('<height>-0.03</height>'));
     const r = importOrk(raw);
     expect(ofType(r.tree, 'trapezoidfinset')['height']).toBe(0);
-    expect(r.notes).toContain('“Fins”: height -30 mm cannot be negative — set to 0 mm.');
+    expect(r.notes).toContain('“Fins”: height -30 mm (-1.181 in) cannot be negative — set to 0 mm (0 in).');
     expect(build(r.tree)).toBeNull();
   });
 
@@ -314,7 +314,7 @@ describe('bulk density at the file boundary', () => {
   const check = (result: ReturnType<typeof importOrk>) => {
     expect(ofType(result.tree, 'innertube')['density']).toBe(30_000);
     expect(result.notes.filter((n) => /density .*over the limit/.test(n))).toEqual([
-      '“Dense mount”: material density 1e+33 kg/m³ is over the limit of 30000 kg/m³ — set to 30000 kg/m³.',
+      '“Dense mount”: material density 1e+33 kg/m³ (6.2428e+31 lb/ft³) is over the limit of 30000 kg/m³ (1872.84 lb/ft³) — set to 30000 kg/m³ (1872.84 lb/ft³).',
     ]);
   };
 

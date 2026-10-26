@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { strToU8, zipSync } from 'fflate';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi } from '../prefs/units.js';
+import { noticeQuantity } from '../prefs/units.js';
 import { tubeWrapGeometry, tubeWrapPages } from '../services/tubeWrapGuide.js';
 import { FIN_TEMPLATE_DPI, finTemplatePixelSize } from '../services/finTemplate.js';
 import { safeName } from '../services/fileName.js';
@@ -22,8 +22,7 @@ export function TubeWrapMenu({ tree, tube }: { tree: RocketTree; tube: Component
   let invalid: string | null = null;
   try { guide = tubeWrapGeometry(tree, tube); }
   catch (e) { invalid = e instanceof Error ? e.message : String(e); }
-  const printAdvice = `Print at 100%, with no fit to page. Measure the ruler on every page (${prefs.units.length === 'in' || prefs.units.length === 'ft'
-    ? '2 in' : `${fmtSi('length', prefs.units.length, 0.05, 3)} ${prefs.units.length}`}).`;
+  const printAdvice = `Print at 100%, with no fit to page. Measure the ruler on every page: ${noticeQuantity('length', prefs.units.length === 'in' || prefs.units.length === 'ft' ? 0.0508 : 0.05, prefs.units.length === 'in' || prefs.units.length === 'ft' ? 'in' : prefs.units.length)}.`;
 
   const exportWrap = async (format: FinTemplateFormat) => {
     setBusy(true); setError(null); setStatus('Preparing tube wrap…');

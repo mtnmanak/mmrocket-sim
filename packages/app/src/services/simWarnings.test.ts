@@ -66,8 +66,8 @@ describe('formatWarning', () => {
       const label = WARNING_LABEL[key]!;
       expect(label).toContain('20 m/s (65.6 ft/s)');
       // The report's own tiers, quoted from SAFETY rather than typed twice.
-      expect(label).toContain(`prefers ${fps(SAFETY.maxDeploymentVelocity)} ft/s or less`);
-      expect(label).toContain(`up to ${fps(SAFETY.warnDeploymentVelocity)} ft/s`);
+      expect(label).toContain(`prefers 21.3 m/s (${fps(SAFETY.maxDeploymentVelocity)} ft/s) or less`);
+      expect(label).toContain(`up to 27.4 m/s (${fps(SAFETY.warnDeploymentVelocity)} ft/s)`);
       expect(label).not.toMatch(/airspeed|over the ground|wind/i);
       // The kernel's speed is appended as the detail, so the label ENDS on the
       // words that speed belongs to.

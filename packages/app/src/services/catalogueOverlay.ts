@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, noticeChange, noticeEqual, noticeNumber, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import {
   MOTOR_DB, MOTOR_DB_DATE, motorLabel, setCatalogueOverlay, type CatalogueChange, type CatalogueOverlay,
   type MotorDbEntry,
@@ -66,7 +67,7 @@ const NUMERIC_FIELDS = new Set([
  * shown that upstream data arrives with impossible numbers in it. Mirrors the
  * checks samplesToMotorSpec and motorDbIntegrity.test.ts apply to shipped rows.
  */
-export function screenEntry(m: Partial<MotorDbEntry>): string | null {
+export function screenEntry(m: Partial<MotorDbEntry>, units: UnitSelection = INITIAL_UNITS): string | null {
   if (typeof m.motorId !== 'string' || !m.motorId) return 'no motorId';
   if (typeof m.designation !== 'string' || !m.designation.trim()) return 'no designation';
   if (typeof m.manufacturerAbbrev !== 'string' || !m.manufacturerAbbrev.trim()) return 'no manufacturer';
@@ -81,16 +82,17 @@ export function screenEntry(m: Partial<MotorDbEntry>): string | null {
   // missing: describeOverlay shows the reason, and it read "diameter undefined
   // mm is not a motor" (audit 2026-09-30).
   if (!(Number.isFinite(m.diameter) && m.diameter! > 0 && m.diameter! <= 300)) {
-    return m.diameter == null ? 'no diameter' : `diameter ${m.diameter} mm is not a motor`;
+    return m.diameter == null ? 'no diameter' : `diameter ${Number.isFinite(m.diameter) ? noticeQuantity('motorDimensions', m.diameter! / 1000, units) : `"${String(m.diameter)}"`} is not a motor`;
   }
   if (!(Number.isFinite(m.length) && m.length! > 0 && m.length! <= 3000)) {
-    return m.length == null ? 'no length' : `length ${m.length} mm is not a motor`;
+    return m.length == null ? 'no length' : `length ${Number.isFinite(m.length) ? noticeQuantity('motorDimensions', m.length! / 1000, units) : `"${String(m.length)}"`} is not a motor`;
   }
   const tw = m.totalWeightG; const pw = m.propWeightG;
-  if (tw !== undefined && tw !== null && !(Number.isFinite(tw) && tw > 0)) return `loaded weight ${tw} g`;
-  if (pw !== undefined && pw !== null && !(Number.isFinite(pw) && pw >= 0)) return `propellant weight ${pw} g`;
-  if (Number.isFinite(tw) && Number.isFinite(pw) && (pw as number) > (tw as number)) {
-    return `more propellant (${pw as number} g) than loaded mass (${tw as number} g)`;
+  if (tw !== undefined && tw !== null && !(Number.isFinite(tw) && tw > 0)) return `loaded weight ${Number.isFinite(tw) ? noticeQuantity('mass', tw / 1000, units) : `"${String(tw)}"`}`;
+  if (pw !== undefined && pw !== null && !(Number.isFinite(pw) && pw >= 0)) return `propellant weight ${Number.isFinite(pw) ? noticeQuantity('mass', pw / 1000, units) : `"${String(pw)}"`}`;
+  if (Number.isFinite(tw) && Number.isFinite(pw) && (pw as number) > (tw as number) && !noticeEqual((pw as number) / 1000, (tw as number) / 1000)) {
+    const [propellant, loaded] = noticeComparison('mass', (pw as number) / 1000, (tw as number) / 1000, units, { parenthesized: true });
+    return propellant.startsWith('just ') ? `slightly more propellant than loaded mass (${loaded})` : `more propellant (${propellant}) than loaded mass (${loaded})`;
   }
   if (m.totImpulseNs !== undefined && m.totImpulseNs !== null && !(Number.isFinite(m.totImpulseNs) && m.totImpulseNs > 0)) {
     return `total impulse ${m.totImpulseNs} Ns`;
@@ -403,7 +405,7 @@ export async function checkForCatalogueUpdates(
 // ------------------------------------------------------------------- copy
 
 /** "12 new, 3 changed, 0 removed" and the per-field detail, for the browser's note. */
-export function describeOverlay(o: CatalogueOverlay): string[] {
+export function describeOverlay(o: CatalogueOverlay, units: UnitSelection = INITIAL_UNITS): string[] {
   const lines: string[] = [];
   lines.push(`${o.added.length} new, ${o.changed.length} changed, ${o.removed.length} no longer listed`
     + (o.rejected.length ? `, ${o.rejected.length} refused as implausible` : '')
@@ -411,13 +413,21 @@ export function describeOverlay(o: CatalogueOverlay): string[] {
   for (const c of o.changed.slice(0, 12)) {
     const parts = c.fields.map((f) => {
       const a = field(c.before, f); const b = field(c.after, f);
-      return `${f} ${String(a)} → ${String(b)}`;
+      const quantity = f === 'diameter' || f === 'length' ? 'motorDimensions'
+        : f === 'totalWeightG' || f === 'propWeightG' ? 'mass' : null;
+      if (quantity && typeof a === 'number' && typeof b === 'number') {
+        const [before, after] = noticeComparison(quantity, a / 1000, b / 1000, units);
+        return `${f} ${noticeChange(before, after, before.startsWith('just ') || noticeEqual(a / 1000, b / 1000))}`;
+      }
+      const show = (v: unknown) => typeof v === 'number' ? noticeNumber(v, 6) : String(v);
+      return `${f} ${noticeChange(show(a), show(b))}`;
     });
     lines.push(`${c.after.manufacturerAbbrev} ${c.after.designation}: ${parts.join(', ')}`);
   }
   if (o.changed.length > 12) lines.push(`…and ${o.changed.length - 12} more changed.`);
   for (const r of o.rejected.slice(0, 5)) {
-    lines.push(`Refused ${r.entry.manufacturerAbbrev ?? '?'} ${r.entry.designation ?? '?'}: ${r.reason}.`);
+    const reason = screenEntry(r.entry, units);
+    lines.push(`Refused ${r.entry.manufacturerAbbrev ?? '?'} ${r.entry.designation ?? '?'}: ${reason && !reason.startsWith('no ') ? reason : r.reason}.`);
   }
   return lines;
 }

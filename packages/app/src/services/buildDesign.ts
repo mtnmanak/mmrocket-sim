@@ -1,6 +1,7 @@
 import {
   OrkRocket, resetEngine, setEngineLengthUnit, type ComponentNode, type RocketTree, type StaticInfo,
 } from '@online-openrocket/engine';
+import type { UnitSelection } from '../prefs/units.js';
 import type { MountMotor } from '../model/design.js';
 import { railInterferenceWarnings, wakeShadowWarnings } from '../tree/mountAngle.js';
 import { explainBuildFailure } from '../tree/sanitize.js';
@@ -81,6 +82,7 @@ export interface DesignBuildInput {
    * inches warns at (openrocket/openrocket#3285). mm, cm and m round alike.
    */
   lengthUnit?: string;
+  units?: UnitSelection;
 }
 
 export interface BuiltDesign<R extends BuildHandle = OrkRocket> {
@@ -217,7 +219,7 @@ export function buildDesign<R extends BuildHandle>(
     // on 2026-08-31. (A LUG or RAIL BUTTON's angle still changes no flight
     // number; since v0.089 a CAMERA SHROUD's does — its strake's lift is
     // steered by the mounting angle. See treeModel's lowering notes.)
-    const railWarnings = railInterferenceWarnings(tree);
+    const railWarnings = railInterferenceWarnings(tree, input.units);
     if (railWarnings.length) info.warningTexts = [...info.warningTexts, ...railWarnings];
     // A bump directly UPSTREAM of a fin sheds a wake onto it, and nothing here
     // or in any other hobby package models that: the fin is flown at full
@@ -225,7 +227,7 @@ export function buildDesign<R extends BuildHandle>(
     // number at all - it is a stated limit, in the place the reader is already
     // looking. It must sit AFTER the THICK_FIN fairing-name filter above, or a
     // shroud named like a fin gets filtered out of its own sentence.
-    const wakeWarnings = wakeShadowWarnings(tree);
+    const wakeWarnings = wakeShadowWarnings(tree, input.units);
     if (wakeWarnings.length) info.warningTexts = [...info.warningTexts, ...wakeWarnings];
     // Re-evaluate the live tree for opened, restored and edited designs alike.
     // Importers retain declarations on parts; this strip is the sole display.
@@ -250,7 +252,7 @@ export function buildDesign<R extends BuildHandle>(
         } catch {
           return false;
         }
-      }),
+      }, input.units),
     };
   }
 }

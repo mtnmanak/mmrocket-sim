@@ -1,4 +1,5 @@
 import { cautionNote } from './importNotes.js';
+import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { MotorDbEntry } from './motorDb.js';
 import { clearCurveCache, flownCurve, repairSamples, samplesToMotorSpec, type RepairedMotorSpec } from './thrustcurve.js';
 import { parseDecimal } from './xmlUtil.js';
@@ -100,16 +101,16 @@ export const EXIT_MAX_FRACTION_OF_CASE = 0.75;
  * worth less than the blank the user can fill in themselves.
  */
 export function exitDiameterFromRse(
-  exitDiaMm: number | null, caseDiaMm: number,
+  exitDiaMm: number | null, caseDiaMm: number, units: UnitSelection = INITIAL_UNITS,
 ): { exitDiameterM: number } | { rejected: string } | null {
   if (exitDiaMm === null || !Number.isFinite(exitDiaMm) || exitDiaMm <= 0) return null;
   if (!Number.isFinite(caseDiaMm) || caseDiaMm <= 0) return null;
   const f = exitDiaMm / caseDiaMm;
   if (f < EXIT_MIN_FRACTION_OF_CASE) {
-    return { rejected: `${exitDiaMm} (only ${(f * 100).toFixed(0)}% of the ${caseDiaMm} mm case, which is too small to be an exit plane — if the file means inches, type the value yourself in your own units)` };
+    return { rejected: `${exitDiaMm} (only ${(f * 100).toFixed(0)}% of the ${noticeQuantity('motorDimensions', caseDiaMm / 1000, units, { parenthesized: true })} case, which is too small to be an exit plane — if the file means inches, type the value yourself in your own units)` };
   }
   if (f > EXIT_MAX_FRACTION_OF_CASE) {
-    return { rejected: `${exitDiaMm} (${(f * 100).toFixed(0)}% of the ${caseDiaMm} mm case — larger than any nozzle in the database, so it reads like a case diameter rather than an exit)` };
+    return { rejected: `${exitDiaMm} (${(f * 100).toFixed(0)}% of the ${noticeQuantity('motorDimensions', caseDiaMm / 1000, units, { parenthesized: true })} case — larger than any nozzle in the database, so it reads like a case diameter rather than an exit)` };
   }
   return { exitDiameterM: exitDiaMm / 1000 };
 }
@@ -195,7 +196,7 @@ export function loadExMotorIdentities(): Pick<ExMotor, 'motorId' | 'designation'
   }
 }
 
-export function loadExMotors(notes?: string[]): ExMotor[] {
+export function loadExMotors(notes?: string[], units: UnitSelection = INITIAL_UNITS): ExMotor[] {
   if (unstored) return unstored;
   try {
     const raw = localStorage.getItem(KEY);
@@ -208,9 +209,10 @@ export function loadExMotors(notes?: string[]): ExMotor[] {
       // only refuse them, without repeating notices (audit 2026-10-11, S1c-5).
       if (notes) {
         const name = record(value) && typeof value['designation'] === 'string' ? value['designation'].slice(0, 160) : 'unnamed motor';
-        const reason = record(value)
-          ? massProblem(finite(value['propWeightG']) ? value['propWeightG'] : NaN,
-            finite(value['totalWeightG']) ? value['totalWeightG'] : NaN) : null;
+        const reason = !record(value) ? null
+          : !finite(value['totalWeightG']) ? `loaded mass "${String(value['totalWeightG'])}" is not a finite number`
+            : !finite(value['propWeightG']) ? `propellant mass "${String(value['propWeightG'])}" is not a finite number`
+              : massProblem(value['propWeightG'], value['totalWeightG'], units);
         cautionNote(notes, 'I15.stored-ex-refused', `Stored EX motor ${name} was not loaded: ${reason ?? 'invalid dimensions, curve or motor fields'}. Re-import its original .eng/.rse file.`);
       }
     }
@@ -446,10 +448,13 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
  * tester's 891-motor rasp.eng carries two (K700RT 901 g of propellant in a
  * 175 g motor; L1000S 1,301 in 1,248).
  */
-function massProblem(propG: number, totG: number): string | null {
-  if (!(totG > 0)) return `loaded mass ${totG} g is not a mass`;
-  if (!(propG > 0)) return `propellant mass ${propG} g is not a mass`;
-  if (propG > totG) return `more propellant (${propG} g) than loaded mass (${totG} g)`;
+function massProblem(propG: number, totG: number, units: UnitSelection = INITIAL_UNITS): string | null {
+  if (!(totG > 0)) return `loaded mass ${noticeQuantity('mass', totG / 1000, units)} is not a mass`;
+  if (!(propG > 0)) return `propellant mass ${noticeQuantity('mass', propG / 1000, units)} is not a mass`;
+  if (propG > totG && !noticeEqual(propG / 1000, totG / 1000)) {
+    const [propellant, loaded] = noticeComparison('mass', propG / 1000, totG / 1000, units, { parenthesized: true });
+    return propellant.startsWith('just ') ? `slightly more propellant than loaded mass (${loaded})` : `more propellant (${propellant}) than loaded mass (${loaded})`;
+  }
   return null;
 }
 
@@ -470,7 +475,7 @@ function massProblem(propG: number, totG: number): string | null {
  * A motor whose header masses are unusable is skipped and named in `notes`;
  * only a file with no usable motor at all is refused.
  */
-export function parseEng(text: string, notes?: string[]): ExMotor[] {
+export function parseEng(text: string, notes?: string[], units: UnitSelection = INITIAL_UNITS): ExMotor[] {
   const motors: ExMotor[] = [];
   const skipped: string[] = [];
   const lines = text.split(/\r?\n/);
@@ -505,7 +510,7 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
     pts.length = last + 1;
     if (pts[0]!.time > 0) pts.unshift({ time: 0, thrust: 0 });
     if (pts.length > MAX_EX_MOTOR_SAMPLES) { skipped.push(`${name}: ${EX_SAMPLE_LIMIT_NOTE}`); return; }
-    const problem = massProblem(parseDecimal(propKg) * 1000, parseDecimal(totKg) * 1000);
+    const problem = massProblem(parseDecimal(propKg) * 1000, parseDecimal(totKg) * 1000, units);
     if (problem) { skipped.push(`${name}: ${problem}`); return; }
     if (pts.length < 2) { skipped.push(`${name}: no thrust data`); return; }
     if (!hasDistinctThrustPoints(pts)) { skipped.push(`${name}: fewer than two distinct thrust points`); return; }
@@ -516,7 +521,8 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
       diameter: parseDecimal(diaMm),
       length: parseDecimal(lenMm),
       totalWeightG: parseDecimal(totKg) * 1000,
-      propWeightG: parseDecimal(propKg) * 1000,
+      // massProblem accepts equality residue; store the valid boundary once.
+      propWeightG: Math.min(parseDecimal(propKg) * 1000, parseDecimal(totKg) * 1000),
       // 'P' in the RASP delay field means PLUGGED — no ejection charge at all
       // — and it must survive into the delays string. Emptying it here (what
       // this line used to do) made exToDbEntry emit `delays: undefined`, and
@@ -602,7 +608,7 @@ export function parseEng(text: string, notes?: string[]): ExMotor[] {
  * number, is named in `notes` and flies the model.
  */
 function rseSampleMassesKg(
-  el: XmlElement, name: string, masses: number[], initG: number, propG: number, notes?: string[],
+  el: XmlElement, name: string, masses: number[], initG: number, propG: number, notes?: string[], units: UnitSelection = INITIAL_UNITS,
 ): number[] | undefined {
   const autoCalc = !/^(0|false)$/i.test((el.getAttribute('auto-calc-mass') ?? '').trim());
   if (autoCalc) return undefined;
@@ -631,12 +637,12 @@ function rseSampleMassesKg(
     if (masses.every((m) => m >= low * 0.99 && m <= high * 1.01)) {
       return masses.map((m) => (m + (propellant ? initG - propG : 0)) / 1000);
     }
-    notes?.push(`${name}: its per-point masses fall outside ${Number(low.toFixed(3))}–${Number(high.toFixed(3))} g, contradicting its `
+    notes?.push(`${name}: its per-point masses fall outside ${noticeQuantity('mass', low / 1000, units)}–${noticeQuantity('mass', high / 1000, units)}, contradicting its `
       + 'loaded/propellant masses, so burn-off is spread in proportion to impulse instead.');
     return undefined;
   }
-  notes?.push(`${name}: its per-point masses start at ${masses[0]!} g, which is neither its loaded mass `
-    + `(${initG} g) nor its propellant (${propG} g), so burn-off is spread in proportion to impulse instead.`);
+  notes?.push(`${name}: its per-point masses start at ${noticeQuantity('mass', masses[0]! / 1000, units)}, which is neither its loaded mass `
+    + `(${noticeQuantity('mass', initG / 1000, units, { parenthesized: true })}) nor its propellant (${noticeQuantity('mass', propG / 1000, units, { parenthesized: true })}), so burn-off is spread in proportion to impulse instead.`);
   return undefined;
 }
 
@@ -649,7 +655,7 @@ function rseSampleMassesKg(
  * no thrust data is skipped and named (audit 2026-09-22), not allowed to sink
  * every other motor in the file; only a file with nothing usable is refused.
  */
-export function parseRse(text: string, notes?: string[]): ExMotor[] {
+export function parseRse(text: string, notes?: string[], units: UnitSelection = INITIAL_UNITS): ExMotor[] {
   // Through the parser seam (xmlParse.ts); same message as before it.
   const doc = parseXml(text, 'Not valid XML (.rse)');
   const engines = Array.from(doc.querySelectorAll('engine'));
@@ -675,11 +681,18 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
     }
     // …and "Propellant mass missing" on this one: a motor with no propellant, or
     // more than it weighs loaded, cannot burn down to a real mass.
-    const massWrong = massProblem(numAttr('propWt', NaN), numAttr('initWt'));
+    const propellant = el.getAttribute('propWt');
+    if (!Number.isFinite(parseDecimal(propellant))) {
+      skipped.push(`Motor ${name}: propellant mass (propWt) ${propellant === null ? 'missing' : `"${propellant}" is not a finite number`}`);
+      continue;
+    }
+    const massWrong = massProblem(numAttr('propWt'), numAttr('initWt'), units);
     if (massWrong) {
       skipped.push(`Motor ${name}: ${massWrong}`);
       continue;
     }
+    const totalWeightG = numAttr('initWt');
+    const propWeightG = Math.min(numAttr('propWt'), totalWeightG);
     // …and "Diameter missing" / "Length missing" on these. A zero is refused
     // too: a 0 mm motor was offered for every mount (diameterClass(0) is 0,
     // and 0 fits any bore), and a 0 mm long one put its CG at its top face.
@@ -737,7 +750,7 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
     // that does not is a real 5 mm exit on an 18 mm Klima B2. throatDia is
     // deliberately NOT read: no line of this app or its kernel uses a throat.
     // Absent or blank is NaN, which exitDiameterFromRse reads as no exit.
-    const exit = exitDiameterFromRse(parseDecimal(el.getAttribute('exitDia')), numAttr('dia'));
+    const exit = exitDiameterFromRse(parseDecimal(el.getAttribute('exitDia')), numAttr('dia'), units);
     // Said, not just dropped (audit 2026-09-22): the v0.137 notes and the guide
     // promise an out-of-band exit "is ignored with a note", and without one an
     // inches-denominated file lost its exit with nothing to say why.
@@ -750,12 +763,12 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
       realManufacturer: mfr,
       diameter: numAttr('dia'),
       length: numAttr('len'),
-      totalWeightG: numAttr('initWt'),
-      propWeightG: numAttr('propWt'),
+      totalWeightG,
+      propWeightG,
       delays: attr('delays').split(',').map((s) => s.trim()).filter(Boolean).join(','),
       samples,
       sampleMassesKg: rseSampleMassesKg(
-        el, name, masses, numAttr('initWt'), numAttr('propWt'), notes),
+        el, name, masses, totalWeightG, propWeightG, notes, units),
       ...(exit && 'exitDiameterM' in exit ? { exitDiameterM: exit.exitDiameterM } : {}),
       source: 'rse' as const,
       addedAt: Date.now(),
@@ -769,8 +782,8 @@ export function parseRse(text: string, notes?: string[]): ExMotor[] {
 }
 
 /** Parse by extension/content — returns the motors found in the file, and `notes` what to say about them. */
-export function parseMotorFile(fileName: string, text: string, notes?: string[]): ExMotor[] {
+export function parseMotorFile(fileName: string, text: string, notes?: string[], units: UnitSelection = INITIAL_UNITS): ExMotor[] {
   const lower = fileName.toLowerCase();
-  if (lower.endsWith('.rse') || text.trimStart().startsWith('<')) return parseRse(text, notes);
-  return parseEng(text, notes);
+  if (lower.endsWith('.rse') || text.trimStart().startsWith('<')) return parseRse(text, notes, units);
+  return parseEng(text, notes, units);
 }

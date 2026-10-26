@@ -451,7 +451,7 @@ describe('the site-temperature field', () => {
     renderConditions({});
     const help = [...host.querySelectorAll('.field')]
       .map((f) => f.getAttribute('title') ?? '')
-      .find((t) => /falling 6\.5/.test(t)) ?? '';
+      .find((t) => /falling to/.test(t)) ?? '';
     expect(help, 'the Temperature field help').toBeTruthy();
     expect(help).toMatch(/^Filled in from your Site altitude/);
     expect(help).toMatch(/follows the altitude when\s+you change it/);
@@ -551,7 +551,7 @@ describe('the pad-pressure caution', () => {
     const t = c!.textContent ?? '';
     expect(t).toMatch(/is about sea-level\s+pressure/);
     expect(t).toMatch(/looks like an altimeter setting/);
-    expect(t).toMatch(/878 mbar/);
+    expect(t).toMatch(/878\.356 mbar \(25\.938 inHg\)/);
     // The fix is now "clear it", not "type the right one" — because clearing
     // it gets the right one automatically.
     expect(t).toMatch(/Clear the field/);
@@ -619,8 +619,8 @@ describe('a stored site altitude outside the range the flight flies', () => {
 
   it('quotes the flown site, and the pressure clearing would give, in the pad-pressure caution', () => {
     const t = renderConditions({ launchAltitudeM: 12000, pressureHPa: 1013.25 })?.textContent ?? '';
-    expect(t).toMatch(/this pad is 10000 m up, where a barometer reads about 265 mbar/);
-    expect(t).toMatch(/Clear the field and the app uses 265 mbar/);
+    expect(t).toMatch(/this pad is 10000 m \(32808\.4 ft\) up, where a barometer reads about 264\.999 mbar \(7\.825 inHg\)/);
+    expect(t).toMatch(/Clear the field and the app uses 264\.999 mbar \(7\.825 inHg\)/);
     // Neither figure of the STORED site, which the caution quoted before the
     // fix. Its pressure is derived through the caution's own formatter: this
     // guard used to look for "194 mbar", which the app never printed (ISA at
@@ -827,11 +827,11 @@ describe('the density-altitude readout', () => {
     expect(DENSITY_ALTITUDE_HELP).not.toMatch(/falling 6\.5|STATION pressure|^Filled in from your Site altitude/);
   });
 
-  // The help's "roughly 110 ft, 33 m, for each °C at a 4,000 ft field", held
+  // The help's roughly 110 ft (33.5 m) per degree Celsius at a 4,000 ft field, held
   // to the readout's own slope: 105.5 ft/°C on a 95 °F day, 118.6 on a
   // standard one, so 110 sits between them.
   it('moves about 110 ft per °C at a 4,000 ft field, as its help says', () => {
-    expect(DENSITY_ALTITUDE_HELP).toContain('roughly 110 ft, 33 m, for each °C at a 4,000 ft field');
+    expect(DENSITY_ALTITUDE_HELP).toContain('roughly 33.5 m [110 ft] for warming from 15 °C [59 °F] to 16 °C [60.8 °F] at a 1,219.2 m [4,000 ft] field');
     const slopeFtPerC = (tC: number) => (densityAltitudeM({ launchAltitudeM: 1219.2, temperatureC: tC + 0.01, pressureHPa: null })
       - densityAltitudeM({ launchAltitudeM: 1219.2, temperatureC: tC - 0.01, pressureHPa: null })) / 0.02 / 0.3048;
     const standardC = isaTemperatureK(1219.2) - 273.15;
@@ -1109,7 +1109,7 @@ describe('applied weather in the Launch panel', () => {
     expect(staleStatus.textContent).toBe('');
     renderWeather({ ...APPLIED, launchAltitudeM: 1524 }, SNAP);
     stable();
-    expect(staleStatus.textContent).toContain('Site altitude is now 1,524 m.');
+    expect(staleStatus.textContent).toContain('Site altitude is now 1,524 m (5,000 ft).');
     const stale = host.querySelector('[data-weather="stale"]')!;
     expect(stale.textContent).toMatch(/^These came from.*Fetch again/);
     expect(btn('Undo')!.compareDocumentPosition(stale) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -1127,7 +1127,7 @@ describe('applied weather in the Launch panel', () => {
     expect(provenance('windStdDev')).toBeNull();
     expect(provenance('latitudeDeg')).toBeNull();
     renderWeather({ ...APPLIED, temperatureC: 30 }, SNAP);
-    expect(provenance('temperatureC')).toBe('edited — forecast said 23.3 °C');
+    expect(provenance('temperatureC')).toBe('edited — forecast said 23.3 °C (73.9 °F)');
     renderWeather(APPLIED, null);
     expect(provenance('temperatureC')).toBeNull();
   });
@@ -1135,14 +1135,14 @@ describe('applied weather in the Launch panel', () => {
   it('says so when the Site altitude moves under the applied air, and offers both fixes', () => {
     renderWeather({ ...APPLIED, launchAltitudeM: 1524 }, SNAP);
     const stale = host.querySelector('[data-weather="stale"]')!;
-    expect(stale.textContent).toMatch(/^These came from the forecast for 1,202 m; Site altitude is now 1,524 m\./);
+    expect(stale.textContent).toMatch(/^These came from the forecast for 1,202 m \(3,943\.6 ft\); Site altitude is now 1,524 m \(5,000 ft\)\./);
     // D7 §5, L12: the affected fields say it beside their own numbers; the wind does not.
-    expect(provenance('temperatureC')).toBe('forecast for the previous altitude, 1,202 m');
-    expect(provenance('pressureHPa')).toBe('forecast for the previous altitude, 1,202 m');
+    expect(provenance('temperatureC')).toBe('forecast for the previous altitude, 1,202 m (3,943.6 ft)');
+    expect(provenance('pressureHPa')).toBe('forecast for the previous altitude, 1,202 m (3,943.6 ft)');
     expect(provenance('windAverage')).toBe('forecast');
     act(() => btn('Fetch again')!.click());
     expect(calls).toEqual(['get']);
-    act(() => btn('Clear both — standard air for 1,524 m')!.click());
+    act(() => btn('Clear both — standard air for 1,524 m (5,000 ft)')!.click());
     expect(lastLaunch).toMatchObject({ temperatureC: null, pressureHPa: null, launchAltitudeM: 1524, windAverage: 1.75 });
   });
 
@@ -1183,9 +1183,9 @@ describe('applied weather in the Launch panel', () => {
     expect(provenance('launchAltitudeM')).toBe('terrain model');
     expect(host.querySelector('.gust-estimate button')!.textContent).toBe('Estimate from reanalysis gust');
     renderWeather({ ...APPLIED, temperatureC: 30, launchAltitudeM: 1524 }, ERA5);
-    expect(provenance('temperatureC')).toBe('edited — reanalysis said 23.3 °C');
+    expect(provenance('temperatureC')).toBe('edited — reanalysis said 23.3 °C (73.9 °F)');
     expect(host.querySelector('[data-weather="stale"]')!.textContent)
-      .toMatch(/^These came from the reanalysis for 1,202 m;/);
+      .toMatch(/^These came from the reanalysis for 1,202 m \(3,943\.6 ft\);/);
     expect(host.querySelector('[data-weather="strip"]')!.textContent).not.toMatch(/forecast/i);
   });
 
@@ -1241,7 +1241,7 @@ describe('applied weather in the Launch panel', () => {
       act(() => host.querySelector<HTMLButtonElement>('.gust-estimate button')!.click());
       renderWeather(lastLaunch!, SNAP);
       expect(box('Wind gusts σ'), unit).toBe(offered);
-      const sum = /\(([\d.]+) − ([\d.]+) \S+\)\s+÷ 3 = ([\d.]+) /.exec(chip())!;
+      const sum = /\(([\d.]+) \S+ \[[^\]]*\] − ([\d.]+) \S+ \[[^\]]*\]\)\s+÷ 3 = ([\d.]+) /.exec(chip())!;
       expect(sum[2], unit).toBe(box('Wind avg'));
       expect(sum[3], unit).toBe(offered);
     }

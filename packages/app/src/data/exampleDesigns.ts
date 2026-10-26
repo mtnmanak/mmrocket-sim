@@ -1,8 +1,11 @@
+import type { Quantity } from '../prefs/units.js';
+
 export interface ExampleDesign {
   id: string;
   name: string;
   fileName: string;
   explanation: string;
+  quantities?: readonly [text: string, quantity: Quantity, si: number][];
   asset: () => Promise<{ default: string }>;
 }
 
@@ -10,12 +13,15 @@ export interface ExampleDesign {
 export const EXAMPLE_DESIGNS: readonly ExampleDesign[] = [
   { id: 'minimum-diameter', name: 'Minimum-diameter single stage', fileName: 'minimum-diameter.ork',
     explanation: 'An 18 mm motor fits directly in the body tube. Rounded fins and a small parachute show a simple single-stage layout.',
+    quantities: [['18 mm', 'motorDimensions', 0.018]],
     asset: () => import('./examples/minimum-diameter.ork?url') },
   { id: 'dual-deploy', name: 'Dual-deploy high power', fileName: 'dual-deploy.ork',
     explanation: 'An H128 motor lifts a two-inch airframe. A drogue opens at apogee and the main opens at 100 m on descent, assuming electronic deployment.',
+    quantities: [['two-inch', 'length', 0.0508], ['100 m', 'altitude', 100]],
     asset: () => import('./examples/dual-deploy.ork?url') },
   { id: 'two-stage', name: 'Two stages with recovery', fileName: 'two-stage.ork',
     explanation: 'A D12 booster lights a C6 sustainer at burnout. The stages separate at booster burnout. The sustainer parachute opens at apogee and the booster parachute at 50 m on descent, assuming electronic deployment.',
+    quantities: [['50 m', 'altitude', 50]],
     asset: () => import('./examples/two-stage.ork?url') },
   { id: 'cluster', name: 'Three-motor cluster', fileName: 'cluster.ork',
     explanation: 'Three B6 motors in one clustered mount fire together. The layout assumes all three ignite; a parachute opens at apogee, assuming electronic deployment.',

@@ -23,7 +23,7 @@ describe('simulateFile reported series at the real kernel', () => {
     expect.soft(out.result.series['Vs']?.length).toBeGreaterThan(0);
     expect.soft(out.run.maxAirspeedMs).toBeGreaterThan(1);
     expect.soft(commentsOf(out.run)).toContainEqual({
-      text: expect.stringMatching(/recorded airspeed .* exceeded your maximum of 1\.0 m\/s/),
+      text: expect.stringMatching(/recorded airspeed .* exceeded your maximum of 1 m\/s \(3\.3 ft\/s\)/),
       level: 'caution',
     });
     expect.soft(out.run.comments).not.toContain('airspeed telemetry is incomplete');

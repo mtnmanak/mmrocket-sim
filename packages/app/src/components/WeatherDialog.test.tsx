@@ -620,14 +620,14 @@ describe('the weather dialog', () => {
     expect(q('.weather-review h3')!.textContent).toBe('Forecast for Gerlach, Nevada, US · 2:00 PM PDT, Sat 26 Sep');
     const t = row('temperatureC')!.textContent!;
     expect(t).toContain('15 °C');
-    expect(t).toContain('(standard for 0 m)');
+    expect(t).toContain('(standard for 0 m [0 ft])');
     // The terrain was fetched too, and at the default Site altitude of 0 the
     // review starts on the ground height — so the air offered is 1,202 m's.
     expect(t).toContain('23.3 °C');
     expect(row('pressureHPa')!.textContent).toContain('877.2 mbar');
     expect(q<HTMLInputElement>('.weather-altitude input[type="radio"]:checked')!.parentElement!.textContent)
-      .toMatch(/Use the ground height, 1,202 m \(terrain model\)/);
-    expect(row('windAverage')!.textContent).toContain('(forecast at 10 m / 33 ft)');
+      .toMatch(/Use the ground height, 1,202 m \(3,943\.6 ft\) \(terrain model\)/);
+    expect(row('windAverage')!.textContent).toContain('(forecast at 10 m [32.8 ft])');
     expect(row('longitudeDeg')!.textContent).toContain('blank (80.6° W flown)');
     expect(row('latitudeDeg')!.textContent).toContain('(Gerlach, Nevada, US — town centre)');
     const context = q('.weather-context')!.textContent!;
@@ -637,12 +637,12 @@ describe('the weather dialog', () => {
     expect(context).toMatch(new RegExp(`Wind from 294° \\(WNW\\) — ${WEATHER_DIALOG_COPY.windNotApplied}`));
     expect(WEATHER_DIALOG_COPY.windNotApplied).toMatch(/always blows from the east/);
     expect(context).not.toMatch(/no direction/);
-    expect(context).toMatch(/Gust 4\.6 m\/s \(strongest in the hour before\) — see Wind gusts σ\./);
+    expect(context).toMatch(/Gust 4\.6 m\/s \(15\.092 ft\/s\) \(strongest in the hour before\) — see Wind gusts σ\./);
     // Step 4's preview: offered in the panel after Apply, never set by it.
     // The σ the chip will write, with the digits the σ box will show.
-    expect(context).toMatch(/σ from this gust ≈ 0\.95 m\/s — offered beside Wind gusts σ\s+once this wind is applied; Apply never sets σ\./);
-    expect(context).toMatch(/Forecast grid point 1\.4 km from your site\./);
-    expect(context).toMatch(/Density altitude 0 m → /);
+    expect(context).toMatch(/σ from this gust ≈ 0\.95 m\/s \(3\.117 ft\/s\) — offered beside Wind gusts σ\s+once this wind is applied; Apply never sets σ\./);
+    expect(context).toMatch(/Forecast grid point 1\.4 km \(0\.9 mi\) from your site\./);
+    expect(context).toMatch(/Density altitude 0 m \(0 ft\) → /);
   });
 
   // A gust no stronger than the wind is common — 30 of the 72 captured hours —
@@ -653,7 +653,7 @@ describe('the weather dialog', () => {
     choose(q('.weather-when select'), String(Date.UTC(2026, 8, 26, 18) / 1000)); // 11 AM: wind 2.12, gust 1.8
     await settle();
     const context = q('.weather-context')!.textContent!;
-    expect(context).toMatch(/Gust 1\.8 m\/s \(strongest in the hour before\) — no stronger than this hour’s wind, so there is no σ estimate\./);
+    expect(context).toMatch(/Gust 1\.8 m\/s \(5\.906 ft\/s\) \(strongest in the hour before\) — no stronger than this hour’s wind, so there is no σ estimate\./);
     expect(context).not.toMatch(/σ from this gust|see Wind gusts σ/);
   });
 
@@ -675,8 +675,8 @@ describe('the weather dialog', () => {
     await settle();
     expect(q('.weather-review h3')!.textContent).toBe('ERA5 reanalysis for 40.870° N, 119.060° W · 2:00 PM PDT, Sat 14 Jun 2025');
     expect([...host.querySelectorAll('.weather-review thead th')].at(-1)!.textContent).toBe('Reanalysis');
-    expect(row('windAverage')!.textContent).toContain('(reanalysis at 10 m / 33 ft)');
-    expect(q('.weather-context')!.textContent).toMatch(/Reanalysis grid point [\d.]+ km from your site\./);
+    expect(row('windAverage')!.textContent).toContain('(reanalysis at 10 m [32.8 ft])');
+    expect(q('.weather-context')!.textContent).toMatch(/Reanalysis grid point [\d.]+ km \([\d.]+ mi\) from your site\./);
     // The archive tag is the one place the word may appear: "…not a forecast".
     expect(q('.weather-review')!.textContent!.replace(WEATHER_DIALOG_COPY.archive, '')).not.toMatch(/forecast/i);
   });
@@ -964,7 +964,7 @@ describe('the weather dialog', () => {
     render({ geolocation: geo });
     await click(button(WEATHER_DIALOG_COPY.locate));
     expect(q('.weather-chosen')!.textContent).toContain('40.870° N, 119.060° W');
-    expect(host.textContent).toContain('Located to within 1.0 km.');
+    expect(host.textContent).toContain('Located to within 1.0 km (0.6 mi).');
     expect(urls).toEqual([]);
   });
 
@@ -1107,7 +1107,7 @@ describe('gustNote', () => {
     expect(gustNote(1.75, 4.6)).toBe('see Wind gusts σ.');
     expect(gustNote(3.4, 3.2)).toBe('no stronger than this hour’s wind, so there is no σ estimate.');
     expect(gustNote(3.4, 3.4)).toBe('no stronger than this hour’s wind, so there is no σ estimate.');
-    expect(gustNote(2.4, 2.5)).toBe('within Open-Meteo’s 0.1 m/s resolution of this hour’s wind, so there is no σ estimate.');
+    expect(gustNote(2.4, 2.5)).toBe('within Open-Meteo’s 0.1 m/s (0.328 ft/s) resolution of this hour’s wind, so there is no σ estimate.');
     expect(gustNote(0, 2)).toBe('the wind is calm this hour, so there is no σ estimate.');
     expect(gustNote(null, 2)).toBe('Open-Meteo has no wind for this hour, so there is no σ estimate.');
   });
@@ -1285,7 +1285,7 @@ describe('winds aloft review', () => {
   it('defaults to ticked, shows levels, strongest wind and compass bearings, and applies and undoes the profile', async () => {
     await review();
     expect(q<HTMLInputElement>('input[aria-label="Apply Winds aloft"]')!.checked).toBe(true);
-    expect(q('.wind-profile')!.textContent).toContain('2 levels to 80 m above ground, strongest');
+    expect(q('.wind-profile')!.textContent).toContain('2 levels to 80 m (262.5 ft) above ground, strongest');
     expect(q('.wind-profile-table')!.textContent).toContain('10.0° N');
     expect(urls).toHaveLength(2);
     await click(button('Apply'));
@@ -1334,4 +1334,40 @@ describe('winds aloft review', () => {
     expect(urls).toHaveLength(2);
     expect(applied[1]!.snapshot.retrievedAt).toBe(new Date(NOW).toISOString());
   });
+});
+
+
+it.each([
+  { key: 'pressureHPa', field: 'surface_pressure', value: 299.9, pressure: 'inHg', temperature: '°C', endpoint: 1, sign: -1 },
+  { key: 'pressureHPa', field: 'surface_pressure', value: 1100.1, pressure: 'atm', temperature: '°F', endpoint: 2, sign: 1 },
+  { key: 'temperatureC', field: 'temperature_2m', value: 60.02, pressure: 'mbar', temperature: '°F', endpoint: 2, sign: 1 },
+  { key: 'temperatureC', field: 'temperature_2m', value: -60.02, pressure: 'mbar', temperature: '°C', endpoint: 1, sign: -1 },
+])('keeps a refused weather cell outside its displayed range ($field $value)', async c => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { pressure: c.pressure, temperature: c.temperature } }));
+  render({ initialPlace: GERLACH_PLACE, route: async u => {
+    const answer = await GERLACH(u);
+    if (u.includes('/v1/forecast')) {
+      for (const variant of answer.body as { hourly: Record<string, number[]> }[]) {
+        variant.hourly[c.field] = variant.hourly['time']!.map(() => c.value);
+      }
+    }
+    return answer;
+  } });
+  typeInto(q('input[type="date"]'), '2026-09-26');
+  await click(button('Fetch'));
+  const row = q<HTMLTableRowElement>('tr[data-row="' + c.key + '"]')!;
+  expect(row.querySelector<HTMLInputElement>('input')!.disabled).toBe(true);
+  const cell = row.querySelector('td:last-child')!.textContent!;
+  const p = [...cell.matchAll(/([-+\d.,e]+) ([^\s()[\]]+) [([]([-+\d.,e]+) ([^\s()[\]]+)[)\]]/g)];
+  if (cell.includes('just above') || cell.includes('just below')) {
+    expect(cell).toContain(c.sign < 0 ? 'just below the minimum' : 'just above the maximum');
+    expect(p, cell).toHaveLength(2);
+    expect(p[0]![0]).not.toBe(p[1]![0]);
+    return;
+  }
+  expect(p, cell).toHaveLength(3);
+  for (const i of [1, 3]) {
+    const number = (s: string) => Number(s.replaceAll(',', ''));
+    expect((number(p[0]![i]!) - number(p[c.endpoint]![i]!)) * c.sign, cell).toBeGreaterThan(0);
+  }
 });

@@ -1,5 +1,6 @@
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
+import { noticeEqual } from '../prefs/units.js';
 import { kernelStageIdByNode, nozzleMotorCount, stagesWithNozzle } from '../tree/treeModel.js';
 
 /**
@@ -102,7 +103,7 @@ export function nozzleOversize(
     const loaded = sumSq.get(st.id);
     if (!loaded || loaded.count === 0) continue;
     const casing = Math.sqrt(loaded.area);
-    if (st.exitDiameterM <= casing + NOZZLE_SLOP_M) continue;
+    if (st.exitDiameterM <= casing + NOZZLE_SLOP_M || noticeEqual(st.exitDiameterM, casing + NOZZLE_SLOP_M)) continue;
     out.push({
       stageId: st.id,
       stageName: st.name,

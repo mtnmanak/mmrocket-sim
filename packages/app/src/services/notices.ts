@@ -193,10 +193,11 @@ export function designNotices(input: NoticeInput, dismiss: NoticeDismissers): No
       // "if you want it back" with no number and 0.05 in every field was a
       // promise the migrated tester could not act on.
       text: 'Your saved session was flying a finer simulation time step than the default,'
-        + ' inherited from a design file — it is now set to 0.05 s, which is several times'
-        + ' faster and, in our testing, no less accurate.'
+        + ' inherited from a design file — it is now set to 0.05 s, the default.'
         + (input.timeStepMigratedFrom !== null
-          ? ` To get the old step back, type ${fmtStepS(input.timeStepMigratedFrom)} into the`
+          ? (fmtStepS(input.timeStepMigratedFrom, 0.05).startsWith('just ')
+            ? ' To choose a finer step, enter a slightly smaller value into the'
+            : ` To get the old step back, type ${fmtStepS(input.timeStepMigratedFrom)} into the`)
             + ' Time step field in the Launch panel.'
           : ' The Time step field in the Launch panel takes a finer step, if you have a'
             + ' reason to pay for one.'),

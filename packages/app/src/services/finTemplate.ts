@@ -1,4 +1,5 @@
 import type { ComponentNode } from '@online-openrocket/engine';
+import { fmtSig, INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { finRootChord, finTabSpan } from '../tree/finTab.js';
 import { kernelNum, KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
 import { num, numOpt } from '../tree/nodeNum.js';
@@ -89,7 +90,7 @@ export type FinTemplateBackground = 'white' | 'transparent';
  */
 export function finTemplateSvg(
   node: ComponentNode, rocketName: string, ctx: SolidContext = {},
-  background: FinTemplateBackground = 'transparent',
+  background: FinTemplateBackground = 'transparent', units: UnitSelection = INITIAL_UNITS,
 ): string {
   if (node.type === 'freeformfinset' && (node['points'] === undefined || node['points'] === null)) {
     node = { ...node, points: KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]) };
@@ -146,12 +147,13 @@ export function finTemplateSvg(
   // The label block is built BEFORE the page is sized, because it is part of
   // what the page has to be wide enough to hold.
   const CAPTION = `${RULER_MM} mm`;
+  const dim = (mm: number) => mm !== 0 && Math.abs(mm) < 1 ? fmtSig(mm, 3, 1) : mm.toFixed(1);
   const labelLines = [
     `${rocketName} — ${name} (cut ${count})`,
-    `root ${(rootLenM * 1000).toFixed(1)} mm · height ${maxY.toFixed(1)} mm`
-    + `${thickness !== null ? ` · thickness ${thickness.toFixed(1)} mm` : ''}`
-    + ` · ${cross} cross-section${tab ? ` · tab ${tabDepthMm.toFixed(1)} mm deep` : ''}`,
-    `Print at 100% — the ruler below must measure exactly ${RULER_MM} mm.`,
+    `root ${dim(rootLenM * 1000)} mm · height ${dim(maxY)} mm`
+    + `${thickness !== null ? ` · thickness ${dim(thickness)} mm` : ''}`
+    + ` · ${cross} cross-section${tab ? ` · tab ${dim(tabDepthMm)} mm deep` : ''}`,
+    `Print at 100% — the ruler below must measure exactly ${noticeQuantity('length', RULER_MM / 1000, units)}.`,
   ];
 
   // THE PAGE MUST COVER THE RULER, OR THE RULER LIES.

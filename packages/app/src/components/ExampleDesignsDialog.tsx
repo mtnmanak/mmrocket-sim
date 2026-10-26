@@ -2,8 +2,11 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { EXAMPLE_DESIGNS, loadExampleFile, type ExampleDesign } from '../data/exampleDesigns.js';
 import { Modal } from './Modal.js';
 import { Note } from './Note.js';
+import { usePrefs } from '../prefs/PrefsContext.js';
+import { noticeQuantity } from '../prefs/units.js';
 
 export function ExampleDesignsDialog({ onOpen, onClose }: { onOpen: (file: File) => void; onClose: () => void }) {
+  const { prefs } = usePrefs();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const pending = useRef<AbortController | null>(null);
@@ -28,7 +31,7 @@ export function ExampleDesignsDialog({ onOpen, onClose }: { onOpen: (file: File)
   return <Modal label="Example designs" className="example-design-dialog" onClose={close}>
     <h2>Example designs</h2>
     <p>Open an example as an ordinary design, then edit or save your own copy. Select a stage to read its Comment.</p>
-    <Note tier="caution"><p>These designs use assumed build masses, a vertical 2 m launch guide and no wind at sea level. An assumed mass or balance point can make the app show more stability margin than the built rocket has. Measure the built rocket and set the actual launch conditions before using a flight result.</p></Note>
+    <Note tier="caution"><p>These designs use assumed build masses, a vertical {noticeQuantity('length', 2, prefs.units)} launch guide and no wind at sea level. An assumed mass or balance point can make the app show more stability margin than the built rocket has. Measure the built rocket and set the actual launch conditions before using a flight result.</p></Note>
     <div role="status" aria-live="polite" className="example-load-status">
       {busy ? 'Loading example…' : null}
       {error ? <Note tier="caution">{error}</Note> : null}
@@ -36,7 +39,7 @@ export function ExampleDesignsDialog({ onOpen, onClose }: { onOpen: (file: File)
     <ul className="recent-design-list example-design-list" aria-busy={busy}>
       {EXAMPLE_DESIGNS.map(example => <li key={example.id}>
         <button type="button" className="file-btn" disabled={busy} onClick={() => { void open(example); }}>
-          <span>{example.name}</span><small>{example.explanation}</small>
+          <span>{example.name}</span><small>{(example.quantities ?? []).reduce((text, [literal, quantity, si]) => text.replace(literal, noticeQuantity(quantity, si, prefs.units)), example.explanation)}</small>
         </button>
       </li>)}
     </ul>

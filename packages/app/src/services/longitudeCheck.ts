@@ -1,5 +1,5 @@
 import { distanceM, ELEVATION_AGREE_M } from './openMeteo.js';
-import { siToUi } from '../prefs/units.js';
+import { siToUi, uiToSi } from '../prefs/units.js';
 
 export interface CoordinateSite { latitudeDeg: number; longitudeDeg: number }
 export interface FileLongitudeCheck {
@@ -42,7 +42,12 @@ export function fileLongitudeNote(check: FileLongitudeCheck, simulationName: str
   const side = (lon: number) => lon < 0 ? 'west' : 'east';
   // N032: geographic distances use km/mi families, retaining the coarse evidence rounding.
   const unit = ['ft', 'yd', 'mi'].includes(horizontalDistanceUnit) ? 'mi' : 'km';
-  const distance = (km: number) => `${(Math.round(siToUi('distance', unit, km * 1000) / 100) * 100).toLocaleString('en-US')} ${unit}`;
+  const distance = (km: number) => {
+    const other = unit === 'mi' ? 'km' : 'mi';
+    const primary = Math.round(siToUi('distance', unit, km * 1000) / 100) * 100;
+    const counterpart = Math.round(siToUi('distance', other, uiToSi('distance', unit, primary)));
+    return `${primary.toLocaleString('en-US')} ${unit} (${counterpart.toLocaleString('en-US')} ${other})`;
+  };
   return `This file states two sites that look like one site with the longitude’s sign flipped: the opened simulation “${simulationName}”`
     + ` is at ${opened.latitudeDeg}, ${opened.longitudeDeg} (${side(opened.longitudeDeg)}); ${siblingCount} of its other simulations`
     + ` ${siblingCount === 1 ? 'is' : 'are'} at ${sibling.latitudeDeg}, ${sibling.longitudeDeg} (${side(sibling.longitudeDeg)}),`

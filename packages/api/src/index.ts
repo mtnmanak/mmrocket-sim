@@ -1,3 +1,4 @@
+import { noticeNumber } from '../../app/src/prefs/units.js';
 import { boosterBranches } from '@online-openrocket/engine';
 import {
   APP_VERSION, CURVES_GENERATED, MOTORS_GENERATED, KernelUnavailableError, InflatedFileTooLargeError,
@@ -90,7 +91,9 @@ function summary(out: TimedSimulateFileResult) {
       return { ...warning, message: `${text.label}${text.detail ? ` — ${text.detail}` : ''}` };
     }),
     notes: { api: floor
-      ? [`This API flies at a time step of at least ${floor.flownStepS} s; in the app this design flies at ${floor.appStepS} s.`] : [],
+      ? [noticeNumber(floor.appStepS, 6) === noticeNumber(floor.flownStepS, 6)
+        ? `This API flies at a time step of at least ${noticeNumber(floor.flownStepS, 6)} s; the app uses a slightly finer step for this design.`
+        : `This API flies at a time step of at least ${noticeNumber(floor.flownStepS, 6)} s; in the app this design flies at ${noticeNumber(floor.appStepS, 6)} s.`] : [],
       import: out.importNote, padMass: out.padMassNote, flight: commentsOf(out.run) },
   };
 }

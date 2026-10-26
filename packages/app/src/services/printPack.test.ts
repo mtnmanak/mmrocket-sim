@@ -79,7 +79,7 @@ describe('printOffer — no printer configured (the compatibility guarantee)', (
     const o = printOffer(nose3in(), {}, null);
     expect(o.kind).toBe('single');
     expect(o.button).toBe(SINGLE_BUTTON);
-    expect(o.note).toBe('381 mm long — set your printer in Preferences to check it fits.');
+    expect(o.note).toBe('381 mm (15 in) long — set your printer in Preferences to check it fits.');
     expect(o.tone).toBe('info');
   });
 
@@ -89,7 +89,7 @@ describe('printOffer — no printer configured (the compatibility guarantee)', (
     // against usableBox() so the two cannot drift apart again.
     expect(UZ({ x: 0.180, y: 0.180, z: 0.180 })).toBeCloseTo(0.172, 12);
     expect(printOffer(tube(0.170), {}, null).note).toBeNull();
-    expect(printOffer(tube(0.175), {}, null).note).toMatch(/^175 mm long —/);
+    expect(printOffer(tube(0.175), {}, null).note).toMatch(/^175 mm \(6\.89 in\) long —/);
   });
 
   it('a fin is not a revolve and is untouched in every state', () => {
@@ -109,7 +109,7 @@ describe('printOffer — no printer configured (the compatibility guarantee)', (
       const o = printOffer(node('bulkhead', { length: 0.004 }), {}, p);
       expect(o.kind).toBe('single');
       expect(o.button).toBe(SINGLE_BUTTON);
-      expect(o.note).toBe('Diameter assumed: 24.0 mm is a placeholder — the app could not find the '
+      expect(o.note).toBe('Diameter assumed: 24 mm (0.945 in) is a placeholder — the app could not find the '
         + 'tube this part sits in. Measure the bore before you print or cut it.');
       expect(o.tone).toBe('warn');
     }
@@ -128,17 +128,17 @@ describe('printOffer — no printer configured (the compatibility guarantee)', (
       const o = printOffer(plate, { parentInnerRadius: 0.0495 }, p);
       expect(o.kind).toBe('single');
       expect(o.button).toBe(SINGLE_BUTTON);
-      expect(o.note).toBe('Bore assumed: 49.5 mm is a placeholder — no motor mount passes through this '
+      expect(o.note).toBe('Bore assumed: 49.53 mm (1.95 in) is a placeholder — no motor mount passes through this '
         + 'ring. Measure what goes through it before you print or cut it.');
       expect(o.tone).toBe('warn');
     }
     // A tube that overlaps the ring but is wider than it is named, as the DXF names it.
     expect(printOffer(plate, { parentInnerRadius: 0.0495, mountOuterRadius: 0.05 }, null).note)
-      .toBe('Bore assumed: 49.5 mm is a placeholder — motor mount ⌀ 100.0 mm does not fit this '
-        + "ring's 99.1 mm OD. Measure what goes through it before you print or cut it.");
+      .toBe('Bore assumed: 49.53 mm (1.95 in) is a placeholder — motor mount ⌀ 100 mm (3.937 in) does not fit this '
+        + "ring's 99.06 mm (3.9 in) OD. Measure what goes through it before you print or cut it.");
     // Size AND bore assumed: the diameter warning, with the hole named in it.
     expect(printOffer(node('centeringring', { length: 0.003 }), {}, null).note)
-      .toBe('Diameter assumed: 24.0 mm is a placeholder — the app could not find the tube this part '
+      .toBe('Diameter assumed: 24 mm (0.945 in) is a placeholder — the app could not find the tube this part '
         + 'sits in. Measure the bore before you print or cut it. The hole through it is a placeholder too.');
     // ...and a ring the mount passes through says nothing, as before.
     expect(printOffer(plate, { parentInnerRadius: 0.0495, mountOuterRadius: 0.0401574 }, null).note).toBeNull();
@@ -159,7 +159,7 @@ describe('printOffer — printer set, part fits', () => {
     const o = printOffer(tube(0.300), {}, H2D, 'Bambu H2D');
     expect(o.kind).toBe('single');
     expect(o.button).toBe(SINGLE_BUTTON);
-    expect(o.note).toBe('300 mm — fits your Bambu H2D upright.');
+    expect(o.note).toBe('300 mm (11.811 in) — fits your Bambu H2D upright.');
     expect(o.tone).toBe('info');
     expect(o.split).toBeNull();
   });
@@ -170,7 +170,7 @@ describe('printOffer — printer set, part fits', () => {
     // cylinder's wall is 0° off axis, so it gets the whole 30° ceiling and
     // stands 320*cos30 + 76.2*sin30 = 277.1 + 38.1 = 315.2 mm, inside 317.
     const o = printOffer(tube(UZ(H2D) + 0.003), {}, H2D, 'Bambu H2D');
-    expect(o.note).toBe('320 mm — fits your Bambu H2D leaned 30° off vertical.');
+    expect(o.note).toBe('320 mm (12.598 in) — fits your Bambu H2D leaned 30° off vertical.');
     expect(o.kind).toBe('single');
   });
 });
@@ -189,8 +189,8 @@ describe('printOffer — printer set, part does not fit', () => {
     // reserves from the worst-case Ø76.2 — the user gets the real part.
     expect(Math.round((0.381 - UZ(H2D)) * 1000)).toBe(64);
     expect(o.note).toBe(
-      '381 mm — 64 mm too long for your Bambu H2D. '
-      + 'Exports as 2 segments with a 16 mm glued spigot.',
+      '381 mm (15 in) — 64 mm (2.52 in) too long for your Bambu H2D. '
+      + 'Exports as 2 segments with a 16.407 mm (0.646 in) glued spigot.',
     );
     expect(o.split!.plan.segments).toBe(2);
     expect(o.split!.loops).toHaveLength(2);
@@ -293,31 +293,31 @@ describe('the zip', () => {
   it('the README says which way up, how to glue, and to dry-fit and test first', () => {
     const readme = strFromU8(entries['README.txt']!);
     expect(readme).toContain('BASE DOWN, TIP UP, with NO supports');
-    expect(readme).toContain('Joint clearance is 0.15 mm per side (0.30 mm on the diameter)');
+    expect(readme).toContain('Joint clearance is 0.15 mm (0.00591 in) per side (0.3 mm [0.0118 in] on the diameter)');
     expect(readme).toContain('30-minute epoxy');
     expect(readme).toMatch(/thin CA/);
     expect(readme).toContain('0.05 mm');
     expect(readme).toContain('DRY-FIT EVERY JOINT FIRST');
-    expect(readme).toContain('20 mm test ring');
+    expect(readme).toContain('20 mm (0.7874 in) test ring');
   });
 
   it('the README accounts for every millimetre — segments sum to the assembly', () => {
     const readme = printPackReadme(split, 'Nose Cone', H2D, 'Bambu H2D');
-    expect(readme).toContain('Assembled length 381.0 mm');
-    const lens = [...readme.matchAll(/([\d.]+) mm of the finished part/g)].map((m) => Number(m[1]));
+    expect(readme).toContain('Assembled length 381 mm (15 in)');
+    const lens = [...readme.matchAll(/([\d.]+) mm \([\d.]+ in\) of the finished part/g)].map((m) => Number(m[1]));
     expect(lens).toHaveLength(2);
     expect(lens.reduce((a, b) => a + b, 0)).toBeCloseTo(381.0, 6);
     // ...and the printed height of the fore piece includes its spigot.
-    expect(readme).toContain('prints 206.9 mm tall');
+    expect(readme).toContain('prints 206.9 mm (8.1459 in) tall');
   });
 
   it('quotes the machine it was planned for', () => {
     const readme = printPackReadme(split, 'Nose Cone', H2D, 'Bambu H2D');
-    expect(readme).toContain('Bambu H2D (350 × 320 × 325 mm build volume');
+    expect(readme).toContain('Bambu H2D: 350 mm (13.7795 in) × 320 mm (12.5984 in) × 325 mm (12.7953 in) build volume');
     // The margin comes off X and Y at both edges and off Z once, at the top
     // (splitSolid.usableBox). This line used to pin "at each end of every
     // axis", which the split it describes does not do (audit 2026-09-22).
-    expect(readme).toContain('8 mm kept clear at both edges of X and Y, and at the top of Z)');
+    expect(readme).toContain('8 mm (0.315 in) kept clear at both edges of X and Y, and at the top of Z.');
     expect(readme).not.toContain('every axis');
   });
 
@@ -325,7 +325,7 @@ describe('the zip', () => {
     const tight: PrinterVolume = { ...H2D, clearance: 0.00005 };
     const s = splitComponent(nose3in(), {}, tight)!;
     expect(printPackReadme(s, 'Nose Cone', tight, 'Bambu H2D'))
-      .toContain('Joint clearance is 0.05 mm per side');
+      .toContain('Joint clearance is 0.05 mm (0.00197 in) per side');
   });
 });
 
@@ -367,15 +367,15 @@ describe('the joints have a price, and it is stated (D6)', () => {
     // the note above is the assertion that pins the range it came from.
     expect(readme).toMatch(/budget about 3\d% more/);
     // The length accounting is still exact — this is material, not millimetres.
-    expect(readme).toContain('Assembled length 896.0 mm');
+    expect(readme).toContain('Assembled length 896 mm (35.2756 in)');
   });
 
   it('stays quiet for a normal part — the 3" nose note is unchanged', () => {
     const o = printOffer(nose3in(), {}, H2D, 'Bambu H2D');
     // 381 - 317 mm of usable Z = 64 over; see the amber-line test above.
     expect(o.note).toBe(
-      '381 mm — 64 mm too long for your Bambu H2D. '
-      + 'Exports as 2 segments with a 16 mm glued spigot.',
+      '381 mm (15 in) — 64 mm (2.52 in) too long for your Bambu H2D. '
+      + 'Exports as 2 segments with a 16.407 mm (0.646 in) glued spigot.',
     );
     const s = splitComponent(nose3in(), {}, H2D)!;
     expect(printPackReadme(s, 'Nose Cone', H2D, 'Bambu H2D')).not.toContain('extra material');
@@ -397,14 +397,14 @@ describe('the shrinkage sum is this part\'s bore, not a hardcoded 72 mm (D7)', (
     const readme = printPackReadme(s, 'Nose Cone', H2D, 'Bambu H2D');
     // Cut at 190.5 mm on the ogive: outer 32.81 mm radius, 2 mm wall, so a
     // 61.6 mm bore — not the 72 mm of the airframe it came off.
-    expect(readme).toContain("On this\n  part's 61.6 mm joint bore, 0.7% is 0.43 mm");
+    expect(readme).toContain("On this\n  part's 61.6 mm (2.4262 in) joint bore, 0.7% is 0.431 mm (0.017 in)");
     expect(readme).not.toContain('72 mm bore');
     // ...and the multiple is like for like: 0.7% of 61.6 is 0.43 mm off the
     // DIAMETER, so it is measured against the DIAMETRAL clearance,
     // 2 x 0.15 = 0.30 mm. 0.43/0.30 = 1.4x. Dividing a diametral shrink by the
     // per-side figure, as this used to, doubled every multiple on the page.
     expect(0.007 * 61.6 / (2 * 0.15)).toBeCloseTo(1.4, 1);
-    expect(readme).toMatch(/0\.43 mm off the DIAMETER — 1\.4x the\s+0\.30 mm diametral joint clearance/);
+    expect(readme).toMatch(/0\.431 mm \(0\.017 in\) off the DIAMETER — 1\.4x the\s+0\.3 mm \(0\.0118 in\) diametral joint clearance/);
   });
 
   it('a small coupler is not told it faces five times its clearance', () => {
@@ -415,9 +415,9 @@ describe('the shrinkage sum is this part\'s bore, not a hardcoded 72 mm (D7)', (
     const coupler = node('tubecoupler', { thickness: 0.0015, length: 0.6 });
     const s = splitComponent(coupler, { parentInnerRadius: 0.012 }, H2D)!;
     const readme = printPackReadme(s, 'Coupler', H2D, 'Bambu H2D');
-    expect(readme).toContain('21.0 mm joint bore');
+    expect(readme).toContain('21 mm (0.8268 in) joint bore');
     expect(0.007 * 21.0 / (2 * 0.15)).toBeCloseTo(0.5, 1);
-    expect(readme).toMatch(/0\.7% is 0\.15 mm off the DIAMETER — 0\.5x the\s+0\.30 mm diametral joint clearance/);
+    expect(readme).toMatch(/0\.7% is 0\.147 mm \(0\.00579 in\) off the DIAMETER — 0\.5x the\s+0\.3 mm \(0\.0118 in\) diametral joint clearance/);
   });
 
   it('the multiple is recomputed from the clearance the user actually set', () => {
@@ -428,6 +428,6 @@ describe('the shrinkage sum is this part\'s bore, not a hardcoded 72 mm (D7)', (
     // 1.4x above: 0.43/0.10 = 4.3x.
     expect(0.007 * 61.6 / (2 * 0.05)).toBeCloseTo(4.3, 1);
     expect(printPackReadme(s, 'Nose Cone', tight, 'Bambu H2D'))
-      .toMatch(/0\.43 mm off the DIAMETER — 4\.3x the\s+0\.10 mm diametral joint clearance/);
+      .toMatch(/0\.431 mm \(0\.017 in\) off the DIAMETER — 4\.3x the\s+0\.1 mm \(0\.00394 in\) diametral joint clearance/);
   });
 });

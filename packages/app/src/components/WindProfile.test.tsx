@@ -20,7 +20,7 @@ it('N032 winds-aloft heights follow Altitude while leaving stored SI levels unto
     expect(host.querySelector('th')?.textContent).toContain('Height AGL');
     expect(host.querySelector<HTMLSelectElement>('th select')?.value).toBe('km');
     expect(host.querySelector('tbody td')?.textContent).toBe('1');
-    expect(host.textContent).toContain('1 levels to 1 km above ground');
+    expect(host.textContent).toContain('1 levels to 1 km (3,280.8 ft) above ground');
     expect(levels).toEqual(before);
   } finally { act(() => root.unmount()); localStorage.clear(); }
 });

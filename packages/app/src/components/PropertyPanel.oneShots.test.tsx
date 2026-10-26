@@ -105,8 +105,8 @@ describe('📍 Auto-place rail buttons', () => {
   it('offers the pair across the CG and an inch off the tail, and says so', () => {
     const got = place({ ...RB, position: { method: 'middle', offset: 0 } }, { length: 1.1, cg: 0.55 });
     expect(got!.disabled).toBe(false);
-    expect(got!.title).toBe('Places two buttons: forward one at the CG (550 mm — the loaded CG when a motor is'
-      + ' loaded), aft one 25 mm from the aft end. Press again after the CG moves; typed values always win'
+    expect(got!.title).toBe('Places two buttons: forward one at the CG (550 mm [21.654 in] — the loaded CG when a motor is'
+      + ' loaded), aft one 25.4 mm (1 in) from the aft end. Press again after the CG moves; typed values always win'
       + ' afterwards.');
     expect(got!.patch!['instanceCount']).toBe(2);
     expect(got!.patch!['instanceSeparation'] as number).toBeCloseTo(1.1 - 0.0254 - 0.55, 12);
@@ -130,22 +130,22 @@ describe('📍 Auto-place rail buttons', () => {
     const got = place({ ...RB, position: { method: 'top', offset: 0 } }, { length: 1.1, cg: 0.55 }, null);
     // 0-1000 mm, so the aft button's 1075 mm is off the end of it.
     expect(got!.disabled).toBe(true);
-    expect(got!.title).toContain('this tube spans 0–1000 mm');
+    expect(got!.title).toContain('this tube spans 0 mm [0 in]–1000 mm [39.37 in]');
     expect(got!.patch).toBeNull();
   });
 
   it('refuses a CG forward of this tube, and names both spans', () => {
     const got = place({ ...RB, position: { method: 'middle', offset: 0 } }, { length: 1.1, cg: 0.05 });
     expect(got!.disabled).toBe(true);
-    expect(got!.title).toBe('Both buttons would have to sit outside this tube (they want 50–1075 mm from the'
-      + ' nose; this tube spans 100–1100 mm). Move the rail button to the tube that spans the CG and the aft'
+    expect(got!.title).toBe('The button pair does not fit this tube (they want 50 mm [1.969 in]–1074.6 mm [42.307 in] from the'
+      + ' nose; this tube spans 100 mm [3.937 in]–1100 mm [43.307 in]). Move the rail button to the tube that spans the CG and the aft'
       + ' end, or place them by hand.');
   });
 
   it('refuses a CG within an inch of the tail: the two would collide', () => {
     const got = place({ ...RB, position: { method: 'middle', offset: 0 } }, { length: 1.1, cg: 1.06 });
     expect(got!.disabled).toBe(true);
-    expect(got!.title).toBe('The CG sits within an inch of the aft end — two buttons cannot straddle it.'
+    expect(got!.title).toBe('The CG is too close to the aft button, placed 25.4 mm (1 in) from the aft end — two buttons cannot straddle it.'
       + ' Place them by hand.');
   });
 
@@ -372,4 +372,29 @@ it('S3a-7: shrinking a canopy caps its existing vent in the same patch', () => {
   expect(patches).toHaveLength(1);
   expect(patches[0]?.['diameter']).toBeCloseTo(0.1, 9);
   expect(patches[0]?.['spillHoleDiameter']).toBeCloseTo(0.095, 9);
+});
+
+
+it.each(['m', 'in'])('keeps disabled rail-button placement beyond the shown tube span (%s)', unit => {
+  localStorage.setItem(PREFS_KEY, JSON.stringify({ units: { length: unit } }));
+  const rb = { id: 'rb', type: 'railbutton' as const, position: { method: 'top' as const, offset: 0 } };
+  const tree = stageOf([
+    { id: 'front', type: 'bodytube', length: 0.3556, outerRadius: 0.025 },
+    { id: 'aft', type: 'bodytube', length: 0.254, outerRadius: 0.025, children: [rb] },
+  ]);
+  render(tree, rb, {
+    info: { length: 0, mass: 0.002, sectionMass: 0.002, cgX: 0, positionX: 0.3556 },
+    rocketInfo: { length: 0.6096, cg: 0.355595 },
+  });
+  const b = button(/Auto-place rail buttons/)!;
+  expect(b.disabled).toBe(true);
+  const matches = [...b.title.matchAll(/([0-9.]+) (?:m|in) \[([0-9.]+) (?:in|mm)\]/g)];
+  if (b.title.includes('just before this tube')) expect(matches).toHaveLength(3);
+  else {
+    expect(matches).toHaveLength(4);
+    const differences = [1,2].map(i=>Number(matches[2]![i])-Number(matches[0]![i]));
+    expect(differences.every(d=>d>=0)).toBe(true);
+    expect(differences.some(d=>d>0)).toBe(true);
+  }
+  expect(new Set(matches.map(m=>m[0])).size).toBe(matches.length);
 });

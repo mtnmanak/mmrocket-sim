@@ -1,3 +1,4 @@
+import type { UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import type { FlightOverrides, FlightTree, MountMotor, SavedConfig } from '../model/design.js';
 import { motorisedStagesWithNozzle, motorMounts, mountName, primaryMountOf, stages } from '../tree/treeModel.js';
@@ -154,6 +155,7 @@ export function designBuildInputOf(a: {
   primaryMountId: string | null;
   currentSetKey: string;
   lengthUnit?: string;
+  units?: UnitSelection;
 }): DesignBuildInput {
   return {
     tree: a.tree,
@@ -165,6 +167,7 @@ export function designBuildInputOf(a: {
     primaryMountId: a.primaryMountId,
     currentSetKey: a.currentSetKey,
     ...(a.lengthUnit ? { lengthUnit: a.lengthUnit } : {}),
+    ...(a.units ? { units: a.units } : {}),
   };
 }
 

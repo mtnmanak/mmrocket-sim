@@ -22,6 +22,9 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  'src/services/comparisonProducers.test.ts',
+  'src/services/noticeBoundaries.test.ts',
+  'src/services/noticeFollowup.test.ts',
   'src/App.instances.test.tsx',
   'src/tree/sanitize.instances.test.ts',
   'src/components/PropertyPanel.filled.test.tsx',
@@ -35,6 +38,7 @@ export const XML_JS_SUITES = [
   'src/components/PreflightAudit.test.tsx',
   // C-H3: diagnostic messages are taken from the real importer refusals.
   'src/services/sessionDebugLog.imports.test.ts',
+  'src/services/sessionDebugLog.test.ts',
   'src/App.a11y.test.tsx',
   // Per-line note tiers on file open, and the tier surfaces that render them (rows 93/94, 2026-10-12).
   'src/services/importNotes.test.ts',
@@ -83,6 +87,7 @@ export const XML_JS_SUITES = [
   'src/services/warningImport.test.ts',
   'src/services/warningUnits.kernel.test.ts',
   'src/services/warningUnits.test.ts',
+  'src/services/noticeUnits.test.ts',
   'src/services/orkAero.test.ts',
   'src/services/orkFilledTube.test.ts',
   'src/services/orkFlippedNose.test.ts',

@@ -1,4 +1,4 @@
-import { fmtSi, type UnitSelection } from '../prefs/units.js';
+import { noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { stripDelay } from './motorMatch.js';
 import type { PadMassText } from './padMassReconcile.js';
 import type { StatedWeightText } from './statedLaunchWeight.js';
@@ -14,7 +14,7 @@ import type { StatedWeightText } from './statedLaunchWeight.js';
 
 /** A mass for a notice, in the user's unit ("7480 g"). */
 export function massTextFor(units: UnitSelection): (kg: number) => string {
-  return (kg: number) => `${fmtSi('mass', units.mass, kg)} ${units.mass}`;
+  return (kg: number) => noticeQuantity('mass', kg, units);
 }
 
 /**
@@ -24,8 +24,8 @@ export function massTextFor(units: UnitSelection): (kg: number) => string {
  */
 export function statedWeightTextFor(units: UnitSelection): StatedWeightText {
   return {
-    mass: massTextFor(units),
-    length: (m: number) => `${fmtSi('length', units.length, m, 3)} ${units.length}`,
+    mass: (kg: number, against?: number) => against === undefined ? noticeQuantity('mass', kg, units) : noticeComparison('mass', kg, against, units)[0],
+    length: (m: number, against?: number) => against === undefined ? noticeQuantity('length', m, units) : noticeComparison('length', m, against, units)[0],
   };
 }
 

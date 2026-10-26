@@ -1,3 +1,4 @@
+import { usePrefs } from '../prefs/PrefsContext.js';
 import { useId, useRef, useState } from 'react';
 import { Modal } from './Modal.js';
 import { describeRow, matchingExMotors } from '../services/motorMatch.js';
@@ -11,6 +12,7 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
   onLater: () => void;
 }) {
   const id = useId();
+  const { prefs } = usePrefs();
   const [choices, setChoices] = useState<Record<string, OpenMotorChoice>>(() =>
     Object.fromEntries(identities.map(g => [g.key, { kind: 'catalogue', motor: g.candidates[0]! }])));
   const [library, setLibrary] = useState<ExMotor[]>(loadExMotors);
@@ -39,7 +41,7 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
     return [group.key, motor ? { kind: 'ex', motor } : { kind: 'catalogue', motor: group.candidates[0]! }];
   }));
   const importFiles = (group: OpenMotorIdentity, files: File[]) => run(async () => {
-    const result = await importMotorFiles(files);
+    const result = await importMotorFiles(files, prefs.units);
     setError(result.error);
     setNotice(result.notice);
     if (!result.write) return;
@@ -71,7 +73,7 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
               <label key={motor.motorId}>
                 <input type="radio" name={`${id}-${index}`} checked={selected?.kind === 'catalogue' && selected.motor.motorId === motor.motorId}
                   onChange={() => choose(group.key, { kind: 'catalogue', motor })} />
-                {describeRow(motor, group.candidates)}
+                {describeRow(motor, group.candidates, prefs.units)}
               </label>
             ))}
             {exMatches.map(motor => {

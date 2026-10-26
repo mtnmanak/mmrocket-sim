@@ -1,7 +1,7 @@
 import { useId, useState } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi, siToUi, uiToSi } from '../prefs/units.js';
+import { noticeQuantity, siToUi, uiToSi } from '../prefs/units.js';
 import { finAlignmentJigGeometry, finAlignmentJigSvg } from '../services/finAlignmentJig.js';
 import { FIN_TEMPLATE_DPI, finTemplatePixelSize } from '../services/finTemplate.js';
 import { safeName } from '../services/fileName.js';
@@ -24,8 +24,8 @@ export function FinAlignmentJigMenu({ tree, tube, fin }: { tree: RocketTree; tub
   let invalid: string | null = null;
   try { finAlignmentJigGeometry(tube, fin, clearance); }
   catch (e) { invalid = e instanceof Error ? e.message : String(e); }
-  const printAdvice = `Print at 100%, with no fit to page. Measure the ruler (${unit === 'in' || unit === 'ft'
-    ? '2 in' : `${fmtSi('length', unit, 0.05, 3)} ${unit}`}). Use paper large enough for the whole jig.`;
+  const ruler = noticeQuantity('length', unit === 'in' || unit === 'ft' ? 0.0508 : 0.05, unit === 'in' || unit === 'ft' ? 'in' : unit);
+  const printAdvice = `Print at 100%, with no fit to page. Measure the ruler: ${ruler}. Use paper large enough for the whole jig.`;
 
   const exportJig = async (format: FinTemplateFormat) => {
     setBusy(true); setError(null); setStatus('Preparing fin alignment jig…');

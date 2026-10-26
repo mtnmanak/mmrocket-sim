@@ -1381,7 +1381,7 @@ describe('.ork multi-configuration import (Stage A)', () => {
     // recovery-override note (deployOverrideNote.ts) says so, separately.
     expect(result.notes.filter((n) => n.startsWith('Recovery: '))).toEqual([
       expect.stringContaining('Recovery: Flight configuration “Demo day D12” overrides the deployment setting — Chute flies at '
-        + 'Altitude (descending), 150.0 m (492 ft) + 1 s, not at its own setting (Motor ejection charge)'),
+        + 'Altitude (descending), 150 m (492.1 ft) + 1 s, not at its own setting (Motor ejection charge)'),
     ]);
     const notes = result.notes.filter((n) => n.includes('flight configuration') && !n.startsWith('Recovery: '));
     expect(notes).toHaveLength(1);
@@ -2653,7 +2653,7 @@ describe('.ork automatic radii (bare `auto`, OpenRocket 15.03)', () => {
     expect(note).toBeDefined();
     expect(note).toContain('Payload Tube');
     expect(note).toContain('Recovery Hardware');
-    expect(note).toContain('156.7 mm'); // 2 x 0.078359 m
+    expect(note).toContain('156.718 mm (6.17 in)'); // 2 x 0.078359 m
     expect(note).toContain('OpenRocket 15.03');
   });
 
@@ -2723,11 +2723,11 @@ describe('.ork automatic radii (bare `auto`, OpenRocket 15.03)', () => {
     const note = r.notes.find((n) => n.includes('no neighbour'))!;
     expect(note).toContain('2 components');
     expect(note).toContain('N, B use');
-    expect(note).toContain('50 mm default');
+    expect(note).toContain('50 mm (1.969 in) default');
     expect(note).not.toContain('W');
     const sized = r.notes.find((n) => n.includes('sized from the neighbouring component'))!;
     expect(sized).toContain('(W)');
-    expect(sized).toContain('47.5 mm');
+    expect(sized).toContain('47.46 mm (1.869 in)');
   });
 
   it('sizes a mass inside an automatic tube coupler to the coupler’s bore, as desktop does (batch 6)', () => {

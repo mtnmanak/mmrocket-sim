@@ -1,3 +1,4 @@
+import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { num } from './nodeNum.js';
 import { absoluteStations } from './position.js';
@@ -219,8 +220,8 @@ const nameOf = nameOr;
  * Returns plain sentences, ready for the same warning strip the kernel's own
  * warnings use.
  */
-export function railInterferenceWarnings(tree: RocketTree): string[] {
-  return [...new Set(railInterferenceFindings(tree).map((f) => f.text))];
+export function railInterferenceWarnings(tree: RocketTree, units: UnitSelection = INITIAL_UNITS): string[] {
+  return [...new Set(railInterferenceFindings(tree, units).map((f) => f.text))];
 }
 
 /**
@@ -234,7 +235,8 @@ export interface RailFinding {
   parts: { id: string; name: string }[];
 }
 
-export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
+export function railInterferenceFindings(tree: RocketTree, _units: UnitSelection = INITIAL_UNITS): RailFinding[] {
+
   const out: RailFinding[] = [];
   // ASSEMBLIES BELONG HERE, and they are the biggest things on the list. A pod
   // set or a parallel booster hangs off the airframe at its own `angleOffset`
@@ -445,7 +447,8 @@ function wakeWindow(width: number, mountRadius: number): number {
  * modelling limit on a reasonable build, not a mistake by the user, and the
  * sentence is worded that way.
  */
-export function wakeShadowWarnings(tree: RocketTree): string[] {
+export function wakeShadowWarnings(tree: RocketTree, units: UnitSelection = INITIAL_UNITS): string[] {
+
   const out: string[] = [];
   // Stations in the rocket frame, WHOLE STACK — the same frame the rail check
   // chose, and the only frame in which "upstream of" means anything during
@@ -515,14 +518,14 @@ export function wakeShadowWarnings(tree: RocketTree): string[] {
         let nearest = Infinity;
         for (const a of f.angles) nearest = Math.min(nearest, angleGap(s.angle, a));
         if (!(nearest <= s.window)) continue;
-        const mm = Math.round(gap * 1000);
+        const gapText = noticeQuantity('length', gap, units);
         const heights = Number((gap / s.height).toFixed(1));
         // The name is QUOTED, as the rail sentences' are since AUDIT row 238:
         // `stripBrackets` (simWarnings.ts) strips a LEADING bracketed token from
         // every warning string, so a part someone called "[cam]" would lose its
         // name if the sentence opened with it bare.
         out.push(
-          `"${s.name}" at ${deg(s.angle)} sits ${mm} mm ahead of a fin of "${f.owner}" — `
+          `"${s.name}" at ${deg(s.angle)} sits ${gapText} ahead of a fin of "${f.owner}" — `
           + `${heights} times its own height upstream, ${deg(nearest)} off that fin's line. `
           + 'The wake it sheds is not modelled: that fin is flown at full free-stream dynamic '
           + 'pressure, so the CP shown is computed as if the shroud were not there. On its own '

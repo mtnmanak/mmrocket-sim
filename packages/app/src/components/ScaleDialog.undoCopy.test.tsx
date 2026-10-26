@@ -65,7 +65,7 @@ describe('ScaleDialog — what undo cannot restore', () => {
     expect(block.nextElementSibling?.classList.contains('modal-actions')).toBe(true);
     expect(block.nextElementSibling!.textContent).toContain('Save a .ork backup first');
     const said = block.textContent!.replace(/\s+/g, ' ');
-    expect(said).toContain('Measured mass & CG box (mass 1250 g, CG 500 mm)');
+    expect(said).toContain('Measured mass & CG box: mass 1250 g (2.76 lb), CG 500 mm (19.685 in)');
     // No pad mass exists, so none is named.
     expect(said).not.toContain('weighed pad mass');
     expect(said).toContain('Ctrl+Z cannot');

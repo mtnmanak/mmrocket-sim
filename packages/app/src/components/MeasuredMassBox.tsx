@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
+import { noticeQuantity, fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { solveBallast, type BallastSolution } from '../services/buildAllowance.js';
 import type { MeasuredFigures } from '../services/orkFile.js';
 
@@ -65,9 +65,8 @@ export function MeasuredMassBox({
     })
     : null;
 
-  const mass = (kg: number) => `${fmtSi('mass', massSym, kg)} ${massSym}`;
-  const len = (m: number) => `${fmtSi('length', lenSym, m, 3)} ${lenSym}`;
-  const signed = (v: number, f: (n: number) => string) => `${v >= 0 ? '+' : '−'}${f(Math.abs(v))}`;
+  const mass = (kg: number) => noticeQuantity('mass', kg, prefs.units);
+  const len = (m: number) => noticeQuantity('length', m, prefs.units);
   const shown = solution && verdict({
     solution, hasAllowance, onApply, mass, len, blockedBy: blockedBy ?? null, onPinStage,
   });
@@ -135,7 +134,7 @@ export function MeasuredMassBox({
           <dd>
             {mass(bareMassKg)}
             {massKg !== null && (
-              <span className="measured-delta"> {signed(massKg - bareMassKg, (k) => mass(k))}</span>
+              <span className="measured-delta"> {noticeQuantity('mass', massKg - bareMassKg, prefs.units, { signed: true })}</span>
             )}
           </dd>
         </div>
@@ -144,7 +143,7 @@ export function MeasuredMassBox({
           <dd>
             {len(bareCgM)}
             {cgM !== null && (
-              <span className="measured-delta"> {signed(cgM - bareCgM, (m) => len(m))}</span>
+              <span className="measured-delta"> {noticeQuantity('length', cgM - bareCgM, prefs.units, { signed: true })}</span>
             )}
           </dd>
         </div>

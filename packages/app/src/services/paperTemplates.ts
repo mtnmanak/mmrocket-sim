@@ -4,7 +4,7 @@ import { numOpt } from '../tree/nodeNum.js';
 import { outerProfile } from '../tree/shapeProfile.js';
 import { centeringRingBore, ringOuterRadius, type SolidContext } from '../tree/solidMesh.js';
 import { noseEnds } from '../tree/tailCone.js';
-import { fmtSi, type UnitSelection } from '../prefs/units.js';
+import { INITIAL_UNITS, noticeQuantity, fmtSig, siToUi, type UnitSelection } from '../prefs/units.js';
 import { escapeXml } from './xmlUtil.js';
 
 export const PAPER_TEMPLATE_TYPES = new Set(['centeringring', 'bulkhead', 'transition', 'nosecone']);
@@ -41,7 +41,7 @@ export function paperRingDimensions(node: ComponentNode, ctx: SolidContext): { o
 }
 
 /** C-A7: fabrication only; never invent dimensions or modify the design. */
-export function paperTemplateGeometry(node: ComponentNode, ctx: SolidContext): PaperTemplateGeometry {
+export function paperTemplateGeometry(node: ComponentNode, ctx: SolidContext, units: Pick<UnitSelection, 'length'> = INITIAL_UNITS): PaperTemplateGeometry {
   for (const key of ['length', 'outerRadius', 'innerRadius', 'foreRadius', 'aftRadius']) {
     // eslint-disable-next-line no-restricted-syntax -- Reject non-finite authored numbers before kernelNum substitutes its default.
     if (typeof node[key] === 'number' && !Number.isFinite(node[key])) throw new Error('Check the finite dimensions before printing.');
@@ -108,7 +108,7 @@ export function paperTemplateGeometry(node: ComponentNode, ctx: SolidContext): P
   const precision = 1e-7;
   const cylinderError = Math.PI ** 2 * large * delta / (2 * slant) + delta ** 2 / (slant + length);
   if (delta === 0 || (2 * Math.PI * delta <= precision && cylinderError <= precision)) {
-    if (delta > 0) g.notes[0] = 'Near-cylinder rectangular approximation: circumference and outline errors below 0.0001 mm. Check material fit before cutting.';
+    if (delta > 0) g.notes[0] = `Near-cylinder rectangular approximation: circumference and outline errors below ${noticeQuantity('length', 1e-7, units.length)}. Check material fit before cutting.`;
     g.width = 2 * Math.PI * large; g.height = length;
     g.path = `M 0 0 H ${f(g.width)} V ${f(length)} H 0 Z`;
     return g;
@@ -135,7 +135,7 @@ export function paperTemplatePages(g: PaperTemplateGeometry, rocket: string, uni
   const columns = Math.max(1, Math.ceil((g.width * 1000 - 10) / step));
   const rows = Math.max(1, Math.ceil((g.height * 1000 - 10) / step));
   if (!Number.isFinite(columns * rows) || columns * rows > 100) throw new Error('This template needs more than 100 pages. Check the dimensions.');
-  const dim = (m: number) => `${fmtSi('length', units.length, m, 3)} ${units.length}`;
+  const dim = (m: number) => `${fmtSig(siToUi('length', units.length, m), 3, 3)} ${units.length}`;
   const inches = units.length === 'in' || units.length === 'ft', ruler = inches ? 50.8 : 50;
   const pages: PaperTemplatePage[] = [];
   for (let row = 0; row < rows; row++) for (let column = 0; column < columns; column++) {
@@ -149,7 +149,7 @@ export function paperTemplatePages(g: PaperTemplateGeometry, rocket: string, uni
 <g font-family="sans-serif" fill="#000">${text(`${rocket} — ${g.name}: ${g.kind}`, 10)}
 ${text('Scale 1:1 — print at 100%, no fit to page. Check the ruler on every page.', 16)}
 ${text(`Page ${index}/${columns * rows}: column ${column + 1}/${columns}, row ${row + 1}/${rows}. Right ${dim(x / 1000)}; down ${dim(y / 1000)}.`, 22)}
-${text('Join matching coordinates with 10 mm overlap. Solid outlines: part; grid: reference.', 28)}
+${text(`Join matching coordinates with ${noticeQuantity('length', 0.01, units.length)} overlap. Solid outlines: part; grid: reference.`, 28)}
 ${g.notes.map((s, i) => text(`${i === 0 && g.kind === 'profile' ? 'Caution: ' : ''}${s}`, 34 + i * 5)).join('')}
 ${text(g.dimensions.map(([label, value]) => `${label} ${dim(value)}`).join('; '), Math.max(44, 34 + g.notes.length * 5))}
 ${stationText.join('')}<text x="${18 + ruler}" y="72" font-size="3.2">${inches ? '2 in' : escapeXml(dim(0.05))}</text></g>
