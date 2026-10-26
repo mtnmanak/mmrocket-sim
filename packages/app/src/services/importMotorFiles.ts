@@ -27,12 +27,23 @@ export async function importMotorFiles(files: File[]) {
       const notes: string[] = [];
       const bytes = new Uint8Array(await f.arrayBuffer());
       const [b0, b1, b2] = bytes;
-      const xml = /\.rse$/i.test(f.name) || b0 === 0x3c || (b0 === 0x00 && b1 === 0x3c)
+      let start = 0;
+      while ([0x20, 0x09, 0x0a, 0x0d].includes(bytes[start]!)) start++;
+      const xml = /\.rse$/i.test(f.name) || bytes[start] === 0x3c || (bytes[start] === 0x00 && bytes[start + 1] === 0x3c)
         || (b0 === 0xff && b1 === 0xfe) || (b0 === 0xfe && b1 === 0xff)
         || (b0 === 0xef && b1 === 0xbb && b2 === 0xbf);
-      const decoded = xml ? decodeXml(bytes) : { xml: new TextDecoder('utf-8').decode(bytes) };
+      let decoded: { xml: string; note?: string };
+      if (xml) decoded = decodeXml(bytes);
+      else {
+        try {
+          decoded = { xml: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
+        } catch {
+          decoded = { xml: Array.from(bytes, b => String.fromCharCode(b)).join(''),
+            note: 'Read this RASP file as ISO-8859-1 (Latin-1), the desktop OR RASP encoding, because it is not UTF-8. Check the motor and maker names.' };
+        }
+      }
       if (decoded.note) notes.push(decoded.note.replace('Check the part and material names.', 'Check the motor and maker names.'));
-      const motors = parseMotorFile(f.name, decoded.xml, notes);
+      const motors = parseMotorFile(f.name, xml ? decoded.xml.trimStart() : decoded.xml, notes);
       parsed.push(...motors);
       said.push(...notes.map((n) => `${f.name}: ${n}`));
     } catch (e) {

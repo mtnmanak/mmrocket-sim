@@ -82,7 +82,11 @@ export function designPrintHtml(input: DesignPrintInput): string {
         ringCaution = note(`${error instanceof Error ? error.message : 'Ring dimensions unavailable.'} Do not cut from unresolved dimensions.`, 'caution');
       }
     }
-    return `<tr><td>${e(row[0])}<br>${e(row[1])}<br>${e(row[2])}</td><td>${e(row[4] || 'Unknown')}</td>
+    const materials = [`Material density (${u.density})`, 'Surface density (kg/m²)', 'Line material', 'Line density (kg/m)']
+      .map(label => ({ label, value: row[table.headers.indexOf(label)] }))
+      .filter(({ label, value }) => value !== '' && value !== undefined && !(label === 'Line material' && n?.type === 'shockcord'))
+      .map(({ label, value }) => `${label}: ${String(value)}`);
+    return `<tr><td>${e(row[0])}<br>${e(row[1])}<br>${e(row[2])}</td><td>${[e(row[4] || 'Unknown'), ...materials.map(e)].join('<br>')}</td>
 <td>${e([dimensions, ...finDimensions, ...ringDimensions].filter(Boolean).join('; ') || 'Unknown')}${ringCaution}</td><td>${e(row[7])}</td><td>${e(row[8] === '' ? 'Unknown' : row[8])}</td></tr>`;
   }).join('');
   const header = dataHeaderLines({ name: tree.name ?? 'Rocket', info, units: u, withMotors: input.withMotors, appVersion: input.appVersion });

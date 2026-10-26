@@ -1,0 +1,113 @@
+// @vitest-environment happy-dom
+import { describe, expect, it } from 'vitest';
+import { OrkRocket, resetEngine, type ComponentNode } from '@online-openrocket/engine';
+import { exportRkt, importRkt } from './rocksimFile.js';
+import { KERNEL_DEFAULT_FIN_POINTS } from '../tree/kernelDefaults.js';
+import { engineTree } from '../tree/treeModel.js';
+
+const xml = (parts: string) => `<RockSimDocument><DesignInformation><RocketDesign>
+  <Name>Audit</Name><StageCount>1</StageCount><Stage3Parts><BodyTube><Name>Tube</Name>
+  <OD>100</OD><ID>98</ID><Len>400</Len><AttachedParts>${parts}</AttachedParts></BodyTube>
+  </Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
+const all = (nodes: ComponentNode[]): ComponentNode[] => nodes.flatMap(n => [n, ...all(n.children ?? [])]);
+const named = (r: ReturnType<typeof importRkt>, name: string) => all(r.tree.components).find(n => n.name === name)!;
+
+describe('RockSim audit regressions', () => {
+  it('F5 bore keeps an unreadable ring ID automatic beside a motor tube', () => {
+    const r = importRkt(xml(`<Ring><Name>Automatic ring</Name><UsageCode>0</UsageCode><OD>98</OD><ID>29,0</ID><Len>2</Len></Ring>
+      <BodyTube><Name>Motor tube</Name><OD>30</OD><ID>28</ID><Len>100</Len><IsInsideTube>1</IsInsideTube></BodyTube>`));
+    expect(named(r, 'Automatic ring')['innerRadius']).toBeUndefined();
+    expect(r.notes.join('\n')).toMatch(/ID.*29,0|29,0.*ID/);
+  });
+
+  it('F5 bore keeps the default lug wall when its ID is unreadable', () => {
+    const r = importRkt(xml('<LaunchLug><Name>Lug</Name><OD>5</OD><ID>29,0</ID></LaunchLug>'));
+    expect(named(r, 'Lug')['thickness']).toBeCloseTo(0.0004, 12);
+    expect(r.notes.join('\n')).toMatch(/ID.*29,0|29,0.*ID/);
+  });
+
+  it('F5 bore calculates a lug wall from the same default OD as its radius', () => {
+    const r = importRkt(xml('<LaunchLug><Name>Lug</Name><ID>3.5</ID></LaunchLug>'));
+    expect(named(r, 'Lug')['outerRadius']).toBeCloseTo(0.0025, 12);
+    expect(named(r, 'Lug')['thickness']).toBeCloseTo(0.00075, 12);
+    expect(named(importRkt(exportRkt({ name: r.name, tree: r.tree })), 'Lug')['thickness']).toBeCloseTo(0.00075, 12);
+  });
+
+  it('S1b-7 bounds configuration-key text amplified across simulations', () => {
+    const recovery = '<Parachute><Name>Recovery</Name></Parachute>'.repeat(128);
+    const sim = `<SimulationResults><Stage3Engines><EngineSet><EngineCode>Audit</EngineCode>
+      <EngineMfg>Home</EngineMfg><MountSerialNo>7</MountSerialNo><EngineCount>1</EngineCount>
+      </EngineSet></Stage3Engines></SimulationResults>`;
+    const file = xml(recovery).replace('<Len>400</Len>', '<Len>400</Len><IsMotorMount>1</IsMotorMount><SerialNo>7</SerialNo>')
+      .replace('</RocketDesign>', `<SimulationResultsList>${sim.repeat(1500)}</SimulationResultsList></RocketDesign>`);
+    expect(() => importRkt(file)).toThrow(/comparison.*limit|limit.*comparison/i);
+  }, 30_000);
+
+  it.each(['Parachute', 'Streamer'])('S1b-2 round trips explicit zero Cd on %s', tag => {
+    const first = importRkt(xml(`<${tag}><Name>Recovery</Name><DragCoefficient>0</DragCoefficient></${tag}>`));
+    expect(named(first, 'Recovery')['cd']).toBe(0);
+    const saved = exportRkt({ name: first.name, tree: first.tree });
+    expect(named(importRkt(saved), 'Recovery')['cd']).toBe(0);
+    expect(named(importRkt(xml(`<${tag}><Name>Recovery</Name></${tag}>`)), 'Recovery')['cd']).toBeUndefined();
+  });
+
+  it('S1b-3 round trips a solid centering ring beside an overlapping motor tube', () => {
+    const first = importRkt(xml(`<Ring><Name>Solid ring</Name><UsageCode>0</UsageCode><OD>98</OD><ID>0</ID><Len>2</Len></Ring>
+      <BodyTube><Name>Motor tube</Name><OD>30</OD><ID>28</ID><Len>100</Len><IsInsideTube>1</IsInsideTube></BodyTube>`));
+    expect(named(first, 'Solid ring')['innerRadius']).toBe(0);
+    resetEngine();
+    const ring = named(first, 'Solid ring');
+    const discMass = OrkRocket.buildTree(engineTree(first.tree)).componentInfo(ring.id!).mass;
+    const automatic = structuredClone(first.tree);
+    delete all(automatic.components).find(n => n.id === ring.id)!['innerRadius'];
+    resetEngine();
+    const boredMass = OrkRocket.buildTree(engineTree(automatic)).componentInfo(ring.id!).mass;
+    expect(discMass - boredMass).toBeCloseTo(Math.PI * 0.015 ** 2 * 0.002 * 680, 12);
+    const saved = exportRkt({ name: first.name, tree: first.tree });
+    expect(named(importRkt(saved), 'Solid ring')['innerRadius']).toBe(0);
+    const absent = importRkt(xml('<Ring><Name>Automatic ring</Name><OD>98</OD></Ring>'));
+    expect(named(absent, 'Automatic ring')['innerRadius']).toBeUndefined();
+  });
+
+  it.each(['<!-- example <![CDATA[ -->', '<!--> <![CDATA[ -->', '<!---> <![CDATA[ -->',
+    '<?example <![CDATA[ ?>'])('S1b-5 skips a CDATA opener in %s', prefix => {
+    const r = importRkt(xml(`${prefix}<Parachute><Name><![CDATA[Fabric & thread]]></Name></Parachute>`));
+    expect(named(r, 'Fabric & thread').type).toBe('parachute');
+  });
+
+  it.each(['Streamer', 'Parachute'])('S1b-b1 treats type-2 %s fabric as surface density', tag => {
+    const r = importRkt(xml(`<${tag}><Name>Fabric</Name><Len>1000</Len><Width>100</Width><Dia>1000</Dia>
+      <Density>0.01</Density><DensityType>2</DensityType><Material>Named fabric</Material></${tag}>
+      <MassObject><Name>Cord</Name><TypeCode>1</TypeCode><Len>1000</Len><Density>0.01</Density><DensityType>2</DensityType></MassObject>`));
+    expect(named(r, 'Fabric')['surfaceDensity']).toBeCloseTo(0.1, 12);
+    expect(named(r, 'Cord')['lineDensity']).toBeCloseTo(0.01, 12);
+  });
+
+  it.each([0, 1])('S1b-b2 refuses an invalid synthesized outline (shape %s)', shape => {
+    const r = importRkt(xml(`<Transition><Name>Transition</Name><Len>100</Len><FrontDia>80</FrontDia><RearDia>100</RearDia>
+      <AttachedParts><FinSet><Name>Bad fins</Name><ShapeCode>${shape}</ShapeCode><RootChord>-50</RootChord>
+      <TipChord>30</TipChord><SweepDistance>0</SweepDistance><SemiSpan>30</SemiSpan></FinSet></AttachedParts></Transition>`)
+      .replace('<BodyTube><Name>Tube</Name>\n  <OD>100</OD><ID>98</ID><Len>400</Len><AttachedParts>', '')
+      .replace('</AttachedParts></BodyTube>', ''));
+    expect(named(r, 'Bad fins')['points']).toEqual(KERNEL_DEFAULT_FIN_POINTS);
+    expect(r.notes.join('\n')).toMatch(/Bad fins.*outline was not used/);
+  });
+
+  it.each(['10,30,garbage', '10,30,', '10,30,1,2'])('S1b-7 keeps the first two point fields like desktop OR: %s', point => {
+    const r = importRkt(xml(`<CustomFinSet><Name>Points</Name>
+      <PointList>0,0|${point}|40,30|60,0</PointList></CustomFinSet>`));
+    expect(named(r, 'Points')['points']).toEqual([[0, 0], [0.01, 0.03], [0.04, 0.03], [0.06, 0]]);
+    expect(r.notes.join('\n')).not.toMatch(/Points.*one point/i);
+  });
+
+  it.each([2, 4])('S1b-7 round trips a zero-wall ring (usage %s)', usage => {
+    const first = importRkt(xml(`<Ring><Name>Zero wall</Name><UsageCode>${usage}</UsageCode><OD>98</OD><ID>98</ID><Len>10</Len></Ring>`));
+    expect(named(first, 'Zero wall')['thickness']).toBe(0);
+    expect(named(importRkt(exportRkt({ name: first.name, tree: first.tree })), 'Zero wall')['thickness']).toBe(0);
+  });
+  it('S1b-7 round trips a zero-wall launch lug', () => {
+    const first = importRkt(xml('<LaunchLug><Name>Lug</Name><Len>30</Len><OD>5</OD><ID>5</ID></LaunchLug>'));
+    expect(named(first, 'Lug')['thickness']).toBe(0);
+    expect(named(importRkt(exportRkt({ name: first.name, tree: first.tree })), 'Lug')['thickness']).toBe(0);
+  });
+});

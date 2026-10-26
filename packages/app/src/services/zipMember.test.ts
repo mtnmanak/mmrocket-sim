@@ -216,6 +216,27 @@ function zip64Archive(name: string, data: Uint8Array, compressed: Uint8Array, me
 }
 
 describe('the central-directory walk is bounded', () => {
+  it('S1a-g5 reads entry-level ZIP64 without a ZIP64 end record', () => {
+    const data = strToU8('<openrocket/>');
+    const full = zip64Archive('rocket.ork', data, data, 0);
+    const classic = new Uint8Array(full.length - 76);
+    classic.set(full.subarray(0, full.length - 98));
+    classic.set(full.subarray(full.length - 22), classic.length - 22);
+    const end = classic.length - 22;
+    u16(classic, end + 8, 1);
+    u16(classic, end + 10, 1);
+    u32(classic, end + 16, 30 + 'rocket.ork'.length + data.length);
+    expect(unzipMember(classic, '.ork', '.ork')).toEqual(data);
+  });
+
+  it('S1a-g5 refuses ZIP64 values outside their declared subfield', () => {
+    const data = strToU8('<openrocket/>');
+    const file = zip64Archive('rocket.ork', data, data, 0);
+    const cd = centralRecord(file, 'rocket.ork');
+    u16(file, cd + 46 + 'rocket.ork'.length + 2, 5);
+    expect(() => unzipMember(file, '.ork', '.ork')).toThrow(/Not a readable.*truncated zip64/i);
+  });
+
   it('refuses the 98-byte zip64 entry-count bomb at once, with words a user can read', () => {
     // Before: fflate's enumeration trusted the declared 4,294,967,295 and read
     // zeros past the end of a 98-byte buffer for ever — the heap grew ~250 MB/s

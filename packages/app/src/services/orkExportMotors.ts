@@ -5,6 +5,7 @@ import type { ExMotor } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import { refToExportMotor } from './motorMatch.js';
 import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
+import { lookupTable } from './xmlUtil.js';
 
 /**
  * A MOUNT'S MOTOR AS THE .ork WRITER TAKES IT — the one copy of the mapping.
@@ -145,7 +146,7 @@ function padMassOnPrimaryOnly(
   const carries = (m: OrkExportMotor | undefined): boolean => m !== undefined && 'padMassKg' in m;
   const keeper = primary === null || carries(motors[primary]) ? primary
     : Object.keys(motors).find((id) => mountsTie(tree, id, primary) && carries(motors[id])) ?? primary;
-  const out: Record<string, OrkExportMotor> = {};
+  const out = lookupTable<OrkExportMotor>({});
   for (const [id, m] of Object.entries(motors)) {
     if (id !== keeper && 'padMassKg' in m) {
       const { padMassKg: _p, ...rest } = m;
@@ -195,7 +196,7 @@ export interface OrkMotorSetInput {
  */
 export function orkMotorSet(input: OrkMotorSetInput): Record<string, OrkExportMotor> {
   const { records, refs, tree, flown, configKey, exLibrary, first } = input;
-  const motors: Record<string, OrkExportMotor> = {};
+  const motors = lookupTable<OrkExportMotor>({});
   // Motors the import could not resolve ride back out VERBATIM on any mount
   // that still has nothing on it. Without this the file the user saved came
   // out with that mount empty: opening it again in desktop OpenRocket showed

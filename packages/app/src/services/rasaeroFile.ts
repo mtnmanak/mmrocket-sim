@@ -23,6 +23,7 @@ import { axialLength, positionOf } from '../tree/position.js';
 import { isTailCone } from '../tree/tailCone.js';
 import { isAssembly } from '../tree/assembly.js';
 import { ventLimit } from '../tree/canopyVent.js';
+import { MAX_DIMENSION_M } from '../tree/schema.js';
 import {
   isaPressurePa, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, padPressureIssue, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
@@ -888,14 +889,22 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       if ((text(recovery, `:scope > Event${slot}`) ?? 'false').toLowerCase() !== 'true') continue;
       const eventType = text(recovery, `:scope > EventType${slot}`) ?? 'None';
       if (eventType === 'None') continue;
+      const cd = num(recovery, `CD${slot}`, NaN);
       const chute: ComponentNode = {
         type: 'parachute', id: freshId(),
         name: slot === 1 ? 'Drogue' : 'Main',
         diameter: num(recovery, `Size${slot}`, 36) / IN,
-        cd: num(recovery, `CD${slot}`, 0) || undefined,
+        cd: Number.isFinite(cd) && cd !== 0 ? cd : undefined,
         deployEvent: eventType === 'Apogee' ? 'apogee' : 'altitude',
         position: { method: 'top', offset: 0.02 },
       } as ComponentNode;
+      // Deliberately depart from desktop OR 24.12 RecoveryHandler.java:185,
+      // which sets CD literally: real RASAero mains use 0 for an unset Cd.
+      // Flying those as zero drag would remove the main's recovery drag.
+      if (cd === 0) {
+        cautionNote(notes, 'I04.recovery-cd', `The RASAero file gives ${chute.name ?? 'Parachute'} a drag coefficient of 0, which RASAero uses for an unset value; the app uses its automatic Cd of 0.8; enter the canopy's Cd if you know it.`,
+          { part: chute.name });
+      }
       if (eventType === 'Altitude') {
         chute['deployAltitude'] = num(recovery, `Altitude${slot}`, 500) / FT;
       }
@@ -1066,6 +1075,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     { design: 'Booster2Nozzle', sim: 'Booster2NozzleDiameter' },
   ] as const;
   const designNozzleIn = NOZZLE_TAGS.map((t) => Math.max(0, num(design, t.design, 0)));
+  const warnedDesignNozzles = new Set<string>();
   /** Per config id, per stage index: where its nozzle came from — for the ONE note. */
   const nozzleSource = new Map<string, ('sim' | 'design' | null)[]>();
   const carriesNozzle = (sim: XmlElement): boolean => NOZZLE_TAGS.some((t) => num(sim, t.sim, 0) > 0);
@@ -1078,7 +1088,17 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       const simIn = sim ? Math.max(0, num(sim, t.sim, 0)) : 0;
       const designIn = designNozzleIn[stageIdx] ?? 0;
       const inches = simIn > 0 ? simIn : designIn;
-      out[stage.id] = inches > 0 ? inches / IN : null;
+      const diameter = inches / IN;
+      if (diameter > MAX_DIMENSION_M && (simIn > 0 || !warnedDesignNozzles.has(t.design))) {
+        const simNr = simNumbers.get(cfgId) ?? (sim ? sims.indexOf(sim) + 1 : undefined);
+        const where = simIn > 0 ? `simulation ${simNr ?? 1}` : 'the Design tab';
+        const limitIn = MAX_DIMENSION_M * IN;
+        const roundedIn = inches.toFixed(2);
+        const shownIn = Number(roundedIn) > limitIn ? roundedIn : String(inches);
+        cautionNote(notes, 'I04.nozzle-dimension', `<${simIn > 0 ? t.sim : t.design}> in ${where}: nozzle exit diameter ${shownIn} in exceeds the ${limitIn.toFixed(2)} in (${MAX_DIMENSION_M} m) limit; using ${limitIn.toFixed(2)} in. Check it before trusting the flight.`);
+        if (simIn <= 0) warnedDesignNozzles.add(t.design);
+      }
+      out[stage.id] = inches > 0 ? Math.min(diameter, MAX_DIMENSION_M) : null;
       sources.push(simIn > 0 ? 'sim' : designIn > 0 ? 'design' : null);
     }
     nozzleSource.set(cfgId, sources);
@@ -2711,13 +2731,17 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     const vent = c ? ventLimit(c) : null;
     const hole = c ? nnum(c, 'spillHoleDiameter', 0) : 0;
     const ventFactor = vent && hole > 0 ? 1 - (Math.min(hole, vent.maxHole) / vent.diameter) ** 2 : 1;
+    const cdText = fmt(c ? kernelRecoveryCd(c) * ventFactor : 0);
+    if (c && evType !== 'None' && cdText === '0') {
+      notes?.push(`${c.name ?? 'Parachute'}: RASAero writes this drag coefficient as an explicit Cd of 0 after vent adjustment and rounding; it reopens in the app as automatic Cd 0.8, adding parachute drag. Save .ork to keep the intended Cd.`);
+    }
     return {
       altitude: fmt(c && evType === 'Altitude' ? nnum(c, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M) * FT : 0),
       deviceType: c ? 'Parachute' : 'None',
       event: c && evType !== 'None' ? 'True' : 'False',
       size: fmt(c ? nnum(c, 'diameter', KERNEL_CHUTE_DIAMETER_M) * IN : 0),
       eventType: c ? evType : 'None',
-      cd: fmt(c ? kernelRecoveryCd(c) * ventFactor : 0),
+      cd: cdText,
     };
   });
   emit('<Recovery>');

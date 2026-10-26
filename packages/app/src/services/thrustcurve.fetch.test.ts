@@ -120,11 +120,11 @@ describe('isSampleList — the numeric guard both sample paths share', () => {
     // The exact shape a schema change or a partial archive record produces:
     // thrust present, time missing.
     expect(isSampleList([{ thrust: 5 }, { thrust: 7 }])).toBe(false);
-    expect(isSampleList([{ time: '0.1', thrust: 5 }])).toBe(false);
-    expect(isSampleList([{ time: 0.1, thrust: null }])).toBe(false);
+    expect(isSampleList([{ time: 0, thrust: 0 }, { time: '0.1', thrust: 5 }])).toBe(false);
+    expect(isSampleList([{ time: 0, thrust: 0 }, { time: 0.1, thrust: null }])).toBe(false);
     // JSON has no Infinity literal, but JSON.parse('1e999') produces one.
-    expect(isSampleList(JSON.parse('[{"time":0,"thrust":1e999}]'))).toBe(false);
-    expect(isSampleList([{ time: NaN, thrust: 1 }])).toBe(false);
+    expect(isSampleList(JSON.parse('[{"time":0,"thrust":0},{"time":1,"thrust":1e999}]'))).toBe(false);
+    expect(isSampleList([{ time: 0, thrust: 0 }, { time: NaN, thrust: 1 }])).toBe(false);
   });
 });
 
@@ -147,6 +147,16 @@ describe('isHeaderMasses — the one mass test, shared by file and cache', () =>
 
 describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN', () => {
   const BROKEN: TcSimFile = { format: 'RASP', samples: [{ thrust: 5 }, { thrust: 7 }] as TcSample[] };
+
+  it.each([
+    { samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 20_000_000 }], reason: /thrust.*10,000,000 N.*limit/i },
+    { samples: [{ time: 0, thrust: 10 }, { time: 0, thrust: 10 }], reason: /two distinct.*points/i },
+  ])('F5 diagnostic names the numeric curve rejection: $reason', async ({ samples, reason }) => {
+    const tc = await freshModule();
+    stubDownload([{ format: 'RASP', samples }]);
+    await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(reason);
+    expect(localStorage.getItem(CACHE_KEY)).toBeNull();
+  });
 
   it('pickSampleFile skips the damaged file and takes the sound sibling', async () => {
     const { pickSampleFile } = await freshModule();
@@ -233,6 +243,20 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
     const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
     expect(spec.masses.every((m) => Number.isFinite(m))).toBe(true);
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    [{ time: 0, thrust: 10 }],
+    [{ time: 0, thrust: 10 }, { time: 0, thrust: 10 }],
+    [{ time: 0, thrust: 0 }, { time: 1, thrust: 20000000 }],
+  ])('S1c-g3/g5 evicts an unflyable cache entry (%j)', async (...samples) => {
+    const tc = await freshModule();
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples }));
+    stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
+    const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(spec.times.length).toBeGreaterThanOrEqual(2);
+    expect(spec.thrusts.every(f => f <= 10000000)).toBe(true);
+    expect(JSON.parse(localStorage.getItem(CACHE_KEY)!).samples).toEqual(GOOD_SAMPLES);
   });
 });
 

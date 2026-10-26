@@ -84,10 +84,10 @@ export function headerMasses(file) {
   try { text = Buffer.from(file.data, 'base64').toString('utf8'); } catch { return null; }
   const ok = (m) => Number.isFinite(m.totalWeightG) && Number.isFinite(m.propWeightG)
     && m.totalWeightG > 0 && m.propWeightG > 0 && m.propWeightG <= m.totalWeightG;
-  const init = /initWt\s*=\s*"([\d.eE+-]+)"/.exec(text);
-  const prop = /propWt\s*=\s*"([\d.eE+-]+)"/.exec(text);
+  const init = /\binitWt\s*=\s*(["'])([\d.eE+-]+)\1/.exec(text);
+  const prop = /\bpropWt\s*=\s*(["'])([\d.eE+-]+)\1/.exec(text);
   if (init && prop) {
-    const m = { totalWeightG: Number(init[1]), propWeightG: Number(prop[1]) };
+    const m = { totalWeightG: Number(init[2]), propWeightG: Number(prop[2]) };
     if (ok(m)) return m;
   }
   for (const raw of text.split('\n')) {

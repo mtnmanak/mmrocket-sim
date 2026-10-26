@@ -683,6 +683,9 @@ function assertNoPodSetNozzle(tree: RocketTree): void {
  * naming the motor and a design that silently blanks.
  */
 function assertFiniteCurve(motor: MotorSpec): void {
+  if (motor.times.length < 2) {
+    throw new Error(`Motor ${motor.designation}: its thrust curve needs at least two readings; import a corrected .rse/.eng file.`);
+  }
   const bad = (xs: readonly number[]) => !xs.every((n) => Number.isFinite(n));
   if (bad(motor.times) || bad(motor.thrusts) || bad(motor.masses)) {
     throw new Error(
@@ -692,6 +695,12 @@ function assertFiniteCurve(motor: MotorSpec): void {
   }
   if (motor.times.some((t) => t < 0) || motor.thrusts.some((f) => f < 0)) {
     throw new Error(`Motor ${motor.designation}: thrust curve contains negative time or thrust; try another data file for this motor, or import a corrected .rse/.eng file.`);
+  }
+  if (motor.times[0] !== 0) {
+    throw new Error(`Motor ${motor.designation}: its thrust curve must start at t=0 s; import a corrected .rse/.eng file.`);
+  }
+  if (motor.thrusts.some(f => f > 10e6)) {
+    throw new Error(`Motor ${motor.designation}: its thrust curve exceeds the maximum thrust of 10,000,000 N; import a corrected .rse/.eng file.`);
   }
   if (motor.masses.some((m) => m < 0)) {
     throw new Error(

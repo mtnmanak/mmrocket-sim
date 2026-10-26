@@ -20,6 +20,8 @@ describe('headerMasses, the build-time mirror of thrustcurve.ts', () => {
   // trusts them; a bundled curve must yield exactly the masses a live download
   // of the same file would. So each case runs through BOTH copies.
   const cases = [
+    ['S1c-5 single-quoted RockSim attributes', "<engine initWt='100' propWt='50'/>",
+      { totalWeightG: 100, propWeightG: 50 }],
     ['a RASP header, kilograms', '; comment\n\nC6 18 70 3-5-7 0.0125 0.025 Estes\n0.1 5\n',
       { totalWeightG: 25, propWeightG: 12.5 }],
     ['RockSim attributes, grams', '<engine code="K480W" initWt="2059" propWt="1232" mfg="AeroTech">',

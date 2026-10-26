@@ -1905,6 +1905,16 @@ describe('stubby tangent ogives carry the stubby-nose floor', () => {
 });
 
 it.each([
+  { row: 'S1c-g3', patch: { times: [0], thrusts: [0], masses: [0.02] }, reason: /at least two/ },
+  { row: 'S1c-g5', patch: { thrusts: C6_MOTOR.thrusts.map((f, i) => i === 1 ? 20000000 : f) }, reason: /10,000,000 N/ },
+  { row: 'S1c-g6', patch: { times: [0.01, ...C6_MOTOR.times.slice(1)] }, reason: /start at.*0 s/ },
+])('$row names the motor before refusing an unflyable curve', ({ patch, reason }) => {
+  const rocket = OrkRocket.build(REFERENCE_ROCKET);
+  expect(() => rocket.setMotor({ ...C6_MOTOR, ...patch })).toThrow(/Motor C6:/);
+  expect(() => rocket.setMotor({ ...C6_MOTOR, ...patch })).toThrow(reason);
+});
+
+it.each([
   { times: [-0.1, ...C6_MOTOR.times.slice(1)] },
   { thrusts: [0, -0.4, ...C6_MOTOR.thrusts.slice(2)] },
 ])('round2 lane C S1c-5 names the motor and offers another data file for negative curve values (%j)', patch => {

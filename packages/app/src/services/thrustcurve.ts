@@ -12,6 +12,8 @@ import { assertThrustcurveAvailable, recordThrustcurveFailure, thrustcurveFetch,
  */
 /** thrustcurve.org API v1 root — shared with the in-app catalogue check (catalogueOverlay.ts). */
 export const API = 'https://www.thrustcurve.org/api/v1';
+// ThrustCurveMotor.Builder's MAX_THRUST, in newtons (desktop OR 24.12).
+export const MAX_MOTOR_THRUST_N = 10e6;
 
 export interface TcMotor {
   motorId: string;
@@ -191,12 +193,24 @@ export function isHeaderMasses(m: unknown): m is TcHeaderMasses {
  * "cannot be converted to a BigInt" and the whole design blanked.
  */
 export function isSampleList(arr: unknown): arr is TcSample[] {
-  return Array.isArray(arr) && arr.length > 0 && arr.every((s) => {
+  return sampleListProblem(arr) === null;
+}
+
+function sampleListProblem(arr: unknown): string | null {
+  if (!Array.isArray(arr) || arr.length < 2) return 'it has fewer than two distinct time points';
+  if (!arr.every((s) => {
     if (typeof s !== 'object' || s === null) return false;
     const { time, thrust } = s as Record<string, unknown>;
     return typeof time === 'number' && typeof thrust === 'number'
-      && Number.isFinite(time) && Number.isFinite(thrust) && time >= 0 && thrust >= 0;
-  });
+      && Number.isFinite(time) && Number.isFinite(thrust);
+  })) return 'its time or thrust values are not numbers or are not finite';
+  const samples = arr as TcSample[];
+  if (samples.some(p => p.time < 0 || p.thrust < 0)) return 'it has a negative time or thrust value';
+  if (samples.some(p => p.thrust > MAX_MOTOR_THRUST_N)) return 'its thrust exceeds the 10,000,000 N limit';
+  const flown = flownCurve(samples).samples;
+  return flown.length >= 2 && flown[flown.length - 1]!.time > 0
+    && flown.every((p, i) => Number.isFinite(p.time) && (i === 0 || p.time > flown[i - 1]!.time))
+    ? null : 'it needs at least two distinct, increasing time points and a positive duration';
 }
 
 /**
@@ -221,10 +235,10 @@ export function headerMasses(file: TcSimFile): TcHeaderMasses | null {
     return null;
   }
   // RockSim .rse: grams, as attributes on <engine>.
-  const init = /initWt\s*=\s*"([\d.eE+-]+)"/.exec(text);
-  const prop = /propWt\s*=\s*"([\d.eE+-]+)"/.exec(text);
+  const init = /\binitWt\s*=\s*(["'])([\d.eE+-]+)\1/.exec(text);
+  const prop = /\bpropWt\s*=\s*(["'])([\d.eE+-]+)\1/.exec(text);
   if (init && prop) {
-    const masses = { totalWeightG: Number(init[1]), propWeightG: Number(prop[1]) };
+    const masses = { totalWeightG: Number(init[2]), propWeightG: Number(prop[2]) };
     if (isHeaderMasses(masses)) return masses;
   }
   // RASP .eng: the first non-comment, non-blank line is
@@ -344,7 +358,8 @@ export function repairSamples(samples: readonly TcSample[]): RepairedCurve {
   for (let i = 1; i < pts.length; i++) {
     if (pts[i]!.time > pts[i - 1]!.time) continue;
     const at = pts[i]!.time;
-    pts[i] = { ...pts[i]!, time: pts[i - 1]!.time + COINCIDENT_NUDGE };
+    const previous = pts[i - 1]!.time;
+    pts[i] = { ...pts[i]!, time: previous + Math.max(COINCIDENT_NUDGE, previous * Number.EPSILON) };
     const key = String(at);
     collisions.set(key, (collisions.get(key) ?? 0) + 1);
   }
@@ -1366,12 +1381,12 @@ export async function fetchMotorSpec(
     const usual = pickSampleFile(results, motor);
     const file = (digest ? pickDigestFile(results, digest, motor) : null) ?? usual;
     if (!file?.samples) {
-      // pickSampleFile rejects a file whose samples are not finite time/thrust
-      // pairs, so "files came back, none of them usable" is its own case and
-      // deserves its own message — silently flying it produced NaN masses.
-      if (results.some((f) => (f.samples?.length ?? 0) >= 2)) {
-        throw new Error(`thrustcurve.org returned a thrust curve for ${motor.designation} whose `
-          + 'time or thrust values are not numbers, so it cannot be simulated. '
+      // Report the actual problem; numeric curves can exceed the thrust
+      // limit or collapse to too few distinct points.
+      const rejected = results.find(f => (f.samples?.length ?? 0) >= 2);
+      if (rejected) {
+        throw new Error(`thrustcurve.org returned a thrust curve for ${motor.designation} that cannot be simulated: `
+          + `${sampleListProblem(rejected.samples) ?? 'its samples are unusable'}. `
           + 'Pick another motor, or import its .rse/.eng file.');
       }
       // thrustcurve.org answered, and lists nothing to fly: the one failure

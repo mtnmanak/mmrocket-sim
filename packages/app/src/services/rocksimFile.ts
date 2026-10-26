@@ -286,14 +286,24 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const CLOSE = ']]>';
     let rebuilt = '';
     let at = 0;
+    let scan = 0;
     for (;;) {
-      const open = xml.indexOf(OPEN, at);
+      const open = xml.indexOf('<', scan);
       if (open < 0) break;
+      const skip = xml.startsWith('<!--', open) ? '-->' : xml.startsWith('<?', open) ? '?>' : null;
+      if (skip) {
+        const end = xml.indexOf(skip, open + (skip === '-->' ? 4 : 2));
+        if (end < 0) break;
+        scan = end + skip.length;
+        continue;
+      }
+      if (!xml.startsWith(OPEN, open)) { scan = open + 1; continue; }
       const close = xml.indexOf(CLOSE, open + OPEN.length);
       if (close < 0) break;
       rebuilt += xml.slice(at, open) + xml.slice(open + OPEN.length, close)
         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       at = close + CLOSE.length;
+      scan = at;
     }
     xml = rebuilt + xml.slice(at);
   }
@@ -304,6 +314,21 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   if (!design) throw new Error('Not a RockSim design file (missing RocketDesign)');
 
   const notes: string[] = encodingNote ? [encodingNote] : [];
+  // Simulations repeat recovery/child data in comparison keys. Bound that
+  // amplified work as well as the input record count, before retaining keys.
+  let comparisonCharacters = 0;
+  const comparisonText = (value: string): string => {
+    comparisonCharacters += value.length;
+    if (comparisonCharacters > 16 * 1024 * 1024) {
+      throw new Error('This RockSim file exceeds the comparison-data limit (16,777,216 characters). Reduce its simulations or attached parts in RockSim and save it again.');
+    }
+    return value;
+  };
+  const comparisonJson = (value: unknown): string => JSON.stringify(value, (key, item: unknown) => {
+    comparisonText(key);
+    comparisonText(typeof item === 'string' ? item : typeof item === 'number' ? String(item) : '');
+    return item;
+  });
   const ignored = new Set<string>();
   /**
    * Tag → the first raw text under it that is not a number. One entry per tag,
@@ -499,7 +524,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    * was billed at 19.6 g, and the error scales with canopy area.
    *
    * DensityType (RockSimCommonConstants): 0 = bulk (kg/m³, × thickness),
-   * 1 = surface (kg/m², ÷ 0.1), 2 = line (kg/m, × 1 — NOT the surface divisor).
+   * 1 = surface (÷ 0.1); 2 = line (× 1 for cords), treated as surface for fabric.
    */
   const readRecoveryMaterial = (el: XmlElement, node: ComponentNode, kind: 'surface' | 'line') => {
     const densityType = Math.round(num(el, 'DensityType', 0));
@@ -511,7 +536,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       const thickness = num(el, 'Thickness', 0) / LEN;
       if (!(thickness > 0)) return;
       si = density * thickness;
-    } else if (densityType === 2) {
+    } else if (densityType === 2 && kind === 'line') {
       // LINE density: RockSim's kg/m IS OpenRocket's kg/m -
       // ROCKSIM_TO_OPENROCKET_LINE_DENSITY = 1 (RockSimCommonConstants.java:116;
       // BaseHandler.computeDensity divides by it). Until v0.097 this branch took
@@ -813,9 +838,14 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         if (od > 0) {
           n['outerRadius'] = od / RAD;
         }
-        if (type === 'centeringring' && id > 0) n['innerRadius'] = id / RAD;
+        // Desktop OR 24.12 keeps ID 0 automatic: CenteringRing() enables it,
+        // and RadiusRingComponent.setInnerRadius:90-91 returns for unchanged 0.
+        // Keep readable 0 explicit here: our writer resolves automatic bores
+        // instead of emitting ID 0, so a saved solid ring must stay solid.
+        const readableId = Number.isFinite(parseDecimal(text(el, ':scope > ID')));
+        if (type === 'centeringring' && readableId && id >= 0) n['innerRadius'] = id / RAD;
         if ((type === 'engineblock' || type === 'tubecoupler') && od > 0) {
-          n['thickness'] = tubeThickness(el) || 0.001;
+          n['thickness'] = text(el, ':scope > ID') !== null ? tubeThickness(el) : 0.001;
         }
         return n;
       }
@@ -877,12 +907,17 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
               ? [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]]
               : [[0, 0], [sweep, height], [rootChord, 0]];
           }
+          const problem = finOutlineProblem(n['points'] as [number, number][]);
+          if (problem) {
+            n['points'] = KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]);
+            cautionNote(notes, 'I05.fin-outline', `Fin set "${n.name ?? 'freeform'}": its outline was not used — ${problem} The set keeps a default outline; redraw it in the fin editor.`);
+          }
           const note = parent?.type === 'nosecone'
             ? 'Fins on a nose cone were converted to a freeform outline (same planform) — OpenRocket only allows '
               + 'freeform fins on a nose cone.'
             : 'Fins on a transition were converted to a freeform outline (same '
               + 'planform) — desktop OR only allows freeform fins on a transition.';
-          if (!notes.includes(note)) notes.push(note);
+          if (!problem && !notes.includes(note)) notes.push(note);
         } else {
           // The same test the fin editor applies before it commits an outline:
           // at least three points, none repeated, no edge crossing another. A
@@ -962,8 +997,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       case 'LaunchLug': {
         const n = mk('launchlug');
         n['length'] = num(el, 'Len', 50) / LEN;
-        n['outerRadius'] = num(el, 'OD', 5) / RAD;
-        n['thickness'] = tubeThickness(el) || 0.0004;
+        const od = num(el, 'OD', 5);
+        const id = num(el, 'ID', NaN);
+        n['outerRadius'] = od / RAD;
+        n['thickness'] = Number.isFinite(id) && id >= 0 ? Math.max(0, (od - id) / RAD) : 0.0004;
         // Where the lug sits around the body (RockSim RadialAngle, RADIANS —
         // same convention this file already reads for tube fins and pods).
         // Dropped until v0.103, which is why Level 3 Rocket's two lugs, stored
@@ -1007,8 +1044,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           n['packedRadius'] = packed;
           n['packedLength'] = packed;
         }
-        const cd = num(el, 'DragCoefficient', 0);
-        if (cd > 0 && cd !== 0.75) n['cd'] = cd;
+        const cd = num(el, 'DragCoefficient', NaN);
+        if (Number.isFinite(cd) && cd >= 0 && cd !== 0.75) n['cd'] = cd;
         // Zero explicitly means no lines, not the kernel's six-line default
         // (audit 2026-10-11, S1b-5); absent/unreadable counts keep that default.
         const lines = Math.round(num(el, 'ShroudLineCount', NaN));
@@ -1045,8 +1082,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         n['stripLength'] = num(el, 'Len', 500) / LEN;
         n['stripWidth'] = num(el, 'Width', 50) / LEN;
         // 0.75 is RockSim's "auto" default — keep our auto instead of pinning it.
-        const cd = num(el, 'DragCoefficient', 0);
-        if (cd > 0 && cd !== 0.75) n['cd'] = cd;
+        const cd = num(el, 'DragCoefficient', NaN);
+        if (Number.isFinite(cd) && cd >= 0 && cd !== 0.75) n['cd'] = cd;
         readRecoveryMaterial(el, n, 'surface');
         return n;
       }
@@ -1437,8 +1474,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       const v = parseDecimal(raw);
       return Number.isFinite(v) ? String(v) : raw.trim().toLowerCase();
     };
-    return [text(el, ':scope > EngineCode') ?? '', text(el, ':scope > EngineMfg') ?? '',
-      norm('EjectionDelay'), norm('IgnitionDelay')].join('|');
+    return comparisonText([text(el, ':scope > EngineCode') ?? '', text(el, ':scope > EngineMfg') ?? '',
+      norm('EjectionDelay'), norm('IgnitionDelay')].join('|'));
   };
   /**
    * How every simulation loads a group of identical tubes, and whether any two
@@ -1561,7 +1598,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         for (const [el, to] of loads.moves) movedSets.set(el, to);
         const differentOverhang = g.some((t) =>
           Math.abs(nnum2(t, 'motorOverhang') - nnum2(g[0]!, 'motorOverhang')) > 1e-9);
-        const childrenKey = (t: ComponentNode): string => JSON.stringify((t.children ?? []).map(subtreeValue));
+        const childrenKey = (t: ComponentNode): string => comparisonJson((t.children ?? []).map(subtreeValue));
         const differentChildren = new Set(g.map(childrenKey)).size > 1;
         const differentConstruction = g.some((t) =>
           !near(nnum2(t, 'thickness'), nnum2(g[0]!, 'thickness'), 0.01, 5e-5)
@@ -2052,10 +2089,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     // first and a kept unmatched −1 is plugged, so without them a simulation on
     // an explicit 0 s, or on RockSim's −2, would fold into one that is not.
     const deployments = deploymentsFor(g.number === null ? undefined : simulationRecovery[g.number - 1]);
-    const key = (motorLoadoutRefusal ?? '') + JSON.stringify(deployments) + '\n' + entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.delay,
+    const key = comparisonText((motorLoadoutRefusal ?? '') + comparisonJson(deployments) + '\n' + entries.map(([id, r]) => [id, r.designation, r.manufacturer, r.delay,
       r.ignitionEvent ?? '', r.ignitionDelay ?? '', r.autoDelay ? 'auto' : '',
       r.rktEveryDelay ? 'every' : '', /^(26[- _]*E31[- _]+WH[- _]+15A|K700[- _]*BB)$/i.test(r.designation)
-        ? JSON.stringify(r.matchContext) : ''].join('|')).sort().join('\n');
+        ? comparisonJson(r.matchContext) : ''].join('|')).sort().join('\n'));
     const same = seenSets.get(key);
     if (same) {
       // Numbered: the unnumbered loose sets are the first group, so only a
@@ -2776,6 +2813,13 @@ export function exportRkt(input: RktExportInput): string {
   const emit = dryRun ? (): void => undefined : (s: string): void => { lines.push(s); };
   /** A transition's ends as the kernel flies them, automatic ones resolved. */
   const transitionEnds = flownTransitionEnds(tree);
+  // Context for automatic ring bores must see an inner tube's kernel radius
+  // even when the design leaves that dimension blank.
+  const ringNodes = (nodes: ComponentNode[]): ComponentNode[] => nodes.map(n => ({
+    ...n, ...(n.type === 'innertube' ? { outerRadius: kernelNum(n, 'outerRadius') } : {}),
+    ...(n.children ? { children: ringNodes(n.children) } : {}),
+  }));
+  const ringTree = { ...tree, components: ringNodes(tree.components) };
   let serial = 0;
   let baseExtensions = 0;
   /** node id → RockSim SerialNo (links motors back to mounts). */
@@ -3382,7 +3426,7 @@ export function exportRkt(input: RktExportInput): string {
         // and EngineBlockDTO extend it; OD from getOuterRadius). The context
         // gives no bore there, and the fallback read the tube's stated wall
         // instead.
-        const ctx = solidContextFor(tree, node);
+        const ctx = solidContextFor(ringTree, node);
         const solidHost = parent?.type === 'bodytube' && parent['filled'] === true;
         // A tube that states no radius or wall flies the kernel's (a body
         // tube's 12 mm with its 0.3 mm wall), which the context leaves

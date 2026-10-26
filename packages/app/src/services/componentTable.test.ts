@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentInfo, ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { componentCsv, componentTable } from './componentTable.js';
-import { INITIAL_UNITS } from '../prefs/units.js';
+import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 import { importRkt } from './rocksimFile.js';
 
 const tree: RocketTree = {
@@ -31,6 +31,47 @@ const infoFor = (id: string): ComponentInfo | null => (id === 'n' ? {
 const prefs = { units: INITIAL_UNITS, radiusMode: 'diameter' as const };
 
 describe('componentTable', () => {
+  it.each([
+    [INITIAL_UNITS, 680], [{ ...INITIAL_UNITS, density: 'g/cm³' }, 0.68], [IMPERIAL_UNITS, 0.393065],
+  ])('S7c-2 exports bulk density once in the selected units %s', (units, expected) => {
+    const input: RocketTree = { components: [{ type: 'stage', children: [
+      ...(['bodytube', 'launchlug', 'railbutton'] as const).map(type => ({ type, name: type, density: 680 })),
+      { type: 'masscomponent', name: 'Weight', density: 680 },
+      { type: 'parachute', name: 'Chute', density: 680, surfaceDensity: 0.067 },
+    ] }] };
+    const table = componentTable(input, { ...prefs, units });
+    expect(table.headers.filter(h => /density/i.test(h) && !/Surface|Line/.test(h))).toEqual([`Material density (${units.density})`]);
+    const col = table.headers.indexOf(`Material density (${units.density})`);
+    for (const row of table.rows.slice(0, 3)) expect(row[col]).toBeCloseTo(expected, 6);
+    for (const row of table.rows.slice(3)) expect(row[col]).toBe('');
+    for (const type of ['launchlug', 'railbutton'] as const) {
+      const only = componentTable({ components: [{ type: 'stage', children: [{ type, density: 680 }] }] }, { ...prefs, units });
+      expect(only.rows[0]![only.headers.indexOf(`Material density (${units.density})`)]).toBeCloseTo(expected, 6);
+    }
+  });
+
+  it('S7c-2 exports recovery material names and densities with explicit SI units', () => {
+    const input: RocketTree = { components: [{ type: 'stage', children: [
+      { type: 'parachute', name: 'Canopy', surfaceMaterialName: 'Ripstop', surfaceDensity: 0.067,
+        lineMaterialName: 'Kevlar', lineDensity: 0.0012 },
+      { type: 'streamer', name: 'Streamer', surfaceMaterialName: 'Mylar', surfaceDensity: 0.04 },
+      { type: 'shockcord', name: 'Cord', lineMaterialName: 'Elastic', lineDensity: 0.0018 },
+    ] }] };
+    const table = componentTable(input, prefs);
+    const cell = (name: string, col: string) => table.rows.find(r => r[0] === name)![table.headers.indexOf(col)];
+    expect(cell('Canopy', 'Material')).toBe('Ripstop');
+    expect(cell('Canopy', 'Surface material')).toBe('Ripstop');
+    expect(cell('Canopy', 'Surface density (kg/m²)')).toBeCloseTo(0.067, 12);
+    expect(cell('Canopy', 'Line material')).toBe('Kevlar');
+    expect(cell('Canopy', 'Line density (kg/m)')).toBeCloseTo(0.0012, 12);
+    expect(cell('Streamer', 'Material')).toBe('Mylar');
+    expect(cell('Streamer', 'Line material')).toBe('');
+    expect(cell('Cord', 'Material')).toBe('Elastic');
+    expect(cell('Cord', 'Line density (kg/m)')).toBeCloseTo(0.0018, 12);
+    const csv = componentCsv(table);
+    for (const text of ['Ripstop', 'Kevlar', 'Mylar', 'Elastic', 'Surface density (kg/m²)', 'Line density (kg/m)']) expect(csv).toContain(text);
+  });
+
   it('N032 labels component deployment and separation heights with Altitude', () => {
     const input: RocketTree = { name: 'Heights', components: [{ type: 'parallelstage', name: 'Booster',
       separationEvent: 'altitudedescending', separationAltitude: 304.8,

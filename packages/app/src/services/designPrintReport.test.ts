@@ -26,6 +26,37 @@ const run = { id: 'selected', rocket: 'Earlier design', motor: 'F40', manufactur
 const input = { tree, info, units: IMPERIAL_UNITS, radiusMode: 'diameter' as const,
   stabilityUnit: 'both' as const, withMotors: true, appVersion: 'test', run, changedSince: ['the design'], };
 function doc(html: string) { return new DOMParser().parseFromString(html, 'text/html').body; }
+it.each([
+  [INITIAL_UNITS, 'Material density (kg/m³): 680'],
+  [{ ...INITIAL_UNITS, density: 'g/cm³' }, 'Material density (g/cm³): 0.68'],
+  [IMPERIAL_UNITS, 'Material density (oz/in³): 0.393065'],
+])('S7c-2 prints bulk density in the selected units %s', (units, expected) => {
+  const tree: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', density: 680 }] }] };
+  const d = doc(designPrintHtml({ ...input, tree, units }));
+  expect(d.querySelector('tbody tr')!.querySelectorAll('td')[1]!.textContent).toContain(expected);
+  expect(d.textContent).not.toContain('Bulk density');
+});
+
+it.each([undefined, 0.0038])('S7c-2 keeps same-named canopy and shroud materials (line density %s)', lineDensity => {
+  const tree: RocketTree = { components: [{ type: 'stage', children: [
+    { type: 'parachute', surfaceMaterialName: 'Nylon', lineMaterialName: 'Nylon', lineDensity },
+    { type: 'shockcord', lineMaterialName: 'Nylon', lineDensity },
+  ] }] };
+  const d = doc(designPrintHtml({ ...input, tree }));
+  const cells = [...d.querySelectorAll('tbody tr')].map(row => row.querySelectorAll('td')[1]!.textContent);
+  expect(cells[0]).toContain('Line material: Nylon');
+  expect(cells[1]).not.toContain('Line material: Nylon');
+});
+
+it('S7c-2 prints canopy and line materials with their distinct density units', () => {
+  const recoveryTree: RocketTree = { components: [{ type: 'stage', children: [
+    { type: 'parachute', name: 'Canopy', surfaceMaterialName: 'Ripstop', surfaceDensity: 0.067,
+      lineMaterialName: 'Kevlar', lineDensity: 0.0012 },
+    { type: 'shockcord', name: 'Cord', lineMaterialName: 'Elastic', lineDensity: 0.0018 },
+  ] }] };
+  const d = doc(designPrintHtml({ ...input, tree: recoveryTree }));
+  for (const text of ['Ripstop', 'Kevlar', 'Elastic', 'kg/m²', 'kg/m']) expect(d.textContent).toContain(text);
+});
 
 it.each([
   [INITIAL_UNITS, '15.0 m/s'], [IMPERIAL_UNITS, '49.2 ft/s'],
