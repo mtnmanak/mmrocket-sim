@@ -95,13 +95,15 @@ it('refuses aggregate bytes before reading the selection', async () => {
   expect(out.error).toMatch(/selection.*limit/i);
 });
 
-it('imports the first 1000 motor files by path, ignores txt and reports the skipped count', async () => {
+// .txt is a motor file (RockSim XML is often named so; exMotors.laneAudit.test.ts imports one), so the
+// non-motor file a folder carries is a PDF here.
+it('imports the first 1000 motor files by path, ignores non-motor files and reports the skipped count', async () => {
   const files = Array.from({ length: 1002 }, (_, i) => {
     const file = new File([`E${i} 29 100 P 0.05 0.1 Home\n0 0\n1 20\n2 0`], `${i}.eng`);
     Object.defineProperty(file, 'webkitRelativePath', { value: `folder/${String(i).padStart(4, '0')}.eng` });
     return file;
   }).reverse();
-  const txt = new File(['ignored'], '0000.txt');
+  const txt = new File(['ignored'], '0000.pdf');
   Object.defineProperty(txt, 'size', { value: 32 * 1024 * 1024 });
   const out = await importMotorFiles([txt, ...files]);
   expect(out.parsed).toHaveLength(1000);
