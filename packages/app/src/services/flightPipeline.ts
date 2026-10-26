@@ -38,7 +38,8 @@ export type AeroMode = 'classic' | 'supersonic' | 'auto' | 'hybrid';
  * stage (a strap-on booster), whose branch carries the parallelstage node's own
  * name. Keyed by the name the branch will actually have, so a strap-on booster
  * neither misses its warning nor overwrites its host stage's entry. Motors are
- * grouped by stage identity; namesakes contribute only facts they all share.
+ * grouped by stage identity; labels require agreement across namesakes, while
+ * any high-power namesake keeps the safety warning.
  */
 export function stageMotorInfo(
   tree: RocketTree,
@@ -85,14 +86,16 @@ export function stageMotorInfo(
     }
   }
   for (const [stage, info] of byStage) {
-    // The kernel reports names without ids. Keep only facts true for every
-    // namesake, including stages with no assigned motor.
+    // The kernel reports names without ids. Labels require every namesake to
+    // agree, including motorless stages. Safety comes first for high power:
+    // a lower-power namesake may get a conservative recovery warning.
     const namesakes = branchStages.filter(s => s.name === stage.name);
     const sameLabel = namesakes.every(s => byStage.get(s)?.label === info.label);
-    const samePower = namesakes.every(s => byStage.get(s)?.highPower === info.highPower);
-    if (sameLabel || samePower) out[stage.name!] = {
+    const highPower = namesakes.some(s => byStage.get(s)?.highPower === true);
+    const knownPower = highPower || namesakes.every(s => byStage.get(s)?.highPower === false);
+    if (sameLabel || knownPower) out[stage.name!] = {
       ...(sameLabel ? { label: info.label } : {}),
-      ...(samePower ? { highPower: info.highPower } : {}),
+      ...(knownPower ? { highPower } : {}),
     };
   }
   return out;

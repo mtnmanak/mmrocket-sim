@@ -49,16 +49,21 @@ describe('stageMotorInfo', () => {
     expect(stageMotorInfo(tree, [['m1', motor('H128-0', true)], ['m2', motor(secondLabel, true)]], stages(tree)))
       .toEqual({ 'Strap-on booster': expected });
   });
-  it('omits ambiguous names instead of merging motors on different stages', () => {
+  it.each([true, false])('keeps the high-power safety flag with a low-power namesake assigned: %s', assignedNamesake => {
     const tree: RocketTree = { components: [
       stage('s0', 'Sustainer', [mount('m0')]),
       stage('s1', 'Booster', [mount('m1')]),
       stage('s2', 'Booster', [mount('m2')]),
     ] };
-    expect(stageMotorInfo(tree, [['m1', motor('H128', true)], ['m2', motor('D12', false)]], stages(tree)))
-      .toEqual({});
-    // Even an empty namesake makes attribution by branch name ambiguous.
-    expect(stageMotorInfo(tree, [['m1', motor('H128', true)]], stages(tree))).toEqual({});
+    const assigned: [string, MountMotor][] = [['m1', motor('H128', true)]];
+    if (assignedNamesake) assigned.push(['m2', motor('D12', false)]);
+    // Even a motorless namesake makes the label ambiguous, but not safety.
+    for (const order of [assigned, [...assigned].reverse()]) {
+      expect(stageMotorInfo(tree, order, stages(tree))).toEqual({ Booster: { highPower: true } });
+    }
+    expect(stageMotorInfo(tree, [['m1', motor('D12', false)], ['m2', motor('C6', false)]], stages(tree)))
+      .toEqual({ Booster: { highPower: false } });
+    expect(stageMotorInfo(tree, [['m1', motor('D12', false)]], stages(tree))).toEqual({});
   });
   it('keeps namesake attribution conservative across a projected serial tree and strap-on', () => {
     const tree: RocketTree = { components: [
@@ -71,8 +76,9 @@ describe('stageMotorInfo', () => {
     ], stages(tree))).toEqual({ Booster: { highPower: true } });
     expect(stageMotorInfo(flightTree, [
       ['m0', motor('H128-0', true)], ['m1', motor('D12-0', false)],
-    ], stages(tree))).toEqual({});
-    expect(stageMotorInfo(flightTree, [['m0', motor('H128-0', true)]], stages(tree))).toEqual({});
+    ], stages(tree))).toEqual({ Booster: { highPower: true } });
+    expect(stageMotorInfo(flightTree, [['m0', motor('H128-0', true)]], stages(tree)))
+      .toEqual({ Booster: { highPower: true } });
   });
   it('names a branch after the serial stage its mount lives in', () => {
     const tree: RocketTree = {

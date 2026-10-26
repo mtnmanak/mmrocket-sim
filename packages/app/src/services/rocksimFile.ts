@@ -840,10 +840,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         }
         // Desktop OR 24.12 keeps ID 0 automatic: CenteringRing() enables it,
         // and RadiusRingComponent.setInnerRadius:90-91 returns for unchanged 0.
-        // Keep readable 0 explicit here: our writer resolves automatic bores
-        // instead of emitting ID 0, so a saved solid ring must stay solid.
+        // Preserve that convention for existing files; only a positive,
+        // readable ID fixes the hole size. Solid rings need an export notice.
         const readableId = Number.isFinite(parseDecimal(text(el, ':scope > ID')));
-        if (type === 'centeringring' && readableId && id >= 0) n['innerRadius'] = id / RAD;
+        if (type === 'centeringring' && readableId && id > 0) n['innerRadius'] = id / RAD;
         if ((type === 'engineblock' || type === 'tubecoupler') && od > 0) {
           n['thickness'] = text(el, ':scope > ID') !== null ? tubeThickness(el) : 0.001;
         }
@@ -3441,6 +3441,11 @@ export function exportRkt(input: RktExportInput): string {
         const id = node.type === 'bulkhead' ? 0
           : node.type === 'centeringring' ? nnum(node, 'innerRadius', Math.min(ctx.mountOuterRadius ?? 0, od))
           : nnum(node, 'innerRadius', Math.max(0, od - kernelNum(node, 'thickness')));
+        if (node.type === 'centeringring' && usage === 0 && numOpt(node, 'innerRadius') === 0) {
+          notes?.push(`“${node.name ?? 'Centering ring'}”: a solid centering ring is saved with inside diameter 0, `
+            + 'which RockSim files use for an automatic hole; it reopens with a hole sized to the motor tube. '
+            + 'Save as .ork to keep it solid.');
+        }
         emit(`<ID>${id * RAD}</ID>`);
         emit(`<Len>${kernelNum(node, 'length') * LEN}</Len>`);
         emit(`<UsageCode>${usage}</UsageCode>`);

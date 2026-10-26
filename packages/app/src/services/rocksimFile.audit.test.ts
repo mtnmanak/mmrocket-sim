@@ -51,22 +51,34 @@ describe('RockSim audit regressions', () => {
     expect(named(importRkt(xml(`<${tag}><Name>Recovery</Name></${tag}>`)), 'Recovery')['cd']).toBeUndefined();
   });
 
-  it('S1b-3 round trips a solid centering ring beside an overlapping motor tube', () => {
-    const first = importRkt(xml(`<Ring><Name>Solid ring</Name><UsageCode>0</UsageCode><OD>98</OD><ID>0</ID><Len>2</Len></Ring>
+  it('S1b-3 imports ID 0 as an automatic hole beside an overlapping motor tube', () => {
+    const first = importRkt(xml(`<Ring><Name>Automatic ring</Name><UsageCode>0</UsageCode><OD>98</OD><ID>0</ID><Len>2</Len></Ring>
       <BodyTube><Name>Motor tube</Name><OD>30</OD><ID>28</ID><Len>100</Len><IsInsideTube>1</IsInsideTube></BodyTube>`));
-    expect(named(first, 'Solid ring')['innerRadius']).toBe(0);
+    const ring = named(first, 'Automatic ring');
+    expect(ring['innerRadius']).toBeUndefined();
     resetEngine();
-    const ring = named(first, 'Solid ring');
-    const discMass = OrkRocket.buildTree(engineTree(first.tree)).componentInfo(ring.id!).mass;
-    const automatic = structuredClone(first.tree);
-    delete all(automatic.components).find(n => n.id === ring.id)!['innerRadius'];
-    resetEngine();
-    const boredMass = OrkRocket.buildTree(engineTree(automatic)).componentInfo(ring.id!).mass;
-    expect(discMass - boredMass).toBeCloseTo(Math.PI * 0.015 ** 2 * 0.002 * 680, 12);
+    expect(OrkRocket.buildTree(engineTree(first.tree)).componentInfo(ring.id!).mass)
+      .toBeCloseTo(Math.PI * (0.049 ** 2 - 0.015 ** 2) * 0.002 * 680, 12);
     const saved = exportRkt({ name: first.name, tree: first.tree });
-    expect(named(importRkt(saved), 'Solid ring')['innerRadius']).toBe(0);
+    expect(named(importRkt(saved), 'Automatic ring')['innerRadius']).toBeCloseTo(0.015, 12);
     const absent = importRkt(xml('<Ring><Name>Automatic ring</Name><OD>98</OD></Ring>'));
     expect(named(absent, 'Automatic ring')['innerRadius']).toBeUndefined();
+  });
+
+  it('S1b-3 discloses that an explicitly solid centering ring reopens automatic', () => {
+    const first = importRkt(xml(`<Ring><Name>Solid ring</Name><UsageCode>0</UsageCode><OD>98</OD><ID>30</ID><Len>2</Len></Ring>
+      <BodyTube><Name>Motor tube</Name><OD>30</OD><ID>28</ID><Len>100</Len><IsInsideTube>1</IsInsideTube></BodyTube>`));
+    named(first, 'Solid ring')['innerRadius'] = 0;
+    const notes: string[] = [];
+    const saved = exportRkt({ name: first.name, tree: first.tree, notes });
+    expect(notes.join('\n')).toMatch(/Solid ring.*solid centering ring.*inside diameter 0.*automatic hole/);
+    expect(notes.join('\n')).toContain('reopens with a hole sized to the motor tube. Save as .ork to keep it solid.');
+    const reopened = importRkt(saved);
+    const ring = named(reopened, 'Solid ring');
+    expect(ring['innerRadius']).toBeUndefined();
+    resetEngine();
+    expect(OrkRocket.buildTree(engineTree(reopened.tree)).componentInfo(ring.id!).mass)
+      .toBeCloseTo(Math.PI * (0.049 ** 2 - 0.015 ** 2) * 0.002 * 680, 12);
   });
 
   it.each(['<!-- example <![CDATA[ -->', '<!--> <![CDATA[ -->', '<!---> <![CDATA[ -->',

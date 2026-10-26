@@ -619,19 +619,21 @@ describe('buildSimRun — staged branches (Release C)', () => {
     expect(run.branches![0]!.safeLandingRate).toBe(false);
   });
 
-  it('warns for both same-name high-power boosters even when their motor labels differ', () => {
+  it.each([true, false])('warns for same-name chuteless boosters when the second is high power: %s', secondHighPower => {
     const input = stagedInput(false, true);
     input.result.branches!.push(structuredClone(input.result.branches![1]!));
     const tree: RocketTree = { components: [{ type: 'stage', id: 's', name: 'Sustainer', children: [
       { type: 'parallelstage', id: 'p1', name: 'Booster', children: [{ type: 'innertube', id: 'm1' }] },
       { type: 'parallelstage', id: 'p2', name: 'Booster', children: [{ type: 'innertube', id: 'm2' }] },
     ] }] };
-    const assigned: [string, MountMotor][] = ['m1', 'm2'].map((id, i) => [id, {
-      label: `H${128 + i}-0`, spec: motor, meta: { label: `H${128 + i}-0`, highPower: true },
+    const assigned: [string, MountMotor][] = ['H128-0', secondHighPower ? 'I600-0' : 'D12-0'].map((label, i) => [`m${i + 1}`, {
+      label, spec: motor, meta: { label, highPower: i === 0 || secondHighPower },
       ignition: { event: 'automatic', delay: 0 },
     }]);
     const run = buildSimRun({ ...input, stageMotorInfo: stageMotorInfo(tree, assigned, stages(tree)) });
-    expect(run.comments.match(/Booster has NO recovery device/g)).toHaveLength(2);
+    const warnings = commentsOf(run).filter(c => c.text.includes('Booster has NO recovery device'));
+    expect(warnings).toHaveLength(2);
+    expect(warnings.every(c => c.level === 'warning' && c.text.includes('must recover actively'))).toBe(true);
     expect(run.branches!.map(b => b.motorLabel)).toEqual([undefined, undefined]);
   });
 

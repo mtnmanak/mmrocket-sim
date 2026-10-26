@@ -7,6 +7,22 @@ import { exportRkt } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 
 describe('lossy fix regressions', () => {
+  it('S1b-3 previews the solid centering ring hole loss before saving', () => {
+    const ring: ComponentNode = { type: 'centeringring', name: 'Solid ring', innerRadius: 0 };
+    const d = input(ring);
+    const report = checkFormatLoss('rkt', d);
+    expect(report.refused).toBeNull();
+    expect(report.losses.join('\n')).toMatch(/Solid ring.*solid centering ring.*inside diameter 0.*automatic hole/);
+    expect(report.losses.join('\n')).toContain('reopens with a hole sized to the motor tube. Save as .ork to keep it solid.');
+    for (const radius of [undefined, 0.015]) {
+      ring['innerRadius'] = radius;
+      expect(line('rkt', d, 'solid centering ring')).toBe(false);
+    }
+    ring['innerRadius'] = 0; ring['holedBulkhead'] = true;
+    expect(line('rkt', d, 'solid centering ring')).toBe(false);
+    ring.type = 'bulkhead';
+    expect(line('rkt', d, 'solid centering ring')).toBe(false);
+  });
   it.each(['constructor', 'toString', '__proto__'])('S1d-6 does not invent inner parts from type %s', type => {
     const report = checkFormatLoss('cdx1', input({ type } as ComponentNode));
     expect(report.losses.join('\n')).not.toContain('Inner parts (');
