@@ -38,7 +38,7 @@ import {
 import { parseXml, preflightXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 import type { FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
 import type { LayeredOrkFlightConfig, LayeredOrkImportResult } from './orkFile.js';
-import { resolveFlightState, sparsify } from './flightState.js';
+import { overrideFor, resolveFlightState, sparsify } from './flightState.js';
 import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 
@@ -2132,7 +2132,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   // CDX1 can carry only the effective recovery, not its separate own setting.
   // Disclose the lost layer even for one configuration (audit 2026-10-11, FC-3).
   for (const chute of cdx1Chutes(tree)) {
-    const override = chute.id ? overrides.deployments?.[chute.id] : undefined;
+    const override = chute.id ? overrideFor(overrides.deployments, chute.id) : undefined;
     if (override && sparsify(deploymentTuple(chute), override)) {
       notes?.push(`“${chute.name ?? 'Parachute'}”: the parachute's own setting is not kept; the file carries the configuration's.`);
     }
@@ -2164,7 +2164,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     let motorCount = 0;
     const seek = (nodes: ComponentNode[]) => {
       for (const n of nodes) {
-        if (n.id && motors[n.id]) {
+        if (n.id && Object.hasOwn(motors, n.id) && motors[n.id]) {
           found ??= motors[n.id];
           motorCount += mountMotorCount(tree, n.id);
         }

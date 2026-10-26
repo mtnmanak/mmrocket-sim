@@ -5,6 +5,7 @@ import {
 import {
   applyStageNozzles, clearStageNozzles, engineTree, findNode, isOnLaunchStage, mountMotorCount, motorMounts, stageIdByNode,
   stagesWithRecoveryDevice,
+  stageRecoveryById,
   type ClusterSplit,
 } from '../tree/treeModel.js';
 import { equivalentExitDiameterM } from './nozzleFollow.js';
@@ -539,6 +540,7 @@ export async function runBatchSweep(
   // Which stages carry a parachute or streamer, for the report's "never opened" (K3); a cluster split
   // renames no stage and moves no recovery part, so the editing tree answers for every candidate.
   const recoveryStages = stagesWithRecoveryDevice(tree);
+  const recoveryByStage = stageRecoveryById(tree);
   const stageNameOfTarget = tree.components
     .find((st) => st.id === stageIdOfTarget)?.name ?? 'Sustainer';
   const handlePool = (base: RocketTree, exclude: string[]) => {
@@ -784,6 +786,7 @@ export async function runBatchSweep(
         // OFF has no nozzle effects to stamp (audit 2026-10-11, S7a-1).
         ...(exitM !== null && exitM > 0 ? { nozzleStages: [stageNameOfTarget] } : {}),
         recoveryStages,
+        recoveryByStage,
         ...(comboActive ? { motorConfig: 'single' } : {}),
         designKey: provenance.designKey,
         motorSetKey: provenance.motorSetKey,
@@ -928,6 +931,7 @@ export async function runBatchSweep(
           rogersKbf: f.rogersKbf,
           ...(exitM !== null ? { nozzleStages: [stageNameOfTarget] } : {}),
           recoveryStages,
+          recoveryByStage,
           motorConfig: configTag,
           designKey: provenance.designKey,
           motorSetKey: provenance.motorSetKey,

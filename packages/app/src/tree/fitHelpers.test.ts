@@ -9,6 +9,61 @@ import { finTabFit, shoulderFit } from './fitHelpers.js';
 const node = (o: Record<string, unknown>) => o as unknown as ComponentNode;
 
 describe('finTabFit', () => {
+  it.each(['rounded', 'airfoil'])('refuses a %s tab through an offset tube with the kernel default radius', crossSection => {
+    const fin = node({ type: 'freeformfinset', crossSection, finCount: 1,
+      points: [[0, 0], [0.04, 0.05], [0.1, 0]] });
+    const obstacle = node({ type: 'innertube', length: 0.3, radialPosition: 0.06 });
+    const mount = node({ type: 'innertube', outerRadius: 0.045, length: 0.3, motorMount: true });
+    const parent = node({ type: 'bodytube', length: 0.3, outerRadius: 0.075, children: [mount, obstacle, fin] });
+    expect(finTabFit(fin, parent)).toBeNull();
+    obstacle['outerRadius'] = 0.0095; // ComponentFactory's inner-tube default (kernelDefaults.ts).
+    expect(finTabFit(fin, parent)).toBeNull();
+    obstacle['radialDirection'] = Math.PI / 2;
+    expect(finTabFit(fin, parent)?.depth).toBeCloseTo(0.03, 12);
+  });
+  it.each(['rounded', 'airfoil'])('refuses a %s tab intersecting a tube inside an automatic coupler', crossSection => {
+    const fin = node({ type: 'freeformfinset', crossSection, finCount: 1,
+      points: [[0, 0], [0.04, 0.05], [0.1, 0]] });
+    const mount = node({ type: 'innertube', outerRadius: 0.05065, length: 0.3, motorMount: true });
+    const coupler = node({ type: 'tubecoupler', length: 0.3, children: [
+      { type: 'innertube', length: 0.3, outerRadius: 0.003175, radialPosition: 0.06 },
+    ] });
+    expect(finTabFit(fin, node({ type: 'bodytube', length: 0.3, outerRadius: 0.06985,
+      children: [mount, coupler, fin] }))).toBeNull();
+  });
+  it.each((['rounded', 'airfoil'] as const).flatMap(section => (['innertube', 'tubecoupler'] as const)
+    .map(holderType => [section, holderType] as const)))(
+    'refuses a %s tab intersecting a protruding child of a nonoverlapping %s', (crossSection, type) => {
+      const fin = node({ type: 'freeformfinset', crossSection, finCount: 1,
+        points: [[0, 0], [0.04, 0.05], [0.1, 0]], position: { method: 'top', offset: 0.2 } });
+      const holder = node({ type, outerRadius: 0.01, length: 0.1, position: { method: 'top', offset: 0 },
+        children: [{ type: 'innertube', outerRadius: 0.003175, length: 0.2, radialPosition: 0.06,
+          position: { method: 'top', offset: 0.15 } }] });
+      const mount = node({ type: 'innertube', outerRadius: 0.05065, length: 0.4, motorMount: true });
+      expect(finTabFit(fin, node({ type: 'bodytube', outerRadius: 0.06985, length: 0.4,
+        children: [holder, mount, fin] }))).toBeNull();
+    });
+  it.each(['rounded', 'airfoil'])('refuses a canted %s tab intersecting an offset rod', crossSection => {
+    const fin = node({ type: 'freeformfinset', crossSection, finCount: 1, cant: Math.PI / 12,
+      points: [[0, 0], [0.04, 0.05], [0.1, 0]], position: { method: 'top', offset: 0 } });
+    const rods = node({ type: 'innertube', outerRadius: 0.003175, length: 0.3,
+      radialPosition: Math.hypot(0.06, 0.008), radialDirection: Math.atan2(0.008, 0.06) });
+    const mount = node({ type: 'innertube', outerRadius: 0.05065, length: 0.3, motorMount: true });
+    const parent = node({ type: 'bodytube', outerRadius: 0.06985, length: 0.3, children: [rods, mount, fin] });
+    expect(finTabFit(fin, parent)).toBeNull();
+    fin['cant'] = 0;
+    expect(finTabFit(fin, parent)?.depth).toBeCloseTo(0.0192, 12);
+  });
+  it.each(['rounded', 'airfoil'])('refuses a %s tab passing through an unflagged rod cluster', crossSection => {
+    const fin = node({ type: 'freeformfinset', crossSection, points: [[0, 0], [0.04, 0.05], [0.1, 0]] });
+    const rods = node({ type: 'innertube', outerRadius: 0.003175, length: 0.3,
+      cluster: '3-ring', clusterScale: 16.28, clusterRotation: Math.PI / 2 });
+    const mount = node({ type: 'innertube', outerRadius: 0.05065, length: 0.3, motorMount: true });
+    const parent = node({ type: 'bodytube', outerRadius: 0.06985, length: 0.3, children: [rods, mount, fin] });
+    expect(finTabFit(fin, parent)).toBeNull();
+    mount['motorMount'] = false;
+    expect(finTabFit(fin, parent)).toBeNull();
+  });
   it.each(['rounded', 'airfoil'])('ignores structural rod clusters beside %s fins', crossSection => {
     const fin = node({ type: 'freeformfinset', crossSection, points: [[0, 0], [0.04, 0.05], [0.1, 0]] });
     const rods = node({ type: 'innertube', outerRadius: 0.003175, length: 0.3,

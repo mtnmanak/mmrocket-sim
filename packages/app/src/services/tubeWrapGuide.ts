@@ -8,6 +8,7 @@ import { fmtSi, type UnitSelection } from '../prefs/units.js';
 import type { FinTemplateBackground } from './finTemplate.js';
 import { escapeXml } from './xmlUtil.js';
 import { tubeHoleMarks, TUBE_HOLE_ADVICE, type TubeHoleMark } from '../tree/tubeHoles.js';
+import { hasSurfaceSize, isFinSet } from '../tree/mountAngle.js';
 
 export const WRAP_FINS: ReadonlySet<string> = new Set(['trapezoidfinset', 'ellipticalfinset', 'freeformfinset']);
 
@@ -52,6 +53,7 @@ export function tubeWrapGeometry(tree: RocketTree, tube: ComponentNode): TubeWra
     }
     const isFin = WRAP_FINS.has(child.type);
     if (!isFin && child.type !== 'launchlug' && child.type !== 'railbutton') continue;
+    if (isFin ? !isFinSet(child, tube) : !hasSurfaceSize(child)) continue;
     if (child.type === 'freeformfinset' && child['points'] == null) {
       child = { ...child, points: KERNEL_DEFAULT_FIN_POINTS.map(p => [...p]) };
     }
@@ -129,7 +131,8 @@ export function tubeWrapPages(
   const rulerCaption = inches ? '2 in' : dim(0.05);
   const pages: TubeWrapPage[] = [];
   const f = (v: number) => v.toFixed(4);
-  const clockKey = (line: TubeWrapLine) => f(line.x * 1000);
+  const markKeyFor = (v: number) => v.toFixed(9);
+  const clockKey = (line: TubeWrapLine) => markKeyFor(line.x * 1000);
   const finClocks = new Set(guide.lines.filter(line => line.kind === 'fin').map(clockKey));
   const labels = new Map<string, string[]>();
   for (const line of guide.lines) {
@@ -288,7 +291,7 @@ export function tubeWrapPages(
         const copies = [lx - circumference, lx, lx + circumference];
         for (const cx of copies) {
           if (cx >= x && cx <= endX) {
-            const markKey = f(cx);
+            const markKey = markKeyFor(cx);
             if (!drawnMarks.has(markKey)) {
               svg.push(`<line class="marking-line" x1="${f(cx)}" y1="${f(y)}" x2="${f(cx)}" y2="${f(endY)}"${!finClocks.has(clockKey(line)) ? ' stroke-dasharray="3 2"' : ''}/>`);
             }

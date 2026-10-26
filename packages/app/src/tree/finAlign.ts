@@ -3,6 +3,8 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, drawnSpan, positionOf, startFromPosition } from './position.js';
 import { updateNode } from './treeModel.js';
 import { num } from './nodeNum.js';
+import { isFinSet } from './mountAngle.js';
+import { resolveTransitionRadii } from './transitionRadii.js';
 
 /**
  * One-click fin-set alignment (issue 2026-08-05e): rotates axially-overlapping
@@ -95,16 +97,21 @@ export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
   const visit = (parentNode: ComponentNode) => {
     if (limited) return;
     const kids = parentNode.children ?? [];
-    const finSets = kids.filter((k) => k.type.endsWith('finset'));
+    const finSets = kids.filter((k) => isFinSet(k, parentNode));
     if (finSets.length >= 2) {
       // The kernel's length, as the stations it is compared with are built
       // from — a cleared tube is its type's default, not 0.2 m.
       const pLen = axialLength(parentNode);
+      const ranges = finSets.map(f => finSetSpan(f, pLen));
 
       for (let i = 1; i < finSets.length; i++) {
         const me = finSets[i]!;
-        const myRange = finSetSpan(me, pLen);
-        const others = finSets.slice(0, i).filter((o) => spansOverlap(finSetSpan(o, pLen), myRange));
+        const myRange = ranges[i]!;
+        const others: ComponentNode[] = [];
+        for (let j = 0; j < i; j++) {
+          if (++comparisons > MAX_FIN_ALIGN_COMPARISONS) { limited = true; return; }
+          if (spansOverlap(ranges[j]!, myRange)) others.push(finSets[j]!);
+        }
         if (!others.length || !me.id) continue;
 
         // Grid-search this set's rotation over one of its own pitches for
@@ -147,7 +154,7 @@ export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
     for (const k of kids) visit(k);
   };
 
-  for (const top of tree.components) visit(top);
+  for (const top of resolveTransitionRadii(tree).components) visit(top);
 
   if (limited) return { tree, changes: [], caution:
     'Too many overlapping fin sets to auto-align in one step. Nothing was rotated. Adjust their rotations individually and check fin clearance before flying.' };

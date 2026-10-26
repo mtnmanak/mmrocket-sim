@@ -42,6 +42,16 @@ describe('lossy fix regressions', () => {
       lowerTube: { designation: 'G80', manufacturer: 'AeroTech', diameter: 0.029, length: 0.1, delay: 5 } };
     return d;
   };
+  it.each(['constructor', 'toString', '__proto__'])('keeps a supported booster nozzle beside id %s', id => {
+    const d = staged();
+    const booster = d.tree.components[1]!;
+    booster.id = id;
+    booster['nozzleExitDiameter'] = 0.01;
+    const report = checkFormatLoss('cdx1', d);
+    expect(report.refused).toBeNull();
+    expect(report.losses.join(' ')).not.toMatch(/Booster nozzle.*not kept/);
+    expect(report.losses.join(' ')).not.toContain('Motor “undefined”');
+  });
   it.each([undefined, 'automatic'] as const)('V1 warns about %s upper ignition and plugged lower motors', event => {
     const d = staged(); d.motors.b!.ignitionEvent = event;
     expect(checkFormatLoss('cdx1', d).losses.join('\n')).toContain('Motor “G80” lights on the burnout of the stage below in the .CDX1, not on its ejection charge');

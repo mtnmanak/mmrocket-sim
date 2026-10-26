@@ -3,6 +3,7 @@ import type { SavedConfig } from '../model/design.js';
 import { num } from '../tree/nodeNum.js';
 import { captureTreeStageMass } from './stageMassOverrides.js';
 import { lookupTable } from './xmlUtil.js';
+import { boundedNozzleDiameter } from '../tree/nozzles.js';
 
 export const MAX_ORK_CONFIGURATIONS = 256;
 export const MAX_CONFIG_NAME_LENGTH = 100;
@@ -59,7 +60,7 @@ export function snapshotLoadedConfig<M>(
           separationDelay: num(node, 'separationDelay', 0), separationAltitude: num(node, 'separationAltitude', 200),
         };
         const d = node['nozzleExitDiameter'];
-        if (includesNode(options.nozzles, node.id)) nozzles[node.id] = typeof d === 'number' && Number.isFinite(d) && d >= 0 ? d : null;
+        if (includesNode(options.nozzles, node.id)) nozzles[node.id] = boundedNozzleDiameter(d);
       }
       visit(node.children ?? []);
     }

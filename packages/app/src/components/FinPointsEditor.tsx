@@ -188,11 +188,15 @@ export function FinPointsEditor({ points, onChange }: {
    */
   const commit = (next: FinPoint[]): boolean => {
     const problem = outlineProblem(next);
-    if (problem && (!committedProblem || (finOutlineProblem(next) && !finOutlineProblem(committed)))) {
+    const excess = (pts: FinPoint[]) => [0, 1].map(axis => pts
+      .map(p => Math.max(0, p[axis]! - pts[0]![axis]! - 2.5)).sort((a, b) => b - a));
+    const before = excess(committed);
+    const worsensLimit = excess(next).some((values, axis) => values.some((v, i) => v > (before[axis]![i] ?? 0)));
+    if (problem && (!committedProblem || worsensLimit || (finOutlineProblem(next) && !finOutlineProblem(committed)))) {
       setRefused(problem);
       return false;
     }
-    setRefused(problem);
+    setRefused(null);
     emittedPoints.current = next;
     onChange(next);
     return true;
@@ -559,9 +563,9 @@ export function FinPointsEditor({ points, onChange }: {
       {/* The status token, not the hard-coded red this line had (audit
           2026-09-22): on the default dark theme's panel that red was 2.95:1;
           the token is 5.57:1 there, and AA in light and Daylight too. */}
-      {refused && (
+      {(refused || shownProblem) && (
         <p role="alert" style={{ fontSize: 11, color: 'var(--status-serious)', margin: '6px 0 0' }}>
-          {refused}{committedProblem ? '' : ' The fin is unchanged.'}
+          {refused ?? shownProblem}{refused !== null ? ' The fin is unchanged.' : ''}
         </p>
       )}
       <p id={helpId} style={{ fontSize: 11, color: 'var(--text-muted)', margin: '6px 0 0' }}>

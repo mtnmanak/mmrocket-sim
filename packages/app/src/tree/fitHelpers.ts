@@ -4,7 +4,10 @@ import { num, numOrNull } from './nodeNum.js';
 import { applyFieldLimit, fieldLimit } from './schema.js';
 import { isTailCone } from './tailCone.js';
 import { kernelNum } from './kernelDefaults.js';
-import { clusterCount, clusterOffsets } from './cluster.js';
+import { clusterCount } from './cluster.js';
+import { innerTubeSections } from './tubeLayout.js';
+import { finCountOf } from './counts.js';
+import { finTabFront } from './finTab.js';
 
 /**
  * The property panel's two one-shot FIT buttons — "Fit tab to motor tube" and
@@ -111,37 +114,65 @@ function mountRadiusAlongside(parent: ComponentNode, fin: ComponentNode): number
     return [start, start + len];
   };
   const holdsMount = (n: ComponentNode): boolean => (n.children ?? [])
-    .some((c) => c.type === 'innertube' && (c['motorMount'] === true || holdsMount(c)));
+    .some((c) => (c.type === 'innertube' || c.type === 'tubecoupler') && (c['motorMount'] === true || holdsMount(c)));
   // Conservative radial bound in the containing tube's frame, including any
   // descendants. A contained offset mount cannot change the holder's exterior.
-  const radialReach = (n: ComponentNode): number => {
-    const r = kernelNum(n, 'outerRadius');
-    const offsets = clusterOffsets(n['cluster'] as string | undefined, r, num(n, 'clusterScale', 1));
-    const displacement = Math.abs(num(n, 'radialPosition', 0)) + Math.max(...offsets.map(p => Math.hypot(p.y, p.z)));
-    return displacement + Math.max(r, ...(n.children ?? []).filter(c => c.type === 'innertube').map(radialReach));
-  };
   const [finFore, finAft] = span(fin);
+  const obstacles: ReturnType<typeof innerTubeSections> = [];
   let widestMotor: number | null = null;
   let widest: number | null = null;
   for (const tube of parent.children ?? []) {
-    if (tube.type !== 'innertube') continue;
-    const r = numOrNull(tube, 'outerRadius');
-    if (r === null) continue;
+    if (tube.type !== 'innertube' && tube.type !== 'tubecoupler') continue;
     const [fore, aft] = span(tube);
     const alongside = (fore >= finFore && fore < finAft) || (aft > finFore && aft <= finAft)
       || (fore <= finFore && aft >= finAft);
-    if (!alongside) continue;
     const isMount = tube['motorMount'] === true || holdsMount(tube);
+    const sections = innerTubeSections(tube, pLen).filter(s => s.end > finFore && s.start < finAft);
+    if (!alongside || tube.type === 'tubecoupler') {
+      if (sections.length && isMount) return undefined;
+      obstacles.push(...sections);
+      continue;
+    }
+    const r = numOrNull(tube, 'outerRadius');
+    if (r === null) { obstacles.push(...sections); continue; }
     // The tab contacts this tube's exterior, not the mounts inside its holder.
     if (num(tube, 'radialPosition', 0) !== 0 || clusterCount(tube['cluster'] as string | undefined) > 1
-      || (tube.children ?? []).some(c => c.type === 'innertube' && radialReach(c) > r)) {
+      || sections.some(s => Math.hypot(s.y, s.z) + s.r > r + 1e-9)) {
       if (isMount) return undefined;
+      obstacles.push(...sections);
       continue;
     }
     widest = Math.max(widest ?? r, r);
     if (isMount) widestMotor = Math.max(widestMotor ?? r, r);
   }
-  return widestMotor ?? widest;
+  const selected = widestMotor ?? widest;
+  if (selected !== null) {
+    const outer = num(parent, 'outerRadius', 0);
+    const root = axialLength(fin), half = root / 2;
+    const tabLength = num(fin, 'tabLength', 0) > 0 ? num(fin, 'tabLength', 0) : root * NEW_TAB_FRACTION;
+    const tab = { ...fin, tabLength,
+      ...(typeof fin['tabOffsetMethod'] === 'string' ? {} : { tabOffsetMethod: 'middle', tabOffset: 0 }) };
+    const tabFront = Math.max(0, finTabFront(tab, root));
+    const tabAft = Math.min(root, finTabFront(tab, root) + tabLength);
+    const cant = Math.max(-Math.PI / 12, Math.min(Math.PI / 12, num(fin, 'cant', 0)));
+    const c = Math.cos(cant), tangent = Math.tan(cant);
+    const count = finCountOf(fin);
+    for (let i = 0; i < count; i++) {
+      const angle = num(fin, 'rotation', 0) + 2 * Math.PI * i / count;
+      for (const s of obstacles) {
+        const fore = Math.max(s.start, finFore + half + (tabFront - half) * c);
+        const aft = Math.min(s.end, finFore + half + (tabAft - half) * c);
+        if (aft <= fore) continue;
+        const along = s.y * Math.cos(angle) + s.z * Math.sin(angle);
+        const across = s.z * Math.cos(angle) - s.y * Math.sin(angle);
+        const z0 = -(fore - finFore - half) * tangent, z1 = -(aft - finFore - half) * tangent;
+        const nearestAcross = Math.min(Math.max(z0, z1), Math.max(Math.min(z0, z1), across));
+        const nearest = Math.min(outer, Math.max(selected, along));
+        if (Math.hypot(along - nearest, across - nearestAcross) < s.r + kernelNum(fin, 'thickness') / (2 * c)) return undefined;
+      }
+    }
+  }
+  return selected;
 }
 
 export interface ShoulderFit {

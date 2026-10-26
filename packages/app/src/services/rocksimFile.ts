@@ -17,6 +17,7 @@ import { foldDeployEvent } from '../tree/deployEvent.js';
 import { finRootChord, finTabFront } from '../tree/finTab.js';
 import { finCountOf } from '../tree/counts.js';
 import { spansOverlap } from '../tree/finAlign.js';
+import { isFinSet } from '../tree/mountAngle.js';
 import { axialLength, positionOf, startFromPosition } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml as esc, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
@@ -40,7 +41,7 @@ import { SITE_ALTITUDE_M_RANGE } from './atmosphere.js';
 import { checkFileLongitude, fileLongitudeNote } from './longitudeCheck.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple } from '../model/design.js';
 import type { LayeredOrkFlightConfig, LayeredOrkImportResult } from './orkFile.js';
-import { sparsify } from './flightState.js';
+import { overrideFor, sparsify } from './flightState.js';
 import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { refuseOversizedForeignXml } from './foreignPartPrecount.js';
@@ -1698,7 +1699,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const deCollideFins = (nodes: ComponentNode[]) => {
     for (const parentNode of nodes) {
       const kids = parentNode.children ?? [];
-      const finSets = kids.filter((k) => k.type.endsWith('finset'));
+      const finSets = kids.filter((k) => isFinSet(k, parentNode));
       if (finSets.length >= 2) {
         const pLen = axialLength(parentNode);
         // v0.145's span, HELD (2026-10-01): from the kernel station to the
@@ -1716,10 +1717,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           return [start, start + extent];
         };
         const rotOf = (k: ComponentNode) => nnum(k, 'rotation', 0);
+        const ranges = finSets.map(range);
         for (let i = 1; i < finSets.length; i++) {
           const me = finSets[i]!;
-          const clash = finSets.slice(0, i).find((other) =>
-            Math.abs(rotOf(other) - rotOf(me)) < 1e-6 && spansOverlap(range(other), range(me)));
+          const clash = finSets.slice(0, i).find((other, j) =>
+            Math.abs(rotOf(other) - rotOf(me)) < 1e-6 && spansOverlap(ranges[j]!, ranges[i]!));
           if (clash) {
             // The count that is DRAWN AND FLOWN (finCountOf, 1..8): this pass
             // runs before sanitizeTree clamps the stored one, and the raw count
@@ -2734,7 +2736,7 @@ export function rktComponentInfo(
   tree: RocketTree,
   componentInfo: (id: string) => { mass: number; cgX: number; positionX: number },
 ): Record<string, RktPartInfo> {
-  const out: Record<string, RktPartInfo> = {};
+  const out: Record<string, RktPartInfo> = lookupTable({});
   const collect = (nodes: ComponentNode[]) => {
     for (const n of nodes) {
       if (n.id) {
@@ -2831,8 +2833,10 @@ export function exportRkt(input: RktExportInput): string {
     emit(`<${wrapper}>`);
     // Preserve canonical no-override text; when layers differ only differing
     // devices need a simulation event (audit 2026-10-11, FC-3).
-    const differs = (node: ComponentNode) => node.id && overrides.deployments?.[node.id]
-      ? sparsify(deploymentTuple(node), overrides.deployments[node.id]!) : undefined;
+    const differs = (node: ComponentNode) => {
+      const override = node.id ? overrideFor(overrides.deployments, node.id) : undefined;
+      return override ? sparsify(deploymentTuple(node), override) : undefined;
+    };
     const sparse = resolved && recoveryCopies.some(({ node }) => differs(node));
     for (const { node, serial } of recoveryCopies) {
       const override = differs(node);
@@ -3000,7 +3004,7 @@ export function exportRkt(input: RktExportInput): string {
         : 1;
     m *= per;
     mx *= per;
-    const info = node.id ? compInfo?.[node.id] : undefined;
+    const info = node.id ? overrideFor(compInfo, node.id) : undefined;
     // Not in the kernel's rocket: nothing of its own weighs there.
     if (!info) return { m, mx };
     if (info.positionX === undefined) return undefined;
@@ -3032,7 +3036,7 @@ export function exportRkt(input: RktExportInput): string {
    */
   const massAt = (node: ComponentNode): number | undefined => {
     if (numOpt(node, 'overrideMass') === undefined || numOpt(node, 'overrideCGX') !== undefined) return undefined;
-    const front = node.id ? compInfo?.[node.id]?.positionX : undefined;
+    const front = node.id ? overrideFor(compInfo, node.id)?.positionX : undefined;
     if (front === undefined) return undefined;
     let m = 0;
     let mx = 0;
@@ -3075,7 +3079,7 @@ export function exportRkt(input: RktExportInput): string {
     const cgMoves = cgOv !== undefined && (massOv !== undefined || stage['overrideSubcomponentsCG'] === true);
     if (massOv === undefined && !cgMoves) return undefined;
     const s = structureOf(stage);
-    const front = stage.id ? compInfo?.[stage.id]?.positionX : undefined;
+    const front = stage.id ? overrideFor(compInfo, stage.id)?.positionX : undefined;
     if (s && front !== undefined && s.m > 0) {
       return { massG: s.m * MASS, cgMm: cgMoves ? (s.mx / s.m - front) * LEN : 0 };
     }
@@ -3146,7 +3150,7 @@ export function exportRkt(input: RktExportInput): string {
     const massOv = numOpt(node, 'overrideMass');
     const cgOv = numOpt(node, 'overrideCGX');
     const override = massOv !== undefined || cgOv !== undefined;
-    const info = node.id ? compInfo?.[node.id] : undefined;
+    const info = node.id ? overrideFor(compInfo, node.id) : undefined;
     // BOTH values are always real whenever either override exists: the
     // overridden one verbatim, the other from the computed component info. A 0
     // in the un-overridden field is the data error the compInfo map exists to
@@ -3666,7 +3670,7 @@ export function exportRkt(input: RktExportInput): string {
         const shroudLen = nnum(node, 'length', 0.08);
         common(node, parent, `${node.name ?? 'Camera shroud'} (mass only)`, {
           knownMass: nnum(node, 'mass', 0.03) * MASS, useKnownCG: true,
-          point: { cg: (node.id ? compInfo?.[node.id]?.cgX : undefined) ?? shroudLen / 2, length: shroudLen },
+          point: { cg: (node.id ? overrideFor(compInfo, node.id)?.cgX : undefined) ?? shroudLen / 2, length: shroudLen },
         });
         emit('<TypeCode>0</TypeCode>');
         emit(`<Len>${shroudLen * LEN}</Len>`);
@@ -3689,7 +3693,7 @@ export function exportRkt(input: RktExportInput): string {
         // would say it is.
         const bodyLen = nnum(node, 'length', 0.02);
         const cg = numOpt(node, 'overrideCGX')
-          ?? (node.id ? compInfo?.[node.id]?.cgX : undefined) ?? bodyLen / 2;
+          ?? (node.id ? overrideFor(compInfo, node.id)?.cgX : undefined) ?? bodyLen / 2;
         common(node, parent, 'Mass', {
           knownMass: massKg * MASS, useKnownCG: true, point: { cg, length: bodyLen },
         });
@@ -3796,8 +3800,10 @@ export function exportRkt(input: RktExportInput): string {
       return nodes.some((n) => n.id === id || inStage(n.children ?? []));
     })(stagesIn[i]!.children ?? []))));
   const hasMotors = stageMotors.some((s) => s.length > 0);
-  if (!hasMotors && recoveryCopies.some(({ node }) => node.id && overrides.deployments?.[node.id]
-      && sparsify(deploymentTuple(node), overrides.deployments[node.id]!))) {
+  if (!hasMotors && recoveryCopies.some(({ node }) => {
+    const override = node.id ? overrideFor(overrides.deployments, node.id) : undefined;
+    return override && sparsify(deploymentTuple(node), override);
+  })) {
     // A recovery-only SimulationResults block is not verified with RockSim.
     // The shared dry-run writer also supplies this loss to the pre-save preview.
     notes?.push('Recovery overrides are not saved in a motorless .rkt; it reopens with the recovery devices\' own settings. Save as .ork to keep the overrides.');

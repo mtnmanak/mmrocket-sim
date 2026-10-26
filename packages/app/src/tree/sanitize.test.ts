@@ -4,7 +4,32 @@ import {
   explainBuildFailure, limitPatch, partBlockingBuild, sanitizeTree, separationEventOrDefault, treeProblems,
 } from './sanitize.js';
 import { defaultTree, engineTree, normalizeTree } from './treeModel.js';
-import { noteFlags } from '../services/importNotes.js';
+import { noteFlags, tierLines } from '../services/importNotes.js';
+
+it.each(['centeringring', 'tubecoupler', 'bulkhead', 'bodytube'] as const)(
+  'removes JSON-overflow radii from %s with a repair note', type => {
+    const notes: string[] = [];
+    const raw = JSON.parse('{"outerRadius":1e999,"innerRadius":-1e999}');
+    const fixed = sanitizeTree({ components: [{ type, ...raw }] }, notes);
+    expect(fixed.components[0]!['outerRadius']).toBeUndefined();
+    expect(fixed.components[0]!['innerRadius']).toBeUndefined();
+    expect(notes.join(' ')).toMatch(/radius.*could not be read/i);
+    expect(treeProblems(fixed)).toEqual([]);
+  });
+
+it.each(['rounded', 'airfoil'])('keeps an origin-only %s outline informational after importer sanitization', crossSection => {
+  const input: RocketTree = { components: [{ type: 'stage', id: 's', children: [
+    { type: 'freeformfinset', id: 'f', name: 'Fins', crossSection,
+      points: [[0.01, 0], [0.03, 0.03], [0.07, 0]] },
+  ] }] };
+  const notes: string[] = [];
+  expect(treeProblems(input)).toEqual([]);
+  const fixed = normalizeTree(sanitizeTree(input, notes), notes);
+  expect(notes).toHaveLength(1);
+  expect(notes[0]).toContain('its points were moved to the origin to match desktop OR');
+  expect(tierLines(notes, noteFlags(notes))[0]?.tier).toBe('information');
+  expect(fixed.components[0]!.children![0]!['points']).toEqual([[0, 0], [0.03 - 0.01, 0.03], [0.07 - 0.01, 0]]);
+});
 import {
   FIELDS, fieldLimit, KERNEL_MAX_FINS, MAX_ASSEMBLY_INSTANCES, MAX_DIMENSION_M,
   MAX_SHROUD_LINES, MIN_POSITIVE_DIMENSION_M, MAX_BULK_DENSITY, type EditorComponentType,
@@ -29,6 +54,30 @@ const rocket = (kids: Record<string, unknown>[], extraStages: Record<string, unk
 }) as unknown as RocketTree;
 
 const kid = (tree: RocketTree, i = 0): ComponentNode => tree.components[0]!.children![1]!.children![i]!;
+
+it.each(['rounded', 'airfoil'])('loads an unchanged dense %s outline with linear coordinate reads', crossSection => {
+  let reads = 0;
+  const points = Array.from({ length: 512 }, (_, i) => {
+    const x = i * 0.0001, y = i === 0 || i === 511 ? 0 : 0.02;
+    return Object.defineProperties([x, y], {
+      0: { get: () => { reads++; return x; } },
+      1: { get: () => { reads++; return y; } },
+    });
+  });
+  const notes: string[] = [];
+  const fixed = normalizeTree(rocket([{ type: 'freeformfinset', crossSection, points }]), notes);
+  // Allow shape repair and both sanitize passes, but not segment-pair checks.
+  expect(reads).toBeLessThan(points.length * 100);
+  expect(kid(fixed)['points']).toBe(points);
+  expect(notes).toEqual([]);
+});
+
+it.each([Infinity, -Infinity])('repairs an overflowed JSON position %s', offset => {
+  const notes: string[] = [];
+  const fixed = normalizeTree(rocket([{ type: 'masscomponent', position: { method: 'top', offset } }]), notes);
+  expect(Number.isFinite(kid(fixed).position!.offset)).toBe(true);
+  expect(notes.join(' ')).toMatch(/position/);
+});
 
 it.each([{ method: 'absolute' }, { method: 'absolute', offset: 'bad' }])(
   'repairs unreadable absolute offsets before converting position %j', position => {

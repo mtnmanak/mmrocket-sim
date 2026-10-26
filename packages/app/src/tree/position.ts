@@ -96,7 +96,8 @@ export function drawnSpan(n: ComponentNode): [number, number] {
   if (n.type === 'freeformfinset') {
     const pts = (n['points'] as [number, number][] | undefined) ?? [];
     if (!pts.length) return [0, 0.05];
-    const xs = pts.map((p) => p[0]);
+    const xs = pts.filter(p => Array.isArray(p) && Number.isFinite(p[0])).map(p => p[0]);
+    if (!xs.length) return [0, 0];
     return [Math.min(...xs), Math.max(...xs)];
   }
   if (n.type === 'trapezoidfinset') {

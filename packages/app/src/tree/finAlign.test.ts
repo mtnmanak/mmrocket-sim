@@ -24,6 +24,18 @@ const straight = (params: Record<string, unknown> = {}): ComponentNode => ({
   position: { method: 'bottom', offset: 0 }, ...params,
 } as ComponentNode);
 
+it.each(['rounded', 'airfoil'].flatMap(crossSection => [
+  { type: 'trapezoidfinset', height: 0 },
+  { type: 'trapezoidfinset', rootChord: 0, tipChord: 0 },
+  { type: 'freeformfinset', points: [[0, 0], [0.03, 0], [0.06, 0]] },
+  { type: 'freeformfinset', points: [[0, 0], [0.03, 0.03], [0.06, 0]], thickness: 0 },
+].map(fields => ({ crossSection, ...fields }))))('ignores a collapsed set during alignment %j', fields => {
+  const input = tree([straight({ id: 'phantom', ...fields }), straight()]);
+  const aligned = autoAlignFinSets(input);
+  expect(aligned.changes).toEqual([]);
+  expect(aligned.tree).toBe(input);
+});
+
 describe('autoAlignFinSets (issue 2026-08-05e: one-click interleave)', () => {
   it('E3 leaves the whole design alone when alignment exceeds its work budget', () => {
     const input = tree(Array.from({ length: 60 }, (_, i) => straight({ id: `f${i}`, finCount: 8 })));

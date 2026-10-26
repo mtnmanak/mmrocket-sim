@@ -164,6 +164,13 @@ describe('closure lane persisted records', () => {
     expect(recovery.ork).toBe(false);
     expect(recovery.data).toBe(raw);
   });
+it('repairs oversized saved nozzle diameters before a configuration switch', async () => {
+  const { MAX_DIMENSION_M } = await import('../tree/schema.js');
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), nozzleModeVersion: 1,
+    savedConfigs: [{ id: 'B', motors: {}, nozzles: { s: MAX_DIMENSION_M * 2 } }] }));
+  const s = loadSession()!;
+  expect(s.savedConfigs![0]!.nozzles!.s).toBe(MAX_DIMENSION_M);
+  expect(s.treeRestoreNotes?.join(' ')).toContain('Saved configuration No motors:');
 });
 
 it('bounds saved and restored session warnings', () => {

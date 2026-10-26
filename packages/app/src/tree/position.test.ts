@@ -7,6 +7,10 @@ import {
   startFromPosition,
 } from './position.js';
 import { POSITIONABLE } from './schema.js';
+
+it('ignores malformed freeform rows when finding the drawn span', () => {
+  expect(drawnSpan({ type: 'freeformfinset', points: [[0, 0], null, [0.05, 0]] })).toEqual([0, 0.05]);
+});
 import { engineTree, findNode, makeNode } from './treeModel.js';
 
 /**

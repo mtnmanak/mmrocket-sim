@@ -1,3 +1,4 @@
+import { overrideFor } from '../services/flightState.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { lookupTable } from '../services/xmlUtil.js';
@@ -252,7 +253,7 @@ export function aftLayout(
         const rd = num(child, 'radialDirection', 0) + frameRoll;
         const oy = rp * Math.cos(rd);
         const oz = rp * Math.sin(rd);
-        const motor = child.id ? motors?.[child.id] : undefined;
+        const motor = child.id ? overrideFor(motors, child.id) : undefined;
         for (const off of offs) {
           inner.push({
             key: keyFor(child), kind: 'circle', y: cy + oy + off.y, z: cz + oz + off.z, r,
@@ -271,15 +272,18 @@ export function aftLayout(
           walkChildren(child, r, cy + oy + off.y, cz + oz + off.z, axialStart(child, len, pStart, pLen), len, undefined, frameRoll);
         }
       } else if (t === 'tubecoupler' || t === 'centeringring' || t === 'engineblock' || t === 'bulkhead') {
-        const r = Math.min(pRadius * 0.98, num(child, 'outerRadius', pRadius * 0.95));
+        const len = axialLength(child), start = axialStart(child, len, pStart, pLen);
+        const surface = mount ?? flatMount(pRadius, pLen);
+        const r = t === 'tubecoupler' ? num(child, 'outerRadius', parent['filled'] === true ? 0 : Math.max(0,
+          Math.min(surface.radiusAt(start - pStart), surface.radiusAt(start - pStart + len)) - kernelNum(parent, 'thickness')))
+          : Math.min(pRadius * 0.98, num(child, 'outerRadius', pRadius * 0.95));
         inner.push({
           key: keyFor(child), kind: 'circle', y: cy, z: cz, r,
           fill: 'none', stroke: colorOf(child, '#9a978f'), dash: '2 3',
           title: child.name ?? t,
         });
         if (t === 'tubecoupler') {
-          const len = axialLength(child);
-          walkChildren(child, r, cy, cz, axialStart(child, len, pStart, pLen), len, undefined, frameRoll);
+          walkChildren(child, r, cy, cz, start, len, undefined, frameRoll);
         }
       }
       // parachute/streamer/shockcord/mass: no meaningful cross-section here.
@@ -327,7 +331,7 @@ export function aftLayout(
         // Body-tube mounts (minimum/sub-minimum builds) draw their motor too —
         // previously only inner tubes did.
         if (n.type === 'bodytube' && n['motorMount'] === true) {
-          const motor = n.id ? motors?.[n.id] : undefined;
+          const motor = n.id ? overrideFor(motors, n.id) : undefined;
           if (motor) {
             inner.push({
               key: keyFor(n, ':motor'), kind: 'circle', y: cy, z: cz, r: motor.diameter / 2,

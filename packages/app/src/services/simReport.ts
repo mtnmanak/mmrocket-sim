@@ -1,7 +1,7 @@
 import type { RecordedFlightOverride } from './flightOverrideSummary.js';
 import { shroudWarningFilter } from './shroudWarnings.js';
 import { stageMotorInfo as motorInfoOf } from './flightPipeline.js';
-import { stages, stagesWithRecoveryDevice } from '../tree/treeModel.js';
+import { stageRecoveryById, stages } from '../tree/treeModel.js';
 // Reports and live alerts share the Mach policy (audit 2026-10-11, S7a-7).
 import { MACH_AUTO_THRESHOLD } from './machProbe.js';
 import { storedWarnings } from './storedWarnings.js';
@@ -2065,6 +2065,7 @@ export function buildSimRun(input: {
    * opened is not reported as having none (K3). Absent: not known.
    */
   recoveryStages?: readonly string[];
+  recoveryByStage?: Readonly<Record<string, boolean>>;
   /**
    * Names of the stages that flew BOTH a nozzle exit diameter above zero and a
    * motor that can burn (`motorisedStagesWithNozzle`). Present so the report
@@ -2208,12 +2209,16 @@ export function buildSimRun(input: {
   // Booster branches (staged flights): each separated stage flies its OWN
   // descent — apogee, recovery (or tumble), and landing verdict per stage.
   const branches: BranchReport[] = [];
-  const recoveryStageIds = input.advisoryTree ? new Set(stagesWithRecoveryDevice(input.advisoryTree, true)) : undefined;
+  const recoveryById = input.recoveryByStage ?? (input.advisoryTree ? stageRecoveryById(input.advisoryTree) : undefined);
   const motorsByStageId = input.advisoryTree && input.advisoryMotors
     ? motorInfoOf(input.advisoryTree, [...input.advisoryMotors].map(([id, mm]) => [id, mm]), stages(input.advisoryTree), true) : undefined;
   for (const b of boosterBranches(result)) {
     const stageId = b.events.find(e => e.type === 'STAGE_SEPARATION')?.sourceId;
     const facts = stageId && motorsByStageId ? motorsByStageId[stageId] : stageMotorInfo?.[b.name];
+    const recoveryStageId = b.events.find(e => e.type === 'STAGE_SEPARATION' && e.sourceId
+      && recoveryById && Object.hasOwn(recoveryById, e.sourceId))?.sourceId;
+    const recoveryFitted = recoveryStageId !== undefined ? recoveryById![recoveryStageId]
+      : recoveryStages ? recoveryStages.includes(b.name) : undefined;
     const alt = b.series.altitude.filter((v): v is number => v !== null && Number.isFinite(v));
     const groundEv = b.events.find((e) => e.type === 'GROUND_HIT');
     const vHit = groundEv ? at(b.series.time, b.series.velocity, groundEv.time) : null;
@@ -2237,8 +2242,7 @@ export function buildSimRun(input: {
       // judging its arrival on ground speed charged the wind against it too.
       landingRate: bLanding,
       safeLandingRate: bLanding === null ? null : bLanding <= SAFETY.maxLandingRate,
-      ...(stageId && recoveryStageIds ? { recoveryFitted: recoveryStageIds.has(stageId) }
-        : recoveryStages ? { recoveryFitted: recoveryStages.includes(b.name) } : {}),
+      ...(recoveryFitted !== undefined ? { recoveryFitted } : {}),
     });
   }
   const landingRaw = tGround === null ? null : Number.isFinite(summary.groundHitVelocity)

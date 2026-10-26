@@ -3,7 +3,7 @@ import { sanitizeDesignProvenance } from '../services/designProvenance.js';
 import { sanitizeDocumentMaterials } from '../services/documentMaterials.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { finOutlineProblem, type FinOutlinePoint } from './finOutline.js';
+import { finOutlineProblem, kernelFinPoints, type FinOutlinePoint } from './finOutline.js';
 import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
 import { num } from './nodeNum.js';
 import { clusterCount } from './cluster.js';
@@ -148,6 +148,25 @@ const ENUM_LABEL: Record<string, string> = {
 function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
   let next: ComponentNode | null = null;
   const edit = (): ComponentNode => (next ??= { ...n });
+  if (n.type === 'freeformfinset' && Array.isArray(n['points'])) {
+    const points = n['points'] as FinOutlinePoint[];
+    const readable = points.every(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));
+    const placed = readable ? kernelFinPoints(points) : points;
+    const [x0, y0] = readable ? points[0] ?? [0, 0] : [0, 0];
+    const move = x0 * x0 + y0 * y0 > 1e-12;
+    // Origin-only translations retain repairTreeShape's Information note.
+    if (readable && placed.some((p, i) => p[0] !== points[i]![0] - (move ? x0 : 0)
+      || p[1] !== points[i]![1] - (move ? y0 : 0)) && !finOutlineProblem(points)) {
+      // setPoints' two-axis snap is not idempotent. Storing its first pass
+      // would make the next build move the fin again, or refuse it entirely.
+      const stable = kernelFinPoints(placed).every((p, i) => p[0] === placed[i]![0] && p[1] === placed[i]![1]);
+      const safe = stable && !finOutlineProblem(placed);
+      if (safe) edit()['points'] = placed;
+      found.push({ problem: `${partName(n)}: the simulator adjusts the fin outline at its origin or 2.5 m limit`,
+        repair: safe ? 'set to the outline actually flown; check the fin shape before flying'
+          : 'original coordinates kept to preserve the simulated fin; drawing and simulator differ. Reduce the outline below 2.5 m before flying or cutting it' });
+    }
+  }
   if ((n.type as string) === 'tubehole') {
     for (const [key, fallback] of Object.entries(TUBE_HOLE_DEFAULTS)) {
       const raw = n[key];
@@ -157,10 +176,16 @@ function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
       }
     }
   }
-  for (const [key, raw] of Object.entries(n)) {
+  for (const [key, raw] of Object.entries(next ?? n)) {
     if (typeof raw !== 'number') continue;
     const limit = fieldLimit(n.type, key);
     if (!limit) continue;
+    if (raw === Infinity || raw === -Infinity) {
+      delete edit()[key];
+      found.push({ problem: `${partName(n)}: ${fieldLabel(n.type, key, limit.label)} could not be read`,
+        repair: 'set to its automatic or starting value; check the part before flying or cutting it' });
+      continue;
+    }
     const fixed = applyFieldLimit(limit, raw);
     // NaN cannot be clamped and must not produce a repair (audit 2026-10-11, S4a-6).
     if (!Number.isFinite(raw) || fixed === raw) continue;
@@ -170,7 +195,8 @@ function sanitizeOwn(n: ComponentNode, found: Finding[]): ComponentNode {
   const pos = n.position;
   if (pos !== undefined && (!pos || typeof pos !== 'object' || Array.isArray(pos)
       // eslint-disable-next-line no-restricted-syntax -- shape repair for non-numeric offsets; NaN retains the existing unrepairable-number path
-      || !['top', 'middle', 'bottom', 'absolute'].includes(pos.method) || typeof pos.offset !== 'number')) {
+      || !['top', 'middle', 'bottom', 'absolute'].includes(pos.method) || typeof pos.offset !== 'number'
+      || pos.offset === Infinity || pos.offset === -Infinity)) {
     const method = pos && ['top', 'middle', 'bottom', 'absolute'].includes(pos.method) ? pos.method : 'top';
     edit().position = { method, offset: 0 };
     found.push({ problem: `${partName(n)}: position could not be read`, repair: 'set to offset 0 m' });

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { OrkRocket, resetEngine, type ComponentNode } from '@online-openrocket/engine';
-import { importRkt } from './rocksimFile.js';
+import { exportRkt, importRkt } from './rocksimFile.js';
 import { engineTree } from '../tree/treeModel.js';
 
 /**
@@ -36,6 +36,19 @@ const RKT = `<RockSimDocument><DesignInformation><RocketDesign>
 </RocketDesign></DesignInformation></RockSimDocument>`;
 
 const flatten = (ns: ComponentNode[]): ComponentNode[] => ns.flatMap((n) => [n, ...flatten(n.children ?? [])]);
+
+it('exports the kernel solid ring beside a coupler containing an inner tube', () => {
+  const xml = exportRkt({ name: 'Coupler', tree: { components: [{ type: 'stage', children: [
+    { type: 'bodytube', outerRadius: 0.03, length: 0.3, children: [
+      { type: 'centeringring', id: 'ring', name: 'Ring', length: 0.003 },
+      { type: 'tubecoupler', length: 0.3, outerRadius: 0.015, children: [
+        { type: 'innertube', length: 0.3, outerRadius: 0.0095 },
+      ] },
+    ] },
+  ] }] } });
+  const doc = new DOMParser().parseFromString(xml, 'text/xml');
+  expect(Number(doc.querySelector('Ring > ID')!.textContent)).toBe(0);
+});
 
 describe('a RockSim baffle with a hole', () => {
   it('weighs what RockSim weighs it, the annulus, not the solid disc', () => {

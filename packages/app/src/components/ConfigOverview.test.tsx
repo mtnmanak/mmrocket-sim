@@ -24,6 +24,20 @@ it.each(['toString', 'constructor', '__proto__'])('ignores inherited entries for
     expect(host.querySelector('tbody')!.textContent).not.toContain('override');
   } finally { act(() => root.unmount()); }
 });
+
+it.each(['constructor', 'toString', '__proto__'])('shows own defaults for prototype-key parts %s with empty override maps', id => {
+  const input: FlightTree = { components: [{ type: 'stage', id: 'stage', children: [
+    { type: 'bodytube', id, name: 'Mount', motorMount: true },
+  ] }] };
+  const host = document.createElement('div'), root = createRoot(host);
+  try {
+    act(() => root.render(<PrefsProvider><ConfigOverview tree={input}
+      configs={[{ id: 'A', name: 'A', isDefault: false, motors: {}, ignitions: {} }]}
+      activeConfigId="A" onApply={noop} onShowPart={noop} /></PrefsProvider>));
+    expect(host.textContent).toContain('No motor');
+    expect(host.textContent).not.toContain('undefined');
+  } finally { act(() => root.unmount()); host.remove(); }
+});
 /** CFG-2 replaced CFG-1's read-only summaries with the scoped editors; the destinations are the same rows. */
 function PartRows({ tree, overrides }: { tree: FlightTree; overrides: FlightOverrides }) {
   return <ConfigPartEditors tree={tree} overrides={overrides} ownerKey="a" configLabel="Flight A" detached={false}

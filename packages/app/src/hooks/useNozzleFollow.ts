@@ -1,3 +1,4 @@
+import { lookupTable } from '../services/xmlUtil.js';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MutableRefObject } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
@@ -107,7 +108,7 @@ export function useNozzleFollow(opts: {
    * Weak, so a tree dropped off the stack takes its stamp with it.
    */
   const stamps = useRef(new WeakMap<RocketTree, ReadonlyMap<string, Seen>>());
-  const [cleared, setCleared] = useState<Record<string, NozzleCleared>>({});
+  const [cleared, setCleared] = useState<Record<string, NozzleCleared>>(() => lookupTable({}));
   const [, refreshDecision] = useState(0);
   const mounted = useRef(true);
   useEffect(() => {
@@ -183,8 +184,8 @@ export function useNozzleFollow(opts: {
       // make it again, and the new motor flew the previous motor's exit. Now a
       // stage is decided here unless a NEWER loadout has been recorded for it
       // since, in which case that run decides it.
-      const updates: Record<string, number | null> = Object.create(null);
-      const clearedNow: Record<string, NozzleCleared> = Object.create(null);
+      const updates: Record<string, number | null> = lookupTable({});
+      const clearedNow: Record<string, NozzleCleared> = lookupTable({});
       const forgotten: string[] = [];
       const nowDecided = new Map(decided.current);
       for (const { s, entries } of looked) {
@@ -236,7 +237,7 @@ export function useNozzleFollow(opts: {
       stamps.current.set(treeRef.current, decided.current);
       if (Object.keys(clearedNow).length > 0 || forgotten.length > 0) {
         setCleared((prev) => {
-          const next = { ...prev, ...clearedNow };
+          const next = lookupTable({ ...prev, ...clearedNow });
           for (const id of forgotten) delete next[id];
           return next;
         });

@@ -7,7 +7,7 @@ import { captureStageMass, completeStageMass, replaceStageMass } from './stageMa
 import { configUuid as uuid, MAX_ORK_CONFIGURATIONS, snapshotLoadedConfig } from './configSnapshot.js';
 import { isLoneEmptyConfig } from './emptyConfig.js';
 import type { StageMassOverride } from './stageMassOverrides.js';
-import { KERNEL_DEFAULT_FIN_POINTS, kernelNum } from '../tree/kernelDefaults.js';
+import { KERNEL_DEFAULT_FIN_POINTS, kernelDefault, kernelNum } from '../tree/kernelDefaults.js';
 import { BASE_DRAG_DECLARATION, BASE_DRAG_DECLARATION_TAG } from './baseDragImportNotes.js';
 import { isAeroModel, validHybridBand, type AeroProvenance } from './aeroProvenance.js';
 import type { ComponentNode, ComponentPosition, ComponentType, EngineWarning, MotorSpec, RocketTree } from '@online-openrocket/engine';
@@ -17,6 +17,7 @@ import {
   PANEL_TIME_STEP_FLOOR_S, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
 } from './launchConditions.js';
 import { asStageNodes, freshId } from '../tree/treeModel.js';
+import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { applyFieldLimit, fieldLimit } from '../tree/schema.js';
@@ -1182,7 +1183,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         const n = base('engineblock', true);
         readRadialPlacement(el, n, notes);
         n['length'] = num(el, 'length', 0.005, notes);
-        n['thickness'] = num(el, 'thickness', 0.001, notes);
+        n['thickness'] = num(el, 'thickness', kernelDefault('engineblock', 'thickness')!, notes);
         readRingRadii(el, n, notes);
         return n;
       }
@@ -3027,12 +3028,12 @@ export function exportOrk({
     if (kids.length === 0) return;
     emit(depth, '<subcomponents>');
     for (const kid of kids) {
-      emitNode(kid, depth + 1);
+      emitNode(kid, depth + 1, node);
     }
     emit(depth, '</subcomponents>');
   };
 
-  const emitNode = (node: ComponentNode, depth: number) => {
+  const emitNode = (node: ComponentNode, depth: number, parent?: ComponentNode) => {
     // Widened: the editor carries app-level types the engine union does not
     // (see tree/schema.ts EditorComponentType) and they still have to be saved.
     const t = node.type as ComponentType | 'protuberance';
@@ -3237,7 +3238,10 @@ export function exportOrk({
         material(depth + 1, node);
         emit(depth + 1, `<radius>${numOpt(node, 'outerRadius') ?? 'auto'}</radius>`);
         emit(depth + 1, `<length>${n(node, 'length', 0.1)}</length>`);
-        emit(depth + 1, `<thickness>${n(node, 'thickness', 0.0005)}</thickness>`);
+        const body = parent;
+        const bodyRadius = body ? n(body, 'outerRadius', 0.012) : 0.012;
+        const bodyWall = body?.['filled'] === true ? bodyRadius : body ? kernelNum(body, 'thickness') : undefined;
+        emit(depth + 1, `<thickness>${tubeFinWall(node, tubeFinRadius(node, bodyRadius), bodyWall)}</thickness>`);
         close('tubefinset');
         break;
       }
@@ -3310,7 +3314,7 @@ export function exportOrk({
         emit(depth + 1, `<radialposition>${n(node, 'radialPosition', 0)}</radialposition>`);
         emit(depth + 1, `<radialdirection>${deg(node, 'radialDirection')}</radialdirection>`);
         ringRadii(depth + 1, node, false);
-        emit(depth + 1, `<thickness>${n(node, 'thickness', 0.001)}</thickness>`);
+        emit(depth + 1, `<thickness>${kernelNum(node, 'thickness')}</thickness>`);
         close('engineblock');
         break;
       }
@@ -4201,7 +4205,7 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
   const ringBore = (ring: XmlElement): number => {
     let wall = 0;
     for (let el: XmlElement | null = ring; el; ) {
-      wall += dimension(el, 'thickness', stated(el, 'thickness') ?? (el.tagName === 'engineblock' ? 0.001 : 0.0005));
+      wall += dimension(el, 'thickness', stated(el, 'thickness') ?? kernelDefault(el.tagName, 'thickness') ?? 0.0005);
       const outer = stated(el, 'outerradius') ?? (el.tagName === 'innertube' ? 0.0095 : null);
       if (outer !== null) return Math.max(dimension(el, 'outerRadius', outer) - wall, 0);
       const host: XmlElement | null = el.parentElement?.parentElement ?? null;

@@ -3164,6 +3164,12 @@ describe('.rkt export positions (audit 2026-09-22)', () => {
     expect(xbOf(blocks(xml, 'MassObject')[0]!)).toBeCloseTo(135, 9);
   });
 
+  it('ignores an inert shroud CG override when exporting without a build', () => {
+    const xml = exportRkt(stage([{ type: 'fairing', id: 'f', mass: 0.03, length: 0.08,
+      overrideCGX: 0.02, position: { method: 'top', offset: 0.1 } }]));
+      expect(xbOf(blocks(xml, 'MassObject')[0]!)).toBeCloseTo(140, 9);
+  });
+
   it('round-trips a mass component with its CG where it was', () => {
     const d = stage([{ type: 'masscomponent', id: 'bay', name: 'Av bay', mass: 0.25, length: 0.15,
       position: { method: 'top', offset: 0.1 } }] as ComponentNode[]);

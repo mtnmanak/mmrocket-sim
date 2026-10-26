@@ -220,8 +220,7 @@ export function planAxialSplit(
 
   if (printer.lean !== false) {
     // How far this PARTICULAR part may tip before its own steepest wall eats
-    // the 45 deg overhang budget. Floored to whole degrees so the angle quoted
-    // in the reason is exactly the angle the bounding box was checked at.
+    // the 45 deg overhang budget. Try whole degrees before the bed limit.
     const slope = Math.max(maxSlope, 0);
     // +EPS before the floor: MAX_LEAN round-trips through radians as
     // 29.999999999999996 deg, and flooring that to 29 would silently shave a
@@ -230,7 +229,22 @@ export function planAxialSplit(
       (Math.min(MAX_LEAN, Math.max(OVERHANG_LIMIT - slope, 0)) * 180) / Math.PI + 1e-9,
     );
     // Below a degree there is nothing to gain and the arithmetic is noise.
-    for (let leanDeg = maxLeanDeg; leanDeg >= 1; leanDeg--) {
+    // The bed-limited angle also covers fit windows narrower than a degree.
+    const maxLean = Math.min(MAX_LEAN, Math.max(OVERHANG_LIMIT - slope, 0));
+    const bedLean = Math.asin(Math.min(1, Math.max(u.x, u.y) / Math.hypot(totalLength, dia)))
+      - Math.atan2(dia, totalLength);
+    const fractional = Math.min(maxLean, bedLean) * 180 / Math.PI;
+    const candidates = Array.from({ length: maxLeanDeg }, (_, i) => maxLeanDeg - i);
+    // Try the fewest printed decimals first. Certify each printed value below.
+    if (fractional > 0) {
+      for (let digits = 1; digits <= 10; digits++) {
+        const scale = 10 ** digits;
+        for (const rounded of [Number(fractional.toFixed(digits)), Math.floor(fractional * scale) / scale]) {
+          if (rounded > 0 && rounded <= maxLean * 180 / Math.PI) candidates.push(rounded);
+        }
+      }
+    }
+    for (const leanDeg of candidates) {
       const lean = (leanDeg * Math.PI) / 180;
       // Bounding box of the part tipped by `lean` off vertical. Note this is
       // only worth trying for slender parts: height = L*cos + D*sin beats L

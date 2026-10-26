@@ -22,6 +22,8 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  'src/tree/shroudConvert.test.ts',
+  'src/services/finOutline.closure.test.ts',
   'src/services/exMotors.laneAudit.test.ts',
   'src/services/orkFile.audit.test.ts',
   'src/services/rasaeroFile.laneAudit.test.ts',

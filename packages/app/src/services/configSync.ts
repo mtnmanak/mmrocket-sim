@@ -1,8 +1,10 @@
+import { boundedNozzleDiameter } from '../tree/nozzles.js';
+import { lookupTable } from './xmlUtil.js';
 import { captureStageMass, completeStageMass } from './stageMassOverrides.js';
 import { configUuid, MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS, snapshotConfigFamilies, snapshotLoadedConfig } from './configSnapshot.js';
 import { savedConfigLabel } from '../model/design.js';
 import { activeFlightOverrides, overrideFor, snapshotFlightOverrides } from './flightState.js';
-import { scaleRocket } from '../tree/scaleRocket.js';
+import { previewMounts, scaleRocket } from '../tree/scaleRocket.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
 import type { OrkMotorRef } from './orkFile.js';
@@ -162,7 +164,7 @@ export function withActiveConfigTreeSynced(
   const sync = <V>(stored: Record<string, V> | undefined, capture: (node: Record<string, unknown>, v: V) => V) => {
     if (!stored) return stored;
     let changed = false;
-    const out: Record<string, V> = Object.create(null);
+    const out: Record<string, V> = lookupTable({});
     for (const [id, v] of Object.entries(stored)) {
       const node = findNode(tree, id);
       const next = node ? capture(node, v) : v;
@@ -175,7 +177,7 @@ export function withActiveConfigTreeSynced(
   // Preserve explicit OFF separately from blank/automatic.
   const nozzles = sync(c.nozzles, (n) => {
     const d = n['nozzleExitDiameter'];
-    return typeof d === 'number' && Number.isFinite(d) && d >= 0 ? d : null;
+    return boundedNozzleDiameter(d);
   });
   if (nozzles === c.nozzles
       && stageMassOverrides === c.stageMassOverrides) return configs;
@@ -204,11 +206,31 @@ export function syncActiveConfig(
 /** Apply the tree scaler's exact mass/CG and unresolved-motor policy to every snapshot. */
 export function scaleConfigStageMass(
   configs: SavedConfig[], activeId: string | null, tree: RocketTree, factor: number,
+  diagnostics?: { notes: string[]; needsAttention: boolean },
+  scaledTree?: RocketTree,
 ): SavedConfig[] {
+  if (diagnostics) {
+    const finalTree = scaledTree ?? scaleRocket(tree, factor).tree;
+    for (const c of configs) {
+      if (c.id === activeId || !Object.keys(c.motors).length) continue;
+      const assignedMotorDiameters = Object.fromEntries(Object.entries(c.motors).map(([id, m]) => [id, m.spec.diameter]));
+      for (const mount of previewMounts(finalTree, 1, { assignedMotorDiameters })) {
+        if (mount.motorMm === null || mount.motorStillFits) continue;
+        diagnostics.needsAttention = true;
+        diagnostics.notes.push(`Configuration ${savedConfigLabel(c)}: ${mount.name}: the ${mount.motorMm.toFixed(0)} mm motor no longer fits the ${mount.finalBoreMm.toFixed(1)} mm bore. Choose another motor on Motors & Configuration before flying.`);
+      }
+    }
+  }
   return withActiveConfigTreeSynced(configs, activeId, tree).map(c => {
     if (!c.stageMassOverrides) return c;
     const snapshots = scaleRocket({ name: tree.name, components:
-      Object.entries(c.stageMassOverrides).map(([id, values]) => ({ type: 'stage', id, ...values })) }, factor);
+      Object.entries(c.stageMassOverrides).map(([id, values]) => ({ type: 'stage', id,
+        name: findNode(tree, id)?.name, ...values })) }, factor);
+    if (diagnostics && c.id !== activeId) {
+      const notes = snapshots.componentNotes ?? [];
+      diagnostics.notes.push(...notes.map(note => `Configuration ${savedConfigLabel(c)}: ${note}`));
+      diagnostics.needsAttention ||= snapshots.needsAttention || notes.some(note => note.includes('re-weigh'));
+    }
     return { ...c, stageMassOverrides: Object.fromEntries(snapshots.tree.components.map(s =>
       [s.id!, captureStageMass(s)])) };
   });
@@ -251,7 +273,7 @@ export function migrateLegacyPadMass(
 export function stripPadMass(motors: Record<string, MountMotor>): Record<string, MountMotor> {
   const carries = (mm: MountMotor) => 'padMassKg' in mm || 'padMassWeighedWith' in mm;
   if (!Object.values(motors).some(carries)) return motors;
-  const out: Record<string, MountMotor> = Object.create(null);
+  const out: Record<string, MountMotor> = lookupTable({});
   for (const [id, mm] of Object.entries(motors)) {
     if (!carries(mm)) { out[id] = mm; continue; }
     const { padMassKg: _p, padMassWeighedWith: _w, ...rest } = mm;
@@ -263,7 +285,7 @@ export function stripPadMass(motors: Record<string, MountMotor>): Record<string,
 /** `padMassKg` deleted from every unmatched reference; identity when none carries one. */
 export function stripRefPadMass(refs: Record<string, OrkMotorRef>): Record<string, OrkMotorRef> {
   if (!Object.values(refs).some((r) => 'padMassKg' in r)) return refs;
-  const out: Record<string, OrkMotorRef> = Object.create(null);
+  const out: Record<string, OrkMotorRef> = lookupTable({});
   for (const [id, ref] of Object.entries(refs)) {
     if (!('padMassKg' in ref)) { out[id] = ref; continue; }
     const { padMassKg: _p, ...rest } = ref;
@@ -410,10 +432,10 @@ export function restoreUnmatchedRefs(
   motors: Record<string, MountMotor>, stored?: Record<string, OrkMotorRef>,
 ): Record<string, OrkMotorRef> {
   const refs = stored ?? (configs && activeId ? configs.find((c) => c.id === activeId)?.unmatchedRefs : undefined);
-  if (!refs) return {};
-  const out: Record<string, OrkMotorRef> = Object.create(null);
+  if (!refs) return lookupTable({});
+  const out: Record<string, OrkMotorRef> = lookupTable({});
   for (const [id, ref] of Object.entries(refs)) {
-    if (overrideFor(motors, id) === undefined) out[id] = ref;
+    if (!Object.hasOwn(motors, id) || motors[id] === undefined) out[id] = ref;
   }
   return out;
 }

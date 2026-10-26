@@ -6,6 +6,7 @@ import { fmtSi, type UnitSelection } from '../prefs/units.js';
 import { escapeXml } from './xmlUtil.js';
 import { WRAP_FINS } from './tubeWrapGuide.js';
 import type { FinTemplateBackground } from './finTemplate.js';
+import { isFinSet } from '../tree/mountAngle.js';
 
 type Point = [number, number];
 export interface FinJigGeometry {
@@ -36,6 +37,7 @@ export function finAlignmentJigGeometry(tube: ComponentNode, fin: ComponentNode,
     ? Array.isArray(points) ? points.reduce((max: number, p: unknown) => Math.max(max, Array.isArray(p) && Number.isFinite(p[1]) ? Number(p[1]) : 0), 0) : 0.05
     : kernelNum(fin, 'height');
   if (!(span > 0)) throw new Error('The fins need a positive span to fit a jig.');
+  if (!isFinSet(fin, tube)) throw new Error('The fins need a positive area to fit a jig.');
   // N049: a closed slot must clear the full span, including rectangular freeform fins.
   const end = radius + span;
   const start = Math.sqrt(radius ** 2 - half ** 2);

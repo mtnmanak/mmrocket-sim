@@ -2,6 +2,22 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { aftLayout } from './aftLayout.js';
 
+it('uses zero bore for an automatic coupler inside a filled body', () => {
+  const layout = aftLayout({ components: [{ type: 'bodytube', id: 'body', length: 0.3,
+    outerRadius: 0.03, thickness: 0.001, filled: true, children: [
+      { type: 'tubecoupler', id: 'coupler', length: 0.1 },
+    ] }] }, 0);
+  expect(layout.inner.find(s => s.key === 'coupler')).toMatchObject({ kind: 'circle', r: 0 });
+});
+
+it('sizes an automatic aft-view coupler at both stations inside a tapered shell', () => {
+  const layout = aftLayout({ components: [{ type: 'nosecone', id: 'nose', length: 0.15,
+    aftRadius: 0.045, thickness: 0.002, shape: 'conical', children: [
+      { type: 'tubecoupler', id: 'coupler', length: 0.02, position: { method: 'top', offset: 0.02 } },
+    ] }] }, 0);
+  expect(layout.inner.find(s => s.key === 'coupler')).toMatchObject({ kind: 'circle', r: expect.closeTo(0.004, 9) });
+});
+
 const finRocket = (extra: Record<string, unknown> = {}) => ({
   name: 'Rocket',
   components: [{

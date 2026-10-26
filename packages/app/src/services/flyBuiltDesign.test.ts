@@ -7,7 +7,7 @@ import type {
 } from '@online-openrocket/engine';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/design.js';
 import {
-  addChild, addStage, defaultTree, isOnLaunchStage, motorisedStagesWithNozzle, stagesWithRecoveryDevice, motorMounts, mountMotorCount,
+  addChild, addStage, defaultTree, isOnLaunchStage, motorisedStagesWithNozzle, stagesWithRecoveryDevice, stageRecoveryById, motorMounts, mountMotorCount,
 } from '../tree/treeModel.js';
 import { buildDesign, KERNEL_HANDLES, type BuiltDesign } from './buildDesign.js';
 import { padMassSetKey } from './configSync.js';
@@ -290,6 +290,7 @@ describe('flyBuiltDesign hands buildSimRun what onLaunch handed it', () => {
       flownRecovery: built.flownRecovery,
       nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
       recoveryStages: stagesWithRecoveryDevice(tree),
+      recoveryByStage: stageRecoveryById(tree),
     };
   };
 
@@ -423,6 +424,7 @@ async function referenceLaunch(x: {
     flownRecovery: built.flownRecovery,
     nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
     recoveryStages: stagesWithRecoveryDevice(tree),
+    recoveryByStage: stageRecoveryById(tree),
     // Since v0.176 Launch records the mounts the build refused (AUTO-DELAY).
     refusedMountIds: refusedMountIdsOf(built.motorFailures),
   });

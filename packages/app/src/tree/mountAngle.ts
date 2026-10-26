@@ -1,5 +1,5 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
-import { num } from './nodeNum.js';
+import { num, numOpt } from './nodeNum.js';
 import { kernelNum, KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import { absoluteStations } from './position.js';
 import { assemblyInstanceCount, finCountOf } from './counts.js';
@@ -13,6 +13,13 @@ import { assemblyInstanceCount, finCountOf } from './counts.js';
 // holds the kernel in its eager entry chunk.
 import { mountRadiusOf, nameOr } from './treeModel.js';
 import { lookupTable } from '../services/xmlUtil.js';
+import { enclosesArea } from './polygon.js';
+import { axialLength } from './position.js';
+import { positionOf, startFromPosition } from './position.js';
+import { finOnMount, flatMount, profileMount } from './finRoot.js';
+import { tubeFinRadius, tubeFinWall } from './tubefins.js';
+import { noseEnds } from './tailCone.js';
+import { resolveTransitionRadii } from './transitionRadii.js';
 
 /**
  * Clock angles around the airframe: where a surface-mounted part can SNAP to,
@@ -32,20 +39,42 @@ import { lookupTable } from '../services/xmlUtil.js';
  */
 
 
-const isFinSet = (n: ComponentNode): boolean => {
-  if (n.type === 'tubefinset') return num(n, 'outerRadius', 1) > 0;
+export const isFinSet = (n: ComponentNode, parent?: ComponentNode): boolean => {
+  if (n.type === 'tubefinset') {
+    const bodyRadius = parent ? mountRadiusOf(parent) : 0.012;
+    const radius = tubeFinRadius(n, bodyRadius);
+    return axialLength(n) > 0 && radius > 0 && tubeFinWall(n, radius,
+      parent?.['filled'] === true ? bodyRadius : parent ? kernelNum(parent, 'thickness') : undefined) > 0;
+  }
+  if (n.type.endsWith('finset') && !(kernelNum(n, 'thickness') > 0)) return false;
   if (n.type === 'freeformfinset') {
     const points = n['points'] ?? KERNEL_DEFAULT_FIN_POINTS;
-    return Array.isArray(points) && points.length >= 3;
+    if (!Array.isArray(points) || points.length < 3 || !points.every(p => Array.isArray(p) && p.length >= 2
+      && Number.isFinite(p[0]) && Number.isFinite(p[1]))) return false;
+    if (!parent) return enclosesArea(points);
+    const length = axialLength(parent);
+    const radius = mountRadiusOf(parent);
+    const ends = parent.type === 'nosecone' ? noseEnds(parent, radius) : null;
+    const mount = parent.type === 'transition' || ends
+      ? profileMount(typeof parent['shape'] === 'string' ? parent['shape'] : ends ? 'ogive' : 'conical',
+        numOpt(parent, 'shapeParameter'), length, ends?.fore ?? num(parent, 'foreRadius', radius),
+        ends?.aft ?? num(parent, 'aftRadius', radius), parent['clipped'] as boolean | undefined)
+      : flatMount(radius, length);
+    const front = startFromPosition(positionOf(n), axialLength(n), length);
+    return finOnMount(points, front, mount).lobes.some(enclosesArea);
   }
+  if (n.type === 'ellipticalfinset' && !(kernelNum(n, 'rootChord') > 0)) return false;
+  if (n.type === 'trapezoidfinset' && !(kernelNum(n, 'rootChord') + kernelNum(n, 'tipChord') > 0)) return false;
   return n.type.endsWith('finset') && kernelNum(n, 'height') > 0;
 };
 
-function hasSurfaceSize(n: ComponentNode): boolean {
+export function hasSurfaceSize(n: ComponentNode): boolean {
+  if ((n.type as string) === 'protuberance' && Math.round(num(n, 'count', 1)) < 1) return false;
+  if (n.type === 'railbutton') return num(n, 'outerDiameter', 0.0097) > 0 && num(n, 'totalHeight', 0.0097) > 0;
   if (n.type === 'fairing' || (n.type as string) === 'protuberance') {
-    return kernelNum(n, 'height') > 0 && kernelNum(n, 'width') > 0;
+    return axialLength(n) > 0 && kernelNum(n, 'height') > 0 && kernelNum(n, 'width') > 0;
   }
-  return n.type !== 'launchlug' || kernelNum(n, 'outerRadius') > 0;
+  return n.type !== 'launchlug' || (axialLength(n) > 0 && kernelNum(n, 'outerRadius') > 0);
 }
 
 /**
@@ -114,6 +143,7 @@ function collectFrame(nodes: ComponentNode[]): AngularFrame {
 
 /** The frame CONTAINING the given node: the inline stack, or its assembly. */
 export function frameContaining(tree: RocketTree, id: string): ComponentNode[] | null {
+  tree = resolveTransitionRadii(tree);
   const frames: ComponentNode[][] = [tree.components];
   while (frames.length) {
     const roots = frames.pop()!;
@@ -131,10 +161,15 @@ export function frameContaining(tree: RocketTree, id: string): ComponentNode[] |
  * instances are evenly spaced: `rotation + 2πi/N`, exactly what
  * `FinSet.getInstanceAngles` computes and what all three views already mirror.
  */
+function parentsAmong(members: ComponentNode[]): Map<ComponentNode, ComponentNode> {
+  return new Map(members.flatMap(parent => (parent.children ?? []).map(child => [child, parent] as const)));
+}
+
 export function finAnglesAmong(members: ComponentNode[]): number[] {
   const out: number[] = [];
+  const parents = parentsAmong(members);
   for (const k of members) {
-    if (!isFinSet(k)) continue;
+    if (!isFinSet(k, parents.get(k))) continue;
     const n = finCountOf(k);
     const rot = num(k, 'rotation', 0);
     for (let i = 0; i < n; i++) out.push(reducePi(rot + (2 * Math.PI * i) / n));
@@ -153,7 +188,7 @@ export function finAnglesAmong(members: ComponentNode[]): number[] {
  * needs this in production should call `finAnglesAmong` directly.
  */
 export function finAnglesOn(parent: ComponentNode): number[] {
-  return finAnglesAmong(parent.children ?? []);
+  return finAnglesAmong([parent, ...parent.children ?? []]);
 }
 
 /**
@@ -170,8 +205,9 @@ export function finAnglesOn(parent: ComponentNode): number[] {
  */
 export function betweenFinAnglesAmong(members: ComponentNode[]): number[] {
   const out: number[] = [];
+  const parents = parentsAmong(members);
   for (const k of members) {
-    if (!isFinSet(k)) continue;
+    if (!isFinSet(k, parents.get(k))) continue;
     const n = finCountOf(k);
     const rot = num(k, 'rotation', 0);
     // A single fin has no "between two fins"; its opposite side is the closest
@@ -185,7 +221,7 @@ export function betweenFinAnglesAmong(members: ComponentNode[]): number[] {
 
 /** TEST-ONLY, for the same reason as {@link finAnglesOn} above. */
 export function betweenFinAnglesOn(parent: ComponentNode): number[] {
-  return betweenFinAnglesAmong(parent.children ?? []);
+  return betweenFinAnglesAmong([parent, ...parent.children ?? []]);
 }
 
 /** The candidate nearest `from`, or null when there are no candidates. */
@@ -249,23 +285,27 @@ export interface RailFinding {
   parts: { id: string; name: string }[];
 }
 
+function warningBudget(count: () => number, sentenceReserve = 512) {
+  let comparisons = 0, characters = 0, limited = false;
+  return {
+    get limited() { return limited; },
+    compare: () => {
+      if (++comparisons > 100_000 || count() >= 1000) limited = true;
+      return !limited;
+    },
+    report: (...names: string[]) => {
+      characters += sentenceReserve + names.reduce((sum, name) => sum + name.length, 0);
+      if (characters > 1024 * 1024 - 1024) limited = true;
+      return !limited;
+    },
+  };
+}
+
 export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
+  tree = resolveTransitionRadii(tree);
   const out: RailFinding[] = [];
   const seen = new Set<string>();
-  let comparisons = 0;
-  let characters = 0;
-  let limited = false;
-  // Corpus whole-design upper bound: 144 comparisons (including assemblies).
-  const canCompare = () => {
-    if (++comparisons > 100_000 || out.length >= 1000) limited = true;
-    return !limited;
-  };
-  const canReport = (...names: string[]) => {
-    // Reserve more than the fixed sentence and summary before copying names.
-    characters += 512 + names.reduce((n, name) => n + name.length, 0);
-    if (characters > 1024 * 1024) limited = true;
-    return !limited;
-  };
+  const budget = warningBudget(() => out.length);
   const addFinding = (finding: RailFinding) => {
     if (!seen.has(finding.text)) { seen.add(finding.text); out.push(finding); }
   };
@@ -299,7 +339,7 @@ export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
   });
 
   const checkFrame = (roots: ComponentNode[]) => {
-    if (limited) return;
+    if (budget.limited) return;
     // The SAME frame walker the snap buttons use — see collectFrame.
     const { members, assemblies } = collectFrame(roots);
     const frame = {
@@ -307,11 +347,12 @@ export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
       fins: [] as { angle: number; owner: string; id: string }[],
       others: [] as { angle: number; name: string; id: string }[],
     };
+    const parents = parentsAmong(members);
     for (const n of members) {
       if (!hasSurfaceSize(n)) continue;
       if (n.type === 'railbutton') {
         frame.buttons.push({ angle: reducePi(num(n, 'angleOffset', 0)), name: nameOf(n, 'Rail button'), id: n.id ?? '' });
-      } else if (isFinSet(n)) {
+      } else if (isFinSet(n, parents.get(n))) {
         const c = finCountOf(n);
         const rot = num(n, 'rotation', 0);
         for (let i = 0; i < c; i++) {
@@ -343,19 +384,19 @@ export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
     // lost its name.
     for (const b of frame.buttons) {
       for (const f of frame.fins) {
-        if (!canCompare()) return;
+        if (!budget.compare()) return;
         const g = angleGap(b.angle, f.angle);
         if (g <= IN_LINE_TOLERANCE) {
-          if (!canReport(b.name, f.owner)) return;
+          if (!budget.report(b.name, f.owner)) return;
           addFinding({ text: `"${b.name}" at ${deg(b.angle)} is in line with a fin of "${f.owner}" (${deg(g)} apart) — the rail runs down that line, so the fin fouls it. Move one of them.`,
             parts: [{ id: b.id, name: b.name }, { id: f.id, name: f.owner }] });
         }
       }
       for (const o of frame.others) {
-        if (!canCompare()) return;
+        if (!budget.compare()) return;
         const g = angleGap(b.angle, o.angle);
         if (g <= IN_LINE_TOLERANCE) {
-          if (!canReport(b.name, o.name)) return;
+          if (!budget.report(b.name, o.name)) return;
           addFinding({ text: `"${b.name}" at ${deg(b.angle)} is in line with "${o.name}" (${deg(g)} apart) — both sit on the rail's line.`,
             parts: [{ id: b.id, name: b.name }, { id: o.id, name: o.name }] });
         }
@@ -365,8 +406,8 @@ export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
       const first = frame.buttons[0]!.angle;
       const odd = frame.buttons.find((b) => angleGap(b.angle, first) > 1e-6);
       if (odd) {
-        if (!canCompare()) return;
-        if (!canReport(frame.buttons[0]!.name, odd.name)) return;
+        if (!budget.compare()) return;
+        if (!budget.report(frame.buttons[0]!.name, odd.name)) return;
         addFinding({ text: `Rail buttons on this airframe are at different angles (${deg(first)} and ${deg(odd.angle)}) — one rail is a straight line, so they cannot both engage it.`,
           parts: [{ id: frame.buttons[0]!.id, name: frame.buttons[0]!.name }, { id: odd.id, name: odd.name }] });
       }
@@ -382,7 +423,7 @@ export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
   checkFrame(tree.components);
 
   // Two buttons at the same angle raise the same sentence twice; say it once.
-  if (limited) out.push({ text: '[Warning.RAIL_CHECK_INCOMPLETE] Not all rail clearances were checked; a part may still foul the rail and prevent a clean launch. Check every rail button and fin for clearance before flying.', parts: [] });
+  if (budget.limited) out.push({ text: '[Warning.RAIL_CHECK_INCOMPLETE] Not all rail clearances were checked; a part may still foul the rail and prevent a clean launch. Check every rail button and fin for clearance before flying.', parts: [] });
   return out;
 }
 
@@ -487,7 +528,10 @@ function wakeWindow(width: number, mountRadius: number): number {
  * sentence is worded that way.
  */
 export function wakeShadowWarnings(tree: RocketTree): string[] {
+  tree = resolveTransitionRadii(tree);
   const out: string[] = [];
+  const seen = new Set<string>();
+  const budget = warningBudget(() => out.length, 1024);
   // Stations in the rocket frame, WHOLE STACK — the same frame the rail check
   // chose, and the only frame in which "upstream of" means anything during
   // boost, when every stage is still attached and the margin matters.
@@ -497,6 +541,7 @@ export function wakeShadowWarnings(tree: RocketTree): string[] {
   interface Downstream { owner: string; leading: number; angles: number[] }
 
   const checkFrame = (roots: ComponentNode[]) => {
+    if (budget.limited) return;
     // The SAME frame walker the snap buttons and the rail check use, recursing
     // into assemblies separately for the same reason: a pod set rotates its
     // whole sub-chain, so a core-airframe shroud and a pod's fins are not
@@ -504,6 +549,7 @@ export function wakeShadowWarnings(tree: RocketTree): string[] {
     const { members, assemblies } = collectFrame(roots);
     const sources: Source[] = [];
     const downstream: Downstream[] = [];
+    const parents = parentsAmong(members);
 
     for (const n of members) {
       if (!hasSurfaceSize(n)) continue;
@@ -522,7 +568,7 @@ export function wakeShadowWarnings(tree: RocketTree): string[] {
           window: wakeWindow(width, mountRadiusOf(st.parent)),
           end: st.end,
         });
-      } else if (isFinSet(n) && n.type !== 'tubefinset') {
+      } else if (isFinSet(n, parents.get(n)) && n.type !== 'tubefinset') {
         // Tube fins are excluded deliberately. `finAnglesAmong` happily returns
         // 6 instances for a tube fin ring, but a ring of tubes is a duct, not a
         // plate standing in a wake, and nothing in the corpus bears on what a
@@ -539,6 +585,7 @@ export function wakeShadowWarnings(tree: RocketTree): string[] {
 
     for (const s of sources) {
       for (const f of downstream) {
+        if (!budget.compare()) return;
         // A wake needs somewhere downstream to go: the bump's AFT end has to be
         // strictly forward of the fin's leading edge. That is all this
         // condition is — it is NOT a claim about what the physics does when the
@@ -557,21 +604,23 @@ export function wakeShadowWarnings(tree: RocketTree): string[] {
         let nearest = Infinity;
         for (const a of f.angles) nearest = Math.min(nearest, angleGap(s.angle, a));
         if (!(nearest <= s.window)) continue;
+        if (!budget.report(s.name, f.owner)) return;
         const mm = Math.round(gap * 1000);
         const heights = Number((gap / s.height).toFixed(1));
         // The name is QUOTED, as the rail sentences' are since AUDIT row 238:
         // `stripBrackets` (simWarnings.ts) strips a LEADING bracketed token from
         // every warning string, so a part someone called "[cam]" would lose its
         // name if the sentence opened with it bare.
-        out.push(
+        const text = (
           `"${s.name}" at ${deg(s.angle)} sits ${mm} mm ahead of a fin of "${f.owner}" — `
           + `${heights} times its own height upstream, ${deg(nearest)} off that fin's line. `
           + 'The wake it sheds is not modelled: that fin is flown at full free-stream dynamic '
           + 'pressure, so the CP shown is computed as if the shroud were not there. On its own '
           + 'that term moves CP forward, toward less margin — but nothing in hobby software '
           + 'models it and no measurement sizes it. Clocking it between the fins removes the '
-          + 'question.',
+          + 'question.'
         );
+        if (!seen.has(text)) { seen.add(text); out.push(text); }
       }
     }
 
@@ -581,5 +630,6 @@ export function wakeShadowWarnings(tree: RocketTree): string[] {
   checkFrame(tree.components);
 
   // Two identical bumps (a pair of cable tunnels, say) raise one sentence.
-  return [...new Set(out)];
+  if (budget.limited) out.push('[Warning.WAKE_CHECK_INCOMPLETE] Not all shroud wakes were checked; a fin may still be in a shroud wake. Check shroud and fin positions before flying.');
+  return out;
 }

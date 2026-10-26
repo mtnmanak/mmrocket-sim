@@ -4,8 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import {
-  NACA_MAX_THICKNESS_XI, PRINT_MIN_EDGE, finMacFromOutline, finSectionLaw, finSectionProfile,
-  finSectionSpec, halfThickness, printableHalf, sectionHalfThickness, sectionProfile,
+  NACA_MAX_THICKNESS_XI, PRINT_MIN_EDGE, finMacFromOutline, finSectionLaw,
+  finSectionSpec, printableHalf, sectionHalfThickness, sectionProfile,
   type FinSectionSpec,
 } from './finSection.js';
 
@@ -163,7 +163,7 @@ describe('peak thickness, sharp edges, blunt bases, symmetry', () => {
     ['singlewedge', airfoil('singlewedge'), 'sharp', 'blunt'],
     ['square', fin(), 'blunt', 'blunt'],
   ])('%s: LE %s, TE %s, zero at every non-blunt edge, blunt height t', (_l, node, le, te) => {
-    const prof = finSectionProfile(node, C);
+    const prof = sectionProfile(finSectionSpec(node), C);
     expect(prof.le.kind).toBe(le);
     expect(prof.te.kind).toBe(te);
     const spec = finSectionSpec(node, C);
@@ -232,15 +232,14 @@ describe('chamfer and ridge fractions follow sectionPressureCD (FinSetCalc:1269-
 
   it('the fraction is taken of the MAC and applied to every local chord', () => {
     const node = airfoil('hexagonal', { airfoilLeDiamond: 0.01, airfoilTeDiamond: 0.01 });
-    const atRoot = finSectionProfile(node, 0.08, { mac });
-    const atTip = finSectionProfile(node, 0.02, { mac });
+    const atRoot = sectionProfile(finSectionSpec(node, mac), 0.08);
+    const atTip = sectionProfile(finSectionSpec(node, mac), 0.02);
     [0, 0.2, 0.8, 1].forEach((v, i) => expect(atRoot.xi[i]).toBeCloseTo(v, 15));
     expect(atRoot.xi.length).toBe(4);
     expect(atTip.xi).toEqual(atRoot.xi);
     expect(atRoot.half).toEqual([0, H, H, 0]);
-    // Without a MAC the local chord stands in for it (10 + 10 mm on 20 mm: the
-    // chamfers meet at mid-chord) — which is why a mesher passes the MAC.
-    expect(finSectionProfile(node, 0.02).xi).toEqual([0, 0.5, 1]);
+    // Production uses the section default fractions when no MAC is available.
+    expect(sectionProfile(finSectionSpec(node), 0.02).xi).toEqual([0, 1 / 3, 1 - 1 / 3, 1]);
   });
 });
 
@@ -265,7 +264,7 @@ describe('LE bluntness radius', () => {
       slopes.push((h(x + 1e-7) - h(x - 1e-7)) / 2e-7);
     }
     for (let i = 1; i < slopes.length; i++) expect(slopes[i]!).toBeLessThanOrEqual(slopes[i - 1]! + 1e-3);
-    expect(finSectionProfile(node, C).le.kind).toBe('round');
+    expect(sectionProfile(finSectionSpec(node), C).le.kind).toBe('round');
   });
 
   it('caps the radius at the section’s peak half-thickness', () => {
@@ -301,7 +300,7 @@ describe('LE bluntness radius', () => {
   });
 
   it('singlewedge with a radius: blunt base kept, LE round', () => {
-    const prof = finSectionProfile(airfoil('singlewedge', { finLeRadius: 0.0005 }), C);
+    const prof = sectionProfile(finSectionSpec(airfoil('singlewedge', { finLeRadius: 0.0005 })), C);
     expect(prof.le.kind).toBe('round');
     expect(prof.te).toEqual({ kind: 'blunt', height: T });
     expect(prof.half[prof.half.length - 1]).toBe(H);
@@ -331,7 +330,7 @@ describe('sampled profiles for meshing', () => {
     const mac = 0.05;
     const counts = new Set<number>();
     for (const c of chords) {
-      const prof = finSectionProfile(node, c, { mac });
+      const prof = sectionProfile(finSectionSpec(node, mac), c);
       counts.add(prof.xi.length);
       expect(prof.half.length).toBe(prof.xi.length);
       expect(prof.xi[0]).toBe(0);
@@ -351,20 +350,20 @@ describe('sampled profiles for meshing', () => {
   });
 
   it('square is the flat prism: two samples at t/2, flagged flat', () => {
-    const prof = finSectionProfile(fin(), 0.05);
+    const prof = sectionProfile(finSectionSpec(fin()), 0.05);
     expect(prof).toMatchObject({ flat: true, law: 'square', xi: [0, 1], half: [H, H] });
-    for (const node of nodes.slice(1)) expect(finSectionProfile(node[1], 0.05).flat).toBe(false);
+    for (const node of nodes.slice(1)) expect(sectionProfile(finSectionSpec(node[1]), 0.05).flat).toBe(false);
   });
 
   it('round edges are clustered (cosine-type), straight sections carry breakpoints only', () => {
-    const naca = finSectionProfile(airfoil(), 0.05);
+    const naca = sectionProfile(finSectionSpec(airfoil()), 0.05);
     expect(naca.xi.length).toBe(25);
     expect(naca.xi[1]! - naca.xi[0]!).toBeLessThan((naca.xi[13]! - naca.xi[12]!) / 10);
-    const rounded = finSectionProfile(fin({ crossSection: 'rounded' }), 0.05);
+    const rounded = sectionProfile(finSectionSpec(fin({ crossSection: 'rounded' })), 0.05);
     expect(rounded.xi.length).toBe(14);
     expect(rounded.xi[1]! - rounded.xi[0]!).toBeLessThan(rounded.xi[6]! - rounded.xi[5]!);
-    expect(finSectionProfile(airfoil('doublewedge'), 0.05).xi).toEqual([0, 0.5, 1]);
-    expect(finSectionProfile(airfoil('singlewedge'), 0.05).xi).toEqual([0, 1]);
+    expect(sectionProfile(finSectionSpec(airfoil('doublewedge')), 0.05).xi).toEqual([0, 0.5, 1]);
+    expect(sectionProfile(finSectionSpec(airfoil('singlewedge')), 0.05).xi).toEqual([0, 1]);
     // Resolution scales the curved sections.
     expect(sectionProfile(finSectionSpec(airfoil()), 0.05, 48).xi.length).toBe(49);
     expect(sectionProfile(finSectionSpec(airfoil()), 0.05, 1).xi.length).toBe(5);
@@ -372,7 +371,7 @@ describe('sampled profiles for meshing', () => {
 
   it('the sampled rounded edge is the semicircle of radius t/2 on a long chord', () => {
     const c = 0.05;
-    const prof = finSectionProfile(fin({ crossSection: 'rounded' }), c);
+    const prof = sectionProfile(finSectionSpec(fin({ crossSection: 'rounded' })), c);
     for (let i = 0; i < 7; i++) {
       const x = prof.xi[i]! * c;
       expect(Math.hypot(x - H, prof.half[i]!)).toBeCloseTo(H, 12);
@@ -381,8 +380,8 @@ describe('sampled profiles for meshing', () => {
 
   it('halfThickness(node, ξ) is the spec-level law', () => {
     const node = airfoil('hexagonal', { airfoilLeDiamond: 0.01 });
-    expect(halfThickness(node, 0.1, { chord: 0.05, mac: 0.05 })).toBeCloseTo(H / 2, 12);
-    expect(halfThickness(fin(), 0.5, { chord: 0.05 })).toBe(H);
+    expect(sectionHalfThickness(finSectionSpec(node, 0.05), 0.05, 0.1)).toBeCloseTo(H / 2, 12);
+    expect(sectionHalfThickness(finSectionSpec(fin()), 0.05, 0.5)).toBe(H);
   });
 });
 

@@ -74,6 +74,33 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
 
 const exitOf = (t: RocketTree) => t.components[0]!['nozzleExitDiameter'];
 
+it.each(['constructor', 'toString', '__proto__'])('has no inherited cleared-nozzle caution for %s', async id => {
+  const t = tree();
+  t.components[0]!.id = id;
+  const h = harness(t);
+  const l = loadout().map(s => ({ ...s, stageId: id }));
+  await h.show(l);
+  expect(h.out.cleared[id]).toBeUndefined();
+  h.treeRef.current = applyStageNozzles(h.treeRef.current, { [id]: 0.012 });
+  await h.show(loadout('J1').map(s => ({ ...s, stageId: id })));
+  await h.show(loadout('unknown').map(s => ({ ...s, stageId: id })));
+  expect(Object.hasOwn(h.out.cleared, id)).toBe(true);
+  for (const other of ['constructor', 'toString', '__proto__'].filter(key => key !== id)) {
+    expect(h.out.cleared[other]).toBeUndefined();
+  }
+});
+
+it('keeps a prototype-key stage update as an own nozzle entry', async () => {
+  const t = tree(0.012);
+  t.components[0]!.id = '__proto__';
+  const h = harness(t);
+  const first = loadout('J1').map(s => ({ ...s, stageId: '__proto__' }));
+  const second = loadout('K1').map(s => ({ ...s, stageId: '__proto__' }));
+  await h.show(first);
+  await h.show(second);
+  expect(exitOf(h.treeRef.current)).toBe(0.016);
+});
+
 describe('useNozzleFollow', () => {
   it.each(['__proto__', 'constructor', 'toString'])('follows a motor change on stage id %s', async stageId => {
     const initial = tree(0.012); initial.components[0]!.id = stageId;

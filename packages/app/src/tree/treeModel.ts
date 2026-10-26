@@ -34,6 +34,7 @@ import { sanitizeTree } from './sanitize.js';
 import { ventLimit } from './canopyVent.js';
 import { KERNEL_DEFAULT_CD, kernelNum } from './kernelDefaults.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
+import { boundedNozzleDiameter } from './nozzles.js';
 
 /**
  * Immutable tree-editing helpers. Every node carries a unique editor id
@@ -46,6 +47,7 @@ let counter = 1;
 const MAX_RESTORED_ID = 2 ** 50;
 
 export function freshId(): string {
+  if (counter >= MAX_RESTORED_ID) return crypto.randomUUID();
   return `c${counter++}`;
 }
 
@@ -531,7 +533,7 @@ export function applyStageNozzles(tree: RocketTree, nozzles: Record<string, numb
       let next = children !== n.children ? { ...n, children } : n;
       if ((n.type === 'stage' || n.type === 'parallelstage') && n.id && Object.hasOwn(nozzles, n.id)) {
         const v = nozzles[n.id];
-        const want = typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
+        const want = boundedNozzleDiameter(v) ?? undefined;
         if (n['nozzleExitDiameter'] !== want) {
           next = { ...next };
           delete next['nozzleExitDiameter'];
@@ -747,29 +749,40 @@ export function motorisedStagesWithNozzle(
  * separated stage with a device that never opened from one with no device at
  * all (K3, board Tier 2): both fly no deployment.
  */
-export function stagesWithRecoveryDevice(tree: RocketTree, byId = false): string[] {
+export function stageRecoveryById(tree: RocketTree): Record<string, boolean> {
   const stageOf = kernelStageIdByNode(tree);
   const owners = new Set<string>();
+  const stages: string[] = [];
+  const visit = (nodes: ComponentNode[]) => {
+    for (const node of nodes) {
+      if ((node.type === 'stage' || node.type === 'parallelstage') && node.id) stages.push(node.id);
+      if ((node.type === 'parachute' || node.type === 'streamer') && node.id) {
+        const id = stageOf.get(node.id);
+        if (id !== undefined) owners.add(id);
+      }
+      visit(node.children ?? []);
+    }
+  };
+  visit(tree.components);
+  return Object.fromEntries(stages.map(id => [id, owners.has(id)]));
+}
+
+export function stagesWithRecoveryDevice(tree: RocketTree): string[] {
+  const byId = stageRecoveryById(tree);
   // Branches are matched by NAME, so a name is reported only when EVERY stage
   // carrying it has a device: two strap-ons called "Booster", one with a chute,
   // must not make the other "never opened". An unnamed stage flies under a
   // name the kernel gives it and is left out, keeping the older wording.
   const byName = new Map<string, boolean>();
-  const walk = (ns: readonly ComponentNode[], collect: boolean): void => {
+  const walk = (ns: readonly ComponentNode[]): void => {
     for (const n of ns) {
-      if (collect && (n.type === 'parachute' || n.type === 'streamer') && n.id) {
-        const s = stageOf.get(n.id);
-        if (s !== undefined) owners.add(s);
+      if ((n.type === 'stage' || n.type === 'parallelstage') && n.id && n.name) {
+        byName.set(n.name, (byName.get(n.name) ?? true) && byId[n.id] === true);
       }
-      if (!collect && (n.type === 'stage' || n.type === 'parallelstage') && n.id && n.name) {
-        byName.set(n.name, (byName.get(n.name) ?? true) && owners.has(n.id));
-      }
-      walk(n.children ?? [], collect);
+      walk(n.children ?? []);
     }
   };
-  walk(tree.components, true);
-  if (byId) return [...owners];
-  walk(tree.components, false);
+  walk(tree.components);
   return [...byName].filter(([, all]) => all).map(([name]) => name);
 }
 
