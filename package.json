@@ -27,7 +27,8 @@
     "@types/three": "^0.169.0",
     "eslint-plugin-jsx-a11y": {
       "eslint": "$eslint"
-    }
+    },
+    "undici": "7.30.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
