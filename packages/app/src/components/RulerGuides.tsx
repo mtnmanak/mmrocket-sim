@@ -3,7 +3,10 @@ import { guideDigits, guideSpans, guideToPx, pxToGuide, type Guide, type GuideAx
 
 /** Approximate width of a 10 px label, for its backing plate. */
 const plateW = (text: string) => text.length * 5.8 + 8;
-const INK = 'var(--accent)';
+/** The guides' lines and plate edges: a state-carrying orange graphic. */
+const INK = 'var(--accent-graphic)';
+/** The 10 px label on the plate is text, so it takes the orange text ink (AA). */
+const LABEL_INK = 'var(--accent-text)';
 
 /**
  * The measuring guides drawn over the 2D side view, and the two invisible
@@ -46,7 +49,7 @@ export function RulerGuides({ guides, view, w, h, gutX, gutY, rollW, unit, onCre
     return (
       <g pointerEvents="none">
         <rect x={px} y={y - 7} width={pw} height={14} rx={3} fill="var(--surface-1)" stroke={INK} strokeWidth={0.75} />
-        <text x={anchor === 'middle' ? x : x + 4} y={y} textAnchor={anchor} dominantBaseline="central" fill={INK}>{text}</text>
+        <text x={anchor === 'middle' ? x : x + 4} y={y} textAnchor={anchor} dominantBaseline="central" fill={LABEL_INK}>{text}</text>
       </g>
     );
   };

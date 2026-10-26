@@ -62,26 +62,36 @@ export function dataHeaderLines(d: ExportData): string[] {
 }
 
 /** Light-theme values for the CSS variables the schematic markup uses
- *  (--accent = the selection outline when a component is selected;
+ *  (--accent-graphic = the selection outline when a component is selected;
  *  --status-* = the CP/stability-margin callout inks, S2;
- *  --launch = the loaded-motor case tint, S5;
- *  --surface-2 / --border / --text-secondary = the ruler gutters).
+ *  --launch / --launch-active / --on-accent = the loaded-motor case, its edge
+ *  and its designation label, S5;
+ *  --surface-* / --border / --text-* = the markers and the ruler gutters).
  *  A var left out of this list resolves to nothing in a standalone SVG, which
- *  for `stroke` and `fill` means the initial value — invisible, silently. */
+ *  for `stroke` and `fill` means the initial value — invisible, silently.
+ *  The values are the mmr-brand 1.0.2 LIGHT theme (brand/tokens.json
+ *  theme.light / color), as styles.css maps them; the drawing goes on white
+ *  paper, so every surface bakes to white except the page ground. */
 export const EXPORT_VARS: [string, string][] = [
+  ['var(--surface-0)', '#f6faff'], // --mmr-bg (paper)
   ['var(--surface-1)', '#ffffff'],
-  ['var(--surface-2)', '#f2f0eb'],
-  ['var(--text-primary)', '#20242c'],
-  ['var(--text-secondary)', '#52514e'],
-  ['var(--border)', '#c6c2b8'],
-  ['var(--accent)', '#b8511d'],
-  // The light theme's own --launch and status tokens — darkened to AA by the
-  // 2026-09-22 audit, which this list must follow (contrastTokens.test.ts
-  // holds it).
-  ['var(--launch)', '#c45320'],
-  ['var(--status-good)', '#007100'],
-  ['var(--status-warn)', '#845800'],
-  ['var(--status-serious)', '#bd1e1d'],
+  ['var(--surface-2)', '#ffffff'], // --mmr-surface
+  ['var(--surface-3)', '#ffffff'],
+  ['var(--text-primary)', '#03254f'], // --mmr-text
+  ['var(--text-secondary)', '#45637b'], // --mmr-text-muted
+  ['var(--text-muted)', '#45637b'],
+  ['var(--border)', '#b3cadc'], // --mmr-border
+  ['var(--accent-text)', '#ad3c00'], // --mmr-accent-text
+  ['var(--accent-graphic)', '#ad3c00'],
+  ['var(--series-1)', '#006aab'], // --mmr-chart-altitude
+  // The light theme's Launch ramp and status tokens (contrastTokens.test.ts
+  // holds this list to styles.css).
+  ['var(--launch)', '#bb4100'], // --mmr-btn-primary-bg
+  ['var(--launch-active)', '#7c2a00'], // --mmr-btn-primary-bg-active
+  ['var(--on-accent)', '#ffffff'], // --mmr-btn-primary-text
+  ['var(--status-good)', '#226b47'], // --mmr-success
+  ['var(--status-warn)', '#855300'], // --mmr-warning
+  ['var(--status-serious)', '#ad2436'], // --mmr-danger
 ];
 
 /**
@@ -145,7 +155,7 @@ export function schematicSvg(
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${viewW} ${totalH}"
   width="${mm(viewW).toFixed(2)}mm" height="${mm(totalH).toFixed(2)}mm"
-  font-family="Arial, Helvetica, sans-serif" fill="#20242c">
+  font-family="Arial, Helvetica, sans-serif" fill="#03254f">
   <rect x="0" y="0" width="${viewW}" height="${totalH}" fill="#ffffff"/>
   <g>${header}</g>
   <g transform="translate(0 ${headerH})">${inner}</g>
@@ -234,7 +244,7 @@ export function snapshotWithHeader(glCanvas: HTMLCanvasElement, d: ExportData, f
   if (!c) return Promise.reject(new Error(`the browser refused a ${canvas.width} x ${canvas.height} px canvas`));
   c.fillStyle = '#ffffff';
   c.fillRect(0, 0, canvas.width, canvas.height);
-  c.fillStyle = '#20242c';
+  c.fillStyle = '#03254f'; // brand light --mmr-text, as the SVG header
   lines.forEach((l, i) => {
     c.font = `${i === 0 ? 'bold ' : ''}${i === 0 ? Math.round(fs * 1.25) : fs}px Arial, Helvetica, sans-serif`;
     c.fillText(l, Math.round(fs * 0.8), lineH * (i + 1));

@@ -191,19 +191,23 @@ describe('TreeSchematic — CG/CP callouts', () => {
 
 describe('schematic export', () => {
   it('bakes the status vars the callouts use to their light values', () => {
-    // The AA-darkened light tokens (audit 2026-09-22); contrastTokens.test.ts
-    // reads them from styles.css and holds this list to them.
+    // The brand light status tokens (mmr-brand 1.0.2, re-pinned 2026-10-26
+    // from the 2026-09-22 AA-darkened values); contrastTokens.test.ts reads
+    // them from styles.css and holds this list to them.
     expect(EXPORT_VARS).toEqual(expect.arrayContaining([
-      ['var(--status-good)', '#007100'],
-      ['var(--status-warn)', '#845800'],
-      ['var(--status-serious)', '#bd1e1d'],
+      ['var(--status-good)', '#226b47'],
+      ['var(--status-warn)', '#855300'],
+      ['var(--status-serious)', '#ad2436'],
     ]));
   });
 
   it('bakes the launch tint the motor cases use (S5)', () => {
-    // Nudged from #c65420 so a white label on it is AA (audit 2026-09-22).
+    // The brand light Launch fill (--mmr-btn-primary-bg, re-pinned 2026-10-26
+    // from #c45320); the case is opaque, and its white label is 5.43:1 on it.
     expect(EXPORT_VARS).toEqual(expect.arrayContaining([
-      ['var(--launch)', '#c45320'],
+      ['var(--launch)', '#bb4100'],
+      ['var(--launch-active)', '#7c2a00'],
+      ['var(--on-accent)', '#ffffff'],
     ]));
   });
 });
@@ -255,7 +259,7 @@ describe('TreeSchematic — motor tint + label (S5)', () => {
     expect(host.querySelector('rect[fill="var(--launch)"]')).not.toBeNull();
     const label = texts().find((t) => t.textContent === 'C6-5')!;
     expect(label.getAttribute('font-weight')).toBe('bold');
-    expect(label.getAttribute('fill')).toBe('#ffffff');
+    expect(label.getAttribute('fill')).toBe('var(--on-accent)');
   });
 
   it('a case too short on screen keeps the tint but skips the label', () => {
@@ -278,20 +282,20 @@ describe('TreeSchematic — hover highlight + name tag (S5)', () => {
     mount(null);
     const tube = host.querySelector('rect[fill="#e7e5e0"]')!;
     over(tube);
-    const wash = host.querySelector('rect[fill="var(--accent)"]')!;
+    const wash = host.querySelector('rect[fill="var(--accent-graphic)"]')!;
     expect(wash).not.toBeNull();
     expect(wash.getAttribute('fill-opacity')).toBe('0.14');
     // Lighter than the solid width-2 selection outline.
     expect(wash.getAttribute('stroke-width')).toBe('1');
     expect(texts().find((t) => t.textContent === 'Body tube')).not.toBeUndefined();
     out(tube);
-    expect(host.querySelector('rect[fill="var(--accent)"]')).toBeNull();
+    expect(host.querySelector('rect[fill="var(--accent-graphic)"]')).toBeNull();
     expect(texts().find((t) => t.textContent === 'Body tube')).toBeUndefined();
   });
 
   it('selection styling is untouched: the selected shape keeps its solid accent outline', () => {
     mount(null, { selectedId: 'n1' });
-    const nose = host.querySelector('path[stroke="var(--accent)"]')!;
+    const nose = host.querySelector('path[stroke="var(--accent-graphic)"]')!;
     expect(nose.getAttribute('stroke-width')).toBe('2');
   });
 });

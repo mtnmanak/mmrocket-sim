@@ -570,7 +570,7 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
   const element = (s: SchematicShape, stop: boolean): ReactNode => {
     const props: Record<string, unknown> = { key: s.key, ...s.attrs };
     if (s.sel && !!selectedId && s.part?.id === selectedId) {
-      props['stroke'] = 'var(--accent)';
+      props['stroke'] = 'var(--accent-graphic)';
       props['strokeWidth'] = 2;
     }
     if (s.part) Object.assign(props, interaction(s.part, stop));
@@ -825,14 +825,14 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
             <g pointerEvents="none">
               <rect x={hoverBox.x0 - 2} y={hoverBox.y0 - 2}
                 width={hoverBox.x1 - hoverBox.x0 + 4} height={hoverBox.y1 - hoverBox.y0 + 4}
-                rx="3" fill="var(--accent)" fillOpacity="0.14"
-                stroke="var(--accent)" strokeWidth="1" strokeOpacity="0.6" />
+                rx="3" fill="var(--accent-graphic)" fillOpacity="0.14"
+                stroke="var(--accent-graphic)" strokeWidth="1" strokeOpacity="0.6" />
               <g {...textUp(hoverTag.x, hoverTag.y)}>
                 <rect x={hoverTag.x - hoverTag.tw / 2} y={hoverTag.y - 9}
                   width={hoverTag.tw} height={18} rx="4"
-                  fill="rgba(13,14,18,0.9)" stroke="var(--border)" strokeWidth="1" />
+                  fill="rgba(3,37,79,0.92)" stroke="var(--border)" strokeWidth="1" />
                 <text x={hoverTag.x} y={hoverTag.y} textAnchor="middle" dominantBaseline="central"
-                  fontSize="11" fill="#ffffff">{hoverName}</text>
+                  fontSize="11" fill="#f6faff">{hoverName}</text>
               </g>
             </g>
           )}

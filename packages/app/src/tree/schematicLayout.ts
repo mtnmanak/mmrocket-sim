@@ -551,8 +551,10 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
       attrs: {
         x: ctx.x0 + mStart * ctx.scale, y: cY - mR * ctx.scale,
         width: Math.max(2, motor.length * ctx.scale), height: Math.max(2, 2 * mR * ctx.scale),
-        rx: '1', fill: 'var(--launch)', fillOpacity: '0.85',
-        stroke: '#e0764a', strokeWidth: '0.8',
+        // Opaque, so the label below sits on the Launch colour itself (AA with
+        // --on-accent in every theme); the edge is the Launch ramp's far step.
+        rx: '1', fill: 'var(--launch)',
+        stroke: 'var(--launch-active)', strokeWidth: '0.8',
         style: { pointerEvents: 'none' },
       },
     }];
@@ -568,7 +570,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         key: `${key}-label`, layer, tag: 'text', text: motor.label,
         attrs: {
           x: lx, y: cY, textAnchor: 'middle', dominantBaseline: 'central',
-          fontSize: String(fontSize), fontWeight: 'bold', fill: '#ffffff',
+          fontSize: String(fontSize), fontWeight: 'bold', fill: 'var(--on-accent)',
           style: { pointerEvents: 'none' },
         },
       });
