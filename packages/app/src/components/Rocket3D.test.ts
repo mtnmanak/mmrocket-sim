@@ -544,10 +544,10 @@ describe('calloutGadget — the offset CG/CP gadget', () => {
     expect(g.margin!.pos[2]).toBeCloseTo(g.off, 12);
   });
 
-  it('labels CG in neutral ink and CP in the CP red', () => {
+  it('labels CG in neutral ink and CP in the brand orange', () => {
     const g = calloutGadget(infoOf(), MAX_R, LEN)!;
-    expect(g.cg).toMatchObject({ text: 'CG', color: '#e9edf1' });
-    expect(g.cp).toMatchObject({ text: 'CP', color: '#e34948' });
+    expect(g.cg).toMatchObject({ text: 'CG', color: '#f6faff' });
+    expect(g.cp).toMatchObject({ text: 'CP', color: '#ff6509' });
   });
 
   it('formats the margin and colors it by stability state (dark-theme hexes)', () => {
@@ -557,9 +557,9 @@ describe('calloutGadget — the offset CG/CP gadget', () => {
     // vanished for a red-green colour-blind reader in the one view people
     // rotate to inspect a build.
     const at = (cal: number) => calloutGadget(infoOf({ stabilityCalibers: cal }), MAX_R, LEN)!.margin!;
-    expect(at(1.67)).toMatchObject({ text: '✓ 1.67 cal — ok', color: '#4dbd4d' });
-    expect(at(0.42)).toMatchObject({ text: '⚠ 0.42 cal — under-stable', color: '#f0716f' });
-    expect(at(3.5)).toMatchObject({ text: '△ 3.50 cal — over-stable', color: '#e0a53d' });
+    expect(at(1.67)).toMatchObject({ text: '✓ 1.67 cal — ok', color: '#6fd39a' });
+    expect(at(0.42)).toMatchObject({ text: '⚠ 0.42 cal — under-stable', color: '#ff8a93' });
+    expect(at(3.5)).toMatchObject({ text: '△ 3.50 cal — over-stable', color: '#ffb23e' });
   });
 
   it('skips the margin when stability is unknown, the whole gadget without CG+CP', () => {
@@ -636,7 +636,7 @@ describe('buildPieces — inner tubes and loaded motors (S5)', () => {
     expect(motor.length).toBe(1);
     // Mount aft end at 0.37: motor spans 0.315..0.37, centre 0.3425.
     expect(motor[0]!.position![0]).toBeCloseTo(0.3425, 9);
-    expect(motor[0]!.color).toBe('#c65420');
+    expect(motor[0]!.color).toBe('#bb4100');
     // No motors prop, or a motor on some other mount: no case drawn.
     expect(buildPieces(mountTree()).pieces.some((p) => p.key.startsWith('motor'))).toBe(false);
     expect(buildPieces(mountTree(), { other: { length: 0.055, diameter: 0.018 } })

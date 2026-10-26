@@ -72,7 +72,10 @@ const MAT = {
   fin: '#a98f6f',
   lug: '#9a978f',
   inner: '#6b6862',
-  motor: '#c65420',
+  // The brand Launch fill (--mmr-btn-primary-bg, light): the same orange the
+  // side view's loaded case is filled with in the light theme, and darker
+  // than the #FF6509 CP marker, which can sit over the motor.
+  motor: '#bb4100',
 };
 
 export interface Piece {

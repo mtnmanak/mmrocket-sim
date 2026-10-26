@@ -45,11 +45,20 @@ const ZERO3: [number, number, number] = [0, 0, 0];
 const markerRadius = (totalLen: number, maxR: number): number =>
   Math.max(totalLen * 0.015, maxR * 0.35);
 
-// DARK-theme status hexes on purpose: the 3D background is the dusk gradient
-// in both themes, so the dark-theme inks are the legible set here.
+// The brand's DARK-theme status values (mmr-brand 1.0.2 success-dark,
+// warning-dark, danger-dark) on purpose: the 3D background is dark in every
+// theme, so the dark-theme inks are the legible set here.
 const MARGIN_COLOR: Record<StabilityState, string> = {
-  ok: '#4dbd4d', over: '#e0a53d', under: '#f0716f',
+  ok: '#6fd39a', over: '#ffb23e', under: '#ff8a93',
 };
+
+// Marker inks. CP is the brand orange (SPEC: orange marks the CP); CG is
+// brand paper, so the two never read as one. The glows are brand values one
+// step darker (control slate, the Launch ramp's darkest orange).
+const CG_COLOR = '#f6faff';
+const CG_GLOW = '#7c93a8';
+const CP_COLOR = '#ff6509';
+const CP_GLOW = '#7c2a00';
 
 export interface CalloutGadget {
   /** Radial (z) offset of the gadget column, clear of the hull. */
@@ -107,8 +116,8 @@ export function calloutGadget(
   return {
     off,
     r: markerR * 0.55,
-    cg: { pos: [info.cg, 0, off], text: 'CG', color: '#e9edf1' },
-    cp: aero ? { pos: [shownCp(info), 0, off], text: 'CP', color: '#e34948' } : null,
+    cg: { pos: [info.cg, 0, off], text: 'CG', color: CG_COLOR },
+    cp: aero ? { pos: [shownCp(info), 0, off], text: 'CP', color: CP_COLOR } : null,
     // Glyph and word, not colour alone — the same string the 2D schematic
     // builds (TreeSchematic's marginText). `formatStability` returns a bare
     // number ("1.85 cal", or a percentage), so before v0.105 the whole
@@ -336,7 +345,7 @@ function labelTexture(text: string, color: string): { texture: THREE.CanvasTextu
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
   ctx.lineWidth = px * 0.14;
-  ctx.strokeStyle = 'rgba(10, 15, 22, 0.9)';
+  ctx.strokeStyle = 'rgba(3, 37, 79, 0.9)'; // brand navy halo
   ctx.strokeText(text, px * 0.15, h / 2);
   ctx.fillStyle = color;
   ctx.fillText(text, px * 0.15, h / 2);
@@ -593,13 +602,13 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
           {markers.axis && axis.cg !== null && (
             <mesh position={[axis.cg, 0, 0]} renderOrder={10}>
               <sphereGeometry args={[markerR * 0.45, 24, 24]} />
-              <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} transparent />
+              <meshStandardMaterial color={CG_COLOR} emissive={CG_GLOW} depthTest={false} transparent />
             </mesh>
           )}
           {markers.axis && axis.cp !== null && (
             <mesh position={[axis.cp, 0, 0]} renderOrder={11}>
               <sphereGeometry args={[markerR * 0.45, 24, 24]} />
-              <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
+              <meshStandardMaterial color={CP_COLOR} emissive={CP_GLOW} depthTest={false} transparent />
             </mesh>
           )}
           {/* Floating CG/CP callout beside the hull (2026-08-21c). Same
@@ -612,17 +621,17 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
                   rotation={[0, 0, -Math.PI / 2]} renderOrder={11}>
                   <cylinderGeometry args={[gadget.r * 0.12, gadget.r * 0.12,
                     Math.abs(gadget.cg.pos[0] - gadget.cp.pos[0]), 8]} />
-                  <meshBasicMaterial color="#8891a0" depthTest={false} transparent />
+                  <meshBasicMaterial color={CG_GLOW} depthTest={false} transparent />
                 </mesh>
               )}
               <mesh position={gadget.cg.pos} renderOrder={12}>
                 <sphereGeometry args={[gadget.r, 24, 24]} />
-                <meshStandardMaterial color="#e9edf1" emissive="#8891a0" depthTest={false} transparent />
+                <meshStandardMaterial color={CG_COLOR} emissive={CG_GLOW} depthTest={false} transparent />
               </mesh>
               {gadget.cp && (
                 <mesh position={gadget.cp.pos} renderOrder={12}>
                   <sphereGeometry args={[gadget.r, 24, 24]} />
-                  <meshStandardMaterial color="#e34948" emissive="#5a1010" depthTest={false} transparent />
+                  <meshStandardMaterial color={CP_COLOR} emissive={CP_GLOW} depthTest={false} transparent />
                 </mesh>
               )}
               <CalloutLabel text={gadget.cg.text} color={gadget.cg.color} place="above"
@@ -649,8 +658,10 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
         {/* The legend goes with the markers — a key for dots nobody is drawing
             is worse than no key. */}
         {markers.axis && (
-          <> · <span style={{ color: '#aab2bd' }}>●</span> CG
-            {axis.cp !== null && <> · <span style={{ color: '#e34948' }}>●</span> CP</>}</>
+          // The key sits on the page, not the scene: theme inks that clear 3:1
+          // there (the CP dot is the orange graphic, not the 2.95:1 brand orange).
+          <> · <span style={{ color: 'var(--text-muted)' }}>●</span> CG
+            {axis.cp !== null && <> · <span style={{ color: 'var(--accent-graphic)' }}>●</span> CP</>}</>
         )}
       </p>
     </div>
