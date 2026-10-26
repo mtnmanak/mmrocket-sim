@@ -52,7 +52,8 @@ export function releaseAnchor(version) {
  * is not defined. No shadows, gradients or left stripes (brand SPEC). Fonts are
  * the app's vendored brand fonts (../brand/fonts.css from /releases/): headings
  * Archivo 800, prose Archivo 400 capped near 70ch (D6), version numbers and
- * dates IBM Plex Mono with tabular figures. Contrast, measured: navy on paper
+ * dates IBM Plex Mono with tabular figures (the heading's version link at 600:
+ * fonts.css ships Plex Mono at 400/500/600 only, so it must not inherit 800). Contrast, measured: navy on paper
  * 14.50, slate 6.03, link 5.49; paper on navy 14.50, slate-light 8.32, sky 7.96;
  * on the dark card (#123859) paper 11.54, slate-light 6.62, sky 6.34.
  */
@@ -72,6 +73,7 @@ nav.toc summary{cursor:pointer;font-weight:600}
 nav.toc ol{list-style:none;margin:10px 0 0;padding:0;max-height:360px;overflow:auto}
 nav.toc li{margin:2px 0;font-size:.92rem}
 nav.toc li>a,section.release h2>a,.d{font-family:var(--font-data);font-variant-numeric:tabular-nums}
+section.release h2>a{font-weight:600}
 nav.toc .d{color:var(--muted);margin:0 6px}
 section.release{border-top:1px solid var(--border);padding-top:18px;margin-top:18px}
 section.release h2{font-size:1.25rem;margin:0}

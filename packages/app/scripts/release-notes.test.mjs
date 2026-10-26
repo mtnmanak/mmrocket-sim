@@ -18,6 +18,8 @@ import {
 
 const page = renderReleaseNotes(CHANGELOG, PRE_VERSIONING_NOTE);
 const HERE = dirname(fileURLToPath(import.meta.url));
+const fontsCss = readFileSync(join(HERE, '..', 'public', 'brand', 'fonts.css'), 'utf8');
+const tokensCss = readFileSync(join(HERE, '..', 'public', 'brand', 'tokens.css'), 'utf8');
 
 describe('the release-notes page', () => {
   it('opens on the release this build is, and names it as the latest', () => {
@@ -106,7 +108,8 @@ describe('the page wears the brand (mmr-brand 1.0.2, rollout D9)', () => {
       for (const fg of ['text', 'muted', 'link']) {
         for (const bg of ['bg', 'panel']) expect(contrast(p[fg], p[bg]), `${name} ${fg} on ${bg}`).toBeGreaterThanOrEqual(4.5);
       }
-      expect(contrast(p.focus, p.bg), `${name} focus ring`).toBeGreaterThanOrEqual(3);
+      // The summary and every contents link sit on the card, so the ring is checked there too.
+      for (const bg of ['bg', 'panel']) expect(contrast(p.focus, p[bg]), `${name} focus ring on ${bg}`).toBeGreaterThanOrEqual(3);
     }
   });
 
@@ -118,9 +121,30 @@ describe('the page wears the brand (mmr-brand 1.0.2, rollout D9)', () => {
     expect(style).toMatch(/--font:"Archivo"/);
     expect(style).toMatch(/--font-data:"IBM Plex Mono"/);
     expect(style).toContain('h1,h2{font-family:var(--font);font-weight:800');
+    // The heading's version link is Plex Mono, which fonts.css ships at 400/500/600 only;
+    // without this it inherits 800 and the browser synthesises a faux bold.
+    expect(style).toContain('section.release h2>a{font-weight:600}');
+    const monoWeights = [...fontsCss.matchAll(/font-family:\s*"IBM Plex Mono";[^}]*?font-weight:\s*(\d+)/g)].map((m) => Number(m[1]));
+    expect(monoWeights, 'the Plex Mono face the link asks for is shipped').toContain(600);
     expect(style).toContain('font-variant-numeric:tabular-nums');
     expect(style).toContain('max-width:calc(70ch + 32px)');
     expect(style).toContain('outline:3px solid var(--focus)');
+  });
+
+  it('copies its colours from the vendored brand tokens, so a brand bump cannot leave it behind', () => {
+    // The page stays self-contained (literal hex), so pin each literal to the
+    // primitive in public/brand/tokens.css it stands for.
+    const prim = Object.fromEntries(
+      [...tokensCss.matchAll(/--mmr-c-([a-z-]+):\s*(#[0-9a-fA-F]{6})/g)].map((m) => [m[1], m[2].toLowerCase()]),
+    );
+    const lightMap = { bg: 'paper', panel: 'white', text: 'navy', muted: 'slate', border: 'line', link: 'link', focus: 'link' };
+    const darkMap = { bg: 'navy', panel: 'navy-raised', text: 'paper', muted: 'slate-light', border: 'line-dark', link: 'sky', focus: 'sky' };
+    for (const [name, p, map] of [['light', light, lightMap], ['dark', dark, darkMap]]) {
+      for (const [v, c] of Object.entries(map)) {
+        expect(prim[c], `--mmr-c-${c} in tokens.css`).toMatch(/^#[0-9a-f]{6}$/);
+        expect(p[v], `${name} --${v} = --mmr-c-${c}`).toBe(prim[c]);
+      }
+    }
   });
 
   it('has no shadows, gradients or left-border stripes', () => {
