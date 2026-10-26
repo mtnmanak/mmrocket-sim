@@ -8,6 +8,10 @@ import { assemblyInstanceCount, finCountOf, lineInstanceCount } from './counts.j
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from './assembly.js';
 import { isConformal, shroudHalfWidth } from './shroud.js';
 import { finOnMount, flatMount, type MountSurface } from './finRoot.js';
+
+/** A loaded motor seen from aft: the Launch colour, as the side view's case
+ *  and the 3D motor (AftView draws it see-through, keyed on this value). */
+export const AFT_MOTOR_FILL = 'var(--launch)';
 import { kernelNum } from './kernelDefaults.js';
 import { axialLength, axialStart } from './position.js';
 import { drawnRadius, profileMountOf } from './schematicLayout.js';
@@ -263,7 +267,7 @@ export function aftLayout(
           if (motor) {
             inner.push({
               key: keyFor(child, ':motor'), kind: 'circle', y: cy + oy + off.y, z: cz + oz + off.z, r: motor.diameter / 2,
-              fill: '#8b5a2b', stroke: '#6b4520', title: 'Motor',
+              fill: AFT_MOTOR_FILL, stroke: 'var(--launch-active)', title: 'Motor',
             });
           }
           reach(cy + oy + off.y, cz + oz + off.z, r);
@@ -335,7 +339,7 @@ export function aftLayout(
           if (motor) {
             inner.push({
               key: keyFor(n, ':motor'), kind: 'circle', y: cy, z: cz, r: motor.diameter / 2,
-              fill: '#8b5a2b', stroke: '#6b4520', title: 'Motor',
+              fill: AFT_MOTOR_FILL, stroke: 'var(--launch-active)', title: 'Motor',
             });
           }
         }

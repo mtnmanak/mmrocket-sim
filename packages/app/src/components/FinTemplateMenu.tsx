@@ -80,8 +80,9 @@ export function FinTemplateMenu({ onPick, template = 'fin', disabled = false }: 
       {open && (
         <div className="image-export-popup" role="group" aria-label={`${label} — file format`} style={{
           position: 'absolute', left: 0, right: 0, top: '100%', marginTop: 4, zIndex: 30,
-          background: 'var(--surface-1)', border: '1px solid var(--border, #444)',
-          borderRadius: 6, padding: 6, boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+          // A raised menu, flat with an edge (brand: no drop shadows).
+          background: 'var(--surface-3)', border: '1px solid var(--border)',
+          borderRadius: 6, padding: 6,
           display: 'grid', gap: 4, fontSize: 12,
         }}>
           {FIN_TEMPLATE_FORMATS.map(({ format, label, title }) => (

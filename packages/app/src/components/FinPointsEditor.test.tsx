@@ -247,7 +247,7 @@ describe('FinPointsEditor — the outline guard', () => {
     render(GOOD);
     expect(outlineStroke()).toBe('#7a786f');
     render([[0, 0], [0.020, 0.030], [0.005, 0.020], [0.060, 0]]);
-    expect(outlineStroke()).toBe('#e34948');
+    expect(outlineStroke()).toBe('var(--status-serious)');
   });
 
   it('"+ Add point" splits the last edge and commits', () => {

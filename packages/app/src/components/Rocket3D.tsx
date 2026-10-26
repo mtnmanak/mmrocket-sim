@@ -335,7 +335,7 @@ function labelTexture(text: string, color: string): { texture: THREE.CanvasTextu
   const px = 96;
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d')!;
-  const font = `700 ${px}px system-ui, 'Segoe UI', sans-serif`;
+  const font = `700 ${px}px 'Archivo', 'Helvetica Neue', Arial, sans-serif`; // brand display face
   ctx.font = font;
   const w = Math.ceil(ctx.measureText(text).width + px * 0.3);
   const h = Math.ceil(px * 1.25);

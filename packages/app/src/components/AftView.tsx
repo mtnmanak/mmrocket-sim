@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import { arrowPan, releasedDuring, startsGesture, wheelNotches } from '../chartPanZoom.js';
 import { shroudHalfWidth } from '../tree/shroud.js';
-import { aftLayout, type MotorDims, type Shape } from '../tree/aftLayout.js';
+import { AFT_MOTOR_FILL, aftLayout, type MotorDims, type Shape } from '../tree/aftLayout.js';
 import { RollControl } from './RollControl.js';
 
 /**
@@ -108,7 +108,7 @@ export function AftView({ tree, motors, hiddenIds, roll: rollProp, onRoll }: {
     if (s.kind === 'circle') {
       return (
         <circle key={s.key} cx={toSvg(s.z)} cy={-toSvg(s.y)} r={toSvg(s.r)}
-          fill={s.fill} fillOpacity={s.fill === '#8b5a2b' ? 0.45 : undefined}
+          fill={s.fill} fillOpacity={s.fill === AFT_MOTOR_FILL ? 0.45 : undefined}
           stroke={s.stroke} strokeWidth={E / 220} strokeDasharray={s.dash
             ? s.dash.split(' ').map((d) => (Number(d) * E) / 110).join(' ')
             : undefined}>

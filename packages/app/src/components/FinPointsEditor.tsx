@@ -483,8 +483,8 @@ export function FinPointsEditor({ points, onChange }: {
         <text x={4} y={bodyY + 12} fontSize="9" fill="var(--text-muted)">body tube</text>
         {/* fin polygon — red while the outline is one the kernel would refuse */}
         <polygon points={polygon}
-          fill={shownProblem ? '#e34948' : '#b9b7b0'} fillOpacity={shownProblem ? 0.35 : 0.75}
-          stroke={shownProblem ? '#e34948' : '#7a786f'} strokeWidth="1.5"
+          fill={shownProblem ? 'var(--status-serious)' : '#b9b7b0'} fillOpacity={shownProblem ? 0.35 : 0.75}
+          stroke={shownProblem ? 'var(--status-serious)' : '#7a786f'} strokeWidth="1.5"
           style={{ pointerEvents: 'none' }} />
         {/* points: generous invisible hit circle + visible dot */}
         {pts.map((p, i) => {
@@ -499,11 +499,13 @@ export function FinPointsEditor({ points, onChange }: {
                 onPointerDown={onPointerDownPoint(i)}
                 onDoubleClick={(e) => { if (!e.shiftKey && !touchView.current) removePoint(i); }} />
               {hot && (
-                <circle cx={sx} cy={sy} r={9} fill="none" stroke="#e3a008"
+                <circle cx={sx} cy={sy} r={9} fill="none" stroke="var(--accent-graphic)"
                   strokeWidth="2" style={{ pointerEvents: 'none' }} />
               )}
               <circle cx={sx} cy={sy} r={hot ? 6 : 4.5}
-                fill={locked ? '#7a786f' : draggingThis ? '#e34948' : hot ? '#e3a008' : '#2a78d6'}
+                // Hover and drag are state, so the state orange; red is kept
+                // for the refused outline above (the brand reserves it for danger).
+                fill={locked ? '#7a786f' : hot ? 'var(--accent-graphic)' : 'var(--series-1)'}
                 stroke="#fff" strokeWidth="1.5" style={{ pointerEvents: 'none' }} />
               <text x={sx + 7} y={sy - 6} fontSize="9" fill="var(--text-secondary)"
                 style={{ pointerEvents: 'none' }}>{i + 1}</text>
