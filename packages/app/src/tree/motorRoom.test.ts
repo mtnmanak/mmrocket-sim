@@ -12,6 +12,19 @@ it.each(['nosecone', 'transition'] as const)('keeps motor room continuous as a m
   }
 });
 
+it('does not let a mount that reaches into a nose cone from behind carry the motor into the nose', () => {
+  const t = (mountLength: number): RocketTree => ({ components: [{ type: 'stage', children: [
+    { type: 'nosecone', id: 'nose', length: 0.15, shape: 'conical', aftRadius: 0.045 },
+    { type: 'bodytube', length: 0.4, outerRadius: 0.045, children: [{ type: 'innertube', id: 'mt', length: mountLength,
+      outerRadius: 0.01, position: { method: 'bottom', offset: 0 } }] },
+  ] }] });
+  const flush = estimateMotorRoom(t(0.4), 'mt')!;
+  const into = estimateMotorRoom(t(0.4001), 'mt')!;
+  expect(flush.lengthM).toBeCloseTo(0.4, 9);
+  // 0.1 mm of overlap moves the room by 0.1 mm, not by the nose cone's depth.
+  expect(into.lengthM).toBeCloseTo(0.4001, 9);
+});
+
 it('does not stop a long mount at the base of the reducer it penetrates', () => {
   const t: RocketTree = { components: [{ type: 'stage', children: [
     { type: 'transition', id: 'reducer', length: 0.1, foreRadius: 0.02, aftRadius: 0.045, shape: 'conical' },

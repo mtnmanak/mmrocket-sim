@@ -314,7 +314,12 @@ export function estimateMotorRoom(tree: RocketTree, mountId: string): MotorRoom 
       // merely passes through, or one wholly aft of that end, is no stop.
       if (mine.start <= start + 1e-6) continue;
       let contact = mine.start;
-      if (node['filled'] !== true) {
+      // A motor cannot enter a nose cone from behind (rule above): a mount that
+      // reaches into one from the airframe aft of it holds the motor as far as the
+      // mount goes and no further, so 0.1 mm of overlap cannot let the room run on
+      // into the nose. A mount carried INSIDE the nose (a saucer) keeps its profile.
+      const fromBehind = node.type === 'nosecone' && !mountAncestors.has(node.id);
+      if (!fromBehind && node['filled'] !== true) {
         const ends = node.type === 'nosecone' ? noseEnds(node, num(node, 'aftRadius', 0.012))
           : { fore: numOpt(node, 'foreRadius'), aft: numOpt(node, 'aftRadius') };
         if (ends.fore === undefined || ends.aft === undefined) return null;
