@@ -2084,15 +2084,14 @@ export function inheritDefaults(
   const out: ComponentNode = { ...node };
 
   const fields = FIELDS[node.type] ?? [];
-  for (const key of ['density', 'materialName', 'finish'] as const) {
-    // materialName has no FIELDS entry; it travels with density — only copy
-    // it onto types that can hold the matching density.
-    const applies = key === 'materialName'
-      ? fields.some((f) => f.key === 'density')
-      : fields.some((f) => f.key === key);
-    if (src[key] !== undefined && applies) {
-      (out as Record<string, unknown>)[key] = src[key];
-    }
+  const density = numOpt(src, 'density');
+  if (density !== undefined && fields.some(f => f.key === 'density')) {
+    out['density'] = density;
+    if (src['materialName'] !== undefined) out['materialName'] = src['materialName'];
+    else delete out['materialName'];
+  }
+  if (src['finish'] !== undefined && fields.some(f => f.key === 'finish')) {
+    out['finish'] = src['finish'];
   }
 
   // Airframe diameter continuity along the top-level chain.
@@ -2103,9 +2102,15 @@ export function inheritDefaults(
   }
   // Tube walls: carry the previous tube's thickness — a finite one (audit row 522).
   const srcWall = numOpt(src, 'thickness');
+  const parentRadius = parent && parent !== 'stage' && parent['filled'] !== true
+    ? numOpt(parent, 'outerRadius') : undefined;
+  const radius = numOpt(out, 'outerRadius') ?? (node.type === 'tubecoupler'
+    && parent && parent !== 'stage' && parentRadius !== undefined
+    ? parentRadius - num(parent, 'thickness', 0.0005) : 0);
   if (srcWall !== undefined
+      && src['filled'] !== true
       && ['bodytube', 'innertube', 'tubecoupler'].includes(src.type)
-      && srcWall < (numOpt(out, 'outerRadius') ?? Infinity)
+      && srcWall < radius
       && (node.type === 'bodytube' || node.type === 'innertube' || node.type === 'tubecoupler')
       && fields.some((f) => f.key === 'thickness')) {
     out['thickness'] = srcWall;

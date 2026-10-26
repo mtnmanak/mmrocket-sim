@@ -473,8 +473,14 @@ function recoveryFitInBay(
   const bayLength = axialLength(bay);
   const nose = bay.type === 'nosecone';
   const flipped = nose && bay['flipped'] === true;
-  const foreExtension = !cavity ? 0 : nose ? (flipped ? nnum(bay, 'shoulderLength', 0) : 0) : nnum(bay, 'foreShoulderLength', 0);
-  const aftExtension = !cavity ? 0 : nose ? (flipped ? 0 : nnum(bay, 'shoulderLength', 0)) : nnum(bay, 'aftShoulderLength', 0);
+  const shoulderLength = (side: 'fore' | 'aft'): number => {
+    if (!cavity || (nose && (side === 'fore') !== flipped)) return 0;
+    const prefix = nose ? 'shoulder' : `${side}Shoulder`;
+    const radius = nnum(bay, `${prefix}Radius`, 0);
+    return radius > 0 ? nnum(bay, `${prefix}Length`, 0) : 0;
+  };
+  const foreExtension = shoulderLength('fore');
+  const aftExtension = shoulderLength('aft');
   let bayMin = -foreExtension;
   const bayMax = bayLength + aftExtension;
   const stations = absoluteStations(tree);
@@ -517,8 +523,8 @@ function recoveryFitInBay(
       if (isNose && part['flipped'] === true) continue;
       const prefix = isNose ? 'shoulder' : 'aftShoulder';
       if (!(nnum(part, `${prefix}Length`, 0) > 0) || part[`${prefix}Capped`] === true) continue;
-      const shoulderRadius = numOrNull(part, `${prefix}Radius`);
-      if (shoulderRadius !== null && shoulderRadius <= 0) continue;
+      const shoulderRadius = nnum(part, `${prefix}Radius`, 0);
+      if (shoulderRadius <= 0) continue;
       const aft = numOrNull(part, 'aftRadius');
       const fore = isNose ? 0 : numOrNull(part, 'foreRadius');
       const partLength = axialLength(part);
@@ -530,7 +536,7 @@ function recoveryFitInBay(
       forwardCavity = {
         start: station.start - bayStart,
         boreAt: radius === null ? null : (x) => 2 * (radius(x + partLength) - nnum(part, 'thickness', 0.002)),
-        opening: shoulderRadius === null || aft === null ? null
+        opening: aft === null ? null
           : 2 * (Math.min(shoulderRadius, aft) - nnum(part, `${prefix}Thickness`, nnum(part, 'thickness', 0.002))),
       };
       bayMin = forwardCavity.start;
@@ -585,15 +591,16 @@ function recoveryFitInBay(
       const shoulder = (start: number, end: number, side: 'fore' | 'aft'): void => {
         if (end <= start || !intersects(start, end)) return;
         const prefix = isNose ? 'shoulder' : `${side}Shoulder`;
+        const r = nnum(child, `${prefix}Radius`, 0);
+        if (r <= 0) return;
         if (child['filled'] === true || child[`${prefix}Capped`] === true) {
           addObstacle(start, end, child);
           return;
         }
-        const r = numOrNull(child, `${prefix}Radius`);
         const base = numOrNull(child, isNose ? 'aftRadius' : `${side}Radius`);
-        const outer = r === null ? null : base === null ? r : Math.min(r, base);
-        openings.push([start, end, outer === null ? null
-          : Math.max(0, 2 * (outer - nnum(child, `${prefix}Thickness`, nnum(child, 'thickness', 0.002))))]);
+        const outer = base === null ? r : Math.min(r, base);
+        openings.push([start, end,
+          Math.max(0, 2 * (outer - nnum(child, `${prefix}Thickness`, nnum(child, 'thickness', 0.002))))]);
         if (stageIndexOf(tree, child.id ?? '') !== bayStage) adjacentIntrusion = true;
       };
       shoulder(a - fore, a, 'fore');
@@ -642,20 +649,18 @@ function recoveryFitInBay(
       return radius(x) - nnum(bay, 'thickness', 0.002);
     };
     if (transition) {
-      const endOpening = (side: 'fore' | 'aft', base: number): number | null => {
+      const endOpening = (side: 'fore' | 'aft', base: number): number => {
         const prefix = `${side}Shoulder`;
-        if (nnum(bay, `${prefix}Length`, 0) > 0) {
+        const shoulderR = nnum(bay, `${prefix}Radius`, 0);
+        if (nnum(bay, `${prefix}Length`, 0) > 0 && shoulderR > 0) {
           if (bay[`${prefix}Capped`] === true) return 0;
-          const shoulderR = numOrNull(bay, `${prefix}Radius`);
-          if (shoulderR === null) return null;
-          if (shoulderR > 0) return 2 * (Math.min(shoulderR, base)
+          return 2 * (Math.min(shoulderR, base)
             - nnum(bay, `${prefix}Thickness`, nnum(bay, 'thickness', 0.002)));
         }
         return 2 * (base - nnum(bay, 'thickness', 0.002));
       };
       const foreOpening = endOpening('fore', fore);
       const aftOpening = endOpening('aft', aft);
-      if (foreOpening === null || aftOpening === null) return unknown('A cavity opening is automatic or unknown.');
       // Profiles are monotonic; endpoints and shoulder steps bound the entire
       // insertion path, not just the diameter where the bundle finally sits.
       const rangeBore = (start: number, end: number): number => Math.min(

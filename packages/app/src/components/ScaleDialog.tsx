@@ -178,7 +178,10 @@ export function ScaleDialog({
     });
     setChoices((prev) => {
       const next = lookupTable(prev);
-      if (value === 'custom') { if (goodBore(m, seed)) next[m.id] = { boreMm: seed }; }
+      if (value === 'custom') {
+        if (goodBore(m, seed)) next[m.id] = { boreMm: seed };
+        else delete next[m.id];
+      }
       else if (value.startsWith('c')) next[m.id] = { boreMm: Number(value.slice(1)) };
       else next[m.id] = value as MountChoice;
       return next;
@@ -493,6 +496,9 @@ export function ScaleDialog({
                             </optgroup>
                             <option value="custom">Custom…</option>
                           </select>
+                          {m.maxBoreMm === null && (
+                            <> Available bore is unknown; check that the mount fits before building.</>
+                          )}
                           {custom[m.id] !== undefined && (
                             <>
                               {' '}
@@ -500,8 +506,9 @@ export function ScaleDialog({
                                   a native number input hides rejected text as empty (audit 2026-10-11, S3b-g2). */}
                               <span className="inline-numfield" style={{ display: 'inline-block', width: 90 }}>
                                 <NumField
-                                  min={1}
-                                  max={m.maxBoreMm ?? undefined}
+                                  min={m.maxBoreMm !== null && m.maxBoreMm > 0 && m.maxBoreMm < 1 ? 0 : 1}
+                                  max={m.maxBoreMm === null ? undefined : m.maxBoreMm + 1e-6}
+                                  validate={value => goodBore(m, value)}
                                   ariaLabel={`Custom mount bore for ${m.name}, mm`}
                                   invalid={customBad(m)}
                                   value={Number(custom[m.id])}
@@ -511,7 +518,7 @@ export function ScaleDialog({
                               {' mm'}
                               {m.maxBoreMm !== null && (m.maxBoreMm === 0
                                 ? <> — no size fits inside the tube around it, which {noRoomWhy(m)}</>
-                                : <> — at most {m.maxBoreMm.toFixed(1)} mm fits inside the tube around it</>
+                                : <> — at most {m.maxBoreMm < 1 ? Number(m.maxBoreMm.toPrecision(12)) : m.maxBoreMm.toFixed(1)} mm fits inside the tube around it</>
                               )}
                             </>
                           )}

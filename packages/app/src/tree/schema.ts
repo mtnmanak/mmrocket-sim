@@ -342,7 +342,7 @@ export const MAX_DIMENSION_M = 1000;
 export const MIN_POSITIVE_DIMENSION_M = 0.0001;
 
 /** What a limit bounds, which decides how a note formats the number. */
-export type LimitKind = 'length' | 'mass' | 'density' | 'count';
+export type LimitKind = 'length' | 'mass' | 'density' | 'count' | 'scalar';
 
 /**
  * A HARD limit on a stored SI value — not a slider range. `smin`/`smax` on a
@@ -407,6 +407,7 @@ const LINE_INSTANCES: FieldLimit = {
  * nodes a file wrote, and `constructor` must not resolve to Object.prototype's.
  */
 const LIMITS_BY_KEY: Record<string, FieldLimit> = lookupTable<FieldLimit>({
+  clusterScale: { kind: 'scalar', hmin: 0 },
   length: LEN, rootChord: LEN, tipChord: LEN, height: LEN, thickness: LEN,
   outerRadius: LEN, innerRadius: LEN, aftRadius: LEN, foreRadius: LEN, radius: LEN,
   shoulderRadius: LEN, shoulderLength: LEN, shoulderThickness: LEN,

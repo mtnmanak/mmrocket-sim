@@ -226,11 +226,11 @@ export function planAxialSplit(
     // +EPS before the floor: MAX_LEAN round-trips through radians as
     // 29.999999999999996 deg, and flooring that to 29 would silently shave a
     // degree off every cylinder.
-    const leanDeg = Math.floor(
+    const maxLeanDeg = Math.floor(
       (Math.min(MAX_LEAN, Math.max(OVERHANG_LIMIT - slope, 0)) * 180) / Math.PI + 1e-9,
     );
     // Below a degree there is nothing to gain and the arithmetic is noise.
-    if (leanDeg >= 1) {
+    for (let leanDeg = maxLeanDeg; leanDeg >= 1; leanDeg--) {
       const lean = (leanDeg * Math.PI) / 180;
       // Bounding box of the part tipped by `lean` off vertical. Note this is
       // only worth trying for slender parts: height = L*cos + D*sin beats L
@@ -532,8 +532,8 @@ export function splitBodyLoop(
       const [b0, b1] = joint.bodySpan;
       // One wall thickness clear of each end of the body, and never more than
       // a quarter of the body (a 3 mm centring ring has no interior at all).
-      const inset = Math.min(Math.max(joint.wall ?? 0, 0), (b1 - b0) / 4);
-      if (c < b0 + inset - EPS || c > b1 - inset + EPS) {
+      const inset = Math.min(Math.max(joint.wall ?? 0, 0.001), (b1 - b0) / 4);
+      if (b1 - b0 <= EPS || c < b0 + inset - EPS || c > b1 - inset + EPS) {
         throw new SplitError(
           `Cut at ${mm(c)} mm lands in a shoulder or against an end face — cuts are only legal `
           + `between ${mm(b0 + inset)} and ${mm(b1 - inset)} mm, where the wall is plain. `
@@ -836,14 +836,16 @@ export function splitComponent(
   const [b0, b1] = first.bodySpan;
   // The same window splitBodyLoop() enforces, so a placement that passes here
   // is one it will accept — plus room at each end for the joint itself.
-  const inset = Math.min(Math.max(first.wall, 0), (b1 - b0) / 4);
+  const inset = Math.min(Math.max(first.wall, 0.001), (b1 - b0) / 4);
   const lo = Math.max(b0 + inset, x0 + minPiece);
   let hi = Math.min(b1 - inset, x1 - minPiece);
   const beforeShoulder = crossingsAt(first.loop, b1, true);
   const inShoulder = crossingsAt(first.loop, b1);
+  const stubRadius = beforeShoulder.length === 2 ? Math.min(0.35 * beforeShoulder[1]!, 0.008) : 0;
+  const socketSkin = stubRadius + clearance + Math.min(0.0005, 0.25 * stubRadius) + 0.001;
   if (beforeShoulder.length === 2 && beforeShoulder[0]! <= EPS
-    && inShoulder.length === 2 && inShoulder[0]! > EPS) {
-    // A solid body needs a blind socket before the hollow shoulder, including
+    && inShoulder.length === 2 && (inShoulder[0]! > EPS || inShoulder[1]! < socketSkin)) {
+    // A solid body needs a blind socket before a hollow or narrow shoulder, including
     // its relief and backed floor. Leave EPS for rounding at MIN_SPIGOT.
     const relief = Math.max(clearance, 0.0003);
     hi = Math.min(hi, b1 - MIN_SPIGOT - relief - Math.max(0.001, relief) - EPS);

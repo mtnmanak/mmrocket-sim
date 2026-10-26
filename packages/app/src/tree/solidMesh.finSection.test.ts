@@ -18,6 +18,25 @@ import {
  */
 
 const T = 0.003;
+/** Vertical extent (m) of the solid over the planform point (x, y): its top less its bottom there. */
+const thicknessAt = (mesh: SolidMesh, x: number, y: number): number => {
+  const P = mesh.positions;
+  const tri = mesh.triangles;
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (let k = 0; k < tri.length; k += 3) {
+    const [a, b, c] = [tri[k]! * 3, tri[k + 1]! * 3, tri[k + 2]! * 3];
+    const d = (P[b]! - P[a]!) * (P[c + 1]! - P[a + 1]!) - (P[c]! - P[a]!) * (P[b + 1]! - P[a + 1]!);
+    if (Math.abs(d) < 1e-16) continue;
+    const u = ((x - P[a]!) * (P[c + 1]! - P[a + 1]!) - (P[c]! - P[a]!) * (y - P[a + 1]!)) / d;
+    const v = ((P[b]! - P[a]!) * (y - P[a + 1]!) - (x - P[a]!) * (P[b + 1]! - P[a + 1]!)) / d;
+    if (u < -1e-12 || v < -1e-12 || u + v > 1 + 1e-12) continue;
+    const z = P[a + 2]! + u * (P[b + 2]! - P[a + 2]!) + v * (P[c + 2]! - P[a + 2]!);
+    lo = Math.min(lo, z);
+    hi = Math.max(hi, z);
+  }
+  return hi - lo;
+};
 const FLOOR = PRINT_MIN_EDGE / 2;
 
 const trap = (extra: Record<string, unknown> = {}): ComponentNode => ({
@@ -37,6 +56,15 @@ function seated(shape: string, extra: Record<string, unknown> = {}): { fin: Comp
     length: 0.1, foreRadius: 0.027, aftRadius: 0.019, children: [fin] }] } as RocketTree;
   return { fin, ctx: solidContextFor(tree, fin) };
 }
+
+it.each(['square', 'rounded', 'airfoil'])('%s flush boat-tail strake prints a closed solid', async (crossSection) => {
+  const { fin, ctx } = seated('conical', { crossSection, points: [[0, 0], [0.06, 0], [0.1, 0]] });
+  const solid = (await componentSolid(fin, ctx))!;
+  expect(solid).not.toBeNull();
+  expect(isWatertight(solid.mesh)).toBe(true);
+  expect(solidVolume(solid.mesh)).toBeGreaterThan(0);
+  expect(thicknessAt(solid.mesh, 0.02, -0.0005)).toBeGreaterThan(T / 2);
+});
 
 /** Every section law the drawing knows, as node fields. */
 const SECTIONS: Array<[string, Record<string, unknown>]> = [
@@ -501,25 +529,6 @@ describe('a pointed tip prints the section law right up to the last row the view
   // the print's top band ran from full stock to a 0.4 mm tip vertex: a delta
   // printed 1.84 mm where the law (and the view) is 4 mm.
   const TT = 0.004;
-  /** Vertical extent (m) of the solid over the planform point (x, y): its top less its bottom there. */
-  const thicknessAt = (mesh: SolidMesh, x: number, y: number): number => {
-    const P = mesh.positions;
-    const tri = mesh.triangles;
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (let k = 0; k < tri.length; k += 3) {
-      const [a, b, c] = [tri[k]! * 3, tri[k + 1]! * 3, tri[k + 2]! * 3];
-      const d = (P[b]! - P[a]!) * (P[c + 1]! - P[a + 1]!) - (P[c]! - P[a]!) * (P[b + 1]! - P[a + 1]!);
-      if (Math.abs(d) < 1e-16) continue;
-      const u = ((x - P[a]!) * (P[c + 1]! - P[a + 1]!) - (P[c]! - P[a]!) * (y - P[a + 1]!)) / d;
-      const v = ((P[b]! - P[a]!) * (y - P[a + 1]!) - (x - P[a]!) * (P[b + 1]! - P[a + 1]!)) / d;
-      if (u < -1e-12 || v < -1e-12 || u + v > 1 + 1e-12) continue;
-      const z = P[a + 2]! + u * (P[b + 2]! - P[a + 2]!) + v * (P[c + 2]! - P[a + 2]!);
-      lo = Math.min(lo, z);
-      hi = Math.max(hi, z);
-    }
-    return hi - lo;
-  };
   /** Leading and trailing x of a closed outline at height y. */
   const chordOf = (pts: number[][], y: number): [number, number] => {
     const xs: number[] = [];

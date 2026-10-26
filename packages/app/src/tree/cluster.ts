@@ -105,7 +105,7 @@ export function clusterOffsets(
   angles: ClusterAngles = {},
 ): { y: number; z: number }[] {
   const pts = CLUSTER_POINTS[cluster ?? 'single'] ?? [0, 0];
-  const separation = 2 * tubeOuterRadius * clusterScale;
+  const separation = 2 * tubeOuterRadius * Math.max(0, clusterScale);
   // One turn: the kernel's −(clusterRotation − radialDirection), then the view's roll.
   const turn = (angles.viewRoll ?? 0) + (angles.radialDirection ?? 0) - clusterRotation;
   const cos = Math.cos(turn);

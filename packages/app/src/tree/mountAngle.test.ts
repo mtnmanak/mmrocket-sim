@@ -22,6 +22,38 @@ const tree = (kids: Record<string, unknown>[]): RocketTree => ({
 
 const FINS3 = { type: 'trapezoidfinset', id: 'f1', finCount: 3, rootChord: 0.05, height: 0.04 };
 
+describe('zero-size parts have no clock-angle obstruction', () => {
+  it.each(['square', 'rounded', 'airfoil'])('%s freeform fins with a real outline keep their snap targets', (crossSection) => {
+    const fin = { type: 'freeformfinset', id: 'fin', crossSection,
+      points: [[0, 0], [0.02, 0.03], [0.06, 0]], finCount: 3 } as ComponentNode;
+    expect(finAnglesAmong([fin])).toHaveLength(3);
+    expect(railInterferenceWarnings(tree([fin, { type: 'railbutton', id: 'rail', angleOffset: 0 }]))).toHaveLength(1);
+  });
+  it.each([
+    { type: 'tubefinset', outerRadius: 0 },
+    { ...FINS3, height: 0 },
+    { type: 'ellipticalfinset', height: 0 },
+    ...['square', 'rounded', 'airfoil'].map(crossSection => ({ type: 'freeformfinset', crossSection, points: [] })),
+  ])('omits zero-size $type snap targets and rail/wake warnings', (fin) => {
+    expect(finAnglesAmong([fin as ComponentNode])).toEqual([]);
+    expect(betweenFinAnglesAmong([fin as ComponentNode])).toEqual([]);
+    const t = tree([{ ...fin, id: 'fin', position: { method: 'top', offset: 0.15 } },
+      { type: 'railbutton', angleOffset: 0, id: 'rail' },
+      { type: 'fairing', id: 'cam', height: 0.02, width: 0.02, length: 0.04,
+        position: { method: 'top', offset: 0 } }]);
+    expect(railInterferenceWarnings(t).filter(w => w.includes('fin'))).toEqual([]);
+    expect(wakeShadowWarnings(t)).toEqual([]);
+  });
+  it.each([
+    { type: 'fairing', height: 0 }, { type: 'fairing', width: 0 },
+    { type: 'protuberance', height: 0 }, { type: 'protuberance', width: 0 },
+    { type: 'launchlug', outerRadius: 0 },
+  ])('omits zero-size $type from rail warnings', (part) => {
+    expect(railInterferenceWarnings(tree([{ ...part, id: 'part', angleOffset: 0 },
+      { type: 'railbutton', id: 'rail', angleOffset: 0 }]))).toEqual([]);
+  });
+});
+
 describe('where the fins are', () => {
   it('places N fins evenly from the set rotation — the kernel formula', () => {
     expect(finAnglesOn(body([FINS3])).map(asDeg).sort((a, b) => a - b))

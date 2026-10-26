@@ -1,8 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import {
-  outerProfile, shapeIsClippable, shapeParamDefault, shapeParamMax,
+  outerProfile, profileRadius, shapeIsClippable, shapeParamDefault, shapeParamMax,
   shapeRadius, shapeUsesParameter,
 } from './shapeProfile.js';
+import { finOnMount, profileMount } from './finRoot.js';
+
+it('uses the aft radius at and behind a zero-length transition, including a mounted fin root', () => {
+  const at = profileRadius('conical', undefined, 0, 0.03, 0.01);
+  expect(at(-1e-6)).toBe(0.03);
+  expect(at(0)).toBe(0.01);
+  expect(at(1e-6)).toBe(0.01);
+  expect(finOnMount([[0, 0], [0.03, 0.02], [0.06, 0]], 0,
+    profileMount('conical', undefined, 0, 0.03, 0.01)).r0).toBe(0.01);
+});
 
 /**
  * Anchors are analytic identities of the kernel's Transition.Shape math

@@ -15,6 +15,30 @@ import { outerProfile, profileRadius } from './shapeProfile.js';
 
 const BODY_R = 0.024;
 
+describe('zero-size surface parts produce no display or export mesh', () => {
+  it('draws a non-finite tube-fin radius as the finite automatic geometry', () => {
+    const build = (outerRadius?: number) => buildPieces(withChildren([{
+      type: 'tubefinset', finCount: 6, length: 0.08, outerRadius,
+    }]));
+    const automatic = build();
+    const restored = build(Infinity);
+    expect(restored.pieces.map(p => Array.from(p.geometry.getAttribute('position').array)))
+      .toEqual(automatic.pieces.map(p => Array.from(p.geometry.getAttribute('position').array)));
+    for (const p of [...automatic.pieces, ...restored.pieces]) p.geometry.dispose();
+  });
+  it.each([
+    ['fairing', 'length'], ['fairing', 'width'], ['fairing', 'height'],
+    ['protuberance', 'length'], ['protuberance', 'width'], ['protuberance', 'height'],
+    ['launchlug', 'length'], ['launchlug', 'outerRadius'],
+    ['railbutton', 'outerDiameter'], ['railbutton', 'totalHeight'],
+  ])('omits %s at zero %s', (type, key) => {
+    const baseline = buildPieces(withChildren([]));
+    const result = buildPieces(withChildren([{ type, [key!]: 0 } as ComponentNode]));
+    expect(result.pieces.map(p => p.key)).toEqual(baseline.pieces.map(p => p.key));
+    for (const p of [...baseline.pieces, ...result.pieces]) p.geometry.dispose();
+  });
+});
+
 const withChildren = (children: ComponentNode[]): RocketTree => ({
   name: 'Rocket',
   components: [{

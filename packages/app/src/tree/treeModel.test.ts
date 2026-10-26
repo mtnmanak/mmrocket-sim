@@ -9,6 +9,28 @@ import { clusterOffsets } from './cluster.js';
 import { allowedChildren, defaultParams, DISPLAY_NAME, FIELDS } from './schema.js';
 
 describe('S4a-g2 new tube wall inheritance', () => {
+  it('copies density and material name as a pair, clearing an old name for an unnamed density', () => {
+    const next = inheritDefaults({ ...makeNode('bodytube'), materialName: 'Paper' }, null,
+      { ...makeNode('bodytube'), density: 1850 });
+    expect(next['density']).toBe(1850);
+    expect(next['materialName']).toBeUndefined();
+  });
+  it('keeps a coupler wall when the parent wall would fill its automatic radius', () => {
+    const coupler = makeNode('tubecoupler');
+    const parent = { ...makeNode('bodytube'), outerRadius: 0.015, thickness: 0.008 };
+    expect(inheritDefaults(coupler, parent, null)['thickness']).toBe(coupler['thickness']);
+  });
+  it('does not inherit the hidden wall of a filled tube', () => {
+    const tube = makeNode('bodytube');
+    expect(inheritDefaults(tube, null, { ...makeNode('bodytube'), filled: true, thickness: 0.003 })['thickness'])
+      .toBe(tube['thickness']);
+  });
+  it.each([undefined, NaN, Infinity])('does not inherit an orphan material name with density %s', (density) => {
+    const tube = makeNode('bodytube');
+    const next = inheritDefaults(tube, null, { ...makeNode('bodytube'), materialName: 'G10', density });
+    expect(next['density']).toBe(tube['density']);
+    expect(next['materialName']).toBe(tube['materialName']);
+  });
   it.each(['trapezoidfinset', 'engineblock', 'launchlug', 'nosecone', 'transition'] as const)(
     'keeps the new inner tube wall after a %s', (type) => {
       const tube = makeNode('innertube');

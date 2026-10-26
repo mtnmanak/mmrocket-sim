@@ -7,8 +7,134 @@ import {
 import { engineTree, findNode } from './treeModel.js';
 import { axialLength, startFromPosition } from './position.js';
 import { FIELDS, MIN_POSITIVE_DIMENSION_M } from './schema.js';
+import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 
 describe('F2 scale regressions', () => {
+  it.each(['fore', 'aft'] as const)('keeps a mutually automatic %s transition bore unknown', (side) => {
+    const mount: ComponentNode = { type: 'innertube', id: 'm', motorMount: true,
+      outerRadius: 0.015, thickness: 0.0005, length: 0.15 };
+    const host: ComponentNode = { type: 'transition', length: 0.2, thickness: 0.001,
+      [side === 'fore' ? 'aftRadius' : 'foreRadius']: 0.05,
+      children: [{ type: 'tubecoupler', thickness: 0.001, length: 0.2, children: [mount] }] };
+    const neighbour: ComponentNode = { type: 'transition', length: 0.05,
+      [side === 'fore' ? 'foreRadius' : 'aftRadius']: 0.03 };
+    const tree: RocketTree = { components: [{ type: 'stage',
+      children: side === 'fore' ? [neighbour, host] : [host, neighbour] }] };
+    const preview = previewMounts(tree, 2, { snapMounts: true })[0]!;
+    expect(preview.maxBoreMm).toBeNull();
+    expect(preview.inSolidTube).toBe(false);
+  });
+  it('clamps a coupler span to a zero-length transition before measuring its bore', () => {
+    const tree: RocketTree = { components: [{ type: 'stage', children: [{
+      type: 'transition', length: 0, foreRadius: 0.01, aftRadius: 0.05, thickness: 0.001,
+      children: [{ type: 'tubecoupler', thickness: 0.001, length: 0.05,
+        position: { method: 'bottom', offset: 0 }, children: [{ type: 'innertube', id: 'm',
+          motorMount: true, outerRadius: 0.015, thickness: 0.0005, length: 0.04 }] }],
+    }] }] };
+    // At x = 0 the shell radius is 50 mm, less 1 + 1 + 0.5 mm of walls.
+    expect(previewMounts(tree, 1)[0]!.maxBoreMm).toBeCloseTo(95, 9);
+  });
+  it.each([
+    [{ boreMm: 54 }, false, 48],
+    [{ boreMm: 196 }, false, 190],
+    ['nearest', false, 146],
+    [undefined, true, 146],
+  ] as const)('measures automatic couplers after enclosing mount choice %j (snap %s)', (outer, snapMounts, max) => {
+    const tree: RocketTree = { components: [{ type: 'bodytube', outerRadius: 0.15, thickness: 0.001,
+      children: [{ type: 'innertube', id: 'outer', motorMount: true, outerRadius: 0.04,
+        thickness: 0.001, children: [{ type: 'tubecoupler', thickness: 0.001,
+          children: [{ type: 'innertube', id: 'inner', motorMount: true, outerRadius: 0.015,
+            thickness: 0.0005 }] }] }] }] };
+    const original = structuredClone(tree);
+    const opts = { snapMounts, mountChoices: { ...(outer === undefined ? {} : { outer }), inner: { boreMm: 98 } } };
+    const preview = previewMounts(tree, 2, opts).find(m => m.id === 'inner')!;
+    // Two scaled coupler walls (4 mm) plus two inner-mount walls (2 mm).
+    expect(preview.maxBoreMm).toBeCloseTo(max, 9);
+    expect(preview.finalBoreMm).toBe(98);
+    const applied = scaleRocket(tree, 2, opts).tree;
+    expect(mountBore(findNode(applied, 'outer')!) * 1000 - 6).toBeCloseTo(max, 9);
+    expect(tree).toEqual(original);
+  });
+  it('uses every enclosing choice through successive automatic couplers', () => {
+    const tree: RocketTree = { components: [{ type: 'bodytube', outerRadius: 0.15, thickness: 0.001,
+      children: [{ type: 'innertube', id: 'outer', motorMount: true, outerRadius: 0.04, thickness: 0.001,
+        children: [{ type: 'tubecoupler', thickness: 0.001, children: [{ type: 'innertube', id: 'middle',
+          motorMount: true, outerRadius: 0.02, thickness: 0.0005, children: [{ type: 'tubecoupler',
+            thickness: 0.0005, children: [{ type: 'innertube', id: 'inner', motorMount: true,
+              outerRadius: 0.01, thickness: 0.0005 }] }] }] }] }] }] };
+    const previews = previewMounts(tree, 2, { mountChoices: {
+      outer: { boreMm: 54 }, middle: { boreMm: 38 }, inner: { boreMm: 29 },
+    } });
+    expect(previews.find(m => m.id === 'middle')!.maxBoreMm).toBeCloseTo(48, 9);
+    expect(previews.find(m => m.id === 'inner')!.maxBoreMm).toBeCloseTo(34, 9);
+  });
+  it('does not report a repaired CG when a launch-weight override is discarded', () => {
+    const result = scaleRocket({ components: [{ type: 'stage', name: 'Stage',
+      [OVERRIDE_INCLUDES_MOTOR]: 'M787', overrideCGX: 15 }] }, 100);
+    expect(result.tree.components[0]!['overrideCGX']).toBeUndefined();
+    expect(result.notes.join(' ')).toContain('lost');
+    expect(result.notes.join(' ')).not.toContain('1500');
+  });
+  it.each([
+    ['solid airframe', { filled: true }, 0, true],
+    ['zero bore', { thickness: 0.027 }, 0, false],
+    ['sub-mm bore', { outerRadius: 0.0013, thickness: 0.001 }, 0.2, false],
+  ] as const)('bounds an automatic coupler inside a %s without a print floor', (_name, fields, max, solid) => {
+    const mount: ComponentNode = { type: 'innertube', id: 'mount', motorMount: true,
+      outerRadius: 0.0002, thickness: 0.0001, length: 0.1 };
+    const tree: RocketTree = { components: [{ type: 'bodytube', id: 'body', outerRadius: 0.027,
+      thickness: 0.001, ...fields, children: [{ type: 'tubecoupler', id: 'coupler', thickness: 0.0001,
+        children: [mount] }] }] };
+    const preview = previewMounts(tree, 1)[0]!;
+    expect(preview.maxBoreMm).not.toBeNull();
+    expect(preview.maxBoreMm).toBeCloseTo(max, 9);
+    expect(preview.inSolidTube).toBe(solid);
+  });
+  it('scales a neighbourless transition before resolving its automatic coupler bore', () => {
+    const tree: RocketTree = { components: [{ type: 'transition', id: 'shell', length: 0.4,
+      thickness: 0.001, children: [{ type: 'tubecoupler', id: 'coupler', length: 0.2,
+        thickness: 0.001, children: [{ type: 'innertube', id: 'mount', motorMount: true,
+          outerRadius: 0.015, thickness: 0.0005, length: 0.15 }] }] }] };
+    expect(previewMounts(tree, 2)[0]!.maxBoreMm).toBeCloseTo(90, 9);
+  });
+  it('does not label a pod mount solid because its core airframe is filled', () => {
+    const tree: RocketTree = { components: [{ type: 'bodytube', filled: true, outerRadius: 0.05,
+      children: [{ type: 'podset', radialPosition: 0.1, children: [{ type: 'bodytube',
+        outerRadius: 0.03, thickness: 0.001, children: [{ type: 'innertube', id: 'mount',
+          motorMount: true, outerRadius: 0.015, thickness: 0.0005 }] }] }] }] };
+    const preview = previewMounts(tree, 1)[0]!;
+    expect(preview.maxBoreMm).toBeCloseTo(57, 9);
+    expect(preview.inSolidTube).toBe(false);
+  });
+  it('clamps a scaled neighbourless automatic end through the same dimension limit', () => {
+    const tree: RocketTree = { components: [{ type: 'stage', children: [{ id: 't', type: 'transition' }] }] };
+    const result = scaleRocket(tree, 100_000);
+    expect(findNode(result.tree, 't')!['aftRadius']).toBe(1000);
+    expect(result.notes.join(' ')).toContain('2500');
+  });
+  it('measures the scaled bore around a mount inside an automatic coupler', () => {
+    const tree: RocketTree = { components: [{ type: 'stage', children: [{
+      type: 'bodytube', outerRadius: 0.027, thickness: 0.001, length: 0.4, children: [{
+        type: 'tubecoupler', id: 'coupler', thickness: 0.001, length: 0.2, children: [{
+          type: 'innertube', id: 'mount', motorMount: true, outerRadius: 0.015, thickness: 0.0005, length: 0.15,
+        }],
+      }],
+    }] }] };
+    const explicit = structuredClone(tree);
+    findNode(explicit, 'coupler')!['outerRadius'] = 0.026;
+    expect(previewMounts(tree, 2)[0]!.maxBoreMm).toBeCloseTo(98, 9);
+    expect(previewMounts(tree, 2)).toEqual(previewMounts(explicit, 2));
+  });
+  it.each([-15, 15])('clamps scaled CG and position offsets of %s m before writing and reports them', (offset) => {
+    const tree: RocketTree = { components: [{ type: 'masscomponent', id: 'mass', mass: 0.2,
+      overrideCGX: offset, position: { method: 'top', offset } }] };
+    const result = scaleRocket(tree, 100);
+    const part = findNode(result.tree, 'mass')!;
+    expect(part['overrideCGX']).toBe(Math.sign(offset) * 1000);
+    expect(part.position!.offset).toBe(Math.sign(offset) * 1000);
+    expect(result.notes.join(' ')).toContain('1500');
+    expect(result.notes.join(' ')).toContain('1000');
+  });
   it('S4a-3 measures and scales only neighbourless automatic transition ends', () => {
     const tree: RocketTree = { components: [{ type: 'stage', children: [
       { type: 'bodytube', id: 'body', outerRadius: 0.019, length: 0.2 },

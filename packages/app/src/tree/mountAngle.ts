@@ -1,5 +1,6 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { num } from './nodeNum.js';
+import { kernelNum, KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import { absoluteStations } from './position.js';
 import { assemblyInstanceCount, finCountOf } from './counts.js';
 // mountRadiusOf, not a fourth copy of "how wide is the tube under this part".
@@ -31,7 +32,21 @@ import { lookupTable } from '../services/xmlUtil.js';
  */
 
 
-const isFinSet = (n: ComponentNode): boolean => n.type.endsWith('finset');
+const isFinSet = (n: ComponentNode): boolean => {
+  if (n.type === 'tubefinset') return num(n, 'outerRadius', 1) > 0;
+  if (n.type === 'freeformfinset') {
+    const points = n['points'] ?? KERNEL_DEFAULT_FIN_POINTS;
+    return Array.isArray(points) && points.length >= 3;
+  }
+  return n.type.endsWith('finset') && kernelNum(n, 'height') > 0;
+};
+
+function hasSurfaceSize(n: ComponentNode): boolean {
+  if (n.type === 'fairing' || (n.type as string) === 'protuberance') {
+    return kernelNum(n, 'height') > 0 && kernelNum(n, 'width') > 0;
+  }
+  return n.type !== 'launchlug' || kernelNum(n, 'outerRadius') > 0;
+}
 
 /**
  * Wrap to [−π, π) — the kernel's own range (MathUtil.reducePi).
@@ -293,6 +308,7 @@ export function railInterferenceFindings(tree: RocketTree): RailFinding[] {
       others: [] as { angle: number; name: string; id: string }[],
     };
     for (const n of members) {
+      if (!hasSurfaceSize(n)) continue;
       if (n.type === 'railbutton') {
         frame.buttons.push({ angle: reducePi(num(n, 'angleOffset', 0)), name: nameOf(n, 'Rail button'), id: n.id ?? '' });
       } else if (isFinSet(n)) {
@@ -490,6 +506,7 @@ export function wakeShadowWarnings(tree: RocketTree): string[] {
     const downstream: Downstream[] = [];
 
     for (const n of members) {
+      if (!hasSurfaceSize(n)) continue;
       const st = n.id ? stations.get(n.id) : undefined;
       if (!st) continue;
       if (WAKE_SOURCES.has(n.type as string)) {

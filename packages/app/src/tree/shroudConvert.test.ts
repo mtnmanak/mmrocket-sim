@@ -37,6 +37,9 @@ describe('camera-shroud import detection (issue 2026-08-05e)', () => {
 });
 
 describe('shroud → fairing conversion', () => {
+  it('preserves an explicit zero mass override', () => {
+    expect(shroudToFairing(freeform({ overrideMass: 0, density: 680 }))['mass']).toBe(0);
+  });
   it('derives dimensions from the outline and keeps the override mass', () => {
     const f = shroudToFairing(freeform({ id: 'c1', name: 'Camera Shroud', overrideMass: 0.05 }));
     expect(f.type).toBe('fairing');

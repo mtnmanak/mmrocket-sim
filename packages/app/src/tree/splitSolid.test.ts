@@ -27,6 +27,68 @@ const node = (type: string, params: Record<string, unknown>): ComponentNode =>
 const H2D: PrinterVolume = { x: 0.350, y: 0.320, z: 0.325, margin: 0.008 };
 const MK4S: PrinterVolume = { x: 0.250, y: 0.210, z: 0.220, margin: 0.008 };
 
+it.each(['square', 'rounded', 'airfoil'])('%s freeform fins remain outside the axial splitter', (crossSection) => {
+  expect(splitComponent(node('freeformfinset', { crossSection, thickness: 0.004,
+    points: [[0, 0], [0.02, 0.04], [0.05, 0.04], [0.06, 0]] }), {}, MK4S)).toBeNull();
+});
+
+it('tries an intermediate lean when the maximum lean exceeds the bed', () => {
+  const plan = planAxialSplit(0.4, 0.03, { x: 0.236, y: 0.236, z: 0.398 });
+  expect(plan.fits).toBe(true);
+  expect(plan.leanDeg).toBe(24);
+  expect(plan.tallestPrint).toBeCloseTo(0.4 * Math.cos(24 * Math.PI / 180) + 0.06 * Math.sin(24 * Math.PI / 180), 12);
+});
+
+it('refuses cuts when the body span has zero length', () => {
+  const part = node('transition', { filled: true, thickness: 0, length: 0,
+    foreRadius: 0.02, aftRadius: 0.02, foreShoulderRadius: 0.016,
+    foreShoulderLength: 0.052, foreShoulderThickness: 0.002,
+    aftShoulderRadius: 0.016, aftShoulderLength: 0.052, aftShoulderThickness: 0.002 });
+  const whole = componentLoop(part, {})!;
+  expect(() => splitBodyLoop(whole.loop, [0], { bodySpan: whole.bodySpan, wall: whole.wall })).toThrow(SplitError);
+});
+it('leaves a backed socket before a narrow solid aft shoulder', () => {
+  const part = node('transition', { filled: true, thickness: 0, length: 0.05,
+    foreRadius: 0.02, aftRadius: 0.02, aftShoulderRadius: 0.008,
+    aftShoulderLength: 0.052, aftShoulderThickness: 0.02 });
+  const split = splitComponent(part, {}, { x: 0.2, y: 0.2, z: 0.08, margin: 0, lean: false })!;
+  expect(split.plan.segments).toBeGreaterThan(1);
+  for (const loop of split.loops) {
+    volumeOf(loop);
+    expectNoCollinearOverlaps(loop);
+  }
+});
+it('keeps a zero-wall solid transition cut off its aft shoulder step', () => {
+  const part = node('transition', { filled: true, thickness: 0, length: 0.05,
+    foreRadius: 0.02, aftRadius: 0.02, aftShoulderRadius: 0.016,
+    aftShoulderLength: 0.052, aftShoulderThickness: 0.02 });
+  const whole = componentLoop(part, {})!;
+  expect(() => splitBodyLoop(whole.loop, [0.05], { bodySpan: whole.bodySpan, wall: whole.wall })).toThrow(SplitError);
+  const split = splitComponent(part, {}, { x: 0.2, y: 0.2, z: 0.08, margin: 0, lean: false })!;
+  expect(split.plan.segments).toBeGreaterThan(1);
+  for (const cut of split.plan.cuts) expect(cut).toBeLessThanOrEqual(0.049 + 1e-9);
+  for (const loop of split.loops) {
+    volumeOf(loop);
+    expectNoCollinearOverlaps(loop);
+  }
+});
+
+it.each(['transition', 'nosecone'] as const)('keeps cuts away from a zero-wall solid %s shoulder step', (type) => {
+  const part = node(type, { filled: true, flipped: type === 'nosecone', shape: 'conical',
+    foreRadius: 0.02, aftRadius: 0.02, length: 0.05, thickness: 0,
+    ...(type === 'nosecone' ? { shoulderRadius: 0.016, shoulderLength: 0.052, shoulderThickness: 0.002 }
+      : { foreShoulderRadius: 0.016, foreShoulderLength: 0.052, foreShoulderThickness: 0.002 }) });
+  const whole = componentLoop(part, {})!;
+  expect(() => splitBodyLoop(whole.loop, [0], { bodySpan: whole.bodySpan, wall: whole.wall })).toThrow(SplitError);
+  const split = splitComponent(part, {}, { x: 0.2, y: 0.2, z: 0.08, margin: 0, lean: false })!;
+  expect(split.plan.segments).toBeGreaterThan(1);
+  for (const c of split.plan.cuts) expect(c + Math.min(...whole.loop.map(p => p[0]))).toBeGreaterThanOrEqual(0.001 - 1e-9);
+  for (const loop of split.loops) {
+    volumeOf(loop);
+    expectNoCollinearOverlaps(loop);
+  }
+});
+
 /**
  * Usable build box, taken from the module under test rather than restated.
  * The margin is asymmetric — twice off X and Y (inset from both bed edges),

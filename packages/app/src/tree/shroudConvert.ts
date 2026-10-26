@@ -1,6 +1,6 @@
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import { finOutlineIntersection } from './finOutline.js';
-import { num } from './nodeNum.js';
+import { num, numOpt } from './nodeNum.js';
 import { signedArea } from './polygon.js';
 import { axialLength, positionOf } from './position.js';
 
@@ -120,8 +120,8 @@ export function shroudToFairing(n: ComponentNode): ComponentNode & { name: strin
   const length = pts.length ? reach(pts, 0) : 0.08;
   const height = pts.length ? reach(pts, 1) : 0.02;
   const width = num(n, 'thickness', 0.025);
-  const override = n['overrideMass'];
-  const mass = typeof override === 'number' && override > 0
+  const override = numOpt(n, 'overrideMass');
+  const mass = override !== undefined && override >= 0
     ? override
     : profileArea(pts, length, height) * width * num(n, 'density', 680);
   const out = {

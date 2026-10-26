@@ -88,6 +88,29 @@ afterEach(() => {
 });
 
 describe('FinPointsEditor — the outline guard', () => {
+  it('keeps intersection protection when an imported outline exceeds the coordinate limit', () => {
+    render([[0, 0], [0.02, 3], [0.04, 0.02], [0.06, 0]]);
+    type(field('Point 3 x'), '-20');
+    expect(committed).toEqual([]);
+    expect(alertText()).toContain('crosses itself');
+  });
+  it('accepts origin-translated imported outlines and still refuses crossings', () => {
+    render([[0.01, 0], [0.03, 0.03], [0.055, 0.03], [0.07, 0]]);
+    expect(alertText()).toBe('');
+    expect(outlineStroke()).toBe('#7a786f');
+    type(field('Point 3 x'), '15');
+    expect(committed).toEqual([]);
+    expect(alertText()).toContain('crosses itself');
+    type(field('Point 3 x'), '60');
+    expect(committed).toHaveLength(1);
+    expect(alertText()).toBe('');
+  });
+  it('refuses a valid triangle the simulator would clamp to 2.5 m', () => {
+    render([[0, 0], [0.02, 0.03], [0.06, 0]]);
+    type(field('Point 2 y'), '3000');
+    expect(committed).toEqual([]);
+    expect(alertText()).toContain('2.5 m');
+  });
   it('renders the table in the preference unit (mm) with point 1 locked', () => {
     render(GOOD);
     expect(field('Point 2 x').value).toBe('20');

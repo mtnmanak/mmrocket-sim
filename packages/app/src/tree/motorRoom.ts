@@ -2,11 +2,13 @@ import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { isAssembly } from './assembly.js';
 import { clusterOffsets } from './cluster.js';
 import { frameContaining } from './mountAngle.js';
-import { num, numOpt, numOrNull } from './nodeNum.js';
+import { num, numOpt } from './nodeNum.js';
 import { absoluteStations, axialLength, type AbsoluteStation } from './position.js';
 import { mountBore } from './scaleRocket.js';
 import { solidContextFor } from './solidContext.js';
-import { isTailCone } from './tailCone.js';
+import { profileRadius } from './shapeProfile.js';
+import { noseEnds } from './tailCone.js';
+import { resolveTransitionRadii } from './transitionRadii.js';
 import { ancestorsOf, findNode } from './treeModel.js';
 import { lookupTable } from '../services/xmlUtil.js';
 
@@ -158,42 +160,6 @@ function stationsInStage(stage: ComponentNode): Map<string, AbsoluteStation> {
 }
 
 /**
- * The kernel's radius for a transition's end with nothing typed: 25 mm
- * (`SymmetricComponent.DEFAULT_RADIUS`) when there is no neighbour on that side.
- */
-const AUTO_NO_NEIGHBOUR_RADIUS = 0.025;
-
-/**
- * The chain a transition's automatic radius is read off: the members of the
- * pod set or strap-on it sits in, or — for the core — every stage's members in
- * stack order, since the kernel looks back into the stage in front
- * (`SymmetricComponent.getPreviousSymmetricComponent`).
- */
-function chainAround(tree: RocketTree, id: string): ComponentNode[] {
-  const parent = ancestorsOf(tree, id)[0];
-  const members = parent && isAssembly(parent.type)
-    ? parent.children ?? []
-    : (tree.components ?? []).flatMap((top) => (top.type === 'stage' ? top.children ?? [] : [top]));
-  return members.filter((c) => CHAIN.has(c.type));
-}
-
-/**
- * What a neighbour hands an automatic transition end — `getFrontAutoRadius`
- * of the member in front, `getRearAutoRadius` of the one behind: a tube's
- * outer radius, a nose cone's base, a transition's own facing radius. Null when
- * that face is itself automatic (two transitions sharing a blank face — the
- * kernel has no number for it either) or is a nose cone's point — the aft
- * end of a tail cone, which faces its base forward (tailCone.ts).
- */
-function faceRadius(m: ComponentNode, face: 'aft' | 'fore'): number | null {
-  // The nose and tube fallbacks are ComponentFactory's own (0.012 m), so an
-  // absent radius reads as the radius the kernel builds.
-  if (m.type === 'bodytube') return num(m, 'outerRadius', 0.012);
-  if (m.type === 'nosecone') return (isTailCone(m) ? 'fore' : 'aft') === face ? num(m, 'aftRadius', 0.012) : null;
-  return numOrNull(m, face === 'aft' ? 'aftRadius' : 'foreRadius');
-}
-
-/**
  * A transition closes down going forward, so a motor cannot continue past it.
  *
  * An ABSENT radius is AUTOMATIC in the kernel (`Transition.getAutoForeRadius`
@@ -207,14 +173,10 @@ function faceRadius(m: ComponentNode, face: 'aft' | 'fore'): number | null {
  * sharing a blank face) counts as a stop: an estimate that cannot size a
  * transition should not promise the motor gets past it.
  */
-function narrowsForward(tree: RocketTree, n: ComponentNode): boolean {
-  const chain = chainAround(tree, n.id ?? '');
-  const i = chain.indexOf(n);
-  const fore = numOrNull(n, 'foreRadius')
-    ?? (i > 0 ? faceRadius(chain[i - 1]!, 'aft') : AUTO_NO_NEIGHBOUR_RADIUS);
-  const aft = numOrNull(n, 'aftRadius')
-    ?? (i >= 0 && i < chain.length - 1 ? faceRadius(chain[i + 1]!, 'fore') : AUTO_NO_NEIGHBOUR_RADIUS);
-  return fore == null || aft == null || fore < aft;
+function narrowsForward(n: ComponentNode): boolean {
+  const fore = numOpt(n, 'foreRadius');
+  const aft = numOpt(n, 'aftRadius');
+  return fore === undefined || aft === undefined || fore < aft;
 }
 
 /** A point in an airframe's cross-section, metres; angle 0 is +y, as in every view. */
@@ -292,6 +254,7 @@ function inTheWay(
 }
 
 export function estimateMotorRoom(tree: RocketTree, mountId: string): MotorRoom | null {
+  tree = resolveTransitionRadii(tree);
   const mount = findNode(tree, mountId);
   if (!mount) return null;
   if (!(axialLength(mount) > 0)) return null;
@@ -319,6 +282,7 @@ export function estimateMotorRoom(tree: RocketTree, mountId: string): MotorRoom 
   const mine = stations.get(mountId);
   if (!mine) return null;
   const mountAft = mine.end;
+  const mountAncestors = new Set(ancestorsOf(tree, mountId).map(n => n.id));
 
   // The mount's own airframe: the core's inline stack, or the pod set or
   // strap-on it sits in — nothing in another frame can be in its way.
@@ -341,11 +305,43 @@ export function estimateMotorRoom(tree: RocketTree, mountId: string): MotorRoom 
   // slipped past a bulkhead on the axis and the room ran on to the nose cone.
   if (!(motor.r > 0)) return null;
 
-  for (const { end, node } of stations.values()) {
+  for (const { start, end, node } of stations.values()) {
     if (node.id === mountId || !frame.has(node.id)) continue;
+    // An open base is not a bulkhead; its taper can still stop the motor.
+    if ((node.type === 'nosecone' || node.type === 'transition') && start < mountAft - 1e-6 && end >= mountAft - 1e-6) {
+      // The tube protects the motor until its fore end. A shell the tube
+      // merely passes through, or one wholly aft of that end, is no stop.
+      if (!mountAncestors.has(node.id) || mine.start <= start + 1e-6) continue;
+      let contact = mine.start;
+      if (node['filled'] !== true) {
+        const ends = node.type === 'nosecone' ? noseEnds(node, num(node, 'aftRadius', 0.012))
+          : { fore: numOpt(node, 'foreRadius'), aft: numOpt(node, 'aftRadius') };
+        if (ends.fore === undefined || ends.aft === undefined) return null;
+        const radiusAt = profileRadius(typeof node['shape'] === 'string' ? node['shape'] : node.type === 'nosecone' ? 'ogive' : 'conical',
+          numOpt(node, 'shapeParameter'), end - start, ends.fore, ends.aft,
+          typeof node['clipped'] === 'boolean' ? node['clipped'] : undefined);
+        const reach = Math.max(...motor.centres.map(m => Math.hypot(m.y, m.z) + motor.r));
+        const required = reach + Math.max(0, num(node, 'thickness', 0.002));
+        if (radiusAt(mine.start - start) >= required && radiusAt(0) < required) {
+          let lo = 0, hi = mine.start - start;
+          for (let i = 0; i < 48; i++) {
+            const mid = (lo + hi) / 2;
+            if (radiusAt(mid) < required) lo = mid; else hi = mid;
+          }
+          contact = start + hi;
+        } else if (radiusAt(mine.start - start) >= required) {
+          continue;
+        }
+      }
+      if (contact > limit) {
+        limit = contact;
+        limitedBy = node.name ?? DISPLAY[node.type] ?? node.type;
+      }
+      continue;
+    }
     const blocks = (stopsMotor(node) && inTheWay(tree, mount, node, motor))
       || node.type === 'nosecone'
-      || (node.type === 'transition' && narrowsForward(tree, node));
+      || (node.type === 'transition' && narrowsForward(node));
     if (!blocks) continue;
     // The blocking face is the component's AFT end — a motor seats right up
     // against it — and anything aft of where the motor starts is behind it.
