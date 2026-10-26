@@ -20,7 +20,11 @@ export interface FinAlignResult {
   tree: RocketTree;
   /** One human-readable line per rotated set (empty = nothing to do). */
   changes: string[];
+  caution?: string;
 }
+
+// Corpus whole-design upper bound: 4 sets, 276,864 fin-pair comparisons.
+export const MAX_FIN_ALIGN_COMPARISONS = 2_000_000;
 
 const rotOf = (n: ComponentNode, patches: Map<string, number>): number => {
   if (n.id && patches.has(n.id)) return patches.get(n.id)!;
@@ -85,8 +89,11 @@ function minClearance(rotA: number, countA: number, rotB: number, countB: number
 export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
   const patches = new Map<string, number>();
   const changes: string[] = [];
+  let comparisons = 0;
+  let limited = false;
 
   const visit = (parentNode: ComponentNode) => {
+    if (limited) return;
     const kids = parentNode.children ?? [];
     const finSets = kids.filter((k) => k.type.endsWith('finset'));
     if (finSets.length >= 2) {
@@ -105,6 +112,8 @@ export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
         const myCount = countOf(me);
         const pitch = (Math.PI * 2) / myCount;
         const STEPS = 720;
+        comparisons += (STEPS + 1) * myCount * others.reduce((n, o) => n + countOf(o), 0);
+        if (comparisons > MAX_FIN_ALIGN_COMPARISONS) { limited = true; return; }
         let bestRot = rotOf(me, patches);
         let bestClear = -1;
         for (let s = 0; s < STEPS; s++) {
@@ -139,6 +148,9 @@ export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
   };
 
   for (const top of tree.components) visit(top);
+
+  if (limited) return { tree, changes: [], caution:
+    'Too many overlapping fin sets to auto-align in one step. Nothing was rotated. Adjust their rotations individually and check fin clearance before flying.' };
 
   let out = tree;
   for (const [id, rotation] of patches) out = updateNode(out, id, { rotation });

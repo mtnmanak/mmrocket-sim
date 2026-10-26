@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { gzipSync, strToU8, unzipSync, zipSync } from 'fflate';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { currentXmlParser, setXmlParser } from './xmlParse.js';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
 import { isaPressurePa, isaTemperatureK } from './atmosphere.js';
@@ -20,6 +21,7 @@ import { componentLoop } from '../tree/solidMesh.js';
 import { printOffer } from './printPack.js';
 import { finTemplateSvg } from './finTemplate.js';
 import { MAX_ZIP_MEMBER_BYTES } from './zipMember.js';
+import * as sanitize from '../tree/sanitize.js';
 
 /**
  * Hardening tests for the .ork importer/exporter: the untrusted-input paths
@@ -49,6 +51,44 @@ const BODY_TUBE = '<bodytube><name>Tube</name><length>0.3</length>'
 
 const buf = (u: Uint8Array): ArrayBuffer =>
   u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer;
+
+it('E3 ignores unsupported future parts when enforcing the opening cap', () => {
+  const xml = orkXml(BODY_TUBE + '<future><subcomponents><bodytube/></subcomponents></future>'.repeat(2001));
+  expect(() => importOrk(xml)).not.toThrow();
+});
+
+it('E3 counts later rocket component wrappers before reading part dimensions', () => {
+  const parser = currentXmlParser();
+  let dimensions = 0;
+  setXmlParser(xml => {
+    const doc = parser(xml);
+    for (const part of doc.querySelectorAll('bodytube')) {
+      const query = part.querySelector.bind(part);
+      vi.spyOn(part, 'querySelector').mockImplementation(selector => {
+        if (selector === ':scope > radius' || selector === ':scope > length') dimensions++;
+        return query(selector);
+      });
+    }
+    return doc;
+  });
+  try {
+    const xml = orkXml(BODY_TUBE.repeat(2100)).replace('<subcomponents>', '<subcomponents/><subcomponents>');
+    expect(() => importOrk(xml)).toThrow(/more than 2,000 parts/);
+    expect(dimensions).toBe(0);
+  } finally { setXmlParser(parser); vi.restoreAllMocks(); }
+});
+
+it('E3 ignores parts below the retained nesting depth', () => {
+  // At a 65-part budget the stage and 64 retained tubes fit exactly; the
+  // next tube must be ignored by the pre-count as well as conversion.
+  const limits: { readonly MAX_DESIGN_PARTS: number } = sanitize;
+  const limit = vi.spyOn(limits, 'MAX_DESIGN_PARTS', 'get').mockReturnValue(65);
+  const nested = '<bodytube><subcomponents>'.repeat(64) + BODY_TUBE
+    + '</subcomponents></bodytube>'.repeat(64);
+  try {
+    expect(sanitize.countParts(importOrk(orkXml(nested)).tree.components)).toBe(65);
+  } finally { limit.mockRestore(); }
+});
 
 /**
  * Rewrite fields of ONE entry's central-directory record. That record is where
@@ -365,8 +405,8 @@ describe('a long chain of automatic radii resolves in linear time', () => {
     // The old resolver recursed once per tube and overflowed the stack here
     // ("Maximum call stack size exceeded"). The file is over the 2,000-part
     // limit at open (board row 84), now checked during the pre-count before
-    // conversion or radius resolution. Report the full linear pre-count.
-    expect(() => importOrk(orkXml(behind(8000)))).toThrow(/^This design has 8,0\d\d parts, past the 2,000 the app will open\./);
+    // conversion or radius resolution. Stop at the first part past the cap.
+    expect(() => importOrk(orkXml(behind(8000)))).toThrow(/^This design has more than 2,000 parts, the most the app will open\./);
   }, 60_000);
 });
 

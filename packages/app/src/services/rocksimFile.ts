@@ -11,7 +11,7 @@ import { asStageNodes, flownInstanceCount, freshId, mountsIn } from '../tree/tre
 import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterCount, clusterOffsets } from '../tree/cluster.js';
 import { resolveAssemblyRadius } from '../tree/assembly.js';
-import { refuseTooManyParts, sanitizeTree } from '../tree/sanitize.js';
+import { countParts, MAX_DESIGN_PARTS, refuseTooManyParts, sanitizeTree, TOO_MANY_PARTS_ERROR_NAME } from '../tree/sanitize.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
 import { foldDeployEvent } from '../tree/deployEvent.js';
 import { finRootChord, finTabFront } from '../tree/finTab.js';
@@ -1340,7 +1340,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     throw new Error('This RockSim file contains nested motor loadouts, which the app cannot open. Open it in RockSim and save it again.');
   }
   const simulationSets = new Map(simEls.map(s => [s, Array.from(s.querySelectorAll('EngineSet'))]));
-  const motorIndex = indexRocksimMotors(doc, design, simulationSets);
+  const motorIndex = indexRocksimMotors(doc, design, simulationSets, notes);
   const designRecoveryNotes: string[] = [];
   const designRecovery = readDeploymentEvents(design, serialToNode, designRecoveryNotes, num);
   const simulationRecoveryNotes = simEls.map(() => [] as string[]);
@@ -2762,7 +2762,9 @@ function subtreeOverrideNotes(stages: readonly ComponentNode[]): string[] {
   return out;
 }
 
-export function exportRkt({ name, tree, motors, overrides = {}, compInfo, measured, notes, dryRun, distanceUnit = 'm' }: RktExportInput): string {
+export function exportRkt(input: RktExportInput): string {
+  const { name, tree, overrides = {}, compInfo, measured, notes, dryRun, distanceUnit = 'm' } = input;
+  let { motors } = input;
   motors = exportIgnitions(tree, motors, overrides);
   notes?.push(...nozzleExportNotes(tree, '.rkt'));
   notes?.push(...filletExportNotes(tree, '.rkt'));
@@ -2772,6 +2774,7 @@ export function exportRkt({ name, tree, motors, overrides = {}, compInfo, measur
   /** A transition's ends as the kernel flies them, automatic ones resolved. */
   const transitionEnds = flownTransitionEnds(tree);
   let serial = 0;
+  let baseExtensions = 0;
   /** node id → RockSim SerialNo (links motors back to mounts). */
   const nodeSerial = new Map<string, number>();
   /** Mount node id → the SerialNo of every copy written (cluster tubes, pod instances). */
@@ -3259,7 +3262,9 @@ export function exportRkt({ name, tree, motors, overrides = {}, compInfo, measur
         // writes, and desktop parses it fine: its own test fixture
         // rocksimTestRocket1.rkt carries <BaseExtensionLen>66.675</BaseExtensionLen>.
         // Placed where RockSim's own files put it, after <ShoulderOD>.
-        emit(`<BaseExtensionLen>${(baseExtOf.get(node.id ?? '') ?? 0) * LEN}</BaseExtensionLen>`);
+        const baseExtension = baseExtOf.get(node.id ?? '') ?? 0;
+        if (baseExtension > 1e-6) baseExtensions++;
+        emit(`<BaseExtensionLen>${baseExtension * LEN}</BaseExtensionLen>`);
         attached(node);
         emit('</NoseCone>');
         break;
@@ -3910,5 +3915,34 @@ export function exportRkt({ name, tree, motors, overrides = {}, compInfo, measur
     emit('</SimulationResultsList>');
   }
   emit('</RockSimDocument>');
+  // Each folded extension reopens as a separate tube, including every pod copy.
+  const fileParts = serial + stagesIn.length;
+  let emittedParts = fileParts > MAX_DESIGN_PARTS ? fileParts : fileParts + baseExtensions;
+  let exactCount = true;
+  // The reader first checks file parts, then reconstructs clusters before
+  // inserting extensions. Only this boundary case needs its logical count:
+  // sibling geometry and loadouts can prevent an apparent cluster merging.
+  if (notes && fileParts <= MAX_DESIGN_PARTS && emittedParts > MAX_DESIGN_PARTS) {
+    try {
+      const xml = dryRun ? exportRkt({ ...input, notes: undefined, dryRun: false }) : lines.join('\n');
+      emittedParts = countParts(importRkt(xml).tree.components);
+    } catch (error) {
+      if (!(error instanceof Error) || error.name !== TOO_MANY_PARTS_ERROR_NAME) throw error;
+      // A failed read may already have merged clusters. Use its refusal count,
+      // never the pre-merge estimate; future refusal wording can omit the count.
+      const count = /^This design has ([0-9,]+) parts, past the /.exec(error.message)?.[1];
+      if (count) emittedParts = Number(count.replaceAll(',', ''));
+      else exactCount = false;
+    }
+  }
+  if (notes && emittedParts > MAX_DESIGN_PARTS) {
+    const designParts = countParts(stagesIn);
+    notes.push(designParts > MAX_DESIGN_PARTS
+      ? `This design has ${designParts.toLocaleString('en-US')} parts, above the app's opening limit of `
+        + `${MAX_DESIGN_PARTS.toLocaleString('en-US')} parts. Neither .rkt nor .ork will reopen in the app `
+        + 'until you remove parts to reach that limit.'
+      : `This .rkt expands to ${exactCount ? emittedParts.toLocaleString('en-US') : `more than ${MAX_DESIGN_PARTS.toLocaleString('en-US')}`} parts, which the app cannot reopen because its limit is `
+        + `${MAX_DESIGN_PARTS.toLocaleString('en-US')} parts. Save as .ork to keep a file the app can reopen.`);
+  }
   return dryRun ? '' : lines.join('\n');
 }

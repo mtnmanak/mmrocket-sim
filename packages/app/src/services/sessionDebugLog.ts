@@ -4,6 +4,7 @@ import { AERO_NAME, type AeroChoice } from '../prefs/aeroChoice.js';
 import { UNITS, type Quantity } from '../prefs/units.js';
 import { EX_IMPORT_BYTES_NOTE, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
+import { PRESET_CSV_ROWS_CAUTION, PRESET_CSV_SIZE_CAUTION } from './presetCsvLimits.js';
 
 export const MAX_DEBUG_LOG_BYTES = 64 * 1024;
 export const MAX_DEBUG_LOG_EVENTS = 200;
@@ -20,6 +21,7 @@ const EVENTS: readonly DebugEvent[] = ['session-start', 'preferences-changed', '
 // Retain only known diagnostic sentences; never stringify objects or stacks.
 const SAFE_MESSAGES = new Set(['No stage found', 'Failed to fetch', 'Load failed', 'NetworkError when attempting to fetch resource.',
   EX_IMPORT_BYTES_NOTE,
+  PRESET_CSV_ROWS_CAUTION, PRESET_CSV_SIZE_CAUTION,
   `Mach-Alt table exceeds the limit of ${MAX_MACH_ALT_ROWS.toLocaleString('en-US')} distinct rows.`,
   'Script error.', 'No supported components found in this design.',
   'No supported components found in this RockSim design.', 'No supported components found in this RASAero design.',
@@ -49,6 +51,7 @@ const SAFE_IMPORT_MESSAGES = [
   /^Not a readable compressed (\.ork|\.rkt|\.CDX1) file — it is damaged \((part [0-9]+ of [0-9]+ )?does not match its own checksum — the file is cut short or corrupted\)\.$/,
   /^This compressed (\.ork|\.rkt|\.CDX1) file expands past the [0-9]+ MB this app will open — that is not a rocket design\.$/,
   /^This design has [0-9,]+ parts, past the [0-9,]+ the app will open\. Desktop OR has no such limit\.$/,
+  /^This design has more than [0-9,]+ parts, the most the app will open\. Desktop OR has no such limit\.$/,
   /^This \.ork file declares [0-9]+ flight configurations, past the [0-9]+ the app will open\. Reduce the configurations in OpenRocket and save it again\.$/,
   /^This file would open as more than [0-9]+ flight configurations, past the [0-9]+ the app will open\. Reduce the simulations in (RockSim|RASAero) and save it again\.$/,
 ];

@@ -280,17 +280,31 @@ export function exMotorIdentity(m: ExMotor): string {
 export function restoreExMotors(added: readonly ExMotor[], notes: string[]): Map<string, string> {
   const library = [...loadExMotors()];
   const ids = new Map<string, string>();
+  const byIdentity = new Map<string, ExMotor>();
+  for (const motor of library) {
+    const identity = exMotorIdentity(motor);
+    if (!byIdentity.has(identity)) byIdentity.set(identity, motor);
+  }
+  const usedIds = new Set(library.map(m => m.motorId));
+  const designations = new Set(library.map(m => m.designation));
+  const nextSuffix = new Map<string, number>();
   let changed = false;
   for (const motor of added) {
     const identity = exMotorIdentity(motor);
-    const same = library.find(m => exMotorIdentity(m) === identity);
+    const same = byIdentity.get(identity);
     if (same) { ids.set(motor.motorId, same.motorId); continue; }
     let id = motor.motorId;
-    for (let n = 2; library.some(m => m.motorId === id); n++) id = boundedExId(motor.motorId, `~${n}`);
-    if (library.some(m => m.designation === motor.designation)) {
+    let suffix = nextSuffix.get(id) ?? 2;
+    while (usedIds.has(id)) id = boundedExId(motor.motorId, `~${suffix++}`);
+    nextSuffix.set(motor.motorId, suffix);
+    if (designations.has(motor.designation)) {
       notes.push(`Embedded EX motor ${motor.designation}: a different library motor has the same name; both were kept.`);
     }
-    library.push({ ...motor, motorId: id });
+    const restored = { ...motor, motorId: id };
+    library.push(restored);
+    byIdentity.set(identity, restored);
+    usedIds.add(id);
+    designations.add(motor.designation);
     ids.set(motor.motorId, id);
     changed = true;
   }

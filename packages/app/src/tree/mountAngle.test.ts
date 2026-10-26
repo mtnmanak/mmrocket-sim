@@ -6,7 +6,7 @@ import {
   wakeShadowWarnings, WAKE_REACH_HEIGHTS,
 } from './mountAngle.js';
 import { defaultParams } from './schema.js';
-import { formatWarningText } from '../services/simWarnings.js';
+import { formatWarningText, staticWarningTier } from '../services/simWarnings.js';
 
 const D = (deg: number) => (deg * Math.PI) / 180;
 const asDeg = (rad: number) => Math.round(((reducePi(rad) * 180) / Math.PI) * 1e6) / 1e6;
@@ -68,6 +68,28 @@ describe('where the fins are', () => {
 
 describe('rail interference', () => {
   const warn = (kids: Record<string, unknown>[]) => railInterferenceWarnings(tree(kids));
+
+  it('E3 bounds rail findings and discloses omitted checks', () => {
+    const kids = Array.from({ length: 100 }, (_, i) => [
+      { type: 'railbutton', id: `r${i}`, name: `Button ${i}`, angleOffset: 0 },
+      { ...FINS3, id: `f${i}`, name: `Fins ${i}`, finCount: 1 },
+    ]).flat();
+    const findings = railInterferenceFindings(tree(kids));
+    expect(findings.length).toBeLessThanOrEqual(1001);
+    expect(findings.at(-1)?.text).toMatch(/not all.*checked|more.*findings/i);
+    expect(staticWarningTier(findings.at(-1)!.text)).toBe('caution');
+    expect(formatWarningText(findings.at(-1)!.text)).toMatch(/foul.*rail/i);
+  });
+
+  it('E3 budgets long part names before constructing rail messages', () => {
+    const kids = Array.from({ length: 20 }, (_, i) => [
+      { type: 'railbutton', id: `r${i}`, name: `Button ${i}${'x'.repeat(2048)}`, angleOffset: 0 },
+      { ...FINS3, id: `f${i}`, name: `Fins ${i}${'x'.repeat(2048)}`, finCount: 1 },
+    ]).flat();
+    const findings = railInterferenceFindings(tree(kids));
+    expect(findings.reduce((n, f) => n + f.text.length, 0)).toBeLessThanOrEqual(1024 * 1024);
+    expect(findings.at(-1)?.text).toMatch(/not all.*checked/i);
+  });
 
   it('flags a rail button sitting on a fin line', () => {
     const w = warn([FINS3, { type: 'railbutton', id: 'r1', name: 'Button', angleOffset: 0 }]);

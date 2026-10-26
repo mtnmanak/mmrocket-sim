@@ -154,17 +154,13 @@ function mathEquals(a, b) {
   return Math.abs(a - b) < MATH_EPSILON * absb;
 }
 
-/** AbstractMotorLoader.sortLists: swap the first out-of-order pair, repeat. */
+/** The same stable order as AbstractMotorLoader, without restarting after each swap. */
 function sortLists(primary, ...lists) {
-  let index;
-  do {
-    for (index = 0; index < primary.length - 1; index++) {
-      if (primary[index + 1] < primary[index]) {
-        for (const l of [primary, ...lists]) [l[index], l[index + 1]] = [l[index + 1], l[index]];
-        break;
-      }
-    }
-  } while (index < primary.length - 1);
+  const order = primary.map((_, i) => i).sort((a, b) => primary[a] - primary[b]);
+  for (const list of [primary, ...lists]) {
+    const sorted = order.map(i => list[i]);
+    for (let i = 0; i < sorted.length; i++) list[i] = sorted[i];
+  }
 }
 
 /**
@@ -186,10 +182,18 @@ function finalizeThrustCurve(time, thrust, ...lists) {
     time.shift();
     thrust.shift();
   }
-  for (let i = 0; i < time.length - 1; i++) {
-    while (i < time.length - 1 && mathEquals(time[i], time[i + 1]) && mathEquals(thrust[i], thrust[i + 1])) {
-      for (const l of [time, thrust, ...lists]) l.splice(i, 1);
-    }
+  const kept = [];
+  const count = time.length;
+  for (let i = 0; i < count; i++) {
+    if (i + 1 < count && mathEquals(time[i], time[i + 1]) && mathEquals(thrust[i], thrust[i + 1])) continue;
+    kept.push(i);
+  }
+  for (const list of [time, thrust, ...lists]) {
+    let write = 0;
+    for (const i of kept) list[write++] = list[i];
+    // Preserve desktop's extra mass/CG entry after its two-zero-times quirk.
+    for (let i = count; i < list.length; i++) list[write++] = list[i];
+    list.length = write;
   }
   const n = time.length - 1;
   if (n >= 1 && mathEquals(time[n - 1], time[n])) {
@@ -294,7 +298,19 @@ function unescapeXml(s) {
  * attributes, each end (or self-closing) tag a close.
  */
 function* xmlEvents(text) {
-  const body = text.replace(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<!DOCTYPE[^>]*>/g, '');
+  const pieces = [];
+  const opener = /<!--|<!\[CDATA\[|<\?|<!DOCTYPE/g;
+  let start = 0;
+  for (let m; (m = opener.exec(text)) !== null;) {
+    const close = m[0] === '<!--' ? '-->' : m[0] === '<![CDATA[' ? ']]>' : m[0] === '<?' ? '?>' : '>';
+    const end = text.indexOf(close, opener.lastIndex);
+    if (end < 0) throw new Error('RSE: unclosed XML comment, CDATA or processing instruction');
+    pieces.push(text.slice(start, m.index));
+    start = end + close.length;
+    opener.lastIndex = start;
+  }
+  pieces.push(text.slice(start));
+  const body = pieces.join('');
   const TAG = /<(\/?)([A-Za-z_][\w.:-]*)((?:\s+[^\s=/>]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*(\/?)>/g;
   const ATTR = /([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
   for (const m of body.matchAll(TAG)) {

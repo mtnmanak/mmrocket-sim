@@ -4,7 +4,7 @@ import { useBackdropClose, useDialog } from './useDialog.js';
 import { useRovingRows } from './useRovingRows.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import {
-  KIND_FOR_TYPE, csvToPresets, loadBundledPresets, loadCustomPresets, loadPresets, materialTypeFor, presetPatch,
+  KIND_FOR_TYPE, MAX_PRESET_CSV_BYTES, PRESET_CSV_SIZE_CAUTION, csvToPresets, loadBundledPresets, loadCustomPresets, loadPresets, materialTypeFor, presetPatch,
   presetsToCsv, exactCustomPreset, mergeCustomPresetImport, saveCustomPresets, type Preset,
 } from '../services/presets.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
@@ -204,7 +204,15 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
     sessionDebugLog.record('import-start');
     setNoteTier('information');
     try {
-      const parsed = csvToPresets(await file.text());
+      const cautions: string[] = [];
+      if (file.size > MAX_PRESET_CSV_BYTES) cautions.push(PRESET_CSV_SIZE_CAUTION);
+      const parsed = cautions.length ? [] : csvToPresets(await file.text(), cautions);
+      if (cautions.length) {
+        sessionDebugLog.record('import-failed', new Error(cautions[0]));
+        setNoteTier('caution');
+        setNote(cautions.join('\n'));
+        return;
+      }
       if (parsed.length === 0) {
         sessionDebugLog.record('import-failed', new Error('No presets found in that CSV.'));
         setNote('No presets found in that CSV.');

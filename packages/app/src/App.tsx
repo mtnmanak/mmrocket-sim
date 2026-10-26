@@ -4394,7 +4394,7 @@ export function App() {
               // block, each with the parts it names one click away, where the
               // rail button's snap controls are. The same sentences buildDesign
               // appended, matched by identity, so nothing is said twice.
-              const railFindings = railInterferenceFindings(tree);
+              const railFindings = railInterferenceFindings(tree).filter(f => staticWarningTier(f.text) === 'information');
               const railTexts = new Set(railFindings.map(f => f.text));
               const rest = built.info.warningTexts.filter(t => !railTexts.has(t));
               return <div id="design-notes" tabIndex={-1}>
@@ -4461,7 +4461,9 @@ export function App() {
               onPatchAll={(patch) => setTree(updateAllNodes(tree, patch))}
               onAutoAlignFins={() => {
                 const res = autoAlignFinSets(tree);
-                if (res.changes.length) {
+                if (res.caution) {
+                  setFileNote(res.caution, 'warn', true, 'caution');
+                } else if (res.changes.length) {
                   setTree(res.tree);
                   setFileNote(res.changes.join('\n'));
                 } else {

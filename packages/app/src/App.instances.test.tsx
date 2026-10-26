@@ -53,6 +53,23 @@ afterEach(async () => {
 });
 const mount = async () => { await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>)); };
 
+it('E3 shows alignment refusal as a caution and keeps every fin rotation', async () => {
+  await mount();
+  const tree: RocketTree = { components: [{ type: 'stage', id: 'align-stage', children: [
+    { type: 'bodytube', id: 'align-body', length: 1, outerRadius: 0.05, children:
+      Array.from({ length: 60 }, (_, i) => ({ type: 'freeformfinset', id: `align-${i}`, finCount: 8,
+        points: [[0, 0], [0.1, 0.05], [0.1, 0]], rotation: 0 } as ComponentNode)),
+    } as ComponentNode,
+  ] }] };
+  await act(async () => { history.setTree(tree); history.setSelectedId('align-1'); });
+  const before = history.tree;
+  const button = [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Auto-align fin sets'))!;
+  expect(button).toBeDefined();
+  await act(async () => button.click());
+  expect(history.tree === before).toBe(true);
+  expect(host.querySelector('.notice-bar .message-caution')?.textContent).toContain('Nothing was rotated');
+}, 30_000);
+
 const waitFor = async (check: () => boolean) => {
   const deadline = Date.now() + 10_000;
   while (!check() && Date.now() < deadline) {
@@ -60,6 +77,24 @@ const waitFor = async (check: () => boolean) => {
   }
   expect(check()).toBe(true);
 };
+
+it('E3 shows incomplete rail checks once as a caution even without a detected collision', async () => {
+  await mount();
+  const tree: RocketTree = { components: [{ type: 'stage', id: 'rail-stage', children: [
+    { type: 'bodytube', id: 'rail-body', length: 1, outerRadius: 0.05, children: [
+      ...Array.from({ length: 317 }, (_, i) => ({ type: 'railbutton', id: `rail-${i}`, angleOffset: 0 } as ComponentNode)),
+      ...Array.from({ length: 316 }, (_, i) => ({ type: 'freeformfinset', id: `fin-${i}`, finCount: 1,
+        points: [[0, 0], [0.1, 0.05], [0.1, 0]], rotation: Math.PI / 2 } as ComponentNode)),
+    ] } as ComponentNode,
+  ] }] };
+  await act(async () => history.setTree(tree));
+  await waitFor(() => host.textContent?.includes('Not all rail clearances were checked') === true);
+  const notes = [...host.querySelectorAll('#design-notes .message-caution')]
+    .filter(n => n.textContent?.includes('Not all rail clearances were checked'));
+  expect(notes).toHaveLength(1);
+  expect(notes[0]!.textContent).toMatch(/foul.*rail/i);
+  expect(host.querySelector('.rail-fit-findings')?.textContent ?? '').not.toContain('Not all rail clearances were checked');
+}, 60_000);
 
 it('S4a-1 shows the refused edit as a caution while keeping the rendered design', async () => {
   await mount();

@@ -28,6 +28,7 @@ let stageId = 0;
 const makeStage = (name: string) => ({ type: 'stage', id: `stage-${++stageId}`, name, children: [] }) as ComponentNode;
 
 const SENTENCE = (n: string) => `This design has ${n} parts, past the 2,000 the app will open. Desktop OR has no such limit.`;
+const ORK_SENTENCE = 'This design has more than 2,000 parts, the most the app will open. Desktop OR has no such limit.';
 
 /** A design of exactly `parts` nodes: one stage, one body tube, and mass components inside it. */
 function treeOf(parts: number): RocketTree {
@@ -56,6 +57,11 @@ const refusal = (fn: () => unknown): Error => {
 };
 
 describe('foreign-format pre-count (board Tier 2 part-cap early refusal)', () => {
+  it.each([['.rkt', importRkt, rktOf], ['.CDX1', importCdx1, cdxOf]] as const)(
+    '%s keeps the exact count when the pre-count finishes', (_format, read, input) => {
+      expect(refusal(() => read(input(2101))).message).toBe(SENTENCE('2,101'));
+    });
+
   it.each([['.rkt', importRkt, rktOf], ['.CDX1', importCdx1, cdxOf]] as const)(
     '%s refuses provably retained 2,001 parts before the XML parser', (_format, read, input) => {
       const parser = currentXmlParser();
@@ -267,7 +273,7 @@ describe('the part limit at open (board row 84)', () => {
     expect(countParts(importOrk(orkOf(2000)).tree.components)).toBe(2000);
     const e = refusal(() => importOrk(orkOf(2001)));
     expect(e.name).toBe(TOO_MANY_PARTS_ERROR_NAME);
-    expect(e.message).toBe(SENTENCE('2,001'));
+    expect(e.message).toBe(ORK_SENTENCE);
   }, 30_000);
 
   it('.rkt: 2,000 parts open, 2,001 are refused', () => {
@@ -283,7 +289,7 @@ describe('the part limit at open (board row 84)', () => {
   it('Open… (and the crash file reopened through it) words the refusal for the format picked', async () => {
     const bytes = new TextEncoder().encode(orkOf(2001)).buffer as ArrayBuffer;
     const e = await openDesignFile(bytes, 'Many.ork', { presets: [] }).then(() => null, (x: unknown) => x);
-    expect(designFileOpenFailure('Many.ork', e)).toBe(`Could not open that .ork file: ${SENTENCE('2,001')}`);
+    expect(designFileOpenFailure('Many.ork', e)).toBe(`Could not open that .ork file: ${ORK_SENTENCE}`);
     const rkt = new TextEncoder().encode(rktOf(2001)).buffer as ArrayBuffer;
     const r = await openDesignFile(rkt, 'Many.rkt', { presets: [] }).then(() => null, (x: unknown) => x);
     expect(designFileOpenFailure('Many.rkt', r)).toBe(`Could not open that .rkt file: ${SENTENCE('2,001')}`);
@@ -293,7 +299,7 @@ describe('the part limit at open (board row 84)', () => {
     const fragment = await encodeShareFragment(orkOf(2001));
     const xml = await decodeShareFragment(fragment);
     expect(shareLinkOpenFailure(refusal(() => importOrk(xml))))
-      .toBe(`Couldn't open the design in this link: ${SENTENCE('2,001')}`);
+      .toBe(`Couldn't open the design in this link: ${ORK_SENTENCE}`);
   }, 30_000);
 
   it('simulateFile refuses before any motor is matched or anything is built', async () => {
@@ -302,7 +308,7 @@ describe('the part limit at open (board row 84)', () => {
       .then(() => null, (x: unknown) => x);
     expect(err).toBeInstanceOf(SimulateDesignError);
     expect((err as SimulateDesignError).kind).toBe('parse');
-    expect((err as SimulateDesignError).message).toBe(`Could not open that .ork file: ${SENTENCE('2,001')}`);
+    expect((err as SimulateDesignError).message).toBe(`Could not open that .ork file: ${ORK_SENTENCE}`);
     expect(match).not.toHaveBeenCalled();
   }, 30_000);
 

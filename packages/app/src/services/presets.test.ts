@@ -10,6 +10,23 @@ import { centeringRingBore, ringOuterRadius } from '../tree/solidMesh.js';
 
 const db = (presetsJson as { presets: Preset[] }).presets;
 
+it('E3 accepts the complete shipped preset catalogue as CSV with headroom', () => {
+  const csv = presetsToCsv(db);
+  expect(new TextEncoder().encode(csv).length).toBeLessThan(16 * 1024 * 1024);
+  const notes: string[] = [];
+  expect(csvToPresets(csv, notes)).toHaveLength(db.length);
+  expect(notes).toEqual([]);
+});
+
+it('E3 accepts exactly 100,000 preset rows, including quoted newlines and a final unterminated row', () => {
+  const csv = 'kind,partNo,description\n' + 'BodyTube,X,"two\nlines"\n'.repeat(99999) + 'BodyTube,LAST,end';
+  const notes: string[] = [];
+  const parsed = csvToPresets(csv, notes);
+  expect(parsed).toHaveLength(100000);
+  expect(parsed.at(-1)?.partNo).toBe('LAST');
+  expect(notes).toEqual([]);
+});
+
 describe('storage hardening: custom presets', () => {
   it.each([{}, null, 'parts', [null, 1, [], {}, { kind: 'BodyTube' }]].map((v) => [v]))('ignores malformed presets (%j)', async (value) => {
     const good: Preset = { kind: 'BodyTube', manufacturer: 'EX', partNo: 'BT-2+', description: 'Tube' };

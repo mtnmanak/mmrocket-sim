@@ -34,6 +34,7 @@ const flightRemedies: Record<string, string> = {
   LISTENERS_AFFECTED: 'Check the source of the saved simulation and any custom listeners used to run it.',
   FILE_INVALID_PARAMETER: 'Read the original note and check the named input against the original design; an ignored input can change the simulated rocket.',
   OBJ_ZERO_THICKNESS: 'Check the named component’s wall thickness against the real part.',
+  RAIL_CHECK_INCOMPLETE: 'Check every rail button and fin for clearance against the rail before flying. The app stopped checking this design partway, so a part that fouls the rail may not be named.',
 };
 
 const importGroups: { codes: string; meaning: string; remedy: string }[] = [
@@ -49,6 +50,7 @@ const importGroups: { codes: string; meaning: string; remedy: string }[] = [
   { codes: 'I10.config-override I10.layer-migration', meaning: 'Configuration-specific component settings were translated or could not all be applied.', remedy: 'Read the named settings and compare the selected configuration with the original design. Check mass, balance and recovery in that configuration.' },
   { codes: 'I11.delay-plugged I11.ignition-event I11.pro-conditions I11.unknown-trigger', meaning: 'An ignition, ejection or deployment condition was unsupported or needed a fallback.', remedy: 'Check the event and delay on the named motor or recovery device. A plugged motor supplies no ejection charge; set another deployment event where needed.' },
   { codes: 'I12.booster-unpowered I12.loadout-refused I12.motor-not-loaded I12.motor-unconfirmed I12.reader-pick-skipped I12.simulation-opened I12.unattached-motors', meaning: 'The file’s motor selection or simulation choice needs checking.', remedy: 'Match the selected configuration and every stage’s loaded motor to the motor you intend to fly. Resolve unloaded or ambiguous motors before relying on a result.' },
+  { codes: 'I15.serial-evidence-limited', meaning: 'Some RockSim motor mount serial fields could not be used. Motor size and loaded-mass checks may be missing.', remedy: 'Compare each selected motor and its dimensions with the intended motor mount. Check the loaded mass against the real rocket before relying on flight results.' },
   { codes: 'I15.embedded-ex-refused I15.ex-session-only I15.stored-ex-refused', meaning: 'A custom motor could not be restored or saved as expected.', remedy: 'Read the note’s storage limitation. Keep the original motor file and reload it where needed; check that the intended curve is loaded.' },
   { codes: 'I16.pad-mass-dropped I16.pad-mass-inactive', meaning: 'A weighed pad mass was not used for this motor or configuration.', remedy: 'Check the loaded motor and enter the measured ready-to-fly mass for that loadout. Do not reuse a mass measured with a different motor.' },
   { codes: 'I17.override-not-applied I17.reconcile I17.stage-overrides I17.stand-in-mass', meaning: 'Stage mass or balance settings were reconciled with imported motor data or could not be applied.', remedy: 'Read which values were used. Check stage mass, balance and loaded motor against measurements, especially when a stand-in motor mass was used.' },
