@@ -1,5 +1,5 @@
 {
-  "version": "0.192",
-  "released": "2026-10-18",
-  "note": "Every finding of the 17 October audit fixed; My materials, My parts and desktop OR document materials; fewer thrustcurve.org requests."
+  "version": "0.193",
+  "released": "2026-10-26",
+  "note": "Incomplete-flight reporting, file and motor validation, restore, materials, geometry and accessibility fixes; compared tester-flight numbers unchanged."
 }
