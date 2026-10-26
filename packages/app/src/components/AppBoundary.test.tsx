@@ -66,6 +66,15 @@ afterEach(() => {
 });
 
 describe('AppBoundary', () => {
+  it('announces a recovery download in an already mounted status region', async () => {
+    renderCrashed();
+    const status = host.querySelector('[role=status]');
+    expect(status).not.toBeNull();
+    expect(status!.classList.contains('sr-only')).toBe(true);
+    await act(async () => { button('Download the autosaved design').click(); });
+    expect(host.querySelector('[role=status]')).toBe(status);
+    expect(status!.textContent).not.toBe('');
+  });
   it('C-H3 records caught rendering errors and offers a debug log beside recovery actions', async () => {
     renderCrashed();
     expect(sessionDebugLog.text()).toContain('app-error: Error: Cannot read properties of undefined (property omitted)');

@@ -21,6 +21,23 @@ const source = () => ({ design: { name: 'Test', tree: defaultTree(), launch: { .
     maxAltitude: 100, maxVelocity: 20, maxMach: 0.1, maxAcceleration: 30, windAvg: 0 } as SimRun,
   changedSince: ['the design'],
 });
+
+it('announces attachment reading through a status region present before the read', async () => {
+  act(() => root.render(<FlightDataBundleDialog source={source()} onClose={() => {}} />));
+  const regions = [...host.querySelectorAll('[role=status]')];
+  const file = new File(['log'], 'flight.log');
+  let finish!: (bytes: ArrayBuffer) => void;
+  Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { finish = resolve; }) });
+  const input = host.querySelector<HTMLInputElement>('input[type=file]')!;
+  Object.defineProperty(input, 'files', { value: [file] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  const reading = [...host.querySelectorAll('[role=status]')].find(region => region.textContent?.includes('Reading the data-log file'))!;
+  expect(regions).toContain(reading);
+  await act(async () => finish(new ArrayBuffer(3)));
+  expect(reading.isConnected).toBe(true);
+  expect(reading.textContent).toBe('');
+  expect(reading.classList.contains('sr-only')).toBe(true);
+});
 const click = (text: string) => act(async () => { Array.from(host.querySelectorAll('button')).find(b => b.textContent === text)!.click(); });
 const fill = (input: HTMLInputElement, value: string) => act(() => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);

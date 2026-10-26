@@ -444,9 +444,10 @@ export function WeatherDialog({
           )}
         </div>
         <p className="weather-small">{WEATHER_DIALOG_COPY.locateNote}</p>
-        {locateNote && <p className="weather-small" role="status">{locateNote}</p>}
+        <p className={locateNote ? 'weather-small' : 'sr-only'} role="status">{locateNote}</p>
+        <div role="status" className={locatedHere && place?.method === 'device' && deviceMirrorsDesign(launch, place) ? undefined : 'sr-only'}>
         {locatedHere && place?.method === 'device' && deviceMirrorsDesign(launch, place) && (
-          <div className="weather-note" role="status">
+          <div className="weather-note">
             You are at {place.latitudeDeg.toFixed(2)}, {place.longitudeDeg.toFixed(2)}; this design’s Longitude is{' '}
             {launch.longitudeDeg! > 0 ? '+' : ''}{launch.longitudeDeg} — the same number, {launch.longitudeDeg! < 0 ? 'west' : 'east'}.
             <div className="weather-actions">
@@ -457,7 +458,9 @@ export function WeatherDialog({
             </div>
           </div>
         )}
-        {note && <p className="weather-note" role="status">{note}</p>}
+        </div>
+        <p className={note ? 'weather-note' : 'sr-only'} role="status">{note}</p>
+        <p className="sr-only" role="status">{checkLongitude ? 'Check the longitude\u2019s sign.' : null}</p>
 
         {places && (
           <ul className="weather-places" aria-label="Places found">
@@ -508,15 +511,13 @@ export function WeatherDialog({
                 </select>
               </label>
             )}
-            {dateNote && <p className="weather-note" role="status">{dateNote}</p>}
+            <p className={dateNote ? 'weather-note' : 'sr-only'} role="status">{dateNote}</p>
           </div>
         )}
 
-        {busy !== null && (
-          <p className="weather-small" role="status">
-            {busy === 'locate' ? 'Waiting for your browser’s location…' : 'Asking Open-Meteo…'}
-          </p>
-        )}
+        <p className={busy !== null ? 'weather-small' : 'sr-only'} role="status">
+          {busy === null ? null : busy === 'locate' ? 'Waiting for your browser’s location…' : 'Asking Open-Meteo…'}
+        </p>
         {error && <p className="weather-error" role="alert">{error}</p>}
 
         {answer && hours.length === 0 && <p className="weather-note">{WEATHER_DIALOG_COPY.noHours}</p>}
@@ -579,7 +580,7 @@ export function WeatherDialog({
             <WeatherSkyInfo sample={proposal.sample} distanceUnit={units.distance} altitudeUnit={units.altitude} />
 
             {checkLongitude && (
-              <div className="weather-note" role="status">
+              <div className="weather-note">
                 <strong>Check the longitude’s sign.</strong> Open-Meteo puts{' '}
                 {coordinatesLabel(place.latitudeDeg, place.longitudeDeg)} in {answer.timezone}, with the ground at{' '}
                 {alt(answer.demM!)}; your Site altitude is {alt(launch.launchAltitudeM)}.

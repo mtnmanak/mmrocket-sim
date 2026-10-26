@@ -118,7 +118,7 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
             } }
             finally { if (readId.current === id) setReading(false); }
           })(); }} /></label>
-          {reading && <p role="status">Reading the data-log file…</p>}
+          <div role="status" aria-atomic="true" className={reading ? undefined : 'sr-only'}>{reading && <p>Reading the data-log file…</p>}</div>
           {attachment && <p>{attachment.name} ({attachment.bytes.byteLength} bytes) <button type="button" className="file-btn"
             onClick={() => { ++readId.current; setAttachment(undefined); if (fileInput.current) fileInput.current.value = ''; }}>Leave out attachment</button></p>}
           <label className="bundle-coordinate-choice"><input type="checkbox" checked={includeCoordinates}

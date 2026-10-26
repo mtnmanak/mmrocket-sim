@@ -1,3 +1,4 @@
+import { ownEntry } from './ownEntry.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { findNode, mountName, mountsTie } from '../tree/treeModel.js';
@@ -59,8 +60,8 @@ export function restoredPadMassNote(
   }
   // eslint-disable-next-line no-restricted-syntax -- a pad-mass record, quoted as it stands (audit row 522)
   if (ranked?.from && ranked.to && typeof ranked.kg === 'number') {
-    const from = motors[ranked.from];
-    const to = motors[ranked.to];
+    const from = ownEntry(motors, ranked.from);
+    const to = ownEntry(motors, ranked.to);
     return {
       severity: 'info',
       // D7 I16: the weighing now rides a different flown carrier — Caution.
@@ -119,7 +120,7 @@ export type LegacyPadMassStep =
 export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMassStep | null {
   const { hardware: h, primaryMountId, filePrimaryMountId, text } = input;
   if (!h || !primaryMountId) return null;
-  const rec = input.motors[primaryMountId];
+  const rec = ownEntry(input.motors, primaryMountId);
   // Both writers of the legacy key write a finite kg beside it
   // (migrateLegacyPadMass, planImport), and hardwareMass refuses a
   // non-finite weighing before any arithmetic.
@@ -133,7 +134,7 @@ export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMass
   // slot, so a value placed here would be flown, invisible, and absent from
   // the saved file. Dropped with a notice, like a refusal (2026-09-08 review).
   if (filePrimaryMountId !== primaryMountId) {
-    const fileRef = filePrimaryMountId ? input.unmatchedRefs[filePrimaryMountId] : undefined;
+    const fileRef = filePrimaryMountId ? ownEntry(input.unmatchedRefs, filePrimaryMountId) : undefined;
     const where = mountName(filePrimaryMountId ? findNode(input.tree, filePrimaryMountId) : null, 'a removed mount');
     return {
       kind: 'drop',
@@ -195,7 +196,7 @@ export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMass
  */
 export function dropPadMass(mountId: string): (prev: Record<string, MountMotor>) => Record<string, MountMotor> {
   return (prev) => {
-    const cur = prev[mountId];
+    const cur = ownEntry(prev, mountId);
     if (!cur || !('padMassKg' in cur)) return prev;
     const { padMassKg: _p, padMassWeighedWith: _w, ...rest } = cur;
     return { ...prev, [mountId]: rest };
@@ -220,7 +221,7 @@ export function typedPadMass(
   tree: RocketTree, mountId: string, kg: number | null, setKey: string,
 ): (prev: Record<string, MountMotor>) => Record<string, MountMotor> {
   return (prev) => {
-    const cur = prev[mountId];
+    const cur = ownEntry(prev, mountId);
     if (!cur) return prev;
     let next = prev;
     for (const id of Object.keys(prev)) {
@@ -248,7 +249,10 @@ export function legacyPadMassWrite(step: LegacyPadMassStep): {
 } {
   if (step.kind === 'drop') return { motors: dropPadMass(step.mountId), refs: stripRefPadMass };
   return {
-    motors: (prev) => ({ ...prev, [step.mountId]: { ...prev[step.mountId]!, padMassWeighedWith: step.key } }),
+    motors: (prev) => {
+      const motor = ownEntry(prev, step.mountId);
+      return motor ? { ...prev, [step.mountId]: { ...motor, padMassWeighedWith: step.key } } : prev;
+    },
   };
 }
 

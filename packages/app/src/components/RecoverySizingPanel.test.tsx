@@ -32,6 +32,19 @@ describe('RecoverySizingPanel', () => {
   let host: HTMLDivElement;
   let root: Root;
 
+  it('announces catalogue failure in a status region mounted before rejection', async () => {
+    let reject!: (reason: Error) => void;
+    vi.spyOn(presetService, 'loadPresets').mockReturnValue(new Promise((_resolve, rejectPromise) => { reject = rejectPromise; }));
+    await act(async () => root.render(<PrefsProvider><RecoverySizingPanel recovery={WILDMAN} tree={tree()}
+      launch={DEFAULT_CONDITIONS} deviceMass={() => 0.25} /></PrefsProvider>));
+    const before = [...host.querySelectorAll('[role="status"]')];
+    for (const region of before.filter(region => !region.textContent)) expect(region.classList.contains('sr-only')).toBe(true);
+    await act(async () => { reject(new Error('offline')); });
+    const note = [...host.querySelectorAll('[role="status"]')].find(n => n.textContent?.includes('Parts catalogue could not be loaded'));
+    expect(note).toBeDefined();
+    expect(before).toContain(note);
+  });
+
   beforeEach(async () => {
     // Warm the lazily-imported catalogue once, so each mount's own load
     // resolves from the module cache instead of racing a 1.3 MB import.

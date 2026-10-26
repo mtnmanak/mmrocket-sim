@@ -7,6 +7,7 @@ import { act } from 'react';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { createRoot, type Root } from 'react-dom/client';
 import { App } from './App.js';
+import { testResolution } from './services/autoDelay.testSupport.js';
 import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { findAllowance, solePinnedStage } from './services/buildAllowance.js';
@@ -28,6 +29,17 @@ import * as simStore from './services/simStore.js';
 import { addChild, addStage, defaultTree, findNode, makeNode, motorMounts, updateNode } from './tree/treeModel.js';
 import type { MountMotor } from './model/design.js';
 import { APP_VERSION } from './version.js';
+import { designPrintHtml } from './services/designPrintReport.js';
+import { openPrintDocument } from './services/printDocument.js';
+
+vi.mock('./services/designPrintReport.js', async importOriginal => {
+  const real = await importOriginal<typeof import('./services/designPrintReport.js')>();
+  return { ...real, designPrintHtml: vi.fn(real.designPrintHtml) };
+});
+vi.mock('./services/printDocument.js', async importOriginal => {
+  const real = await importOriginal<typeof import('./services/printDocument.js')>();
+  return { ...real, openPrintDocument: vi.fn() };
+});
 
 /**
  * App, rendered — for what App itself decides: which of its memos a keystroke
@@ -440,6 +452,20 @@ async function seedStarterSession(
  * a regex over App.tsx; here it is what App actually puts on the bar.
  */
 describe('a design restored from an older build', () => {
+  it.each(['constructor', 'toString', 'valueOf', '__proto__'])('renders and prints an empty mount with prototype id %s', async id => {
+    const seed = await seedStarterSession();
+    await seedStarterSession({ edit: () => updateNode(seed.tree, seed.mount, { id }), over: { mountMotors: {} } });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    expect(host.querySelector('#cfg-mount-' + id + '-motor')).not.toBeNull();
+    await act(async () => { button(host, 'Save As / Export').click(); });
+    const print = [...host.querySelectorAll<HTMLButtonElement>('.file-menu button')].find(b => b.textContent?.includes('Print design'))!;
+    const printedBefore = vi.mocked(openPrintDocument).mock.calls.length;
+    await act(async () => { print.click(); });
+    expect(vi.mocked(designPrintHtml).mock.calls.at(-1)![0].motorFailures).toEqual([]);
+    expect(vi.mocked(openPrintDocument)).toHaveBeenCalledTimes(printedBefore + 1);
+    expect(vi.mocked(openPrintDocument).mock.calls.at(-1)?.[0]).toContain('<!doctype html>');
+  });
   it('is named on the notice bar as information, and the bar stays shut for it', async () => {
     await seedStarterSession({ over: { appVersion: '0.001' } });
     await mountApp();
@@ -516,6 +542,47 @@ describe('a nozzle exit wider than the loaded motor', () => {
  * the computed CG, which puts the solved ballast inside the pinned sustainer.
  */
 describe('a weighed rocket whose stage stands in for its own mass', () => {
+  it('permits an allowance when the covering CG already matches the solved station', async () => {
+    const probe = defaultTree();
+    Object.assign(probe.components[0]!, { overrideCGX: 0.3, overrideSubcomponentsCG: true });
+    const builtBefore = buildDesign({ tree: probe, assigned: [], kbf: true, supersonic: false,
+      measuredDryMassKg: null, primaryMountId: null, currentSetKey: '' }, KERNEL_HANDLES);
+    if ('error' in builtBefore) throw new Error(builtBefore.error);
+    const measuredMass = builtBefore.info.massEmpty + 0.02;
+    await seedStarterSession({ edit: () => probe, over: { measured: { massKg: measuredMass, cgM: 0.3 }, mountMotors: {} } });
+    const host = await mountApp();
+    await settle(50);
+    const add = [...host.querySelectorAll<HTMLButtonElement>('button')].find(b => /Add.*Build allowance/.test(b.textContent ?? ''));
+    expect(add).toBeDefined();
+    await act(async () => { add!.click(); });
+    window.dispatchEvent(new Event('pagehide'));
+    expect(findAllowance(peekSession()!.tree)).not.toBeNull();
+    const built = buildDesign({ tree: peekSession()!.tree, assigned: [], kbf: true, supersonic: false,
+      measuredDryMassKg: null, primaryMountId: null, currentSetKey: '' }, KERNEL_HANDLES);
+    if ('error' in built) throw new Error(built.error);
+    expect(built.info.massEmpty).toBeCloseTo(measuredMass, 10);
+    expect(built.info.cgEmpty).toBeCloseTo(0.3, 10);
+  });
+  it.each(['stage', 'body'])('blocks an allowance under a CG-only %s override', async owner => {
+    const probe = defaultTree();
+    const node = owner === 'stage' ? probe.components[0]!
+      : probe.components[0]!.children!.find(n => n.type === 'bodytube')!;
+    node.name = 'Pinned CG'; node['overrideCGX'] = 0.1; node['overrideSubcomponentsCG'] = true;
+    const mount = motorMounts(probe)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const built = buildDesign({ tree: probe, assigned: [[mount, c6]], kbf: true, supersonic: false,
+      measuredDryMassKg: null, primaryMountId: mount, currentSetKey: '' }, KERNEL_HANDLES);
+    if ('error' in built) throw new Error(built.error);
+    const massKg = built.info.massEmpty + 0.02;
+    await seedStarterSession({ edit: () => probe, over: { measured: { massKg,
+      cgM: (built.info.massEmpty * built.info.cgEmpty + 0.02 * 0.2) / massKg } } });
+    const host = await mountApp();
+    await settle(50);
+    expect(host.textContent).toContain('Pinned CG');
+    expect(host.textContent).toContain('CG override');
+    expect(host.textContent).toContain('would not move the CG');
+    expect([...host.querySelectorAll('button')].some(b => /Add.*Build allowance/.test(b.textContent ?? ''))).toBe(false);
+  }, 30000);
   async function pinnedSession(twoStages: boolean): Promise<string> {
     const pin = (st: ComponentNode) =>
       ({ ...st, overrideSubcomponentsMass: true, overrideMass: 0.1 }) as ComponentNode;
@@ -724,6 +791,53 @@ describe('a session\'s pad mass saved under a pod picked first', () => {
  * App's call as a string match.
  */
 describe('the Auto delay box on a motor card', () => {
+  it.each(['constructor', 'toString', '__proto__'])('does not invent a cleared nozzle or previous delay for restored ID %s', async id => {
+    const base = defaultTree();
+    const mount = motorMounts(base)[0]!;
+    const tree = updateNode(base, mount.id!, { id });
+    tree.components[0]!.id = id + '-stage';
+    const motor = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const auto = { ...motor, meta: { ...motor.meta, autoDelay: true } };
+    await seedStarterSession({ edit: () => tree, over: { mountMotors: { [id]: auto } } });
+    await mountApp();
+    const key = vi.mocked(designMatchKeyOf).mock.results.at(-1)!.value;
+    await unmountAll();
+    const run = { id: 'unflown-mount', designKey: key.designKey, motorDataKeys: {},
+      delayResolution: testResolution([[id, auto]], [5]) } as unknown as SimRun;
+    const load = vi.spyOn(simStore, 'loadRuns').mockReturnValueOnce([run]);
+    try {
+      const host = await mountApp();
+      await openTab(host, 'Motors & Configuration');
+      expect(host.querySelector('.mount-card')!.textContent).not.toContain('Previous flight: Auto flew');
+      expect(host.querySelector('[data-nozzle="cleared"]')).toBeNull();
+    } finally { load.mockRestore(); }
+  }, 30000);
+
+  it.each(['constructor', 'toString', '__proto__'])('does not invent a cleared nozzle for restored stage %s', async id => {
+    const tree = defaultTree(); tree.components[0]!.id = id;
+    await seedStarterSession({ edit: () => tree });
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    expect(host.querySelector('[data-nozzle="cleared"]')).toBeNull();
+  }, 30000);
+
+  it('announces stale Results in an established freshness region', async () => {
+    await seedStarterSession();
+    const host = await mountApp();
+    await act(async () => { host.querySelector<HTMLButtonElement>('.vitals-launch')!.click(); });
+    await waitFor(() => host.textContent!.includes('Launch report'), 'launch report');
+    await openTab(host, 'Results');
+    const before = [...host.querySelectorAll('[role="status"]')];
+    const hiddenBefore = new Map(before.map(region => [region, region.classList.contains('sr-only')]));
+    const aero = host.querySelector<HTMLSelectElement>('[aria-label="Aerodynamics model (this session)"]')!;
+    await act(async () => { aero.value = 'supersonic'; aero.dispatchEvent(new Event('change', { bubbles: true })); });
+    const model = [...host.querySelectorAll('.file-note-warn')].find(n => n.textContent?.includes('model now selected'));
+    const region = model!.closest('[role="status"]')!;
+    expect(hiddenBefore.get(region)).toBe(true);
+    expect(region.classList.contains('sr-only')).toBe(false);
+    expect(model).toBeDefined();
+    expect(before).toContain(model!.closest('[role="status"]'));
+  }, 30000);
   it('renders the motor card with null motorDataKeys even when load validation is bypassed', async () => {
     await seedStarterSession();
     await mountApp();
@@ -1060,8 +1174,11 @@ describe('FC-5 configuration editors', () => {
   };
   const partField = (row: HTMLElement, field: 'altitude' | 'delay') =>
     row.querySelector<HTMLInputElement>(`input[aria-label$=" ${field} (${field === 'altitude' ? 'm' : 's'})"]`)!;
-  it('fixup3: establishing native ignition defaults preserves other configurations and detached values in one step', async () => {
-    const { tree, mount, c6 } = await seedStarterSession();
+  it.each([false, true])('fixup3: establishing native ignition defaults preserves other configurations and detached values in one step (prototype id %s)', async prototype => {
+    const seeded = await seedStarterSession();
+    const mount = prototype ? 'constructor' : seeded.mount;
+    const tree = prototype ? { ...updateNode(seeded.tree, seeded.mount, { id: mount }), ignitionDefaults: {} } : seeded.tree;
+    const c6 = seeded.c6;
     const composite = (await loadCatalogueMotor('AeroTech', 'D21', 4))!;
     expect(composite).toBeTruthy();
     const b = { ...composite, ignition: { event: 'burnout', delay: 1 } } as MountMotor;
@@ -1077,6 +1194,9 @@ describe('FC-5 configuration editors', () => {
     await act(async () => { select.value = 'never'; select.dispatchEvent(new Event('change', { bubbles: true })); });
     window.dispatchEvent(new Event('pagehide'));
     const edited = peekSession()!;
+    expect(Object.hasOwn(edited.tree.ignitionDefaults ?? {}, mount)).toBe(true);
+    expect(edited.tree.ignitionDefaults?.[mount]).toEqual({ event: 'never', delay: 0 });
+    expect(Object.hasOwn(edited.savedConfigs![0]!.ignitions ?? {}, mount)).toBe(false);
     const savedB = edited.savedConfigs![1]!;
     expect(resolveFlightState(edited.tree, edited.savedConfigs!, 'b', edited.detachedOverrides!, savedB.motors)
       .mountMotors[mount]!.ignition).toEqual({ event: 'burnout', delay: 1 });
@@ -1085,7 +1205,7 @@ describe('FC-5 configuration editors', () => {
     await act(async () => { button(host, 'Undo').click(); });
     window.dispatchEvent(new Event('pagehide'));
     const undone = peekSession()!;
-    expect(undone.tree.ignitionDefaults?.[mount]).toBeUndefined();
+    expect(Object.hasOwn(undone.tree.ignitionDefaults ?? {}, mount)).toBe(false);
     expect(undone.savedConfigs!.map(c => c.ignitions)).toEqual([{}, {}]);
     expect(undone.detachedOverrides?.ignitions?.[mount]).toEqual({ event: 'launch', delay: 4 });
     expect(button(host, 'Undo').disabled).toBe(true);

@@ -60,6 +60,16 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe('open motor dialog', () => {
+  it('announces an import through the same status container that existed before it', async () => {
+    render();
+    const status = host.querySelector('[role=status]');
+    expect(status).not.toBeNull();
+    expect(status!.textContent).toBe('');
+    expect(status!.classList.contains('sr-only')).toBe(true);
+    await importText(0, enerjetEng);
+    expect(host.querySelector('[role=status]')).toBe(status);
+    expect(status!.textContent).toContain('Imported 1 EX motor');
+  });
   it('S1c-2 labels EX choices with the flown snapshot designation and diameter', () => {
     addExMotors([{ ...parseEng('E20 29 100 P 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!, flightSnapshot: {
       designation: 'H100', diameter: 0.054, length: 0.3, cgX: 0.15,

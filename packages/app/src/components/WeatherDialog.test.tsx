@@ -12,7 +12,7 @@ import { WeatherDialog, WEATHER_DIALOG_COPY } from './WeatherDialog.js';
 import { WeatherSkyInfo } from './WeatherSkyInfo.js';
 import { fieldText, gustNote } from './weatherText.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
-import { ALOFT_VARS, HOURLY_VARS, SKY_VARS, clearWeatherCache, parseForecast, ymdInZone, type WeatherPlace } from '../services/openMeteo.js';
+import { ALOFT_VARS, HOURLY_VARS, SKY_VARS, SEARCH_COPY, clearWeatherCache, parseForecast, ymdInZone, type WeatherPlace } from '../services/openMeteo.js';
 import { applyProposal, undoApply, validWeatherSnapshot, type WeatherPatch, type WeatherSnapshot } from '../services/weatherSnapshot.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -138,6 +138,23 @@ async function reviewLem(opts: { launch?: LaunchConditions; route?: Route } = {}
 }
 
 describe('device compared with the design site', () => {
+  it('announces pending geolocation in an established status region', async () => {
+    render({ geolocation: { getCurrentPosition: () => {} } });
+    const regions = [...host.querySelectorAll('[role="status"]')];
+    for (const region of regions.filter(region => !region.textContent)) expect(region.classList.contains('sr-only')).toBe(true);
+    await click(button(WEATHER_DIALOG_COPY.locate));
+    expect(regions.some(r => r.textContent?.includes('Waiting for your browser'))).toBe(true);
+    await click(button('Cancel'));
+  });
+  it('announces a refused weather date in an established status region', async () => {
+    render({ initialPlace: RENO });
+    const regions = [...host.querySelectorAll('[role="status"]')];
+    typeInto(q('input[type="date"]'), '2050-01-01');
+    await click(button('Fetch'));
+    const note = host.querySelector('.weather-note[role="status"]');
+    expect(note?.textContent).toBeTruthy();
+    expect(regions).toContain(note);
+  });
   const geo = (longitude = -80.1269) => ({
     getCurrentPosition: vi.fn((ok: PositionCallback) => ok({
       coords: { latitude: 26.38029, longitude, accuracy: 30 },
@@ -147,10 +164,12 @@ describe('device compared with the design site', () => {
   it('asks only after the location click, selects the precise mirrored site without a request, and writes only on Apply', async () => {
     const geolocation = geo();
     render({ launch: LEM_SITE, route: LEM_WEATHER, geolocation });
+    const regions = [...host.querySelectorAll('[role="status"]')];
     expect(geolocation.getCurrentPosition).not.toHaveBeenCalled();
     expect(host.textContent).not.toContain('the same number, east');
     await click(button(WEATHER_DIALOG_COPY.locate));
     expect(geolocation.getCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(regions.some(r => r.textContent?.includes('the same number, east'))).toBe(true);
     expect(host.textContent).toContain('You are at 26.38, -80.13; this design’s Longitude is +80.126879 — the same number, east.');
     expect(urls).toEqual([]);
     await click(button('Use this design’s site, west'));
@@ -197,6 +216,15 @@ describe('device compared with the design site', () => {
 });
 
 describe('the design-site longitude check', () => {
+  it('announces the fetched longitude caution in an established status region', async () => {
+    vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(240);
+    render({ launch: LEM_SITE, route: LEM_WEATHER });
+    await click(button(/^This design/));
+    const regions = [...host.querySelectorAll('[role="status"]')];
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    await click(button('Fetch'));
+    expect(regions.some(r => r.textContent?.includes('Check the longitude'))).toBe(true);
+  });
   it('uses only the chosen site’s existing fetch and shows hemispheres in the review', async () => {
     await reviewLem();
     expect(host.textContent).toContain('Check the longitude’s sign.');
@@ -972,13 +1000,23 @@ describe('the weather dialog', () => {
     const refused = { getCurrentPosition: (_ok: PositionCallback, bad?: PositionErrorCallback | null) =>
       bad?.({ code: 1, message: 'denied' } as GeolocationPositionError) };
     render({ geolocation: refused });
+    const regions = [...host.querySelectorAll('[role="status"]')];
     await click(button(WEATHER_DIALOG_COPY.locate));
     expect(host.textContent).toContain(WEATHER_DIALOG_COPY.refused);
+    expect(regions.some(r => r.textContent?.includes(WEATHER_DIALOG_COPY.refused))).toBe(true);
     act(() => root.unmount());
     root = createRoot(host);
     render({ geolocation: null });
     await click(button(WEATHER_DIALOG_COPY.locate));
     expect(host.textContent).toContain(WEATHER_DIALOG_COPY.unavailable);
+  });
+
+  it('announces an empty place search in an established status region', async () => {
+    render({ route: () => ({ body: { results: [] } }) });
+    const regions = [...host.querySelectorAll('[role="status"]')];
+    typeInto(q('input[aria-label="Place"]'), 'Nowhere');
+    await click(button('Search'));
+    expect(regions.some(r => r.textContent?.includes(SEARCH_COPY.nothing))).toBe(true);
   });
 
   // FETCH AGAIN (review of 2026-09-23): it opened on TODAY, so a user who

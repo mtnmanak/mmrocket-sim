@@ -42,7 +42,7 @@ export function MeasuredMassBox({
    * v0.074 pressing Apply did exactly that, silently. RASAero .CDX1 imports
    * pin every stage this way.
    */
-  blockedBy?: { name?: string } | null;
+  blockedBy?: { name?: string; kind?: 'mass' | 'cg' } | null;
   /**
    * Resolve the block by pinning the covering component to the measured
    * numbers instead — desktop OpenRocket's own move. Absent when the app
@@ -183,7 +183,7 @@ function verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
   onApply: (s: Extract<BallastSolution, { kind: 'ok' }>) => void;
   mass: (kg: number) => string;
   len: (m: number) => string;
-  blockedBy: { name?: string } | null;
+  blockedBy: { name?: string; kind?: 'mass' | 'cg' } | null;
   onPinStage?: () => void;
 }): { text: ReactNode; action?: ReactNode } {
   switch (solution.kind) {
@@ -204,6 +204,13 @@ function verdict({ solution, hasAllowance, onApply, mass, len, blockedBy, onPinS
       // Overrides rows in the property panel, so the two read as one rule.
       if (blockedBy) {
         const who = blockedBy.name || 'A stage above it';
+        if (blockedBy.kind === 'cg') return {
+          text: <Note as="p" tier="caution" className="measured-verdict measured-bad">
+            <strong>{who}</strong> has a CG override covering everything inside it. A Build allowance
+            would add mass here but would not move the CG to the measured balance point. Clear the
+            covering CG override under <strong>Overrides</strong> before adding an allowance.
+          </Note>,
+        };
         return {
           text: (
             <Note as="p" tier="caution" className="measured-verdict measured-bad">

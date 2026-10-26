@@ -1,3 +1,4 @@
+import { ownEntry } from './ownEntry.js';
 import type {
   FlightResult, MotorSpec, OrkRocket, SimulationOptions,
 } from '@online-openrocket/engine';
@@ -216,7 +217,7 @@ export async function flyLaunch(rocket: FlightHandle, input: LaunchInput): Promi
   const absent = input.assigned.filter(([id]) => !installed.some(([kept]) => kept === id));
   const unresolved = absent.filter(([, mm]) => mm.meta.autoDelay);
   if (unresolved.length) {
-    throw new Error(`Auto delay did not settle for ${unresolved.map(([id]) => input.mountNames?.[id] ?? id).join(', ')}: the motor was refused at build time. Choose a fixed delay and Launch again.`);
+    throw new Error(`Auto delay did not settle for ${unresolved.map(([id]) => ownEntry(input.mountNames, id) ?? id).join(', ')}: the motor was refused at build time. Choose a fixed delay and Launch again.`);
   }
   const installedInput = { ...input, assigned: installed };
   const primary = installedInput.assigned.find(([id]) => id === input.primaryMountId)?.[1];

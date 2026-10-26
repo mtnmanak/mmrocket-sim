@@ -8,6 +8,7 @@ import { finOutlineProblem, kernelFinPoints, type FinOutlinePoint } from './finO
 import { ancestorsOf, findParent, motorMounts, mountName } from './treeModel.js';
 import { axialLength, positionOf, startFromPosition } from './position.js';
 import { lookupTable } from '../services/xmlUtil.js';
+import { ownEntry } from '../services/ownEntry.js';
 import { TUBE_HOLE_DEFAULTS } from './tubeHoles.js';
 import { limitPatch } from './sanitize.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
@@ -462,7 +463,7 @@ export function previewMounts(
     if (m.type !== 'innertube') return null;
     const nearest = nearestCommonClass(scaledBoreMm);
     const onStandardClass = Math.abs(scaledBoreMm - nearest) < CLASS_TOLERANCE_MM;
-    const choice = m.id ? choices[m.id] : undefined;
+    const choice = m.id ? ownEntry(choices, m.id) : undefined;
     return choice === 'scaled' ? null
       : choice === 'nearest' ? nearest
         : typeof choice === 'object' ? choice.boreMm
@@ -519,7 +520,7 @@ export function previewMounts(
     const snappable = !isAirframe && !onStandardClass;
     // Offered wherever the mount is not the airframe, on-class or not.
     const choosable = !isAirframe;
-    const choice = m.id ? choices[m.id] : undefined;
+    const choice = m.id ? ownEntry(choices, m.id) : undefined;
     // ONE resolution of "what bore does this mount end up with", read by the
     // writer, the summary and the notice alike. A mount that IS the airframe is
     // never resized whatever is asked: resizing it would silently change the

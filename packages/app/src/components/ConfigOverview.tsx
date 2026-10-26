@@ -6,6 +6,7 @@ import { deploymentTuple } from '../services/foreignConfigLayers.js';
 import { describeIgnitionTuple, separationTuple } from '../services/flightOverrideText.js';
 import { describeFlownDeployment, describeFlownSeparation } from '../services/flightOverrideSummary.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
+import { overrideFor } from '../services/flightState.js';
 
 type Part = { node: ComponentNode; family: 'recovery' | 'separation' | 'ignition' };
 
@@ -28,12 +29,13 @@ function partValue(part: Part, config: Pick<SavedConfig, 'motors' | 'deployments
   const { node, family } = part;
   const id = node.id!;
   if (family === 'ignition') {
-    const motor = config.motors[id];
-    if (!motor) return { text: config.unmatchedRefs?.[id] ? `${config.unmatchedRefs[id]!.designation} (not loaded)` : 'No motor', override: false };
-    return { text: `${motor.label} · ${describeIgnitionTuple(config.ignitions?.[id] ?? tree.ignitionDefaults?.[id] ?? motor.ignition, 'warning')}`,
-      override: !!config.ignitions?.[id] };
+    const motor = overrideFor(config.motors, id);
+    const unmatched = overrideFor(config.unmatchedRefs, id);
+    if (!motor) return { text: unmatched ? `${unmatched.designation} (not loaded)` : 'No motor', override: false };
+    return { text: `${motor.label} · ${describeIgnitionTuple(overrideFor(config.ignitions, id) ?? overrideFor(tree.ignitionDefaults, id) ?? motor.ignition, 'warning')}`,
+      override: !!overrideFor(config.ignitions, id) };
   }
-  const tuple = family === 'recovery' ? config.deployments?.[id] : config.separations?.[id];
+  const tuple = family === 'recovery' ? overrideFor(config.deployments, id) : overrideFor(config.separations, id);
   const effectiveNode = { ...node, ...tuple };
   return { text: family === 'recovery' ? describeFlownDeployment(deploymentTuple(effectiveNode), unit)
     : describeFlownSeparation(separationTuple(effectiveNode), unit), override: !!tuple };

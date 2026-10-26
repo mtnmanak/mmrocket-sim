@@ -44,21 +44,24 @@ export function snapshotLoadedConfig<M>(
   const deployments: NonNullable<SavedConfig['deployments']> = {};
   const separations: NonNullable<SavedConfig['separations']> = {};
   const nozzles: NonNullable<SavedConfig['nozzles']> = {};
+  const put = <T>(map: Record<string, T>, id: string, value: T) => {
+    Object.defineProperty(map, id, { value, enumerable: true, writable: true, configurable: true });
+  };
   const visit = (nodes: ComponentNode[]) => {
     for (const node of nodes) {
       if (node.id && includesNode(options.deployments, node.id) && (node.type === 'parachute' || node.type === 'streamer')) {
-        deployments[node.id] = {
+        put(deployments, node.id, {
           deployEvent: String(node['deployEvent'] ?? 'ejection'),
           deployAltitude: num(node, 'deployAltitude', 200), deployDelay: num(node, 'deployDelay', 0),
-        };
+        });
       }
       if (node.id && (node.type === 'stage' || node.type === 'parallelstage')) {
-        if (includesNode(options.separations, node.id)) separations[node.id] = {
+        if (includesNode(options.separations, node.id)) put(separations, node.id, {
           separationEvent: typeof node['separationEvent'] === 'string' ? node['separationEvent'] : 'ejection',
           separationDelay: num(node, 'separationDelay', 0), separationAltitude: num(node, 'separationAltitude', 200),
-        };
+        });
         const d = node['nozzleExitDiameter'];
-        if (includesNode(options.nozzles, node.id)) nozzles[node.id] = typeof d === 'number' && Number.isFinite(d) && d >= 0 ? d : null;
+        if (includesNode(options.nozzles, node.id)) put(nozzles, node.id, typeof d === 'number' && Number.isFinite(d) && d >= 0 ? d : null);
       }
       visit(node.children ?? []);
     }

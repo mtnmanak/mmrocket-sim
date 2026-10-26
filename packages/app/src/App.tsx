@@ -48,8 +48,8 @@ import { NoticeBar, type Notice, type NoticeSeverity } from './components/Notice
 import { MeasuredMassBox } from './components/MeasuredMassBox.js';
 import { MotorPadMass } from './components/MotorPadMass.js';
 import {
-  applyAllowance as applySolvedAllowance, coveringMassOverride, findAllowance, solveBallast,
-  solePinnedStage, withoutAllowance, type BallastSolution,
+  applyAllowance as applySolvedAllowance, bareWithoutAllowance, coveringCGOverride, coveringMassOverride, findAllowance, solveBallast,
+  solePinnedStage, type BallastSolution,
 } from './services/buildAllowance.js';
 import { MotorPicker } from './components/MotorPicker.js';
 import { zeroDelayRecoveryAdvice } from './services/flightAdvisories.js';
@@ -154,7 +154,7 @@ import {
   isPristineDefault, mountCountNote, mountMotorCount, mountName, removeNode, stageIndexOf, stages,
   suppressingAncestor, updateAllNodes, updateNode,
 } from './tree/treeModel.js';
-import { num, numOrNull } from './tree/nodeNum.js';
+import { num, numOpt, numOrNull } from './tree/nodeNum.js';
 import {
   flightDataForExport as flightDataForExportPure, flownAutoDelays, planSummaryImport, summaryImportCounts, summaryDocument,
 } from './services/orkFlightData.js';
@@ -1533,7 +1533,7 @@ export function App() {
   const batchWeighed = useMemo(() => {
     if (!built || built.hardware.state !== 'ok') return undefined;
     const h = built.hardware;
-    const mm = mountMotors[h.appliedTo];
+    const mm = overrideFor(mountMotors, h.appliedTo);
     if (!mm || mm.padMassWeighedWith === LEGACY_PAD_MASS_KEY) return undefined;
     return {
       mountId: h.appliedTo,
@@ -1709,8 +1709,7 @@ export function App() {
       return { massKg, cgM };
     }
     try {
-      const ci = built.rocket.componentInfo(allowanceNode.id);
-      return withoutAllowance(massKg, cgM, ci.mass, ci.positionX + ci.cgX);
+      return bareWithoutAllowance(tree, allowanceNode.id, massKg, cgM, id => built.rocket.componentInfo(id));
     } catch {
       return { massKg, cgM };
     }
@@ -1751,7 +1750,8 @@ export function App() {
     // Same default length applyAllowance uses for a not-yet-created allowance,
     // read the same way (a non-finite length is none, audit row 522).
     const lengthM = allowanceNode ? num(allowanceNode, 'length', 0.02) : 0.02;
-    return coveringMassOverride(tree, sol.stationM, lengthM);
+    return coveringMassOverride(tree, sol.stationM, lengthM)
+      ?? coveringCGOverride(tree, sol.stationM, lengthM, id => built.rocket.componentInfo(id));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- tree.components deliberately: a rename must not re-run this
   }, [built, bare, measured, tree.components, allowanceNode]);
 
@@ -1852,7 +1852,7 @@ export function App() {
     }
     if (plan.padMassNote !== undefined) setFileNote(plan.padMassNote, 'info', undefined, plan.padMassTier);
     setUnmatchedRefs((prev) => {
-      if (!(targetMountId in prev)) return prev;
+      if (!Object.hasOwn(prev, targetMountId)) return prev;
       const next = { ...prev };
       delete next[targetMountId];
       return next;
@@ -2794,15 +2794,15 @@ export function App() {
    */
   const editIgnition = (id: string, tuple: IgnitionTuple, scope: FlightEditScope, numeric = false, finished = false) => {
     const gesture = numeric ? flightEdit.current : null;
-    const baseline = (tree as FlightTree).ignitionDefaults?.[id] ?? mountMotors[id]!.ignition;
+    const baseline = overrideFor((tree as FlightTree).ignitionDefaults, id) ?? mountMotors[id]!.ignition;
     if (scope === 'own') {
       // Establishing the first shared default must not change what another
       // configuration flies: one whose own motor record lights differently
       // from today's own setting keeps that as an override. Existing
       // overrides are never touched (own-setting scope).
       let frozen = false;
-      const configs = (tree as FlightTree).ignitionDefaults?.[id] ? savedConfigs : savedConfigs.map(c => {
-        const native = c.motors[id]?.ignition;
+      const configs = overrideFor((tree as FlightTree).ignitionDefaults, id) ? savedConfigs : savedConfigs.map(c => {
+        const native = overrideFor(c.motors, id)?.ignition;
         if (c.id === activeConfigId || !native || overrideFor(c.ignitions, id) || !sparsify(baseline, native)) return c;
         frozen = true;
         return { ...c, ignitions: { ...c.ignitions, [id]: { ...native } } };
@@ -2815,13 +2815,13 @@ export function App() {
       : detachedOwnsOverrides ? 'detached' : 'default');
     // Native configurations can still inherit their own propellant-based motor
     // record. Establishing one shared default must not change any other owner.
-    const establishing = !(tree as FlightTree).ignitionDefaults?.[id];
+    const establishing = !overrideFor((tree as FlightTree).ignitionDefaults, id);
     const configs = establishing ? savedConfigs.map(c => {
-      const effective = c.ignitions?.[id] ?? c.motors[id]?.ignition;
+      const effective = overrideFor(c.ignitions, id) ?? overrideFor(c.motors, id)?.ignition;
       return effective ? { ...c, ignitions: setOverride(c.ignitions, id, baseline, effective) } : c;
     }) : savedConfigs;
     const detached = establishing ? { ...detachedOverrides,
-      ignitions: setOverride(detachedOverrides.ignitions, id, baseline, detachedOverrides.ignitions?.[id] ?? mountMotors[id]!.ignition),
+      ignitions: setOverride(detachedOverrides.ignitions, id, baseline, overrideFor(detachedOverrides.ignitions, id) ?? mountMotors[id]!.ignition),
     } : detachedOverrides;
     // With no owner there is no override layer: the mount default it is (FC-5).
     if (owner === 'default') {
@@ -2869,7 +2869,7 @@ export function App() {
   const adoptComponentOverrideEverywhere = (node: ComponentNode) => {
     const id = node.id!;
     const recovery = node.type === 'parachute' || node.type === 'streamer';
-    const tuple = recovery ? activeOverrides.deployments?.[id] : activeOverrides.separations?.[id];
+    const tuple = recovery ? overrideFor(activeOverrides.deployments, id) : overrideFor(activeOverrides.separations, id);
     if (!tuple) return;
     // Clear every owner, including detached choices, in the SAME history step (FC-5).
     commitFlightLayers({ tree: updateNode(tree, id, { ...tuple }),
@@ -3196,7 +3196,7 @@ export function App() {
   );
   // Batch simulate targets the PRIMARY (sustainer) mount; per the owner's rule
   // batch never runs across staged rockets (combinatorics).
-  const primaryLabel = primaryMountId ? mountMotors[primaryMountId]?.label : undefined;
+  const primaryLabel = primaryMountId ? overrideFor(mountMotors, primaryMountId)?.label : undefined;
   const assignedCount = assigned.length;
   // The strip's Flight item (CFG-SPEC B3): the configuration Launch flies,
   // then its motor; the tooltip names the configuration and every loaded motor.
@@ -3279,7 +3279,7 @@ export function App() {
   const preparePrintReport = () => {
     // C-A6: imported references never reach installation, but still make the intended loadout incomplete.
     const unresolved = mounts.flatMap(mount => {
-      const ref = mount.id ? unmatchedRefs[mount.id] : undefined;
+      const ref = mount.id ? overrideFor(unmatchedRefs, mount.id) : undefined;
       return ref && !assigned.some(([id]) => id === mount.id)
         ? [{ mount, identity: [ref.manufacturer, ref.designation].filter(Boolean).join(' ') }] : [];
     });
@@ -3676,9 +3676,11 @@ export function App() {
             back to their defaults when you reload.
           </div>
         )}
-        {recentNote && <Note tier="caution" role="status" className="recent-storage-note">
-          {recentNote} <button className="file-btn" onClick={() => setRecentNote(null)} aria-label="Dismiss recent storage note">Dismiss</button>
-        </Note>}
+        <div className={`recent-storage-status${recentNote ? '' : ' sr-only'}`} role="status" aria-atomic="true">
+          {recentNote && <Note tier="caution" className="recent-storage-note">
+            {recentNote} <button className="file-btn" onClick={() => setRecentNote(null)} aria-label="Dismiss recent storage note">Dismiss</button>
+          </Note>}
+        </div>
         <Note tier={earlierSaveNote?.tier ?? 'information'}
           role="status" className={`earlier-save-note ${earlierSaveNote ? 'file-note' : 'sr-only'}`}>
           {earlierSaveNote && <>An earlier export finished: {earlierSaveNote.text}
@@ -4237,7 +4239,8 @@ export function App() {
                 setTree(removeNode(tree, allowanceNode.id));
                 if (selectedId === allowanceNode.id) setSelectedId(null);
               }}
-              blockedBy={allowanceBlocker}
+              blockedBy={allowanceBlocker ? { name: allowanceBlocker.name,
+                kind: allowanceBlocker['overrideSubcomponentsMass'] === true && numOpt(allowanceBlocker, 'overrideMass') !== undefined ? 'mass' : 'cg' } : null}
               onPinStage={allowanceBlocker && canPinBlocker ? pinBlockerToMeasured : undefined}
             />
           )}
@@ -4558,7 +4561,7 @@ export function App() {
                           exitDiameterM={numOrNull(nozzleStage, 'nozzleExitDiameter')}
                           motors={loadout}
                           motorLabel={loadout[0]?.label ?? null}
-                          clearedFor={nozzleCleared[nozzleStage.id!] ?? null}
+                          clearedFor={overrideFor(nozzleCleared, nozzleStage.id!) ?? null}
                           onCommit={(m) => setTree(applyStageNozzles(treeRef.current, { [nozzleStage.id!]: m }))}
                           onAutoFill={(m) => writeTree(applyStageNozzles(treeRef.current, { [nozzleStage.id!]: m }))}
                         />
@@ -4566,7 +4569,7 @@ export function App() {
                     })}
                   </div>
                   {stMounts.map((m) => {
-              const mm = flightState.mountMotors[m.id!];
+              const mm = overrideFor(flightState.mountMotors, m.id!);
               const mNode = findNode(tree, m.id!);
               // Pods and strap-ons included (audit 2026-09-22, row 351): the
               // label and the pad-mass card's multi-motor wording follow the
@@ -4731,7 +4734,7 @@ export function App() {
                           event", beside a label tied to nothing. The scope
                           choice is explicit (CFG-SPEC A3). */}
                       <MountIgnitionField mountId={m.id!} mountName={mountName(m)} ownerKey={flightOwnerKey}
-                        own={(tree as FlightTree).ignitionDefaults?.[m.id!] ?? mountMotors[m.id!]?.ignition ?? mm.ignition}
+                        own={overrideFor((tree as FlightTree).ignitionDefaults, m.id!) ?? overrideFor(mountMotors, m.id!)?.ignition ?? mm.ignition}
                         override={overrideFor(activeOverrides.ignitions, m.id!)}
                         overrideLabel={overrideScopeLabel} isStaged={isStaged}
                         onEdit={(scope, tuple, numeric) => editIgnition(m.id!, tuple, scope, numeric)}
@@ -4769,7 +4772,7 @@ export function App() {
                     }
                     // The file's primary is an unmatched reference (filePrimaryMountId
                     // is never null while primaryMountId is not).
-                    const fileRef = filePrimaryMountId ? unmatchedRefs[filePrimaryMountId] : undefined;
+                    const fileRef = filePrimaryMountId ? overrideFor(unmatchedRefs, filePrimaryMountId) : undefined;
                     const where = mountName(filePrimaryMountId ? findNode(tree, filePrimaryMountId) : null, 'a removed mount');
                     const named = fileRef?.designation ?? 'a motor the file names';
                     return typeof fileRef?.padMassKg === 'number' && fileRef.padMassKg > 0
@@ -4891,7 +4894,7 @@ export function App() {
               subsonic flights of this design would fly classic).
             </div>
           )}
-          {!inspectedSummary && lastRun && (modelMatch === false || changedSinceNonModel.length > 0) &&
+          <div role="status" className={!inspectedSummary && lastRun && (modelMatch === false || changedSinceNonModel.length > 0) ? undefined : 'sr-only'}>{!inspectedSummary && lastRun && (modelMatch === false || changedSinceNonModel.length > 0) &&
             <Note tier="caution" className="result-freshness">
           {!inspectedSummary && modelMatch === false && lastRun && (
             // States what the flight DID first, matching the auto-supersonic
@@ -4899,7 +4902,7 @@ export function App() {
             // destroys the flight: keeping it is only honest if the report
             // says which model produced these numbers, rather than letting
             // them be silently re-read under the new one.
-            <div className="file-note file-note-warn" role="status">
+            <div className="file-note file-note-warn">
               These numbers were <strong>flown on {aeroModelLabel(lastRun.aeroModel, lastRun.rogersKbf)}</strong>.
               The model now selected is <strong>{currentModelLabel({ aeroMode, effectiveKbf, autoSupersonic })}</strong>,
               so they are not comparable with a fresh flight — press <strong>Launch</strong> to
@@ -4911,14 +4914,14 @@ export function App() {
             // No auxiliary verb: "the launch conditions HAS changed" is wrong,
             // and picking has/have from the list length gets that case backwards
             // because one of the three labels is itself plural.
-            <div className="file-note file-note-warn" role="status">
+            <div className="file-note file-note-warn">
               These numbers were <strong>flown {formatRunWhenProse(lastRun.when)}</strong>, and{' '}
               <strong>{listAnd(changedSinceNonModel)}</strong> changed since — they describe the
               rocket as it was then, not the one you have now.
               Press <strong>Launch</strong> to fly the current design.
             </div>
           )}
-            </Note>}
+            </Note>}</div>
           {/* Each panel below draws stored or computed data, so each has its
               own boundary (audit 2026-09-22): a throw in one says so in place,
               and the rest of the tab — the run table included, where a bad

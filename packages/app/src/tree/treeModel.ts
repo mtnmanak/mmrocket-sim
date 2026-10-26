@@ -529,7 +529,7 @@ export function applyStageNozzles(tree: RocketTree, nozzles: Record<string, numb
     const result = nodes.map((n) => {
       const children = n.children ? walk(n.children) : undefined;
       let next = children !== n.children ? { ...n, children } : n;
-      if ((n.type === 'stage' || n.type === 'parallelstage') && n.id && n.id in nozzles) {
+      if ((n.type === 'stage' || n.type === 'parallelstage') && n.id && Object.hasOwn(nozzles, n.id)) {
         const v = nozzles[n.id];
         const want = typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
         if (n['nozzleExitDiameter'] !== want) {

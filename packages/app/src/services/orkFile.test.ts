@@ -3901,8 +3901,8 @@ describe('.ork numeric field syntax', () => {
 
   it.each(['garbage 0.5', '1 2', 'auto 0.5', 'garbage', '0x10', ''])('defaults and reports invalid length %j', value => {
     const result = importOrk(tube(value));
-    expect(firstStageChildren(result)[0]!['length']).toBeCloseTo(0.3, 12);
-    expect(result.notes.join(' ')).toMatch(/Tube.*invalid <length> value.*default \(0.3\)/);
+    expect(firstStageChildren(result)[0]!['length']).toBeCloseTo(0.2, 12);
+    expect(result.notes.join(' ')).toMatch(/Tube.*invalid <length> value.*default \(0.2\)/);
   });
 
   it.each(['0.5', ' 5e-1 '])('keeps a decimal length %j and automatic radius suffix', value => {

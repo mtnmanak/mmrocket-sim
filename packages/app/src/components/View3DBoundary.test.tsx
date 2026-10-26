@@ -40,6 +40,15 @@ const render = (child: React.ReactNode) => {
   ));
 };
 
+it('announces a later 3D failure in an established status region', () => {
+  render(<div>scene</div>);
+  const before = [...host.querySelectorAll('[role="status"]')];
+  render(<Boom message="WebGL failed" />);
+  const note = host.querySelector('[role="status"]')!;
+  expect(note.textContent).toContain('3D view could not start');
+  expect(before).toContain(note);
+});
+
 describe('the 3D view’s error boundary', () => {
   it('renders its child untouched when nothing throws', () => {
     render(<div data-testid="scene">scene</div>);
@@ -72,7 +81,7 @@ describe('the 3D view’s error boundary', () => {
 
   it('is announced, so a screen reader is told the panel changed', () => {
     render(<Boom message="nope" />);
-    expect(host.querySelector('.hero-fallback')!.getAttribute('role')).toBe('status');
+    expect(host.querySelector('[role="status"]')?.textContent).toContain('3D view could not start');
   });
 
   it('logs the failure rather than swallowing it', () => {

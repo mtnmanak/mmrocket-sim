@@ -155,7 +155,7 @@ export class AppBoundary extends Component<
         <button className="file-btn" onClick={() => { void this.download(); }}>
           ⬇ Download the autosaved design
         </button>
-        {this.state.note && <p role="status">{this.state.note}</p>}
+        <div role="status" aria-atomic="true" className={this.state.note ? undefined : 'sr-only'}>{this.state.note && <p>{this.state.note}</p>}</div>
         <DebugLogDownload />
         {this.state.confirming ? (
           <>

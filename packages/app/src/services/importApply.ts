@@ -1,4 +1,6 @@
 import { applyStageMass, pruneStageMass } from './stageMassOverrides.js';
+import { ownEntry } from './ownEntry.js';
+import { lookupTable } from './xmlUtil.js';
 import { hasSimulationExtensions } from './orkExtensions.js';
 import { restoreConfigLabels } from './motorLabels.js';
 import { restoreExMotors, type ExMotor } from './exMotors.js';
@@ -175,17 +177,17 @@ export async function resolveImportMotors(
   imported: ImportedDesign,
   match: (ref: OrkMotorRef) => Promise<MotorMatchResult> = matchImportedMotor,
 ): Promise<ResolvedImportMotors> {
-  const working: Record<string, MotorMatchResult> = {};
+  const working = lookupTable<MotorMatchResult>({});
   for (const [nodeId, ref] of Object.entries(imported.motors)) {
     working[nodeId] = await match(ref);
   }
   const chosenId = imported.chosenConfigId ?? null;
-  const configs: Record<string, Record<string, MountMotor | undefined>> = {};
-  const configResults: Record<string, Record<string, MotorMatchResult>> = {};
+  const configs = lookupTable<Record<string, MountMotor | undefined>>({});
+  const configResults = lookupTable<Record<string, MotorMatchResult>>({});
   for (const cfg of imported.configs ?? []) {
     if (cfg.id === chosenId) continue;
-    const matched: Record<string, MountMotor | undefined> = {};
-    const results: Record<string, MotorMatchResult> = {};
+    const matched = lookupTable<MountMotor | undefined>({});
+    const results = lookupTable<MotorMatchResult>({});
     for (const [nodeId, ref] of Object.entries(cfg.motors)) {
       results[nodeId] = await match(ref);
       matched[nodeId] = results[nodeId].motor;
@@ -248,7 +250,7 @@ function flyablePick(imported: ImportedDesign, resolved: ResolvedImportMotors): 
   });
   const bottom = asStageNodes(imported.tree).length - 1;
   const loaded = (c: OrkFlightConfig, id: string): boolean =>
-    c === chosen ? !!resolved.working[id]?.motor : !!resolved.configs[c.id]?.[id];
+    c === chosen ? !!ownEntry(resolved.working, id)?.motor : !!ownEntry(ownEntry(resolved.configs, c.id), id);
   /** The mounts that light first: the configuration's lowest motorised stage. */
   const liftoff = (c: OrkFlightConfig): string[] => {
     const ids = Object.keys(c.motors).filter((id) => stageOf.has(id));
@@ -262,23 +264,23 @@ function flyablePick(imported: ImportedDesign, resolved: ResolvedImportMotors): 
   const candidates = configs.filter((c) => c !== chosen && flies(c));
   const cfg = candidates.find((c) => liftoff(c).some((id) => stageOf.get(id) === bottom)) ?? candidates[0];
   if (!cfg) return null;
-  const results = resolved.configResults?.[cfg.id] ?? {};
-  const matches: Record<string, MotorMatchResult> = {};
+  const results = ownEntry(resolved.configResults, cfg.id) ?? {};
+  const matches = lookupTable<MotorMatchResult>({});
   for (const [id, ref] of Object.entries(cfg.motors)) {
-    const motor = resolved.configs[cfg.id]?.[id];
-    matches[id] = results[id] ?? { ...(motor ? { motor } : {}), note: motor ? '' : `Motor “${ref.designation}” could not be loaded.` };
+    const motor = ownEntry(ownEntry(resolved.configs, cfg.id), id);
+    matches[id] = ownEntry(results, id) ?? { ...(motor ? { motor } : {}), note: motor ? '' : `Motor “${ref.designation}” could not be loaded.` };
   }
   // Why the reader's pick was passed over, per motor, in the matcher's own
   // terms but WITHOUT its advice: "pick one via Browse motor database" is the
   // wrong fix when another configuration of the same file flies.
   const why = own.map((id) => {
     const d = chosen.motors[id]!.designation;
-    const missing = resolved.working[id]?.missing;
+    const missing = ownEntry(resolved.working, id)?.missing;
     return missing === 'database' ? `${d} matched no motor in the motor database`
       : missing === 'curve' ? `${d} is in the motor database but has no thrust curve`
         : `${d} could not be loaded`;
   });
-  const skipNote = `${sources[chosen.id] ?? 'The first simulation'} was not opened: `
+  const skipNote = `${ownEntry(sources, chosen.id) ?? 'The first simulation'} was not opened: `
     + `${[...new Set(why)].join('; ')}, so it could not leave the pad.`;
   return { cfg, matches, skipNote };
 }
@@ -293,13 +295,13 @@ function swapConfigNotes(
 ): string[] {
   const out = [...notes];
   let at = -1;
-  for (const n of configNotes?.[from] ?? []) {
+  for (const n of ownEntry(configNotes, from) ?? []) {
     const i = out.indexOf(n);
     if (i < 0) continue;
     if (at < 0 || i < at) at = i;
     out.splice(i, 1);
   }
-  out.splice(at < 0 ? out.length : at, 0, lead, ...(configNotes?.[to] ?? []));
+  out.splice(at < 0 ? out.length : at, 0, lead, ...(ownEntry(configNotes, to) ?? []));
   return out;
 }
 
@@ -390,14 +392,14 @@ export function planImport(
   // note has no business restating it. What it IS still the only source of is
   // a motor that could not be matched or downloaded — and, since the review of
   // audit 2026-09-23, one that loaded without the file confirming it.
-  const nextMotors: Record<string, MountMotor> = {};
+  const nextMotors = lookupTable<MountMotor>({});
   // The refs nothing resolved, kept whole so Save writes them back verbatim
   // instead of dropping the mount — see SavedConfig.unmatchedRefs.
-  const nextUnmatchedRefs: Record<string, OrkMotorRef> = {};
+  const nextUnmatchedRefs = lookupTable<OrkMotorRef>({});
   const openNotes: (string | undefined)[] = [];
   const infoNotes: (string | undefined)[] = [];
   for (const [nodeId, ref] of Object.entries(openRefs)) {
-    const { motor: mm, note, openNote, infoNote } = openMatches[nodeId] ?? { note: '' };
+    const { motor: mm, note, openNote, infoNote } = ownEntry(openMatches, nodeId) ?? { note: '' };
     // The note rides the motor (MountMotor.openNote), so a switch back to this
     // configuration says it again.
     if (mm) nextMotors[nodeId] = openNote && mm.openNote !== openNote ? { ...mm, openNote } : mm;
@@ -426,16 +428,16 @@ export function planImport(
   if (pick) importedTree = configOntoTree(importedTree, pick.cfg);
   const nextConfigs: SavedConfig[] = [];
   for (const cfg of imported.configs ?? []) {
-    const cfgMotors: Record<string, MountMotor> = {};
+    const cfgMotors = lookupTable<MountMotor>({});
     const unmatched: string[] = [];
-    const cfgUnmatchedRefs: Record<string, OrkMotorRef> = {};
+    const cfgUnmatchedRefs = lookupTable<OrkMotorRef>({});
     for (const [nodeId, ref] of Object.entries(cfg.motors)) {
       // The applied config's motors were matched (and reported) above —
       // reused rather than re-fetching the same thrust curves; the reader's
       // pick, when planImport opened another, from `working`.
       const mm = cfg.id === chosenId ? nextMotors[nodeId]
-        : cfg.id === imported.chosenConfigId ? resolved.working[nodeId]?.motor
-          : resolved.configs[cfg.id]?.[nodeId];
+        : cfg.id === imported.chosenConfigId ? ownEntry(resolved.working, nodeId)?.motor
+          : ownEntry(ownEntry(resolved.configs, cfg.id), nodeId);
       if (mm) cfgMotors[nodeId] = mm;
       else { unmatched.push(ref.designation); cfgUnmatchedRefs[nodeId] = ref; }
     }
@@ -815,7 +817,7 @@ export function planConfigSwitch(
   }
   const nozzleStated = hasNozzles
     ? stageMotors(next, Object.entries(cfg.motors).filter(([id]) => mountIds.has(id)))
-      .filter((s) => s.stageId in cfg.nozzles!)
+      .filter((s) => Object.hasOwn(cfg.nozzles!, s.stageId))
     : [];
   return {
     savedConfigs,

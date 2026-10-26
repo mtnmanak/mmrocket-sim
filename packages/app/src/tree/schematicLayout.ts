@@ -1,3 +1,4 @@
+import { ownEntry } from '../services/ownEntry.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { tubeHoleMarks } from './tubeHoles.js';
@@ -1207,7 +1208,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
           : 0;
         // Loaded motor: a brownish silhouette at the REAL case size, seated
         // flush against the mount's aft end (how motors actually load).
-        const motor = child.type === 'innertube' && child.id ? motors?.[child.id] : undefined;
+        const motor = child.type === 'innertube' && child.id ? ownEntry(motors, child.id) : undefined;
         offsets.forEach((off, j) => {
           // −y: the cross-section frame's +y is UP, and SVG y grows down.
           const oy = baseY - (radY + off.y) * ctx.scale;
@@ -1377,7 +1378,7 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
         wallBand(shapes, key, n.id ?? key, cx, len, r, kernelNum(n, 'thickness'), baseY, n['filled'] === true);
         // Min-diameter: a motor loaded directly in this body tube draws at its
         // real case size, seated flush against the tube's aft end.
-        const tubeMotor = n.id ? motors?.[n.id] : undefined;
+        const tubeMotor = n.id ? ownEntry(motors, n.id) : undefined;
         if (tubeMotor) {
           shapes.push(...motorShapes('base', `${key}:motor`,
             tubeMotor, cx + len - tubeMotor.length + num(n, 'motorOverhang', 0), baseY));

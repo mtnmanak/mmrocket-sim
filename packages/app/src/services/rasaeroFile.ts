@@ -1,4 +1,5 @@
 import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
+import { ownEntry } from './ownEntry.js';
 import { cautionNote, noteFlags } from './importNotes.js';
 import { cleanDesignProvenance } from './designProvenance.js';
 import { captureStageMass } from './stageMassOverrides.js';
@@ -38,7 +39,8 @@ import {
 import { parseXml, preflightXml, type XmlElement, type XmlDocument } from './xmlParse.js';
 import type { FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
 import type { LayeredOrkFlightConfig, LayeredOrkImportResult } from './orkFile.js';
-import { resolveFlightState, sparsify } from './flightState.js';
+import { overrideFor, resolveFlightState, sparsify } from './flightState.js';
+import { repairImportedFinOutline } from './importFinOutline.js';
 import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 
@@ -395,6 +397,9 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   if (!design) throw new Error('Not a RASAero design file (missing RocketDesign)');
 
   const notes: string[] = decoded.note ? [decoded.note] : [];
+  if (doc.querySelectorAll('RASAeroDocument > RocketDesign').length > 1) {
+    cautionNote(notes, 'I22.multiple-designs', 'This file contains multiple RASAero designs. The app opened one design; check the parts and flight settings before flying.');
+  }
   const altitudeUnit = opts?.distanceUnit ?? 'ft';
   // Only an explicit False states the author's intent; missing or malformed
   // values must not be mistaken for switching the model off.
@@ -479,6 +484,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       fin['points'] = tipChord > 1e-9
         ? [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]]
         : [[0, 0], [sweep, height], [rootChord, 0]];
+      repairImportedFinOutline(fin, notes);
     } else {
       fin['rootChord'] = rootChord;
       fin['tipChord'] = tipChord;
@@ -2132,7 +2138,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   // CDX1 can carry only the effective recovery, not its separate own setting.
   // Disclose the lost layer even for one configuration (audit 2026-10-11, FC-3).
   for (const chute of cdx1Chutes(tree)) {
-    const override = chute.id ? overrides.deployments?.[chute.id] : undefined;
+    const override = chute.id ? overrideFor(overrides.deployments, chute.id) : undefined;
     if (override && sparsify(deploymentTuple(chute), override)) {
       notes?.push(`“${chute.name ?? 'Parachute'}”: the parachute's own setting is not kept; the file carries the configuration's.`);
     }
@@ -2164,8 +2170,8 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     let motorCount = 0;
     const seek = (nodes: ComponentNode[]) => {
       for (const n of nodes) {
-        if (n.id && motors[n.id]) {
-          found ??= motors[n.id];
+        if (n.id && ownEntry(motors, n.id)) {
+          found ??= ownEntry(motors, n.id);
           motorCount += mountMotorCount(tree, n.id);
         }
         seek(n.children ?? []);

@@ -64,7 +64,7 @@
  * ranges are `^`, as the rest of package.json's are, not pinned exact.
  *
  * No structural caps by default, for browser parity. Server hosts can install
- * createJsXmlParser(limits): its SAX gate applies measured element/depth
+ * createJsXmlParser(limits): its SAX gate applies element, node and depth
  * budgets before DOM construction, with a distinct size-refusal error.
  */
 import { SaxesParser } from 'saxes';
@@ -177,7 +177,7 @@ const closestMatch = (start: XmldomElement, query: (e: XmldomElement) => boolean
 /** XML 1.0 §2.11: CRLF and a lone CR become LF — and nothing else does. */
 const normalizeLineEndingsXml10 = (s: string): string => s.replace(/\r\n?/g, '\n');
 
-export interface XmlLimits { maxElements: number; maxDepth: number }
+export interface XmlLimits { maxElements: number; maxDepth: number; maxNodes?: number }
 
 /**
  * The well-formedness gate (piece 1 above). Never builds a DOM. Throws
@@ -193,9 +193,16 @@ export function xmlGate(text: string, limits?: XmlLimits): void {
   if (limits) {
     let elements = 0;
     let depth = 0;
+    let nodes = 0;
+    const maxNodes = limits.maxNodes ?? limits.maxElements * 4;
+    const countNode = () => {
+      if (++nodes > maxNodes) throw new XmlBudgetExceededError(`XML node limit is ${maxNodes.toLocaleString('en-US')}.`);
+    };
+    for (const event of ['attribute', 'comment', 'processinginstruction', 'text', 'cdata'] as const) sax.on(event, countNode);
     sax.on('opentag', () => {
       if (++elements > limits.maxElements) throw new XmlBudgetExceededError(`XML element limit is ${limits.maxElements.toLocaleString('en-US')}.`);
       if (++depth > limits.maxDepth) throw new XmlBudgetExceededError(`XML nesting limit is ${limits.maxDepth}.`);
+      countNode();
     });
     sax.on('closetag', () => { depth--; });
   }

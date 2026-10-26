@@ -225,7 +225,8 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
     {phase && <p className="chart-comparison-note">{preset.x === 'altitude' ? 'Altitude is above the launch point. Solid lines show rising altitude; dashed lines show falling altitude.'
       : 'Solid lines show increasing X; dashed lines show decreasing X.'} The readout gives the time of each sample. Repeated-X and isolated samples appear as points.</p>}
     {preset.id === 'ground-track' && <p className="chart-comparison-note">Positions are relative to launch. East is horizontal; North is vertical. The axes can have different scales, so this plot does not show the landing bearing to scale.</p>}
-    {!available ? <p role="status">This flight branch has no usable data for this comparison.</p> : <>
+    {!available && <p>This flight branch has no usable data for this comparison.</p>}
+    {available && <>
       {phase && <div className="chart-toolbar">
         <button className="chart-btn" disabled={!zoom.zoomed} onClick={() => { if (plotRef.current) resetPlots([plotRef.current]); }}>{preset.x === 'altitude' ? 'Reset altitude chart' : 'Reset X chart'}</button>
         <span className="chart-zoom-pct">{formatReadout(zoom.percent, 3)}%</span>

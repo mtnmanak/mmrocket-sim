@@ -1,3 +1,4 @@
+import { ownEntry } from '../services/ownEntry.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { clusterOffsets } from './cluster.js';
@@ -250,7 +251,7 @@ export function aftLayout(
         const rd = num(child, 'radialDirection', 0) + frameRoll;
         const oy = rp * Math.cos(rd);
         const oz = rp * Math.sin(rd);
-        const motor = child.id ? motors?.[child.id] : undefined;
+        const motor = child.id ? ownEntry(motors, child.id) : undefined;
         for (const off of offs) {
           inner.push({
             key: keyFor(child), kind: 'circle', y: cy + oy + off.y, z: cz + oz + off.z, r,
@@ -325,7 +326,7 @@ export function aftLayout(
         // Body-tube mounts (minimum/sub-minimum builds) draw their motor too —
         // previously only inner tubes did.
         if (n.type === 'bodytube' && n['motorMount'] === true) {
-          const motor = n.id ? motors?.[n.id] : undefined;
+          const motor = n.id ? ownEntry(motors, n.id) : undefined;
           if (motor) {
             inner.push({
               key: keyFor(n, ':motor'), kind: 'circle', y: cy, z: cz, r: motor.diameter / 2,

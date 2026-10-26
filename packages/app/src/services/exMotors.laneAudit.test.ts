@@ -13,7 +13,7 @@ const rse = (curve: string) => `<engine-database><engine-list><engine code="Audi
 afterEach(() => localStorage.clear());
 
 describe('motor audit regressions', () => {
-  it.each(['txt', 'eng'])('S1c-b3 decodes whitespace-prefixed XML in a .%s file by its declaration', async extension => {
+  it.each(['rse', 'eng'])('S1c-b3 decodes whitespace-prefixed XML in a .%s file by its declaration', async extension => {
     const text = ` \t\r\n<?xml version="1.0" encoding="windows-1252"?>\n${rse('0 0\n0.5 20\n1 0').replace('mfg="Home"', 'mfg="Aero\x99"')}`;
     const bytes = Uint8Array.from(text, c => c.charCodeAt(0));
     const out = await importMotorFiles([new File([bytes], `legacy.${extension}`)]);

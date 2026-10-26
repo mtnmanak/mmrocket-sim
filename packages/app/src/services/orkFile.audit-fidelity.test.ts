@@ -242,7 +242,7 @@ describe('lane A audit 2026-10-17 regression guards', () => {
     const r = importOrk(fixture('<centeringring><outerradius>' + value + '</outerradius></centeringring>'));
     expect(r.tree.components[0]!.children![0]!['outerRadius']).toBeUndefined();
     expect(r.notes.join('\n')).toContain('invalid <outerradius> value');
-    for (const valid of ['0.02', 'auto 0.02']) {
+    for (const valid of ['0.02']) {
       expect(importOrk(fixture('<centeringring><outerradius>' + valid + '</outerradius></centeringring>'))
         .tree.components[0]!.children![0]!['outerRadius']).toBe(0.02);
     }

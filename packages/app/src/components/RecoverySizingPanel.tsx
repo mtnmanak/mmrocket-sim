@@ -157,11 +157,11 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
 
   return (
     <Shell summary={summary}>
-      {catalogueFailed && (
-        <p className="recovery-sizing-hint" role="status">
+      <div role="status" className={catalogueFailed ? undefined : 'sr-only'}>{catalogueFailed && (
+        <p className="recovery-sizing-hint">
           Parts catalogue could not be loaded. <button type="button" onClick={() => setCatalogueFailed(false)}>Retry</button>
         </p>
-      )}
+      )}</div>
       {objects.map((o, i) => (
         <ObjectSection
           key={o.key}

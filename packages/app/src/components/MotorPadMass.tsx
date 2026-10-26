@@ -119,7 +119,7 @@ export function MotorPadMass({
         invalid={stale}
         describedBy={lineId}
       />
-      <PadMassLine
+      <div role="status"><PadMassLine
         id={lineId}
         hardware={hardware}
         legacyPending={legacyPending}
@@ -131,7 +131,7 @@ export function MotorPadMass({
         computedPadMassKg={computedPadMassKg}
         nameOfMount={nameOfMount}
         describeIdentity={describeIdentity}
-      />
+      /></div>
     </div>
   );
 }
@@ -190,7 +190,7 @@ function PadMassLine({
   describeIdentity: (identity: string) => string;
 }) {
   const plain = (text: string) => <p id={id} className="comp-stats" style={{ margin: '3px 0 0' }}>{text}</p>;
-  const warn = (text: string) => <Note as="p" tier="caution" id={id} className="print-note print-note-warn" role="status">{text}</Note>;
+  const warn = (text: string) => <Note as="p" tier="caution" id={id} className="print-note print-note-warn">{text}</Note>;
   // `motorMassKg` sums EVERY mount's catalogue motor, but `motorLabel` is the
   // primary's alone — so with two mounts the total must not sit beside one
   // motor's name ("catalogue J540R 1584 g" for a J540R plus a booster motor).

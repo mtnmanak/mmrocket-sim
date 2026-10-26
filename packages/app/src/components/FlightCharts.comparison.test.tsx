@@ -71,6 +71,19 @@ const render = (flight: FlightResult, full?: () => Promise<FlightResult>, flight
   <PrefsProvider><ThemeControl /><FlightCharts result={flight} onFullSeries={full} flightName={flightName} /></PrefsProvider>,
 ));
 const wheel = (p: Plot) => act(() => { p.over.dispatchEvent(Object.assign(new Event('wheel', { cancelable: true }), { deltaY: -100, deltaMode: 0, clientX: 1 })); });
+
+it('announces missing comparison data in an established status region', () => {
+  const flight = result();
+  flight.branches = [{ name: 'Core', series: flight.series, events: [] },
+    { name: 'Booster', series: { ...data(), velocity: [] }, events: [] }];
+  render(flight);
+  select('Comparison chart', 'phase');
+  const before = [...host.querySelectorAll('[role="status"]')];
+  select('Flight branch', '1');
+  const note = [...host.querySelectorAll('[role="status"]')].find(n => n.textContent?.includes('no usable data for this comparison'));
+  expect(note).toBeDefined();
+  expect(before).toContain(note);
+});
 beforeEach(() => {
   localStorage.clear(); localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: METRIC_UNITS }));
   registry.plots.length = 0; host = document.createElement('div'); document.body.append(host); root = createRoot(host);

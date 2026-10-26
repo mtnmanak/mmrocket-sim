@@ -1,3 +1,4 @@
+import { ownEntry } from '../services/ownEntry.js';
 import * as THREE from 'three';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
@@ -565,7 +566,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         const rd = num(child, 'radialDirection', 0);
         const ry = rp * Math.cos(rd);
         const rz = rp * Math.sin(rd);
-        const motor = child.id ? motors?.[child.id] : undefined;
+        const motor = child.id ? ownEntry(motors, child.id) : undefined;
         // The pattern turns with the tube's direction as well as sitting along
         // it — the kernel's getPoints(clusterRotation − radialDirection).
         for (const off of clusterOffsets(
@@ -636,7 +637,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
           [x + len / 2, 0, 0], [0, 0, -Math.PI / 2], xform, true, n);
         reach(R);
         // Min-diameter mount: a motor loaded directly in this body tube.
-        const tubeMotor = n.id ? motors?.[n.id] : undefined;
+        const tubeMotor = n.id ? ownEntry(motors, n.id) : undefined;
         if (tubeMotor) {
           const mR = tubeMotor.diameter / 2;
           const mStart = x + len - tubeMotor.length + num(n, 'motorOverhang', 0);

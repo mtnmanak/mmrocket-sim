@@ -54,6 +54,19 @@ describe('FlyScreen', () => {
   let host: HTMLDivElement;
   let root: Root;
 
+  it('updates established model and design status regions', () => {
+    const run = { ...RUN, when: Date.now(), motor: 'C6', manufacturer: 'Estes', delayS: 3 } as SimRun;
+    mount({ run, staleModel: null, changedSince: [] });
+    const before = [...host.querySelectorAll('[role="status"]')];
+    const regions = [...host.querySelectorAll('.fly-col > [role="status"]')];
+    expect(regions).toHaveLength(2);
+    for (const region of regions) expect(region.classList.contains('sr-only')).toBe(true);
+    mount({ run, staleModel: 'Extended Barrowman', changedSince: ['the design'] });
+    for (const note of host.querySelectorAll('.fly-stale')) expect(before).toContain(note.closest('[role="status"]'));
+    expect(host.querySelectorAll('.fly-stale')).toHaveLength(2);
+    for (const region of regions) expect(region.classList.contains('sr-only')).toBe(false);
+  });
+
   beforeEach(() => {
     localStorage.clear();
     host = document.createElement('div');

@@ -1,7 +1,7 @@
 import { captureStageMass, completeStageMass } from './stageMassOverrides.js';
 import { configUuid, MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS, snapshotConfigFamilies, snapshotLoadedConfig } from './configSnapshot.js';
 import { savedConfigLabel } from '../model/design.js';
-import { activeFlightOverrides, snapshotFlightOverrides } from './flightState.js';
+import { activeFlightOverrides, overrideFor, snapshotFlightOverrides } from './flightState.js';
 import { scaleRocket } from '../tree/scaleRocket.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
@@ -18,7 +18,7 @@ export function createLoadedConfig(state: {
   tree: RocketTree; mountMotors: Record<string, MountMotor>; unmatchedRefs: Record<string, OrkMotorRef>;
 }): { savedConfigs: SavedConfig[]; activeConfigId: string; detachedOverrides: FlightOverrides } | null {
   if (state.savedConfigs.length >= MAX_ORK_CONFIGURATIONS
-      || !motorMounts(state.tree).some(m => m.id && state.mountMotors[m.id])) return null;
+      || !motorMounts(state.tree).some(m => m.id && overrideFor(state.mountMotors, m.id))) return null;
   // Acquire added stages before edits on the new configuration can reach old owners.
   const existing = completeStageMass(state.savedConfigs, state.tree);
   const active = state.savedConfigs.find(c => c.id === state.activeConfigId);
@@ -162,13 +162,12 @@ export function withActiveConfigTreeSynced(
   const sync = <V>(stored: Record<string, V> | undefined, capture: (node: Record<string, unknown>, v: V) => V) => {
     if (!stored) return stored;
     let changed = false;
-    const out: Record<string, V> = {};
-    for (const [id, v] of Object.entries(stored)) {
+    const out = Object.fromEntries(Object.entries(stored).map(([id, v]) => {
       const node = findNode(tree, id);
       const next = node ? capture(node, v) : v;
       if (stableJson(next) !== stableJson(v)) changed = true;
-      out[id] = next;
-    }
+      return [id, next];
+    }));
     return changed ? out : stored;
   };
   const stageMassOverrides = sync(c.stageMassOverrides, (n) => captureStageMass(n));
@@ -251,25 +250,21 @@ export function migrateLegacyPadMass(
 export function stripPadMass(motors: Record<string, MountMotor>): Record<string, MountMotor> {
   const carries = (mm: MountMotor) => 'padMassKg' in mm || 'padMassWeighedWith' in mm;
   if (!Object.values(motors).some(carries)) return motors;
-  const out: Record<string, MountMotor> = {};
-  for (const [id, mm] of Object.entries(motors)) {
-    if (!carries(mm)) { out[id] = mm; continue; }
+  return Object.fromEntries(Object.entries(motors).map(([id, mm]) => {
+    if (!carries(mm)) return [id, mm];
     const { padMassKg: _p, padMassWeighedWith: _w, ...rest } = mm;
-    out[id] = rest;
-  }
-  return out;
+    return [id, rest];
+  }));
 }
 
 /** `padMassKg` deleted from every unmatched reference; identity when none carries one. */
 export function stripRefPadMass(refs: Record<string, OrkMotorRef>): Record<string, OrkMotorRef> {
   if (!Object.values(refs).some((r) => 'padMassKg' in r)) return refs;
-  const out: Record<string, OrkMotorRef> = {};
-  for (const [id, ref] of Object.entries(refs)) {
-    if (!('padMassKg' in ref)) { out[id] = ref; continue; }
+  return Object.fromEntries(Object.entries(refs).map(([id, ref]) => {
+    if (!('padMassKg' in ref)) return [id, ref];
     const { padMassKg: _p, ...rest } = ref;
-    out[id] = rest;
-  }
-  return out;
+    return [id, rest];
+  }));
 }
 
 const sameDesignation = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
@@ -330,7 +325,7 @@ export function assignMotorRecord(
   let record: MountMotor = fresh;
   // 1. Same motor, keys carried. The weighing is carried as it stands:
   // hardwareMass refuses a non-finite one before any arithmetic.
-  const old = prev[mountId];
+  const old = overrideFor(prev, mountId);
   // eslint-disable-next-line no-restricted-syntax -- carries a pad-mass record unchanged (audit row 522)
   if (old && typeof old.padMassKg === 'number' && typeof old.padMassWeighedWith === 'string'
       && motorIdentity(old.meta, old.spec.designation) === identity) {
@@ -353,7 +348,7 @@ export function assignMotorRecord(
     next[mountId] = { ...record, padMassKg: adoptedKg, padMassWeighedWith: key };
   }
   // 3. The primary's sentinel for this mount satisfied.
-  const pr = primaryMountId ? next[primaryMountId] : undefined;
+  const pr = primaryMountId ? overrideFor(next, primaryMountId) : undefined;
   const key = pr?.padMassWeighedWith;
   if (primaryMountId && pr && key && key !== LEGACY_PAD_MASS_KEY) {
     const e = parseSetIdentity(key)?.find((x) => x[0] === mountId);
@@ -382,7 +377,7 @@ export function withoutStoredRef(configs: SavedConfig[], activeId: string | null
   const at = configs.findIndex((c) => c.id === activeId);
   if (at === -1) return configs;
   const c = configs[at]!;
-  if (!c.motorLoadoutRefusal && (!c.unmatchedRefs || !(mountId in c.unmatchedRefs))) return configs;
+  if (!c.motorLoadoutRefusal && (!c.unmatchedRefs || !Object.hasOwn(c.unmatchedRefs, mountId))) return configs;
   const { [mountId]: _gone, ...refs } = c.unmatchedRefs ?? {};
   // Called by explicit motor assignment/unload, never by config sync or a
   // geometry edit. The user's chosen loadout replaces the ambiguous import.
@@ -411,9 +406,5 @@ export function restoreUnmatchedRefs(
 ): Record<string, OrkMotorRef> {
   const refs = stored ?? (configs && activeId ? configs.find((c) => c.id === activeId)?.unmatchedRefs : undefined);
   if (!refs) return {};
-  const out: Record<string, OrkMotorRef> = {};
-  for (const [id, ref] of Object.entries(refs)) {
-    if (motors[id] === undefined) out[id] = ref;
-  }
-  return out;
+  return Object.fromEntries(Object.entries(refs).filter(([id]) => overrideFor(motors, id) === undefined));
 }

@@ -4,7 +4,7 @@ import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
 import { boosterBranches, type FlightResult, type FlightSeries } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { arbitraryCatalog, seriesCatalog, PRESETS, usableSeries, withStabilityPercent, type ComparisonPreset, type SeriesDef } from '../flightChartModel.js';
+import { arbitraryCatalog, comparisonMembers, seriesCatalog, PRESETS, usableSeries, withStabilityPercent, type ComparisonPreset, type SeriesDef } from '../flightChartModel.js';
 import { ComparisonChart } from './ComparisonChart.js';
 import { chartInk, seriesPalette } from '../chartTheme.js';
 import {
@@ -540,6 +540,9 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           </span>
         </div>
       )}
+      <div role="status" className="sr-only">{preset && !usableSeries(shown.series,
+        comparisonMembers(preset, plotCatalog).map(d => String(d.key)), preset.x)
+        ? 'This flight branch has no usable data for this comparison.' : ''}</div>
       {preset && <ComparisonChart key={`${panelKey}-${preset.id}-${preset.x}-${preset.left.join(',')}`} series={shown.series} preset={preset}
         emphasis={emphasis}
         flightName={plotIdentity} catalog={plotCatalog} plots={plotsRef.current}

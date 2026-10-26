@@ -261,7 +261,8 @@ describe('hostile EX archives', () => {
     const notes: string[] = [];
     expect(archiveExMotors([ref()], notes).json).toBeNull();
     expect(notes.join(' ')).toContain('no valid loaded snapshot');
-    addExMotors([{ ...synthetic(), totalWeightG: -1 }]);
+    // Simulate damaged persisted data, bypassing the import admission gate.
+    localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([{ ...synthetic(), totalWeightG: -1 }]));
     expect(archiveExMotors([ref()], []).json).toBeNull();
     addExMotors([{ ...synthetic(), designation: 'x'.repeat(MAX_EX_ARCHIVE_BYTES) }]);
     expect(archiveExMotors([ref()], notes).json).toBeNull();

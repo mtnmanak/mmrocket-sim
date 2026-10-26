@@ -96,6 +96,10 @@ describe('S1 in real workerd', () => {
   it.each([
     ['elements', '<x/>'.repeat(50_000)],
     ['depth', '<x>'.repeat(63) + '</x>'.repeat(63)],
+    ['comments', '<!---->'.repeat(200_000)],
+    ['processing instructions', '<?a?>'.repeat(200_000)],
+    ['text siblings', 'x<!---->'.repeat(100_000)],
+    ['attributes', '<x ' + Array.from({ length: 200_000 }, (_, i) => `a${i}=""`).join(' ') + '/>'],
   ])('refuses excessive XML %s as JSON inside workerd', async (_kind, payload) => {
     const response = await normal!.fetch('http://local/experimental/fly?filename=structure.ork',
       { method: 'POST', body: `<openrocket><rocket>${payload}</rocket></openrocket>` });
@@ -236,10 +240,13 @@ describe('S1 in real workerd', () => {
       expect(result.motors).toHaveLength(1);
     }
     if (kind === 'refused') {
-      expect(node.build.motorFailures).toHaveLength(1);
-      expect(result.motorFailures.map(m => m.text)).toEqual(node.build.motorFailures.map(m => m.text));
-      expect(result.motorFailures[0]!.text).toMatch(/CG/i);
-      expect(result.motorFailures[0]!.mount).toBe('Secondary mount');
+      // The archive gate now refuses the out-of-range snapshot before build (U3).
+      expect(node.build.motorFailures).toHaveLength(0);
+      expect(result.motorFailures).toEqual([]);
+      expect(node.importNote.text).toMatch(/Embedded EX motors were refused/);
+      expect(result.notes.import.text).toContain('Embedded EX motors were refused');
+      expect(result.motors).toHaveLength(1);
+      expect(result.motors.some(m => m.mount === 'Secondary mount')).toBe(false);
     }
   });
 

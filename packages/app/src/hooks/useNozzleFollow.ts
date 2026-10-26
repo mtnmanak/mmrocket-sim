@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type MutableRefObject } from 'react';
 import type { RocketTree } from '@online-openrocket/engine';
 import { nozzleForMotorId, type NozzleEntry } from '../services/nozzleDb.js';
+import { lookupTable } from '../services/xmlUtil.js';
 import {
   equivalentExitDiameterM, followNozzle, motorNozzleKey, stageMotorKey, type StageMotors,
 } from '../services/nozzleFollow.js';
@@ -183,8 +184,8 @@ export function useNozzleFollow(opts: {
       // make it again, and the new motor flew the previous motor's exit. Now a
       // stage is decided here unless a NEWER loadout has been recorded for it
       // since, in which case that run decides it.
-      const updates: Record<string, number | null> = {};
-      const clearedNow: Record<string, NozzleCleared> = {};
+      const updates = lookupTable<number | null>({});
+      const clearedNow = lookupTable<NozzleCleared>({});
       const forgotten: string[] = [];
       const nowDecided = new Map(decided.current);
       for (const { s, entries } of looked) {

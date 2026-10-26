@@ -43,6 +43,15 @@ const MAMBA: HardwareMassResult = {
   motorMassKg: 1.084, mountCount: 1, dryMassKg: 9.308, drySource: 'measured', large: false,
 };
 
+it('updates an established status region when pad mass becomes refused', () => {
+  show();
+  const before = [...host.querySelectorAll('[role="status"]')];
+  show({ valueKg: 1, hardware: undefined });
+  const note = [...host.querySelectorAll('[role="status"]')].find(n => n.textContent?.includes('Not applied'));
+  expect(note).toBeDefined();
+  expect(before).toContain(note);
+});
+
 const MOUNTS: Record<string, string> = { mmt: 'Sustainer MMT', booster: 'Booster MMT' };
 /** What App's describeIdentity does for the two spellings these tests use. */
 const describeId = (identity: string) => identity.startsWith('unmatched:')
@@ -220,7 +229,7 @@ describe('MotorPadMass — the line under the field', () => {
     expect(Number(input().value)).toBeCloseTo(7480, 6);
     expect(text()).toBe('\u26a0 Caution: Not applied — the design could not be built; fix the error above and the pad mass applies again.');
     expect(text()).not.toContain('Blank');
-    expect(line().getAttribute('role')).toBe('status');
+    expect(line().closest('[role="status"]')?.getAttribute('role')).toBe('status');
     // A build that saw no pad mass under a shown number cannot happen (App
     // reads the record the field does), but it must not say "Blank" either.
     show({ valueKg: 7.48, hardware: { state: 'none', why: 'no-pad-mass' } });
@@ -247,7 +256,7 @@ describe('MotorPadMass — the line under the field', () => {
     expect(input().getAttribute('aria-invalid')).toBe('true');
     expect(input().getAttribute('aria-describedby')).toBe('pad-mass-mmt-line');
     expect(input().value).toBe('10574');
-    expect(line().getAttribute('role')).toBe('status');
+    expect(line().closest('[role="status"]')?.getAttribute('role')).toBe('status');
     expect(host.querySelector('[role="alert"]')).toBeNull();
     expect(line().classList.contains('print-note-warn')).toBe(true);
     expect(text()).toBe('\u26a0 Caution: Not applied — weighed with I284W on Booster MMT, which now has J350W. Re-weigh with these motors in and type it again, or clear the field.');
@@ -285,7 +294,7 @@ describe('MotorPadMass — the line under the field', () => {
       ]),
     });
     expect(text()).toContain('in it; Sustainer MMT now holds 2 motors');
-    for (const p of host.querySelectorAll('#pad-mass-mmt-line')) expect(p.getAttribute('role')).toBe('status');
+    for (const p of host.querySelectorAll('#pad-mass-mmt-line')) expect(p.closest('[role="status"]')?.getAttribute('role')).toBe('status');
   });
 
   it('a refused motor curve: says nothing is carried', () => {
@@ -313,7 +322,7 @@ describe('MotorPadMass — the line under the field', () => {
       },
     });
     expect(text()).toBe('\u26a0 Caution: Weighed pad mass is 351 g LIGHTER than the dry rocket plus the catalogue J460T (801 g) — a typo or a different motor. Nothing is carried.');
-    expect(line().getAttribute('role')).toBe('status');
+    expect(line().closest('[role="status"]')?.getAttribute('role')).toBe('status');
     expect(line().classList.contains('print-note-warn')).toBe(true);
     expect(host.querySelector('.measured-delta')).toBeNull();
     // Two mounts: the summed catalogue mass is not put beside one motor's name.
@@ -336,7 +345,7 @@ describe('MotorPadMass — the line under the field', () => {
       },
     });
     expect(text()).toBe('\u26a0 Caution: That would carry 95348 g as hardware — more than the airframe itself. A typo or a different motor; nothing is carried.');
-    expect(line().getAttribute('role')).toBe('status');
+    expect(line().closest('[role="status"]')?.getAttribute('role')).toBe('status');
     expect(host.querySelector('.measured-delta')).toBeNull();
   });
 });

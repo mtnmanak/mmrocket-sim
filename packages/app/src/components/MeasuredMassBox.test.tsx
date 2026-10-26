@@ -45,7 +45,7 @@ afterEach(() => {
 });
 
 /** Computed airframe: 1.000 kg balancing 500 mm from the nose tip, 1 m long. */
-const show = (measured: MeasuredFigures, block?: { blockedBy: { name?: string }; onPinStage?: () => void }) =>
+const show = (measured: MeasuredFigures, block?: { blockedBy: { name?: string; kind?: 'mass' | 'cg' }; onPinStage?: () => void }) =>
   act(() => root.render(
     <PrefsProvider>
       <MeasuredMassBox
@@ -76,6 +76,13 @@ const type = (input: HTMLInputElement, text: string) => act(() => {
 });
 
 describe('MeasuredMassBox — metric (the startup default: g and mm)', () => {
+  it('explains a covering CG override and withholds the allowance action', () => {
+    show({ massKg: 1.2, cgM: 0.55 }, { blockedBy: { name: 'Pinned body', kind: 'cg' } });
+    expect(host.textContent).toContain('Pinned body');
+    expect(host.textContent).toContain('CG override');
+    expect(host.textContent).toContain('would not move the CG');
+    expect([...host.querySelectorAll('button')].some(b => /Add.*Build allowance/.test(b.textContent ?? ''))).toBe(false);
+  });
   it('sends grams up as kilograms and millimetres as metres', () => {
     show({ massKg: null, cgM: null });
     type(massBox(), '1240');

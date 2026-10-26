@@ -3,6 +3,7 @@ import type { DeploymentTuple, FlightTree, LayeredSavedConfig, MountMotor } from
 import { holdsOverrides, overrideFor, resetOverride, resolveFlightState, setOverride, sparsify, useOverrideEverywhere,
   workingSettingsOwnOverrides, snapshotFlightOverrides } from './flightState.js';
 import { sameDeployment } from './deployOverrideNote.js';
+import { snapshotLoadedConfig } from './configSnapshot.js';
 
 const own: DeploymentTuple = { deployEvent: 'apogee', deployAltitude: 91.44, deployDelay: 0 };
 const other: DeploymentTuple = { ...own, deployEvent: 'ejection' };
@@ -19,6 +20,23 @@ const config = (rest: Partial<LayeredSavedConfig> = {}): LayeredSavedConfig =>
   ({ id: 'A', name: null, isDefault: true, motors: {}, ...rest });
 
 describe('flight-state layer algebra (FC-1)', () => {
+  it('snapshots owned __proto__ recovery, separation and nozzle entries', () => {
+    const input = tree();
+    input.components[0]!.id = '__proto__';
+    input.components[0]!.children![0]!.id = '__proto__';
+    const direct = snapshotLoadedConfig(input, {});
+    for (const map of [direct.deployments, direct.separations, direct.nozzles]) {
+      expect(Object.keys(map)).toContain('__proto__');
+      expect(Object.getPrototypeOf(map)).toBe(Object.prototype);
+    }
+    const deployment = { ...own, deployEvent: 'altitude' };
+    const separation = { separationEvent: 'burnout', separationDelay: 3, separationAltitude: 500 };
+    const overrides = snapshotFlightOverrides(input, [], null, {
+      deployments: { ['__proto__']: deployment }, separations: { ['__proto__']: separation },
+    }, {});
+    expect(overrides.deployments).toEqual({ ['__proto__']: deployment });
+    expect(overrides.separations).toEqual({ ['__proto__']: separation });
+  });
   it.each(['constructor', 'toString'])('does not snapshot an inherited default for %s', id => {
     expect(snapshotFlightOverrides({ components: [], ignitionDefaults: {} }, [], null, {}, { [id]: motor }).ignitions)
       .toEqual({});

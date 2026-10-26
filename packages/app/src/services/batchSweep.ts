@@ -1,3 +1,5 @@
+import { ownEntry } from './ownEntry.js';
+import { lookupTable } from './xmlUtil.js';
 import {
   OrkRocket, type ComponentNode, type IgnitionEvent, type MotorSpec, type RocketTree,
   type StaticInfo,
@@ -475,9 +477,10 @@ export async function runBatchSweep(
     yieldToUi = () => new Promise<void>((r) => { setTimeout(r, 0); }),
   } = deps;
   const {
-    tree, info, mounts, target, candidates, splits, assignedMotors, assignedMotorIds, assignedIgnitions,
+    tree, info, mounts, target, candidates, splits, assignedMotors, assignedMotorIds,
     weighed, model, autoDelay, launch, rocketName,
   } = input;
+  const assignedIgnitions = lookupTable(input.assignedIgnitions);
   const { signal } = hooks;
   if (candidates.some((m) => !m.motorId.startsWith('ex:')) && !deps.fetchSpec) await requireCurveBundle(candidates);
   const retainedHardware = input.retainedHardware ?? weighed;
@@ -568,10 +571,10 @@ export async function runBatchSweep(
    * silently dropped out of the sum.
    */
   const otherParts = await Promise.all(mounts
-    .filter((m) => m.id !== target.id && assignedMotorIds[m.id])
+    .filter((m) => m.id !== target.id && ownEntry(assignedMotorIds, m.id))
     .map(async (m) => ({
       count: m.motorCount ?? 1,
-      exitDiameterM: (await nozzleFor(assignedMotorIds[m.id]))?.exitDiameterM ?? null,
+      exitDiameterM: (await nozzleFor(ownEntry(assignedMotorIds, m.id)))?.exitDiameterM ?? null,
     })));
 
   /*
@@ -589,7 +592,7 @@ export async function runBatchSweep(
     const value = st ? numOrNull(st, 'nozzleExitDiameter') : null;
     return value !== null && value >= 0 ? value : null;
   })();
-  const loadedIdOnTarget = assignedMotorIds[target.id];
+  const loadedIdOnTarget = ownEntry(assignedMotorIds, target.id);
 
   /** The equivalent stage exit this candidate should fly, or null for none. */
   const exitForCandidate = async (e: MotorDbEntry, count: number): Promise<number | null> =>
@@ -635,20 +638,20 @@ export async function runBatchSweep(
       .filter(([id]) => liveMountIds.has(id) && id !== replacedMountId && !legs.some((l) => l.mountId === id))
       .map(([id, spec]) => {
         const label = motorLabel(motorLabelEntry({ spec,
-          meta: { ...input.assignedMountMotors[id]?.meta, label: '', motorId: assignedMotorIds[id] } }), spec.ejectionDelay,
+          meta: { ...ownEntry(input.assignedMountMotors, id)?.meta, label: '', motorId: ownEntry(assignedMotorIds, id) } }), spec.ejectionDelay,
         { autoDelay: input.assignedAutoDelays?.[id] === true });
         return [id, {
           spec, label,
           meta: {
             // Legacy motors without either ID use manufacturer/designation,
             // exactly as Launch and the design-page delay evidence do.
-            ...input.assignedMountMotors[id]?.meta,
+            ...ownEntry(input.assignedMountMotors, id)?.meta,
             label,
-            motorId: assignedMotorIds[id],
-            ...(assignedMotorIds[id]?.startsWith('ex:') ? { exMotorId: assignedMotorIds[id] } : {}),
+            motorId: ownEntry(assignedMotorIds, id),
+            ...(ownEntry(assignedMotorIds, id)?.startsWith('ex:') ? { exMotorId: ownEntry(assignedMotorIds, id) } : {}),
             autoDelay: input.assignedAutoDelays?.[id] === true,
           },
-          ignition: assignedIgnitions[id] ?? { event: 'automatic', delay: 0 },
+          ignition: ownEntry(assignedIgnitions, id) ?? { event: 'automatic', delay: 0 },
         }];
       });
     for (const l of legs) {
@@ -683,7 +686,7 @@ export async function runBatchSweep(
       rogersKbf: rogersKbfFor(kbf, flight.usedSupersonic),
       // Provenance keys catalogue curves; hardware has its own motor-set term.
       assigned: assigned.map(([id, mm]): [string, MountMotor] => [id,
-        !legs.some((l) => l.mountId === id) ? { ...mm, ...input.assignedMountMotors[id] } : mm,
+        !legs.some((l) => l.mountId === id) ? { ...mm, ...ownEntry(input.assignedMountMotors, id) } : mm,
       ]),
       otherHardwareDeltaKg: retainedHardware && retainedHardware.mountId !== target.id
         && flight.delayResolution.mounts.some((m) => m.mountId === retainedHardware.mountId)

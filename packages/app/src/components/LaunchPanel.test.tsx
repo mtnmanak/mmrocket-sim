@@ -18,6 +18,23 @@ import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 let host: HTMLDivElement;
 let root: Root;
 
+it('keeps time-step and pressure status regions mounted before cautions', () => {
+  const show = (value: LaunchConditions) => act(() => root.render(<PrefsProvider><LaunchPanel value={value}
+    onChange={() => {}} onLaunch={() => {}} simulating={false} canLaunch /></PrefsProvider>));
+  show(DEFAULT_CONDITIONS);
+  const before = [...host.querySelectorAll('[role="status"]')];
+  const silent = before.filter(region => region.tagName === 'DIV' && !region.textContent);
+  expect(silent.length).toBeGreaterThanOrEqual(2);
+  for (const region of silent) expect(region.classList.contains('sr-only'), region.outerHTML).toBe(true);
+  show({ ...DEFAULT_CONDITIONS, timeStepS: 0.01, launchAltitudeM: 2000, pressureHPa: 1013.25 });
+  for (const caution of host.querySelectorAll('.field-caution')) {
+    const region = caution.closest('[role="status"]');
+    expect(before).toContain(region);
+  }
+  expect(host.querySelector('[data-caution="pad-pressure"]')).not.toBeNull();
+  expect(host.textContent).toContain('finer than');
+});
+
 it('CFG-1 labels launch conditions as shared by every configuration below the heading', () => {
   render();
   const heading = host.querySelector('h2')!;

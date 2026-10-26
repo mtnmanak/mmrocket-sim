@@ -44,9 +44,9 @@ describe('audit import/export regressions', () => {
       <packedradius>auto</packedradius></parachute></subcomponents></bodytube>`));
     const nodes = all(r.tree.components);
     expect(nodes.find(n => n.name === 'Tube')!['outerRadius']).toBeCloseTo(0.05, 12);
-    expect(nodes.find(n => n.name === 'Chute')!['packedRadius']).toBeCloseTo(0.0495, 12);
+    expect(nodes.find(n => n.name === 'Chute')!['packedRadius']).toBeCloseTo(0.048, 12);
     const again = importOrk(exportOrk({ name: r.name, tree: r.tree }));
-    expect(all(again.tree.components).find(n => n.name === 'Chute')!['packedRadius']).toBeCloseTo(0.0495, 12);
+    expect(all(again.tree.components).find(n => n.name === 'Chute')!['packedRadius']).toBeCloseTo(0.048, 12);
   });
 
   it('S1a-3 cautions when a malformed density or offset falls back', () => {
@@ -65,10 +65,10 @@ describe('audit import/export regressions', () => {
     expect(r.notes.join('\n')).toMatch(/Chute.*invalid.*linematerial.*density/);
   });
 
-  it.each([['', '', 0.0495], ['<tubecoupler><outerradius>auto</outerradius><subcomponents>',
-    '</subcomponents></tubecoupler>', 0.049],
+  it.each([['', '', 0.048], ['<tubecoupler><outerradius>auto</outerradius><subcomponents>',
+    '</subcomponents></tubecoupler>', 0.0475],
   ['<tubecoupler><outerradius>auto</outerradius><subcomponents><tubecoupler><outerradius>auto</outerradius><subcomponents>',
-    '</subcomponents></tubecoupler></subcomponents></tubecoupler>', 0.0485],
+    '</subcomponents></tubecoupler></subcomponents></tubecoupler>', 0.047],
   ])('S1a-b1 packs inside default walls (%s)', (open, close, bore) => {
     const r = importOrk(xml(`<bodytube><radius>0.05</radius><subcomponents>${open}
       <parachute><name>Chute</name><packedradius>auto</packedradius></parachute>${close}</subcomponents></bodytube>`));

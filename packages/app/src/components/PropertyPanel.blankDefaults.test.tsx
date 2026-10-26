@@ -68,6 +68,14 @@ afterEach(() => {
 });
 
 describe('PropertyPanel — a blank that flies one known value', () => {
+  it.each([false, true])('shows and steps from a tube-fin wall inherited from its body (auto radius %s)', automatic => {
+    show({ type: 'tubefinset', id: 'tube-fin', ...(automatic ? {} : { outerRadius: 0.01 }) });
+    const wall = inputStarting('Wall thickness');
+    expect(wall.placeholder).toBe('default: 0.5');
+    expect(inputStarting('Inner diameter').value).not.toBe('');
+    spin(wall, 0);
+    expect(patches.at(-1)!['thickness']).toBeGreaterThan(0.0005);
+  });
   it("a new fin set's blank cant shows 0 and steps from it, both ways", () => {
     show(makeNode('trapezoidfinset'));
     const cant = inputStarting('Cant angle');

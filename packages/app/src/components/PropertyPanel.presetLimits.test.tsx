@@ -81,6 +81,15 @@ function fixture(type: 'centeringring' | 'bulkhead' = 'centeringring') {
 const applyPick = () => { click(buttonNamed('Choose from preset database')); click(buttonNamed('apply catalogue row')); };
 
 describe('PropertyPanel - pick-only fit', () => {
+  it('announces preset cautions in an established region', () => {
+    const f = fixture(); f.render();
+    const before = [...host.querySelectorAll('[role="status"]')];
+    for (const region of before.filter(region => !region.textContent)) expect(region.classList.contains('sr-only')).toBe(true);
+    applyPick(); f.render();
+    const note = host.querySelector('.message-caution');
+    expect(note).not.toBeNull();
+    expect(before).toContain(note!.closest('[role="status"]'));
+  });
   it.each(['centeringring', 'bulkhead'] as const)('opens and restores a stored %s 1 mm under its bore silently', type => {
     const f = fixture(type); f.render();
     expect(host.querySelector('.message-caution')).toBeNull();
@@ -92,7 +101,7 @@ describe('PropertyPanel - pick-only fit', () => {
     const f = fixture(type);
     picked = { ...picked, overrideMass: 0.0521, overrideSubcomponentsMass: false };
     f.render(); applyPick(); f.render();
-    const note = host.querySelector('.message-caution[role="status"]');
+    const note = host.querySelector('[role="status"] .message-caution');
     expect(note?.textContent).toContain("BalsaMachining CR5060-W's catalogue outside diameter (40.46 mm)");
     expect(note?.textContent).toContain('smaller than the bore of BT-80 (64.90 mm)');
     expect(note?.textContent).toContain('The flight and print/cut exports use the catalogue dimensions just applied.');
@@ -201,8 +210,8 @@ describe('PropertyPanel - pick-only fit', () => {
     // stored -10.668 mm, which only a restored session repaired — silently.
     expect(patches[0]!['thickness']).toBe(0);
     expect(patches[0]!['outerRadius']).toBe(0.0143256);
-    expect(host.querySelector('.message-caution[role="status"]')).not.toBeNull();
-    expect(host.querySelector('.message-caution[role="status"]')?.textContent).toContain('catalogue bore was left automatic');
+    expect(host.querySelector('[role="status"] .message-caution')).not.toBeNull();
+    expect(host.querySelector('[role="status"] .message-caution')?.textContent).toContain('catalogue bore was left automatic');
     expect(host.textContent).toContain(
       '“SEMROC HTC-11”: wall thickness -10.668 mm cannot be negative — set to 0 mm.');
   });

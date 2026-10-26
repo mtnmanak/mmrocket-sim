@@ -1,4 +1,5 @@
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { ownEntry } from './ownEntry.js';
 import { getCatalogue, matchDbMotor, manufacturerMatches, type MotorDbEntry } from './motorDb.js';
 import { asStageNodes, stageDefaultName } from '../tree/treeModel.js';
 import { num, numOpt } from '../tree/nodeNum.js';
@@ -233,12 +234,6 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     'Packed recovery dimensions are not kept');
     parts(n => n.type === 'masscomponent' && (has(n, 'radius') || Boolean(n['massComponentType'])),
       'Mass-object size and type (such as electronics) are not kept');
-    parts(n => n.type === 'parachute' && numOpt(n, 'lineDensity') === 0,
-      'Zero-density parachute lines and their material are not kept; the reader supplies its own defaults');
-    parts(n => ['parachute', 'streamer'].includes(n.type) && numOpt(n, 'surfaceDensity') === 0,
-      'Zero-density canopies and streamer strips and their material are not kept; the reader supplies its own defaults');
-    parts(n => n.type === 'shockcord' && numOpt(n, 'lineDensity') === 0,
-      'Zero-density shock cords and their material are not kept; the reader supplies its own defaults');
     parts(n => ['parachute', 'streamer'].includes(n.type) && numOpt(n, 'cd') === 0.75,
       'Fixed recovery Cd of 0.75 reopens on Auto');
     // exportRkt writes a blank Cd as the one the kernel flies (kernelRecoveryCd),
@@ -330,7 +325,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
         || kids.some(n => n.type === 'transition' && String(n['shape'] ?? 'conical') !== 'conical'),
       `Booster geometry ${named(stage)}: forward noses are omitted, tube boundaries and radii collapse to one tube, and shoulder/boat-tail shapes become conical.`);
       const stageNodes = nodesOf({ components: [stage] });
-      const motor = stageNodes.map(n => input.motors[n.id ?? '']).find(Boolean);
+      const motor = stageNodes.map(n => ownEntry(input.motors, n.id ?? '')).find(Boolean);
       add(num(stage, 'nozzleExitDiameter', 0) > 0 && !rasaeroManufacturerAbbrev(motor?.manufacturer),
         `Booster nozzle ${named(stage)} is not kept because this stage has no exported engine.`);
     }
@@ -353,7 +348,10 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
       add((m.ignitionEvent !== undefined && !['automatic', 'burnout'].includes(m.ignitionEvent)) || (m.ignitionEvent !== 'burnout' && (m.ignitionDelay ?? 0) !== 0),
         `Motor “${m.designation}”: ignition trigger/timing is not kept; only burnout-relative delays can be written for the upper two stages.`);
     }
-    const stageMotors = stages.map(s => nodesOf({ components: [s] }).flatMap(n => input.motors[n.id ?? ''] ? [input.motors[n.id ?? '']!] : []));
+    const stageMotors = stages.map(s => nodesOf({ components: [s] }).flatMap(n => {
+      const motor = ownEntry(input.motors, n.id ?? '');
+      return motor ? [motor] : [];
+    }));
     // Automatic is launch only on the bottom active core stage (AxialStage).
     const launchStage = stages.length - 1;
     for (let i = 0; i < launchStage; i++) for (const m of stageMotors[i]!) {
@@ -369,7 +367,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     }
     if (stages[2]) {
       const bottom = nodesOf({ components: [stages[2]] });
-      add(bottom.some(n => (input.motors[n.id ?? '']?.ignitionDelay ?? 0) !== 0), 'Bottom-stage ignition delay is not kept; Booster2 has no ignition-delay field.');
+      add(bottom.some(n => (ownEntry(input.motors, n.id ?? '')?.ignitionDelay ?? 0) !== 0), 'Bottom-stage ignition delay is not kept; Booster2 has no ignition-delay field.');
     }
     parts(n => n.type === 'launchlug', 'Launch lugs lose placement, spacing, walls and extra instances; only the first lug’s size on each supported sustainer tube is kept, and booster lugs are omitted');
     parts(n => n.type === 'railbutton', 'Rail buttons, including their geometry and drag, are omitted');

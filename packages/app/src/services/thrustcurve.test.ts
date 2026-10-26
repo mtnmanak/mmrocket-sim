@@ -37,6 +37,11 @@ const SAMPLES = [
 ];
 
 describe('thrustcurve transforms', () => {
+  it('skips an all-zero curve even when its timing and provenance match a sound sibling', () => {
+    const samples = [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }, { time: 2, thrust: 0 }];
+    const zero = samples.map(p => ({ ...p, thrust: 0 }));
+    expect(pickSampleFile([{ format: 'RASP', samples: zero }, { format: 'RASP', samples }])?.samples).toEqual(samples);
+  });
   it('parses delay options', () => {
     expect(delayOptions(QUEST_C6)).toEqual([0, 3, 5]);
   });

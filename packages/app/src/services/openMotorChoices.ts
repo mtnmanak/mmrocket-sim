@@ -1,4 +1,5 @@
 import type { MountMotor, SavedConfig } from '../model/design.js';
+import { ownEntry } from './ownEntry.js';
 import { savedConfigLabel } from '../model/design.js';
 import type { ImportedDesign, ResolvedImportMotors } from './importApply.js';
 import type { MotorDbEntry } from './motorDb.js';
@@ -67,7 +68,7 @@ export function collectOpenMotorIdentities(
   for (const set of sets) {
     for (const [mountId, ref] of Object.entries(set.motors)) {
       const result = set.configId === (imported.chosenConfigId ?? null)
-        ? resolved.working[mountId] : resolved.configResults?.[set.configId!]?.[mountId];
+        ? ownEntry(resolved.working, mountId) : ownEntry(ownEntry(resolved.configResults, set.configId!), mountId);
       // @atestani TRF #162, Eric 2026-10-06: a shared name alone does not
       // authorize replacing an embedded EX or a differently resolved motor.
       if (!result?.otherMaker) continue;
@@ -94,13 +95,14 @@ export async function applyOpenMotorChoices(
   const stageOfMount = kernelStageIdByNode(state.tree);
   const replace = async (motors: Record<string, MountMotor>, mountId: string,
     ref: OrkMotorRef, choice: OpenMotorChoice) => {
-    const old = motors[mountId];
+    const old = ownEntry(motors, mountId);
     if (choice.kind === 'empty') { delete motors[mountId]; return; }
     // @atestani TRF #162, Eric 2026-10-06: accepting the loaded motor only
     // silences its question; its file delay and offline curve are already valid.
     if (choice.kind === 'catalogue' && choice.motor.motorId === old?.meta.motorId) {
-      motors[mountId] = { ...old };
-      delete motors[mountId].openNote;
+      const kept = { ...old };
+      delete kept.openNote;
+      Object.defineProperty(motors, mountId, { value: kept, enumerable: true, writable: true, configurable: true });
       return;
     }
     const db = choice.kind === 'ex' ? exToDbEntry(choice.motor) : choice.motor;
@@ -121,16 +123,17 @@ export async function applyOpenMotorChoices(
       { ...identity, ...(choice.kind === 'ex' ? { exMotorId: choice.motor.motorId } : {}),
         ...(exAuto || (choice.kind === 'catalogue' && defaultDelay(db) === null) ? { autoDelay: true } : {}) });
     // @atestani TRF #162, Eric 2026-10-06: the weighed-set key must still flag a changed loadout.
-    motors[mountId] = { ...old, ...motor };
-    delete motors[mountId].openNote;
+    const next = { ...old, ...motor };
+    delete next.openNote;
+    Object.defineProperty(motors, mountId, { value: next, enumerable: true, writable: true, configurable: true });
   };
   for (const group of groups) {
-    const choice = choices[group.key];
+    const choice = ownEntry(choices, group.key);
     if (!choice) throw new Error(`Choose a motor for ${group.ref.manufacturer} ${group.ref.designation}.`);
     for (const { configId, mountId, ref } of group.locations) {
       const config = savedConfigs.find(c => c.id === configId);
       if (config) {
-        const old = config.motors[mountId];
+        const old = ownEntry(config.motors, mountId);
         await replace(config.motors, mountId, ref, choice);
         const stageId = stageOfMount.get(mountId);
         // @atestani TRF #162, Eric 2026-10-06: inactive configurations have
@@ -138,10 +141,10 @@ export async function applyOpenMotorChoices(
         // an absent stage key leaves nozzle-follow in charge on a later switch.
         // Null clears an owned nozzle instead of inheriting the previous one.
         if (old && old.spec !== config.motors[mountId]?.spec && stageId !== undefined
-          && config.nozzles && stageId in config.nozzles && config.nozzles[stageId] !== 0) {
+          && config.nozzles && Object.hasOwn(config.nozzles, stageId) && config.nozzles[stageId] !== 0) {
           config.nozzles = { ...config.nozzles, [stageId]: null };
         }
-        if (config.unmatchedRefs?.[mountId]) {
+        if (ownEntry(config.unmatchedRefs, mountId)) {
           config.unmatchedRefs = { ...config.unmatchedRefs };
           delete config.unmatchedRefs[mountId];
           config.unmatched = Object.values(config.unmatchedRefs).map(r => r.designation);

@@ -1,4 +1,4 @@
-import { cautionNote, flagNote, noteFlags, tierLines } from './importNotes.js';
+import { cautionNote, flagNote, noteFlags, tierLines, zeroBulkDensityNote } from './importNotes.js';
 import { KERNEL_DEFAULT_FIN_POINTS, KERNEL_DEFAULT_MATERIALS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
 import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
@@ -7,6 +7,8 @@ import { nozzleExportNotes } from './nozzleExport.js';
 import { filletExportNotes } from './filletExport.js';
 import { simulationExtensionLossNotes } from './orkExtensions.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
+import { ownEntry } from './ownEntry.js';
+import { repairImportedFinOutline } from './importFinOutline.js';
 import { asStageNodes, flownInstanceCount, freshId, mountsIn } from '../tree/treeModel.js';
 import { mountBore } from '../tree/scaleRocket.js';
 import { CLUSTER_POINTS, clusterCount, clusterOffsets } from '../tree/cluster.js';
@@ -40,7 +42,7 @@ import { SITE_ALTITUDE_M_RANGE } from './atmosphere.js';
 import { checkFileLongitude, fileLongitudeNote } from './longitudeCheck.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple } from '../model/design.js';
 import type { LayeredOrkFlightConfig, LayeredOrkImportResult } from './orkFile.js';
-import { sparsify } from './flightState.js';
+import { overrideFor, sparsify } from './flightState.js';
 import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { refuseOversizedForeignXml } from './foreignPartPrecount.js';
@@ -314,6 +316,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   if (!design) throw new Error('Not a RockSim design file (missing RocketDesign)');
 
   const notes: string[] = encodingNote ? [encodingNote] : [];
+  if (doc.querySelectorAll('RockSimDocument > DesignInformation > RocketDesign').length > 1) {
+    cautionNote(notes, 'I22.multiple-designs', 'This file contains multiple RockSim designs. The app opened one design; check the parts and flight settings before flying.');
+  }
   // Simulations repeat recovery/child data in comparison keys. Bound that
   // amplified work as well as the input record count, before retaining keys.
   let comparisonCharacters = 0;
@@ -461,7 +466,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const serial = text(el, ':scope > SerialNo');
     if (serial) serialToNode.set(serial, node);
     const densityType = num(el, 'DensityType', 0);
-    const density = num(el, 'Density', 0);
+    const density = num(el, 'Density', NaN);
     if (densityType === 0 && density > 0) node.density = density;
     const mat = text(el, ':scope > Material');
     if (mat) node['materialName'] = mat;
@@ -509,6 +514,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const useMass = flagMass && (km > 0 || (km === 0 && massFlag === 1));
     const useCG = kcg > 0 && flagCG;
     if (useMass) node['overrideMass'] = km / MASS;
+    if (densityType === 0 && density === 0 && !useMass && BULK_MATERIAL_TYPES.has(node.type)) {
+      zeroBulkDensityNote(notes, node.name ?? node.type);
+    }
     if (useCG) node['overrideCGX'] = kcg / LEN;
     // Desktop applies neither unless UseKnownCG is 1, so anything kept with
     // that flag off is a value it would have silently discarded. Say so.
@@ -528,8 +536,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    */
   const readRecoveryMaterial = (el: XmlElement, node: ComponentNode, kind: 'surface' | 'line') => {
     const densityType = Math.round(num(el, 'DensityType', 0));
-    const density = num(el, 'Density', 0);
-    if (!(density > 0)) return;
+    const density = num(el, 'Density', NaN);
+    if (!(Number.isFinite(density) && density >= 0)) return;
     let si: number;
     if (densityType === 0) {
       // Bulk kg/m³ × thickness (mm → m) = kg/m².
@@ -547,7 +555,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     } else {
       si = density / 0.1;
     }
-    if (!(si > 0)) return;
+    if (!(Number.isFinite(si) && si >= 0)) return;
     const mat = text(el, ':scope > Material');
     if (kind === 'line') {
       node['lineDensity'] = si;
@@ -907,11 +915,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
               ? [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]]
               : [[0, 0], [sweep, height], [rootChord, 0]];
           }
-          const problem = finOutlineProblem(n['points'] as [number, number][]);
-          if (problem) {
-            n['points'] = KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]);
-            cautionNote(notes, 'I05.fin-outline', `Fin set "${n.name ?? 'freeform'}": its outline was not used — ${problem} The set keeps a default outline; redraw it in the fin editor.`);
-          }
+          const problem = repairImportedFinOutline(n, notes);
           const note = parent?.type === 'nosecone'
             ? 'Fins on a nose cone were converted to a freeform outline (same planform) — OpenRocket only allows '
               + 'freeform fins on a nose cone.'
@@ -1069,8 +1073,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // ROCKSIM_TO_OPENROCKET_LINE_DENSITY = 1 and desktop divides by it
         // (RockSimCommonConstants.java:116, ParachuteHandler.java:100-103).
         // The arithmetic agrees — kg/mm would make those 16 lines 7.1 kg.
-        const lineDensity = num(el, 'ShroudLineMassPerMM', 0);
-        if (lineDensity > 0) {
+        const lineDensity = num(el, 'ShroudLineMassPerMM', NaN);
+        if (Number.isFinite(lineDensity) && lineDensity >= 0) {
           n['lineDensity'] = lineDensity;
           const lineMat = text(el, ':scope > ShroudLineMaterial');
           if (lineMat) n['lineMaterialName'] = lineMat;
@@ -1103,7 +1107,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           // <KnownMass> had become the component's real mass — true only of the
           // non-cord branch, which assigns n['mass'] from it. This branch reads
           // no KnownMass at all: it takes a LINE DENSITY, and
-          // readRecoveryMaterial returns with NONE when <Density> is 0, or when a
+          // readRecoveryMaterial returns with NONE when <Density> is missing, or when a
           // DensityType-0 cord states no <Thickness>. So a cord the builder
           // weighed (<UseKnownCG>1</UseKnownCG><KnownMass>25</KnownMass> beside
           // <Density>0</Density>) imported with its 25 g thrown away and nothing
@@ -1362,24 +1366,39 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   };
   // The file's stored simulations — read here for the tubes' loadouts, and
   // again below, once the tubes are regrouped, for the configurations.
-  const simEls = Array.from(doc.querySelectorAll('SimulationResults'));
+  const rawSimEls = Array.from(doc.querySelectorAll('SimulationResults'));
   // Bound raw work before identical simulations fold into configurations.
-  if (simEls.length > MAX_RKT_SIMULATION_RECORDS) {
-    throw new Error(`This file contains ${simEls.length.toLocaleString('en-US')} simulations, past the ${MAX_RKT_SIMULATION_RECORDS.toLocaleString('en-US')} the app will open. Remove simulations in RockSim and save it again. Desktop OR has no such limit.`);
+  if (rawSimEls.length > MAX_RKT_SIMULATION_RECORDS) {
+    throw new Error(`This file contains ${rawSimEls.length.toLocaleString('en-US')} simulations, past the ${MAX_RKT_SIMULATION_RECORDS.toLocaleString('en-US')} the app will open. Remove simulations in RockSim and save it again. Desktop OR has no such limit.`);
   }
-  const allEngineSets = Array.from(doc.querySelectorAll('EngineSet'));
-  if (allEngineSets.length > MAX_RKT_SIMULATION_RECORDS) {
-    throw new Error(`This file's simulations list ${allEngineSets.length.toLocaleString('en-US')} motor loadouts, past the ${MAX_RKT_SIMULATION_RECORDS.toLocaleString('en-US')} the app will open. Remove simulations in RockSim and save it again. Desktop OR has no such limit.`);
+  const rawEngineSets = Array.from(doc.querySelectorAll('EngineSet'));
+  if (rawEngineSets.length > MAX_RKT_SIMULATION_RECORDS) {
+    throw new Error(`This file's simulations list ${rawEngineSets.length.toLocaleString('en-US')} motor loadouts, past the ${MAX_RKT_SIMULATION_RECORDS.toLocaleString('en-US')} the app will open. Remove simulations in RockSim and save it again. Desktop OR has no such limit.`);
   }
   // Nested records overlap their subtree scans even below the raw count caps.
   // Refuse them before any per-simulation or per-loadout queries.
-  if (simEls.some(s => s.parentElement?.closest('SimulationResults'))) {
+  if (rawSimEls.some(s => s.parentElement?.closest('SimulationResults'))) {
     throw new Error('This RockSim file contains nested simulations, which the app cannot open. Open it in RockSim and save it again.');
   }
-  if (allEngineSets.some(e => e.parentElement?.closest('EngineSet'))) {
+  if (rawEngineSets.some(e => e.parentElement?.closest('EngineSet'))) {
     throw new Error('This RockSim file contains nested motor loadouts, which the app cannot open. Open it in RockSim and save it again.');
   }
-  const simulationSets = new Map(simEls.map(s => [s, Array.from(s.querySelectorAll('EngineSet'))]));
+  // Keep direct-root, design-level and legacy records, but ignore unknown wrappers.
+  // The raw caps above also count loose/ignored records before any subtree reads.
+  const recordRoots = new Set([doc.documentElement, design]);
+  const recordOwner = (el: XmlElement | null): boolean => !!el && (recordRoots.has(el)
+    || (el.tagName === 'SimulationResultsList' && recordRoots.has(el.parentElement!)));
+  const simEls = rawSimEls.filter(s => recordOwner(s.parentElement));
+  const simulations = new Set(simEls);
+  const allEngineSets = rawEngineSets.filter(e => {
+    const parent = e.parentElement;
+    if (!parent) return false;
+    if (recordOwner(parent) || simulations.has(parent)) return true;
+    return /^Stage[123]Engines$/.test(parent.tagName)
+      && (recordOwner(parent.parentElement) || simulations.has(parent.parentElement!));
+  });
+  const acceptedSets = new Set(allEngineSets);
+  const simulationSets = new Map(simEls.map(s => [s, Array.from(s.querySelectorAll('EngineSet')).filter(e => acceptedSets.has(e))]));
   const motorIndex = indexRocksimMotors(doc, design, simulationSets, notes);
   const designRecoveryNotes: string[] = [];
   const designRecovery = readDeploymentEvents(design, serialToNode, designRecoveryNotes, num);
@@ -2734,7 +2753,7 @@ export function rktComponentInfo(
   tree: RocketTree,
   componentInfo: (id: string) => { mass: number; cgX: number; positionX: number },
 ): Record<string, RktPartInfo> {
-  const out: Record<string, RktPartInfo> = {};
+  const out = lookupTable<RktPartInfo>({});
   const collect = (nodes: ComponentNode[]) => {
     for (const n of nodes) {
       if (n.id) {
@@ -2831,8 +2850,10 @@ export function exportRkt(input: RktExportInput): string {
     emit(`<${wrapper}>`);
     // Preserve canonical no-override text; when layers differ only differing
     // devices need a simulation event (audit 2026-10-11, FC-3).
-    const differs = (node: ComponentNode) => node.id && overrides.deployments?.[node.id]
-      ? sparsify(deploymentTuple(node), overrides.deployments[node.id]!) : undefined;
+    const differs = (node: ComponentNode) => {
+      const override = node.id ? overrideFor(overrides.deployments, node.id) : undefined;
+      return override ? sparsify(deploymentTuple(node), override) : undefined;
+    };
     const sparse = resolved && recoveryCopies.some(({ node }) => differs(node));
     for (const { node, serial } of recoveryCopies) {
       const override = differs(node);
@@ -3000,7 +3021,7 @@ export function exportRkt(input: RktExportInput): string {
         : 1;
     m *= per;
     mx *= per;
-    const info = node.id ? compInfo?.[node.id] : undefined;
+    const info = node.id ? ownEntry(compInfo, node.id) : undefined;
     // Not in the kernel's rocket: nothing of its own weighs there.
     if (!info) return { m, mx };
     if (info.positionX === undefined) return undefined;
@@ -3032,7 +3053,7 @@ export function exportRkt(input: RktExportInput): string {
    */
   const massAt = (node: ComponentNode): number | undefined => {
     if (numOpt(node, 'overrideMass') === undefined || numOpt(node, 'overrideCGX') !== undefined) return undefined;
-    const front = node.id ? compInfo?.[node.id]?.positionX : undefined;
+    const front = node.id ? ownEntry(compInfo, node.id)?.positionX : undefined;
     if (front === undefined) return undefined;
     let m = 0;
     let mx = 0;
@@ -3075,7 +3096,7 @@ export function exportRkt(input: RktExportInput): string {
     const cgMoves = cgOv !== undefined && (massOv !== undefined || stage['overrideSubcomponentsCG'] === true);
     if (massOv === undefined && !cgMoves) return undefined;
     const s = structureOf(stage);
-    const front = stage.id ? compInfo?.[stage.id]?.positionX : undefined;
+    const front = stage.id ? ownEntry(compInfo, stage.id)?.positionX : undefined;
     if (s && front !== undefined && s.m > 0) {
       return { massG: s.m * MASS, cgMm: cgMoves ? (s.mx / s.m - front) * LEN : 0 };
     }
@@ -3146,7 +3167,7 @@ export function exportRkt(input: RktExportInput): string {
     const massOv = numOpt(node, 'overrideMass');
     const cgOv = numOpt(node, 'overrideCGX');
     const override = massOv !== undefined || cgOv !== undefined;
-    const info = node.id ? compInfo?.[node.id] : undefined;
+    const info = node.id ? ownEntry(compInfo, node.id) : undefined;
     // BOTH values are always real whenever either override exists: the
     // overridden one verbatim, the other from the computed component info. A 0
     // in the un-overridden field is the data error the compInfo map exists to
@@ -3620,10 +3641,9 @@ export function exportRkt(input: RktExportInput): string {
         // A chute that states no line density flies the engine's default line
         // material (Parachute's constructor; KERNEL_DEFAULT_MATERIALS.line), so
         // that goes out, named, as desktop writes every chute's. A stated 0
-        // flies weightless lines and has no RockSim form (0 is RockSim's own
-        // "none"): it stays out, and the Save says so.
+        // flies weightless lines and is preserved as an explicit zero.
         const shroud = flownMaterial(node, 'lineDensity', 'lineMaterialName', KERNEL_DEFAULT_MATERIALS.line);
-        if (shroud.density > 0) {
+        if (shroud.density >= 0) {
           emit(`<ShroudLineMassPerMM>${shroud.density}</ShroudLineMassPerMM>`);
           // A stated density without a stated name keeps writing no name.
           if (typeof node['lineMaterialName'] === 'string' ? node['lineMaterialName'] !== ''
@@ -3666,7 +3686,7 @@ export function exportRkt(input: RktExportInput): string {
         const shroudLen = nnum(node, 'length', 0.08);
         common(node, parent, `${node.name ?? 'Camera shroud'} (mass only)`, {
           knownMass: nnum(node, 'mass', 0.03) * MASS, useKnownCG: true,
-          point: { cg: (node.id ? compInfo?.[node.id]?.cgX : undefined) ?? shroudLen / 2, length: shroudLen },
+          point: { cg: (node.id ? ownEntry(compInfo, node.id)?.cgX : undefined) ?? shroudLen / 2, length: shroudLen },
         });
         emit('<TypeCode>0</TypeCode>');
         emit(`<Len>${shroudLen * LEN}</Len>`);
@@ -3689,7 +3709,7 @@ export function exportRkt(input: RktExportInput): string {
         // would say it is.
         const bodyLen = nnum(node, 'length', 0.02);
         const cg = numOpt(node, 'overrideCGX')
-          ?? (node.id ? compInfo?.[node.id]?.cgX : undefined) ?? bodyLen / 2;
+          ?? (node.id ? ownEntry(compInfo, node.id)?.cgX : undefined) ?? bodyLen / 2;
         common(node, parent, 'Mass', {
           knownMass: massKg * MASS, useKnownCG: true, point: { cg, length: bodyLen },
         });
@@ -3796,8 +3816,10 @@ export function exportRkt(input: RktExportInput): string {
       return nodes.some((n) => n.id === id || inStage(n.children ?? []));
     })(stagesIn[i]!.children ?? []))));
   const hasMotors = stageMotors.some((s) => s.length > 0);
-  if (!hasMotors && recoveryCopies.some(({ node }) => node.id && overrides.deployments?.[node.id]
-      && sparsify(deploymentTuple(node), overrides.deployments[node.id]!))) {
+  if (!hasMotors && recoveryCopies.some(({ node }) => {
+    const override = node.id ? overrideFor(overrides.deployments, node.id) : undefined;
+    return override && sparsify(deploymentTuple(node), override);
+  })) {
     // A recovery-only SimulationResults block is not verified with RockSim.
     // The shared dry-run writer also supplies this loss to the pre-save preview.
     notes?.push('Recovery overrides are not saved in a motorless .rkt; it reopens with the recovery devices\' own settings. Save as .ork to keep the overrides.');

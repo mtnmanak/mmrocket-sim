@@ -33,17 +33,19 @@ describe('S1b-3 zero-density recovery save disclosures', () => {
     ['parachute', 'surfaceDensity', 'Zero-density canopies and streamer strips'],
     ['streamer', 'surfaceDensity', 'Zero-density canopies and streamer strips'],
     ['shockcord', 'lineDensity', 'Zero-density shock cords'],
-  ] as const)('warns before %s %s zero is lost on export and reopen', (type, densityKey, note) => {
+    ['parachute', 'lineDensity', 'Zero-density parachute lines'],
+  ] as const)('keeps %s %s zero on export and reopen', (type, densityKey, note) => {
     const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
       { type: 'bodytube', id: 'b', length: 0.3, outerRadius: 0.03, children: [
         { type, id: 'r', name: 'Weightless recovery', [densityKey]: 0 },
       ] },
     ] }] };
     const xml = exportRkt({ name: 'Weightless', tree });
-    expect(xml).toContain('<Density>0</Density>');
+    expect(xml).toContain(type === 'parachute' && densityKey === 'lineDensity'
+      ? '<ShroudLineMassPerMM>0</ShroudLineMassPerMM>' : '<Density>0</Density>');
     const part = flatten(importRkt(xml).tree.components).find(n => n.name === 'Weightless recovery')!;
-    expect(part[densityKey]).toBeUndefined();
-    expect(rktSaveLosses(tree)).toContain(`${note} and their material are not kept; the reader supplies its own defaults: “Weightless recovery”.`);
+    expect(part[densityKey]).toBe(0);
+    expect(rktSaveLosses(tree)).not.toContain(note);
   });
 });
 
@@ -2436,13 +2438,14 @@ describe('RockSim shroud-line density (audit row 16)', () => {
     expect(back['lineMaterialName']).toBe(KERNEL_DEFAULT_MATERIALS.line.name);
   });
 
-  it('writes no line density for a chute whose lines are stated weightless', () => {
-    // 0 is RockSim's own "none"; checkFormatLoss names this one.
+  it('writes and reopens explicit zero line density for weightless lines', () => {
     const xml = exportRkt({ name: 'Bare', tree: { name: 'Bare', components: [{ type: 'stage', id: 's0', children: [
       { type: 'bodytube', id: 'b', children: [{ type: 'parachute', id: 'p', lineDensity: 0 }] }] }] } });
     const chute = xml.split('<Parachute>')[1]!.split('</Parachute>')[0]!;
-    expect(chute).not.toContain('<ShroudLineMassPerMM>');
+    expect(chute).toContain('<ShroudLineMassPerMM>0</ShroudLineMassPerMM>');
     expect(chute).not.toContain('<ShroudLineMaterial>');
+    const reopened = flatten(importRkt(xml).tree.components).find(n => n.type === 'parachute')!;
+    expect(reopened['lineDensity']).toBe(0);
   });
 });
 

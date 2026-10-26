@@ -106,7 +106,7 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
         );
       })}
       </div>
-      {notice && <p role="status">{notice}</p>}
+      <div role="status" aria-atomic="true" className={notice ? undefined : 'sr-only'}>{notice && <p>{notice}</p>}</div>
       {error && <p role="alert">{error}</p>}
       <div className="modal-actions">
         <button type="button" className="file-btn" disabled={busy} onClick={() => { void run(() => onApply(choices)); }}>Apply</button>

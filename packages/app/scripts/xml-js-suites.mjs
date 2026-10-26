@@ -22,6 +22,10 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  'src/services/motorClosureCompatibility.test.ts',
+  'src/services/exMotors.closure.test.ts',
+  'src/services/foreignFiles.closure.test.ts',
+  'src/services/orkFile.closure.test.ts',
   'src/services/exMotors.laneAudit.test.ts',
   'src/services/orkFile.audit.test.ts',
   'src/services/rasaeroFile.laneAudit.test.ts',
