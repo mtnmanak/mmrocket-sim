@@ -37,7 +37,7 @@ Results come from the same engine as the app, but the Worker's JavaScript runtim
 - Fixed `network: 'forbid'`; bundled motor snapshot, no thrustcurve.org calls or caller options.
 - Raw design files only; no scripts, accounts or persisted state.
 - `simulateFile` owns its kernel lock; never wrap it in `withKernel`.
-- Install `setXmlParser(createJsXmlParser({ maxElements: 50_000, maxDepth: 64 }))` once at Worker module scope; browser entry cannot import the headless entry. The SAX gate refuses excessive structure before building a DOM with HTTP 413 `FILE_TOO_LARGE`. The budgets include stored flight data and exceed all 185 local XML/design files measured (40,610 elements, depth 14); the app keeps its native parser without these structural limits.
+- Install `setXmlParser(createJsXmlParser({ maxElements: 50_000, maxDepth: 64 }))` once at Worker module scope; browser entry cannot import the headless entry. The SAX gate refuses excessive structure before building a DOM with HTTP 413 `FILE_TOO_LARGE`: more than 50,000 elements, depth over 64, or more than 200,000 nodes (elements, attributes, text, comments, processing instructions and CDATA counted together, `maxElements` × 4). The budgets include stored flight data and exceed all 185 local XML/design files measured (40,610 elements, depth 14); the app keeps its native parser without these structural limits.
 - Wrangler selects fflate's browser ESM build; no `nodejs_compat`.
 - API-only 8 MiB whole-file and 16 MiB inflated XML caps, including streamed bodies; errors are JSON without stacks.
 - No CORS, routes, custom domains or account configuration in S1.
