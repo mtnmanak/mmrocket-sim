@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import {
   NACA_MAX_THICKNESS_XI, PRINT_MIN_EDGE, finMacFromOutline, finSectionLaw, finSectionProfile,
-  finSectionSpec, halfThickness, printableHalf, printableProfile, sectionHalfThickness, sectionProfile,
+  finSectionSpec, halfThickness, printableHalf, sectionHalfThickness, sectionProfile,
   type FinSectionSpec,
 } from './finSection.js';
 
@@ -444,20 +444,16 @@ describe('printable minimum edge', () => {
     expect(printableHalf(0, T, 0)).toBe(0);
   });
 
-  it('turns sharp and round edges into blunt faces of the minimum edge height', () => {
-    const raw = finSectionProfile(airfoil(), 0.05);
-    const prof = printableProfile(raw);
-    expect(prof.le).toEqual({ kind: 'blunt', height: 0.0004 });
-    expect(prof.te).toEqual({ kind: 'blunt', height: 0.0004 });
-    expect(prof.half[0]).toBe(0.0002);
-    expect(prof.half[prof.half.length - 1]).toBe(0.0002);
-    expect(Math.max(...prof.half)).toBe(Math.max(...raw.half));
-    expect(raw.half).toEqual(finSectionProfile(airfoil(), 0.05).half);
-    const blunt = printableProfile(finSectionProfile(airfoil('singlewedge'), 0.05));
-    expect(blunt.te).toEqual({ kind: 'blunt', height: T });
-    const flat = finSectionProfile(fin(), 0.05);
-    expect(printableProfile(flat)).toBe(flat);
-  });
+  it.each([airfoil(), airfoil('singlewedge'), { ...fin(), crossSection: 'rounded' }])(
+    'floors the sampled production profile without changing its raw shape', node => {
+      const raw = sectionProfile(finSectionSpec(node), 0.05);
+      const before = structuredClone(raw);
+      const half = raw.half.map(h => printableHalf(h, raw.thickness));
+      expect(half[0]).toBe(0.0002);
+      expect(half.at(-1)).toBe(raw.te.kind === 'blunt' ? raw.te.height / 2 : 0.0002);
+      expect(Math.max(...half)).toBe(Math.max(...raw.half));
+      expect(raw).toEqual(before);
+    });
 });
 
 describe('isolation: the flight path never imports the section law', () => {

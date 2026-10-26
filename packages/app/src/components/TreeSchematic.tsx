@@ -874,8 +874,8 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
           <span>Projected in this view plane</span>
           <span id={`${uid}-caliper-help`}>Pick two points; arrows move a point, Enter places it, Alt + arrows pan, Escape clears. Caliper snaps to the outside of the airframe and to fin outlines; elsewhere it measures the points you pick.</span>
           <label><input type="checkbox" checked={caliperSnap} onChange={e => setCaliperSnap(e.target.checked)} /> Snap to edges</label>
+          <span data-caliper-readout="" role="status">{caliper.points.length === 2 ? caliperReadout(caliper.points[0]!, caliper.points[1]!, prefs.units.length) : ''}</span>
           {caliper.points.length === 2 && <>
-            <span data-caliper-readout="" role="status">{caliperReadout(caliper.points[0]!, caliper.points[1]!, prefs.units.length)}</span>
             {[0, 1].map(i => <button key={i} className="file-btn" onClick={() => {
               setCaliper(c => c ? { ...c, edit: i, cursor: c.points[i]! } : c); svgRef.current?.focus();
             }}>Move point {i + 1}</button>)}

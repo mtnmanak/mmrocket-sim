@@ -29,6 +29,9 @@ it('C-H3 downloads diagnostics locally with a fixed filename, exposes privacy co
   (window as Window & { showSaveFilePicker?: unknown }).showSaveFilePicker = picker;
   sessionDebugLog.record('import-failed', new Error('No stage found'));
   act(() => root.render(<DebugLogDownload />));
+  const status = host.querySelector('[role="status"]');
+  expect(status).not.toBeNull();
+  expect(status!.textContent).toBe('');
   const button = host.querySelector<HTMLButtonElement>('button')!;
   expect(button.textContent).toBe('Download session debug log');
   expect(document.getElementById(button.getAttribute('aria-describedby')!)!.textContent).toContain('No design');
@@ -38,7 +41,8 @@ it('C-H3 downloads diagnostics locally with a fixed filename, exposes privacy co
   expect(options?.suggestedName).toBe('mmrocket-sim-session-debug.txt');
   expect(String(saved)).toContain('import-failed: Error: No stage found');
   expect(String(saved)).toContain('debug-log-download');
-  expect(host.querySelector('[role="status"]')?.textContent).toContain('Saved');
+  expect(host.querySelector('[role="status"]')).toBe(status);
+  expect(status!.textContent).toContain('Saved');
   expect(button.disabled).toBe(false);
 });
 
@@ -47,7 +51,7 @@ it('C-H3 keeps cancellation quiet and the control usable after a failed download
   act(() => root.render(<DebugLogDownload />));
   const button = host.querySelector<HTMLButtonElement>('button')!;
   await act(async () => { button.click(); });
-  expect(host.querySelector('[role="status"]')).toBeNull();
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('');
   expect(button.disabled).toBe(false);
   delete (window as Window & { showSaveFilePicker?: unknown }).showSaveFilePicker;
   vi.spyOn(URL, 'createObjectURL').mockImplementation(() => { throw new Error('download failed'); });

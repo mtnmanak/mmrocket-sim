@@ -756,6 +756,7 @@ export function SimHistory({
                           fire the row's own select. */}
                       {onShowCharts && !hasChartsFor?.(r) && canShowCharts?.(r) && (
                         <button className="file-btn" style={{ marginRight: 6, fontSize: 11, padding: '2px 6px' }}
+                          aria-label={`${reflyingId === r.id ? 'Re-flying charts for' : 'Show charts for'} ${[r.rocket, r.motor].filter(Boolean).join(' ')}`.trim()}
                           disabled={reflyingId != null || flightRunning}
                           title="Re-fly the design at this run's conditions to draw its plots. Deterministic — the same flight, not a new one — and it does not add a row here."
                           onClick={(e) => { e.stopPropagation(); onShowCharts(r); }}>

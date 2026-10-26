@@ -293,7 +293,11 @@ describe('N033 and N044 view tools', () => {
     const help = document.getElementById(helpId!)!;
     expect(help?.textContent).toMatch(/arrows move.*Enter places.*Alt \+ arrows pan.*Escape clears/);
     expect(help.textContent).toContain('Caliper snaps to the outside of the airframe and to fin outlines; elsewhere it measures the points you pick');
+    const status = host.querySelector('[data-caliper-readout]');
+    expect(status).not.toBeNull();
+    expect(status!.textContent).toBe('');
     key(svg(), 'Enter'); key(svg(), 'ArrowRight'); key(svg(), 'Enter');
+    expect(host.querySelector('[data-caliper-readout]')).toBe(status);
     expect(host.querySelector('[data-caliper-readout]')!.textContent).toContain('Horizontal 1 mm');
     key(svg(), 'Escape');
     expect(svg().getAttribute('aria-describedby')).toBeNull();

@@ -3279,6 +3279,10 @@ html {
 }
 
 .modal-card {
+  box-sizing: border-box;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: 8px;

@@ -44,6 +44,18 @@ describe('lazy chunks — the guide and the changelog stay out of the entry chun
     expect(lazyModulesInEntry(cleanBundle(), ROOT)).toEqual([]);
   });
 
+  it('follows transitive static imports and cycles, but not dynamic imports', () => {
+    const bundle = cleanBundle();
+    bundle['assets/index-CeoafHzG.js'].imports = ['bridge.js'];
+    bundle['bridge.js'] = { ...chunk('bridge.js', false, {}), imports: ['shared.js'] };
+    bundle['shared.js'] = { ...chunk('shared.js', false,
+      Object.fromEntries(LAZY_ONLY.map(name => [name, 100]))), imports: ['bridge.js'] };
+    expect(lazyModulesInEntry(bundle, ROOT)).toEqual(LAZY_ONLY.map(name => `shared.js: ${name}`).sort());
+    bundle['assets/index-CeoafHzG.js'].imports = [];
+    bundle['assets/index-CeoafHzG.js'].dynamicImports = ['bridge.js'];
+    expect(lazyModulesInEntry(bundle, ROOT)).toEqual([]);
+  });
+
   it('names each one an import folded into the entry chunk', () => {
     // The fold review measured: one import of the changelog from root.tsx put
     // the 0.140 entry's text back into index-*.js and left ChangelogDialog-*.js

@@ -61,6 +61,8 @@ describe('export assembly (S2-8)', () => {
     expect(input.primaryMountOf(['b', 'a'])).toBe('b');
     const live = input.configurationState!('A');
     const inactive = input.configurationState!('B');
+    expect(input.configurationState!('A')).toBe(live);
+    expect(input.configurationState!('B')).toBe(inactive);
     const detached = input.configurationState!(null);
     expect(live.motors[0]![1].ignition).toEqual({ event: 'launch', delay: 2 });
     expect(inactive.motors.map(([id]) => id)).toEqual(['b']);

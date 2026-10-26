@@ -165,7 +165,8 @@ export function addDigests(bundle, results) {
 /**
  * Every usable file for every motor, batch by batch. A batch that fails is
  * recorded in `failed`, one line per motor, and the run goes on — the caller
- * decides what a failure costs. `fetchImpl` and `sleep` are injectable so the
+ * decides what a failure costs. HTTP 429 stops the run, recording the remaining
+ * motors as failed too. `fetchImpl` and `sleep` are injectable so the
  * test can stand in for the network and the courtesy pause.
  */
 export async function fetchCurves(motors, {
@@ -179,6 +180,7 @@ export async function fetchCurves(motors, {
   for (let i = 0; i < motors.length; i += BATCH) {
     const batch = motors.slice(i, i + BATCH);
     let body;
+    let rateLimited = false;
     try {
       const res = await fetchImpl(`${API}/download.json`, {
         method: 'POST',
@@ -188,11 +190,16 @@ export async function fetchCurves(motors, {
         headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
         body: JSON.stringify({ motorIds: batch.map((m) => m.motorId), data: 'both' }),
       });
+      rateLimited = res.status === 429;
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       body = await res.json();
     } catch (err) {
-      failed.push(...batch.map((m) => `${m.manufacturerAbbrev} ${m.designation}: ${err.message}`));
+      const skipped = rateLimited ? motors.slice(i) : batch;
+      failed.push(...skipped.map((m) => `${m.manufacturerAbbrev} ${m.designation}: ${err.message}`));
+      if (rateLimited) break;
       continue;
+    } finally {
+      await sleep(PAUSE_MS);
     }
     for (const f of body.results ?? []) {
       const compact = compactFile(f);
@@ -202,7 +209,6 @@ export async function fetchCurves(motors, {
       points += f.samples.length;
     }
     log(`  ${Math.min(i + BATCH, motors.length)} / ${motors.length}\r`);
-    await sleep(PAUSE_MS);
   }
   log('\n');
   return { curves, files, points, failed };

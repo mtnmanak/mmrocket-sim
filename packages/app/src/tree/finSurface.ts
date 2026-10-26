@@ -74,7 +74,7 @@ import { chordOutline, chordRatioStations, sectionChordProblem } from './finChor
  */
 
 /** Chordwise samples across a full curved chord (finSection's resolution). */
-export const FIN_SURFACE_RESOLUTION = 24;
+const FIN_SURFACE_RESOLUTION = 24;
 
 /**
  * Chordwise fill for the straight-sided sections, drawn with their
@@ -594,7 +594,7 @@ function cleanMesh(m: FinMesh): FinMesh {
 }
 
 /** Signed volume (m³) of a closed mesh by the divergence theorem: positive when it winds outward. */
-export function meshVolume(m: FinMesh): number {
+function meshVolume(m: FinMesh): number {
   let v = 0;
   for (let t = 0; t < m.group.length; t++) {
     const a = m.tri[t * 3]! * 3;
@@ -664,7 +664,7 @@ export function onRoot(f: FinPlacement, x: number, y: number): boolean {
  * sagitta — `onRoot` alone left them unextended under cant, a sawtooth root
  * (N062 review: 24 of 64 root vertices of a rounded fin on an ogive boat tail).
  */
-export function onSeatedRoot(f: FinPlacement, x: number, y: number): boolean {
+function onSeatedRoot(f: FinPlacement, x: number, y: number): boolean {
   if (onRoot(f, x, y)) return true;
   const line = f.rootLine;
   if (!line) return false;

@@ -90,13 +90,14 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
   const objects = useMemo(() => {
     if (byStage?.state === 'ok') {
       return byStage.groups.map((g) => ({
+        key: JSON.stringify(g.stageIds),
         label: g.stageNames.join(' + '),
         isSustainer: g.isSustainer,
         recovery: g.mass,
         scope: g.stageIds.length ? stages(tree).filter((s) => g.stageIds.includes(s.id ?? '')) : tree.components,
       }));
     }
-    return [{ label: '', isSustainer: true, recovery, scope: undefined }];
+    return [{ key: 'rocket', label: '', isSustainer: true, recovery, scope: undefined }];
   }, [byStage, recovery, tree]);
 
   const sizings: RecoverySizing[] = useMemo(
@@ -161,7 +162,7 @@ export function RecoverySizingPanel({ recovery, byStage, tree, launch, deviceMas
       )}
       {objects.map((o, i) => (
         <ObjectSection
-          key={o.label || 'rocket'}
+          key={o.key}
           label={objects.length > 1 ? o.label : null}
           sizing={sizings[i]!}
           note={o.recovery.state === 'ok' ? o.recovery.note : undefined}

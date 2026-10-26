@@ -44,7 +44,7 @@ export function sweepCp(sweep: DragSweep): (number | null)[] {
 export const CP_AOA_DEGREES = [0, 2, 5, 10, 15, 20] as const;
 
 /** The CSV column name for the CP at a non-zero angle of attack. */
-export function cpAoaColumn(lengthUnit: string, aoaDeg: number): string {
+function cpAoaColumn(lengthUnit: string, aoaDeg: number): string {
   return `cp_${lengthUnit}_from_nose_aoa_${aoaDeg}deg`;
 }
 

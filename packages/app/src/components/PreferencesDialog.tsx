@@ -421,7 +421,7 @@ export function PreferencesDialog({ onClose }: { onClose: () => void }) {
         </p>
         <h3 className="prefs-section">Materials</h3>
         <p className="prefs-hint">Named materials saved in this browser for the material selectors.</p>
-        <button type="button" onClick={() => setMaterialsOpen(true)}>My materials…</button>
+        <button className="file-btn" type="button" onClick={() => setMaterialsOpen(true)}>My materials…</button>
         {materialsOpen && <MyMaterialsDialog onClose={() => setMaterialsOpen(false)} />}
       </div>
     </div>

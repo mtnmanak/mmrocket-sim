@@ -48,13 +48,20 @@ export function lazyModulesInEntry(bundle, root) {
   };
   const rendered = new Set();
   const inEntry = [];
+  const eager = new Set();
+  const visit = (chunk) => {
+    if (chunk?.type !== 'chunk' || eager.has(chunk.fileName)) return;
+    eager.add(chunk.fileName);
+    for (const name of chunk.imports ?? []) visit(bundle[name]);
+  };
+  for (const chunk of Object.values(bundle)) if (chunk.isEntry) visit(chunk);
   for (const chunk of Object.values(bundle)) {
     if (chunk.type !== 'chunk') continue;
     for (const [id, mod] of Object.entries(chunk.modules)) {
       const name = relative(id);
       if (!LAZY_ONLY.includes(name) || mod.renderedLength === 0) continue;
       rendered.add(name);
-      if (chunk.isEntry) inEntry.push(`${chunk.fileName}: ${name}`);
+      if (eager.has(chunk.fileName)) inEntry.push(`${chunk.fileName}: ${name}`);
     }
   }
   const missing = LAZY_ONLY.filter((name) => !rendered.has(name));

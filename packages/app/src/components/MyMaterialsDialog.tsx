@@ -42,18 +42,18 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
     return true;
   };
   return <Modal label="My materials" onClose={close} className="prefs-dialog panel">
-    <div style={{ maxHeight: 'calc(100dvh - 100px)', overflowY: 'auto', overflowWrap: 'anywhere' }}>
+    <div style={{ overflowWrap: 'anywhere' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
         <h2 ref={heading} tabIndex={-1} style={{ flex: 1 }}>My materials</h2>
-        <button type="button" onClick={close} aria-label="Close My materials">Close</button>
+        <button className="file-btn" type="button" onClick={close} aria-label="Close My materials">Close</button>
       </div>
       <p>Saved in this browser only. Export CSV to keep a copy or move your materials to another browser. Editing this library does not change parts already in a design.</p>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-        <button type="button" aria-label="Export CSV of My materials" onClick={() => {
+        <button className="file-btn" type="button" aria-label="Export CSV of My materials" onClick={() => {
           try { downloadBlob(new Blob([userMaterialsToCsv(materials)], { type: 'text/csv;charset=utf-8' }), 'my-materials.csv'); }
           catch { setMessage('The CSV could not be downloaded. Try Export CSV again.'); }
         }}>⬇ Export CSV</button>
-        <button type="button" aria-label="Import CSV into My materials" disabled={reading} onClick={() => file.current?.click()}>⬆ Import CSV</button>
+        <button className="file-btn" type="button" aria-label="Import CSV into My materials" disabled={reading} onClick={() => file.current?.click()}>⬆ Import CSV</button>
         <input ref={file} type="file" accept=".csv,text/csv" aria-label="Materials CSV file" hidden
           onChange={e => { void (async () => {
             const picked = e.target.files?.[0];
@@ -107,15 +107,15 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
                   <NumField id={`${uid}-density`} value={editing.draft.density} min={0}
                     validate={v => v > 0} step={kind === 'bulk' ? 10 : 0.001}
                     onCommit={v => { if (v !== null) setEditing({ ...editing, draft: { ...editing.draft, density: v } }); }} /></div>
-                <button type="submit">Save material</button>{' '}
-                <button type="button" onClick={() => { focusAfterEdit.current = key; setEditing(null); }}>Cancel</button>
+                <button className="file-btn" type="submit">Save material</button>{' '}
+                <button className="file-btn" type="button" onClick={() => { focusAfterEdit.current = key; setEditing(null); }}>Cancel</button>
               </form> : <>
                 <span>{m.name} ({m.density} {MATERIAL_UNITS[kind]})</span>{' '}
-                <button type="button" aria-label={`Edit ${kind} material ${m.name}`} ref={el => {
+                <button className="file-btn" type="button" aria-label={`Edit ${kind} material ${m.name}`} ref={el => {
                   if (el) editButtons.current.set(key, el);
                   else editButtons.current.delete(key);
                 }} onClick={() => { focusEditName.current = true; setEditing({ key, draft: { ...m } }); setMessage(''); }}>Edit</button>{' '}
-                <button type="button" aria-label={`Delete ${kind} material ${m.name}`} onClick={() => { setMessage(''); setDeleting(m); }}>Delete</button>
+                <button className="file-btn" type="button" aria-label={`Delete ${kind} material ${m.name}`} onClick={() => { setMessage(''); setDeleting(m); }}>Delete</button>
               </>}
             </li>;
           })}
@@ -125,8 +125,8 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
         <h2>Delete {deleting.kind} material {deleting.name}?</h2>
         <p>This removes it from My materials in this browser. Parts already using it keep their material. Import a saved CSV to restore the library entry.</p>
         <div role="status">{message && <p>{message}</p>}</div>
-        <button type="button" onClick={() => setDeleting(null)}>Cancel</button>{' '}
-        <button type="button" className="danger" onClick={() => {
+        <button className="file-btn" type="button" onClick={() => setDeleting(null)}>Cancel</button>{' '}
+        <button type="button" className="file-btn modal-danger" onClick={() => {
           if (persist(materials.filter(m => userMaterialKey(m) !== userMaterialKey(deleting)), 'Material deleted.')) {
             if (editing?.key === userMaterialKey(deleting)) setEditing(null);
             focusAfterEdit.current = '';

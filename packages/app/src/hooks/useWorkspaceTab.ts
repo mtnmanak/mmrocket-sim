@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * THE WORKSPACE TAB (Fly / Design / Motors & Configuration / Results), persisted so a
@@ -38,13 +38,26 @@ export function useWorkspaceTab(): [WorkspaceTab, (t: WorkspaceTab) => void] {
   const [tab, setTabRaw] = useState<WorkspaceTab>(() => {
     try {
       const t = localStorage.getItem(WORKSPACE_KEY);
-      if (isTab(t)) return t;
+      if (isTab(t)) return t === 'fly' && homeTab() !== 'fly' ? 'design' : t;
     } catch { /* fall through */ }
     return homeTab();
   });
   const setTab = useCallback((t: WorkspaceTab) => {
     setTabRaw(t);
     try { localStorage.setItem(WORKSPACE_KEY, t); } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    if (typeof matchMedia === 'undefined') return;
+    const media = matchMedia(PHONE_QUERY);
+    const change = () => {
+      if (!media.matches) setTabRaw(current => {
+        if (current !== 'fly') return current;
+        try { localStorage.setItem(WORKSPACE_KEY, 'design'); } catch { /* ignore */ }
+        return 'design';
+      });
+    };
+    media.addEventListener?.('change', change);
+    return () => media.removeEventListener?.('change', change);
   }, []);
   return [tab, setTab];
 }

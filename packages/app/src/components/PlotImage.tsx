@@ -62,6 +62,6 @@ export function PlotImage({ container, title, captions = [] }: {
     <button ref={button} className="chart-btn" disabled={busy} aria-label={`Save image: ${title}`} onClick={() => void save()}>
       {busy ? 'Saving image…' : 'Save image'}
     </button>
-    {message && <Note as="p" tier={message.severity === 'warn' ? 'caution' : 'information'} role="status">{message.text}</Note>}
+    <div role="status">{message && <Note as="p" tier={message.severity === 'warn' ? 'caution' : 'information'}>{message.text}</Note>}</div>
   </div>;
 }

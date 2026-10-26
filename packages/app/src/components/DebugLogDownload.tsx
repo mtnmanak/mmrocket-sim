@@ -32,6 +32,6 @@ export function DebugLogDownload() {
       It leaves your browser only if you attach it to a report or email. Unknown messages and error stacks are omitted;
       errors before capture loaded are unavailable.
     </Note>
-    {note && <p className="comp-stats" role="status">{note}</p>}
+    <div role="status">{note && <p className="comp-stats">{note}</p>}</div>
   </div>;
 }

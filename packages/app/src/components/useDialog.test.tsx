@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { act } from 'react-dom/test-utils';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useDialog } from './useDialog.js';
 import { NumField } from './NumField.js';
 
@@ -45,6 +45,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  vi.restoreAllMocks();
 });
 
 const press = (key: string, shiftKey = false) => {
@@ -54,6 +55,46 @@ const press = (key: string, shiftKey = false) => {
 };
 
 describe('useDialog', () => {
+  it('skips controls disabled by an ancestor fieldset at the Tab boundary', () => {
+    // happy-dom does not implement fieldset inheritance for :disabled. Adapt
+    // that selector for this legend-free fixture; the trap still runs unchanged.
+    const query = HTMLElement.prototype.querySelectorAll;
+    vi.spyOn(HTMLElement.prototype, 'querySelectorAll').mockImplementation(function (this: HTMLElement, selector: string) {
+      const items = query.call(this, selector);
+      const branches = selector.split(',');
+      return [...items].filter(el => branches.some(branch => el.matches(branch)
+        && !(branch.includes(':not(:disabled)') && el.matches('button,input,select,textarea')
+          && el.closest('fieldset[disabled]')))) as unknown as NodeListOf<Element>;
+    });
+    function Pending() {
+      const ref = useDialog<HTMLDivElement>(() => {});
+      return <div ref={ref} role="dialog" tabIndex={-1}>
+        <fieldset disabled><input tabIndex={0} /><button>disabled</button><select /><textarea /></fieldset>
+        <summary tabIndex={0}>ZIP preview</summary><button>last</button>
+      </div>;
+    }
+    act(() => root.render(<Pending />));
+    container.querySelector('summary')!.focus(); press('Tab', true);
+    expect(document.activeElement?.textContent).toBe('last');
+  });
+
+  it('returns to the outer dialog when a nested opener becomes disabled', () => {
+    function Outer() {
+      const ref = useDialog<HTMLDivElement>(() => {});
+      const [inner, setInner] = useState(false);
+      const [disabled, setDisabled] = useState(false);
+      return <div ref={ref} role="dialog" aria-label="outer" tabIndex={-1}>
+        <button>Close outer</button>
+        <button disabled={disabled} onClick={() => setInner(true)}>Open inner</button>
+        {inner && <Dialog label="inner" onClose={() => { setDisabled(true); setInner(false); }} />}
+      </div>;
+    }
+    act(() => root.render(<Outer />));
+    const opener = container.querySelectorAll('button')[1]!;
+    opener.focus(); act(() => opener.click()); press('Escape');
+    expect(document.activeElement?.textContent).toBe('Close outer');
+  });
+
   it('moves focus into the dialog on open and back to the trigger on close', () => {
     act(() => root.render(<Harness />));
     const trigger = container.querySelector<HTMLButtonElement>('#trigger')!;

@@ -424,7 +424,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
             Parts already in a design keep their values. Export CSV first if you want to keep this row.</p>
           <div className="modal-actions">
             <button className="file-btn" onClick={() => setDeleting(null)}>Cancel</button>
-            <button className="file-btn" onClick={deletePart}>Delete</button>
+            <button className="file-btn modal-danger" onClick={deletePart}>Delete</button>
           </div>
         </Modal>}
         {/* role="status" (2026-09-08 audit): `note` carries the CSV-import

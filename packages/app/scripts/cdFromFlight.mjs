@@ -663,6 +663,9 @@ export function detectApogee(t, v, { tBurnout = 0, altitude = null } = {}) {
 export function atmosphere({ altitudeM, pressurePa = null, padTempK = null, siteElevationM = null }) {
   let tempK;
   let pPa;
+  if (pressurePa != null && (!Number.isFinite(pressurePa) || pressurePa <= 0)) {
+    fail('R5', 'missing or invalid measured pressure in the coast window; Cd cannot be inferred. Supply a complete barometric log.');
+  }
   if (pressurePa != null && Number.isFinite(pressurePa)) {
     if (padTempK == null || !Number.isFinite(padTempK)) {
       fail('R5', 'a measured pressure needs a temperature to become a density. Pass '
@@ -698,6 +701,9 @@ export function atmosphere({ altitudeM, pressurePa = null, padTempK = null, site
     // temperature given, 4.4 C" on this path, claiming a measurement it had not
     // used. `solve()` now says plainly that the value is carried but not applied
     // here, and what to pass instead (--baro, which is path (a)).
+    if (altitudeM + siteElevationM > 11000) {
+      fail('R5', 'the ISA fallback supports only altitudes up to 11 km MSL; Cd cannot be inferred above that boundary.');
+    }
     tempK = ISA_T0 - LAPSE * (altitudeM + siteElevationM);
     pPa = ISA_P0 * Math.pow(tempK / ISA_T0, G0 / (LAPSE * R_AIR));
   }

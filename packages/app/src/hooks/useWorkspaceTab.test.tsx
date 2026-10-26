@@ -83,6 +83,28 @@ describe('useWorkspaceTab', () => {
     expect(localStorage.getItem(WORKSPACE_KEY)).toBe('motors');
   });
 
+  it('reopens a saved Fly tab on Design on a desktop', () => {
+    localStorage.setItem(WORKSPACE_KEY, 'fly');
+    viewport(1200);
+    expect(mount().tab).toBe('design');
+  });
+
+  it('leaves Fly when the viewport grows and removes its listener on unmount', () => {
+    const media = new EventTarget() as MediaQueryList;
+    Object.defineProperty(media, 'matches', { value: true, writable: true });
+    vi.stubGlobal('matchMedia', () => media);
+    const remove = vi.spyOn(media, 'removeEventListener');
+    const h = mount();
+    expect(h.tab).toBe('fly');
+    Object.defineProperty(media, 'matches', { value: false });
+    act(() => { media.dispatchEvent(new Event('change')); });
+    expect(h.tab).toBe('design');
+    expect(localStorage.getItem(WORKSPACE_KEY)).toBe('design');
+    act(() => root!.unmount());
+    root = null;
+    expect(remove).toHaveBeenCalledWith('change', expect.any(Function));
+  });
+
   it('ignores a stored value that is not a tab, and a storage that throws', () => {
     viewport(400);
     localStorage.setItem(WORKSPACE_KEY, 'cockpit');

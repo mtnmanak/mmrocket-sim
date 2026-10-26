@@ -2292,34 +2292,21 @@ export function App() {
    * file desktop OpenRocket renders indistinguishably from a fresh result. This
    * is the adapter that hands them the app's state.
    */
-  const flightExportInput = useCallback(() => assembleFlightExportInput({
+  const { components: exportComponents, ignitionDefaults: exportIgnitionDefaults } = tree as FlightTree;
+  const exportFlightTree = useMemo<FlightTree>(() => ({
+    components: exportComponents, ignitionDefaults: exportIgnitionDefaults,
+  }), [exportComponents, exportIgnitionDefaults]);
+  const flightExportInput = useMemo(() => assembleFlightExportInput({
     runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
-    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree, detachedOverrides, mountMotors, launch,
+    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree: exportFlightTree, detachedOverrides, mountMotors, launch,
   }), [runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
-    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree, detachedOverrides, mountMotors, launch]);
-  const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataForExportPure(flightExportInput());
-  /**
-   * The same results as of this render, for the .rkt/.CDX1 loss check, which
-   * only asks whether there are any: memoized on the export input, so the
-   * preview does not re-scan the run history 500 ms after every edit.
-   */
-  const flightDataNow = useMemo(() => flightDataForExportPure(flightExportInput()), [flightExportInput]);
-  /**
-   * Each Auto mount's rounded optimum from one complete flight of the
-   * design, by configuration id ('' for none) and mount id — what a .ork, a
-   * .rkt and a share link write for it (orkFlightData.flownAutoDelays), from
-   * the same input the results above are judged on, so a file never names one
-   * delay and carries the flight of another.
-   */
-  const flownAutoDelaysNow = (): Record<string, Record<string, number>> => flownAutoDelays(flightExportInput());
-  /**
-   * The same delays as of this render, for the autosave below: the
-   * crash-recovery .ork writes each Auto mount at them (SessionState.
-   * flownAutoDelays), because the runs they come from are judged against a
-   * build and a model that a crash leaves nothing of. Memoized on the export
-   * input, so the autosave re-runs only when that does.
-   */
-  const flownForAutosave = useMemo(() => flownAutoDelays(flightExportInput()), [flightExportInput]);
+    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, exportFlightTree, detachedOverrides, mountMotors, launch]);
+  // Share one Auto-delay pass and the per-configuration cache across save,
+  // loss previews and autosave. Name and notes edits keep the same inputs.
+  const flownForAutosave = useMemo(() => flownAutoDelays(flightExportInput), [flightExportInput]);
+  const flightDataNow = useMemo(() => flightDataForExportPure(flightExportInput, flownForAutosave), [flightExportInput, flownForAutosave]);
+  const flightDataForExport = (): Record<string, OrkExportFlightData> => flightDataNow;
+  const flownAutoDelaysNow = (): Record<string, Record<string, number>> => flownForAutosave;
 
   // Autosave the working state so a closed tab or crash never loses work.
   // Declared here, below the export input, for `flownForAutosave`.

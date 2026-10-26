@@ -60,6 +60,23 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+it('refuses an ISA sample above the supported 11 km MSL ceiling', () => {
+  expect(() => atmosphere({ altitudeM: 12000, siteElevationM: 3000 })).toThrow(/R5:.*11.*km/);
+  expect(() => atmosphere({ altitudeM: 8000, siteElevationM: 3000 })).not.toThrow();
+});
+
+it('refuses missing measured coast pressure even when ISA is available', () => {
+  const fx = synthFlight();
+  const baroText = fx.baroCsv.split('\n').map((line, i) => {
+    if (!i || !line) return line;
+    const cells = line.split(',');
+    cells[1] = '';
+    return cells.join(',');
+  }).join('\n');
+  const opts = synthOpts(fx, { baroText, siteElevationM: 0, padTempC: 30 });
+  expect(() => solve(prepare(opts), opts)).toThrow(/R5:.*measured pressure/);
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // The synthetic flight. A forward model at a KNOWN Cd, emitted in the shape of a
 // Blue Raven pair: a high-rate accelerometer CSV and a low-rate baro companion.
