@@ -36,6 +36,9 @@ describe('AeroTech published delay source watch (offline)', () => {
     '<a title="Impulse > 160 Ns" href="/real.pdf">real</a>',
     "<a title='Impulse > 160 Ns' href='/real.pdf'>real</a>",
     '<a href="/real.pdf">real</a> delay < 5',
+    // Stray characters a browser skips between attributes (live page, 2026-10-26).
+    '<a class="pdf" / href="/real.pdf">real</a>',
+    '<a "class"="x" href="/real.pdf" =>real</a>',
   ])('preserves certification links around literal text and quoted attributes: %s', html => {
     expect(aerotechDocumentLinks(html, snapshot.publishedOn)).toEqual(['https://www.rocketmotorparts.com/real.pdf']);
   });

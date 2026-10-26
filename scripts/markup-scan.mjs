@@ -21,6 +21,9 @@ export function* markupAttributes(text, html = false) {
     if (/\s/.test(text[at])) { at++; continue; }
     token.lastIndex = at;
     const match = token.exec(text);
+    // HTML in the wild carries stray '/', quotes or '=' between attributes (a browser
+    // skips them); only XML is held to a well-formed attribute list.
+    if (!match && html) { at++; continue; }
     if (!match) throw new Error('invalid markup attribute');
     at = token.lastIndex;
     const value = match[2] ?? match[3];
