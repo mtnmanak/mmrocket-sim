@@ -45,6 +45,25 @@ async function fixture() {
 }
 
 describe('ask at open choices', () => {
+  it.each(['toString', 'constructor', '__proto__'])('does not invent an inactive nozzle ownership for %s', async stageId => {
+    const { state, groups } = await fixture();
+    const tree: RocketTree = { components: [{ type: 'stage', id: stageId, children: [
+      { type: 'innertube', id: 'm', motorMount: true },
+    ] }] };
+    const current = { ...state, tree, savedConfigs: state.savedConfigs.map(c => ({ ...c, nozzles: { other: 0.02 } })) };
+    const ex = parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!;
+    const next = await applyOpenMotorChoices(current, 'c', groups, { [groups[0]!.key]: { kind: 'ex', motor: ex } }, fetchSpec);
+    expect(Object.hasOwn(next.savedConfigs[1]!.nozzles!, stageId)).toBe(false);
+    expect(next.savedConfigs[1]!.nozzles?.other).toBe(0.02);
+  });
+  it.each(['constructor', 'toString', '__proto__'])('loads an empty own mount id %s without inheriting a motor', async mountId => {
+    const ex = parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!;
+    const group = { key: 'g', ref, candidates: [], carriedBy: [], locations: [{ configId: null, mountId, ref }] };
+    const next = await applyOpenMotorChoices({ tree: { components: [] }, mountMotors: {}, savedConfigs: [], unmatchedRefs: {} },
+      null, [group], { g: { kind: 'ex', motor: ex } }, fetchSpec);
+    expect(Object.hasOwn(next.mountMotors, mountId)).toBe(true);
+    expect(next.mountMotors[mountId]?.spec.designation).toBe('G100');
+  });
   it.each([
     { nozzles: undefined, initialExit: undefined, label: 'absent map fills the published exit' },
     { nozzles: undefined, initialExit: 0, label: 'absent map preserves whole-rocket OFF' },

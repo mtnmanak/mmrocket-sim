@@ -444,9 +444,9 @@ export function WeatherDialog({
           )}
         </div>
         <p className="weather-small">{WEATHER_DIALOG_COPY.locateNote}</p>
-        {locateNote && <p className="weather-small" role="status">{locateNote}</p>}
-        {locatedHere && place?.method === 'device' && deviceMirrorsDesign(launch, place) && (
-          <div className="weather-note" role="status">
+        <p className={locateNote ? 'weather-small' : 'sr-only'} role="status">{locateNote}</p>
+        <div role="status">{locatedHere && place?.method === 'device' && deviceMirrorsDesign(launch, place) && (
+          <div className="weather-note">
             You are at {place.latitudeDeg.toFixed(2)}, {place.longitudeDeg.toFixed(2)}; this design’s Longitude is{' '}
             {launch.longitudeDeg! > 0 ? '+' : ''}{launch.longitudeDeg} — the same number, {launch.longitudeDeg! < 0 ? 'west' : 'east'}.
             <div className="weather-actions">
@@ -456,8 +456,8 @@ export function WeatherDialog({
               })}>Use this design’s site, {launch.longitudeDeg! < 0 ? 'east' : 'west'}</button>
             </div>
           </div>
-        )}
-        {note && <p className="weather-note" role="status">{note}</p>}
+        )}</div>
+        <p className={note ? 'weather-note' : 'sr-only'} role="status">{note}</p>
 
         {places && (
           <ul className="weather-places" aria-label="Places found">
@@ -473,8 +473,8 @@ export function WeatherDialog({
           </ul>
         )}
 
-        {place && (
-          <div className="weather-when">
+        <div className={place ? 'weather-when' : 'sr-only'}>
+          {place && (<>
             <p className="weather-chosen">
               <strong>{weatherPlaceLabel(place)}</strong>
               {/* Typed and located places are labelled BY their coordinates already. */}
@@ -508,21 +508,19 @@ export function WeatherDialog({
                 </select>
               </label>
             )}
-            {dateNote && <p className="weather-note" role="status">{dateNote}</p>}
-          </div>
-        )}
+          </>)}
+          <p className={dateNote ? 'weather-note' : 'sr-only'} role="status">{dateNote}</p>
+        </div>
 
-        {busy !== null && (
-          <p className="weather-small" role="status">
-            {busy === 'locate' ? 'Waiting for your browser’s location…' : 'Asking Open-Meteo…'}
+          <p className={busy !== null ? 'weather-small' : 'sr-only'} role="status">
+            {busy === null ? '' : busy === 'locate' ? 'Waiting for your browser’s location…' : 'Asking Open-Meteo…'}
           </p>
-        )}
         {error && <p className="weather-error" role="alert">{error}</p>}
 
         {answer && hours.length === 0 && <p className="weather-note">{WEATHER_DIALOG_COPY.noHours}</p>}
 
-        {proposal && answer && place && (
-          <div className="weather-review">
+        <div className={proposal && answer && place ? 'weather-review' : 'sr-only'}>
+          {proposal && answer && place && (<>
             {/* Every label that names the source reads `source`: an ERA5 answer is
                 the weather as it was, and saying "forecast" over it is wrong. */}
             <h3>
@@ -577,9 +575,10 @@ export function WeatherDialog({
             </table>
 
             <WeatherSkyInfo sample={proposal.sample} distanceUnit={units.distance} altitudeUnit={units.altitude} />
-
-            {checkLongitude && (
-              <div className="weather-note" role="status">
+          </>)}
+        <div role="status" className={proposal && answer && place && checkLongitude ? undefined : 'sr-only'}>
+            {proposal && answer && place && checkLongitude && (
+              <div className="weather-note">
                 <strong>Check the longitude’s sign.</strong> Open-Meteo puts{' '}
                 {coordinatesLabel(place.latitudeDeg, place.longitudeDeg)} in {answer.timezone}, with the ground at{' '}
                 {alt(answer.demM!)}; your Site altitude is {alt(launch.launchAltitudeM)}.
@@ -602,6 +601,9 @@ export function WeatherDialog({
                 </div>
               </div>
             )}
+        </div>
+          {proposal && answer && place && (<>
+
             <div className="wind-profile">
               {proposal.windLevels.length ? <>
                 <label><input type="checkbox" aria-label="Apply Winds aloft"
@@ -643,8 +645,8 @@ export function WeatherDialog({
               )}
               <li>Density altitude {alt(densityAltitudeM(launch, atmosphereModel))} → {alt(densityAfter(launch, patch, atmosphereModel))}.</li>
             </ul>
-          </div>
-        )}
+          </>)}
+        </div>
 
         <div className="modal-actions weather-actions">
           <button type="button" className={tier('apply')} onClick={apply} disabled={!canApply}>Apply</button>

@@ -44,6 +44,7 @@ export interface DesignDirty {
   currentMark: string;
   /** Records that what is in the app right now is also what is on disk. */
   markSaved: (mark: string, flightsAtSnapshot?: number) => void;
+  invalidateSaved: () => void;
   /** Move a matching saved mark across a display migration, retaining flight/dirty flags. */
   migrateSavedMark: (before: DesignSnapshot, after: DesignSnapshot) => void;
   /** Capture beside a file snapshot, before awaiting its writer. */
@@ -188,6 +189,10 @@ export function useDesignDirty(
     flownSinceSave.current = flightCount.current !== flightsAtSnapshot;
     bumpDirty();
   }, []);
+  const invalidateSaved = useCallback(() => {
+    savedMark.current = null;
+    bumpDirty();
+  }, []);
   const migrateSavedMark = useCallback((before: DesignSnapshot, after: DesignSnapshot) => {
     const from = designFingerprint(before);
     const to = designFingerprint(after);
@@ -202,5 +207,5 @@ export function useDesignDirty(
     bumpDirty();
   }, []);
 
-  return { dirty, currentMark, markSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick };
+  return { dirty, currentMark, markSaved, invalidateSaved, migrateSavedMark, markFlown, savedMark, flownSinceSave, flightCount, dirtyTick };
 }

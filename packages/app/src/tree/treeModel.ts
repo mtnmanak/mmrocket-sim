@@ -529,7 +529,7 @@ export function applyStageNozzles(tree: RocketTree, nozzles: Record<string, numb
     const result = nodes.map((n) => {
       const children = n.children ? walk(n.children) : undefined;
       let next = children !== n.children ? { ...n, children } : n;
-      if ((n.type === 'stage' || n.type === 'parallelstage') && n.id && n.id in nozzles) {
+      if ((n.type === 'stage' || n.type === 'parallelstage') && n.id && Object.hasOwn(nozzles, n.id)) {
         const v = nozzles[n.id];
         const want = typeof v === 'number' && Number.isFinite(v) && v >= 0 ? v : undefined;
         if (n['nozzleExitDiameter'] !== want) {
@@ -747,7 +747,7 @@ export function motorisedStagesWithNozzle(
  * separated stage with a device that never opened from one with no device at
  * all (K3, board Tier 2): both fly no deployment.
  */
-export function stagesWithRecoveryDevice(tree: RocketTree): string[] {
+export function stagesWithRecoveryDevice(tree: RocketTree, byId = false): string[] {
   const stageOf = kernelStageIdByNode(tree);
   const owners = new Set<string>();
   // Branches are matched by NAME, so a name is reported only when EVERY stage
@@ -768,6 +768,7 @@ export function stagesWithRecoveryDevice(tree: RocketTree): string[] {
     }
   };
   walk(tree.components, true);
+  if (byId) return [...owners];
   walk(tree.components, false);
   return [...byName].filter(([, all]) => all).map(([name]) => name);
 }

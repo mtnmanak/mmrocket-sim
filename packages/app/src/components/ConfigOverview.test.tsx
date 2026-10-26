@@ -12,6 +12,18 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const noop = () => {};
+it.each(['toString', 'constructor', '__proto__'])('ignores inherited entries for component id %s', id => {
+  const host = document.createElement('div'), root = createRoot(host);
+  const ownTree: FlightTree = { components: [{ type: 'stage', children: [
+    { type: 'bodytube', id, motorMount: true }, { type: 'parachute', id: `${id}-chute` },
+  ] }] };
+  try {
+    act(() => root.render(<ConfigOverview tree={ownTree} configs={[{ id: 'a', name: 'A', isDefault: true, motors: {} }]}
+      activeConfigId="a" onApply={noop} onShowPart={noop} />));
+    expect(host.querySelector('tbody td')!.textContent).toBe('No motor');
+    expect(host.querySelector('tbody')!.textContent).not.toContain('override');
+  } finally { act(() => root.unmount()); }
+});
 /** CFG-2 replaced CFG-1's read-only summaries with the scoped editors; the destinations are the same rows. */
 function PartRows({ tree, overrides }: { tree: FlightTree; overrides: FlightOverrides }) {
   return <ConfigPartEditors tree={tree} overrides={overrides} ownerKey="a" configLabel="Flight A" detached={false}

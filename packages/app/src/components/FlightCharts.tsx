@@ -1,4 +1,5 @@
 import { Note } from './Note.js';
+import { describeRunChanges } from '../services/simReport.js';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import 'uplot/dist/uPlot.min.css';
@@ -235,7 +236,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
    * re-fly restores from the run itself, so a model switch is a labelling
    * matter and not a reason to refuse.
    */
-  staleReason?: string | null;
+  staleReason?: string | readonly string[] | null;
   /**
    * A Launch is flying the engine handle the downloads re-fly on. They wait
    * for it: a Launch yields between its auto-delay probes, and a re-fly in one
@@ -258,6 +259,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   const [selectedEvents, setSelectedEvents] = useState<string[]>(DEFAULT_PLOT_EVENTS);
   const [fullRecording, setFullRecording] = useState<{ original: FlightResult; full: FlightResult } | null>(null);
   const [plotError, setPlotError] = useState<string | null>(null);
+  const [comparisonNote, setComparisonNote] = useState('');
   const recording = fullRecording?.original === result ? fullRecording.full : result;
   const [zoomed, setZoomed] = useState(false);
   const [zoomPct, setZoomPct] = useState(100);
@@ -380,7 +382,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
                 export-failure line below does. */}
             <span className="download-caption" id="flight-data-stale" role="status">
               {staleReason
-                ? `Not available — ${staleReason} changed since this flight. Press Launch to fly the current design, then export.`
+                ? `Not available — ${describeRunChanges(typeof staleReason === 'string' ? [staleReason] : staleReason, 'since this flight')}. Press Launch to fly the current design, then export.`
                 : flightRunning
                   ? 'Not available while a flight is running.'
                   : exportLayout ? `Download this flight using “${exportLayout.name}”:` : 'Download this flight, every timestep:'}
@@ -388,7 +390,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
             <button className="file-btn" disabled={exportBusy !== null || !!staleReason || !!flightRunning}
               aria-describedby={staleReason || flightRunning ? 'flight-data-stale' : undefined}
               title={staleReason
-                ? `Unavailable: ${staleReason} changed since this flight was flown. These files are produced by re-flying the design as it stands now, so this one would describe a different rocket from the plots above it. Press Launch to fly the current design.`
+                ? `Unavailable: ${describeRunChanges(typeof staleReason === 'string' ? [staleReason] : staleReason, 'since this flight was flown')}. These files are produced by re-flying the design as it stands now, so this one would describe a different rocket from the plots above it. Press Launch to fly the current design.`
                 : exportLayout ? 'Re-flies the shown flight, then exports the saved columns, order, units and event interval for each branch.'
                   : 'Re-flies the shown flight to capture every series the physics kernel records (deterministic — the same flight, more columns), one row per timestep, in your preferred units (each header names its unit; thrust and drag stay in newtons). Booster stages append as name-prefixed column groups. Not stored with run history.'}
               onClick={() => exportFlightData('csv')}>
@@ -397,7 +399,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
             <button className="file-btn" disabled={exportBusy !== null || !!staleReason || !!flightRunning}
               aria-describedby={staleReason || flightRunning ? 'flight-data-stale' : undefined}
               title={staleReason
-                ? `Unavailable: ${staleReason} changed since this flight was flown. These files are produced by re-flying the design as it stands now, so this one would describe a different rocket from the plots above it. Press Launch to fly the current design.`
+                ? `Unavailable: ${describeRunChanges(typeof staleReason === 'string' ? [staleReason] : staleReason, 'since this flight was flown')}. These files are produced by re-flying the design as it stands now, so this one would describe a different rocket from the plots above it. Press Launch to fly the current design.`
                 : exportLayout ? 'The saved export layout as numeric cells, with a chart per selected quantity when Time and at least two samples are included. Each branch has its own data sheet.'
                   : 'Excel workbook of the same flight data: typed numeric cells under unit-labelled headers, plus a live Excel chart tab for every exported column — the headline quantities one per tab, the coefficient and rate families grouped — referencing the data sheet. Booster stages get their own data sheets and their own chart tabs.'}
               onClick={() => exportFlightData('xlsx')}>
@@ -540,7 +542,9 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           </span>
         </div>
       )}
+      <div className="sr-only" role="status">{comparisonNote}</div>
       {preset && <ComparisonChart key={`${panelKey}-${preset.id}-${preset.x}-${preset.left.join(',')}`} series={shown.series} preset={preset}
+        onStatus={setComparisonNote}
         emphasis={emphasis}
         flightName={plotIdentity} catalog={plotCatalog} plots={plotsRef.current}
         events={shown.events} selectedEvents={selectedEvents}

@@ -10,6 +10,7 @@ import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
 import { defaultTree, motorMounts } from '../tree/treeModel.js';
 import type { MountMotor } from '../model/design.js';
 import { importedSummaryRuns } from './orkFlightData.js';
+import { importOrk } from './orkFile.js';
 
 const tree: RocketTree = { name: 'Current <script>rocket</script>', components: [
   { type: 'stage', id: 'stage', children: [{ type: 'bodytube', id: 'tube', name: 'Tube', length: 0.254, outerRadius: 0.0254, materialName: 'Paper' }] },
@@ -26,6 +27,26 @@ const run = { id: 'selected', rocket: 'Earlier design', motor: 'F40', manufactur
 const input = { tree, info, units: IMPERIAL_UNITS, radiusMode: 'diameter' as const,
   stabilityUnit: 'both' as const, withMotors: true, appVersion: 'test', run, changedSince: ['the design'], };
 function doc(html: string) { return new DOMParser().parseFromString(html, 'text/html').body; }
+it.each(['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'] as const)('prints the fillet material pair for %s', type => {
+  const tree: RocketTree = { components: [{ type: 'stage', children: [
+    { type, materialName: 'Balsa', filletRadius: 0.003, filletMaterialName: 'Epoxy', filletDensity: 1100 },
+  ] }] };
+  const d = doc(designPrintHtml({ ...input, tree, units: INITIAL_UNITS }));
+  expect(d.querySelector('tbody td:nth-child(2)')!.textContent).toContain('Fillet material: Epoxy');
+  expect(d.querySelector('tbody td:nth-child(2)')!.textContent).toContain('Fillet material density (kg/m³): 1100');
+});
+it('omits unused fillet materials from an imported freeform fin build sheet', () => {
+  const { tree } = importOrk(`<openrocket version="1.10"><rocket><subcomponents><stage><subcomponents>
+    <bodytube><length>0.3</length><radius>0.02</radius><thickness>0.001</thickness><subcomponents>
+    <freeformfinset><name>Freeform</name><fincount>3</fincount><crosssection>rounded</crosssection>
+    <filletradius>0</filletradius><filletmaterial type="bulk" density="680">Cardboard</filletmaterial>
+    <finpoints><point x="0" y="0"/><point x="0.02" y="0.03"/><point x="0.06" y="0"/></finpoints>
+    </freeformfinset></subcomponents></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`);
+  const fin = tree.components[0]!.children![0]!.children![0]!;
+  expect(fin.filletMaterialName).toBe('Cardboard');
+  expect(fin.filletRadius ?? 0).toBe(0);
+  expect(doc(designPrintHtml({ ...input, tree })).textContent).not.toContain('Fillet material');
+});
 it.each([
   [INITIAL_UNITS, 'Material density (kg/m³): 680'],
   [{ ...INITIAL_UNITS, density: 'g/cm³' }, 'Material density (g/cm³): 0.68'],

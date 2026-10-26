@@ -82,6 +82,14 @@ function render(opts: { launch?: LaunchConditions; route?: Route; geolocation?: 
 const settle = async () => {
   for (let i = 0; i < 8; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 };
+it('keeps the location outcome in an established status region', async () => {
+  render({ geolocation: null });
+  const regions = new Set(host.querySelectorAll('[role="status"]'));
+  await act(async () => { [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Use my location'))!.click(); });
+  const note = [...host.querySelectorAll('[role="status"]')].find(el => el.textContent?.includes('location') && el.textContent.trim());
+  expect(note).toBeDefined();
+  expect(regions.has(note!)).toBe(true);
+});
 const q = <T extends Element>(sel: string) => host.querySelector<T>(sel);
 const button = (text: string | RegExp) => [...host.querySelectorAll('button')]
   .find((b) => (typeof text === 'string' ? b.textContent?.trim() === text : text.test(b.textContent ?? '')));
@@ -197,6 +205,18 @@ describe('device compared with the design site', () => {
 });
 
 describe('the design-site longitude check', () => {
+  it('announces the longitude check in a region established before the fetch', async () => {
+    vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(240);
+    render({ launch: LEM_SITE, route: LEM_WEATHER });
+    const regions = new Set(host.querySelectorAll('[role="status"]'));
+    await click(button(/^This design’s site/));
+    typeInto(q('input[type="date"]'), '2026-09-26');
+    await click(button('Fetch'));
+    const warning = [...host.querySelectorAll('strong')].find(el => el.textContent === 'Check the longitude’s sign.')!;
+    expect(warning).toBeDefined();
+    expect(warning.closest('.weather-review')).not.toBeNull();
+    expect(regions.has(warning.closest('[role="status"]')!)).toBe(true);
+  });
   it('uses only the chosen site’s existing fetch and shows hemispheres in the review', async () => {
     await reviewLem();
     expect(host.textContent).toContain('Check the longitude’s sign.');
@@ -777,11 +797,14 @@ describe('the weather dialog', () => {
 
   it('refuses a date more than 15 days ahead before any request', async () => {
     render();
+    const regions = new Set(host.querySelectorAll('[role="status"]'));
     typeInto(q('input[aria-label="Place"]'), '40.87, -119.06');
     await click(button('Search'));
     typeInto(q('input[type="date"]'), '2026-10-08');
     await click(button('Fetch'));
     expect(q('.weather-note')!.textContent).toBe('Open-Meteo forecasts 16 days ahead at most.');
+    expect(q('.weather-note')!.closest('.weather-when')).not.toBeNull();
+    expect(regions.has(q('.weather-note')!.closest('[role="status"]')!)).toBe(true);
     expect(urls).toEqual([]);
   });
 

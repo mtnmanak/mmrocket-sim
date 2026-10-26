@@ -856,6 +856,9 @@ describe('isBlackPowder', () => {
 });
 
 describe('motorLabel', () => {
+  it.each([undefined, null, NaN, -Infinity, '5', {}])('does not invent a plugged motor for an invalid delay %j', delay => {
+    expect(motorLabel({ designation: 'H123' }, delay as number)).toBe('H123 (unknown delay)');
+  });
   it.each([
     ['176H123-12A', '176H123-9'],
     ['232H123-14A', '232H123-9'],

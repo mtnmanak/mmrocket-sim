@@ -274,9 +274,9 @@ export function AftView({ tree, motors, hiddenIds, roll: rollProp, onRoll }: {
           "north east and south west arrow button". TreeSchematic's copies of
           the identical pair have carried aria-label since they were written. */}
       <div className="schematic-controls">
-        <button title="Zoom in" aria-label="Zoom in" onClick={() => zoomBy(1.5)}>+</button>
-        <button title="Zoom out" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.5)}>−</button>
-        <button title="Fit" aria-label="Fit the whole cross-section in view"
+        <button className="file-btn" title="Zoom in" aria-label="Zoom in" onClick={() => zoomBy(1.5)}>+</button>
+        <button className="file-btn" title="Zoom out" aria-label="Zoom out" onClick={() => zoomBy(1 / 1.5)}>−</button>
+        <button className="file-btn" title="Fit" aria-label="Fit the whole cross-section in view"
           onClick={() => setZoom({ k: 1, x: 0, y: 0 })}>⤢</button>
       </div>
     </div>

@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   flushSession,
+  discardSession,
   loadSession,
   peekSession,
   onSessionSaveStateChange,
@@ -41,11 +42,135 @@ const state = () => ({
   } as LaunchConditions,
 });
 
+describe('closure lane persisted records', () => {
+  beforeEach(() => discardSession());
+  it.each([7, {}, { toString: 0 }] as unknown[])('repairs unreadable rocket and part names on restore: %j', name => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(),
+      tree: { name, components: [{ type: 'stage', name, id: 's' }] } }));
+    const restored = designStateFromSession(loadSession(), { legacyMaxMotorLengthM: null });
+    expect(typeof restored.state.tree.name).toBe('string');
+    expect(restored.state.tree.components[0]?.name).not.toEqual(name);
+    expect(restored.restoreNotes.join(' ')).toContain('name');
+    expect(restored.restoreNoteTiers.some(n => n.tier === 'caution')).toBe(true);
+  });
+  it.each([{ name: 7 }, { name: {} }, { name: 'Good', motorLoadoutRefusal: {} }])('removes unreadable configuration text: %j', fields => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), activeConfigId: 'c',
+      savedConfigs: [{ id: 'c', motors: {}, ...fields }] }));
+    const loaded = loadSession()!;
+    expect(loaded.savedConfigs).toEqual([]);
+    expect(loaded.treeRestoreNotes?.join(' ')).toContain('configurations were removed');
+    expect(() => designStateFromSession(loaded, { legacyMaxMotorLengthM: null })).not.toThrow();
+  });
+  it.each([[null], {}, [{ name: 'Bad', configId: 7, data: {} }]])('removes unreadable imported summary records: %j', storedSimulations => {
+    const good = { name: 'Good', configId: null, data: { maxAltitude: 100 } };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(),
+      importedDocument: { name: 'Imported', storedSimulations: Array.isArray(storedSimulations) ? [...storedSimulations, good] : storedSimulations } }));
+    const loaded = loadSession()!;
+    expect(loaded.importedDocument?.storedSimulations).toEqual(Array.isArray(storedSimulations) ? [good] : []);
+    expect(loaded.treeRestoreNotes?.join(' ')).toContain('simulation');
+  });
+  it.each([{ massKg: '0x10', cgM: 0.5 }, {}, { massKg: true, cgM: {} }])('repairs unreadable measured figures: %j', measured => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), measured }));
+    const loaded = loadSession()!;
+    expect(loaded.measured).toEqual({ massKg: null, cgM: measured.cgM === 0.5 ? 0.5 : null });
+    expect(loaded.treeRestoreNotes?.join(' ')).toContain('measurement');
+  });
+  it.each(['motorId', 'exMotorId', 'designation'])('removes unreadable legacy inline motor %s', key => {
+    const motor = { designation: 'C6', ejectionDelay: 5, ...(key === 'designation' ? { designation: 7 } : {}) };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), motor, motorMeta: { [key]: 7 } }));
+    const loaded = loadSession()!;
+    expect(loaded.motor).toBeUndefined();
+    expect(loaded.treeRestoreNotes?.join(' ')).toContain('motor records were removed');
+    expect(() => designStateFromSession(loaded, { legacyMaxMotorLengthM: null })).not.toThrow();
+  });
+  it('revives writer-encoded plugged delay options in both motor sets', () => {
+    const motor = { label: 'Test', spec: { designation: 'Test', ejectionDelay: 'Infinity' },
+      meta: { availableDelays: [3, 'Infinity'] } };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: motor },
+      savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] }));
+    const loaded = loadSession()!;
+    expect(loaded.mountMotors?.m?.meta.availableDelays).toEqual([3, Infinity]);
+    expect(loaded.savedConfigs![0]!.motors.m?.meta.availableDelays).toEqual([3, Infinity]);
+  });
+  it.each([
+    ['availableDelays', '3,5'], ['availableDelays', 5], ['availableDelays', [3, '5']],
+    ['availableDelays', [null]], ['orkType', 5], ['orkManufacturer', {}], ['orkDigest', true],
+  ])('removes unreadable motor metadata %s=%j in both sets', (key, value) => {
+    const motor = { label: 'Test', spec: { designation: 'Test', ejectionDelay: 5 }, meta: { [key as string]: value } };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: motor },
+      savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] }));
+    const loaded = loadSession()!;
+    expect(loaded.mountMotors).toEqual({});
+    expect(loaded.savedConfigs![0]!.motors).toEqual({});
+    expect(loaded.treeRestoreNotes?.join(' ')).toContain('motor records were removed');
+  });
+  it.each([
+    { type: 'freeformfinset', points: [[0, 0], [0.05, '0.02'], [0.1, 0]] },
+    { type: 7 },
+    { type: 'bodytube', length: -1 },
+  ])('offers exact raw recovery bytes after tree normalization repairs %j', part => {
+    const raw = JSON.stringify({ ...state(), tree: { name: 'Repair', components: [
+      { type: 'stage', id: 's', children: [{ type: 'bodytube', id: 'b', length: 0.2, children: [part] }] },
+    ] } });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    const recovered = autosavedDesignFile()!;
+    expect(recovered.ork).toBe(false);
+    expect(recovered.data).toBe(raw);
+  });
+  it('preserves finite signed imported unmatched references in both sets', () => {
+    const ref = { designation: 'Missing', diameter: -0.02, length: -0.1, ignitionDelay: -1 };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), configLayers: 1,
+      unmatchedRefs: { m: ref }, savedConfigs: [{ id: 'c', name: 'C', motors: {}, unmatchedRefs: { m: ref } }] }));
+    const loaded = loadSession()!;
+    expect(loaded.unmatchedRefs?.m).toEqual(ref);
+    expect(loaded.savedConfigs?.[0]?.unmatchedRefs?.m).toEqual(ref);
+    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+  });
+  it('revives plugged unmatched references in the working and saved configurations', () => {
+    const ref = { designation: 'Missing', delay: 'Infinity' };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), configLayers: 1,
+      unmatchedRefs: { m: ref }, savedConfigs: [{ id: 'c', name: 'C', motors: {}, unmatchedRefs: { m: ref } }] }));
+    const loaded = loadSession()!;
+    expect(loaded.unmatchedRefs?.m?.delay).toBe(Infinity);
+    expect(loaded.savedConfigs?.[0]?.unmatchedRefs?.m?.delay).toBe(Infinity);
+  });
+  it.each(['motorId', 'exMotorId', 'designation'])('removes unreadable motor %s scalars in both sets', key => {
+    const motor = { label: 'Test', spec: { designation: 'Test', ejectionDelay: 5 }, meta: {}, ignition: { event: 'automatic', delay: 0 } };
+    Object.assign(key === 'designation' ? motor.spec : motor.meta, { [key]: 7 });
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: motor },
+      savedConfigs: [{ id: 'c', name: 'C', motors: { m: motor } }] }));
+    const loaded = loadSession()!;
+    expect(loaded.mountMotors).toEqual({});
+    expect(loaded.savedConfigs![0]!.motors).toEqual({});
+    expect(loaded.treeRestoreNotes?.join(' ')).toMatch(/motor records were removed/);
+  });
+  it.each([undefined, 1])('removes malformed references before migration (layers %s)', configLayers => {
+    const ref = { designation: 'Missing', manufacturer: 'Other', diameter: 0.02, length: 0.1, delay: 5 };
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), configLayers,
+      unmatchedRefs: { null: null, bad: { ...ref, ignitionDelay: 'abc' }, good: ref },
+      savedConfigs: [{ id: 'c', name: 'C', motors: {}, unmatchedRefs: { bad: null, good: ref } }] }));
+    const loaded = loadSession()!;
+    expect(Object.keys(loaded.unmatchedRefs!)).toEqual(['good']);
+    expect(Object.keys(loaded.savedConfigs![0]!.unmatchedRefs!)).toEqual(['good']);
+    expect(loaded.treeRestoreNotes?.join(' ')).toMatch(/motor references were removed/);
+    expect(() => designStateFromSession(loaded, { legacyMaxMotorLengthM: null })).not.toThrow();
+  });
+  it.each(['motor', 'configuration'])('offers raw recovery bytes when the loader removed a %s', kind => {
+    const raw = JSON.stringify({ ...state(), mountMotors: kind === 'motor' ? {
+      m: { label: 'C6', spec: { designation: 'C6' }, meta: {}, padMassWeighedWith: true },
+    } : {}, savedConfigs: kind === 'configuration' ? [{ id: 'c', motors: {}, nozzles: [] }] : [] });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    const recovery = autosavedDesignFile()!;
+    expect(recovery.ork).toBe(false);
+    expect(recovery.data).toBe(raw);
+  });
+});
+
 it('bounds saved and restored session warnings', () => {
   localStorage.clear();
   const warnings = Array.from({ length: MAX_STORED_WARNINGS + 1 }, () => ({ key: 'Joint', message: 'Gap' }));
   const abort = { key: 'SIM_ABORT', message: 'Stopped', priority: 'HIGH' as const };
-  const snapshot = { ...state(), importedDocument: { storedSimulations: [{ data: { simWarnings: [...warnings, abort] } }] } };
+  const snapshot = { ...state(), importedDocument: { name: 'Imported', storedSimulations: [{ name: 'Flight', configId: null, data: { simWarnings: [...warnings, abort] } }] } };
   // The warning reviver covers stored summaries anywhere in the session.
   saveSessionDebounced(snapshot as unknown as Parameters<typeof saveSessionDebounced>[0]);
   flushSession();
@@ -432,12 +557,12 @@ describe('storage hardening: session tree', () => {
     expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
   });
 
-  it('keeps an ork recovery download available for previously exportable fin points', () => {
+  it('keeps raw recovery bytes when an exportable fin outline would be replaced', () => {
     const raw = JSON.stringify({ ...state(), tree: { components: [{ ...stage, children: [
       { type: 'freeformfinset', points: [[0, null]] },
     ] }] } });
     localStorage.setItem('online-openrocket.session.v1', raw);
-    expect(autosavedDesignFile()).toMatchObject({ extension: '.ork', ork: true });
+    expect(autosavedDesignFile()).toMatchObject({ extension: '.json', ork: false, data: raw });
     expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
   });
 

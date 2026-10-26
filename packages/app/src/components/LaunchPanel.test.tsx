@@ -24,6 +24,16 @@ it('CFG-1 labels launch conditions as shared by every configuration below the he
   expect(heading.textContent).toBe('Launch conditions');
   expect(heading.parentElement!.nextElementSibling!.textContent).toBe('Shared by every flight configuration.');
 });
+it('updates existing status regions when the time step and pressure need cautions', () => {
+  render();
+  const regions = new Set(host.querySelectorAll('[role="status"]'));
+  act(() => root.render(<PrefsProvider><LaunchPanel value={{ ...DEFAULT_CONDITIONS, timeStepS: 0.01,
+    pressureHPa: 1013.25, launchAltitudeM: 2000 }} onChange={() => {}} onLaunch={() => {}} simulating={false} canLaunch /></PrefsProvider>));
+  for (const note of host.querySelectorAll('.field-caution')) {
+    expect(regions.has(note.closest('[role="status"]')!)).toBe(true);
+  }
+  expect(host.querySelectorAll('.field-caution')).toHaveLength(2);
+});
 
 beforeEach(() => {
   host = document.createElement('div');
@@ -927,7 +937,7 @@ describe('the longitude field', () => {
 
   it('sits beside Latitude in the two-column grid', () => {
     renderConditions({});
-    const cells = [...host.querySelectorAll('.field-grid > *')];
+    const cells = [...host.querySelectorAll<HTMLElement>('.field-grid > *')].filter(c => c.style.position !== 'absolute');
     const at = (label: string) => cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith(label));
     const lat = at('Latitude');
     expect(lat % 2, 'Latitude opens a row').toBe(0);
@@ -1212,7 +1222,7 @@ describe('applied weather in the Launch panel', () => {
   // index) for the chip to start a clean row — a mechanism, not a warning.
   it('offers σ from the forecast gust in a full-width row right after σ, and writes it only on a click', () => {
     renderWeather(APPLIED, SNAP);
-    const cells = [...host.querySelectorAll('.field-grid > *')];
+    const cells = [...host.querySelectorAll<HTMLElement>('.field-grid > *')].filter(c => c.style.position !== 'absolute');
     const sigma = cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith('Wind gusts σ'));
     expect(sigma % 2, 'σ is the right-hand cell').toBe(1);
     const chip = cells[sigma + 1]!;
@@ -1250,7 +1260,7 @@ describe('applied weather in the Launch panel', () => {
 
   it('keeps σ a right-hand cell with no forecast too, and shows no chip then', () => {
     renderWeather(DEFAULT_CONDITIONS, null);
-    const cells = [...host.querySelectorAll('.field-grid > *')];
+    const cells = [...host.querySelectorAll<HTMLElement>('.field-grid > *')].filter(c => c.style.position !== 'absolute');
     const sigma = cells.findIndex((c) => (c.querySelector('label')?.textContent ?? '').startsWith('Wind gusts σ'));
     expect(sigma % 2).toBe(1);
     expect(host.querySelector('.gust-estimate')).toBeNull();
@@ -1372,7 +1382,7 @@ describe('the rod-aim field', () => {
    */
   it('lays the panel out in the two-column order, with σ in the right-hand cell', () => {
     renderConditions({});
-    const cells = [...host.querySelectorAll('.field-grid > *')];
+    const cells = [...host.querySelectorAll<HTMLElement>('.field-grid > *')].filter(c => c.style.position !== 'absolute');
     const order = ['Rod angle', 'Rod aim', 'Wind avg', 'Wind gusts σ', 'Rod length', 'Site altitude',
       'Temperature', 'Station pressure', 'Density altitude', 'Time step', 'Latitude', 'Longitude',
       'Geodetic calculations'];

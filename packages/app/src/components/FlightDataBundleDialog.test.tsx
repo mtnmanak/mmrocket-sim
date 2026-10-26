@@ -26,6 +26,19 @@ const fill = (input: HTMLInputElement, value: string) => act(() => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
 });
+it('updates an established status region while reading an attachment', async () => {
+  act(() => root.render(<FlightDataBundleDialog source={source()} onClose={() => {}} />));
+  const regions = new Set(host.querySelectorAll('[role="status"]'));
+  const file = new File(['test'], 'log.csv');
+  let release!: (v: ArrayBuffer) => void;
+  Object.defineProperty(file, 'arrayBuffer', { value: () => new Promise<ArrayBuffer>(resolve => { release = resolve; }) });
+  const input = host.querySelector<HTMLInputElement>('input[type=file]')!;
+  Object.defineProperty(input, 'files', { value: [file], configurable: true });
+  await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
+  const reading = [...host.querySelectorAll('[role="status"]')].find(el => el.textContent?.includes('Reading'))!;
+  expect(regions.has(reading)).toBe(true);
+  await act(async () => { release(new ArrayBuffer(0)); });
+});
 
 it.each(['run', 'summary', 'design'] as const)('credits profile-only weather in the %s with place credit governed by consent', location => {
   const x = source();

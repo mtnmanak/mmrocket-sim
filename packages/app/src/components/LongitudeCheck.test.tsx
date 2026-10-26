@@ -36,6 +36,23 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe('Launch panel file longitude row', () => {
+  it('keeps a silent status owner before opening and through edits away and back', () => {
+    review = null;
+    render();
+    const regions = new Set(host.querySelectorAll('[role="status"]'));
+    review = { evidence, applied: false };
+    render();
+    const status = [...host.querySelectorAll('[role="status"]')].find(el => el.textContent?.includes('this file'))!;
+    expect(regions.has(status)).toBe(true);
+    value = { ...value, longitudeDeg: 79 };
+    render();
+    expect(status.isConnected).toBe(true);
+    expect(status.textContent).toBe('');
+    value = { ...value, ...evidence.opened };
+    render();
+    expect(status.textContent).toContain('this file');
+    expect(status.isConnected).toBe(true);
+  });
   it('makes no write on render and does not ask again after Keep and re-render', () => {
     render();
     expect(host.textContent).toContain('Longitude 80.126879° E — this file’s other simulations put the site 80.63° W.');

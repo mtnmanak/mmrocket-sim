@@ -5,6 +5,7 @@ import { completedRecoveryEvents } from './recoveryMass.js';
 import type { DesignMatchKey, SimRun } from './simReport.js';
 import { testMotor, testResolution } from './autoDelay.testSupport.js';
 import { delayMountsOf } from './autoDelaySolver.js';
+import { DEFAULT_CONDITIONS } from './launchConditions.js';
 const key: DesignMatchKey = { designKey: 'design', motorSetKey: 'motors', motorDataKey: 'curves',
   delayMounts: delayMountsOf([['m', testMotor()]]),
   conditionsKey: 'conditions', aeroMode: 'classic', effectiveKbf: false, autoSupersonic: false };
@@ -12,6 +13,21 @@ const run = (over: Partial<SimRun> = {}): SimRun => ({ ...key, id: 'r', when: 1,
   delayResolution: testResolution([['m', testMotor()]], [5]),
   recoveryEvents: [{ type: 'STAGE_SEPARATION', time: 3, sourceId: 'booster' }], ...over } as SimRun);
 describe('K1 matching recovery evidence', () => {
+  it.each([['0.178', false], ['0.179', true]] as const)('uses dated v6 recovery evidence from app %s', (appVersion, accepted) => {
+    const current = { ...key, effectiveKbf: true, physicsRevisions: ['transonic-ogive-aero-v6a'] };
+    const stored = run({ rogersKbf: true, physicsRevision: 'recovery-radial-mass-v6',
+      exportContext: { appVersion, launch: DEFAULT_CONDITIONS, weather: null } });
+    expect(matchingRecoveryEvents([stored], current, () => undefined)).toEqual(accepted ? stored.recoveryEvents : undefined);
+  });
+  it('refuses pre-transonic-change events even when atmosphere changes are exempt', () => {
+    const current = { ...key, effectiveKbf: true, physicsRevisions: ['transonic-ogive-aero-v6a'] };
+    const stored = run({ rogersKbf: true, physicsRevision: 'pods-only-base-drag-v5' });
+    expect(matchingRecoveryEvents([stored], current, () => undefined)).toBeUndefined();
+    const ambiguous = { ...stored, physicsRevision: 'recovery-radial-mass-v6' };
+    expect(matchingRecoveryEvents([ambiguous], current, () => undefined)).toBeUndefined();
+    const flown = { ...stored, physicsRevision: 'geopotential-isa-v7' };
+    expect(matchingRecoveryEvents([flown], current, () => undefined)).toEqual(flown.recoveryEvents);
+  });
   it.each([undefined, 'recovery-radial-mass-v6'])('retains atmosphere-only recovery evidence stamped %s', physicsRevision => {
     const current = { ...key, effectiveKbf: true, physicsRevisions: [] };
     const stored = run({ rogersKbf: true, physicsRevision,

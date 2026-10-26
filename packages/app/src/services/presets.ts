@@ -1,6 +1,6 @@
 import { cautionNote } from './importNotes.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
-import { csvCell } from './csvUtil.js';
+import { csvCell, unescapeCsvText } from './csvUtil.js';
 import { lookupTable, parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { blankValue } from '../tree/schema.js';
@@ -308,8 +308,12 @@ export function presetPatch(
    */
   options?: { saved?: boolean; notes?: string[] },
 ): Partial<ComponentNode> {
+  if (type === 'centeringring' && n(p, 'insideDiameter') !== undefined && n(p, 'outsideDiameter') !== undefined
+    && n(p, 'insideDiameter')! >= n(p, 'outsideDiameter')!) {
+    options?.notes?.push(`${p.manufacturer} ${p.partNo}: the catalogue's inside diameter is not smaller than its outside diameter. Both diameters were left unchanged; the catalogue part was not applied. Check the ring's fit before flying or cutting it.`);
+    return {};
+  }
   const patch: Partial<ComponentNode> = { name: `${p.manufacturer} ${p.partNo}` };
-  let ringRefused = false;
   const half = (v: number | undefined) => (v === undefined ? undefined : v / 2);
   const set = (key: string, v: unknown) => {
     if (v !== undefined && v !== null) (patch as Record<string, unknown>)[key] = v;
@@ -441,13 +445,8 @@ export function presetPatch(
     case 'centeringring':
     case 'bulkhead':
       set('length', n(p, 'length'));
-      if (type === 'centeringring' && inn !== undefined && out !== undefined && inn >= out) {
-        ringRefused = true;
-        options?.notes?.push(`${p.manufacturer} ${p.partNo}: the catalogue's inside diameter is not smaller than its outside diameter. Both diameters were left unchanged; check the ring's fit before flying or cutting it.`);
-      } else {
-        set('outerRadius', half(out));
-        if (type === 'centeringring') set('innerRadius', half(inn));
-      }
+      set('outerRadius', half(out));
+      if (type === 'centeringring') set('innerRadius', half(inn));
       break;
     case 'engineblock':
       set('length', n(p, 'length'));
@@ -573,7 +572,7 @@ export function presetPatch(
       if (Number.isFinite(outer) && Number.isFinite(inner) && (inner as number) >= (outer as number)) {
         delete fields['outerRadius'];
         delete fields['innerRadius'];
-        if (!ringRefused) options?.notes?.push(`${p.manufacturer} ${p.partNo}: the saved inside diameter is not smaller than its outside diameter. Both diameters were left unchanged; check the ring's fit before flying or cutting it.`);
+        options?.notes?.push(`${p.manufacturer} ${p.partNo}: the saved inside diameter is not smaller than its outside diameter. Both diameters were left unchanged; check the ring's fit before flying or cutting it.`);
       }
     }
     const surface = materialTypeFor(p.kind) === 'SURFACE';
@@ -711,7 +710,7 @@ export function csvToPresets(csv: string, notes: string[] = []): Preset[] {
       'materialName', 'lineMaterialName']);
     header.forEach((h, i) => {
       const c = cells[i] ?? '';
-      row[h] = c.startsWith("'") && (!textColumns.has(h) || /^'*[=+\-@\t\r]/.test(c.slice(1))) ? c.slice(1) : c;
+      row[h] = textColumns.has(h) ? unescapeCsvText(c) : c.startsWith("'") ? c.slice(1) : c;
     });
     for (const key of ['kind', 'partNo', 'manufacturer', 'materialName', 'materialType', 'materialDensity', 'lineMaterialName', 'lineMaterialDensity']) {
       row[key] = (row[key] ?? '').trim();
@@ -1312,6 +1311,7 @@ export function applyPresetLinks(
       continue;
     }
     const patch = presetPatch(node.type, p) as Record<string, unknown>;
+    if (Object.keys(patch).length === 0) continue;
     const filled = new Set<string>();
     // THE CANOPY PAIR IS EXEMPT FROM THE PER-KEY GATE BELOW.
     //

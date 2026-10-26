@@ -287,7 +287,8 @@ export function useTreeHistory<T = undefined>(initial: RocketTree, options: Tree
       // Trust Latin layout letters (QWERTZ/AZERTY); physical keys are only
       // a fallback for other layouts, including combining marks.
       const key = /^[a-z]$/i.test(e.key) ? e.key.toLowerCase()
-        : e.code.replace(/^Key/, '').toLowerCase();
+        : /^(?:\p{L}\p{M}*|\p{M}+)$/u.test(e.key) || e.key === 'Dead' || e.key === 'Unidentified'
+          ? e.code.replace(/^Key/, '').toLowerCase() : '';
       const z = key === 'z';
       const y = key === 'y';
       if (!(e.ctrlKey || e.metaKey) || !(z || y)) return;

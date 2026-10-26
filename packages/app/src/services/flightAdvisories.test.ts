@@ -10,6 +10,11 @@ const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
 ] }] };
 
 describe('zero-delay advice at selection (N003)', () => {
+  it('does not claim an infinite deployment delay is readable', () => {
+    const invalid = structuredClone(tree);
+    invalid.components[0]!.children![1]!.deployDelay = Infinity;
+    expect(zeroDelayRecoveryAdvice(invalid, 'mount', 0)).not.toContain('Infinity');
+  });
   it('names recovery in the same assembly and the burnout consequence', () => {
     expect(zeroDelayRecoveryAdvice(tree, 'mount', 0)).toContain('Main');
     expect(zeroDelayRecoveryAdvice(tree, 'mount', 0)).toContain('burnout');

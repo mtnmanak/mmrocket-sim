@@ -9,14 +9,16 @@ export interface LongitudeReview { evidence: FileLongitudeCheck; applied: boolea
 export function LongitudeCheck({ value, onChange, review, onReview }: {
   value: LaunchConditions;
   onChange: (value: LaunchConditions) => void;
-  review: LongitudeReview;
-  onReview: (review: LongitudeReview | null) => void;
+  review?: LongitudeReview | null;
+  onReview?: (review: LongitudeReview | null) => void;
 }) {
   const lineId = useId();
+  const silent = <div className="sr-only" style={{ position: 'absolute' }}><span id={lineId} role="status" /></div>;
+  if (!review || !onReview) return silent;
   const { evidence, applied } = review;
   const original = evidence.opened.longitudeDeg;
   const flipped = -original;
-  if (value.longitudeDeg !== (applied ? flipped : original)) return null;
+  if (value.longitudeDeg !== (applied ? flipped : original)) return silent;
   const side = original < 0 ? 'west' : 'east';
   // A full-precision label, using the same hemisphere helper as the fields.
   const label = (n: number) => coordinateLabel(n, 'longitude', (String(n).split('.')[1] ?? '').length);

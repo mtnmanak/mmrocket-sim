@@ -455,9 +455,9 @@ const TUBE_PARENTS = new Set(['bodytube', 'tubecoupler', 'innertube']);
 export function previewMounts(
   tree: RocketTree, factor: number, opts: ScaleOptions = {},
 ): MountPreview[] {
-  const assigned = opts.assignedMotorDiameters ?? {};
+  const assigned = lookupTable(opts.assignedMotorDiameters ?? {});
   const snapMounts = opts.snapMounts ?? false;
-  const choices = opts.mountChoices ?? {};
+  const choices = lookupTable(opts.mountChoices ?? {});
   const targetBore = (m: ComponentNode, scaledBoreMm: number): number | null => {
     if (m.type !== 'innertube') return null;
     const nearest = nearestCommonClass(scaledBoreMm);

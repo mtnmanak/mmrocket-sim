@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Component, useState, type ErrorInfo, type ReactNode } from 'react';
 
 /**
  * Whether an error is a lazy chunk that could not be DOWNLOADED, in each
@@ -58,8 +58,14 @@ export function isChunkLoadError(err: unknown): boolean {
  * That is why there is no reset key — one would be dead code. (Re-arming does
  * not help a failed download, for the React.lazy reason above.)
  */
-export class View3DBoundary extends Component<
-  { children: ReactNode; onBack: () => void },
+export function View3DBoundary(props: { children: ReactNode; onBack: () => void }) {
+  const [announcement, setAnnouncement] = useState('');
+  return <><div className="sr-only" role="status">{announcement}</div>
+    <View3DErrorBoundary {...props} onFailure={setAnnouncement} /></>;
+}
+
+class View3DErrorBoundary extends Component<
+  { children: ReactNode; onBack: () => void; onFailure: (text: string) => void },
   { failed: boolean; detail: string; download: boolean }
 > {
   override state = { failed: false, detail: '', download: false };
@@ -73,6 +79,7 @@ export class View3DBoundary extends Component<
   }
 
   override componentDidCatch(err: Error, info: ErrorInfo) {
+    this.props.onFailure(this.state.download ? 'The 3D view could not be downloaded.' : 'The 3D view could not start.');
     // Logged, not swallowed the way the nav band's is: this is a panel the
     // user asked for, and the message is the first thing a bug report needs.
     console.error('3D view failed to start:', err, info.componentStack);
@@ -81,7 +88,7 @@ export class View3DBoundary extends Component<
   override render() {
     if (!this.state.failed) return this.props.children;
     return (
-      <div className="hero-fallback" role="status">
+      <div className="hero-fallback">
         {this.state.download ? (
           <>
             <p>

@@ -15,7 +15,7 @@ import type { StageMassOverride } from './services/stageMassOverrides.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
 import { autosavedDesignFile } from './services/autosaveBackup.js';
 import { loadCatalogueMotor, mountMotorFromDb } from './services/motorMatch.js';
-import { exToDbEntry, exToMotorSpec, type ExMotor } from './services/exMotors.js';
+import { exToDbEntry, exToMotorSpec, parseEng, type ExMotor } from './services/exMotors.js';
 import { exportOrk, importOrk, MAX_ORK_CONFIGURATIONS } from './services/orkFile.js';
 import { importRkt } from './services/rocksimFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
@@ -30,7 +30,7 @@ import * as windProfile from './services/windProfile.js';
 import { MOTOR_DB, setCatalogueOverlay } from './services/motorDb.js';
 import type { SimRun } from './services/simReport.js';
 import { decodeShareFragment, encodeShareFragment } from './services/shareLink.js';
-import { downloadImage } from './services/schematicExport.js';
+import { downloadImage, svgToImage } from './services/schematicExport.js';
 import { openPrintDocument } from './services/printDocument.js';
 import * as recentDesigns from './services/recentDesigns.js';
 import { sessionDebugLog } from './services/sessionDebugLog.js';
@@ -87,7 +87,7 @@ vi.mock('./services/motorMatch.js', async (importOriginal) => {
 });
 vi.mock('./services/schematicExport.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/schematicExport.js')>();
-  return { ...real, downloadImage: vi.fn(real.downloadImage) };
+  return { ...real, downloadImage: vi.fn(real.downloadImage), svgToImage: vi.fn(real.svgToImage) };
 });
 vi.mock('./services/shareLink.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('./services/shareLink.js')>();
@@ -136,6 +136,22 @@ async function mountApp(): Promise<HTMLElement> {
   await act(async () => { root.render(<PrefsProvider><App /></PrefsProvider>); });
   return host;
 }
+it('keeps an unreadable restored motor delay unknown in the motor card', async () => {
+  const tree = defaultTree();
+  const id = motorMounts(tree)[0]!.id!;
+  const db = MOTOR_DB.find(m => m.diameter === 18 && m.delays?.split(',').includes('5'))!;
+  const motor = (await loadCatalogueMotor(db.manufacturerAbbrev, db.designation, 5))!;
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [id]: {
+    ...motor, spec: { ...motor.spec, ejectionDelay: '5' },
+  } }, launch: DEFAULT_CONDITIONS, savedAt: Date.now() }));
+  const host = await mountApp();
+  await openTab(host, 'Motors & Configuration');
+  const plugged = [...host.querySelectorAll<HTMLInputElement>('input[type=checkbox]')]
+    .find(box => box.closest('label')?.textContent?.trim() === 'plugged')!;
+  expect(plugged).toBeDefined();
+  expect(plugged.checked).toBe(false);
+  expect(host.querySelector<HTMLInputElement>(`#ejection-delay-${id}`)?.placeholder).toBe('unknown');
+});
 
 async function unmountAll(): Promise<void> {
   // pagehide first: it is what flushes the debounced autosave on a real close.
@@ -255,6 +271,217 @@ const RKT = 'rocksimTestRocket1.rkt';
 const RKT_NAME = 'FooBar Test';
 
 describe('lane H regressions', () => {
+  it.each(['toString', 'constructor', '__proto__'])('does not invent a loaded or unresolved motor for mount %s', async id => {
+    const tree = defaultTree(); motorMounts(tree)[0]!.id = id;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+      appVersion: APP_VERSION, savedAt: Date.now(), configLayers: 1 }));
+    const host = await mountApp(); await openTab(host, 'Motors & Configuration');
+    expect(host.textContent).not.toContain('Something went wrong');
+    expect(host.querySelector(`#ignition-${id}`)).toBeNull();
+    expect(host.querySelector('.unmatched-pad-mass-status')?.textContent).toBe('');
+  }, 30000);
+  it.each(['toString', 'constructor', '__proto__'])('prints an empty reserved mount %s without an invented unresolved motor', async id => {
+    const tree = defaultTree(); motorMounts(tree)[0]!.id = id;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+      appVersion: APP_VERSION, savedAt: Date.now(), configLayers: 1 }));
+    const host = await mountApp();
+    await saveAs(host, 'Print design / flight report');
+    expect(vi.mocked(openPrintDocument)).toHaveBeenCalled();
+    expect(vi.mocked(openPrintDocument).mock.calls.at(-1)?.[0]).not.toContain('(unresolved; omitted from build)');
+  }, 30000);
+  it.each(['toString', 'constructor', '__proto__'])('keeps an own native ignition baseline when overriding mount %s', async id => {
+    const tree = defaultTree(); motorMounts(tree)[0]!.id = id;
+    const mm = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const motors = { [id]: mm };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: motors, launch: DEFAULT_CONDITIONS,
+      appVersion: APP_VERSION, savedAt: Date.now(), configLayers: 1, activeConfigId: 'a',
+      savedConfigs: [{ id: 'a', name: 'A', motors }, { id: 'b', name: 'B', motors }] }));
+    const host = await mountApp(); await openTab(host, 'Motors & Configuration');
+    const field = host.querySelector<HTMLSelectElement>(`#ignition-${id}`)!;
+    expect(field.value).toBe('automatic');
+    const scope = [...host.querySelectorAll('fieldset')].find(f => f.querySelector('legend')?.textContent === 'Ignition changes apply to')!;
+    const radio = scope.querySelectorAll<HTMLInputElement>('input')[1]!;
+    await act(async () => { radio.click(); });
+    await act(async () => { field.value = 'launch'; field.dispatchEvent(new Event('change', { bubbles: true })); });
+    await waitFor(() => storedSession()?.tree.ignitionDefaults?.[id]?.event === 'automatic', 'native ignition saved');
+    expect(storedSession()?.tree.ignitionDefaults?.[id]).toEqual({ event: 'automatic', delay: 0 });
+    expect(storedSession()?.savedConfigs?.find(c => c.id === 'a')?.ignitions?.[id]).toEqual({ event: 'launch', delay: 0 });
+  }, 30000);
+  it.each(['ork', 'rkt', 'cdx1'] as const)('keeps replacement notes after an unexpected delayed %s save rejection', async format => {
+    const host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    let fail!: (error: Error) => void;
+    vi.mocked(saveFile).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    await saveAs(host, format === 'cdx1' ? 'Save .CDX1' : `Save .${format}`);
+    await pick(host, new File([fixture(RKT)], 'Replacement.rkt'));
+    await waitFor(() => shownName(host) === RKT_NAME, 'replacement');
+    const before = host.querySelector('[aria-label="Notices"]')?.textContent ?? '';
+    await act(async () => { fail(new Error('browser refused write')); });
+    expect(host.querySelector('[aria-label="Notices"]')?.textContent ?? '').toBe(before);
+    expect(host.querySelector('.earlier-save-note')?.textContent).toContain('failed');
+  }, 30000);
+  it('does not dirty New when an earlier save owns only the former document destination', async () => {
+    const host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    const destination = {};
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: 'Old.ork', destination });
+    await saveAs(host, 'Save .ork');
+    let finish!: (out: SaveOutcome) => void;
+    vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await saveAs(host, 'Save .ork');
+    await act(async () => { button(host, '✕ New').click(); });
+    await act(async () => { finish({ kind: 'saved', name: 'Old.ork', destination }); });
+    expect(host.querySelector('[aria-label="Design save status"]')!.textContent).toBe('No unsaved changes');
+  }, 30000);
+  it('keeps opened Recent bytes when an earlier same-name save finishes', async () => {
+    const host = await mountApp(); await waitFor(starterStored, 'starter motor');
+    let finish!: (out: SaveOutcome) => void;
+    vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await saveAs(host, 'Save .ork');
+    const file = new File([fixture(RKT)], 'Rocket.rkt');
+    await pick(host, file);
+    await waitFor(() => shownName(host) === RKT_NAME, 'replacement');
+    await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.length === 1, 'opened Recent copy');
+    await act(async () => { finish({ kind: 'saved', name: 'Rocket.rkt', destination: {} }); });
+    await settle(30);
+    expect(recentDesigns.rememberRecentDesign).toHaveBeenCalledTimes(1);
+    expect(new TextDecoder().decode(vi.mocked(recentDesigns.rememberRecentDesign).mock.calls[0]![1])).toBe(fixture(RKT));
+  }, 30000);
+  it('retires the migration caution when the Time step is edited', async () => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), launch: { ...DEFAULT_CONDITIONS, timeStepS: 0.01 },
+      appVersion: '0.070', savedAt: Date.now() }));
+    const host = await mountApp();
+    expect(host.textContent).toContain('Your saved session was flying a finer');
+    await openTab(host, 'Motors & Configuration');
+    const timeStep = input(host, 'Time step');
+    expect(timeStep).toBeDefined();
+    await type(timeStep, '0.01');
+    expect(host.querySelector('[aria-label="Notices"]')?.textContent ?? '').not.toContain('Your saved session was flying a finer');
+  }, 30000);
+  it('names an archived EX snapshot in the stale pad-mass clause', async () => {
+    const tree = defaultTree(), mount = motorMounts(tree)[0]!.id!;
+    const ex = { ...parseEng('E20 29 100 5 0.05 0.1 Home\n0 0\n0.5 40\n1 0')[0]!, flightSnapshot: {
+      designation: 'H100', diameter: 0.054, length: 0.3, cgX: 0.15,
+      times: [0, 1, 2], thrusts: [0, 200, 0], masses: [0.5, 0.4, 0.3],
+    } };
+    localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([ex]));
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now(),
+      mountMotors: { [mount]: { ...c6, padMassKg: 0.1, padMassWeighedWith: JSON.stringify([[mount, ex.motorId, 1]]) } } }));
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    const line = host.querySelector('[id^="pad-mass-"][id$="-line"]')!;
+    expect(line.textContent).toContain('H100');
+    expect(line.textContent).not.toContain('E20');
+  }, 30000);
+  it('serializes the active motor table once for both configuration memos', async () => {
+    const tree = defaultTree(), mount = motorMounts(tree)[0]!.id!;
+    const c6 = (await loadCatalogueMotor('Estes', 'C6', 5))!;
+    const motors = { [mount]: c6 };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, launch: DEFAULT_CONDITIONS, mountMotors: motors,
+      appVersion: APP_VERSION, savedAt: Date.now(), configLayers: 1, activeConfigId: 'a',
+      savedConfigs: [{ id: 'a', name: 'A', isDefault: true, motors }] }));
+    const host = await mountApp();
+    await openTab(host, 'Motors & Configuration');
+    const serialize = vi.spyOn(dirtyState, 'stableJson');
+    try {
+      await type(host.querySelector<HTMLInputElement>('input[aria-label^="Weighed pad mass"]')!, '100');
+      const tables = serialize.mock.calls.filter(([v]) => !!v && typeof v === 'object' && !Array.isArray(v)
+        && !!(v as Record<string, MountMotor>)[mount]?.spec);
+      expect(tables).toHaveLength(3);
+    } finally { serialize.mockRestore(); }
+  }, 30000);
+  it.each(['ork', 'rkt', 'cdx1'] as const)('invalidates a replacement save overwritten by an earlier %s document', async format => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    const entry = format === 'cdx1' ? 'Save .CDX1' : `Save .${format}`;
+    const destination = {};
+    let finish!: (out: SaveOutcome) => void;
+    vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await saveAs(host, entry);
+    await pick(host, new File([fixture(RKT)], 'Replacement.rkt'));
+    const discard = [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Open without saving'));
+    if (discard) await act(async () => { discard.click(); });
+    await waitFor(() => shownName(host) === RKT_NAME, 'replacement');
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: `Same.${format}`, destination });
+    await saveAs(host, entry);
+    expect(host.querySelector('[aria-label="Design save status"]')!.textContent).not.toBe('Unsaved changes');
+    await act(async () => { finish({ kind: 'saved', name: `Same.${format}`, destination }); });
+    expect(host.querySelector('[aria-label="Design save status"]')!.textContent).toBe('Unsaved changes');
+    expect(await guarded(host)).toBe(true);
+  }, 30000);
+  it('dirties the native save when a same-document foreign export overwrites its destination', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    const destination = {};
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: 'Rocket.ork', destination });
+    await saveAs(host, 'Save .ork');
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: 'Rocket.rkt', destination });
+    await saveAs(host, 'Save .rkt');
+    expect(await guarded(host, { allowLossySaved: true })).toBe(true);
+  }, 30000);
+  it('keeps a separate native save clean after an earlier document overwrites its foreign destination', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    const native = {}, foreign = {};
+    let finish!: (out: SaveOutcome) => void;
+    vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await saveAs(host, 'Save .rkt');
+    await pick(host, new File([fixture(RKT)], 'Replacement.rkt'));
+    const discard = [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Open without saving'));
+    if (discard) await act(async () => { discard.click(); });
+    await waitFor(() => shownName(host) === RKT_NAME, 'replacement');
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: 'Replacement.ork', destination: native });
+    await saveAs(host, 'Save .ork');
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: 'Replacement.rkt', destination: foreign });
+    await saveAs(host, 'Save .rkt');
+    await act(async () => { finish({ kind: 'saved', name: 'Replacement.rkt', destination: foreign }); });
+    expect(host.querySelector('[aria-label="Design save status"]')!.textContent).toBe('No unsaved changes');
+    expect(await guarded(host, { allowLossySaved: true })).toBe(false);
+  }, 30000);
+  it('keeps the newer same-name Recent bytes after an older save finishes', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    let finish!: (out: SaveOutcome) => void;
+    vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await saveAs(host, 'Save .ork');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Newer work');
+    vi.mocked(saveFile).mockResolvedValueOnce({ kind: 'saved', name: 'Rocket.ork', destination: {} });
+    await saveAs(host, 'Save .ork');
+    await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.length === 1, 'newer Recent copy');
+    await act(async () => { finish({ kind: 'saved', name: 'Rocket.ork', destination: {} }); });
+    await settle(30);
+    expect(vi.mocked(recentDesigns.rememberRecentDesign).mock.calls).toHaveLength(1);
+    expect(new TextDecoder().decode(vi.mocked(recentDesigns.rememberRecentDesign).mock.calls[0]![1])).toContain('Newer work');
+  }, 30000);
+  it('keeps the newer Recent caution after an older copy succeeds', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    let finish!: (note: string | null) => void;
+    vi.mocked(recentDesigns.rememberRecentDesign).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }))
+      .mockResolvedValueOnce('The newer design could not be kept in Recent.');
+    await saveAs(host, 'Save .ork');
+    await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.length === 1, 'first Recent copy');
+    await type(host.querySelector<HTMLInputElement>('#rocket-name')!, 'Newer work');
+    await saveAs(host, 'Save .ork');
+    await waitFor(() => !!host.textContent?.includes('newer design could not'), 'newer Recent caution');
+    await act(async () => { finish(null); });
+    expect(host.textContent).toContain('newer design could not');
+  }, 30000);
+  it.each(['Open', 'New'])('keeps replacement notes after a late hero image failure and %s', async replace => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    let fail!: (e: Error) => void;
+    vi.mocked(svgToImage).mockImplementationOnce(() => new Promise((_resolve, reject) => { fail = reject; }));
+    await act(async () => { button(host, '⬇ Image').click(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="8K PNG, 7680 px wide"]')!.click(); });
+    if (replace === 'Open') {
+      await pick(host, new File([fixture(RKT)], 'Replacement.rkt'));
+      await waitFor(() => shownName(host) === RKT_NAME, 'replacement');
+    } else await act(async () => { button(host, '✕ New').click(); });
+    const notes = host.querySelector('[aria-label="Notices"]')?.textContent ?? '';
+    await act(async () => { fail(new Error('browser refused canvas')); });
+    expect(host.querySelector('[aria-label="Notices"]')?.textContent ?? '').toBe(notes);
+    expect(host.querySelector('.earlier-save-note')?.textContent).toContain('Image export failed');
+  }, 30000);
   it.each(['fallback', 'Auto delay'] as const)('a late Recent warning keeps the same save\'s %s warning', async warning => {
     if (warning === 'Auto delay') {
       const tree = defaultTree();
@@ -440,10 +667,12 @@ describe('lane H regressions', () => {
     vi.mocked(recentDesigns.rememberRecentDesign).mockResolvedValue('Old file could not be kept in Recent.');
     if (replace === 'share') await act(async () => { button(host, 'Save mine first').click(); });
     else await saveAs(host, 'Save .ork');
-    await waitFor(() => !!host.querySelector('.recent-storage-note'), 'Recent caution');
+    await waitFor(() => !!host.querySelector('.recent-storage-note')?.textContent, 'Recent caution');
+    const recentRegion = host.querySelector('.recent-storage-note');
     await act(async () => { button(host, replace === 'New' ? '✕ New' : 'Open “Linked”').click(); });
     await waitFor(() => shownName(host) === (replace === 'New' ? 'New Rocket' : 'Linked'), 'replacement');
-    expect(host.querySelector('.recent-storage-note')).toBeNull();
+    expect(host.querySelector('.recent-storage-note')).toBe(recentRegion);
+    expect(recentRegion?.textContent).toBe('');
   }, 30000);
 
   it('S2-g2 keeps import cautions when an autosave recovery picker settles late', async () => {
@@ -502,7 +731,7 @@ describe('lane H regressions', () => {
         await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.some(([name]) => name === 'Earlier.ork'), 'pending save copy');
       }
       await pick(host, new File([fixture(RKT)], 'Replacement.rkt'));
-      await waitFor(() => shownName(host) === RKT_NAME && !!host.querySelector('.recent-storage-note'), 'opened design warning');
+      await waitFor(() => shownName(host) === RKT_NAME && !!host.querySelector('.recent-storage-note')?.textContent, 'opened design warning');
       const before = host.querySelector('.recent-storage-note')!.textContent;
       if (stage === 'write') await act(async () => { finishWrite({ kind: 'saved', name: 'Earlier.ork' }); });
       await waitFor(() => vi.mocked(recentDesigns.rememberRecentDesign).mock.calls.some(([name]) => name === 'Earlier.ork'), 'save copy');
@@ -1206,7 +1435,7 @@ describe('C-A2 and C-B8 file workflow', () => {
     await act(async () => { finishStorage(note); });
     expect(completeCount()).toBe(before + 1);
     expect(host.querySelector('.notice-bar')?.textContent).toContain('states its launch site as latitude 43°');
-    expect(host.querySelector('.recent-storage-note')?.textContent ?? null).toEqual(note === null ? null : expect.stringContaining(note));
+    expect(host.querySelector('.recent-storage-note')?.textContent).toEqual(note === null ? '' : expect.stringContaining(note));
   });
 
   it.each(['Close', 'Escape'])('C-A2: %s cancels a pending Recent read without losing later edits or history', async dismissal => {

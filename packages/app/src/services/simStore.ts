@@ -9,6 +9,7 @@ import { createWarningMergeBudget, mergeImportedWarnings, mergeStoredWarnings, s
 import { warningKeysCell } from './simWarnings.js';
 import { siToUi, type Quantity, type UnitSelection } from '../prefs/units.js';
 import { normalizeFlightAdvisories } from '../prefs/flightAdvisories.js';
+import { validWindLevels } from './windProfile.js';
 
 /**
  * Persisted simulation-run history (localStorage). the owner's flight-day flow:
@@ -58,9 +59,19 @@ export function loadRuns(): SimRun[] {
       typeof r === 'object' && r !== null && !Array.isArray(r)
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
-      for (const key of ['motorSetKey', 'designKey', 'conditionsKey'] as const) {
+      for (const key of ['motorSetKey', 'designKey', 'conditionsKey', 'motorConfig', 'flightConfig', 'flightConfigId', 'motorType', 'propellant', 'motorCase', 'motorDesignation'] as const) {
         if (typeof r[key] !== 'string') delete r[key];
       }
+      for (const key of ['rocket', 'motor', 'manufacturer'] as const) {
+        if (r[key] !== undefined && typeof r[key] !== 'string') r[key] = '';
+      }
+      for (const key of ['maxMach', 'maxRollRateRadS', 'rodExitAoa', 'windAvg', 'motorCount'] as const) {
+        if (r[key] != null && (typeof r[key] !== 'number' || !Number.isFinite(r[key]))) Object.assign(r, { [key]: null });
+      }
+      if (r.recommendedDelayS != null && !Number.isFinite(r.recommendedDelayS)) r.recommendedDelayS = null;
+      if (r.weathercockRisk != null && !['low', 'moderate', 'high'].includes(r.weathercockRisk)) r.weathercockRisk = null;
+      if (r.hybridBand !== undefined && (!Array.isArray(r.hybridBand) || r.hybridBand.length !== 2
+        || !r.hybridBand.every(Number.isFinite))) delete r.hybridBand;
       if (typeof r.comments !== 'string') {
         r.comments = '';
         delete r.commentLevels;
@@ -112,11 +123,16 @@ export function loadRuns(): SimRun[] {
           ? typeof v === 'string' : v !== null && typeof v === 'object' && !Array.isArray(v)) });
       }
       if (r.simWarnings !== undefined) r.simWarnings = restoredWarnings(r.simWarnings);
+      if (r.windLevels !== undefined && !validWindLevels(r.windLevels)) delete r.windLevels;
       for (const b of r.branches ?? []) {
+        if (typeof b.name !== 'string') b.name = '';
+        if (typeof b.stageId !== 'string') delete b.stageId;
+        if (typeof b.motorLabel !== 'string') delete b.motorLabel;
         if (!Array.isArray(b.deployments)) b.deployments = [];
         else b.deployments = b.deployments.filter((d) => d !== null && typeof d === 'object' && !Array.isArray(d));
       }
       for (const d of [...(r.deployments ?? []), ...(r.branches ?? []).flatMap(b => b.deployments)]) {
+        if (typeof d.device !== 'string') d.device = '';
         if (d.role !== undefined && !['main', 'drogue', 'unknown'].includes(d.role)) d.role = 'unknown';
       }
       // Revive plugged delays (persisted as the string "Infinity" — see persist).
@@ -415,7 +431,7 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Guide (mph)', (r) => round(scaled(r.rodExitVelocity, MPH), 1)],
   ['Accel (Gs)', (r) => round(scaled(r.maxAcceleration, 1 / G_MS2), 1)],
   ['Delay (s)', (r) => (Number.isFinite(r.delayS) ? r.delayS
-    : r.importedSummary && r.delayS !== Infinity ? '' : 'P')],
+    : r.delayS === Infinity ? 'P' : '')],
   ['Pad Weight (g)', (r) => round(scaled(r.launchMass, 1000), 1)],
   ['Recovery Weight (g)', (r) => round(scaled(r.burnoutMass, 1000), 1)],
   // `toISOString()` throws RangeError on an Invalid Date, and BOTH exports are
@@ -480,7 +496,8 @@ function buildColumns(u?: UnitSelection, railThreshold: number = SAFETY.minRodEx
   ['Safe deployment', (r) => { const v = deploymentVerdict(r); return v === 'caution' ? 'caution' : flag(v); }],
   ['Static margin OK', (r) => flag(r.staticMarginOk)],
   ['Weathercock risk', (r) => r.weathercockRisk ?? ''],
-  ['Motors (cluster)', (r) => r.motorCount ?? (r.importedSummary ? '' : 1)],
+  ['Motors (cluster)', (r) => r.motorCount === undefined ? (r.importedSummary ? '' : 1)
+    : Number.isFinite(r.motorCount) ? r.motorCount : ''],
   ['Motor config', (r) => r.motorConfig ?? ''],
   ['Booster motors', (r) => (r.boosterMotors ?? []).join('; ')],
   [`Booster apogee (${sym('altitude', 'm')})`, (r) => cv('altitude', r.branches?.[0]?.apogee ?? null)],

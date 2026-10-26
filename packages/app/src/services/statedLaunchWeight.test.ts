@@ -341,6 +341,20 @@ describe('the refusals — a wrong override is worse than none', () => {
     expect(corrected.tree.components[0]!.overrideCGX).toBeCloseTo((10 * 0.5 - 2 * 0.85) / 8, 9);
   });
 
+  it('recovers the named motor after a different motor was tried first', () => {
+    const different = reconcileIncludedMotor(marked({ overrideMass: 10 }), 'bt', { ...motor(1), designation: 'K550' }, TEXT)!;
+    const corrected = reconcileIncludedMotor(different.tree, 'bt', motor(2), TEXT);
+    expect(corrected?.tree.components[0]).toMatchObject({ overrideMass: 8, overrideSubcomponentsMass: true });
+    expect(corrected?.tree.components[0]!.overrideCGX).toBeCloseTo(0.4125, 9);
+  });
+  it.each([[false, false], [false, true], [true, false]])('never restores unticked flags after rejection: mass %s CG %s', (mass, cg) => {
+    const rejected = reconcileIncludedMotor(marked({ overrideMass: 10, overrideSubcomponentsMass: mass, overrideSubcomponentsCG: cg }), 'bt', motor(11), TEXT)!;
+    const corrected = reconcileIncludedMotor(rejected.tree, 'bt', motor(2), TEXT);
+    expect(corrected).toBeNull();
+    expect(rejected.tree.components[0]!.overrideSubcomponentsMass).not.toBe(true);
+    expect(rejected.tree.components[0]!.overrideSubcomponentsCG).not.toBe(true);
+  });
+
   it('clears rather than subtracts when the motor is NOT the one the file named', () => {
     // v0.120 subtracted whatever motor arrived — `stated − loaded` — which is
     // arithmetic on two unrelated numbers unless the loaded motor is the one

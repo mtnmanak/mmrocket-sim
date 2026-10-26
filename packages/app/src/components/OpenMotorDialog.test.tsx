@@ -19,6 +19,15 @@ const apply = vi.fn().mockResolvedValue(undefined);
 const later = vi.fn();
 const button = (text: string) => [...host.querySelectorAll('button')].find(b => b.textContent === text)!;
 const render = () => act(() => root.render(<OpenMotorDialog identities={identities} onApply={apply} onLater={later} />));
+it('establishes a silent outcome region before a motor answer', async () => {
+  render();
+  const status = host.querySelector('[role="status"]');
+  expect(status).not.toBeNull();
+  expect(status!.textContent).toBe('');
+  await importText(0, enerjetEng);
+  expect(host.querySelector('[role="status"]')).toBe(status);
+  expect(status!.textContent).toContain('Imported 1 EX motor');
+});
 async function importText(section: number, text: string, click = true) {
   if (click) act(() => host.querySelectorAll('fieldset')[section]!.querySelector('button')!.click());
   const inputs = host.querySelectorAll<HTMLInputElement>('input[type=file]');

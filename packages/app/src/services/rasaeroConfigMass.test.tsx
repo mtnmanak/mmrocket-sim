@@ -257,7 +257,14 @@ it('restores unresolved motor marks, refuses unrelated motors, and spends matchi
   expect(corrected.tree.components[0]!['overrideMass']).toBeCloseTo(10 * 0.45359237 - 1, 6);
   expect(reconcileIncludedMotor(corrected.tree, id, motor, TEXT)).toBeNull();
   const unrelated = reconcileIncludedMotor(b.tree, id, { ...motor, designation: 'K250W' }, TEXT)!;
-  expect(captureStageMass(unrelated.tree.components[0]!)).toEqual({});
+  const cleared = captureStageMass(unrelated.tree.components[0]!);
+  expect(cleared).toEqual({ statedStageFigures: {
+    motor: 'Z999TEST', mountId: id, launchKg: b.tree.components[0]!['overrideMass'],
+    launchCgM: b.tree.components[0]!['overrideCGX'],
+  } });
+  const recovered = reconcileIncludedMotor(unrelated.tree, id, motor, TEXT)!;
+  expect(recovered.tree.components[0]!['overrideMass']).toBeCloseTo(10 * 0.45359237 - 1, 6);
+  expect(reconcileIncludedMotor(recovered.tree, id, motor, TEXT)).toBeNull();
   const back = switchTo(switchTo({ ...b, tree: corrected.tree }, 0), 1);
   expect(captureStageMass(back.tree.components[0]!)).toEqual(captureStageMass(corrected.tree.components[0]!));
 });

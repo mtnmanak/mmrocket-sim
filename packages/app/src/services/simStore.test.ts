@@ -26,6 +26,57 @@ const mkRun = (id: string, over: Partial<SimRun> = {}): SimRun =>
     ...over,
   }) as SimRun;
 
+it.each([7, true, {}, { toString: 0 }] as unknown[])('cleans unreadable report children and motor designation: %j', bad => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('bad'),
+    motorDesignation: bad, recommendedDelayS: bad, weathercockRisk: bad, hybridBand: [bad, 1],
+  }]));
+  const [run] = loadRuns();
+  expect(run?.id).toBe('bad');
+  expect(run).not.toHaveProperty('motorDesignation');
+  expect.soft(run?.recommendedDelayS).toBe(typeof bad === 'number' ? bad : null);
+  expect.soft(run?.weathercockRisk).toBeNull();
+  if (typeof bad === 'number') expect(run?.hybridBand).toEqual([bad, 1]);
+  else expect(run).not.toHaveProperty('hybridBand');
+});
+it.each(['windAvg', 'motorCount'])('removes coercible history sibling %s but keeps the row', field => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('bad'),
+    [field]: { toString: 0, valueOf: 0 } }]));
+  const [saved] = loadRuns();
+  expect(saved?.id).toBe('bad');
+  expect(saved?.[field as 'windAvg' | 'motorCount']).toBeNull();
+});
+it('exports an unreadable motor count as blank while preserving legacy absence', () => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([mkRun('bad', { motorCount: true } as never), mkRun('legacy')]));
+  const table = runsToTable(loadRuns());
+  const column = table.headers.indexOf('Motors (cluster)');
+  expect(table.rows[0]![column]).toBe('');
+  expect(table.rows[1]![column]).toBe(1);
+});
+
+it('removes corrupt display scalars and winds without losing a history row', () => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('bad'),
+    rocket: {}, motor: true, motorConfig: 5, manufacturer: 1, maxMach: '2.2',
+    maxRollRateRadS: '0x10', rodExitAoa: true, deployments: [{ device: {} }],
+    branches: [{ name: {}, stageId: { toString: 0 }, motorLabel: {}, deployments: [{ device: [] }] }],
+    windLevels: [{ altitude: { toString: 0, valueOf: 0 }, speed: 2, direction: 0 }],
+  }]));
+  const [run] = loadRuns();
+  expect(run?.id).toBe('bad');
+  expect(run).toMatchObject({ rocket: '', motor: '', manufacturer: '', maxMach: null, rodExitAoa: null, maxRollRateRadS: null });
+  expect(run).not.toHaveProperty('motorConfig');
+  expect(run).not.toHaveProperty('windLevels');
+  expect(run?.deployments?.[0]?.device).toBe('');
+  expect(run?.branches?.[0]?.name).toBe('');
+  expect(run?.branches?.[0]?.stageId).toBeUndefined();
+  expect(run?.branches?.[0]?.deployments[0]?.device).toBe('');
+  expect(() => runsToCsv(loadRuns())).not.toThrow();
+});
+
+it.each(['5', true, '', {}, null])('never exports a corrupt delay as plugged: %j', delayS => {
+  const table = runsToTable([{ ...mkRun('bad'), delayS } as SimRun]);
+  expect(table.rows[0]![table.headers.indexOf('Delay (s)')]).toBe('');
+});
+
 it.each(['', '0x10', true, null])('S1d-4 blanks nonnumeric lead and detail values: %j', value => {
   localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('bad'),
     maxVelocity: value, rodExitVelocity: value, maxAcceleration: value,

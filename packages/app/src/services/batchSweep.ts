@@ -19,6 +19,7 @@ import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/fligh
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import { aeroModelFor, rogersKbfFor, type AeroMode } from './flightPipeline.js';
 import type { MountMotor } from '../model/design.js';
+import { overrideFor } from './flightState.js';
 import { flownDeployEvent } from '../tree/deployEvent.js';
 import { flyLaunch, writeMountMotor } from './flightRunner.js';
 import { kernelSimOptions, type LaunchConditions } from './launchConditions.js';
@@ -500,7 +501,7 @@ export async function runBatchSweep(
           // seam review of audit 2026-09-22). One write here covers the sweep
           // AND both combination passes, because every per-candidate write
           // below touches only the TARGET mounts, which this loop skips.
-          writeMountMotor(r, id, spec, assignedIgnitions[id] ?? { event: 'automatic', delay: 0 });
+          writeMountMotor(r, id, spec, overrideFor(assignedIgnitions, id) ?? { event: 'automatic', delay: 0 });
         } catch { /* mount absent in variant, or refused as on the design page (reported there) */ }
       }
     }
@@ -568,10 +569,11 @@ export async function runBatchSweep(
    * silently dropped out of the sum.
    */
   const otherParts = await Promise.all(mounts
-    .filter((m) => m.id !== target.id && assignedMotorIds[m.id])
+    .filter((m) => m.id !== target.id && typeof overrideFor(assignedMotorIds, m.id) === 'string'
+      && overrideFor(assignedMotorIds, m.id) !== '')
     .map(async (m) => ({
       count: m.motorCount ?? 1,
-      exitDiameterM: (await nozzleFor(assignedMotorIds[m.id]))?.exitDiameterM ?? null,
+      exitDiameterM: (await nozzleFor(overrideFor(assignedMotorIds, m.id)))?.exitDiameterM ?? null,
     })));
 
   /*
@@ -589,7 +591,7 @@ export async function runBatchSweep(
     const value = st ? numOrNull(st, 'nozzleExitDiameter') : null;
     return value !== null && value >= 0 ? value : null;
   })();
-  const loadedIdOnTarget = assignedMotorIds[target.id];
+  const loadedIdOnTarget = overrideFor(assignedMotorIds, target.id);
 
   /** The equivalent stage exit this candidate should fly, or null for none. */
   const exitForCandidate = async (e: MotorDbEntry, count: number): Promise<number | null> =>
@@ -635,20 +637,20 @@ export async function runBatchSweep(
       .filter(([id]) => liveMountIds.has(id) && id !== replacedMountId && !legs.some((l) => l.mountId === id))
       .map(([id, spec]) => {
         const label = motorLabel(motorLabelEntry({ spec,
-          meta: { ...input.assignedMountMotors[id]?.meta, label: '', motorId: assignedMotorIds[id] } }), spec.ejectionDelay,
-        { autoDelay: input.assignedAutoDelays?.[id] === true });
+          meta: { ...overrideFor(input.assignedMountMotors, id)?.meta, label: '', motorId: overrideFor(assignedMotorIds, id) } }), spec.ejectionDelay,
+        { autoDelay: overrideFor(input.assignedAutoDelays, id) === true });
         return [id, {
           spec, label,
           meta: {
             // Legacy motors without either ID use manufacturer/designation,
             // exactly as Launch and the design-page delay evidence do.
-            ...input.assignedMountMotors[id]?.meta,
+            ...overrideFor(input.assignedMountMotors, id)?.meta,
             label,
-            motorId: assignedMotorIds[id],
-            ...(assignedMotorIds[id]?.startsWith('ex:') ? { exMotorId: assignedMotorIds[id] } : {}),
-            autoDelay: input.assignedAutoDelays?.[id] === true,
+            motorId: overrideFor(assignedMotorIds, id),
+            ...(overrideFor(assignedMotorIds, id)?.startsWith('ex:') ? { exMotorId: overrideFor(assignedMotorIds, id) } : {}),
+            autoDelay: overrideFor(input.assignedAutoDelays, id) === true,
           },
-          ignition: assignedIgnitions[id] ?? { event: 'automatic', delay: 0 },
+          ignition: overrideFor(assignedIgnitions, id) ?? { event: 'automatic', delay: 0 },
         }];
       });
     for (const l of legs) {
@@ -683,7 +685,7 @@ export async function runBatchSweep(
       rogersKbf: rogersKbfFor(kbf, flight.usedSupersonic),
       // Provenance keys catalogue curves; hardware has its own motor-set term.
       assigned: assigned.map(([id, mm]): [string, MountMotor] => [id,
-        !legs.some((l) => l.mountId === id) ? { ...mm, ...input.assignedMountMotors[id] } : mm,
+        !legs.some((l) => l.mountId === id) ? { ...mm, ...overrideFor(input.assignedMountMotors, id) } : mm,
       ]),
       otherHardwareDeltaKg: retainedHardware && retainedHardware.mountId !== target.id
         && flight.delayResolution.mounts.some((m) => m.mountId === retainedHardware.mountId)

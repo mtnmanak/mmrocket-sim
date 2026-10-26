@@ -35,6 +35,12 @@ describe('MotorBrowser — sortable headers stay column headers', () => {
   const headers = () => Array.from(host.querySelectorAll('thead th'));
   const impulse = () => headers()
     .find((th) => (th.textContent ?? '').includes('Impulse'))!;
+  it('names an unreadable catalogue-check date instead of showing an empty header date', () => {
+    act(() => setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: '', liveCount: 0,
+      added: [], changed: [], removed: [], rejected: [] }));
+    expect(host.querySelector('.motor-db-meta')!.textContent).toContain('unknown date');
+    act(() => setCatalogueOverlay(null));
+  });
 
   beforeEach(() => {
     localStorage.clear();

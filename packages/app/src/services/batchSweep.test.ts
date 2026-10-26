@@ -151,6 +151,30 @@ function input(tree: RocketTree, over: Partial<BatchSweepInput> = {}): BatchSwee
 
 const sweep = (inp: BatchSweepInput, deps: Partial<BatchSweepDeps>, signal = new AbortController().signal) =>
   runBatchSweep(inp, { signal }, { yieldToUi: noYield, ...deps });
+it.each(['toString', 'constructor', '__proto__'])('flies a loaded legacy sibling without inherited motor metadata: %s', async id => {
+  const tree = rocket({ sideMount: true });
+  tree.components[0]!.children![1]!.children!.find(n => n.id === 'side')!.id = id;
+  const out = await sweep(input(tree, { mounts: [MOUNT, { ...MOUNT, id }],
+    assignedMotors: { [id]: curve('E20') },
+    assignedMotorIds: { [id]: undefined },
+    candidates: [entry('a', 'Acme', 'E20', '5')], autoDelay: false }),
+    { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: async motorId => motorId === 'a' ? {
+      motorId, designation: 'E20', manufacturer: 'Acme', exitDiameterM: 0.012, confidence: 'high', drawings: [],
+    } : null });
+  expect(out.rows).toHaveLength(1);
+  expect(out.rows[0]?.error).toBeUndefined();
+  expect(out.rows[0]?.run).toBeDefined();
+  expect(out.rows[0]?.run?.nozzleStages).toEqual(['Sustainer']);
+});
+it.each(['constructor', 'toString', '__proto__'])('ignores an unloaded sibling id %s when looking up nozzle exits', async id => {
+  const tree = rocket({ sideMount: true });
+  tree.components[0]!.children![1]!.children!.find(n => n.id === 'side')!.id = id;
+  const requested: unknown[] = [];
+  const out = await sweep(input(tree, { mounts: [MOUNT, { ...MOUNT, id }], candidates: [entry('a', 'Acme', 'E20', '5')], autoDelay: false }),
+    { fetchSpec: fetchFrom({ a: curve('E20') }), nozzleFor: async motorId => { requested.push(motorId); return null; } });
+  expect(out.rows).toHaveLength(1);
+  expect(requested.every(value => typeof value === 'string')).toBe(true);
+});
 
 it('bundle metadata freezes scalar weather before single and mixed batch flights without changing their numbers', async () => {
   const tree = clusterRocket('4-ring');

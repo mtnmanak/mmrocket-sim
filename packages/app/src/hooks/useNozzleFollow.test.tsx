@@ -75,6 +75,14 @@ function harness(initial: RocketTree, look: NozzleLookup = lookup) {
 const exitOf = (t: RocketTree) => t.components[0]!['nozzleExitDiameter'];
 
 describe('useNozzleFollow', () => {
+  it.each(['__proto__', 'constructor', 'toString'])('follows a motor change on stage id %s', async stageId => {
+    const initial = tree(0.012); initial.components[0]!.id = stageId;
+    const h = harness(initial);
+    const set = (id: string) => loadout(id).map(stage => ({ ...stage, stageId }));
+    await h.show(set('J1'));
+    await h.show(set('K1'));
+    expect(exitOf(h.treeRef.current)).toBeCloseTo(0.016, 12);
+  });
   it('S3c-2 refreshes the cached exit when seeding an inactive re-import before deletion and clustering', async () => {
     const ex = { ...parseEng('G100 38 150 P 0.1 0.2 Home\n0 0\n0.5 200\n1 0')[0]!, exitDiameterM: 0.015 };
     addExMotors([ex]);

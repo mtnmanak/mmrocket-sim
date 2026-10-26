@@ -177,6 +177,15 @@ describe('PropertyPanel — a "default:" or "auto:" figure in metres', () => {
     expect(patches.at(-1)!['outerDiameter']).toBeCloseTo(0.0102, 9);
   });
 
+  it('uses the kernel body radius when a restored parent radius is nonfinite', () => {
+    prefs({ units: { length: 'm' }, radiusMode: 'radius' });
+    const tf = { id: 'tf', type: 'tubefinset', finCount: 5 } as ComponentNode;
+    show(treeOf(tube('A', { outerRadius: Infinity, children: [tf] })), tf);
+    expect(inputNamed('Outer radius (m)').placeholder).toBe('auto: 0.0171');
+    click(spinner('Outer radius (m)', 1));
+    const s = Math.sin(Math.PI / 5);
+    expect(patches.at(-1)!['outerRadius']).toBeCloseTo(0.012 * s / (1 - s) - 0.0005, 7);
+  });
   it("a tube-fin set's auto radius keeps its figures, and ▾ steps from the exact radius", () => {
     prefs({ units: { length: 'm' }, radiusMode: 'radius' });
     // Five tubes touching round a 20 mm-radius body: r = R·s / (1 − s), s = sin(π/5),

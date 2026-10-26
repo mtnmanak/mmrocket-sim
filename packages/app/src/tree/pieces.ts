@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import { lookupTable } from '../services/xmlUtil.js';
 import {
   assemblyBoundingRadius, isAssembly,
   resolveAssemblyRadius, ringInstanceOffsets,
@@ -143,6 +144,7 @@ export type MotorDims = Record<string, { length: number; diameter: number; label
 
 /** Shared with the OBJ exporter — this IS the app's 3D geometry. */
 export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: ReadonlySet<string>): { pieces: Piece[]; totalLen: number; maxR: number } {
+  if (motors) motors = lookupTable(motors);
   const hidden = hiddenPartIds(tree, hiddenIds);
   tree = resolveTransitionRadii(tree);
   const pieces: Piece[] = [];

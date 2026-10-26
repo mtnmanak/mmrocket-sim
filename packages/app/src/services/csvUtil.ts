@@ -24,6 +24,14 @@
  */
 export const FORMULA_LEAD = /^[=+\-@\t\r]/;
 
+export const CSV_APOSTROPHE_HELP = "CSV text uses an apostrophe to protect spreadsheet formulas. For a literal apostrophe before =, @, + or -, double it (for example, ''@example).";
+
+/** Undo the writer's guard; a numeric lead was never escaped by csvCell. */
+export function unescapeCsvText(value: string): string {
+  return /^'+[=+\-@\t\r]/.test(value) && (value.startsWith("''") || !Number.isFinite(Number(value.slice(1))))
+    ? value.slice(1) : value;
+}
+
 export function csvCell(v: unknown): string {
   const s = v === undefined || v === null ? '' : String(v);
   // Guard ONLY a non-numeric cell. '-12.5' also leads with a risky character,

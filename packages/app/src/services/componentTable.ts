@@ -109,7 +109,7 @@ export function componentTable(
     'Copies flown', `Mass (${massSym})`, `Mass with children (${massSym})`,
     `CG (${lenSym} from component front)`,
     ...fieldCols.map(fieldHeader),
-    'Surface material', 'Surface density (kg/m²)', 'Line material', 'Line density (kg/m)',
+    'Surface material', 'Surface density (kg/m²)', 'Line material', 'Line density (kg/m)', 'Fillet material',
   ];
 
   const rows: Cell[][] = [];
@@ -157,6 +157,7 @@ export function componentTable(
       const info = infoOf(n);
       const section = info && (n.children ?? []).length > 0 ? flownSection(n, mult) : null;
       const fieldCells = fieldCols.map((f): Cell => {
+        if (f.key === 'filletDensity' && !((numOpt(n, 'filletRadius') ?? 0) > 0)) return '';
         const own = fieldsFor(n.type).find((d) => d.key === f.key);
         if (!own) return '';
         const raw = f.key === 'fairingForeShape' ? shroudEnds(n).fore
@@ -195,6 +196,8 @@ export function componentTable(
         ...fieldCells,
         surface ? material('surfaceMaterialName') : '', surface ? density('surfaceDensity') : '',
         line ? material('lineMaterialName') : '', line ? density('lineDensity') : '',
+        ['trapezoidfinset', 'ellipticalfinset', 'freeformfinset'].includes(n.type)
+          && (numOpt(n, 'filletRadius') ?? 0) > 0 ? material('filletMaterialName') : '',
       ]);
       walk(n.children ?? [], stageName, n.name ?? DISPLAY_NAME[n.type] ?? n.type, mult * copiesInside(n));
     }

@@ -172,7 +172,16 @@ function staleClause(
  * NumField commits on every valid keystroke, and typing 10574 g passes through
  * four refused intermediates on the way.
  */
-function PadMassLine({
+function PadMassLine(props: Parameters<typeof padMassLineContent>[0]) {
+  const line = padMassLineContent(props);
+  const live = line.props.role === 'status';
+  return <>
+    {live ? line : <Note as="p" role="status" tier="information" className="sr-only">{null}</Note>}
+    {live ? null : line}
+  </>;
+}
+
+function padMassLineContent({
   id, hardware, legacyPending, hasValue, multiMotor, mass, motorLabel, mountName, computedPadMassKg,
   nameOfMount, describeIdentity,
 }: {
@@ -189,7 +198,7 @@ function PadMassLine({
   nameOfMount: (id: string) => string;
   describeIdentity: (identity: string) => string;
 }) {
-  const plain = (text: string) => <p id={id} className="comp-stats" style={{ margin: '3px 0 0' }}>{text}</p>;
+  const plain = (text: string) => <Note as="p" tier="information" id={id} className="comp-stats" style={{ margin: '3px 0 0' }}>{text}</Note>;
   const warn = (text: string) => <Note as="p" tier="caution" id={id} className="print-note print-note-warn" role="status">{text}</Note>;
   // `motorMassKg` sums EVERY mount's catalogue motor, but `motorLabel` is the
   // primary's alone — so with two mounts the total must not sit beside one
@@ -236,7 +245,7 @@ function PadMassLine({
 
     case 'ok':
       return (
-        <Note as="p" tier={hardware.large ? 'caution' : 'information'} id={id} className="comp-stats" style={{ margin: '3px 0 0' }}>
+        <Note as="p" role={hardware.large ? 'status' : undefined} tier={hardware.large ? 'caution' : 'information'} id={id} className="comp-stats" style={{ margin: '3px 0 0' }}>
           <span className="measured-delta">{mass(hardware.deltaKg)}</span>
           {` carried as hardware — adapter, retainer, closure: ${mass(hardware.dryMassKg + hardware.motorMassKg + hardware.deltaKg)} weighed − dry ${mass(hardware.dryMassKg)} ${hardware.drySource === 'measured' ? 'as you measured it' : 'as computed'} − ${catalogue(hardware)} ${mass(hardware.motorMassKg)}.`}
           {hardware.mountCount > 1 && ` Carried on ${mountName}.`}

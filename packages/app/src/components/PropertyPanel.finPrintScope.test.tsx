@@ -44,6 +44,9 @@ const words = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' 
 /** Let any pending render settle (the Cross section notes are synchronous since the N062 review). */
 const settle = () => act(async () => { await new Promise(r => setTimeout(r, 0)); });
 const TAB = { tabHeight: 0.008, tabLength: 0.04 };
+it.each(['rounded', 'airfoil'])('does not claim nonfinite %s root fillets exist', section => {
+  expect(words(show(section, { filletRadius: Infinity }))).not.toContain('root fillets');
+});
 
 // S3a-1 (audit 2026-10-17): inherited label-table keys must never become React children.
 it.each(['__proto__', 'constructor', 'toString'])('repairs an imported inherited cross-section %s to Square with a note and safe re-save', cross => {

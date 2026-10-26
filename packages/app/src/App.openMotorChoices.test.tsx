@@ -276,3 +276,12 @@ it('expands a clean newer-format import after a prior import warning was collaps
   expect.soft(toggle().getAttribute('aria-expanded')).toBe('true');
   expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain('Warning: this file uses format 1.11');
 }, 20000);
+it('retires warning severity after the last other-maker caution is answered', async () => {
+  await open();
+  await act(async () => button('Apply').click());
+  await waitFor(() => !host.querySelector('[aria-label="Choose motors for this file"]'));
+  const notice = host.querySelector('[aria-label="Notices"]')!;
+  expect(notice.textContent).toContain('Loaded');
+  expect(notice.textContent).not.toContain('Warning:');
+  expect(host.querySelector('.notice-announce[role="alert"]')?.textContent ?? '').not.toContain('Loaded');
+}, 20000);

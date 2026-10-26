@@ -1,4 +1,5 @@
 import type { MountMotor, SavedConfig } from '../model/design.js';
+import { overrideFor } from './flightState.js';
 import { savedConfigLabel } from '../model/design.js';
 import type { ImportedDesign, ResolvedImportMotors } from './importApply.js';
 import type { MotorDbEntry } from './motorDb.js';
@@ -8,6 +9,7 @@ import { exToDbEntry, exToMotorSpec, type ExMotor } from './exMotors.js';
 import { defaultDelay, delayOptions } from './thrustcurve.js';
 import { findNode, kernelStageIdByNode, motorMounts, mountName } from '../tree/treeModel.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import { lookupTable } from './xmlUtil.js';
 import type { DesignSnapshot } from './dirtyState.js';
 import type { MotorMatchResult } from './motorMatch.js';
 
@@ -88,13 +90,13 @@ export async function applyOpenMotorChoices(
   state: OpenMotorState & Pick<DesignSnapshot, 'tree'>, activeConfigId: string | null, groups: OpenMotorIdentity[],
   choices: Record<string, OpenMotorChoice>, fetchSpec: NonNullable<MotorMatchDeps['fetchSpec']> = fetchSpecByDigest,
 ): Promise<OpenMotorState> {
-  const mountMotors = { ...state.mountMotors };
+  const mountMotors = Object.assign(Object.create(null) as Record<string, MountMotor>, state.mountMotors);
   const unmatchedRefs = { ...state.unmatchedRefs };
-  const savedConfigs = state.savedConfigs.map(c => ({ ...c, motors: { ...c.motors } }));
+  const savedConfigs = state.savedConfigs.map(c => ({ ...c, motors: Object.assign(Object.create(null) as Record<string, MountMotor>, c.motors) }));
   const stageOfMount = kernelStageIdByNode(state.tree);
   const replace = async (motors: Record<string, MountMotor>, mountId: string,
     ref: OrkMotorRef, choice: OpenMotorChoice) => {
-    const old = motors[mountId];
+    const old = overrideFor(motors, mountId);
     if (choice.kind === 'empty') { delete motors[mountId]; return; }
     // @atestani TRF #162, Eric 2026-10-06: accepting the loaded motor only
     // silences its question; its file delay and offline curve are already valid.
@@ -130,7 +132,7 @@ export async function applyOpenMotorChoices(
     for (const { configId, mountId, ref } of group.locations) {
       const config = savedConfigs.find(c => c.id === configId);
       if (config) {
-        const old = config.motors[mountId];
+        const old = overrideFor(config.motors, mountId);
         await replace(config.motors, mountId, ref, choice);
         const stageId = stageOfMount.get(mountId);
         // @atestani TRF #162, Eric 2026-10-06: inactive configurations have
@@ -138,11 +140,11 @@ export async function applyOpenMotorChoices(
         // an absent stage key leaves nozzle-follow in charge on a later switch.
         // Null clears an owned nozzle instead of inheriting the previous one.
         if (old && old.spec !== config.motors[mountId]?.spec && stageId !== undefined
-          && config.nozzles && stageId in config.nozzles && config.nozzles[stageId] !== 0) {
-          config.nozzles = { ...config.nozzles, [stageId]: null };
+          && config.nozzles && Object.hasOwn(config.nozzles, stageId) && config.nozzles[stageId] !== 0) {
+          config.nozzles = lookupTable({ ...config.nozzles, [stageId]: null });
         }
-        if (config.unmatchedRefs?.[mountId]) {
-          config.unmatchedRefs = { ...config.unmatchedRefs };
+        if (overrideFor(config.unmatchedRefs, mountId)) {
+          config.unmatchedRefs = lookupTable(config.unmatchedRefs ?? {});
           delete config.unmatchedRefs[mountId];
           config.unmatched = Object.values(config.unmatchedRefs).map(r => r.designation);
         }

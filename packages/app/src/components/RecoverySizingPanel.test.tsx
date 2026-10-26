@@ -210,6 +210,16 @@ describe('RecoverySizingPanel', () => {
     expect(text()).not.toContain('Looking through');
     expect(rows(0).length).toBeGreaterThan(0);
   });
+  it('updates an established catalogue status and gives Retry the themed button style', async () => {
+    let reject!: (error: Error) => void;
+    vi.spyOn(presetService, 'loadPresets').mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    await mount();
+    const regions = new Set(host.querySelectorAll('[role="status"]'));
+    await act(async () => { reject(new Error('offline')); });
+    const retry = [...host.querySelectorAll('button')].find(b => b.textContent === 'Retry')!;
+    expect(regions.has(retry.closest('[role="status"]')!)).toBe(true);
+    expect(retry.classList.contains('file-btn')).toBe(true);
+  });
 
   it('S7b-4: the drogue fit footer names its own narrower bay', async () => {
     const t = tree([{ id: 'main', diameter: 2, deployEvent: 'altitude' }]);

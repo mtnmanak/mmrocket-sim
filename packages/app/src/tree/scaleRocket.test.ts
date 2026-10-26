@@ -10,6 +10,16 @@ import { FIELDS, MIN_POSITIVE_DIMENSION_M } from './schema.js';
 import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
 
 describe('F2 scale regressions', () => {
+  it.each(['__proto__', 'constructor', 'toString'])('uses no inherited mount choice for %s', id => {
+    const tree: RocketTree = { components: [{ type: 'stage', children: [
+      { type: 'innertube', id, motorMount: true, outerRadius: 0.015, thickness: 0.0005, length: 0.1 },
+    ] }] };
+    const [preview] = previewMounts(tree, 2, { mountChoices: {} });
+    expect(preview?.finalBoreMm).toBeCloseTo(58, 9);
+    expect(preview?.targetBoreMm).toBeNull();
+    expect(() => scaleRocket(tree, 2, { mountChoices: {} })).not.toThrow();
+    expect(mountBore(findNode(scaleRocket(tree, 2).tree, id)!) * 1000).toBeCloseTo(58, 9);
+  });
   it.each(['fore', 'aft'] as const)('keeps a mutually automatic %s transition bore unknown', (side) => {
     const mount: ComponentNode = { type: 'innertube', id: 'm', motorMount: true,
       outerRadius: 0.015, thickness: 0.0005, length: 0.15 };

@@ -71,6 +71,40 @@ const stalled = (): typeof fetch => (_input, init) => new Promise<Response>((_re
 
 beforeEach(() => { resetThrustcurveBackoffForTests(); localStorage.clear(); setCatalogueOverlay(null); });
 
+it.each(['rejected', 'added', 'changed'])('describes poisoned stored %s scalars without throwing', kind => {
+  const poison = { toString: 0, valueOf: 0 };
+  const overlay = { baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: 1,
+    added: kind === 'added' ? [row({ designation: poison as unknown as string })] : [],
+    changed: kind === 'changed' ? [{ motorId: 'live-1', before: row({ avgThrustN: poison as unknown as number }), after: row(), fields: ['avgThrustN'] }] : [],
+    removed: [], rejected: kind === 'rejected' ? [{ entry: { manufacturerAbbrev: poison }, reason: 'bad' }] : [] };
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify(overlay));
+  const loaded = loadStoredOverlay()!;
+  expect(loaded).not.toBeNull();
+  expect(() => describeOverlay(loaded)).not.toThrow();
+});
+it('keeps a previously fetched motor as OOP when an answering maker delists it', async () => {
+  const learned = row({ motorId: 'previous-new' });
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date(0).toISOString(),
+    liveCount: 1, added: [learned], changed: [], removed: [], rejected: [] }));
+  const live = [row({ motorId: 'still-listed' })];
+  const { overlay } = await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi(live) as typeof fetch });
+  expect(overlay.added.find(m => m.motorId === learned.motorId)).toBeDefined();
+  expect(overlay.removed).toContain(learned.motorId);
+  expect(getCatalogue().find(m => m.motorId === learned.motorId)?.availability).toBe('OOP');
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi([row({ manufacturerAbbrev: 'Another maker' })]) as typeof fetch });
+  expect(getCatalogue().find(m => m.motorId === learned.motorId)?.availability).toBe('OOP');
+});
+it('keeps the last usable fetched motor when its newly listed replacement is refused', async () => {
+  const learned = row({ motorId: 'previous-new' });
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date(0).toISOString(),
+    liveCount: 1, added: [learned], changed: [], removed: [], rejected: [] }));
+  const { overlay } = await checkForCatalogueUpdates({ force: true,
+    fetchImpl: stubApi([{ ...learned, diameter: -1 }]) as typeof fetch });
+  expect(overlay.rejected).toHaveLength(1);
+  expect(getCatalogue().find(m => m.motorId === learned.motorId)?.diameter).toBe(18);
+  expect(overlay.removed).not.toContain(learned.motorId);
+});
+
 it.each([
   { fields: null }, { fields: ['length', null] }, { before: null },
   { before: {} }, { motorId: 'wrong-id' },

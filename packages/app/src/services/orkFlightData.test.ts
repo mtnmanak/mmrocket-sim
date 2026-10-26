@@ -80,6 +80,45 @@ const ids = (over: Partial<FlightDataForExportInput> = {}) =>
   Object.keys(flightDataForExport(base(over)));
 
 describe('Round 2 atmosphere export provenance', () => {
+  it.each([['0.178', false], ['0.179', true]] as const)('uses dated v6 Auto delay evidence from app %s', (appVersion, accepted) => {
+    const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } };
+    const assigned: [string, MountMotor][] = [['m1', auto]];
+    const saved: SimRun = { ...RUN, physicsRevision: 'recovery-radial-mass-v6',
+      exportContext: { appVersion, launch: DEFAULT_CONDITIONS, weather: null }, delayResolution: testResolution(assigned, [7]) };
+    expect(flownAutoDelays(base({ assigned, runs: [saved], physicsRevisions: ['transonic-ogive-aero-v6a'],
+      savedConfigs: [{ ...CONFIG, motors: Object.fromEntries(assigned) }] }))).toEqual(accepted ? { c1: { m1: 7 } } : {});
+  });
+  it.each(['recovery-radial-mass-v6', 'geopotential-isa-v7'])('judges affected Auto delay evidence stamped %s', physicsRevision => {
+    const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } };
+    const assigned: [string, MountMotor][] = [['m1', auto]];
+    const saved: SimRun = { ...RUN, aeroModel: 'classic', rogersKbf: true, physicsRevision,
+      delayResolution: testResolution(assigned, [7]) };
+    expect(flownAutoDelays(base({ assigned, runs: [saved], physicsRevisions: ['transonic-ogive-aero-v6a'],
+      model: { aeroMode: 'classic', effectiveKbf: true, autoSupersonic: false },
+      savedConfigs: [{ ...CONFIG, motors: Object.fromEntries(assigned) }] }))).toEqual(physicsRevision === 'recovery-radial-mass-v6' ? {} : { c1: { m1: 7 } });
+  });
+  it('does not write an ambiguous v6 flown Auto delay into the saved ork', () => {
+    const auto = { ...MOTOR, spec: { ...MOTOR.spec, ejectionDelay: 3 }, meta: { ...MOTOR.meta, autoDelay: true } };
+    const assigned: [string, MountMotor][] = [['m1', auto]];
+    const old = base({ assigned, runs: [{ ...RUN, physicsRevision: 'recovery-radial-mass-v6',
+      delayResolution: testResolution(assigned, [7]) }], physicsRevisions: ['transonic-ogive-aero-v6a'],
+      savedConfigs: [{ ...CONFIG, motors: { m1: auto } }] });
+    const tree = { components: [{ type: 'stage' as const, id: 's', children: [
+      { type: 'bodytube' as const, id: 'm1', motorMount: true, length: 0.3, outerRadius: 0.02, thickness: 0.001 },
+    ] }] };
+    const motors = orkMotorSet({ records: { m1: auto }, refs: {}, tree, flown: flownAutoDelays(old),
+      configKey: 'c1', exLibrary: () => [], first: 'records' });
+    const xml = exportOrk({ name: 'Ambiguous aero', tree, motors, configs: [{ ...CONFIG, motors }], activeConfigId: 'c1' });
+    expect(Object.values(importOrk(xml).configs[0]!.motors).map(m => m.delay)).toEqual([3]);
+  });
+  it('refuses pre-transonic-change Auto delays instead of exempting them as atmosphere-only', () => {
+    const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } };
+    const assigned: [string, MountMotor][] = [['m1', auto]];
+    const saved: SimRun = { ...RUN, physicsRevision: 'pods-only-base-drag-v5',
+      delayResolution: testResolution(assigned, [7]) };
+    expect(flownAutoDelays(base({ assigned, runs: [saved], physicsRevisions: ['transonic-ogive-aero-v6a'],
+      savedConfigs: [{ ...CONFIG, motors: Object.fromEntries(assigned) }] }))).toEqual({});
+  });
   it.each([
     ['classic', false, false, true], ['classic', true, false, false],
     ['supersonic', true, false, false], ['hybrid', false, false, false],
