@@ -23,9 +23,7 @@ export function numericFieldRules(node: ComponentNode, field: FieldDef, tubeFinB
     if (raw === undefined) autoRadiusSi = tubeFinRadius(node, tubeFinBodyR);
   }
   if (tubeFinBodyR !== null && field.key === 'finCount') {
-    // Preserve the panel's positive-radius predicate, including +Infinity:
-    // the touching-count rule handles it just as before this extraction.
-    const r = numOpt(node, 'outerRadius') ?? (node['outerRadius'] === Infinity ? Infinity : 0);
+    const r = numOpt(node, 'outerRadius') ?? 0;
     if (r > 0) maxCount = tubeFinMaxCount(r, tubeFinBodyR);
   }
   const limit = fieldLimit(node.type, field.key);

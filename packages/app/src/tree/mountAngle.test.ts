@@ -23,6 +23,67 @@ const tree = (kids: Record<string, unknown>[]): RocketTree => ({
 const FINS3 = { type: 'trapezoidfinset', id: 'f1', finCount: 3, rootChord: 0.05, height: 0.04 };
 
 describe('zero-size parts have no clock-angle obstruction', () => {
+  it.each(['rounded', 'airfoil'].flatMap(section => ['snap', 'rail', 'wake'].map(check => [section, check] as const)))(
+    'resolves both automatic transition ends for seated %s fins in %s checks', (crossSection, check) => {
+    const fin: ComponentNode = { type: 'freeformfinset', id: 'fin', crossSection, finCount: 1,
+      points: [[0, 0], [0.05, 0], [0.1, 0]], position: { method: 'top', offset: 0.1 } };
+    const tail: ComponentNode = { type: 'transition', length: 0.2, shape: 'conical', children: [fin,
+      { type: 'railbutton', id: 'rail', angleOffset: 0 },
+      { type: 'fairing', id: 'cam-auto', height: 0.02, width: 0.02, length: 0.04,
+        position: { method: 'top', offset: 0 } }] };
+    const t: RocketTree = { components: [{ type: 'stage', children: [
+      { type: 'bodytube', length: 0.3, outerRadius: 0.03 }, tail,
+      { type: 'bodytube', length: 0.1, outerRadius: 0.01 },
+    ] }] };
+    if (check === 'snap') expect(finAnglesAmong(frameContaining(t, 'rail')!)).toHaveLength(1);
+    if (check === 'rail') expect(railInterferenceFindings(t).some(f => f.parts.some(p => p.id === 'fin'))).toBe(true);
+    if (check === 'wake') expect(wakeShadowWarnings(t)).toHaveLength(1);
+  });
+  it.each(['rounded', 'airfoil'])('keeps the seated %s fin on a boat tail in snap, rail and wake checks', crossSection => {
+    const fin: ComponentNode = { type: 'freeformfinset', id: 'fin', crossSection, finCount: 1,
+      points: [[0, 0], [0.05, 0], [0.1, 0]], position: { method: 'top', offset: 0.1 } };
+    const host: ComponentNode = { type: 'transition', id: 'tail', length: 0.2,
+      foreRadius: 0.03, aftRadius: 0.01, shape: 'conical', children: [fin,
+        { type: 'railbutton', id: 'rail', angleOffset: 0 },
+        { type: 'fairing', id: 'cam', height: 0.02, width: 0.02, length: 0.04,
+          position: { method: 'top', offset: 0 } }] };
+    const t: RocketTree = { components: [{ type: 'stage', children: [host] }] };
+    expect(finAnglesAmong(frameContaining(t, 'rail')!)).toHaveLength(1);
+    expect(railInterferenceWarnings(t).join(' ')).toContain('fin');
+    expect(wakeShadowWarnings(t)).toHaveLength(1);
+  });
+  it('safely ignores malformed freeform rows in snap and warning paths', () => {
+    const fin = { type: 'freeformfinset', id: 'bad', points: [[0, 0], null, [0.05, 0]] } as ComponentNode;
+    expect(finAnglesAmong([fin])).toEqual([]);
+    expect(railInterferenceWarnings(tree([fin, { type: 'railbutton', id: 'rail' }]))).toEqual([]);
+    expect(wakeShadowWarnings(tree([fin]))).toEqual([]);
+  });
+  it.each([0, undefined])('excludes a tube fin with inherited or explicit zero wall %s', thickness => {
+    const t = tree([{ type: 'tubefinset', id: 'tf', thickness }, { type: 'railbutton', id: 'rail', angleOffset: 0 }]);
+    t.components[0]!.children![0]!['thickness'] = 0;
+    expect(finAnglesAmong(frameContaining(t, 'rail')!)).toEqual([]);
+    expect(railInterferenceWarnings(t)).toEqual([]);
+  });
+  it('excludes automatic tube fins on a zero-radius body', () => {
+    const t = tree([{ type: 'tubefinset', id: 'tf' }, { type: 'railbutton', id: 'rail' }]);
+    t.components[0]!.children![0]!['outerRadius'] = 0;
+    expect(finAnglesAmong(frameContaining(t, 'rail')!)).toEqual([]);
+  });
+  it.each([
+    { type: 'railbutton', outerDiameter: 0 }, { type: 'railbutton', totalHeight: 0 },
+    { type: 'launchlug', length: 0 }, { type: 'fairing', length: 0 },
+    { type: 'protuberance', length: 0 }, { type: 'protuberance', count: 0 },
+  ])('ignores collapsed $type in both rail and wake checks', part => {
+    const t = tree([{ height: 0.1, width: 0.02, outerRadius: 0.003, ...part,
+      id: 'gone', name: 'Collapsed', angleOffset: 0 }, { ...FINS3, position: { method: 'top', offset: 0.2 } },
+      { type: 'railbutton', id: 'rail', angleOffset: 0 }]);
+    expect(railInterferenceFindings(t).flatMap(f => f.parts.map(p => p.id))).not.toContain('gone');
+    expect(wakeShadowWarnings(t)).toEqual([]);
+  });
+  it.each(['rounded', 'airfoil'])('ignores zero-area %s freeform fins', crossSection => {
+    expect(finAnglesAmong([{ type: 'freeformfinset', crossSection, points: [[0, 0], [0.05, 0], [0.1, 0]] }])).toEqual([]);
+    expect(finAnglesAmong([{ ...FINS3, rootChord: 0, tipChord: 0 } as ComponentNode])).toEqual([]);
+  });
   it.each(['square', 'rounded', 'airfoil'])('%s freeform fins with a real outline keep their snap targets', (crossSection) => {
     const fin = { type: 'freeformfinset', id: 'fin', crossSection,
       points: [[0, 0], [0.02, 0.03], [0.06, 0]], finCount: 3 } as ComponentNode;
@@ -31,8 +92,13 @@ describe('zero-size parts have no clock-angle obstruction', () => {
   });
   it.each([
     { type: 'tubefinset', outerRadius: 0 },
+    { type: 'tubefinset', length: 0 }, { type: 'tubefinset', thickness: 0 },
+    { ...FINS3, thickness: 0 },
+    ...['rounded', 'airfoil'].map(crossSection => ({ type: 'freeformfinset', crossSection, thickness: 0,
+      points: [[0, 0], [0.02, 0.03], [0.06, 0]] })),
     { ...FINS3, height: 0 },
     { type: 'ellipticalfinset', height: 0 },
+    { type: 'ellipticalfinset', rootChord: 0 },
     ...['square', 'rounded', 'airfoil'].map(crossSection => ({ type: 'freeformfinset', crossSection, points: [] })),
   ])('omits zero-size $type snap targets and rail/wake warnings', (fin) => {
     expect(finAnglesAmong([fin as ComponentNode])).toEqual([]);
@@ -52,6 +118,18 @@ describe('zero-size parts have no clock-angle obstruction', () => {
     expect(railInterferenceWarnings(tree([{ ...part, id: 'part', angleOffset: 0 },
       { type: 'railbutton', id: 'rail', angleOffset: 0 }]))).toEqual([]);
   });
+});
+
+it('bounds wake warnings and explicitly reports an incomplete check', () => {
+  const kids = Array.from({ length: 101 }, (_, i) => ({ type: 'fairing', id: `cam${i}`, name: `Cam ${i}`,
+    length: 0.02, height: 0.1, width: 0.02, position: { method: 'top', offset: 0 } }));
+  const fins = Array.from({ length: 101 }, (_, i) => ({ ...FINS3, id: `fin${i}`, name: `Fin ${i}`,
+    finCount: 1, position: { method: 'top', offset: 0.1 } }));
+  const warnings = wakeShadowWarnings(tree([...kids, ...fins]));
+  expect(warnings.length).toBeLessThanOrEqual(1001);
+  expect(warnings.join(' ').length).toBeLessThan(1024 * 1024);
+  expect(warnings.at(-1)).toMatch(/not all.*wake|wake.*incomplete/i);
+  expect(staticWarningTier(warnings.at(-1)!)).toBe('caution');
 });
 
 describe('where the fins are', () => {

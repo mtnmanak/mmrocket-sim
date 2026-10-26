@@ -64,6 +64,33 @@ interface Harness {
   landing: { current: MountMotor | null };
 }
 
+it('hashes a restored snapshot once when no migration inputs exist', () => {
+  const input = snap(tree('Saved'));
+  const mark = designFingerprint(input);
+  const hash = vi.spyOn(dirtyState, 'designFingerprint');
+  try {
+    const h = mount(input, { savedMark: mark }, null,
+      { tree: input.tree, maxMotorLengthByStage: {} });
+    expect(h.current.dirty).toBe(false);
+    expect(hash).toHaveBeenCalledTimes(1);
+  } finally { hash.mockRestore(); }
+});
+
+it('hashes once with the real session restore inputs App always passes', () => {
+  const restored = designStateFromSession({ ...snap(tree('Saved')), savedAt: 1,
+    configLayers: 1, motorLengthLimitsMigrated: true, emptyConfigVersion: 1 },
+  { legacyMaxMotorLengthM: null });
+  const input = { ...restored.state, maxMotorLengthByStage: {} };
+  const mark = designFingerprint(input);
+  const hash = vi.spyOn(dirtyState, 'designFingerprint');
+  try {
+    const h = mount(input, { savedMark: mark }, restored.preRankRestore, restored.preLengthRestore,
+      restored.preConfigRestore);
+    expect(h.current.dirty).toBe(false);
+    expect(hash).toHaveBeenCalledTimes(1);
+  } finally { hash.mockRestore(); }
+});
+
 /**
  * App's shape, and nothing else: a snapshot in state, the hook over it.
  * `preRank` is what App's restore records when it moved a pad mass.

@@ -19,6 +19,45 @@ vi.mock('./services/printDocument.js', async original => ({
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const host = document.createElement('div'); document.body.append(host);
 const root = createRoot(host);
+
+it.each(['constructor', 'toString', '__proto__'].flatMap(id => [true, false, 'unload' as const].map(stored => [id, stored] as const)))(
+  'does not print an inherited unresolved motor for %s, refs stored=%s', async (id, stored) => {
+  const tree = defaultTree();
+  motorMounts(tree)[0]!.id = id;
+  localStorage.clear();
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
+  localStorage.setItem('online-openrocket.workspace.v1', 'results');
+  const motor: MountMotor = { label: 'C6-5', meta: { label: 'C6-5', manufacturer: 'Estes' },
+    ignition: { event: 'automatic', delay: 0 }, spec: { designation: 'C6', diameter: 0.018,
+      length: 0.07, cgX: 0.035, ejectionDelay: 5, times: [0, 0.2, 1.8],
+      thrusts: [0, 14, 0], masses: [0.024, 0.02, 0.0122] } };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ tree, launch: DEFAULT_CONDITIONS,
+    savedConfigs: [], mountMotors: stored === 'unload' ? { [id]: motor } : {},
+    ...(stored ? { unmatchedRefs: {} } : {}), savedAt: Date.now(), configLayers: 1, emptyConfigVersion: 1 }));
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline (test)'); }));
+  await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+  if (stored === 'unload') {
+    const unload = [...host.querySelectorAll('button')].find(b => b.textContent === '⏏ Unload')!;
+    expect(unload).toBeDefined();
+    await act(async () => unload.click());
+  }
+  const print = [...host.querySelectorAll('button')].find(b => b.textContent!.startsWith('Print design / flight report'))!;
+  await act(async () => print.click());
+  const html = vi.mocked(openPrintDocument).mock.calls[0]![0];
+  expect(html).not.toContain('Unresolved imported motor');
+});
+it.each(['constructor', 'toString', '__proto__'])('renders an unloaded restored mount %s on Motors & Configuration', async id => {
+  const tree = defaultTree();
+  motorMounts(tree)[0]!.id = id;
+  localStorage.clear();
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true }));
+  localStorage.setItem('online-openrocket.workspace.v1', 'motors');
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ tree, launch: DEFAULT_CONDITIONS,
+    savedConfigs: [], mountMotors: {}, savedAt: Date.now(), configLayers: 1, emptyConfigVersion: 1 }));
+  vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('offline (test)'); }));
+  await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+  expect(host.textContent).toContain('— no motor —');
+});
 afterEach(async () => { await act(async () => root.render(null)); localStorage.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetAllMocks(); });
 
 it.each([false, true])('C-A6 prints the inspected row, rather than the newest row, with imperial/sun=%s', async imperial => {

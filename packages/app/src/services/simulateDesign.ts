@@ -8,7 +8,7 @@ import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import { resolveFlightState } from './flightState.js';
 import { withActiveConfigSynced } from './configSync.js';
 import type { OrkMotorRef } from './orkFile.js';
-import { isOnLaunchStage, motorisedStagesWithNozzle, mountMotorCount, stagesWithRecoveryDevice } from '../tree/treeModel.js';
+import { isOnLaunchStage, motorisedStagesWithNozzle, mountMotorCount, stageRecoveryById, stagesWithRecoveryDevice } from '../tree/treeModel.js';
 import { APP_VERSION } from '../version.js';
 import { buildDesign, KERNEL_HANDLES, type BuildHandle, type BuiltDesign, type HandleFactory } from './buildDesign.js';
 import {
@@ -231,6 +231,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
     // the two model stamps above, which is the rest of that gate.
     nozzleStages: motorisedStagesWithNozzle(tree, assigned).map((s) => s.name),
     recoveryStages: stagesWithRecoveryDevice(tree),
+    recoveryByStage: stageRecoveryById(tree),
   });
   return { flight, run };
 }

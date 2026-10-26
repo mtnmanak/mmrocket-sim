@@ -133,16 +133,6 @@ export interface FinSectionProfile {
   te: FinEdge;
 }
 
-export interface FinSectionOptions {
-  /** The fin's mean aerodynamic chord, metres — the chamfer lengths are fractions of it. */
-  mac?: number;
-  /**
-   * Samples across a full curved chord (NACA); round edges get a quarter of it
-   * per edge, the biconvex half. Default 24, floor 4.
-   */
-  resolution?: number;
-}
-
 const SECTION_NAMES: ReadonlySet<string> = new Set([
   'hexagonal', 'naca', 'doublewedge', 'biconvex', 'hexbluntbase', 'singlewedge',
 ]);
@@ -231,12 +221,6 @@ export function finSectionSpec(node: ComponentNode, mac?: number): FinSectionSpe
   }
   spec.leRadius = nonNegative(node, 'finLeRadius');
   return spec;
-}
-
-/** The chamfer lengths need a MAC; without one the local chord stands in (documented). */
-function specFor(node: ComponentNode, chord: number, opts?: FinSectionOptions): FinSectionSpec {
-  const mac = opts?.mac !== undefined && Number.isFinite(opts.mac) && opts.mac > 0 ? opts.mac : chord;
-  return finSectionSpec(node, mac);
 }
 
 /** Peak half-thickness and the first ξ that reaches it, for the sections a LE radius can apply to. */
@@ -376,14 +360,6 @@ export function sectionHalfThickness(spec: FinSectionSpec, chord: number, xi: nu
   return clamp(h, 0, spec.thickness / 2);
 }
 
-/**
- * Half-thickness (metres) of a fin node at chord fraction ξ on a station of local
- * chord `chord` — the spec's `halfThickness(node, ξ)`.
- */
-export function halfThickness(node: ComponentNode, xi: number, opts: FinSectionOptions & { chord: number }): number {
-  return sectionHalfThickness(specFor(node, opts.chord, opts), opts.chord, xi);
-}
-
 function edgesOf(spec: FinSectionSpec): { le: FinEdge; te: FinEdge } {
   const t = spec.thickness;
   const sharp: FinEdge = { kind: 'sharp', height: 0 };
@@ -509,17 +485,6 @@ export function sectionProfile(spec: FinSectionSpec, chord: number, resolution =
     return out(xi, half);
   }
   return byEnvelope(spec.law === 'biconvex' ? uniformXi(biconvexN) : polygonalXi(spec));
-}
-
-/**
- * The base sampled section of a fin node at local `chord` (metres): a test
- * convenience over sectionProfile(specFor(...)). Production mesh callers use
- * sectionProfile directly; solidMesh.ts adds floor-crossing and chord-fill
- * stations for the STL. Pass the fin's MAC (`finMacFromOutline`) so the chamfer
- * fractions match the flown ones.
- */
-export function finSectionProfile(node: ComponentNode, chord: number, opts?: FinSectionOptions): FinSectionProfile {
-  return sectionProfile(specFor(node, chord, opts), chord, opts?.resolution);
 }
 
 /**

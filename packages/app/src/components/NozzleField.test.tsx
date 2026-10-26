@@ -17,6 +17,16 @@ const D13_EXIT_M = 0.004775;
 const I115 = '5f4294d200023100000001e7';
 
 describe('strap-on field and explicit OFF', () => {
+  it('bounds a typed nozzle diameter in the display unit', async () => {
+    await render({ exitDiameterM: 0 });
+    const field = host.querySelector('input')!;
+    act(() => field.focus());
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, '100000000');
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(committed.at(-1)).toBe(1000);
+  });
   it('explains one strap-on, combines its cluster, and associates the help with the input', async () => {
     await render({ parallel: true, motors: [{ motorId: D13, count: 4 }], exitDiameterM: 2 * D13_EXIT_M });
     expect(host.textContent).toContain('For ONE strap-on');

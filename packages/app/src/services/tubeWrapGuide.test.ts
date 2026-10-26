@@ -15,6 +15,26 @@ const fixture = (children: ComponentNode[], props: Record<string, unknown> = {})
   return { tube, tree };
 };
 
+it.each(['rounded', 'airfoil'].flatMap(crossSection => [
+  fin({ height: 0, crossSection }),
+  fin({ thickness: 0, crossSection }),
+  node('freeformfinset', { crossSection, points: [[0, 0], [0.03, 0], [0.06, 0]] }),
+  node('railbutton', { outerDiameter: 0 }),
+  node('railbutton', { totalHeight: 0 }),
+  node('launchlug', { length: 0 }),
+]))('omits guide lines and slots for a collapsed part %j', child => {
+  const { tree, tube } = fixture([child]);
+  expect(tubeWrapGeometry(tree, tube).lines).toEqual([]);
+});
+
+it.each([6.283185, -1e-6])('keeps a near-seam fin mark after a zero-angle lug at %s rad', rotation => {
+  const { tree, tube } = fixture([node('launchlug', { name: 'Lug', angleOffset: 0 }), fin({ rotation, finCount: 1 })]);
+  const pages = tubeWrapPages(tubeWrapGeometry(tree, tube), 'R', { length: 'mm', angle: 'deg' });
+  const svg = pages.map(page => page.svg).join('');
+  expect(svg).toContain('Fins 1');
+  expect(svg).toContain('Lug 1');
+});
+
 const expectTextClearOfMarks = (doc: ReturnType<DOMParser['parseFromString']>) => {
   const marks = [...doc.getElementsByTagName('g')].filter(g => g.getAttribute('class') === 'drilling-mark');
   const markBoxes = marks.map(mark => {

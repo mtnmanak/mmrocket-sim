@@ -1,4 +1,84 @@
 import { describe, expect, it } from 'vitest';
+
+it.each([false, true])('flags an obstructing coupler descendant beside a direct bore tube (coupler first=%s)', couplerFirst => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', length: 0.003,
+    position: { method: 'top', offset: 0.2 } };
+  const mount: ComponentNode = { type: 'innertube', length: 0.3, outerRadius: 0.01 };
+  const coupler: ComponentNode = { type: 'tubecoupler', length: 0.1,
+    position: { method: 'top', offset: 0 }, children: [
+      { type: 'innertube', length: 0.2, outerRadius: 0.005, radialPosition: 0.02,
+        position: { method: 'top', offset: 0.05 } },
+    ] };
+  const t: RocketTree = { components: [{ type: 'bodytube', length: 0.3, outerRadius: 0.03,
+    children: [ring, ...(couplerFirst ? [coupler, mount] : [mount, coupler])] }] };
+  const ctx = solidContextFor(t, ring);
+  expect(ctx.mountOuterRadius).toBeCloseTo(0.01, 12);
+  expect(ctx.mountLayoutUnresolved).toBe(true);
+  expect(componentLoop(ring, ctx)).toBeNull();
+});
+
+it('does not invent a bore from a centered descendant beyond its direct holder', () => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', length: 0.003,
+    position: { method: 'top', offset: 0.2 } };
+  const tree: RocketTree = { components: [{ type: 'bodytube', length: 0.3, outerRadius: 0.03, children: [
+    ring, { type: 'innertube', length: 0.1, outerRadius: 0.01, position: { method: 'top', offset: 0 },
+      children: [{ type: 'innertube', length: 0.3, outerRadius: 0.005,
+        position: { method: 'top', offset: 0 } }] },
+  ] }] };
+  const context = solidContextFor(tree, ring);
+  expect(context.mountOuterRadius).toBeUndefined();
+  expect(context.mountLayoutUnresolved).toBe(true);
+  expect(componentLoop(ring, context)).toBeNull();
+});
+
+it.each([{ radialPosition: 0.012 }, { cluster: '3-ring', clusterScale: 4 }])(
+  'keeps the assumed kernel bore beside an automatic coupler %j', layout => {
+    const ring: ComponentNode = { type: 'centeringring', id: 'automatic-coupler-ring', length: 0.003 };
+    const t: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', length: 0.3,
+      outerRadius: 0.03, children: [ring, { type: 'tubecoupler', length: 0.3, children: [
+        { type: 'innertube', length: 0.3, outerRadius: 0.005, ...layout },
+      ] }] }] }] };
+    const context = solidContextFor(t, ring);
+    expect(context.mountOuterRadius).toBeUndefined();
+    expect(context.mountLayoutUnresolved).not.toBe(true);
+    expect(componentLoop(ring, context)?.boreAssumed).toBe(true);
+  });
+
+it.each([false, true].map(wrap => ['innertube', wrap] as const))(
+  'flags a protruding descendant of a nonoverlapping %s holder, nested coupler=%s', (type, wrap) => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', length: 0.003,
+    position: { method: 'top', offset: 0.2 } };
+  const t: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', length: 0.3,
+    outerRadius: 0.03, children: [ring,
+      { type: 'innertube', length: 0.3, outerRadius: 0.01 },
+      { type, length: 0.1, outerRadius: 0.01, position: { method: 'top', offset: 0 }, children: [
+        { type: wrap ? 'tubecoupler' : 'innertube', length: 0.2, outerRadius: 0.005,
+          radialPosition: wrap ? 0 : 0.012, position: { method: 'top', offset: 0.05 },
+          ...(wrap ? { children: [{ type: 'innertube' as const, length: 0.2, outerRadius: 0.005,
+            radialPosition: 0.012, position: { method: 'top' as const, offset: 0 } }] } : {}) },
+      ] }] }] }] };
+  expect(solidContextFor(t, ring).mountLayoutUnresolved).toBe(true);
+  expect(componentLoop(ring, solidContextFor(t, ring))).toBeNull();
+});
+
+it.each([0.005, 0.0095])('ignores a %s m tube inside a sibling coupler for the kernel ring bore', radius => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', length: 0.003 };
+  const t: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', length: 0.3,
+    outerRadius: 0.03, children: [ring, { type: 'tubecoupler', length: 0.3, outerRadius: 0.02,
+      children: [{ type: 'innertube', length: 0.3, outerRadius: radius }] }] }] }] };
+  const context = solidContextFor(t, ring);
+  expect(context.mountOuterRadius).toBeUndefined();
+  expect(componentLoop(ring, context)?.boreAssumed).toBe(true);
+});
+
+it('flags an overlapping nested tube that protrudes beyond a ring bore', () => {
+  const ring: ComponentNode = { type: 'centeringring', id: 'ring', length: 0.003 };
+  const t: RocketTree = { components: [{ type: 'stage', children: [{ type: 'bodytube', length: 0.3, outerRadius: 0.03,
+    children: [ring, { type: 'innertube', length: 0.3, outerRadius: 0.01, children: [
+      { type: 'innertube', length: 0.3, outerRadius: 0.005, radialPosition: 0.012 },
+    ] }] }] }] };
+  expect(solidContextFor(t, ring).mountLayoutUnresolved).toBe(true);
+});
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { componentDxf } from '../services/dxfExport.js';
 import { finTemplateSvg } from '../services/finTemplate.js';

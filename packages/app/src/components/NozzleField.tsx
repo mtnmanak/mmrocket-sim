@@ -7,6 +7,7 @@ import { equivalentExitDiameterM, motorNozzleKey } from '../services/nozzleFollo
 import { exMotorRevision, subscribeExMotors } from '../services/exMotors.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
+import { MAX_DIMENSION_M } from '../tree/schema.js';
 
 /**
  * A stage's nozzle exit diameter, on the Motors & Configuration page, filled from the
@@ -167,6 +168,8 @@ export function NozzleField({
           // an INCH in inches — 12.7 mm a click on a 4.8 mm exit (audit 2026-09-22).
           step={niceStep(siToUi('motorDimensions', sym, 0.0005))}
           min={0}
+          max={siToUi('motorDimensions', sym, MAX_DIMENSION_M)}
+          clampToMax
           nullable
           placeholder={published !== null ? fmtSi('motorDimensions', sym, published) : 'automatic'}
           onCommit={(v) => onCommit(v === null ? null : uiToSi('motorDimensions', sym, v))}

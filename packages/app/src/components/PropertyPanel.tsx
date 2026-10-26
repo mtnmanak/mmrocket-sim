@@ -51,6 +51,8 @@ import { centeringRingBore, componentSolid, finPrintShape, ringOuterRadius, type
 import { finSectionLaw, type FinSectionLaw } from '../tree/finSection.js';
 import { finSectionFlatReason } from '../tree/finChords.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
+import { kernelNum } from '../tree/kernelDefaults.js';
+import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
 import { finRootChord, finTabSpan } from '../tree/finTab.js';
 import { massObjectParentRadius, solidContextFor } from '../tree/solidContext.js';
 import { componentDxf, DXF_CUTTABLE, DXF_MIME, dxfUnitFor, dxfUnitWord } from '../services/dxfExport.js';
@@ -958,8 +960,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
   // (blank radius); explicit values get the same ceiling here so neither the
   // slider nor typing can push the tubes into each other.
   const tubeFinBodyR = node.type === 'tubefinset' && parent && parent !== 'stage'
-    && typeof parent['outerRadius'] === 'number' && (parent['outerRadius'] as number) > 0
-    ? (parent['outerRadius'] as number)
+    ? kernelNum(parent, 'outerRadius')
     : null;
 
   /**
@@ -1037,6 +1038,14 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
       autoPlaceholder = `auto: ${fmtSig(autoValue, 3, 3)}`;
     }
     if (shapeDefault !== undefined) autoPlaceholder = `default: ${shapeDefault}`;
+    if (node.type === 'tubefinset' && f.key === 'thickness' && raw === undefined) {
+      const host = parent && parent !== 'stage' ? parent : undefined;
+      const radius = host ? kernelNum(host, 'outerRadius') : 0.012;
+      const wall = tubeFinWall(node, tubeFinRadius(node, radius),
+        host?.['filled'] === true ? radius : host ? kernelNum(host, 'thickness') : undefined);
+      autoValue = toDisplay(wall);
+      autoPlaceholder = `auto: ${fmtSig(autoValue, 3, 3)}`;
+    }
     // A rail button's five geometry dimensions did not exist as fields before
     // v0.103, so a button in a design saved earlier carries none of them and
     // these boxes come up empty. Empty must not read as "zero": the engine
@@ -1987,7 +1996,8 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         <div>
           {/* The explanation links the control that really sets the mass (D7 §5, P05). */}
           <p className="hint">
-            Use the shroud’s Mass (as built) field to set its mass. Mass, CG and Cd overrides do not apply to camera shrouds.{' '}
+            Use the shroud’s Mass (as built) field to set its mass.{' '}
+            Mass, CG and Cd overrides do not apply to camera shrouds and do not reach the flight.{' '}
             <button type="button" className="finish-all-btn"
               onClick={() => document.getElementById(idFor('mass'))?.focus()}>Go to Mass (as built)</button>
           </p>

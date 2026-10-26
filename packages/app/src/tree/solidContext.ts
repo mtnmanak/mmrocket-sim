@@ -5,11 +5,12 @@ import { axialLength, positionOf, startFromPosition } from './position.js';
 import { outerProfile } from './shapeProfile.js';
 import type { SolidContext } from './solidMesh.js';
 import { noseEnds } from './tailCone.js';
-import { kernelDefault } from './kernelDefaults.js';
+import { kernelDefault, kernelNum } from './kernelDefaults.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
 import { flatMount } from './finRoot.js';
 import { profileMountOf } from './schematicLayout.js';
 import { clusterCount } from './cluster.js';
+import { innerTubeSections } from './tubeLayout.js';
 
 /**
  * Parent-derived diameters for the printable (STL) and cuttable (DXF) exports
@@ -143,15 +144,28 @@ function overlappingTubes(parent: ComponentNode, node: ComponentNode): { widest?
   const [fore, aft] = span(node);
   let widest: number | undefined;
   let unresolved = false;
+  const couplerSections: ReturnType<typeof innerTubeSections> = [];
   for (const tube of parent.children ?? []) {
-    if (tube.type !== 'innertube' || tube === node) continue;
+    if (tube === node) continue;
+    if (tube.type === 'tubecoupler') {
+      couplerSections.push(...innerTubeSections(tube, pLen).filter(s => s.end >= fore && s.start <= aft));
+      continue;
+    }
+    if (tube.type !== 'innertube') continue;
     const [tubeFore, tubeAft] = span(tube);
-    if (aft < tubeFore || fore > tubeAft) continue;
+    const overlaps = aft >= tubeFore && fore <= tubeAft;
+    const sections = innerTubeSections(tube, pLen).filter(s => s.end >= fore && s.start <= aft);
+    if (!sections.length) continue;
+    // Descendants can obstruct fabrication, but cannot create a kernel bore.
+    if (!overlaps) { unresolved = true; continue; }
     const cluster = typeof tube['cluster'] === 'string' ? tube['cluster'] : undefined;
-    if (clusterCount(cluster) > 1 || Math.abs(numOpt(tube, 'radialPosition') ?? 0) > 1e-9) unresolved = true;
-    const r = numOpt(tube, 'outerRadius');
-    if (r !== undefined) widest = Math.max(widest ?? r, r);
+    if (overlaps && (clusterCount(cluster) > 1 || Math.abs(numOpt(tube, 'radialPosition') ?? 0) > 1e-9)) unresolved = true;
+    const r = kernelNum(tube, 'outerRadius');
+    if (sections.some(s => Math.hypot(s.y, s.z) + s.r > r + 1e-9)) unresolved = true;
+    widest = Math.max(widest ?? r, r);
   }
+  // A coupler cannot set the kernel bore, but its contents can cross one.
+  if (widest !== undefined && couplerSections.some(s => Math.hypot(s.y, s.z) + s.r > widest + 1e-9)) unresolved = true;
   return { widest, unresolved };
 }
 

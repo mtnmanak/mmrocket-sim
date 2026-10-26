@@ -3,7 +3,7 @@ import { solidContextFor } from './solidContext.js';
 import { readFileSync } from 'node:fs';
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
+import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import { buildPieces, type Piece } from './pieces.js';
 import { outerProfile, profileRadius } from './shapeProfile.js';
 
@@ -14,6 +14,34 @@ import { outerProfile, profileRadius } from './shapeProfile.js';
  */
 
 const BODY_R = 0.024;
+
+it('keeps an automatic coupler hidden inside a conical nose', () => {
+  const result = buildPieces({ components: [{ type: 'stage', children: [{ type: 'nosecone',
+    shape: 'conical', length: 0.15, aftRadius: 0.045, thickness: 0.002, children: [
+      { type: 'tubecoupler', length: 0.02, position: { method: 'top', offset: 0.02 } },
+    ] }] }] });
+  expect(result.pieces.filter(p => p.key.startsWith('inner'))).toHaveLength(0);
+  result.pieces.forEach(p => p.geometry.dispose());
+});
+
+it.each(['nosecone', 'bodytube', 'transition'] as const)('omits zero-length %s shell geometry', type => {
+  const t: RocketTree = { components: [{ type: 'stage', children: [{ type, length: 0, outerRadius: 0.03,
+    foreRadius: 0.02, aftRadius: 0.03 }] }] };
+  const result = buildPieces(t);
+  expect(result.pieces).toHaveLength(0);
+});
+it('omits a zero-radius body shell', () => {
+  expect(buildPieces({ components: [{ type: 'bodytube', outerRadius: 0, length: 0.2 }] }).pieces).toHaveLength(0);
+});
+it.each(['innertube', 'tubecoupler'] as const)('draws a nested mount and its motor inside a %s', type => {
+  const spec = { designation: 'Test', length: 0.08, diameter: 0.018 } as MotorSpec;
+  const result = buildPieces(withChildren([{ type, length: 0.15, outerRadius: 0.02, children: [
+    { type: 'innertube', id: 'nested', length: 0.1, outerRadius: 0.01 },
+  ] }]), { nested: spec });
+  expect(result.pieces.filter(p => p.key.startsWith('inner'))).toHaveLength(type === 'innertube' ? 2 : 1);
+  expect(result.pieces.filter(p => p.key.startsWith('motor'))).toHaveLength(1);
+  result.pieces.forEach(p => p.geometry.dispose());
+});
 
 describe('zero-size surface parts produce no display or export mesh', () => {
   it('draws a non-finite tube-fin radius as the finite automatic geometry', () => {
@@ -27,6 +55,7 @@ describe('zero-size surface parts produce no display or export mesh', () => {
     for (const p of [...automatic.pieces, ...restored.pieces]) p.geometry.dispose();
   });
   it.each([
+    ['tubefinset', 'length'], ['tubefinset', 'thickness'],
     ['fairing', 'length'], ['fairing', 'width'], ['fairing', 'height'],
     ['protuberance', 'length'], ['protuberance', 'width'], ['protuberance', 'height'],
     ['launchlug', 'length'], ['launchlug', 'outerRadius'],

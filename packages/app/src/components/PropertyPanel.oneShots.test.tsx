@@ -19,6 +19,31 @@ import { sanitizeTree } from '../tree/sanitize.js';
 
 const PREFS_KEY = 'online-openrocket.prefs.v1';
 
+it('shows and steps a finite automatic tube-fin radius under an overflowed body radius', () => {
+  localStorage.setItem(PREFS_KEY, JSON.stringify({ radiusMode: 'radius' }));
+  const node: ComponentNode = { type: 'tubefinset', id: 'tf', length: 0.08 };
+  render(stageOf([{ type: 'bodytube', outerRadius: Infinity, length: 0.4, children: [node] }]), node);
+  const label = [...host.querySelectorAll('label')].find(l => l.textContent?.startsWith('Outer radius'))!;
+  const input = document.getElementById(label.htmlFor) as HTMLInputElement;
+  expect(input.placeholder).not.toContain('Infinity');
+  expect(input.placeholder).toContain('12');
+  act(() => input.closest('.numfield')!.querySelector('button')!.click());
+  expect(patches.at(-1)?.outerRadius).toBeGreaterThan(0);
+  expect(Number.isFinite(patches.at(-1)?.outerRadius)).toBe(true);
+});
+
+it('shows and steps from the parent wall for a blank tube-fin thickness', () => {
+  const node: ComponentNode = { type: 'tubefinset', id: 'tf', length: 0.08 };
+  const tree = stageOf([{ type: 'bodytube', outerRadius: 0.025, length: 0.4, thickness: 0.0008, children: [node] }]);
+  render(tree, node);
+  const label = [...host.querySelectorAll('label')].find(l => l.textContent?.startsWith('Wall thickness'))!;
+  const input = document.getElementById(label.htmlFor) as HTMLInputElement;
+  expect(input.placeholder).toMatch(/0.8/);
+  const up = input.closest('.numfield')!.querySelector('button')!;
+  act(() => up.click());
+  expect(patches.at(-1)!.thickness).toBeGreaterThan(0.0008);
+});
+
 let host: HTMLDivElement;
 let root: Root;
 let patches: Record<string, unknown>[];

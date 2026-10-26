@@ -2,10 +2,21 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { filletMaterialPatch, numericFieldRules } from './numericFieldRules.js';
 import { FIELDS } from './schema.js';
+import { applyStageNozzles } from './treeModel.js';
+import { MAX_DIMENSION_M } from './schema.js';
+
+it('bounds nozzle values installed from a saved configuration', () => {
+  const tree = applyStageNozzles({ components: [{ type: 'stage', id: 's' }] }, { s: MAX_DIMENSION_M * 2 });
+  expect(tree.components[0]!['nozzleExitDiameter']).toBe(MAX_DIMENSION_M);
+});
 
 const field = (node: ComponentNode, key: string) => FIELDS[node.type]!.find(f => f.key === key)!;
 const rules = (node: ComponentNode, key: string, bodyRadius: number | null = null) =>
   numericFieldRules(node, field(node, key), bodyRadius);
+
+it('treats a non-finite tube-fin radius as automatic when editing count', () => {
+  expect(rules({ type: 'tubefinset', outerRadius: Infinity }, 'finCount', 0.02).maxCount).toBe(8);
+});
 
 describe('numeric model rules extracted from the panel (S3a-8)', () => {
   it('caps touching tube radii and counts, retaining the automatic SI radius', () => {

@@ -1,3 +1,4 @@
+import { overrideFor } from '../services/flightState.js';
 import * as THREE from 'three';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import {
@@ -424,10 +425,11 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         const count = finCountOf(child);
         const len = axialLength(child);
         const rt = tubeFinRadius(child, pRadius);
-        if (!(rt > 0)) continue;
+        if (!(rt > 0 && len > 0)) continue;
         // No kernel constant for the wall: an absent one inherits the tube's.
         const wall = tubeFinWall(child, rt,
           parent['filled'] === true ? pRadius : kernelNum(parent, 'thickness'));
+        if (!(wall > 0)) continue;
         const start = axialStart(child, len, pStart, pLen);
         reach(pRadius + 2 * rt);
         for (let i = 0; i < count; i++) {
@@ -545,14 +547,17 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         }
         bGeo.dispose();
         reach(pRadius + bh);
-      } else if (child.type === 'innertube') {
+      } else if (child.type === 'innertube' || child.type === 'tubecoupler') {
         // Motor mount / inner tube, one per cluster position — visible through
         // the translucent shell. A loaded motor seats flush against the
         // mount's aft end (how motors actually load), same as the 2D view.
         // 70 mm when absent, as it flies — this drew 50 (audit 2026-09-30).
         const len = axialLength(child);
-        const r = kernelNum(child, 'outerRadius');
         const start = axialStart(child, len, pStart, pLen);
+        const r = child.type === 'tubecoupler'
+          ? num(child, 'outerRadius', parent['filled'] === true ? 0 : Math.max(0, Math.min(mount.radiusAt(start - pStart),
+            mount.radiusAt(start - pStart + len)) - kernelNum(parent, 'thickness')))
+          : kernelNum(child, 'outerRadius');
         // A tube can sit OFF the centreline on its own, independently of any
         // cluster pattern: desktop's "split cluster" makes each motor tube
         // exactly that, one radius and one angle apiece. Both fields are
@@ -565,21 +570,23 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         const rd = num(child, 'radialDirection', 0);
         const ry = rp * Math.cos(rd);
         const rz = rp * Math.sin(rd);
-        const motor = child.id ? motors?.[child.id] : undefined;
+        const motor = child.id ? overrideFor(motors, child.id) : undefined;
         // The pattern turns with the tube's direction as well as sitting along
         // it — the kernel's getPoints(clusterRotation − radialDirection).
         for (const off of clusterOffsets(
           child['cluster'] as string | undefined, r,
           num(child, 'clusterScale', 1), num(child, 'clusterRotation', 0), { radialDirection: rd },
         )) {
-          place(`inner${k++}`, new THREE.CylinderGeometry(r, r, len, 32), nodeColor(child, MAT.inner),
+          if (child.type === 'innertube' && len > 0 && r > 0) place(`inner${k++}`, new THREE.CylinderGeometry(r, r, len, 32), nodeColor(child, MAT.inner),
             [start + len / 2, ry + off.y, rz + off.z], [0, 0, -Math.PI / 2], xform, 'glass');
-          if (motor) {
+          if (motor && motor.length > 0 && motor.diameter > 0) {
             const mR = motor.diameter / 2;
             const mStart = start + len - motor.length + num(child, 'motorOverhang', 0);
             place(`motor${k++}`, new THREE.CylinderGeometry(mR, mR, motor.length, 32), MAT.motor,
               [mStart + motor.length / 2, ry + off.y, rz + off.z], [0, 0, -Math.PI / 2], xform);
           }
+          const local = new THREE.Matrix4().makeTranslation(0, ry + off.y, rz + off.z);
+          addChildren(child, start, len, r, xform ? new THREE.Matrix4().copy(xform).multiply(local) : local);
         }
       } else if (isAssembly(child.type)) {
         // Off-axis pod / booster: place its whole sub-chain at the instance's
@@ -625,19 +632,19 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         const { fore, aft } = noseEnds(n, R);
         const shapeName = typeof n['shape'] === 'string' ? (n['shape'] as string) : 'ogive';
         const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, fore, aft);
-        place(`nose${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.nose),
+        if (len > 0 && R > 0) place(`nose${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.nose),
           [x, 0, 0], [0, 0, -Math.PI / 2], xform, true, n);
         reach(R);
         addChildren(n, x, len, R, xform, profileMount(shapeName, numOpt(n, 'shapeParameter'), len, fore, aft));
         x += len;
       } else if (n.type === 'bodytube') {
         const R = kernelNum(n, 'outerRadius');
-        place(`body${k++}`, new THREE.CylinderGeometry(R, R, len, 48), nodeColor(n, MAT.body),
+        if (len > 0 && R > 0) place(`body${k++}`, new THREE.CylinderGeometry(R, R, len, 48), nodeColor(n, MAT.body),
           [x + len / 2, 0, 0], [0, 0, -Math.PI / 2], xform, true, n);
         reach(R);
         // Min-diameter mount: a motor loaded directly in this body tube.
-        const tubeMotor = n.id ? motors?.[n.id] : undefined;
-        if (tubeMotor) {
+        const tubeMotor = n.id ? overrideFor(motors, n.id) : undefined;
+        if (tubeMotor && tubeMotor.length > 0 && tubeMotor.diameter > 0) {
           const mR = tubeMotor.diameter / 2;
           const mStart = x + len - tubeMotor.length + num(n, 'motorOverhang', 0);
           place(`motor${k++}`, new THREE.CylinderGeometry(mR, mR, tubeMotor.length, 32), MAT.motor,
@@ -655,7 +662,7 @@ export function buildPieces(tree: RocketTree, motors?: MotorDims, hiddenIds?: Re
         // file draws the way it simulates.
         const clipped = typeof n['clipped'] === 'boolean' ? (n['clipped'] as boolean) : undefined;
         const pts = lathePoints(shapeName, numOpt(n, 'shapeParameter'), len, rf, ra, clipped);
-        place(`trans${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.transition),
+        if (len > 0 && Math.max(rf, ra) > 0) place(`trans${k++}`, new THREE.LatheGeometry(pts, 48), nodeColor(n, MAT.transition),
           [x, 0, 0], [0, 0, -Math.PI / 2], xform, true, n);
         reach(Math.max(rf, ra));
         // A fin roots on the profile it is drawn on, not at the larger end.

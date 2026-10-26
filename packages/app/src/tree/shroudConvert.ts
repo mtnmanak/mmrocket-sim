@@ -158,6 +158,10 @@ export function shroudToFairing(n: ComponentNode): ComponentNode & { name: strin
   } as ComponentNode & { name: string };
   if (typeof n['finish'] === 'string') out['finish'] = n['finish'];
   if (typeof n['color'] === 'string') out['color'] = n['color'];
+  if (numOpt(n, 'overrideCGX') !== undefined) out['overrideCGX'] = n['overrideCGX'];
+  for (const key of ['overrideSubcomponentsMass', 'overrideSubcomponentsCG']) {
+    if (typeof n[key] === 'boolean') out[key] = n[key];
+  }
   return out;
 }
 
@@ -181,7 +185,9 @@ export function convertShrouds(tree: RocketTree, ids: string[]): ShroudConvertRe
           `Converted “${fairing.name}” to a native camera shroud `
           + `(${Math.round((fairing['length'] as number) * 1000)}×${Math.round((fairing['width'] as number) * 1000)}`
           + `×${Math.round((fairing['height'] as number) * 1000)} mm, `
-          + `${Math.round((fairing['mass'] as number) * 1000)} g — check mass/shape in its properties).`,
+          + `${Math.round((fairing['mass'] as number) * 1000)} g — check mass/shape in its properties).`
+          + (numOpt(n, 'overrideCGX') !== undefined
+            ? ' The stored CG override is kept for saving but does not reach the flight as a shroud; check the balance before flying.' : ''),
         );
         next = fairing;
       }

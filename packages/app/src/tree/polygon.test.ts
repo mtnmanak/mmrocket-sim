@@ -25,6 +25,9 @@ describe('signedArea — the one shoelace', () => {
 });
 
 describe('enclosesArea', () => {
+  it.each([null, 'bad', [0], [0, Infinity]])('rejects a malformed row %s without throwing', row => {
+    expect(enclosesArea([[0, 0], row, [0.05, 0]] as [number, number][])).toBe(false);
+  });
   it('is false for an outline flat along its root — a fin at height 0', () => {
     expect(enclosesArea([[0, 0], [0.02, 0], [0.05, 0], [0.06, 0]])).toBe(false);
   });

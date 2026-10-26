@@ -2794,15 +2794,16 @@ export function App() {
    */
   const editIgnition = (id: string, tuple: IgnitionTuple, scope: FlightEditScope, numeric = false, finished = false) => {
     const gesture = numeric ? flightEdit.current : null;
-    const baseline = (tree as FlightTree).ignitionDefaults?.[id] ?? mountMotors[id]!.ignition;
+    const own = overrideFor((tree as FlightTree).ignitionDefaults, id);
+    const baseline = own ?? overrideFor(mountMotors, id)!.ignition;
     if (scope === 'own') {
       // Establishing the first shared default must not change what another
       // configuration flies: one whose own motor record lights differently
       // from today's own setting keeps that as an override. Existing
       // overrides are never touched (own-setting scope).
       let frozen = false;
-      const configs = (tree as FlightTree).ignitionDefaults?.[id] ? savedConfigs : savedConfigs.map(c => {
-        const native = c.motors[id]?.ignition;
+      const configs = own ? savedConfigs : savedConfigs.map(c => {
+        const native = overrideFor(c.motors, id)?.ignition;
         if (c.id === activeConfigId || !native || overrideFor(c.ignitions, id) || !sparsify(baseline, native)) return c;
         frozen = true;
         return { ...c, ignitions: { ...c.ignitions, [id]: { ...native } } };
@@ -2815,13 +2816,13 @@ export function App() {
       : detachedOwnsOverrides ? 'detached' : 'default');
     // Native configurations can still inherit their own propellant-based motor
     // record. Establishing one shared default must not change any other owner.
-    const establishing = !(tree as FlightTree).ignitionDefaults?.[id];
+    const establishing = !own;
     const configs = establishing ? savedConfigs.map(c => {
-      const effective = c.ignitions?.[id] ?? c.motors[id]?.ignition;
+      const effective = overrideFor(c.ignitions, id) ?? overrideFor(c.motors, id)?.ignition;
       return effective ? { ...c, ignitions: setOverride(c.ignitions, id, baseline, effective) } : c;
     }) : savedConfigs;
     const detached = establishing ? { ...detachedOverrides,
-      ignitions: setOverride(detachedOverrides.ignitions, id, baseline, detachedOverrides.ignitions?.[id] ?? mountMotors[id]!.ignition),
+      ignitions: setOverride(detachedOverrides.ignitions, id, baseline, overrideFor(detachedOverrides.ignitions, id) ?? overrideFor(mountMotors, id)!.ignition),
     } : detachedOverrides;
     // With no owner there is no override layer: the mount default it is (FC-5).
     if (owner === 'default') {
@@ -3279,7 +3280,7 @@ export function App() {
   const preparePrintReport = () => {
     // C-A6: imported references never reach installation, but still make the intended loadout incomplete.
     const unresolved = mounts.flatMap(mount => {
-      const ref = mount.id ? unmatchedRefs[mount.id] : undefined;
+      const ref = mount.id ? overrideFor(unmatchedRefs, mount.id) : undefined;
       return ref && !assigned.some(([id]) => id === mount.id)
         ? [{ mount, identity: [ref.manufacturer, ref.designation].filter(Boolean).join(' ') }] : [];
     });
@@ -3720,7 +3721,8 @@ export function App() {
             };
           })()}
           onApply={(res) => {
-            const scaledConfigs = scaleConfigStageMass(savedConfigs, activeConfigId, tree, res.factor);
+            const configDiagnostics = { notes: [] as string[], needsAttention: false };
+            const scaledConfigs = scaleConfigStageMass(savedConfigs, activeConfigId, tree, res.factor, configDiagnostics, res.tree);
             commitTreeStep(res.tree);
             scaleRevision.current = {};
             // A measured mass describes the rocket that was weighed. After a
@@ -3751,7 +3753,8 @@ export function App() {
             // auto-expands. As plain 'info' it stays collapsed showing only the
             // headline - and "the motor no longer fits", which the dialog warned
             // about BEFORE the click, was hidden after it.
-            setFileNote(res.notes.join('\n'), res.needsAttention ? 'warn' : 'info');
+            setFileNote([...res.notes, ...configDiagnostics.notes].join('\n'),
+              res.needsAttention || configDiagnostics.needsAttention ? 'warn' : 'info');
           }}
           onSaveBackup={() => { void onSaveOrk(); }}
           onClose={() => setShowScale(false)}
@@ -4566,7 +4569,7 @@ export function App() {
                     })}
                   </div>
                   {stMounts.map((m) => {
-              const mm = flightState.mountMotors[m.id!];
+              const mm = overrideFor(flightState.mountMotors, m.id!);
               const mNode = findNode(tree, m.id!);
               // Pods and strap-ons included (audit 2026-09-22, row 351): the
               // label and the pad-mass card's multi-motor wording follow the
@@ -4585,14 +4588,14 @@ export function App() {
                 && resolutionMatchesPolicy(r.delayResolution, flownDelayMounts))
                 ?? runs.find((r) => r.designKey === provenanceKey.designKey
                   && (typeof r.motorDataKeys === 'object' && r.motorDataKeys !== null && !Array.isArray(r.motorDataKeys)
-                    ? r.motorDataKeys[m.id!] !== undefined
-                      && r.motorDataKeys[m.id!] === provenanceKey.motorDataKeys?.[m.id!]
+                    ? overrideFor(r.motorDataKeys, m.id!) !== undefined
+                      && overrideFor(r.motorDataKeys, m.id!) === overrideFor(provenanceKey.motorDataKeys, m.id!)
                     : r.motorDataKey === undefined || r.motorDataKey === provenanceKey.motorDataKey)
                   && validDelayResolution(r.delayResolution)
                   && r.delayResolution.mounts.some((d) => d.mountId === m.id && d.mode === 'auto'
                     // Matching fingerprints or the whole motor-set key establish the motor.
                     // Only a historical record without those needs the evidence identity.
-                    && (r.motorDataKeys?.[m.id!] !== undefined
+                    && (overrideFor(r.motorDataKeys, m.id!) !== undefined
                       || r.motorDataKey !== undefined || r.motorSetKey === provenanceKey.motorSetKey
                       || d.motorIdentity === flownDelayMounts.find((mount) => mount.mountId === m.id)?.motorIdentity)));
               const delayCurrent = !!delayRun && runMatchesDesign(delayRun, provenanceKey)
@@ -4731,7 +4734,7 @@ export function App() {
                           event", beside a label tied to nothing. The scope
                           choice is explicit (CFG-SPEC A3). */}
                       <MountIgnitionField mountId={m.id!} mountName={mountName(m)} ownerKey={flightOwnerKey}
-                        own={(tree as FlightTree).ignitionDefaults?.[m.id!] ?? mountMotors[m.id!]?.ignition ?? mm.ignition}
+                        own={overrideFor((tree as FlightTree).ignitionDefaults, m.id!) ?? overrideFor(mountMotors, m.id!)?.ignition ?? mm.ignition}
                         override={overrideFor(activeOverrides.ignitions, m.id!)}
                         overrideLabel={overrideScopeLabel} isStaged={isStaged}
                         onEdit={(scope, tuple, numeric) => editIgnition(m.id!, tuple, scope, numeric)}
@@ -4769,7 +4772,7 @@ export function App() {
                     }
                     // The file's primary is an unmatched reference (filePrimaryMountId
                     // is never null while primaryMountId is not).
-                    const fileRef = filePrimaryMountId ? unmatchedRefs[filePrimaryMountId] : undefined;
+                    const fileRef = filePrimaryMountId ? overrideFor(unmatchedRefs, filePrimaryMountId) : undefined;
                     const where = mountName(filePrimaryMountId ? findNode(tree, filePrimaryMountId) : null, 'a removed mount');
                     const named = fileRef?.designation ?? 'a motor the file names';
                     return typeof fileRef?.padMassKg === 'number' && fileRef.padMassKg > 0

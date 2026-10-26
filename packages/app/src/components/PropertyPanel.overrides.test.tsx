@@ -359,6 +359,7 @@ it('S3a-2 hides inert shroud overrides and points to the effective Mass field', 
   expect(host.querySelector('[aria-label="CG override, from component top"]')).toBeNull();
   expect(host.querySelector('[aria-label="Drag coefficient (Cd) override"]')).toBeNull();
   expect(host.textContent).toContain('Use the shroud’s Mass (as built) field');
+  expect(host.textContent).toContain('do not reach the flight');
   // D7 §5, P05: the explanation links the control that does set the mass.
   const go = [...host.querySelectorAll('button')].find(b => b.textContent === 'Go to Mass (as built)')!;
   expect(go).toBeTruthy();
@@ -366,7 +367,7 @@ it('S3a-2 hides inert shroud overrides and points to the effective Mass field', 
   expect(document.activeElement?.closest('.field')?.querySelector('label')?.textContent).toContain('Mass (as built)');
 });
 
-it('S3a-2 legacy shroud overrides do not replace its synthesized engine values', () => {
+it('S3a-2 legacy shroud overrides do not replace engine values', () => {
   const fairing = { type: 'fairing', id: 'shroud', mass: 0.03 } as ComponentNode;
   const expected = findNode(engineTree(treeOf(fairing)), 'shroud')!;
   for (const patch of [{ overrideMass: 0.1 }, { overrideCGX: 0.02 }, { overrideCD: 0.5 }]) {

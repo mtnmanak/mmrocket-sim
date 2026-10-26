@@ -2808,6 +2808,16 @@ describe('a booster whose recovery device never opened', () => {
     expect(run.comments).not.toContain('has NO recovery device');
   });
 
+  it('uses the separation stage id to distinguish namesakes with different recovery', () => {
+    const result = tumbling();
+    result.branches![1]!.events.find(e => e.type === 'STAGE_SEPARATION')!.sourceId = 'fitted';
+    result.branches!.push({ ...result.branches![1]!, events: result.branches![1]!.events.map(e =>
+      e.type === 'STAGE_SEPARATION' ? { ...e, sourceId: 'bare' } : e) });
+    const run = buildSimRun({ result, info, motor, launch: DEFAULT_CONDITIONS, rocketName: 'R', execMs: 1,
+      recoveryStages: [], recoveryByStage: { fitted: true, bare: false } });
+    expect(run.branches!.map(b => b.recoveryFitted)).toEqual([true, false]);
+  });
+
   it('still says it has none when the stage carries none, or when that is not known', () => {
     expect(runWith([]).comments).toContain('Booster has NO recovery device');
     expect(runWith().comments).toContain('Booster has NO recovery device');

@@ -36,7 +36,9 @@ export function signedArea(loop: ReadonlyArray<readonly [number, number]>): numb
 export function enclosesArea(loop: ReadonlyArray<readonly [number, number]>): boolean {
   if (loop.length < 3) return false;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const [x, y] of loop) {
+  for (const point of loop) {
+    if (!Array.isArray(point) || point.length < 2 || !Number.isFinite(point[0]) || !Number.isFinite(point[1])) return false;
+    const [x, y] = point;
     x0 = Math.min(x0, x);
     y0 = Math.min(y0, y);
     x1 = Math.max(x1, x);

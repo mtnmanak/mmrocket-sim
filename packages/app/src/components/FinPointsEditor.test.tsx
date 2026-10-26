@@ -31,6 +31,11 @@ let seq = 0;
 /** The editor's own 4-point clipped delta, in metres. */
 const GOOD: FinPoint[] = [[0, 0], [0.020, 0.030], [0.045, 0.030], [0.060, 0]];
 
+it('explains a restored over-limit outline immediately', () => {
+  render([[0, 0], [0.02, 3], [0.06, 0]]);
+  expect(host.querySelector('[role="alert"]')?.textContent).toMatch(/2.5/);
+});
+
 const render = (points: FinPoint[]) => {
   committed = [];
   seq += 1;
@@ -88,11 +93,72 @@ afterEach(() => {
 });
 
 describe('FinPointsEditor — the outline guard', () => {
+  it('allows deleting an earlier point in a legacy oversized outline', () => {
+    render([[0, 0], [0.01, 1], [0.02, 3], [0.06, 0]]);
+    act(() => host.querySelector<HTMLButtonElement>('[aria-label="Remove point 2"]')!.click());
+    expect(committed).toEqual([[[0, 0], [0.02, 3], [0.06, 0]]]);
+    expect(alertText()).not.toContain('The fin is unchanged.');
+  });
+  it('refuses worsening a smaller excess even when another legacy point is larger', () => {
+    render([[0, 0], [0.02, 3], [0.04, 4], [0.06, 0]]);
+    type(field('Point 2 y'), '3100');
+    expect(committed).toEqual([]);
+    expect(alertText()).toContain('The fin is unchanged.');
+  });
+  it('allows inserting a point ahead of an oversized legacy vertex', () => {
+    render([[0, 0], [0.02, 3], [0.06, 0]]);
+    const svg = host.querySelector('svg')!;
+    const line = host.querySelector('polygon')!.getAttribute('points')!.split(' ').map(p => p.split(',').map(Number));
+    const x = (line[0]![0]! + line[1]![0]!) / 2, y = (line[0]![1]! + line[1]![1]!) / 2;
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 170 } as DOMRect);
+    act(() => { svg.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1,
+      button: 0, buttons: 1, isPrimary: true, clientX: x, clientY: y })); });
+    act(() => { svg.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, pointerId: 1,
+      button: 0, buttons: 0, isPrimary: true, clientX: x, clientY: y })); });
+    expect(committed).toHaveLength(1);
+    expect(committed[0]).toHaveLength(4);
+    expect(committed[0]![1]![0]).toBeCloseTo(0.01, 10);
+    expect(committed[0]![1]![1]).toBeCloseTo(1.5, 10);
+  });
+  it('allows a negative forward sweep while retaining the existing positive excess', () => {
+    render([[0, 0], [0.02, 3], [0.06, 0]]);
+    type(field('Point 2 x'), '-3000');
+    expect(committed).toEqual([[[0, 0], [-3, 3], [0.06, 0]]]);
+    expect(alertText()).not.toContain('The fin is unchanged.');
+  });
+  it('allows uncrossing an oversized legacy outline before reducing its coordinates', () => {
+    renderStateful([[0, 0], [0.04, 3], [0.02, 3], [0.06, 0]]);
+    type(field('Point 2 x'), '10');
+    expect(committed).toHaveLength(1);
+    expect(alertText()).toContain('2.5 m');
+    expect(alertText()).not.toContain('The fin is unchanged.');
+  });
+  it('allows one-cell repairs of multiple oversized points and labels a refused worsening', () => {
+    renderStateful([[0, 0], [0.02, 3], [0.04, 3], [0.06, 0]]);
+    type(field('Point 2 y'), '2400');
+    expect(committed).toHaveLength(1);
+    expect(committed[0]![1]![1]).toBe(2.4);
+    expect(alertText()).not.toContain('The fin is unchanged.');
+    type(field('Point 3 y'), '3100');
+    expect(committed).toHaveLength(1);
+    expect(alertText()).toContain('The fin is unchanged.');
+    type(field('Point 3 y'), '2400');
+    expect(committed).toHaveLength(2);
+    expect(alertText()).toBe('');
+  });
   it('keeps intersection protection when an imported outline exceeds the coordinate limit', () => {
     render([[0, 0], [0.02, 3], [0.04, 0.02], [0.06, 0]]);
     type(field('Point 3 x'), '-20');
     expect(committed).toEqual([]);
     expect(alertText()).toContain('crosses itself');
+  });
+  it('refuses further over-limit edits to an already oversized outline', () => {
+    render([[0, 0], [0.02, 3], [0.06, 0]]);
+    type(field('Point 2 y'), '3100');
+    expect(committed).toEqual([]);
+    expect(alertText()).toContain('2.5 m');
+    type(field('Point 2 y'), '2400');
+    expect(committed.at(-1)![1]![1]).toBe(2.4);
   });
   it('accepts origin-translated imported outlines and still refuses crossings', () => {
     render([[0.01, 0], [0.03, 0.03], [0.055, 0.03], [0.07, 0]]);
@@ -223,7 +289,7 @@ describe('FinPointsEditor — the outline guard', () => {
     expect(alertText()).toContain('crosses itself');
     // Undo to genuinely different points clears the old edit's explanation.
     replacePoints(broken);
-    expect(alertText()).toBe('');
+    expect(alertText()).toMatch(/crosses itself/);
   });
 
   it('shows the 3-point starter for a set with too few points, and an edit never leaks into it', () => {

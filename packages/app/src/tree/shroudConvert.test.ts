@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { finOutlineProblem } from './finOutline.js';
@@ -6,6 +7,29 @@ import { convertShrouds, findShroudCandidates, shroudToFairing } from './shroudC
 import { findNode } from './treeModel.js';
 
 const PTS: [number, number][] = [[0, 0], [0, 0.02], [0.08, 0.02], [0.08, 0]];
+
+it.each(['rounded', 'airfoil'])('round-trips stored CG without applying it to a converted %s shroud', async crossSection => {
+  const { engineTree } = await import('./treeModel.js');
+  const source = freeform({ id: 'cam', crossSection, overrideMass: 0.04, overrideCGX: 0.01,
+    overrideSubcomponentsMass: true, overrideSubcomponentsCG: true });
+  const result = convertShrouds(wrap([source]), ['cam']);
+  const converted = result.tree;
+  const fairing = findNode(converted, 'cam')!;
+  expect(fairing).toMatchObject({ overrideCGX: 0.01, overrideSubcomponentsMass: true, overrideSubcomponentsCG: true });
+  const lowered = findNode(engineTree(converted), 'cam')!;
+  expect(lowered).toMatchObject({ overrideMass: 0.04 });
+  expect(lowered['overrideCGX']).toBeUndefined();
+  const { exportOrk, importOrk } = await import('../services/orkFile.js');
+  const reopened = importOrk(exportOrk({ name: 'Converted', tree: converted }));
+  expect(reopened.tree.components[0]!.children![0]!.children!.find(n => n.type === 'fairing'))
+    .toMatchObject({ overrideCGX: 0.01 });
+  expect(result.notes.join(' ')).toMatch(/stored CG.*does not reach the flight.*check.*balance/i);
+  const { OrkRocket } = await import('@online-openrocket/engine');
+  const before = OrkRocket.buildTree(engineTree(wrap([source]))).staticInfo();
+  const after = OrkRocket.buildTree(engineTree(converted)).staticInfo();
+  expect(after.mass).toBeCloseTo(before.mass, 10);
+  expect(Number.isFinite(after.cg)).toBe(true);
+});
 
 const freeform = (params: Record<string, unknown>): ComponentNode => ({
   type: 'freeformfinset', finCount: 1, thickness: 0.025, points: PTS,

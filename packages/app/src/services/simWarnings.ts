@@ -88,6 +88,7 @@ export const WARNING_LABEL: Record<string, string> = lookupTable({
   JAGGED_EDGED_FIN: 'Jagged fin outline — fin aerodynamics are approximate',
   ZERO_AREA_FIN: 'A fin has zero area and is ignored',
   RAIL_CHECK_INCOMPLETE: 'Rail clearance check stopped early',
+  WAKE_CHECK_INCOMPLETE: 'Shroud wake check stopped early',
   PARALLEL_FINS: 'Parallel fins on the same body — interference is not modeled',
   ZERO_VOLUME_BODY: 'A body component has zero volume',
   TUBE_ISOLATED: 'A tube fin is isolated from the body tube',
@@ -145,7 +146,7 @@ export function formatWarning(w: EngineWarning, units: UnitSelection = INITIAL_U
  * fixed 20 m/s deployment flag is not the report's upper opening limit. */
 export function warningTier(key: string): NoteTier {
   if (['NO_RECOVERY_DEVICE', 'RECOVERY_LAUNCH_ROD', 'TUMBLE_UNDER_THRUST', 'SIM_ABORT', 'INCOMPLETE_FLIGHT'].includes(key)) return 'danger';
-  if (['ZERO_AREA_FIN', 'FILE_INVALID_PARAMETER', 'RAIL_CHECK_INCOMPLETE'].includes(key)) return 'caution';
+  if (['ZERO_AREA_FIN', 'FILE_INVALID_PARAMETER', 'RAIL_CHECK_INCOMPLETE', 'WAKE_CHECK_INCOMPLETE'].includes(key)) return 'caution';
   return 'information';
 }
 

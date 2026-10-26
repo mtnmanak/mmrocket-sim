@@ -137,6 +137,10 @@ export function useDesignDirty(
   useEffect(() => {
     const pre = preRank?.current ?? null;
     if (preRank) preRank.current = null;
+    const lengthChanged = preLength && (preLength.tree !== snapshot.tree
+      || Object.keys(preLength.maxMotorLengthByStage ?? {}).length > 0
+      || Object.keys(snapshot.maxMotorLengthByStage ?? {}).length > 0);
+    if (!pre && !lengthChanged && !preConfig) return;
     const before = designFingerprint({ ...snapshot, ...preLength, ...(pre ? { mountMotors: pre.motors, savedConfigs: pre.configs } : {}), ...preConfig });
     const after = designFingerprint(snapshot);
     // Before the .ork mark's own test: a lossy mark can be valid without one.

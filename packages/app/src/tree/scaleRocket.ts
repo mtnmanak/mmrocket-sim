@@ -2,7 +2,7 @@ import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openr
 import {
   classLabel, fitsMount, nearestCommonClass,
 } from '../services/motorDb.js';
-import { OVERRIDE_INCLUDES_MOTOR } from '../services/statedLaunchWeight.js';
+import { OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES } from '../services/statedLaunchWeight.js';
 import { kernelDefault, kernelNum, KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import { finOutlineProblem, kernelFinPoints, type FinOutlinePoint } from './finOutline.js';
 import { ancestorsOf, findParent, motorMounts, mountName } from './treeModel.js';
@@ -183,6 +183,8 @@ export interface ScaleResult {
   tree: RocketTree;
   /** Notice lines, headline first (NoticeBar shows only line 1 collapsed). */
   notes: string[];
+  /** Component-specific advisories, without whole-design guidance. */
+  componentNotes?: string[];
   /**
    * Something in `notes` needs the user to act — a loaded motor that no longer
    * fits the scaled bore, or a mount left off-class. The caller raises the
@@ -462,7 +464,7 @@ export function previewMounts(
     if (m.type !== 'innertube') return null;
     const nearest = nearestCommonClass(scaledBoreMm);
     const onStandardClass = Math.abs(scaledBoreMm - nearest) < CLASS_TOLERANCE_MM;
-    const choice = m.id ? choices[m.id] : undefined;
+    const choice = m.id && Object.hasOwn(choices, m.id) ? choices[m.id] : undefined;
     return choice === 'scaled' ? null
       : choice === 'nearest' ? nearest
         : typeof choice === 'object' ? choice.boreMm
@@ -519,7 +521,7 @@ export function previewMounts(
     const snappable = !isAirframe && !onStandardClass;
     // Offered wherever the mount is not the airframe, on-class or not.
     const choosable = !isAirframe;
-    const choice = m.id ? choices[m.id] : undefined;
+    const choice = m.id && Object.hasOwn(choices, m.id) ? choices[m.id] : undefined;
     // ONE resolution of "what bore does this mount end up with", read by the
     // writer, the summary and the notice alike. A mount that IS the airframe is
     // never resized whatever is asked: resizing it would silently change the
@@ -781,6 +783,10 @@ export function scaleRocket(
     if (!FIXED_SIZE.has(type) && !marked
       && MASS_KEYS.some((key) => (num(n, key) ?? kernelDefault(type, key) ?? 0) !== 0)) massPinned++;
     const scaled = scaleNode(n, k, limitNotes);
+    if (n[STATED_STAGE_FIGURES] !== undefined) {
+      delete scaled[STATED_STAGE_FIGURES];
+      if (!marked) limitNotes.push(`${n.name ?? 'Stage'}: original stated launch figures were discarded. They describe the unscaled rocket; weigh the scaled stage before flying.`);
+    }
     for (const key of defaultEnds.get(n) ?? []) {
       Object.assign(scaled, limitPatch(n, { [key]: round(0.025 * k) }, limitNotes));
     }
@@ -916,6 +922,7 @@ export function scaleRocket(
     + ' the launch conditions.',
     'Mount Max motor length values scale with the airframe. Check them on Motors & Configuration before choosing motors.',
   ];
+  const componentNotes = [...limitNotes];
   notes.push(...limitNotes);
   if (fixedSeen.size) {
     // Sorted so the sentence reads the same whatever order the tree holds
@@ -932,7 +939,7 @@ export function scaleRocket(
       + ' in fixed sizes. Its length scaled.');
   }
   for (const s of statedLaunch) {
-    notes.push(`“${s.name}” lost the ${s.hadMass ? 'mass and CG' : 'CG'} the RASAero file stated for`
+    componentNotes.push(`“${s.name}” lost the ${s.hadMass ? 'mass and CG' : 'CG'} the RASAero file stated for`
       + ` it. That was a LAUNCH ${s.hadMass ? 'weight' : 'CG'} with “${s.motor}” still inside it —`
       + ' that motor matched no motor in the motor database when the file was imported, so nothing'
       + ' could take it out — and scaling it'
@@ -941,13 +948,13 @@ export function scaleRocket(
       + ' Overrides.');
   }
   if (massPinned) {
-    notes.push(`${massPinned} pinned mass${massPinned === 1 ? '' : 'es'} scaled the same way that`
+    componentNotes.push(`${massPinned} pinned mass${massPinned === 1 ? '' : 'es'} scaled the same way that`
       + ' part’s own material would — the cube of the factor for a solid part, the square for a'
       + ' canopy, the factor for a cord or launch lug — and any pinned CG station by the factor, which is what'
       + ' keeps the balance point at the same percentage of the length. If a pinned mass was a'
       + ' real part you weighed, it is now a guess: re-weigh it.');
   }
-  notes.push(...mountNotes);
+  notes.push(...componentNotes.slice(limitNotes.length), ...mountNotes);
   // MEASURED, not assumed: on the app's own default rocket a 2x scale takes the
   // structure to exactly 8x (nose 34.133 -> 273.064 g, tube 50.928 -> 407.422,
   // fins 58.752 -> 470.016, mount 11.066 -> 88.528) while the parachute goes
@@ -986,5 +993,5 @@ export function scaleRocket(
   // folded into a collapsed bar.
   const needsAttention = limitNotes.length > 0 || statedLaunch.length > 0 || mounts.some((m) => !m.motorStillFits
     || m.verdict === 'airframe-left' || m.verdict === 'off-class' || m.verdict === 'solid');
-  return { tree: next, factor, notes, needsAttention };
+  return { tree: next, factor, notes, componentNotes, needsAttention };
 }

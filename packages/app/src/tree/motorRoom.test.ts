@@ -1,4 +1,25 @@
 import { describe, expect, it } from 'vitest';
+
+it.each(['nosecone', 'transition'] as const)('keeps motor room continuous as a mount protrudes from a %s', type => {
+  const mount: ComponentNode = { type: 'innertube', id: 'mt', length: 0.1, outerRadius: 0.01,
+    position: { method: 'bottom', offset: 0 } };
+  const t: RocketTree = { components: [{ type: 'stage', children: [{ type, id: 'shell', length: 0.15,
+    shape: 'conical', foreRadius: 0.02, aftRadius: 0.045, children: [mount] }] }] };
+  const flush = estimateMotorRoom(t, 'mt')!.lengthM;
+  for (const offset of [0.001, 0.005, 0.02]) {
+    mount.position = { method: 'bottom', offset };
+    expect(estimateMotorRoom(t, 'mt')!.lengthM).toBeCloseTo(flush + offset, 9);
+  }
+});
+
+it('does not stop a long mount at the base of the reducer it penetrates', () => {
+  const t: RocketTree = { components: [{ type: 'stage', children: [
+    { type: 'transition', id: 'reducer', length: 0.1, foreRadius: 0.02, aftRadius: 0.045, shape: 'conical' },
+    { type: 'bodytube', length: 0.4, outerRadius: 0.045, children: [{ type: 'innertube', id: 'mt', length: 0.45,
+      outerRadius: 0.01, position: { method: 'bottom', offset: 0 } }] },
+  ] }] };
+  expect(estimateMotorRoom(t, 'mt')!.lengthM).toBeGreaterThanOrEqual(0.45);
+});
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { estimateMotorRoom, noBoreReason } from './motorRoom.js';
 import { defaultParams } from './schema.js';

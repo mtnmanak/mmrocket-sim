@@ -12,6 +12,34 @@
  * ogive nose: 304.8 mm of cone plus a 76.2 mm shoulder = 381 mm printed.
  */
 import { describe, expect, it } from 'vitest';
+
+it('prints a readable certified angle when rounding up six decimals misses the bed', () => {
+  const printer = { x: 0.2205, y: 0.2205, z: 0.389, margin: 0 };
+  const plan = planAxialSplit(0.4, 0.03, printer);
+  expect(plan.segments).toBe(1);
+  const printed = plan.reason.match(/leaned ([\d.]+)/)![1]!;
+  expect(printed).toBe('24.5');
+  const angle = Number(printed) * Math.PI / 180;
+  expect(0.4 * Math.sin(angle) + 0.06 * Math.cos(angle)).toBeLessThanOrEqual(printer.x + 1e-9);
+  expect(0.4 * Math.cos(angle) + 0.06 * Math.sin(angle)).toBeLessThanOrEqual(printer.z + 1e-9);
+});
+
+it('prints a fractional lean that itself fits the usable box', () => {
+  const printer = { x: 0.221421066, y: 0.221421066, z: 0.388593035, margin: 0 };
+  const plan = planAxialSplit(0.4, 0.03, printer);
+  expect(plan.segments).toBe(1);
+  const angle = Number(plan.reason.match(/leaned ([\d.]+)/)![1]) * Math.PI / 180;
+  expect(0.4 * Math.sin(angle) + 0.06 * Math.cos(angle)).toBeLessThanOrEqual(printer.x + 1e-9);
+  expect(0.4 * Math.cos(angle) + 0.06 * Math.sin(angle)).toBeLessThanOrEqual(printer.z + 1e-9);
+});
+
+it('finds a fractional lean inside a sub-degree fit window', () => {
+  const plan = planAxialSplit(0.4, 0.03, { x: 0.221066483, y: 0.221066483, z: 0.389059730, margin: 0 });
+  expect(plan.segments).toBe(1);
+  expect(plan.leanDeg).toBeGreaterThan(24);
+  expect(plan.leanDeg).toBeLessThan(25);
+  expect(Number(plan.reason.match(/leaned ([\d.]+)/)![1])).toBe(plan.leanDeg);
+});
 import type { ComponentNode } from '@online-openrocket/engine';
 import { componentLoop, isWatertight, revolveProfile, solidVolume } from './solidMesh.js';
 import { outerProfile } from './shapeProfile.js';

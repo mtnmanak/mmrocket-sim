@@ -16,6 +16,59 @@ import { encodeShareFragment, decodeShareFragment } from './shareLink.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { motorMounts } from '../tree/treeModel.js';
 import { planConfigSwitch, planImport, resolveImportMotors } from './importApply.js';
+import { scaleConfigStageMass } from './configSync.js';
+import { scaleRocket } from '../tree/scaleRocket.js';
+
+it.each([false, true])('warns when only an inactive configuration motor is too wide, resized=%s', resized => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
+    { type: 'bodytube', outerRadius: 0.03, length: 0.4, children: [
+      { type: 'innertube', id: 'mount', name: 'Mount', motorMount: true,
+        outerRadius: 0.02, thickness: 0.001, length: 0.2 },
+    ] },
+  ] }] };
+  const record = (diameter: number): MountMotor => ({ ...motor('Test'), spec: { ...motor('Test').spec, diameter } });
+  const configs = [cfg('A', { mount: record(0.029) }), cfg('B', { mount: record(0.038) })];
+  const scaled = scaleRocket(tree, 0.8, resized ? { mountChoices: { mount: { boreMm: 29 } } } : {}).tree;
+  const diagnostics = { notes: [] as string[], needsAttention: false };
+  scaleConfigStageMass(configs, 'A', tree, 0.8, diagnostics, scaled);
+  expect(diagnostics.needsAttention).toBe(true);
+  expect(diagnostics.notes.join(' ')).toContain(`38 mm motor no longer fits the ${resized ? '29.0' : '30.4'} mm bore`);
+  expect(diagnostics.notes.join(' ')).toContain('Configuration B');
+  expect(diagnostics.notes.join(' ')).not.toContain('Configuration A');
+  const fits = { notes: [] as string[], needsAttention: false };
+  scaleConfigStageMass(configs, 'A', tree, 0.8, fits,
+    scaleRocket(tree, 0.8, { mountChoices: { mount: { boreMm: 38 } } }).tree);
+  expect(fits).toEqual({ notes: [], needsAttention: false });
+});
+
+it('reports inactive snapshot clamps and pinned-mass advice after scaling', () => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', name: 'Real stage' }] };
+  const configs: SavedConfig[] = [{ id: 'B', name: 'Inactive', isDefault: false, motors: {},
+    stageMassOverrides: { s: { overrideCGX: 15, overrideMass: 0.5 } } }];
+  const diagnostics = { notes: [] as string[], needsAttention: false };
+  const scaled = scaleConfigStageMass(configs, null, tree, 100, diagnostics);
+  expect(scaled[0]!.stageMassOverrides!.s!.overrideCGX).toBe(1000);
+  expect(diagnostics.notes.join(' ')).toMatch(/Inactive.*CG|Inactive.*centre/i);
+  expect(diagnostics.notes.join(' ')).toMatch(/re-weigh/);
+  expect(diagnostics.needsAttention).toBe(true);
+  expect(diagnostics.notes.join(' ')).toContain('Real stage');
+  expect(diagnostics.notes.join(' ')).not.toMatch(/no fin set|0 mm|Scaled the whole|Ctrl\+Z|simulator cannot scale/);
+  const active = { notes: [] as string[], needsAttention: false };
+  scaleConfigStageMass(configs, 'B', { components: [{ ...tree.components[0]!, overrideMass: 0.5 }] }, 100, active);
+  expect(active).toEqual({ notes: [], needsAttention: false });
+  const empty = { notes: [] as string[], needsAttention: false };
+  scaleConfigStageMass([{ ...configs[0]!, stageMassOverrides: { s: {} } }], null, tree, 2, empty);
+  expect(empty).toEqual({ notes: [], needsAttention: false });
+});
+
+it('drops inputs-only stated launch figures in the live and saved scaled trees', () => {
+  const figures = { motor: 'Rejected', launchKg: 10, launchCgM: 0.5 };
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', statedStageFigures: figures }] };
+  expect(scaleRocket(tree, 2).tree.components[0]!['statedStageFigures']).toBeUndefined();
+  const configs: SavedConfig[] = [{ id: 'B', name: null, isDefault: false, motors: {},
+    stageMassOverrides: { s: { statedStageFigures: figures } } }];
+  expect(scaleConfigStageMass(configs, null, tree, 2)[0]!.stageMassOverrides!.s!.statedStageFigures).toBeUndefined();
+});
 
 describe('configuration editing', () => {
   const working = () => {

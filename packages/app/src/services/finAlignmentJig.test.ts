@@ -10,6 +10,12 @@ const fins = (finCount = 3, type = 'freeformfinset') => ({
   points: [[0, 0], [0.02, 0.04], [0.08, 0]], height: 0.04,
 }) as ComponentNode;
 
+it.each(['rounded', 'airfoil'])('refuses a zero-area %s fin set with positive height', crossSection => {
+  const collapsed: ComponentNode = { type: 'trapezoidfinset', rootChord: 0, tipChord: 0,
+    height: 0.04, thickness: 0.003, crossSection };
+  expect(() => finAlignmentJigGeometry(tube, collapsed, 0)).toThrow(/positive area/i);
+});
+
 describe('N049 fin alignment jig', () => {
   it.each([3, 4])('contains the full rectangular freeform fin section in all %i closed slots', count => {
     for (const crossSection of ['rounded', 'airfoil']) {

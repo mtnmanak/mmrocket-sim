@@ -6,6 +6,7 @@ import { sanitizeDocumentMaterials } from './documentMaterials.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { LaunchConditions } from './launchConditions.js';
 import type { FlightTree, FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
+import { savedConfigLabel } from '../model/design.js';
 import { shortHash, type MotorMeta } from './simReport.js';
 import { APP_VERSION } from '../version.js';
 import { MIN_IMPORTED_TIME_STEP_S, validDesktopPredictions, type MeasuredFigures, type OrkMotorRef } from './orkFile.js';
@@ -18,6 +19,7 @@ import { validDesignFileRef, type DesignFileRef } from './designFileName.js';
 import { validLossySaveMark, type LossySaveMark } from './lossySave.js';
 import { designFingerprint } from './dirtyState.js';
 import { sanitizeSessionFlightLayers } from './sessionFlightLayers.js';
+import { boundedNozzleDiameter } from '../tree/nozzles.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -414,6 +416,14 @@ function readSession(restoreRoot: boolean): SessionState | null {
       s.savedConfigs = configs;
     }
     for (const cfg of s.savedConfigs ?? []) {
+      for (const [id, value] of Object.entries(cfg.nozzles ?? {})) {
+        const bounded = boundedNozzleDiameter(value);
+        if (bounded !== value) {
+          cfg.nozzles![id] = bounded;
+          cautionNote(s.treeRestoreNotes ??= [], 'G04.nozzle-repaired',
+            `Saved configuration ${savedConfigLabel(cfg)}: an invalid or oversized nozzle exit diameter was repaired. Check the nozzle before flying.`);
+        }
+      }
       if (isTable(cfg.stageActiveness)) {
         cfg.stageActiveness = lookupTable(Object.fromEntries(
           Object.entries(cfg.stageActiveness).filter(([, value]) => typeof value === 'boolean'),

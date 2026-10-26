@@ -4,6 +4,7 @@ export interface NoteExplanation { meaning: string; remedy: string }
 
 // N046: advice only. The producer continues to own the note's text and tier.
 const flightRemedies: Record<string, string> = {
+  WAKE_CHECK_INCOMPLETE: 'Check every upstream shroud and downstream fin before flying. The app stopped checking this design partway, so a wake that reduces a fin’s effectiveness and stability may not be named.',
   NO_RECOVERY_DEVICE: 'Check how each stage will recover. Add and configure a recovery device where needed; this warning only checks whether a device exists, not whether it opens.',
   RECOVERY_LAUNCH_ROD: 'Check deployment events and delays. A device opening on the guide can interfere with departure.',
   RECOVERY_HIGH_SPEED: 'Review the speed at opening, deployment timing and recovery hardware. The kernel flag uses 20 m/s; the report has separate opening-speed guidance. A fast opening can tear the chute or zipper the tube.',

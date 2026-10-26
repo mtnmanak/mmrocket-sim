@@ -18,6 +18,30 @@ import {
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+it('keeps the kernel default wall of an engine block through an ork save', () => {
+  const tree: RocketTree = { components: [{ type: 'stage', children: [
+    { type: 'bodytube', outerRadius: 0.03, length: 0.3, children: [
+      { type: 'engineblock', id: 'block', length: 0.005 },
+    ] },
+  ] }] };
+  const loaded = importOrk(exportOrk({ name: 'Block', tree }));
+  const block = flatten(loaded.tree.components).find(n => n.type === 'engineblock')!;
+  expect(block['thickness']).toBeCloseTo(0.00095, 12);
+});
+
+it('reads an omitted engine-block wall and its automatic packing cavity consistently', () => {
+  const loaded = importOrk(`<openrocket version="1.10"><rocket><subcomponents><stage><subcomponents>
+    <bodytube><length>0.3</length><radius>0.03</radius><subcomponents>
+      <engineblock><name>Block</name><outerradius>0.01</outerradius><length>0.005</length><subcomponents>
+        <masscomponent><name>Packing probe</name><packedradius>auto</packedradius></masscomponent>
+      </subcomponents></engineblock>
+    </subcomponents></bodytube>
+  </subcomponents></stage></subcomponents></rocket></openrocket>`);
+  const parts = flatten(loaded.tree.components);
+  expect(parts.find(n => n.type === 'engineblock')!['thickness']).toBeCloseTo(0.00095, 12);
+  expect(parts.find(n => n.name === 'Packing probe')!['radius']).toBeCloseTo(0.01 - 0.00095, 12);
+});
+
 it.each([5, undefined])('S7a-g1 retains working mass %s and an unnamed motorless configuration', overrideMass => {
   const tree: RocketTree = { components: [{ type: 'stage', id: 's', overrideMass, overrideSubcomponentsMass: true,
     children: [{ type: 'bodytube', id: 'b', length: 1, outerRadius: 0.03, thickness: 0.001 }] }] };

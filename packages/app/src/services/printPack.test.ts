@@ -21,6 +21,23 @@ const node = (type: string, params: Record<string, unknown>): ComponentNode =>
 
 const H2D = toPrinterVolume(printerFromPreset('bambu-h2d')!)!;
 
+it('prints a readable angle for the 220.5 mm bed without losing the fit', () => {
+  const printer = { x: 0.2205, y: 0.2205, z: 0.389, margin: 0 };
+  const offer = printOffer(node('bodytube', { length: 0.4, outerRadius: 0.03, thickness: 0.002 }), {}, printer);
+  expect(offer.note).toContain('leaned 24.5\u00b0');
+  const angle = Number(offer.note!.match(/leaned ([\d.]+)/)![1]) * Math.PI / 180;
+  expect(0.4 * Math.sin(angle) + 0.06 * Math.cos(angle)).toBeLessThanOrEqual(printer.x + 1e-9);
+  expect(0.4 * Math.cos(angle) + 0.06 * Math.sin(angle)).toBeLessThanOrEqual(printer.z + 1e-9);
+});
+
+it('offers a fractional lean whose printed angle fits the printer', () => {
+  const printer = { x: 0.221421066, y: 0.221421066, z: 0.388593035, margin: 0 };
+  const offer = printOffer(node('bodytube', { length: 0.4, outerRadius: 0.03, thickness: 0.002 }), {}, printer);
+  const angle = Number(offer.note!.match(/leaned ([\d.]+)/)![1]) * Math.PI / 180;
+  expect(0.4 * Math.sin(angle) + 0.06 * Math.cos(angle)).toBeLessThanOrEqual(printer.x + 1e-9);
+  expect(0.4 * Math.cos(angle) + 0.06 * Math.sin(angle)).toBeLessThanOrEqual(printer.z + 1e-9);
+});
+
 it('B6 unresolved transition ends have a measurement warning before printing', () => {
   const offer = printOffer(node('transition', { foreRadius: 0.03 }), {}, null);
   expect(offer.tone).toBe('warn');
@@ -146,6 +163,12 @@ describe('printOffer — no printer configured (the compatibility guarantee)', (
 });
 
 describe('printOffer — printer set, part fits', () => {
+  it('rounds a fractional lean in the printer advice', () => {
+    const offer = printOffer(node('bodytube', { length: 0.4, outerRadius: 0.03 }), {},
+      { x: 0.221066483, y: 0.221066483, z: 0.389059730, margin: 0 }, 'Custom');
+    expect(offer.note).toMatch(/leaned 24\.\d°/);
+    expect(offer.note).not.toMatch(/24\.\d{2}/);
+  });
   it.each([0.05, 0.4])('omits the print-size note for a zero-radius tube-fin set %s m long', length => {
     const offer = printOffer(node('tubefinset', { outerRadius: 0, length }),
       { bodyRadius: 0.027 }, { x: 0.256, y: 0.256, z: 0.256 }, 'P1S');

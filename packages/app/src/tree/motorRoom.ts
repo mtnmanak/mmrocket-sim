@@ -308,10 +308,11 @@ export function estimateMotorRoom(tree: RocketTree, mountId: string): MotorRoom 
   for (const { start, end, node } of stations.values()) {
     if (node.id === mountId || !frame.has(node.id)) continue;
     // An open base is not a bulkhead; its taper can still stop the motor.
-    if ((node.type === 'nosecone' || node.type === 'transition') && start < mountAft - 1e-6 && end >= mountAft - 1e-6) {
+    if ((node.type === 'nosecone' || node.type === 'transition') && start < mountAft - 1e-6
+      && (mountAncestors.has(node.id) || end > mine.start + 1e-6)) {
       // The tube protects the motor until its fore end. A shell the tube
       // merely passes through, or one wholly aft of that end, is no stop.
-      if (!mountAncestors.has(node.id) || mine.start <= start + 1e-6) continue;
+      if (mine.start <= start + 1e-6) continue;
       let contact = mine.start;
       if (node['filled'] !== true) {
         const ends = node.type === 'nosecone' ? noseEnds(node, num(node, 'aftRadius', 0.012))
