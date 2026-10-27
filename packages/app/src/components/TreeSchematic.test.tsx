@@ -147,7 +147,12 @@ describe('TreeSchematic — CG/CP callouts', () => {
     const cg = texts().find((t) => t.textContent === 'CG')!;
     const cp = texts().find((t) => t.textContent === 'CP')!;
     expect(cg.getAttribute('fill')).toBe('var(--text-primary)');
-    expect(cp.getAttribute('fill')).toBe('var(--status-serious)');
+    // CP is the brand's CP orange (re-pinned 2026-10-26 from --status-serious,
+    // so the 2D and 3D views mark it alike): label in --accent-text, its
+    // leader and dot in --accent-graphic.
+    expect(cp.getAttribute('fill')).toBe('var(--accent-text)');
+    expect(g.querySelectorAll('[stroke="var(--accent-graphic)"]')).toHaveLength(1);
+    expect(g.querySelectorAll('circle[r="4"][fill="var(--accent-graphic)"]')).toHaveLength(1);
     // CG lane above the centerline, CP lane below.
     expect(Number(cg.getAttribute('y'))).toBeLessThan(Number(cp.getAttribute('y')));
     const margin = texts().find((t) => t.textContent === '✓ 1.52 cal — ok')!;
@@ -177,7 +182,7 @@ describe('TreeSchematic — CG/CP callouts', () => {
     const markerRings = [...host.querySelectorAll('circle[r="9"]')];
     expect(markerRings).toHaveLength(1); // the CG disc alone
     expect(markerRings[0]!.getAttribute('stroke')).toBe('var(--text-primary)');
-    expect(host.querySelector('[stroke="var(--status-serious)"]')).toBeNull();
+    expect(host.querySelector('[stroke="var(--accent-graphic)"]')).toBeNull();
     expect(texts().map((t) => t.textContent)).toEqual(['CG']);
   });
 

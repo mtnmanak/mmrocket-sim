@@ -61,29 +61,30 @@ export function dataHeaderLines(d: ExportData): string[] {
   return lines;
 }
 
-/** Light-theme values for the CSS variables the schematic markup uses
- *  (--accent-graphic = the selection outline when a component is selected;
- *  --status-* = the CP/stability-margin callout inks, S2;
+/** Light-theme values for the CSS variables the schematic markup uses, and
+ *  ONLY those (schematicExport.test holds the list to the markup both ways):
+ *  --accent-graphic = the selection outline and the CP marker, --accent-text
+ *  the CP label; --status-* = the stability-margin callout inks, S2;
  *  --launch / --launch-active / --on-accent = the loaded-motor case, its edge
- *  and its designation label, S5;
- *  --surface-* / --border / --text-* = the markers and the ruler gutters).
+ *  and its designation label, S5; --surface-1 / --text-* = the CG marker and
+ *  the caliper; --surface-2 / --border / --text-secondary = the ruler gutters.
  *  A var left out of this list resolves to nothing in a standalone SVG, which
  *  for `stroke` and `fill` means the initial value — invisible, silently.
  *  The values are the mmr-brand 1.0.2 LIGHT theme (brand/tokens.json
- *  theme.light / color), as styles.css maps them; the drawing goes on white
- *  paper, so every surface bakes to white except the page ground. */
+ *  theme.light), as styles.css maps them (response-2026-10-26b §2 A), with ONE
+ *  export exception: --surface-2 bakes to mist, not white. On screen the
+ *  gutters are white beside the mist stage; the export puts the drawing on a
+ *  white page, so white gutters would vanish into it. Mist keeps them reading
+ *  as gutters (1.16:1 with their #b3cadc edge, as the pre-brand #f2f0eb did at
+ *  1.13). schematicExport.test pins every value to tokens.json. */
 export const EXPORT_VARS: [string, string][] = [
-  ['var(--surface-0)', '#f6faff'], // --mmr-bg (paper)
-  ['var(--surface-1)', '#ffffff'],
-  ['var(--surface-2)', '#ffffff'], // --mmr-surface
-  ['var(--surface-3)', '#ffffff'],
+  ['var(--surface-1)', '#f6faff'], // --mmr-bg (paper)
+  ['var(--surface-2)', '#e5f0f8'], // --mmr-surface-2 (mist): the export exception above
   ['var(--text-primary)', '#03254f'], // --mmr-text
   ['var(--text-secondary)', '#45637b'], // --mmr-text-muted
-  ['var(--text-muted)', '#45637b'],
   ['var(--border)', '#b3cadc'], // --mmr-border
   ['var(--accent-text)', '#ad3c00'], // --mmr-accent-text
-  ['var(--accent-graphic)', '#ad3c00'],
-  ['var(--series-1)', '#006aab'], // --mmr-chart-altitude
+  ['var(--accent-graphic)', '#ad3c00'], // light = --mmr-accent-text (the brand orange is 2.95 on white)
   // The light theme's Launch ramp and status tokens (contrastTokens.test.ts
   // holds this list to styles.css).
   ['var(--launch)', '#bb4100'], // --mmr-btn-primary-bg

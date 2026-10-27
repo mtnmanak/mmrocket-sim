@@ -35,6 +35,10 @@ const SCHEMATIC_SRC = ['../components/TreeSchematic.tsx', '../tree/schematicLayo
   .map((f) => readFileSync(fileURLToPath(new URL(f, import.meta.url)), 'utf8'))
   .join('\n');
 
+const BRAND = JSON.parse(readFileSync(fileURLToPath(new URL('../../public/brand/tokens.json', import.meta.url)), 'utf8')) as {
+  theme: Record<'light' | 'dark', Record<string, string>>;
+};
+
 const varsIn = (src: string): Set<string> =>
   new Set(Array.from(src.matchAll(/var\(--[a-z0-9-]+\)/g), (m) => m[0]));
 
@@ -47,6 +51,34 @@ describe('EXPORT_VARS covers every CSS variable the schematic emits', () => {
   it('reads the layout the component draws, not only the component', () => {
     // The loaded motor case's fill is emitted by tree/schematicLayout.ts alone.
     expect(varsIn(SCHEMATIC_SRC)).toContain('var(--launch)');
+  });
+
+  it('bakes nothing the schematic does not use — a dead entry is an untested copy', () => {
+    const used = varsIn(SCHEMATIC_SRC);
+    expect(EXPORT_VARS.map(([v]) => v).filter((v) => !used.has(v))).toEqual([]);
+  });
+
+  it('every baked value is the brand LIGHT token styles.css maps the variable to', () => {
+    // A brand re-sync that moves a token fails HERE, not silently in the
+    // exported drawing. The map is response-2026-10-26b §2 A; --surface-2 is
+    // the one recorded export exception (mist gutters on the white page).
+    const light = BRAND.theme.light;
+    const expected: Record<string, string> = {
+      'var(--surface-1)': light.bg!,
+      'var(--surface-2)': light['surface-2']!,
+      'var(--text-primary)': light.text!,
+      'var(--text-secondary)': light['text-muted']!,
+      'var(--border)': light.border!,
+      'var(--accent-text)': light['accent-text']!,
+      'var(--accent-graphic)': light['accent-text']!,
+      'var(--launch)': light['btn-primary-bg']!,
+      'var(--launch-active)': light['btn-primary-bg-active']!,
+      'var(--on-accent)': light['btn-primary-text']!,
+      'var(--status-good)': light.success!,
+      'var(--status-warn)': light.warning!,
+      'var(--status-serious)': light.danger!,
+    };
+    expect(Object.fromEntries(EXPORT_VARS)).toEqual(expected);
   });
 
   it('bakes a value for every var TreeSchematic uses', () => {

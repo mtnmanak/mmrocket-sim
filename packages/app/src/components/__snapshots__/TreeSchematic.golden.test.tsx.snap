@@ -28,16 +28,16 @@ exports[`real files > FinsOnTransitions.rkt, at rest 1`] = `
       <path d="M 1116 249 L 1125 249 A 9 9 0 0 1 1116 258 Z" fill="var(--text-primary)">
       <path d="M 1116 249 L 1107 249 A 9 9 0 0 1 1116 240 Z" fill="var(--text-primary)">
     <g pointer-events="none">
-      <circle cx="1492" cy="249" fill="none" r="9" stroke-width="2" stroke="var(--status-serious)">
-      <circle cx="1492" cy="249" fill="var(--status-serious)" r="3.5">
+      <circle cx="1492" cy="249" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
+      <circle cx="1492" cy="249" fill="var(--accent-graphic)" r="3.5">
     <g pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="1116" x2="1116" y1="240" y2="48">
       <circle cx="1116" cy="48" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="1124" y="48">
         "CG"
-      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--status-serious)" x1="1492" x2="1492" y1="258" y2="450">
-      <circle cx="1492" cy="450" fill="var(--status-serious)" r="4">
-      <text dominant-baseline="central" fill="var(--status-serious)" font-size="11" font-weight="bold" x="1500" y="450">
+      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--accent-graphic)" x1="1492" x2="1492" y1="258" y2="450">
+      <circle cx="1492" cy="450" fill="var(--accent-graphic)" r="4">
+      <text dominant-baseline="central" fill="var(--accent-text)" font-size="11" font-weight="bold" x="1500" y="450">
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="584" y="450">
         "✓ 1.60 cal — ok"
@@ -114,16 +114,16 @@ exports[`real files > Three-stage rocket.CDX1, at rest 1`] = `
       <path d="M 395.48862481857765 111 L 404.48862481857765 111 A 9 9 0 0 1 395.48862481857765 120 Z" fill="var(--text-primary)">
       <path d="M 395.48862481857765 111 L 386.48862481857765 111 A 9 9 0 0 1 395.48862481857765 102 Z" fill="var(--text-primary)">
     <g pointer-events="none">
-      <circle cx="509.48448838896957" cy="111" fill="none" r="9" stroke-width="2" stroke="var(--status-serious)">
-      <circle cx="509.48448838896957" cy="111" fill="var(--status-serious)" r="3.5">
+      <circle cx="509.48448838896957" cy="111" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
+      <circle cx="509.48448838896957" cy="111" fill="var(--accent-graphic)" r="3.5">
     <g pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="395.48862481857765" x2="395.48862481857765" y1="102" y2="48.125">
       <circle cx="395.48862481857765" cy="48.125" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="403.48862481857765" y="48.125">
         "CG"
-      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--status-serious)" x1="509.48448838896957" x2="509.48448838896957" y1="120" y2="173.875">
-      <circle cx="509.48448838896957" cy="173.875" fill="var(--status-serious)" r="4">
-      <text dominant-baseline="central" fill="var(--status-serious)" font-size="11" font-weight="bold" x="517.4844883889696" y="173.875">
+      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--accent-graphic)" x1="509.48448838896957" x2="509.48448838896957" y1="120" y2="173.875">
+      <circle cx="509.48448838896957" cy="173.875" fill="var(--accent-graphic)" r="4">
+      <text dominant-baseline="central" fill="var(--accent-text)" font-size="11" font-weight="bold" x="517.4844883889696" y="173.875">
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="449.48448838896957" y="173.875">
         "✓ 1.60 cal — ok"
@@ -237,16 +237,16 @@ exports[`real files > TubeFins2.rkt, at rest 1`] = `
       <path d="M 361.242437979262 109 L 370.242437979262 109 A 9 9 0 0 1 361.242437979262 118 Z" fill="var(--text-primary)">
       <path d="M 361.242437979262 109 L 352.242437979262 109 A 9 9 0 0 1 361.242437979262 100 Z" fill="var(--text-primary)">
     <g pointer-events="none">
-      <circle cx="462.78514269899364" cy="109" fill="none" r="9" stroke-width="2" stroke="var(--status-serious)">
-      <circle cx="462.78514269899364" cy="109" fill="var(--status-serious)" r="3.5">
+      <circle cx="462.78514269899364" cy="109" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
+      <circle cx="462.78514269899364" cy="109" fill="var(--accent-graphic)" r="3.5">
     <g pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="361.242437979262" x2="361.242437979262" y1="100" y2="59.13915199753143">
       <circle cx="361.242437979262" cy="59.13915199753143" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="369.242437979262" y="59.13915199753143">
         "CG"
-      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--status-serious)" x1="462.78514269899364" x2="462.78514269899364" y1="118" y2="158.86084800246857">
-      <circle cx="462.78514269899364" cy="158.86084800246857" fill="var(--status-serious)" r="4">
-      <text dominant-baseline="central" fill="var(--status-serious)" font-size="11" font-weight="bold" x="470.78514269899364" y="158.86084800246857">
+      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--accent-graphic)" x1="462.78514269899364" x2="462.78514269899364" y1="118" y2="158.86084800246857">
+      <circle cx="462.78514269899364" cy="158.86084800246857" fill="var(--accent-graphic)" r="4">
+      <text dominant-baseline="central" fill="var(--accent-text)" font-size="11" font-weight="bold" x="470.78514269899364" y="158.86084800246857">
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="543.7851426989937" y="158.86084800246857">
         "✓ 1.60 cal — ok"
@@ -384,16 +384,16 @@ exports[`real files > kitchensink.ork, at rest 1`] = `
       <path d="M 438.341727496593 249 L 447.341727496593 249 A 9 9 0 0 1 438.341727496593 258 Z" fill="var(--text-primary)">
       <path d="M 438.341727496593 249 L 429.341727496593 249 A 9 9 0 0 1 438.341727496593 240 Z" fill="var(--text-primary)">
     <g pointer-events="none">
-      <circle cx="567.9205374953542" cy="249" fill="none" r="9" stroke-width="2" stroke="var(--status-serious)">
-      <circle cx="567.9205374953542" cy="249" fill="var(--status-serious)" r="3.5">
+      <circle cx="567.9205374953542" cy="249" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
+      <circle cx="567.9205374953542" cy="249" fill="var(--accent-graphic)" r="3.5">
     <g pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="438.341727496593" x2="438.341727496593" y1="240" y2="47.99999999999997">
       <circle cx="438.341727496593" cy="47.99999999999997" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="446.341727496593" y="47.99999999999997">
         "CG"
-      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--status-serious)" x1="567.9205374953542" x2="567.9205374953542" y1="258" y2="450">
-      <circle cx="567.9205374953542" cy="450" fill="var(--status-serious)" r="4">
-      <text dominant-baseline="central" fill="var(--status-serious)" font-size="11" font-weight="bold" x="575.9205374953542" y="450">
+      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--accent-graphic)" x1="567.9205374953542" x2="567.9205374953542" y1="258" y2="450">
+      <circle cx="567.9205374953542" cy="450" fill="var(--accent-graphic)" r="4">
+      <text dominant-baseline="central" fill="var(--accent-text)" font-size="11" font-weight="bold" x="575.9205374953542" y="450">
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="503.1311324959736" y="450">
         "✓ 1.60 cal — ok"
@@ -515,16 +515,16 @@ exports[`real files > reference.ork, at rest 1`] = `
       <path d="M 556.4864864864865 121.5 L 565.4864864864865 121.5 A 9 9 0 0 1 556.4864864864865 130.5 Z" fill="var(--text-primary)">
       <path d="M 556.4864864864865 121.5 L 547.4864864864865 121.5 A 9 9 0 0 1 556.4864864864865 112.5 Z" fill="var(--text-primary)">
     <g pointer-events="none">
-      <circle cx="729.0270270270271" cy="121.5" fill="none" r="9" stroke-width="2" stroke="var(--status-serious)">
-      <circle cx="729.0270270270271" cy="121.5" fill="var(--status-serious)" r="3.5">
+      <circle cx="729.0270270270271" cy="121.5" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
+      <circle cx="729.0270270270271" cy="121.5" fill="var(--accent-graphic)" r="3.5">
     <g pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="556.4864864864865" x2="556.4864864864865" y1="112.5" y2="48.11081081081081">
       <circle cx="556.4864864864865" cy="48.11081081081081" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="564.4864864864865" y="48.11081081081081">
         "CG"
-      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--status-serious)" x1="729.0270270270271" x2="729.0270270270271" y1="130.5" y2="194.88918918918918">
-      <circle cx="729.0270270270271" cy="194.88918918918918" fill="var(--status-serious)" r="4">
-      <text dominant-baseline="central" fill="var(--status-serious)" font-size="11" font-weight="bold" x="737.0270270270271" y="194.88918918918918">
+      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--accent-graphic)" x1="729.0270270270271" x2="729.0270270270271" y1="130.5" y2="194.88918918918918">
+      <circle cx="729.0270270270271" cy="194.88918918918918" fill="var(--accent-graphic)" r="4">
+      <text dominant-baseline="central" fill="var(--accent-text)" font-size="11" font-weight="bold" x="737.0270270270271" y="194.88918918918918">
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="584" y="194.88918918918918">
         "✓ 1.60 cal — ok"
@@ -696,7 +696,7 @@ exports[`the side view draws what it drew before the layout extraction > an inne
     <rect clip-path="url(#r4-outside-1)" data-fin-hit="" fill="transparent" height="26.202985074626863" rx="2" stroke="none" style="cursor: grab;" width="39.70149253731344" x="455.1940298507463" y="69.97888180036843">
     <line stroke-dasharray="4 3" stroke-width="0.8" stroke="#7a786f" style="pointer-events: none;" x1="455.1940298507463" x2="494.8955223880597" y1="83.08037433768186" y2="83.08037433768186">
     <g pointer-events="none">
-      <rect fill-opacity="0.14" fill="var(--accent-graphic)" height="8.787695642184985" rx="3" stroke-opacity="0.6" stroke-width="1" stroke="var(--accent-graphic)" width="107.22388059701495" x="393.64179104477614" y="115.14401836041775">
+      <rect fill-opacity="0.14" fill="var(--accent-graphic)" height="8.787695642184985" rx="3" stroke-width="1" stroke="var(--accent-graphic)" width="107.22388059701495" x="393.64179104477614" y="115.14401836041775">
       <g>
         <rect fill="rgba(3,37,79,0.92)" height="18" rx="4" stroke-width="1" stroke="var(--border)" width="57.4" x="418.55373134328363" y="95.14401836041775">
         <text dominant-baseline="central" fill="#f6faff" font-size="11" text-anchor="middle" x="447.2537313432836" y="104.14401836041775">
@@ -948,16 +948,16 @@ exports[`the side view draws what it drew before the layout extraction > every p
       <path d="M 343.9847328244275 113 L 352.9847328244275 113 A 9 9 0 0 1 343.9847328244275 122 Z" fill="var(--text-primary)">
       <path d="M 343.9847328244275 113 L 334.9847328244275 113 A 9 9 0 0 1 343.9847328244275 104 Z" fill="var(--text-primary)">
     <g pointer-events="none">
-      <circle cx="439.2519083969466" cy="113" fill="none" r="9" stroke-width="2" stroke="var(--status-serious)">
-      <circle cx="439.2519083969466" cy="113" fill="var(--status-serious)" r="3.5">
+      <circle cx="439.2519083969466" cy="113" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
+      <circle cx="439.2519083969466" cy="113" fill="var(--accent-graphic)" r="3.5">
     <g pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="343.9847328244275" x2="343.9847328244275" y1="104" y2="48">
       <circle cx="343.9847328244275" cy="48" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="351.9847328244275" y="48">
         "CG"
-      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--status-serious)" x1="439.2519083969466" x2="439.2519083969466" y1="122" y2="178">
-      <circle cx="439.2519083969466" cy="178" fill="var(--status-serious)" r="4">
-      <text dominant-baseline="central" fill="var(--status-serious)" font-size="11" font-weight="bold" x="447.2519083969466" y="178">
+      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--accent-graphic)" x1="439.2519083969466" x2="439.2519083969466" y1="122" y2="178">
+      <circle cx="439.2519083969466" cy="178" fill="var(--accent-graphic)" r="4">
+      <text dominant-baseline="central" fill="var(--accent-text)" font-size="11" font-weight="bold" x="447.2519083969466" y="178">
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="520.2519083969466" y="178">
         "✓ 1.60 cal — ok"
@@ -1208,16 +1208,16 @@ exports[`the side view draws what it drew before the layout extraction > interac
       <path d="M 343.9847328244275 113 L 352.9847328244275 113 A 9 9 0 0 1 343.9847328244275 122 Z" fill="var(--text-primary)">
       <path d="M 343.9847328244275 113 L 334.9847328244275 113 A 9 9 0 0 1 343.9847328244275 104 Z" fill="var(--text-primary)">
     <g pointer-events="none">
-      <circle cx="439.2519083969466" cy="113" fill="none" r="9" stroke-width="2" stroke="var(--status-serious)">
-      <circle cx="439.2519083969466" cy="113" fill="var(--status-serious)" r="3.5">
+      <circle cx="439.2519083969466" cy="113" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
+      <circle cx="439.2519083969466" cy="113" fill="var(--accent-graphic)" r="3.5">
     <g pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="343.9847328244275" x2="343.9847328244275" y1="104" y2="48">
       <circle cx="343.9847328244275" cy="48" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="351.9847328244275" y="48">
         "CG"
-      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--status-serious)" x1="439.2519083969466" x2="439.2519083969466" y1="122" y2="178">
-      <circle cx="439.2519083969466" cy="178" fill="var(--status-serious)" r="4">
-      <text dominant-baseline="central" fill="var(--status-serious)" font-size="11" font-weight="bold" x="447.2519083969466" y="178">
+      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--accent-graphic)" x1="439.2519083969466" x2="439.2519083969466" y1="122" y2="178">
+      <circle cx="439.2519083969466" cy="178" fill="var(--accent-graphic)" r="4">
+      <text dominant-baseline="central" fill="var(--accent-text)" font-size="11" font-weight="bold" x="447.2519083969466" y="178">
         "CP"
       <text dominant-baseline="central" fill="var(--status-serious)" font-size="13" font-weight="bold" text-anchor="middle" x="343.2519083969466" y="178">
         "⚠ 0.60 cal — under-stable"
@@ -1315,8 +1315,6 @@ exports[`the side view draws what it drew before the layout extraction > motors 
       <title>
         "Motor tubes"
     <rect fill="var(--launch)" height="8.732824427480915" rx="1" stroke-width="0.8" stroke="var(--launch-active)" style="pointer-events: none;" width="55.57251908396947" x="561.5114503816792" y="114.89131721410895">
-    <text dominant-baseline="central" fill="var(--on-accent)" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="589.2977099236641" y="119.25772942784941">
-      "D12-5"
     <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.969465648854962" x="534.5190839694656" y="115.28826377899445">
       <title>
         "Inner block"
@@ -1324,8 +1322,6 @@ exports[`the side view draws what it drew before the layout extraction > motors 
       <title>
         "Motor tubes"
     <rect fill="var(--launch)" height="8.732824427480915" rx="1" stroke-width="0.8" stroke="var(--launch-active)" style="pointer-events: none;" width="55.57251908396947" x="561.5114503816792" y="103.68713624483381">
-    <text dominant-baseline="central" fill="var(--on-accent)" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="589.2977099236641" y="108.05354845857427">
-      "D12-5"
     <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.969465648854962" x="534.5190839694656" y="104.0840828097193">
       <title>
         "Inner block"
@@ -1333,8 +1329,6 @@ exports[`the side view draws what it drew before the layout extraction > motors 
       <title>
         "Motor tubes"
     <rect fill="var(--launch)" height="8.732824427480915" rx="1" stroke-width="0.8" stroke="var(--launch-active)" style="pointer-events: none;" width="55.57251908396947" x="561.5114503816792" y="107.32230989983586">
-    <text dominant-baseline="central" fill="var(--on-accent)" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="589.2977099236641" y="111.68872211357632">
-      "D12-5"
     <rect fill="rgba(127,127,127,0.001)" height="7.938931297709924" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" width="3.969465648854962" x="534.5190839694656" y="107.71925646472135">
       <title>
         "Inner block"
@@ -1349,16 +1343,16 @@ exports[`the side view draws what it drew before the layout extraction > motors 
       <path d="M 343.9847328244275 113 L 352.9847328244275 113 A 9 9 0 0 1 343.9847328244275 122 Z" fill="var(--text-primary)">
       <path d="M 343.9847328244275 113 L 334.9847328244275 113 A 9 9 0 0 1 343.9847328244275 104 Z" fill="var(--text-primary)">
     <g pointer-events="none">
-      <circle cx="439.2519083969466" cy="113" fill="none" r="9" stroke-width="2" stroke="var(--status-serious)">
-      <circle cx="439.2519083969466" cy="113" fill="var(--status-serious)" r="3.5">
+      <circle cx="439.2519083969466" cy="113" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
+      <circle cx="439.2519083969466" cy="113" fill="var(--accent-graphic)" r="3.5">
     <g pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="343.9847328244275" x2="343.9847328244275" y1="104" y2="48">
       <circle cx="343.9847328244275" cy="48" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="351.9847328244275" y="48">
         "CG"
-      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--status-serious)" x1="439.2519083969466" x2="439.2519083969466" y1="122" y2="178">
-      <circle cx="439.2519083969466" cy="178" fill="var(--status-serious)" r="4">
-      <text dominant-baseline="central" fill="var(--status-serious)" font-size="11" font-weight="bold" x="447.2519083969466" y="178">
+      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--accent-graphic)" x1="439.2519083969466" x2="439.2519083969466" y1="122" y2="178">
+      <circle cx="439.2519083969466" cy="178" fill="var(--accent-graphic)" r="4">
+      <text dominant-baseline="central" fill="var(--accent-text)" font-size="11" font-weight="bold" x="447.2519083969466" y="178">
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="520.2519083969466" y="178">
         "✓ 1.60 cal — ok"
@@ -1451,8 +1445,6 @@ exports[`the side view draws what it drew before the layout extraction > nose-up
       <title>
         "Motor tubes"
     <rect fill="var(--launch)" height="6.534328358208955" rx="1" stroke-width="0.8" stroke="var(--launch-active)" style="pointer-events: none;" width="41.58208955223881" x="384.79402985074626" y="101.41517647688308">
-    <text dominant-baseline="central" fill="var(--on-accent)" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="405.58507462686566" y="104.68234065598756">
-      "D12-5"
     <rect aria-label="Select Inner block" fill="rgba(127,127,127,0.001)" height="5.940298507462687" role="button" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: pointer;" tabindex="0" width="2.9701492537313436" x="364.5970149253731" y="101.71219140225621">
       <title>
         "Inner block"
@@ -1460,8 +1452,6 @@ exports[`the side view draws what it drew before the layout extraction > nose-up
       <title>
         "Motor tubes"
     <rect fill="var(--launch)" height="6.534328358208955" rx="1" stroke-width="0.8" stroke="var(--launch-active)" style="pointer-events: none;" width="41.58208955223881" x="384.79402985074626" y="93.03165771431034">
-    <text dominant-baseline="central" fill="var(--on-accent)" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="405.58507462686566" y="96.29882189341483">
-      "D12-5"
     <rect fill="rgba(127,127,127,0.001)" height="5.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: pointer;" width="2.9701492537313436" x="364.5970149253731" y="93.32867263968348">
       <title>
         "Inner block"
@@ -1469,8 +1459,6 @@ exports[`the side view draws what it drew before the layout extraction > nose-up
       <title>
         "Motor tubes"
     <rect fill="var(--launch)" height="6.534328358208955" rx="1" stroke-width="0.8" stroke="var(--launch-active)" style="pointer-events: none;" width="41.58208955223881" x="384.79402985074626" y="95.75167327149313">
-    <text dominant-baseline="central" fill="var(--on-accent)" font-size="10" font-weight="bold" style="pointer-events: none;" text-anchor="middle" x="405.58507462686566" y="99.01883745059762">
-      "D12-5"
     <rect fill="rgba(127,127,127,0.001)" height="5.940298507462687" stroke-dasharray="3 2" stroke-width="1" stroke="#7d7050" style="cursor: pointer;" width="2.9701492537313436" x="364.5970149253731" y="96.04868819686627">
       <title>
         "Inner block"
@@ -1485,16 +1473,16 @@ exports[`the side view draws what it drew before the layout extraction > nose-up
       <path d="M 222.0298507462687 100 L 231.0298507462687 100 A 9 9 0 0 1 222.0298507462687 109 Z" fill="var(--text-primary)">
       <path d="M 222.0298507462687 100 L 213.0298507462687 100 A 9 9 0 0 1 222.0298507462687 91 Z" fill="var(--text-primary)">
     <g pointer-events="none">
-      <circle cx="293.31343283582095" cy="100" fill="none" r="9" stroke-width="2" stroke="var(--status-serious)">
-      <circle cx="293.31343283582095" cy="100" fill="var(--status-serious)" r="3.5">
+      <circle cx="293.31343283582095" cy="100" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
+      <circle cx="293.31343283582095" cy="100" fill="var(--accent-graphic)" r="3.5">
     <g pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="222.0298507462687" x2="222.0298507462687" y1="91" y2="48.091044776119396">
       <circle cx="222.0298507462687" cy="48.091044776119396" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" transform="rotate(-90 230.0298507462687 48.091044776119396)" x="230.0298507462687" y="48.091044776119396">
         "CG"
-      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--status-serious)" x1="293.31343283582095" x2="293.31343283582095" y1="109" y2="151.9089552238806">
-      <circle cx="293.31343283582095" cy="151.9089552238806" fill="var(--status-serious)" r="4">
-      <text dominant-baseline="central" fill="var(--status-serious)" font-size="11" font-weight="bold" transform="rotate(-90 301.31343283582095 151.9089552238806)" x="301.31343283582095" y="151.9089552238806">
+      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--accent-graphic)" x1="293.31343283582095" x2="293.31343283582095" y1="109" y2="151.9089552238806">
+      <circle cx="293.31343283582095" cy="151.9089552238806" fill="var(--accent-graphic)" r="4">
+      <text dominant-baseline="central" fill="var(--accent-text)" font-size="11" font-weight="bold" transform="rotate(-90 301.31343283582095 151.9089552238806)" x="301.31343283582095" y="151.9089552238806">
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" transform="rotate(-90 374.31343283582095 151.9089552238806)" x="374.31343283582095" y="151.9089552238806">
         "✓ 1.60 cal — ok""
@@ -1548,7 +1536,7 @@ exports[`the side view draws what it drew before the layout extraction > pods an
       <title>
         "Pod mount"
     <g pointer-events="none">
-      <rect fill-opacity="0.14" fill="var(--accent-graphic)" height="116.89899463886974" rx="3" stroke-opacity="0.6" stroke-width="1" stroke="var(--accent-graphic)" width="98.32835820895525" x="351.1940298507463" y="54.98972772951698">
+      <rect fill-opacity="0.14" fill="var(--accent-graphic)" height="116.89899463886974" rx="3" stroke-width="1" stroke="var(--accent-graphic)" width="98.32835820895525" x="351.1940298507463" y="54.98972772951698">
       <g>
         <rect fill="rgba(3,37,79,0.92)" height="18" rx="4" stroke-width="1" stroke="var(--border)" width="63.6" x="368.5582089552239" y="34.98972772951698">
         <text dominant-baseline="central" fill="#f6faff" font-size="11" text-anchor="middle" x="400.3582089552239" y="43.98972772951698">
@@ -1744,16 +1732,16 @@ exports[`the side view draws what it drew before the layout extraction > the her
       <path d="M 344.02985074626866 249 L 353.02985074626866 249 A 9 9 0 0 1 344.02985074626866 258 Z" fill="var(--text-primary)">
       <path d="M 344.02985074626866 249 L 335.02985074626866 249 A 9 9 0 0 1 344.02985074626866 240 Z" fill="var(--text-primary)">
     <g pointer-events="none">
-      <circle cx="439.31343283582095" cy="249" fill="none" r="9" stroke-width="2" stroke="var(--status-serious)">
-      <circle cx="439.31343283582095" cy="249" fill="var(--status-serious)" r="3.5">
+      <circle cx="439.31343283582095" cy="249" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
+      <circle cx="439.31343283582095" cy="249" fill="var(--accent-graphic)" r="3.5">
     <g pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="344.02985074626866" x2="344.02985074626866" y1="240" y2="183.9910447761194">
       <circle cx="344.02985074626866" cy="183.9910447761194" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="352.02985074626866" y="183.9910447761194">
         "CG"
-      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--status-serious)" x1="439.31343283582095" x2="439.31343283582095" y1="258" y2="314.0089552238806">
-      <circle cx="439.31343283582095" cy="314.0089552238806" fill="var(--status-serious)" r="4">
-      <text dominant-baseline="central" fill="var(--status-serious)" font-size="11" font-weight="bold" x="447.31343283582095" y="314.0089552238806">
+      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--accent-graphic)" x1="439.31343283582095" x2="439.31343283582095" y1="258" y2="314.0089552238806">
+      <circle cx="439.31343283582095" cy="314.0089552238806" fill="var(--accent-graphic)" r="4">
+      <text dominant-baseline="central" fill="var(--accent-text)" font-size="11" font-weight="bold" x="447.31343283582095" y="314.0089552238806">
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="520.313432835821" y="314.0089552238806">
         "✓ 1.60 cal — ok"
@@ -1873,16 +1861,16 @@ exports[`the side view draws what it drew before the layout extraction > zoomed 
       <path d="M 343.9847328244275 113 L 352.9847328244275 113 A 9 9 0 0 1 343.9847328244275 122 Z" fill="var(--text-primary)">
       <path d="M 343.9847328244275 113 L 334.9847328244275 113 A 9 9 0 0 1 343.9847328244275 104 Z" fill="var(--text-primary)">
     <g pointer-events="none">
-      <circle cx="439.2519083969466" cy="113" fill="none" r="9" stroke-width="2" stroke="var(--status-serious)">
-      <circle cx="439.2519083969466" cy="113" fill="var(--status-serious)" r="3.5">
+      <circle cx="439.2519083969466" cy="113" fill="none" r="9" stroke-width="2" stroke="var(--accent-graphic)">
+      <circle cx="439.2519083969466" cy="113" fill="var(--accent-graphic)" r="3.5">
     <g pointer-events="none">
       <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--text-primary)" x1="343.9847328244275" x2="343.9847328244275" y1="104" y2="48">
       <circle cx="343.9847328244275" cy="48" fill="var(--text-primary)" r="4">
       <text dominant-baseline="central" fill="var(--text-primary)" font-size="11" font-weight="bold" x="351.9847328244275" y="48">
         "CG"
-      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--status-serious)" x1="439.2519083969466" x2="439.2519083969466" y1="122" y2="178">
-      <circle cx="439.2519083969466" cy="178" fill="var(--status-serious)" r="4">
-      <text dominant-baseline="central" fill="var(--status-serious)" font-size="11" font-weight="bold" x="447.2519083969466" y="178">
+      <line stroke-dasharray="4 3" stroke-width="1" stroke="var(--accent-graphic)" x1="439.2519083969466" x2="439.2519083969466" y1="122" y2="178">
+      <circle cx="439.2519083969466" cy="178" fill="var(--accent-graphic)" r="4">
+      <text dominant-baseline="central" fill="var(--accent-text)" font-size="11" font-weight="bold" x="447.2519083969466" y="178">
         "CP"
       <text dominant-baseline="central" fill="var(--status-good)" font-size="13" font-weight="bold" text-anchor="middle" x="520.2519083969466" y="178">
         "✓ 1.60 cal — ok"
