@@ -10,6 +10,7 @@ import {
   type SimRun, type StabilityUnit,
 } from '../services/simReport.js';
 import { recoveryMassTitle, type RecoveryMass } from '../services/recoveryMass.js';
+import { CD_REFERENCE_MACH } from '../services/designCd.js';
 import { UnitChip } from './UnitChip.js';
 
 /** Shared tiered styling: under-stable = red, over-stable = yellow caution. */
@@ -48,13 +49,8 @@ function Tile({ label, value, unit, quantity, className, title }: {
   );
 }
 
-/**
- * Reference Mach for the design-tab drag coefficient. Subsonic and well clear
- * of the transonic rise, so the number is stable while you edit — it is a
- * shape figure to compare designs and to watch while trimming a Cd override,
- * not a prediction for a particular flight.
- */
-export const CD_REFERENCE_MACH = 0.3;
+/** Reference Mach for the design-tab drag coefficient; defined beside the sweep (services/designCd.ts). */
+export { CD_REFERENCE_MACH };
 
 export function DesignStats({ info, motorLabel, cd, recovery }: {
   info: StaticInfo;

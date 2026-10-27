@@ -1,6 +1,7 @@
 import { ConfigStabilityRange } from './components/ConfigStabilityRange.js';
 import { DesignPrintReport } from './components/DesignPrintReport.js';
 import { designPrintHtml } from './services/designPrintReport.js';
+import { designCdOf } from './services/designCd.js';
 import { LaunchOverrideWarning } from './components/LaunchOverrideWarning.js';
 import { describeFlightOverrides, recordFlightOverrides, type FlightOverrideSummary } from './services/flightOverrideSummary.js';
 import { flightVitals } from './services/flightVitals.js';
@@ -61,7 +62,7 @@ import { SimHistory, SimRunDetails } from './components/SimResults.js';
 import { FlightDataBundleDialog, type FlightDataBundleSource } from './components/FlightDataBundleDialog.js';
 import { DesktopPredictions } from './components/DesktopPredictions.js';
 import {
-  CD_REFERENCE_MACH, DesignStats, FlightStats, StatsChip, stabilityGlyphClass,
+  DesignStats, FlightStats, StatsChip, stabilityGlyphClass,
 } from './components/StatTiles.js';
 /**
  * three.js + @react-three is 205 KB gzipped — about a quarter of the initial
@@ -1665,9 +1666,7 @@ export function App() {
   const designCd = useMemo(() => {
     if (!built) return null;
     try {
-      return built.rocket.dragSweep({
-        machMin: CD_REFERENCE_MACH, machMax: CD_REFERENCE_MACH, machStep: 1,
-      }).powerOff.total[0] ?? null;
+      return designCdOf(built.rocket);
     } catch {
       // Drag is a nicety; never let it take the stats panel down with it.
       return null;
