@@ -188,10 +188,17 @@ export async function downloadRawFiles(ids, {
   return raw;
 }
 
+/**
+ * `previous` is the bundle on disk before this run, or null. A 200 batch with
+ * no usable file for any motor it asked for counts as failed when one of those
+ * motors had curves in `previous` (an empty answer, not a withdrawn motor). A
+ * batch that drops only SOME motors still passes: one usable file clears it.
+ */
 export async function fetchCurves(motors, {
   fetchImpl = fetch,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   log = (s) => process.stdout.write(s),
+  previous = null,
 } = {}) {
   const curves = Object.create(null);
   let files = 0, points = 0;
@@ -220,6 +227,13 @@ export async function fetchCurves(motors, {
       continue;
     } finally {
       await sleep(PAUSE_MS);
+    }
+    const asked = new Set(batch.map((m) => m.motorId));
+    if (previous && batch.some((m) => Object.hasOwn(previous.curves, m.motorId) && previous.curves[m.motorId].length)
+      && !body.results.some((f) => asked.has(f.motorId) && compactFile(f))) {
+      failed.push(...batch.map((m) => `${m.manufacturerAbbrev} ${m.designation}: download.json returned no usable file `
+        + 'for a batch whose motors had curves'));
+      continue;
     }
     for (const f of body.results ?? []) {
       const compact = compactFile(f);
@@ -260,7 +274,17 @@ export async function main({
   const motors = db.motors ?? [];
   if (!motors.length) throw new Error(`${dbPath} has no motors — run fetch-motor-db.mjs first`);
 
-  const got = await fetchCurves(motors, { fetchImpl, sleep, log });
+  // Read before anything can overwrite it: the empty-batch rule compares with it.
+  let previous = null;
+  try {
+    const held = JSON.parse(readFileSync(outPath, 'utf8'));
+    if (held?.curves && typeof held.curves === 'object' && !Array.isArray(held.curves)) previous = held;
+    else throw new Error('no curves object');
+  } catch (error) {
+    (log ?? ((s) => process.stdout.write(s)))(`  no readable previous bundle at ${outPath} (${error.message}); `
+      + 'an empty download batch cannot be detected this run\n');
+  }
+  const got = await fetchCurves(motors, { fetchImpl, sleep, log, previous });
   const { curves, files, points, failed } = got;
   if (failed.length) {
     console.log(`  ${failed.length} motors FAILED to fetch:`);
@@ -308,7 +332,8 @@ export async function addDigestsMain({ outPath = OUT, fetchImpl = fetch, sleep, 
       for (const f of downloadResults(body)) record(f);
       return { ok: true, status: res.status, json: async () => body };
     },
-    sleep, log,
+    // Every motor here has curves in this bundle, so an empty batch is a failure.
+    sleep, log, previous: bundle,
   });
   if (got.failed.length) {
     console.error(`${got.failed.length} motors failed to download; nothing was written.`);

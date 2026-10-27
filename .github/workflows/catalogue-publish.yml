@@ -85,12 +85,16 @@ jobs:
         if: steps.input.outputs.eligible == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
+        # Never fails. A 404 means no environment, so no approval gate: GitHub
+        # creates it unprotected when the catalogue job names it.
         run: |
-          if gh api "repos/$GITHUB_REPOSITORY/environments/catalogue-publish" > "$RUNNER_TEMP/approval.json"; then
+          if gh api "repos/$GITHUB_REPOSITORY/environments/catalogue-publish" > "$RUNNER_TEMP/approval.json" 2> "$RUNNER_TEMP/approval-error.txt"; then
             node packages/app/scripts/catalogue-source.mjs approval --run "$RUNNER_TEMP/approval.json" >> "$GITHUB_STEP_SUMMARY" ||
               echo 'could not confirm the approval rule' >> "$GITHUB_STEP_SUMMARY"
           else
-            echo 'could not confirm the approval rule' >> "$GITHUB_STEP_SUMMARY"
+            cat "$RUNNER_TEMP/approval-error.txt" >&2 || true
+            node packages/app/scripts/catalogue-source.mjs approval-error --error "$RUNNER_TEMP/approval-error.txt" >> "$GITHUB_STEP_SUMMARY" ||
+              echo 'could not confirm the approval rule' >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Plan the curated catalogue publication
@@ -102,7 +106,9 @@ jobs:
           FETCHED_AT: ${{ steps.input.outputs.fetched_at }}
           SOURCE_COMMIT: ${{ steps.input.outputs.commit }}
           SOURCE_ATTEMPT: ${{ steps.input.outputs.source_attempt }}
+        # The trap covers curl/node failures; it does not fire on an explicit exit.
         run: |
+          trap 'echo "Catalogue manifest/plan step failed; see the step diagnostic" >> "$GITHUB_STEP_SUMMARY"' ERR
           previous="$RUNNER_TEMP/catalogue-previous.json"
           status=$(curl --silent --show-error --location --max-time 30 --output "$previous" --write-out '%{http_code}' \
             "$CATALOGUE_BASE/manifest.json")
@@ -110,7 +116,7 @@ jobs:
           case "$status" in
             200) previous_args=(--previous "$previous") ;;
             404) ;;
-            *) echo "Catalogue manifest GET failed: HTTP $status" >&2; exit 1 ;;
+            *) echo "Catalogue manifest GET failed: HTTP $status" | tee -a "$GITHUB_STEP_SUMMARY" >&2; exit 1 ;;
           esac
           node packages/app/scripts/catalogue-publish.mjs plan \
             --motors "$RUNNER_TEMP/catalogue-input/motors-full.json" \

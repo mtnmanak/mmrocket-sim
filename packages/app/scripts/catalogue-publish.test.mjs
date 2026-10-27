@@ -672,6 +672,30 @@ describe('CLI main (all external dependencies faked)', () => {
     expect(stderr.mock.calls.flat().join('\n')).not.toMatch(/secret-key|secret-id/);
   });
 
+  it('R4 #5: appends the scrubbed failure line to GITHUB_STEP_SUMMARY for plan and upload failures', async () => {
+    const { dir, motors, curves } = files(), prior = join(dir, 'previous.json'), summary = join(dir, 'summary.md'), stderr = vi.fn();
+    writeFileSync(prior, '{"schema":2}');
+    const args = ['plan', '--source-run-id', '123', '--fetched-at', '2026-10-25T00:00:00.000Z', '--motors', motors, '--curves', curves,
+      '--previous', prior, '--out', join(dir, 'staged'), '--commit', commit];
+    expect(await main(args, { env: { GITHUB_STEP_SUMMARY: summary }, stdout: vi.fn(), stderr })).toBe(1);
+    const planned = readFileSync(summary, 'utf8');
+    expect(planned.startsWith('Catalogue publication: ')).toBe(true);
+    expect(planned).toBe(`${stderr.mock.calls.at(-1)[0]}\n`);
+    const runCommand = vi.fn().mockResolvedValue({ status: 1, stderr: '(403) AccessDenied secret-key secret-id' });
+    expect(await main(['upload', '--plan', staged()], { env: { ...env, GITHUB_STEP_SUMMARY: summary }, runCommand, stdout: vi.fn(), stderr })).toBe(1);
+    const uploaded = readFileSync(summary, 'utf8').slice(planned.length);
+    expect(uploaded).toContain('Catalogue publication: ');
+    expect(uploaded).toContain('(403) AccessDenied [REDACTED] [REDACTED]');
+    expect(readFileSync(summary, 'utf8')).not.toMatch(/secret-key|secret-id/);
+    // main's own scrub: a raw path holding a secret-shaped value never reaches the summary.
+    const leaky = args.map((a) => (a === prior ? join(dir, 'secret-key.json') : a));
+    expect(await main(leaky, { env: { ...env, GITHUB_STEP_SUMMARY: summary }, stdout: vi.fn(), stderr })).toBe(1);
+    expect(readFileSync(summary, 'utf8')).toContain('[REDACTED].json');
+    expect(readFileSync(summary, 'utf8')).not.toMatch(/secret-key|secret-id/);
+    // No summary file named: stderr only, as before.
+    expect(await main(args, { env: {}, stdout: vi.fn(), stderr })).toBe(1);
+  });
+
   it('T1: --commit overrides a different runner GITHUB_SHA and validates exact lower-case SHA', async () => {
     const { dir, motors, curves } = files(), stderr = vi.fn(), runCommand = vi.fn();
     const args = ['plan', '--source-run-id', '123', '--source-attempt', '2', '--fetched-at', '2026-10-25T00:00:00Z',

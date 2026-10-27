@@ -50,29 +50,47 @@ export function replaceMutationAnchor(source, anchor, replacement, name) {
   return source.replace(anchor, replacement);
 }
 
-// Importing the anchor guards for tests must not launch mutations.
-if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const root = process.cwd();
-  const vitest = fileURLToPath(new URL('./vitest.mjs', import.meta.resolve('vitest/package.json')));
+const testOf = (file) => (file.startsWith('../scripts/') ? 'scripts/matcher-sweep.test.mjs' : 'src/services/motorMatch.policy.test.ts');
+
+/**
+ * Runs the selected mutants (all when `names` is empty) and returns the exit
+ * code. Each target suite must pass unmutated first: a stale mutant left by an
+ * interrupted run, or an already-red suite, would otherwise count as killed.
+ */
+export function runMutations(names = [], {
+  root = process.cwd(), vitest = fileURLToPath(new URL('./vitest.mjs', import.meta.resolve('vitest/package.json'))),
+  spawn = spawnSync, read = readFileSync, write = writeFileSync, mkdir = mkdirSync, log = console.log,
+} = {}) {
   const out = `${root}/.matcher-sweep/mutations`;
-  mkdirSync(out, { recursive: true });
+  const selected = mutations.filter(([name]) => !names.length || names.includes(name));
+  const vitestRun = (test) => spawn(process.execPath, [vitest, 'run', test, '--maxWorkers', '1'],
+    { cwd: `${root}/packages/app`, encoding: 'utf8', timeout: 60000 });
+  mkdir(out, { recursive: true });
+  for (const test of new Set(selected.map(([, file]) => testOf(file)))) {
+    const p = vitestRun(test);
+    write(`${out}/baseline-${test.replace(/[/.]/g, '_')}.log`, (p.stdout ?? '') + (p.stderr ?? ''));
+    if (p.status !== 0) {
+      log(`baseline ${test}: exit ${p.status}; restore the sources and fix the suite before mutating`);
+      return 1;
+    }
+  }
   const results = [];
-  for (const [name, file, old, replacement] of mutations) {
-    if (process.argv.length > 2 && !process.argv.slice(2).includes(name)) continue;
+  for (const [name, file, old, replacement] of selected) {
     const path = file.startsWith('../scripts/') ? `${root}/packages/app/scripts/${file.slice('../scripts/'.length)}` : `${root}/packages/app/src/services/${file}`;
-    const source = readFileSync(path, 'utf8');
+    const source = read(path, 'utf8');
     const mutated = replaceMutationAnchor(source, old, replacement, name);
     try {
-      writeFileSync(path, mutated);
-      const test = file.startsWith('../scripts/') ? 'scripts/matcher-sweep.test.mjs' : 'src/services/motorMatch.policy.test.ts';
-      const p = spawnSync(process.execPath, [vitest, 'run', test, '--maxWorkers', '1'],
-        { cwd: `${root}/packages/app`, encoding: 'utf8', timeout: 60000 });
-      writeFileSync(`${out}/${name}.log`, (p.stdout ?? '') + (p.stderr ?? ''));
+      write(path, mutated);
+      const p = vitestRun(testOf(file));
+      write(`${out}/${name}.log`, (p.stdout ?? '') + (p.stderr ?? ''));
       const killed = p.status === 1 && /AssertionError/.test((p.stdout ?? '') + (p.stderr ?? ''));
       results.push({ name, exit: p.status, killed });
-      console.log(`${name}: exit ${p.status}, ${killed ? 'killed' : 'SURVIVED/INVALID'}`);
-    } finally { writeFileSync(path, source); }
+      log(`${name}: exit ${p.status}, ${killed ? 'killed' : 'SURVIVED/INVALID'}`);
+    } finally { write(path, source); }
   }
-  writeFileSync(`${out}/results.json`, JSON.stringify(results, null, 2));
-  process.exitCode = results.every(r => r.killed) ? 0 : 1;
+  write(`${out}/results.json`, JSON.stringify(results, null, 2));
+  return results.every(r => r.killed) ? 0 : 1;
 }
+
+// Importing the anchor guards for tests must not launch mutations.
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) process.exitCode = runMutations(process.argv.slice(2));

@@ -560,7 +560,10 @@ export async function main(argv = process.argv.slice(2), { env = process.env, st
     }
     return 0;
   } catch (error) {
-    stderr(scrub(`Catalogue publication: ${error.message}`, env));
+    const line = scrub(`Catalogue publication: ${error.message}`, env);
+    stderr(line);
+    // A failed step copies no summary of its own; record why it failed there.
+    if (env.GITHUB_STEP_SUMMARY) try { appendFileSync(env.GITHUB_STEP_SUMMARY, `${line}\n`); } catch { /* the log still has it */ }
     return 1;
   }
 }

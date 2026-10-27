@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { audit, classify } from './matcher-sweep.classify.mjs';
-import { mutations, replaceMutationAnchor } from './matcher-sweep.mutate.mjs';
+import { mutations, replaceMutationAnchor, runMutations } from './matcher-sweep.mutate.mjs';
 import { readFileSync } from 'node:fs';
 
 describe('mutation harness anchor guards', () => {
@@ -29,6 +29,40 @@ describe('mutation harness anchor guards', () => {
     expect(changed.slice(split)).not.toBe(source.slice(split));
   });
 });
+describe('ci-6: mutation harness baseline (fake spawn, nothing written)', () => {
+  const anchor = (name) => mutations.find(([n]) => n === name)[2];
+  const text = `start\n${anchor('g80-maker')}\n${anchor('sweep-parse')}\nend\n`;
+  const fake = (statuses) => {
+    const files = new Map(), writes = [], spawned = [];
+    const read = (path) => { if (!files.has(path)) files.set(path, text); return files.get(path); };
+    const write = (path, text) => { writes.push(path); if (files.has(path)) files.set(path, text); };
+    const spawn = (_node, args) => {
+      spawned.push(args[2]);
+      const status = statuses.shift() ?? 1;
+      return { status, stdout: status === 1 ? 'AssertionError' : '', stderr: '' };
+    };
+    return { files, writes, spawned, options: { root: '/repo', vitest: 'vitest.mjs', spawn, read, write, mkdir: () => {}, log: () => {} } };
+  };
+
+  it('aborts non-zero before mutating anything when a target suite fails unmutated', () => {
+    const f = fake([0, 1]);
+    expect(runMutations(['g80-maker', 'sweep-parse'], f.options)).toBe(1);
+    expect(f.spawned).toEqual(['src/services/motorMatch.policy.test.ts', 'scripts/matcher-sweep.test.mjs']);
+    expect(f.writes.filter((path) => f.files.has(path))).toEqual([]);
+  });
+
+  it('runs each selected target unmutated first, then the mutants, and restores every source', () => {
+    const f = fake([0, 0, 1, 1]);
+    expect(runMutations(['g80-maker', 'sweep-parse'], f.options)).toBe(0);
+    expect(f.spawned).toEqual(['src/services/motorMatch.policy.test.ts', 'scripts/matcher-sweep.test.mjs',
+      'src/services/motorMatch.policy.test.ts', 'scripts/matcher-sweep.test.mjs']);
+    expect(f.files.size).toBe(2);
+    for (const [path, now] of f.files) expect(now, path).toBe(text);
+    const survived = fake([0, 0, 0, 1]);
+    expect(runMutations(['g80-maker', 'sweep-parse'], survived.options)).toBe(1);
+  });
+});
+
 describe('matcher sweep accounting (no local corpus needed)', () => {
   const meta = { selectedFiles: 1, expectedFiles: 1 };
   const record = side => ({ key: 'fixture', side, status: 'ok', sha256: 'hash', raw: [{ ordinal: 0, designation: 'C6', resolved: [0] }], refs: [{ id: 'c6', loaded: true }] });
