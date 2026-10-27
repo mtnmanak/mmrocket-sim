@@ -37,8 +37,12 @@ export const MARKER_CAP = { width: 7, height: 5 } as const;
  *    6 4. It also differs from uPlot's cursor line, which is dashed.
  *  - The cap keeps it from reading as a GRID line, which is also a solid 1 px
  *    vertical (the x grid is on in every chart) and differs only in colour —
- *    #45637B on #B3CADC grid in light, #A9C3D9 on #557793 in dark. Shape is the
- *    non-colour cue, and the worst-plane marker has no number beside it.
+ *    #45637B against the #B3CADC grid in light (3.73:1), #A9C3D9 against the
+ *    #33597C grid in dark (4.02:1; mmr-brand 1.1.0 quietened the dark grid,
+ *    which was 2.59:1 from this ink), #45637B against Daylight's #9A9A9A
+ *    (2.25:1).
+ *    Shape is the non-colour cue, and the worst-plane marker has no number
+ *    beside it.
  * The caller sets strokeStyle and fillStyle (the reference ink), lineWidth
  * (= ratio) and a solid dash. `ratio` is the canvas's device ratio.
  */

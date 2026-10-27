@@ -2,13 +2,16 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { act, createElement } from 'react';
+import { act, createElement, Fragment } from 'react';
 import { createRoot } from 'react-dom/client';
 import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { EXPORT_VARS } from '../services/schematicExport.js';
 import { NoticeBar, type Notice } from './NoticeBar.js';
+import { ImpulseBadge } from './MotorBrowser.js';
+import { SiteBand, SiteBandFooter } from './SiteBand.js';
 import { installFatalErrorBar } from '../services/fatalErrorBar.js';
+import { MMR_NAV_FALLBACK } from '../services/useMmrNav.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -132,6 +135,17 @@ const tok = (t: Record<string, string>, name: string): RGB => {
   return c.slice(0, 3) as RGB;
 };
 const hex = (c: RGB) => `#${c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('')}`;
+/**
+ * A role that may be TRANSLUCENT — since mmr-brand 1.1.0 the callout and tint
+ * roles are the brand's -soft tokens (8-digit hex) — composited over the
+ * ground it is painted on. An opaque role comes back unchanged.
+ */
+const fillOver = (t: Record<string, string>, name: string, ground: RGB): RGB => {
+  const c = colourIn(t, `var(${name})`);
+  return over(c.slice(0, 3) as RGB, c[3], ground);
+};
+/** The two grounds a tint may carry coloured text over (SPEC §3.1): the page and a panel. */
+const PAGE_AND_PANEL = ['--surface-0', '--surface-2'] as const;
 /** A declaration's value in a block, e.g. decl(rule('.x {'), 'background-color'). */
 const decl = (block: string, prop: string): string => {
   const m = new RegExp(`(?:^|[;\\s])${prop}:\\s*([^;]+);`).exec(block);
@@ -375,16 +389,20 @@ describe('brand v1: links, focus, inputs, callouts and the site strip', () => {
     // The one hex allowed: the tier's var() fallback, which is the fatal-error
     // bar's fill OUTSIDE .viz-root (fatalErrorBar.ts) and must equal the
     // light theme's resolved token, so it cannot drift from the brand.
+    // Re-pinned for mmr-brand 1.1.0: the light fill is a translucent tint and
+    // the bar must be opaque, so the fallback is that tint composited on white
+    // (the light panel) — the fill a light danger note shows on a panel.
     const fallback = /var\((--callout-(?:danger|caution)-(?:bg|fg)),\s*(#[0-9a-f]{6})\)/gi;
     for (const [, sel, body] of states) {
       for (const f of body!.matchAll(fallback)) {
-        expect(f[2]!.toLowerCase(), `${sel!.trim()} ${f[1]} fallback`).toBe(hex(tok(THEMES.light!, f[1]!)));
+        expect(f[2]!.toLowerCase(), `${sel!.trim()} ${f[1]} fallback`)
+          .toBe(hex(fillOver(THEMES.light!, f[1]!, tok(THEMES.light!, '--surface-2'))));
       }
       for (const d of body!.replace(fallback, 'var($1)').matchAll(/(?:^|[;\s])((?:color|background|border[\w-]*|box-shadow|outline|fill|stroke)\s*:\s*[^;]+);/g)) {
         expect(d[1], sel!.trim()).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|\bred\b/i);
         const reds = [...d[1]!.matchAll(/var\((--[\w-]+)/g)].map((v) => v[1]!)
           .filter((v) => /danger|serious/.test(v));
-        for (const v of reds) expect(['--status-serious', '--callout-danger-bg', '--callout-danger-fg', '--mmr-c-danger-dark'], `${sel!.trim()} ${v}`).toContain(v);
+        for (const v of reds) expect(['--status-serious', '--callout-danger-bg', '--callout-danger-fg', '--tint-danger', '--mmr-c-danger-dark'], `${sel!.trim()} ${v}`).toContain(v);
       }
     }
     // --status-serious IS the brand danger token in light and dark (Daylight
@@ -450,10 +468,14 @@ describe('brand v1: links, focus, inputs, callouts and the site strip', () => {
       .toBeGreaterThan(css.indexOf('.flight-series-legend .series-emphasized {'));
     // The ring reads on the callout tints themselves (light, dark) and on
     // Daylight's solid caution box, where the launch-override button sits.
+    // Re-pinned for mmr-brand 1.1.0: the tints are translucent, so each is
+    // composited over the page and the panel it can sit on.
     for (const [name, t] of Object.entries(THEMES)) {
       const fills = name === 'daylight' ? ['--callout-caution-bg'] : ['--callout-caution-bg', '--callout-danger-bg'];
       for (const f of fills) {
-        expect(ratio(tok(t, '--focus'), tok(t, f)), `${name} focus on ${f}`).toBeGreaterThanOrEqual(3);
+        for (const g of PAGE_AND_PANEL) {
+          expect(ratio(tok(t, '--focus'), fillOver(t, f, tok(t, g))), `${name} focus on ${f} over ${g}`).toBeGreaterThanOrEqual(3);
+        }
       }
     }
   });
@@ -471,22 +493,29 @@ describe('brand v1: links, focus, inputs, callouts and the site strip', () => {
   it('callouts are tinted (D3) with no left stripe, and their text pairs pass', () => {
     // SPEC §4.3 / §7.2: tinted callouts, never a left-border stripe.
     expect(css).not.toMatch(/border-left(?:-color|-width|-style)?\s*:/);
+    // Re-pinned for mmr-brand 1.1.0: the hand-mixed color-mix() tints became
+    // the brand's -soft tokens (through the app's --tint-* roles), which are
+    // TRANSLUCENT — so the pairs are measured over each ground a callout sits
+    // on (the page and a panel), not over the panel alone.
     for (const sel of ['.field-caution {', '.file-note-warn {', '.fly-stale {', '.override-inert {']) {
-      expect(decl(rule(sel), 'background'), sel).toBe('color-mix(in srgb, var(--status-warn) 15%, var(--surface-2))');
+      expect(decl(rule(sel), 'background'), sel).toBe('var(--tint-warn)');
     }
-    expect(decl(rule('.file-note-error {'), 'background')).toBe('color-mix(in srgb, var(--status-serious) 12%, var(--surface-2))');
+    expect(decl(rule('.file-note-error {'), 'background')).toBe('var(--tint-danger)');
     for (const [name, t] of Object.entries(THEMES)) {
-      const panel = tok(t, '--surface-2');
-      for (const [tint, a] of [['--status-warn', 0.15], ['--status-serious', 0.12]] as const) {
-        const bg = over(tok(t, tint), a, panel);
-        for (const ink of ['--text-primary', '--text-secondary', '--text-muted']) {
-          expect(ratio(tok(t, ink), bg), `${name} ${ink} on ${tint} ${a}`).toBeGreaterThanOrEqual(AA);
+      for (const g of PAGE_AND_PANEL) {
+        for (const tint of ['--tint-warn', '--tint-danger']) {
+          const bg = fillOver(t, tint, tok(t, g));
+          for (const ink of ['--text-primary', '--text-secondary', '--text-muted']) {
+            expect(ratio(tok(t, ink), bg), `${name} ${ink} on ${tint} over ${g}`).toBeGreaterThanOrEqual(AA);
+          }
+          expect(ratio(tok(t, '--focus'), bg), `${name} focus on ${tint} over ${g}`).toBeGreaterThanOrEqual(3);
         }
-        expect(ratio(tok(t, '--focus'), bg), `${name} focus on ${tint}`).toBeGreaterThanOrEqual(3);
+        // The filled-tier tokens: AA for the body (the 7:1 floor is checked below).
+        for (const tier of ['caution', 'danger']) {
+          expect(ratio(tok(t, `--callout-${tier}-fg`), fillOver(t, `--callout-${tier}-bg`, tok(t, g))), `${name} ${tier} over ${g}`)
+            .toBeGreaterThanOrEqual(AA);
+        }
       }
-      // The filled-tier tokens: AA for the body (the 7:1 floor is checked above).
-      expect(ratio(tok(t, '--callout-caution-fg'), tok(t, '--callout-caution-bg')), name).toBeGreaterThanOrEqual(AA);
-      expect(ratio(tok(t, '--callout-danger-fg'), tok(t, '--callout-danger-bg')), name).toBeGreaterThanOrEqual(AA);
     }
   });
 
@@ -540,14 +569,34 @@ describe('brand v1: links, focus, inputs, callouts and the site strip', () => {
 });
 
 describe('launch override callout contrast', () => {
+  // Re-pinned for mmr-brand 1.1.0: the fills are translucent tints in light
+  // and dark, so the 7:1 floor is held over every ground they can sit on —
+  // the vitals strip and panels (--surface-2), the Fly screen's page
+  // (--surface-0) — and over brand surface-2 too, where SPEC §3.1 measures
+  // the text ink on any tint at >= 7.01.
+  const GROUNDS = ['--surface-0', '--surface-2', '--note-bg', '--hover'];
   it('Danger has at least 7:1 contrast in Light, Dark and Daylight', () => {
     for (const [name, t] of Object.entries(THEMES)) {
-      expect(ratio(tok(t, '--callout-danger-fg'), tok(t, '--callout-danger-bg')), name).toBeGreaterThanOrEqual(7);
+      for (const g of GROUNDS) {
+        expect(ratio(tok(t, '--callout-danger-fg'), fillOver(t, '--callout-danger-bg', tok(t, g))), `${name} over ${g}`)
+          .toBeGreaterThanOrEqual(7);
+      }
     }
   });
   it('near-black text and Show outlines have at least 7:1 contrast on the caution fill in every theme', () => {
     for (const [name, t] of Object.entries(THEMES)) {
-      expect(ratio(tok(t, '--callout-caution-fg'), tok(t, '--callout-caution-bg')), name).toBeGreaterThanOrEqual(7);
+      for (const g of GROUNDS) {
+        expect(ratio(tok(t, '--callout-caution-fg'), fillOver(t, '--callout-caution-bg', tok(t, g))), `${name} over ${g}`)
+          .toBeGreaterThanOrEqual(7);
+      }
+    }
+  });
+  it('the hovered Show button inverts to the callout ink under the panel colour, never the translucent tint', () => {
+    const hover = rule('.viz-root .launch-override-callout button.file-btn:hover {');
+    expect(decl(hover, 'background')).toBe('var(--callout-caution-fg)');
+    expect(decl(hover, 'color')).toBe('var(--surface-2)');
+    for (const [name, t] of Object.entries(THEMES)) {
+      expect(ratio(tok(t, '--surface-2'), tok(t, '--callout-caution-fg')), name).toBeGreaterThanOrEqual(7);
     }
   });
 });
@@ -838,6 +887,25 @@ function parseColour(v: string): RGBA | null {
   return null;
 }
 
+/**
+ * The opaque-tint idiom (mmr-brand 1.1.0): a translucent -soft token laid
+ * over a stated ground as `linear-gradient(T, T), G`, for a surface that must
+ * not show what scrolls under it (the fixed NoticeBar). Read as T over G, and
+ * only in exactly that shape — any other gradient is still refused.
+ */
+function uniformTintOver(v: string): RGBA | null {
+  const layers = splitTop(v);
+  if (layers.length !== 2) return null;
+  const g = /^linear-gradient\((.*)\)$/.exec(layers[0]!.trim());
+  if (!g) return null;
+  const stops = splitTop(g[1]!).map((x) => x.trim());
+  if (stops.length !== 2 || stops[0] !== stops[1]) return null;
+  const tint = parseColour(stops[0]!);
+  const ground = parseColour(layers[1]!.trim());
+  if (!tint || !ground || ground[3] !== 1) return null;
+  return [...over(tint.slice(0, 3) as RGB, tint[3], ground.slice(0, 3) as RGB), 1] as RGBA;
+}
+
 /** Form controls draw the UA's own ink and face when no author rule says otherwise. */
 const UA_FORM = new Set(['button', 'input', 'select', 'textarea']);
 
@@ -856,6 +924,8 @@ function ink(el: Element, t: Record<string, string>, memo: Map<Element, Ink>): I
     const v = resolveVars(d.value, t).trim().toLowerCase();
     if (['inherit', 'unset', 'currentcolor'].includes(v)) return 'inherit';
     if (v === 'none') return NAMED.transparent!;
+    const layered = uniformTintOver(v);
+    if (layered) return layered;
     if (/gradient|url\(/.test(v)) throw new Error(`${what}: a gradient or image on <${tag} class="${el.className}">: ${v}`);
     const c = parseColour(v) ?? parseColour(v.split(/\s+/)[0]!);
     if (!c) throw new Error(`${what}: cannot read "${d.value}" (${v}) on <${tag} class="${el.className}">`);
@@ -1179,6 +1249,420 @@ describe('filled tiers: every descendant takes ink that reads on the fill (revie
         act(() => { (root.querySelector('.notice-toggle') as HTMLButtonElement).click(); });
         expect(root.querySelector('.notice-bar.expanded')).toBeNull();
         expect(tierFailures(root, theme, () => 'NoticeBar collapsed')).toEqual([]);
+      } finally {
+        act(() => r.unmount());
+        root.remove();
+      }
+    });
+  }
+});
+
+/* ===================================================================
+   MMR-BRAND 1.1.0: TINTS AND THE TEXT ON THEM, SELECTION, ROW RULES, THE
+   DARK CHART GRID, IMPULSE CLASSES AND THE SITE STRIP
+
+   The -soft tokens are TRANSLUCENT, so a tint is only as good as the ground
+   under it: coloured (and muted) text on its own tint is AA over the page
+   (brand bg) and a panel (brand surface), but 3.85–4.26:1 dark over brand
+   surface-2 (navy-high: --hover, --note-bg). SPEC §3.1's rule — over
+   surface-2 the text goes in --mmr-text — is held here by a table of every
+   rule that paints a tint, the ground each one sits on (followed through
+   the DOM and the CSS by hand, and written next to it), and the inks drawn
+   on it; a new tinted rule fails until it is entered.
+   =================================================================== */
+
+/** Every style rule in the sheet (inside @media too), with its raw body. */
+function allRules(): { sel: string; body: string; daylight: boolean }[] {
+  const out: { sel: string; body: string; daylight: boolean }[] = [];
+  const walk = (text: string) => {
+    let i = 0;
+    while (i < text.length) {
+      const open = text.indexOf('{', i);
+      if (open < 0) break;
+      const prelude = text.slice(i, open).trim();
+      let depth = 1;
+      let j = open + 1;
+      for (; j < text.length && depth > 0; j++) {
+        if (text[j] === '{') depth++;
+        else if (text[j] === '}') depth--;
+      }
+      const body = text.slice(open + 1, j - 1);
+      if (prelude.startsWith('@')) walk(body);
+      else out.push({ sel: prelude.replace(/\s+/g, ' '), body, daylight: prelude.includes("[data-contrast='high']") });
+      i = j;
+    }
+  };
+  walk(css);
+  return out;
+}
+
+/** What a tint is painted over: an app ground role. */
+type Ground = '--surface-0' | '--surface-2' | '--note-bg' | '--hover';
+type TintSite = {
+  /** The rule's selector, whitespace-normalised. */
+  sel: string;
+  tint: string;
+  /** Every TEXT colour drawn on the tint (AA; a tier's body ink 7:1). */
+  inks: string[];
+  /** Status-coloured edges and glyphs on it (3:1, WCAG 1.4.11). */
+  marks?: string[];
+  grounds: Ground[];
+  where: string;
+};
+
+const PAGE: Ground = '--surface-0';
+const PANEL: Ground = '--surface-2';
+const TINT_SITES: TintSite[] = [
+  { sel: '.launch-override-callout', tint: '--callout-caution-bg', inks: ['--callout-caution-fg'], marks: ['--status-warn'],
+    grounds: [PAGE, PANEL], where: 'vitals strip, Launch panel, Batch dialog (panel); Fly screen column (page)' },
+  { sel: '.field-caution', tint: '--tint-warn', inks: ['--text-secondary', '--text-primary'], grounds: [PAGE, PANEL],
+    where: 'under a field in the Launch panel, NozzleField, Batch dialog' },
+  { sel: '.weather-note, .weather-error', tint: '--tint-warn', inks: ['--text-secondary'], grounds: [PANEL], where: 'Weather dialog (modal card)' },
+  { sel: '.weather-error', tint: '--tint-danger', inks: ['--text-secondary'], grounds: [PANEL], where: 'Weather dialog (modal card)' },
+  { sel: '.gust-estimate-warn', tint: '--tint-warn', inks: ['--text-secondary'], grounds: [PANEL], where: 'Launch panel (GustEstimate)' },
+  { sel: '.file-btn-danger:hover', tint: '--tint-danger', inks: ['--status-serious'], grounds: [PAGE, PANEL],
+    where: 'ConfigPanel, SimResults (panels)' },
+  { sel: '.file-note-warn', tint: '--tint-warn', inks: ['--text-primary'], grounds: [PAGE, PANEL], where: 'header (page), results and dialogs (panel)' },
+  { sel: '.file-note-error', tint: '--tint-danger', inks: ['--text-primary'], grounds: [PAGE, PANEL], where: 'header autosave warning (page)' },
+  { sel: '.modal-danger:hover', tint: '--tint-danger', inks: ['--status-serious'], grounds: [PAGE, PANEL],
+    where: 'confirm dialogs and the crash fallback panel' },
+  { sel: '.guide-content mark', tint: '--tint-accent', inks: ['--text-primary'], grounds: [PANEL], where: 'User guide dialog' },
+  { sel: '.override-inert', tint: '--tint-warn', inks: ['--text-primary'], grounds: [PANEL], where: 'PropertyPanel' },
+  { sel: '.notice-bar.notice-warn', tint: '--tint-warn', inks: ['--text-primary', '--text-secondary'],
+    marks: ['--status-warn', '--status-serious'], grounds: [PANEL], where: 'fixed bar: laid opaque over the panel colour' },
+  { sel: '.notice-bar.notice-error', tint: '--tint-danger', inks: ['--text-primary', '--text-secondary'],
+    marks: ['--status-warn', '--status-serious'], grounds: [PANEL], where: 'fixed bar: laid opaque over the panel colour' },
+  { sel: '.fly-stale', tint: '--tint-warn', inks: ['--text-secondary', '--callout-caution-fg'], grounds: [PAGE], where: 'Fly screen column (page)' },
+  { sel: '.recovery-part-warn', tint: '--tint-warn', inks: ['--text-secondary', '--text-muted', '--status-warn'], grounds: [PANEL],
+    where: 'Recovery sizing panel list row' },
+  { sel: '.message-tier.message-tier.message-danger', tint: '--callout-danger-bg', inks: ['--callout-danger-fg', '--status-serious'],
+    marks: ['--status-serious'], grounds: [PAGE, PANEL], where: 'every <Note tier="danger"> outside the NoticeBar' },
+  { sel: '.message-tier.message-tier.message-caution', tint: '--callout-caution-bg', inks: ['--callout-caution-fg', '--status-warn'],
+    marks: ['--status-warn'], grounds: [PAGE, PANEL], where: 'every <Note tier="caution"> outside the NoticeBar' },
+  // The one place a tier would sit on brand surface-2 (the --note-bg bar) or
+  // on another tint (a tinted bar): NoticeBar items. Laid opaque over the
+  // panel colour instead, eyebrow in the text ink.
+  { sel: '.notice-bar .message-tier.message-tier.message-danger', tint: '--callout-danger-bg', inks: ['--callout-danger-fg', '--text-primary'],
+    marks: ['--status-serious'], grounds: [PANEL], where: 'NoticeBar items: opaque over the panel colour, on the bar' },
+  { sel: '.notice-bar .message-tier.message-tier.message-caution', tint: '--callout-caution-bg', inks: ['--callout-caution-fg', '--text-primary'],
+    marks: ['--status-warn'], grounds: [PANEL], where: 'NoticeBar items: opaque over the panel colour, on the bar' },
+];
+
+/** The opaque colour of a ground in theme `t`. */
+const groundIn = (t: Record<string, string>, g: Ground): RGB => tok(t, g);
+/** The app roles that are brand surface-2 (mist / navy-high). */
+const BRAND_SURFACE_2: Ground[] = ['--note-bg', '--hover'];
+const TEXT_INKS = new Set(['--text-primary', '--callout-caution-fg', '--callout-danger-fg']);
+
+describe('mmr-brand 1.1.0: tints and the text on them (SPEC §3.1)', () => {
+  const tinted = allRules().filter((r) => !r.daylight
+    && /(?:^|[;\s])background(?:-color)?:[^;]*var\(--(?:tint-[\w-]+|callout-(?:caution|danger)-bg)\b/.test(r.body));
+
+  it('every rule that paints a tint is in the table, with the inks it really draws', () => {
+    const listed = TINT_SITES.filter((s) => !s.sel.startsWith('rendered:')).map((s) => s.sel);
+    expect(tinted.map((r) => r.sel).sort()).toEqual([...listed].sort());
+    for (const r of tinted) {
+      const site = TINT_SITES.find((s) => s.sel === r.sel)!;
+      const bg = /(?:^|[;\s])background(?:-color)?:\s*([^;]+);/.exec(r.body)![1]!;
+      expect(bg, r.sel).toMatch(new RegExp(`var\\(${site.tint}[,)]`));
+      // An opaque tint (the fixed bar, the bar's tiers) states its ground: the panel colour.
+      if (/gradient/.test(bg)) expect(bg, r.sel).toMatch(/\), var\(--surface-2\)$/);
+      // (A tier's hex fallback is the fatal bar's, outside .viz-root: pinned above.)
+      const own = /(?:^|[;\s])color:\s*([^;]+);/.exec(r.body)?.[1]?.trim().replace(/^var\((--[\w-]+),[^)]*\)$/, 'var($1)');
+      if (own) expect(site.inks.map((i) => `var(${i})`), `${r.sel} draws ${own}`).toContain(own);
+    }
+    // The hand-rolled tints are gone: no background is a color-mix() of a
+    // status or accent role any more (borders, the zoom box, the stage grid
+    // and the navy chips are not tints and are listed in the report).
+    for (const r of allRules()) {
+      expect(/(?:^|[;\s])background(?:-color)?:[^;]*color-mix\(in srgb, var\(--(?:status|accent|link)/.test(r.body), r.sel)
+        .toBe(r.sel === '.chart-panel .u-select');
+    }
+  });
+
+  it('the tint roles are the brand -soft tokens in light and dark, and opaque white-ground values in Daylight', () => {
+    const want: Record<string, string> = {
+      '--tint-accent': '--mmr-accent-soft', '--tint-warn': '--mmr-warning-soft', '--tint-danger': '--mmr-danger-soft',
+    };
+    const dark = tokens(".viz-root[data-theme='dark']");
+    for (const [role, brand] of Object.entries(want)) {
+      expect(THEMES.light![role], role).toBe(`var(${brand})`);
+      expect(dark[role], role).toBe(`var(${brand})`);
+      // Daylight: the light token composited on white, written out opaque.
+      const day = colourIn(THEMES.daylight!, `var(${role})`);
+      expect(day[3], `Daylight ${role} is opaque`).toBe(1);
+      expect(hex(day.slice(0, 3) as RGB), `Daylight ${role}`).toBe(hex(fillOver(BRAND.light, brand, [255, 255, 255])));
+    }
+    expect(THEMES.light!['--callout-caution-bg']).toBe('var(--tint-warn)');
+    expect(THEMES.light!['--callout-danger-bg']).toBe('var(--tint-danger)');
+    expect(dark['--callout-caution-bg']).toBe('var(--tint-warn)');
+    expect(dark['--callout-danger-bg']).toBe('var(--tint-danger)');
+  });
+
+  it('no coloured or muted text sits on a tint over brand surface-2', () => {
+    // --hover and --note-bg ARE brand surface-2, in light and dark.
+    for (const theme of ['light', 'dark']) {
+      for (const g of BRAND_SURFACE_2) expect(hex(tok(THEMES[theme]!, g)), `${theme} ${g}`).toBe(hex(tok(THEMES[theme]!, '--mmr-surface-2')));
+    }
+    for (const s of TINT_SITES) {
+      if (!s.grounds.some((g) => BRAND_SURFACE_2.includes(g))) continue;
+      expect(s.inks.filter((i) => !TEXT_INKS.has(i)), `${s.sel} over ${s.grounds.join(', ')}`).toEqual([]);
+    }
+    // Each of those is the brand text token in light and dark.
+    for (const theme of ['light', 'dark']) {
+      for (const i of TEXT_INKS) expect(hex(tok(THEMES[theme]!, i)), `${theme} ${i}`).toBe(hex(tok(THEMES[theme]!, '--mmr-text')));
+    }
+    // The NoticeBar, the one tier context on brand surface-2: its tiers are
+    // laid opaque over the panel colour (in the table above), and the rule
+    // that puts their eyebrows in the text ink comes after the
+    // status-coloured eyebrow rules it ties at (0,4,0).
+    const at = css.indexOf('.notice-bar .message-tier.message-tier .message-label');
+    expect(at).toBeGreaterThan(css.indexOf('.message-tier.message-tier.message-danger .message-label'));
+    expect(decl(rule('.notice-bar .message-tier.message-tier .message-label {'), 'color')).toBe('var(--text-primary)');
+  });
+
+  it('every ink and mark on every tint passes over every ground it sits on, in every theme', () => {
+    const fails: string[] = [];
+    for (const s of TINT_SITES) {
+      for (const [theme, t] of Object.entries(THEMES)) {
+        for (const g of s.grounds) {
+          const bg = fillOver(t, s.tint, groundIn(t, g));
+          for (const i of s.inks) {
+            // A tier's body ink keeps its 7:1 floor; everything else is AA.
+            // Daylight's solid tier fills keep the fill's ink for every ink
+            // (restated in its block), so the coloured eyebrow is not drawn.
+            const solid = theme === 'daylight' && /^--callout-/.test(s.tint);
+            if (solid && !/^--callout-/.test(i)) continue;
+            const need = /^--callout-(caution|danger)-fg$/.test(i) ? 7 : AA;
+            const r = ratio(tok(t, i), bg);
+            if (r < need) fails.push(`${theme} ${s.sel}: ${i} on ${s.tint} over ${g} ${r.toFixed(2)} < ${need}`);
+          }
+          for (const m of s.marks ?? []) {
+            if (theme === 'daylight' && /^--callout-/.test(s.tint)) continue;
+            const r = ratio(tok(t, m), bg);
+            if (r < 3) fails.push(`${theme} ${s.sel}: mark ${m} on ${s.tint} over ${g} ${r.toFixed(2)} < 3`);
+          }
+        }
+      }
+    }
+    expect(fails).toEqual([]);
+  });
+
+  it('a tier\'s edge is its status colour on the tints and the fill\'s ink on Daylight\'s solid boxes', () => {
+    expect(decl(rule('.message-tier.message-tier.message-danger {'), 'border-color')).toBe('var(--status-serious)');
+    expect(decl(rule('.message-tier.message-tier.message-caution {'), 'border-color')).toBe('var(--status-warn)');
+    expect(decl(rule(".viz-root[data-contrast='high'] .message-tier.message-tier.message-tier {"), 'border-color')).toBe('currentColor');
+    expect(decl(rule('.launch-override-callout {'), 'border')).toBe('1px solid var(--status-warn)');
+  });
+
+  for (const theme of ['light', 'dark', 'daylight']) {
+    it(`${theme}: the NoticeBar's eyebrows are the text ink over its surface-2 ground (rendered)`, () => {
+      const t = THEMES[theme]!;
+      const root = themed(theme);
+      const host = document.createElement('div');
+      root.appendChild(host);
+      const r = createRoot(host);
+      try {
+        for (const severity of ['info', 'warn', 'error'] as const) {
+          const notices: Notice[] = [
+            { id: 'e', severity, tier: 'danger', text: 'Danger text.', onDismiss: () => {} },
+            { id: 'w', severity, tier: 'caution', text: 'Caution text.', onDismiss: () => {} },
+          ];
+          act(() => { r.render(createElement(NoticeBar, { notices })); });
+          const labels = [...root.querySelectorAll('.notice-bar .message-label')];
+          expect(labels.length, severity).toBeGreaterThan(0);
+          const memo = new Map<Element, Ink>();
+          for (const label of labels) {
+            const tier = label.closest('.message-danger') ? 'danger' : 'caution';
+            const want = theme === 'daylight' ? `--callout-${tier}-fg` : '--text-primary';
+            const got = ink(label, t, memo);
+            expect(hex(got.colour.slice(0, 3) as RGB), `${theme} ${severity} ${tier} eyebrow`).toBe(hex(tok(t, want)));
+            expect(ratio(got.colour.slice(0, 3) as RGB, got.bg.slice(0, 3) as RGB), `${theme} ${severity} ${tier}`)
+              .toBeGreaterThanOrEqual(7);
+          }
+        }
+      } finally {
+        act(() => r.unmount());
+        root.remove();
+      }
+    });
+  }
+});
+
+describe('mmr-brand 1.1.0: selection, quiet row rules and the dark chart grid', () => {
+  it('selected rows, list items and toggles use --mmr-selection in light and dark (Daylight keeps #FFD18A)', () => {
+    expect(THEMES.light!['--selected']).toBe('var(--mmr-selection)');
+    expect(tokens(".viz-root[data-theme='dark']")['--selected']).toBe('var(--mmr-selection)');
+    expect(hex(tok(THEMES.light!, '--selected'))).toBe('#e0edf5');
+    expect(hex(tok(THEMES.dark!, '--selected'))).toBe('#184570');
+    expect(THEMES.daylight!['--selected']).toBe('#ffd18a');
+    for (const sel of ['.tree-row-selected,', '.motor-row-picked,', '.tree-visibility[aria-pressed="true"] {',
+      '.guide-toc-item.active {', '.guide-content .guide-match-current {', '.hc-toggle.hc-on {']) {
+      expect(decl(rule(sel), 'background'), sel).toBe('var(--selected)');
+    }
+    // Nothing paints a selection by hand any more.
+    expect(css).not.toMatch(/color-mix\(in srgb, var\(--mmr-link-color\)/);
+    // Everything a selected row draws: text, muted text, the status inks of a
+    // picked run, the 3px bar (3:1). (No orange word is drawn on one.)
+    for (const [name, t] of Object.entries(THEMES)) {
+      const sel = tok(t, '--selected');
+      for (const i of ['--text-primary', '--text-secondary', '--text-muted', '--status-good', '--status-warn', '--status-serious']) {
+        expect(ratio(tok(t, i), sel), `${name} ${i} on --selected`).toBeGreaterThanOrEqual(AA);
+      }
+      expect(ratio(tok(t, '--accent-graphic'), sel), `${name} bar on --selected`).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it('quiet row rules are --mmr-border-subtle, only on tables and row lists that sit on the page or a panel', () => {
+    expect(THEMES.light!['--border-subtle']).toBe('var(--mmr-border-subtle)');
+    expect(tokens(".viz-root[data-theme='dark']")['--border-subtle']).toBe('var(--mmr-border-subtle)');
+    // Daylight keeps its black rules.
+    expect(THEMES.daylight!['--border-subtle']).toBe('#000000');
+    const users = allRules().filter((r) => /var\(--border-subtle\)/.test(r.body)).map((r) => r.sel).sort();
+    // Each of these is on brand bg (the motor/run table well, --surface-1) or
+    // brand surface (a panel or dialog) — never on --hover or --note-bg,
+    // where SPEC §3.1 wants --border.
+    expect(users).toEqual([
+      '.comparison-table-scroll :is(th, td)',
+      '.config-part-row',
+      '.config-table th, .config-table td',
+      '.motor-table td',
+      '.recovery-part',
+      '.weather-review th, .weather-review td',
+    ]);
+  });
+
+  it('the charts read the brand grid (#33597C dark) through --chart-grid; nothing hard-codes the old #557793', () => {
+    expect(THEMES.light!['--chart-grid']).toBe('var(--mmr-chart-grid)');
+    expect(tokens(".viz-root[data-theme='dark']")['--chart-grid']).toBe('var(--mmr-chart-grid)');
+    expect(hex(tok(THEMES.dark!, '--chart-grid'))).toBe('#33597c');
+    expect(hex(tok(THEMES.light!, '--chart-grid'))).toBe('#b3cadc');
+    expect(read('../chartTheme.ts')).toMatch(/grid: v\('--chart-grid'\)/);
+    const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) return walk(p);
+      return /\.(tsx?|css)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) ? [p] : [];
+    });
+    const offenders = walk(SRC).filter((f) => /557793/i.test(readFileSync(f, 'utf8')));
+    expect(offenders).toEqual([]);
+    // A marker (the reference ink) still differs from a grid line by more
+    // than shape alone in light and dark: 3.73 and 4.02 (was 2.59 on #557793).
+    for (const name of ['light', 'dark']) {
+      const t = THEMES[name]!;
+      expect(ratio(tok(t, '--chart-reference'), tok(t, '--chart-grid')), name).toBeGreaterThanOrEqual(3);
+    }
+  });
+});
+
+describe('mmr-brand 1.1.0: motor impulse classes (SPEC §3.2)', () => {
+  it('the Motor browser\'s class chips carry the class badge', () => {
+    const src = read('MotorBrowser.tsx');
+    expect(src).toMatch(/aria-label="Impulse classes"[\s\S]{0,400}<ImpulseBadge letter=\{letter\} \/>/);
+    // Every class token named in full, so a reader (and cssCustomProperties)
+    // can find each one.
+    for (const l of 'abcdefghijklmno') expect(src).toContain(`'var(--mmr-chart-impulse-${l})'`);
+    expect(decl(rule('.impulse-badge {'), 'color')).toBe('var(--mmr-chart-impulse-label)');
+  });
+
+  for (const theme of Object.keys(THEMES)) {
+    it(`${theme}: every class letter A–O is AA on its own fill (rendered)`, () => {
+      const t = THEMES[theme]!;
+      const root = themed(theme);
+      const host = document.createElement('div');
+      root.appendChild(host);
+      const r = createRoot(host);
+      try {
+        const letters = 'ABCDEFGHIJKLMNO'.split('');
+        act(() => { r.render(createElement(Fragment, null, ...[...letters, 'P'].map((l) => createElement(ImpulseBadge, { key: l, letter: l })))); });
+        const badges = [...root.querySelectorAll('.impulse-badge')];
+        expect(badges.map((b) => b.textContent)).toEqual(letters);
+        const memo = new Map<Element, Ink>();
+        for (const b of badges) {
+          const key = b.textContent!.toLowerCase();
+          const got = ink(b, t, memo);
+          expect(hex(got.bg.slice(0, 3) as RGB), `${theme} ${key}`).toBe(hex(tok(t, `--mmr-chart-impulse-${key}`)));
+          expect(ratio(got.colour.slice(0, 3) as RGB, got.bg.slice(0, 3) as RGB), `${theme} ${key}`).toBeGreaterThanOrEqual(AA);
+        }
+        // A letter off the ramp keeps the plain letter, no borrowed colour.
+        expect(host.textContent).toMatch(/OP$/);
+      } finally {
+        act(() => r.unmount());
+        root.remove();
+      }
+    });
+  }
+});
+
+describe('mmr-brand 1.1.0: the site strip stays dark-on-navy inside a light theme (SPEC §4.3)', () => {
+  const PSEUDO = /:(?:hover|focus-visible|focus-within|focus|active)\b/g;
+  const HAS_STATE = /:(?:hover|focus-visible|focus-within|focus|active)\b/;
+  const colourProps = /(?:^|[;\s])((?:color|background(?:-color|-image)?|border(?:-[\w-]+)?|outline(?:-color)?|box-shadow|fill|stroke)\s*:\s*[^;]+);/g;
+
+  it('every band rule colours from brand primitives only, so no theme variable can reach it', () => {
+    const band = allRules().filter((r) => /mmr-band/.test(r.sel));
+    expect(band.length).toBeGreaterThan(15);
+    for (const r of band) {
+      for (const d of r.body.matchAll(colourProps)) {
+        const vars = [...d[1]!.matchAll(/var\((--[\w-]+)/g)].map((v) => v[1]!);
+        expect(vars.filter((v) => !v.startsWith('--mmr-c-')), `${r.sel} { ${d[1]} }`).toEqual([]);
+      }
+    }
+  });
+
+  for (const theme of ['light', 'daylight', 'dark']) {
+    it(`${theme}: every element in the strip and the footer draws a navy-ground pair, at rest and in every state rule that reaches it (rendered)`, () => {
+      const t = THEMES[theme]!;
+      const root = themed(theme);
+      const host = document.createElement('div');
+      root.appendChild(host);
+      const r = createRoot(host);
+      try {
+        act(() => {
+          r.render(createElement(Fragment, null,
+            createElement(SiteBand, { nav: MMR_NAV_FALLBACK, source: 'fallback' }),
+            createElement(SiteBandFooter, { nav: MMR_NAV_FALLBACK })));
+        });
+        const els = [...root.querySelectorAll('.mmr-band, .mmr-band *, .mmr-band-footer, .mmr-band-footer *')]
+          .filter((el) => !el.closest('svg') && el.tagName.toLowerCase() !== 'img');
+        expect(root.querySelector('.mmr-band-search input')).not.toBeNull();
+        expect(root.querySelector('.mmr-band-footer a')).not.toBeNull();
+        const navy = hex(tok(t, '--mmr-c-navy'));
+        const raised = hex(tok(t, '--mmr-c-navy-raised'));
+        const memo = new Map<Element, Ink>();
+        for (const el of els) {
+          const what = `<${el.tagName.toLowerCase()} class="${el.className}">`;
+          for (const prop of [['color'], ['background', 'background-color']]) {
+            const w = winning(el, prop);
+            if (w && !/^(inherit|none|transparent|currentcolor)$/i.test(w.value)) {
+              expect(w.value, `${theme} ${what} ${prop[0]}`).toMatch(/^var\(--mmr-c-/);
+            }
+          }
+          const got = ink(el, t, memo);
+          expect([navy, raised], `${theme} ${what} ground`).toContain(hex(got.bg.slice(0, 3) as RGB));
+          expect(ratio(got.colour.slice(0, 3) as RGB, got.bg.slice(0, 3) as RGB), `${theme} ${what}`).toBeGreaterThanOrEqual(AA);
+        }
+        // State rules (hover, focus, active) cannot be rendered here, so match
+        // them with the state stripped: any rule outside the band's own that
+        // would colour a band element in some state. The only ones are the
+        // app's focus rings, which the band's sky ring outranks (pinned in
+        // "the site strip is navy in every theme" above).
+        const reach = new Set<string>();
+        for (const rr of allRules()) {
+          if (/mmr-band/.test(rr.sel) || !HAS_STATE.test(rr.sel)) continue;
+          if (![...rr.body.matchAll(colourProps)].length) continue;
+          for (const s of splitTop(rr.sel)) {
+            if (!HAS_STATE.test(s)) continue;
+            let bare = s.replace(PSEUDO, '');
+            if (/(^|[\s>+~])$/.test(bare)) bare = `${bare}*`;
+            bare = bare.trim();
+            let hit = false;
+            try { hit = els.some((el) => el.matches(bare)); } catch { hit = false; }
+            if (hit) reach.add(s);
+          }
+        }
+        expect([...reach].sort()).toEqual(theme === 'daylight'
+          ? ['.viz-root :focus-visible', ".viz-root[data-contrast='high'] :focus-visible"]
+          : ['.viz-root :focus-visible']);
       } finally {
         act(() => r.unmount());
         root.remove();

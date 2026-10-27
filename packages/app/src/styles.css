@@ -71,23 +71,46 @@ html {
   --status-good: var(--mmr-success);
   --status-warn: var(--mmr-warning);
   --status-serious: var(--mmr-danger);
-  /* Callouts (D3, SPEC §4.3): a TINT of the status colour over the surface,
-     never a solid slab and never a left stripe. Body ink on the tint: 12.18:1
-     caution, 12.46:1 danger. Daylight keeps the solid boxes. */
-  --callout-caution-bg: color-mix(in srgb, var(--mmr-warning) 15%, var(--mmr-surface));
+  /* TINTS (mmr-brand 1.1.0, SPEC §3.1 "Tints and the text on them"): the
+     brand's -soft tokens, TRANSLUCENT (8-digit hex), so a tint takes the
+     ground it is painted on. The rule that follows from that: coloured text
+     (a status, the accent, a link) on its own tint only over the page
+     (--surface-0/-1 = brand bg) or a panel (--surface-2/-3 = brand surface);
+     over brand surface-2 (--hover, --note-bg) the text goes in --text-primary
+     and the colour stays in the border, the icon and the tint. Muted text
+     follows the same rule (slate on a tint over mist is 4.42–4.49:1).
+     A tint that must be OPAQUE — a fixed bar over scrolling content — lays
+     the token over a stated ground: `linear-gradient(T, T), var(--surface-2)`.
+     contrastTokens.test.ts composites every tint over every ground it meets.
+     Daylight sets opaque, white-ground values. Only the tints something
+     paints are defined (no link or success tint is drawn today:
+     --mmr-link-soft / --mmr-success-soft are there when one is). */
+  --tint-accent: var(--mmr-accent-soft);
+  --tint-warn: var(--mmr-warning-soft);
+  --tint-danger: var(--mmr-danger-soft);
+  /* Callouts (D3, SPEC §4.3): the status TINT over whatever the callout sits
+     on, never a solid slab and never a left stripe. Body ink on the tint over
+     paper / white: 11.67 / 12.19 caution, 11.88 / 12.43 danger. Daylight
+     keeps the solid boxes. */
+  --callout-caution-bg: var(--tint-warn);
   --callout-caution-fg: var(--mmr-text);
-  --callout-danger-bg: color-mix(in srgb, var(--mmr-danger) 12%, var(--mmr-surface));
+  --callout-danger-bg: var(--tint-danger);
   --callout-danger-fg: var(--mmr-text);
   --border: var(--mmr-border);
   --border-control: var(--mmr-border-control);
   --border-strong: var(--mmr-border);
+  /* Quiet row rules (table and list rows) on the page or a panel; on brand
+     surface-2 a rule takes --border instead (SPEC §3.1). Decorative: 1.22 on
+     paper, 1.28 on white. */
+  --border-subtle: var(--mmr-border-subtle);
   /* SPEC §7.2: no drop shadows. Panels separate by their edge alone. */
   --shadow-1: none;
   --hover: var(--mmr-surface-2);
-  /* No brand token: a tint of two brand tokens. Navy 11.29:1, slate 4.69:1,
-     the --accent-graphic bar 4.56:1 on it. Selected rows also carry that bar,
-     because the tint is only 1.17:1 from --hover. */
-  --selected: color-mix(in srgb, var(--mmr-link-color) 20%, var(--mmr-surface));
+  /* The brand's selected-row token (mmr-brand 1.1.0, #E0EDF5: link 12 % over
+     white). Navy 12.74:1, slate 5.30:1, the --accent-graphic bar 5.14:1 on
+     it. Selected rows also carry that bar, because the tint is only 1.03:1
+     from --hover. */
+  --selected: var(--mmr-selection);
   --note-bg: var(--mmr-surface-2);
   --note-border: var(--mmr-border);
   --accent-text: var(--mmr-accent-text);
@@ -160,18 +183,26 @@ html {
      --accent-text #FF9A62 is still 4.42 on the caution tint, so no orange
      WORD inside a warn note (none is: the notice glyphs are graphics). */
   --status-serious: var(--mmr-danger);
-  --callout-caution-bg: color-mix(in srgb, var(--mmr-warning) 15%, var(--mmr-surface));
+  /* The dark -soft tokens. Over navy-high (--hover, --note-bg) coloured text
+     on them is 3.85–4.26:1, so no coloured text there (see the light block). */
+  --tint-accent: var(--mmr-accent-soft);
+  --tint-warn: var(--mmr-warning-soft);
+  --tint-danger: var(--mmr-danger-soft);
+  --callout-caution-bg: var(--tint-warn);
   --callout-caution-fg: var(--mmr-text);
-  --callout-danger-bg: color-mix(in srgb, var(--mmr-danger) 12%, var(--mmr-surface));
+  --callout-danger-bg: var(--tint-danger);
   --callout-danger-fg: var(--mmr-text);
   --border: var(--mmr-border);
   --border-control: var(--mmr-border-control);
   --border-strong: var(--mmr-border);
+  /* Navy-high: 1.56 on navy, 1.24 on navy-raised (decorative). */
+  --border-subtle: var(--mmr-border-subtle);
   --shadow-1: none;
   --hover: var(--mmr-surface-2);
-  /* Paper 9.42:1, slate-light 5.40:1, danger-dark 5.02:1 (1.0.3), the orange
-     bar 3.35:1 on it. */
-  --selected: color-mix(in srgb, var(--mmr-link-color) 20%, var(--mmr-bg));
+  /* The brand's selected-row token (#184570, sky 20 % over navy — the value
+     this block mixed by hand until mmr-brand 1.1.0). Paper 9.43:1,
+     slate-light 5.41:1, danger-dark 5.03:1, the orange bar 3.35:1 on it. */
+  --selected: var(--mmr-selection);
   /* The brand's note surface, surface-2 (navy-high), as table A rules — back
      from the 1.0.2 interim (navy) now that 1.0.3 lightened danger-dark. On
      it: paper 9.28, slate-light 5.32, sky (link) 5.09, --accent-text 4.66,
@@ -426,7 +457,9 @@ html {
   max-width: 100%;
   margin-top: 4px;
   padding: 6px 8px;
-  border: 1px solid transparent;
+  /* SPEC §4.3: the callout's edge carries the status colour (warning on its
+     own tint over paper / white 4.98 / 5.21 light, 6.48 / 5.15 dark). */
+  border: 1px solid var(--status-warn);
   border-radius: 5px; /* Matches .file-btn. */
   background: var(--callout-caution-bg);
   color: var(--callout-caution-fg);
@@ -441,9 +474,14 @@ html {
   color: inherit;
   font-size: inherit;
 }
+/* Inverted on hover: the callout's ink as the fill, the panel as the label.
+   Not the callout's own background as the label, as before mmr-brand 1.1.0:
+   that is now a TRANSLUCENT tint, which as text would be 15 % of nothing.
+   White on navy 15.20:1 light, navy-raised on paper 11.54:1 dark, white on
+   #17130A 18.52:1 Daylight. */
 .viz-root .launch-override-callout button.file-btn:hover {
   background: var(--callout-caution-fg);
-  color: var(--callout-caution-bg);
+  color: var(--surface-2);
   border-color: var(--callout-caution-fg);
 }
 /* The one --focus ring (brand v1, D3): the callout is a tint in light and
@@ -567,10 +605,13 @@ html {
 .config-bar > .file-btn, .config-panel > .file-btn { max-width: 100%; white-space: normal; }
 .config-table-scroll { max-width: 100%; overflow: auto; max-height: min(440px, 60vh); overscroll-behavior: contain; }
 .config-table { width: 100%; border-collapse: collapse; }
-.config-table th, .config-table td { min-width: 160px; padding: 8px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+/* Row rules in the quiet --border-subtle (mmr-brand 1.1.0): every table and
+   row list below that takes it sits on the page or a panel (brand bg /
+   surface), never on brand surface-2 — contrastTokens.test.ts lists them. */
+.config-table th, .config-table td { min-width: 160px; padding: 8px; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: top; }
 .config-table .file-btn { white-space: normal; overflow-wrap: anywhere; text-align: left; }
 /* CFG-SPEC A2: one row per recovery device / separating stage, editor inline. */
-.config-part-row { padding: 8px 0; border-top: 1px solid var(--border); overflow-wrap: anywhere; }
+.config-part-row { padding: 8px 0; border-top: 1px solid var(--border-subtle); overflow-wrap: anywhere; }
 .config-part-row p { margin: 2px 0; }
 .config-part-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
 .config-part-actions .file-btn, .config-part-section > .file-btn { max-width: 100%; white-space: normal; }
@@ -1219,13 +1260,16 @@ html {
   margin: 0 0 4px;
 }
 
-/* Tinted callouts (D3, SPEC §4.3): the status colour at ~15 % over the
-   panel surface, OPAQUE — a tint over "whatever is behind" measured 4.42:1
-   for slate over mist — and no left stripe anywhere. */
+/* Tinted callouts (D3, SPEC §4.3): the brand's warning tint, no left stripe
+   anywhere. The tint is TRANSLUCENT (mmr-brand 1.1.0), so the slate text is
+   AA only because every .field-caution sits in a panel (white / navy-raised:
+   5.07 / 5.07) or on the page (4.85 / 6.37) — over mist it would be 4.42,
+   which is why the tokens' rule keeps muted and coloured text off a tint on
+   brand surface-2 (contrastTokens.test.ts, "tint grounds"). */
 .field-caution {
   margin: 0.6rem 0 0;
   padding: 0.5rem 0.65rem;
-  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
+  background: var(--tint-warn);
   border-radius: 6px;
   font-size: 0.78rem;
   line-height: 1.45;
@@ -1450,12 +1494,12 @@ html {
   margin: 6px 0;
   padding: 0.45rem 0.6rem;
   border-radius: 6px;
-  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
+  background: var(--tint-warn);
   color: var(--text-secondary);
 }
 
 .weather-error {
-  background: color-mix(in srgb, var(--status-serious) 12%, var(--surface-2));
+  background: var(--tint-danger);
 }
 
 .weather-places {
@@ -1492,7 +1536,7 @@ html {
 .weather-review td {
   text-align: left;
   padding: 3px 6px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
   vertical-align: top;
 }
 
@@ -1608,7 +1652,7 @@ html {
 
 .gust-estimate-warn {
   border-color: color-mix(in srgb, var(--status-warn) 30%, var(--border));
-  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
+  background: var(--tint-warn);
 }
 
 .gust-estimate-muted {
@@ -2690,7 +2734,7 @@ html {
 }
 
 .file-btn-danger:hover {
-  background: color-mix(in srgb, var(--status-serious) 12%, transparent);
+  background: var(--tint-danger);
 }
 
 .file-btn-ghost {
@@ -2792,12 +2836,12 @@ html {
    left bar is gone, brand v1). Plain .file-note stays the neutral note
    surface for file-load information. */
 .file-note-warn {
-  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
+  background: var(--tint-warn);
   border-color: color-mix(in srgb, var(--status-warn) 30%, var(--border));
 }
 
 .file-note-error {
-  background: color-mix(in srgb, var(--status-serious) 12%, var(--surface-2));
+  background: var(--tint-danger);
   border-color: color-mix(in srgb, var(--status-serious) 32%, var(--border));
 }
 
@@ -2874,9 +2918,10 @@ html {
   background: var(--hover);
 }
 
-/* The tint is 1.17:1 from --hover, so the selected row also carries a 3px
-   --accent-graphic bar down its leading edge — a shape, not a colour alone
-   (4.56:1 on the light tint, 3.35:1 on the dark one, 4.31:1 in Daylight). */
+/* The selection (--mmr-selection) is only 1.03:1 from --hover, so the
+   selected row also carries a 3px --accent-graphic bar down its leading edge
+   — a shape, not a colour alone (5.14:1 on the light tint, 3.35:1 on the dark
+   one, 4.31:1 in Daylight). */
 .tree-row-selected,
 .tree-row-selected:hover {
   background: var(--selected);
@@ -3655,7 +3700,7 @@ html {
 }
 
 .modal-danger:hover {
-  background: color-mix(in srgb, var(--status-serious) 12%, transparent);
+  background: var(--tint-danger);
 }
 
 /* --- First-run tour (S3) --- */
@@ -3846,7 +3891,7 @@ html {
 .guide-letters [aria-disabled] { color: var(--text-muted); }
 .guide-letters a:hover { background: var(--surface-1); }
 .guide-content mark {
-  background: color-mix(in srgb, var(--accent-graphic) 22%, var(--surface-2));
+  background: var(--tint-accent);
   color: var(--text-primary);
 }
 /* The CURRENT match: the selected treatment (D2) rather than an orange fill —
@@ -4261,6 +4306,24 @@ select.unit-chip:hover {
   font-size: 10px;
 }
 
+/* A motor impulse class (MotorBrowser's ImpulseBadge, SPEC §3.2): a FILLED
+   chip in the class colour, set inline from --mmr-chart-impulse-<letter>,
+   with the letter in --mmr-chart-impulse-label — white on the light ramp
+   (7.12–8.37:1, Daylight included), navy on the dark (4.62–9.55:1). Filled,
+   so the dark ramp's 2.95:1 low on navy-high (a hovered chip) is not an edge
+   anyone has to find: the label on its own fill is the pair that matters.
+   The class chip around it keeps its own on/off treatment. */
+.impulse-badge {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 0 3px;
+  border-radius: 3px;
+  box-sizing: border-box;
+  text-align: center;
+  font-weight: 600;
+  color: var(--mmr-chart-impulse-label);
+}
+
 .motor-filter-row {
   display: flex;
   gap: 10px;
@@ -4350,7 +4413,7 @@ select.unit-chip:hover {
 
 .motor-table td {
   padding: 3px 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
   white-space: nowrap;
 }
 
@@ -4363,8 +4426,8 @@ select.unit-chip:hover {
 }
 
 /* Status inks in a picked row (the run-history verdict cell, SimResults)
-   are AA on the --selected tint in every theme: dark danger 5.02 since
-   mmr-brand 1.0.3 (the 1.0.2 #FF8A93 was 4.38). contrastTokens.test.ts
+   are AA on --selected (--mmr-selection) in every theme: light 5.40 / 5.44 /
+   5.71, dark 5.40 / 5.50 / 5.03 (good / warn / danger). contrastTokens.test.ts
    pins the pairs. */
 .motor-row-picked,
 .motor-row-picked:hover {
@@ -4643,7 +4706,7 @@ select.unit-chip:hover {
   font-size: 11px;
   line-height: 1.45;
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
+  background: var(--tint-warn);
   border: 1px solid color-mix(in srgb, var(--status-warn) 30%, var(--border));
   border-radius: 6px;
 }
@@ -4725,15 +4788,18 @@ select.unit-chip:hover {
 }
 
 /* Severity tints the BAR, not just a hairline: a collapsed error used to be
-   a tan strip distinguished from an info strip by a 2px border. */
+   a tan strip distinguished from an info strip by a 2px border. The bar is
+   FIXED over scrolling content, so the translucent tint is laid over the
+   panel ground to stay opaque (the same colour the color-mix gave before
+   mmr-brand 1.1.0). */
 .notice-bar.notice-warn {
   border-top-color: var(--status-warn);
-  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
+  background: linear-gradient(var(--tint-warn), var(--tint-warn)), var(--surface-2);
 }
 .notice-bar.notice-error {
   border-top-color: var(--status-serious);
   border-top-width: 2px;
-  background: color-mix(in srgb, var(--status-serious) 12%, var(--surface-2));
+  background: linear-gradient(var(--tint-danger), var(--tint-danger)), var(--surface-2);
 }
 
 /* Expanded, the bar is allowed to grow but never to eat the workspace: past
@@ -4858,7 +4924,7 @@ select.unit-chip:hover {
   font-size: 12px;
   line-height: 1.4;
   color: var(--text-secondary);
-  background: color-mix(in srgb, var(--status-warn) 15%, var(--surface-2));
+  background: var(--tint-warn);
   border: 1px solid color-mix(in srgb, var(--status-warn) 30%, var(--border));
   border-radius: 6px;
 }
@@ -4968,7 +5034,7 @@ select.unit-chip:hover {
 }
 .recovery-part {
   padding: 5px 4px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .recovery-part-head {
   display: flex;
@@ -5000,7 +5066,7 @@ select.unit-chip:hover {
    the owner's band reaches 75, the launch report complains above 70, and a
    reader has to be able to see both facts at once. */
 .recovery-part-warn {
-  background: color-mix(in srgb, var(--status-warn) 9%, transparent);
+  background: var(--tint-warn);
 }
 .recovery-mark {
   margin-left: 2px;
@@ -5064,7 +5130,7 @@ select.unit-chip:hover {
 .comparison-table-scroll:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .comparison-table-scroll { max-width: 100%; overflow: auto; max-height: 360px; margin-top: 8px; }
 .comparison-table-scroll table { width: 100%; border-collapse: collapse; font-family: var(--font-data); font-size: 12px; font-variant-numeric: tabular-nums; }
-.comparison-table-scroll :is(th, td) { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.comparison-table-scroll :is(th, td) { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
 .comparison-table-scroll caption { text-align: left; white-space: normal; padding: 6px; }
 
 /* NOTES-1: explicit consequence tiers outrank supporting-prose and modal rules. */
@@ -5080,28 +5146,54 @@ select.unit-chip:hover {
    for the themes (every theme block defines all four tokens): they are the
    fill of the fatal-error bar, which carries these classes OUTSIDE .viz-root,
    where no --callout-* exists (fatalErrorBar.ts), and must paint even if the
-   app never mounts. They are the light theme's resolved values;
-   contrastTokens.test.ts holds them to the tokens. */
+   app never mounts. They are the light theme's tints composited OPAQUE over
+   white (the bar must not show the page through it);
+   contrastTokens.test.ts holds them to the tokens.
+   The edge is the status colour (SPEC §4.3: "a 1 px border and icon in the
+   status colour") — over brand surface-2 it is where the colour goes when
+   the eyebrow turns to the text ink (the NoticeBar, below). 4.98–6.81:1
+   light, 4.95–8.46 dark against the ground or its own tint. Daylight's solid
+   boxes keep the ink edge (restated in its block), and so does the fatal
+   bar outside .viz-root: with no --status-* there the declaration is
+   invalid at computed-value time and the edge falls back to currentColor. */
 .message-tier.message-tier.message-danger {
-  background: var(--callout-danger-bg, #f5e5e7);
+  background: var(--callout-danger-bg, #f5e4e7);
   color: var(--callout-danger-fg, #03254f);
+  border-color: var(--status-serious);
 }
 .message-tier.message-tier.message-caution {
   background: var(--callout-caution-bg, #ede5d9);
   color: var(--callout-caution-fg, #03254f);
+  border-color: var(--status-warn);
 }
 .message-tier.message-tier :where(p, li, strong, a, .comp-stats, .simdet-comments, .hero-fallback-detail) {
   color: inherit;
 }
 .message-label { font-weight: 700; }
 /* D3 eyebrows (SPEC §4.3, table A): on the light and dark TINTS the label
-   takes the status colour — warning 5.20:1 light / 5.16:1 dark, danger
-   5.59:1 light / 5.02:1 dark (mmr-brand 1.0.3 #FF9EA5 on #2E4462; the 1.0.2
-   value was 4.51, which is why the dark danger eyebrow was paper until
-   1.0.3). The body keeps the 7:1 ink; Daylight's solid boxes keep the
-   fill's ink for the label too (restated in its block). */
+   takes the status colour where the tint sits on the page or a panel —
+   warning 4.98 / 5.21 light, 6.48 / 5.15 dark over paper / white (navy /
+   navy-raised); danger 5.33 / 5.57 light, 6.29 / 5.01 dark. The body keeps
+   the 7:1 ink; Daylight's solid boxes keep the fill's ink for the label too
+   (restated in its block). */
 .message-tier.message-tier.message-caution .message-label { color: var(--status-warn); }
 .message-tier.message-tier.message-danger .message-label { color: var(--status-serious); }
+/* OVER BRAND SURFACE-2 (mmr-brand 1.1.0, SPEC §3.1): the NoticeBar is the
+   one place a tier sits on it — the bar is --note-bg (mist / navy-high), or
+   a tint over the panel colour. A translucent tier there would be a tint on
+   navy-high (coloured text 4.11 / 4.26 dark) or a tint on a tint (the body
+   ink 6.81:1 dark, under the tiers' 7:1 floor). So a tier in the bar is laid
+   OPAQUE over the panel colour — the fill it had before 1.1.0 — and its
+   eyebrow is set in the text ink, with the colour kept in the tier's edge
+   and its tint. (0,4,0) and later than the rules above, which they tie or
+   outrank; Daylight's solid boxes still win at (0,5,0). */
+.notice-bar .message-tier.message-tier.message-danger {
+  background: linear-gradient(var(--callout-danger-bg), var(--callout-danger-bg)), var(--surface-2);
+}
+.notice-bar .message-tier.message-tier.message-caution {
+  background: linear-gradient(var(--callout-caution-bg), var(--callout-caution-bg)), var(--surface-2);
+}
+.notice-bar .message-tier.message-tier .message-label { color: var(--text-primary); }
 
 /* N046: codes borrow their note's ink, including the filled consequence tiers. */
 .warning-code {
@@ -5279,7 +5371,15 @@ select.unit-chip:hover {
   --callout-danger-bg: #970f21;
   --callout-danger-fg: #ffffff;
   --status-serious: #b00016;
+  /* The other tints, OPAQUE: the brand's light -soft tokens composited on
+     white, the ground every Daylight surface is. Lowest ink on them: the
+     Daylight statuses 5.89 (danger on the caution tint), the link 4.62, black
+     16.85. Opaque, so a tint on --hover or --note-bg cannot shift. */
+  --tint-accent: #ffe8da;
+  --tint-warn: #ede5d9;
+  --tint-danger: #f5e4e7;
   --border: #000000;
+  --border-subtle: #000000;
   --border-control: #000000;
   --hover: var(--mmr-c-mist);
   /* Kept: brand amber (#FFB23E) is a fill a chip's line sample sits on; the
@@ -5539,6 +5639,12 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .message-tier.message-tier :focus-visible {
   outline: 3px solid currentColor;
   outline-offset: 3px;
+}
+
+/* A solid box keeps its own ink as its edge too: the status-coloured edge
+   of the tints (above the block) would be #B00016 on the #970F21 fill. */
+.viz-root[data-contrast='high'] .message-tier.message-tier.message-tier {
+  border-color: currentColor;
 }
 
 /* The eyebrow on a solid box is the box's own ink (the 7:1 pair): the status
