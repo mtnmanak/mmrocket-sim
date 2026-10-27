@@ -179,6 +179,27 @@ describe('chartInk — the reference ink is an app variable Daylight can reach',
     el.remove();
   });
 
+  // THE CONTRACT HALF (styles.css, the styles lane's file): this fails until
+  // the light block defines --chart-reference as the brand token and the
+  // Daylight block as black — the merge gate for finding #9/#14, 2026-10-26.
+  // The dark block may restate the light one or leave it to inherit: the
+  // brand token itself resolves per theme.
+  it('styles.css defines --chart-reference: brand token in light and dark, black under Daylight', () => {
+    const css = readFileSync(join(here, 'styles.css'), 'utf8');
+    const declsIn = (opener: string): string[] => {
+      const out: string[] = [];
+      for (let at = css.indexOf(opener); at >= 0; at = css.indexOf(opener, at + 1)) {
+        const body = css.slice(at, css.indexOf('}', at));
+        const m = /--chart-reference:\s*([^;]+);/.exec(body);
+        if (m) out.push(m[1]!.trim().toLowerCase());
+      }
+      return out;
+    };
+    expect(declsIn('\n.viz-root {')).toEqual(['var(--mmr-chart-reference)']);
+    for (const v of declsIn("\n.viz-root[data-theme='dark'] {")) expect(v).toBe('var(--mmr-chart-reference)');
+    expect(declsIn("\n.viz-root[data-contrast='high'] {").map((v) => v.replace(/^#000$/, '#000000'))).toEqual(['#000000']);
+  });
+
   it('falls back to the brand token, then the light brand value', () => {
     const el = host({ '--mmr-chart-reference': '#a9c3d9' });
     expect(chartInk(el).reference).toBe('#a9c3d9');
