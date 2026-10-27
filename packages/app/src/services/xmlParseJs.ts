@@ -295,10 +295,11 @@ function gate(text: string, limits?: XmlLimits): string {
         && text.charCodeAt(sax.position - 1) === 0x3e /* > */) {
         branch = { from: sax.position, elements: 0, nodes: 0 };
       }
-      stack.push(tag.name);
+      if (omit) stack.push(tag.name);
     });
     sax.on('closetag', () => {
       depth--;
+      if (!omit) return;
       stack.pop();
       if (branch && stack.length === ORK_SAMPLE_PATH.length) {
         // Never cut on an offset that is not where saxes says the tags end.
