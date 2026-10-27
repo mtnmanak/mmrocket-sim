@@ -8,16 +8,16 @@ import { assemblyInstanceCount, finCountOf, lineInstanceCount } from './counts.j
 import { isAssembly, resolveAssemblyRadius, ringInstanceOffsets } from './assembly.js';
 import { isConformal, shroudHalfWidth } from './shroud.js';
 import { finOnMount, flatMount, type MountSurface } from './finRoot.js';
-
-/** A loaded motor seen from aft: the Launch colour, as the side view's case
- *  and the 3D motor (AftView draws it see-through, keyed on this value). */
-export const AFT_MOTOR_FILL = 'var(--launch)';
 import { kernelNum } from './kernelDefaults.js';
 import { axialLength, axialStart } from './position.js';
 import { drawnRadius, profileMountOf } from './schematicLayout.js';
 import { noseEnds } from './tailCone.js';
 import { num } from './nodeNum.js';
 import { hiddenPartIds } from './partVisibility.js';
+
+/** A loaded motor seen from aft: the Launch colour, as the side view's case
+ *  and the 3D motor (AftView draws it see-through, keyed on this value). */
+export const AFT_MOTOR_FILL = 'var(--launch)';
 
 
 // Keep the pure layout walk separate from interaction/rendering (audit 2026-10-11, S3b-4).
