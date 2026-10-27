@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { checkDist, precachedUrls, uncachedFiles } from './precache-coverage.mjs';
+import { checkDist, duplicatePrecacheUrls, precachedUrls, uncachedFiles } from './precache-coverage.mjs';
 
 // The shape of the shipped sw.js (minified by workbox), cut to three entries.
 const SW_MIN = 'define(["./workbox-9c191d2f"],function(e){"use strict";self.skipWaiting(),'
@@ -41,6 +41,16 @@ describe('precache coverage — every built file is offline, or deliberately not
     // (vite names one workbox-window.prod.es5-<hash>.js) is still checked.
     expect(uncachedFiles(['workbox-window.prod.es5-BqEJf4Xk.js'], SW_MIN))
       .toEqual(['workbox-window.prod.es5-BqEJf4Xk.js']);
+  });
+
+  it('names a URL the manifest lists twice (a first install fails on it in current Chrome)', () => {
+    // vite-plugin-pwa appends includeAssets and the manifest icons to the glob
+    // matches, so a favicon both globbed and named in includeAssets was listed
+    // twice, and Chrome 156 rejected the second Cache.put of the whole install.
+    expect(duplicatePrecacheUrls(SW_MIN)).toEqual([]);
+    const twice = SW_MIN.replace('{url:"assets/index-C7tKBouI.js",revision:null},',
+      '{url:"favicon.ico",revision:"ab"},{url:"assets/index-C7tKBouI.js",revision:null},{url:"favicon.ico",revision:"ab"},');
+    expect(duplicatePrecacheUrls(twice)).toEqual(['favicon.ico']);
   });
 
   it('refuses to pass anything when it cannot read the manifest at all', () => {

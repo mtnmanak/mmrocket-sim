@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 import { lazyModulesInEntry } from './scripts/lazy-chunks.mjs';
-import { checkDist } from './scripts/precache-coverage.mjs';
+import { checkDist, duplicatePrecacheUrls } from './scripts/precache-coverage.mjs';
 import { RELEASES_NAVIGATION, releaseNotesPlugin } from './scripts/release-notes.mjs';
 import { CHANGELOG, PRE_VERSIONING_NOTE } from './src/changelog';
 import { XML_JS_SETUP, XML_JS_SUITES } from './scripts/xml-js-suites.mjs';
@@ -34,6 +34,13 @@ function precacheCoversBuild(): Plugin {
       order: 'post',
       sequential: true,
       handler() {
+        const dupes = duplicatePrecacheUrls(readFileSync(resolve(outDir, 'sw.js'), 'utf8'));
+        if (dupes.length > 0) {
+          throw new Error(`the service worker precaches ${dupes.length} URL(s) twice, which makes a `
+            + `first install fail in current Chrome (no offline copy at all): ${dupes.join(', ')}. `
+            + 'A file matched by workbox.globPatterns must not also be in includeAssets or the '
+            + 'manifest icons (includeManifestIcons).');
+        }
         const missing = checkDist(outDir);
         if (missing.length > 0) {
           throw new Error(`the service worker does not precache ${missing.length} built file(s), `
@@ -127,7 +134,15 @@ export default defineConfig({
     // copy of itself — see services/versionCheck.ts.
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['favicon.ico', 'favicon.svg', 'apple-touch-icon.png', 'og-card.jpg'],
+      // ONLY files globPatterns does not already match: anything listed in both is
+      // precached twice, and a duplicate entry fails the whole install in current
+      // Chrome (precacheCoversBuild refuses the build). The favicons, touch icon and
+      // install icons are matched by globPatterns (ico, svg, png); the OG card (jpg)
+      // is not, so it is the one asset named here. includeManifestIcons is off for
+      // the same reason, and the plugin adds manifest.webmanifest itself, so
+      // globPatterns does not list webmanifest.
+      includeAssets: ['og-card.jpg'],
+      includeManifestIcons: false,
       // From mmr-brand properties/mmrocket-sim/public/site.webmanifest (that
       // file is excluded from the sync because this plugin writes the manifest).
       manifest: {
@@ -150,7 +165,7 @@ export default defineConfig({
         // woff/woff2: the self-hosted brand fonts (Archivo, IBM Plex Mono) must
         // work offline. svg/ico: the header logo, the icon sprite and the
         // favicons (brand checklist step 4).
-        globPatterns: ['**/*.{js,css,html,png,svg,ico,webmanifest,woff,woff2}'],
+        globPatterns: ['**/*.{js,css,html,png,svg,ico,woff,woff2}'],
         // The release-notes page is NOT precached (scripts/release-notes.mjs:
         // ~560 KB of text on every user's download), and the navigation
         // fallback must not answer its URL with the app — without the

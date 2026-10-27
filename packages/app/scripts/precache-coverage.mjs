@@ -65,6 +65,27 @@ export function uncachedFiles(files, swSource) {
   return files.filter((f) => !cached.has(f) && !DELIBERATELY_UNCACHED.some((re) => re.test(f)));
 }
 
+/**
+ * URLs the precache manifest lists more than once. Workbox's install puts each
+ * entry into the cache, and a current Chrome (156, measured 2026-10-26) rejects
+ * the second put of the same request ("Failed to execute 'put' on 'Cache':
+ * Entry already exists"), so the whole install fails and a FIRST visit never
+ * gets an offline copy. An update only re-puts changed entries, which is why an
+ * already-installed worker kept working. vite-plugin-pwa adds includeAssets and
+ * the manifest icons on top of globPatterns, so one file matched by both
+ * appears twice.
+ */
+export function duplicatePrecacheUrls(swSource) {
+  const seen = new Set();
+  const dupes = new Set();
+  for (const m of swSource.matchAll(/["']?\burl["']?\s*:\s*"([^"]+)"/g)) {
+    const url = decodeURIComponent(m[1]);
+    if (seen.has(url)) dupes.add(url);
+    seen.add(url);
+  }
+  return [...dupes].sort();
+}
+
 /** uncachedFiles for a built dist/ directory: every file under it, against its sw.js. */
 export function checkDist(distDir) {
   const files = [];

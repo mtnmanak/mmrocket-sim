@@ -1266,6 +1266,18 @@ html {
   color: var(--text-secondary);
 }
 
+/* Every bare native control the app does not style itself (the chart panel's
+   Export layout / Comparison chart / Saved plots selects, its Plot name input,
+   and others) gets the brand field colours too. Without this the browser's own
+   dark-scheme grey showed through — it sat with the old warm palette and reads
+   brown on navy. :where() keeps this at element specificity, so every rule
+   that already styles a control still wins. */
+:where(.viz-root) :where(select, textarea, input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='color'])) {
+  background-color: var(--field-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-control);
+}
+
 /* Brand form control (mmr-ui.css .mmr-input): white/navy-raised fill, the
    3:1 control edge (3.18:1 light, 4.26:1 dark), Plex Mono with tabular
    figures. The decorative --border measured 1.69:1 here. */
