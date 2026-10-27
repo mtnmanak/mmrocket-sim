@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DOMParser } from '@xmldom/xmldom';
 import { SaxesParser } from 'saxes';
 import { createJsXmlParser, jsXmlParser, xmlGate, type XmlLimits } from './xmlParseJs.js';
-import { XmlBudgetExceededError, XmlParseError, type XmlDocument, type XmlElement } from './xmlParse.js';
+import { XmlBudgetExceededError, XmlParseError, type XmlDocument, type XmlElement, type XmlList } from './xmlParse.js';
 
 // The API's opt-in (packages/api/src/index.ts) and main's E1 budgets without it.
 const E1: XmlLimits = { maxElements: 50_000, maxDepth: 64 };
@@ -20,7 +20,8 @@ afterEach(() => { vi.restoreAllMocks(); });
 function atDom(parse: (text: string) => XmlDocument, xml: string) {
   const spy = vi.spyOn(DOMParser.prototype, 'parseFromString');
   try {
-    const doc = parse(xml);
+    // Both parsers' documents are xmldom's, which has getElementsByTagName.
+    const doc = parse(xml) as XmlDocument & { getElementsByTagName(name: string): XmlList };
     expect(spy).toHaveBeenCalledTimes(1);
     return { text: spy.mock.calls[0]![0], doc, elements: doc.getElementsByTagName('*').length };
   } finally { spy.mockRestore(); }
