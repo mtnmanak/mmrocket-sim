@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { approvalNotice, main, selectSource } from './catalogue-source.mjs';
+import { INPUT_ARTIFACT, REFRESH_JOB, SEAL_STEP, approvalErrorNotice, approvalNotice, main, selectSource } from './catalogue-source.mjs';
 import { planPublication } from './catalogue-publish.mjs';
 
 const fixture = () => JSON.parse(readFileSync(new URL('./fixtures/catalogue-source.json', import.meta.url), 'utf8'));
@@ -65,8 +65,13 @@ describe('GitHub REST source eligibility', () => {
       const data = fixture(); data.run[key] = value;
       expect(selectSource(data)).toMatchObject({ eligible: false, failed: false, reason: expect.stringContaining(reason) });
     }
+    // The fixture's refresh job has the seal step: it ran the pipeline, so its
+    // missing artifact is a Freeze/Upload failure, not an old run.
     const missing = fixture(); missing.artifacts[0].artifacts = [];
-    expect(selectSource(missing)).toMatchObject({ failed: true, reason: 'source run has no catalogue-input artifact — it predates the catalogue pipeline; run a new refresh' });
+    expect(selectSource(missing)).toMatchObject({ failed: true, reason: 'source refresh attempt 1 ran the catalogue pipeline but uploaded no '
+      + 'catalogue-input artifact; see its "Freeze the catalogue input bytes and sha256" and "Upload frozen catalogue inputs" steps' });
+    const old = fixture(); old.artifacts[0].artifacts = []; job(old).steps = job(old).steps.filter((s) => s.name !== SEAL_STEP);
+    expect(selectSource(old)).toMatchObject({ failed: true, reason: 'source run has no catalogue-input artifact — it predates the catalogue pipeline; run a new refresh' });
     job(missing).conclusion = 'failure';
     expect(selectSource(missing)).toMatchObject({ failed: false, reason: expect.stringContaining('gate') });
     for (const [change, reason] of [
@@ -94,6 +99,82 @@ describe('GitHub REST source eligibility', () => {
     expect(selectSource(data)).toMatchObject({ eligible: true, source_attempt: '2', artifact_id: '333', fetched_at: '2026-10-21T12:04:00Z' });
   });
 
+  it('R4 #1/#6: names the latest sealed successful attempt when no catalogue-input artifact exists', () => {
+    const data = fixture(), next = structuredClone(job(data));
+    data.artifacts[0].artifacts = [];
+    next.id = 987; next.run_attempt = 2; next.started_at = '2026-10-21T12:00:00Z';
+    data.attempts[1].pages[0].jobs.push(next);
+    expect(selectSource(data)).toMatchObject({ failed: true, reason: expect.stringContaining('source refresh attempt 2 ran the catalogue pipeline') });
+    next.steps = next.steps.filter((s) => s.name !== SEAL_STEP);
+    expect(selectSource(data)).toMatchObject({ failed: true, reason: expect.stringContaining('source refresh attempt 1 ran the catalogue pipeline') });
+    job(data).conclusion = 'failure';
+    expect(selectSource(data)).toMatchObject({ failed: true, reason: expect.stringContaining('predates') });
+    next.conclusion = 'failure';
+    expect(selectSource(data)).toMatchObject({ eligible: false, failed: false, reason: 'source refresh gate did not conclude success' });
+  });
+
+  it('R4 #2: is red when a catalogue-input artifact exists but no refresh job was found in any attempt', () => {
+    const data = fixture();
+    // Its own run_attempt is 1, so attempt 2's page cannot vouch for it.
+    data.attempts[1].pages[0].jobs.push(data.attempts[0].pages[0].jobs.pop());
+    expect(selectSource(data)).toEqual({ eligible: false, failed: true, reason: 'catalogue-input artifact present but no refresh job found in any attempt' });
+    const renamed = fixture(); job(renamed).name = 'build';
+    expect(selectSource(renamed)).toMatchObject({ failed: true, reason: expect.stringContaining('no refresh job found') });
+    renamed.artifacts[0].artifacts = [];
+    expect(selectSource(renamed)).toMatchObject({ eligible: false, failed: false, reason: 'source refresh gate did not conclude success' });
+  });
+
+  it('ci-1: is red when a later attempt passed the gate but only an earlier failed attempt left an artifact', () => {
+    const data = fixture(), next = structuredClone(job(data));
+    job(data).conclusion = 'failure';
+    next.id = 987; next.run_attempt = 2; next.conclusion = 'success';
+    next.started_at = '2026-10-21T12:00:00Z'; next.steps[1].completed_at = '2026-10-21T12:05:00Z';
+    data.attempts[1].pages[0].jobs.push(next);
+    expect(selectSource(data)).toMatchObject({ eligible: false, failed: true,
+      reason: expect.stringContaining('source refresh attempt 2 ran the catalogue pipeline but uploaded no catalogue-input artifact') });
+    next.conclusion = 'failure';
+    expect(selectSource(data)).toMatchObject({ eligible: false, failed: false, reason: expect.stringContaining('artifact attempt 1') });
+  });
+
+  it('R4 #3: exports the cross-file names it matches', () => {
+    expect([REFRESH_JOB, SEAL_STEP, INPUT_ARTIFACT]).toEqual(['refresh', 'Seal frozen artifact time window', 'catalogue-input']);
+    const data = fixture();
+    expect(job(data).name).toBe(REFRESH_JOB);
+    expect(job(data).steps.map((s) => s.name)).toContain(SEAL_STEP);
+    expect(artifact(data).name).toBe(INPUT_ARTIFACT);
+  });
+
+  it('R4 #7: writes CLI errors to stderr, never into the stdout the workflow captures', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'catalogue-source-')); dirs.push(dir);
+    const { run_attempt: _attempt, ...run } = fixture().run;
+    writeFileSync(join(dir, 'run.json'), JSON.stringify(run));
+    const stdout = vi.fn(), stderr = vi.fn();
+    expect(main(['attempts', '--run', join(dir, 'run.json')], { stdout, stderr })).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.flat().join('')).toContain('Invalid source run_attempt');
+    expect(main(['approval', '--run', join(dir, 'missing.json')], { stdout, stderr })).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+  });
+
+  it('R4 #4: classifies a failed environment read: 404 is a missing environment, anything else is unconfirmed', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'catalogue-source-')); dirs.push(dir);
+    const missing = approvalErrorNotice('gh: Not Found (HTTP 404)\n');
+    expect(missing).toMatch(/^\*\*WARNING: environment catalogue-publish does not exist/);
+    expect(missing).toContain('no approval rule');
+    for (const text of ['gh: Resource not accessible by integration (HTTP 403)\n', 'gh: Server Error (HTTP 500)\n', 'HTTP 4040', '']) {
+      expect(approvalErrorNotice(text)).toBe('could not confirm the approval rule\n');
+    }
+    const stdout = vi.fn(), stderr = vi.fn();
+    writeFileSync(join(dir, 'error.txt'), 'gh: Not Found (HTTP 404)\n');
+    expect(main(['approval-error', '--error', join(dir, 'error.txt')], { stdout, stderr })).toBe(0);
+    expect(stdout).toHaveBeenCalledWith(missing);
+    writeFileSync(join(dir, 'error.txt'), 'gh: Forbidden (HTTP 403)\n');
+    expect(main(['approval-error', '--error', join(dir, 'error.txt')], { stdout, stderr })).toBe(0);
+    expect(stdout).toHaveBeenLastCalledWith('could not confirm the approval rule\n');
+    // 200 with no rules is approvalNotice's warning.
+    expect(approvalNotice({ protection_rules: [] })).toMatch(/^\*\*WARNING:/);
+  });
+
   it('runs builtin CLI with paginated fixture files and writes neutral/error summaries', () => {
     const dir = mkdtempSync(join(tmpdir(), 'catalogue-source-')); dirs.push(dir);
     mkdirSync(join(dir, 'jobs'));
@@ -119,5 +200,11 @@ describe('GitHub REST source eligibility', () => {
     expect(approvalNotice({ protection_rules: [] })).toMatch(/^\*\*WARNING:/);
     expect(approvalNotice({ protection_rules: [{ type: 'required_reviewers', reviewers: [] }] })).toMatch(/^\*\*WARNING:/);
     expect(approvalNotice({ protection_rules: [{ type: 'required_reviewers', reviewers: [{ type: 'User', reviewer: { login: 'mtnmanak' } }] }] })).not.toContain('WARNING');
+    const selfReview = approvalNotice({ protection_rules: [{ type: 'required_reviewers', prevent_self_review: true,
+      reviewers: [{ type: 'User', reviewer: { login: 'mtnmanak' } }] }] });
+    expect(selfReview).toMatch(/^\*\*WARNING:/);
+    expect(selfReview).toContain('self-review');
+    expect(approvalNotice({ protection_rules: [{ type: 'required_reviewers', prevent_self_review: false,
+      reviewers: [{ type: 'User', reviewer: { login: 'mtnmanak' } }] }] })).not.toContain('WARNING');
   });
 });

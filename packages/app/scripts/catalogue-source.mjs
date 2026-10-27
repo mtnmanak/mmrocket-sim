@@ -12,7 +12,16 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-const repo = 'mtnmanak/mmrocket-sim';
+// Names this file shares with the workflows; deploy-workflow.test.mjs ties each
+// one to motors-refresh.yml / catalogue-publish.yml.
+export const SOURCE_REPO = 'mtnmanak/mmrocket-sim';
+export const SOURCE_WORKFLOW_NAME = 'Weekly motor catalogue refresh';
+export const SOURCE_WORKFLOW_FILE = 'motors-refresh.yml';
+export const REFRESH_JOB = 'refresh';
+export const SEAL_STEP = 'Seal frozen artifact time window';
+export const INPUT_ARTIFACT = 'catalogue-input';
+const FREEZE_STEP = 'Freeze the catalogue input bytes and sha256';
+const UPLOAD_STEP = 'Upload frozen catalogue inputs';
 const pages = (value, key) => {
   const list = Array.isArray(value) ? value : [value];
   if (!list.every((page) => Array.isArray(page?.[key]))) throw new Error(`Invalid paginated ${key} response`);
@@ -27,15 +36,18 @@ const countAttempts = (run) => {
   if (!Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1) throw new Error('Invalid source run_attempt');
   return run.run_attempt;
 };
+const noUpload = (job) => new Error(`source refresh attempt ${job.run_attempt} ran the catalogue pipeline but uploaded no `
+  + `${INPUT_ARTIFACT} artifact; see its "${FREEZE_STEP}" and "${UPLOAD_STEP}" steps`);
+const latest = (jobs) => jobs.reduce((a, b) => (b.run_attempt > a.run_attempt ? b : a));
 
 export function selectSource({ run, attempts, artifacts }) {
   const neutral = (reason) => ({ eligible: false, failed: false, reason });
   try {
     const workflowPath = String(run.path ?? '').split('@')[0];
-    if (!workflowPath.endsWith('/motors-refresh.yml') && run.name !== 'Weekly motor catalogue refresh') {
+    if (!workflowPath.endsWith(`/${SOURCE_WORKFLOW_FILE}`) && run.name !== SOURCE_WORKFLOW_NAME) {
       return neutral('source run is not the motor refresh workflow');
     }
-    if (run.repository?.full_name !== repo || run.head_repository?.full_name !== repo) return neutral('source run is from another repository');
+    if (run.repository?.full_name !== SOURCE_REPO || run.head_repository?.full_name !== SOURCE_REPO) return neutral('source run is from another repository');
     if (run.head_branch !== 'main') return neutral('source run is not on main');
     if (!['schedule', 'workflow_dispatch'].includes(run.event)) return neutral('source run event is not schedule or workflow_dispatch');
     if (run.status !== 'completed') return neutral('source run has not completed');
@@ -49,14 +61,20 @@ export function selectSource({ run, attempts, artifacts }) {
     const jobs = attempts.flatMap(({ attempt, pages: response }) => pages(response, 'jobs')
       // Re-run-failed-jobs may carry an earlier job forward. Only its own attempt
       // may vouch for it; that attempt was fetched explicitly as well.
-      .filter((job) => job.name === 'refresh' && job.run_attempt === attempt));
-    const frozen = pages(artifacts, 'artifacts').filter((a) => a.name === 'catalogue-input');
+      .filter((job) => job.name === REFRESH_JOB && job.run_attempt === attempt));
+    const frozen = pages(artifacts, 'artifacts').filter((a) => a.name === INPUT_ARTIFACT);
     if (!frozen.length) {
-      if (!jobs.some((job) => job.conclusion === 'success')) return neutral('source refresh gate did not conclude success');
-      throw new Error('source run has no catalogue-input artifact — it predates the catalogue pipeline; run a new refresh');
+      const passed = jobs.filter((job) => job.conclusion === 'success');
+      if (!passed.length) return neutral('source refresh gate did not conclude success');
+      // A sealed attempt ran the pipeline: its own Freeze/Upload step failed.
+      const sealed = passed.filter((job) => job.steps?.some((s) => s.name === SEAL_STEP));
+      if (sealed.length) throw noUpload(latest(sealed));
+      throw new Error(`source run has no ${INPUT_ARTIFACT} artifact — it predates the catalogue pipeline; run a new refresh`);
     }
+    // Only a refresh job that reached its upload step can have made one.
+    if (!jobs.length) throw new Error(`${INPUT_ARTIFACT} artifact present but no refresh job found in any attempt`);
     const windows = jobs.map((job) => {
-      const seals = job.steps?.filter((s) => s.name === 'Seal frozen artifact time window') ?? [];
+      const seals = job.steps?.filter((s) => s.name === SEAL_STEP) ?? [];
       if (seals.length !== 1 || seals[0].conclusion !== 'success') return { job };
       return { job, start: epoch(job.started_at), end: epoch(seals[0].completed_at) };
     });
@@ -74,7 +92,12 @@ export function selectSource({ run, attempts, artifacts }) {
     if (matches.filter((m) => m.owner.job.run_attempt === owner.job.run_attempt).length !== 1) {
       throw new Error('ambiguous catalogue-input artifacts in producing attempt');
     }
-    if (owner.job.conclusion !== 'success') return neutral(`source refresh gate for artifact attempt ${owner.job.run_attempt} did not conclude success`);
+    if (owner.job.conclusion !== 'success') {
+      // A later attempt that passed the gate must have uploaded its own input.
+      const later = jobs.filter((job) => job.run_attempt > owner.job.run_attempt && job.conclusion === 'success');
+      if (later.length) throw noUpload(latest(later));
+      return neutral(`source refresh gate for artifact attempt ${owner.job.run_attempt} did not conclude success`);
+    }
     if (artifact.expired !== false) throw new Error('source catalogue-input artifact has expired; run a new refresh');
     if (!Number.isSafeInteger(artifact.id) || artifact.id < 1 || !/^sha256:[a-f0-9]{64}$/.test(artifact.digest ?? '')) {
       throw new Error('Invalid catalogue-input artifact id/digest');
@@ -86,22 +109,34 @@ export function selectSource({ run, attempts, artifacts }) {
 }
 
 export function approvalNotice(environment) {
-  return environment.protection_rules?.some((rule) => rule.type === 'required_reviewers' && rule.reviewers?.length)
-    ? 'Approval rule: required reviewers configured.\n'
-    : '**WARNING: catalogue-publish has no required_reviewers approval protection.**\n';
+  const rules = environment.protection_rules?.filter((rule) => rule.type === 'required_reviewers' && rule.reviewers?.length) ?? [];
+  if (!rules.length) return '**WARNING: catalogue-publish has no required_reviewers approval protection.**\n';
+  // The sole reviewer also triggers the run, so prevented self-review waits until the job times out.
+  if (rules.some((rule) => rule.prevent_self_review === true)) {
+    return '**WARNING: catalogue-publish prevents self-review; the reviewer who triggered the run cannot approve it.**\n';
+  }
+  return 'Approval rule: required reviewers configured.\n';
 }
 
-export function main(argv = process.argv.slice(2), { stdout = (s) => process.stdout.write(s) } = {}) {
+/** A failed `gh api` environment read, from its stderr: only a 404 says the environment is missing. */
+export function approvalErrorNotice(stderrText) {
+  return /\bHTTP 404\b/.test(stderrText)
+    ? '**WARNING: environment catalogue-publish does not exist; GitHub will create it with no approval rule.**\n'
+    : 'could not confirm the approval rule\n';
+}
+
+export function main(argv = process.argv.slice(2), { stdout = (s) => process.stdout.write(s), stderr = (s) => process.stderr.write(s) } = {}) {
   try {
     const [command, ...args] = argv;
-    const { values } = parseArgs({ args, options: Object.fromEntries(['run', 'jobs', 'artifacts', 'out', 'summary'].map((key) => [key, { type: 'string' }])) });
+    const { values } = parseArgs({ args, options: Object.fromEntries(['run', 'jobs', 'artifacts', 'out', 'summary', 'error'].map((key) => [key, { type: 'string' }])) });
+    if (command === 'approval-error') { stdout(approvalErrorNotice(readFileSync(values.error, 'utf8'))); return 0; }
     const run = JSON.parse(readFileSync(values.run, 'utf8'));
     if (command === 'approval') { stdout(approvalNotice(run)); return 0; }
     if (command === 'attempts') {
       stdout(`${Array.from({ length: countAttempts(run) }, (_, i) => i + 1).join('\n')}\n`);
       return 0;
     }
-    if (command !== 'select') throw new Error('Expected attempts or select');
+    if (command !== 'select') throw new Error('Expected approval, approval-error, attempts or select');
     const attempts = readdirSync(values.jobs).map((file) => ({ attempt: Number(file.replace(/\.json$/, '')),
       pages: JSON.parse(readFileSync(join(values.jobs, file), 'utf8')) }));
     const result = selectSource({ run, attempts, artifacts: JSON.parse(readFileSync(values.artifacts, 'utf8')) });
@@ -111,7 +146,8 @@ export function main(argv = process.argv.slice(2), { stdout = (s) => process.std
       .map(([key, val]) => `${key}=${val}`).join('\n')}\n`);
     return result.failed ? 1 : 0;
   } catch (error) {
-    stdout(`Catalogue source check failed: ${error.message}\n`);
+    // stdout is captured into files and the summary; the reason belongs in the log.
+    stderr(`Catalogue source check failed: ${error.message}\n`);
     return 1;
   }
 }
