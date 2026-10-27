@@ -3,7 +3,7 @@ import { boosterBranches } from '@online-openrocket/engine';
 import {
   APP_VERSION, CURVES_GENERATED, MOTORS_GENERATED, KernelUnavailableError, InflatedFileTooLargeError,
   commentsOf, formatWarning, createJsXmlParser, XmlBudgetExceededError, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser,
-  simulateFile, SimulateDesignError, type TimedSimulateFileResult,
+  simulateFile, SimulateDesignError, type TimedSimulateFileResult, describeFile, type DescribeFileResult, SHARE_TOO_LARGE_ERROR_NAME,
 } from '../../app/src/headless/index.js';
 
 // 185 local XML/design files: max 40,610 elements, depth 14, including stored
@@ -101,16 +101,52 @@ function summary(out: TimedSimulateFileResult) {
   };
 }
 
+const stamps = () => ({ appVersion: APP_VERSION, engine: { openRocket: '24.12', appVersion: APP_VERSION },
+  catalogue: { motorsGenerated: MOTORS_GENERATED, curvesGenerated: CURVES_GENERATED } });
+
+/** S3 draft contract: the service's result, stamped like /health, with the fragment's full app link. */
+function described(out: DescribeFileResult) {
+  return {
+    experimental: true,
+    api: 's3-draft',
+    ...stamps(),
+    name: out.name,
+    sourceFormat: out.sourceFormat,
+    analysis: out.analysis,
+    mounts: out.mounts,
+    fragment: out.fragment,
+    link: `${APP_URL}${out.fragment}`,
+    notes: out.notes,
+  };
+}
+
 export const worker = {
   async fetch(request: Request, _env: unknown, ctx: WorkerContext): Promise<Response> {
     const started = performance.now();
     let filename = '';
+    let describing = false;
     try {
       const url = new URL(request.url);
       if (url.pathname === '/health') {
         if (request.method !== 'GET') return error('METHOD_NOT_ALLOWED', 'Use GET for /health.', 405, { Allow: 'GET' });
-        return Response.json({ ok: true, api: 's1', appVersion: APP_VERSION, engine: { openRocket: '24.12', appVersion: APP_VERSION },
-          catalogue: { motorsGenerated: MOTORS_GENERATED, curvesGenerated: CURVES_GENERATED } });
+        return Response.json({ ok: true, api: 's1', ...stamps() });
+      }
+      if (url.pathname === '/describe') {
+        describing = true;
+        if (request.method !== 'POST') return error('METHOD_NOT_ALLOWED', 'Use POST with a raw design file.', 405, { Allow: 'POST' });
+        filename = url.searchParams.get('filename')?.trim() ?? '';
+        if (!filename) return error('FILENAME_REQUIRED', 'Supply the design filename in ?filename=.', 400);
+        const data = await readDesign(request);
+        if (!data.byteLength) return error('EMPTY_FILE', 'Supply a raw design file as the request body.', 400);
+        // No caller options: every other query parameter is ignored. The build and its
+        // handle reads take the kernel lock inside describeFile; the import before it and
+        // the fragment compression after it run outside, so the watchdog's microtask-only
+        // assumption holds. No flight, auto-delay solve or Mach probe.
+        const description = describeFile(data, filename, {
+          kernelDeadHolderMs: 10_000, maxInflatedBytes: MAX_API_INFLATED_BYTES,
+        });
+        ctx.waitUntil(description.catch(() => undefined));
+        return Response.json(described(await description));
       }
       if (url.pathname !== '/experimental/fly') return error('NOT_FOUND', 'Unknown endpoint.', 404);
       if (request.method !== 'POST') return error('METHOD_NOT_ALLOWED', 'Use POST with a raw design file.', 405, { Allow: 'POST' });
@@ -155,6 +191,9 @@ export const worker = {
       if (e instanceof XmlBudgetExceededError) {
         return error('FILE_TOO_LARGE', `${filename}: ${e.message} Use ${APP_URL} for larger files.`, 413);
       }
+      if (e instanceof Error && e.name === SHARE_TOO_LARGE_ERROR_NAME) {
+        return error('LINK_TOO_LARGE', `${filename}: this design is too large for a share link (the app's limit is 4 MiB of design XML and 1,048,576 link characters). Use ${APP_URL} with the file itself.`, 413);
+      }
       if (e instanceof KernelUnavailableError) {
         return error('KERNEL_UNAVAILABLE', e.message, 503, { 'Retry-After': '5' });
       }
@@ -165,7 +204,7 @@ export const worker = {
           ...(e.importNote ? { importNote: e.importNote } : {}) } },
         { status: e.kind === 'file' ? 413 : e.kind === 'parse' ? 400 : 422 });
       }
-      return error('INTERNAL_ERROR', 'The design could not be simulated.', 500);
+      return error('INTERNAL_ERROR', describing ? 'The design could not be described.' : 'The design could not be simulated.', 500);
     }
   },
 };

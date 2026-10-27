@@ -1,4 +1,4 @@
-# MMRocket Sim API: local S1
+# MMRocket Sim API: local S1, S3 describe draft
 
 A Cloudflare module Worker that opens and flies a raw `.ork`, `.rkt` or `.CDX1` through the app's existing headless path and OpenRocket 24.12 Java core compiled with TeaVM. GPL-3.0-or-later; see the repository LICENSE.
 
@@ -31,7 +31,7 @@ API flights use a time step of at least 0.05 s, including auto-delay and Mach pr
 
 Results come from the same engine as the app, but the Worker's JavaScript runtime computes some floating-point Math differently. The initial deployed Worker comparison against Node covered 127 responses: 109 HTTP 200 flight results and 18 HTTP 422 refusals. Across those 109 flights, Worker-versus-Node differences reached 0.26% in flight time and 0.026% in apogee; most were in the 11th-13th significant digit. A browser is a third runtime, so app results may also differ slightly; those measurements do not quantify browser differences.
 
-- S1 only: local Worker/kernel/file-to-flight; S2 measures, S3 describes, S4 measures fragments, S5 comes later.
+- S1: local Worker/kernel/file-to-flight; S2 measures, S3 describes (first draft below, not deployed), S4 measures fragments, S5 comes later.
 - Thin app-owned headless exports; no moved or copied importer/flight implementation.
 - Engine access uses only `@online-openrocket/engine`'s public API.
 - Fixed `network: 'forbid'`; bundled motor snapshot, no thrustcurve.org calls or caller options.
@@ -46,3 +46,126 @@ Results come from the same engine as the app, but the Worker's JavaScript runtim
 For fully offline local commands, set `WRANGLER_HIDE_BANNER=true`, `WRANGLER_SEND_METRICS=false` and `CLOUDFLARE_CF_FETCH_ENABLED=false` to disable the update-banner check, telemetry and development `Request.cf` metadata refresh. The tests set these before loading Wrangler.
 
 Ordinary fixture numeric parity assertions use 1e-10 relative (floor 1e-10 SI) for apogee, maximum velocity and Mach. The round-2 review measured at most 1e-12 SI drift for the compared non-time quantities, and identical Node 22/24 results for all five designs reviewed. Event times, flight time and motor delays use 1e-5 relative (floor 1e-5 s): the cluster's descent-time drift across workerd/Node was 1.7e-6 relative. The time-step-floor cases also compare apogee at the event-time tolerance and prove the floor by checking that its apogee is nearer the floored Node oracle than the unfloored one. Every expected flight and outcome is computed afresh in the Node host; this is cross-runtime parity, not a published-data accuracy tolerance. Test-only motor selections follow the current bundled catalogue rather than specific upstream motor identities or snapshot dates.
+
+## S3 draft: `POST /describe` (first draft for owner review; not deployed)
+
+**Status.** A first draft of the contract and its implementation, for review before any integration or shipping decision. Nothing here is deployed, the shape may change, and `api: "s3-draft"` says so on every response. `/health` and `/experimental/fly` are unchanged.
+
+**Request.** `POST /describe?filename=<name>` with the raw `.ork`, `.rkt` or `.CDX1` bytes as the body: the same reader, caps and importer as `/experimental/fly` (the extension picks the importer, case-insensitively; anything else reads as `.ork`). There are no caller options: no launch, site, motor, curve, aero or delay fields, and any other query parameter is ignored and cannot enable the network. The bundled motor snapshot is the only motor source (`network: 'forbid'`); a motorless or unmatched-motor design is described like any other. Nothing is flown: no flight, no auto-delay solve and no auto-aero Mach probe.
+
+**Response** (HTTP 200, `application/json`). Types, then a real example.
+
+```ts
+{
+  experimental: true,
+  api: "s3-draft",
+  appVersion: string,                       // same stamps as /health
+  engine: { openRocket: "24.12", appVersion: string },
+  catalogue: { motorsGenerated: string, curvesGenerated: string },
+  name: string,
+  sourceFormat: "ork" | "rkt" | "cdx1",
+  analysis: {
+    basis: "dry; no installed motors",
+    aeroModel: string,                      // "classic+kbf" today: the app's first-visit default
+    mach: 0.3,
+    angleOfAttackRad: 0,
+    lengthM: number,
+    referenceDiameterM: number,             // the kernel's aerodynamic reference diameter
+    dryMassKg: number,
+    dryCgM: number | null,
+    cpM: number | null,                     // forward CP over all roll angles
+    stabilityCalibers: number | null,       // (cpM − dryCgM) / referenceDiameterM
+    cdEstimate: {
+      value: number | null,
+      mach: 0.3,
+      angleOfAttackRad: 0,
+      powerState: "off",
+      atmosphere: "kernel default; no Mach-altitude table",
+      referenceAreaM2: number               // π · referenceDiameterM² / 4 (an area)
+    }
+  },
+  mounts: [{
+    key: string,                            // "m1", "m2", … request-local traversal order; not a placement instruction
+    name: string,
+    stageIndex: number,                     // 0 = sustainer (top stage)
+    stageName: string,
+    diameterM: number,                      // fit diameter: bore, or the outside for a case airframe; 0 for a solid tube
+    maxMotorLengthM: number | null,         // the mount's stored limit; null = unset, 0 is a real limit
+    count: number                           // motors one motor here becomes: cluster × pods/strap-ons × enclosing clusters
+  }],
+  fragment: string,                         // "#d=1.…", no motor suffix and no placement key
+  link: string,                             // exactly "https://mmrsim.mountainmanrockets.com" + fragment
+  notes: {
+    import: { text: string, severity: string },   // the app's own import note
+    analysis: string[],                     // why a figure is null, and other cautions
+    export: string[]                        // what the fragment left out, and the writer's own save notes
+  }
+}
+```
+
+Example: `reference.ork` at app 0.195 (the fragment and link are truncated here; the full fragment is about 2,100 characters). The numbers are illustrative and move with the app, kernel and catalogue.
+
+```json
+{
+  "experimental": true, "api": "s3-draft", "appVersion": "0.195",
+  "engine": { "openRocket": "24.12", "appVersion": "0.195" },
+  "catalogue": { "motorsGenerated": "2026-10-12", "curvesGenerated": "2026-10-12" },
+  "name": "Reference Rocket", "sourceFormat": "ork",
+  "analysis": {
+    "basis": "dry; no installed motors", "aeroModel": "classic+kbf", "mach": 0.3, "angleOfAttackRad": 0,
+    "lengthM": 0.37, "referenceDiameterM": 0.024, "dryMassKg": 0.02733579215809241,
+    "dryCgM": 0.19313402043559422, "cpM": 0.2990617804118221, "stabilityCalibers": 4.413656665676161,
+    "cdEstimate": { "value": 1.0840587963267343, "mach": 0.3, "angleOfAttackRad": 0, "powerState": "off",
+      "atmosphere": "kernel default; no Mach-altitude table", "referenceAreaM2": 0.0004523893421169302 }
+  },
+  "mounts": [{ "key": "m1", "name": "Inner Tube", "stageIndex": 0, "stageName": "Sustainer",
+    "diameterM": 0.018, "maxMotorLengthM": null, "count": 1 }],
+  "fragment": "#d=1.vVjbbuM2EH3fryD0khZ…",
+  "link": "https://mmrsim.mountainmanrockets.com#d=1.vVjbbuM2EH3fryD0kh…",
+  "notes": {
+    "import": { "text": "Loaded “Reference Rocket”.\nMotor “C6” loaded as Estes C6 … Check it is the motor you fly, or pick another via Browse motor database.", "severity": "warn" },
+    "analysis": [],
+    "export": ["Motor selections were removed from the link: 1 on the opened motor set and 1 across 1 saved configuration (unmatched references included). Each selected motor's ejection delay went with it; mount ignition settings are kept."]
+  }
+}
+```
+
+**Units and meaning.** Lengths, CG and CP in metres, measured aft from the nose tip; mass in kilograms; angles in radians; Mach, Cd, count and calibers are dimensionless, and one caliber is `referenceDiameterM`. The figures are the Design tab's, with **no motor installed**: `basis` says so, and the margin is the DRY margin, not pad, rod-exit or flight stability. The design is the configuration the app's open selects (the flight route's choice), projected as a flight reads it (`resolveFlightState`); mounts, mass and CG all come from that one projection. Aerodynamics are the app's first-visit default (`APP_DEFAULT_AERO`: classic Barrowman with Rogers Kbf), with imported design overrides (Cd, mass/CG, stage overrides) kept; Auto never upgrades here because nothing flies. `cpM`/`stabilityCalibers` are the app's forward-CP figures (`shownCp`/`shownStability`), and both are `null` with a note when no part produces normal force (the kernel's no-force sentinel would otherwise read as a large negative margin). `cdEstimate` is the Design tab's one-point power-off drag sweep at Mach 0.3, angle of attack 0, in the kernel's default atmosphere: an estimate under those stated conditions, not a measured or flown coefficient. A Cd-only failure gives `null` plus a note; a missing dry CG likewise. JSON never carries NaN or Infinity; a non-finite length, reference diameter or dry mass is a build failure (422), not a zero.
+
+**Kernel lock.** The build, `staticInfo` and drag sweep share one `withKernel` turn, under the same 10 s dead-holder watchdog as a flight; all of it is synchronous, with no I/O or timer inside the lock. The import before it and the fragment compression after it run outside. A refused build releases the lock; a poisoned instance answers 503.
+
+**Fragment and projection.** The fragment is the app's existing share-link codec, format 1 (`#d=1.` + base64url of deflate-raw .ork XML, `shareLink.ts`), unchanged; any existing `#d=1.` link still decodes, and a future packing change must keep this reader. It is written by `exportOrk` from a private, motor-free projection of the opened design (`describeFile.ts`, `motorFreeProjection`), never by editing XML text:
+
+- Removed: the working motor set and every saved configuration's motors (exportOrk's `motors: {}` alone would have kept the inactive ones), unmatched motor references and their text, motor-loadout refusals, the weighed pad mass (it rides on the motor record) and so any embedded EX motor archive; no stored simulation summaries, warnings, provenance or series are written (every `<simulation>` is `notsimulated`).
+- Kept: the normalized tree (geometry, motor-mount tubes and flags, fins including freeform/rounded/airfoil, materials, component and stage mass/CG overrides, nozzle settings), each mount's ignition default and every configuration's ignition, deployment, separation, stage-activeness and stage mass/CG layers, the launch conditions the open merged (there is no caller location field), the Measured mass & CG box and the design notes. Scripts follow the exporter's existing inert rules.
+- A configuration with no motor and no overrides is written with its simulation conditions; the app's reader folds such a lone empty configuration into the launch conditions on reopen, as it does for any dry save.
+- Delay: each selected motor's ejection delay is removed with the motor (said in `notes.export`); a mount's ignition delay is kept. The ruled file-delay fallback (S5) has no carrier here; see the review questions.
+
+**Determinism.** Node ids come from a module counter, so they depend on earlier requests in the isolate. The projection renames every node depth-first (`n1`, `n2`, …) on its clone, with every id-keyed map and id-naming record (`mountId`) following; configuration ids already come from the bytes (the `.ork` configid, `rocksim-sim-N`, `rasaero-sim-N`) and are kept; `exportOrk` takes an optional id source (absent in the app, so app saves and share links keep random UUIDs) and the projection passes a counter. The global counter is never reset. Tests repeat identical describes around unrelated describes and flights in one isolate and compare the complete JSON and fragment.
+
+**Errors** (S1's `{ error: { code, message, importNote? } }` envelope, no stacks):
+
+| HTTP | code | when |
+| --- | --- | --- |
+| 404 | `NOT_FOUND` | unknown route |
+| 405 | `METHOD_NOT_ALLOWED` | not POST on `/describe` (`Allow: POST`) |
+| 400 | `FILENAME_REQUIRED` / `EMPTY_FILE` | no `?filename=` / empty body |
+| 400 | `INVALID_FILE` | the importer's own explanation; false-small ZIP sizes included |
+| 413 | `FILE_TOO_LARGE` | body over 8 MiB, inflated XML over 16 MiB, or the XML structure budget; points to the app |
+| 413 | `LINK_TOO_LARGE` | the design is past the share link's own limits (4 MiB of XML, 1,048,576 characters); no partial result |
+| 422 | `DESIGN_BUILD_FAILED` | the kernel will not build the design (with the import note); missing motors are not an error here |
+| 503 | `KERNEL_UNAVAILABLE` | poisoned instance, `Retry-After: 5` |
+| 500 | `INTERNAL_ERROR` | anything else: "The design could not be described." |
+
+**Tests.** `describe.test.ts` runs in real local workerd (a normal and a fetch-trapped Worker): the three formats against a fresh Node `describeFile` oracle (non-time quantities at 1e-10 relative, the S1 tolerance; mounts, notes and the decoded fragment XML exactly, since deflate bytes may differ between runtimes), motorless/unmatched/cluster designs, ignored options, zero fetch attempts and zero timers, determinism around unrelated requests, overlapping describes and flights, a forced build refusal followed by success, the poisoned kernel, every error row above and the body/stream/inflate/XML caps. `packages/app/src/services/describeFile.test.ts` holds the service in Node to the flight build's own dry figures, the Design tab's loaded-build Cd (1e-12 relative: same kernel, same tree), the fixture XML's tube walls, pod/cluster/case-airframe/length-limit semantics, a fixed point through the fragment (the reopened fragment describes to the same analysis and mounts), motor-free inactive configurations, unchanged source state, id-independent projection and lock ordering. All on committed fixtures; the owner's 276 tester files are local-only and have NOT been run.
+
+**Review questions for the owner** (open; nothing here decides them):
+
+1. Delay hint: the ruled S5 rule retains the file's delay if the new motor offers it. With motors removed, the fragment carries no file delay. Keep it out of v1, or add a representation (for example a per-mount `fileDelayS` in `mounts`, or an app extension in the XML)?
+2. `notes.import` is the app's full import note, which talks about the motors the file named (matched, ambiguous, unloaded). Keep it verbatim, or filter motor lines for a motor-independent result?
+3. `aeroModel` is a compact string (`"classic+kbf"`). Keep it, or split into `aeroModel` + `rogersKbf: boolean` like a stored run?
+4. Mount `key` is traversal order (`m1`…). Is that enough for TC's display, given the link motor is not placed by mount id?
+5. `link` is the bare origin + fragment, as specified (no `/`). Confirm, or use `https://mmrsim.mountainmanrockets.com/` + fragment?
+6. Stage mass/CG overrides that the import could not back a motor out of (`overrideIncludesMotor`) are kept and flagged in `notes.analysis`, so the dry figures then include that motor. Keep, or drop those overrides from the dry analysis?
+7. Nozzle exit diameters (RASAero per-simulation) stay on the stages as the opened configuration applied them; other configurations' nozzle maps are not written by the .ork exporter. Acceptable for v1?
+8. Error precedence: a design both over the share-link limit and unbuildable reports the build failure first (422), since the build runs before the export. Confirm.
