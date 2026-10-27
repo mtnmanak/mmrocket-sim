@@ -193,6 +193,9 @@ jobs:
           path: ${{ runner.temp }}/catalogue-input
           if-no-files-found: error
           retention-days: 35
+          # A re-run replaces the earlier attempt's artifact; the new one is
+          # created inside this attempt's window, so this attempt vouches for it.
+          overwrite: true
 
       # Keep API timestamps (second precision) strictly before dependency execution.
       - name: Seal frozen artifact time window

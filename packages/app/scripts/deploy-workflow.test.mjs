@@ -23,7 +23,8 @@
  * no YAML parser is installed, and these files keep one key per line.
  */
 import { describe, expect, it } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { INPUT_ARTIFACT, REFRESH_JOB, SEAL_STEP, SOURCE_REPO, SOURCE_WORKFLOW_FILE, SOURCE_WORKFLOW_NAME } from './catalogue-source.mjs';
 
 const workflow = (name) => readFileSync(new URL(`../../../.github/workflows/${name}`, import.meta.url), 'utf8')
   .split(/\r?\n/).map((l) => l.replace(/\s+#.*$/, ''));
@@ -261,11 +262,65 @@ describe('catalogue workflow isolation and approval boundary', () => {
     const block = child(planning, 'run').filter(isContent).map((l) => l.trim());
     expect(block.slice(block.indexOf('case "$status" in'), block.indexOf('esac') + 1)).toEqual([
       'case "$status" in', '200) previous_args=(--previous "$previous") ;;', '404) ;;',
-      '*) echo "Catalogue manifest GET failed: HTTP $status" >&2; exit 1 ;;', 'esac']);
+      // An ERR trap does not fire on an explicit exit: this line writes the summary itself.
+      '*) echo "Catalogue manifest GET failed: HTTP $status" | tee -a "$GITHUB_STEP_SUMMARY" >&2; exit 1 ;;', 'esac']);
     for (const text of ['--source-run-id "$SOURCE_RUN_ID" --fetched-at "$FETCHED_AT"',
       '--inputs "$RUNNER_TEMP/catalogue-input/inputs.json"', '>> "$GITHUB_STEP_SUMMARY"', '--commit "$SOURCE_COMMIT" --source-attempt "$SOURCE_ATTEMPT"']) {
       expect(CATALOGUE.join('\n')).toContain(text);
     }
+  });
+
+  it('R4 #3: ties catalogue-source.mjs names to the refresh workflow it reads through the API', () => {
+    const assertTied = (refresh, catalogue) => {
+      // No `name:` key: the API reports the job key as the job name.
+      const job = path(refresh, 'jobs', REFRESH_JOB);
+      expect(job, `job ${REFRESH_JOB}`).not.toBeNull();
+      expect([undefined, REFRESH_JOB]).toContain(value(job, 'name'));
+      const list = steps(refresh, REFRESH_JOB);
+      const seal = list.filter((s) => value(s, 'name') === SEAL_STEP);
+      expect(seal).toHaveLength(1);
+      const uploads = list.filter((s) => value(s, 'uses')?.startsWith('actions/upload-artifact@') && value(child(s, 'with') ?? [''], 'name') === INPUT_ARTIFACT);
+      expect(uploads).toHaveLength(1);
+      // The window: the upload lands before the seal, and both before npm ci.
+      expect(list.indexOf(uploads[0])).toBeLessThan(list.indexOf(seal[0]));
+      expect(list.indexOf(seal[0])).toBeLessThan(list.findIndex((s) => value(s, 'run') === 'npm ci'));
+      expect(value(refresh, 'name')).toBe(SOURCE_WORKFLOW_NAME);
+      expect(value(path(catalogue, 'on', 'workflow_run'), 'workflows')).toBe(`[${SOURCE_WORKFLOW_NAME}]`);
+      expect(value(job, 'if')).toBe(`github.repository == '${SOURCE_REPO}'`);
+      expect(child(path(catalogue, 'jobs', 'plan'), 'if').join(' ')).toContain(`github.repository == '${SOURCE_REPO}'`);
+    };
+    expect(existsSync(new URL(`../../../.github/workflows/${SOURCE_WORKFLOW_FILE}`, import.meta.url))).toBe(true);
+    assertTied(REFRESH, CATALOGUE);
+    for (const [from, to] of [[`name: ${SEAL_STEP}`, 'name: Seal the window'], [`name: ${INPUT_ARTIFACT}`, 'name: catalogue-inputs'],
+      ['  refresh:', '  fetch:'], [`name: ${SOURCE_WORKFLOW_NAME}`, 'name: Weekly refresh']]) {
+      expect(REFRESH.some((l) => l.includes(from)), from).toBe(true);
+      expect(() => assertTied(REFRESH.map((l) => l.replace(from, to)), CATALOGUE), from).toThrow();
+    }
+    const named = [...REFRESH]; named.splice(REFRESH.indexOf('  refresh:') + 1, 0, '    name: Refresh');
+    expect(() => assertTied(named, CATALOGUE)).toThrow();
+    expect(() => assertTied(REFRESH, CATALOGUE.map((l) => l.replace(SOURCE_WORKFLOW_NAME, 'Weekly refresh')))).toThrow();
+  });
+
+  it('ci-1: replaces a same-name catalogue-input artifact on a re-run', () => {
+    const upload = steps(REFRESH, 'refresh').find((s) => value(s, 'id') === 'inputs');
+    expect(value(child(upload, 'with'), 'name')).toBe(INPUT_ARTIFACT);
+    expect(value(child(upload, 'with'), 'overwrite')).toBe('true');
+  });
+
+  it('R4 #4/#5: classifies a 404 environment and records manifest/plan failures in the step summary', () => {
+    const approval = child(steps(CATALOGUE, 'plan').find((s) => value(s, 'name') === 'Check approval protection (informational)'), 'run')
+      .filter(isContent).map((l) => l.trim());
+    expect(approval).toEqual([
+      'if gh api "repos/$GITHUB_REPOSITORY/environments/catalogue-publish" > "$RUNNER_TEMP/approval.json" 2> "$RUNNER_TEMP/approval-error.txt"; then',
+      'node packages/app/scripts/catalogue-source.mjs approval --run "$RUNNER_TEMP/approval.json" >> "$GITHUB_STEP_SUMMARY" ||',
+      'echo \'could not confirm the approval rule\' >> "$GITHUB_STEP_SUMMARY"',
+      'else',
+      'cat "$RUNNER_TEMP/approval-error.txt" >&2 || true',
+      'node packages/app/scripts/catalogue-source.mjs approval-error --error "$RUNNER_TEMP/approval-error.txt" >> "$GITHUB_STEP_SUMMARY" ||',
+      'echo \'could not confirm the approval rule\' >> "$GITHUB_STEP_SUMMARY"',
+      'fi']);
+    const block = child(steps(CATALOGUE, 'plan').find((s) => value(s, 'id') === 'catalogue'), 'run').filter(isContent).map((l) => l.trim());
+    expect(block[0]).toBe('trap \'echo "Catalogue manifest/plan step failed; see the step diagnostic" >> "$GITHUB_STEP_SUMMARY"\' ERR');
   });
 
   it('T1/T8: forbids reserved step env overrides and checks approval protection without failing on denied reads', () => {
