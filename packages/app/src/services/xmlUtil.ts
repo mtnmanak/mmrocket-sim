@@ -54,7 +54,8 @@ export function escapeXmlAttr(s: string): string {
  * encoding (XML 1.0 Appendix F) rather than always as UTF-8: a byte-order
  * mark first; then UTF-16 recognised by the NUL beside its opening `<`; then
  * the declaration's `encoding=`, honoured when it names a single-byte encoding
- * the browser can decode (windows-1252, ISO-8859-1, …); otherwise UTF-8, the
+ * the browser can decode (windows-1252, ISO-8859-1, …), and windows-1252 by
+ * the WHATWG table on any runtime (decodeWindows1252); otherwise UTF-8, the
  * XML default. A UTF-16 label on a declaration readable as single bytes is
  * ignored, since a real UTF-16 file cannot be read that way — .NET writes that
  * mismatch.
@@ -80,21 +81,94 @@ export function decodeXml(bytes: Uint8Array): { xml: string; note?: string } {
     if (bytes[i] === 0x3f && bytes[i + 1] === 0x3e) { declarationEnd = i + 2; break; }
     if (bytes[i] === 0x3e) break;
   }
-  const head = new TextDecoder('windows-1252').decode(bytes.subarray(0, declarationEnd));
+  // Only ASCII matters in the head; decodeWindows1252 cannot throw.
+  const head = decodeWindows1252(bytes.subarray(0, declarationEnd));
   const label = /^\s*<\?xml\s[^>]*?\bencoding\s*=\s*["']([A-Za-z][\w.:-]*)["']/.exec(head)?.[1];
+  if (label && WINDOWS_1252_LABELS.has(label.trim().toLowerCase())) return { xml: decodeWindows1252(bytes) };
   if (label) {
     let decoder: TextDecoder | null = null;
     try {
-      decoder = new TextDecoder(label);
+      decoder = makeDecoder(label);
     } catch {
       // A label the browser does not know: UTF-8 below, as for no label.
     }
     const enc = decoder?.encoding;
+    if (enc === 'windows-1252') return { xml: decodeWindows1252(bytes) };
     if (decoder && enc !== 'utf-8' && enc !== 'replacement' && !enc?.startsWith('utf-16')) {
       return { xml: decoder.decode(bytes) };
     }
   }
   return decodeUtf8(bytes);
+}
+
+/**
+ * The WHATWG Encoding Standard's labels for windows-1252, lower case. A file
+ * declaring ISO-8859-1 or US-ASCII is read as windows-1252, as browsers read
+ * it. Matched here, not by the runtime's TextDecoder, which may lack them.
+ */
+const WINDOWS_1252_LABELS = new Set(['ansi_x3.4-1968', 'ascii', 'cp1252', 'cp819', 'csisolatin1', 'ibm819',
+  'iso-8859-1', 'iso-ir-100', 'iso8859-1', 'iso88591', 'iso_8859-1', 'iso_8859-1:1987', 'l1', 'latin1', 'us-ascii',
+  'windows-1252', 'x-cp1252']);
+
+/**
+ * windows-1252 bytes 0x80-0x9F as code points (WHATWG index); every other byte
+ * is its own code point. Five of them (0x81, 0x8D, 0x8F, 0x90, 0x9D) are C1
+ * controls in the standard too.
+ */
+const WINDOWS_1252_C1 = [
+  0x20ac, 0x0081, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0x008d, 0x017d, 0x008f,
+  0x0090, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x009d, 0x017e, 0x0178,
+];
+
+/** Bytes per String.fromCharCode call in the built-in windows-1252 decode. */
+export const WINDOWS_1252_CHUNK = 0x8000;
+
+let makeDecoder = (label: string): TextDecoder => new TextDecoder(label);
+/** The runtime's windows-1252 decoder once it has passed the probe; null when it failed; undefined before. */
+let runtime1252: TextDecoder | null | undefined;
+
+/**
+ * Test seam, not app API: the TextDecoder constructor decodeXml uses for a
+ * declared legacy label (null restores the real one), and a fresh probe.
+ */
+export function setTextDecoderFactoryForTests(make: ((label: string) => TextDecoder) | null): void {
+  makeDecoder = make ?? ((label: string) => new TextDecoder(label));
+  runtime1252 = undefined;
+}
+
+function decodeWithTable(bytes: Uint8Array): string {
+  const window = new Uint16Array(Math.min(WINDOWS_1252_CHUNK, bytes.length));
+  const parts: string[] = [];
+  for (let start = 0; start < bytes.length; start += WINDOWS_1252_CHUNK) {
+    const n = Math.min(WINDOWS_1252_CHUNK, bytes.length - start);
+    for (let i = 0; i < n; i++) {
+      const b = bytes[start + i]!;
+      window[i] = b >= 0x80 && b < 0xa0 ? WINDOWS_1252_C1[b - 0x80]! : b;
+    }
+    parts.push(String.fromCharCode(...window.subarray(0, n)));
+  }
+  return parts.join('');
+}
+
+/**
+ * Bytes as windows-1252 by the WHATWG table, whatever the runtime: its own
+ * decoder when that decodes every byte as the table does (probed once, the
+ * same call shape as the real decode), else the table here. Node 22.22.0
+ * returned 0x80-0x9F as C1 controls from a non-streaming decode (0x99 as
+ * U+0099, not U+2122); a runtime without the label would throw. Never throws.
+ */
+function decodeWindows1252(bytes: Uint8Array): string {
+  if (runtime1252 === undefined) {
+    runtime1252 = null;
+    try {
+      const decoder = makeDecoder('windows-1252');
+      const all = Uint8Array.from({ length: 256 }, (_, i) => i);
+      if (decoder.decode(all) === decodeWithTable(all)) runtime1252 = decoder;
+    } catch {
+      // No windows-1252 in this runtime: the table below.
+    }
+  }
+  return runtime1252 ? runtime1252.decode(bytes) : decodeWithTable(bytes);
 }
 
 function decodeUtf8(bytes: Uint8Array): { xml: string; note?: string } {
