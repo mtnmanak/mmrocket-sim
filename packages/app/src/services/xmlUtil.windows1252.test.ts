@@ -103,6 +103,12 @@ describe('decodeXml windows-1252 runtime probe', () => {
     expect(decodes).toBe(1 + 3 * 2);
   });
 
+  it('reads by the table a label only the runtime resolves to windows-1252', () => {
+    setTextDecoderFactoryForTests(label => latin1(label === 'x-runtime-alias' ? 'windows-1252' : label));
+    const bytes = Uint8Array.from([...ascii('<?xml version="1.0" encoding="x-runtime-alias"?><a>'), 0x99, ...ascii('</a>')]);
+    expect(decodeXml(bytes)).toEqual({ xml: '<?xml version="1.0" encoding="x-runtime-alias"?><a>™</a>' });
+  });
+
   it('does not use a runtime decoder that fails the probe', () => {
     let decodes = 0;
     setTextDecoderFactoryForTests(label => {
