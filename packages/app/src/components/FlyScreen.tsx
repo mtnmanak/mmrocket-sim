@@ -289,7 +289,8 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
  */
 function flownMotorLabel(run: SimRun): string {
   if (run.motorConfig?.startsWith('mixed')) {
-    return `${run.motor}${run.manufacturer ? ` (${run.manufacturer})` : ''}`;
+    // A stored run can lack its motor (closure audit of v0.194, row E); '—' as below.
+    return `${run.motor || '—'}${run.manufacturer ? ` (${run.manufacturer})` : ''}`;
   }
   return `${run.manufacturer ? `${run.manufacturer} ` : ''}${motorLabel(
     { designation: run.motorDesignation ?? run.motor ?? '—', manufacturerAbbrev: run.manufacturer }, run.delayS)}`;

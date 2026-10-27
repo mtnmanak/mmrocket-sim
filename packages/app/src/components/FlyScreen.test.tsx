@@ -347,6 +347,13 @@ describe('FlyScreen', () => {
       expect(notes()[0]).not.toContain('F39-7');
     });
 
+    it('names a stored mixed run that lacks its motor without "undefined" (closure audit of v0.194, row E)', () => {
+      const { motor: _motor, ...stored } = { ...FLOWN, manufacturer: 'AT+CTI', delayS: 7, motorConfig: 'mixed 4+2' };
+      mount({ run: stored as typeof FLOWN, changedSince: ['the design'] });
+      expect(notes()[0]).toMatch(/Flown with — \(AT\+CTI\) at /);
+      expect(notes()[0]).not.toContain('undefined');
+    });
+
     it('a single-motor Batch row keeps the single-motor form', () => {
       mount({ run: { ...FLOWN, motorConfig: 'single' }, changedSince: ['the design'] });
       expect(notes()[0]).toContain('Estes C6-3');

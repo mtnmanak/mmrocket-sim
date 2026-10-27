@@ -392,3 +392,26 @@ it('N032: prints heights in the Altitude unit and ground distance in Horizontal 
   expect(text).toMatch(/landing distance: 1\.50? km/);
   expect(text).not.toMatch(/0\.3048? km|0\.15 km/);
 });
+
+// Closure audit of v0.194, row E: a stored run can lack these (loadRuns blanks
+// them only when present), and the card printed "undefined — undefined undefined".
+it('prints the flight card header with a complete run as before', () => {
+  const header = [...doc(designPrintHtml(input)).querySelectorAll('p')].find(p => p.textContent!.includes(' — flown '))!;
+  expect(header.textContent!.startsWith('Earlier design — Maker F40 — flown ')).toBe(true);
+});
+
+it.each([
+  [['rocket'], 'Maker F40 — flown '],
+  [['manufacturer'], 'Earlier design — F40 — flown '],
+  [['motor'], 'Earlier design — Maker — flown '],
+  [['manufacturer', 'motor'], 'Earlier design — Unknown motor — flown '],
+  [['rocket', 'manufacturer', 'motor'], 'Unknown motor — flown '],
+] as const)('prints the flight card header of a stored run without %j', (missing, start) => {
+  const partial: Record<string, unknown> = { ...run };
+  for (const key of missing) delete partial[key];
+  const html = designPrintHtml({ ...input, run: partial as unknown as SimRun });
+  const header = [...doc(html).querySelectorAll('p')].find(p => p.textContent!.includes('flown '))!;
+  expect(header.textContent!.startsWith(start)).toBe(true);
+  expect(header.textContent).not.toMatch(/undefined|\s{2}|^ — | — —/);
+  expect(html).not.toContain('undefined');
+});
