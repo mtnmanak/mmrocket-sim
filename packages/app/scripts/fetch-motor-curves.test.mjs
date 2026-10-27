@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { headerMasses as appHeaderMasses, isSampleList } from '../src/services/thrustcurve.ts';
-import { BATCH, addDigests, compactFile, curvesDocument, downloadRawFiles, fetchCurves, headerMasses, main, rawDigests } from './fetch-motor-curves.mjs';
+import { BATCH, addDigests, addDigestsMain, compactFile, curvesDocument, downloadRawFiles, fetchCurves, headerMasses, main, rawDigests } from './fetch-motor-curves.mjs';
 
 /**
  * fetch-motor-curves.mjs against a stand-in for thrustcurve.org — never the
@@ -265,6 +265,118 @@ describe('main', () => {
     } finally {
       rmSync(w.dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('ci-3: a 200 batch with no usable file for motors that had curves', () => {
+  const quiet = () => {};
+  const noSleep = async () => {};
+  const sample = (motorId) => ({ motorId, simfileId: `f-${motorId}`, source: 'cert', format: 'RASP',
+    samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }] });
+  const answer = (pick) => async (_url, opts) => {
+    const { motorIds } = JSON.parse(opts.body);
+    return { ok: true, status: 200, json: async () => ({ results: pick(motorIds) }) };
+  };
+  const bundleOf = (ids) => ({ generated: '2026-09-21', complete: true, curves: Object.fromEntries(ids.map((id) => [id, [compactFile(sample(id))]])) });
+
+  function prepared(n, previous) {
+    const dir = mkdtempSync(join(tmpdir(), 'motor-curves-'));
+    const dbPath = join(dir, 'motors.json'), outPath = join(dir, 'motorCurves.json');
+    const { motors } = world(n);
+    writeFileSync(dbPath, JSON.stringify({ generated: '2026-09-21', motors }));
+    if (previous !== undefined) writeFileSync(outPath, typeof previous === 'string' ? previous : JSON.stringify(previous));
+    return { dir, dbPath, outPath, motors };
+  }
+
+  it('fails a batch answering {results: []} and a batch answering only motors it did not request', async () => {
+    const { motors } = world(BATCH + 3), previous = bundleOf(motors.map((m) => m.motorId));
+    for (const pick of [() => [], (ids) => ids.map((id) => sample(`${id}-other`))]) {
+      const got = await fetchCurves(motors, { fetchImpl: answer(pick), sleep: noSleep, log: quiet, previous });
+      expect(got.failed).toHaveLength(motors.length);
+      expect(got.failed[0]).toMatch(/no usable file/);
+      expect(curvesDocument(got, 'x', 'y').complete).toBeUndefined();
+    }
+    // Usable files only for motors the batch did not ask for still count as none.
+    const unusable = await fetchCurves(motors.slice(0, 2), { fetchImpl: answer((ids) => ids.map((id) => ({ ...sample(id), samples: [] }))),
+      sleep: noSleep, log: quiet, previous });
+    expect(unusable.failed).toHaveLength(2);
+  });
+
+  it('passes a batch of motors that never had curves, a partial batch (known limit), and any batch with no previous bundle', async () => {
+    const { motors } = world(BATCH * 2);
+    const previous = bundleOf(motors.slice(0, BATCH).map((m) => m.motorId));
+    const curveless = await fetchCurves(motors.slice(BATCH), { fetchImpl: answer(() => []), sleep: noSleep, log: quiet, previous });
+    expect(curveless.failed).toEqual([]);
+    expect(curvesDocument(curveless, 'x', 'y').complete).toBe(true);
+    // KNOWN LIMIT: one usable file anywhere in the batch passes it, however many motors it dropped.
+    const partial = await fetchCurves(motors.slice(0, BATCH), { fetchImpl: answer((ids) => [sample(ids[0])]), sleep: noSleep, log: quiet, previous });
+    expect(partial.failed).toEqual([]);
+    expect(Object.keys(partial.curves)).toEqual([motors[0].motorId]);
+    for (const none of [undefined, null]) {
+      const got = await fetchCurves(motors.slice(0, BATCH), { fetchImpl: answer(() => []), sleep: noSleep, log: quiet, previous: none });
+      expect(got.failed).toEqual([]);
+    }
+  });
+
+  it('main reads the bundle on disk before writing, exits 1 and leaves it untouched on an empty batch', async () => {
+    const w = prepared(BATCH * 2 + 3, bundleOf(['m0', 'm60']));
+    try {
+      const before = readFileSync(w.outPath, 'utf8');
+      const fetchImpl = answer((ids) => (ids.includes('m60') ? [] : ids.map(sample)));
+      expect(await main({ dbPath: w.dbPath, outPath: w.outPath, fetchImpl, sleep: noSleep, log: quiet, allowPartial: false })).toBe(1);
+      expect(readFileSync(w.outPath, 'utf8')).toBe(before);
+      expect(await main({ dbPath: w.dbPath, outPath: w.outPath, fetchImpl, sleep: noSleep, log: quiet, allowPartial: true })).toBe(0);
+      const doc = JSON.parse(readFileSync(w.outPath, 'utf8'));
+      expect(doc.complete).toBeUndefined();
+      expect(doc.motors).toBe(BATCH + 3);
+    } finally {
+      rmSync(w.dir, { recursive: true, force: true });
+    }
+  });
+
+  it('main cannot fire the rule without a readable previous bundle, and logs that', async () => {
+    for (const previous of [undefined, 'not json', '{"curves":[]}']) {
+      const w = prepared(BATCH, previous), lines = [];
+      try {
+        const fetchImpl = answer(() => []);
+        expect(await main({ dbPath: w.dbPath, outPath: w.outPath, fetchImpl, sleep: noSleep, log: (s) => lines.push(s), allowPartial: false })).toBe(0);
+        expect(lines.join('')).toMatch(/no readable previous bundle/);
+        expect(JSON.parse(readFileSync(w.outPath, 'utf8')).complete).toBe(true);
+      } finally {
+        rmSync(w.dir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  it('addDigestsMain treats an empty batch for bundled motors as failed and writes nothing', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'motor-curves-')), outPath = join(dir, 'motorCurves.json');
+    try {
+      writeFileSync(outPath, JSON.stringify(bundleOf(['a', 'b'])));
+      const before = readFileSync(outPath, 'utf8');
+      expect(await addDigestsMain({ outPath, fetchImpl: answer(() => []), sleep: noSleep, log: quiet })).toBe(1);
+      expect(readFileSync(outPath, 'utf8')).toBe(before);
+      expect(await addDigestsMain({ outPath, fetchImpl: answer((ids) => ids.map(sample)), sleep: noSleep, log: quiet })).toBe(0);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  // Replays the SHIPPED bundle as download.json answers (read-only): an
+  // unchanged upstream must never trip the rule. It proves nothing about a
+  // changed upstream.
+  it('raises no false failure replaying the shipped catalogue and bundle', async () => {
+    const data = (name) => JSON.parse(readFileSync(new URL(`../src/data/${name}`, import.meta.url), 'utf8'));
+    const db = data('motors.json'), bundle = data('motorCurves.json');
+    const replay = answer((ids) => ids.flatMap((motorId) => (bundle.curves[motorId] ?? []).map((f) => ({
+      motorId, simfileId: f.simfileId, source: f.source, format: f.format,
+      samples: f.samples.map(([time, thrust]) => ({ time, thrust })) }))));
+    const got = await fetchCurves(db.motors, { fetchImpl: replay, sleep: noSleep, log: quiet, previous: bundle });
+    expect(got.failed).toEqual([]);
+    expect(Object.keys(got.curves).sort()).toEqual(Object.keys(bundle.curves).filter((id) => db.motors.some((m) => m.motorId === id)).sort());
+    const curveless = db.motors.filter((m) => !bundle.curves[m.motorId]);
+    expect(curveless.length).toBeGreaterThan(0);
+    const only = await fetchCurves(curveless, { fetchImpl: replay, sleep: noSleep, log: quiet, previous: bundle });
+    expect(only.failed).toEqual([]);
   });
 });
 
