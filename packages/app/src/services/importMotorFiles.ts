@@ -30,7 +30,9 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
       tier: 'information' as NoteTier, noticeTier: 'information' as NoteTier,
     };
   }
-  const read: { motor: ExMotor; file: string }[] = [];
+  const read: { motor: ExMotor; file: string; from: number }[] = [];
+  /** Each file's parser notes, held until screening shows whether any of its motors were kept. */
+  const fileNotes: { file: string; notes: string[]; motors: number }[] = [];
   const failed: string[] = [];
   /** What the parsers had to say about motors they DID import (a refused nozzle exit, …). */
   const said: string[] = [];
@@ -60,8 +62,8 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
       if (decoded.note) notes.push(decoded.note.replace('Check the part and material names.', 'Check the motor and maker names.'));
       const motors = parseMotorFile(f.name, xml ? decoded.xml.trimStart() : decoded.xml, notes, units);
       if (read.length + motors.length > MAX_EX_IMPORT_MOTORS) throw new Error(EX_MOTOR_COUNT_NOTE);
-      for (const motor of motors) read.push({ motor, file: f.name });
-      for (const note of notes) said.push(`${f.name}: ${note}`);
+      for (const motor of motors) read.push({ motor, file: f.name, from: fileNotes.length });
+      fileNotes.push({ file: f.name, notes, motors: motors.length });
     } catch (e) {
       sessionDebugLog.record('import-failed', e);
       failed.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
@@ -73,11 +75,17 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
   // the backstop.
   const parsed: ExMotor[] = [];
   const refused: string[] = [];
-  for (const { motor, file } of read) {
+  const kept = new Set<number>();
+  for (const { motor, file, from } of read) {
     const name = motor.designation;
-    if (validExMotor(motor)) parsed.push(motor);
+    if (validExMotor(motor)) { parsed.push(motor); kept.add(from); }
     else refused.push(`${file}: ${refusedExMotorNote(name)}`);
   }
+  // A file whose every motor was refused says nothing in the "Imported …"
+  // notice: its notes would read as describing motors that were stored.
+  fileNotes.forEach(({ file, notes, motors }, i) => {
+    if (motors === 0 || kept.has(i)) for (const note of notes) said.push(`${file}: ${note}`);
+  });
   if (refused.length) sessionDebugLog.record('import-failed', new Error('A motor failed the library checks.'));
   // ONE library write for the whole selection, not one per file: a folder of
   // fifty files rewrote an ever-growing list fifty times, and one write means
@@ -118,7 +126,10 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
   if (failed.length) {
     problems.push(`Skipped ${failed.length} file${failed.length === 1 ? '' : 's'} — ${failed.join(' · ')}`);
   }
-  if (refused.length) problems.push(refused.join(' · '));
+  // Capped like the other name lists: a selection can hold 10,000 motors.
+  if (refused.length) problems.push(refused.length > 6
+    ? `${refused.slice(0, 6).join(' · ')} · ${refused.length - 6} more motors were refused for the same reason.`
+    : refused.join(' · '));
   if (!write && skippedFiles) notice = said.join(' ');
   const tier: NoteTier = parsed.length > 0 && (repaired || unsaved || failed.length > 0 || refused.length > 0) ? 'caution' : 'information';
   // The part of that tier the NOTICE carries on its own (a repair it names):

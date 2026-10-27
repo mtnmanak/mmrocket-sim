@@ -193,6 +193,27 @@ it('A a selection whose every motor is refused writes nothing and resolves', asy
   expect(localStorage.getItem('online-openrocket.ex-motors.v1')).toBeNull();
 });
 
+it('A names at most six refused motors and counts the rest', async () => {
+  const many = Array.from({ length: 9 }, (_, i) => new File([refusedRse.replace('Z9', `Z${i}`)], `tiny${i}.rse`));
+  const out = await importMotorFiles(many);
+  expect(out.error!.match(/it was not stored\./g)).toHaveLength(6);
+  expect(out.error).toContain('3 more motors were refused');
+  expect(out.error).not.toContain('tiny8.rse');
+});
+
+it("A keeps a fully refused file's parser notes out of the import notice", async () => {
+  // Undeclared and not UTF-8 (0xE9), so the decoder adds a note for this file.
+  const bytes = Uint8Array.from(refusedRse.replace('Home', 'Héme'), (c) => c.charCodeAt(0));
+  const out = await importMotorFiles([
+    new File(['E20 29 100 P 0.05 0.1 Home\n0 0\n1 40\n2 0'], 'good.eng'),
+    new File([bytes], 'tiny.rse'),
+  ]);
+  expect(out.write?.motors.map((m) => m.designation)).toEqual(['E20']);
+  expect(out.error).toContain('tiny.rse: Motor Z9');
+  expect(out.notice).not.toContain('tiny.rse');
+  expect(out.noticeTier).toBe('information');
+});
+
 it('F imports a RockSim XML motor file named .txt', async () => {
   const out = await importMotorFiles([new File([motorXml().replace('Créateur', 'Maker')], 'H128.txt')]);
   expect(out.error).toBeNull();

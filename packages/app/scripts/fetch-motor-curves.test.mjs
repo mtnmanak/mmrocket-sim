@@ -373,8 +373,8 @@ describe('ci-3: a 200 batch with no usable file for motors that had curves', () 
     const got = await fetchCurves(db.motors, { fetchImpl: replay, sleep: noSleep, log: quiet, previous: bundle });
     expect(got.failed).toEqual([]);
     expect(Object.keys(got.curves).sort()).toEqual(Object.keys(bundle.curves).filter((id) => db.motors.some((m) => m.motorId === id)).sort());
-    const curveless = db.motors.filter((m) => !bundle.curves[m.motorId]);
-    expect(curveless.length).toBeGreaterThan(0);
+    // A motor no bundle holds, so this half runs even if upstream someday files a curve for every motor.
+    const curveless = [{ ...db.motors[0], motorId: 'replay-curveless' }, ...db.motors.filter((m) => !bundle.curves[m.motorId])];
     const only = await fetchCurves(curveless, { fetchImpl: replay, sleep: noSleep, log: quiet, previous: bundle });
     expect(only.failed).toEqual([]);
   });

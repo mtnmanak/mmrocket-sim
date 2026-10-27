@@ -20,8 +20,8 @@ export const SOURCE_WORKFLOW_FILE = 'motors-refresh.yml';
 export const REFRESH_JOB = 'refresh';
 export const SEAL_STEP = 'Seal frozen artifact time window';
 export const INPUT_ARTIFACT = 'catalogue-input';
-const FREEZE_STEP = 'Freeze the catalogue input bytes and sha256';
-const UPLOAD_STEP = 'Upload frozen catalogue inputs';
+export const FREEZE_STEP = 'Freeze the catalogue input bytes and sha256';
+export const UPLOAD_STEP = 'Upload frozen catalogue inputs';
 const pages = (value, key) => {
   const list = Array.isArray(value) ? value : [value];
   if (!list.every((page) => Array.isArray(page?.[key]))) throw new Error(`Invalid paginated ${key} response`);

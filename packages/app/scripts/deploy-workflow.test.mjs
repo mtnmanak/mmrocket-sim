@@ -24,7 +24,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
-import { INPUT_ARTIFACT, REFRESH_JOB, SEAL_STEP, SOURCE_REPO, SOURCE_WORKFLOW_FILE, SOURCE_WORKFLOW_NAME } from './catalogue-source.mjs';
+import { FREEZE_STEP, INPUT_ARTIFACT, REFRESH_JOB, SEAL_STEP, UPLOAD_STEP, SOURCE_REPO, SOURCE_WORKFLOW_FILE, SOURCE_WORKFLOW_NAME } from './catalogue-source.mjs';
 
 const workflow = (name) => readFileSync(new URL(`../../../.github/workflows/${name}`, import.meta.url), 'utf8')
   .split(/\r?\n/).map((l) => l.replace(/\s+#.*$/, ''));
@@ -281,6 +281,9 @@ describe('catalogue workflow isolation and approval boundary', () => {
       expect(seal).toHaveLength(1);
       const uploads = list.filter((s) => value(s, 'uses')?.startsWith('actions/upload-artifact@') && value(child(s, 'with') ?? [''], 'name') === INPUT_ARTIFACT);
       expect(uploads).toHaveLength(1);
+      // The red "no upload" reason names these two steps to the reader.
+      expect(value(uploads[0], 'name')).toBe(UPLOAD_STEP);
+      expect(list.filter((s) => value(s, 'name') === FREEZE_STEP)).toHaveLength(1);
       // The window: the upload lands before the seal, and both before npm ci.
       expect(list.indexOf(uploads[0])).toBeLessThan(list.indexOf(seal[0]));
       expect(list.indexOf(seal[0])).toBeLessThan(list.findIndex((s) => value(s, 'run') === 'npm ci'));
@@ -292,6 +295,7 @@ describe('catalogue workflow isolation and approval boundary', () => {
     expect(existsSync(new URL(`../../../.github/workflows/${SOURCE_WORKFLOW_FILE}`, import.meta.url))).toBe(true);
     assertTied(REFRESH, CATALOGUE);
     for (const [from, to] of [[`name: ${SEAL_STEP}`, 'name: Seal the window'], [`name: ${INPUT_ARTIFACT}`, 'name: catalogue-inputs'],
+      [`name: ${FREEZE_STEP}`, 'name: Freeze inputs'], [`name: ${UPLOAD_STEP}`, 'name: Upload inputs'],
       ['  refresh:', '  fetch:'], [`name: ${SOURCE_WORKFLOW_NAME}`, 'name: Weekly refresh']]) {
       expect(REFRESH.some((l) => l.includes(from)), from).toBe(true);
       expect(() => assertTied(REFRESH.map((l) => l.replace(from, to)), CATALOGUE), from).toThrow();
