@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { downloadBlob, downloadSettingHint, saveFile, saveOutcomeNote } from './saveFile.js';
+import { downloadBlob, downloadSettingHint, onCompletedSave, saveFile, saveOutcomeNote } from './saveFile.js';
 
 /**
  * A tester on Windows 10 + Chrome: *"When I click on save ORK or others it
@@ -159,6 +159,100 @@ describe('saveFile — with a Save-As dialog (Chrome, Edge)', () => {
     await expect(saveFile(new Blob(['x']), OPTS))
       .resolves.toEqual({ kind: 'downloaded', name: 'Wild_Child.ork' });
     expect(picker).not.toHaveBeenCalled();
+  });
+});
+
+describe('onCompletedSave — a write over the design file is heard once it has closed', () => {
+  const unsubscribes: (() => void)[] = [];
+  const listen = (listener: (destination: object) => void) => { unsubscribes.push(onCompletedSave(listener)); };
+  afterEach(() => { for (const off of unsubscribes.splice(0)) off(); });
+  /** A picker handle whose close() waits for `release`, keyed by path for isSameEntry. */
+  const held = (path: string) => {
+    let release!: () => void;
+    const closed = new Promise<void>(r => { release = r; });
+    const handle = { name: 'Rocket.ork', path,
+      isSameEntry: async (other: { path: string }) => path === other.path,
+      createWritable: async () => ({ write: async () => {}, close: () => closed }) };
+    return { handle, release };
+  };
+  const quick = (path: string) => { const h = held(path); h.release(); return h.handle; };
+
+  it('fires with the outcome token after close resolves, not before', async () => {
+    const heard: object[] = [];
+    listen(d => heard.push(d));
+    const h = held('notify/after-close.ork');
+    (window as PickerWin).showSaveFilePicker = () => Promise.resolve(h.handle);
+    const saving = saveFile('x', OPTS);
+    await new Promise(r => setTimeout(r, 20));
+    expect(heard).toEqual([]);
+    h.release();
+    const out = await saving as { kind: string; destination?: object };
+    expect(out.kind).toBe('saved');
+    expect(heard).toHaveLength(1);
+    expect(heard[0]).toBe(out.destination);
+  });
+
+  it('carries the same token for two picks of the same entry, and another for a different one', async () => {
+    const heard: object[] = [];
+    listen(d => heard.push(d));
+    const picker = vi.fn().mockResolvedValueOnce(quick('notify/same.ork'))
+      .mockResolvedValueOnce(quick('notify/other.ork')).mockResolvedValueOnce(quick('notify/same.ork'));
+    (window as PickerWin).showSaveFilePicker = picker;
+    await saveFile('A', OPTS);
+    await saveFile('B', OPTS);
+    await saveFile('C', OPTS);
+    expect(heard).toHaveLength(3);
+    expect(heard[2]).toBe(heard[0]);
+    expect(heard[1]).not.toBe(heard[0]);
+  });
+
+  it('does not fire on a cancelled picker, a failed write that fell back, or a plain download', async () => {
+    const listener = vi.fn();
+    listen(listener);
+    (window as PickerWin).showSaveFilePicker = () =>
+      Promise.reject(new DOMException('The user aborted a request.', 'AbortError'));
+    await expect(saveFile('x', OPTS)).resolves.toEqual({ kind: 'cancelled' });
+    (window as PickerWin).showSaveFilePicker = () => Promise.resolve({ name: 'Rocket.ork',
+      createWritable: () => Promise.resolve({ write: () => Promise.reject(new Error('Disk full')), close: async () => {} }) });
+    await expect(saveFile('x', OPTS)).resolves.toMatchObject({ kind: 'downloaded', fellBack: 'Disk full' });
+    delete (window as PickerWin).showSaveFilePicker;
+    await expect(saveFile('x', OPTS)).resolves.toMatchObject({ kind: 'downloaded' });
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('does not fire for a designSave', async () => {
+    const listener = vi.fn();
+    listen(listener);
+    (window as PickerWin).showSaveFilePicker = () => Promise.resolve(quick('notify/design.ork'));
+    await expect(saveFile('x', { ...OPTS, designSave: true })).resolves.toMatchObject({ kind: 'saved' });
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it('a listener that throws leaves the outcome saved, with no fallback download, and the next listener still hears it', async () => {
+    const after = vi.fn();
+    listen(() => { throw new Error('listener broke'); });
+    listen(after);
+    (window as PickerWin).showSaveFilePicker = () => Promise.resolve(quick('notify/throws.ork'));
+    await expect(saveFile('x', OPTS)).resolves.toEqual({ kind: 'saved', name: 'Rocket.ork', destination: expect.any(Object) });
+    expect(after).toHaveBeenCalledTimes(1);
+    expect(clicked).toEqual([]);
+  });
+
+  it('downloadBlob writes are heard too', async () => {
+    const listener = vi.fn();
+    listen(listener);
+    (window as PickerWin).showSaveFilePicker = () => Promise.resolve(quick('notify/blob.csv'));
+    downloadBlob(new Blob(['a,b']), 'flight.csv');
+    await vi.waitFor(() => expect(listener).toHaveBeenCalledTimes(1));
+  });
+
+  it('unsubscribe removes the listener', async () => {
+    const listener = vi.fn();
+    const off = onCompletedSave(listener);
+    off();
+    (window as PickerWin).showSaveFilePicker = () => Promise.resolve(quick('notify/off.ork'));
+    await expect(saveFile('x', OPTS)).resolves.toMatchObject({ kind: 'saved' });
+    expect(listener).not.toHaveBeenCalled();
   });
 });
 

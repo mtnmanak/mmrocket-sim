@@ -121,7 +121,7 @@ import { loadPresets } from './services/presets.js';
 import { componentCsv, componentTable } from './services/componentTable.js';
 import { CSV_BOM, GLB_MIME, safeName } from './services/fileName.js';
 import { designFileBase, designFileLabel, designFileTitle, documentTitle, type DesignFileRef } from './services/designFileName.js';
-import { saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
+import { onCompletedSave, saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1 } from './services/rasaeroFile.js';
 import { checkFormatLossOf, checkFormatLossSafely, formatExtension, type CheckedFormatLossReport, type FormatLossInput, type FormatLossReport, type LossyFormat } from './services/formatLoss.js';
@@ -979,6 +979,19 @@ export function App() {
     // a non-edit rewrite (catalogue relabel, restore migration, starter landing)
     // moves it too, or a design identical to the saved file reads as unsaved.
     { onMarkMigrated: moveLossyMark });
+  // Any other write that lands on the design's file replaces it, whichever
+  // document asked for it: the refs are read as it completes (download's
+  // rules, for App's own design saves, said this for one writer only).
+  useEffect(() => onCompletedSave(destination => {
+    if (destination === appliedOrkSaveDestination.current) {
+      appliedOrkSaveDestination.current = null;
+      invalidateSaved();
+    }
+    if (destination === appliedSaveDestination.current) {
+      setLossySaved(null);
+      if (!appliedOrkSaveDestination.current) invalidateSaved();
+    }
+  }), [invalidateSaved]);
   // Conflicted changes and dirty edits while autosave is paused or failing are in no
   // storage slot, so closing this tab would lose them without a leave prompt.
   useEffect(() => {
@@ -2388,20 +2401,24 @@ export function App() {
     const base = suffix === '' && ['ork', 'rkt', 'cdx1'].includes(ext.toLowerCase())
       ? designFileBase(designFile, tree.name) : safeName(tree.name ?? 'rocket');
     const name = `${base}${suffix}.${ext}`;
+    // Only the design saves are App's to judge here; every other write reaches
+    // the onCompletedSave rule above.
+    const designSave = suffix === '' && ['ork', 'rkt', 'cdx1'].includes(ext.toLowerCase());
     const out = await saveFile(new Blob(parts, { type: info.mime }), {
       suggestedName: name,
       mime: info.mime,
       extensions: [`.${ext}`],
       description: info.description,
+      designSave,
     });
-    if (generation !== documentGeneration.current && out.kind === 'saved' && out.destination) {
+    if (designSave && generation !== documentGeneration.current && out.kind === 'saved' && out.destination) {
       if (out.destination === appliedOrkSaveDestination.current) invalidateSaved();
       if (out.destination === appliedSaveDestination.current) {
         if (!appliedOrkSaveDestination.current) invalidateSaved();
         setLossySaved(null);
       }
     }
-    if (ext.toLowerCase() !== 'ork' && out.kind === 'saved' && out.destination
+    if (designSave && ext.toLowerCase() !== 'ork' && out.kind === 'saved' && out.destination
       && out.destination === appliedOrkSaveDestination.current) {
       appliedOrkSaveDestination.current = null;
       invalidateSaved();
