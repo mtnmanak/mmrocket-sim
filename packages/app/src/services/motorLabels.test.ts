@@ -21,6 +21,11 @@ describe('EX maker labels — @atestani, TRF #162, 2026-10-06', () => {
       expect(displayMotorManufacturer({ manufacturerAbbrev: 'EX', realManufacturer })).toBe(expected);
     });
 
+  it.each([7, { toString: 0 }, null])('ignores a stored maker %j that is not text', realManufacturer => {
+    expect(displayMotorManufacturer({ manufacturerAbbrev: 'EX', realManufacturer: realManufacturer as never })).toBe('EX');
+    expect(displayMotorManufacturer({ manufacturerAbbrev: 'AeroTech', realManufacturer: realManufacturer as never })).toBe('AeroTech');
+  });
+
   it('keeps catalogue makers unchanged', () => {
     expect(displayMotorManufacturer({ manufacturerAbbrev: 'AeroTech', realManufacturer: 'ignored' })).toBe('AeroTech');
   });

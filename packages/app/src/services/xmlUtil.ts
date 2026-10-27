@@ -3,6 +3,7 @@
  * One escape implementation app-wide — the per-file copies had drifted (some
  * skipped the quote escape) — with an attribute-value variant beside it.
  */
+import { DECIMAL } from '../prefs/decimal.js';
 import type { XmlElement } from './xmlParse.js';
 
 /**
@@ -194,13 +195,6 @@ export function xmlText(el: XmlElement, selector: string): string | null {
   return t == null || t.trim() === '' ? null : t.trim();
 }
 
-/**
- * Plain decimal: sign, digits, optional fraction, optional exponent. The
- * integer part is `\d+(?:\.\d*)?` and not `\d+\.?\d*` on purpose: that
- * spelling is ambiguous, and a long run of digits followed by one bad
- * character backtracks quadratically — a denial of service from one field.
- */
-const DECIMAL = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 
 /**
  * A number as a design file writes one, or NaN.

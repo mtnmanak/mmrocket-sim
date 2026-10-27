@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  MOTOR_DB, MOTOR_DB_DATE, applyOverlay, findDbMotor, getCatalogue, getCatalogueOverlay,
+  MOTOR_DB, MOTOR_DB_DATE, applyOverlay, displayMotorManufacturer, findDbMotor, getCatalogue, getCatalogueOverlay,
   setCatalogueOverlay, type CatalogueOverlay, type MotorDbEntry,
 } from './motorDb.js';
 import {
@@ -851,4 +851,50 @@ it.each([
   ['burnTimeS', '1.5', 'burnTimeS is not a number'],
 ] as const)('still refuses a live %s that is not a number when there is no token to quote', (field, raw, reason) => {
   expect(screenEntry({ ...row(), [field]: raw } as unknown as MotorDbEntry)).toBe(reason);
+});
+
+// Closure audit of v0.194, row D: a hand-edited stored row with valid catalogue
+// fields plus a non-string realManufacturer was installed whole, and
+// displayMotorManufacturer threw on it while drawing the motor browser.
+const extraField = [['7', 7], ['{"toString":0}', { toString: 0 }]] as const;
+
+it.each(extraField)('D restores stored rows with only the catalogue fields (realManufacturer %s)', (_name, real) => {
+  const shipped = MOTOR_DB[0]!;
+  const extra = { realManufacturer: real, note: 'hand edit' };
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(),
+    liveCount: MOTOR_DB.length + 1, added: [{ ...row(), ...extra }],
+    changed: [{ motorId: shipped.motorId, before: { ...shipped, ...extra },
+      after: { ...shipped, length: shipped.length + 1, ...extra }, fields: ['length'] }],
+    removed: [], rejected: [] }));
+  const loaded = restoreCatalogueOverlay()!;
+  for (const entry of [...loaded.added, ...loaded.changed.flatMap(c => [c.before, c.after])]) {
+    expect(Object.keys(entry)).not.toContain('realManufacturer');
+    expect(Object.keys(entry)).not.toContain('note');
+  }
+  expect(loaded.added.map(m => m.motorId)).toEqual(['live-1']);
+  expect(loaded.changed.map(c => c.motorId)).toEqual([shipped.motorId]);
+  expect(loaded.rejected).toEqual([]);
+  for (const m of getCatalogue()) expect(() => displayMotorManufacturer(m)).not.toThrow();
+  expect(displayMotorManufacturer(getCatalogue().find(m => m.motorId === 'live-1')!)).toBe('Estes');
+});
+
+it('D returns a stored overlay with no extra fields unchanged', () => {
+  const shipped = MOTOR_DB[0]!;
+  const stored = { baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: MOTOR_DB.length + 1,
+    added: [row()], changed: [{ motorId: shipped.motorId, before: shipped, after: { ...shipped, length: shipped.length + 1 },
+      fields: ['length'] }], removed: [], rejected: [] };
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify(stored));
+  expect(loadStoredOverlay()).toStrictEqual(JSON.parse(JSON.stringify(stored)));
+});
+
+it.each(extraField)('D labels a loaded motor at startup past a stored realManufacturer %s', async (_name, real) => {
+  vi.resetModules();
+  const { motorTooltip } = await import('./motorLabels.js');
+  const entry = MOTOR_DB.find(m => m.designation === '1013J453-16A')!;
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(),
+    liveCount: MOTOR_DB.length, added: [], changed: [{ motorId: entry.motorId, before: entry,
+      after: { ...entry, length: entry.length + 1, realManufacturer: real }, fields: ['length'] }], removed: [], rejected: [] }));
+  const mm = mountMotorFromDb(entry, { designation: entry.designation, ejectionDelay: 9 } as MotorSpec,
+    9, { event: 'automatic', delay: 0 });
+  expect(motorTooltip(mm)).toBe('Cesaroni 1013J453-16A, 9 s delay (J453-9)');
 });

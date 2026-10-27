@@ -165,3 +165,37 @@ it('round2 skips one oversized file by name and still imports a usable sibling',
   expect(out.write?.motors).toHaveLength(1);
   expect(out.error).toContain('Skipped 1 file — oversized.eng: Motor file limit is 16 MiB');
 });
+
+// Underflows to exitDiameterM 0, which validExMotor refuses (audit closure of v0.194, row A).
+const refusedRse = '<engine-database><engine code="Z9" mfg="Home" dia="1e-320" exitDia="1e-321" len="100" initWt="100" propWt="50"><data><eng-data t="0" f="0"/><eng-data t="1" f="40"/><eng-data t="2" f="0"/></data></engine></engine-database>';
+
+it('A one refused motor leaves the rest of the selection imported', async () => {
+  const out = await importMotorFiles([
+    new File(['E20 29 100 P 0.05 0.1 Home\n0 0\n1 40\n2 0'], 'good.eng'),
+    new File([refusedRse], 'tiny.rse'),
+  ]);
+  expect(out.write?.stored).toBe(true);
+  expect(out.write?.motors.map((m) => m.designation)).toEqual(['E20']);
+  expect(out.parsed.map((m) => m.designation)).toEqual(['E20']);
+  expect(out.notice).toContain('Imported 1 EX motor (E20)');
+  expect(out.error).toContain('tiny.rse');
+  expect(out.error).toContain('Motor Z9: invalid dimensions, curve or motor fields; it was not stored.');
+  const stored = JSON.parse(localStorage.getItem('online-openrocket.ex-motors.v1')!) as { designation: string }[];
+  expect(stored.map((m) => m.designation)).toEqual(['E20']);
+});
+
+it('A a selection whose every motor is refused writes nothing and resolves', async () => {
+  const out = await importMotorFiles([new File([refusedRse], 'tiny.rse')]);
+  expect(out.write).toBeNull();
+  expect(out.parsed).toEqual([]);
+  expect(out.notice).toBeNull();
+  expect(out.error).toContain('tiny.rse: Motor Z9: invalid dimensions, curve or motor fields; it was not stored.');
+  expect(localStorage.getItem('online-openrocket.ex-motors.v1')).toBeNull();
+});
+
+it('F imports a RockSim XML motor file named .txt', async () => {
+  const out = await importMotorFiles([new File([motorXml().replace('Créateur', 'Maker')], 'H128.txt')]);
+  expect(out.error).toBeNull();
+  expect(out.write?.motors.map((m) => m.designation)).toEqual(['E20']);
+  expect(out.parsed[0]!.realManufacturer).toBe('Maker');
+});

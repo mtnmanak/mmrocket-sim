@@ -116,7 +116,7 @@ export function designPrintHtml(input: DesignPrintInput): string {
     const stability = formatRunStability(run.launchStaticMarginCal, run.launchStaticMarginPct, input.stabilityUnit);
     const motorCountScope = run.importedSummary ? 'scope not recorded'
       : run.batch || run.motorConfig ? 'candidate group' : 'primary mount/group';
-    body.push(p(`${run.rocket} — ${run.manufacturer} ${run.motor} — flown ${formatRunWhenProse(run.when)}`), p(`Run ID: ${run.id}`),
+    body.push(p(flightCardHeader(run)), p(`Run ID: ${run.id}`),
       p(`Configuration: ${recordedConfiguration(run) ?? 'Unknown'}${run.motorConfig ? ` (${run.motorConfig})` : ''}`),
       p(runConfigurationHeading(run, u.altitude)),
       p(`Motor count (${motorCountScope}): ${run.motorCount ?? 'Unknown'}`),
@@ -175,4 +175,17 @@ export function designPrintHtml(input: DesignPrintInput): string {
   }
   body.push(p('MMRocket Sim uses the OpenRocket 24.12 core; GPL-3.0-or-later. mmrsim.mountainmanrockets.com'), '</main>');
   return printDocument(`${tree.name ?? 'Rocket'} — design and flight report`, body.join('\n'));
+}
+
+/**
+ * The card's first line. A stored run can lack rocket, manufacturer or motor
+ * (loadRuns blanks them only when present), and the card printed "undefined —
+ * undefined undefined" (closure audit of v0.194, row E). The screen labels'
+ * fallbacks: a missing rocket is left out (formatRunLabel), and a missing
+ * motor reads "Unknown motor". A complete run prints exactly as before.
+ */
+function flightCardHeader(run: SimRun): string {
+  const text = (v: unknown) => typeof v === 'string' && v.trim() ? v : '';
+  const motor = [text(run.manufacturer), text(run.motor)].filter(Boolean).join(' ') || 'Unknown motor';
+  return [text(run.rocket), motor, `flown ${formatRunWhenProse(run.when)}`].filter(Boolean).join(' — ');
 }

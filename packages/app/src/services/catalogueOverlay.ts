@@ -52,6 +52,8 @@ const CATALOGUE_FIELDS = [
   'propInfo', 'caseInfo',
 ] as const;
 
+const CATALOGUE_FIELD_SET: ReadonlySet<string> = new Set(CATALOGUE_FIELDS);
+
 /** A catalogue row's field by name — the diff and the copy iterate CATALOGUE_FIELDS. */
 const field = (m: MotorDbEntry, f: string): unknown => (m as unknown as Record<string, unknown>)[f];
 
@@ -183,7 +185,18 @@ function rescreen(o: CatalogueOverlay): CatalogueOverlay {
     if (reason) rejected.push({ entry: object(entry) ? entry : {}, reason });
     return !reason;
   };
-  const added = o.added.filter(passes);
+  // Only the catalogue fields, as fetchLiveCatalogue writes them (closure
+  // audit of v0.194, row D): screenEntry checks just those, and a hand-edited
+  // row that also carried realManufacturer: 7 was installed whole and threw in
+  // displayMotorManufacturer. Projected rather than refused, because the
+  // fields the app reads are sound; the extra ones are never read from a row.
+  let projected = false;
+  const project = <T extends MotorDbEntry>(entry: T): T => {
+    if (Object.keys(entry).every(key => CATALOGUE_FIELD_SET.has(key))) return entry;
+    projected = true;
+    return Object.fromEntries(CATALOGUE_FIELDS.filter(f => Object.hasOwn(entry, f)).map(f => [f, entry[f]])) as unknown as T;
+  };
+  const added = o.added.filter(passes).map(project);
   const changed = o.changed.filter(c => {
     if (!passes((c as CatalogueChange | null)?.after)) return false;
     if (object(c) && object(c.before) && screenEntry(c.before) === null
@@ -191,6 +204,9 @@ function rescreen(o: CatalogueOverlay): CatalogueOverlay {
       && Array.isArray(c.fields) && c.fields.every(f => typeof f === 'string')) return true;
     rejected.push({ entry: c.after, reason: 'unreadable stored change metadata discarded; the shipped motor was kept' });
     return false;
+  }).map(c => {
+    const before = project(c.before), after = project(c.after);
+    return before === c.before && after === c.after ? c : { ...c, before, after };
   });
   const removed = o.removed.filter(id => typeof id === 'string' && id.length > 0);
   if (removed.length !== o.removed.length) {
@@ -202,7 +218,7 @@ function rescreen(o: CatalogueOverlay): CatalogueOverlay {
     repaired = true;
     rejected.push({ entry: {}, reason: 'unreadable stored check date reset; check the catalogue again' });
   }
-  if (!repaired && added.length === o.added.length && changed.length === o.changed.length) return o;
+  if (!repaired && !projected && added.length === o.added.length && changed.length === o.changed.length) return o;
   return { ...o, fetchedAt, added, changed, removed, rejected };
 }
 

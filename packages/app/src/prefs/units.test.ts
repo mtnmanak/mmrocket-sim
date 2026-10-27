@@ -199,12 +199,32 @@ describe('fmtSig — a display-unit value that does not collapse in a big unit',
 
 
 describe('readDecimal — the one parser behind every typed number', () => {
-  it('reads what Number() reads, and refuses what is not one finite number', () => {
+  it('reads one finite plain decimal, and refuses everything else', () => {
     expect(readDecimal('2.5')).toBe(2.5);
     expect(readDecimal(' -3 ')).toBe(-3);
     expect(readDecimal('.5')).toBe(0.5);
     for (const t of ['', '  ', '-', '.', 'abc', '1e400', 'Infinity', 'NaN']) {
       expect(readDecimal(t), t).toBeNull();
+    }
+  });
+
+  /**
+   * Closure audit of v0.194, row C: Number() reads 0x10 as 16, 0b110 as 6 and
+   * 0o7 as 7, and every design-file and CSV reader refuses them (parseDecimal),
+   * so a field must not commit what the same text would be refused as in a file.
+   */
+  it('refuses hex, binary and octal prefixes in either locale', () => {
+    for (const comma of [false, true]) {
+      for (const t of ['0x10', '0X1F', '0b110', '0o7', '-0x10', ' 0x10 ']) {
+        expect(readDecimal(t, comma), `${t} ${comma}`).toBeNull();
+      }
+      expect(readDecimal('2.5', comma)).toBe(2.5);
+      expect(readDecimal(' -3 ', comma)).toBe(-3);
+      expect(readDecimal('.5', comma)).toBe(0.5);
+      expect(readDecimal('5.', comma)).toBe(5);
+      expect(readDecimal('+4', comma)).toBe(4);
+      expect(readDecimal('1e3', comma)).toBe(1000);
+      expect(readDecimal('2.5E-3', comma)).toBe(Number('2.5E-3'));
     }
   });
 

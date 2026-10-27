@@ -125,3 +125,17 @@ describe('MotorPicker — the latest choice wins', () => {
     expect(selected).toEqual(['AeroTech F20W', 'Estes A8-3']);
   });
 });
+
+describe('MotorPicker — a failed quick pick', () => {
+  it('reports into an alert region that was there, empty, before the pick', async () => {
+    vi.mocked(loadCatalogueMotor).mockResolvedValueOnce(null);
+    render();
+    const alert = host.querySelector('.motor-picker-alert');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert!.textContent).toBe('');
+    await act(async () => { quickPick('Estes A8-3'); await Promise.resolve(); });
+    expect(host.querySelector('.motor-picker-alert')).toBe(alert);
+    expect(alert!.textContent).toBe('Estes A8-3 is not in the motor database.');
+    expect(selected).toEqual([]);
+  });
+});

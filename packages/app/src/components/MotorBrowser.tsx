@@ -432,7 +432,19 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const importMotorFiles = async (files: File[]) => {
     setError(null);
     setNotice(null);
-    const { parsed, write, error, notice, tier, noticeTier: noticeOnly } = await readMotorFiles(files, prefs.units);
+    let result: Awaited<ReturnType<typeof readMotorFiles>>;
+    try {
+      result = await readMotorFiles(files, prefs.units);
+    } catch (e) {
+      // The service reports per-file failures itself; this catches what it
+      // did not (closure audit of v0.194, row A: a library refusal used to
+      // become an unhandled rejection and a silent screen).
+      if (!mounted.current) return;
+      setImportTier('information');
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    const { parsed, write, error, notice, tier, noticeTier: noticeOnly } = result;
     if (!mounted.current) return;
     setImportTier(tier);
     setNoticeTier(noticeOnly);
@@ -631,7 +643,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           )}
           <button className="file-btn" onClick={onClose} disabled={busy} aria-label="Close motor browser">✕ Close</button>
         </div>
-        {checkError && <p className="print-note print-note-warn" role="alert">{checkError}</p>}
+        <div className="motor-check-alert" role="alert">
+          {checkError && <p className="print-note print-note-warn">{checkError}</p>}
+        </div>
         {/* ALWAYS MOUNTED, the result rendered into it (audit 2026-09-30): it
             was a role="status" box inserted with its text already in place,
             which is announced unreliably (the live regions at the foot of this

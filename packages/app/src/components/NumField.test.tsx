@@ -169,6 +169,17 @@ describe('NumField — typing', () => {
     }
   });
 
+  it('never commits a hex, binary or octal number (closure audit of v0.194, row C)', () => {
+    render();
+    for (const text of ['0x10', '0X1F', '0b110', '0o7']) {
+      type(text);
+      expect(commits.filter((v) => v !== null), text).toEqual([]);
+      expect(input().getAttribute('aria-invalid'), text).toBe('true');
+    }
+    type('16');
+    expect(commits.filter((v) => v !== null)).toEqual([16]);
+  });
+
   it.each([
     [70.00000000000001, '70'],
     [0.30000000000000004, '0.3'],
