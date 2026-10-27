@@ -4,7 +4,7 @@ import { cleanDocumentMaterials, readDocumentMaterials } from './documentMateria
 import { extensionXmlBySimulation, hasSimulationExtensions, preserveSimulationExtensions, preservedSimulationExtensions } from './orkExtensions.js';
 import { tubeHoleMarks } from '../tree/tubeHoles.js';
 import { captureStageMass, completeStageMass, replaceStageMass } from './stageMassOverrides.js';
-import { configUuid as uuid, MAX_ORK_CONFIGURATIONS, snapshotLoadedConfig } from './configSnapshot.js';
+import { configUuid, MAX_ORK_CONFIGURATIONS, snapshotLoadedConfig } from './configSnapshot.js';
 import { isLoneEmptyConfig } from './emptyConfig.js';
 import { INITIAL_UNITS, noticeEqual, noticeNumber, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { StageMassOverride } from './stageMassOverrides.js';
@@ -2406,6 +2406,13 @@ export interface OrkTreeExportInput {
   /** Presentation only: a motor was omitted from the written archive. */
   onOmittedMotor?: () => void;
   workingOverrides?: FlightOverrides;
+  /**
+   * Headless only: the source of every `<id>` and of a minted configuration's
+   * id. Absent (App's saves and share links): a fresh random UUID each, as
+   * always. The describe projection passes a counter so the same upload
+   * writes the same bytes.
+   */
+  newId?: () => string;
   name: string;
   tree: FlightTree;
   /** Save notices, displayed by the caller only after a successful write. */
@@ -2633,8 +2640,9 @@ export function flightDataAttrs(fd: OrkExportFlightData | undefined): string | n
 
 export function exportOrk({
   name, tree, motors, launch, configs, activeConfigId, measured, flightData,
-  flightDataDefault, notes, onOmittedMotor, workingOverrides = {},
+  flightDataDefault, notes, onOmittedMotor, workingOverrides = {}, newId,
 }: OrkTreeExportInput): string {
+  const uuid = newId ?? configUuid;
   // Complete existing owners before minting a custom configuration, including
   // callers that export directly without first syncing the active config.
   if (configs) configs = completeStageMass(configs, tree);
@@ -2695,14 +2703,15 @@ export function exportOrk({
         ...(c.motorLoadoutRefusal ? { motorLoadoutRefusal: c.motorLoadoutRefusal } : {}),
         stageMassOverrides: c.stageMassOverrides,
       }))
-      : [{ ...snapshotLoadedConfig(tree, motorMap, { deployments: false, separations: false }), ...workingOverrides }];
+      : [{ ...snapshotLoadedConfig(tree, motorMap, { deployments: false, separations: false }),
+        ...(newId ? { id: newId() } : {}), ...workingOverrides }];
   // Active = none with working inputs: mint an extra config carrying the live
   // set, unnamed (the desktop renders unnamed configs as their motor list).
   const minted = configs && configs.length > 0 && !active && (Object.keys(motorMap).length > 0
     || configs.some(c => !!c.stageMassOverrides)
     || Object.values(workingOverrides).some(map => Object.keys(map ?? {}).length > 0))
     ? { ...snapshotLoadedConfig(tree, motorMap, { deployments: false, separations: false,
-      stageMass: configs.some(c => !!c.stageMassOverrides) }), ...workingOverrides }
+      stageMass: configs.some(c => !!c.stageMassOverrides) }), ...(newId ? { id: newId() } : {}), ...workingOverrides }
     : null;
   if (minted) writeConfigs.push(minted);
   if (writeConfigs.length > MAX_ORK_CONFIGURATIONS) {
