@@ -65,7 +65,11 @@
  *
  * No structural caps by default, for browser parity. Server hosts can install
  * createJsXmlParser(limits): its SAX gate applies element, node and depth
- * budgets before DOM construction, with a distinct size-refusal error.
+ * budgets before DOM construction, with a distinct size-refusal error. With
+ * `omitOrkSamples` the gate still validates every byte, but stored .ork sample
+ * branch content never reaches xmldom: the element and node budgets then count
+ * the elements the DOM gets, depth counts the source, and the omitted content
+ * has its own element and node budgets and messages.
  */
 import { SaxesParser } from 'saxes';
 import * as CSSselect from 'css-select';
@@ -177,7 +181,35 @@ const closestMatch = (start: XmldomElement, query: (e: XmldomElement) => boolean
 /** XML 1.0 §2.11: CRLF and a lone CR become LF — and nothing else does. */
 const normalizeLineEndingsXml10 = (s: string): string => s.replace(/\r\n?/g, '\n');
 
-export interface XmlLimits { maxElements: number; maxDepth: number; maxNodes?: number }
+export interface XmlLimits {
+  /** Elements, and nodes (default maxElements × 4), that reach the DOM. */
+  maxElements: number; maxDepth: number; maxNodes?: number;
+  /**
+   * Host opt-in, never a default: the children of each stored .ork sample
+   * branch (ORK_SAMPLE_PATH) are validated by the gate but never reach xmldom.
+   * Their elements and nodes count against this budget instead of the DOM's.
+   */
+  omitOrkSamples?: { maxElements: number; maxNodes?: number };
+}
+
+/**
+ * The .ork stored-flight sample branch: desktop OpenRocket's per-step series
+ * (`<event>` and `<datapoint>` children), almost all of a long stored flight's
+ * XML. No importer reads below `<flightdata>`: orkFile reads its attributes
+ * only (stored summary, provenance, configurations with results). Qualified
+ * names match exactly, so a prefixed lookalike, or the same name anywhere
+ * else, stays. The branch element itself stays, with its attributes, so
+ * `flightdata > databranch` still exists; only its content goes.
+ */
+const ORK_SAMPLE_PATH = ['openrocket', 'simulations', 'simulation', 'flightdata'];
+const ORK_SAMPLE_TAG = 'databranch';
+/**
+ * Local names that a document-wide query still reads below a sample branch:
+ * orkExtensions counts nested `extension`s for its loss note, and xmlDom
+ * refuses a literal `parsererror` (css-select matches local names in any
+ * namespace). A branch holding either is kept whole.
+ */
+const ORK_SAMPLE_READ = new Set(['extension', 'parsererror']);
 
 /**
  * The well-formedness gate (piece 1 above). Never builds a DOM. Throws
@@ -189,22 +221,93 @@ export interface XmlLimits { maxElements: number; maxDepth: number; maxNodes?: n
  * (the second one xmldom ACCEPTS — critique F4).
  */
 export function xmlGate(text: string, limits?: XmlLimits): void {
+  gate(text, limits);
+}
+
+/**
+ * The gate itself. Returns the text for xmldom: `text` unchanged (the same
+ * string) unless `limits.omitOrkSamples` cut a sample branch's content. A cut
+ * branch becomes self-closing, so its content is never handed to xmldom, from
+ * source offsets saxes reported after validating the WHOLE original text.
+ */
+function gate(text: string, limits?: XmlLimits): string {
   const sax = new SaxesParser({ xmlns: true });
+  const cuts: [number, number][] = [];
   if (limits) {
     let elements = 0;
     let depth = 0;
     let nodes = 0;
     const maxNodes = limits.maxNodes ?? limits.maxElements * 4;
+    const omit = limits.omitOrkSamples;
+    const maxSkippedNodes = omit ? omit.maxNodes ?? omit.maxElements * 4 : 0;
+    let skippedElements = 0;
+    let skippedNodes = 0;
+    // The open sample branch: the offset just past its start tag, and what
+    // its content has counted so far (moved back to the DOM's count if kept).
+    let branch: { from: number; elements: number; nodes: number } | null = null;
+    const stack: string[] = [];
+    const refuseElements = () => {
+      if (elements > limits.maxElements) throw new XmlBudgetExceededError(`XML element limit is ${limits.maxElements.toLocaleString('en-US')}.`);
+    };
+    const refuseNodes = () => {
+      if (nodes > maxNodes) throw new XmlBudgetExceededError(`XML node limit is ${maxNodes.toLocaleString('en-US')}.`);
+    };
     const countNode = () => {
-      if (++nodes > maxNodes) throw new XmlBudgetExceededError(`XML node limit is ${maxNodes.toLocaleString('en-US')}.`);
+      if (branch) {
+        branch.nodes++;
+        if (++skippedNodes > maxSkippedNodes) {
+          throw new XmlBudgetExceededError(`Stored flight data node limit is ${maxSkippedNodes.toLocaleString('en-US')}.`);
+        }
+      } else {
+        nodes++;
+        refuseNodes();
+      }
+    };
+    /** Keep the open branch whole, under the DOM's budgets. */
+    const keepBranch = () => {
+      elements += branch!.elements;
+      nodes += branch!.nodes;
+      skippedElements -= branch!.elements;
+      skippedNodes -= branch!.nodes;
+      branch = null;
+      refuseElements();
+      refuseNodes();
     };
     for (const event of ['attribute', 'comment', 'processinginstruction', 'text', 'cdata'] as const) sax.on(event, countNode);
-    sax.on('opentag', () => {
-      if (++elements > limits.maxElements) throw new XmlBudgetExceededError(`XML element limit is ${limits.maxElements.toLocaleString('en-US')}.`);
+    sax.on('opentag', (tag) => {
+      if (branch) {
+        branch.elements++;
+        if (++skippedElements > omit!.maxElements) {
+          throw new XmlBudgetExceededError(`Stored flight data element limit is ${omit!.maxElements.toLocaleString('en-US')}.`);
+        }
+      } else {
+        elements++;
+        refuseElements();
+      }
       if (++depth > limits.maxDepth) throw new XmlBudgetExceededError(`XML nesting limit is ${limits.maxDepth}.`);
       countNode();
+      if (branch && ORK_SAMPLE_READ.has(tag.local)) {
+        // What the branch counted so far, this element included, moves to
+        // the DOM's budgets, and so does the rest of it.
+        keepBranch();
+      } else if (omit && !branch && !tag.isSelfClosing && tag.name === ORK_SAMPLE_TAG
+        && stack.length === ORK_SAMPLE_PATH.length && stack.every((name, i) => name === ORK_SAMPLE_PATH[i])
+        && text.charCodeAt(sax.position - 1) === 0x3e /* > */) {
+        branch = { from: sax.position, elements: 0, nodes: 0 };
+      }
+      stack.push(tag.name);
     });
-    sax.on('closetag', () => { depth--; });
+    sax.on('closetag', () => {
+      depth--;
+      stack.pop();
+      if (branch && stack.length === ORK_SAMPLE_PATH.length) {
+        // Never cut on an offset that is not where saxes says the tags end.
+        if (text.charCodeAt(sax.position - 1) === 0x3e) {
+          cuts.push([branch.from, sax.position]);
+          branch = null;
+        } else keepBranch();
+      }
+    });
   }
   // The same refusal, and the same message, as the browser parser's backstop
   // and parseXml's pre-parse scan (Tier 0 row 59, 2026-10-01), so the two
@@ -223,6 +326,17 @@ export function xmlGate(text: string, limits?: XmlLimits): void {
     if (e instanceof XmlParseError || e instanceof XmlDoctypeRefused || e instanceof XmlBudgetExceededError) throw e;
     throw new XmlParseError(`XML parse error: ${e instanceof Error ? e.message : String(e)}`, { cause: e });
   }
+  if (!cuts.length) return text;
+  // `from` is just past the branch's start tag `>`: rewrite that `>` as `/>`
+  // and resume after the branch's end tag.
+  const parts: string[] = [];
+  let at = 0;
+  for (const [from, to] of cuts) {
+    parts.push(text.slice(at, from - 1), '/>');
+    at = to;
+  }
+  parts.push(text.slice(at));
+  return parts.join('');
 }
 
 /**
@@ -265,8 +379,7 @@ export function xmlDom(text: string): XmlDocument {
 export function createJsXmlParser(limits?: XmlLimits): XmlParser {
   const parser: XmlParser = (input) => {
     const text = input.charCodeAt(0) === 0xfeff ? input.slice(1) : input;
-    xmlGate(text, limits);
-    return xmlDom(text);
+    return xmlDom(gate(text, limits));
   };
   // One shared gate/host budget, also available before importer lexical scans.
   // The parser still validates its own input: callers may use it directly or
