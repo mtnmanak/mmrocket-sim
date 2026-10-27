@@ -83,11 +83,19 @@ html {
      the token over a stated ground: `linear-gradient(T, T), var(--surface-2)`.
      contrastTokens.test.ts composites every tint over every ground it meets.
      Daylight sets opaque, white-ground values. Only the tints something
-     paints are defined (no link or success tint is drawn today:
-     --mmr-link-soft / --mmr-success-soft are there when one is). */
-  --tint-accent: var(--mmr-accent-soft);
+     paints are defined (no accent, link or success tint is drawn today —
+     the guide's search highlight has its own --mark-bg, below:
+     --mmr-accent-soft / -link-soft / -success-soft are there when one is). */
   --tint-warn: var(--mmr-warning-soft);
   --tint-danger: var(--mmr-danger-soft);
+  /* A search-match highlight (the User guide's <mark>) is not a callout tint:
+     its fill is a non-current match's only cue (the current one adds a ring
+     and weight), so it keeps the pre-1.1.0 strength rather than the lighter
+     accent-soft, which took it from 1.41 to 1.18:1 against the guide's white
+     panel (dark 1.23 to 1.13). Declared once: it re-resolves on .viz-root in
+     every theme — #EDD4C7 light and Daylight, 22 % orange over navy-raised
+     dark. contrastTokens.test.ts holds it at or above those ratios. */
+  --mark-bg: color-mix(in srgb, var(--accent-graphic) 22%, var(--surface-2));
   /* Callouts (D3, SPEC §4.3): the status TINT over whatever the callout sits
      on, never a solid slab and never a left stripe. Body ink on the tint over
      paper / white: 11.67 / 12.19 caution, 11.88 / 12.43 danger. Daylight
@@ -185,7 +193,6 @@ html {
   --status-serious: var(--mmr-danger);
   /* The dark -soft tokens. Over navy-high (--hover, --note-bg) coloured text
      on them is 3.85–4.26:1, so no coloured text there (see the light block). */
-  --tint-accent: var(--mmr-accent-soft);
   --tint-warn: var(--mmr-warning-soft);
   --tint-danger: var(--mmr-danger-soft);
   --callout-caution-bg: var(--tint-warn);
@@ -484,9 +491,12 @@ html {
   color: var(--surface-2);
   border-color: var(--callout-caution-fg);
 }
-/* The one --focus ring (brand v1, D3): the callout is a tint in light and
-   dark (#006AAB on #EDE5D9 4.61:1, sky on #364A55 4.85:1) and Daylight's
-   solid amber still takes it (#006AAB on #FFCF66 3.94:1). */
+/* The one --focus ring (brand v1, D3): the callout is a translucent tint in
+   light and dark (mmr-brand 1.1.0), so the ring is measured on the tint over
+   each ground it sits on — #006AAB 4.42 / 4.62:1 over paper / white, sky
+   6.10 / 4.85:1 over navy / navy-raised — and Daylight's solid amber still
+   takes it (#006AAB on #FFCF66 3.94:1). contrastTokens.test.ts ("launch
+   override callout contrast") holds all of them at 3:1. */
 .viz-root .launch-override-callout button.file-btn:focus-visible {
   outline: 3px solid var(--focus);
   outline-offset: 2px;
@@ -609,6 +619,10 @@ html {
    row list below that takes it sits on the page or a panel (brand bg /
    surface), never on brand surface-2 — contrastTokens.test.ts lists them. */
 .config-table th, .config-table td { min-width: 160px; padding: 8px; border-bottom: 1px solid var(--border-subtle); text-align: left; vertical-align: top; }
+/* The header row keeps the full --border: it separates the column heads from
+   the body, which the quiet row rules alone would not (about 1.2:1). The row
+   headers (tbody th) are body rows and stay quiet. */
+.config-table thead th { border-bottom-color: var(--border); }
 .config-table .file-btn { white-space: normal; overflow-wrap: anywhere; text-align: left; }
 /* CFG-SPEC A2: one row per recovery device / separating stage, editor inline. */
 .config-part-row { padding: 8px 0; border-top: 1px solid var(--border-subtle); overflow-wrap: anywhere; }
@@ -1543,6 +1557,8 @@ html {
 .weather-review thead th {
   color: var(--text-muted);
   font-weight: 500;
+  /* The header rule, not a quiet row rule (as in the config table). */
+  border-bottom-color: var(--border);
 }
 
 .weather-row-refused td,
@@ -3891,7 +3907,7 @@ html {
 .guide-letters [aria-disabled] { color: var(--text-muted); }
 .guide-letters a:hover { background: var(--surface-1); }
 .guide-content mark {
-  background: var(--tint-accent);
+  background: var(--mark-bg);
   color: var(--text-primary);
 }
 /* The CURRENT match: the selected treatment (D2) rather than an orange fill —
@@ -4323,6 +4339,15 @@ select.unit-chip:hover {
   font-weight: 600;
   color: var(--mmr-chart-impulse-label);
 }
+/* The letter is the brand's fixed label on a fixed fill, so it no longer
+   takes the chip's off/on ink (secondary / primary) that was half of a
+   plain chip's off cue. The badge carries the state itself instead: a
+   chosen class is ringed in the text ink, against the chip's own ground
+   (light 15.20:1 navy on white, dark 11.54:1 paper on navy-raised,
+   Daylight 14.74:1 black on #FFD18A), beside the ✓ and the darker edge. */
+.series-chip-on .impulse-badge {
+  box-shadow: 0 0 0 2px var(--text-primary);
+}
 
 .motor-filter-row {
   display: flex;
@@ -4423,6 +4448,15 @@ select.unit-chip:hover {
 
 .motor-row:hover {
   background: var(--hover);
+}
+
+/* A hovered row is brand surface-2 (--hover), and a picked one the
+   selection; the quiet rule is navy-high in dark, the same colour as
+   --hover (1.00:1) and 1.02:1 on the selection, so the row's rule would
+   vanish under the pointer. SPEC §3.1: on surface-2 a rule takes --border. */
+.motor-row:hover td,
+.motor-row-picked td {
+  border-bottom-color: var(--border);
 }
 
 /* Status inks in a picked row (the run-history verdict cell, SimResults)
@@ -5131,6 +5165,7 @@ select.unit-chip:hover {
 .comparison-table-scroll { max-width: 100%; overflow: auto; max-height: 360px; margin-top: 8px; }
 .comparison-table-scroll table { width: 100%; border-collapse: collapse; font-family: var(--font-data); font-size: 12px; font-variant-numeric: tabular-nums; }
 .comparison-table-scroll :is(th, td) { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--border-subtle); white-space: nowrap; }
+.comparison-table-scroll thead th { border-bottom-color: var(--border); }
 .comparison-table-scroll caption { text-align: left; white-space: normal; padding: 6px; }
 
 /* NOTES-1: explicit consequence tiers outrank supporting-prose and modal rules. */
@@ -5194,6 +5229,13 @@ select.unit-chip:hover {
   background: linear-gradient(var(--callout-caution-bg), var(--callout-caution-bg)), var(--surface-2);
 }
 .notice-bar .message-tier.message-tier .message-label { color: var(--text-primary); }
+/* ...but the eyebrow's icon (NoteLabel's aria-hidden ⚠ / ⛔) keeps the status
+   colour, with the edge and the tint (SPEC §3.1: "keep the colour in the
+   border, the icon and the tint"): warning 5.21 / 5.15:1, danger 5.57 /
+   5.01:1 light / dark on the opaque tier. (0,5,0); Daylight's solid boxes
+   restate the fill's ink for it at (0,5,0) later in the sheet. */
+.notice-bar .message-tier.message-tier.message-caution .message-icon { color: var(--status-warn); }
+.notice-bar .message-tier.message-tier.message-danger .message-icon { color: var(--status-serious); }
 
 /* N046: codes borrow their note's ink, including the filled consequence tiers. */
 .warning-code {
@@ -5259,13 +5301,22 @@ select.unit-chip:hover {
 .message-tier.message-tier.file-note:has(> .file-note-dismiss) { padding-right: 28px; }
 .message-tier.message-tier .notice-count { background: transparent; border-color: currentColor; }
 .message-tier.message-tier .file-note { background: transparent; color: inherit; border: 0; padding: 0; }
+/* A tint inside a tier (NozzleField's cleared / could-not-load notes sit in
+   its Caution block) goes clear and takes the block's ink, as a .file-note
+   does: two translucent warning tints stacked over navy-raised put the body
+   ink at 6.81:1 dark, under the tiers' 7:1. contrastTokens.test.ts scans the
+   JSX for any tinted element inside a tint or brand surface-2. */
+.message-tier.message-tier .field-caution { background: transparent; padding: 0; }
 .message-tier.message-tier .file-btn {
   background: transparent;
   color: inherit;
   border-color: currentColor;
 }
 /* The one --focus ring inside a tier too: in light and dark the tiers are
-   tints (D3), where it reads (#006AAB 4.61:1 / 4.72:1, sky 4.85:1 / 5.33:1).
+   translucent tints (D3, mmr-brand 1.1.0), where it reads over the page and
+   a panel — #006AAB 4.42 / 4.62:1 caution and 4.50 / 4.70:1 danger over
+   paper / white; sky 6.10 / 4.85:1 caution and 6.47 / 5.15:1 danger over
+   navy / navy-raised.
    Only Daylight's SOLID boxes, where #006AAB on #970F21 would vanish, draw
    the ring in the fill's own ink — restated inside the Daylight block. */
 .message-tier.message-tier :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
@@ -5275,9 +5326,14 @@ select.unit-chip:hover {
 .gust-estimate-muted { color: var(--text-secondary); }
 .notice-item.message-tier { margin: 2px 0; }
 /* (0,3,0) and later than `.notice-item.notice-error .notice-glyph`, which the
-   earlier (0,2,0) `.notice-bar .message-tier :where(…)` lost to: a Danger
-   glyph drew --status-serious on the red fill (1.40:1 Light, 1.19:1 Daylight). */
-.notice-item.message-tier :is(.notice-count, .notice-glyph, .notice-dismiss) { color: inherit; }
+   earlier (0,2,0) `.notice-bar .message-tier :where(…)` lost to. The GLYPH
+   is not in it any more (mmr-brand 1.1.0): on the light and dark tiers,
+   laid opaque over the panel colour, it keeps its own status colour like the
+   eyebrow's icon (4.71–5.57:1, the lowest the dark danger ⛔ on a Caution
+   tier). Only Daylight's SOLID boxes, where a Danger glyph drew
+   --status-serious on the red fill at 1.19:1, take the fill's ink for it
+   (restated in its block). */
+.notice-item.message-tier :is(.notice-count, .notice-dismiss) { color: inherit; }
 @media (forced-colors: active) {
   .message-tier.message-tier.message-tier {
     forced-color-adjust: auto;
@@ -5375,7 +5431,6 @@ select.unit-chip:hover {
      white, the ground every Daylight surface is. Lowest ink on them: the
      Daylight statuses 5.89 (danger on the caution tint), the link 4.62, black
      16.85. Opaque, so a tint on --hover or --note-bg cannot shift. */
-  --tint-accent: #ffe8da;
   --tint-warn: #ede5d9;
   --tint-danger: #f5e4e7;
   --border: #000000;
@@ -5645,6 +5700,20 @@ select.unit-chip:hover {
    of the tints (above the block) would be #B00016 on the #970F21 fill. */
 .viz-root[data-contrast='high'] .message-tier.message-tier.message-tier {
   border-color: currentColor;
+}
+/* So does the launch-override callout, Daylight's other solid caution box
+   (#FFCF66): its tint-theme edge is --status-warn, which here would be
+   #6B4A00 where every other solid box draws its ink. */
+.viz-root[data-contrast='high'] .launch-override-callout {
+  border-color: currentColor;
+}
+/* The NoticeBar's status glyph and eyebrow icon keep their status colour on
+   the light and dark tints; on a solid box they are the fill's ink (a Danger
+   glyph's --status-serious on #970F21 is 1.19:1). Later than, and tying or
+   outranking, the (0,3,0) glyph and (0,5,0) icon rules above the block. */
+.viz-root[data-contrast='high'] .notice-item.message-tier .notice-glyph,
+.viz-root[data-contrast='high'] .message-tier.message-tier .message-icon {
+  color: inherit;
 }
 
 /* The eyebrow on a solid box is the box's own ink (the 7:1 pair): the status

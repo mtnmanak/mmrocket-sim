@@ -9,7 +9,7 @@ export function noteClass(tier: NoteTier): string {
 
 export function NoteLabel({ tier }: { tier: NoteTier }) {
   if (tier === 'information') return null;
-  return <span className="message-label"><span aria-hidden="true">{tier === 'danger' ? '⛔' : '⚠'} </span>
+  return <span className="message-label"><span className="message-icon" aria-hidden="true">{tier === 'danger' ? '⛔' : '⚠'} </span>
     {tier === 'danger' ? 'Danger' : 'Caution'}: </span>;
 }
 

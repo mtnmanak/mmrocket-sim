@@ -591,6 +591,17 @@ describe('launch override callout contrast', () => {
       }
     }
   });
+  it('the Show button\'s focus ring reads on the callout over every ground (3:1)', () => {
+    // #006AAB 4.42 / 4.62 over paper / white; sky 6.10 / 4.85 over navy /
+    // navy-raised; Daylight's solid amber 3.94. The callout's comment quotes these.
+    expect(decl(rule('.viz-root .launch-override-callout button.file-btn:focus-visible {'), 'outline')).toBe('3px solid var(--focus)');
+    for (const [name, t] of Object.entries(THEMES)) {
+      for (const g of GROUNDS) {
+        expect(ratio(tok(t, '--focus'), fillOver(t, '--callout-caution-bg', tok(t, g))), `${name} ring over ${g}`)
+          .toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
   it('the hovered Show button inverts to the callout ink under the panel colour, never the translucent tint', () => {
     const hover = rule('.viz-root .launch-override-callout button.file-btn:hover {');
     expect(decl(hover, 'background')).toBe('var(--callout-caution-fg)');
@@ -938,7 +949,10 @@ function ink(el: Element, t: Record<string, string>, memo: Map<Element, Ink>): I
   const bg: RGBA = [...over(own.slice(0, 3) as RGB, own[3], up.bg.slice(0, 3) as RGB), 1] as RGBA;
   const isFill = el.classList.contains('message-tier')
     && (el.classList.contains('message-caution') || el.classList.contains('message-danger'));
-  const out: Ink = { colour, bg, onFill: isFill || (own[3] === 0 && up.onFill) };
+  // A TRANSLUCENT layer inside a fill (a tint on a tint, mmr-brand 1.1.0) is
+  // still the fill's text ground: it stays on the fill's target. Only an
+  // opaque face (a control) leaves it.
+  const out: Ink = { colour, bg, onFill: isFill || (own[3] < 1 && up.onFill) };
   memo.set(el, out);
   return out;
 }
@@ -950,10 +964,16 @@ const THEME_ATTRS: Record<string, [string, string] | null> = {
 const SKIP_TAGS = new Set(['svg', 'path', 'input', 'select', 'textarea', 'img', 'br', 'hr', 'option']);
 const FILLED = '.message-tier.message-caution, .message-tier.message-danger';
 
-/** Every element inside every filled block under `root` whose ink falls short of its target. */
-function tierFailures(root: Element, theme: string, where: (el: Element) => string): string[] {
+/**
+ * Every element inside every filled block under `root` whose ink falls short
+ * of its target. `ground` is what `root` stands on: the page by default, a
+ * panel (--surface-2) to test the same blocks inside one — the tints are
+ * translucent since mmr-brand 1.1.0, so a block reads differently on each.
+ */
+function tierFailures(root: Element, theme: string, where: (el: Element) => string, ground = '--surface-0'): string[] {
   const t = THEMES[theme]!;
   const memo = new Map<Element, Ink>();
+  if (ground !== '--surface-0') memo.set(root, { ...ink(root, t, new Map()), bg: [...tok(t, ground), 1] as RGBA });
   const out: string[] = [];
   for (const fill of root.querySelectorAll(FILLED)) {
     for (const el of [fill, ...fill.querySelectorAll('*')]) {
@@ -963,11 +983,14 @@ function tierFailures(root: Element, theme: string, where: (el: Element) => stri
       const fg = over(colour.slice(0, 3) as RGB, colour[3], bg.slice(0, 3) as RGB);
       const r = ratio(fg, bg.slice(0, 3) as RGB);
       // On the fill itself the filled-tier target; on a control's own face, AA.
-      // The eyebrow (.message-label, SPEC §4.3) is the one exception on the
+      // The eyebrow (.message-label, SPEC §4.3) is one exception on the
       // light and dark TINTS: it takes the status colour, and the approved
       // table (D3) measures it at AA — warning 5.20 / 5.16, danger 5.59 light,
-      // paper in dark. Daylight's solid boxes keep 7:1 for it as for the body.
-      const eyebrow = theme !== 'daylight' && el.closest('.message-label') !== null;
+      // paper in dark. The NoticeBar's status glyph is the other (re-pinned
+      // for mmr-brand 1.1.0, SPEC §3.1 "keep the colour in … the icon"): it
+      // keeps its status colour on the tints, held at AA although a glyph is
+      // a graphic (3:1). Daylight's solid boxes keep 7:1 for both.
+      const eyebrow = theme !== 'daylight' && el.closest('.message-label, .notice-glyph') !== null;
       const need = onFill && !eyebrow ? 7 : AA;
       if (r < need) {
         out.push(`${theme}: ${name} ${r.toFixed(2)}:1 < ${need} `
@@ -999,6 +1022,15 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
+/** Whether every value `e` can take is empty or starts with whitespace (`c ? ' x' : ''`). */
+function startsClean(e: ts.Expression | undefined): boolean {
+  if (!e) return false;
+  if (ts.isParenthesizedExpression(e)) return startsClean(e.expression);
+  if (ts.isStringLiteral(e) || ts.isNoSubstitutionTemplateLiteral(e)) return e.text === '' || /^\s/.test(e.text);
+  if (ts.isConditionalExpression(e)) return startsClean(e.whenTrue) && startsClean(e.whenFalse);
+  return false;
+}
+
 /** Every class name a className can carry, dropping fragments glued to an interpolation (`notice-${…}`). */
 function classNames(expr: ts.Node | undefined): string[] {
   const out: string[] = [];
@@ -1013,12 +1045,15 @@ function classNames(expr: ts.Node | undefined): string[] {
   const visit = (n: ts.Node, gluedLeft: boolean, gluedRight: boolean) => {
     if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) { words(n.text, gluedLeft, gluedRight); return; }
     if (ts.isTemplateExpression(n)) {
-      words(n.head.text, gluedLeft, true);
+      // A word just before `${c ? ' x' : ''}` is whole: every value the
+      // interpolation can take is empty or starts with a space.
+      words(n.head.text, gluedLeft, !startsClean(n.templateSpans[0]?.expression));
       n.templateSpans.forEach((span, i) => {
         const before = i === 0 ? n.head.text : n.templateSpans[i - 1]!.literal.text;
         const after = span.literal.text;
         visit(span.expression, before !== '' && !/\s$/.test(before), after !== '' && !/^\s/.test(after));
-        words(after, true, i < n.templateSpans.length - 1 || gluedRight);
+        const next = n.templateSpans[i + 1]?.expression;
+        words(after, true, next ? !startsClean(next) : gluedRight);
       });
       return;
     }
@@ -1220,6 +1255,11 @@ describe('filled tiers: every descendant takes ink that reads on the fill (revie
       try {
         for (const s of SITES) root.appendChild(build(s, sites));
         expect(tierFailures(root, theme, (el) => sites.get(el) ?? '?')).toEqual([]);
+        // And inside a panel (white / navy-raised), where most of them are:
+        // the tints are translucent since mmr-brand 1.1.0, and NozzleField's
+        // .field-caution inside its Caution block was a tint on a tint there
+        // (paper 6.81:1 dark, under 7) while it passed over the page.
+        expect(tierFailures(root, theme, (el) => sites.get(el) ?? '?', '--surface-2')).toEqual([]);
       } finally {
         root.remove();
       }
@@ -1326,7 +1366,6 @@ const TINT_SITES: TintSite[] = [
   { sel: '.file-note-error', tint: '--tint-danger', inks: ['--text-primary'], grounds: [PAGE, PANEL], where: 'header autosave warning (page)' },
   { sel: '.modal-danger:hover', tint: '--tint-danger', inks: ['--status-serious'], grounds: [PAGE, PANEL],
     where: 'confirm dialogs and the crash fallback panel' },
-  { sel: '.guide-content mark', tint: '--tint-accent', inks: ['--text-primary'], grounds: [PANEL], where: 'User guide dialog' },
   { sel: '.override-inert', tint: '--tint-warn', inks: ['--text-primary'], grounds: [PANEL], where: 'PropertyPanel' },
   { sel: '.notice-bar.notice-warn', tint: '--tint-warn', inks: ['--text-primary', '--text-secondary'],
     marks: ['--status-warn', '--status-serious'], grounds: [PANEL], where: 'fixed bar: laid opaque over the panel colour' },
@@ -1382,7 +1421,7 @@ describe('mmr-brand 1.1.0: tints and the text on them (SPEC §3.1)', () => {
 
   it('the tint roles are the brand -soft tokens in light and dark, and opaque white-ground values in Daylight', () => {
     const want: Record<string, string> = {
-      '--tint-accent': '--mmr-accent-soft', '--tint-warn': '--mmr-warning-soft', '--tint-danger': '--mmr-danger-soft',
+      '--tint-warn': '--mmr-warning-soft', '--tint-danger': '--mmr-danger-soft',
     };
     const dark = tokens(".viz-root[data-theme='dark']");
     for (const [role, brand] of Object.entries(want)) {
@@ -1421,6 +1460,156 @@ describe('mmr-brand 1.1.0: tints and the text on them (SPEC §3.1)', () => {
     expect(decl(rule('.notice-bar .message-tier.message-tier .message-label {'), 'color')).toBe('var(--text-primary)');
   });
 
+  /*
+   * The table above is entered by hand, so the loop over its surface-2 grounds
+   * checks nothing unless an entry lists one (none does). This is the check
+   * that does not trust it: every JSX element in src/ that a tint rule paints
+   * is walked up through the elements written around it in the same file, and
+   * it fails if one of them is brand surface-2 (a rule paints it --note-bg or
+   * --hover, hovered or not) or is itself a tint (a tint on a tint: two
+   * translucent layers, the NozzleField case), unless a rule written for
+   * exactly that nesting clears the inner fill or lays it opaque over the
+   * panel colour. Its blind spot, stated: a component placed in a container
+   * that another file renders.
+   */
+  it('no tint is written inside brand surface-2 or inside another tint without a rule that clears it (JSX scan)', () => {
+    type Part = { subject: string[]; before: string[] };
+    const partsOf = (sel: string): Part[] => splitTop(sel).map((p) => {
+      const flat = eachFunctional(p, () => {}, '*').replace(/\[[^\]]*\]/g, '');
+      const compounds = flat.trim().split(/\s*[>+~]\s*|\s+/);
+      const cls = (c: string) => [...c.matchAll(/\.([\w-]+)/g)].map((m) => m[1]!);
+      return { subject: cls(compounds.at(-1) ?? ''), before: compounds.slice(0, -1).flatMap(cls) };
+    });
+    const bgOf = (body: string) => /(?:^|[;\s])background(?:-color)?:\s*([^;]+);/.exec(body)?.[1]?.trim() ?? '';
+    const live = allRules().filter((r) => !r.daylight);
+    const tintParts = tinted.flatMap((r) => partsOf(r.sel)).filter((p) => p.before.length === 0 && p.subject.length > 0);
+    const s2Parts = live.filter((r) => /var\(--(?:note-bg|hover)\)/.test(bgOf(r.body)))
+      .flatMap((r) => partsOf(r.sel)).filter((p) => p.before.length === 0 && p.subject.length > 0);
+    const clearParts = live.filter((r) => {
+      const bg = bgOf(r.body);
+      return bg === 'transparent' || /^linear-gradient\(.*\), var\(--surface-2\)$/.test(bg);
+    }).flatMap((r) => partsOf(r.sel)).filter((p) => p.before.length > 0 && p.subject.length > 0);
+    // The rule sets it reads are not empty, so neither is the check.
+    expect(tintParts.length).toBeGreaterThan(15);
+    expect(s2Parts.map((p) => p.subject.join('.'))).toEqual(expect.arrayContaining(['notice-bar', 'file-note', 'tree-row', 'motor-row']));
+
+    const has = (set: Set<string>, p: Part) => p.subject.every((c) => set.has(c));
+    const isTint = (set: Set<string>) => tintParts.some((p) => has(set, p));
+    type Node = { classes: Set<string>; label: string };
+    const parsed = sourceFiles(SRC).map((file) => ({
+      sf: ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX),
+      rel: file.slice(SRC.length + 1).replace(/\\/g, '/'),
+    }));
+    /** The classes an element is drawn with, a tier's included (a Note, or a noteClass() className). */
+    const classesOf = (n: ts.JsxElement | ts.JsxSelfClosingElement): Set<string> | null => {
+      const o = opening(n);
+      const tag = o.tagName.getText();
+      const cls = attrValue(attr(o, 'className'));
+      const classes = new Set(classNames(cls));
+      const tiers = tag === 'Note' ? tiersIn(attr(o, 'tier')?.initializer?.getText() ?? '')
+        : isIntrinsic(n) && cls && /message-tier|noteClass\(/.test(cls.getText()) ? tiersIn(cls.getText()) : [];
+      for (const c of tiers.length ? ['message-tier', ...tiers.map((t) => `message-${t}`)] : []) classes.add(c);
+      return isIntrinsic(n) || tiers.length ? classes : null;
+    };
+    // Pass 1: which components DRAW a tint, so one placed in another file is
+    // checked where it is placed (LaunchOverrideWarning's callout in the
+    // results column's warn note). Names declared once in src/ only.
+    const drawn = new Map<string, Set<string>[]>();
+    const declared = new Map<string, number>();
+    for (const { sf } of parsed) {
+      const visitDecl = (n: ts.Node) => {
+        const name = ts.isFunctionDeclaration(n) ? n.name?.text
+          : ts.isVariableDeclaration(n) && n.initializer && (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer))
+            && ts.isIdentifier(n.name) ? n.name.text : undefined;
+        if (name && /^[A-Z]/.test(name)) {
+          declared.set(name, (declared.get(name) ?? 0) + 1);
+          const sets: Set<string>[] = [];
+          const walk = (c: ts.Node) => {
+            if (ts.isJsxElement(c) || ts.isJsxSelfClosingElement(c)) {
+              const classes = classesOf(c);
+              if (classes && isTint(classes)) sets.push(classes);
+            }
+            ts.forEachChild(c, walk);
+          };
+          walk(n);
+          if (sets.length) drawn.set(name, sets);
+        }
+        ts.forEachChild(n, visitDecl);
+      };
+      visitDecl(sf);
+    }
+    for (const [name, count] of declared) if (count > 1) drawn.delete(name);
+    expect([...drawn.keys()]).toEqual(expect.arrayContaining(['LaunchOverrideWarning', 'NozzleField', 'GustEstimate']));
+
+    // A nesting that no rule clears, measured instead: the inner tint over
+    // the outer tint over the ground the outer one stands on, every ink and
+    // mark the inner site draws, in every theme (below).
+    const ALLOWED: { inner: string; outer: string; ground: Ground; where: string }[] = [
+      { inner: 'launch-override-callout', outer: 'file-note-warn', ground: PAGE,
+        where: 'App.tsx results column: the classic-model Mach warning holds a LaunchOverrideWarning' },
+    ];
+    const allowedSeen = new Set<string>();
+    const offenders: string[] = [];
+    let tintedSeen = 0;
+    let nestedSeen = 0;
+    const check = (inner: Set<string>, label: string, stack: Node[]) => {
+      tintedSeen++;
+      const above = new Set(stack.flatMap((a) => [...a.classes]));
+      for (const a of stack) {
+        const kind = isTint(a.classes) ? 'a tint' : s2Parts.some((p) => has(a.classes, p)) ? 'brand surface-2' : null;
+        if (!kind) continue;
+        nestedSeen++;
+        if (clearParts.some((p) => has(inner, p) && p.before.every((c) => above.has(c)))) continue;
+        const ok = ALLOWED.find((x) => inner.has(x.inner) && a.classes.has(x.outer));
+        if (ok) { allowedSeen.add(`${ok.inner} in ${ok.outer}`); continue; }
+        offenders.push(`${label} inside ${kind}: ${a.label}`);
+      }
+    };
+    for (const { sf, rel } of parsed) {
+      const visit = (n: ts.Node, stack: Node[]) => {
+        if (ts.isJsxElement(n) || ts.isJsxSelfClosingElement(n)) {
+          const o = opening(n);
+          const tag = o.tagName.getText();
+          const at = `${rel}:${sf.getLineAndCharacterOfPosition(o.getStart()).line + 1}`;
+          const classes = classesOf(n);
+          if (classes) {
+            const node: Node = { classes, label: `${at} <${tag} class="${[...classes].join(' ')}">` };
+            if (isTint(classes)) check(classes, node.label, stack);
+            ts.forEachChild(n, (c) => visit(c, [...stack, node]));
+            return;
+          }
+          for (const inner of drawn.get(tag) ?? []) check(inner, `${at} <${tag}> (draws class="${[...inner].join(' ')}")`, stack);
+        }
+        ts.forEachChild(n, (c) => visit(c, stack));
+      };
+      visit(sf, []);
+    }
+    // It finds the tinted elements, and the nested ones it must (the NoticeBar's
+    // tiers on the --note-bg bar; NozzleField's .field-caution in its Caution
+    // block; the results column's launch-override callout in a warn note).
+    expect(tintedSeen).toBeGreaterThan(40);
+    expect(nestedSeen).toBeGreaterThanOrEqual(3);
+    expect(offenders).toEqual([]);
+    expect([...allowedSeen].sort()).toEqual(ALLOWED.map((x) => `${x.inner} in ${x.outer}`).sort());
+
+    const fails: string[] = [];
+    for (const x of ALLOWED) {
+      const inner = TINT_SITES.find((s) => s.sel === `.${x.inner}`)!;
+      const outer = TINT_SITES.find((s) => s.sel === `.${x.outer}`)!;
+      for (const [theme, t] of Object.entries(THEMES)) {
+        const bg = fillOver(t, inner.tint, fillOver(t, outer.tint, groundIn(t, x.ground)));
+        for (const i of inner.inks) {
+          const need = /^--callout-(caution|danger)-fg$/.test(i) ? 7 : AA;
+          if (ratio(tok(t, i), bg) < need) fails.push(`${theme} ${x.where}: ${i} ${ratio(tok(t, i), bg).toFixed(2)} < ${need}`);
+        }
+        for (const m of [...(inner.marks ?? []), '--focus']) {
+          if (ratio(tok(t, m), bg) < 3) fails.push(`${theme} ${x.where}: ${m} ${ratio(tok(t, m), bg).toFixed(2)} < 3`);
+        }
+      }
+    }
+    expect(fails).toEqual([]);
+  });
+
   it('every ink and mark on every tint passes over every ground it sits on, in every theme', () => {
     const fails: string[] = [];
     for (const s of TINT_SITES) {
@@ -1453,6 +1642,8 @@ describe('mmr-brand 1.1.0: tints and the text on them (SPEC §3.1)', () => {
     expect(decl(rule('.message-tier.message-tier.message-caution {'), 'border-color')).toBe('var(--status-warn)');
     expect(decl(rule(".viz-root[data-contrast='high'] .message-tier.message-tier.message-tier {"), 'border-color')).toBe('currentColor');
     expect(decl(rule('.launch-override-callout {'), 'border')).toBe('1px solid var(--status-warn)');
+    // Daylight's other solid caution box draws its ink as its edge like the tiers.
+    expect(decl(rule(".viz-root[data-contrast='high'] .launch-override-callout {"), 'border-color')).toBe('currentColor');
   });
 
   for (const theme of ['light', 'dark', 'daylight']) {
@@ -1479,6 +1670,29 @@ describe('mmr-brand 1.1.0: tints and the text on them (SPEC §3.1)', () => {
             expect(hex(got.colour.slice(0, 3) as RGB), `${theme} ${severity} ${tier} eyebrow`).toBe(hex(tok(t, want)));
             expect(ratio(got.colour.slice(0, 3) as RGB, got.bg.slice(0, 3) as RGB), `${theme} ${severity} ${tier}`)
               .toBeGreaterThanOrEqual(7);
+            // ...while the icon keeps the status colour (SPEC §3.1: the colour
+            // stays in the border, the icon and the tint), AA on the opaque
+            // tier; on Daylight's solid boxes it is the fill's ink, at 7:1.
+            const icon = label.querySelector('.message-icon');
+            expect(icon, `${theme} ${severity} ${tier} icon`).not.toBeNull();
+            const iconInk = ink(icon!, t, memo);
+            const iconWant = theme === 'daylight' ? `--callout-${tier}-fg` : tier === 'danger' ? '--status-serious' : '--status-warn';
+            expect(hex(iconInk.colour.slice(0, 3) as RGB), `${theme} ${severity} ${tier} icon`).toBe(hex(tok(t, iconWant)));
+            expect(ratio(iconInk.colour.slice(0, 3) as RGB, iconInk.bg.slice(0, 3) as RGB), `${theme} ${severity} ${tier} icon`)
+              .toBeGreaterThanOrEqual(theme === 'daylight' ? 7 : AA);
+          }
+          // The item's status glyph: its own look's status colour on the
+          // tints, the fill's ink on Daylight's solid boxes.
+          const glyphs = [...root.querySelectorAll('.notice-item.message-tier > .notice-glyph')];
+          expect(glyphs.length, severity).toBeGreaterThan(0);
+          for (const g of glyphs) {
+            const tier = g.closest('.message-danger') ? 'danger' : 'caution';
+            const glyphWant = theme === 'daylight' ? `--callout-${tier}-fg`
+              : g.classList.contains('notice-look-error') ? '--status-serious' : '--status-warn';
+            const got = ink(g, t, memo);
+            expect(hex(got.colour.slice(0, 3) as RGB), `${theme} ${severity} ${tier} glyph`).toBe(hex(tok(t, glyphWant)));
+            expect(ratio(got.colour.slice(0, 3) as RGB, got.bg.slice(0, 3) as RGB), `${theme} ${severity} ${tier} glyph`)
+              .toBeGreaterThanOrEqual(theme === 'daylight' ? 7 : AA);
           }
         }
       } finally {
@@ -1530,6 +1744,31 @@ describe('mmr-brand 1.1.0: selection, quiet row rules and the dark chart grid', 
       '.recovery-part',
       '.weather-review th, .weather-review td',
     ]);
+    // A row that turns brand surface-2 under the pointer (--hover), or takes
+    // the selection, draws its rule in --border: the quiet rule is navy-high
+    // in dark, 1.00:1 on --hover and 1.02:1 on the selection.
+    expect(decl(rule('.motor-row:hover td,\n.motor-row-picked td {'), 'border-bottom-color')).toBe('var(--border)');
+    expect(ratio(tok(THEMES.dark!, '--border-subtle'), tok(THEMES.dark!, '--hover'))).toBeLessThan(1.05);
+    // Column heads keep the full --border, a header rule, not a row rule
+    // (the motor table's own th rule already did).
+    expect(decl(rule('.config-table thead th {'), 'border-bottom-color')).toBe('var(--border)');
+    expect(decl(rule('.comparison-table-scroll thead th {'), 'border-bottom-color')).toBe('var(--border)');
+    expect(decl(rule('.weather-review thead th {'), 'border-bottom-color')).toBe('var(--border)');
+    expect(decl(rule('.motor-table th {'), 'border-bottom')).toBe('1px solid var(--border)');
+  });
+
+  it('the User guide\'s search highlight keeps its pre-1.1.0 strength against the guide\'s panel', () => {
+    expect(decl(rule('.guide-content mark {'), 'background')).toBe('var(--mark-bg)');
+    expect(THEMES.light!['--mark-bg']).toBe('color-mix(in srgb, var(--accent-graphic) 22%, var(--surface-2))');
+    // Before mmr-brand 1.1.0: light and Daylight 1.41:1, dark 1.23:1 (the
+    // accent-soft tint was 1.18 / 1.13). The non-current matches carry no
+    // ring or weight, so the fill is their one cue.
+    const floor: Record<string, number> = { light: 1.41, dark: 1.22, daylight: 1.41 };
+    for (const [name, t] of Object.entries(THEMES)) {
+      const mark = tok(t, '--mark-bg');
+      expect(ratio(mark, tok(t, '--surface-2')), `${name} mark on the panel`).toBeGreaterThanOrEqual(floor[name]!);
+      expect(ratio(tok(t, '--text-primary'), mark), `${name} text on the mark`).toBeGreaterThanOrEqual(7);
+    }
   });
 
   it('the charts read the brand grid (#33597C dark) through --chart-grid; nothing hard-codes the old #557793', () => {
@@ -1562,6 +1801,19 @@ describe('mmr-brand 1.1.0: motor impulse classes (SPEC §3.2)', () => {
     // can find each one.
     for (const l of 'abcdefghijklmno') expect(src).toContain(`'var(--mmr-chart-impulse-${l})'`);
     expect(decl(rule('.impulse-badge {'), 'color')).toBe('var(--mmr-chart-impulse-label)');
+  });
+
+  it('a chosen class differs from an unchosen one on the badge itself, not only by the ✓', () => {
+    // The letter is a fixed label on a fixed fill, so it no longer takes the
+    // chip's off/on ink; a chosen chip rings its badge in the text ink
+    // instead, a graphic held at 3:1 against the chip's own ground (the
+    // chip's --surface-3, Daylight's --selected fill when on).
+    expect(decl(rule('.series-chip-on .impulse-badge {'), 'box-shadow')).toBe('0 0 0 2px var(--text-primary)');
+    expect(css).not.toMatch(/\.series-chip:not\(\.series-chip-on\) \.impulse-badge/);
+    for (const [name, t] of Object.entries(THEMES)) {
+      const chipOn = name === 'daylight' ? '--selected' : '--surface-3';
+      expect(ratio(tok(t, '--text-primary'), tok(t, chipOn)), `${name} ring`).toBeGreaterThanOrEqual(3);
+    }
   });
 
   for (const theme of Object.keys(THEMES)) {

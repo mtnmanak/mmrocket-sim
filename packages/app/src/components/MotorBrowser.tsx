@@ -154,15 +154,15 @@ function delayOffered(motor: MotorDbEntry, delay: number | 'auto' | 'custom'): b
   return typeof delay !== 'number' || delay === Infinity || delayOptions(motor).includes(delay);
 }
 
-/**
- * One filter chip. It is a TOGGLE, so it says so (audit 2026-09-22): the
- * on-state was a CSS class alone — outside the Daylight theme a border and text
- * shade, no fill — so a screen reader heard no state and a low-vision user saw
- * only a slightly darker edge, while persisted chips hid motors with no audible
- * reason. `aria-pressed` carries the state (FlightCharts' series chips already
- * set it) and a ✓ carries it without colour; the ✓ is hidden from the reader,
- * which already hears "pressed".
- */
+/** The impulse-class ramp, A (coldest) to O (hottest), as brand tokens. */
+const IMPULSE_FILL: Readonly<Record<string, string>> = {
+  A: 'var(--mmr-chart-impulse-a)', B: 'var(--mmr-chart-impulse-b)', C: 'var(--mmr-chart-impulse-c)',
+  D: 'var(--mmr-chart-impulse-d)', E: 'var(--mmr-chart-impulse-e)', F: 'var(--mmr-chart-impulse-f)',
+  G: 'var(--mmr-chart-impulse-g)', H: 'var(--mmr-chart-impulse-h)', I: 'var(--mmr-chart-impulse-i)',
+  J: 'var(--mmr-chart-impulse-j)', K: 'var(--mmr-chart-impulse-k)', L: 'var(--mmr-chart-impulse-l)',
+  M: 'var(--mmr-chart-impulse-m)', N: 'var(--mmr-chart-impulse-n)', O: 'var(--mmr-chart-impulse-o)',
+};
+
 /**
  * A motor impulse class as the brand shows it (mmr-brand 1.1.0, SPEC §3.2):
  * the letter, always, on a filled chip in the class's colour from the
@@ -172,20 +172,21 @@ function delayOffered(motor: MotorDbEntry, delay: number | 'auto' | 'custom'): b
  * groups it. A letter outside A–O (none in the catalogue today) keeps the
  * plain letter rather than borrowing a neighbour's colour.
  */
-const IMPULSE_FILL: Readonly<Record<string, string>> = {
-  A: 'var(--mmr-chart-impulse-a)', B: 'var(--mmr-chart-impulse-b)', C: 'var(--mmr-chart-impulse-c)',
-  D: 'var(--mmr-chart-impulse-d)', E: 'var(--mmr-chart-impulse-e)', F: 'var(--mmr-chart-impulse-f)',
-  G: 'var(--mmr-chart-impulse-g)', H: 'var(--mmr-chart-impulse-h)', I: 'var(--mmr-chart-impulse-i)',
-  J: 'var(--mmr-chart-impulse-j)', K: 'var(--mmr-chart-impulse-k)', L: 'var(--mmr-chart-impulse-l)',
-  M: 'var(--mmr-chart-impulse-m)', N: 'var(--mmr-chart-impulse-n)', O: 'var(--mmr-chart-impulse-o)',
-};
-
 export function ImpulseBadge({ letter }: { letter: string }) {
   const fill = Object.hasOwn(IMPULSE_FILL, letter) ? IMPULSE_FILL[letter] : undefined;
   if (!fill) return <>{letter}</>;
   return <span className="impulse-badge" style={{ background: fill }}>{letter}</span>;
 }
 
+/**
+ * One filter chip. It is a TOGGLE, so it says so (audit 2026-09-22): the
+ * on-state was a CSS class alone — outside the Daylight theme a border and text
+ * shade, no fill — so a screen reader heard no state and a low-vision user saw
+ * only a slightly darker edge, while persisted chips hid motors with no audible
+ * reason. `aria-pressed` carries the state (FlightCharts' series chips already
+ * set it) and a ✓ carries it without colour; the ✓ is hidden from the reader,
+ * which already hears "pressed".
+ */
 function FilterChip({ on, onToggle, children }: {
   on: boolean;
   onToggle: () => void;
