@@ -292,6 +292,9 @@ function flownMotorLabel(run: SimRun): string {
     // A stored run can lack its motor (closure audit of v0.194, row E); '—' as below.
     return `${run.motor || '—'}${run.manufacturer ? ` (${run.manufacturer})` : ''}`;
   }
+  // A stored run's missing motor is read back as '' (loadRuns): no delay is hung on a bare '—'.
+  const designation = run.motorDesignation || run.motor;
+  if (!designation) return `${run.manufacturer ? `${run.manufacturer} ` : ''}—`;
   return `${run.manufacturer ? `${run.manufacturer} ` : ''}${motorLabel(
-    { designation: run.motorDesignation ?? run.motor ?? '—', manufacturerAbbrev: run.manufacturer }, run.delayS)}`;
+    { designation, manufacturerAbbrev: run.manufacturer }, run.delayS)}`;
 }

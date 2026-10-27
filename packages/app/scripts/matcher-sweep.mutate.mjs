@@ -63,6 +63,12 @@ export function runMutations(names = [], {
 } = {}) {
   const out = `${root}/.matcher-sweep/mutations`;
   const selected = mutations.filter(([name]) => !names.length || names.includes(name));
+  // A misspelled or retired name would otherwise run nothing and exit 0.
+  const unknown = names.filter((name) => !mutations.some(([known]) => known === name));
+  if (unknown.length) {
+    log(`unknown mutant name: ${unknown.join(', ')}`);
+    return 1;
+  }
   const vitestRun = (test) => spawn(process.execPath, [vitest, 'run', test, '--maxWorkers', '1'],
     { cwd: `${root}/packages/app`, encoding: 'utf8', timeout: 60000 });
   mkdir(out, { recursive: true });

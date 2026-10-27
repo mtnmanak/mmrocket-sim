@@ -201,7 +201,8 @@ function rescreen(o: CatalogueOverlay): CatalogueOverlay {
     if (!passes((c as CatalogueChange | null)?.after)) return false;
     if (object(c) && object(c.before) && screenEntry(c.before) === null
       && c.motorId === c.after.motorId && c.motorId === c.before.motorId
-      && Array.isArray(c.fields) && c.fields.every(f => typeof f === 'string')) return true;
+      && Array.isArray(c.fields) && c.fields.length > 0
+      && c.fields.every(f => typeof f === 'string' && CATALOGUE_FIELD_SET.has(f))) return true;
     rejected.push({ entry: c.after, reason: 'unreadable stored change metadata discarded; the shipped motor was kept' });
     return false;
   }).map(c => {

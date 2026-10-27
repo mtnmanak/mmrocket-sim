@@ -61,6 +61,12 @@ describe('ci-6: mutation harness baseline (fake spawn, nothing written)', () => 
     const survived = fake([0, 0, 0, 1]);
     expect(runMutations(['g80-maker', 'sweep-parse'], survived.options)).toBe(1);
   });
+
+  it('refuses an unknown mutant name instead of running nothing and passing', () => {
+    const f = fake([0, 1]);
+    expect(runMutations(['g80-maker', 'no-such-mutant'], f.options)).toBe(1);
+    expect(f.spawned).toEqual([]);
+  });
 });
 
 describe('matcher sweep accounting (no local corpus needed)', () => {

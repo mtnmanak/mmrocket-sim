@@ -92,10 +92,11 @@ export function selectSource({ run, attempts, artifacts }) {
     if (matches.filter((m) => m.owner.job.run_attempt === owner.job.run_attempt).length !== 1) {
       throw new Error('ambiguous catalogue-input artifacts in producing attempt');
     }
+    // A later attempt that passed the gate must have uploaded its own input,
+    // whether or not the owning attempt passed too.
+    const later = jobs.filter((job) => job.run_attempt > owner.job.run_attempt && job.conclusion === 'success');
+    if (later.length) throw noUpload(latest(later));
     if (owner.job.conclusion !== 'success') {
-      // A later attempt that passed the gate must have uploaded its own input.
-      const later = jobs.filter((job) => job.run_attempt > owner.job.run_attempt && job.conclusion === 'success');
-      if (later.length) throw noUpload(latest(later));
       return neutral(`source refresh gate for artifact attempt ${owner.job.run_attempt} did not conclude success`);
     }
     if (artifact.expired !== false) throw new Error('source catalogue-input artifact has expired; run a new refresh');

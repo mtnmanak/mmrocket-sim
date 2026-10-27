@@ -878,6 +878,19 @@ it.each(extraField)('D restores stored rows with only the catalogue fields (real
   expect(displayMotorManufacturer(getCatalogue().find(m => m.motorId === 'live-1')!)).toBe('Estes');
 });
 
+it.each([['a non-catalogue field', ['realManufacturer']], ['no field', []]] as const)(
+  'D discards a stored change that names %s', (_name, fields) => {
+    const shipped = MOTOR_DB[0]!;
+    localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(),
+      liveCount: MOTOR_DB.length, added: [],
+      changed: [{ motorId: shipped.motorId, before: { ...shipped, realManufacturer: 'A' },
+        after: { ...shipped, realManufacturer: 'B' }, fields }],
+      removed: [], rejected: [] }));
+    const loaded = restoreCatalogueOverlay()!;
+    expect(loaded.changed).toEqual([]);
+    expect(loaded.rejected.map(r => r.reason)).toContain('unreadable stored change metadata discarded; the shipped motor was kept');
+  });
+
 it('D returns a stored overlay with no extra fields unchanged', () => {
   const shipped = MOTOR_DB[0]!;
   const stored = { baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: MOTOR_DB.length + 1,

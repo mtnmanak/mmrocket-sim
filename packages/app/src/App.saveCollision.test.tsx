@@ -361,6 +361,22 @@ describe('a write the app did not make as the design save, over the saved design
     expect(await guarded(host)).toBe(true);
   }, 30000);
 
+  it('a foreign write over the .rkt design file while an earlier Save .ork is still held', async () => {
+    const host = await mountApp();
+    await waitFor(starterStored, 'starter motor');
+    await saveOrkTo(host, 'Backup.ork');
+    pickNext('Rocket.rkt');
+    await saveAs(host, 'Save .rkt');
+    await writtenTo('Rocket.rkt');
+    await waitFor(() => status(host)?.startsWith('Saved as .rkt') === true, 'the lossy status');
+    await exportMyMaterials(host, 'Rocket.rkt');
+    expect((await writtenTo('Rocket.rkt') as Blob).type).toContain('text/csv');
+    await act(async () => { button(document.body, 'Close').click(); });
+    // The header names Rocket.rkt, which now holds a CSV: it must not read as saved.
+    await waitFor(() => status(host) === 'Unsaved changes', 'Unsaved changes');
+    expect(await guarded(host)).toBe(true);
+  }, 30000);
+
   it('Export .csv — component data over a .rkt design file', async () => {
     const host = await mountApp();
     await waitFor(starterStored, 'starter motor');

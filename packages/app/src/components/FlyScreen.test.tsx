@@ -282,6 +282,12 @@ describe('FlyScreen', () => {
       expect(notes()[0]).toContain('Flown with');
       expect(notes()[0]).not.toContain('undefined');
     });
+    it('hangs no delay on a stored single-motor flight read back with an empty motor', () => {
+      addRun({ ...FLOWN, id: 'empty-motor', motor: '' });
+      mount({ run: loadRuns()[0], changedSince: ['the design'] });
+      expect(notes()[0]).toContain('Flown with Estes — at');
+      expect(notes()[0]).not.toContain('-3');
+    });
 
     it('says what flew and what changed since, and sends the user to Launch', () => {
       mount({ run: FLOWN, changedSince: ['the motor'] });

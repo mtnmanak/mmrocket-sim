@@ -441,6 +441,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       // become an unhandled rejection and a silent screen).
       if (!mounted.current) return;
       setImportTier('information');
+      setNoticeTier('information');
       setError(e instanceof Error ? e.message : String(e));
       return;
     }

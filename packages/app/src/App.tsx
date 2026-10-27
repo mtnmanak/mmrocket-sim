@@ -987,9 +987,12 @@ export function App() {
       appliedOrkSaveDestination.current = null;
       invalidateSaved();
     }
+    // Even with an earlier .ork save still held: the header names THIS file,
+    // and it no longer holds the design (review of the save-collision lane).
     if (destination === appliedSaveDestination.current) {
+      appliedSaveDestination.current = null;
       setLossySaved(null);
-      if (!appliedOrkSaveDestination.current) invalidateSaved();
+      invalidateSaved();
     }
   }), [invalidateSaved]);
   // Conflicted changes and dirty edits while autosave is paused or failing are in no

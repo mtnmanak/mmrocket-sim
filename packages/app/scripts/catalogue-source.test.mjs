@@ -136,6 +136,17 @@ describe('GitHub REST source eligibility', () => {
     expect(selectSource(data)).toMatchObject({ eligible: false, failed: false, reason: expect.stringContaining('artifact attempt 1') });
   });
 
+  it('ci-1: is red when a later passing attempt left no artifact beside an earlier passing one', () => {
+    // A re-run whose Freeze/Upload step failed (continue-on-error) keeps attempt 1's
+    // artifact; publishing it would silently drop the re-run's newer input.
+    const data = fixture(), next = structuredClone(job(data));
+    next.id = 987; next.run_attempt = 2; next.conclusion = 'success';
+    next.started_at = '2026-10-21T12:00:00Z'; next.steps[1].completed_at = '2026-10-21T12:05:00Z';
+    data.attempts[1].pages[0].jobs.push(next);
+    expect(selectSource(data)).toMatchObject({ eligible: false, failed: true,
+      reason: expect.stringContaining('source refresh attempt 2 ran the catalogue pipeline but uploaded no catalogue-input artifact') });
+  });
+
   it('R4 #3: exports the cross-file names it matches', () => {
     expect([REFRESH_JOB, SEAL_STEP, INPUT_ARTIFACT]).toEqual(['refresh', 'Seal frozen artifact time window', 'catalogue-input']);
     const data = fixture();
