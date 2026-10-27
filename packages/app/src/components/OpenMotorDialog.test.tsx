@@ -28,6 +28,17 @@ it('establishes a silent outcome region before a motor answer', async () => {
   expect(host.querySelector('[role="status"]')).toBe(status);
   expect(status!.textContent).toContain('Imported 1 EX motor');
 });
+it('B establishes an empty alert region that receives a refused selection', async () => {
+  render();
+  const alert = host.querySelector('[role="alert"]');
+  expect(alert).not.toBeNull();
+  expect(alert!.textContent).toBe('');
+  const input = host.querySelectorAll<HTMLInputElement>('input[type=file]')[0]!;
+  Object.defineProperty(input, 'files', { configurable: true, value: [new File(['x'], 'notes.pdf')] });
+  await act(async () => input.dispatchEvent(new Event('change', { bubbles: true })));
+  expect(host.querySelector('[role="alert"]')).toBe(alert);
+  expect(alert!.textContent).toBe('No .eng or .rse files found in that selection.');
+});
 async function importText(section: number, text: string, click = true) {
   if (click) act(() => host.querySelectorAll('fieldset')[section]!.querySelector('button')!.click());
   const inputs = host.querySelectorAll<HTMLInputElement>('input[type=file]');

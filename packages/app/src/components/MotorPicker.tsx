@@ -162,7 +162,12 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
           // hiding the block would strip the motor's name off every card.
           <p className="motor-db-meta" style={{ margin: 0 }}>{selectedLabel || '— no motor —'}</p>
         )}
-        {problem && <p className="print-note print-note-warn" role="alert">{problem}</p>}
+      </div>
+      {/* Always mounted (audit 2026-09-22): an alert inserted with its text
+          already in place is announced unreliably. Outside .field, whose flex
+          gap would space even the empty region. */}
+      <div className="motor-picker-alert" role="alert">
+        {problem && <p className="print-note print-note-warn">{problem}</p>}
       </div>
       <button
         id={offerPicks ? undefined : primaryControlId}

@@ -109,7 +109,9 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
       })}
       </div>
       <p role="status" className={notice ? undefined : 'sr-only'}>{notice}</p>
-      {error && <p role="alert">{error}</p>}
+      {/* Always mounted, like the status line above (audit 2026-09-22): an
+          alert inserted with its text already in place is announced unreliably. */}
+      <div role="alert">{error && <p>{error}</p>}</div>
       <div className="modal-actions">
         <button type="button" className="file-btn" disabled={busy} onClick={() => { void run(() => onApply(choices)); }}>Apply</button>
         <button type="button" className="file-btn" disabled={busy} onClick={later}>Decide later</button>

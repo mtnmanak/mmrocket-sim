@@ -643,7 +643,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           )}
           <button className="file-btn" onClick={onClose} disabled={busy} aria-label="Close motor browser">✕ Close</button>
         </div>
-        {checkError && <p className="print-note print-note-warn" role="alert">{checkError}</p>}
+        <div className="motor-check-alert" role="alert">
+          {checkError && <p className="print-note print-note-warn">{checkError}</p>}
+        </div>
         {/* ALWAYS MOUNTED, the result rendered into it (audit 2026-09-30): it
             was a role="status" box inserted with its text already in place,
             which is announced unreliably (the live regions at the foot of this

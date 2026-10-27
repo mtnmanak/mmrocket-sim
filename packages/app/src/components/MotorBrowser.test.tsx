@@ -618,9 +618,14 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
   it('reports a failed check as an alert and installs nothing', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('<html><h1>503 Service Unavailable</h1></html>', { status: 503 })));
     h = openBrowser({ mountDiameterMm: 29 });
+    // Always mounted, empty, before the check (live-region sweep of the v0.194 closure audit).
+    const alert = h.host.querySelector('.motor-check-alert');
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert!.textContent).toBe('');
     click(checkButton(h));
     for (let i = 0; i < 50 && !/Could not check/.test(h.host.textContent ?? ''); i++) await settle(10);
-    expect(h.host.querySelector('[role="alert"]')!.textContent).toMatch(/Could not check thrustcurve\.org: .*HTTP 503/);
+    expect(h.host.querySelector('.motor-check-alert')).toBe(alert);
+    expect(alert!.textContent).toMatch(/Could not check thrustcurve\.org: .*HTTP 503/);
     const { getCatalogueOverlay } = await import('../services/motorDb.js');
     expect(getCatalogueOverlay()).toBeNull();
   });
