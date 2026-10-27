@@ -79,12 +79,16 @@ export interface TimedSimulateFileResult extends SimulateFileResult {
   timing: { parseMs: number; flyMs: number; totalMs: number };
 }
 
-/** A design file's bytes, flown as the app opens and launches it. The size is refused before anything is parsed. */
-export async function simulateFile(
-  data: ArrayBuffer | Uint8Array, fileName: string, opts: SimulateFileOptions = {},
-): Promise<TimedSimulateFileResult> {
-  const now = opts.now ?? (() => performance.now());
-  const started = now();
+/**
+ * The file door every headless operation shares: the size refusal, the cancel
+ * check, the bundled presets and the importer with the shipped catalogue rows
+ * and curves (the `.CDX1` stated-weight back-out included). Both simulateFile
+ * and describeFile open through here, so one upload reads the same either way.
+ */
+export async function openHeadlessDesign(
+  data: ArrayBuffer | Uint8Array, fileName: string,
+  opts: Pick<SimulateFileOptions, 'signal' | 'presets' | 'aero' | 'units' | 'maxInflatedBytes' | 'network'> = {},
+): Promise<ImportedDesign> {
   const tooBig = designFileTooLarge(data.byteLength, fileName);
   if (tooBig) throw new SimulateDesignError('file', tooBig);
   refuseIfAborted(opts.signal);
@@ -92,12 +96,11 @@ export async function simulateFile(
     ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
     : data;
   const presets = opts.presets ?? await loadBundledPresets();
-  let imported: ImportedDesign;
   try {
     const aero = opts.aero ?? APP_DEFAULT_AERO;
-    // The curve load the default match below flies, so a .CDX1's stated launch
+    // The curve load planHeadlessImport's default match flies, so a .CDX1's stated launch
     // weight is backed out with the mass that flight carries.
-    imported = await openDesignFile(buffer, fileName, { units: opts.units ?? INITIAL_UNITS, maxInflatedBytes: opts.maxInflatedBytes, presets, distanceUnit: (opts.units ?? INITIAL_UNITS).altitude,
+    return await openDesignFile(buffer, fileName, { units: opts.units ?? INITIAL_UNITS, maxInflatedBytes: opts.maxInflatedBytes, presets, distanceUnit: (opts.units ?? INITIAL_UNITS).altitude,
       horizontalDistanceUnit: (opts.units ?? INITIAL_UNITS).distance,
       aeroChoice: aero.aeroMode === 'classic' ? (aero.effectiveKbf ? 'kbf' : 'eb') : aero.aeroMode,
       catalogue: opts.network === 'allow' ? undefined : MOTOR_DB,
@@ -108,6 +111,15 @@ export async function simulateFile(
     if (opts.maxInflatedBytes !== undefined && e instanceof InflatedFileTooLargeError) throw e;
     throw new SimulateDesignError('parse', designFileOpenFailure(fileName, e), { cause: e });
   }
+}
+
+/** A design file's bytes, flown as the app opens and launches it. The size is refused before anything is parsed. */
+export async function simulateFile(
+  data: ArrayBuffer | Uint8Array, fileName: string, opts: SimulateFileOptions = {},
+): Promise<TimedSimulateFileResult> {
+  const now = opts.now ?? (() => performance.now());
+  const started = now();
+  let imported = await openHeadlessDesign(data, fileName, opts);
   const parsed = now();
   const appStepS = imported.launch?.timeStepS ?? DEFAULT_TIME_STEP_S;
   const timeStepFloor = opts.minTimeStepS !== undefined && appStepS < opts.minTimeStepS && !noticeEqual(appStepS, opts.minTimeStepS)
@@ -121,13 +133,15 @@ export async function simulateFile(
 }
 
 /**
- * An already-parsed, already-named design (an importer's result after the name
- * fallback) → the flight: every step of the open after the parse, then the
- * Launch. `simulateFile` is `openDesignFile` + this.
+ * Every step of the open after the parse, without the Launch: each motor the
+ * file names resolved (bundled rows and curves unless `network: 'allow'`), then
+ * App's planImport — the configuration to open, its conditions, the import
+ * note. Shared by simulateImported and describeFile.
  */
-export async function simulateImported(
-  imported: ImportedDesign, opts: SimulateFileOptions = {},
-): Promise<SimulateFileResult> {
+export async function planHeadlessImport(
+  imported: ImportedDesign,
+  opts: Pick<SimulateFileOptions, 'signal' | 'match' | 'network' | 'units' | 'launch'> = {},
+): Promise<ImportPlan> {
   const { signal } = opts;
   // 'allow' is the app's own curve path with the caller's signal on the
   // download (fetchMotorSpec's third argument); nothing else about it changes.
@@ -150,9 +164,20 @@ export async function simulateImported(
   });
   // What goes on screen, decided as App decides it: the file's conditions
   // merged onto the panel's, the configuration to open, the import note.
-  const plan = planImport(imported, resolved, {
+  return planImport(imported, resolved, {
     launch: opts.launch ?? DEFAULT_CONDITIONS, text: statedWeightTextFor(opts.units ?? INITIAL_UNITS), units: opts.units,
   });
+}
+
+/**
+ * An already-parsed, already-named design (an importer's result after the name
+ * fallback) → the flight: every step of the open after the parse, then the
+ * Launch. `simulateFile` is `openDesignFile` + this.
+ */
+export async function simulateImported(
+  imported: ImportedDesign, opts: SimulateFileOptions = {},
+): Promise<SimulateFileResult> {
+  const plan = await planHeadlessImport(imported, opts);
   const { tree, mountMotors, launch, measured, savedConfigs, activeConfigId } = plan.snapshot;
   try {
     const out = await simulateDesign(
