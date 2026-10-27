@@ -64,8 +64,13 @@ export const PRESETS: ComparisonPreset[] = [
   { id: 'phase', title: 'Velocity vs altitude', x: 'altitude', left: ['velocity'], right: [] },
 ];
 
-/** Right-axis line patterns, in order of use; one the left axis already draws is skipped. */
-const RIGHT_DASHES = [[6, 4], [2, 3], [8, 3, 2, 3]];
+/**
+ * Right-axis line patterns, in order of use; one the left axis already draws is
+ * skipped. The reference dash (6 4) comes LAST: it is the brand's pattern for
+ * stability and the event markers, so a right-axis velocity or acceleration
+ * takes it only when nothing else is free.
+ */
+const RIGHT_DASHES = [[2, 3], [8, 3, 2, 3], REFERENCE_DASH];
 
 export function comparisonMembers(preset: ComparisonPreset, catalog: SeriesDef[]) {
   const def = (key: string): SeriesDef =>

@@ -43,7 +43,10 @@ export const SERIES = [
  * The SAME slots stepped for the dark plot surface (`chart.dark`) —
  * slot-for-slot, so a trace keeps its identity across themes. Every hue clears
  * 3:1 on the dark plot surface (--surface-1 → brand navy #03254F); pinned by
- * chartTheme.test.
+ * chartTheme.test. On the dark PANEL (#123859, where the legend and selection
+ * dots sit) the pending drag hue does not: #008300 is 2.45:1 there (3.07 on
+ * the plot). That is a known limit until mmr-brand 1.0.3 supplies a drag hue
+ * that clears 3:1 on both; chartTheme.test names it as the one exception.
  */
 export const SERIES_DARK = [
   '#6bc6f3', // 0 chart.dark.altitude
@@ -113,7 +116,13 @@ export function seriesStyle(i: number, palette: string[]): { stroke: string; das
 
 export interface ChartInk {
   axis: string;
-  /** Reference ink (brand `--mmr-chart-reference`): event markers, the worst-angle line. */
+  /**
+   * Reference ink: event markers, the worst-angle line. The app contract's
+   * `--chart-reference` (light and dark = brand `--mmr-chart-reference`;
+   * Daylight = #000, contrast first, like the rest of its chart ink), never the
+   * brand token directly — under Daylight every `--mmr-*` token is the LIGHT
+   * value, so only an app variable lets the Daylight block reach it.
+   */
   reference: string;
   grid: string;
   tick: string;
@@ -144,7 +153,9 @@ export function chartInk(el: Element | null): ChartInk {
   const v = (name: string) => cs.getPropertyValue(name).trim();
   return {
     axis: v('--chart-axis') || FALLBACK.axis,
-    reference: v('--mmr-chart-reference') || FALLBACK.reference,
+    // The brand token is the fallback for a tree whose stylesheet predates
+    // --chart-reference; the contract variable wins wherever it is defined.
+    reference: v('--chart-reference') || v('--mmr-chart-reference') || FALLBACK.reference,
     grid: v('--chart-grid') || FALLBACK.grid,
     tick: v('--chart-tick') || FALLBACK.tick,
     strokeWidth: Number(v('--chart-series-width')) || FALLBACK.strokeWidth,

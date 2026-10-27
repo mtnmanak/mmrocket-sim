@@ -1,9 +1,10 @@
+// @vitest-environment happy-dom
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  REFERENCE_DASH, SERIES, SERIES_DARK, SERIES_DAYLIGHT, SLOT_PATTERN, seriesPalette, seriesStyle, slotDash,
+  REFERENCE_DASH, SERIES, SERIES_DARK, SERIES_DAYLIGHT, SLOT_PATTERN, chartInk, seriesPalette, seriesStyle, slotDash,
 } from './chartTheme.js';
 
 /** WCAG relative luminance of a #rrggbb color. */
@@ -66,6 +67,8 @@ describe('chart palettes', () => {
   // to the vendored brand file, so a brand re-sync that moves a hue fails.
   it('brand slots equal the vendored tokens.json chart values', () => {
     const slots = ['altitude', 'velocity', 'acceleration', 'pressure', 'thrust', undefined, undefined, 'reference'];
+    // The slots with no brand hue are exactly the pending ones.
+    expect(slots.flatMap((name, i) => name ? [] : [i])).toEqual(PENDING_BRAND);
     for (const [theme, palette] of [['light', SERIES], ['dark', SERIES_DARK]] as const) {
       slots.forEach((name, i) => {
         if (name) expect(palette[i], `${theme} slot ${i} (${name})`).toBe(tokens.chart[theme][name]);
@@ -90,15 +93,15 @@ describe('chart palettes', () => {
 
   // The legend and selection dots sit on the panel, one step up. Every brand
   // hue clears 3:1 there too. The pending drag hue does not on the dark panel
-  // (#008300 on #123859, 2.45): that is the mmr-brand 1.0.3 item (D7), and this
-  // assertion fails once a real drag hue lands, so the exception is removed then.
+  // (#008300 on #123859, 2.45): a KNOWN LIMIT until mmr-brand 1.0.3 (D7), which
+  // must give drag (and Mach) a dark hue that clears 3:1 on BOTH #03254F and
+  // #123859. This is a tripwire, not a pass: the failing slots must be exactly
+  // the pending drag slot, so a new failure fails here, and so does the 1.0.3
+  // fix — remove the exception then.
   it('hues clear 3:1 against their panel, except the pending dark drag hue', () => {
     SERIES.forEach((c, i) => expect(contrast(c, PANEL.light), `light ${i}`).toBeGreaterThanOrEqual(3));
-    SERIES_DARK.forEach((c, i) => {
-      if (i === 5) expect(contrast(c, PANEL.dark)).toBeLessThan(3);
-      else expect(contrast(c, PANEL.dark), `dark ${i}`).toBeGreaterThanOrEqual(3);
-    });
-    expect(PENDING_BRAND).toContain(5);
+    const below = SERIES_DARK.flatMap((c, i) => contrast(c, PANEL.dark) < 3 ? [i] : []);
+    expect(below).toEqual([5]);
   });
 
   it('light and dark hues are unique', () => {
@@ -151,6 +154,36 @@ describe('chart palettes', () => {
       // Nothing else carries a line pattern of its own in a single-series panel.
       expect(cat.filter((x) => x.dash).map((x) => x.key)).toEqual(['stability', 'stabilityPercent']);
     }
+    // The roll-plane panel draws the stability margin outside seriesCatalog:
+    // the same reference slot and dash there (it was the altitude blue, solid).
+    const drag = readFileSync(join(here, 'components', 'DragPanel.tsx'), 'utf8');
+    const stabilityLines = drag.match(/label: '[^']*[Ss]tability[^']*', color: palette\[\d\]!(, dash: REFERENCE_DASH)?/g) ?? [];
+    expect(stabilityLines).toHaveLength(1);
+    for (const l of stabilityLines) expect(l).toMatch(/color: palette\[7\]!, dash: REFERENCE_DASH$/);
+  });
+});
+
+describe('chartInk — the reference ink is an app variable Daylight can reach', () => {
+  const host = (vars: Record<string, string>) => {
+    const el = document.createElement('div');
+    for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
+    document.body.appendChild(el);
+    return el;
+  };
+
+  it('reads --chart-reference ahead of the brand token', () => {
+    // Daylight: every --mmr-* token is the LIGHT value (#45637b), and the
+    // Daylight block sets --chart-reference to #000 like the rest of its ink.
+    const el = host({ '--chart-reference': '#000', '--mmr-chart-reference': '#45637b' });
+    expect(chartInk(el).reference).toBe('#000');
+    el.remove();
+  });
+
+  it('falls back to the brand token, then the light brand value', () => {
+    const el = host({ '--mmr-chart-reference': '#a9c3d9' });
+    expect(chartInk(el).reference).toBe('#a9c3d9');
+    el.remove();
+    expect(chartInk(null).reference).toBe(tokens.chart.light.reference);
   });
 });
 
@@ -271,8 +304,7 @@ it('every slot pair that hue alone cannot separate draws different patterns', ()
 // acceleration) are three single-series panels, each titled, so a panel never
 // relies on hue to say which quantity it shows. Their hues must still be told
 // apart at a glance by full-colour vision (the hard 15 floor, no secondary
-// encoding can excuse it), and any pair a simulated vision merges must carry
-// different slot patterns for the charts that draw them together.
+// encoding can excuse it).
 it('the default altitude / velocity / acceleration set is separable', async () => {
   const { seriesCatalog } = await import('./flightChartModel.js');
   const { METRIC_UNITS } = await import('./prefs/units.js');
@@ -281,10 +313,12 @@ it('the default altitude / velocity / acceleration set is separable', async () =
     const cat = seriesCatalog({ units: METRIC_UNITS }, palette);
     const slots = keys.map((k) => palette.indexOf(cat.find((d) => d.key === k)!.color));
     expect(slots).toEqual([0, 1, 2]);
+    // Normal vision only. No chart overlays these three by SLOT pattern (each
+    // has its own panel); where two share a chart — the comparison presets —
+    // the comparison-subset test above holds the dash that separates them.
     for (let i = 0; i < slots.length; i++) for (let j = i + 1; j < slots.length; j++) {
-      const deltas = CVD.map((m) => Math.hypot(...lab(palette[slots[i]!]!, m).map((v, k) => v - lab(palette[slots[j]!]!, m)[k]!)));
-      expect(deltas[0], `normal vision ${keys[i]}/${keys[j]}`).toBeGreaterThanOrEqual(15);
-      if (Math.min(...deltas) < 15) expect(slotDash(slots[i]!)).not.toEqual(slotDash(slots[j]!));
+      const a = lab(palette[slots[i]!]!, CVD[0]!); const b = lab(palette[slots[j]!]!, CVD[0]!);
+      expect(Math.hypot(...a.map((v, k) => v - b[k]!)), `normal vision ${keys[i]}/${keys[j]}`).toBeGreaterThanOrEqual(15);
     }
   }
 });
