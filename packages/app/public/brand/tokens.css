@@ -49,9 +49,11 @@
   --mmr-c-success: #226b47;
   --mmr-c-warning: #855300;
   --mmr-c-danger: #ad2436;
+  --mmr-c-danger-hover: #8e1a29;  /* danger button hover (white label 9.01:1) */
+  --mmr-c-danger-active: #70121f; /* danger button active (white label 11.70:1) */
   --mmr-c-success-dark: #6fd39a;
   --mmr-c-warning-dark: #ffb23e;
-  --mmr-c-danger-dark: #ff8a93;
+  --mmr-c-danger-dark: #ff9ea5;   /* ≥ 4.95:1 on navy, navy-raised and navy-high */
 
   /* ---- Type ---- */
   --mmr-font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;

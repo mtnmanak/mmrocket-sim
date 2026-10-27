@@ -45,8 +45,8 @@
 .mmr-button--quiet:active:not(:disabled):not([aria-disabled="true"]) { background: var(--mmr-surface-2); box-shadow: inset 0 0 0 1px var(--mmr-text); }
 
 .mmr-button--danger { background: var(--mmr-c-danger); color: var(--mmr-c-white); }
-.mmr-button--danger:hover:not(:disabled):not([aria-disabled="true"]) { background: #8e1a29; }
-.mmr-button--danger:active:not(:disabled):not([aria-disabled="true"]) { background: #70121f; }
+.mmr-button--danger:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--mmr-c-danger-hover); }
+.mmr-button--danger:active:not(:disabled):not([aria-disabled="true"]) { background: var(--mmr-c-danger-active); }
 
 /* Disabled: one stable look in both themes (no muddy half-transparent orange on navy). */
 .mmr-button:disabled,
