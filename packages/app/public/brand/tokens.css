@@ -37,6 +37,7 @@
   --mmr-c-line-dark: #557793;     /* hairlines / dividers on dark (decorative) */
   --mmr-c-control: #7c93a8;       /* input borders on light — 3:1 non-text contrast */
   --mmr-c-control-dark: #7e9db8;  /* input borders on dark — 4.3:1 */
+  --mmr-c-line-subtle: #d9e5ee;   /* quiet row rules on light (decorative, 1.28:1 on white) */
 
   /* ---- Primitives: functional ---- */
   --mmr-c-action: #bb4100;        /* primary button fill on light (white label 5.43:1) */
@@ -54,6 +55,8 @@
   --mmr-c-success-dark: #6fd39a;
   --mmr-c-warning-dark: #ffb23e;
   --mmr-c-danger-dark: #ff9ea5;   /* ≥ 4.95:1 on navy, navy-raised and navy-high */
+  --mmr-c-selection: #e0edf5;     /* selected row on light: link 12 % over white */
+  --mmr-c-selection-dark: #184570; /* selected row on dark: sky 20 % over navy */
 
   /* ---- Type ---- */
   --mmr-font-display: "Archivo", "Helvetica Neue", Arial, sans-serif;
@@ -92,6 +95,7 @@
   --mmr-text-muted: var(--mmr-c-slate);
   --mmr-border: var(--mmr-c-line);
   --mmr-border-control: var(--mmr-c-control);
+  --mmr-border-subtle: var(--mmr-c-line-subtle);  /* decorative row rules */
   --mmr-link-color: var(--mmr-c-link);
   --mmr-accent: var(--mmr-c-orange);               /* graphics, rules, large display only */
   --mmr-accent-text: var(--mmr-c-orange-ink);      /* orange words at body size */
@@ -103,6 +107,12 @@
   --mmr-success: var(--mmr-c-success);
   --mmr-warning: var(--mmr-c-warning);
   --mmr-danger: var(--mmr-c-danger);
+  --mmr-accent-soft: #ff650926;                    /* tints: see SPEC §3.1 for text on them */
+  --mmr-link-soft: #006aab26;
+  --mmr-success-soft: #226b4726;
+  --mmr-warning-soft: #85530026;
+  --mmr-danger-soft: #ad24361f;
+  --mmr-selection: var(--mmr-c-selection);
   --mmr-theme-color: #03254f;                      /* <meta name="theme-color"> */
 }
 
@@ -116,6 +126,7 @@
   --mmr-text-muted: var(--mmr-c-slate-light);
   --mmr-border: var(--mmr-c-line-dark);
   --mmr-border-control: var(--mmr-c-control-dark);
+  --mmr-border-subtle: var(--mmr-c-navy-high);
   --mmr-link-color: var(--mmr-c-sky);
   --mmr-accent: var(--mmr-c-orange);
   --mmr-accent-text: var(--mmr-c-orange-soft);
@@ -127,6 +138,12 @@
   --mmr-success: var(--mmr-c-success-dark);
   --mmr-warning: var(--mmr-c-warning-dark);
   --mmr-danger: var(--mmr-c-danger-dark);
+  --mmr-accent-soft: #ff650926;
+  --mmr-link-soft: #6bc6f326;
+  --mmr-success-soft: #6fd39a26;
+  --mmr-warning-soft: #ffb23e26;
+  --mmr-danger-soft: #ff9ea51f;
+  --mmr-selection: var(--mmr-c-selection-dark);
   --mmr-theme-color: #03254f;
 }
 
@@ -141,6 +158,7 @@
     --mmr-text-muted: var(--mmr-c-slate-light);
     --mmr-border: var(--mmr-c-line-dark);
     --mmr-border-control: var(--mmr-c-control-dark);
+    --mmr-border-subtle: var(--mmr-c-navy-high);
     --mmr-link-color: var(--mmr-c-sky);
     --mmr-accent: var(--mmr-c-orange);
     --mmr-accent-text: var(--mmr-c-orange-soft);
@@ -152,5 +170,11 @@
     --mmr-success: var(--mmr-c-success-dark);
     --mmr-warning: var(--mmr-c-warning-dark);
     --mmr-danger: var(--mmr-c-danger-dark);
+    --mmr-accent-soft: #ff650926;
+    --mmr-link-soft: #6bc6f326;
+    --mmr-success-soft: #6fd39a26;
+    --mmr-warning-soft: #ffb23e26;
+    --mmr-danger-soft: #ff9ea51f;
+    --mmr-selection: var(--mmr-c-selection-dark);
   }
 }
