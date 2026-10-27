@@ -43,10 +43,10 @@ describe('precache coverage — every built file is offline, or deliberately not
       .toEqual(['workbox-window.prod.es5-BqEJf4Xk.js']);
   });
 
-  it('names a URL the manifest lists twice (a first install fails on it in current Chrome)', () => {
+  it('names a URL the manifest lists twice (workbox refuses it once the revisions differ)', () => {
     // vite-plugin-pwa appends includeAssets and the manifest icons to the glob
     // matches, so a favicon both globbed and named in includeAssets was listed
-    // twice, and Chrome 156 rejected the second Cache.put of the whole install.
+    // twice (v0.194 shipped six such pairs, harmless only while the revisions match).
     expect(duplicatePrecacheUrls(SW_MIN)).toEqual([]);
     const twice = SW_MIN.replace('{url:"assets/index-C7tKBouI.js",revision:null},',
       '{url:"favicon.ico",revision:"ab"},{url:"assets/index-C7tKBouI.js",revision:null},{url:"favicon.ico",revision:"ab"},');

@@ -36,8 +36,8 @@ function precacheCoversBuild(): Plugin {
       handler() {
         const dupes = duplicatePrecacheUrls(readFileSync(resolve(outDir, 'sw.js'), 'utf8'));
         if (dupes.length > 0) {
-          throw new Error(`the service worker precaches ${dupes.length} URL(s) twice, which makes a `
-            + `first install fail in current Chrome (no offline copy at all): ${dupes.join(', ')}. `
+          throw new Error(`the service worker precaches ${dupes.length} URL(s) twice, which workbox `
+            + `refuses as soon as the two revisions differ (no offline copy at all): ${dupes.join(', ')}. `
             + 'A file matched by workbox.globPatterns must not also be in includeAssets or the '
             + 'manifest icons (includeManifestIcons).');
         }
@@ -135,8 +135,8 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       // ONLY files globPatterns does not already match: anything listed in both is
-      // precached twice, and a duplicate entry fails the whole install in current
-      // Chrome (precacheCoversBuild refuses the build). The favicons, touch icon and
+      // precached twice, which workbox refuses once the two revisions differ
+      // (precacheCoversBuild refuses the build). The favicons, touch icon and
       // install icons are matched by globPatterns (ico, svg, png); the OG card (jpg)
       // is not, so it is the one asset named here. includeManifestIcons is off for
       // the same reason, and the plugin adds manifest.webmanifest itself, so

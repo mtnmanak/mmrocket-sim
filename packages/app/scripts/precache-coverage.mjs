@@ -66,14 +66,13 @@ export function uncachedFiles(files, swSource) {
 }
 
 /**
- * URLs the precache manifest lists more than once. Workbox's install puts each
- * entry into the cache, and a current Chrome (156, measured 2026-10-26) rejects
- * the second put of the same request ("Failed to execute 'put' on 'Cache':
- * Entry already exists"), so the whole install fails and a FIRST visit never
- * gets an offline copy. An update only re-puts changed entries, which is why an
- * already-installed worker kept working. vite-plugin-pwa adds includeAssets and
- * the manifest icons on top of globPatterns, so one file matched by both
- * appears twice.
+ * URLs the precache manifest lists more than once. vite-plugin-pwa adds
+ * includeAssets and the manifest icons on top of globPatterns, so one file
+ * matched by both appears twice (v0.194 shipped six such pairs). Workbox
+ * tolerates a duplicate only while both copies carry the SAME revision; the
+ * moment they differ it throws add-to-cache-list-conflicting-entries when the
+ * worker starts, and the app has no offline copy. Refusing duplicates at build
+ * time keeps that from ever being one config edit away.
  */
 export function duplicatePrecacheUrls(swSource) {
   const seen = new Set();
