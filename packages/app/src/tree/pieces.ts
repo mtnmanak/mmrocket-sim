@@ -73,8 +73,10 @@ const MAT = {
   lug: '#9a978f',
   inner: '#6b6862',
   // The brand Launch fill (--mmr-btn-primary-bg, light): the same orange the
-  // side view's loaded case is filled with in the light theme, and darker
-  // than the #FF6509 CP marker, which can sit over the motor.
+  // side view's loaded case is filled with in the light theme. The CP marker,
+  // also orange, can sit over the motor (drawn on top); its paper halo is
+  // what separates the two there (5.18:1), not the fill (1.84) — see
+  // Rocket3D SCENE_INK. Rocket3D.test holds this value to tokens.json.
   motor: '#bb4100',
 };
 

@@ -9,8 +9,13 @@ import type { ComponentNode, RocketTree, StaticInfo } from '@online-openrocket/e
 import { buildPieces } from '../tree/pieces.js';
 import {
   axisMarkers, calloutGadget, exportCamera, fitCameraToBox, FIT_MARGIN, isFittableBox,
-  markerVisibility, piecesBounds,
+  markerVisibility, piecesBounds, SCENE_INK,
 } from './Rocket3D.js';
+
+/** The vendored brand primitives (mmr-brand tokens.json `color`). */
+const BRAND_COLOR = (JSON.parse(readFileSync(resolve(__dirname, '../../public/brand/tokens.json'), 'utf8')) as {
+  color: Record<string, string>;
+}).color;
 
 const centerY = (geo: THREE.BufferGeometry): number => {
   geo.computeBoundingBox();
@@ -636,7 +641,8 @@ describe('buildPieces — inner tubes and loaded motors (S5)', () => {
     expect(motor.length).toBe(1);
     // Mount aft end at 0.37: motor spans 0.315..0.37, centre 0.3425.
     expect(motor[0]!.position![0]).toBeCloseTo(0.3425, 9);
-    expect(motor[0]!.color).toBe('#bb4100');
+    // The brand Launch fill (#bb4100), held to the vendored tokens.json.
+    expect(motor[0]!.color).toBe(BRAND_COLOR.action);
     // No motors prop, or a motor on some other mount: no case drawn.
     expect(buildPieces(mountTree()).pieces.some((p) => p.key.startsWith('motor'))).toBe(false);
     expect(buildPieces(mountTree(), { other: { length: 0.055, diameter: 0.018 } })
@@ -775,5 +781,44 @@ describe('the view draws each part with its surface finish (N062)', () => {
     expect(pieces.filter((p) => p.key.startsWith('fin'))).toHaveLength(3);
     const box = piecesBounds(pieces);
     expect(box.max.y).toBeCloseTo(maxR, 4);
+  });
+});
+
+describe('3D scene inks are the vendored brand values', () => {
+  // three.js takes colour strings, so these are literals; this holds them to
+  // tokens.json, so a brand re-sync that moves one (mmr-brand 1.0.3 lightens
+  // danger-dark) fails here instead of leaving a stale copy in the scene.
+  const c = BRAND_COLOR;
+
+  it('markers, rings, glows and margin inks', () => {
+    expect(SCENE_INK).toEqual({
+      margin: { ok: c['success-dark'], over: c['warning-dark'], under: c['danger-dark'] },
+      cp: c.orange, cpGlow: c['action-active'],
+      cg: c.paper, cgGlow: c.control,
+      ring: c.navy, halo: c.paper,
+    });
+  });
+
+  // WCAG ratios behind the ring + halo design (SCENE_INK's comment): every
+  // stage ground and the motor meet a marker edge at 3:1 or more.
+  it('every marker meets every ground at 3:1 through its fill, ring or halo', () => {
+    const lum = (h: string) => {
+      const v = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+        .map((s) => s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4);
+      return 0.2126 * v[0]! + 0.7152 * v[1]! + 0.0722 * v[2]!;
+    };
+    const ratio = (a: string, b: string) => {
+      const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+      return (x! + 0.05) / (y! + 0.05);
+    };
+    const grounds = [c.mist!, c.white!, c.navy!, c.action!]; // light stage, Daylight, dark stage, motor
+    for (const fill of [SCENE_INK.cp, SCENE_INK.cg]) {
+      for (const g of grounds) {
+        const best = Math.max(ratio(fill, g), ratio(SCENE_INK.ring, g), ratio(SCENE_INK.halo, g));
+        expect(best, `${fill} on ${g}`).toBeGreaterThanOrEqual(3);
+      }
+      // The fill itself reads against the ring right behind it.
+      expect(ratio(fill, SCENE_INK.ring), fill).toBeGreaterThanOrEqual(3);
+    }
   });
 });

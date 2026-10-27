@@ -45,20 +45,70 @@ const ZERO3: [number, number, number] = [0, 0, 0];
 const markerRadius = (totalLen: number, maxR: number): number =>
   Math.max(totalLen * 0.015, maxR * 0.35);
 
-// The brand's DARK-theme status values (mmr-brand 1.0.2 success-dark,
-// warning-dark, danger-dark) on purpose: the 3D background is dark in every
-// theme, so the dark-theme inks are the legible set here.
-const MARGIN_COLOR: Record<StabilityState, string> = {
-  ok: '#6fd39a', over: '#ffb23e', under: '#ff8a93',
-};
+/**
+ * Brand literals for the 3D scene (three.js takes colour strings, not CSS
+ * variables). Rocket3D.test holds every one to the vendored tokens.json, so a
+ * brand re-sync that moves one fails there.
+ *
+ * The scene has NO background of its own: the canvas is transparent over
+ * `.rocket-stage`, which is mist #E5F0F8 in light, white under Daylight and
+ * navy #03254F in dark. So no single marker fill clears 3:1 everywhere (the
+ * brand orange is 2.55 on mist, 2.95 on white), and the CP can also sit over
+ * the orange motor (drawn on top, depthTest off). Each marker therefore
+ * carries a navy RING and a paper HALO behind its fill (MarkerBall): on mist
+ * or white the navy ring separates it (13.1 / 15.0), on navy the paper halo
+ * does (14.5), and over the #BB4100 motor the paper halo does (5.18). The
+ * fill reads against the ring: CP orange 5.15 on navy, CG paper 14.5.
+ *
+ * The margin readout is TEXT drawn with its own navy halo (labelTexture), so
+ * its ground is that halo in every theme, and the brand's DARK status values
+ * (success-dark, warning-dark, danger-dark) are the legible set.
+ */
+export const SCENE_INK = {
+  margin: {
+    ok: '#6fd39a', // success-dark
+    over: '#ffb23e', // warning-dark
+    // danger-dark — pending mmr-brand 1.0.3, which lightens it (D7); re-sync then.
+    under: '#ff8a93',
+  } satisfies Record<StabilityState, string>,
+  /** CP: the brand orange (CHECKLIST: orange marks the CP); its glow is the Launch ramp's darkest step. */
+  cp: '#ff6509',
+  cpGlow: '#7c2a00',
+  /** CG: brand paper, so the two never read as one; its glow and the gadget connector are control slate. */
+  cg: '#f6faff',
+  cgGlow: '#7c93a8',
+  /** Behind every marker: the navy ring, then the paper halo (see above). */
+  ring: '#03254f',
+  halo: '#f6faff',
+} as const;
+const MARGIN_COLOR: Record<StabilityState, string> = SCENE_INK.margin;
+const { cg: CG_COLOR, cgGlow: CG_GLOW, cp: CP_COLOR, cpGlow: CP_GLOW } = SCENE_INK;
 
-// Marker inks. CP is the brand orange (SPEC: orange marks the CP); CG is
-// brand paper, so the two never read as one. The glows are brand values one
-// step darker (control slate, the Launch ramp's darkest orange).
-const CG_COLOR = '#f6faff';
-const CG_GLOW = '#7c93a8';
-const CP_COLOR = '#ff6509';
-const CP_GLOW = '#7c2a00';
+/**
+ * A marker sphere drawn on top of the hull, with the navy ring and paper halo
+ * behind it (SCENE_INK). Spheres project to discs from every angle, so two
+ * larger flat-shaded spheres drawn first read as rings around the fill.
+ */
+function MarkerBall({ position, r, color, glow, order }: {
+  position: [number, number, number]; r: number; color: string; glow: string; order: number;
+}) {
+  return (
+    <group position={position}>
+      <mesh renderOrder={order}>
+        <sphereGeometry args={[r * 1.36, 24, 24]} />
+        <meshBasicMaterial color={SCENE_INK.halo} depthTest={false} transparent />
+      </mesh>
+      <mesh renderOrder={order + 0.1}>
+        <sphereGeometry args={[r * 1.2, 24, 24]} />
+        <meshBasicMaterial color={SCENE_INK.ring} depthTest={false} transparent />
+      </mesh>
+      <mesh renderOrder={order + 0.2}>
+        <sphereGeometry args={[r, 24, 24]} />
+        <meshStandardMaterial color={color} emissive={glow} depthTest={false} transparent />
+      </mesh>
+    </group>
+  );
+}
 
 export interface CalloutGadget {
   /** Radial (z) offset of the gadget column, clear of the hull. */
@@ -328,8 +378,8 @@ export function exportCamera(
 
 /**
  * Canvas-texture for a billboard label. Drawn at 3× the nominal glyph size so
- * it stays devicePixel-sharp when zoomed; the thin dark outline keeps the ink
- * legible over the light band of the dusk background.
+ * it stays devicePixel-sharp when zoomed; the navy outline is the label's own
+ * ground, so the ink stays legible on the light stage and over the hull.
  */
 function labelTexture(text: string, color: string): { texture: THREE.CanvasTexture; aspect: number } {
   const px = 96;
@@ -600,16 +650,10 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
           {/* 0.45× the shared size rule (batch 08-21d): full-size axis balls
               overwhelmed small rockets; the gadget keeps the size rule. */}
           {markers.axis && axis.cg !== null && (
-            <mesh position={[axis.cg, 0, 0]} renderOrder={10}>
-              <sphereGeometry args={[markerR * 0.45, 24, 24]} />
-              <meshStandardMaterial color={CG_COLOR} emissive={CG_GLOW} depthTest={false} transparent />
-            </mesh>
+            <MarkerBall position={[axis.cg, 0, 0]} r={markerR * 0.45} color={CG_COLOR} glow={CG_GLOW} order={10} />
           )}
           {markers.axis && axis.cp !== null && (
-            <mesh position={[axis.cp, 0, 0]} renderOrder={11}>
-              <sphereGeometry args={[markerR * 0.45, 24, 24]} />
-              <meshStandardMaterial color={CP_COLOR} emissive={CP_GLOW} depthTest={false} transparent />
-            </mesh>
+            <MarkerBall position={[axis.cp, 0, 0]} r={markerR * 0.45} color={CP_COLOR} glow={CP_GLOW} order={11} />
           )}
           {/* Floating CG/CP callout beside the hull (2026-08-21c). Same
               always-on-top treatment as the axis markers; no pointer handlers,
@@ -624,15 +668,9 @@ export function Rocket3D({ tree, info, motors, hiddenIds, exportData, onError }:
                   <meshBasicMaterial color={CG_GLOW} depthTest={false} transparent />
                 </mesh>
               )}
-              <mesh position={gadget.cg.pos} renderOrder={12}>
-                <sphereGeometry args={[gadget.r, 24, 24]} />
-                <meshStandardMaterial color={CG_COLOR} emissive={CG_GLOW} depthTest={false} transparent />
-              </mesh>
+              <MarkerBall position={gadget.cg.pos} r={gadget.r} color={CG_COLOR} glow={CG_GLOW} order={12} />
               {gadget.cp && (
-                <mesh position={gadget.cp.pos} renderOrder={12}>
-                  <sphereGeometry args={[gadget.r, 24, 24]} />
-                  <meshStandardMaterial color={CP_COLOR} emissive={CP_GLOW} depthTest={false} transparent />
-                </mesh>
+                <MarkerBall position={gadget.cp.pos} r={gadget.r} color={CP_COLOR} glow={CP_GLOW} order={12.5} />
               )}
               <CalloutLabel text={gadget.cg.text} color={gadget.cg.color} place="above"
                 position={gadget.cg.pos} height={markerR * 1.2} gap={gadget.r * 1.5} />
