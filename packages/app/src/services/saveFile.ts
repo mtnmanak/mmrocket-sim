@@ -49,6 +49,11 @@ export interface SaveOptions {
   extensions: string[];
   /** Shown as the file-type label in the picker's dropdown. */
   description: string;
+  /**
+   * App's own Save .ork/.rkt/.CDX1. App applies its destination rules to that
+   * outcome itself, so `onCompletedSave` listeners are not told about it.
+   */
+  designSave?: boolean;
 }
 
 export type SaveOutcome =
@@ -63,6 +68,26 @@ export type SaveOutcome =
   | { kind: 'downloaded'; name: string; fellBack?: string }
   /** The user pressed Cancel in the dialog. Say nothing; do nothing. */
   | { kind: 'cancelled' };
+
+const completedSaveListeners = new Set<(destination: object) => void>();
+
+/**
+ * Hears every completed picker write's destination token, from any writer
+ * except a `designSave`: a file the app wrote over the one the design was last
+ * saved to no longer holds that design (audit, v0.194 closure check). Returns
+ * the unsubscribe.
+ */
+export function onCompletedSave(listener: (destination: object) => void): () => void {
+  completedSaveListeners.add(listener);
+  return () => { completedSaveListeners.delete(listener); };
+}
+
+function announceCompletedSave(destination: object): void {
+  for (const listener of [...completedSaveListeners]) {
+    // The file is written: a listener's failure must not turn that into an error.
+    try { listener(destination); } catch { /* reported nowhere: the save stands */ }
+  }
+}
 
 const destinations: { handle: FsFileHandle; token: object }[] = [];
 let destinationQueue = Promise.resolve();
@@ -152,12 +177,12 @@ export async function saveFile(data: BlobPart, opts: SaveOptions): Promise<SaveO
       handle = null;
     }
     if (handle) {
+      let destination: object;
       try {
-        const destination = await destinationOf(handle);
+        destination = await destinationOf(handle);
         const w = await handle.createWritable();
         await w.write(data);
         await w.close();
-        return { kind: 'saved', name: handle.name || opts.suggestedName, destination };
       } catch (e) {
         // Past the picker, a failure is a real failure — a full disk, a
         // revoked permission, a file locked by another program. AbortError
@@ -170,6 +195,9 @@ export async function saveFile(data: BlobPart, opts: SaveOptions): Promise<SaveO
           fellBack: e instanceof Error ? e.message : String(e),
         };
       }
+      // Outside the try: nothing a listener does can become a fallback download.
+      if (!opts.designSave) announceCompletedSave(destination);
+      return { kind: 'saved', name: handle.name || opts.suggestedName, destination };
     }
   }
   return viaDownload(data, opts.mime, opts.suggestedName);
