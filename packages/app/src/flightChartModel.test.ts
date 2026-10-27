@@ -3,9 +3,9 @@ import type { FlightSeries } from '@online-openrocket/engine';
 import { PRESETS, comparisonMembers, convertedValues, phaseData, phaseRuns, seriesCatalog, usableSeries, withStabilityPercent } from './flightChartModel.js';
 import { stabilityPercent } from './services/simReport.js';
 import { METRIC_UNITS, IMPERIAL_UNITS } from './prefs/units.js';
-import { SERIES } from './chartTheme.js';
+import { LIGHT_PALETTE } from './chartTheme.js';
 
-const catalog = (imperial = false) => seriesCatalog({ units: imperial ? IMPERIAL_UNITS : METRIC_UNITS }, SERIES);
+const catalog = (imperial = false) => seriesCatalog({ units: imperial ? IMPERIAL_UNITS : METRIC_UNITS }, LIGHT_PALETTE);
 const series = (altitude: (number | null)[], velocity = altitude.map((_, i) => i + 10)) => ({
   time: altitude.map((_, i) => i), altitude, velocity,
   acceleration: altitude.map(() => 3), Vz: altitude.map(() => -2),
@@ -39,7 +39,7 @@ describe('comparison definitions and SI copies', () => {
   it('N032 charts altitude in its own unit and keeps the recorded SI series', () => {
     const input = series([0, 304.8, null]);
     const before = structuredClone(input);
-    const altitude = seriesCatalog({ units: { ...METRIC_UNITS, altitude: 'ft', distance: 'km' } }, SERIES).find(d => d.key === 'altitude')!;
+    const altitude = seriesCatalog({ units: { ...METRIC_UNITS, altitude: 'ft', distance: 'km' } }, LIGHT_PALETTE).find(d => d.key === 'altitude')!;
     expect(altitude.unit).toBe('ft');
     expect(altitude.quantity).toBe('altitude');
     expect(convertedValues(input, altitude)).toEqual([0, 1000, null]);

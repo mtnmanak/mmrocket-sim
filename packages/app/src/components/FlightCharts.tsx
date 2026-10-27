@@ -7,7 +7,10 @@ import { boosterBranches, type FlightResult, type FlightSeries } from '@online-o
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { arbitraryCatalog, seriesCatalog, PRESETS, usableSeries, withStabilityPercent, type ComparisonPreset, type SeriesDef } from '../flightChartModel.js';
 import { ComparisonChart } from './ComparisonChart.js';
-import { chartInk, seriesPalette } from '../chartTheme.js';
+import { chartInk } from '../chartTheme.js';
+import { useChartPalette } from '../useChartPalette.js';
+import { legendSamplePlugin } from '../chartLegend.js';
+import { LineSample } from './LineSample.js';
 import {
   panelHeight, panZoomPlugin, plotIsZoomed, resetPlots, zoomPercent,
 } from '../chartPanZoom.js';
@@ -35,9 +38,9 @@ import { PlotImage } from './PlotImage.js';
  */
 const SYNC_KEY = 'flight';
 
-// Validated palette slots 1-8, then repeats (single-series panels: identity
-// is text-carried, so repeats are safe). High contrast swaps in a darker /
-// brighter set — see chartTheme.ts.
+// Series colours are the brand chart tokens, read from CSS per theme
+// (useChartPalette); each series' colour and line style are fixed by its
+// quantity (flightChartModel StyleAllocator) — see chartTheme.ts.
 
 const DEFAULT_SELECTED: (keyof FlightSeries)[] = ['altitude', 'velocity', 'acceleration'];
 
@@ -138,7 +141,7 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
           label: `${def.title}${def.unit ? ` (${def.unit})` : ''}`,
           stroke: def.color,
           width: ink.strokeWidth,
-          // Stability is the brand's reference ink: dashed wherever it is drawn.
+          // The series' own line style wherever it is drawn (stability: 6 4).
           ...(def.dash ? { dash: def.dash } : {}),
           value: (_u, v) => formatReadout(v),
         },
@@ -151,7 +154,8 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
         panZoomPlugin(() => plots,
           (u) => onZoomChangeRef.current(plotIsZoomed(u), zoomPercent(u))),
         tooltipPlugin(),
-        eventPlugin(result.events, selectedEvents, ink.reference),
+        eventPlugin(result.events, selectedEvents, ink),
+        legendSamplePlugin(),
       ],
     };
     const plot = new uPlot(opts, data, el);
@@ -204,7 +208,8 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
           {' — '}{flightName}
         </h3>
         <PlotImage container={ref} title={`${def.title}${def.unit ? ` (${def.unit})` : ''} over Time (s) — ${flightName}`}
-          captions={eventCaptions(result.events, selectedEvents)} />
+          captions={eventCaptions(result.events, selectedEvents)}
+          legend={[{ label: def.title, color: def.color, ...(def.dash ? { dash: def.dash } : {}) }]} />
         <button className="chart-btn" onClick={onToggleExpand} aria-pressed={expanded}
           title={expanded ? 'Restore chart size' : 'Expand chart (full width, taller)'}
           aria-label={expanded ? `Restore ${def.title} chart size` : `Expand ${def.title} chart`}>
@@ -248,13 +253,14 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
    */
   flightRunning?: boolean;
 }) {
-  const { prefs, setPrefs, daylight, resolvedTheme } = usePrefs();
+  const { prefs, setPrefs } = usePrefs();
+  const palette = useChartPalette();
   const exportLayout = prefs.flightExportLayouts?.find(l => l.id === prefs.flightExportLayoutId);
   const [layoutEditor, setLayoutEditor] = useState<null | 'new' | 'edit'>(null);
   const catalog = useMemo(
-    () => seriesCatalog({ units: prefs.units }, seriesPalette(daylight, resolvedTheme)),
+    () => seriesCatalog({ units: prefs.units }, palette),
     // Other preferences do not change plotted series (audit 2026-10-11, S3b-2).
-    [prefs.units, daylight, resolvedTheme],
+    [prefs.units, palette],
   );
   const [comparison, setComparison] = useState('');
   const [custom, setCustom] = useState({ x: 'time', y: 'altitude' });
@@ -278,8 +284,8 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
   const shown = useMemo(() => ({ ...recording, events: branch?.events ?? recording.events,
     series: withStabilityPercent(branch?.series ?? recording.series, branch?.events ?? recording.events),
   }), [recording, branch]);
-  const axesCatalog = useMemo(() => arbitraryCatalog(shown.series, { units: prefs.units }, seriesPalette(daylight, resolvedTheme)),
-    [shown.series, prefs.units, daylight, resolvedTheme]);
+  const axesCatalog = useMemo(() => arbitraryCatalog(shown.series, { units: prefs.units }, palette),
+    [shown.series, prefs.units, palette]);
   const plotCatalog = useMemo(() => [...catalog, ...axesCatalog.filter(d => !catalog.some(c => c.key === d.key))], [catalog, axesCatalog]);
   const panelKey = `${branchChoice.generation}-${branchIndex}`;
   const preset = useMemo<ComparisonPreset | undefined>(() => comparison === 'custom'
@@ -447,7 +453,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
               className={`series-chip ${on ? 'series-chip-on' : ''}`}
               onClick={() => toggle(d.key)}
               aria-pressed={on}>
-              <span className="series-dot" style={{ background: d.color }} />
+              <LineSample color={d.color} dash={d.dash} />
               {d.title}
             </button>
           );
@@ -507,7 +513,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           onFocus={() => { setHovered(null); setFocused(d.key); }} onBlur={() => setFocused(null)}
           onClick={() => { setHovered(null); setFocused(null); setPinned(pinned === d.key ? null : d.key); }}
           onKeyDown={(e) => { if (e.key === 'Escape') { setHovered(null); setFocused(null); setPinned(null); } }}>
-          <span className="series-dot" style={{ background: d.color }} />{d.title}
+          <LineSample color={d.color} dash={d.dash} />{d.title}
           <span className="series-emphasis-mark" aria-hidden="true" style={{ visibility: emphasis === d.key ? 'visible' : 'hidden' }}>✓</span>
         </button>)}
       </div>}

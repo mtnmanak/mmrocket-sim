@@ -1,146 +1,163 @@
 /**
- * Chart ink and series palettes — shared by every uPlot chart (flight plots,
- * drag sweep).
+ * Chart ink, series colours and line styles — shared by every uPlot chart
+ * (flight plots, comparison chart, drag analysis).
  *
- * Axis/grid/tick ink is READ FROM the live CSS custom properties on the chart's
- * own container, so charts follow whatever theme + contrast mode the root
- * carries without a second copy of the palette living in JS.
- *
- * Series colors have to be JS strings (uPlot takes them directly), so the
- * high-contrast variants are declared here. The brand hues clear 3:1 (the
- * non-text floor) on their plot surface; the Daylight hues clear 4.5:1 on
- * white, for a phone in direct sunlight.
+ * EVERY COLOUR IS READ FROM CSS at the chart's own container, so charts follow
+ * whatever theme + contrast mode the root carries without a second copy of the
+ * palette living in JS. styles.css defines the app's chart variables
+ * (`--chart-altitude` … `--chart-reference`, `--chart-axis`, …) as aliases of
+ * the vendored brand tokens (`brand/chart.css`, mmr-brand 1.0.3); the Daylight
+ * block overrides only what Daylight must. There is NO colour literal in this
+ * file (chartTheme.test enforces it): the one fallback, for a chart with no
+ * stylesheet in scope (tests, a detached node) and for the workbook export, is
+ * the brand's LIGHT set, imported from `brand/tokens.json` at build time.
  */
+import tokens from '../public/brand/tokens.json';
 
 /**
- * Brand palette (mmr-brand 1.0.2, `brand/tokens.json` → `chart.light`), LIGHT
- * theme. Slot identity is fixed by the quantity, not by validation order:
- * 0 altitude, 1 velocity, 2 acceleration, 3 pressure (mass, dynamic
- * pressure), 4 thrust, 7 stability = the brand's REFERENCE ink, always drawn
- * dashed (REFERENCE_DASH). The brand has no hue for slots 5 (drag) and 6
- * (Mach) yet, so they keep the pre-brand hues.
- *
- * Hue alone does NOT separate every pair for colour-blind readers (the brand
- * says so itself: "every series also gets a distinct dash or marker"), and
- * slots cannot be re-ordered without moving a quantity off its brand hue, so
- * SLOT_DASH below is the secondary encoding. chartTheme.test holds both: the
- * literals equal the vendored tokens.json, and every pair under 15 ΔE76 in any
- * simulated vision carries different dashes. Literals, not CSS reads: uPlot
- * takes strings.
+ * The eight brand series tokens, in the brand's SLOT ORDER (SPEC §3.2). A
+ * series that IS one of these quantities always takes its named token,
+ * wherever it sits; a many-series chart with no quantities (the drag
+ * breakdown) assigns them in this order.
  */
-export const SERIES = [
-  '#006aab', // 0 chart.light.altitude
-  '#226b47', // 1 chart.light.velocity
-  '#7049a8', // 2 chart.light.acceleration
-  '#855300', // 3 chart.light.pressure
-  '#ad3c00', // 4 chart.light.thrust
-  '#008300', // 5 drag: pending mmr-brand 1.0.3 (no brand hue yet)
-  '#4a3aa7', // 6 Mach: pending mmr-brand 1.0.3 (no brand hue yet)
-  '#45637b', // 7 chart.light.reference (stability, dashed)
-];
+export const CHART_TOKENS = [
+  'altitude', 'velocity', 'acceleration', 'pressure', 'thrust', 'drag', 'mach', 'reference',
+] as const;
+export type ChartToken = (typeof CHART_TOKENS)[number];
+
+/** A token's slot (its index in the slot order). */
+export const slotOf = (token: ChartToken): number => CHART_TOKENS.indexOf(token);
 
 /**
- * The SAME slots stepped for the dark plot surface (`chart.dark`) —
- * slot-for-slot, so a trace keeps its identity across themes. Every hue clears
- * 3:1 on the dark plot surface (--surface-1 → brand navy #03254F); pinned by
- * chartTheme.test. On the dark PANEL (#123859, where the legend and selection
- * dots sit) the pending drag hue does not: #008300 is 2.45:1 there (3.07 on
- * the plot). That is a known limit until mmr-brand 1.0.3 supplies a drag hue
- * that clears 3:1 on both; chartTheme.test names it as the one exception.
+ * The app's CSS variable for each token — styles.css defines each as an alias
+ * of the brand's chart token of the same name. Spelled out, not built from
+ * the token, so cssCustomProperties.test can see every name the charts read.
  */
-export const SERIES_DARK = [
-  '#6bc6f3', // 0 chart.dark.altitude
-  '#78ce9a', // 1 chart.dark.velocity
-  '#c0a0f2', // 2 chart.dark.acceleration
-  '#ffb23e', // 3 chart.dark.pressure
-  '#ff6509', // 4 chart.dark.thrust
-  '#008300', // 5 drag: pending mmr-brand 1.0.3 (no brand hue yet)
-  '#9085e9', // 6 Mach: pending mmr-brand 1.0.3 (no brand hue yet)
-  '#a9c3d9', // 7 chart.dark.reference (stability, dashed)
-];
+const CHART_VARS: Record<ChartToken, string> = {
+  altitude: '--chart-altitude',
+  velocity: '--chart-velocity',
+  acceleration: '--chart-acceleration',
+  pressure: '--chart-pressure',
+  thrust: '--chart-thrust',
+  drag: '--chart-drag',
+  mach: '--chart-mach',
+  reference: '--chart-reference',
+};
+
+/** The app's CSS variable for a token. */
+export const chartVar = (token: ChartToken): string => CHART_VARS[token];
 
 /**
- * Daylight palette: every hue dark enough to hold its own against the white
- * page daylight mode forces. There is no dark variant, because daylight mode
- * has no dark variant. The brand has no Daylight chart set, so these are the
- * pre-brand hues, unchanged.
+ * The brand's LIGHT series in slot order, from tokens.json → chart.light. Used
+ * where no stylesheet is in scope, and by the workbook export (a spreadsheet
+ * is white paper).
  */
-export const SERIES_DAYLIGHT = ['#0b4ea2', '#00665c', '#8a5000', '#b00016', '#5b2d8e', '#3d5200', '#9c0069', '#005066'];
+export const LIGHT_PALETTE: readonly string[] = CHART_TOKENS.map((t) => tokens.chart.light[t]);
 
-/** The palette to draw with: daylight overrides everything, then the theme. */
-export function seriesPalette(daylight: boolean, theme: 'light' | 'dark' = 'light'): string[] {
-  if (daylight) return SERIES_DAYLIGHT;
-  return theme === 'dark' ? SERIES_DARK : SERIES;
+/**
+ * The series colours in scope at `el`, in slot order. Custom properties
+ * inherit, so any descendant of `.viz-root` resolves the active theme's
+ * values; a variable the stylesheet does not define falls back to its light
+ * brand value.
+ */
+export function chartPalette(el: Element | null): string[] {
+  if (!el || typeof getComputedStyle === 'undefined') return [...LIGHT_PALETTE];
+  const cs = getComputedStyle(el);
+  return CHART_TOKENS.map((t, i) => cs.getPropertyValue(chartVar(t)).trim() || LIGHT_PALETTE[i]!);
 }
 
-/** The brand's reference-line dash (chart.css `.reference`), for stability and event markers. */
+/** The brand's reference-line dash (chart.css `.reference`): the stability series. */
 export const REFERENCE_DASH = [6, 4];
 
 /**
- * The three line patterns a series can carry: solid, the reference dash, dots.
- * A slot's own pattern comes first; a palette that repeats (more than 8
- * series) rotates through the other two.
+ * EIGHT LINE STYLES, one per slot — colour is never the only cue (SPEC §3.2:
+ * under simulated colour-vision deficiency altitude/acceleration and
+ * pressure/thrust fall to ΔE 1–3). Dash arrays in CSS px (uPlot scales them by
+ * the device ratio; `undefined` = solid). Four families — solid, dashes, dots,
+ * dash-and-dot — so a pair hue alone cannot separate always differs in KIND,
+ * not only in spacing: altitude solid vs acceleration dots, pressure dash-dot
+ * vs thrust sparse dots. Every pattern repeats within 26 px, so the 28 px
+ * legend sample (chartLegend.ts) shows a whole period.
  */
-const PATTERNS: (number[] | undefined)[] = [undefined, REFERENCE_DASH, [2, 3]];
+export const LINE_STYLES: readonly (number[] | undefined)[] = [
+  undefined, //          0 altitude      solid
+  [12, 4], //            1 velocity      long dash
+  [2, 3], //             2 acceleration  dots
+  [10, 3, 2, 3], //      3 pressure      dash-dot
+  [2, 7], //             4 thrust        sparse dots
+  [10, 3, 2, 3, 2, 3], // 5 drag         dash-dot-dot
+  [14, 3, 6, 3], //      6 mach          long-short dash
+  REFERENCE_DASH, //     7 reference     the brand's 6 4
+];
 
 /**
- * Each slot's pattern (an index into PATTERNS) when it shares a chart with
- * other slots — the colour-blind secondary encoding. Chosen so that every slot
- * pair that sits under 15 ΔE76 in normal, protan, deutan or tritan vision in
- * ANY of the three palettes (light, dark, Daylight) draws a different pattern;
- * the same pattern in every palette, so a line keeps its look across themes.
- * Slot 7 is the reference dash by brand rule. chartTheme.test re-derives it.
+ * Which LINE_STYLES entry slot s draws in repeat tier t (series 8–15 are tier
+ * 1, 16–23 tier 2, …): a Latin square, so a colour never meets the same style
+ * twice in 64 series, and tier 0 is each slot's own style. Rows 0 and 1 were
+ * searched so that, in the first 16 series, no two slots whose hues fall
+ * under 15 ΔE76 in normal, protan, deutan or tritan vision (light, dark or
+ * Daylight) share a style — chartTheme.test re-measures it. Row 1 puts the
+ * reference dash on Mach's hue (never on CP/CG/mass's tier-1 hues), so the
+ * flight catalog's only 6 4 lines are stability.
  */
-export const SLOT_PATTERN = [0, 2, 1, 2, 1, 0, 0, 1] as const;
+const TIER_STYLE: readonly (readonly number[])[] = [
+  [0, 1, 2, 3, 4, 5, 6, 7],
+  [3, 2, 1, 0, 5, 4, 7, 6],
+  [1, 0, 3, 2, 6, 7, 4, 5],
+  [2, 3, 0, 1, 7, 6, 5, 4],
+  [4, 5, 6, 7, 0, 1, 2, 3],
+  [5, 4, 7, 6, 1, 0, 3, 2],
+  [6, 7, 4, 5, 2, 3, 0, 1],
+  [7, 6, 5, 4, 3, 2, 1, 0],
+];
 
-/** The dash a slot draws with when several slots share a chart (undefined = solid). */
-export function slotDash(slot: number): number[] | undefined {
-  return PATTERNS[SLOT_PATTERN[slot % SLOT_PATTERN.length]!];
+/** The dash for slot `slot` in repeat tier `tier` (undefined = solid). */
+export function lineStyle(slot: number, tier = 0): number[] | undefined {
+  const s = ((slot % CHART_TOKENS.length) + CHART_TOKENS.length) % CHART_TOKENS.length;
+  return LINE_STYLES[TIER_STYLE[tier % TIER_STYLE.length]![s]!];
 }
 
 /**
- * Stroke + dash for the i-th series of a many-series chart. The first 8 draw
- * in slot order with their slot's pattern; past the palette the hues REPEAT
- * WITH THE NEXT PATTERN — never a silent color cycle, which made component 9
- * an exact twin of component 1 (LEM-IV's two Rail Buttons, 2026-08-29). The
- * rotation keeps every slot's three repeats distinct, and keeps conflicting
- * slots distinct within each group of 8; beyond 24 series the third tier
- * repeats, which no real design reaches.
+ * Stroke + dash for the i-th series of a many-series chart (the drag panel):
+ * slot order with each slot's own style; past 8 the hues REPEAT WITH THE NEXT
+ * TIER'S STYLE — never a silent colour cycle, which made component 9 an exact
+ * twin of component 1 (LEM-IV's two Rail Buttons, 2026-08-29). No colour +
+ * style pair repeats within 64 series.
  */
-export function seriesStyle(i: number, palette: string[]): { stroke: string; dash?: number[] } {
-  const slot = i % palette.length;
-  const tier = Math.min(Math.floor(i / palette.length), PATTERNS.length - 1);
-  const dash = PATTERNS[(SLOT_PATTERN[slot % SLOT_PATTERN.length]! + tier) % PATTERNS.length];
+export function seriesStyle(i: number, palette: readonly string[]): { stroke: string; dash?: number[] } {
+  const n = CHART_TOKENS.length;
+  const slot = i % n;
+  const dash = lineStyle(slot, Math.floor(i / n));
   return dash ? { stroke: palette[slot]!, dash } : { stroke: palette[slot]! };
 }
 
 export interface ChartInk {
   axis: string;
   /**
-   * Reference ink: event markers, the worst-angle line. The app contract's
-   * `--chart-reference` (light and dark = brand `--mmr-chart-reference`;
-   * Daylight = #000, contrast first, like the rest of its chart ink), never the
-   * brand token directly — under Daylight every `--mmr-*` token is the LIGHT
-   * value, so only an app variable lets the Daylight block reach it.
+   * Reference ink: event markers and the worst-angle line, drawn as a solid
+   * 1 px HAIRLINE — the one stroke no series uses (every series is 2.5–3 px,
+   * and the reference SERIES, stability, is dashed 6 4). The app's
+   * `--chart-reference` (= brand `--mmr-chart-reference`; 6.32:1 on white
+   * under Daylight, so the markers' numbered labels pass as text too).
    */
   reference: string;
   grid: string;
   tick: string;
   /** Data-line stroke width — thicker in high contrast. */
   strokeWidth: number;
-  /** uPlot axis label font shorthand. */
+  /** uPlot axis label font shorthand: the data face (event-marker labels use it too). */
   font: string;
 }
 
 /** Light brand values, for a chart with no stylesheet in scope (tests, a detached node). */
 const FALLBACK: ChartInk = {
-  axis: '#03254f', // --mmr-text
-  reference: '#45637b', // --mmr-chart-reference
-  grid: '#b3cadc', // --mmr-chart-grid
-  tick: '#b3cadc', // --mmr-border
+  axis: tokens.theme.light.text,
+  reference: tokens.chart.light.reference,
+  grid: tokens.chart.light.grid,
+  tick: tokens.theme.light.border,
   strokeWidth: 2,
   // uPlot draws on a canvas, which needs a concrete font string, not var().
-  font: "500 12px 'IBM Plex Mono', Consolas, monospace",
+  font: `500 12px ${tokens.font.data}`,
 };
 
 /**
@@ -153,9 +170,7 @@ export function chartInk(el: Element | null): ChartInk {
   const v = (name: string) => cs.getPropertyValue(name).trim();
   return {
     axis: v('--chart-axis') || FALLBACK.axis,
-    // The brand token is the fallback for a tree whose stylesheet predates
-    // --chart-reference; the contract variable wins wherever it is defined.
-    reference: v('--chart-reference') || v('--mmr-chart-reference') || FALLBACK.reference,
+    reference: v('--chart-reference') || FALLBACK.reference,
     grid: v('--chart-grid') || FALLBACK.grid,
     tick: v('--chart-tick') || FALLBACK.tick,
     strokeWidth: Number(v('--chart-series-width')) || FALLBACK.strokeWidth,

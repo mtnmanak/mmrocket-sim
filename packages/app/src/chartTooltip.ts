@@ -1,4 +1,5 @@
 import type uPlot from 'uplot';
+import { lineSampleSvg, seriesStroke } from './chartLegend.js';
 
 /**
  * Point readout ("what is that sample worth?") for the uPlot charts, as a
@@ -97,11 +98,12 @@ export function tooltipPlacement(
   };
 }
 
-/** One line of the readout: the series, its swatch color, its value there. */
+/** One line of the readout: the series, its line sample (colour + dash), its value there. */
 export interface ReadoutRow {
   label: string;
   value: string;
   color: string;
+  dash?: number[];
 }
 
 /** The minimum of a uPlot series this module reads — keeps the pure half testable. */
@@ -109,6 +111,7 @@ export interface ReadoutSeries {
   label?: string;
   show?: boolean;
   stroke?: unknown;
+  dash?: number[];
 }
 
 /**
@@ -134,6 +137,7 @@ export function readoutRows(
       label: s.label ?? '',
       value: formatReadout(v),
       color: typeof s.stroke === 'string' ? s.stroke : 'currentColor',
+      ...(s.dash?.length ? { dash: s.dash } : {}),
     });
   }
   return rows;
@@ -173,7 +177,10 @@ export function tooltipPlugin(rowLabel?: (seriesIndex: number, idx: number, labe
       return;
     }
     const rows = readoutRows(
-      u.series.map((s, i) => ({ ...s, label: rowLabel && i > 0 ? rowLabel(i, idx, typeof s.label === 'string' ? s.label : '') : s.label })) as readonly ReadoutSeries[],
+      // uPlot keeps a series' stroke as a function once built; resolve it, or
+      // every row's sample fell back to currentColor (it did, until brand v1).
+      u.series.map((s, i) => ({ ...s, stroke: seriesStroke(u, i) ?? s.stroke,
+        label: rowLabel && i > 0 ? rowLabel(i, idx, typeof s.label === 'string' ? s.label : '') : s.label })) as readonly ReadoutSeries[],
       u.data as readonly (readonly (number | null | undefined)[])[],
       idx,
     );
@@ -195,9 +202,9 @@ export function tooltipPlugin(rowLabel?: (seriesIndex: number, idx: number, labe
     for (const r of rows) {
       const row = document.createElement('div');
       row.className = 'chart-tooltip-row';
-      const swatch = document.createElement('span');
-      swatch.className = 'chart-tooltip-swatch';
-      swatch.style.background = r.color;
+      // The series' line sample beside a label in the text colour (chartLegend.ts).
+      const swatch = lineSampleSvg(r.color, r.dash);
+      swatch.classList.add('chart-tooltip-swatch');
       const label = document.createElement('span');
       label.className = 'chart-tooltip-label';
       label.textContent = r.label;

@@ -12,7 +12,7 @@ import { IMPERIAL_UNITS, METRIC_UNITS } from '../prefs/units.js';
 import { emphasizeSeries } from '../chartEmphasis.js';
 import { ComparisonChart } from './ComparisonChart.js';
 import { arbitraryCatalog } from '../flightChartModel.js';
-import { SERIES } from '../chartTheme.js';
+import { LIGHT_PALETTE } from '../chartTheme.js';
 
 // Capture instances without replacing uPlot's asynchronous scale/draw lifecycle.
 const registry = vi.hoisted(() => ({ plots: [] as uPlot[] }));
@@ -94,7 +94,7 @@ afterEach(async () => {
 
 function CustomChart({ series, x }: { series: FlightResult['series']; x: string }) {
   const { prefs } = usePrefs();
-  const catalog = arbitraryCatalog(series, prefs, SERIES);
+  const catalog = arbitraryCatalog(series, prefs, LIGHT_PALETTE);
   return <ComparisonChart series={series} preset={{ id: 'custom', title: 'Custom plot', x, left: ['altitude'], right: [] }}
     catalog={catalog} flightName="Regression fixture" plots={new Set()} onZoomChange={() => {}} />;
 }

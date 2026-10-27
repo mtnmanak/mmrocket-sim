@@ -9,7 +9,9 @@ import { DEFAULT_DRAG_ANALYSIS, type DragAnalysisPrefs } from '../prefs/dragAnal
 import { fmtSi, niceStep, noticeQuantity, siToUi, uiToSi, type UnitSelection } from '../prefs/units.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
-import { REFERENCE_DASH, chartInk, seriesPalette, seriesStyle } from '../chartTheme.js';
+import { REFERENCE_DASH, chartInk, seriesStyle, slotOf } from '../chartTheme.js';
+import { useChartPalette } from '../useChartPalette.js';
+import { legendSamplePlugin } from '../chartLegend.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { chartSummary, nameChartCanvas } from '../chartSummary.js';
@@ -31,8 +33,10 @@ import { rollPlaneAnalysis } from '../services/rollPlaneAnalysis.js';
  * is the later supersonic-aero feature).
  */
 
-// Validated categorical palette (same slots as FlightCharts) — swapped for the
-// high-contrast set in daylight mode. See chartTheme.ts.
+// The brand chart tokens, read from CSS per theme (useChartPalette). These
+// charts plot no flight quantity except stability, so every line takes the
+// brand slot order with its slot's line style (seriesStyle); stability is the
+// reference series, dashed 6 4. See chartTheme.ts.
 
 interface Line {
   label: string;
@@ -40,12 +44,16 @@ interface Line {
   /** `null` is a gap — uPlot draws no line through it (a CP with no lift). */
   values: (number | null)[];
   /**
-   * Dashed stroke — `true` for the power-on overlay's reference dash (6 4); a
-   * pattern array for a breakdown component's slot pattern (chartTheme
-   * SLOT_PATTERN, rotated on repeats past the palette — see seriesStyle) or the
-   * stability margin's reference dash.
+   * The line's style (undefined = solid): its slot's style from seriesStyle,
+   * the next tier's style on a repeat past 8, or stability's reference dash.
    */
-  dash?: boolean | number[];
+  dash?: number[];
+}
+
+/** The i-th line of a drag chart: slot order, each with its slot's line style. */
+function lineOf(i: number, palette: readonly string[]): Pick<Line, 'color' | 'dash'> {
+  const s = seriesStyle(i, palette);
+  return s.dash ? { color: s.stroke, dash: s.dash } : { color: s.stroke };
 }
 
 /** Said at the end of every drag chart's canvas name — the button is above them. */
@@ -92,7 +100,7 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
   const summary = useMemo(() => chartSummary({
     title, x, at: (m) => rollPlane ? `${formatReadout(m, 3)}° roll-plane angle` : `Mach ${formatReadout(m, 3)}`,
     series: lines, source: rollPlane
-      ? (worstPlaneNote ?? (worstAngle === null ? 'No defined worst plane.' : `Worst plane: ${worstAngle}°; marked by a dotted vertical line.`))
+      ? (worstPlaneNote ?? (worstAngle === null ? 'No defined worst plane.' : `Worst plane: ${worstAngle}°; marked by a thin vertical line.`))
       : DRAG_CSV_NOTE,
   }), [title, x, lines, rollPlane, worstAngle, worstPlaneNote]);
   const summaryRef = useRef(summary);
@@ -117,17 +125,19 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
       cursor: { points: { size: 6 }, ...(lockLegend ? { bind: { click: () => null } } : {}) },
       scales: { x: { time: false } },
       legend: { live: true },
-      plugins: [panZoomPlugin(undefined, (u) => onZoomChangeRef.current?.(plotIsZoomed(u))), tooltipPlugin(),
+      plugins: [panZoomPlugin(undefined, (u) => onZoomChangeRef.current?.(plotIsZoomed(u))), tooltipPlugin(), legendSamplePlugin(),
         { hooks: { draw: (u) => {
           if (worstAngle === null || worstAngle < u.scales['x']!.min! || worstAngle > u.scales['x']!.max!) return;
           const ctx = u.ctx;
           const px = u.valToPos(worstAngle, 'x', true);
-          // Reference ink, but DOTTED, not the reference dash (a stated exception
-          // to the brand table's "markers dashed" row, for a ruling): the margin
-          // chart under this marker draws stability in the same ink AND the 6 4
-          // dash, so a dashed marker would be a second line styled exactly like
-          // the data. The panel's copy and the user guide say "dotted".
-          ctx.save(); ctx.strokeStyle = ink.reference; ctx.lineWidth = 2; ctx.setLineDash([2, 4]);
+          // A SOLID 1 px HAIRLINE in the reference ink, like the flight charts'
+          // event markers (flightPlotEvents.ts): no series is drawn that thin,
+          // and the only series in this ink (stability, on the margin chart
+          // under it) is dashed 6 4. It was dotted [2, 4], which the eight
+          // series styles now include (acceleration's dots, chartTheme
+          // LINE_STYLES). The panel copy and the user guide say "thin".
+          const ratio = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
+          ctx.save(); ctx.strokeStyle = ink.reference; ctx.lineWidth = ratio; ctx.setLineDash([]);
           ctx.beginPath(); ctx.moveTo(px, u.bbox.top); ctx.lineTo(px, u.bbox.top + u.bbox.height); ctx.stroke(); ctx.restore();
         } } }],
       series: [
@@ -136,7 +146,7 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
           label: l.label,
           stroke: l.color,
           width: ink.strokeWidth,
-          ...(l.dash ? { dash: Array.isArray(l.dash) ? l.dash : REFERENCE_DASH } : {}),
+          ...(l.dash ? { dash: l.dash } : {}),
           value: (_u, v) => formatReadout(v),
         })),
       ],
@@ -175,7 +185,7 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
   rocket: OrkRocket; info: StaticInfo; aoaDeg: number; cpView: 'pct' | 'unit'; lenUnit: string;
   machTop: number; modelLimit: string | null;
 }) {
-  const { prefs, daylight, resolvedTheme } = usePrefs();
+  const { prefs } = usePrefs();
   const [open, setOpen] = useState(false);
   const [choice, setChoice] = useState(0.3);
   const mach = Math.min(choice, machTop);
@@ -189,15 +199,15 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
     try { return rollPlaneAnalysis(rocket.aeroDiagnostics(mach, aoaDeg * Math.PI / 180), info); }
     catch (e) { return { error: e instanceof Error ? e.message : String(e) }; }
   }, [open, rocket, mach, aoaDeg, info]);
-  const palette = useMemo(() => seriesPalette(daylight, resolvedTheme), [daylight, resolvedTheme]);
+  const palette = useChartPalette();
   const cpLabel = cpView === 'pct' ? '% of length' : `${lenUnit} from nose`;
   const lines = useMemo(() => {
     if (!analysis || 'error' in analysis) return null;
     return {
-      cp: [{ label: `CP (${cpLabel})`, color: palette[3]!, values: analysis.cp.map((v) => v === null ? null
+      cp: [{ label: `CP (${cpLabel})`, ...lineOf(0, palette), values: analysis.cp.map((v) => v === null ? null
         : cpView === 'pct' ? v / info.length * 100 : siToUi('length', lenUnit, v)) }],
       // Stability is the brand's reference series, dashed wherever it is drawn.
-      margin: [{ label: 'Stability margin (cal)', color: palette[7]!, dash: REFERENCE_DASH, values: analysis.margin }],
+      margin: [{ label: 'Stability margin (cal)', color: palette[slotOf('reference')]!, dash: REFERENCE_DASH, values: analysis.margin }],
     };
   }, [analysis, cpLabel, palette, cpView, info.length, lenUnit]);
   const conditions = `Mach ${mach}, angle of attack ${aoaDeg}°`;
@@ -230,7 +240,7 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
         : analysis && lines && <>
           <p className="motor-db-meta">
             {analysis.worstAngle === null ? worstPlaneNote ?? 'No defined worst plane.' : <>
-              <strong>Worst plane: {analysis.worstAngle}°</strong>, marked by a dotted vertical line on both charts.
+              <strong>Worst plane: {analysis.worstAngle}°</strong>, marked by a thin vertical line on both charts.
               {' '}CP: {fmtSi('length', lenUnit, analysis.cp[analysis.worstAngle]!, 3)} {lenUnit} from nose;
               {' '}margin: {formatReadout(analysis.margin[analysis.worstAngle], 4)} cal.
             </>}
@@ -532,7 +542,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
   const [ownOpen, setOwnOpen] = useState(false);
   const open = openProp ?? ownOpen;
   const setOpen = (next: boolean) => { setOwnOpen(next); onOpenChange?.(next); };
-  const { prefs, setPrefs, daylight, resolvedTheme } = usePrefs();
+  const { prefs, setPrefs } = usePrefs();
   const settings = prefs.dragAnalysis ?? DEFAULT_DRAG_ANALYSIS;
   const { machMax, altM, mode, cpView } = settings;
   const hasFileTable = !!fileMachAlt?.length;
@@ -572,7 +582,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
       return next;
     });
   };
-  const C = seriesPalette(daylight, resolvedTheme);
+  const C = useChartPalette();
   const lenUnit = prefs.units.length;
   const altUnit = prefs.units.altitude;
 
@@ -713,13 +723,14 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
       : cp.map((v) => (v == null ? null : siToUi('length', lenUnit, v))));
     const zero = show(sweepCp(sweep));
     // At 0 degrees: the one 'CP' line the chart has always drawn.
-    if (!aoaCpSweep) return [{ label: 'CP', color: C[3]!, values: zero }];
+    if (!aoaCpSweep) return [{ label: 'CP', ...lineOf(0, C), values: zero }];
     // At an angle: that angle's CP, with the 0-degree curve dashed beside it
     // for comparison. The angle sweep runs on the same Mach grid.
     const atAngle = show(sweepCp(aoaCpSweep));
     return [
-      { label: `CP at ${cpAoa}°`, color: C[3]!, values: sweep.machs.map((_m, i) => atAngle[i] ?? null) },
-      { label: 'CP at 0°', color: C[1]!, values: zero, dash: true },
+      { label: `CP at ${cpAoa}°`, ...lineOf(0, C), values: sweep.machs.map((_m, i) => atAngle[i] ?? null) },
+      // Slot 1's long dash: "the 0° curve dashed beside it".
+      { label: 'CP at 0°', ...lineOf(1, C), values: zero },
     ];
   }, [sweep, aoaCpSweep, cpAoa, info, C, cpView, lenUnit]);
   const cpHasLift = cpLines.length > 0 && cpLines[0]!.values.some((v) => v != null);
@@ -732,9 +743,9 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
 
   const totalLines = useMemo<Line[]>(() => {
     if (!sweep || 'error' in sweep) return [];
-    const lines: Line[] = [{ label: 'CD power-off', color: C[0]!, values: sweep.powerOff.total }];
+    const lines: Line[] = [{ label: 'CD power-off', ...lineOf(0, C), values: sweep.powerOff.total }];
     if (sweep.hasNozzle) {
-      lines.push({ label: 'CD power-on', color: C[5]!, values: sweep.powerOn.total, dash: true });
+      lines.push({ label: 'CD power-on', ...lineOf(1, C), values: sweep.powerOn.total });
     }
     return lines;
   }, [sweep, C]);
@@ -743,19 +754,15 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
     if (!sweep || 'error' in sweep) return [];
     if (mode === 'type') {
       return [
-        { label: 'Friction', color: C[1]!, values: sweep.powerOff.friction },
-        { label: 'Pressure / wave', color: C[2]!, values: sweep.powerOff.pressure },
-        { label: 'Base', color: C[4]!, values: sweep.powerOff.base },
+        { label: 'Friction', ...lineOf(0, C), values: sweep.powerOff.friction },
+        { label: 'Pressure / wave', ...lineOf(1, C), values: sweep.powerOff.pressure },
+        { label: 'Base', ...lineOf(2, C), values: sweep.powerOff.base },
       ];
     }
-    // Every component draws its slot's SLOT_PATTERN (solid, dashed or dotted)
-    // from the first group; past the palette the reused hue rotates to the
-    // next pattern, so it is never a silent colour cycle (the
+    // Every component draws its slot's own line style; past 8 the reused hue
+    // takes the next tier's style, so it is never a silent colour cycle (the
     // two-Rail-Buttons-as-twins fix).
-    return sweep.components.map((c, i) => {
-      const s = seriesStyle(i, C);
-      return { label: c.name, color: s.stroke, values: c.cd, ...(s.dash ? { dash: s.dash } : {}) };
-    });
+    return sweep.components.map((c, i) => ({ label: c.name, ...lineOf(i, C), values: c.cd }));
   }, [sweep, mode, C]);
 
   return (

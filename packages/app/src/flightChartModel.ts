@@ -2,16 +2,19 @@ import type { FlightEvent, FlightSeries } from '@online-openrocket/engine';
 import type { Preferences } from './prefs/PrefsContext.js';
 import { siToUi, uiToSi, type Quantity } from './prefs/units.js';
 import { exportColumnCatalog } from './services/flightDataCsv.js';
-import { REFERENCE_DASH } from './chartTheme.js';
+import { CHART_TOKENS, lineStyle, slotOf, type ChartToken } from './chartTheme.js';
 
 export interface SeriesDef {
   key: keyof FlightSeries;
   title: string;
   unit: string;
   color: string;
-  /** The series' own line pattern wherever it is drawn: stability is the
-   * brand's REFERENCE ink, which is always dashed (chart.css `.reference`). */
+  /** The series' own line style wherever it is drawn — the legend sample, the
+   * panel, the comparison chart (chartTheme LINE_STYLES; undefined = solid).
+   * Stability is the brand's REFERENCE series: dashed 6 4. */
   dash?: number[];
+  /** The brand chart token its colour comes from (StyleAllocator). */
+  token?: ChartToken;
   /** set for unit-preference-driven series: the title unit becomes a click-to-change chip */
   quantity?: Quantity;
   /** display transform (SI -> UI unit) */
@@ -20,33 +23,100 @@ export interface SeriesDef {
   toSI?: (v: number) => number;
 }
 
+/** A catalog entry before it is given a colour and a line style. */
+type Unstyled = Omit<SeriesDef, 'color' | 'dash' | 'token'> & {
+  /** The brand token of the QUANTITY it is (null: none of the eight). */
+  token: ChartToken | null;
+  /** Draws exactly like this key: the same quantity in another unit. */
+  sameAs?: keyof FlightSeries;
+};
+
+type Look = { color: string; token: ChartToken; dash?: number[] };
+
+/**
+ * Colour + line style for every series, fixed per series identity (never
+ * re-assigned by selection), and never the same colour + style pair twice:
+ *  1. A series that IS one of the brand quantities takes its named token
+ *     (SPEC §3.2): altitude; velocity and vertical velocity; acceleration;
+ *     pressures; thrust; drag force; Mach; stability (cal and %) → reference.
+ *     The first series of a token draws the token's own style (tier 0); a
+ *     second of the same quantity (vertical velocity) the token's tier-1 style.
+ *  2. Every other series (mass, CP/CG location, angle of attack, q·α, the
+ *     re-flown extras) takes the next free colour + style pair in the brand
+ *     slot order, tier by tier. All eight tokens are taken at tier 0 by the
+ *     quantities, so these land on tier 1: mass altitude, CP acceleration, CG
+ *     pressure, angle of attack thrust, q·α drag — and CP and CG, which share
+ *     the stability comparison with the reference series, are off its 6 4 dash
+ *     (chartTheme TIER_STYLE).
+ */
+export class StyleAllocator {
+  private readonly used = new Set<string>();
+  private readonly C: readonly string[];
+  constructor(C: readonly string[]) { this.C = C; }
+  private take(slot: number, tier: number): Look {
+    this.used.add(`${slot}:${tier}`);
+    const dash = lineStyle(slot, tier);
+    return { color: this.C[slot]!, token: CHART_TOKENS[slot]!, ...(dash ? { dash } : {}) };
+  }
+  /** The look for a series of quantity `token`; for null, the next free pair in slot order. */
+  next(token: ChartToken | null): Look {
+    for (let tier = 0; tier < 64; tier++) {
+      if (token) {
+        if (!this.used.has(`${slotOf(token)}:${tier}`)) return this.take(slotOf(token), tier);
+        continue;
+      }
+      for (let slot = 0; slot < CHART_TOKENS.length; slot++) {
+        if (!this.used.has(`${slot}:${tier}`)) return this.take(slot, tier);
+      }
+    }
+    // 512 series: no flight records that many. Reuse rather than fail.
+    return this.take(token ? slotOf(token) : 0, 0);
+  }
+}
+
+function styleCatalog(defs: Unstyled[], styles: StyleAllocator): SeriesDef[] {
+  const looks = new Map<keyof FlightSeries, Look>();
+  // Quantities first, so a later quantity (dynamic pressure) is never beaten
+  // to its own tier-0 pair by an earlier non-quantity (mass).
+  for (const d of defs) if (d.token && !d.sameAs) looks.set(d.key, styles.next(d.token));
+  for (const d of defs) if (!d.token && !d.sameAs) looks.set(d.key, styles.next(null));
+  return defs.map(({ token: _token, sameAs, ...d }) => ({ ...d, ...looks.get(sameAs ?? d.key)! }));
+}
+
 /** Series defs in the user's units — the engine data underneath stays SI. */
-export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: string[]): SeriesDef[] {
+export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: readonly string[],
+  styles = new StyleAllocator(C)): SeriesDef[] {
   const u = prefs.units;
-  const defs: SeriesDef[] = [
-    { key: 'altitude', title: 'Altitude', unit: u.altitude, quantity: 'altitude', color: C[0]!, f: (v) => siToUi('altitude', u.altitude, v) },
-    { key: 'velocity', title: 'Velocity', unit: u.velocity, quantity: 'velocity', color: C[1]!, f: (v) => siToUi('velocity', u.velocity, v) },
+  const defs: Unstyled[] = [
+    { key: 'altitude', title: 'Altitude', unit: u.altitude, quantity: 'altitude', token: 'altitude', f: (v) => siToUi('altitude', u.altitude, v) },
+    { key: 'velocity', title: 'Velocity', unit: u.velocity, quantity: 'velocity', token: 'velocity', f: (v) => siToUi('velocity', u.velocity, v) },
     // Vertical velocity: the kernel's Vz, in every summary run. It goes through
     // zero at apogee and turns negative on the way down — desktop OR's default
     // plot — where Velocity (speed over the ground) never does. Its own chip
     // since v0.172 (@atestani); before that only the comparison preset drew it.
-    // Velocity's colour, as the preset always drew it.
-    { key: 'Vz', title: 'Vertical velocity', unit: u.velocity, quantity: 'velocity', color: C[1]!, f: (v) => siToUi('velocity', u.velocity, v) },
-    { key: 'acceleration', title: 'Acceleration', unit: u.acceleration, quantity: 'acceleration', color: C[2]!, f: (v) => siToUi('acceleration', u.acceleration, v) },
-    { key: 'mass', title: 'Mass', unit: u.mass, quantity: 'mass', color: C[3]!, f: (v) => siToUi('mass', u.mass, v) },
-    { key: 'thrust', title: 'Thrust', unit: 'N', color: C[4]! },
-    { key: 'drag', title: 'Drag force', unit: 'N', color: C[5]! },
-    { key: 'mach', title: 'Mach number', unit: '', color: C[6]! },
-    { key: 'stability', title: 'Stability margin', unit: 'cal', color: C[7]!, dash: REFERENCE_DASH },
-    { key: 'stabilityPercent', title: 'Stability margin (% of active length)', unit: '%', color: C[7]!, dash: REFERENCE_DASH },
-    { key: 'cpLocation', title: 'CP location', unit: u.length, quantity: 'length', color: C[0]!, f: (v) => siToUi('length', u.length, v) },
-    { key: 'cgLocation', title: 'CG location', unit: u.length, quantity: 'length', color: C[1]!, f: (v) => siToUi('length', u.length, v) },
-    { key: 'aoa', title: 'Angle of attack', unit: '°', color: C[2]!, f: (v) => (v * 180) / Math.PI, toSI: (v) => v * Math.PI / 180 },
-    { key: 'dynamicPressure', title: 'Dynamic pressure', unit: u.pressure, quantity: 'pressure', color: C[3]!, f: (v) => siToUi('pressure', u.pressure, v) },
-    { key: 'qAlpha', title: 'q·α', unit: `${u.pressure}·rad`, color: C[4]!, f: (v) => siToUi('pressure', u.pressure, v), toSI: (v) => uiToSi('pressure', u.pressure, v) },
+    // Velocity's colour (it is a velocity), in velocity's tier-1 style.
+    { key: 'Vz', title: 'Vertical velocity', unit: u.velocity, quantity: 'velocity', token: 'velocity', f: (v) => siToUi('velocity', u.velocity, v) },
+    { key: 'acceleration', title: 'Acceleration', unit: u.acceleration, quantity: 'acceleration', token: 'acceleration', f: (v) => siToUi('acceleration', u.acceleration, v) },
+    { key: 'mass', title: 'Mass', unit: u.mass, quantity: 'mass', token: null, f: (v) => siToUi('mass', u.mass, v) },
+    { key: 'thrust', title: 'Thrust', unit: 'N', token: 'thrust' },
+    { key: 'drag', title: 'Drag force', unit: 'N', token: 'drag' },
+    { key: 'mach', title: 'Mach number', unit: '', token: 'mach' },
+    { key: 'stability', title: 'Stability margin', unit: 'cal', token: 'reference' },
+    // The same quantity as Stability margin, in other units: the same line.
+    { key: 'stabilityPercent', title: 'Stability margin (% of active length)', unit: '%', token: 'reference', sameAs: 'stability' },
+    { key: 'cpLocation', title: 'CP location', unit: u.length, quantity: 'length', token: null, f: (v) => siToUi('length', u.length, v) },
+    { key: 'cgLocation', title: 'CG location', unit: u.length, quantity: 'length', token: null, f: (v) => siToUi('length', u.length, v) },
+    { key: 'aoa', title: 'Angle of attack', unit: '°', token: null, f: (v) => (v * 180) / Math.PI, toSI: (v) => v * Math.PI / 180 },
+    { key: 'dynamicPressure', title: 'Dynamic pressure', unit: u.pressure, quantity: 'pressure', token: 'pressure', f: (v) => siToUi('pressure', u.pressure, v) },
+    { key: 'qAlpha', title: 'q·α', unit: `${u.pressure}·rad`, token: null, f: (v) => siToUi('pressure', u.pressure, v), toSI: (v) => uiToSi('pressure', u.pressure, v) },
   ];
-  return defs.map(d => ({ ...d, toSI: d.quantity ? v => uiToSi(d.quantity!, u[d.quantity!], v) : d.toSI }));
+  return styleCatalog(defs, styles).map(d => ({ ...d, toSI: d.quantity ? v => uiToSi(d.quantity!, u[d.quantity!], v) : d.toSI }));
 }
+
+/** The brand token of a unit-preference quantity, for the re-flown extras. */
+const QUANTITY_TOKEN: Partial<Record<Quantity, ChartToken>> = {
+  altitude: 'altitude', velocity: 'velocity', windspeed: 'velocity', acceleration: 'acceleration', pressure: 'pressure',
+};
 
 export interface ComparisonPreset {
   id: string;
@@ -65,31 +135,27 @@ export const PRESETS: ComparisonPreset[] = [
 ];
 
 /**
- * Right-axis line patterns, in order of use; one the left axis already draws is
- * skipped. The reference dash (6 4) comes LAST: it is the brand's pattern for
- * stability and the event markers, so a right-axis velocity or acceleration
- * takes it only when nothing else is free.
+ * A comparison chart's members, each on its axis. Every member keeps its own
+ * colour AND line style — the catalog never repeats a pair, so no two members
+ * of one chart look alike, and a series looks the same here as in its own
+ * panel, its chip and its legend sample.
  */
-const RIGHT_DASHES = [[2, 3], [8, 3, 2, 3], REFERENCE_DASH];
-
 export function comparisonMembers(preset: ComparisonPreset, catalog: SeriesDef[]) {
   const def = (key: string): SeriesDef =>
     catalog.find((d) => d.key === key) ?? { key, title: key, unit: 'unit unknown', color: catalog[0]?.color ?? '#000' };
-  // The left axis keeps each series' own pattern (stability's reference dash);
-  // the right axis takes the patterns the left does not use — the redundant
-  // encoding for CVD readers, without changing identity colours.
   const left = preset.left.map((key) => ({ ...def(key), axis: 'left' as const }));
-  const used = new Set(left.map((d) => (d.dash ?? []).join(',')));
-  const free = RIGHT_DASHES.filter((d) => !used.has(d.join(',')));
-  const right = preset.right.map((key, i) => ({ ...def(key), axis: 'right' as const, dash: free[i % free.length] }));
+  const right = preset.right.map((key) => ({ ...def(key), axis: 'right' as const }));
   return [...left, ...right];
 }
 
 export const finiteSample = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 /** C-E7: share export metadata; unknown future symbols must not acquire guessed units. */
-export function arbitraryCatalog(series: FlightSeries, prefs: Pick<Preferences, 'units'>, colors: string[]): SeriesDef[] {
-  const known = seriesCatalog(prefs, colors);
+export function arbitraryCatalog(series: FlightSeries, prefs: Pick<Preferences, 'units'>, colors: readonly string[]): SeriesDef[] {
+  // One allocator across the named catalog and the extras: an extra never
+  // repeats a colour + style pair a named series already draws.
+  const styles = new StyleAllocator(colors);
+  const known = seriesCatalog(prefs, colors, styles);
   const columns = new Map(exportColumnCatalog().map(c => [c.key, c]));
   for (const key of Object.keys(series)) {
     if (key === 'tc' || known.some(d => d.key === key)) continue;
@@ -97,11 +163,11 @@ export function arbitraryCatalog(series: FlightSeries, prefs: Pick<Preferences, 
     const quantity = spec?.quantity;
     const unit = quantity ? prefs.units[quantity] : spec?.si ?? 'unit unknown';
     known.push({ key, title: spec?.name ?? key, unit: unit + (spec?.suffix ?? ''),
-      quantity, color: colors[known.length % colors.length]!,
+      quantity, ...styles.next((quantity && QUANTITY_TOKEN[quantity]) ?? null),
       f: quantity ? v => siToUi(quantity, unit, v) : undefined,
       toSI: quantity ? v => uiToSi(quantity, unit, v) : undefined });
   }
-  if (!known.some(d => d.key === 'time')) known.unshift({ key: 'time', title: 'Time', unit: 's', color: colors[0]! });
+  if (!known.some(d => d.key === 'time')) known.unshift({ key: 'time', title: 'Time', unit: 's', ...styles.next(null) });
   return known.filter(d => d.key !== 'tc' && usableSeries(series, [String(d.key)]));
 }
 

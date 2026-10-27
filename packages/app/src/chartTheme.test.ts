@@ -4,8 +4,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  REFERENCE_DASH, SERIES, SERIES_DARK, SERIES_DAYLIGHT, SLOT_PATTERN, chartInk, seriesPalette, seriesStyle, slotDash,
+  CHART_TOKENS, LIGHT_PALETTE, LINE_STYLES, REFERENCE_DASH, chartInk, chartPalette, chartVar, lineStyle, seriesStyle, slotOf,
+  type ChartToken,
 } from './chartTheme.js';
+import { SAMPLE_WIDTH } from './chartLegend.js';
 
 /** WCAG relative luminance of a #rrggbb color. */
 function luminance(hex: string): number {
@@ -22,225 +24,192 @@ function contrast(a: string, b: string): number {
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
-const tokens = JSON.parse(readFileSync(join(here, '..', 'public', 'brand', 'tokens.json'), 'utf8')) as {
+const read = (...p: string[]) => readFileSync(join(here, ...p), 'utf8');
+const tokens = JSON.parse(read('..', 'public', 'brand', 'tokens.json')) as {
   color: Record<string, string>;
   theme: Record<'light' | 'dark', Record<string, string>>;
   chart: Record<'light' | 'dark', Record<string, string>>;
 };
+const css = read('styles.css');
 
-// The recessed plot-area surface each theme's lines actually draw on
-// (--surface-1 in styles.css, under the plot: `.chart-panel .uplot .u-under`)
-// and the panel the chart card and its legend dots sit on (--surface-2).
-// Per the brand table (response-2026-10-26b §2 A): --surface-1 → --mmr-bg,
-// --surface-2 → --mmr-surface. Pinned against the stylesheet below so a retune
-// that moves a surface fails HERE instead of silently invalidating every
-// contrast assertion — the v0.075 defect was precisely a palette validated
-// against a surface the charts didn't draw on.
-const PLOT = { light: '#f6faff', dark: '#03254f' } as const;
-const PANEL = { light: '#ffffff', dark: '#123859' } as const;
+type Mode = 'light' | 'dark' | 'daylight';
+const MODES: Mode[] = ['light', 'dark', 'daylight'];
+/** The selector that opens each mode's variable block (the first match is the variables). */
+const OPENER: Record<Mode, string> = {
+  light: '\n.viz-root {', dark: "\n.viz-root[data-theme='dark'] {", daylight: "\n.viz-root[data-contrast='high'] {",
+};
 
-/** A theme block's value for `name`, with a `var(--mmr-x)` resolved through tokens.json. */
-function surfaceIn(theme: 'light' | 'dark', name: string): string {
-  const css = readFileSync(join(here, 'styles.css'), 'utf8');
-  // The block's own selector at the start of a line (a comment quotes `.viz-root {`).
-  const open = theme === 'dark' ? "\n.viz-root[data-theme='dark'] {" : '\n.viz-root {';
-  const block = css.slice(css.indexOf(open));
-  const body = block.slice(0, block.indexOf('}'));
-  const value = new RegExp(`${name}:\\s*([^;]+);`).exec(body)?.[1]?.trim() ?? '';
-  const ref = /^var\(--mmr-([\w-]+)\)$/.exec(value)?.[1];
-  // A themed token (--mmr-bg) or a fixed primitive (--mmr-c-paper).
-  const resolved = !ref ? value : ref.startsWith('c-') ? tokens.color[ref.slice(2)] : tokens.theme[theme][ref];
-  return resolved?.toLowerCase() ?? '';
+/** The raw value a block declares for `name`, or undefined. */
+function declared(mode: Mode, name: string): string | undefined {
+  const at = css.indexOf(OPENER[mode]);
+  const body = css.slice(at, css.indexOf('\n}', at));
+  return new RegExp(`\\n\\s*${name}:\\s*([^;]+);`).exec(body)?.[1]?.trim();
 }
 
-/** Slots the brand has no hue for yet (D7): they keep the pre-brand hues. */
-const PENDING_BRAND = [5, 6];
+/**
+ * A variable's value in a mode, as the cascade gives it: Daylight is
+ * data-theme LIGHT, so it inherits the light block and every --mmr-* token is
+ * the light value; dark overrides the light block. `var(--mmr-x)` resolves
+ * through the vendored tokens.json (chart.*, theme.*, or a c-* primitive).
+ */
+function resolved(mode: Mode, name: string): string {
+  const raw = declared(mode, name) ?? (mode === 'light' ? undefined : declared('light', name));
+  const theme = mode === 'dark' ? 'dark' : 'light';
+  const ref = /^var\(--mmr-([\w-]+)\)$/.exec(raw ?? '')?.[1];
+  const value = !ref ? raw
+    : ref.startsWith('chart-') ? tokens.chart[theme][ref.slice(6)]
+      : ref.startsWith('c-') ? tokens.color[ref.slice(2)] : tokens.theme[theme][ref];
+  return value?.toLowerCase() ?? '';
+}
 
-describe('chart palettes', () => {
-  it('keeps the slot count aligned across palettes', () => {
-    expect(SERIES_DAYLIGHT).toHaveLength(SERIES.length);
-    expect(SERIES_DARK).toHaveLength(SERIES.length);
-    expect(SLOT_PATTERN).toHaveLength(SERIES.length);
+/** The series a mode draws, in slot order, through the stylesheet. */
+const paletteIn = (mode: Mode) => CHART_TOKENS.map((t) => resolved(mode, chartVar(t)));
+
+// The surfaces a series line or its legend sample sits on. Plot = --surface-1
+// (`.chart-panel .uplot .u-under`), panel = --surface-2 (the chart card and
+// uPlot's legend). Pinned below against the stylesheet: the v0.075 defect was
+// a palette validated against a surface the charts did not draw on.
+const PLOT: Record<Mode, string> = { light: '#f6faff', dark: '#03254f', daylight: '#ffffff' };
+const PANEL: Record<Mode, string> = { light: '#ffffff', dark: '#123859', daylight: '#ffffff' };
+
+describe('chart colours come from CSS, never from hex in TypeScript', () => {
+  it('chartTheme.ts carries no hex colour literal', () => {
+    expect(read('chartTheme.ts').match(/#[0-9a-f]{3,8}\b/gi) ?? []).toEqual([]);
   });
 
-  // uPlot needs strings, so the brand hues are literals here; this holds them
-  // to the vendored brand file, so a brand re-sync that moves a hue fails.
-  it('brand slots equal the vendored tokens.json chart values', () => {
-    const slots = ['altitude', 'velocity', 'acceleration', 'pressure', 'thrust', undefined, undefined, 'reference'];
-    // The slots with no brand hue are exactly the pending ones.
-    expect(slots.flatMap((name, i) => name ? [] : [i])).toEqual(PENDING_BRAND);
-    for (const [theme, palette] of [['light', SERIES], ['dark', SERIES_DARK]] as const) {
-      slots.forEach((name, i) => {
-        if (name) expect(palette[i], `${theme} slot ${i} (${name})`).toBe(tokens.chart[theme][name]);
+  it('the slot order is the brand order (SPEC §3.2), reference last', () => {
+    expect([...CHART_TOKENS]).toEqual(['altitude', 'velocity', 'acceleration', 'pressure', 'thrust', 'drag', 'mach', 'reference']);
+    for (const t of CHART_TOKENS) expect(Object.keys(tokens.chart.light)).toContain(t);
+  });
+
+  it('styles.css aliases each quantity to its brand token in light and dark', () => {
+    const chartCss = read('..', 'public', 'brand', 'chart.css');
+    for (const t of CHART_TOKENS) {
+      // The brand defines the token in both themes …
+      expect(chartCss.match(new RegExp(`--mmr-chart-${t}:`, 'g')) ?? [], t).toHaveLength(3);
+      // … and the app's variable is exactly that token, light block and dark block.
+      expect(declared('light', chartVar(t)), `light ${t}`).toBe(`var(--mmr-chart-${t})`);
+      expect(declared('dark', chartVar(t)), `dark ${t}`).toBe(`var(--mmr-chart-${t})`);
+      expect(resolved('light', chartVar(t))).toBe(tokens.chart.light[t]);
+      expect(resolved('dark', chartVar(t))).toBe(tokens.chart.dark[t]);
+    }
+  });
+
+  // Daylight is data-theme light, so it draws the brand LIGHT series. Every one
+  // clears 4.5:1 on white except Mach (#00987C, 3.63), so the Daylight block
+  // overrides --chart-mach and nothing else, and keeps the 3 px stroke.
+  it('Daylight overrides --chart-mach only, with a teal that clears 4.5:1 on white', () => {
+    const overridden = CHART_TOKENS.filter((t) => declared('daylight', chartVar(t)) !== undefined);
+    expect(overridden).toEqual(['mach']);
+    expect(contrast(tokens.chart.light['mach']!, '#ffffff')).toBeLessThan(4.5);
+    for (const [i, c] of paletteIn('daylight').entries()) {
+      expect(contrast(c, '#ffffff'), `${CHART_TOKENS[i]} ${c}`).toBeGreaterThanOrEqual(4.5);
+    }
+    expect(resolved('daylight', '--chart-mach')).toBe('#008276');
+    expect(declared('daylight', '--chart-series-width')).toBe('3');
+  });
+
+  it('series are unique within each mode', () => {
+    for (const mode of MODES) expect(new Set(paletteIn(mode)).size, mode).toBe(CHART_TOKENS.length);
+  });
+
+  it('chartPalette reads --chart-<token> at the element, falling back to the light brand values', () => {
+    const el = document.createElement('div');
+    el.style.setProperty('--chart-velocity', '#78ce9a');
+    el.style.setProperty('--chart-mach', '#008276');
+    document.body.appendChild(el);
+    const p = chartPalette(el);
+    expect(p[slotOf('velocity')]).toBe('#78ce9a');
+    expect(p[slotOf('mach')]).toBe('#008276');
+    expect(p[slotOf('altitude')]).toBe(tokens.chart.light['altitude']);
+    el.remove();
+    expect(chartPalette(null)).toEqual(CHART_TOKENS.map((t) => tokens.chart.light[t]));
+    expect([...LIGHT_PALETTE]).toEqual(CHART_TOKENS.map((t) => tokens.chart.light[t]));
+  });
+});
+
+describe('graphic contrast (3:1) on the surfaces charts really use, brand 1.0.3', () => {
+  it('plot and panel surfaces are the stylesheet’s --surface-1 / --surface-2, not stale copies', () => {
+    for (const mode of MODES) {
+      expect(resolved(mode, '--surface-1'), `${mode} --surface-1`).toBe(PLOT[mode]);
+      expect(resolved(mode, '--surface-2'), `${mode} --surface-2`).toBe(PANEL[mode]);
+    }
+  });
+
+  // No exceptions any more: 1.0.3 gave drag and Mach dark hues that clear 3:1
+  // on the navy plot AND the navy-raised panel (the pending #008300 was 2.45).
+  it('every series clears 3:1 on its plot and its panel in light, dark and Daylight', () => {
+    for (const mode of MODES) {
+      paletteIn(mode).forEach((c, i) => {
+        expect(contrast(c, PLOT[mode]), `${mode} ${CHART_TOKENS[i]} on plot`).toBeGreaterThanOrEqual(3);
+        expect(contrast(c, PANEL[mode]), `${mode} ${CHART_TOKENS[i]} on panel`).toBeGreaterThanOrEqual(3);
       });
     }
   });
 
-  it('plot and panel surfaces are the stylesheet’s --surface-1 / --surface-2, not stale copies', () => {
-    for (const theme of ['light', 'dark'] as const) {
-      expect(surfaceIn(theme, '--surface-1'), `${theme} --surface-1`).toBe(PLOT[theme]);
-      expect(surfaceIn(theme, '--surface-2'), `${theme} --surface-2`).toBe(PANEL[theme]);
+  // A chart never sits on navy-high (#1C476A), where dark Mach / drag are 3.17
+  // / 3.18 — but a legend chip does, on hover (--hover), and a Daylight chip
+  // that is on sits on --selected. Line samples clear 3:1 there too.
+  it('legend samples clear 3:1 on the chip surfaces: --surface-3, --hover, Daylight --selected', () => {
+    for (const mode of MODES) {
+      const grounds = ['--surface-3', '--hover', ...(mode === 'daylight' ? ['--selected'] : [])]
+        .map((v) => [v, resolved(mode, v)] as const);
+      for (const [v, ground] of grounds) {
+        expect(ground, `${mode} ${v}`).toMatch(/^#[0-9a-f]{6}$/);
+        paletteIn(mode).forEach((c, i) => {
+          expect(contrast(c, ground), `${mode} ${CHART_TOKENS[i]} on ${v}`).toBeGreaterThanOrEqual(3);
+        });
+      }
+    }
+    expect(resolved('dark', '--hover')).toBe(tokens.theme.dark['surface-2']);
+  });
+
+  it('the chart code carries no pending-1.0.3 exception', () => {
+    const pending = ['pending', 'mmr-brand 1.0.3'].join(' ');
+    for (const f of ['chartTheme.ts', 'flightChartModel.ts', 'chartLegend.ts', 'flightPlotEvents.ts',
+      join('components', 'DragPanel.tsx'), join('components', 'FlightCharts.tsx'), join('components', 'ComparisonChart.tsx')]) {
+      expect(read(f), f).not.toContain(pending);
+    }
+  });
+});
+
+describe('eight distinct line styles — colour is never the only cue', () => {
+  const key = (d: readonly number[] | undefined) => (d ?? []).join(',');
+
+  it('every slot draws its own style; no two slots share one (all pairs)', () => {
+    expect(LINE_STYLES).toHaveLength(CHART_TOKENS.length);
+    for (let a = 0; a < LINE_STYLES.length; a++) {
+      for (let b = a + 1; b < LINE_STYLES.length; b++) {
+        expect(key(LINE_STYLES[a]), `${CHART_TOKENS[a]} vs ${CHART_TOKENS[b]}`).not.toBe(key(LINE_STYLES[b]));
+      }
+      expect(lineStyle(a)).toBe(LINE_STYLES[a]);
     }
   });
 
-  // The v0.075 defect this guards against: the dark theme drew the palette
-  // that was validated against WHITE, putting a line at 1.9:1 on the panel.
-  // Every hue must clear 3:1 — the non-text minimum — against its plot surface.
-  it('light and dark hues clear 3:1 against their plot surface', () => {
-    for (const c of SERIES) expect(contrast(c, PLOT.light), c).toBeGreaterThanOrEqual(3);
-    for (const c of SERIES_DARK) expect(contrast(c, PLOT.dark), c).toBeGreaterThanOrEqual(3);
-  });
-
-  // The legend and selection dots sit on the panel, one step up. Every brand
-  // hue clears 3:1 there too. The pending drag hue does not on the dark panel
-  // (#008300 on #123859, 2.45): a KNOWN LIMIT until mmr-brand 1.0.3 (D7), which
-  // must give drag (and Mach) a dark hue that clears 3:1 on BOTH #03254F and
-  // #123859. This is a tripwire, not a pass: the failing slots must be exactly
-  // the pending drag slot, so a new failure fails here, and so does the 1.0.3
-  // fix — remove the exception then.
-  it('hues clear 3:1 against their panel, except the pending dark drag hue', () => {
-    SERIES.forEach((c, i) => expect(contrast(c, PANEL.light), `light ${i}`).toBeGreaterThanOrEqual(3));
-    const below = SERIES_DARK.flatMap((c, i) => contrast(c, PANEL.dark) < 3 ? [i] : []);
-    expect(below).toEqual([5]);
-  });
-
-  it('light and dark hues are unique', () => {
-    expect(new Set(SERIES).size).toBe(SERIES.length);
-    expect(new Set(SERIES_DARK).size).toBe(SERIES_DARK.length);
-  });
-  // The whole point of daylight mode: every plotted line has to stay readable
-  // on a phone in direct sun. 4.5:1 is the WCAG AA text threshold — a chart
-  // line is thinner than text, so treat it as the floor, not the target. The
-  // surface is always white; daylight mode forces the light palette.
-  it('daylight hues clear 4.5:1 against the white page', () => {
-    for (const c of SERIES_DAYLIGHT) expect(contrast(c, '#ffffff')).toBeGreaterThanOrEqual(4.5);
-  });
-
-  it('daylight hues stay distinguishable from each other', () => {
-    expect(new Set(SERIES_DAYLIGHT).size).toBe(SERIES_DAYLIGHT.length);
-  });
-
-  // Daylight still overrides everything; otherwise the THEME picks the
-  // palette — dark stopped borrowing light's hues in v0.076.
-  it('picks the palette from daylight first, then theme', () => {
-    expect(seriesPalette(true, 'light')).toBe(SERIES_DAYLIGHT);
-    expect(seriesPalette(true, 'dark')).toBe(SERIES_DAYLIGHT);
-    expect(seriesPalette(false, 'light')).toBe(SERIES);
-    expect(seriesPalette(false, 'dark')).toBe(SERIES_DARK);
-  });
-
-  // Slot-for-slot hue identity: a trace keeps its slot across themes, so
-  // switching theme re-steps a line's color but never re-labels the data.
-  it('dark palette is a per-slot re-step of the light palette, not a reorder', () => {
-    // Spot anchors: slot 0 is the brand altitude blue in both themes; the
-    // pending drag slot is the one hue that survives both surfaces unchanged.
-    expect(SERIES[0]).toBe(tokens.chart.light.altitude);
-    expect(SERIES_DARK[0]).toBe(tokens.chart.dark.altitude);
-    expect(SERIES_DARK[SERIES.indexOf('#008300')]).toBe('#008300');
-  });
-
-  it('stability is the reference ink, dashed 6 4 wherever it is drawn', async () => {
-    const { seriesCatalog } = await import('./flightChartModel.js');
-    const { METRIC_UNITS } = await import('./prefs/units.js');
+  it('reference is the brand dash 6 4, and only altitude is solid', () => {
     expect(REFERENCE_DASH).toEqual([6, 4]);
-    expect(slotDash(7)).toEqual(REFERENCE_DASH);
-    for (const palette of [SERIES, SERIES_DARK, SERIES_DAYLIGHT]) {
-      const cat = seriesCatalog({ units: METRIC_UNITS }, palette);
-      for (const key of ['stability', 'stabilityPercent']) {
-        const d = cat.find((x) => x.key === key)!;
-        expect(d.color).toBe(palette[7]);
-        expect(d.dash).toEqual(REFERENCE_DASH);
-      }
-      // Nothing else carries a line pattern of its own in a single-series panel.
-      expect(cat.filter((x) => x.dash).map((x) => x.key)).toEqual(['stability', 'stabilityPercent']);
-    }
-    // The roll-plane panel draws the stability margin outside seriesCatalog:
-    // the same reference slot and dash there (it was the altitude blue, solid).
-    const drag = readFileSync(join(here, 'components', 'DragPanel.tsx'), 'utf8');
-    const stabilityLines = drag.match(/label: '[^']*[Ss]tability[^']*', color: palette\[\d\]!(, dash: REFERENCE_DASH)?/g) ?? [];
-    expect(stabilityLines).toHaveLength(1);
-    for (const l of stabilityLines) expect(l).toMatch(/color: palette\[7\]!, dash: REFERENCE_DASH$/);
-  });
-});
-
-describe('chartInk — the reference ink is an app variable Daylight can reach', () => {
-  const host = (vars: Record<string, string>) => {
-    const el = document.createElement('div');
-    for (const [k, v] of Object.entries(vars)) el.style.setProperty(k, v);
-    document.body.appendChild(el);
-    return el;
-  };
-
-  it('reads --chart-reference ahead of the brand token', () => {
-    // Daylight: every --mmr-* token is the LIGHT value (#45637b), and the
-    // Daylight block sets --chart-reference to #000 like the rest of its ink.
-    const el = host({ '--chart-reference': '#000', '--mmr-chart-reference': '#45637b' });
-    expect(chartInk(el).reference).toBe('#000');
-    el.remove();
+    expect(lineStyle(slotOf('reference'))).toEqual([6, 4]);
+    expect(LINE_STYLES.flatMap((d, i) => d ? [] : [CHART_TOKENS[i]])).toEqual(['altitude']);
   });
 
-  // THE CONTRACT HALF (styles.css, the styles lane's file): this fails until
-  // the light block defines --chart-reference as the brand token and the
-  // Daylight block as black — the merge gate for finding #9/#14, 2026-10-26.
-  // The dark block may restate the light one or leave it to inherit: the
-  // brand token itself resolves per theme.
-  it('styles.css defines --chart-reference: brand token in light and dark, black under Daylight', () => {
-    const css = readFileSync(join(here, 'styles.css'), 'utf8');
-    const declsIn = (opener: string): string[] => {
-      const out: string[] = [];
-      for (let at = css.indexOf(opener); at >= 0; at = css.indexOf(opener, at + 1)) {
-        const body = css.slice(at, css.indexOf('}', at));
-        const m = /--chart-reference:\s*([^;]+);/.exec(body);
-        if (m) out.push(m[1]!.trim().toLowerCase());
-      }
-      return out;
-    };
-    expect(declsIn('\n.viz-root {')).toEqual(['var(--mmr-chart-reference)']);
-    for (const v of declsIn("\n.viz-root[data-theme='dark'] {")) expect(v).toBe('var(--mmr-chart-reference)');
-    expect(declsIn("\n.viz-root[data-contrast='high'] {").map((v) => v.replace(/^#000$/, '#000000'))).toEqual(['#000000']);
-  });
-
-  it('falls back to the brand token, then the light brand value', () => {
-    const el = host({ '--mmr-chart-reference': '#a9c3d9' });
-    expect(chartInk(el).reference).toBe('#a9c3d9');
-    el.remove();
-    expect(chartInk(null).reference).toBe(tokens.chart.light.reference);
-  });
-});
-
-describe('seriesStyle — many-series charts never silently cycle colors', () => {
-  const C = SERIES;
-
-  // Re-pinned for the brand palette (2026-10-26): the first 8 used to draw
-  // solid, which was safe only because the pre-brand hues passed the CVD gate
-  // on hue alone. The brand hues do not (see the gate below), and slots cannot
-  // be re-ordered off their quantities, so each slot draws its own pattern.
-  it('first 8 series draw in slot order with their slot pattern', () => {
-    for (let i = 0; i < C.length; i++) {
-      const s = seriesStyle(i, C);
-      expect(s.stroke).toBe(C[i]);
-      expect(s.dash).toEqual(slotDash(i));
-    }
+  it('a legend sample shows at least one whole period of every style', () => {
+    for (const d of LINE_STYLES) if (d) expect(d.reduce((s, v) => s + v, 0)).toBeLessThanOrEqual(SAMPLE_WIDTH);
   });
 
   // The per-component drag breakdown used C[i % 8]: component 9 became an
-  // exact twin of component 1 (LEM-IV's two Rail Buttons were the reported
-  // case). Reused hues now carry a different pattern as the secondary encoding.
-  it('series 8–23 reuse the hues, each repeat with a pattern its slot has not used', () => {
-    for (let slot = 0; slot < C.length; slot++) {
-      const looks = [0, 1, 2].map((t) => seriesStyle(slot + t * C.length, C));
-      for (const l of looks) expect(l.stroke).toBe(C[slot]);
-      expect(new Set(looks.map((l) => (l.dash ?? []).join(','))).size).toBe(3);
-    }
-  });
-
-  it('no two of the first 24 series share both hue and dash', () => {
-    const seen = new Set<string>();
-    for (let i = 0; i < 24; i++) {
-      const s = seriesStyle(i, C);
-      const key = `${s.stroke}|${(s.dash ?? []).join(',')}`;
-      expect(seen.has(key)).toBe(false);
-      seen.add(key);
+  // exact twin of component 1 (LEM-IV's two Rail Buttons). Repeats take the
+  // next tier's style: a colour never meets the same style twice in 64 series.
+  it('no two of the first 64 series share both colour and style', () => {
+    for (const mode of MODES) {
+      const palette = paletteIn(mode);
+      const seen = new Set<string>();
+      for (let i = 0; i < 64; i++) {
+        const s = seriesStyle(i, palette);
+        expect(s.stroke).toBe(palette[i % 8]);
+        const k = `${s.stroke}|${key(s.dash)}`;
+        expect(seen.has(k), `${mode} series ${i}`).toBe(false);
+        seen.add(k);
+      }
     }
   });
 });
@@ -263,83 +232,189 @@ function lab(hex: string, matrix: number[][]) {
     .map((v) => v > (6 / 29) ** 3 ? Math.cbrt(v) : v / (3 * (6 / 29) ** 2) + 4 / 29);
   return [116 * xyz[1]! - 16, 500 * (xyz[0]! - xyz[1]!), 200 * (xyz[1]! - xyz[2]!)];
 }
+/** The smallest ΔE76 between two colours across normal, protan, deutan and tritan vision. */
+const minDelta = (a: string, b: string) => Math.min(...CVD.map((m) => {
+  const x = lab(a, m); const y = lab(b, m);
+  return Math.hypot(...x.map((v, k) => v - y[k]!));
+}));
 
-it('comparison subsets never depend on hue alone when simulated colours approach', async () => {
-  const { PRESETS, comparisonMembers, seriesCatalog } = await import('./flightChartModel.js');
-  const { METRIC_UNITS } = await import('./prefs/units.js');
+// THE CVD GATE FOR CHARTS THAT SHOW MANY SERIES AT ONCE (the drag breakdown by
+// component). Within the first 16 series (two tiers), two series that share a
+// line style must be told apart by colour in every simulated vision (15 ΔE76)
+// — so a pair hue alone cannot separate always differs in style.
+it('within 16 series, a shared style only joins colours every vision separates', () => {
   const measured: Record<string, string> = {};
-  for (const [name, palette] of [['light', SERIES], ['dark', SERIES_DARK], ['daylight', SERIES_DAYLIGHT]] as const) {
-    const catalog = seriesCatalog({ units: METRIC_UNITS }, palette);
-    const minima = CVD.map(() => Infinity);
-    for (const preset of PRESETS.filter((p) => p.x === 'time')) {
-      const members = comparisonMembers(preset, catalog);
-      for (let i = 0; i < members.length; i++) for (let j = i + 1; j < members.length; j++) {
-        CVD.forEach((matrix, m) => {
-          const a = lab(members[i]!.color, matrix); const b = lab(members[j]!.color, matrix);
-          const delta = Math.hypot(...a.map((v, k) => v - b[k]!));
-          minima[m] = Math.min(minima[m]!, delta);
-          // Preserve identity slots; line patterns supply the independent
-          // channel when the 15 Delta-E76 screen is not met by hue alone.
-          if (delta < 15) expect(members[i]!.dash).not.toEqual(members[j]!.dash);
-        });
+  for (const mode of MODES) {
+    const palette = paletteIn(mode);
+    let worst = Infinity;
+    for (let i = 0; i < 16; i++) for (let j = i + 1; j < 16; j++) {
+      const a = seriesStyle(i, palette); const b = seriesStyle(j, palette);
+      if ((a.dash ?? []).join(',') !== (b.dash ?? []).join(',')) continue;
+      const d = minDelta(a.stroke, b.stroke);
+      worst = Math.min(worst, d);
+      expect(d, `${mode} series ${i}/${j}`).toBeGreaterThanOrEqual(15);
+    }
+    const pairs: string[] = [];
+    for (let a = 0; a < 8; a++) for (let b = a + 1; b < 8; b++) {
+      const d = minDelta(palette[a]!, palette[b]!);
+      if (d < 15) pairs.push(`${CHART_TOKENS[a]}/${CHART_TOKENS[b]} ${d.toFixed(1)}`);
+    }
+    measured[mode] = `shared-style minimum ${worst.toFixed(1)}; hue-only pairs under 15: ${pairs.join('; ')}`;
+  }
+  console.info('Line-style CVD screen (ΔE76, min of normal/protan/deutan/tritan):', measured);
+});
+
+describe('the flight catalog maps each series by QUANTITY', () => {
+  const load = async () => {
+    const { seriesCatalog, arbitraryCatalog } = await import('./flightChartModel.js');
+    const { METRIC_UNITS } = await import('./prefs/units.js');
+    return { seriesCatalog, arbitraryCatalog, METRIC_UNITS };
+  };
+  const QUANTITY: Record<string, ChartToken> = {
+    altitude: 'altitude', velocity: 'velocity', Vz: 'velocity', acceleration: 'acceleration',
+    dynamicPressure: 'pressure', thrust: 'thrust', drag: 'drag', mach: 'mach',
+    stability: 'reference', stabilityPercent: 'reference',
+  };
+
+  it('a quantity series takes its named token in every mode', async () => {
+    const { seriesCatalog, METRIC_UNITS } = await load();
+    for (const mode of MODES) {
+      const palette = paletteIn(mode);
+      const cat = seriesCatalog({ units: METRIC_UNITS }, palette);
+      for (const [k, token] of Object.entries(QUANTITY)) {
+        const d = cat.find((x) => x.key === k)!;
+        expect(d.token, k).toBe(token);
+        expect(d.color, `${mode} ${k}`).toBe(palette[slotOf(token)]);
+      }
+      // The first series of each quantity draws the token's own style.
+      for (const k of ['altitude', 'velocity', 'acceleration', 'dynamicPressure', 'thrust', 'drag', 'mach', 'stability']) {
+        const d = cat.find((x) => x.key === k)!;
+        expect(d.dash, k).toEqual(lineStyle(slotOf(d.token!)));
       }
     }
-    measured[name] = minima.map((v) => v.toFixed(2)).join(', ');
-  }
-  console.info('Comparison minimum Delta-E76 (normal, protan, deutan, tritan):', measured);
+  });
+
+  it('stability (cal and %) is the reference series, dashed 6 4, and nothing else draws 6 4', async () => {
+    const { seriesCatalog, METRIC_UNITS } = await load();
+    const cat = seriesCatalog({ units: METRIC_UNITS }, LIGHT_PALETTE);
+    expect(cat.filter((d) => (d.dash ?? []).join(',') === '6,4').map((d) => d.key)).toEqual(['stability', 'stabilityPercent']);
+    // The roll-plane panel draws the stability margin outside seriesCatalog: the same token and dash there.
+    const drag = read('components', 'DragPanel.tsx');
+    const stabilityLines = drag.match(/label: '[^']*[Ss]tability[^']*', [^\n]*/g) ?? [];
+    expect(stabilityLines).toHaveLength(1);
+    expect(stabilityLines[0]).toContain("color: palette[slotOf('reference')]!, dash: REFERENCE_DASH");
+  });
+
+  // Non-quantities take the next free colour + style pair in slot order. Every
+  // token is taken at tier 0, so they land on tier 1, in catalog order after
+  // vertical velocity (velocity's tier 1).
+  it('other series take free pairs in slot order; no colour + style pair repeats', async () => {
+    const { seriesCatalog, arbitraryCatalog, METRIC_UNITS } = await load();
+    const cat = seriesCatalog({ units: METRIC_UNITS }, LIGHT_PALETTE);
+    const look = (k: string) => { const d = cat.find((x) => x.key === k)!; return [d.token, (d.dash ?? []).join(',')]; };
+    expect(look('Vz')).toEqual(['velocity', (lineStyle(slotOf('velocity'), 1) ?? []).join(',')]);
+    expect(Object.fromEntries(['mass', 'cpLocation', 'cgLocation', 'aoa', 'qAlpha'].map((k) => [k, look(k)[0]])))
+      .toEqual({ mass: 'altitude', cpLocation: 'acceleration', cgLocation: 'pressure', aoa: 'thrust', qAlpha: 'drag' });
+    for (const k of ['mass', 'cpLocation', 'cgLocation', 'aoa', 'qAlpha']) {
+      const d = cat.find((x) => x.key === k)!;
+      expect(d.dash, k).toEqual(lineStyle(slotOf(d.token!), 1));
+    }
+    const pairs = (defs: { key: unknown; color: string; dash?: number[] }[]) =>
+      defs.filter((d) => d.key !== 'stabilityPercent').map((d) => `${d.color}|${(d.dash ?? []).join(',')}`);
+    expect(new Set(pairs(cat)).size).toBe(pairs(cat).length);
+    // The re-flown extras: quantities take their token, the rest the next free pair.
+    const series = { time: [0, 1], altitude: [0, 1], ha: [1, 2], Vl: [0, 1], Az: [0, 1], P: [1, 2], Cd: [0.3, 0.4], Px: [0, 1] };
+    const all = arbitraryCatalog(series as never, { units: METRIC_UNITS }, LIGHT_PALETTE);
+    for (const [k, token] of [['ha', 'altitude'], ['Vl', 'velocity'], ['Az', 'acceleration'], ['P', 'pressure']] as const) {
+      expect(all.find((d) => d.key === k)?.token, k).toBe(token);
+    }
+    const full = seriesCatalog({ units: METRIC_UNITS }, LIGHT_PALETTE);
+    const extras = arbitraryCatalog({ ...series, ...Object.fromEntries(full.map((d) => [d.key, [0, 1]])) } as never,
+      { units: METRIC_UNITS }, LIGHT_PALETTE);
+    expect(new Set(pairs(extras)).size).toBe(pairs(extras).length);
+  });
+
+  it('comparison members keep their own look; no two members of a chart look alike', async () => {
+    const { PRESETS, comparisonMembers, seriesCatalog } = await import('./flightChartModel.js');
+    const { METRIC_UNITS } = await import('./prefs/units.js');
+    for (const mode of MODES) {
+      const cat = seriesCatalog({ units: METRIC_UNITS }, paletteIn(mode));
+      for (const preset of PRESETS.filter((p) => p.x === 'time')) {
+        const members = comparisonMembers(preset, cat);
+        for (const m of members) expect(m.dash).toEqual(cat.find((d) => d.key === m.key)!.dash);
+        for (let i = 0; i < members.length; i++) for (let j = i + 1; j < members.length; j++) {
+          expect((members[i]!.dash ?? []).join(','), `${mode} ${preset.id}`).not.toBe((members[j]!.dash ?? []).join(','));
+        }
+      }
+    }
+  });
+
+  // The default plots (altitude, velocity, acceleration) are three titled
+  // single-series panels; their hues must still be told apart at a glance by
+  // full-colour vision (the hard 15 floor).
+  it('the default altitude / velocity / acceleration set is separable', () => {
+    for (const mode of MODES) {
+      const p = paletteIn(mode);
+      const slots = (['altitude', 'velocity', 'acceleration'] as const).map(slotOf);
+      for (let i = 0; i < slots.length; i++) for (let j = i + 1; j < slots.length; j++) {
+        const a = lab(p[slots[i]!]!, CVD[0]!); const b = lab(p[slots[j]!]!, CVD[0]!);
+        expect(Math.hypot(...a.map((v, k) => v - b[k]!)), `${mode} ${i}/${j}`).toBeGreaterThanOrEqual(15);
+      }
+    }
+  });
 });
 
-/** Slot pairs under the 15 ΔE76 screen in any simulated vision, for one palette. */
-function conflicts(palette: string[]): [number, number, string][] {
-  const out: [number, number, string][] = [];
-  for (let i = 0; i < palette.length; i++) for (let j = i + 1; j < palette.length; j++) {
-    const deltas = CVD.map((matrix) => {
-      const a = lab(palette[i]!, matrix); const b = lab(palette[j]!, matrix);
-      return Math.hypot(...a.map((v, k) => v - b[k]!));
-    });
-    if (Math.min(...deltas) < 15) out.push([i, j, deltas.map((d) => d.toFixed(1)).join('/')]);
-  }
-  return out;
-}
+describe('markers never look like a series', () => {
+  it('series are drawn at least 2.5 px in every mode; markers are a solid 1 px hairline', () => {
+    for (const mode of MODES) expect(Number(resolved(mode, '--chart-series-width')), mode).toBeGreaterThanOrEqual(2.5);
+    // Event markers (flightPlotExtras.test draws them) and the worst-angle line.
+    expect(read('flightPlotEvents.ts')).toMatch(/ctx\.lineWidth = ratio;[\s\S]*ctx\.setLineDash\(\[\]\)/);
+    const drag = read('components', 'DragPanel.tsx');
+    expect(drag).toContain('ctx.strokeStyle = ink.reference; ctx.lineWidth = ratio; ctx.setLineDash([]);');
+    expect(drag).not.toMatch(/setLineDash\(\[\d/);
+  });
 
-// THE CVD GATE FOR CHARTS THAT SHOW EVERY SLOT AT ONCE (the drag breakdown by
-// component). Every pair of slots whose hues come within 15 ΔE76 in normal,
-// protan, deutan or tritan vision must draw different line patterns — within
-// each group of 8 repeats too. Slots keep their brand hues, so this is met by
-// SLOT_PATTERN, never by moving a quantity to another hue.
-it('every slot pair that hue alone cannot separate draws different patterns', () => {
-  const measured: Record<string, string> = {};
-  for (const [name, palette] of [['light', SERIES], ['dark', SERIES_DARK], ['daylight', SERIES_DAYLIGHT]] as const) {
-    const pairs = conflicts(palette);
-    for (const [a, b] of pairs) for (let tier = 0; tier < 3; tier++) {
-      const n = palette.length * tier;
-      expect(seriesStyle(n + a, palette).dash, `${name} slots ${a}/${b} tier ${tier}`)
-        .not.toEqual(seriesStyle(n + b, palette).dash);
-    }
-    measured[name] = pairs.map(([a, b, d]) => `${a}-${b} ${d}`).join('; ');
-  }
-  console.info('Slot pairs under 15 ΔE76 (normal/protan/deutan/tritan):', measured);
+  it('markers use --chart-reference, defined as the brand reference token', () => {
+    expect(declared('light', '--chart-reference')).toBe('var(--mmr-chart-reference)');
+    const el = document.createElement('div');
+    el.style.setProperty('--chart-reference', '#a9c3d9');
+    document.body.appendChild(el);
+    expect(chartInk(el).reference).toBe('#a9c3d9');
+    el.remove();
+    expect(chartInk(null).reference).toBe(tokens.chart.light['reference']);
+  });
 });
 
-// The default plots (FlightCharts DEFAULT_SELECTED: altitude, velocity,
-// acceleration) are three single-series panels, each titled, so a panel never
-// relies on hue to say which quantity it shows. Their hues must still be told
-// apart at a glance by full-colour vision (the hard 15 floor, no secondary
-// encoding can excuse it).
-it('the default altitude / velocity / acceleration set is separable', async () => {
-  const { seriesCatalog } = await import('./flightChartModel.js');
-  const { METRIC_UNITS } = await import('./prefs/units.js');
-  const keys = ['altitude', 'velocity', 'acceleration'];
-  for (const palette of [SERIES, SERIES_DARK, SERIES_DAYLIGHT]) {
-    const cat = seriesCatalog({ units: METRIC_UNITS }, palette);
-    const slots = keys.map((k) => palette.indexOf(cat.find((d) => d.key === k)!.color));
-    expect(slots).toEqual([0, 1, 2]);
-    // Normal vision only. No chart overlays these three by SLOT pattern (each
-    // has its own panel); where two share a chart — the comparison presets —
-    // the comparison-subset test above holds the dash that separates them.
-    for (let i = 0; i < slots.length; i++) for (let j = i + 1; j < slots.length; j++) {
-      const a = lab(palette[slots[i]!]!, CVD[0]!); const b = lab(palette[slots[j]!]!, CVD[0]!);
-      expect(Math.hypot(...a.map((v, k) => v - b[k]!)), `normal vision ${keys[i]}/${keys[j]}`).toBeGreaterThanOrEqual(15);
+describe('series labels are text-coloured, beside a line sample', () => {
+  /** Every `color:` a rule with this exact selector sets. */
+  const colorsOf = (selector: string) => {
+    const out: string[] = [];
+    const esc = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    for (const m of css.matchAll(new RegExp(`(?:^|\\n|,\\s*)${esc}\\s*\\{([^}]*)\\}`, 'g'))) {
+      const c = /(?:^|[;\s])color:\s*([^;]+);/.exec(m[1]!)?.[1];
+      if (c) out.push(c.trim());
     }
-  }
+    return out;
+  };
+
+  it('legend, readout and chip labels set var(--text-primary)', () => {
+    for (const sel of ['.chart-panel .u-legend', '.viz-root .u-legend', '.chart-tooltip-label',
+      '.flight-series-legend .series-chip', ".viz-root[data-contrast='high'] .flight-series-legend .series-chip",
+      '.series-chip-on']) {
+      expect(colorsOf(sel), sel).toEqual(['var(--text-primary)']);
+    }
+    expect(css).toMatch(/\.line-sample line \{\s*stroke-width: var\(--chart-series-width\);/);
+  });
+
+  it('no chart code paints a label in a series colour', () => {
+    for (const f of [join('components', 'FlightCharts.tsx'), join('components', 'ComparisonChart.tsx'),
+      join('components', 'DragPanel.tsx'), 'chartTooltip.ts', 'chartLegend.ts']) {
+      const src = read(f);
+      expect(src, f).not.toMatch(/style=\{\{\s*color:\s*d\.color/);
+      expect(src, f).not.toMatch(/\.style\.color\s*=/);
+      expect(src, f).not.toContain('series-dot');
+    }
+    // An axis was inked in its single series' colour; its text is now the axis ink.
+    expect(read('components', 'ComparisonChart.tsx')).not.toMatch(/stroke: defs\.length === 1 \? defs\[0\]!\.color/);
+  });
 });

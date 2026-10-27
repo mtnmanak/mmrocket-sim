@@ -63,7 +63,7 @@ html {
   --text-muted: var(--mmr-text-muted);
   /* Non-chart data ink: since brand v1 its ONLY use is the unit chip's hover
      TEXT, so it is the brand's text-safe chart blue (5.75:1 on white). Not
-     slot-synced to the chart palette, which lives in chartTheme.ts. */
+     slot-synced to the chart palette (the --chart-<token> series below). */
   --series-1: var(--mmr-chart-altitude);
   /* Status TEXT, AA (4.5:1) on every surface it is drawn on and on the 2D
      stage (components/contrastTokens.test.ts recomputes every pair from the
@@ -107,6 +107,21 @@ html {
   --chart-tick: var(--mmr-border);
   --chart-series-width: 2.5;
   --chart-axis-font: 500 12px var(--mmr-font-data);
+  /* THE CHART SERIES (mmr-brand 1.0.3, brand/chart.css), in the brand slot
+     order. chartTheme.ts reads these at the chart's container — never a hex
+     copy in TS. A series that IS one of these quantities takes its token
+     (flightChartModel.ts). --chart-reference is the stability series (dashed
+     6 4) and the event / worst-angle marker hairline. Each is ≥ 3:1 on the
+     plot (--surface-1) and the panel (--surface-2) in every theme; light Mach
+     #00987C is 3.47 / 3.63, which is why legend LABELS are text-coloured. */
+  --chart-altitude: var(--mmr-chart-altitude);
+  --chart-velocity: var(--mmr-chart-velocity);
+  --chart-acceleration: var(--mmr-chart-acceleration);
+  --chart-pressure: var(--mmr-chart-pressure);
+  --chart-thrust: var(--mmr-chart-thrust);
+  --chart-drag: var(--mmr-chart-drag);
+  --chart-mach: var(--mmr-chart-mach);
+  --chart-reference: var(--mmr-chart-reference);
   /* Type (SPEC §2.6): Archivo for headings, tab labels, instrument numerals
      and body text; IBM Plex Mono with tabular figures for buttons, field
      labels, inputs, tables, units and chart text. Self-hosted through
@@ -176,6 +191,18 @@ html {
   --chart-tick: var(--mmr-border);
   --chart-series-width: 2.5;
   --chart-axis-font: 500 12px var(--mmr-font-data);
+  /* The brand's dark series (chart.css [data-theme="dark"]). Lowest: drag
+     #C57BB3 / Mach #48A28E, 4.96 / 4.95 on the navy plot and 3.95 / 3.94 on
+     the navy-raised panel; a chart never sits on navy-high, but a hovered
+     legend chip does (--hover), where they are 3.18 / 3.17. */
+  --chart-altitude: var(--mmr-chart-altitude);
+  --chart-velocity: var(--mmr-chart-velocity);
+  --chart-acceleration: var(--mmr-chart-acceleration);
+  --chart-pressure: var(--mmr-chart-pressure);
+  --chart-thrust: var(--mmr-chart-thrust);
+  --chart-drag: var(--mmr-chart-drag);
+  --chart-mach: var(--mmr-chart-mach);
+  --chart-reference: var(--mmr-chart-reference);
   --font-display: var(--mmr-font-display);
   --font-data: var(--mmr-font-data);
   color-scheme: dark;
@@ -1806,8 +1833,34 @@ html {
   font-family: var(--font-data);
   font-variant-numeric: tabular-nums;
   font-size: 11px;
-  color: var(--text-secondary);
+  /* Series names are set in the text colour beside a line sample, never in
+     the series colour (mmr-brand SPEC §3.2; chartLegend.ts). */
+  color: var(--text-primary);
   opacity: 1;
+}
+
+/* uPlot's marker box becomes the series' line sample (legendSamplePlugin).
+   Scoped under .viz-root to out-specify uPlot's own 1em square, whose sheet
+   loads after this one with the chart chunk. */
+.viz-root .u-legend .u-marker.u-marker-sample {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+  height: auto;
+  vertical-align: middle;
+}
+
+/* A short sample of a series' line — its colour AND its dash — beside the
+   series name in every legend (components/LineSample.tsx, chartLegend.ts).
+   The stroke width follows the plotted lines, so it thickens under Daylight. */
+.line-sample {
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.line-sample line {
+  stroke-width: var(--chart-series-width);
 }
 
 /* The plot area itself sits one level INTO the panel — charts read as
@@ -3003,15 +3056,12 @@ html {
   background: var(--hover);
 }
 
-.series-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  display: inline-block;
+/* An unselected picker chip's series is not plotted: its sample dims. */
+.series-chip .line-sample {
   opacity: 0.35;
 }
 
-.series-chip-on .series-dot {
+.series-chip-on .line-sample {
   opacity: 1;
 }
 
@@ -4036,15 +4086,13 @@ html {
   gap: 5px;
 }
 
+/* The readout's series key: the line sample (chartLegend.ts lineSampleSvg). */
 .chart-tooltip-swatch {
   flex: none;
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
 }
 
 .chart-tooltip-label {
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 /* Tabular figures: the value column must not jitter as the cursor moves. */
@@ -4067,11 +4115,11 @@ html {
   color: var(--text-primary);
 }
 
-/* uPlot's legend outside a .chart-panel takes the theme's secondary ink in
-   every theme (this was a dark-only rule, which Daylight — now data-theme
-   light — would no longer have matched). */
+/* uPlot's legend outside a .chart-panel takes the theme's text ink in every
+   theme (this was a dark-only rule, which Daylight — now data-theme light —
+   would no longer have matched). Series names are text-coloured (§3.2). */
 .viz-root .u-legend {
-  color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
 .fin-table input {
@@ -4978,7 +5026,9 @@ select.unit-chip:hover {
    a keyboard user saw a 2px currentColor line, not the 3px --focus ring. */
 .flight-series-legend .series-emphasized:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .flight-series-legend .series-emphasis-mark { width: 1em; }
-.flight-series-legend .series-dot { opacity: 1; }
+/* The emphasis legend names PLOTTED series: full-strength sample, text-ink name. */
+.flight-series-legend .line-sample { opacity: 1; }
+.flight-series-legend .series-chip { color: var(--text-primary); }
 .roll-plane-panel .chart-panel-head h4 { flex: 1; min-width: 0; }
 .comparison-panel .u-legend .u-series { margin-right: 10px; }
 .comparison-panel .chart-btn { min-height: 36px; }
@@ -5204,7 +5254,8 @@ select.unit-chip:hover {
   --border: #000000;
   --border-control: #000000;
   --hover: var(--mmr-c-mist);
-  /* Kept: brand amber (#FFB23E) would drop the #8a5000 series dot to 3.62:1. */
+  /* Kept: brand amber (#FFB23E) is a fill a chip's line sample sits on; the
+     lowest Daylight series on #ffd18a is Mach #008276 at 3.31:1. */
   --selected: #ffd18a;
   --note-bg: #fff8d0;
   --note-border: #000000;
@@ -5225,6 +5276,13 @@ select.unit-chip:hover {
   --chart-tick: #000000;
   --chart-series-width: 3;
   --chart-axis-font: 600 12px var(--mmr-font-data);
+  /* Daylight draws the brand's LIGHT series (data-theme light): every one is
+     ≥ 4.5:1 on white (5.75–11.15) except Mach #00987C at 3.63, so Mach alone
+     steps to a darker teal: #008276, 4.71:1 on white, 3.31 on the --selected
+     chip fill, ΔE76 ≥ 15.0 from the other seven in normal, protan and deutan
+     vision. Every other series and --chart-reference (#45637B, 6.32) inherit
+     the brand value. */
+  --chart-mach: #008276;
   --font-display: var(--mmr-font-display);
   --font-data: var(--mmr-font-data);
   color-scheme: light;
@@ -5303,7 +5361,7 @@ select.unit-chip:hover {
 
 /* Dimming is a subtlety the sun erases — keep faded states legible. */
 .viz-root[data-contrast='high'] .empty-state svg,
-.viz-root[data-contrast='high'] .series-dot,
+.viz-root[data-contrast='high'] .line-sample,
 .viz-root[data-contrast='high'] .fin-row-del:disabled,
 .viz-root[data-contrast='high'] .file-btn:is(:disabled, [aria-disabled='true']),
 .viz-root[data-contrast='high'] .schematic-controls .file-btn:disabled,
@@ -5325,14 +5383,16 @@ select.unit-chip:hover {
   color: var(--text-primary);
 }
 
-.viz-root[data-contrast='high'] .series-chip:not(.series-chip-on) .series-dot {
+.viz-root[data-contrast='high'] .series-chip:not(.series-chip-on) .line-sample {
   opacity: 0.55;
 }
 
-/* The flight-series legend's dots stay full strength even on an unselected
+/* The flight-series legend's samples stay full strength even on an unselected
    chip (it was a stray rule below this block until brand v1; it must follow
-   the 0.55 rule above, which it ties). */
-.viz-root[data-contrast='high'] .flight-series-legend .series-chip .series-dot { opacity: 1; }
+   the 0.55 rule above, which it ties), and its names keep the text ink, not
+   the secondary ink every Daylight chip label takes above. */
+.viz-root[data-contrast='high'] .flight-series-legend .series-chip .line-sample { opacity: 1; }
+.viz-root[data-contrast='high'] .flight-series-legend .series-chip { color: var(--text-primary); }
 
 /* Double the zoom box's edge in sun, keeping the orange rather than the black
    every other hairline doubles to — at 2px of black it reads as an axis. */
@@ -5362,8 +5422,8 @@ select.unit-chip:hover {
    rule near the top of the block), and the font-weight is already 600 on ALL
    chips. So `on` and `off` painted identically — white on white — and a user
    picking motor diameters could not tell which were chosen. Fill it instead.
-   --selected (#ffd18a) against black text is 14:1; the worst Daylight series
-   dot, #8a5000 in SERIES_DAYLIGHT (chartTheme.ts:41), is 4.57:1 on it. */
+   --selected (#ffd18a) against black text is 14:1; the lowest Daylight line
+   sample on it, Mach #008276 (the Daylight --chart-mach), is 3.31:1. */
 .viz-root[data-contrast='high'] .series-chip-on {
   background: var(--selected);
   color: var(--text-primary);

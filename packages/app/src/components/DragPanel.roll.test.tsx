@@ -5,16 +5,28 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { AeroDiagnostics, OrkRocket } from '@online-openrocket/engine';
 import { DragPanel } from './DragPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { chartInk } from '../chartTheme.js';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const markerDash = vi.fn();
-const ctx = new Proxy({}, { get: (_t, p) => p === 'measureText' ? () => ({ width: 0 })
-  : p === 'setLineDash' ? markerDash : () => undefined });
+// Every stroke the canvas draws, with the style it was drawn in. The worst-plane
+// marker is the one SOLID 1 px stroke in the reference ink (re-pinned for brand
+// v1: it was the only [2, 4] dash, and the series styles now include dots).
+const strokes: { style: unknown; width: unknown; dash: number[] }[] = [];
+let dash: number[] = [];
+const ctx = new Proxy({} as Record<PropertyKey, unknown>, {
+  get: (t, p) => p === 'measureText' ? () => ({ width: 0 })
+    : p === 'setLineDash' ? (d: number[]) => { dash = d; }
+      : p === 'stroke' ? () => { strokes.push({ style: t['strokeStyle'], width: t['lineWidth'], dash }); }
+        : () => undefined,
+  set: (t, p, v) => { t[p] = v; return true; },
+});
+const marker = () => strokes.some((s) => s.style === chartInk(null).reference && s.width === (globalThis.devicePixelRatio || 1)
+  && s.dash.length === 0);
 HTMLCanvasElement.prototype.getContext = (() => ctx) as unknown as HTMLCanvasElement['getContext'];
 class NoPath { moveTo() {} lineTo() {} closePath() {} rect() {} arc() {} addPath() {} }
 (globalThis as unknown as { Path2D: unknown }).Path2D ??= NoPath;
 let host: HTMLDivElement; let root: Root;
-beforeEach(() => { localStorage.clear(); markerDash.mockClear(); host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
+beforeEach(() => { localStorage.clear(); strokes.length = 0; host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
 it('N022 queries only on request, shares AoA, names conditions, gaps and worst plane in preferred units', async () => {
@@ -35,7 +47,7 @@ it('N022 queries only on request, shares AoA, names conditions, gaps and worst p
   expect(panel.textContent).toContain('angle of attack 0°');
   expect(panel.textContent).toContain('No lift in this plane: 0°');
   expect(panel.textContent).toContain('Worst plane: 90°');
-  expect(markerDash).toHaveBeenCalledWith([2, 4]);
+  expect(marker()).toBe(true);
   expect(panel.textContent).toContain('400 mm from nose');
   expect(panel.textContent).toContain('1 cal');
   expect(panel.textContent).toContain('Launch CG');
@@ -77,11 +89,12 @@ it('N022 shows no worst direction or table marker when CP differs only by roundi
   const panel = host.querySelector('.roll-plane-panel')!;
   expect(panel.textContent).toContain('CP is the same in every roll plane (to rounding); no single worst plane.');
   expect(panel.textContent).not.toContain('Worst plane:');
-  expect(panel.textContent).not.toContain('marked by a dotted vertical line');
-  expect(markerDash).not.toHaveBeenCalledWith([2, 4]);
+  expect(panel.textContent).not.toContain('marked by a thin vertical line');
+  expect(strokes.length).toBeGreaterThan(0);
+  expect(marker()).toBe(false);
   for (const canvas of panel.querySelectorAll('canvas')) {
     expect(canvas.getAttribute('aria-label')).toContain('no single worst plane');
-    expect(canvas.getAttribute('aria-label')).not.toContain('marked by a dotted vertical line');
+    expect(canvas.getAttribute('aria-label')).not.toContain('marked by a thin vertical line');
   }
   const details = panel.querySelector('details')!;
   await act(async () => { details.open = true; details.dispatchEvent(new Event('toggle')); });

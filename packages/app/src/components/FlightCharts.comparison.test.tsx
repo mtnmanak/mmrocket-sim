@@ -10,7 +10,6 @@ import { METRIC_UNITS } from '../prefs/units.js';
 import { strFromU8, unzipSync } from 'fflate';
 import { flightXlsx } from '../services/flightXlsx.js';
 import * as fileName from '../services/fileName.js';
-import { SERIES_DAYLIGHT } from '../chartTheme.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -275,10 +274,11 @@ describe('flight comparisons wiring', () => {
     try {
       render(result());
       act(() => button('Sun').click());
-      const dots = host.querySelectorAll('.flight-series-legend .series-dot');
+      // Line samples since brand v1 (they were colour dots).
+      const dots = host.querySelectorAll('.flight-series-legend .line-sample');
       expect(dots.length).toBeGreaterThan(1);
       for (const dot of dots) expect(getComputedStyle(dot).opacity).toBe('1');
-      const offDot = host.querySelector('[aria-label="Plot series"] .series-chip:not(.series-chip-on) .series-dot')!;
+      const offDot = host.querySelector('[aria-label="Plot series"] .series-chip:not(.series-chip-on) .line-sample')!;
       expect(offDot).not.toBeNull();
       expect(getComputedStyle(offDot).opacity).toBe('0.55');
       act(() => host.querySelector<HTMLButtonElement>('[aria-label="Emphasize Velocity"]')!.click());
@@ -330,9 +330,15 @@ describe('flight comparisons wiring', () => {
     expect(overlay().series.slice(1).every((s) => s.alpha === 1 && s.width === 3)).toBe(true);
     act(() => button('Light').click());
     expect(overlay().series.slice(1).every((s) => s.alpha === 1 && s.width === 3)).toBe(true);
+    // Re-pinned for brand v1: the colour is READ FROM CSS (--chart-velocity at
+    // the app root), not picked from a TS palette, so a theme switch re-reads it.
+    host.className = 'viz-root';
+    host.style.setProperty('--chart-velocity', '#005a32');
     act(() => button('Sun').click());
     expect(overlay().series.slice(1).every((s) => s.alpha === 1 && s.width === 3)).toBe(true);
-    expect(overlay().series[1]!.stroke).toBe(SERIES_DAYLIGHT[1]);
+    expect(overlay().series[1]!.stroke).toBe('#005a32');
+    host.className = '';
+    host.style.removeProperty('--chart-velocity');
     expect(velocity.querySelector<HTMLElement>('.series-emphasis-mark')!.style.visibility).toBe('visible');
     const altitude = host.querySelector<HTMLButtonElement>('[aria-label="Emphasize Altitude"]')!;
     act(() => altitude.click());
@@ -386,14 +392,19 @@ describe('flight comparisons wiring', () => {
     expect(overlay().data[2]).toEqual([0, 10, 0, -10, -2]); expect(overlay().series[2]!.label).toBe('Vertical velocity (m/s)');
     select('Comparison chart', ''); expect(live()).toHaveLength(3);
   });
-  it('labels compatible axes with matched single-member ink and distinct CP/CG keys and dashes', () => {
+  it('labels compatible axes in the axis ink, with distinct CP/CG keys and dashes', () => {
     render(result()); select('Comparison chart', 'stability'); const p = overlay();
     expect(p.opts.axes?.map((a) => a.scale)).toEqual([undefined, 'left', 'right']);
     expect(p.opts.axes?.[2]?.side).toBe(1); expect(p.opts.axes?.[2]?.grid?.show).toBe(false);
     expect(p.series.slice(1).map((s) => s.scale)).toEqual(['left', 'right', 'right']);
     expect(p.series[2]!.dash).not.toEqual(p.series[3]!.dash);
     expect(host.querySelectorAll('.comparison-axis-key svg')).toHaveLength(3);
-    expect(p.opts.axes?.[1]?.stroke).toBe(p.series[1]!.stroke); expect(p.opts.axes?.[2]?.stroke).not.toBe(p.series[2]!.stroke);
+    // Re-pinned for brand v1 (SPEC §3.2, labels in the text colour): a
+    // single-member axis was inked in its series colour; every axis now takes
+    // the axis ink, and the axis keys carry the line samples.
+    for (const a of p.opts.axes ?? []) expect(a.stroke).toBe(p.opts.axes![0]!.stroke);
+    expect(p.opts.axes?.[1]?.stroke).not.toBe(p.series[1]!.stroke);
+    expect(p.series.slice(1).map((s) => String(s.dash))).toEqual(['6,4', String(p.series[2]!.dash), String(p.series[3]!.dash)]);
     const summary = host.querySelector('.comparison-panel canvas')!.getAttribute('aria-label');
     for (const text of ['left axis: Stability margin (cal)', 'right axis: CP location (cm)', 'right axis: CG location (cm)']) expect(summary).toContain(text);
   });

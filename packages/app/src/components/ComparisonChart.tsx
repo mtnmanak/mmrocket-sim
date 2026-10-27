@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import type { FlightEvent, FlightSeries } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { chartInk } from '../chartTheme.js';
+import { REFERENCE_DASH, chartInk } from '../chartTheme.js';
+import { legendSamplePlugin, type LegendEntry } from '../chartLegend.js';
+import { LineSample } from './LineSample.js';
 import { chartSummary, nameChartCanvas } from '../chartSummary.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots, zoomPercent } from '../chartPanZoom.js';
@@ -18,6 +20,9 @@ const NO_EVENTS: FlightEvent[] = [];
 const NO_SELECTION: string[] = [];
 
 const labelled = (d: SeriesDef) => `${d.title}${d.unit ? ` (${d.unit})` : ''}`;
+
+/** A phase plot's one series is split by direction: rising solid, falling dashed. */
+const phaseDash = (direction: string) => direction === 'Falling' ? REFERENCE_DASH : undefined;
 
 /** One branch, real scales. Phase plots never enter either time-sync bus. */
 export function ComparisonChart({ series, preset, catalog, flightName, plots, onZoomChange, onStatus, csvNote, emphasis = null,
@@ -93,7 +98,7 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
     const ySeries: uPlot.Series[] = prepared ? prepared.values.map((group) => ({
       label: `${labelled(members[0]!)} - ${group.direction}`,
       scale: 'left', stroke: members[0]!.color, width: ink.strokeWidth,
-      dash: group.direction === 'Falling' ? [6, 4] : undefined,
+      dash: phaseDash(group.direction),
       paths: (u) => {
         const stroke = new Path2D();
         // C-E7: independent subpaths preserve gaps even when many runs share ink.
@@ -118,7 +123,10 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
       const defs = members.filter((d) => d.axis === side);
       return { scale: side, side: side === 'left' ? 3 : 1,
         label: `${defs.map((d) => d.title).join(' / ')} (${defs[0]!.unit})`, labelSize: 20,
-        stroke: defs.length === 1 ? defs[0]!.color : ink.axis,
+        // Axis text in the text ink, never a series colour (mmr-brand §3.2:
+        // light Mach and four dark series are under 4.5:1 as text). The axis
+        // keys above the plot carry each side's line samples.
+        stroke: ink.axis,
         grid: { show: side === 'left', stroke: ink.grid }, ticks: { stroke: ink.tick }, font: ink.font, size: 48 };
     };
     const opts: uPlot.Options = {
@@ -173,7 +181,7 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
         if (phase) setZoom({ zoomed: plotIsZoomed(u), percent: zoomPercent(u) });
         else notify.current(plotIsZoomed(u), zoomPercent(u));
       }), tooltipPlugin(prepared ? (si, idx, label) => `${label}; ${phaseLabel(si, idx)}` : undefined),
-      ...(!phase ? [eventPlugin(events, selectedEvents, ink.reference)] : [])],
+      ...(!phase ? [eventPlugin(events, selectedEvents, ink)] : []), legendSamplePlugin()],
     };
     const plot = new uPlot(opts, data, el);
     plotRef.current = plot;
@@ -202,6 +210,10 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
       prepared ? prepared.values.map(() => members[0]!.key) : members.map((d) => d.key), emphasis, ref.current);
   }, [emphasis, available, phase, series, values, prepared, members, altitude, preset, prefs.units, daylight, resolvedTheme, expanded, events, selectedEvents]);
 
+  const legendEntries: LegendEntry[] = prepared
+    ? prepared.values.map((group) => ({ label: `${labelled(members[0]!)} - ${group.direction}`, color: members[0]!.color,
+      ...(phaseDash(group.direction) ? { dash: phaseDash(group.direction) } : {}) }))
+    : members.map((d) => ({ label: labelled(d), color: d.color, ...(d.dash ? { dash: d.dash } : {}) }));
   const tableMembers = phase ? [altitude, ...members] : members;
   const tableValues = phase ? [altitudeValues, ...values] : values;
   const pageSize = 100;
@@ -210,7 +222,7 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
     <div className="chart-panel-head">
       <h3>{preset.title} — {flightName}</h3>
       {available && <PlotImage container={ref} title={`${preset.title} — ${flightName}. X: ${phase ? labelled(altitude) : 'Time (s)'}. ${members.map(labelled).join('; ')}`}
-        captions={phase ? [] : eventCaptions(events, selectedEvents)} />}
+        captions={phase ? [] : eventCaptions(events, selectedEvents)} legend={legendEntries} />}
       <button className="chart-btn" aria-pressed={expanded} onClick={() => setExpanded(!expanded)}
         aria-label={`${expanded ? 'Restore' : 'Expand'} ${preset.title} chart`}>{expanded ? 'Restore size' : 'Expand'}</button>
     </div>
@@ -220,8 +232,7 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
         <span className="comparison-axis-key" key={side}>
           {side === 'left' ? 'Left' : 'Right'}:
           {members.filter((d) => d.axis === side).map((d) => <span key={String(d.key)}>
-            <svg width="22" height="10" aria-hidden="true"><line x1="0" y1="5" x2="22" y2="5"
-              stroke={d.color} strokeWidth="3" strokeDasharray={d.dash?.join(' ')} /></svg>
+            <LineSample color={d.color} dash={d.dash} />
             {d.title} {d.quantity ? <UnitChip quantity={d.quantity} /> : `(${d.unit})`}
           </span>)}
         </span>)}

@@ -3,7 +3,7 @@ import type { FlightSeries } from '@online-openrocket/engine';
 import { arbitraryCatalog, phaseData } from './flightChartModel.js';
 import { eventMarkers, eventPlugin } from './flightPlotEvents.js';
 import { METRIC_UNITS, IMPERIAL_UNITS } from './prefs/units.js';
-import { SERIES } from './chartTheme.js';
+import { LIGHT_PALETTE } from './chartTheme.js';
 
 const series = { time: [0, 1, 2, 3, 4, 5], altitude: [0, 1, 2, 3, 4, 5],
   velocity: [10, 11, 12, 13, 14, 15], Px: [0, 1, 1, -1, null, 2], Py: [0, 2, 3, 4, 5, 6],
@@ -11,7 +11,7 @@ const series = { time: [0, 1, 2, 3, 4, 5], altitude: [0, 1, 2, 3, 4, 5],
 
 describe('C-E7 recorded axes', () => {
   it('names and converts recorded symbols, excludes wall-clock noise, and labels unknown units', () => {
-    const defs = arbitraryCatalog(series, { units: IMPERIAL_UNITS }, SERIES);
+    const defs = arbitraryCatalog(series, { units: IMPERIAL_UNITS }, LIGHT_PALETTE);
     expect(defs.find(d => d.key === 'Px')).toMatchObject({ title: 'Position East of launch', unit: 'ft' });
     expect(defs.find(d => d.key === 'Px')!.f!(1)).toBeCloseTo(1 / 0.3048, 10); // unit conversion rounding
     expect(defs.find(d => d.key === 'Cd')).toMatchObject({ title: 'Drag coefficient', unit: '' });
@@ -20,7 +20,7 @@ describe('C-E7 recorded axes', () => {
   });
   it.each([METRIC_UNITS, IMPERIAL_UNITS])('reverses every converted custom axis, including compound and offset units', units => {
     const input = { ...series, qAlpha: [100, 200], aoa: [1, 2], T: [273.15, 300], P: [100, 200], 'θl': [1, 2] };
-    const defs = arbitraryCatalog(input, { units }, SERIES);
+    const defs = arbitraryCatalog(input, { units }, LIGHT_PALETTE);
     for (const def of defs.filter(d => d.f)) {
       expect(def.toSI, String(def.key)).toBeTypeOf('function');
       for (const sample of [0, 1, 273.15]) expect(def.toSI!(def.f!(sample))).toBeCloseTo(sample, 10); // unit arithmetic only
@@ -30,7 +30,7 @@ describe('C-E7 recorded axes', () => {
   });
   it('preserves repeated X, reversals, gaps and timestamps for a ground track without mutating SI', () => {
     const before = structuredClone(series);
-    const defs = arbitraryCatalog(series, { units: METRIC_UNITS }, SERIES);
+    const defs = arbitraryCatalog(series, { units: METRIC_UNITS }, LIGHT_PALETTE);
     const data = phaseData(series, defs.find(d => d.key === 'Px')!, defs.find(d => d.key === 'Py')!);
     expect(data.xs).toEqual([-1, 0, 1, 1, 2]);
     expect(data.runs.map(r => r.samples.map(s => s.index))).toEqual([[0, 1], [2, 3], [5]]);
@@ -56,12 +56,16 @@ describe('C-E7 branch event markers', () => {
       stroke: vi.fn(), setLineDash: vi.fn(), fillText: vi.fn() };
     const plot = { ctx, bbox: { left: 10, top: 20, width: 100, height: 80 },
       valToPos: (v: number) => v * 10 + 10, scales: { x: { min: 1, max: 4 } } };
-    const plugin = eventPlugin([{ type: 'LAUNCH', time: 0 }, { type: 'BURNOUT', time: 2.5 }], ['LAUNCH', 'BURNOUT'], '#000');
+    const plugin = eventPlugin([{ type: 'LAUNCH', time: 0 }, { type: 'BURNOUT', time: 2.5 }], ['LAUNCH', 'BURNOUT'],
+      { reference: '#45637b', font: "500 12px 'IBM Plex Mono', monospace" });
     const draw = plugin.hooks!.draw as (u: unknown) => void;
     draw(plot);
     expect(ctx.moveTo).toHaveBeenCalledExactlyOnceWith(35, 20);
     expect(ctx.fillText).toHaveBeenCalledWith('2', 35 + 3 * ratio, 20 + 26 * ratio);
-    expect(ctx).toMatchObject({ font: `${12 * ratio}px system-ui`, lineWidth: ratio });
+    // Re-pinned for brand v1: the data face at the axis weight (was system-ui),
+    // and a SOLID 1 px hairline (was dashed [4, 4]) so no marker reads as a series.
+    expect(ctx).toMatchObject({ font: `500 ${12 * ratio}px 'IBM Plex Mono', monospace`, lineWidth: ratio, strokeStyle: '#45637b' });
+    expect(ctx.setLineDash).toHaveBeenCalledExactlyOnceWith([]);
     vi.unstubAllGlobals();
   });
 });

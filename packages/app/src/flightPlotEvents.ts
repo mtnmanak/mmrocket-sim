@@ -1,5 +1,6 @@
 import type uPlot from 'uplot';
 import type { FlightEvent } from '@online-openrocket/engine';
+import type { ChartInk } from './chartTheme.js';
 
 export const PLOT_EVENTS = [
   ['LAUNCH', 'Launch'], ['BURNOUT', 'Burnout'], ['APOGEE', 'Apogee'],
@@ -15,16 +16,32 @@ export function eventMarkers(events: FlightEvent[], selected: readonly string[])
   }).sort((a, b) => a.time - b.time);
 }
 
+/**
+ * The marker font: the chart's own axis font (the data face, IBM Plex Mono, at
+ * the theme's weight) with its pixel size scaled to the canvas.
+ */
+export function markerFont(axisFont: string, ratio: number): string {
+  return /\d+(?:\.\d+)?px/.test(axisFont)
+    ? axisFont.replace(/(\d+(?:\.\d+)?)px/, (_m, px: string) => `${Number(px) * ratio}px`)
+    : `${12 * ratio}px ${axisFont}`;
+}
+
 /** C-E7: exact event times, never rounded to the nearest recorded sample.
- * Numbers refer to the text key below each canvas, avoiding overlapping names. */
-export function eventPlugin(events: FlightEvent[], selected: readonly string[], ink: string): uPlot.Plugin {
+ * Numbers refer to the text key below each canvas, avoiding overlapping names.
+ *
+ * A marker is a SOLID 1 px HAIRLINE in the reference ink (chartTheme
+ * ChartInk.reference), so it cannot be read as a series: every series is drawn
+ * 2.5–3 px, and the only series in the reference ink (stability) is dashed 6 4.
+ * It also differs from uPlot's cursor line, which is dashed. */
+export function eventPlugin(events: FlightEvent[], selected: readonly string[],
+  ink: Pick<ChartInk, 'reference' | 'font'>): uPlot.Plugin {
   const markers = eventMarkers(events, selected);
   return { hooks: { draw: u => {
     const { ctx, bbox } = u;
     const ratio = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
     ctx.save();
-    ctx.strokeStyle = ink; ctx.fillStyle = ink; ctx.lineWidth = ratio;
-    ctx.font = `${12 * ratio}px system-ui`; ctx.setLineDash([4 * ratio, 4 * ratio]);
+    ctx.strokeStyle = ink.reference; ctx.fillStyle = ink.reference; ctx.lineWidth = ratio;
+    ctx.font = markerFont(ink.font, ratio); ctx.setLineDash([]);
     markers.forEach((e, i) => {
       if (e.time < u.scales['x']!.min! || e.time > u.scales['x']!.max!) return;
       const x = u.valToPos(e.time, 'x', true);
