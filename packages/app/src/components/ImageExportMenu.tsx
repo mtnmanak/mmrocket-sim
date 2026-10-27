@@ -65,14 +65,15 @@ export function ImageExportMenu({ label, title, onPick, fitOption }: {
       {open && (
         <div className="image-export-popup" role="group" aria-label="Image export — format and width" style={{
           position: 'absolute', right: 0, top: '100%', marginTop: 4, zIndex: 30,
-          background: 'var(--surface-1)', border: '1px solid var(--border, #444)',
-          borderRadius: 6, padding: 6, boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+          // A raised menu, flat with an edge (brand: no drop shadows).
+          background: 'var(--surface-3)', border: '1px solid var(--border)',
+          borderRadius: 6, padding: 6,
           display: 'grid', gridTemplateColumns: 'auto repeat(3, auto)', gap: 4,
           whiteSpace: 'nowrap', fontSize: 12,
         }}>
           {(['png', 'jpeg'] as ImageFormat[]).map((fmt) => (
             [
-              <span key={`${fmt}-label`} style={{ alignSelf: 'center', padding: '0 6px', color: 'var(--text-muted, #999)' }}>
+              <span key={`${fmt}-label`} style={{ alignSelf: 'center', padding: '0 6px', color: 'var(--text-muted)' }}>
                 {formatLabel(fmt)}
               </span>,
               ...IMAGE_WIDTHS.map((w) => (
@@ -92,8 +93,8 @@ export function ImageExportMenu({ label, title, onPick, fitOption }: {
             // button above it, so it reads as a setting, not a fourth width.
             <label style={{
               gridColumn: '1 / -1', display: 'flex', alignItems: 'center', gap: 6,
-              marginTop: 2, paddingTop: 5, borderTop: '1px solid var(--border, #444)',
-              color: 'var(--text-muted, #999)', cursor: 'pointer',
+              marginTop: 2, paddingTop: 5, borderTop: '1px solid var(--border)',
+              color: 'var(--text-muted)', cursor: 'pointer',
             }} title="Move the camera in so the rocket fills the exported image — your viewing angle is kept, only the framing changes">
               <input type="checkbox" checked={fit} onChange={(e) => setFit(e.target.checked)} />
               Fit rocket to frame

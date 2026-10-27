@@ -2,12 +2,16 @@ import type { FlightEvent, FlightSeries } from '@online-openrocket/engine';
 import type { Preferences } from './prefs/PrefsContext.js';
 import { siToUi, uiToSi, type Quantity } from './prefs/units.js';
 import { exportColumnCatalog } from './services/flightDataCsv.js';
+import { REFERENCE_DASH } from './chartTheme.js';
 
 export interface SeriesDef {
   key: keyof FlightSeries;
   title: string;
   unit: string;
   color: string;
+  /** The series' own line pattern wherever it is drawn: stability is the
+   * brand's REFERENCE ink, which is always dashed (chart.css `.reference`). */
+  dash?: number[];
   /** set for unit-preference-driven series: the title unit becomes a click-to-change chip */
   quantity?: Quantity;
   /** display transform (SI -> UI unit) */
@@ -33,8 +37,8 @@ export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: string[]): S
     { key: 'thrust', title: 'Thrust', unit: 'N', color: C[4]! },
     { key: 'drag', title: 'Drag force', unit: 'N', color: C[5]! },
     { key: 'mach', title: 'Mach number', unit: '', color: C[6]! },
-    { key: 'stability', title: 'Stability margin', unit: 'cal', color: C[7]! },
-    { key: 'stabilityPercent', title: 'Stability margin (% of active length)', unit: '%', color: C[7]! },
+    { key: 'stability', title: 'Stability margin', unit: 'cal', color: C[7]!, dash: REFERENCE_DASH },
+    { key: 'stabilityPercent', title: 'Stability margin (% of active length)', unit: '%', color: C[7]!, dash: REFERENCE_DASH },
     { key: 'cpLocation', title: 'CP location', unit: u.length, quantity: 'length', color: C[0]!, f: (v) => siToUi('length', u.length, v) },
     { key: 'cgLocation', title: 'CG location', unit: u.length, quantity: 'length', color: C[1]!, f: (v) => siToUi('length', u.length, v) },
     { key: 'aoa', title: 'Angle of attack', unit: '°', color: C[2]!, f: (v) => (v * 180) / Math.PI, toSI: (v) => v * Math.PI / 180 },
@@ -60,12 +64,25 @@ export const PRESETS: ComparisonPreset[] = [
   { id: 'phase', title: 'Velocity vs altitude', x: 'altitude', left: ['velocity'], right: [] },
 ];
 
+/**
+ * Right-axis line patterns, in order of use; one the left axis already draws is
+ * skipped. The reference dash (6 4) comes LAST: it is the brand's pattern for
+ * stability and the event markers, so a right-axis velocity or acceleration
+ * takes it only when nothing else is free.
+ */
+const RIGHT_DASHES = [[2, 3], [8, 3, 2, 3], REFERENCE_DASH];
+
 export function comparisonMembers(preset: ComparisonPreset, catalog: SeriesDef[]) {
-  return (['left', 'right'] as const).flatMap((axis) => preset[axis].map((key, i) => ({
-    ...(catalog.find((d) => d.key === key) ?? { key, title: key, unit: 'unit unknown', color: catalog[0]?.color ?? '#000' }), axis,
-    // Redundant encoding for CVD readers, without changing identity colours.
-    dash: axis === 'right' ? (i === 0 ? [6, 4] : [2, 3]) : undefined,
-  })));
+  const def = (key: string): SeriesDef =>
+    catalog.find((d) => d.key === key) ?? { key, title: key, unit: 'unit unknown', color: catalog[0]?.color ?? '#000' };
+  // The left axis keeps each series' own pattern (stability's reference dash);
+  // the right axis takes the patterns the left does not use — the redundant
+  // encoding for CVD readers, without changing identity colours.
+  const left = preset.left.map((key) => ({ ...def(key), axis: 'left' as const }));
+  const used = new Set(left.map((d) => (d.dash ?? []).join(',')));
+  const free = RIGHT_DASHES.filter((d) => !used.has(d.join(',')));
+  const right = preset.right.map((key, i) => ({ ...def(key), axis: 'right' as const, dash: free[i % free.length] }));
+  return [...left, ...right];
 }
 
 export const finiteSample = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);

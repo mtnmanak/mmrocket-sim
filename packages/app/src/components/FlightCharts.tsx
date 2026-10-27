@@ -138,6 +138,8 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
           label: `${def.title}${def.unit ? ` (${def.unit})` : ''}`,
           stroke: def.color,
           width: ink.strokeWidth,
+          // Stability is the brand's reference ink: dashed wherever it is drawn.
+          ...(def.dash ? { dash: def.dash } : {}),
           value: (_u, v) => formatReadout(v),
         },
       ],
@@ -149,7 +151,7 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
         panZoomPlugin(() => plots,
           (u) => onZoomChangeRef.current(plotIsZoomed(u), zoomPercent(u))),
         tooltipPlugin(),
-        eventPlugin(result.events, selectedEvents, ink.axis),
+        eventPlugin(result.events, selectedEvents, ink.reference),
       ],
     };
     const plot = new uPlot(opts, data, el);

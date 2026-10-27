@@ -478,13 +478,20 @@ export function FinPointsEditor({ points, onChange }: {
             if (e.target !== svgRef.current && touchView.current) return;
             cancelDrag(e);
           }}>
+        {/* Contract variables throughout: this editor sits in the property
+            panel, not .rocket-stage, so the Daylight attribute selectors that
+            pin the side view's #7a786f / #9a978f strokes never reach it.
+            Measured on --surface-1 (light / dark / Daylight): the edge and the
+            body line 3.04 / 5.36 / 21; every point ink at least 3.72 on the
+            polygon fill (the hot orange in dark), 5.10 in light, 5.50 in
+            Daylight. */}
         {/* body surface line */}
-        <line x1={0} y1={bodyY} x2={VIEW_W} y2={bodyY} stroke="#9a978f" strokeWidth="3" />
+        <line x1={0} y1={bodyY} x2={VIEW_W} y2={bodyY} stroke="var(--border-control)" strokeWidth="3" />
         <text x={4} y={bodyY + 12} fontSize="9" fill="var(--text-muted)">body tube</text>
         {/* fin polygon — red while the outline is one the kernel would refuse */}
         <polygon points={polygon}
-          fill={shownProblem ? '#e34948' : '#b9b7b0'} fillOpacity={shownProblem ? 0.35 : 0.75}
-          stroke={shownProblem ? '#e34948' : '#7a786f'} strokeWidth="1.5"
+          fill={shownProblem ? 'var(--status-serious)' : 'var(--hover)'} fillOpacity={shownProblem ? 0.35 : 0.75}
+          stroke={shownProblem ? 'var(--status-serious)' : 'var(--border-control)'} strokeWidth="1.5"
           style={{ pointerEvents: 'none' }} />
         {/* points: generous invisible hit circle + visible dot */}
         {pts.map((p, i) => {
@@ -492,6 +499,12 @@ export function FinPointsEditor({ points, onChange }: {
           const locked = i === 0;
           const draggingThis = dragIndex.current === i;
           const hot = hotRow === i || draggingThis;
+          // The approved table (response-2026-10-26b §2 D): the editor's red →
+          // --status-serious (the point being dragged), its blue → --series-1.
+          // The focused row's point is the state orange, so a point you are
+          // pointing at and the point you are moving stay two colours.
+          const ink = locked ? 'var(--text-muted)' : draggingThis ? 'var(--status-serious)'
+            : hot ? 'var(--accent-graphic)' : 'var(--series-1)';
           return (
             <g key={i}>
               <circle cx={sx} cy={sy} r={HIT_RADIUS} fill="transparent"
@@ -499,11 +512,11 @@ export function FinPointsEditor({ points, onChange }: {
                 onPointerDown={onPointerDownPoint(i)}
                 onDoubleClick={(e) => { if (!e.shiftKey && !touchView.current) removePoint(i); }} />
               {hot && (
-                <circle cx={sx} cy={sy} r={9} fill="none" stroke="#e3a008"
+                <circle cx={sx} cy={sy} r={9} fill="none" stroke={ink}
                   strokeWidth="2" style={{ pointerEvents: 'none' }} />
               )}
               <circle cx={sx} cy={sy} r={hot ? 6 : 4.5}
-                fill={locked ? '#7a786f' : draggingThis ? '#e34948' : hot ? '#e3a008' : '#2a78d6'}
+                fill={ink}
                 stroke="#fff" strokeWidth="1.5" style={{ pointerEvents: 'none' }} />
               <text x={sx + 7} y={sy - 6} fontSize="9" fill="var(--text-secondary)"
                 style={{ pointerEvents: 'none' }}>{i + 1}</text>

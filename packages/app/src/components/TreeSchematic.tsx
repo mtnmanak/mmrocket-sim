@@ -570,7 +570,7 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
   const element = (s: SchematicShape, stop: boolean): ReactNode => {
     const props: Record<string, unknown> = { key: s.key, ...s.attrs };
     if (s.sel && !!selectedId && s.part?.id === selectedId) {
-      props['stroke'] = 'var(--accent)';
+      props['stroke'] = 'var(--accent-graphic)';
       props['strokeWidth'] = 2;
     }
     if (s.part) Object.assign(props, interaction(s.part, stop));
@@ -786,10 +786,15 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
               <path d={`M ${cgX} ${ctx.cy} L ${cgX - MARKER_R} ${ctx.cy} A ${MARKER_R} ${MARKER_R} 0 0 1 ${cgX} ${ctx.cy - MARKER_R} Z`} fill="var(--text-primary)" />
             </g>
           )}
+          {/* CP in the brand's CP orange, as the 3D view draws it (CHECKLIST:
+              "brand orange … CP marker"; red stays for the under-stable margin
+              text). The state-graphic split, because #FF6509 is 2.55:1 on the
+              light stage: --accent-graphic for the marks (5.30 on mist, 5.15 on
+              navy, 6.13 on Daylight white), --accent-text for the label. */}
           {cpX !== null && (
             <g pointerEvents="none">
-              <circle cx={cpX} cy={ctx.cy} r={MARKER_R} fill="none" stroke="var(--status-serious)" strokeWidth="2" />
-              <circle cx={cpX} cy={ctx.cy} r={3.5} fill="var(--status-serious)" />
+              <circle cx={cpX} cy={ctx.cy} r={MARKER_R} fill="none" stroke="var(--accent-graphic)" strokeWidth="2" />
+              <circle cx={cpX} cy={ctx.cy} r={3.5} fill="var(--accent-graphic)" />
             </g>
           )}
           {(callouts.cg || callouts.cp) && (
@@ -807,10 +812,10 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
               {callouts.cp && (
                 <>
                   <line x1={callouts.cp.x} y1={callouts.cp.leaderY1} x2={callouts.cp.x} y2={callouts.cp.leaderY2}
-                    stroke="var(--status-serious)" strokeWidth="1" strokeDasharray="4 3" />
-                  <circle cx={callouts.cp.x} cy={callouts.cp.leaderY2} r={4} fill="var(--status-serious)" />
+                    stroke="var(--accent-graphic)" strokeWidth="1" strokeDasharray="4 3" />
+                  <circle cx={callouts.cp.x} cy={callouts.cp.leaderY2} r={4} fill="var(--accent-graphic)" />
                   <text x={callouts.cp.x + 8} y={callouts.cp.leaderY2} dominantBaseline="central"
-                    fontSize="11" fontWeight="bold" fill="var(--status-serious)"
+                    fontSize="11" fontWeight="bold" fill="var(--accent-text)"
                     {...textUp(callouts.cp.x + 8, callouts.cp.leaderY2)}>CP</text>
                 </>
               )}
@@ -825,14 +830,19 @@ export function TreeSchematic({ tree, info, motors, hiddenIds, onPatchNode, maxH
             <g pointerEvents="none">
               <rect x={hoverBox.x0 - 2} y={hoverBox.y0 - 2}
                 width={hoverBox.x1 - hoverBox.x0 + 4} height={hoverBox.y1 - hoverBox.y0 + 4}
-                rx="3" fill="var(--accent)" fillOpacity="0.14"
-                stroke="var(--accent)" strokeWidth="1" strokeOpacity="0.6" />
+                rx="3" fill="var(--accent-graphic)" fillOpacity="0.14"
+                stroke="var(--accent-graphic)" strokeWidth="1" />
+              {/* A FIXED-INK tag, deliberately outside the theme (like the
+                  navy site strip): brand navy with paper text in every theme,
+                  Daylight included (14.50 text). On the dark navy stage only
+                  its --border edge separates it, 3.22:1. Hover-only, so never
+                  in an export, and EXPORT_VARS need not carry it. */}
               <g {...textUp(hoverTag.x, hoverTag.y)}>
                 <rect x={hoverTag.x - hoverTag.tw / 2} y={hoverTag.y - 9}
                   width={hoverTag.tw} height={18} rx="4"
-                  fill="rgba(13,14,18,0.9)" stroke="var(--border)" strokeWidth="1" />
+                  fill="rgba(3,37,79,0.92)" stroke="var(--border)" strokeWidth="1" />
                 <text x={hoverTag.x} y={hoverTag.y} textAnchor="middle" dominantBaseline="central"
-                  fontSize="11" fill="#ffffff">{hoverName}</text>
+                  fontSize="11" fill="#f6faff">{hoverName}</text>
               </g>
             </g>
           )}

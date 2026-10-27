@@ -163,7 +163,7 @@ describe('FinPointsEditor — the outline guard', () => {
   it('accepts origin-translated imported outlines and still refuses crossings', () => {
     render([[0.01, 0], [0.03, 0.03], [0.055, 0.03], [0.07, 0]]);
     expect(alertText()).toBe('');
-    expect(outlineStroke()).toBe('#7a786f');
+    expect(outlineStroke()).toBe('var(--border-control)');
     type(field('Point 3 x'), '15');
     expect(committed).toEqual([]);
     expect(alertText()).toContain('crosses itself');
@@ -210,7 +210,7 @@ describe('FinPointsEditor — the outline guard', () => {
     const restored: FinPoint[] = [[0, 0], [0.02, 0.025], [0.045, 0.025], [0.06, 0]];
     replacePoints(restored);
     expect(field('Point 2 y').value).toBe('25');
-    expect(outlineStroke()).toBe('#7a786f');
+    expect(outlineStroke()).toBe('var(--border-control)');
     expect(alertText()).toBe('');
     expect(committed).toEqual([]);
   });
@@ -245,9 +245,29 @@ describe('FinPointsEditor — the outline guard', () => {
 
   it('draws the outline red while it is one the kernel would refuse', () => {
     render(GOOD);
-    expect(outlineStroke()).toBe('#7a786f');
+    expect(outlineStroke()).toBe('var(--border-control)');
     render([[0, 0], [0.020, 0.030], [0.005, 0.020], [0.060, 0]]);
-    expect(outlineStroke()).toBe('#e34948');
+    expect(outlineStroke()).toBe('var(--status-serious)');
+  });
+
+  it('point inks: resting, locked, focused-row and dragged are four looks', () => {
+    render([[0, 0], [0.02, 0.03], [0.06, 0]]);
+    // The visible dots (the hot ring is fill="none"; the hit circles transparent).
+    const dot = (i: number) => host.querySelectorAll('svg circle[stroke="#fff"]')[i]!;
+    expect(dot(0).getAttribute('fill')).toBe('var(--text-muted)');
+    expect(dot(1).getAttribute('fill')).toBe('var(--series-1)');
+    act(() => field('Point 2 x').focus());
+    expect(dot(1).getAttribute('fill')).toBe('var(--accent-graphic)');
+    act(() => field('Point 2 x').blur());
+    expect(dot(1).getAttribute('fill')).toBe('var(--series-1)');
+    const svg = host.querySelector('svg')!;
+    svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 170 } as DOMRect);
+    const [cx, cy] = ['cx', 'cy'].map((a) => Number(dot(1).getAttribute(a)));
+    const hit = host.querySelectorAll('svg circle[fill="transparent"]')[1]!;
+    act(() => { hit.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1,
+      button: 0, buttons: 1, isPrimary: true, clientX: cx, clientY: cy })); });
+    expect(dot(1).getAttribute('fill')).toBe('var(--status-serious)');
+    expect(host.querySelector('svg circle[r="9"]')!.getAttribute('stroke')).toBe('var(--status-serious)');
   });
 
   it('"+ Add point" splits the last edge and commits', () => {

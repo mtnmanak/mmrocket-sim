@@ -3,6 +3,10 @@ import { safeName } from '../services/fileName.js';
 import { saveFile, saveOutcomeNote } from '../services/saveFile.js';
 import { Note } from './Note.js';
 
+/** Caption text is prose, so the brand's display face (body text at 400). A
+ *  canvas needs a concrete family list, not var(--mmr-font-display). */
+const CAPTION_FONT = "'Archivo', 'Helvetica Neue', Arial, sans-serif";
+
 /** C-E7: include identity and units in the file itself, with an opaque surface. */
 export function plotPng(source: HTMLCanvasElement, captions: string[], background: string, ink: string): Promise<Blob> {
   const canvas = document.createElement('canvas');
@@ -11,7 +15,7 @@ export function plotPng(source: HTMLCanvasElement, captions: string[], backgroun
   if (!ctx || !source.width || !source.height) return Promise.reject(new Error('The plot canvas is unavailable.'));
   const fontSize = 14 * Math.max(1, source.width / Math.max(1, source.clientWidth || source.width));
   const lines: string[] = [];
-  ctx.font = `${fontSize}px system-ui`;
+  ctx.font = `${fontSize}px ${CAPTION_FONT}`;
   for (const caption of captions) {
     let line = '';
     for (const word of caption.split(' ')) {
@@ -28,7 +32,7 @@ export function plotPng(source: HTMLCanvasElement, captions: string[], backgroun
   const top = (lines.length + 1) * fontSize * 1.5;
   canvas.height = source.height + Math.ceil(top);
   ctx.fillStyle = background; ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = ink; ctx.font = `${fontSize}px system-ui`;
+  ctx.fillStyle = ink; ctx.font = `${fontSize}px ${CAPTION_FONT}`;
   lines.forEach((line, i) => ctx.fillText(line, 12, (i + 1) * fontSize * 1.5));
   ctx.drawImage(source, 0, Math.ceil(top));
   return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob)
@@ -49,8 +53,8 @@ export function PlotImage({ container, title, captions = [] }: {
       const canvas = el?.querySelector('canvas');
       if (!el || !canvas) throw new Error('The plot canvas is unavailable.');
       const css = getComputedStyle(el);
-      const blob = await plotPng(canvas, [title, ...captions], css.getPropertyValue('--surface-1').trim() || '#fff',
-        css.getPropertyValue('--text-primary').trim() || '#111');
+      const blob = await plotPng(canvas, [title, ...captions], css.getPropertyValue('--surface-1').trim() || '#f6faff',
+        css.getPropertyValue('--text-primary').trim() || '#03254f');
       const out = await saveFile(blob, { suggestedName: `${safeName(title).slice(0, 180)}.png`, mime: 'image/png',
         extensions: ['.png'], description: 'Flight plot image' });
       if (button.current) setMessage(saveOutcomeNote(out));

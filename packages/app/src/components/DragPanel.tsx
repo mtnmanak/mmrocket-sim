@@ -9,7 +9,7 @@ import { DEFAULT_DRAG_ANALYSIS, type DragAnalysisPrefs } from '../prefs/dragAnal
 import { fmtSi, niceStep, noticeQuantity, siToUi, uiToSi, type UnitSelection } from '../prefs/units.js';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
-import { chartInk, seriesPalette, seriesStyle } from '../chartTheme.js';
+import { REFERENCE_DASH, chartInk, seriesPalette, seriesStyle } from '../chartTheme.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { chartSummary, nameChartCanvas } from '../chartSummary.js';
@@ -40,9 +40,10 @@ interface Line {
   /** `null` is a gap — uPlot draws no line through it (a CP with no lift). */
   values: (number | null)[];
   /**
-   * Dashed stroke — `true` for the power-on overlay's classic [6,4]; a
-   * pattern array for the 9th+ breakdown component, whose reused hue carries
-   * the dash as its secondary encoding (see chartTheme.seriesStyle).
+   * Dashed stroke — `true` for the power-on overlay's reference dash (6 4); a
+   * pattern array for a breakdown component's slot pattern (chartTheme
+   * SLOT_PATTERN, rotated on repeats past the palette — see seriesStyle) or the
+   * stability margin's reference dash.
    */
   dash?: boolean | number[];
 }
@@ -121,7 +122,12 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
           if (worstAngle === null || worstAngle < u.scales['x']!.min! || worstAngle > u.scales['x']!.max!) return;
           const ctx = u.ctx;
           const px = u.valToPos(worstAngle, 'x', true);
-          ctx.save(); ctx.strokeStyle = ink.axis; ctx.lineWidth = 2; ctx.setLineDash([2, 4]);
+          // Reference ink, but DOTTED, not the reference dash (a stated exception
+          // to the brand table's "markers dashed" row, for a ruling): the margin
+          // chart under this marker draws stability in the same ink AND the 6 4
+          // dash, so a dashed marker would be a second line styled exactly like
+          // the data. The panel's copy and the user guide say "dotted".
+          ctx.save(); ctx.strokeStyle = ink.reference; ctx.lineWidth = 2; ctx.setLineDash([2, 4]);
           ctx.beginPath(); ctx.moveTo(px, u.bbox.top); ctx.lineTo(px, u.bbox.top + u.bbox.height); ctx.stroke(); ctx.restore();
         } } }],
       series: [
@@ -130,7 +136,7 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
           label: l.label,
           stroke: l.color,
           width: ink.strokeWidth,
-          ...(l.dash ? { dash: Array.isArray(l.dash) ? l.dash : [6, 4] } : {}),
+          ...(l.dash ? { dash: Array.isArray(l.dash) ? l.dash : REFERENCE_DASH } : {}),
           value: (_u, v) => formatReadout(v),
         })),
       ],
@@ -190,7 +196,8 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
     return {
       cp: [{ label: `CP (${cpLabel})`, color: palette[3]!, values: analysis.cp.map((v) => v === null ? null
         : cpView === 'pct' ? v / info.length * 100 : siToUi('length', lenUnit, v)) }],
-      margin: [{ label: 'Stability margin (cal)', color: palette[0]!, values: analysis.margin }],
+      // Stability is the brand's reference series, dashed wherever it is drawn.
+      margin: [{ label: 'Stability margin (cal)', color: palette[7]!, dash: REFERENCE_DASH, values: analysis.margin }],
     };
   }, [analysis, cpLabel, palette, cpView, info.length, lenUnit]);
   const conditions = `Mach ${mach}, angle of attack ${aoaDeg}°`;
@@ -741,8 +748,10 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
         { label: 'Base', color: C[4]!, values: sweep.powerOff.base },
       ];
     }
-    // Never a silent color cycle: past the palette a component's reused hue
-    // carries a dash pattern (the two-Rail-Buttons-as-twins fix).
+    // Every component draws its slot's SLOT_PATTERN (solid, dashed or dotted)
+    // from the first group; past the palette the reused hue rotates to the
+    // next pattern, so it is never a silent colour cycle (the
+    // two-Rail-Buttons-as-twins fix).
     return sweep.components.map((c, i) => {
       const s = seriesStyle(i, C);
       return { label: c.name, color: s.stroke, values: c.cd, ...(s.dash ? { dash: s.dash } : {}) };

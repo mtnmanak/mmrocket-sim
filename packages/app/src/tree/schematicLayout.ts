@@ -551,8 +551,12 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
       attrs: {
         x: ctx.x0 + mStart * ctx.scale, y: cY - mR * ctx.scale,
         width: Math.max(2, motor.length * ctx.scale), height: Math.max(2, 2 * mR * ctx.scale),
-        rx: '1', fill: 'var(--launch)', fillOpacity: '0.85',
-        stroke: '#e0764a', strokeWidth: '0.8',
+        // Opaque, so the label below sits on the Launch colour itself (AA with
+        // --on-accent in every theme: 5.43 light, 5.15 dark, 7.23 Daylight) —
+        // only because the label is drawn only where the case is tall enough
+        // to hold it (below). The edge is the Launch ramp's far step.
+        rx: '1', fill: 'var(--launch)',
+        stroke: 'var(--launch-active)', strokeWidth: '0.8',
         style: { pointerEvents: 'none' },
       },
     }];
@@ -561,14 +565,18 @@ export function layoutSchematic(tree: RocketTree, o: SchematicLayoutOptions): Sc
     // Unlike the other labels, this one is NOT counter-rotated nose-up: it turns
     // with the drawing and runs along the case, so the case's length is its room
     // in both views. Read horizontally it would cross a case seldom wide enough
-    // to hold it, spilling onto the airframe.
-    if (motor.label && motor.length * ctx.scale >= motor.label.length * fontSize * 0.7 + 4) {
+    // to hold it, spilling onto the airframe. The case's HEIGHT must hold the
+    // glyphs too (1 px above and below): a shorter case would spill the label
+    // off the Launch fill, where --on-accent is not legible (white on the light
+    // inner tube is about 1.2:1).
+    if (motor.label && motor.length * ctx.scale >= motor.label.length * fontSize * 0.7 + 4
+      && 2 * mR * ctx.scale >= fontSize + 2) {
       const lx = ctx.x0 + (mStart + motor.length / 2) * ctx.scale;
       out.push({
         key: `${key}-label`, layer, tag: 'text', text: motor.label,
         attrs: {
           x: lx, y: cY, textAnchor: 'middle', dominantBaseline: 'central',
-          fontSize: String(fontSize), fontWeight: 'bold', fill: '#ffffff',
+          fontSize: String(fontSize), fontWeight: 'bold', fill: 'var(--on-accent)',
           style: { pointerEvents: 'none' },
         },
       });

@@ -89,7 +89,7 @@ describe('the hover box follows the drawn fins', () => {
   it('a 3-fin set highlights one full span up and half a span down, not the full box', () => {
     show(<TreeSchematic tree={treeWith({ type: 'trapezoidfinset', finCount: 3, tipChord: 0.03, sweep: 0.02 })} info={null} />);
     over(host.querySelector(FILLED_FIN)!);
-    const wash = host.querySelector<SVGRectElement>('rect[fill="var(--accent)"]')!;
+    const wash = host.querySelector<SVGRectElement>('rect[fill="var(--accent-graphic)"]')!;
     expect(wash).not.toBeNull();
     const y = Number(wash.getAttribute('y'));
     const hgt = Number(wash.getAttribute('height'));
@@ -106,7 +106,7 @@ describe('the hover box follows the drawn fins', () => {
   it('a single fin still gets a box with height', () => {
     show(<TreeSchematic tree={treeWith({ type: 'trapezoidfinset', finCount: 1, tipChord: 0.03, sweep: 0.02 })} info={null} />);
     over(host.querySelector(FILLED_FIN)!);
-    const wash = host.querySelector<SVGRectElement>('rect[fill="var(--accent)"]')!;
+    const wash = host.querySelector<SVGRectElement>('rect[fill="var(--accent-graphic)"]')!;
     expect(Number(wash.getAttribute('height'))).toBeGreaterThan(HEIGHT * scale() * 0.9);
   });
 });
@@ -349,7 +349,7 @@ describe('the rolled view is a wireframe: every fin, every angle', () => {
       <TreeSchematic tree={treeWith({ type: 'trapezoidfinset', finCount: 3, tipChord: 0.03, sweep: 0.02 })}
         info={null} roll={Math.PI / 6} selectedId="f1" />,
     ));
-    for (const w of wires()) expect(w.getAttribute('stroke')).toBe('var(--accent)');
+    for (const w of wires()) expect(w.getAttribute('stroke')).toBe('var(--accent-graphic)');
   });
 
   it('covers tube fins: one wire ring per tube, and the outlines paint LAST', () => {
