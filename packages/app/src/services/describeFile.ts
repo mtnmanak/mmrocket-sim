@@ -45,7 +45,7 @@ import type { ImportPlan } from './importApply.js';
 
 /** What the Design tab's analysis reports, with no motor installed. */
 export const DESCRIBE_BASIS = 'dry; no installed motors';
-export const DESCRIBE_ATMOSPHERE = 'kernel default; no Mach-altitude table';
+const DESCRIBE_ATMOSPHERE = 'kernel default; no Mach-altitude table';
 
 export interface DescribeFileOptions {
   /** Optional inflated XML cap; absent retains the browser default. */

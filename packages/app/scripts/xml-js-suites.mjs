@@ -154,6 +154,7 @@ export const XML_JS_SUITES = [
   // The headless door (step 1, 2026-10-01): simulateFile opens bytes through
   // the importers, which is exactly the path a server takes under this parser.
   'src/services/simulateFile.test.ts',
+  'src/services/describeFile.test.ts',
   'src/services/digestPick.test.ts',
   'src/services/flyBuiltDesign.test.ts',
   // Fin root fillets (C-B14): .ork reopen and the .rkt/.CDX1 loss notes.
