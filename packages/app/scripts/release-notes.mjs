@@ -25,6 +25,9 @@
 
 const SOURCE_URL = 'https://github.com/mtnmanak/mmrocket-sim';
 
+/** The vendored brand fonts (public/brand/fonts.css), relative to /releases/. */
+export const BRAND_FONTS = '../brand/fonts.css';
+
 /** HTML-escape text for an element body or a double-quoted attribute. */
 export function escapeHtml(text) {
   return String(text)
@@ -40,24 +43,42 @@ export function releaseAnchor(version) {
   return `v${version}`;
 }
 
+/**
+ * The page's palette is the mmr-brand 1.0.2 primitives (brand rollout D9, Eric,
+ * 2026-10-26), written as literals because the page is self-contained static
+ * HTML: light = paper ground, white cards, navy text; dark = navy ground,
+ * navy-raised cards, paper text. Links are blue on light and sky on dark (D1);
+ * nothing on this page is an orange word, so the orange-ink / orange-soft pair
+ * is not defined. No shadows, gradients or left stripes (brand SPEC). Fonts are
+ * the app's vendored brand fonts (../brand/fonts.css from /releases/): headings
+ * Archivo 800, prose Archivo 400 capped near 70ch (D6), version numbers and
+ * dates IBM Plex Mono with tabular figures (the heading's version link at 600:
+ * fonts.css ships Plex Mono at 400/500/600 only, so it must not inherit 800). Contrast, measured: navy on paper
+ * 14.50, slate 6.03, link 5.49; paper on navy 14.50, slate-light 8.32, sky 7.96;
+ * on the dark card (#123859) paper 11.54, slate-light 6.62, sky 6.34.
+ */
 const STYLE = `
-:root{color-scheme:light dark;--bg:#fbfaf7;--panel:#ffffff;--text:#0b0b0b;--text2:#52514e;--muted:#6d6b63;--border:#dedbd2;--accent:#b8511d}
-@media (prefers-color-scheme:dark){:root{--bg:#101623;--panel:#161e2e;--text:#f0efec;--text2:#c9c7c1;--muted:#9a978e;--border:#2a3448;--accent:#f08a4b}}
+:root{color-scheme:light dark;--bg:#f6faff;--panel:#ffffff;--text:#03254f;--muted:#45637b;--border:#b3cadc;--link:#006aab;--focus:#006aab;--font:"Archivo","Helvetica Neue",Arial,sans-serif;--font-data:"IBM Plex Mono",Consolas,"Liberation Mono",monospace}
+@media (prefers-color-scheme:dark){:root{--bg:#03254f;--panel:#123859;--text:#f6faff;--muted:#a9c3d9;--border:#557793;--link:#6bc6f3;--focus:#6bc6f3}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-main{max-width:860px;margin:0 auto;padding:24px 16px 64px}
-a{color:var(--accent)}
+body{margin:0;background:var(--bg);color:var(--text);font:400 16px/1.6 var(--font)}
+main{max-width:calc(70ch + 32px);margin:0 auto;padding:24px 16px 64px}
+a{color:var(--link)}
+a:focus-visible,summary:focus-visible{outline:3px solid var(--focus);outline-offset:2px;border-radius:2px}
+h1,h2{font-family:var(--font);font-weight:800;line-height:1.25}
 h1{font-size:1.6rem;margin:0 0 4px}
-.lead{color:var(--text2);margin:0 0 20px}
+.lead{color:var(--muted);margin:0 0 20px}
 nav.toc{background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:28px}
 nav.toc summary{cursor:pointer;font-weight:600}
 nav.toc ol{list-style:none;margin:10px 0 0;padding:0;max-height:360px;overflow:auto}
 nav.toc li{margin:2px 0;font-size:.92rem}
+nav.toc li>a,section.release h2>a,.d{font-family:var(--font-data);font-variant-numeric:tabular-nums}
+section.release h2>a{font-weight:600}
 nav.toc .d{color:var(--muted);margin:0 6px}
 section.release{border-top:1px solid var(--border);padding-top:18px;margin-top:18px}
 section.release h2{font-size:1.25rem;margin:0}
 section.release h2 .d{font-size:.85rem;font-weight:400;color:var(--muted);margin-left:8px}
-.title{color:var(--text2);margin:4px 0 10px}
+.title{color:var(--muted);margin:4px 0 10px}
 section.release li{margin-bottom:8px}
 .pre{color:var(--muted);white-space:pre-line;border-top:1px solid var(--border);margin-top:28px;padding-top:14px;font-size:.92rem}
 footer{color:var(--muted);font-size:.85rem;margin-top:32px}
@@ -98,8 +119,11 @@ export function renderReleaseNotes(changelog, preNote) {
     '<head>',
     '<meta charset="utf-8">',
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
+    '<meta name="theme-color" content="#03254F">',
     '<title>MMRocket Sim release notes</title>',
     `<meta name="description" content="Every release of MMRocket Sim, newest first. Latest: v${escapeHtml(newest.version)}, ${escapeHtml(newest.date)}.">`,
+    // The app ships the brand at /brand/; this page is /releases/, so one level up.
+    `<link rel="stylesheet" href="${BRAND_FONTS}">`,
     `<style>${STYLE}</style>`,
     '</head>',
     '<body>',

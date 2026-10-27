@@ -9,6 +9,7 @@ export function renderReleaseNotes(
 ): string;
 export const RELEASES_NAVIGATION: RegExp;
 export const RELEASES_FILE: string;
+export const BRAND_FONTS: string;
 export function releaseNotesPlugin(
   changelog: readonly { version: string; date: string; title: string; items: readonly string[] }[],
   preNote: string,
