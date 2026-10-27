@@ -735,13 +735,18 @@ function scaleNode(n: ComponentNode, k: number, notes?: string[], units?: UnitSe
  * Scales the whole design by `factor`, returning a new tree plus the lines the
  * app shows afterwards. Pure — the input tree is untouched.
  */
+/** A motor or bore size (mm) in a Scale note — shared with the per-configuration fit line. */
+export function motorDimensionText(mm: number, units: UnitSelection = INITIAL_UNITS): string {
+  return noticeQuantity('motorDimensions', mm / 1000, units);
+}
+
 export function scaleRocket(
   tree: RocketTree, factor: number, opts: ScaleOptions = {},
 ): ScaleResult {
   const k = factor;
   const units = opts.units ?? INITIAL_UNITS;
   const dimension = (m: number) => noticeQuantity('length', m, units);
-  const motorDimension = (mm: number) => noticeQuantity('motorDimensions', mm / 1000, units);
+  const motorDimension = (mm: number) => motorDimensionText(mm, units);
   if (!(k > 0) || !Number.isFinite(k) || k === 1) {
     return { tree, factor: 1, notes: [], needsAttention: false };
   }
