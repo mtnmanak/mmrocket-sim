@@ -54,6 +54,24 @@ export interface ChartSeriesSpec {
   rowCount: number;
   /** Line color, RRGGBB hex without '#'. */
   color: string;
+  /**
+   * Line pattern in CSS px for the chart's 1.5 pt (2 px) line, on/off pairs as
+   * chartTheme LINE_STYLES; omitted or empty = solid. Written as DrawingML
+   * a:custDash, whose lengths are in thousandths of a percent of line width.
+   */
+  dash?: readonly number[];
+}
+
+/** The chart line's width in CSS px: 19050 EMU = 1.5 pt = 2 px at 96 dpi. */
+const LINE_PX = 2;
+
+/** `<a:custDash>` for a CSS-px dash, or '' for solid. */
+function dashXml(dash: readonly number[] | undefined): string {
+  if (!dash?.length) return '';
+  const pct = (v: number) => Math.max(1, Math.round((v / LINE_PX) * 100000));
+  const stops: string[] = [];
+  for (let i = 0; i < dash.length; i += 2) stops.push(`<a:ds d="${pct(dash[i]!)}" sp="${pct(dash[i + 1] ?? dash[i]!)}"/>`);
+  return `<a:custDash>${stops.join('')}</a:custDash>`;
 }
 
 /** One chart tab: a full-page chartsheet holding a single x-y line plot. */
@@ -92,7 +110,8 @@ function chartXml(chart: ChartSpec, dataSheetName: (i: number) => string): strin
     const sheet = dataSheetName(s.sheetIndex);
     return `<c:ser><c:idx val="${i}"/><c:order val="${i}"/>`
       + `<c:tx><c:v>${escapeXml(s.name)}</c:v></c:tx>`
-      + `<c:spPr><a:ln w="19050" cap="rnd"><a:solidFill><a:srgbClr val="${s.color}"/></a:solidFill><a:round/></a:ln></c:spPr>`
+      // CT_LineProperties order: fill, then dash, then join.
+      + `<c:spPr><a:ln w="19050" cap="rnd"><a:solidFill><a:srgbClr val="${s.color}"/></a:solidFill>${dashXml(s.dash)}<a:round/></a:ln></c:spPr>`
       + '<c:marker><c:symbol val="none"/></c:marker>'
       + `<c:xVal><c:numRef><c:f>${escapeXml(rangeRef(sheet, s.xCol, 2, last))}</c:f></c:numRef></c:xVal>`
       + `<c:yVal><c:numRef><c:f>${escapeXml(rangeRef(sheet, s.yCol, 2, last))}</c:f></c:numRef></c:yVal>`

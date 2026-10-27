@@ -4,8 +4,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
-  CHART_TOKENS, LIGHT_PALETTE, LINE_STYLES, REFERENCE_DASH, chartInk, chartPalette, chartVar, lineStyle, seriesStyle, slotOf,
-  type ChartToken,
+  CHART_TOKENS, LIGHT_PALETTE, LINE_STYLES, REFERENCE_DASH, chartInk, chartPalette, chartVar, cssDash, lineStyle, plotDash,
+  seriesStyle, slotOf, type ChartToken,
 } from './chartTheme.js';
 import { SAMPLE_WIDTH } from './chartLegend.js';
 
@@ -75,6 +75,20 @@ const PANEL: Record<Mode, string> = { light: '#ffffff', dark: '#123859', dayligh
 describe('chart colours come from CSS, never from hex in TypeScript', () => {
   it('chartTheme.ts carries no hex colour literal', () => {
     expect(read('chartTheme.ts').match(/#[0-9a-f]{3,8}\b/gi) ?? []).toEqual([]);
+  });
+
+  // The chart paths outside chartTheme kept copies a brand bump would leave
+  // behind: comparisonMembers' '#000' for an unknown key, the saved image's
+  // '#f6faff' / '#03254f' grounds and its hand-typed font stacks.
+  it('no other chart source carries a hex colour literal', () => {
+    for (const f of ['flightChartModel.ts', 'chartLegend.ts', 'chartTooltip.ts', join('components', 'PlotImage.tsx'),
+      join('components', 'FlightCharts.tsx'), join('components', 'ComparisonChart.tsx'), join('components', 'DragPanel.tsx'),
+      join('services', 'flightXlsx.ts')]) {
+      expect(read(f).match(/#[0-9a-f]{3,8}\b/gi) ?? [], f).toEqual([]);
+    }
+    const image = read('components', 'PlotImage.tsx');
+    expect(image).toContain('const CAPTION_FONT = tokens.font.display;');
+    expect(image).toContain('const LEGEND_FONT = tokens.font.data;');
   });
 
   it('the slot order is the brand order (SPEC §3.2), reference last', () => {
@@ -196,6 +210,22 @@ describe('eight distinct line styles — colour is never the only cue', () => {
     for (const d of LINE_STYLES) if (d) expect(d.reduce((s, v) => s + v, 0)).toBeLessThanOrEqual(SAMPLE_WIDTH);
   });
 
+  // uPlot scales a series' width by its pxRatio but not its dash. plotDash is
+  // the device-px dash every plot is given (chartLegend deviceDashPlugin);
+  // cssDash recovers the CSS-px style a legend sample draws.
+  it('plotDash scales a style to device px; cssDash recovers the style', () => {
+    for (const ratio of [1, 1.25, 2, 3]) {
+      for (const d of LINE_STYLES) {
+        const device = plotDash(d, ratio);
+        if (!d) { expect(device).toBeUndefined(); continue; }
+        expect(device).toEqual(d.map((v) => v * ratio));
+        expect(cssDash(device)).toBe(d);
+        expect(cssDash(plotDash(device, 1))).toBe(d);
+      }
+    }
+    expect(cssDash([6, 4])).toEqual([6, 4]);
+  });
+
   // The per-component drag breakdown used C[i % 8]: component 9 became an
   // exact twin of component 1 (LEM-IV's two Rail Buttons). Repeats take the
   // next tier's style: a colour never meets the same style twice in 64 series.
@@ -266,9 +296,9 @@ it('within 16 series, a shared style only joins colours every vision separates',
 
 describe('the flight catalog maps each series by QUANTITY', () => {
   const load = async () => {
-    const { seriesCatalog, arbitraryCatalog } = await import('./flightChartModel.js');
+    const { seriesCatalog, arbitraryCatalog, directionDash } = await import('./flightChartModel.js');
     const { METRIC_UNITS } = await import('./prefs/units.js');
-    return { seriesCatalog, arbitraryCatalog, METRIC_UNITS };
+    return { seriesCatalog, arbitraryCatalog, directionDash, METRIC_UNITS };
   };
   const QUANTITY: Record<string, ChartToken> = {
     altitude: 'altitude', velocity: 'velocity', Vz: 'velocity', acceleration: 'acceleration',
@@ -294,10 +324,39 @@ describe('the flight catalog maps each series by QUANTITY', () => {
     }
   });
 
-  it('stability (cal and %) is the reference series, dashed 6 4, and nothing else draws 6 4', async () => {
-    const { seriesCatalog, METRIC_UNITS } = await load();
+  // Re-pinned in the fix pass: Stability margin (%) was a copy of the (cal)
+  // line, so the two could be plotted at once and look identical (the only
+  // repeated pair). It is now the reference ink's tier-1 style. And the
+  // re-flown extras took tier 1's two leftover pairs: Mach colour in 6 4 and
+  // the reference ink in long-short. The reference look is stability's alone.
+  it('stability is the reference series, dashed 6 4, and nothing else draws 6 4 or the reference ink', async () => {
+    const { seriesCatalog, arbitraryCatalog, directionDash, METRIC_UNITS } = await load();
     const cat = seriesCatalog({ units: METRIC_UNITS }, LIGHT_PALETTE);
-    expect(cat.filter((d) => (d.dash ?? []).join(',') === '6,4').map((d) => d.key)).toEqual(['stability', 'stabilityPercent']);
+    const is64 = (d: { dash?: number[] }) => (d.dash ?? []).join(',') === '6,4';
+    expect(cat.filter(is64).map((d) => d.key)).toEqual(['stability']);
+    const percent = cat.find((d) => d.key === 'stabilityPercent')!;
+    expect([percent.token, percent.color, percent.dash]).toEqual(['reference', LIGHT_PALETTE[slotOf('reference')], lineStyle(slotOf('reference'), 1)]);
+    // Every extra a re-fly can add, the no-quantity ones (Cd, Px, Il …) first in line.
+    const extras = Object.fromEntries(['Cd', 'Cdf', 'Cdp', 'Px', 'Py', 'Il', 'Ir', 'Cn', 'dΦ', 'Θ', 'Vl', 'Az', 'P', 'ha']
+      .map((k) => [k, [0, 1]]));
+    for (const mode of MODES) {
+      const palette = paletteIn(mode);
+      const all = arbitraryCatalog({ time: [0, 1], ...Object.fromEntries(cat.map((d) => [d.key, [0, 1]])), ...extras } as never,
+        { units: METRIC_UNITS }, palette);
+      expect(all.length, mode).toBeGreaterThan(cat.length + 10);
+      expect(all.filter(is64).map((d) => d.key), mode).toEqual(['stability']);
+      expect(all.filter((d) => d.color === palette[slotOf('reference')]).map((d) => d.key).sort(), mode)
+        .toEqual(['stability', 'stabilityPercent']);
+      // A plot against X draws its falling part in a second style: never 6 4.
+      for (const d of all) {
+        const { rising, falling } = directionDash(d, all);
+        expect(rising, String(d.key)).toEqual(d.dash);
+        expect((falling ?? []).join(','), String(d.key)).not.toBe('6,4');
+        expect((falling ?? []).join(','), String(d.key)).not.toBe((d.dash ?? []).join(','));
+        expect(all.some((o) => o.key !== d.key && o.color === d.color && (o.dash ?? []).join(',') === (falling ?? []).join(',')),
+          `${mode} ${String(d.key)} falling looks like another series`).toBe(false);
+      }
+    }
     // The roll-plane panel draws the stability margin outside seriesCatalog: the same token and dash there.
     const drag = read('components', 'DragPanel.tsx');
     const stabilityLines = drag.match(/label: '[^']*[Ss]tability[^']*', [^\n]*/g) ?? [];
@@ -319,8 +378,9 @@ describe('the flight catalog maps each series by QUANTITY', () => {
       const d = cat.find((x) => x.key === k)!;
       expect(d.dash, k).toEqual(lineStyle(slotOf(d.token!), 1));
     }
+    // Re-pinned in the fix pass: stabilityPercent is no longer excepted.
     const pairs = (defs: { key: unknown; color: string; dash?: number[] }[]) =>
-      defs.filter((d) => d.key !== 'stabilityPercent').map((d) => `${d.color}|${(d.dash ?? []).join(',')}`);
+      defs.map((d) => `${d.color}|${(d.dash ?? []).join(',')}`);
     expect(new Set(pairs(cat)).size).toBe(pairs(cat).length);
     // The re-flown extras: quantities take their token, the rest the next free pair.
     const series = { time: [0, 1], altitude: [0, 1], ha: [1, 2], Vl: [0, 1], Az: [0, 1], P: [1, 2], Cd: [0.3, 0.4], Px: [0, 1] };
@@ -332,6 +392,20 @@ describe('the flight catalog maps each series by QUANTITY', () => {
     const extras = arbitraryCatalog({ ...series, ...Object.fromEntries(full.map((d) => [d.key, [0, 1]])) } as never,
       { units: METRIC_UNITS }, LIGHT_PALETTE);
     expect(new Set(pairs(extras)).size).toBe(pairs(extras).length);
+  });
+
+  it('a comparison member the catalog lacks takes an unused pair, never black or another series', async () => {
+    const { comparisonMembers, seriesCatalog } = await import('./flightChartModel.js');
+    const { METRIC_UNITS } = await import('./prefs/units.js');
+    for (const mode of MODES) {
+      const palette = paletteIn(mode);
+      const cat = seriesCatalog({ units: METRIC_UNITS }, palette);
+      const [m] = comparisonMembers({ id: 'x', title: 'x', x: 'time', left: ['notASeries'], right: [] }, cat);
+      expect(palette, mode).toContain(m!.color);
+      expect(m!.color).not.toBe(palette[slotOf('reference')]);
+      expect((m!.dash ?? []).join(',')).not.toBe('6,4');
+      expect(cat.some((d) => d.color === m!.color && (d.dash ?? []).join(',') === (m!.dash ?? []).join(',')), mode).toBe(false);
+    }
   });
 
   it('comparison members keep their own look; no two members of a chart look alike', async () => {
@@ -370,8 +444,32 @@ describe('markers never look like a series', () => {
     // Event markers (flightPlotExtras.test draws them) and the worst-angle line.
     expect(read('flightPlotEvents.ts')).toMatch(/ctx\.lineWidth = ratio;[\s\S]*ctx\.setLineDash\(\[\]\)/);
     const drag = read('components', 'DragPanel.tsx');
-    expect(drag).toContain('ctx.strokeStyle = ink.reference; ctx.lineWidth = ratio; ctx.setLineDash([]);');
+    // Re-pinned in the fix pass: the cap is filled, so the worst-plane line sets fillStyle too.
+    expect(drag).toContain('ctx.strokeStyle = ink.reference; ctx.fillStyle = ink.reference; ctx.lineWidth = ratio; ctx.setLineDash([]);');
     expect(drag).not.toMatch(/setLineDash\(\[\d/);
+  });
+
+  // A 1 px solid vertical is ALSO what the x grid draws, in every chart: a
+  // marker differed from a grid line by colour alone (#45637B on #B3CADC grid
+  // in light). The cap is the cue no grid line (and no series) has.
+  it('markers are capped, so they never look like a grid line either', async () => {
+    const { drawMarker, MARKER_CAP } = await import('./flightPlotEvents.js');
+    for (const ratio of [1, 2]) {
+      const calls: string[] = [];
+      const ctx = new Proxy({}, { get: (_t, p) => (...a: number[]) => { calls.push(`${String(p)}(${a.join(',')})`); } });
+      drawMarker(ctx as CanvasRenderingContext2D, 50, 10, 80, ratio);
+      const h = (MARKER_CAP.width / 2) * ratio;
+      expect(calls).toEqual(['beginPath()', 'moveTo(50,10)', 'lineTo(50,90)', 'stroke()',
+        'beginPath()', `moveTo(${50 - h},10)`, `lineTo(${50 + h},10)`, `lineTo(50,${10 + MARKER_CAP.height * ratio})`,
+        'closePath()', 'fill()']);
+    }
+    // Both markers draw through drawMarker; neither strokes its own bare line.
+    expect(read('flightPlotEvents.ts')).toMatch(/drawMarker\(ctx, x, bbox\.top, bbox\.height, ratio\)/);
+    expect(read('components', 'DragPanel.tsx')).toMatch(/drawMarker\(ctx, px, u\.bbox\.top, u\.bbox\.height, ratio\)/);
+    // And no chart dashes or caps its grid: a grid line stays a bare line.
+    for (const f of [join('components', 'FlightCharts.tsx'), join('components', 'ComparisonChart.tsx'), join('components', 'DragPanel.tsx')]) {
+      expect(read(f), f).not.toMatch(/grid: \{[^}]*dash/);
+    }
   });
 
   it('markers use --chart-reference, defined as the brand reference token', () => {
@@ -398,8 +496,12 @@ describe('series labels are text-coloured, beside a line sample', () => {
   };
 
   it('legend, readout and chip labels set var(--text-primary)', () => {
+    // Re-pinned in the fix pass: the series picker's chips, on or off, name a
+    // series too (an off one was --text-secondary). Only the flight picker's:
+    // the same chip class elsewhere has no line sample (motor diameters).
     for (const sel of ['.chart-panel .u-legend', '.viz-root .u-legend', '.chart-tooltip-label',
       '.flight-series-legend .series-chip', ".viz-root[data-contrast='high'] .flight-series-legend .series-chip",
+      '.flight-series-picker .series-chip', ".viz-root[data-contrast='high'] .flight-series-picker .series-chip",
       '.series-chip-on']) {
       expect(colorsOf(sel), sel).toEqual(['var(--text-primary)']);
     }

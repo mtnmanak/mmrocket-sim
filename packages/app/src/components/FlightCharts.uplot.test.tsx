@@ -12,7 +12,7 @@ import { IMPERIAL_UNITS, METRIC_UNITS } from '../prefs/units.js';
 import { emphasizeSeries } from '../chartEmphasis.js';
 import { ComparisonChart } from './ComparisonChart.js';
 import { arbitraryCatalog } from '../flightChartModel.js';
-import { LIGHT_PALETTE } from '../chartTheme.js';
+import { LIGHT_PALETTE, LINE_STYLES, REFERENCE_DASH, lineStyle, slotOf } from '../chartTheme.js';
 
 // Capture instances without replacing uPlot's asynchronous scale/draw lifecycle.
 const registry = vi.hoisted(() => ({ plots: [] as uPlot[] }));
@@ -143,7 +143,13 @@ describe('C-E7 custom X regressions with real uPlot', () => {
     expect(commands(rising)).toEqual(projected([['M', 0, 0], ['L', 1, 10], ['L', 2, 20],
       ['M', 3, 40], ['L', 4, 50], ['M', 4, 60], ['L', 5, 70]]));
     expect(commands(falling)).toEqual(projected([['M', 5, 70], ['L', 2, 80]]));
-    expect(plot.series[falling]!.dash).toEqual([6, 4]);
+    // Re-pinned for brand v1 (fix pass): rising keeps the Y series' own style
+    // (altitude: solid), falling takes a second altitude-coloured style, never
+    // the reference 6 4. Mass (altitude's tier 1) is not in this flight, so
+    // the first free one is that tier-1 dash-dot. It was solid / 6 4.
+    expect(plot.series[rising]!.dash).toBeUndefined();
+    expect(plot.series[falling]!.dash).toEqual(lineStyle(slotOf('altitude'), 1));
+    expect(plot.series[falling]!.dash).not.toEqual(REFERENCE_DASH);
     // Duplicate X has two independently retained values and sample times.
     const repeated = Array.from(plot.data[0]).flatMap((x, i) => x === 4 ? [i] : []);
     expect(repeated.map(i => plot.data[rising]![i])).toEqual([50, 60]);
@@ -309,4 +315,41 @@ it('disables CP reset when a zoomed plot loses lift and unmounts', async () => {
   }
   expect(host.textContent).toContain('No CP to plot in this roll plane');
   expect(button('Reset the center of pressure chart view').disabled).toBe(true);
+});
+
+// uPlot 1.6.32 multiplies a series' WIDTH by its pxRatio but hands `dash` to
+// setLineDash as given, so on a 2x screen every pattern drew at half length
+// under a twice-as-thick line. The test suite otherwise runs at ratio 1, where
+// the two agree and the defect cannot show.
+describe('series dashes at device ratio 2', () => {
+  it('every plotted dash is its CSS-px style times pxRatio; legend samples stay CSS px', async () => {
+    const real = uPlot.pxRatio;
+    const setRatio = (r: number) => { (uPlot as { pxRatio: number }).pxRatio = r; };
+    setRatio(2);
+    try {
+      await renderCharts();
+      const panels = live();
+      const dashOf = (key: 'altitude' | 'velocity' | 'acceleration') =>
+        panels.find((p) => typeof p.series[1]!.label === 'string' && p.series[1]!.label.startsWith(key[0]!.toUpperCase() + key.slice(1)))!
+          .series[1]!.dash;
+      expect(dashOf('altitude')).toBeUndefined();
+      expect(dashOf('velocity')).toEqual(LINE_STYLES[slotOf('velocity')]!.map((v) => v * 2));
+      expect(dashOf('acceleration')).toEqual(LINE_STYLES[slotOf('acceleration')]!.map((v) => v * 2));
+      // The uPlot legend's samples are SVG in CSS px: the series' own style.
+      const samples = [...host.querySelectorAll('.u-legend .line-sample line')].map((l) => l.getAttribute('stroke-dasharray'));
+      expect(samples).toEqual(expect.arrayContaining([LINE_STYLES[slotOf('velocity')]!.join(' '),
+        LINE_STYLES[slotOf('acceleration')]!.join(' ')]));
+      // A ratio change (uPlot dispatches dppxchange after updating pxRatio) re-applies it.
+      setRatio(3);
+      window.dispatchEvent(new CustomEvent('dppxchange'));
+      expect(dashOf('velocity')).toEqual(LINE_STYLES[slotOf('velocity')]!.map((v) => v * 3));
+      // The comparison chart's series take it too.
+      setRatio(2);
+      await compare();
+      const overlay = live().find((p) => p.series.length === 3)!;
+      expect(overlay.series[2]!.dash).toEqual(LINE_STYLES[slotOf('velocity')]!.map((v) => v * 2));
+    } finally {
+      setRatio(real);
+    }
+  });
 });

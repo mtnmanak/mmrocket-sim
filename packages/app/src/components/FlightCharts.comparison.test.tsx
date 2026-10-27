@@ -7,6 +7,7 @@ import type { FlightResult, FlightSeries } from '@online-openrocket/engine';
 import { FlightCharts } from './FlightCharts.js';
 import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
 import { METRIC_UNITS } from '../prefs/units.js';
+import { lineStyle, slotOf } from '../chartTheme.js';
 import { strFromU8, unzipSync } from 'fflate';
 import { flightXlsx } from '../services/flightXlsx.js';
 import * as fileName from '../services/fileName.js';
@@ -120,13 +121,17 @@ describe('flight comparisons wiring', () => {
       { name: 'Booster', series: data(), events: [{ type: 'BURNOUT', time: 0.5 }] }];
     render(flight); select('Comparison chart', 'altitude-velocity');
     const drawnTimes = (plot: Plot) => {
-      const ctx = { save() {}, restore() {}, beginPath() {}, moveTo: vi.fn(), lineTo() {}, stroke() {}, setLineDash() {}, fillText() {} };
+      const ctx = { save() {}, restore() {}, beginPath() {}, moveTo: vi.fn(), lineTo: vi.fn(), stroke() {}, setLineDash() {}, fillText() {},
+        closePath() {}, fill() {} };
       for (const plugin of plot.opts.plugins ?? []) {
         const draw = plugin.hooks?.draw;
         if (typeof draw === 'function') draw({ ...plot, ctx, bbox: { left: 0, top: 0, width: 200, height: 100 },
           valToPos: (t: number) => t } as unknown as uPlot);
       }
-      return ctx.moveTo.mock.calls.map(call => call[0]);
+      // Each marker's hairline: a moveTo with a lineTo straight down from it
+      // (its cap's moveTo, half a cap to the left, has none).
+      return ctx.moveTo.mock.calls.filter(([x, y]) => ctx.lineTo.mock.calls.some(([lx, ly]) => lx === x && ly !== y))
+        .map(call => call[0]);
     };
     for (const plot of timePlots()) expect(drawnTimes(plot)).toEqual([0, 2]);
     expect(host.querySelectorAll('[aria-label="Flight event key"]')).toHaveLength(4);
@@ -419,7 +424,14 @@ describe('flight comparisons wiring', () => {
     expect(timePlots()[0]!.scales['x']!.max).toBeLessThan(4);
     select('Comparison chart', 'phase'); const phase = overlay();
     expect(phase.opts.cursor?.sync).toBeUndefined(); expect(phase.series.slice(1).every((s) => typeof s.paths === 'function')).toBe(true);
-    expect(phase.series[1]!.dash).toBeUndefined(); expect(phase.series[2]!.dash).toEqual([6, 4]);
+    // Re-pinned for brand v1 (fix pass): rising is velocity's own long dash,
+    // falling a second velocity-coloured style — never the reference 6 4 —
+    // and not vertical velocity's dots (velocity's tier 1), so it is velocity's
+    // tier 2, solid. It was solid rising and the reference 6 4 falling.
+    expect(phase.series[1]!.dash).toEqual(lineStyle(slotOf('velocity')));
+    expect(phase.series[2]!.dash).toEqual(lineStyle(slotOf('velocity'), 2));
+    expect(phase.series[2]!.dash).toBeUndefined();
+    expect(phase.series.slice(1).map((s) => String(s.dash))).not.toContain('6,4');
     const before = JSON.stringify(timePlots().map((p) => p.scales['x'])); wheel(phase);
     expect(JSON.stringify(timePlots().map((p) => p.scales['x']))).toBe(before);
     const phaseBefore = { ...phase.scales['x']! }; wheel(timePlots()[0]!); expect(phase.scales['x']).toEqual(phaseBefore);

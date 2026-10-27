@@ -53,18 +53,25 @@ describe('C-E7 branch event markers', () => {
   it.each([1, 2])('clips markers and keeps labels readable at pixel ratio %s', ratio => {
     vi.stubGlobal('devicePixelRatio', ratio);
     const ctx = { save: vi.fn(), restore: vi.fn(), beginPath: vi.fn(), moveTo: vi.fn(), lineTo: vi.fn(),
-      stroke: vi.fn(), setLineDash: vi.fn(), fillText: vi.fn() };
+      stroke: vi.fn(), setLineDash: vi.fn(), fillText: vi.fn(), closePath: vi.fn(), fill: vi.fn() };
     const plot = { ctx, bbox: { left: 10, top: 20, width: 100, height: 80 },
       valToPos: (v: number) => v * 10 + 10, scales: { x: { min: 1, max: 4 } } };
     const plugin = eventPlugin([{ type: 'LAUNCH', time: 0 }, { type: 'BURNOUT', time: 2.5 }], ['LAUNCH', 'BURNOUT'],
       { reference: '#45637b', font: "500 12px 'IBM Plex Mono', monospace" });
     const draw = plugin.hooks!.draw as (u: unknown) => void;
     draw(plot);
-    expect(ctx.moveTo).toHaveBeenCalledExactlyOnceWith(35, 20);
-    expect(ctx.fillText).toHaveBeenCalledWith('2', 35 + 3 * ratio, 20 + 26 * ratio);
+    // Re-pinned for brand v1 (fix pass): one visible marker = its hairline
+    // (35, 20 → 35, 100) and its cap, a filled triangle hanging from the plot
+    // top, which no grid line has; the number moves to 5 px right, clear of it.
+    expect(ctx.moveTo.mock.calls).toEqual([[35, 20], [35 - 3.5 * ratio, 20]]);
+    expect(ctx.lineTo.mock.calls).toEqual([[35, 100], [35 + 3.5 * ratio, 20], [35, 20 + 5 * ratio]]);
+    expect(ctx.stroke).toHaveBeenCalledOnce();
+    expect(ctx.fill).toHaveBeenCalledOnce();
+    expect(ctx.fillText).toHaveBeenCalledWith('2', 35 + 5 * ratio, 20 + 26 * ratio);
     // Re-pinned for brand v1: the data face at the axis weight (was system-ui),
     // and a SOLID 1 px hairline (was dashed [4, 4]) so no marker reads as a series.
-    expect(ctx).toMatchObject({ font: `500 ${12 * ratio}px 'IBM Plex Mono', monospace`, lineWidth: ratio, strokeStyle: '#45637b' });
+    expect(ctx).toMatchObject({ font: `500 ${12 * ratio}px 'IBM Plex Mono', monospace`, lineWidth: ratio, strokeStyle: '#45637b',
+      fillStyle: '#45637b' });
     expect(ctx.setLineDash).toHaveBeenCalledExactlyOnceWith([]);
     vi.unstubAllGlobals();
   });

@@ -12,7 +12,7 @@
  * stylesheet in scope (tests, a detached node) and for the workbook export, is
  * the brand's LIGHT set, imported from `brand/tokens.json` at build time.
  */
-import tokens from '../public/brand/tokens.json';
+import tokens from 'virtual:mmr-brand-tokens';
 
 /**
  * The eight brand series tokens, in the brand's SLOT ORDER (SPEC §3.2). A
@@ -72,8 +72,14 @@ export const REFERENCE_DASH = [6, 4];
 /**
  * EIGHT LINE STYLES, one per slot — colour is never the only cue (SPEC §3.2:
  * under simulated colour-vision deficiency altitude/acceleration and
- * pressure/thrust fall to ΔE 1–3). Dash arrays in CSS px (uPlot scales them by
- * the device ratio; `undefined` = solid). Four families — solid, dashes, dots,
+ * pressure/thrust fall to ΔE 1–3). Dash arrays in CSS px (`undefined` =
+ * solid). uPlot does NOT scale a series dash by the device ratio — it scales
+ * the line width, then hands `dash` to setLineDash as given, so on a 2x screen
+ * every pattern would draw at half its length under a twice-as-thick line.
+ * plotDash converts to device px, and chartLegend's deviceDashPlugin applies
+ * it to every plotted series; the legend samples (SVG) stay in CSS px, so a
+ * series looks the same in its chip, its chart and its saved image at any
+ * ratio. Four families — solid, dashes, dots,
  * dash-and-dot — so a pair hue alone cannot separate always differs in KIND,
  * not only in spacing: altitude solid vs acceleration dots, pressure dash-dot
  * vs thrust sparse dots. Every pattern repeats within 26 px, so the 28 px
@@ -97,8 +103,10 @@ export const LINE_STYLES: readonly (number[] | undefined)[] = [
  * searched so that, in the first 16 series, no two slots whose hues fall
  * under 15 ΔE76 in normal, protan, deutan or tritan vision (light, dark or
  * Daylight) share a style — chartTheme.test re-measures it. Row 1 puts the
- * reference dash on Mach's hue (never on CP/CG/mass's tier-1 hues), so the
- * flight catalog's only 6 4 lines are stability.
+ * reference dash on Mach's hue (never on CP/CG/mass's tier-1 hues), and the
+ * flight catalog's StyleAllocator never hands that pair, or any reference-ink
+ * pair, to anything but the reference series, so its only 6 4 line is
+ * stability (cal).
  */
 const TIER_STYLE: readonly (readonly number[])[] = [
   [0, 1, 2, 3, 4, 5, 6, 7],
@@ -110,6 +118,29 @@ const TIER_STYLE: readonly (readonly number[])[] = [
   [6, 7, 4, 5, 2, 3, 0, 1],
   [7, 6, 5, 4, 3, 2, 1, 0],
 ];
+
+/**
+ * The CSS-px dash each device-px dash was made from (plotDash), so a legend
+ * sample read off a live uPlot series is drawn at its CSS size.
+ */
+const CSS_DASH = new WeakMap<readonly number[], readonly number[]>();
+
+/**
+ * A CSS-px dash in DEVICE px for a canvas drawn at `ratio` (uPlot.pxRatio):
+ * what uPlot must be given, since it scales line widths by the ratio but
+ * passes `dash` to setLineDash unscaled. undefined (solid) stays undefined.
+ */
+export function plotDash(dash: readonly number[] | undefined, ratio: number): number[] | undefined {
+  if (!dash?.length) return undefined;
+  const out = dash.map((v) => v * ratio);
+  CSS_DASH.set(out, CSS_DASH.get(dash) ?? dash);
+  return out;
+}
+
+/** The CSS-px dash behind a dash plotDash made; any other dash is CSS px already. */
+export function cssDash(dash: readonly number[] | undefined): readonly number[] | undefined {
+  return dash?.length ? CSS_DASH.get(dash) ?? dash : undefined;
+}
 
 /** The dash for slot `slot` in repeat tier `tier` (undefined = solid). */
 export function lineStyle(slot: number, tier = 0): number[] | undefined {

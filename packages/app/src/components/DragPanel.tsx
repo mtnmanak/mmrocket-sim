@@ -11,7 +11,8 @@ import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
 import { REFERENCE_DASH, chartInk, seriesStyle, slotOf } from '../chartTheme.js';
 import { useChartPalette } from '../useChartPalette.js';
-import { legendSamplePlugin } from '../chartLegend.js';
+import { deviceDashPlugin, legendSamplePlugin } from '../chartLegend.js';
+import { drawMarker } from '../flightPlotEvents.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots } from '../chartPanZoom.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { chartSummary, nameChartCanvas } from '../chartSummary.js';
@@ -125,20 +126,22 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
       cursor: { points: { size: 6 }, ...(lockLegend ? { bind: { click: () => null } } : {}) },
       scales: { x: { time: false } },
       legend: { live: true },
-      plugins: [panZoomPlugin(undefined, (u) => onZoomChangeRef.current?.(plotIsZoomed(u))), tooltipPlugin(), legendSamplePlugin(),
+      plugins: [panZoomPlugin(undefined, (u) => onZoomChangeRef.current?.(plotIsZoomed(u))), tooltipPlugin(), deviceDashPlugin(), legendSamplePlugin(),
         { hooks: { draw: (u) => {
           if (worstAngle === null || worstAngle < u.scales['x']!.min! || worstAngle > u.scales['x']!.max!) return;
           const ctx = u.ctx;
           const px = u.valToPos(worstAngle, 'x', true);
-          // A SOLID 1 px HAIRLINE in the reference ink, like the flight charts'
-          // event markers (flightPlotEvents.ts): no series is drawn that thin,
-          // and the only series in this ink (stability, on the margin chart
-          // under it) is dashed 6 4. It was dotted [2, 4], which the eight
-          // series styles now include (acceleration's dots, chartTheme
-          // LINE_STYLES). The panel copy and the user guide say "thin".
+          // The flight charts' event marker (flightPlotEvents drawMarker): a
+          // SOLID 1 px HAIRLINE in the reference ink, capped by a small
+          // triangle. No series is drawn that thin, the only series in this
+          // ink (stability, on the margin chart under it) is dashed 6 4, and
+          // the cap tells it from the x grid's own 1 px lines. It was dotted
+          // [2, 4], which the eight series styles now include (acceleration's
+          // dots, chartTheme LINE_STYLES). The panel copy and the user guide
+          // say "thin".
           const ratio = typeof devicePixelRatio === 'number' ? devicePixelRatio : 1;
-          ctx.save(); ctx.strokeStyle = ink.reference; ctx.lineWidth = ratio; ctx.setLineDash([]);
-          ctx.beginPath(); ctx.moveTo(px, u.bbox.top); ctx.lineTo(px, u.bbox.top + u.bbox.height); ctx.stroke(); ctx.restore();
+          ctx.save(); ctx.strokeStyle = ink.reference; ctx.fillStyle = ink.reference; ctx.lineWidth = ratio; ctx.setLineDash([]);
+          drawMarker(ctx, px, u.bbox.top, u.bbox.height, ratio); ctx.restore();
         } } }],
       series: [
         { label: xLabel, value: (_u, v) => formatReadout(v) },

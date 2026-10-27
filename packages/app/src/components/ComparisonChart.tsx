@@ -2,13 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import uPlot from 'uplot';
 import type { FlightEvent, FlightSeries } from '@online-openrocket/engine';
 import { usePrefs } from '../prefs/PrefsContext.js';
-import { REFERENCE_DASH, chartInk } from '../chartTheme.js';
-import { legendSamplePlugin, type LegendEntry } from '../chartLegend.js';
+import { chartInk } from '../chartTheme.js';
+import { deviceDashPlugin, legendSamplePlugin, type LegendEntry } from '../chartLegend.js';
 import { LineSample } from './LineSample.js';
 import { chartSummary, nameChartCanvas } from '../chartSummary.js';
 import { formatReadout, tooltipPlugin } from '../chartTooltip.js';
 import { panelHeight, panZoomPlugin, plotIsZoomed, resetPlots, zoomPercent } from '../chartPanZoom.js';
-import { comparisonMembers, convertedValues, phaseData, usableSeries,
+import { comparisonMembers, convertedValues, directionDash, phaseData, usableSeries,
   type ComparisonPreset, type SeriesDef } from '../flightChartModel.js';
 import { UnitChip } from './UnitChip.js';
 import { emphasizeSeries } from '../chartEmphasis.js';
@@ -21,8 +21,9 @@ const NO_SELECTION: string[] = [];
 
 const labelled = (d: SeriesDef) => `${d.title}${d.unit ? ` (${d.unit})` : ''}`;
 
-/** A phase plot's one series is split by direction: rising solid, falling dashed. */
-const phaseDash = (direction: string) => direction === 'Falling' ? REFERENCE_DASH : undefined;
+/** The dash a direction's part of a non-time plot draws (directionDash). */
+const phaseDash = (d: ReturnType<typeof directionDash>, direction: string) =>
+  direction === 'Falling' ? d.falling : d.rising;
 
 /** One branch, real scales. Phase plots never enter either time-sync bus. */
 export function ComparisonChart({ series, preset, catalog, flightName, plots, onZoomChange, onStatus, csvNote, emphasis = null,
@@ -53,6 +54,11 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
   const altitude = useMemo(() => catalog.find(d => d.key === preset.x)
     ?? { key: preset.x, title: preset.x, unit: 'unit unknown', color: '' }, [catalog, preset.x]);
   const members = useMemo(() => comparisonMembers(preset, catalog), [preset, catalog]);
+  // A non-time plot's one series is split by direction: rising in its own
+  // line style, falling in a second style of the same colour, never the
+  // reference 6 4 (flightChartModel directionDash).
+  const directions = useMemo(() => members[0] ? directionDash(members[0], catalog)
+    : { rising: undefined, falling: undefined }, [members, catalog]);
   const values = useMemo(() => members.map((d) => convertedValues(series, d)), [series, members]);
   const altitudeValues = useMemo(() => convertedValues(series, altitude), [series, altitude]);
   const prepared = useMemo(() => phase ? phaseData(series, altitude, members[0]!) : null,
@@ -98,7 +104,7 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
     const ySeries: uPlot.Series[] = prepared ? prepared.values.map((group) => ({
       label: `${labelled(members[0]!)} - ${group.direction}`,
       scale: 'left', stroke: members[0]!.color, width: ink.strokeWidth,
-      dash: phaseDash(group.direction),
+      dash: phaseDash(directions, group.direction),
       paths: (u) => {
         const stroke = new Path2D();
         // C-E7: independent subpaths preserve gaps even when many runs share ink.
@@ -181,7 +187,7 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
         if (phase) setZoom({ zoomed: plotIsZoomed(u), percent: zoomPercent(u) });
         else notify.current(plotIsZoomed(u), zoomPercent(u));
       }), tooltipPlugin(prepared ? (si, idx, label) => `${label}; ${phaseLabel(si, idx)}` : undefined),
-      ...(!phase ? [eventPlugin(events, selectedEvents, ink)] : []), legendSamplePlugin()],
+      ...(!phase ? [eventPlugin(events, selectedEvents, ink)] : []), deviceDashPlugin(), legendSamplePlugin()],
     };
     const plot = new uPlot(opts, data, el);
     plotRef.current = plot;
@@ -203,7 +209,7 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
       plotRef.current = null;
       plot.destroy();
     };
-  }, [available, phase, series, values, prepared, members, altitude, preset, prefs.units, daylight, resolvedTheme, expanded, plots, events, selectedEvents]);
+  }, [available, phase, series, values, prepared, members, directions, altitude, preset, prefs.units, daylight, resolvedTheme, expanded, plots, events, selectedEvents]);
 
   useEffect(() => {
     if (plotRef.current && ref.current) emphasizeSeries(plotRef.current,
@@ -212,7 +218,7 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
 
   const legendEntries: LegendEntry[] = prepared
     ? prepared.values.map((group) => ({ label: `${labelled(members[0]!)} - ${group.direction}`, color: members[0]!.color,
-      ...(phaseDash(group.direction) ? { dash: phaseDash(group.direction) } : {}) }))
+      ...(phaseDash(directions, group.direction) ? { dash: phaseDash(directions, group.direction) } : {}) }))
     : members.map((d) => ({ label: labelled(d), color: d.color, ...(d.dash ? { dash: d.dash } : {}) }));
   const tableMembers = phase ? [altitude, ...members] : members;
   const tableValues = phase ? [altitudeValues, ...values] : values;
@@ -239,8 +245,8 @@ export function ComparisonChart({ series, preset, catalog, flightName, plots, on
     </div>
     {preset.right.length > 0 && <p className="chart-comparison-note">Each side has its own scale. Read each curve against its labelled axis; a crossing does not mean equal values.</p>}
     {members.some((d) => d.key === 'velocity') && <p className="chart-comparison-note">Velocity is total speed over the ground, including horizontal motion.</p>}
-    {phase && <p className="chart-comparison-note">{preset.x === 'altitude' ? 'Altitude is above the launch point. Solid lines show rising altitude; dashed lines show falling altitude.'
-      : 'Solid lines show increasing X; dashed lines show decreasing X.'} The readout gives the time of each sample. Repeated-X and isolated samples appear as points.</p>}
+    {phase && <p className="chart-comparison-note">{preset.x === 'altitude' ? 'Altitude is above the launch point. Rising altitude is drawn in the series’ own line pattern and falling altitude in a second pattern of the same colour; the legend shows both.'
+      : 'Increasing X is drawn in the series’ own line pattern and decreasing X in a second pattern of the same colour; the legend shows both.'} The readout gives the time of each sample. Repeated-X and isolated samples appear as points.</p>}
     {preset.id === 'ground-track' && <p className="chart-comparison-note">Positions are relative to launch. East is horizontal; North is vertical. The axes can have different scales, so this plot does not show the landing bearing to scale.</p>}
     {!available && <p>{status}</p>}
     {available && <>

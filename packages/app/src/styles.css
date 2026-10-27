@@ -3046,6 +3046,16 @@ html {
   cursor: pointer;
 }
 
+/* A SERIES name is set in the text ink, on or off (mmr-brand SPEC §3.2): the
+   flight series picker's chips name plotted quantities, and an unplotted one
+   says so with its dimmed line sample, its lighter edge and aria-pressed, not
+   with a fainter name. Only there: the same chip elsewhere (motor diameters,
+   Batch filters, saved-run columns) has no sample, and its secondary ink is
+   half of its off cue. */
+.flight-series-picker .series-chip {
+  color: var(--text-primary);
+}
+
 .series-chip-on {
   border-color: var(--text-secondary);
   color: var(--text-primary);
@@ -4060,8 +4070,8 @@ html {
 /* Point readout popup (chartTooltip.ts). Lives inside uPlot's `over`, which
    is the element panZoomPlugin binds wheel and pointer gestures to — hence
    pointer-events: none, so the box can never swallow a pan or a zoom. The
-   muted .u-legend above stays: it is the always-visible readout, this is the
-   "what exactly is THAT point?" one. */
+   always-visible .u-legend above stays: it is the standing readout, this is
+   the "what exactly is THAT point?" one. */
 .chart-tooltip {
   position: absolute;
   z-index: 5;
@@ -5364,6 +5374,12 @@ select.unit-chip:hover {
   color: var(--text-secondary);
 }
 
+/* A flight series chip's name keeps the text ink in Daylight too (see
+   .flight-series-picker); every other chip takes the label rule above. */
+.viz-root[data-contrast='high'] .flight-series-picker .series-chip {
+  color: var(--text-primary);
+}
+
 /* Dimming is a subtlety the sun erases — keep faded states legible. */
 .viz-root[data-contrast='high'] .empty-state svg,
 .viz-root[data-contrast='high'] .line-sample,
@@ -5394,8 +5410,8 @@ select.unit-chip:hover {
 
 /* The flight-series legend's samples stay full strength even on an unselected
    chip (it was a stray rule below this block until brand v1; it must follow
-   the 0.55 rule above, which it ties), and its names keep the text ink, not
-   the secondary ink every Daylight chip label takes above. */
+   the 0.55 rule above, which it ties), and its names keep the text ink, as
+   the series picker's do. */
 .viz-root[data-contrast='high'] .flight-series-legend .series-chip .line-sample { opacity: 1; }
 .viz-root[data-contrast='high'] .flight-series-legend .series-chip { color: var(--text-primary); }
 

@@ -31,9 +31,10 @@ import { join, relative, sep } from 'node:path';
 // releases/: the public release-notes page (scripts/release-notes.mjs) — the
 // whole changelog as one page, kept off every user's download on purpose.
 // brand/: four vendored mmr-brand files the running app never loads — the sync
-// manifest, the JSON copy of the tokens (the app reads the CSS; chartTheme.ts
-// imports this file at BUILD time for its no-stylesheet fallback, so Vite
-// bundles the values and the app never fetches it),
+// manifest, the JSON copy of the tokens (the app reads the CSS; chartTheme.ts,
+// Rocket3D.tsx and PlotImage.tsx import this file at BUILD time, through
+// vite.config's virtual:mmr-brand-tokens, so Vite bundles the values and the
+// app never fetches it),
 // the two font licences and the icon sprite's usage note. They ship because
 // sync-brand.mjs vendors the folder whole and --verify checks every file.
 export const DELIBERATELY_UNCACHED = [

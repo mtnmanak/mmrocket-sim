@@ -43,3 +43,30 @@ it('reports PNG failures and allows a retry that saves the identified plot', asy
   expect(controls.textContent).toContain('download folder');
   act(() => root.unmount()); host.remove(); vi.restoreAllMocks();
 });
+
+// The saved image copies the plot canvas, whose lines uPlot drew at its device
+// ratio with dashes scaled to it (chartLegend deviceDashPlugin). The image's
+// legend samples must take the SAME device-px dash and width, at ratio 2 too,
+// or the key shows a pattern twice (or half) the length of the line it names.
+it('draws each legend sample with the plotted line’s device-px dash and width at ratio 2', async () => {
+  const { plotDash } = await import('../chartTheme.js');
+  const source = document.createElement('canvas'); source.width = 1280; source.height = 600;
+  Object.defineProperty(source, 'clientWidth', { value: 640 });
+  const dashes: number[][] = []; const widths: number[] = [];
+  const ctx = new Proxy({} as Record<PropertyKey, unknown>, {
+    get: (t, p) => p === 'measureText' ? (s: string) => ({ width: s.length * 7 })
+      : p === 'setLineDash' ? (d: number[]) => { dashes.push(d); }
+        : p === 'stroke' ? () => { widths.push(t['lineWidth'] as number); }
+          : p in t ? t[p] : () => undefined,
+    set: (t, p, v) => { t[p] = v; return true; },
+  });
+  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation(function (callback, type) { callback(new Blob(['png'], { type })); });
+  await plotPng(source, ['Velocity'], '#fff', '#000',
+    { entries: [{ label: 'Velocity (m/s)', color: '#226b47', dash: [12, 4] }, { label: 'Altitude (m)', color: '#006aab' }], strokeWidth: 2.5 });
+  // What uPlot was given for the same series at pxRatio 2.
+  expect(dashes).toEqual([plotDash([12, 4], 2), []]);
+  expect(dashes[0]).toEqual([24, 8]);
+  expect(widths).toEqual([5, 5]);
+  vi.restoreAllMocks();
+});

@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import react from '@vitejs/plugin-react';
 import { defineConfig, type Plugin } from 'vite';
@@ -73,11 +74,40 @@ function lazyTextsStayLazy(): Plugin {
   };
 }
 
+/**
+ * `virtual:mmr-brand-tokens`: the vendored public/brand/tokens.json as an ES
+ * module, for the few source files that need brand values in JS (chartTheme's
+ * no-stylesheet fallback, the 3D scene ink, the saved plot image's fonts).
+ * Importing '../public/brand/tokens.json' directly bundled fine, but the dev
+ * server requests it as /public/brand/tokens.json?import, and Vite warns on
+ * every load that public files cannot be imported from JavaScript. The file
+ * stays where sync-brand.mjs vendors it; nothing is copied.
+ */
+function brandTokensModule(): Plugin {
+  const id = 'virtual:mmr-brand-tokens';
+  let file = '';
+  return {
+    name: 'mmr-brand-tokens',
+    configResolved(config) {
+      file = resolve(config.publicDir || resolve(config.root, 'public'), 'brand', 'tokens.json');
+    },
+    resolveId(source) {
+      return source === id ? `\0${id}` : null;
+    },
+    load(loaded) {
+      if (loaded !== `\0${id}`) return null;
+      this.addWatchFile(file);
+      return `export default ${JSON.stringify(JSON.parse(readFileSync(file, 'utf8')))};`;
+    },
+  };
+}
+
 // base './' keeps built asset URLs relative so the same build works
 // standalone AND embedded in a WordPress page or iframe.
 export default defineConfig({
   plugins: [
     react(),
+    brandTokensModule(),
     // PWA/offline: remote launch sites (Black Rock…) have no internet, so the
     // ENTIRE build precaches — 27 files, about 7.6 MB at v0.168 (precacheCoversBuild, the
     // last plugin, fails the build if one is left out): the engine, the parts
@@ -139,6 +169,11 @@ export default defineConfig({
     releaseNotesPlugin(CHANGELOG, PRE_VERSIONING_NOTE),
     precacheCoversBuild(),
   ],
+  // A worker bundle runs its own plugin list: the brand tokens module must be
+  // there too, or a worker that ever reaches chartTheme fails to resolve it.
+  worker: {
+    plugins: () => [brandTokensModule()],
+  },
   base: './',
   // The browsers the build is written for: vite 5's 'modules' default, stated
   // (AUDIT row 528, vite 5 -> 8). Vite 7 and 8 raised the default (now Chrome

@@ -1,7 +1,8 @@
-import type { FlightResult } from '@online-openrocket/engine';
+import type { FlightResult, FlightSeries } from '@online-openrocket/engine';
 import { LIGHT_PALETTE } from '../chartTheme.js';
-import type { UnitSelection } from '../prefs/units.js';
-import { seriesColumns } from './flightDataCsv.js';
+import { arbitraryCatalog } from '../flightChartModel.js';
+import { METRIC_UNITS, type UnitSelection } from '../prefs/units.js';
+import { exportColumnCatalog, seriesColumns } from './flightDataCsv.js';
 import type { FlightExportLayout } from './flightExportLayouts.js';
 import { withLoadSeries } from './flightLoads.js';
 import { sheetsToXlsx, type Cell, type ChartSeriesSpec, type ChartSpec, type Sheet } from './xlsx.js';
@@ -108,15 +109,44 @@ const GROUPED_CHARTS: { tab: string; axis: string; members: string[] }[] = [
 ];
 
 /**
- * Series colors. Single-quantity tabs on an unstaged flight take a slot by
- * chart order; staged flights color by STAGE instead (see module doc), and a
- * grouped tab colors by member. All three cycle the brand chart palette in
- * slot order (chartTheme LIGHT_PALETTE, from brand/tokens.json) so a workbook
- * chart and the panel the user just looked at use the same ink — DERIVED from it since v0.076: a
- * hand copy here silently kept the pre-reorder slot order (caught in review).
- * The LIGHT palette on purpose: a spreadsheet is white paper.
+ * Series looks. A column draws in the colour AND line pattern the app's own
+ * catalog gives that series (flightChartModel arbitraryCatalog: by QUANTITY —
+ * altitude, velocity and Vz, acceleration and Az, pressures, thrust, drag,
+ * Mach, stability as the reference — then the next free pair), so a workbook
+ * chart and the panel or custom plot the user just looked at use the same
+ * ink and pattern. Until brand v1 they coloured by CHART ORDER: Mass took the
+ * pressure colour, CP altitude's, CG velocity's, angle of attack
+ * acceleration's, and Vz and Az in their group tabs altitude's. The catalog
+ * repeats a colour only with another pattern, so a grouped tab carries the
+ * pattern too (xlsx dash). The one exception is a staged flight's
+ * single-quantity tab, which colours by STAGE (see module doc), solid. The
+ * LIGHT palette on purpose (chartTheme LIGHT_PALETTE, from brand/tokens.json —
+ * DERIVED since v0.076): a spreadsheet is white paper.
  */
 const PALETTE = LIGHT_PALETTE.map((c) => c.slice(1).toUpperCase());
+
+/** A chart series' colour and pattern, as ChartSeriesSpec takes them. */
+type Look = Pick<ChartSeriesSpec, 'color' | 'dash'>;
+
+/** A column's key (friendly name or symbol, as NAMED_CHARTS / GROUPED_CHARTS name it) → its series key. */
+const SERIES_KEY = (() => {
+  const map = new Map<string, string>();
+  // FRIENDLY first, and first wins: a symbol whose name repeats a friendly one (h, Altitude) never takes it over.
+  for (const c of exportColumnCatalog()) {
+    if (!map.has(c.name)) map.set(c.name, c.key);
+    if (!map.has(c.key)) map.set(c.key, c.key);
+  }
+  return map;
+})();
+
+/** Each series key's look in the app's catalog for this branch. */
+function catalogLooks(series: FlightSeries, units: UnitSelection | undefined): Map<string, Look> {
+  // The unit choice moves no colour; a missing one reads as metric.
+  const catalog = arbitraryCatalog(series, { units: units ?? METRIC_UNITS }, LIGHT_PALETTE);
+  return new Map(catalog.map((d) => [String(d.key), {
+    color: d.color.slice(1).toUpperCase(), ...(d.dash ? { dash: d.dash } : {}),
+  }]));
+}
 
 /**
  * Find a column by key. Headers are `${name} (${unit})` for the friendly
@@ -169,6 +199,8 @@ function trimGroupTab(tab: string, branch: string): string {
 interface Branch {
   name: string;
   cols: { header: string; values: (number | null)[] }[];
+  /** Series key → its look in the app's catalog (catalogLooks). */
+  looks: Map<string, Look>;
 }
 
 /** Rows shared by an x/y pair on one branch; 0 when either column is missing. */
@@ -182,8 +214,13 @@ export function flightXlsx(result: FlightResult, units?: UnitSelection, layout?:
   result = withLoadSeries(result);
   const staged = (result.branches?.length ?? 0) >= 2;
   const branches: Branch[] = staged
-    ? result.branches!.map((b) => ({ name: b.name, cols: seriesColumns(b.series, '', units, layout, b.events) }))
-    : [{ name: 'Flight data', cols: seriesColumns(result.series, '', units, layout, result.events) }];
+    ? result.branches!.map((b) => ({ name: b.name, cols: seriesColumns(b.series, '', units, layout, b.events),
+      looks: catalogLooks(b.series, units) }))
+    : [{ name: 'Flight data', cols: seriesColumns(result.series, '', units, layout, result.events),
+      looks: catalogLooks(result.series, units) }];
+  /** A column's look on a branch: the app's, else the slot order (a column the catalog lacks). */
+  const lookOf = (b: Branch, key: string, slot: number): Look =>
+    b.looks.get(SERIES_KEY.get(key) ?? key) ?? { color: PALETTE[slot % PALETTE.length]! };
 
   const sheets: Sheet[] = branches.map((b) => {
     const rowCount = Math.max(0, ...b.cols.map((c) => c.values.length));
@@ -226,7 +263,7 @@ export function flightXlsx(result: FlightResult, units?: UnitSelection, layout?:
         xCol: timeCols[bi]!,
         yCol,
         rowCount: n,
-        color: PALETTE[(staged ? bi : colorSlot) % PALETTE.length]!,
+        ...(staged ? { color: PALETTE[bi % PALETTE.length]! } : lookOf(b, key, colorSlot)),
       });
     });
     if (series.length === 0) return;
@@ -252,7 +289,7 @@ export function flightXlsx(result: FlightResult, units?: UnitSelection, layout?:
           xCol: timeCols[bi]!,
           yCol,
           rowCount: n,
-          color: PALETTE[mi % PALETTE.length]!,
+          ...lookOf(b, key, mi),
         });
       });
       if (series.length === 0) return;

@@ -2,7 +2,7 @@ import type { FlightEvent, FlightSeries } from '@online-openrocket/engine';
 import type { Preferences } from './prefs/PrefsContext.js';
 import { siToUi, uiToSi, type Quantity } from './prefs/units.js';
 import { exportColumnCatalog } from './services/flightDataCsv.js';
-import { CHART_TOKENS, lineStyle, slotOf, type ChartToken } from './chartTheme.js';
+import { CHART_TOKENS, LIGHT_PALETTE, LINE_STYLES, REFERENCE_DASH, lineStyle, slotOf, type ChartToken } from './chartTheme.js';
 
 export interface SeriesDef {
   key: keyof FlightSeries;
@@ -27,9 +27,9 @@ export interface SeriesDef {
 type Unstyled = Omit<SeriesDef, 'color' | 'dash' | 'token'> & {
   /** The brand token of the QUANTITY it is (null: none of the eight). */
   token: ChartToken | null;
-  /** Draws exactly like this key: the same quantity in another unit. */
-  sameAs?: keyof FlightSeries;
 };
+
+const REFERENCE_SLOT = slotOf('reference');
 
 type Look = { color: string; token: ChartToken; dash?: number[] };
 
@@ -40,7 +40,9 @@ type Look = { color: string; token: ChartToken; dash?: number[] };
  *     (SPEC §3.2): altitude; velocity and vertical velocity; acceleration;
  *     pressures; thrust; drag force; Mach; stability (cal and %) → reference.
  *     The first series of a token draws the token's own style (tier 0); a
- *     second of the same quantity (vertical velocity) the token's tier-1 style.
+ *     second of the same quantity the token's tier-1 style: vertical velocity
+ *     (velocity) and Stability margin (%) (reference, long-short: one quantity
+ *     in two units, but both can be plotted at once, so they must differ).
  *  2. Every other series (mass, CP/CG location, angle of attack, q·α, the
  *     re-flown extras) takes the next free colour + style pair in the brand
  *     slot order, tier by tier. All eight tokens are taken at tier 0 by the
@@ -48,6 +50,11 @@ type Look = { color: string; token: ChartToken; dash?: number[] };
  *     pressure, angle of attack thrust, q·α drag — and CP and CG, which share
  *     the stability comparison with the reference series, are off its 6 4 dash
  *     (chartTheme TIER_STYLE).
+ *  3. The reference look is the reference series' alone (SPEC §3.2: reference
+ *     is the dashed 6 4 series, and its ink is the marker hairline's). No other
+ *     series is given the reference colour or the 6 4 dash in any colour —
+ *     without this rule the re-flown extras took tier 1's two leftover pairs,
+ *     Mach colour in 6 4 and the reference ink in long-short.
  */
 export class StyleAllocator {
   private readonly used = new Set<string>();
@@ -58,15 +65,20 @@ export class StyleAllocator {
     const dash = lineStyle(slot, tier);
     return { color: this.C[slot]!, token: CHART_TOKENS[slot]!, ...(dash ? { dash } : {}) };
   }
+  /** Whether a series of quantity `token` may take this pair (rule 3). */
+  private free(slot: number, tier: number, token: ChartToken | null): boolean {
+    if (this.used.has(`${slot}:${tier}`)) return false;
+    return token === 'reference' || (slot !== REFERENCE_SLOT && lineStyle(slot, tier) !== REFERENCE_DASH);
+  }
   /** The look for a series of quantity `token`; for null, the next free pair in slot order. */
   next(token: ChartToken | null): Look {
     for (let tier = 0; tier < 64; tier++) {
       if (token) {
-        if (!this.used.has(`${slotOf(token)}:${tier}`)) return this.take(slotOf(token), tier);
+        if (this.free(slotOf(token), tier, token)) return this.take(slotOf(token), tier);
         continue;
       }
       for (let slot = 0; slot < CHART_TOKENS.length; slot++) {
-        if (!this.used.has(`${slot}:${tier}`)) return this.take(slot, tier);
+        if (this.free(slot, tier, null)) return this.take(slot, tier);
       }
     }
     // 512 series: no flight records that many. Reuse rather than fail.
@@ -78,9 +90,9 @@ function styleCatalog(defs: Unstyled[], styles: StyleAllocator): SeriesDef[] {
   const looks = new Map<keyof FlightSeries, Look>();
   // Quantities first, so a later quantity (dynamic pressure) is never beaten
   // to its own tier-0 pair by an earlier non-quantity (mass).
-  for (const d of defs) if (d.token && !d.sameAs) looks.set(d.key, styles.next(d.token));
-  for (const d of defs) if (!d.token && !d.sameAs) looks.set(d.key, styles.next(null));
-  return defs.map(({ token: _token, sameAs, ...d }) => ({ ...d, ...looks.get(sameAs ?? d.key)! }));
+  for (const d of defs) if (d.token) looks.set(d.key, styles.next(d.token));
+  for (const d of defs) if (!d.token) looks.set(d.key, styles.next(null));
+  return defs.map(({ token: _token, ...d }) => ({ ...d, ...looks.get(d.key)! }));
 }
 
 /** Series defs in the user's units — the engine data underneath stays SI. */
@@ -102,8 +114,9 @@ export function seriesCatalog(prefs: Pick<Preferences, 'units'>, C: readonly str
     { key: 'drag', title: 'Drag force', unit: 'N', token: 'drag' },
     { key: 'mach', title: 'Mach number', unit: '', token: 'mach' },
     { key: 'stability', title: 'Stability margin', unit: 'cal', token: 'reference' },
-    // The same quantity as Stability margin, in other units: the same line.
-    { key: 'stabilityPercent', title: 'Stability margin (% of active length)', unit: '%', token: 'reference', sameAs: 'stability' },
+    // The same quantity as Stability margin, in other units: the reference
+    // ink again, in the reference token's tier-1 style (rule 1).
+    { key: 'stabilityPercent', title: 'Stability margin (% of active length)', unit: '%', token: 'reference' },
     { key: 'cpLocation', title: 'CP location', unit: u.length, quantity: 'length', token: null, f: (v) => siToUi('length', u.length, v) },
     { key: 'cgLocation', title: 'CG location', unit: u.length, quantity: 'length', token: null, f: (v) => siToUi('length', u.length, v) },
     { key: 'aoa', title: 'Angle of attack', unit: '°', token: null, f: (v) => (v * 180) / Math.PI, toSI: (v) => v * Math.PI / 180 },
@@ -142,10 +155,57 @@ export const PRESETS: ComparisonPreset[] = [
  */
 export function comparisonMembers(preset: ComparisonPreset, catalog: SeriesDef[]) {
   const def = (key: string): SeriesDef =>
-    catalog.find((d) => d.key === key) ?? { key, title: key, unit: 'unit unknown', color: catalog[0]?.color ?? '#000' };
+    catalog.find((d) => d.key === key) ?? { key, title: key, unit: 'unit unknown', ...unusedLook(catalog) };
   const left = preset.left.map((key) => ({ ...def(key), axis: 'left' as const }));
   const right = preset.right.map((key) => ({ ...def(key), axis: 'right' as const }));
   return [...left, ...right];
+}
+
+const sameDash = (a: readonly number[] | undefined, b: readonly number[] | undefined) =>
+  (a ?? []).join(',') === (b ?? []).join(',');
+
+/** The catalog's ink for each slot (its colours came from one palette), else the light brand value. */
+function paletteOf(catalog: readonly SeriesDef[]): string[] {
+  return CHART_TOKENS.map((t, i) => catalog.find((d) => d.token === t)?.color ?? LIGHT_PALETTE[i]!);
+}
+
+/**
+ * A colour + style pair no catalog series draws, by the StyleAllocator's rules
+ * (slot order, tier by tier, never the reference look): for a key the catalog
+ * lacks, which once fell back to black or to altitude's own look.
+ */
+export function unusedLook(catalog: readonly SeriesDef[]): Pick<SeriesDef, 'color' | 'dash'> {
+  const palette = paletteOf(catalog);
+  for (let tier = 0; tier < 64; tier++) for (let slot = 0; slot < CHART_TOKENS.length; slot++) {
+    const dash = lineStyle(slot, tier);
+    if (slot === REFERENCE_SLOT || dash === REFERENCE_DASH) continue;
+    if (catalog.some((d) => d.color === palette[slot] && sameDash(d.dash, dash))) continue;
+    return dash ? { color: palette[slot]!, dash } : { color: palette[slot]! };
+  }
+  return { color: palette[0]! };
+}
+
+/**
+ * A non-time plot draws its one series in two parts, by direction. The rising
+ * (increasing-X) part keeps the series' own line style; the falling part takes
+ * a SECOND style in the same colour: the first of the series' slot's tier
+ * styles that is not its own, is not the reference 6 4 (stability's alone),
+ * and is not a pair another catalog series draws (velocity's tier 1, dots, is
+ * vertical velocity). It used to be solid rising and 6 4 falling, so velocity
+ * appeared here in neither its own long dash nor anything but the reference
+ * series' dash.
+ */
+export function directionDash(member: SeriesDef, catalog: readonly SeriesDef[]):
+  { rising: number[] | undefined; falling: number[] | undefined } {
+  const slot = member.token ? slotOf(member.token) : null;
+  const candidates = slot === null ? LINE_STYLES : CHART_TOKENS.map((_, tier) => lineStyle(slot, tier + 1));
+  const ok = (dash: readonly number[] | undefined) => dash !== REFERENCE_DASH && !sameDash(dash, member.dash)
+    && !catalog.some((d) => d.key !== member.key && d.color === member.color && sameDash(d.dash, dash));
+  // findIndex, not find: a found SOLID style is `undefined` too.
+  const at = candidates.findIndex(ok);
+  const falling = at >= 0 ? candidates[at]
+    : LINE_STYLES[LINE_STYLES.findIndex((dash) => dash !== REFERENCE_DASH && !sameDash(dash, member.dash))];
+  return { rising: member.dash, falling: falling ? [...falling] : undefined };
 }
 
 export const finiteSample = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);

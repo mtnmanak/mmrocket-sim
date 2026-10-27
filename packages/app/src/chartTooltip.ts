@@ -1,5 +1,6 @@
 import type uPlot from 'uplot';
 import { lineSampleSvg, seriesStroke } from './chartLegend.js';
+import { cssDash } from './chartTheme.js';
 
 /**
  * Point readout ("what is that sample worth?") for the uPlot charts, as a
@@ -137,7 +138,8 @@ export function readoutRows(
       label: s.label ?? '',
       value: formatReadout(v),
       color: typeof s.stroke === 'string' ? s.stroke : 'currentColor',
-      ...(s.dash?.length ? { dash: s.dash } : {}),
+      // The plotted dash is device px (deviceDashPlugin); the swatch is CSS px.
+      ...(s.dash?.length ? { dash: [...cssDash(s.dash)!] } : {}),
     });
   }
   return rows;

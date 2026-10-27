@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LIGHT_PALETTE } from '../chartTheme.js';
+import { LIGHT_PALETTE, lineStyle, slotOf, type ChartToken } from '../chartTheme.js';
 import { strFromU8, unzipSync } from 'fflate';
 import type { FlightResult, FlightSeries, FlightSummary } from '@online-openrocket/engine';
 import { IMPERIAL_UNITS } from '../prefs/units.js';
@@ -265,6 +265,51 @@ describe('flightXlsx', () => {
     expect(names).toContain('Reynolds number');
     expect(names).toContain('Thrust-to-weight ratio');
     expect(names).toContain('Simulation time step');
+  });
+
+  // Until the fix pass the workbook coloured by CHART ORDER: Mass took the
+  // pressure colour, CP altitude's, CG velocity's, angle of attack
+  // acceleration's, and Vz / Az in their group tabs altitude's. Now each
+  // column is the app catalog's look for its series: colour and pattern.
+  it('colours each column by QUANTITY, with the app catalog’s line pattern', () => {
+    const series = fakeSeries();
+    series['Az'] = [0, 99, 89]; series['dynamicPressure'] = [0, 60, 240]; series['P'] = [101325, 101300, 101280];
+    series['Cd'] = [0.5, 0.5, 0.49];
+    const files = unzipSync(flightXlsx({ summary, events: [], series }));
+    const looks = new Map<string, { color: string; dash: string }>();
+    for (const [path, bytes] of Object.entries(files)) {
+      if (!/^xl\/charts\/chart\d+\.xml$/.test(path)) continue;
+      for (const ser of strFromU8(bytes).split('<c:ser>').slice(1)) {
+        const name = /<c:tx><c:v>([^<]*)<\/c:v>/.exec(ser)![1]!;
+        const color = /<a:srgbClr val="([0-9A-F]{6})"\/>/.exec(ser)![1]!;
+        const dash = [...ser.matchAll(/<a:ds d="(\d+)" sp="(\d+)"\/>/g)]
+          .flatMap((m) => [Number(m[1]) / 50000, Number(m[2]) / 50000]).join(',');
+        looks.set(name, { color, dash });
+      }
+    }
+    const want = (token: ChartToken, tier = 0) => ({
+      color: LIGHT_PALETTE[slotOf(token)]!.slice(1).toUpperCase(), dash: (lineStyle(slotOf(token), tier) ?? []).join(','),
+    });
+    expect(looks.get('Altitude (m)')).toEqual(want('altitude'));
+    expect(looks.get('Velocity (m/s)')).toEqual(want('velocity'));
+    expect(looks.get('Vertical velocity')).toEqual(want('velocity', 1));
+    expect(looks.get('Acceleration (m/s²)')).toEqual(want('acceleration'));
+    expect(looks.get('Vertical acceleration')).toEqual(want('acceleration', 2));
+    expect(looks.get('Thrust (N)')).toEqual(want('thrust'));
+    expect(looks.get('Drag force (N)')).toEqual(want('drag'));
+    expect(looks.get('Mach number')).toEqual(want('mach'));
+    expect(looks.get('Stability margin (cal)')).toEqual(want('reference'));
+    expect(looks.get('Stability margin (cal)')!.dash).toBe('6,4');
+    expect(looks.get('Dynamic pressure (Pa)')).toEqual(want('pressure'));
+    expect(looks.get('P — Air pressure (Pa)')).toEqual(want('pressure', 2));
+    // The non-quantities take the catalog's next free pairs (tier 1), as on
+    // screen; so the re-flown Az and P, allocated after them, are tier 2.
+    expect(looks.get('Mass (kg)')).toEqual(want('altitude', 1));
+    expect(looks.get('CP location (m)')).toEqual(want('acceleration', 1));
+    expect(looks.get('CG location (m)')).toEqual(want('pressure', 1));
+    // No two series of one workbook draw the same colour and pattern.
+    const pairs = [...looks.values()].map((l) => `${l.color}|${l.dash}`);
+    expect(new Set(pairs).size).toBe(pairs.length);
   });
 
   it('staged flights: one data sheet per branch, one chart series per stage', () => {

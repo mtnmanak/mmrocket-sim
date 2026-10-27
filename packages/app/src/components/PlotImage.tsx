@@ -3,12 +3,14 @@ import { safeName } from '../services/fileName.js';
 import { saveFile, saveOutcomeNote } from '../services/saveFile.js';
 import { Note } from './Note.js';
 import { SAMPLE_WIDTH, drawLineSample, type LegendEntry } from '../chartLegend.js';
+import tokens from 'virtual:mmr-brand-tokens';
 
 /** Caption text is prose, so the brand's display face (body text at 400). A
- *  canvas needs a concrete family list, not var(--mmr-font-display). */
-const CAPTION_FONT = "'Archivo', 'Helvetica Neue', Arial, sans-serif";
+ *  canvas needs a concrete family list, not var(--mmr-font-display): the
+ *  brand's own stack, from tokens.json. */
+const CAPTION_FONT = tokens.font.display;
 /** Legend labels are chart text: the data face, as the live legend sets them. */
-const LEGEND_FONT = "'IBM Plex Mono', Consolas, monospace";
+const LEGEND_FONT = tokens.font.data;
 
 /** The image's series key: each series' line sample (colour + dash) beside its name in the text ink. */
 export interface PlotLegend {
@@ -47,6 +49,10 @@ export function plotPng(source: HTMLCanvasElement, captions: string[], backgroun
   }
   // Lay the legend out in rows that fit the width: sample, gap, name, gap.
   const scale = fontSize / 14;
+  // The ratio the plot canvas was drawn at (uPlot: CSS size × pxRatio). The
+  // samples take the plotted lines' device-px width and dash from it, so a
+  // pattern in the key is the pattern on the plot at any screen ratio.
+  const ratio = source.clientWidth ? source.width / source.clientWidth : scale;
   const sample = SAMPLE_WIDTH * scale;
   const legendFont = `${fontSize * 0.9}px ${LEGEND_FONT}`;
   const legendRows: { x: number; entry: LegendEntry }[][] = [];
@@ -71,7 +77,7 @@ export function plotPng(source: HTMLCanvasElement, captions: string[], backgroun
   legendRows.forEach((row, r) => {
     const y = (lines.length + r + 1) * fontSize * 1.5;
     for (const { x, entry } of row) {
-      drawLineSample(ctx, x, y - fontSize * 0.35, entry, legend!.strokeWidth, scale);
+      drawLineSample(ctx, x, y - fontSize * 0.35, entry, legend!.strokeWidth, scale, ratio);
       ctx.fillStyle = ink;
       ctx.fillText(entry.label, x + sample + 6 * scale, y);
     }
@@ -97,8 +103,9 @@ export function PlotImage({ container, title, captions = [], legend = [] }: {
       const canvas = el?.querySelector('canvas');
       if (!el || !canvas) throw new Error('The plot canvas is unavailable.');
       const css = getComputedStyle(el);
-      const blob = await plotPng(canvas, [title, ...captions], css.getPropertyValue('--surface-1').trim() || '#f6faff',
-        css.getPropertyValue('--text-primary').trim() || '#03254f',
+      // Outside a themed root, the brand's light plot ground and text (tokens.json).
+      const blob = await plotPng(canvas, [title, ...captions], css.getPropertyValue('--surface-1').trim() || tokens.theme.light.bg,
+        css.getPropertyValue('--text-primary').trim() || tokens.theme.light.text,
         { entries: legend, strokeWidth: Number(css.getPropertyValue('--chart-series-width')) || 2 });
       const out = await saveFile(blob, { suggestedName: `${safeName(title).slice(0, 180)}.png`, mime: 'image/png',
         extensions: ['.png'], description: 'Flight plot image' });

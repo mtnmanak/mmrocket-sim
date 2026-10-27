@@ -9,7 +9,7 @@ import { arbitraryCatalog, seriesCatalog, PRESETS, usableSeries, withStabilityPe
 import { ComparisonChart } from './ComparisonChart.js';
 import { chartInk } from '../chartTheme.js';
 import { useChartPalette } from '../useChartPalette.js';
-import { legendSamplePlugin } from '../chartLegend.js';
+import { deviceDashPlugin, legendSamplePlugin } from '../chartLegend.js';
 import { LineSample } from './LineSample.js';
 import {
   panelHeight, panZoomPlugin, plotIsZoomed, resetPlots, zoomPercent,
@@ -155,6 +155,7 @@ function Panel({ result, def, flightName, plots, expanded, onToggleExpand, onZoo
           (u) => onZoomChangeRef.current(plotIsZoomed(u), zoomPercent(u))),
         tooltipPlugin(),
         eventPlugin(result.events, selectedEvents, ink),
+        deviceDashPlugin(),
         legendSamplePlugin(),
       ],
     };
@@ -443,7 +444,7 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
           Flight-data export failed: {exportError}
         </Note>
       )}
-      <div className="series-picker" role="group" aria-label="Plot series">
+      <div className="series-picker flight-series-picker" role="group" aria-label="Plot series">
         {catalog.map((d) => {
           const available = usableSeries(shown.series, [String(d.key)]);
           if (!available) return null;

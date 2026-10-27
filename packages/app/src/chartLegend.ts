@@ -8,7 +8,8 @@
  * (legendSamplePlugin), the point readout (chartTooltip.ts) and the saved plot
  * image (PlotImage.tsx).
  */
-import type uPlot from 'uplot';
+import uPlot from 'uplot';
+import { cssDash, plotDash } from './chartTheme.js';
 
 /** Sample size in CSS px: 28 px holds a whole period of every LINE_STYLES dash. */
 export const SAMPLE_WIDTH = 28;
@@ -75,21 +76,58 @@ export function legendSamplePlugin(): uPlot.Plugin {
       marker.classList.add('u-marker-sample');
       marker.style.border = 'none';
       marker.style.background = 'none';
-      marker.replaceChildren(lineSampleSvg(color, u.series[i]!.dash));
+      // The plotted dash is in device px (deviceDashPlugin); the sample is CSS px.
+      marker.replaceChildren(lineSampleSvg(color, cssDash(u.series[i]!.dash)));
     });
   } } };
 }
 
 /**
- * The same sample on a canvas (the saved plot image): `scale` is the image's
- * device-pixel ratio, `width` the series' CSS stroke width.
+ * uPlot plugin: every series' dash, given in CSS px like the legend samples,
+ * is drawn in DEVICE px. uPlot multiplies a series' width by its pxRatio but
+ * passes `dash` to setLineDash unscaled, so without this a 2x screen (most
+ * phones and laptops) drew every pattern at half its length under a line
+ * twice as thick: dots [2, 3] became 1 px marks under a 5 px line and read as
+ * a solid or faint line. Re-applied when the ratio changes (uPlot's own
+ * `dppxchange`, dispatched after it updates uPlot.pxRatio and before its
+ * queued redraw). One instance per plot: it keeps that plot's CSS dashes.
+ */
+export function deviceDashPlugin(): uPlot.Plugin {
+  let css: (readonly number[] | undefined)[] = [];
+  let onRatio: (() => void) | null = null;
+  const apply = (u: uPlot) => {
+    u.series.forEach((s, i) => {
+      const dash = plotDash(css[i], uPlot.pxRatio || 1);
+      if (dash) s.dash = dash;
+    });
+  };
+  return { hooks: {
+    init: (u) => {
+      css = u.series.map((s) => cssDash(s.dash));
+      apply(u);
+      onRatio = () => apply(u);
+      if (typeof window !== 'undefined') window.addEventListener('dppxchange', onRatio);
+    },
+    destroy: () => {
+      if (onRatio && typeof window !== 'undefined') window.removeEventListener('dppxchange', onRatio);
+      onRatio = null;
+    },
+  } };
+}
+
+/**
+ * The same sample on a canvas (the saved plot image): `scale` sizes the
+ * sample's length with the image's text; `ratio` is the device ratio the plot
+ * canvas was drawn at, so the sample's width and dash are the plotted line's
+ * own device-px width and dash (plotDash). `width` is the series' CSS stroke
+ * width; `entry.dash` is CSS px.
  */
 export function drawLineSample(ctx: CanvasRenderingContext2D, x: number, y: number, entry: LegendEntry,
-  width: number, scale: number) {
+  width: number, scale: number, ratio = scale) {
   ctx.save();
   ctx.strokeStyle = entry.color;
-  ctx.lineWidth = width * scale;
-  ctx.setLineDash((entry.dash ?? []).map((d) => d * scale));
+  ctx.lineWidth = width * ratio;
+  ctx.setLineDash(plotDash(entry.dash, ratio) ?? []);
   ctx.beginPath();
   ctx.moveTo(x, y);
   ctx.lineTo(x + SAMPLE_WIDTH * scale, y);

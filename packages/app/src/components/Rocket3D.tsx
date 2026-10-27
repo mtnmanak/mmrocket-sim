@@ -16,7 +16,7 @@ import {
 } from '../services/simReport.js';
 import { stabilityReadout } from './stabilityWording.js';
 import { ImageExportMenu, type ImageExportOptions } from './ImageExportMenu.js';
-import tokens from '../../public/brand/tokens.json';
+import tokens from 'virtual:mmr-brand-tokens';
 
 /**
  * 3D rocket view (react-three-fiber). Geometry is generated from the
