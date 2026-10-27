@@ -138,7 +138,11 @@ html {
   --status-good: var(--mmr-success);
   --status-warn: var(--mmr-warning);
   /* pending mmr-brand 1.0.3 (D7): danger-dark #FF8A93 is 4.31:1 on navy-high
-     and 4.38:1 on the dark selected tint, so it must not sit on either. */
+     and 4.38:1 on the dark selected tint, so it must not sit on either; and
+     on the dark caution tint (#364A55) it is 4.11:1 and --accent-text
+     #FF9A62 4.43:1, so neither may be TEXT inside a warn note (none is
+     today: the measured delta inherits inside tiers, the notice glyphs are
+     aria-hidden graphics). */
   --status-serious: var(--mmr-danger);
   --callout-caution-bg: color-mix(in srgb, var(--mmr-warning) 15%, var(--mmr-surface));
   --callout-caution-fg: var(--mmr-text);
@@ -343,9 +347,14 @@ html {
   cursor: pointer;
 }
 
+/* On hover the cell turns into the control it is: the field fill and the
+   3:1 control edge (#7C93A8 on white 3.18:1, #7E9DB8 on navy-raised 4.26:1).
+   The decorative --border on the mist hover tint was 1.46:1, and the control
+   edge on mist only 2.75:1 — and at rest the edge is transparent, so this
+   edge is the only sign that the reading can be changed. */
 .vitals-aero-select:hover:not(:disabled) {
-  border-color: var(--border);
-  background: var(--hover);
+  border: 1px solid var(--border-control);
+  background: var(--field-bg);
 }
 
 .vitals-aero-select:disabled {
@@ -407,8 +416,11 @@ html {
   color: var(--callout-caution-bg);
   border-color: var(--callout-caution-fg);
 }
+/* The one --focus ring (brand v1, D3): the callout is a tint in light and
+   dark (#006AAB on #EDE5D9 4.61:1, sky on #364A55 4.85:1) and Daylight's
+   solid amber still takes it (#006AAB on #FFCF66 3.94:1). */
 .viz-root .launch-override-callout button.file-btn:focus-visible {
-  outline: 3px solid var(--callout-caution-fg);
+  outline: 3px solid var(--focus);
   outline-offset: 2px;
 }
 @media (prefers-contrast: more) {
@@ -4276,6 +4288,11 @@ select.unit-chip:hover {
   background: var(--hover);
 }
 
+/* pending mmr-brand 1.0.3 (D7): on the dark --selected tint (#184570)
+   danger-dark is 4.38:1. The one status ink drawn in a picked row today is
+   the run-history verdict GLYPH (SimResults: an aria-hidden glyph beside
+   sr-only text), a graphic at a 3:1 floor; contrastTokens.test.ts pins
+   the pairs. */
 .motor-row-picked,
 .motor-row-picked:hover {
   background: var(--selected);
@@ -4956,6 +4973,10 @@ select.unit-chip:hover {
 .plot-event-key, .plot-image-control { overflow-wrap: anywhere; min-width: 0; max-width: 100%; }
 .plot-image-control .chart-btn { min-height: 36px; }
 .flight-series-legend .series-emphasized { outline: 2px solid currentColor; outline-offset: 1px; }
+/* Focusing a legend chip turns emphasis on (FlightCharts onFocus), and the
+   emphasis outline above ties the global ring at (0,2,0) and wins by order:
+   a keyboard user saw a 2px currentColor line, not the 3px --focus ring. */
+.flight-series-legend .series-emphasized:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .flight-series-legend .series-emphasis-mark { width: 1em; }
 .flight-series-legend .series-dot { opacity: 1; }
 .roll-plane-panel .chart-panel-head h4 { flex: 1; min-width: 0; }
@@ -4994,6 +5015,15 @@ select.unit-chip:hover {
   color: inherit;
 }
 .message-label { font-weight: 700; }
+/* D3 eyebrows (SPEC §4.3, table A): on the light and dark TINTS the label
+   takes the status colour — warning 5.20:1 light / 5.16:1 dark, danger
+   5.59:1 light. The dark danger eyebrow stays paper (9.71:1): danger-dark is
+   only 4.51:1 on its tint (pending mmr-brand 1.0.3). The body keeps the 7:1
+   ink; Daylight's solid boxes keep the fill's ink for the label too
+   (restated in its block). */
+.message-tier.message-tier.message-caution .message-label { color: var(--status-warn); }
+.message-tier.message-tier.message-danger .message-label { color: var(--status-serious); }
+.viz-root[data-theme='dark'] .message-tier.message-tier.message-danger .message-label { color: var(--callout-danger-fg); }
 
 /* N046: codes borrow their note's ink, including the filled consequence tiers. */
 .warning-code {
@@ -5064,10 +5094,11 @@ select.unit-chip:hover {
   color: inherit;
   border-color: currentColor;
 }
-/* A ring on a FILLED tier takes the fill's own ink (Daylight's solid boxes,
-   where #006AAB on #970F21 would vanish) — the one exception to the single
-   --focus ring, with forced colours. Daylight restates it inside its block. */
-.message-tier.message-tier :focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+/* The one --focus ring inside a tier too: in light and dark the tiers are
+   tints (D3), where it reads (#006AAB 4.61:1 / 4.72:1, sky 4.85:1 / 5.33:1).
+   Only Daylight's SOLID boxes, where #006AAB on #970F21 would vanish, draw
+   the ring in the fill's own ink — restated inside the Daylight block. */
+.message-tier.message-tier :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
 .simdet-comments.stability-bad, .comp-stats.stability-bad { color: var(--status-serious); }
 .simdet-comments.stability-warn, .comp-stats.stability-warn { color: var(--status-warn); }
 .notice-count { color: var(--text-secondary); }
@@ -5247,18 +5278,26 @@ select.unit-chip:hover {
   font-weight: 500;
 }
 
-.viz-root[data-contrast='high'] .vitals-label,
 .viz-root[data-contrast='high'] .download-caption,
 .viz-root[data-contrast='high'] .comp-stats,
 .viz-root[data-contrast='high'] .prefs-hint,
 .viz-root[data-contrast='high'] .session-note,
-.viz-root[data-contrast='high'] .chart-hints,
+.viz-root[data-contrast='high'] .chart-hints {
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+/* The labels in IBM Plex Mono: /brand/fonts.css ships it at 400, 500 and 600
+   only, so 600 is its heaviest face — a 700 here would render that same face
+   and promise a step that is not there. .vitals-label and .stat-tile
+   .stat-label are 600 already; the bump reaches the 400/500 ones. */
+.viz-root[data-contrast='high'] .vitals-label,
 .viz-root[data-contrast='high'] .stat-label,
 .viz-root[data-contrast='high'] .series-chip,
 .viz-root[data-contrast='high'] .fin-table th,
 .viz-root[data-contrast='high'] .field label,
 .viz-root[data-contrast='high'] .field .field-caption {
-  font-weight: 700;
+  font-weight: 600;
   color: var(--text-secondary);
 }
 
@@ -5314,13 +5353,13 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .view-toggle button.active {
   outline: 2px solid var(--border);
   outline-offset: -2px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* A SELECTED CHIP NEEDS A FILL IN SUN, and until now it had none: the outline
    above is 2px of var(--border) inset by -2px, which lands exactly on the 2px
    black border every chip already carries in this theme (the hairline-doubling
-   rule near the top of the block), and the font-weight is already 700 on ALL
+   rule near the top of the block), and the font-weight is already 600 on ALL
    chips. So `on` and `off` painted identically — white on white — and a user
    picking motor diameters could not tell which were chosen. Fill it instead.
    --selected (#ffd18a) against black text is 14:1; the worst Daylight series
@@ -5328,7 +5367,7 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .series-chip-on {
   background: var(--selected);
   color: var(--text-primary);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* Keyboard focus, visible in glare: the checklist's Daylight focus, link blue
@@ -5407,6 +5446,12 @@ select.unit-chip:hover {
 .viz-root[data-contrast='high'] .message-tier.message-tier :focus-visible {
   outline: 3px solid currentColor;
   outline-offset: 3px;
+}
+
+/* The eyebrow on a solid box is the box's own ink (the 7:1 pair): the status
+   colours the tints use would sit on their own fill here. */
+.viz-root[data-contrast='high'] .message-tier.message-tier .message-label {
+  color: inherit;
 }
 
 /* A filled block's own ink beats Daylight's small-type ink even when the

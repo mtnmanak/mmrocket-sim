@@ -297,7 +297,19 @@ describe('row 466', () => {
       for (const ink of ['--text-primary', '--text-secondary']) {
         expect(ratio(tok(t, ink), tok(t, '--selected')), `${name} ${ink}`).toBeGreaterThanOrEqual(AA);
       }
+      // And the status inks a picked row can carry (the run-history verdict
+      // cell, SimResults). AA everywhere but dark --status-serious: danger-dark
+      // on the dark selected tint is 4.38:1, which the approved table forbids
+      // for TEXT — pending mmr-brand 1.0.3 (D7). The cell's only visible ink
+      // is an aria-hidden glyph (sr-only text beside it), a graphic at 3:1,
+      // and the source check below keeps it so until danger-dark is lightened.
+      for (const ink of ['--status-good', '--status-warn', '--status-serious']) {
+        const need = name === 'dark' && ink === '--status-serious' ? 3 : AA;
+        expect(ratio(tok(t, ink), tok(t, '--selected')), `${name} ${ink} on --selected`).toBeGreaterThanOrEqual(need);
+      }
     }
+    const history = read('SimResults.tsx');
+    expect(history).toMatch(/<td className=\{r\.importedSummary \? undefined : unsafe \? 'stability-bad'[^\n]*\n\s*<span aria-hidden="true">[^\n]*\n\s*<span className="sr-only">/);
   });
 
   it('the schematic export bakes the light theme\'s own status and launch colours', () => {
@@ -341,15 +353,34 @@ describe('brand v1: links, focus, inputs, callouts and the site strip', () => {
     }
   });
 
-  it('every focus ring is the one --focus ring, 3px, except rings on a coloured fill', () => {
-    // A ring on a coloured fill (a filled tier, the caution callout's button,
-    // the fatal bar) takes the fill's own ink; the band rings are sky on navy.
+  it('every focus ring is the one --focus ring, 3px, except rings on a SOLID coloured fill', () => {
+    // A ring on a solid coloured fill takes the fill's own ink: Daylight's
+    // filled tiers (#006AAB on the #970F21 danger box would vanish) and the
+    // fatal bar, outside the theme subtree; the band rings are sky on navy.
+    // In light and dark the tiers and the launch-override callout are TINTS
+    // (D3), so their rings are the --focus ring like every other (re-pinned
+    // in the lane S fix pass: the exemption was the whole of `message-tier`
+    // and `launch-override-callout`, which hid two 2px/ink rings on tints).
     const rings = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
       .filter((m) => /:focus/.test(m[1]!) && /(?:^|[;\s])outline:/.test(m[2]!));
-    const exempt = /message-tier|launch-override-callout|fatal-error|mmr-band/;
+    const exempt = /\[data-contrast='high'\] \.message-tier|fatal-error|mmr-band/;
     for (const [, sel, body] of rings) {
       if (exempt.test(sel!) || /outline:\s*none/.test(body!)) continue;
       expect(decl(body!, 'outline'), sel!.trim()).toBe('3px solid var(--focus)');
+    }
+    // An outline that is not a focus rule but is switched on BY focus: a
+    // flight-series legend chip turns emphasis on in onFocus, and the
+    // emphasis outline ties the global ring at (0,2,0) and comes later.
+    expect(decl(rule('.flight-series-legend .series-emphasized:focus-visible {'), 'outline')).toBe('3px solid var(--focus)');
+    expect(css.indexOf('.flight-series-legend .series-emphasized:focus-visible'))
+      .toBeGreaterThan(css.indexOf('.flight-series-legend .series-emphasized {'));
+    // The ring reads on the callout tints themselves (light, dark) and on
+    // Daylight's solid caution box, where the launch-override button sits.
+    for (const [name, t] of Object.entries(THEMES)) {
+      const fills = name === 'daylight' ? ['--callout-caution-bg'] : ['--callout-caution-bg', '--callout-danger-bg'];
+      for (const f of fills) {
+        expect(ratio(tok(t, '--focus'), tok(t, f)), `${name} focus on ${f}`).toBeGreaterThanOrEqual(3);
+      }
     }
   });
 
@@ -788,7 +819,12 @@ function tierFailures(root: Element, theme: string, where: (el: Element) => stri
       const fg = over(colour.slice(0, 3) as RGB, colour[3], bg.slice(0, 3) as RGB);
       const r = ratio(fg, bg.slice(0, 3) as RGB);
       // On the fill itself the filled-tier target; on a control's own face, AA.
-      const need = onFill ? 7 : AA;
+      // The eyebrow (.message-label, SPEC §4.3) is the one exception on the
+      // light and dark TINTS: it takes the status colour, and the approved
+      // table (D3) measures it at AA — warning 5.20 / 5.16, danger 5.59 light,
+      // paper in dark. Daylight's solid boxes keep 7:1 for it as for the body.
+      const eyebrow = theme !== 'daylight' && el.closest('.message-label') !== null;
+      const need = onFill && !eyebrow ? 7 : AA;
       if (r < need) {
         out.push(`${theme}: ${name} ${r.toFixed(2)}:1 < ${need} `
           + `(${fg.map(Math.round).join(',')} on ${bg.slice(0, 3).map(Math.round).join(',')})`);
@@ -998,6 +1034,36 @@ describe('filled tiers: every descendant takes ink that reads on the fill (revie
       expect(specificity('.a :is(.b, #c) span::before')).toEqual([1, 1, 2]);
     } finally {
       root.remove();
+    }
+  });
+
+  it('the eyebrow takes the status colour on the tints and the fill ink on Daylight\'s solid boxes (D3)', () => {
+    // Table A: warning eyebrow 5.20 light / 5.16 dark, danger 5.59 light; the
+    // dark danger eyebrow is paper (danger-dark is 4.51:1 on its tint).
+    const want: Record<string, Record<string, string>> = {
+      light: { caution: '--status-warn', danger: '--status-serious' },
+      dark: { caution: '--status-warn', danger: '--callout-danger-fg' },
+      daylight: { caution: '--callout-caution-fg', danger: '--callout-danger-fg' },
+    };
+    for (const theme of Object.keys(THEMES)) {
+      const t = THEMES[theme]!;
+      const root = themed(theme);
+      try {
+        for (const tier of ['caution', 'danger']) {
+          root.innerHTML = `<div class="message-tier message-${tier}"><span class="notice-text">`
+            + '<span class="message-label"><span aria-hidden="true">!</span>Label: </span>body</span></div>';
+          const memo = new Map<Element, Ink>();
+          const label = ink(root.querySelector('.message-label')!, t, memo);
+          expect(hex(label.colour.slice(0, 3) as RGB), `${theme} ${tier} eyebrow`).toBe(hex(tok(t, want[theme]![tier]!)));
+          const r = ratio(label.colour.slice(0, 3) as RGB, label.bg.slice(0, 3) as RGB);
+          expect(r, `${theme} ${tier} eyebrow ratio`).toBeGreaterThanOrEqual(theme === 'daylight' ? 7 : AA);
+          // The body beside it keeps the fill's own ink.
+          expect(hex(ink(root.querySelector('.notice-text')!, t, memo).colour.slice(0, 3) as RGB))
+            .toBe(hex(tok(t, `--callout-${tier}-fg`)));
+        }
+      } finally {
+        root.remove();
+      }
     }
   });
 
