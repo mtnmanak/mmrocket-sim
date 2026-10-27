@@ -112,6 +112,20 @@ describe('describeFile: dry statics on the shipped data, no flight', () => {
     }
   }, 60_000);
 
+  it('builds only once it holds the kernel lock (the import before it runs outside)', async () => {
+    let release!: () => void;
+    const holder = withKernel(() => new Promise<void>(resolve => { release = resolve; }));
+    const build = vi.spyOn(KERNEL_HANDLES, 'build');
+    const pending = describeFile(bytes('reference.ork'), 'reference.ork');
+    // Long enough for the whole import (all of it outside the lock) to finish.
+    await new Promise(resolve => setTimeout(resolve, 500));
+    expect(build).not.toHaveBeenCalled();
+    release();
+    await holder;
+    await expect(pending).resolves.toMatchObject({ name: 'Reference Rocket' });
+    expect(build).toHaveBeenCalled();
+  }, 60_000);
+
   it('refuses a design the kernel will not build, then the lock serves the next one', async () => {
     const build = vi.spyOn(KERNEL_HANDLES, 'build').mockImplementation(() => { throw new Error('test kernel refusal'); });
     const err = await describeFile(bytes('reference.ork'), 'reference.ork').catch((e: unknown) => e);
