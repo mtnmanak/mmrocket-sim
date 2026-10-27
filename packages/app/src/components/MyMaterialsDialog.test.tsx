@@ -35,7 +35,7 @@ beforeEach(() => {
   localStorage.clear();
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
-it.each(['0', '-5', '', '1,250'])('S3c-g1 refuses the visible invalid density %j on submit', value => {
+it.each(['0', '-5', '', '1,250', '0x10'])('S3c-g1 refuses the visible invalid density %j on submit', value => {
   saveUserMaterials([{ kind: 'bulk', name: 'Mix', density: 900 }]); mount();
   click(button('Edit bulk material Mix'));
   type(input('Density (kg/m³)'), value);

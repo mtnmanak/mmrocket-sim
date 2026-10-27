@@ -8,6 +8,8 @@
  * only (lesson from upstream bug #2475).
  */
 
+import { DECIMAL } from './decimal.js';
+
 export type Quantity =
   | 'length'          // rocket dimensions (UNITS_LENGTH)
   | 'motorDimensions' // motor diameters/lengths (UNITS_MOTOR_DIMENSIONS)
@@ -399,7 +401,7 @@ export const LOCALE_DECIMAL_COMMA: boolean = (() => {
  * is written. So:
  *
  *  - one comma and no point: a decimal comma — "1,5", "0,25", "12,3456";
- *  - no comma: exactly `Number()`, as before;
+ *  - no comma: a plain decimal (`DECIMAL`, prefs/decimal.ts), as a file reads it;
  *  - EXCEPT, either way, a lone separator that could be a thousands group —
  *    one to three digits not starting with 0, the separator, exactly three
  *    digits: "1,500", "10,000", "10.000". That is ambiguous wherever the
@@ -423,6 +425,10 @@ export function readDecimal(text: string, decimalComma = LOCALE_DECIMAL_COMMA): 
   } else if (decimalComma && /^[-+]?[1-9]\d{0,2}\.\d{3}$/.test(t)) {
     return null;
   }
+  // Number() alone also reads 0x10 as 16, 0b110 as 6 and 0o7 as 7, which
+  // every file reader refuses (parseDecimal); a field must not commit a
+  // number the same text would be refused as in a file.
+  if (!DECIMAL.test(t)) return null;
   const v = Number(t);
   return Number.isFinite(v) ? v : null;
 }

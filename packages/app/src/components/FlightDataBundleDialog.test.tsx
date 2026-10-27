@@ -164,3 +164,14 @@ it('resets a failed native selection so the same file can be retried without los
   expect(files['attachment/flight.log']).toEqual(new Uint8Array([0, 255, 42]));
   expect(JSON.parse(strFromU8(files['measurements.json']!)).apogeeM).toBe(111.5);
 });
+
+it('refuses a hex measurement rather than exporting it as decimal (closure audit of v0.194, row C)', async () => {
+  act(() => root.render(<FlightDataBundleDialog source={source()} onClose={() => {}} />));
+  const apogee = [...host.querySelectorAll('label')].find(l => l.textContent?.startsWith('Measured apogee'))!.control as HTMLInputElement;
+  fill(apogee, '0x10');
+  expect(apogee.getAttribute('aria-invalid')).toBe('true');
+  await click('Download ZIP');
+  expect(saveFile).not.toHaveBeenCalled();
+  fill(apogee, '16');
+  expect(apogee.getAttribute('aria-invalid')).toBe('false');
+});
