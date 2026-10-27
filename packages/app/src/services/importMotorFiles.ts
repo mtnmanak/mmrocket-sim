@@ -1,6 +1,6 @@
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import type { NoteTier } from '../components/Note.js';
-import { addExMotors, parseMotorFile, type ExMotor } from './exMotors.js';
+import { addExMotors, parseMotorFile, refusedExMotorNote, validExMotor, type ExMotor } from './exMotors.js';
 import { EX_IMPORT_BYTES_NOTE, EX_MOTOR_COUNT_NOTE, MAX_EX_IMPORT_BYTES, MAX_EX_IMPORT_FILES, MAX_EX_IMPORT_MOTORS, MAX_EX_SELECTION_BYTES } from './exMotorLimits.js';
 import { sessionDebugLog } from './sessionDebugLog.js';
 import { decodeXml } from './xmlUtil.js';
@@ -30,7 +30,7 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
       tier: 'information' as NoteTier, noticeTier: 'information' as NoteTier,
     };
   }
-  const parsed: ExMotor[] = [];
+  const read: { motor: ExMotor; file: string }[] = [];
   const failed: string[] = [];
   /** What the parsers had to say about motors they DID import (a refused nozzle exit, …). */
   const said: string[] = [];
@@ -59,14 +59,26 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
       }
       if (decoded.note) notes.push(decoded.note.replace('Check the part and material names.', 'Check the motor and maker names.'));
       const motors = parseMotorFile(f.name, xml ? decoded.xml.trimStart() : decoded.xml, notes, units);
-      if (parsed.length + motors.length > MAX_EX_IMPORT_MOTORS) throw new Error(EX_MOTOR_COUNT_NOTE);
-      for (const motor of motors) parsed.push(motor);
+      if (read.length + motors.length > MAX_EX_IMPORT_MOTORS) throw new Error(EX_MOTOR_COUNT_NOTE);
+      for (const motor of motors) read.push({ motor, file: f.name });
       for (const note of notes) said.push(`${f.name}: ${note}`);
     } catch (e) {
       sessionDebugLog.record('import-failed', e);
       failed.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
     }
   }
+  // Screened BEFORE the write: addExMotors refuses the whole batch on its
+  // first invalid motor, so one contrived motor used to drop every good one
+  // in the selection (closure audit of v0.194, row A). Its throw stays as
+  // the backstop.
+  const parsed: ExMotor[] = [];
+  const refused: string[] = [];
+  for (const { motor, file } of read) {
+    const name = motor.designation;
+    if (validExMotor(motor)) parsed.push(motor);
+    else refused.push(`${file}: ${refusedExMotorNote(name)}`);
+  }
+  if (refused.length) sessionDebugLog.record('import-failed', new Error('A motor failed the library checks.'));
   // ONE library write for the whole selection, not one per file: a folder of
   // fifty files rewrote an ever-growing list fifty times, and one write means
   // one honest answer to "did it save?".
@@ -106,8 +118,9 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
   if (failed.length) {
     problems.push(`Skipped ${failed.length} file${failed.length === 1 ? '' : 's'} — ${failed.join(' · ')}`);
   }
+  if (refused.length) problems.push(refused.join(' · '));
   if (!write && skippedFiles) notice = said.join(' ');
-  const tier: NoteTier = parsed.length > 0 && (repaired || unsaved || failed.length > 0) ? 'caution' : 'information';
+  const tier: NoteTier = parsed.length > 0 && (repaired || unsaved || failed.length > 0 || refused.length > 0) ? 'caution' : 'information';
   // The part of that tier the NOTICE carries on its own (a repair it names):
   // what is left once something else replaces this import's error (review of
   // NOTES-1, finding 8 — a later failed catalogue Load kept the import's amber).

@@ -432,7 +432,19 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const importMotorFiles = async (files: File[]) => {
     setError(null);
     setNotice(null);
-    const { parsed, write, error, notice, tier, noticeTier: noticeOnly } = await readMotorFiles(files, prefs.units);
+    let result: Awaited<ReturnType<typeof readMotorFiles>>;
+    try {
+      result = await readMotorFiles(files, prefs.units);
+    } catch (e) {
+      // The service reports per-file failures itself; this catches what it
+      // did not (closure audit of v0.194, row A: a library refusal used to
+      // become an unhandled rejection and a silent screen).
+      if (!mounted.current) return;
+      setImportTier('information');
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    const { parsed, write, error, notice, tier, noticeTier: noticeOnly } = result;
     if (!mounted.current) return;
     setImportTier(tier);
     setNoticeTier(noticeOnly);

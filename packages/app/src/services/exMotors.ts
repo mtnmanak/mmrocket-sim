@@ -329,6 +329,10 @@ export function restoreExMotors(added: readonly ExMotor[], notes: string[]): Map
   return ids;
 }
 
+/** Why addExMotors refuses a motor; importMotorFiles names each refused motor with it. */
+export const refusedExMotorNote = (designation: string) =>
+  `Motor ${designation}: invalid dimensions, curve or motor fields; it was not stored.`;
+
 /** An import's write, and what it did to motors that share a maker and name. */
 export interface ExImport extends ExLibraryWrite {
   /** Designations that replaced a library entry with the same id — a re-import, usually. */
@@ -353,7 +357,7 @@ export interface ExImport extends ExLibraryWrite {
 export function addExMotors(added: ExMotor[]): ExImport {
   for (const motor of added) {
     const name = motor.designation;
-    if (!validExMotor(motor)) throw new Error(`Motor ${name}: invalid dimensions, curve or motor fields; it was not stored.`);
+    if (!validExMotor(motor)) throw new Error(refusedExMotorNote(name));
   }
   const batch = new Map<string, ExMotor>();
   const duplicates: string[] = [];
