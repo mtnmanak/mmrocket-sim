@@ -110,7 +110,9 @@
           var box = document.createElement('div');
           box.setAttribute('data-startup-failure', '');
           box.setAttribute('role', 'alert');
-          box.style.cssText = 'font-family:system-ui,sans-serif;max-width:36em;margin:48px auto;'
+          // The brand display face (tokens.css is linked above; the stack after it
+          // is the brand's own fallback, for a start that failed before it loaded).
+          box.style.cssText = 'font-family:var(--mmr-font-display,"Archivo","Helvetica Neue",Arial,sans-serif);max-width:36em;margin:48px auto;'
             + 'padding:20px 24px;border-radius:8px;background:#f6faff;color:#03254f;line-height:1.5';
           var p = document.createElement('p');
           p.style.margin = '0 0 12px';

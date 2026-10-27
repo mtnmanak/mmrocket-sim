@@ -4659,7 +4659,7 @@ export function App() {
               const delayCurrent = !!delayRun && runMatchesDesign(delayRun, provenanceKey)
                 && resolutionMatchesPolicy(delayRun.delayResolution, flownDelayMounts);
               return (
-                <div key={m.id} id={m.id ? `cfg-mount-${m.id}` : undefined} tabIndex={-1} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border, #333)' }}>
+                <div key={m.id} id={m.id ? `cfg-mount-${m.id}` : undefined} tabIndex={-1} className="mount-card" style={{ marginBottom: 10, paddingTop: 6, borderTop: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                     {/* The card's title, not a <label>: it names no control
                         (audit 2026-09-30). */}

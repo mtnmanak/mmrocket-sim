@@ -16,6 +16,7 @@ import {
 } from '../services/simReport.js';
 import { stabilityReadout } from './stabilityWording.js';
 import { ImageExportMenu, type ImageExportOptions } from './ImageExportMenu.js';
+import tokens from '../../public/brand/tokens.json';
 
 /**
  * 3D rocket view (react-three-fiber). Geometry is generated from the
@@ -46,9 +47,11 @@ const markerRadius = (totalLen: number, maxR: number): number =>
   Math.max(totalLen * 0.015, maxR * 0.35);
 
 /**
- * Brand literals for the 3D scene (three.js takes colour strings, not CSS
- * variables). Rocket3D.test holds every one to the vendored tokens.json, so a
- * brand re-sync that moves one fails there.
+ * Brand colours for the 3D scene (three.js takes colour strings, not CSS
+ * variables), read from the vendored brand/tokens.json at build time — no
+ * hex copy here, so a brand re-sync moves them (mmr-brand 1.0.3 lightened
+ * danger-dark to #FF9EA5, which the under-stable readout follows). Rocket3D.test
+ * holds which primitive each role takes.
  *
  * The scene has NO background of its own: the canvas is transparent over
  * `.rocket-stage`, which is mist #E5F0F8 in light, white under Daylight and
@@ -64,22 +67,23 @@ const markerRadius = (totalLen: number, maxR: number): number =>
  * its ground is that halo in every theme, and the brand's DARK status values
  * (success-dark, warning-dark, danger-dark) are the legible set.
  */
+const BRAND = tokens.color;
 export const SCENE_INK = {
   margin: {
-    ok: '#6fd39a', // success-dark
-    over: '#ffb23e', // warning-dark
-    // danger-dark — pending mmr-brand 1.0.3, which lightens it (D7); re-sync then.
-    under: '#ff8a93',
+    ok: BRAND['success-dark'],
+    over: BRAND['warning-dark'],
+    // 7.74:1 on the navy halo (the 1.0.2 #FF8A93 was 6.74).
+    under: BRAND['danger-dark'],
   } satisfies Record<StabilityState, string>,
   /** CP: the brand orange (CHECKLIST: orange marks the CP); its glow is the Launch ramp's darkest step. */
-  cp: '#ff6509',
-  cpGlow: '#7c2a00',
+  cp: BRAND.orange,
+  cpGlow: BRAND['action-active'],
   /** CG: brand paper, so the two never read as one; its glow and the gadget connector are control slate. */
-  cg: '#f6faff',
-  cgGlow: '#7c93a8',
+  cg: BRAND.paper,
+  cgGlow: BRAND.control,
   /** Behind every marker: the navy ring, then the paper halo (see above). */
-  ring: '#03254f',
-  halo: '#f6faff',
+  ring: BRAND.navy,
+  halo: BRAND.paper,
 } as const;
 const MARGIN_COLOR: Record<StabilityState, string> = SCENE_INK.margin;
 const { cg: CG_COLOR, cgGlow: CG_GLOW, cp: CP_COLOR, cpGlow: CP_GLOW } = SCENE_INK;

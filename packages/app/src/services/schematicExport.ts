@@ -70,7 +70,8 @@ export function dataHeaderLines(d: ExportData): string[] {
  *  the caliper; --surface-2 / --border / --text-secondary = the ruler gutters.
  *  A var left out of this list resolves to nothing in a standalone SVG, which
  *  for `stroke` and `fill` means the initial value — invisible, silently.
- *  The values are the mmr-brand 1.0.2 LIGHT theme (brand/tokens.json
+ *  The values are the mmr-brand LIGHT theme (1.0.3; 1.0.3 changed no light
+ *  value this list carries) (brand/tokens.json
  *  theme.light), as styles.css maps them (response-2026-10-26b §2 A), with ONE
  *  export exception: --surface-2 bakes to mist, not white. On screen the
  *  gutters are white beside the mist stage; the export puts the drawing on a

@@ -563,7 +563,9 @@ describe('calloutGadget — the offset CG/CP gadget', () => {
     // rotate to inspect a build.
     const at = (cal: number) => calloutGadget(infoOf({ stabilityCalibers: cal }), MAX_R, LEN)!.margin!;
     expect(at(1.67)).toMatchObject({ text: '✓ 1.67 cal — ok', color: '#6fd39a' });
-    expect(at(0.42)).toMatchObject({ text: '⚠ 0.42 cal — under-stable', color: '#ff8a93' });
+    // Re-pinned for mmr-brand 1.0.3: danger-dark is #FF9EA5 (was #FF8A93).
+    expect(at(0.42)).toMatchObject({ text: '⚠ 0.42 cal — under-stable', color: '#ff9ea5' });
+    expect(at(0.42).color).toBe(BRAND_COLOR['danger-dark']);
     expect(at(3.5)).toMatchObject({ text: '△ 3.50 cal — over-stable', color: '#ffb23e' });
   });
 
@@ -785,9 +787,9 @@ describe('the view draws each part with its surface finish (N062)', () => {
 });
 
 describe('3D scene inks are the vendored brand values', () => {
-  // three.js takes colour strings, so these are literals; this holds them to
-  // tokens.json, so a brand re-sync that moves one (mmr-brand 1.0.3 lightens
-  // danger-dark) fails here instead of leaving a stale copy in the scene.
+  // three.js takes colour strings; Rocket3D reads them from tokens.json (no
+  // hex copy since mmr-brand 1.0.3, whose danger-dark the old literal had
+  // missed). This holds which brand primitive each role takes.
   const c = BRAND_COLOR;
 
   it('markers, rings, glows and margin inks', () => {

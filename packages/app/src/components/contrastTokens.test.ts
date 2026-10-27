@@ -175,7 +175,8 @@ describe('status text is AA on every surface it is drawn on (row 451)', () => {
   it('the floating chip and mount pill: every verdict and label over every stage they float on', () => {
     // A fixed navy card (brand primitives, so the same in every theme) at 92 %
     // over the stage — over Daylight's white it is lightest, and that is where
-    // it would fail first (at 85 % danger-dark was 4.28:1, brand v1 table D).
+    // it would fail first (at 85 % the 1.0.2 danger-dark was 4.28:1, brand v1
+    // table D; 1.0.3's #FF9EA5 is 6.17:1 at 92 %).
     const primitives = THEMES.light!;
     const skies = [...stage('light'), ...stage('daylight'), ...stage('dark')];
     for (const sel of ['.stats-chip {', '.hero-mounts {']) {
@@ -298,14 +299,12 @@ describe('row 466', () => {
         expect(ratio(tok(t, ink), tok(t, '--selected')), `${name} ${ink}`).toBeGreaterThanOrEqual(AA);
       }
       // And the status inks a picked row can carry (the run-history verdict
-      // cell, SimResults). AA everywhere but dark --status-serious: danger-dark
-      // on the dark selected tint is 4.38:1, which the approved table forbids
-      // for TEXT — pending mmr-brand 1.0.3 (D7). The cell's only visible ink
-      // is an aria-hidden glyph (sr-only text beside it), a graphic at 3:1,
-      // and the source check below keeps it so until danger-dark is lightened.
+      // cell, SimResults), AA in every theme. Re-pinned for mmr-brand 1.0.3:
+      // dark --status-serious was held to 3 (the 1.0.2 #FF8A93 was 4.38:1 on
+      // the dark tint, so only the cell's aria-hidden glyph could carry it);
+      // 1.0.3's #FF9EA5 is 5.02:1, so it is held to AA like every other ink.
       for (const ink of ['--status-good', '--status-warn', '--status-serious']) {
-        const need = name === 'dark' && ink === '--status-serious' ? 3 : AA;
-        expect(ratio(tok(t, ink), tok(t, '--selected')), `${name} ${ink} on --selected`).toBeGreaterThanOrEqual(need);
+        expect(ratio(tok(t, ink), tok(t, '--selected')), `${name} ${ink} on --selected`).toBeGreaterThanOrEqual(AA);
       }
     }
     const history = read('SimResults.tsx');
@@ -342,6 +341,81 @@ describe('the Launch fill under its label, at rest, hovered and pressed', () => 
 });
 
 describe('brand v1: links, focus, inputs, callouts and the site strip', () => {
+  it('every ink a neutral note carries reads on --note-bg (dark: navy-high again, mmr-brand 1.0.3)', () => {
+    // Table A puts notes, the notice bar and the tour card on --mmr-surface-2
+    // in both themes. Dark sat on navy while the 1.0.2 danger-dark measured
+    // 4.31:1 on navy-high; 1.0.3 lifted it to 4.95, so the table's surface is
+    // back, and everything a note can write on it is re-measured here: body,
+    // muted, link, orange words and the three status inks at AA, the focus
+    // ring and the tour card's --accent-graphic edge at 3:1.
+    expect(THEMES.dark!['--note-bg']).toBe('var(--mmr-surface-2)');
+    expect(THEMES.light!['--note-bg']).toBe('var(--mmr-surface-2)');
+    expect(decl(rule('.tour-card {'), 'border')).toBe('1.5px solid var(--accent-graphic)');
+    for (const [name, t] of Object.entries(THEMES)) {
+      const bg = tok(t, '--note-bg');
+      for (const ink of ['--text-primary', '--text-secondary', '--text-muted', '--link', '--accent-text',
+        '--status-good', '--status-warn', '--status-serious']) {
+        expect(ratio(tok(t, ink), bg), `${name} ${ink} on --note-bg`).toBeGreaterThanOrEqual(AA);
+      }
+      for (const g of ['--focus', '--accent-graphic']) {
+        expect(ratio(tok(t, g), bg), `${name} ${g} on --note-bg`).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
+  it('danger and error states draw from the danger token alone, never a hex (mmr-brand 1.0.3 audit)', () => {
+    // Every rule before the Daylight block whose selector names a danger,
+    // error, invalid, refused or failed state. Its colours are tokens: the
+    // danger red itself only through --status-serious (= --mmr-danger) or the
+    // --callout-danger-* pair, or, on the fixed navy chip, the dark primitive.
+    const start = css.search(/\n\.viz-root\[data-contrast='high'\]\s*\{/);
+    const states = [...css.slice(0, start).matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => /danger|error|invalid|-bad\b|refused|serious|failed/.test(m[1]!));
+    expect(states.length).toBeGreaterThanOrEqual(15);
+    // The one hex allowed: the tier's var() fallback, which is the fatal-error
+    // bar's fill OUTSIDE .viz-root (fatalErrorBar.ts) and must equal the
+    // light theme's resolved token, so it cannot drift from the brand.
+    const fallback = /var\((--callout-(?:danger|caution)-(?:bg|fg)),\s*(#[0-9a-f]{6})\)/gi;
+    for (const [, sel, body] of states) {
+      for (const f of body!.matchAll(fallback)) {
+        expect(f[2]!.toLowerCase(), `${sel!.trim()} ${f[1]} fallback`).toBe(hex(tok(THEMES.light!, f[1]!)));
+      }
+      for (const d of body!.replace(fallback, 'var($1)').matchAll(/(?:^|[;\s])((?:color|background|border[\w-]*|box-shadow|outline|fill|stroke)\s*:\s*[^;]+);/g)) {
+        expect(d[1], sel!.trim()).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(|\bred\b/i);
+        const reds = [...d[1]!.matchAll(/var\((--[\w-]+)/g)].map((v) => v[1]!)
+          .filter((v) => /danger|serious/.test(v));
+        for (const v of reds) expect(['--status-serious', '--callout-danger-bg', '--callout-danger-fg', '--mmr-c-danger-dark'], `${sel!.trim()} ${v}`).toContain(v);
+      }
+    }
+    // --status-serious IS the brand danger token in light and dark (Daylight
+    // keeps its own darker set, D8).
+    expect(THEMES.light!['--status-serious']).toBe('var(--mmr-danger)');
+    expect(tokens(".viz-root[data-theme='dark']")['--status-serious']).toBe('var(--mmr-danger)');
+    expect(hex(tok(THEMES.dark!, '--status-serious'))).toBe('#ff9ea5');
+  });
+
+  it('dark danger reads on every dark ground a danger state is drawn on', () => {
+    // The 1.0.3 audit's grounds: navy (page, wells, the fin editor, the 2D
+    // stage and its grid), navy-raised (panels, tiles, modals, fields),
+    // navy-high (hovered rows, notes), the selected tint (a picked run), its
+    // own 12 % tint over the panel (callouts, error notes, the notice bar, a
+    // hovered danger button) and the caution tint (an error glyph in a warn
+    // bar). Text at AA everywhere.
+    const t = THEMES.dark!;
+    const red = tok(t, '--status-serious');
+    const panel = tok(t, '--surface-2');
+    const grounds: [string, RGB][] = [
+      ['--surface-0', tok(t, '--surface-0')], ['--surface-1', tok(t, '--surface-1')],
+      ['--surface-2', panel], ['--field-bg', tok(t, '--field-bg')], ['--hover', tok(t, '--hover')],
+      ['--note-bg', tok(t, '--note-bg')], ['--selected', tok(t, '--selected')],
+      ['danger tint', over(red, 0.12, panel)], ['caution tint', over(tok(t, '--status-warn'), 0.15, panel)],
+      ...stage('dark').map((g, i): [string, RGB] => [`stage ${i}`, g]),
+    ];
+    for (const [what, g] of grounds) {
+      expect(ratio(red, g), `dark danger on ${what} ${hex(g)}`).toBeGreaterThanOrEqual(AA);
+    }
+  });
+
   it('links and the one focus ring read on every ground they meet', () => {
     expect(decl(rule('.viz-root a {'), 'color')).toBe('var(--link)');
     for (const [name, t] of Object.entries(THEMES)) {
@@ -1038,11 +1112,13 @@ describe('filled tiers: every descendant takes ink that reads on the fill (revie
   });
 
   it('the eyebrow takes the status colour on the tints and the fill ink on Daylight\'s solid boxes (D3)', () => {
-    // Table A: warning eyebrow 5.20 light / 5.16 dark, danger 5.59 light; the
-    // dark danger eyebrow is paper (danger-dark is 4.51:1 on its tint).
+    // Table A: warning eyebrow 5.20 light / 5.16 dark, danger 5.59 light.
+    // Re-pinned for mmr-brand 1.0.3: the dark danger eyebrow was paper while
+    // the 1.0.2 danger-dark measured 4.51:1 on its tint; 1.0.3's #FF9EA5 is
+    // 5.02:1 there, so it takes the status colour like the other three.
     const want: Record<string, Record<string, string>> = {
       light: { caution: '--status-warn', danger: '--status-serious' },
-      dark: { caution: '--status-warn', danger: '--callout-danger-fg' },
+      dark: { caution: '--status-warn', danger: '--status-serious' },
       daylight: { caution: '--callout-caution-fg', danger: '--callout-danger-fg' },
     };
     for (const theme of Object.keys(THEMES)) {

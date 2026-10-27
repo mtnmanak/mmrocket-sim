@@ -46,8 +46,8 @@ html {
      --launch          the primary-action fill (Launch, a dialog's own primary,
                        the tour's Next — D2), with --on-accent as its label
    Brand orange itself (`--mmr-accent`) is for decorative/large marks only.
-   `--accent` survives as an alias of --accent-graphic for any caller not yet
-   moved; nothing in this sheet reads it.
+   There is no bare `--accent`: the pre-brand alias was removed once its last
+   reader moved to a split role (cssCustomProperties.test).
    Daylight overrides what it must at the END of this file — any role added
    here must also be set in the [data-contrast='high'] block. */
 .viz-root {
@@ -95,7 +95,6 @@ html {
   /* Brand orange on white is 2.95:1, under the 3:1 a state graphic needs, so
      the light theme draws state lines in the orange INK. */
   --accent-graphic: var(--mmr-accent-text);
-  --accent: var(--accent-graphic);
   --focus: var(--mmr-focus);
   --on-accent: var(--mmr-btn-primary-text);
   /* White on #BB4100 5.43:1; hover #9B3500, active #7C2A00. */
@@ -143,8 +142,9 @@ html {
   --surface-1: var(--mmr-bg);
   --field-bg: var(--mmr-surface);
   --surface-2: var(--mmr-surface);
-  /* Not navy-high: navy-high on navy-raised is only 1.24:1, and danger-dark
-     on navy-high is 4.31:1 (see --status-serious). */
+  /* Not navy-high: navy-high on navy-raised is only 1.24:1, so a raised
+     control would vanish into its panel. (Status inks clear AA there since
+     mmr-brand 1.0.3 — see --status-serious — so this is the only reason.) */
   --surface-3: var(--mmr-surface);
   --text-primary: var(--mmr-text);
   --text-secondary: var(--mmr-text-muted);
@@ -152,12 +152,13 @@ html {
   --series-1: var(--mmr-chart-altitude);
   --status-good: var(--mmr-success);
   --status-warn: var(--mmr-warning);
-  /* pending mmr-brand 1.0.3 (D7): danger-dark #FF8A93 is 4.31:1 on navy-high
-     and 4.38:1 on the dark selected tint, so it must not sit on either; and
-     on the dark caution tint (#364A55) it is 4.11:1 and --accent-text
-     #FF9A62 4.43:1, so neither may be TEXT inside a warn note (none is
-     today: the measured delta inherits inside tiers, the notice glyphs are
-     aria-hidden graphics). */
+  /* Danger-dark, mmr-brand 1.0.3 #FF9EA5 (D7; it was #FF8A93, which failed
+     AA on navy-high at 4.31): 7.74 on navy, 6.16 navy-raised, 4.95 navy-high
+     (hover, notes), 5.02 on the selected tint (#184570), 5.02 on its own 12 %
+     tint over navy-raised, 4.70 on the caution tint (#364A55). Every dark
+     ground it meets is AA now; contrastTokens.test.ts recomputes them.
+     --accent-text #FF9A62 is still 4.42 on the caution tint, so no orange
+     WORD inside a warn note (none is: the notice glyphs are graphics). */
   --status-serious: var(--mmr-danger);
   --callout-caution-bg: color-mix(in srgb, var(--mmr-warning) 15%, var(--mmr-surface));
   --callout-caution-fg: var(--mmr-text);
@@ -168,18 +169,20 @@ html {
   --border-strong: var(--mmr-border);
   --shadow-1: none;
   --hover: var(--mmr-surface-2);
-  /* Paper 9.42:1, slate-light 5.40:1, the orange bar 3.35:1 on it. */
+  /* Paper 9.42:1, slate-light 5.40:1, danger-dark 5.02:1 (1.0.3), the orange
+     bar 3.35:1 on it. */
   --selected: color-mix(in srgb, var(--mmr-link-color) 20%, var(--mmr-bg));
-  /* pending mmr-brand 1.0.3 (D7): the brand's note surface is surface-2
-     (navy-high), where danger-dark measures 4.31:1. Until danger-dark is
-     lightened, dark notes sit on navy (6.74:1), below the raised panels. */
-  --note-bg: var(--mmr-bg);
+  /* The brand's note surface, surface-2 (navy-high), as table A rules — back
+     from the 1.0.2 interim (navy) now that 1.0.3 lightened danger-dark. On
+     it: paper 9.28, slate-light 5.32, sky (link) 5.09, --accent-text 4.66,
+     success / warning / danger 5.31 / 5.41 / 4.95; the --accent-graphic
+     tour edge 3.30; the --note-border edge 3.22 against the navy page. */
+  --note-bg: var(--mmr-surface-2);
   --note-border: var(--mmr-border);
   --accent-text: var(--mmr-accent-text);
   --link: var(--mmr-link-color);
   /* Brand orange: 4.10:1 on navy-raised, 5.15:1 on navy. */
   --accent-graphic: var(--mmr-accent);
-  --accent: var(--accent-graphic);
   --focus: var(--mmr-focus);
   /* NAVY on the orange fill: white on #FF6509 is 2.95:1 (SPEC "Avoid"). */
   --on-accent: var(--mmr-btn-primary-text);
@@ -2197,8 +2200,9 @@ html {
   gap: 3px;
   min-width: 170px;
   padding: 9px 26px 9px 12px;
-  /* Brand navy at 92 %: at 85 % over the white Daylight stage danger-dark
-     measured only 4.28:1 (brand v1 table D). */
+  /* Brand navy at 92 %: at 85 % over the white Daylight stage the 1.0.2
+     danger-dark measured only 4.28:1 (brand v1 table D); 1.0.3's #FF9EA5 is
+     6.17:1 at 92 % (4.93 at 85 %). */
   background: color-mix(in srgb, var(--mmr-c-navy) 92%, transparent);
   border: 1px solid var(--mmr-c-line-dark);
   border-radius: 8px;
@@ -2258,7 +2262,7 @@ html {
 /* The stability row keeps the tiered colours — the brand's DARK status
    colours, because the chip is a fixed navy card in EVERY theme. At 92 %
    over the lightest stage (Daylight white) the worst, danger-dark, is
-   5.38:1; contrastTokens.test.ts recomputes every one over every stage. */
+   6.17:1 (mmr-brand 1.0.3); contrastTokens.test.ts recomputes every one over every stage. */
 .stats-chip-value.stability-good { color: var(--mmr-c-success-dark); }
 .stats-chip-value.stability-warn { color: var(--mmr-c-warning-dark); }
 .stats-chip-value.stability-bad { color: var(--mmr-c-danger-dark); }
@@ -4336,11 +4340,10 @@ select.unit-chip:hover {
   background: var(--hover);
 }
 
-/* pending mmr-brand 1.0.3 (D7): on the dark --selected tint (#184570)
-   danger-dark is 4.38:1. The one status ink drawn in a picked row today is
-   the run-history verdict GLYPH (SimResults: an aria-hidden glyph beside
-   sr-only text), a graphic at a 3:1 floor; contrastTokens.test.ts pins
-   the pairs. */
+/* Status inks in a picked row (the run-history verdict cell, SimResults)
+   are AA on the --selected tint in every theme: dark danger 5.02 since
+   mmr-brand 1.0.3 (the 1.0.2 #FF8A93 was 4.38). contrastTokens.test.ts
+   pins the pairs. */
 .motor-row-picked,
 .motor-row-picked:hover {
   background: var(--selected);
@@ -5051,8 +5054,12 @@ select.unit-chip:hover {
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
-/* Tinted in light and dark (D3), solid in Daylight; the fallbacks are the
-   light tints, should a token ever go missing. */
+/* Tinted in light and dark (D3), solid in Daylight. The fallbacks are NOT
+   for the themes (every theme block defines all four tokens): they are the
+   fill of the fatal-error bar, which carries these classes OUTSIDE .viz-root,
+   where no --callout-* exists (fatalErrorBar.ts), and must paint even if the
+   app never mounts. They are the light theme's resolved values;
+   contrastTokens.test.ts holds them to the tokens. */
 .message-tier.message-tier.message-danger {
   background: var(--callout-danger-bg, #f5e5e7);
   color: var(--callout-danger-fg, #03254f);
@@ -5067,13 +5074,12 @@ select.unit-chip:hover {
 .message-label { font-weight: 700; }
 /* D3 eyebrows (SPEC §4.3, table A): on the light and dark TINTS the label
    takes the status colour — warning 5.20:1 light / 5.16:1 dark, danger
-   5.59:1 light. The dark danger eyebrow stays paper (9.71:1): danger-dark is
-   only 4.51:1 on its tint (pending mmr-brand 1.0.3). The body keeps the 7:1
-   ink; Daylight's solid boxes keep the fill's ink for the label too
-   (restated in its block). */
+   5.59:1 light / 5.02:1 dark (mmr-brand 1.0.3 #FF9EA5 on #2E4462; the 1.0.2
+   value was 4.51, which is why the dark danger eyebrow was paper until
+   1.0.3). The body keeps the 7:1 ink; Daylight's solid boxes keep the
+   fill's ink for the label too (restated in its block). */
 .message-tier.message-tier.message-caution .message-label { color: var(--status-warn); }
 .message-tier.message-tier.message-danger .message-label { color: var(--status-serious); }
-.viz-root[data-theme='dark'] .message-tier.message-tier.message-danger .message-label { color: var(--callout-danger-fg); }
 
 /* N046: codes borrow their note's ink, including the filled consequence tiers. */
 .warning-code {
@@ -5262,7 +5268,6 @@ select.unit-chip:hover {
   /* The checklist's Daylight accent: the brand's orange INK, 6.13:1 on white. */
   --accent-text: var(--mmr-c-orange-ink);
   --accent-graphic: var(--mmr-c-orange-ink);
-  --accent: var(--accent-graphic);
   --link: var(--mmr-c-link);
   --focus: var(--mmr-c-link);
   --on-accent: var(--mmr-c-white);
