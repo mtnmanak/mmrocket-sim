@@ -153,6 +153,19 @@ describe('omitOrkSamples: stored .ork sample content never reaches xmldom', () =
     expect(() => createJsXmlParser(OMIT).preflight!(xml)).toThrow(XmlParseError);
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['in a later branch, after an earlier one was cut', ork(branch(points(3)) + branch('<datapoint>R & D</datapoint>'))],
+    ['in a later simulation\'s branch', ork(branch(points(3))).replace('</simulations>',
+      `<simulation><flightdata>${branch('<datapoint>1</datapint>')}</flightdata></simulation></simulations>`)],
+    ['after the cut, outside any branch', ork(branch(points(3)), '<simwarnings>&nbsp;</simwarnings>')],
+    ['as an unclosed document after a cut', ork(branch(points(3))).replace('</openrocket>', '')],
+  ])('still refuses malformed XML %s', (_kind, xml) => {
+    const spy = vi.spyOn(DOMParser.prototype, 'parseFromString');
+    expect(() => createJsXmlParser(E1)(xml)).toThrow(XmlParseError);
+    expect(() => createJsXmlParser(OMIT)(xml)).toThrow(XmlParseError);
+    expect(spy).not.toHaveBeenCalled();
+  });
 });
 
 describe('omitOrkSamples budgets', () => {
