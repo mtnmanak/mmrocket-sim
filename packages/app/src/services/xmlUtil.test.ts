@@ -276,7 +276,7 @@ describe('decodeXml — the encoding a file declares, not always UTF-8', () => {
     for (const enc of ['windows-1252', 'ISO-8859-1', 'latin1', 'us-ascii', 'L1', 'iso_8859-1:1987']) {
       const b = bytesOf(`<?xml version="1.0" encoding="${enc}"?><a>Aero`, high, [0xb0, 0xe9, 0xff], '</a>');
       expect(decodeXml(b)).toEqual({
-        xml: `<?xml version="1.0" encoding="${enc}"?><a>Aero${String.fromCharCode(...c1)}°éÿ</a>` });
+        xml: `<?xml version="1.0" encoding="${enc}"?><a>Aero${String.fromCharCode(...c1)}\u00b0\u00e9\u00ff</a>` });
     }
   });
 

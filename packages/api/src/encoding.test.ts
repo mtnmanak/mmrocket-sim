@@ -44,7 +44,7 @@ const C1 = [0x20ac, 0x81, 0x201a, 0x192, 0x201e, 0x2026, 0x2020, 0x2021, 0x2c6, 
   0x9d, 0x17e, 0x178];
 /** All 32 bytes 0x80-0x9F and a few above, as one-byte characters. */
 const RAW_NAME = `Aero${String.fromCharCode(...Array.from({ length: 32 }, (_, i) => 0x80 + i))}\xa9\xb0\xe9\xff Test`;
-const NAME = `Aero${String.fromCharCode(...C1)}©°éÿ Test`;
+const NAME = `Aero${String.fromCharCode(...C1)}\u00a9\u00b0\u00e9\u00ff Test`;
 const NOT_UTF8 = /characters? in this file could not be read and (was|were) replaced/;
 
 /** One byte per character; every character must be at most U+00FF. */

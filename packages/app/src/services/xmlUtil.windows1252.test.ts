@@ -71,8 +71,8 @@ describe.each(DECODERS)('decodeXml windows-1252 under a %s runtime decoder', (_n
     const xml = decodeXml(bytes).xml;
     expect(xml).toHaveLength(bytes.length);
     expect(xml).toBe(expected(bytes));
-    expect(xml[WINDOWS_1252_CHUNK - 1]).toBe('™');
-    expect(xml[WINDOWS_1252_CHUNK]).toBe('™');
+    expect(xml[WINDOWS_1252_CHUNK - 1]).toBe('\u2122');
+    expect(xml[WINDOWS_1252_CHUNK]).toBe('\u2122');
   });
 
   it('keeps a UTF-16 label on single bytes, an unknown label and other legacy labels as they were', () => {
@@ -83,7 +83,7 @@ describe.each(DECODERS)('decodeXml windows-1252 under a %s runtime decoder', (_n
         note: `1 character in this file could not be read and was replaced${NOTE_TAIL}` });
     }
     // Not windows-1252: still the runtime's own decoder, exactly as before.
-    expect(decodeXml(doc('iso-8859-2')).xml).toBe('<?xml version="1.0" encoding="iso-8859-2"?><a>é</a>');
+    expect(decodeXml(doc('iso-8859-2')).xml).toBe('<?xml version="1.0" encoding="iso-8859-2"?><a>\u00e9</a>');
   });
 });
 
@@ -97,7 +97,7 @@ describe('decodeXml windows-1252 runtime probe', () => {
         decode: (input?: AllowSharedBufferSource) => { decodes++; return expected(input as Uint8Array); } } as TextDecoder;
     });
     const bytes = Uint8Array.from([...ascii('<?xml version="1.0" encoding="cp1252"?><a>'), 0x99, ...ascii('</a>')]);
-    for (let i = 0; i < 3; i++) expect(decodeXml(bytes).xml).toBe('<?xml version="1.0" encoding="cp1252"?><a>™</a>');
+    for (let i = 0; i < 3; i++) expect(decodeXml(bytes).xml).toBe('<?xml version="1.0" encoding="cp1252"?><a>\u2122</a>');
     expect(made).toEqual(['windows-1252']);
     // The probe, then the declaration head and the document on each of the three reads.
     expect(decodes).toBe(1 + 3 * 2);
@@ -106,7 +106,7 @@ describe('decodeXml windows-1252 runtime probe', () => {
   it('reads by the table a label only the runtime resolves to windows-1252', () => {
     setTextDecoderFactoryForTests(label => latin1(label === 'x-runtime-alias' ? 'windows-1252' : label));
     const bytes = Uint8Array.from([...ascii('<?xml version="1.0" encoding="x-runtime-alias"?><a>'), 0x99, ...ascii('</a>')]);
-    expect(decodeXml(bytes)).toEqual({ xml: '<?xml version="1.0" encoding="x-runtime-alias"?><a>™</a>' });
+    expect(decodeXml(bytes)).toEqual({ xml: '<?xml version="1.0" encoding="x-runtime-alias"?><a>\u2122</a>' });
   });
 
   it('does not use a runtime decoder that fails the probe', () => {
@@ -117,8 +117,8 @@ describe('decodeXml windows-1252 runtime probe', () => {
         decode: (input?: AllowSharedBufferSource) => { decodes++; return inner.decode(input); } } as TextDecoder;
     });
     const bytes = Uint8Array.from([...ascii('<?xml version="1.0" encoding="windows-1252"?><a>'), 0x99, ...ascii('</a>')]);
-    expect(decodeXml(bytes).xml).toBe('<?xml version="1.0" encoding="windows-1252"?><a>™</a>');
-    expect(decodeXml(bytes).xml).toBe('<?xml version="1.0" encoding="windows-1252"?><a>™</a>');
+    expect(decodeXml(bytes).xml).toBe('<?xml version="1.0" encoding="windows-1252"?><a>\u2122</a>');
+    expect(decodeXml(bytes).xml).toBe('<?xml version="1.0" encoding="windows-1252"?><a>\u2122</a>');
     expect(decodes).toBe(1);
   });
 });
