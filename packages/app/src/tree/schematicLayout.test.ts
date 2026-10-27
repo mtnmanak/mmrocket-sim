@@ -63,7 +63,12 @@ describe('motor label fit', () => {
     ['BB-54-2550-P', 60.1, false],
     ['BB-54-2550-P', 87.9, false],
     ['BB-54-2550-P', 88.1, true],
-    ['C6-5', 32.1, true],
+    // The width fits at 32.1 px, but the 0.029 m case is then only 9.3 px
+    // tall: under the 12 px (font 10 + 2) height gate the label is not drawn,
+    // because a white label spilling off the case fails contrast on the stage.
+    ['C6-5', 32.1, false],
+    // 41.4 px long → 12.0 px tall: both gates clear.
+    ['C6-5', 41.4, true],
   ])('fits %s in a %s px case: %s', (label, caseWidth, fits) => {
     const shapes = layoutSchematic(rocket([]), {
       scale: caseWidth / 0.1, cy: 100, x0: 10, roll: 0, idPrefix: 't',
