@@ -142,7 +142,7 @@
     "services/windProfile.ts": 2,
     "services/xlsx.ts": 27,
     "services/xmlParse.ts": 6,
-    "services/xmlParseJs.ts": 3,
+    "services/xmlParseJs.ts": 6,
     "services/xmlParseParity.ts": 127,
     "services/xmlUtil.ts": 12,
     "services/zipMember.ts": 2,
