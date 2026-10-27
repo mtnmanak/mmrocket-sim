@@ -2,6 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { fileURLToPath } from 'node:url';
 import { gzipSync, strToU8, zipSync } from 'fflate';
 import { DOMParser } from '@xmldom/xmldom';
+import { SaxesParser } from 'saxes';
 import type { unstable_startWorker } from 'wrangler';
 import { API_XML_LIMITS, worker } from './index.js';
 import * as staticHeadless from '../../app/src/headless/index.js';
@@ -185,6 +186,117 @@ describe('API stored-flight omission: same import and flight as main, without th
     const refused = await respond(pastSamplesBudget(), 'longer.ork');
     expect(refused).toEqual({ status: 413, json: { error: { code: 'FILE_TOO_LARGE',
       message: 'longer.ork: Stored flight data element limit is 1,000,000. Use https://mmrsim.mountainmanrockets.com for larger files.' } } });
+    expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+/** Shrink a ZIP member's central-directory size, as orkFileHardening.test.ts's patchZipEntry does. */
+function declareSmaller(zip: Uint8Array, name: string, by: number): Uint8Array {
+  const dv = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
+  for (let b = 0; b + 46 <= zip.length; b++) {
+    if (dv.getUint32(b, true) !== 0x02014b50) continue;
+    const nameLen = dv.getUint16(b + 28, true);
+    if (new TextDecoder().decode(zip.subarray(b + 46, b + 46 + nameLen)) !== name) continue;
+    dv.setUint32(b + 24, dv.getUint32(b + 24, true) - by, true);
+    return zip;
+  }
+  throw new Error(`no central-directory record for ${name}`);
+}
+const TOO_LARGE = (filename: string, what: string) => ({ status: 413, json: { error: { code: 'FILE_TOO_LARGE',
+  message: `${filename}: ${what} Use https://mmrsim.mountainmanrockets.com for larger files.` } } });
+
+describe('API boundaries with stored flights: the same refusals as main, before any DOM', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it.each(['TubeFins2.rkt', 'rocksimTestRocket2.rkt', 'Show-off.CDX1', 'Complex.Two-Stage.CDX1'].flatMap(name =>
+    (['zip', 'gzip'] as const).map(container => [name, container] as const)))(
+    '%s in %s: xmldom gets exactly main\'s text, and the same response', async (name, container) => {
+      const raw = bytesOf(name);
+      const body = container === 'zip' ? zipSync({ [name]: raw }) : gzipSync(raw);
+      const { baseline, changed, baselineDom, changedDom } = await both(() => respond(body, name));
+      expect(changedDom).toEqual(baselineDom);
+      expect(changedDom.length).toBeGreaterThan(0);
+      // rocksimTestRocket2.rkt names no motor on its primary mount: a 422 on both.
+      expect(changed).toEqual(baseline);
+    });
+
+  it('refuses a stored-flight body past 8 MiB as main does, before parsing', async () => {
+    const body = strToU8(storedFlightXml({ simulations: [{ points: 24_000 }] }));
+    expect(body.byteLength).toBeGreaterThan(8 * 1024 * 1024);
+    const { baseline, changed, changedDom } = await both(() => respond(body, 'body.ork'));
+    expect(changed).toEqual(baseline);
+    expect(changed.status).toBe(413);
+    expect((changed.json as { error: { message: string } }).error.message).toMatch(/8 MiB/);
+    expect(changedDom).toEqual([]);
+  });
+
+  it.each(['zip', 'gzip'] as const)('refuses stored-flight XML inflating past 16 MiB in %s as main does', async container => {
+    // Repetitive samples compress well, so the body stays under the 8 MiB cap.
+    const xml = strToU8(storedFlightXml({ simulations: [{ points: 0 }] })
+      .replace('</databranch>', `${'        <datapoint>0.00,0.0000</datapoint>\n'.repeat(420_000)}</databranch>`));
+    expect(xml.byteLength).toBeGreaterThan(16 * 1024 * 1024);
+    const body = container === 'zip' ? zipSync({ 'rocket.ork': xml }) : gzipSync(xml);
+    expect(body.byteLength).toBeLessThan(8 * 1024 * 1024);
+    const { baseline, changed, changedDom } = await both(() => respond(body, 'inflated.ork'));
+    expect(changed).toEqual(baseline);
+    expect(changed).toEqual(TOO_LARGE('inflated.ork', 'the API inflated XML limit is 16 MiB.'));
+    expect(changedDom).toEqual([]);
+  });
+
+  it('refuses a stored-flight ZIP member that inflates past a false-small declaration as damaged', async () => {
+    const zip = declareSmaller(zipSync({ 'rocket.ork': strToU8(storedFlightXml(DESIGNS['one stored flight']!)) }), 'rocket.ork', 1);
+    const { baseline, changed, changedDom } = await both(() => respond(zip, 'damaged.ork'));
+    expect(changed).toEqual(baseline);
+    expect(changed.status).toBe(400);
+    expect(changed.json).toMatchObject({ error: { code: 'INVALID_FILE', message: expect.stringMatching(/inflates past the [\d,]+ bytes its directory declares/) } });
+    expect(changedDom).toEqual([]);
+  });
+
+  it('counts source depth inside omitted samples: 64 opens as main does, 65 is refused as main does', async () => {
+    // A sample branch sits at depth 5; 59 nested elements inside it reach depth 64.
+    const nested = (n: number) => '<v>'.repeat(n) + '</v>'.repeat(n);
+    const at = (n: number) => strToU8(storedFlightXml({ simulations: [{ points: 3 }] })
+      .replace('</databranch>', `${nested(n)}</databranch>`));
+    const deepest = await both(() => respond(at(59), 'deep.ork'));
+    expect(deepest.changed).toEqual(deepest.baseline);
+    expect(deepest.changed.status, JSON.stringify(deepest.changed.json)).toBe(200);
+    expect(deepest.changedDom.join('')).not.toContain('<v>');
+    const tooDeep = await both(() => respond(at(60), 'deep.ork'));
+    expect(tooDeep.changed).toEqual(tooDeep.baseline);
+    expect(tooDeep.changed).toEqual(TOO_LARGE('deep.ork', 'XML nesting limit is 64.'));
+    expect(tooDeep.changedDom).toEqual([]);
+  });
+
+  it('keeps the DOM budget at exactly 50,000 retained elements beside stored samples', async () => {
+    const design = storedFlightXml({ simulations: [{ points: 1_000 }] });
+    const retained = (xml: string) => {
+      let n = 0, inBranch = false;
+      const sax = new SaxesParser({ xmlns: true });
+      sax.on('opentag', tag => { if (!inBranch) n++; if (tag.name === 'databranch') inBranch = true; });
+      sax.on('closetag', tag => { if (tag.name === 'databranch') inBranch = false; });
+      sax.write(xml).close();
+      return n;
+    };
+    // Pad the rocket with ignored elements up to the budget, then one past it.
+    const pad = 50_000 - retained(design);
+    const at = (extra: number) => strToU8(design.replace('</rocket>', `${'<mmrpad/>'.repeat(pad + extra)}</rocket>`));
+    expect(retained(new TextDecoder().decode(at(0)))).toBe(50_000);
+    const atBudget = await both(() => respond(at(0), 'budget.ork'));
+    // Main counted the samples too and refuses; the API opens it.
+    expect(atBudget.baseline).toEqual(TOO_LARGE('budget.ork', 'XML element limit is 50,000.'));
+    expect(atBudget.changed.status, JSON.stringify(atBudget.changed.json)).toBe(200);
+    const pastBudget = await respond(at(1), 'budget.ork');
+    expect(pastBudget).toEqual(TOO_LARGE('budget.ork', 'XML element limit is 50,000.'));
+  });
+
+  it('opens exactly 1,000,000 omitted elements and refuses one more, before any DOM', async () => {
+    // The branch's ten events count; pad with bare elements to the budget.
+    const at = (extra: number) => gzipSync(strToU8(storedFlightXml({ simulations: [{ points: 0 }] })
+      .replace('</databranch>', `${'<d/>'.repeat(1_000_000 - 10 + extra)}</databranch>`)));
+    const opened = await respond(at(0), 'samples.ork');
+    expect(opened.status, JSON.stringify(opened.json)).toBe(200);
+    const spy = vi.spyOn(DOMParser.prototype, 'parseFromString');
+    expect(await respond(at(1), 'samples.ork')).toEqual(TOO_LARGE('samples.ork', 'Stored flight data element limit is 1,000,000.'));
     expect(spy).not.toHaveBeenCalled();
   });
 });
