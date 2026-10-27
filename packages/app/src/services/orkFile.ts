@@ -42,7 +42,7 @@ import { knownIgnitionEvent } from './ignitionEvent.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
 import { sparsify } from './flightState.js';
 import { flownIgnition, flownSeparation } from './flightOverrideSummary.js';
-import { cautionNote, flagNote, noteFlags, zeroBulkDensityNote, type ImportNote } from './importNotes.js';
+import { cautionNote, flagNote, noteFlags, zeroBulkDensityNote, zeroDensityStandIn, type ImportNote } from './importNotes.js';
 import type { NoteTier } from '../components/Note.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
@@ -918,7 +918,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
           if (digest) node[ORK_PRESET_KEYS.digest] = digest;
         }
       }
-      const density = matDensity(el, notes);
+      const density = matDensity(el, notes, units);
       if (density !== undefined) node.density = density;
       const matName = matName_(el, 'bulk');
       if (matName) node['materialName'] = matName;
@@ -1040,7 +1040,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         if (cantDeg !== 0) n['cant'] = (cantDeg * Math.PI) / 180;
         const cs = text(el, ':scope > crosssection');
         if (cs && cs !== 'square') n['crossSection'] = cs;
-        readAirfoil(el, n, notes);
+        readAirfoil(el, n, notes, units);
         readFinTabs(el, n, notes);
         readFinRotation(el, n, notes);
         return n;
@@ -1053,7 +1053,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         if (cantDegF !== 0) n['cant'] = (cantDegF * Math.PI) / 180;
         const csF = text(el, ':scope > crosssection');
         if (csF && csF !== 'square') n['crossSection'] = csF;
-        readAirfoil(el, n, notes);
+        readAirfoil(el, n, notes, units);
         readFinTabs(el, n, notes);
         readFinRotation(el, n, notes);
         // CAPPED before validation, not after: `finOutlineProblem` is O(n^2)
@@ -1113,7 +1113,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         if (cantDegE !== 0) n['cant'] = (cantDegE * Math.PI) / 180;
         const csE = text(el, ':scope > crosssection');
         if (csE && csE !== 'square') n['crossSection'] = csE;
-        readAirfoil(el, n, notes);
+        readAirfoil(el, n, notes, units);
         readFinTabs(el, n, notes);
         readFinRotation(el, n, notes);
         return n;
@@ -4332,7 +4332,7 @@ function num(el: XmlElement, tag: string, fallback: number, notes: string[]): nu
   return fallback;
 }
 
-function matDensity(el: XmlElement, notes: string[]): number | undefined {
+function matDensity(el: XmlElement, notes: string[], units: UnitSelection): number | undefined {
   const m = el.querySelector(':scope > material');
   if (!m || m.getAttribute('type') !== 'bulk') return undefined;
   const d = parseDecimal(m.getAttribute('density'));
@@ -4340,7 +4340,7 @@ function matDensity(el: XmlElement, notes: string[]): number | undefined {
   if (d === 0 && !Number.isFinite(parseDecimal(text(el, ':scope > overridemass')))
     && !['podset', 'parallelstage', 'boosterset', 'parachute', 'streamer', 'shockcord',
     'masscomponent', 'fairing', 'protuberance'].includes(el.tagName)) {
-    zeroBulkDensityNote(notes, text(el, ':scope > name') ?? el.tagName);
+    zeroBulkDensityNote(notes, text(el, ':scope > name') ?? el.tagName, units);
   }
   return Number.isFinite(d) && d > 0 ? d : undefined;
 }
@@ -4406,7 +4406,7 @@ function readInstances(el: XmlElement, node: ComponentNode, notes: string[]): vo
  * desktop loader warns on unknown elements and continues, so files stay
  * openable there). Absent tags leave the classic cross-section behavior.
  */
-function readAirfoil(el: XmlElement, node: ComponentNode, notes: string[]): void {
+function readAirfoil(el: XmlElement, node: ComponentNode, notes: string[], units: UnitSelection): void {
   const section = text(el, ':scope > airfoilsection');
   if (section) node['airfoilSection'] = section;
   const led = num(el, 'airfoillediamond', 0, notes);
@@ -4415,7 +4415,7 @@ function readAirfoil(el: XmlElement, node: ComponentNode, notes: string[]): void
   if (ted > 0) node['airfoilTeDiamond'] = ted;
   const ler = num(el, 'finleradius', 0, notes);
   if (ler > 0) node['finLeRadius'] = ler;
-  readFillet(el, node, notes);
+  readFillet(el, node, notes, units);
 }
 
 /**
@@ -4430,7 +4430,7 @@ function readAirfoil(el: XmlElement, node: ComponentNode, notes: string[]): void
  * (FinSet.setFilletRadius / setFilletMaterial), so the epoxy counts in mass and
  * CG as desktop counts it, and the import note that said it did not is gone.
  */
-function readFillet(el: XmlElement, node: ComponentNode, notes: string[]): void {
+function readFillet(el: XmlElement, node: ComponentNode, notes: string[], units: UnitSelection): void {
   const r = num(el, 'filletradius', 0, notes);
   if (r > 0) node['filletRadius'] = r;
   // Keep the chosen material even with fillets disabled; increasing the
@@ -4440,9 +4440,9 @@ function readFillet(el: XmlElement, node: ComponentNode, notes: string[]): void 
   const d = parseDecimal(m.getAttribute('density'));
   if (Number.isFinite(d) && d > 0) node['filletDensity'] = d;
   else if (d === 0) {
-    if (r > 0 && numOpt(node, 'overrideMass') === undefined) zeroBulkDensityNote(notes, `${text(el, ':scope > name') ?? el.tagName} fillets`);
+    if (r > 0 && numOpt(node, 'overrideMass') === undefined) zeroBulkDensityNote(notes, `${text(el, ':scope > name') ?? el.tagName} fillets`, units);
   }
-  else if (m.hasAttribute('density')) invalidNumberNote(el, 'filletmaterial density', notes, 'using the default fillet density (680 kg/m³), which changes fin mass');
+  else if (m.hasAttribute('density')) invalidNumberNote(el, 'filletmaterial density', notes, `using the default fillet density (${zeroDensityStandIn(units, true)}), which changes fin mass`);
   const group = m.getAttribute('group');
   if (group) node['filletMaterialGroup'] = group;
   const name = (m.textContent ?? '').trim();

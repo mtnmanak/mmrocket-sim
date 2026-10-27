@@ -493,7 +493,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const useCG = kcg > 0 && flagCG;
     if (useMass) node['overrideMass'] = km / MASS;
     if (densityType === 0 && density === 0 && !useMass && BULK_MATERIAL_TYPES.has(node.type)) {
-      zeroBulkDensityNote(notes, node.name ?? node.type);
+      zeroBulkDensityNote(notes, node.name ?? node.type, units);
     }
     if (useCG) node['overrideCGX'] = kcg / LEN;
     // Desktop applies neither unless UseKnownCG is 1, so anything kept with

@@ -69,3 +69,14 @@ it('orders the explanation list as well as the selected explanation by preferenc
     expect(entry.textContent).toContain('65.6 ft/s (20 m/s)');
   } finally { localStorage.clear(); }
 });
+
+it('states the zero-density stand-in in the preferred density unit and keeps the code searchable', () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { density: 'oz/in³' } }));
+  try {
+    act(() => root.render(<PrefsProvider><WarningCode code="I21.zero-bulk-density" /></PrefsProvider>));
+    act(() => host.querySelector<HTMLButtonElement>('button')!.click());
+    const list = document.querySelector('.warning-lookup-list')!;
+    const entry = [...list.querySelectorAll('button')].find(b => b.textContent?.includes('I21.zero-bulk-density'))!;
+    expect(entry.textContent).toContain('0.393 oz/in³ (680 kg/m³)');
+  } finally { localStorage.clear(); }
+});

@@ -1,4 +1,6 @@
 import type { NoteTier } from '../components/Note.js';
+import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
+import { KERNEL_DEFAULT_MATERIALS } from '../tree/kernelDefaults.js';
 
 /**
  * PER-LINE CONSEQUENCE TIERS FOR FILE-OPEN AND RESTORE NOTES (D7 §4, Eric
@@ -36,8 +38,13 @@ const RANK: Record<NoteTier, number> = { information: 0, caution: 1, danger: 2 }
 
 const flags = new WeakMap<string[], ImportNote[]>();
 
-export function zeroBulkDensityNote(notes: string[], part: string): void {
-  cautionNote(notes, 'I21.zero-bulk-density', `“${part}”: zero bulk density cannot be flown by the app's engine; it uses 680 kg/m³ instead, adding mass. Saving replaces the zero density. Check the part mass before flying.`);
+/** The density the engine flies in place of a zero bulk density, as every notice prints it. */
+export function zeroDensityStandIn(units: UnitSelection = INITIAL_UNITS, parenthesized = false): string {
+  return noticeQuantity('density', KERNEL_DEFAULT_MATERIALS.bulk.density, units, { parenthesized });
+}
+
+export function zeroBulkDensityNote(notes: string[], part: string, units: UnitSelection): void {
+  cautionNote(notes, 'I21.zero-bulk-density', `“${part}”: zero bulk density cannot be flown by the app's engine; it uses ${zeroDensityStandIn(units)} instead, adding mass. Saving replaces the zero density. Check the part mass before flying.`);
 }
 
 /** Push a flagged line: the text into `notes`, the entry into its record. */
