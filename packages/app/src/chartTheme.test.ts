@@ -328,7 +328,7 @@ describe('the flight catalog maps each series by QUANTITY', () => {
   // line, so the two could be plotted at once and look identical (the only
   // repeated pair). It is now the reference ink's tier-1 style. And the
   // re-flown extras took tier 1's two leftover pairs: Mach colour in 6 4 and
-  // the reference ink in long-short. The reference look is stability's alone.
+  // the reference ink in double dash-dot. The reference look is stability's alone.
   it('stability is the reference series, dashed 6 4, and nothing else draws 6 4 or the reference ink', async () => {
     const { seriesCatalog, arbitraryCatalog, directionDash, METRIC_UNITS } = await load();
     const cat = seriesCatalog({ units: METRIC_UNITS }, LIGHT_PALETTE);

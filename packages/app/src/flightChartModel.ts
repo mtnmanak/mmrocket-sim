@@ -41,7 +41,7 @@ type Look = { color: string; token: ChartToken; dash?: number[] };
  *     pressures; thrust; drag force; Mach; stability (cal and %) → reference.
  *     The first series of a token draws the token's own style (tier 0); a
  *     second of the same quantity the token's tier-1 style: vertical velocity
- *     (velocity) and Stability margin (%) (reference, long-short: one quantity
+ *     (velocity) and Stability margin (%) (reference, double dash-dot: one quantity
  *     in two units, but both can be plotted at once, so they must differ).
  *  2. Every other series (mass, CP/CG location, angle of attack, q·α, the
  *     re-flown extras) takes the next free colour + style pair in the brand
@@ -54,7 +54,7 @@ type Look = { color: string; token: ChartToken; dash?: number[] };
  *     is the dashed 6 4 series, and its ink is the marker hairline's). No other
  *     series is given the reference colour or the 6 4 dash in any colour —
  *     without this rule the re-flown extras took tier 1's two leftover pairs,
- *     Mach colour in 6 4 and the reference ink in long-short.
+ *     Mach colour in 6 4 and the reference ink in double dash-dot.
  */
 export class StyleAllocator {
   private readonly used = new Set<string>();

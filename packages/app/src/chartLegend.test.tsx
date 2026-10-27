@@ -36,10 +36,10 @@ describe('line samples — the series colour and dash, the label in the text col
 
   it('LineSample renders the same sample in React', () => {
     const root = createRoot(host);
-    act(() => root.render(<span>Thrust <LineSample color="#ad3c00" dash={[2, 7]} /></span>));
+    act(() => root.render(<span>Thrust <LineSample color="#ad3c00" dash={[12, 4]} /></span>));
     const line = host.querySelector('svg.line-sample line')!;
     expect(line.getAttribute('stroke')).toBe('#ad3c00');
-    expect(line.getAttribute('stroke-dasharray')).toBe('2 7');
+    expect(line.getAttribute('stroke-dasharray')).toBe('12 4');
     act(() => root.unmount());
   });
 

@@ -81,18 +81,24 @@ export const REFERENCE_DASH = [6, 4];
  * series looks the same in its chip, its chart and its saved image at any
  * ratio. Four families — solid, dashes, dots,
  * dash-and-dot — so a pair hue alone cannot separate always differs in KIND,
- * not only in spacing: altitude solid vs acceleration dots, pressure dash-dot
- * vs thrust sparse dots. Every pattern repeats within 26 px, so the 28 px
+ * not only in spacing: altitude solid vs acceleration dash-dot, pressure dots
+ * vs thrust long dash. Every pattern repeats within 26 px, so the 28 px
  * legend sample (chartLegend.ts) shows a whole period.
+ *
+ * DOTS ONLY ON A SMOOTH CURVE (Eric, 2026-10-26, B1): a burn spike drawn in
+ * dots breaks into a few specks — the sparse-dot thrust line all but vanished
+ * at its own peak. So the spiky quantities, thrust and acceleration, take the
+ * dense dash styles; the one dotted style goes to dynamic pressure, a smooth
+ * bump; there is no sparse-dot style at all.
  */
 export const LINE_STYLES: readonly (number[] | undefined)[] = [
   undefined, //          0 altitude      solid
-  [12, 4], //            1 velocity      long dash
-  [2, 3], //             2 acceleration  dots
-  [10, 3, 2, 3], //      3 pressure      dash-dot
-  [2, 7], //             4 thrust        sparse dots
+  [14, 3, 6, 3], //      1 velocity      long-short dash
+  [10, 3, 2, 3], //      2 acceleration  dash-dot
+  [2, 3], //             3 pressure      dots
+  [12, 4], //            4 thrust        long dash
   [10, 3, 2, 3, 2, 3], // 5 drag         dash-dot-dot
-  [14, 3, 6, 3], //      6 mach          long-short dash
+  [7, 3, 7, 3, 2, 3], // 6 mach          double dash-dot
   REFERENCE_DASH, //     7 reference     the brand's 6 4
 ];
 
