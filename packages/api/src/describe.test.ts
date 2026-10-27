@@ -5,7 +5,9 @@ import type { unstable_startWorker } from 'wrangler';
 import {
   APP_VERSION, CURVES_GENERATED, MOTORS_GENERATED, describeFile, jsXmlParser, setXmlParser, type DescribeFileResult,
 } from '../../app/src/headless/index.js';
-import { decodeShareFragment } from '../../app/src/services/shareLink.js';
+import { decodeShareFragment, MAX_INFLATED_BYTES, SHARE_TOO_LARGE_ERROR_NAME } from '../../app/src/services/shareLink.js';
+import { motorFreeOrk, motorFreeProjection } from '../../app/src/services/describeFile.js';
+import { openHeadlessDesign, planHeadlessImport } from '../../app/src/services/simulateFile.js';
 import { autoBody, bytesOf, clusterBody, orkOf, rktWithMotor } from './fixtures.testSupport.js';
 
 /**
@@ -210,13 +212,28 @@ describe('S3 draft POST /describe in real workerd', () => {
     }
   });
 
-  it('a design too large for the share link is 413 LINK_TOO_LARGE with no partial result', async () => {
+  // A long part comment survives import and export, and the upload stays far inside the 8 MiB body,
+  // 16 MiB inflate and XML structure caps. 'x'.repeat passes the share link's 4 MiB XML cap; pseudo-random
+  // URL-safe text under 4 MiB of XML deflates past the 1,048,576-character fragment cap instead.
+  const noise = (length: number) => {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    let seed = 1;
+    return Array.from({ length }, () => alphabet[(seed = (seed * 48271) % 2147483647) % 64]).join('');
+  };
+  it.each([
+    ['XML bytes', () => 'x'.repeat(4 * 1024 * 1024 + 1), true],
+    ['fragment characters', () => noise(2 * 1024 * 1024), false],
+  ] as const)('a design past the share link\'s %s limit is 413 LINK_TOO_LARGE with no partial result', async (_kind, comment, overXml) => {
     const reference = strFromU8(unzipSync(bytesOf('reference.ork'))['rocket.ork']!);
-    // A long part comment survives import and export: the written XML passes the share link's 4 MiB cap
-    // while the upload stays far inside the 8 MiB body, 16 MiB inflate and XML structure caps.
-    const xml = reference.replace('<name>Nose Cone</name>', `<name>Nose Cone</name><comment>${'x'.repeat(4 * 1024 * 1024 + 1)}</comment>`);
+    const xml = reference.replace('<name>Nose Cone</name>', `<name>Nose Cone</name><comment>${comment()}</comment>`);
     expect(xml).not.toBe(reference);
-    const response = await post(normal!, 'long.ork', zipSync({ 'rocket.ork': strToU8(xml) }));
+    const body = zipSync({ 'rocket.ork': strToU8(xml) });
+    expect(body.byteLength).toBeLessThan(8 * 1024 * 1024);
+    // Which cap the Node oracle meets: the projection's written XML is over or under the 4 MiB XML cap.
+    const opened = (await planHeadlessImport(await openHeadlessDesign(body, 'long.ork', { network: 'forbid' }), { network: 'forbid' })).snapshot;
+    expect(strToU8(motorFreeOrk(motorFreeProjection(opened))).byteLength > MAX_INFLATED_BYTES).toBe(overXml);
+    await expect(describeFile(body, 'long.ork')).rejects.toMatchObject({ name: SHARE_TOO_LARGE_ERROR_NAME });
+    const response = await post(normal!, 'long.ork', body);
     expect(response.status).toBe(413);
     const result = await response.json() as Record<string, unknown>;
     expect(result).toEqual({ error: { code: 'LINK_TOO_LARGE', message: expect.stringMatching(/share link.*4 MiB.*1,048,576.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });

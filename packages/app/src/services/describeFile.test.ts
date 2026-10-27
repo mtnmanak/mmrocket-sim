@@ -195,6 +195,30 @@ describe('describeFile: mounts', () => {
       .toEqual([['m1', 'Core', 0, 'Upper', 1], ['m2', 'Pod mount', 0, 'Upper', 12], ['m3', 'Case', 1, 'Lower', 1]]);
     close(out.mounts[2]!.diameterM, 0.029);
   }, 60_000);
+
+  it('multiplies by strap-on (parallel stage) instances and the strap-on mount\'s own cluster', async () => {
+    const tree = { name: 'Strap-ons', components: [
+      { type: 'stage', id: 's1', name: 'Core stage', children: [
+        { type: 'nosecone', id: 'n1', length: 0.1, aftRadius: 0.025, thickness: 0.002 },
+        { type: 'bodytube', id: 'b1', length: 0.5, outerRadius: 0.025, thickness: 0.0005, children: [
+          { type: 'innertube', id: 'core', name: 'Core', length: 0.08, outerRadius: 0.0095, thickness: 0.0005,
+            motorMount: true, position: { method: 'bottom', offset: 0 } },
+          { type: 'parallelstage', id: 'ps', name: 'Strap-ons', instanceCount: 2, separationEvent: 'never',
+            radiusMethod: 'relative', radiusOffset: 0, angleOffset: 0, position: { method: 'bottom', offset: 0 }, children: [
+              { type: 'nosecone', id: 'pn', length: 0.05, aftRadius: 0.012, thickness: 0.002 },
+              { type: 'bodytube', id: 'pb', length: 0.25, outerRadius: 0.012, thickness: 0.0005, children: [
+                { type: 'innertube', id: 'pm', name: 'Strap-on mount', length: 0.08, outerRadius: 0.0095, thickness: 0.0005,
+                  motorMount: true, cluster: '4-ring', position: { method: 'bottom', offset: 0 } },
+              ] },
+            ] },
+        ] },
+      ] },
+    ] as ComponentNode[] };
+    const out = await describeFile(ork(exportOrk({ name: 'Strap-ons', tree })), 'strapons.ork');
+    // Instance counts and the cluster are this test's own inputs: 2 strap-ons × a 4-motor cluster.
+    expect(out.mounts.map(m => [m.name, m.stageIndex, m.stageName, m.count]))
+      .toEqual([['Core', 0, 'Core stage', 1], ['Strap-on mount', 0, 'Core stage', 8]]);
+  }, 60_000);
 });
 
 describe('describeFile: the motor-independent fragment', () => {
@@ -279,6 +303,23 @@ describe('describeFile: the motor-independent fragment', () => {
     n = 0;
     expect(exportOrk({ name: 'x', tree, newId: counter })).toBe(c);
   });
+
+  it('a share link written by release v0.100 still decodes and describes like the file it came from', async () => {
+    // __fixtures__/share-link-v0.100.txt: reference.ork opened, saved and encoded by v0.100's own
+    // importOrk, exportOrk and encodeShareFragment (7e41330, 2026-09-03). Never regenerate it with today's code.
+    const old = readFileSync(join(repoRoot(), 'packages', 'app', 'src', 'services', '__fixtures__', 'share-link-v0.100.txt'), 'utf8').trim();
+    expect(old.startsWith('#d=1.')).toBe(true);
+    const xml = await decodeShareFragment(old);
+    expect(importOrk(xml).name).toBe('Reference Rocket');
+    const fromLink = await describeFile(ork(xml), 'old-link.ork');
+    const fromFile = await describeFile(bytes('reference.ork'), 'reference.ork');
+    expect(fromLink.mounts).toEqual(fromFile.mounts);
+    for (const key of ['lengthM', 'referenceDiameterM', 'dryMassKg', 'dryCgM', 'cpM', 'stabilityCalibers'] as const) {
+      close(fromLink.analysis[key], fromFile.analysis[key]!);
+    }
+    close(fromLink.analysis.cdEstimate.value, fromFile.analysis.cdEstimate.value!);
+    expect((await describeFile(ork(xml), 'old-link.ork')).fragment.startsWith('#d=1.')).toBe(true);
+  }, 60_000);
 
   it('existing #d=1. links still decode, and the size refusals are named without changing their words', async () => {
     const appLink = await encodeShareFragment(referenceXml());
