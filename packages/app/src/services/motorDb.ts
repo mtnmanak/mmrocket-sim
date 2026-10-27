@@ -25,7 +25,8 @@ export interface MotorDbEntry extends TcMotor {
 
 export function displayMotorManufacturer(m: { manufacturerAbbrev?: string; realManufacturer?: string }): string {
   // @atestani, TRF #162, 2026-10-06: EX identifies the source, not the maker.
-  const real = m.realManufacturer?.trim();
+  // A stored row is not guaranteed to carry text here (closure audit of v0.194, row D).
+  const real = typeof m.realManufacturer === 'string' ? m.realManufacturer.trim() : undefined;
   return m.manufacturerAbbrev === 'EX'
     ? real && real.toUpperCase() !== 'EX' ? `${real} (EX)` : 'EX'
     : m.manufacturerAbbrev ?? '';
