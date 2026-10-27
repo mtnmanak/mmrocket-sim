@@ -108,6 +108,19 @@ function BandBody({ nav, source }: { nav: MmrNav; source: MmrNavSource }) {
       data-mmr-source={source}
     >
       <a className="mmr-band-brand" href={nav.site.home} target="_top" title={nav.site.name}>
+        {/* The MMR square mark before the name (mmr-brand SPEC §4.3, "Site
+            strip"). Decorative: the link's own text names the site, so the
+            image is alt="" rather than a second "Mountain Man Rockets".
+            BASE_URL, not a root path: vite's base is './' so the same build
+            works embedded, and './' resolves against the page like
+            version.json does. */}
+        <img
+          className="mmr-band-mark"
+          src={`${import.meta.env.BASE_URL}brand/marks/mountain-man-rockets-square.svg`}
+          alt=""
+          width={20}
+          height={20}
+        />
         {nav.site.shortName ?? nav.site.name}
       </a>
       <nav className="mmr-band-nav" aria-label="Mountain Man Rockets site menu">

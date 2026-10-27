@@ -3413,7 +3413,24 @@ export function App() {
               the cluster (not the badge) now carries the auto margin that
               pushes the buttons right whenever they share its line. */}
           <div className="app-header-brand">
-            <h1><Icon name="rocket" size={19} /> MMRocket Sim</h1>
+            {/* The header lockup (mmr-brand CHECKLIST step 5): the tool's
+                header logo, -on-dark in dark and -on-light in light AND
+                Daylight — themeAttr already maps Daylight to light. A span,
+                not a link (navigating would reload the app); the h1 stays
+                for the document outline. Below ~480px CSS swaps in the
+                square mark with the name as live text. */}
+            <h1>
+              <span className="mmr-lockup">
+                <img className="mmr-lockup-wide"
+                  src={`${import.meta.env.BASE_URL}brand/marks/mmrocket-sim-header-on-${themeAttr === 'dark' ? 'dark' : 'light'}.svg`}
+                  alt="MMRocket Sim" width={240} height={40} />
+                <span className="mmr-lockup-narrow">
+                  <img src={`${import.meta.env.BASE_URL}brand/marks/mmrocket-sim-square.svg`}
+                    alt="" width={28} height={28} />
+                  <span className="mmr-lockup-name">MMRocket Sim</span>
+                </span>
+              </span>
+            </h1>
             <button
               className="version-badge"
               title="What's new in this build"

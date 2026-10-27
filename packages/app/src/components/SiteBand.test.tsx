@@ -65,6 +65,19 @@ describe('SiteBand — the rendered band', () => {
     expect(band()!.getAttribute('data-mmr-source')).toBe('live');
   });
 
+  it('leads with the decorative MMR square mark, then the name as text (brand v1, SPEC §4.3)', () => {
+    act(() => root.render(<SiteBand nav={LIVE_NAV} source="live" />));
+    const brand = host.querySelector('.mmr-band-brand')!;
+    const mark = brand.firstElementChild as HTMLImageElement;
+    expect(mark.tagName).toBe('IMG');
+    expect(mark.className).toBe('mmr-band-mark');
+    // Decorative: the link's text already names the site.
+    expect(mark.getAttribute('alt')).toBe('');
+    // Base-relative (vite base './'), so an embedded build still finds it.
+    expect(mark.getAttribute('src')).toBe(`${import.meta.env.BASE_URL}brand/marks/mountain-man-rockets-square.svg`);
+    expect(brand.textContent).toBe('MMR');
+  });
+
   it('sends every link to _top and renders the whole menu unfiltered', () => {
     act(() => root.render(<SiteBand nav={MMR_NAV_FALLBACK} source="fallback" />));
     const links = [...host.querySelectorAll('.mmr-band a')] as HTMLAnchorElement[];

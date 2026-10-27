@@ -247,6 +247,40 @@ afterEach(async () => {
   vi.useRealTimers();
 });
 
+/**
+ * THE HEADER LOCKUP (brand v1, CHECKLIST step 5). The file follows the theme
+ * attribute .viz-root carries, so Daylight on top of a stored DARK theme must
+ * load the -on-light lockup (Daylight maps to data-theme="light"); the h1's
+ * name is "MMRocket Sim" whichever layout CSS shows — the wide image's alt,
+ * or, below 480 px, the square mark (alt="") with the name as live text.
+ */
+describe('the header lockup', () => {
+  it.each([
+    ['dark', { theme: 'dark' }, 'dark', 'on-dark'],
+    ['dark + Daylight', { theme: 'dark', daylight: true }, 'light', 'on-light'],
+    ['light', { theme: 'light' }, 'light', 'on-light'],
+  ] as const)('%s loads the header lockup for its theme attribute', async (_name, prefs, attr, file) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, themeExplicit: true, ...prefs }));
+    const host = await mountApp();
+    expect(host.querySelector('.viz-root')!.getAttribute('data-theme')).toBe(attr);
+    const h1 = host.querySelector('.app-header-brand h1')!;
+    const wide = h1.querySelector<HTMLImageElement>('img.mmr-lockup-wide')!;
+    expect(wide.getAttribute('src')).toMatch(new RegExp(`brand/marks/mmrocket-sim-header-${file}\\.svg$`));
+    expect(wide.getAttribute('alt')).toBe('MMRocket Sim');
+    const narrow = h1.querySelector('.mmr-lockup-narrow')!;
+    expect(narrow.querySelector('img')!.getAttribute('alt')).toBe('');
+    expect(narrow.querySelector('img')!.getAttribute('src')).toMatch(/brand\/marks\/mmrocket-sim-square\.svg$/);
+    expect(narrow.querySelector('.mmr-lockup-name')!.textContent).toBe('MMRocket Sim');
+  });
+
+  it('CSS shows exactly one of the two layouts, so the h1 has one name', () => {
+    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'styles.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(css).toMatch(/\n\.mmr-lockup-narrow\s*\{\s*display:\s*none;/);
+    expect(css).toMatch(/@media \(max-width: 480px\)\s*\{\s*\.mmr-lockup-wide\s*\{\s*display:\s*none;\s*\}\s*\.mmr-lockup-narrow\s*\{\s*display:\s*inline-flex;/);
+  });
+});
+
 it.each([360, 1200])('C-B20 hiding is session-only and leaves build and launch inputs unchanged at %i px', async width => {
   viewport(width);
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ tourOff: true, daylight: width === 360 }));

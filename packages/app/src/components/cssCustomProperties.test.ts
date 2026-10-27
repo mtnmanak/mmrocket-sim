@@ -38,11 +38,26 @@ const cssDefs = names(css, /(--[\w-]+)\s*:/g);
 const codeReads = names(code, /var\(\s*(--[\w-]+)/g);
 const codeNames = names(code, /['"`](--[a-z][\w-]*)['"`]/g);
 
+/**
+ * The vendored brand layer (brand v1): public/brand/tokens.css and chart.css
+ * define the `--mmr-*` tokens styles.css aliases. They are linked in
+ * index.html BEFORE styles.css, so a name defined there counts as defined —
+ * but only a `--mmr-` name: the app's own roles must still be defined here.
+ */
+const brandDefs = names(['tokens.css', 'chart.css']
+  .map((f) => readFileSync(join(src, '..', 'public', 'brand', f), 'utf8')).join('\n'), /(--mmr-[\w-]+)\s*:/g);
+
 describe('styles.css custom properties', () => {
   it('reads none it never defines', () => {
     const undefinedNames = [...new Set([...cssReads, ...codeReads])]
-      .filter((n) => !cssDefs.has(n) && !codeNames.has(n));
+      .filter((n) => !cssDefs.has(n) && !codeNames.has(n) && !brandDefs.has(n));
     expect(undefinedNames).toEqual([]);
+  });
+
+  it('reads the brand tokens it aliases (a sanity check on the brand reader)', () => {
+    for (const n of ['--mmr-bg', '--mmr-surface', '--mmr-focus', '--mmr-c-navy', '--mmr-chart-altitude', '--mmr-font-data']) {
+      expect(brandDefs.has(n), n).toBe(true);
+    }
   });
 
   it('defines none that nothing reads', () => {

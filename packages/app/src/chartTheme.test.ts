@@ -23,7 +23,9 @@ function contrast(a: string, b: string): number {
 // dark-theme retune that moves the surface fails HERE instead of silently
 // invalidating every contrast assertion — the v0.075 defect was precisely a
 // palette validated against a surface the charts didn't draw on.
-const DARK_PLOT = '#1a1917';
+// Brand v1: the dark plot surface is brand navy (--surface-1 → --mmr-bg →
+// --mmr-c-navy, public/brand/tokens.css).
+const DARK_PLOT = '#03254f';
 
 describe('chart palettes', () => {
   it('keeps the slot count aligned across palettes', () => {
@@ -32,9 +34,26 @@ describe('chart palettes', () => {
   });
 
   it('DARK_PLOT is the stylesheet’s dark --surface-1, not a stale copy', () => {
-    const css = readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'styles.css'), 'utf8');
-    const darkBlock = css.slice(css.indexOf(".viz-root[data-theme='dark']"));
-    expect(darkBlock.slice(0, darkBlock.indexOf('}'))).toContain(`--surface-1: ${DARK_PLOT};`);
+    const here = dirname(fileURLToPath(import.meta.url));
+    const css = readFileSync(join(here, 'styles.css'), 'utf8');
+    const darkBlock = css.slice(css.indexOf(".viz-root[data-theme='dark'] {"));
+    const surface = /--surface-1:\s*([^;]+);/.exec(darkBlock.slice(0, darkBlock.indexOf('}')))![1]!.trim();
+    // Since brand v1 the role is an alias of a brand token; follow it through
+    // tokens.css — its dark semantic block, then the primitives.
+    const tokens = readFileSync(join(here, '..', 'public', 'brand', 'tokens.css'), 'utf8');
+    const block = (sel: string) => {
+      const at = tokens.indexOf(`${sel} {`);
+      return tokens.slice(at, tokens.indexOf('}', at));
+    };
+    const scopes = [block('[data-theme="dark"]'), block(':root')];
+    let value = surface;
+    for (let guard = 0; guard < 5 && value.startsWith('var('); guard++) {
+      const name = /^var\((--[\w-]+)\)$/.exec(value)![1]!;
+      const hit = scopes.map((s) => new RegExp(`${name}:\\s*([^;]+);`).exec(s)).find(Boolean);
+      expect(hit, name).toBeTruthy();
+      value = hit![1]!.trim();
+    }
+    expect(value.toLowerCase()).toBe(DARK_PLOT);
   });
 
   // The v0.075 defect this guards against: the dark theme drew the palette
