@@ -22,3 +22,5 @@ export { mountNamesOf } from '../services/designDerivation.js';
 export { resolveFlightState } from '../services/flightState.js';
 export { commentsOf } from '../services/simReport.js';
 export { formatWarning } from '../services/simWarnings.js';
+export { describeFile, type DescribeFileResult } from '../services/describeFile.js';
+export { SHARE_TOO_LARGE_ERROR_NAME } from '../services/shareLink.js';

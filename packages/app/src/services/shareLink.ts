@@ -151,9 +151,16 @@ export function shareLinkOpenFailure(e: unknown): string {
     + ` (${e instanceof Error ? e.message : String(e)})`;
 }
 
+/** Either share-link size cap (XML bytes or fragment characters); the message is unchanged. */
+export const SHARE_TOO_LARGE_ERROR_NAME = 'ShareLinkTooLargeError';
+
 /** Encode a .ork XML string as a URL fragment ("#d=1.…"). */
 export async function encodeShareFragment(xml: string): Promise<string> {
-  const tooLarge = () => new Error('This design is too large for a share link — send the .ork file instead.');
+  const tooLarge = () => {
+    const err = new Error('This design is too large for a share link — send the .ork file instead.');
+    err.name = SHARE_TOO_LARGE_ERROR_NAME;
+    return err;
+  };
   const bytes = new TextEncoder().encode(xml);
   if (bytes.length > MAX_INFLATED_BYTES) throw tooLarge();
   const deflated = await deflate(bytes);
