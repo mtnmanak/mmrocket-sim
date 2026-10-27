@@ -216,6 +216,10 @@ describe('fixed-unit notices: the 680 kg/m³ stand-in density', () => {
     expect(body.noteTiers?.find(note => note.kind === 'I21.zero-bulk-density')?.text).toContain(`“Body”: ${caution}`);
     const zeroFillet = importOrk(fillet('0'), { units });
     expect(zeroFillet.noteTiers?.find(note => note.kind === 'I21.zero-bulk-density')?.text).toContain(`“Fins fillets”: ${caution}`);
+    for (const fin of ['freeformfinset', 'ellipticalfinset']) {
+      const other = importOrk(fillet('0').replaceAll('trapezoidfinset', fin), { units });
+      expect(other.noteTiers?.find(note => note.kind === 'I21.zero-bulk-density')?.text, fin).toContain(`“Fins fillets”: ${caution}`);
+    }
     expect(importOrk(fillet('junk'), { units }).notes.join(' '))
       .toContain(`“Fins”: invalid <filletmaterial density> value; using the default fillet density (${nested}), which changes fin mass.`);
     const ring = importRkt(rkt('<Ring><Name>Weightless ring</Name><Density>0</Density><DensityType>0</DensityType></Ring>'), { units });
