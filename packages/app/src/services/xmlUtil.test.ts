@@ -266,6 +266,20 @@ describe('decodeXml — the encoding a file declares, not always UTF-8', () => {
     }
   });
 
+  it('reads 0x80-0x9F by the windows-1252 table for every label that means windows-1252', () => {
+    // The WHATWG table, literal: not the runtime decoder, which Node 22.22.0 got
+    // wrong (0x99 came back as U+0099, not the trade mark sign).
+    const c1 = [0x20ac, 0x81, 0x201a, 0x192, 0x201e, 0x2026, 0x2020, 0x2021, 0x2c6, 0x2030, 0x160, 0x2039, 0x152,
+      0x8d, 0x17d, 0x8f, 0x90, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x2dc, 0x2122, 0x161,
+      0x203a, 0x153, 0x9d, 0x17e, 0x178];
+    const high = Array.from({ length: 32 }, (_, i) => 0x80 + i);
+    for (const enc of ['windows-1252', 'ISO-8859-1', 'latin1', 'us-ascii', 'L1', 'iso_8859-1:1987']) {
+      const b = bytesOf(`<?xml version="1.0" encoding="${enc}"?><a>Aero`, high, [0xb0, 0xe9, 0xff], '</a>');
+      expect(decodeXml(b)).toEqual({
+        xml: `<?xml version="1.0" encoding="${enc}"?><a>Aero${String.fromCharCode(...c1)}\u00b0\u00e9\u00ff</a>` });
+    }
+  });
+
   it('reads UTF-16 by its byte-order mark, or by the NUL beside its first "<"', () => {
     const doc = `<?xml version="1.0" encoding="utf-16"?><a>${DEG}</a>`;
     expect(decodeXml(bytesOf([0xff, 0xfe], utf16(doc, true))).xml).toBe(doc);
