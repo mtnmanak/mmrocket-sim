@@ -202,3 +202,29 @@ it('names a display-equal ring/motor bound once in metres', () => {
   expect(note).toContain("motor mount is just over this ring's 0.192 m (7.559 in) OD and does not fit");
   expect(note).not.toContain('0.192 m (7.575 in)');
 });
+
+describe('fixed-unit notices: the 680 kg/m³ stand-in density', () => {
+  const ork = (parts: string) => `<openrocket><rocket><name>Units</name><subcomponents><stage><subcomponents>${parts}</subcomponents></stage></subcomponents></rocket></openrocket>`;
+  const rkt = (parts: string) => `<RockSimDocument><DesignInformation><RocketDesign><Name>Units</Name><StageCount>1</StageCount><Stage3Parts><BodyTube><Name>Tube</Name><OD>100</OD><ID>96</ID><Len>400</Len><AttachedParts>${parts}</AttachedParts></BodyTube></Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
+  const fillet = (density: string) => ork(`<trapezoidfinset><name>Fins</name><filletradius>0.006</filletradius><filletmaterial type="bulk" density="${density}">Fillet</filletmaterial></trapezoidfinset>`);
+  it.each([
+    [INITIAL_UNITS, '680 kg/m³ (42.451 lb/ft³)', '680 kg/m³ [42.451 lb/ft³]'],
+    [IMPERIAL_UNITS, '0.393 oz/in³ (680 kg/m³)', '0.393 oz/in³ [680 kg/m³]'],
+  ] as const)('prints it in the preferred density first in every producer (%j)', (units, density, nested) => {
+    const caution = `zero bulk density cannot be flown by the app's engine; it uses ${density} instead, adding mass.`;
+    const body = importOrk(ork('<bodytube><name>Body</name><material type="bulk" density="0">Zero</material></bodytube>'), { units });
+    expect(body.noteTiers?.find(note => note.kind === 'I21.zero-bulk-density')?.text).toContain(`“Body”: ${caution}`);
+    const zeroFillet = importOrk(fillet('0'), { units });
+    expect(zeroFillet.noteTiers?.find(note => note.kind === 'I21.zero-bulk-density')?.text).toContain(`“Fins fillets”: ${caution}`);
+    for (const fin of ['freeformfinset', 'ellipticalfinset']) {
+      const other = importOrk(fillet('0').replaceAll('trapezoidfinset', fin), { units });
+      expect(other.noteTiers?.find(note => note.kind === 'I21.zero-bulk-density')?.text, fin).toContain(`“Fins fillets”: ${caution}`);
+    }
+    expect(importOrk(fillet('junk'), { units }).notes.join(' '))
+      .toContain(`“Fins”: invalid <filletmaterial density> value; using the default fillet density (${nested}), which changes fin mass.`);
+    const ring = importRkt(rkt('<Ring><Name>Weightless ring</Name><Density>0</Density><DensityType>0</DensityType></Ring>'), { units });
+    expect(ring.noteTiers?.find(note => note.kind === 'I21.zero-bulk-density')?.text).toContain(`“Weightless ring”: ${caution}`);
+    expect(explanationFor('I21.zero-bulk-density', units).meaning)
+      .toBe(`The engine replaces zero bulk density with ${density}, adding mass. Saving replaces the zero density.`);
+  });
+});

@@ -89,7 +89,7 @@
     "services/hardwareMass.ts": 4,
     "services/importApply.ts": 16,
     "services/importMotorFiles.ts": 5,
-    "services/importNotes.ts": 1,
+    "services/importNotes.ts": 2,
     "services/launchConditions.ts": 9,
     "services/longitudeCheck.ts": 2,
     "services/motorAssignment.ts": 1,

@@ -18,6 +18,7 @@ import { motorMounts } from '../tree/treeModel.js';
 import { planConfigSwitch, planImport, resolveImportMotors } from './importApply.js';
 import { scaleConfigStageMass } from './configSync.js';
 import { scaleRocket } from '../tree/scaleRocket.js';
+import { IMPERIAL_UNITS, INITIAL_UNITS } from '../prefs/units.js';
 
 it.each([false, true])('warns when only an inactive configuration motor is too wide, resized=%s', resized => {
   const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
@@ -32,13 +33,54 @@ it.each([false, true])('warns when only an inactive configuration motor is too w
   const diagnostics = { notes: [] as string[], needsAttention: false };
   scaleConfigStageMass(configs, 'A', tree, 0.8, diagnostics, scaled);
   expect(diagnostics.needsAttention).toBe(true);
-  expect(diagnostics.notes.join(' ')).toContain(`38 mm motor no longer fits the ${resized ? '29.0' : '30.4'} mm bore`);
+  expect(diagnostics.notes.join(' ')).toContain(`the 38 mm (1.496 in) motor no longer fits the ${resized ? '29 mm (1.142 in)' : '30.4 mm (1.197 in)'} bore`);
   expect(diagnostics.notes.join(' ')).toContain('Configuration B');
   expect(diagnostics.notes.join(' ')).not.toContain('Configuration A');
   const fits = { notes: [] as string[], needsAttention: false };
   scaleConfigStageMass(configs, 'A', tree, 0.8, fits,
     scaleRocket(tree, 0.8, { mountChoices: { mount: { boreMm: 38 } } }).tree);
   expect(fits).toEqual({ notes: [], needsAttention: false });
+});
+
+it.each([
+  [INITIAL_UNITS, '38 mm (1.496 in)', '30.4 mm (1.197 in)'],
+  [IMPERIAL_UNITS, '1.496 in (38 mm)', '1.197 in (30.4 mm)'],
+] as const)('names an inactive configuration\'s lost motor in the preferred unit first (%j)', (units, motorText, bore) => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', children: [
+    { type: 'bodytube', outerRadius: 0.03, length: 0.4, children: [
+      { type: 'innertube', id: 'mount', name: 'Mount', motorMount: true,
+        outerRadius: 0.02, thickness: 0.001, length: 0.2 },
+    ] },
+  ] }] };
+  const record = (diameter: number): MountMotor => ({ ...motor('Test'), spec: { ...motor('Test').spec, diameter } });
+  const configs = [cfg('A', { mount: record(0.029) }), cfg('B', { mount: record(0.038) })];
+  const scaled = scaleRocket(tree, 0.8, { units });
+  const diagnostics = { notes: [] as string[], needsAttention: false };
+  scaleConfigStageMass(configs, 'A', tree, 0.8, diagnostics, scaled.tree, units);
+  expect(diagnostics.notes).toEqual([`Configuration B: Mount: the ${motorText} motor no longer fits the ${bore} bore. Choose another motor on Motors & Configuration before flying.`]);
+  // One formatter for the live-tree note and the inactive line (one value, one rendering).
+  const live = scaleRocket({ ...tree, components: tree.components }, 0.8, { units, assignedMotorDiameters: { mount: 0.038 } });
+  expect(live.notes.join(' ')).toContain(`the ${motorText} motor loaded in it no longer fits the ${bore} bore`);
+  // The final tree built inside is units-consistent too: no scaled tree passed.
+  const own = { notes: [] as string[], needsAttention: false };
+  scaleConfigStageMass(configs, 'A', tree, 0.8, own, undefined, units);
+  expect(own.notes).toEqual(diagnostics.notes);
+});
+
+it.each([
+  [INITIAL_UNITS, 'is over the limit of 1000000 mm (39370.1 in)'],
+  [IMPERIAL_UNITS, 'is over the limit of 39370.1 in (1000000 mm)'],
+] as const)('forwards an inactive configuration\'s clamp note in the preferred unit first (%j)', (units, clamp) => {
+  const tree: RocketTree = { components: [{ type: 'stage', id: 's', name: 'Real stage' }] };
+  const configs: SavedConfig[] = [{ id: 'B', name: 'Inactive', isDefault: false, motors: {},
+    stageMassOverrides: { s: { overrideCGX: 15, overrideMass: 0.5 } } }];
+  const diagnostics = { notes: [] as string[], needsAttention: false };
+  scaleConfigStageMass(configs, null, tree, 100, diagnostics, undefined, units);
+  const clampNote = diagnostics.notes.find(note => note.includes('over the limit'));
+  expect(clampNote).toMatch(/^Configuration Inactive: /);
+  expect(clampNote).toContain(clamp);
+  expect(diagnostics.notes.join(' ')).toMatch(/re-weigh/);
+  expect(diagnostics.needsAttention).toBe(true);
 });
 
 it('reports inactive snapshot clamps and pinned-mass advice after scaling', () => {

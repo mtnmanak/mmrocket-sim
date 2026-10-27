@@ -3775,7 +3775,7 @@ export function App() {
           })()}
           onApply={(res) => {
             const configDiagnostics = { notes: [] as string[], needsAttention: false };
-            const scaledConfigs = scaleConfigStageMass(savedConfigs, activeConfigId, tree, res.factor, configDiagnostics, res.tree);
+            const scaledConfigs = scaleConfigStageMass(savedConfigs, activeConfigId, tree, res.factor, configDiagnostics, res.tree, prefs.units);
             commitTreeStep(res.tree);
             scaleRevision.current = {};
             // A measured mass describes the rocket that was weighed. After a

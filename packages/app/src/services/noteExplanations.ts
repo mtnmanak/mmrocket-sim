@@ -1,5 +1,6 @@
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { formatWarning, WARNING_LABEL } from './simWarnings.js';
+import { zeroDensityStandIn } from './importNotes.js';
 
 export interface NoteExplanation { meaning: string; remedy: string }
 
@@ -40,8 +41,13 @@ const flightRemedies: Record<string, string> = {
   RAIL_CHECK_INCOMPLETE: 'Check every rail button and fin for clearance against the rail before flying. The app stopped checking this design partway, so a part that fouls the rail may not be named.',
 };
 
+/** Same stand-in figure as the I21.zero-bulk-density caution itself. */
+function zeroDensityMeaning(units: UnitSelection): string {
+  return `The engine replaces zero bulk density with ${zeroDensityStandIn(units)}, adding mass. Saving replaces the zero density.`;
+}
+
 const importGroups: { codes: string; meaning: string; remedy: string }[] = [
-  { codes: 'I21.zero-bulk-density', meaning: 'The engine replaces zero bulk density with 680 kg per cubic metre, adding mass. Saving replaces the zero density.', remedy: 'Check the named part and its mass before flying. Keep the original file if you need the zero-density material.' },
+  { codes: 'I21.zero-bulk-density', meaning: zeroDensityMeaning(INITIAL_UNITS), remedy: 'Check the named part and its mass before flying. Keep the original file if you need the zero-density material.' },
   { codes: 'I02.not-run', meaning: 'The app preserves direct simulation extensions in .ork files but does not run them. Flight results can differ from desktop OpenRocket when extensions affect the flight.', remedy: 'Keep the original file. Use desktop OpenRocket to run the simulation with its extensions; enabled scripts run there only if trusted on that computer. Check which extensions affect the flight before relying on the app\u2019s results.' },
   { codes: 'I02.not-standalone', meaning: 'A simulation extension was not preserved because its XML depends on namespace declarations elsewhere in the original document.', remedy: 'Keep the original .ork file: saving from the app loses this extension. If you need to edit the design here and keep the extension, make its XML include the namespace declarations it needs before importing again.' },
   { codes: 'I02.nested-dropped', meaning: 'Simulation extensions inside other elements are not preserved when you save; their enclosing elements are omitted.', remedy: 'Keep the original .ork file if you need those payloads. Only direct children of a simulation are kept as extensions. Do not move nested XML into direct simulation children unless it is intended to run as an extension in desktop OpenRocket.' },
@@ -80,6 +86,7 @@ export function explanationFor(code: string, units: UnitSelection = INITIAL_UNIT
     meaning: formatWarning({ key: code, message: '' }, units).label,
     remedy: `Review the speed at opening, deployment timing and recovery hardware. The kernel flag uses ${noticeQuantity('velocity', 20, units, { digits: units.velocity === 'ft/s' ? 1 : undefined, otherDigits: units.velocity === 'm/s' ? 1 : undefined, defined: { value: 20, symbol: 'm/s' } })}; the report has separate opening-speed guidance. A fast opening can tear the chute or zipper the tube.`,
   };
+  if (known && code === 'I21.zero-bulk-density') return { ...known, meaning: zeroDensityMeaning(units) };
   return known ?? {
     meaning: 'No explanation is available for this code in this version of the app.',
     remedy: 'Read the original note and keep its code and details with your bug report. Do not assume an unknown code means the result is safe.',

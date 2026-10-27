@@ -4,7 +4,8 @@ import { captureStageMass, completeStageMass } from './stageMassOverrides.js';
 import { configUuid, MAX_CONFIG_NAME_LENGTH, MAX_ORK_CONFIGURATIONS, snapshotConfigFamilies, snapshotLoadedConfig } from './configSnapshot.js';
 import { savedConfigLabel } from '../model/design.js';
 import { activeFlightOverrides, overrideFor, snapshotFlightOverrides } from './flightState.js';
-import { previewMounts, scaleRocket } from '../tree/scaleRocket.js';
+import { motorDimensionText, previewMounts, scaleRocket } from '../tree/scaleRocket.js';
+import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
 import type { OrkMotorRef } from './orkFile.js';
@@ -208,16 +209,17 @@ export function scaleConfigStageMass(
   configs: SavedConfig[], activeId: string | null, tree: RocketTree, factor: number,
   diagnostics?: { notes: string[]; needsAttention: boolean },
   scaledTree?: RocketTree,
+  units: UnitSelection = INITIAL_UNITS,
 ): SavedConfig[] {
   if (diagnostics) {
-    const finalTree = scaledTree ?? scaleRocket(tree, factor).tree;
+    const finalTree = scaledTree ?? scaleRocket(tree, factor, { units }).tree;
     for (const c of configs) {
       if (c.id === activeId || !Object.keys(c.motors).length) continue;
       const assignedMotorDiameters = Object.fromEntries(Object.entries(c.motors).map(([id, m]) => [id, m.spec.diameter]));
       for (const mount of previewMounts(finalTree, 1, { assignedMotorDiameters })) {
         if (mount.motorMm === null || mount.motorStillFits) continue;
         diagnostics.needsAttention = true;
-        diagnostics.notes.push(`Configuration ${savedConfigLabel(c)}: ${mount.name}: the ${mount.motorMm.toFixed(0)} mm motor no longer fits the ${mount.finalBoreMm.toFixed(1)} mm bore. Choose another motor on Motors & Configuration before flying.`);
+        diagnostics.notes.push(`Configuration ${savedConfigLabel(c)}: ${mount.name}: the ${motorDimensionText(mount.motorMm, units)} motor no longer fits the ${motorDimensionText(mount.finalBoreMm, units)} bore. Choose another motor on Motors & Configuration before flying.`);
       }
     }
   }
@@ -225,7 +227,7 @@ export function scaleConfigStageMass(
     if (!c.stageMassOverrides) return c;
     const snapshots = scaleRocket({ name: tree.name, components:
       Object.entries(c.stageMassOverrides).map(([id, values]) => ({ type: 'stage', id,
-        name: findNode(tree, id)?.name, ...values })) }, factor);
+        name: findNode(tree, id)?.name, ...values })) }, factor, { units });
     if (diagnostics && c.id !== activeId) {
       const notes = snapshots.componentNotes ?? [];
       diagnostics.notes.push(...notes.map(note => `Configuration ${savedConfigLabel(c)}: ${note}`));
