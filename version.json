@@ -1,5 +1,5 @@
 {
-  "version": "0.194",
+  "version": "0.195",
   "released": "2026-10-26",
-  "note": "Physical numbers in warnings and notes now come first in your chosen unit with the other system after it, and fixes from the 17 and 25 October audits are carried to the paths they had missed."
+  "note": "The app takes the Mountain Man Rockets look: a navy theme, the Archivo and IBM Plex Mono fonts, the MMRocket Sim logo, and chart lines that carry a line pattern as well as a colour. No simulation number changes."
 }
