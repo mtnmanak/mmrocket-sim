@@ -5,7 +5,9 @@ import { deadline } from './net.js';
 import { digestMotorFile, motorHeaderMasses } from './motorDigest.js';
 import { MAX_MOTOR_THRUST_N, sampleListProblem, repairSamples, flownCurve } from '../../scripts/motor-samples.mjs';
 import { MOTOR_DB, MOTOR_DB_DATE, getCatalogueOverlay } from './motorDb.js';
-import { CatalogueError, CURVES_MAX_BYTES, fetchCatalogueFile, validSnapshotRef, type CatalogueSnapshotRef } from './catalogueClient.js';
+import {
+  CatalogueError, CURVES_MAX_BYTES, fetchCatalogueFile, isThrustcurvePull, validSnapshotRef, type CatalogueSnapshotRef,
+} from './catalogueClient.js';
 import { NetError } from './net.js';
 import { assertThrustcurveAvailable, recordThrustcurveFailure, thrustcurveFetch, thrustcurveBackoffMessage, ThrustcurveBackoffError, withThrustcurveBackoff } from './thrustcurveTraffic.js';
 
@@ -597,10 +599,16 @@ export function validCatalogueDate(date: unknown): date is string {
     && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date.slice(0, 10);
 }
 
-/** The active overlay's snapshot record, when it is a valid one. */
+/**
+ * The active overlay's snapshot record, when it is a valid one and not older
+ * than the shipped catalogue (2026-10-28, audit S5-2): an older snapshot is
+ * one this build already knows better than, so its curves file answers for
+ * nothing — whether a check stored it (v0.196 did, and its same-snapshot
+ * shortcut kept putting it back) or it arrived some other way.
+ */
 function activeSnapshot(): CatalogueSnapshotRef | null {
   const snapshot = getCatalogueOverlay()?.snapshot;
-  return validSnapshotRef(snapshot) ? snapshot : null;
+  return validSnapshotRef(snapshot) && snapshot.generated >= MOTOR_DB_DATE ? snapshot : null;
 }
 
 /**
@@ -612,13 +620,18 @@ function activeSnapshot(): CatalogueSnapshotRef | null {
  * never the check's: the automatic check rewrites `fetchedAt` every six hours
  * for every user, and keyed on that, each rewrite allowed a new download try
  * for every motor with no curve. An overlay from a thrustcurve.org pull
- * (before row 110) keeps its check date, as before.
+ * (before row 110) keeps its check date, as before. One a curated check wrote
+ * with no active snapshot — it found only a snapshot older than the build,
+ * which it no longer records (2026-10-28, C) — is the shipped catalogue's
+ * date: the build is the newest catalogue it has. isThrustcurvePull tells
+ * the two apart.
  */
 const catalogueDate = (): string => {
   const snapshot = activeSnapshot();
   if (snapshot) return snapshot.generated;
-  const fetchedAt = getCatalogueOverlay()?.fetchedAt;
-  return validCatalogueDate(fetchedAt) ? fetchedAt : MOTOR_DB_DATE;
+  const overlay = getCatalogueOverlay();
+  const fetchedAt = overlay?.fetchedAt;
+  return isThrustcurvePull(overlay) && validCatalogueDate(fetchedAt) ? fetchedAt : MOTOR_DB_DATE;
 };
 
 function noCurveEntries(): Map<string, string> {

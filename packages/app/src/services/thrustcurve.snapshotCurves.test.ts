@@ -49,9 +49,9 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.doUnmock('../d
 /** A snapshot whose curves file holds `curves`, installed as the active overlay; fetch serves it, and refuses thrustcurve.org with `tcAnswer`. */
 async function install(curves: Record<string, unknown[]>, opts: {
   added?: MotorDbEntry[]; changed?: CatalogueOverlay['changed']; fetchedAt?: string; curvesDoc?: unknown;
-  curvesAnswer?: () => Response | Promise<Response>; tcAnswer?: () => Response;
+  curvesAnswer?: () => Response | Promise<Response>; tcAnswer?: () => Response | Promise<Response>; generated?: string;
 } = {}): Promise<{ pub: Publication; overlay: CatalogueOverlay }> {
-  const generated = daysAfter(db.MOTOR_DB_DATE, 2);
+  const generated = opts.generated ?? daysAfter(db.MOTOR_DB_DATE, 2);
   const pub = await publication(`${generated}.2`, db.MOTOR_DB, curves, opts.curvesDoc !== undefined ? { curvesDoc: opts.curvesDoc } : {});
   const serve = catalogueFetch(manifestOf(pub), [pub], opts.curvesAnswer ? { [pub.entry.curves.path]: opts.curvesAnswer } : {});
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -333,5 +333,69 @@ describe('a shipped motor the bundle lists never reads the snapshot file, even w
     await miss(tc.fetchMotorSpec(listed, 5));
     expect(catalogueRequests).toEqual([]);
     expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
+  });
+});
+
+describe('C: a snapshot older than the build is never active (audit S5-2)', () => {
+  it('an older stored ref reads no curves file: a curveless shipped motor is the bundle\'s "none", an added one downloads', async () => {
+    await install({ [curveless.motorId]: [file(55)], [addedMotor.motorId]: [file(40)] },
+      { added: [addedMotor], generated: daysAfter(db.MOTOR_DB_DATE, -3) });
+    expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(true);
+    await miss(tc.fetchMotorSpec(addedMotor, 5));
+    expect(catalogueRequests).toEqual([]);
+    expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
+  });
+
+  it('positive control: a snapshot dated the shipped catalogue\'s day is active', async () => {
+    await install({ [curveless.motorId]: [file(55)] }, { generated: db.MOTOR_DB_DATE });
+    expect(Math.max(...await thrusts(curveless))).toBeCloseTo(55, 9);
+    expect(catalogueRequests).toHaveLength(1);
+  });
+
+  /**
+   * The trap: with no active snapshot an overlay looks like a pre-row-110
+   * thrustcurve.org pull, whose date is its check time — and the automatic
+   * check rewrites that every six hours. Two real checks against an older
+   * snapshot, an added motor kept from before, and a curveless shipped motor.
+   */
+  it('two checks against an older snapshot: zero requests for a curveless shipped motor, and the no-curve date does not move', async () => {
+    const catalogue = await import('./catalogueOverlay.js');
+    const older = daysAfter(db.MOTOR_DB_DATE, -3);
+    const pub = await publication(`${older}.2`, db.MOTOR_DB.slice(0, 1), { [curveless.motorId]: [file(55)], [addedMotor.motorId]: [file(40)] });
+    const serve = catalogueFetch(manifestOf(pub), [pub]);
+    const fetchImpl = vi.fn(serve);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith(CATALOGUE_BASE)) { catalogueRequests.push(String(input)); return serve(input, init); }
+      tcRequests.push(String(input));
+      return new Response(JSON.stringify({ results: [] }));
+    }));
+    // What an earlier check learned: a motor it added.
+    localStorage.setItem(catalogue.OVERLAY_KEY, JSON.stringify({ baseGenerated: db.MOTOR_DB_DATE,
+      fetchedAt: new Date().toISOString(), liveCount: 1, added: [addedMotor], changed: [], removed: [], rejected: [] }));
+    let now = Date.now() + 7 * 3_600_000;
+    const dates: string[] = [];
+    for (let check = 0; check < 2; check++) {
+      const { overlay } = await catalogue.checkForCatalogueUpdates({ fetchImpl, now: () => now });
+      expect(Object.hasOwn(overlay, 'snapshot')).toBe(false);
+      expect(overlay.added.map(m => m.motorId)).toEqual([addedMotor.motorId]);
+      expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+      await miss(tc.fetchMotorSpec(addedMotor, 5));
+      dates.push((JSON.parse(localStorage.getItem(NO_CURVE_KEY)!) as Record<string, string>)[addedMotor.motorId]!);
+      now += 7 * 3_600_000;
+    }
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(dates).toEqual([db.MOTOR_DB_DATE, db.MOTOR_DB_DATE]);
+    // The added motor asked thrustcurve.org once, the curveless one never.
+    expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
+    expect(catalogueRequests.filter(u => u.endsWith('motorCurves.json'))).toEqual([]);
+  });
+
+  it('an added motor whose snapshot is gone flies its cached curve, offline too', async () => {
+    const { overlay } = await install({ [addedMotor.motorId]: [file(40)] }, { added: [addedMotor] });
+    expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(40, 9);
+    db.setCatalogueOverlay({ ...overlay, snapshot: { ...overlay.snapshot!, generated: daysAfter(db.MOTOR_DB_DATE, -1) } });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(40, 9);
   });
 });

@@ -7,7 +7,7 @@ import { baseDesignation } from './motorMatch.js';
 import { NetError } from './net.js';
 import { validCatalogueDate } from './thrustcurve.js';
 import {
-  CatalogueError, MOTORS_MAX_BYTES, fetchCatalogueFile, fetchCatalogueManifest, validSnapshotRef,
+  CatalogueError, MOTORS_MAX_BYTES, fetchCatalogueFile, fetchCatalogueManifest, isThrustcurvePull, validSnapshotRef,
   type CatalogueSnapshotRef, type ManifestSnapshot,
 } from './catalogueClient.js';
 import { correctMotorRow } from '../../scripts/motor-corrections.mjs';
@@ -421,20 +421,28 @@ export async function checkForCatalogueUpdates(
       return { overlay, skipped: null, stored, silent };
     };
     const checkedAt = new Date(now()).toISOString();
+    // A snapshot OLDER than the shipped catalogue (a release built from a
+    // refresh that was never published): this build already knows better.
+    // Download nothing and remove nothing; record the check, so the throttle
+    // holds and the next check costs one request. Ahead of the same-snapshot
+    // shortcut below, which put back an older ref an earlier check stored.
+    //
+    // The older snapshot is not recorded (2026-10-28, audit S5-2): its curves
+    // file would answer for motors the build knows better (thrustcurve.ts
+    // activeSnapshot ignores one regardless). A previous snapshot that is not
+    // older is kept, with the rows it gave (113-9c); otherwise the field is
+    // left out — rescreen reads a present `snapshot: undefined` as a bad one.
+    if (manifest.motors.generated < MOTOR_DB_DATE) {
+      const { snapshot: kept, ...rows } = previous ?? { baseGenerated: MOTOR_DB_DATE, added: [], changed: [], removed: [], rejected: [] };
+      return install({
+        ...rows, fetchedAt: checkedAt, liveCount: manifest.motors.count,
+        ...(validSnapshotRef(kept) && kept.generated >= MOTOR_DB_DATE ? { snapshot: kept } : {}),
+      });
+    }
     // The same snapshot as last time: nothing to download, and nothing changes
     // but the date the throttle runs from.
     if (previous?.snapshot?.id === snapshot.id && previous.snapshot.motorsSha256 === snapshot.motorsSha256) {
       return install({ ...previous, fetchedAt: checkedAt, snapshot });
-    }
-    // A snapshot OLDER than the shipped catalogue (a release built from a
-    // refresh that was never published): this build already knows better.
-    // Download nothing and remove nothing; record the check, so the throttle
-    // holds and the next check costs one request.
-    if (manifest.motors.generated < MOTOR_DB_DATE) {
-      return install({
-        ...(previous ?? { baseGenerated: MOTOR_DB_DATE, added: [], changed: [], removed: [], rejected: [] }),
-        fetchedAt: checkedAt, liveCount: manifest.motors.count, snapshot,
-      });
     }
     let live: MotorDbEntry[];
     try {
@@ -523,7 +531,7 @@ export function describeOverlay(o: CatalogueOverlay, units: UnitSelection = INIT
   const lines: string[] = [];
   lines.push(`${o.added.length} new, ${o.changed.length} changed, ${o.removed.length} no longer listed`
     + (o.rejected.length ? `, ${o.rejected.length} refused as implausible` : '')
-    + ` — ${o.snapshot ? `curated catalogue ${o.snapshot.id}` : 'thrustcurve.org'} checked ${o.fetchedAt ? o.fetchedAt.slice(0, 10) : "on an unknown date"} against the catalogue of ${o.baseGenerated}.`);
+    + ` — ${o.snapshot ? `curated catalogue ${o.snapshot.id}` : isThrustcurvePull(o) ? 'thrustcurve.org' : 'curated catalogue'} checked ${o.fetchedAt ? o.fetchedAt.slice(0, 10) : "on an unknown date"} against the catalogue of ${o.baseGenerated}.`);
   for (const c of o.changed.slice(0, 12)) {
     const parts = c.fields.map((f) => {
       const a = field(c.before, f); const b = field(c.after, f);
