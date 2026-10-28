@@ -5,6 +5,8 @@ import { deadline } from './net.js';
 import { digestMotorFile, motorHeaderMasses } from './motorDigest.js';
 import { MAX_MOTOR_THRUST_N, sampleListProblem, repairSamples, flownCurve } from '../../scripts/motor-samples.mjs';
 import { MOTOR_DB, MOTOR_DB_DATE, getCatalogueOverlay } from './motorDb.js';
+import { CatalogueError, CURVES_MAX_BYTES, fetchCatalogueFile, validSnapshotRef, type CatalogueSnapshotRef } from './catalogueClient.js';
+import { NetError } from './net.js';
 import { assertThrustcurveAvailable, recordThrustcurveFailure, thrustcurveFetch, thrustcurveBackoffMessage, ThrustcurveBackoffError, withThrustcurveBackoff } from './thrustcurveTraffic.js';
 
 /**
@@ -12,7 +14,11 @@ import { assertThrustcurveAvailable, recordThrustcurveFailure, thrustcurveFetch,
  * Access-Control-Allow-Origin). API units: mm, grams — converted to the
  * engine's SI here at the boundary.
  */
-/** thrustcurve.org API v1 root — shared with the in-app catalogue check (catalogueOverlay.ts). */
+/**
+ * thrustcurve.org API v1 root, for the per-motor download.json below. The
+ * in-app catalogue check reads the curated catalogue instead (row 110,
+ * catalogueClient.ts), and so do the curves of the motors it adds.
+ */
 export const API = 'https://www.thrustcurve.org/api/v1';
 // ThrustCurveMotor.Builder's MAX_THRUST, in newtons (desktop OR 24.12).
 export { MAX_MOTOR_THRUST_N, repairSamples, flownCurve };
@@ -586,13 +592,31 @@ export async function requireCurveBundle(motors: readonly TcMotor[] = []): Promi
 
 const NO_CURVE_KEY = 'online-openrocket.no-curve.v1';
 const MAX_NO_CURVES = 2000;
-// A successful live check advances the catalogue too, allowing another try for
-// newly published files without waiting for the next app release.
 export function validCatalogueDate(date: unknown): date is string {
   return typeof date === 'string' && /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z)?$/.test(date)
     && Number.isFinite(Date.parse(date)) && new Date(date).toISOString().slice(0, 10) === date.slice(0, 10);
 }
+
+/** The active overlay's snapshot record, when it is a valid one. */
+function activeSnapshot(): CatalogueSnapshotRef | null {
+  const snapshot = getCatalogueOverlay()?.snapshot;
+  return validSnapshotRef(snapshot) ? snapshot : null;
+}
+
+/**
+ * The date of the catalogue this browser has seen, which the no-curve memory
+ * keys on: a newer catalogue allows another try for a motor's curve without
+ * waiting for the next release.
+ *
+ * Under a curated snapshot it is the SNAPSHOT's date (D.7, owner 2026-10-27),
+ * never the check's: the automatic check rewrites `fetchedAt` every six hours
+ * for every user, and keyed on that, each rewrite allowed a new download try
+ * for every motor with no curve. An overlay from a thrustcurve.org pull
+ * (before row 110) keeps its check date, as before.
+ */
 const catalogueDate = (): string => {
+  const snapshot = activeSnapshot();
+  if (snapshot) return snapshot.generated;
   const fetchedAt = getCatalogueOverlay()?.fetchedAt;
   return validCatalogueDate(fetchedAt) ? fetchedAt : MOTOR_DB_DATE;
 };
@@ -660,8 +684,21 @@ export async function bundleHasCurve(motorId: string): Promise<boolean | null> {
   }
 }
 
-/** Only a complete, matching bundle and no newer check establish an absent curve. */
+/**
+ * Only a complete, matching bundle and no newer check establish an absent
+ * curve. Under a curated snapshot a shipped motor with no bundled curve is
+ * answered by the snapshot's curves file instead (D.7): absent once that file
+ * has been read and lacks it, or was refused; unknown (false) until it has
+ * been read, which happens only when the motor is flown, never here.
+ */
 export async function knownNoPublishedCurve(motorId: string): Promise<boolean> {
+  const snapshot = activeSnapshot();
+  if (snapshot) {
+    if (!shippedMotorIds.has(motorId) || (await bundleHasCurve(motorId)) !== false) return false;
+    if (refusedSnapshotCurves.has(snapshot.curves.sha256)) return true;
+    const read = readSnapshotCurves.get(snapshot.curves.sha256);
+    return read ? !read.has(motorId) : false;
+  }
   if (Date.parse(catalogueDate()) > Date.parse(MOTOR_DB_DATE)) return false;
   return (await bundleHasCurve(motorId)) === false && bundledComplete
     && bundledCatalogueGenerated === MOTOR_DB_DATE && shippedMotorIds.has(motorId);
@@ -670,7 +707,12 @@ export async function knownNoPublishedCurve(motorId: string): Promise<boolean> {
 /** bundledSimFiles, but a bundle chunk that would not load THROWS rather than reading as "no files". */
 export async function bundledFiles(motorId: string): Promise<TcSimFile[]> {
   const curves = await loadBundledCurves();
-  return (Object.hasOwn(curves, motorId) ? curves[motorId]! : []).map((f) => ({
+  return simFiles(Object.hasOwn(curves, motorId) ? curves[motorId]! : []);
+}
+
+/** The bundle's file shape as TcSimFile — also the shape the curated snapshot's curves file carries. */
+function simFiles(files: readonly BundledSimFile[]): TcSimFile[] {
+  return files.map((f) => ({
     // Carried so the picker can tell two files apart by what they are, not by
     // where the bundle happens to list them (pickSampleFile).
     ...(f.simfileId ? { simfileId: f.simfileId } : {}),
@@ -683,6 +725,102 @@ export async function bundledFiles(motorId: string): Promise<TcSimFile[]> {
     // Desktop's digest of the raw file, which the bundle does not keep.
     ...(f.digests ? { digests: f.digests } : {}),
   }));
+}
+
+// ------------------------------------------------- the curated snapshot's curves
+
+/**
+ * CURVES FOR MOTORS THE APP DID NOT SHIP A CURVE FOR (row 110 ruling 3, D.7).
+ *
+ * The curated catalogue's snapshot carries a curves file in the bundle's own
+ * shape. fetchMotorSpec reads it — on first use, never on load — for two kinds
+ * of motor only: one the overlay ADDED (not in the shipped catalogue), and a
+ * SHIPPED motor the bundle has no curve for. A shipped motor that has a
+ * bundled curve never reads it, so a curve the app ships is never replaced (row
+ * 101: a changed curve waits for a release). The file is checked by
+ * catalogueClient.ts (size, sha256) and then here, field by field: bundledFiles
+ * trusts the bundle, which a human looked at; this file nobody did, and the
+ * sha says only that it is the file the manifest names. One promise per curves
+ * sha; a network failure clears it, so the next use asks again; a size, sha or
+ * shape failure is remembered for the page session.
+ */
+const snapshotCurves = new Map<string, Promise<Map<string, BundledSimFile[]>>>();
+/** The eligible subset of each curves file read so far, by its sha. */
+const readSnapshotCurves = new Map<string, Map<string, BundledSimFile[]>>();
+/** Curves files refused for their size, sha or shape, by sha: not asked for again this session. */
+const refusedSnapshotCurves = new Set<string>();
+
+const plainObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/** One file from the snapshot's curves file, or null when any of it is the wrong type. */
+function snapshotSimFile(f: unknown): BundledSimFile | null {
+  if (!plainObject(f)) return null;
+  const { simfileId, source, format, samples, masses, digests } = f;
+  if (typeof format !== 'string' || typeof source !== 'string') return null;
+  if (simfileId !== undefined && typeof simfileId !== 'string') return null;
+  if (!Array.isArray(samples) || !samples.length || !samples.every((p) => Array.isArray(p) && p.length === 2
+    && Number.isFinite(p[0]) && Number.isFinite(p[1]))) return null;
+  if (masses !== undefined && !(plainObject(masses) && Object.values(masses).every(Number.isFinite))) return null;
+  if (digests !== undefined && !(Array.isArray(digests) && digests.every((d) => typeof d === 'string'))) return null;
+  const m = masses as Record<string, number> | undefined;
+  return {
+    ...(simfileId !== undefined ? { simfileId } : {}), source, format,
+    samples: (samples as [number, number][]).map(([t, F]) => [t, F]),
+    ...(m ? { masses: { totalWeightG: m['totalWeightG']!, propWeightG: m['propWeightG']! } } : {}),
+    ...(digests ? { digests: [...(digests as string[])] } : {}),
+  };
+}
+
+/**
+ * The snapshot's curves file, reduced to the motors it may answer for: every
+ * id not in the shipped catalogue, and every shipped id the loaded bundle has
+ * no curve for. Looked up by own key only (`constructor`, `__proto__`).
+ */
+function loadSnapshotCurves(snapshot: CatalogueSnapshotRef): Promise<Map<string, BundledSimFile[]>> {
+  const sha = snapshot.curves.sha256;
+  if (refusedSnapshotCurves.has(sha)) {
+    return Promise.reject(new CatalogueError('integrity', 'The catalogue\'s curves file was refused earlier.'));
+  }
+  let pending = snapshotCurves.get(sha);
+  if (!pending) {
+    pending = (async () => {
+      const doc = await fetchCatalogueFile(snapshot.curves, CURVES_MAX_BYTES, 'curves file');
+      if (!plainObject(doc) || doc['catalogueGenerated'] !== snapshot.generated || !plainObject(doc['curves'])) {
+        throw new CatalogueError('shape', 'The catalogue\'s curves file is not the one its snapshot names, so it was not used.');
+      }
+      // A bundle that would not load cannot say which shipped motors lack a
+      // curve, so none are taken this time, and the answer is not kept.
+      const bundle = await loadBundledCurves().catch(() => null);
+      const curves = doc['curves'];
+      const subset = new Map<string, BundledSimFile[]>();
+      for (const id of Object.keys(curves)) {
+        if (shippedMotorIds.has(id) && (!bundle || Object.hasOwn(bundle, id))) continue;
+        const listed = curves[id];
+        const files = Array.isArray(listed) ? listed.map(snapshotSimFile).filter((f): f is BundledSimFile => f !== null) : [];
+        if (files.length) subset.set(id, files);
+      }
+      if (bundle) readSnapshotCurves.set(sha, subset);
+      else snapshotCurves.delete(sha);
+      return subset;
+    })();
+    snapshotCurves.set(sha, pending);
+    pending.catch((err: unknown) => {
+      snapshotCurves.delete(sha);
+      if (err instanceof CatalogueError || (err instanceof NetError && err.kind === 'too-large')) refusedSnapshotCurves.add(sha);
+    });
+  }
+  return pending;
+}
+
+/** Waits for `p`, or rejects as an AbortError the moment `signal` aborts: one caller's Stop must not cancel a file others share. */
+function untilAborted<T>(p: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return p;
+  if (signal.aborted) return Promise.reject(new DOMException('The request was cancelled.', 'AbortError'));
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(new DOMException('The request was cancelled.', 'AbortError'));
+    signal.addEventListener('abort', stop, { once: true });
+    p.then(resolve, reject).finally(() => signal.removeEventListener('abort', stop));
+  });
 }
 
 /** Desktop's RockSimMotorLoader.DELAY_LIMIT: a listed delay this long means "no charge". */
@@ -1027,6 +1165,30 @@ export function clearCurveCache(): number {
   }
 }
 
+/** Does the loaded bundle list this motor at all (even with no usable file)? Throws when the bundle will not load. */
+async function bundleListsMotor(motorId: string): Promise<boolean> {
+  return Object.hasOwn(await loadBundledCurves(), motorId);
+}
+
+/** A curve the network or the curated snapshot gave, into this browser's curve cache. */
+function writeCurveCache(cacheKey: string, samples: TcSample[], masses: TcHeaderMasses | null): void {
+  const entry = JSON.stringify({ samples, masses, massParser: MASS_PARSER_VERSION, t: Date.now() });
+  try {
+    if (liveKeys().length > MAX_CACHED_CURVES) evictOldest(EVICT_TO);
+    localStorage.setItem(cacheKey, entry);
+  } catch {
+    // Quota, or no storage at all. setItem writes NOTHING on quota, so retry
+    // once after a hard prune: swallowing this is how a pure-convenience
+    // cache came to fill the pool the session autosave shares.
+    try {
+      evictOldest(Math.floor(EVICT_TO / 2));
+      localStorage.setItem(cacheKey, entry);
+    } catch {
+      // Still no room, or storage is unavailable — fly the motor uncached.
+    }
+  }
+}
+
 /**
  * Fetches thrust samples (localStorage-cached) and builds the MotorSpec.
  * Imported EX motors ("ex:" ids) build entirely from local data — an .rse that
@@ -1153,6 +1315,37 @@ export async function fetchMotorSpec(
         + ' and this run does not use the network.');
   }
 
+  // The curated snapshot's curves file (row 110), for a motor the app shipped
+  // no curve for: one the overlay ADDED, or a shipped motor the bundle lacks
+  // (D.7). Never for a shipped motor the bundle has — that curve is never
+  // replaced — and never bundle-only. A shipped motor the file does not give a
+  // curve for has no published curve, and thrustcurve.org is not asked; an
+  // added one falls through to the download below.
+  const snapshot = !samples ? activeSnapshot() : null;
+  if (snapshot) {
+    const shipped = shippedMotorIds.has(motor.motorId);
+    const added = !shipped && (getCatalogueOverlay()?.added.some((m) => m.motorId === motor.motorId) ?? false);
+    const curveless = shipped && !bundleFailed && !await bundleListsMotor(motor.motorId);
+    if (added || curveless) {
+      let files: TcSimFile[] = [];
+      try {
+        files = simFiles((await untilAborted(loadSnapshotCurves(snapshot), signal)).get(motor.motorId) ?? []);
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        // Unreachable or refused: the bundle and the stored overlay stand.
+      }
+      const usual = pickSampleFile(files, motor);
+      const file = (digest ? pickDigestFile(files, digest, motor) : null) ?? usual;
+      if (file?.samples) {
+        samples = file.samples;
+        fromFile = headerMasses(file);
+        if (file === usual) writeCurveCache(cacheKey, samples, fromFile);
+      } else if (curveless) {
+        throw new NoPublishedCurveError(motor.designation);
+      }
+    }
+  }
+
   if (!samples) {
     // The builder downloads the entire shipped catalogue, not just the IDs
     // present in `curves`. Only a complete bundle and equal dates establish that set:
@@ -1249,23 +1442,7 @@ export async function fetchMotorSpec(
     fromFile = headerMasses(file);
     // The cache holds the motor's USUAL curve, which every pick of it reads;
     // a file only one design names is flown, not cached.
-    const entry = file === usual ? JSON.stringify({ samples, masses: fromFile, massParser: MASS_PARSER_VERSION, t: Date.now() }) : null;
-    if (entry) {
-      try {
-        if (liveKeys().length > MAX_CACHED_CURVES) evictOldest(EVICT_TO);
-        localStorage.setItem(cacheKey, entry);
-      } catch {
-        // Quota, or no storage at all. setItem writes NOTHING on quota, so retry
-        // once after a hard prune: swallowing this is how a pure-convenience
-        // cache came to fill the pool the session autosave shares.
-        try {
-          evictOldest(Math.floor(EVICT_TO / 2));
-          localStorage.setItem(cacheKey, entry);
-        } catch {
-          // Still no room, or storage is unavailable — fly the motor uncached.
-        }
-      }
-    }
+    if (file === usual) writeCurveCache(cacheKey, samples, fromFile);
   }
 
   const spec = samplesToMotorSpec(motor, samples, ejectionDelay, fromFile, opts.units);

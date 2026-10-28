@@ -95,7 +95,8 @@ import { motorTooltip, restoreConfigLabels, restoreMotorLabels } from './service
 import { getCatalogue, subscribeCatalogue } from './services/motorDb.js';
 import { useCatalogue } from './components/useCatalogue.js';
 import { loadCatalogueMotor, matchImportedMotor } from './services/motorMatch.js';
-import { restoreCatalogueOverlay } from './services/catalogueOverlay.js';
+import { changedMotorsInDesign, designChangeLine, restoreCatalogueOverlay } from './services/catalogueOverlay.js';
+import { subscribeAutomaticCatalogueResult } from './services/catalogueAutoCheck.js';
 import { PreferencesDialog } from './components/PreferencesDialog.js';
 import { SiteBand, SiteBandFooter } from './components/SiteBand.js';
 import { MMR_NAV_FALLBACK, useMmrNav } from './services/useMmrNav.js';
@@ -505,11 +506,13 @@ export function App() {
     return () => motorChoices.current.get(mountId) === token
       && motorMounts(treeRef.current).some((m) => m.id === mountId);
   };
-  // A previous "check thrustcurve.org for newer motors" left its delta in this
-  // browser; install it before anything looks a motor up, so an imported file
-  // naming a motor that exists only in the overlay still resolves. It discards
-  // itself if this build's motors.json is newer than the base it was diffed
-  // against. Runs BEFORE the starter-motor effect below on purpose.
+  // A previous catalogue check (the motor browser's button, or the automatic
+  // one on load) left its delta in this browser; install it before anything
+  // looks a motor up, so an imported file naming a motor that exists only in
+  // the overlay still resolves. It discards itself if this build's motors.json
+  // is newer than the base it was diffed against. Runs BEFORE the
+  // starter-motor effect below on purpose, and before the automatic check
+  // installs anything (services/catalogueAutoCheck.ts waits for it).
   useEffect(() => { restoreCatalogueOverlay(); }, []);
 
   const wantsStarterMotor = !session?.mountMotors && !session?.motor && !!defaultMountId;
@@ -1020,6 +1023,20 @@ export function App() {
   useEffect(() => {
     document.title = documentTitle(tree.name, designFile, dirty);
   }, [tree.name, designFile, dirty]);
+
+  // An automatic catalogue check that changed a motor loaded in this design
+  // says so once, in the message strip; every other automatic result stays
+  // silent. The button's own result says it in the motor browser instead, and
+  // never arrives here.
+  const [catalogueNotice, setCatalogueNotice] = useState<Notice | null>(null);
+  useEffect(() => subscribeAutomaticCatalogueResult((overlay) => {
+    const mine = changedMotorsInDesign(overlay, Object.values(mountMotors)
+      .map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer, motorId: x.meta.motorId })));
+    if (mine.length) {
+      setCatalogueNotice({ id: 'catalogue-changed-motor', severity: 'warn', text: designChangeLine(mine),
+        onDismiss: () => setCatalogueNotice(null) });
+    }
+  }), [mountMotors]);
 
   const catalogue = useCatalogue();
   useEffect(() => subscribeCatalogue(() => {
@@ -1847,9 +1864,9 @@ export function App() {
     fileNote: () => setFileNote(null),
     runsCapped: () => setRunsCapped({ evicted: 0, unsaved: 0, undoEvicted: 0 }),
     legacyPositions: () => writeTree(dismissLegacyPositions(treeRef.current)),
-  }), ...(motorLoadoutRepair ? [motorLoadoutRepair] : [])],
+  }), ...(motorLoadoutRepair ? [motorLoadoutRepair] : []), ...(catalogueNotice ? [catalogueNotice] : [])],
   // eslint-disable-next-line react-hooks/exhaustive-deps -- components and legacy check deliberately: a rename must not re-run this (row 513)
-  [buildError, buildFailed, motorFailures, fileNoteState, setFileNote, motorLoadoutRepair,
+  [buildError, buildFailed, motorFailures, fileNoteState, setFileNote, motorLoadoutRepair, catalogueNotice,
     restoredByOlderBuild, timeStepMigrated, timeStepMigratedFrom, padMassNote, runsCapped,
     tree.components, legacyPositionCheck, treeRef, writeTree, assigned, prefs.units.motorDimensions]);
 

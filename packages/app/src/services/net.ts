@@ -24,7 +24,10 @@
  * tag, no `_headers`).
  */
 export const NETWORK_HOSTS: readonly string[] = [
+  // thrust-curve downloads (services/thrustcurve.ts download.json).
   'https://www.thrustcurve.org',
+  // The motor catalogue check and its curves file (services/catalogueClient.ts).
+  'https://catalogue.mountainmanrockets.com',
   'https://www.mountainmanrockets.com',
   // The weather lookup (services/openMeteo.ts): forecasts and terrain height,
   // the ERA5 archive for dates more than 92 days back, and place search.
@@ -43,7 +46,7 @@ export const NETWORK_HOSTS: readonly string[] = [
 export const NETWORK_FEATURES = [
   'the version badge',
   'the site navigation band',
-  '↻ Check thrustcurve.org',
+  '↻ Check for newer motors',
   'a thrust-curve download',
   '☁ Get weather',
 ] as const;
@@ -90,8 +93,12 @@ export function deadline(caller: AbortSignal | undefined, ms: number): Deadline 
   };
 }
 
-/** Every way a request can fail before there is an answer to read. */
-export type NetErrorKind = 'timeout' | 'aborted' | 'network' | 'not-json' | 'too-large';
+/**
+ * Every way a request can fail before there is an answer to read. `http` and
+ * `redirected` come only from getBytesCapped, which refuses an error status
+ * and a moved answer itself, where getJsonCapped hands the status back.
+ */
+export type NetErrorKind = 'timeout' | 'aborted' | 'network' | 'not-json' | 'too-large' | 'http' | 'redirected';
 
 /** A failed request, by kind — the caller words the message for its reader. */
 export class NetError extends Error {
@@ -147,9 +154,9 @@ export const DEFAULT_MAX_JSON_BYTES = 256 * 1024;
  * - A non-2xx status is NOT an error here: `{ status, json }` comes back so the
  *   caller can quote the service's own reason.
  *
- * The weather requests go through here, and since 2026-09-30 so does the
- * motor-catalogue check (`catalogueOverlay.ts`), which passes a larger
- * `maxBytes` for its 250 KB pages.
+ * The weather requests go through here. The motor-catalogue check reads the
+ * curated catalogue through getBytesCapped instead, because it hashes the
+ * bytes before it parses them.
  */
 export async function getJsonCapped(url: string, opts: {
   signal?: AbortSignal;
@@ -196,14 +203,79 @@ export async function getJsonCapped(url: string, opts: {
   }
 }
 
+/**
+ * GET a URL and return its body's BYTES — within a deadline, never more than
+ * `maxBytes` of them — for a caller that must check them (a hash) before it
+ * parses anything. getJsonCapped's deadline, abort and NetError handling, with
+ * three differences:
+ *
+ * - A non-2xx status is refused here (`http`): there is no error body worth
+ *   quoting, and bytes the caller would hash must be the file it asked for.
+ * - The request carries no credentials and refuses a redirect (`redirect:
+ *   'error'`), and an answer that says it was redirected, or that came from
+ *   another origin than the one asked, is refused too (`redirected`): the
+ *   caller decides which host it trusts, and a redirect would let another one
+ *   answer for it.
+ * - No custom request headers, so a cross-origin GET stays a simple request
+ *   and needs no CORS preflight.
+ */
+export async function getBytesCapped(url: string, opts: {
+  signal?: AbortSignal;
+  timeoutMs: number;
+  maxBytes: number;
+  fetchImpl?: typeof fetch;
+  cache?: RequestCache;
+}): Promise<Uint8Array> {
+  const doFetch = opts.fetchImpl ?? ((input: RequestInfo | URL, init?: RequestInit) => fetch(input, init));
+  const limit = deadline(opts.signal, opts.timeoutMs);
+  try {
+    const res = await doFetch(url, {
+      signal: limit.signal,
+      credentials: 'omit',
+      redirect: 'error',
+      ...(opts.cache !== undefined ? { cache: opts.cache } : {}),
+    });
+    if (res.redirected || (res.url && originOf(res.url) !== originOf(url))) {
+      throw new NetError('redirected', `The answer from ${hostOf(url)} came from somewhere else, so it was not read.`);
+    }
+    if (res.status < 200 || res.status >= 300) {
+      throw new NetError('http', `${hostOf(url)} answered HTTP ${res.status}.`);
+    }
+    return await readBytesCapped(res, opts.maxBytes);
+  } catch (err) {
+    if (err instanceof NetError) throw err;
+    if (limit.timedOut()) {
+      throw new NetError('timeout', `${hostOf(url)} did not answer within ${opts.timeoutMs / 1000} s.`, { cause: err });
+    }
+    if (opts.signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+      throw new NetError('aborted', 'The request was cancelled.', { cause: err });
+    }
+    throw new NetError('network', `Could not reach ${hostOf(url)}.`, { cause: err });
+  } finally {
+    limit.done();
+  }
+}
+
 /** A response body as text, refused past `maxBytes`. */
 async function readTextCapped(res: Response, maxBytes: number): Promise<string> {
-  const tooBig = () => new NetError('too-large', `The answer ran past ${Math.round(maxBytes / 1024)} KB, so it was not read.`);
-  if (Number(res.headers?.get('content-length')) > maxBytes) throw tooBig();
+  if (Number(res.headers?.get('content-length')) > maxBytes) throw tooLarge(maxBytes);
   if (!res.body) {
     const text = await res.text();
-    if (text.length > maxBytes) throw tooBig();
+    if (text.length > maxBytes) throw tooLarge(maxBytes);
     return text;
+  }
+  return new TextDecoder().decode(await readBytesCapped(res, maxBytes));
+}
+
+const tooLarge = (maxBytes: number) => new NetError('too-large', `The answer ran past ${Math.round(maxBytes / 1024)} KB, so it was not read.`);
+
+/** A response body as bytes, refused past `maxBytes` — and the download stopped the moment it is. */
+async function readBytesCapped(res: Response, maxBytes: number): Promise<Uint8Array> {
+  if (Number(res.headers?.get('content-length')) > maxBytes) throw tooLarge(maxBytes);
+  if (!res.body) {
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.length > maxBytes) throw tooLarge(maxBytes);
+    return bytes;
   }
   const reader = res.body.getReader();
   const chunks: Uint8Array[] = [];
@@ -213,7 +285,7 @@ async function readTextCapped(res: Response, maxBytes: number): Promise<string> 
       const { done, value } = await reader.read();
       if (done) break;
       total += value.length;
-      if (total > maxBytes) throw tooBig();
+      if (total > maxBytes) throw tooLarge(maxBytes);
       chunks.push(value);
     }
   } finally {
@@ -227,7 +299,15 @@ async function readTextCapped(res: Response, maxBytes: number): Promise<string> 
     bytes.set(c, off);
     off += c.length;
   }
-  return new TextDecoder().decode(bytes);
+  return bytes;
+}
+
+function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return '';
+  }
 }
 
 function hostOf(url: string): string {

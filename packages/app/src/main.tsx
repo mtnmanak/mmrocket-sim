@@ -8,6 +8,7 @@ import { offlineStatus } from './services/offlineStatus.js';
 import { installFatalErrorBar } from './services/fatalErrorBar.js';
 import { sessionDebugLog, startSessionDebugCapture } from './services/sessionDebugLog.js';
 import { saveFile } from './services/saveFile.js';
+import { startCatalogueAutoCheck } from './services/catalogueAutoCheck.js';
 
 const stopDebugCapture = startSessionDebugCapture();
 const stopWorkerDebug = (() => {
@@ -64,3 +65,8 @@ try {
   sessionDebugLog.record('app-error', e);
   fatalErrors.report(e);
 }
+
+// The motor catalogue check on load (row 110): once per page, never awaited.
+// It waits for App's restore of the stored overlay, which runs in App's mount
+// effect after the first render commits (services/catalogueAutoCheck.ts).
+void startCatalogueAutoCheck();

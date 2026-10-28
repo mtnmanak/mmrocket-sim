@@ -13,11 +13,15 @@ vi.mock('./services/precacheGuard.js', async (importOriginal) => ({
   guardPrecache: vi.fn().mockResolvedValue(undefined),
 }));
 
+const fetchSpy = vi.fn(async () => new Response('{}'));
+const catalogueRequests = () => fetchSpy.mock.calls.map(c => String((c as unknown[])[0])).filter(u => u.startsWith('https://catalogue.mountainmanrockets.com/'));
+
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.resetModules(); });
 
 it('wires entry-point registration callbacks to the real offline status singleton and preserves registration hooks', async () => {
   vi.resetModules();
   vi.clearAllMocks();
+  vi.stubGlobal('fetch', fetchSpy);
   vi.stubGlobal('location', { hostname: 'mmrsim.mountainmanrockets.com' });
   // An uncontrolled first install cannot gain readiness from a cache probe.
   vi.stubGlobal('navigator', { serviceWorker: Object.assign(new EventTarget(), { controller: null }) });
@@ -53,4 +57,6 @@ it('wires entry-point registration callbacks to the real offline status singleto
 
   options.onOfflineReady?.();
   expect(offlineStatus.getSnapshot()).toMatchObject({ kind: 'ready' });
+  // No App mounted, so no restore and no catalogue request (main.catalogueCheck.test.tsx has the positive case).
+  expect(catalogueRequests()).toEqual([]);
 });

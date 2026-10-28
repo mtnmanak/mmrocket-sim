@@ -4,47 +4,61 @@ import {
   type MotorDbEntry,
 } from './motorDb.js';
 import { baseDesignation } from './motorMatch.js';
-import { getJsonCapped, NetError, type JsonAnswer } from './net.js';
-import { API, validCatalogueDate } from './thrustcurve.js';
+import { NetError } from './net.js';
+import { validCatalogueDate } from './thrustcurve.js';
+import {
+  CatalogueError, MOTORS_MAX_BYTES, fetchCatalogueFile, fetchCatalogueManifest, validSnapshotRef,
+  type CatalogueSnapshotRef, type ManifestSnapshot,
+} from './catalogueClient.js';
 import { correctMotorRow } from '../../scripts/motor-corrections.mjs';
-import { assertThrustcurveAvailable, recordThrustcurveFailure, thrustcurveFetch, thrustcurveBackoffMessage, withThrustcurveBackoff } from './thrustcurveTraffic.js';
 
 /**
- * "Check thrustcurve.org for newer motors" — the user's way round a stale
- * shipped catalogue, without anyone touching motors.json.
+ * "Check for newer motors" — the user's way round a stale shipped catalogue,
+ * without anyone touching motors.json.
  *
  * The shipped catalogue is refreshed by `npm run motors:refresh` at release
  * time and flagged by check-upstream.mjs when it is over 30 days old; but it
  * sat 63 days unrefreshed before 2026-09-05 and a user with a motor certified
- * last week had no recourse. This module pulls the live catalogue on request,
- * diffs it against the shipped one, SCREENS every row the diff would ADD or
- * CHANGE for plausibility (a row identical to its shipped counterpart already
- * had a human look at it — refusing it would wrongly read as "removed"),
- * persists the delta in this browser, and installs it as an overlay every
- * lookup in motorDb.ts sees (getCatalogue). See CatalogueOverlay's docblock in
- * motorDb.ts for why an overlay, why persisted, why screened.
+ * last week had no recourse. This module reads the curated catalogue's current
+ * snapshot (catalogueClient.ts; row 110, 2026-10-27 — it pulled thrustcurve.org
+ * per maker until thrustcurve.org began refusing the pull), diffs it against
+ * the shipped one, SCREENS every row the diff would ADD or CHANGE for
+ * plausibility (a row identical to its shipped counterpart already had a human
+ * look at it — refusing it would wrongly read as "removed"), persists the
+ * delta in this browser, and installs it as an overlay every lookup in
+ * motorDb.ts sees (getCatalogue). See CatalogueOverlay's docblock in motorDb.ts
+ * for why an overlay, why persisted, why screened. It runs by itself on load
+ * (catalogueAutoCheck.ts) and on the motor browser's button.
  *
- * WHAT IT DOES NOT DO: refresh the curve bundle. A NEW motor's curve downloads
- * on first use through the ordinary path (bundle miss → network); an existing
- * motor whose curve file changed upstream keeps flying the bundled curve until
- * the next release. Curves change rarely; the copy says "catalogue".
+ * WHAT IT DOES NOT DO: replace a bundled curve. A NEW motor's curve comes from
+ * the snapshot's curves file on first use (thrustcurve.ts); an existing motor
+ * whose curve file changed upstream keeps flying the bundled curve until the
+ * next release (row 101).
  */
 
 export const OVERLAY_KEY = 'online-openrocket.motor-catalogue-overlay.v1';
 
 /**
- * How soon a repeat check is refused unless forced. A full pull is one
- * search.json request per manufacturer — 26 on 2026-09-05 — against a
- * volunteer-run service. Six hours is short enough that "check again after
- * lunch" works and long enough that a page reloaded ten times does not hit
- * them ten times.
+ * How soon a repeat check is refused unless forced. A check is one small
+ * manifest request when the snapshot has not moved, and a ~600 KB motors file
+ * when it has. Six hours is short enough that "check again after lunch" works
+ * and long enough that a page reloaded ten times does not ask ten times.
  */
 export const RECHECK_MIN_MS = 6 * 60 * 60 * 1000;
 
-/** thrustcurve.org caps a search at this many results; the refresh script pages past it by impulse class. */
-const SEARCH_CAP = 500;
+/**
+ * Was this overlay checked inside RECHECK_MIN_MS of `now`? A `fetchedAt` in
+ * the FUTURE counts as expired: validCatalogueDate accepts one, and a clock
+ * set ahead and then corrected would otherwise hold every check off until
+ * that date.
+ */
+export function checkedRecently(o: Pick<CatalogueOverlay, 'fetchedAt'> | null, now: number): boolean {
+  if (!o?.fetchedAt) return false;
+  const at = Date.parse(o.fetchedAt);
+  return Number.isFinite(at) && at <= now && now - at < RECHECK_MIN_MS;
+}
 
-/** The same 18 fields fetch-motor-db.mjs projects — keep the two lists identical. */
+/** The same 18 fields fetch-motor-db.mjs's FIELDS projects — keep the two lists identical. */
 const CATALOGUE_FIELDS = [
   'motorId', 'manufacturerAbbrev', 'designation', 'commonName', 'impulseClass',
   'diameter', 'length', 'type', 'avgThrustN', 'maxThrustN', 'totImpulseNs',
@@ -219,8 +233,18 @@ function rescreen(o: CatalogueOverlay): CatalogueOverlay {
     repaired = true;
     rejected.push({ entry: {}, reason: 'unreadable stored check date reset; check the catalogue again' });
   }
+  // The snapshot record names the curves file thrustcurve.ts will read, so it
+  // is held to the manifest's own rules (catalogueClient.ts) on every restore.
+  // A bad one is dropped, never repaired: the next check writes a fresh one.
+  const badSnapshot = Object.hasOwn(o, 'snapshot') && !validSnapshotRef(o.snapshot);
+  if (badSnapshot) {
+    repaired = true;
+    rejected.push({ entry: {}, reason: 'unreadable stored catalogue snapshot discarded; check the catalogue again' });
+  }
   if (!repaired && !projected && added.length === o.added.length && changed.length === o.changed.length) return o;
-  return { ...o, fetchedAt, added, changed, removed, rejected };
+  const { snapshot, ...rest } = o;
+  // An overlay with no snapshot field must not gain `snapshot: undefined`.
+  return { ...rest, ...(snapshot !== undefined && !badSnapshot ? { snapshot } : {}), fetchedAt, added, changed, removed, rejected };
 }
 
 /**
@@ -259,7 +283,9 @@ export function restoreCatalogueOverlay(): CatalogueOverlay | null {
   return o;
 }
 
+/** Discard: stops any check still running, so its result cannot land afterwards and undo this. */
 export function discardCatalogueOverlay(): void {
+  supersedeRunningCheck();
   try { localStorage.removeItem(OVERLAY_KEY); } catch { /* nothing to remove */ }
   setCatalogueOverlay(null);
 }
@@ -270,161 +296,159 @@ export interface CheckOptions {
   /** Check again even inside RECHECK_MIN_MS. */
   force?: boolean;
   signal?: AbortSignal;
-  onProgress?: (done: number, total: number, manufacturer: string) => void;
   /** Injection points for tests. */
   fetchImpl?: typeof fetch;
   now?: () => number;
-  sleep?: (ms: number) => Promise<void>;
 }
 
 /**
- * ONE REQUEST'S DEADLINE, AND THE MOST ONE ANSWER MAY BE (audit 2026-09-30).
- * This used to be bare fetch with only the caller's signal, so a request that
- * stalled (thrustcurve.org itself, or a captive portal holding it open) kept the
- * check in its checking state until the user pressed Stop, and a runaway answer
- * was read whole before anything looked at it.
- *
- * Measured 2026-10-01, the whole pull the button makes: 28 requests (27 makers,
- * none at the 500-motor cap), 939,126 bytes. The largest pages are AeroTech's
- * (249,667 bytes for 307 motors) and Cesaroni's (245,645 for 296), about 830
- * bytes a motor; the slowest answer took 1.0 s.
- *
- * THE CAP COMES FROM SEARCH_CAP, not from today's largest maker: no page can
- * carry more motors than that (past it the pull pages by impulse class), so 2 KB
- * a motor — about 2.5x today's rows — covers every page the pull can ask for.
- * net.ts's 256 KB default would not: AeroTech's page is at 95 % of it.
- *
- * THE DEADLINE is twice thrustcurve.ts's 15 s for one motor's curve file, because
- * an answer here is up to 250 KB, which arrives inside 30 s on any link faster
- * than about 67 kbit/s.
+ * ONE CHECK AT A TIME IN THIS PAGE. Each check takes the next generation and
+ * aborts the one before it; Discard takes one too. A check whose generation is
+ * no longer the latest installs and stores nothing — so an automatic check's
+ * result cannot land after the user pressed Discard and silently undo it, and
+ * the button's own check supersedes an automatic one still running. Two tabs
+ * are not coordinated: each may download once, and the last write wins.
  */
-const ANSWER_TIMEOUT_MS = 30_000;
-const MAX_ANSWER_BYTES = SEARCH_CAP * 2048;
+let generation = 0;
+let running: AbortController | null = null;
 
-async function getJson(url: string, opts: Pick<CheckOptions, 'fetchImpl' | 'signal'>): Promise<unknown> {
-  assertThrustcurveAvailable();
-  let answer: JsonAnswer;
-  try {
-    answer = await getJsonCapped(url, {
-      timeoutMs: ANSWER_TIMEOUT_MS, maxBytes: MAX_ANSWER_BYTES, signal: opts.signal, fetchImpl: thrustcurveFetch(opts.fetchImpl),
-    });
-  } catch (err) {
-    recordThrustcurveFailure(err instanceof NetError && err.kind === 'timeout', opts.signal?.aborted === true,
-      err instanceof NetError && err.kind === 'network');
-    // A Stop is still a Stop. getJsonCapped calls it 'aborted'; the motor
-    // browser tells a Stop from a failure by the name fetch gives it.
-    if (err instanceof NetError && err.kind === 'aborted') {
-      throw Object.assign(new Error('The catalogue check was stopped.', { cause: err }), { name: 'AbortError' });
-    }
-    const backoff = thrustcurveBackoffMessage();
-    if (backoff) throw new Error(withThrustcurveBackoff(err instanceof Error ? err.message : String(err)), { cause: err });
-    throw err;
-  }
-  if (answer.status < 200 || answer.status >= 300) {
-    throw new Error(withThrustcurveBackoff(`thrustcurve.org answered HTTP ${answer.status} for ${url.replace(API, '')}`));
-  }
-  return answer.json;
+function supersedeRunningCheck(): number {
+  generation++;
+  running?.abort();
+  running = null;
+  return generation;
 }
 
+const stopped = (cause?: unknown) =>
+  Object.assign(new Error('The catalogue check was stopped.', { cause }), { name: 'AbortError' });
+
+/** Present a catalogue failure in one sentence, and a Stop as the AbortError the motor browser tells a Stop by. */
+function checkFailure(err: unknown, signal: AbortSignal): Error {
+  if (signal.aborted || (err instanceof NetError && err.kind === 'aborted')) return stopped(err);
+  if (err instanceof NetError || err instanceof CatalogueError) return err;
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+
 /**
- * The live catalogue, pulled the way scripts/fetch-motor-db.mjs pulls it: the
- * manufacturer list from metadata.json, then one search per manufacturer,
- * subdivided by impulse class when a manufacturer hits the 500-result cap.
- * Projected to the same 18 fields so the diff compares like with like.
+ * The snapshot's motors file, refused whole unless it is the catalogue it says
+ * it is, then projected to the same 18 fields the shipped catalogue carries
+ * and corrected the way the shipped catalogue is, so the diff compares like
+ * with like.
  */
-async function fetchLiveCatalogue(opts: CheckOptions = {}): Promise<MotorDbEntry[]> {
-  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); }));
-  let requested = false;
-  const pacedJson = async (url: string): Promise<unknown> => {
-    if (requested) await sleep(250);
-    if (opts.signal?.aborted) throw Object.assign(new Error('The catalogue check was stopped.'), { name: 'AbortError' });
-    requested = true;
-    return getJson(url, opts);
-  };
-  const object = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
-  const meta = await pacedJson(`${API}/metadata.json?availability=all`);
-  if (!object(meta) || !Array.isArray(meta['manufacturers'])) throw new Error('thrustcurve.org returned unreadable metadata — the API shape may have changed.');
-  const manufacturers = [...new Set(meta['manufacturers'].flatMap(m => object(m) && typeof m['abbrev'] === 'string' && m['abbrev'].trim() ? [m['abbrev'].trim()] : []))];
-  const classes = Array.isArray(meta['impulseClasses'])
-    ? [...new Set(meta['impulseClasses'].filter((ic): ic is string => typeof ic === 'string' && !!ic.trim()).map(ic => ic.trim()))] : [];
-  if (!manufacturers.length) throw new Error('thrustcurve.org returned no manufacturers — the API shape may have changed.');
-
-  const search = async (params: Record<string, string>): Promise<{ results: Record<string, unknown>[]; matches: number }> => {
-    const qs = new URLSearchParams({ ...params, maxResults: String(SEARCH_CAP) });
-    const body = await pacedJson(`${API}/search.json?${qs}`);
-    if (!object(body) || !Array.isArray(body['results']) || !body['results'].every(m => object(m) && typeof m['motorId'] === 'string' && !!m['motorId'])) {
-      throw new Error('thrustcurve.org returned unreadable search results — the API shape may have changed.');
+async function readSnapshotMotors(current: ManifestSnapshot, opts: { signal: AbortSignal; fetchImpl?: typeof fetch }): Promise<MotorDbEntry[]> {
+  const doc = await fetchCatalogueFile(current.motors, MOTORS_MAX_BYTES, 'motors file', opts);
+  const unreadable = (why: string): never => { throw new CatalogueError('shape', `The catalogue's motors file ${why}, so it was not used.`); };
+  if (!object(doc) || !Array.isArray(doc['motors'])) return unreadable('has no motor list');
+  const rows = doc['motors'] as unknown[];
+  if (rows.length !== doc['count'] || rows.length !== current.motors.count) return unreadable('does not hold the number of motors it states');
+  const ids = new Set<string>();
+  for (const m of rows) {
+    if (!object(m) || typeof m['motorId'] !== 'string' || !m['motorId'] || ids.has(m['motorId'])) {
+      return unreadable('has a row that is not a motor, or a repeated motor id');
     }
-    if (typeof body['matches'] !== 'number' || !Number.isInteger(body['matches']) || body['matches'] < 0) {
-      throw new Error(`thrustcurve.org search ${qs} returned no usable matches count; the catalogue cannot be shown to be complete.`);
-    }
-    return { results: body['results'], matches: body['matches'] };
-  };
-
-  const complete = (page: { results: Record<string, unknown>[]; matches: number }) => {
-    if (page.results.length !== page.matches || new Set(page.results.map(m => m['motorId'])).size !== page.matches) {
-      throw new Error(`thrustcurve.org returned ${page.results.length} rows for ${page.matches} matches; the catalogue is incomplete.`);
-    }
-    return page.results;
-  };
-
-  const byId = new Map<string, Record<string, unknown>>();
-  let done = 0;
-  for (const mfr of manufacturers) {
-    opts.onProgress?.(done, manufacturers.length, mfr);
-    const whole = await search({ manufacturer: mfr, availability: 'all' });
-    let results: Record<string, unknown>[];
-    if (whole.results.length >= SEARCH_CAP) {
-      results = [];
-      for (const ic of classes) results.push(...complete(await search({ manufacturer: mfr, impulseClass: ic, availability: 'all' })));
-      if (new Set(results.map(m => m['motorId'])).size !== whole.matches) {
-        throw new Error(`thrustcurve.org impulse classes do not cover ${mfr}'s ${whole.matches} matches; the catalogue is incomplete.`);
-      }
-    } else results = complete(whole);
-    for (const m of results) if (typeof m['motorId'] === 'string') byId.set(m['motorId'], m);
-    done++;
+    ids.add(m['motorId']);
   }
-  opts.onProgress?.(done, manufacturers.length, '');
-
   // Projected, not screened: screening belongs to the rows the diff would
-  // apply (checkForCatalogueUpdates), so a shipped row thrustcurve.org still
-  // lists unchanged is neither "refused" nor mistaken for "removed".
+  // apply (checkForCatalogueUpdates), so a shipped row the catalogue still
+  // lists unchanged is neither "refused" nor mistaken for "removed". The file
+  // carries seven fields more than the app's 18 (fetch-motor-db.mjs
+  // FULL_FIELDS); only own catalogue fields are copied, so neither those nor a
+  // `__proto__` or `constructor` key reaches the screen, the overlay, or
+  // displayMotorManufacturer (rescreen's row-D note).
   //
   // And CORRECTED the way the shipped catalogue is (board Tier 1 rows 6 and
   // 37): the refresh writes motor-corrections.mjs's sourced figures over rows
   // thrustcurve.org still serves wrong (a 9,122 mm Contrail J234-BG, a Cesaroni
   // 25E75-17A with 104 g of propellant in 52 g, a 274 mm AeroTech K62N whose
-  // case alone is 358 mm). Compared raw, each would read as a change on every
-  // check: the first two refused by the screen and reported, for rows the user
-  // never touched, and the K62N, which the screen passes, applied, undoing the
-  // correction. Only the known-bad figure is replaced; any other value
-  // thrustcurve.org moves to still arrives as a change, screened like every
-  // other.
-  return [...byId.values()]
-    .map((raw) => correctMotorRow(
-      Object.fromEntries(CATALOGUE_FIELDS.map((f) => [f, raw[f]])) as unknown as MotorDbEntry));
+  // case alone is 358 mm). The snapshot's rows are corrected already, and
+  // correctMotorRow replaces only a known-bad figure, so a second pass is a
+  // no-op there — and it keeps a snapshot published without them from reading
+  // as a change on every check, or undoing a correction. Any other value the
+  // catalogue moves to still arrives as a change, screened like every other.
+  return (rows as Record<string, unknown>[]).map((raw) => correctMotorRow(Object.fromEntries(
+    CATALOGUE_FIELDS.filter(f => Object.hasOwn(raw, f)).map((f) => [f, raw[f]])) as unknown as MotorDbEntry));
 }
 
 /**
- * The button. Pulls, screens, diffs against the SHIPPED catalogue, persists,
+ * The check. Reads the manifest, then — only when the snapshot has moved —
+ * its motors file; screens, diffs against the SHIPPED catalogue, persists,
  * installs. Returns the overlay it installed (or the one it kept, when the
  * last check was recent and `force` is not set — `skipped` says so).
+ * A failed check installs nothing and leaves storage as it was.
  */
 export async function checkForCatalogueUpdates(
   opts: CheckOptions = {},
 ): Promise<{
   overlay: CatalogueOverlay; skipped: 'recent' | null; stored: boolean;
-  /** Manufacturers thrustcurve.org returned NO rows for, whose motors were therefore not marked removed. */
+  /** Manufacturers the snapshot carries NO rows for, whose motors were therefore not marked removed. */
   silent: string[];
 }> {
   const now = opts.now ?? Date.now;
-  const previous = loadStoredOverlay();
-  if (previous?.fetchedAt && !opts.force && now() - Date.parse(previous.fetchedAt) < RECHECK_MIN_MS) {
-    setCatalogueOverlay(previous);
-    return { overlay: previous, skipped: 'recent', stored: true, silent: [] };
+  const recent = loadStoredOverlay();
+  if (recent && !opts.force && checkedRecently(recent, now())) {
+    setCatalogueOverlay(recent);
+    return { overlay: recent, skipped: 'recent', stored: true, silent: [] };
   }
-  assertThrustcurveAvailable();
-  const live = await fetchLiveCatalogue(opts);
+  const mine = supersedeRunningCheck();
+  const ctrl = new AbortController();
+  running = ctrl;
+  const relay = () => ctrl.abort(opts.signal?.reason);
+  if (opts.signal?.aborted) relay();
+  else opts.signal?.addEventListener('abort', relay, { once: true });
+  const io = { signal: ctrl.signal, fetchImpl: opts.fetchImpl };
+  /** Nothing is installed or stored once a newer check or a Discard has started. */
+  const current = (): void => { if (mine !== generation) throw stopped(); };
+  try {
+    let manifest: ManifestSnapshot;
+    try {
+      manifest = await fetchCatalogueManifest(io);
+    } catch (err) { throw checkFailure(err, ctrl.signal); }
+    current();
+    // Read storage again: the overlay may have changed while the manifest was in flight.
+    const previous = loadStoredOverlay();
+    const snapshot: CatalogueSnapshotRef = {
+      id: manifest.id, generated: manifest.motors.generated, motorsSha256: manifest.motors.sha256,
+      curves: { path: manifest.curves.path, bytes: manifest.curves.bytes, sha256: manifest.curves.sha256 },
+    };
+    const install = (overlay: CatalogueOverlay, silent: string[] = []) => {
+      current();
+      const stored = storeOverlay(overlay);
+      setCatalogueOverlay(overlay);
+      return { overlay, skipped: null, stored, silent };
+    };
+    const checkedAt = new Date(now()).toISOString();
+    // The same snapshot as last time: nothing to download, and nothing changes
+    // but the date the throttle runs from.
+    if (previous?.snapshot?.id === snapshot.id && previous.snapshot.motorsSha256 === snapshot.motorsSha256) {
+      return install({ ...previous, fetchedAt: checkedAt, snapshot });
+    }
+    // A snapshot OLDER than the shipped catalogue (a release built from a
+    // refresh that was never published): this build already knows better.
+    // Download nothing and remove nothing; record the check, so the throttle
+    // holds and the next check costs one request.
+    if (manifest.motors.generated < MOTOR_DB_DATE) {
+      return install({
+        ...(previous ?? { baseGenerated: MOTOR_DB_DATE, added: [], changed: [], removed: [], rejected: [] }),
+        fetchedAt: checkedAt, liveCount: manifest.motors.count, snapshot,
+      });
+    }
+    let live: MotorDbEntry[];
+    try {
+      live = await readSnapshotMotors(manifest, io);
+    } catch (err) { throw checkFailure(err, ctrl.signal); }
+    current();
+    return install(...overlayFrom(live, previous, checkedAt, snapshot));
+  } finally {
+    opts.signal?.removeEventListener('abort', relay);
+    if (running === ctrl) running = null;
+  }
+}
+
+/** The diff of `live` against the shipped catalogue, screened, with what a previous check learned carried forward. */
+function overlayFrom(live: MotorDbEntry[], previous: CatalogueOverlay | null, fetchedAt: string,
+  snapshot: CatalogueSnapshotRef): [CatalogueOverlay, string[]] {
   const d = diffCatalogue(MOTOR_DB, live);
   // Screen only what would be APPLIED: a shipped row was looked at when it
   // shipped. The shipped catalogue carried two rows that fail this same screen
@@ -446,8 +470,10 @@ export async function checkForCatalogueUpdates(
   // once (audit 2026-09-22). A manufacturer whose pull came back with no rows
   // at all — a failed page, an API hiccup, a maker missing from metadata.json —
   // marked its entire shipped line out of production, and that stuck until the
-  // next check. A complete maker response is trusted about the rest; one that
-  // answered with none keeps its previous effective rows, and is named.
+  // next check. Under the curated snapshot (row 110) "silent" means a maker the
+  // snapshot carries no rows for; the rule is unchanged. A maker with rows is
+  // trusted about the rest; one with none keeps its previous effective rows,
+  // and is named.
   const answered = new Set(live.map((m) => m.manufacturerAbbrev));
   const shippedMaker = new Map(MOTOR_DB.map((m) => [m.motorId, m.manufacturerAbbrev]));
   const silent = new Set<string>();
@@ -476,16 +502,15 @@ export async function checkForCatalogueUpdates(
   }
   const overlay: CatalogueOverlay = {
     baseGenerated: MOTOR_DB_DATE,
-    fetchedAt: new Date(now()).toISOString(),
+    fetchedAt,
     liveCount: live.length,
     added,
     changed,
     removed,
     rejected,
+    snapshot,
   };
-  const stored = storeOverlay(overlay);
-  setCatalogueOverlay(overlay);
-  return { overlay, skipped: null, stored, silent: [...silent] };
+  return [overlay, [...silent]];
 }
 
 // ------------------------------------------------------------------- copy
@@ -496,7 +521,7 @@ export function describeOverlay(o: CatalogueOverlay, units: UnitSelection = INIT
   const lines: string[] = [];
   lines.push(`${o.added.length} new, ${o.changed.length} changed, ${o.removed.length} no longer listed`
     + (o.rejected.length ? `, ${o.rejected.length} refused as implausible` : '')
-    + ` — thrustcurve.org checked ${o.fetchedAt ? o.fetchedAt.slice(0, 10) : "on an unknown date"} against the catalogue of ${o.baseGenerated}.`);
+    + ` — ${o.snapshot ? `curated catalogue ${o.snapshot.id}` : 'thrustcurve.org'} checked ${o.fetchedAt ? o.fetchedAt.slice(0, 10) : "on an unknown date"} against the catalogue of ${o.baseGenerated}.`);
   for (const c of o.changed.slice(0, 12)) {
     const parts = c.fields.map((f) => {
       const a = field(c.before, f); const b = field(c.after, f);
@@ -517,6 +542,17 @@ export function describeOverlay(o: CatalogueOverlay, units: UnitSelection = INIT
     lines.push(`Refused ${scalar(r.entry.manufacturerAbbrev)} ${scalar(r.entry.designation)}: ${reason && !reason.startsWith('no ') ? reason : r.reason}.`);
   }
   return lines;
+}
+
+/**
+ * The one line that matters most after a check: a changed certified figure on
+ * a motor that is IN THE DESIGN. The motor already loaded keeps the figures it
+ * was loaded with (a check relabels it, nothing more), so the line asks for a
+ * new pick, not a re-run. The motor browser leads its result with it;
+ * App's message strip shows it for an automatic check (catalogueAutoCheck.ts).
+ */
+export function designChangeLine(mine: readonly CatalogueChange[]): string {
+  return `In this design: ${mine.map((c) => `${c.after.manufacturerAbbrev} ${c.after.designation} (${c.fields.join(', ')})`).join('; ')} — pick the motor again to fly the new figures.`;
 }
 
 /** Prefer catalogue identity; older records without ids can match either side of a rename. */

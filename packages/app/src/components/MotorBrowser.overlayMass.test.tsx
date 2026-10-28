@@ -82,3 +82,60 @@ it.each(['overlay', 'shipped'])('loads network masses for a %s motor absent from
     act(() => root.unmount()); host.remove(); setCatalogueOverlay(null); localStorage.clear(); vi.unstubAllGlobals();
   }
 });
+
+/**
+ * D.7 (owner 2026-10-27): under a curated-snapshot overlay the same shipped
+ * motor reads the snapshot's curves file, not thrustcurve.org. The legacy
+ * cases above keep today's download.
+ */
+it('under a snapshot overlay, loads a shipped motor absent from the bundle from the snapshot\'s curves file, with no thrustcurve.org request', async () => {
+  const { catalogueFetch, daysAfter, manifestOf, publication } = await import('../services/catalogueFixture.testSupport.js');
+  const motor = { ...MOTOR_DB[0]!, availability: 'regular' };
+  expect(hasMassData(motor)).toBe(false);
+  localStorage.clear();
+  localStorage.setItem('online-openrocket.motor-filters.v1', JSON.stringify({ includeOOP: true }));
+  const generated = daysAfter(MOTOR_DB_DATE, 2);
+  const pub = await publication(`${generated}.2`, MOTOR_DB, { [motor.motorId]: [{ simfileId: 's1', source: 'cert', format: 'RASP',
+    samples: [[0, 0], [1, 40], [2, 0]], masses: { totalWeightG: 100, propWeightG: 50 } }] });
+  const serve = catalogueFetch(manifestOf(pub), [pub]);
+  const thrustcurveOrg = vi.fn();
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).startsWith('https://catalogue.mountainmanrockets.com/')) return serve(input, init);
+    thrustcurveOrg(String(input));
+    return new Response(JSON.stringify({ results: [] }));
+  });
+  vi.stubGlobal('fetch', fetcher);
+  setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: 1,
+    added: [], changed: [], removed: [], rejected: [],
+    snapshot: { id: pub.id, generated, motorsSha256: pub.entry.motors.sha256,
+      curves: { path: pub.entry.curves.path, bytes: pub.entry.curves.bytes, sha256: pub.entry.curves.sha256 } } });
+  // Not yet read: unknown, so the row is pickable and Load asks the file.
+  expect(await knownNoPublishedCurve(motor.motorId)).toBe(false);
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const selected: MotorSpec[] = [];
+  try {
+    await act(async () => root.render(<PrefsProvider><MotorBrowser mountDiameterMm={motor.diameter} maxMotorLengthM={null}
+      onClose={() => {}} onSelect={(_label, spec) => selected.push(spec)} /></PrefsProvider>));
+    const search = host.querySelector<HTMLInputElement>('input[type=search]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, motor.designation);
+      search.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+    const label = displayDesignation(motor.designation, motor.manufacturerAbbrev);
+    const row = [...host.querySelectorAll<HTMLTableRowElement>('tbody tr')].find(r => r.cells[0]?.textContent?.replace(/OOP$/, '').trim() === label)!;
+    await vi.waitFor(() => expect(row.getAttribute('aria-disabled')).toBeNull());
+    await act(async () => row.click());
+    const load = [...host.querySelectorAll<HTMLButtonElement>('.motor-load-row button')].find(b => b.textContent?.includes('Load'))!;
+    await act(async () => {
+      load.click();
+      await vi.waitFor(() => expect(selected).toHaveLength(1));
+    });
+    expect(selected[0]!.masses[0]).toBeCloseTo(0.1, 12);
+    expect(thrustcurveOrg).not.toHaveBeenCalled();
+    expect(fetcher.mock.calls.map(c => String(c[0]))).toEqual([`https://catalogue.mountainmanrockets.com/${pub.entry.curves.path}`]);
+  } finally {
+    act(() => root.unmount()); host.remove(); setCatalogueOverlay(null); localStorage.clear(); vi.unstubAllGlobals();
+  }
+});

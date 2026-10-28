@@ -8,7 +8,7 @@ import { useBackdropClose, useDialog } from './useDialog.js';
 import { useRovingRows } from './useRovingRows.js';
 import { useCatalogue, useCatalogueOverlay } from './useCatalogue.js';
 import {
-  changedMotorsInDesign, checkForCatalogueUpdates, describeOverlay, discardCatalogueOverlay,
+  changedMotorsInDesign, checkForCatalogueUpdates, designChangeLine, describeOverlay, discardCatalogueOverlay,
 } from '../services/catalogueOverlay.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
@@ -213,15 +213,14 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const { prefs } = usePrefs();
   const motorSym = prefs.units.motorDimensions;
 
-  // --- "Check thrustcurve.org for newer motors" (v0.110). The shipped catalogue
-  // plus whatever a previous check left in this browser; see catalogueOverlay.ts.
+  // --- "Check for newer motors" (v0.110; the curated catalogue since row 110).
+  // The shipped catalogue plus whatever a previous check — this button, or the
+  // automatic one on load — left in this browser; see catalogueOverlay.ts.
   const catalogue = useCatalogue();
   const overlay = useCatalogueOverlay();
   const [checking, setChecking] = useState(false);
-  const [checkProgress, setCheckProgress] = useState('');
   const [checkNote, setCheckNote] = useState<string[] | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
-  const [checkWasRecent, setCheckWasRecent] = useState(false);
   const checkAbort = useRef<AbortController | null>(null);
   useEffect(() => () => checkAbort.current?.abort(), []);
   /**
@@ -236,38 +235,38 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const catalogueAgeDays = Math.max(0, Math.floor((Date.now() - Date.parse(MOTOR_DB_DATE)) / 86_400_000));
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
-  const runCheck = async (force: boolean): Promise<void> => {
+  /**
+   * The button always FORCES its check (row 110): the check also runs by
+   * itself on load, so an unforced press would almost always answer with that
+   * result instead of asking. When the snapshot has not moved, a forced check
+   * costs one manifest request.
+   */
+  const runCheck = async (): Promise<void> => {
     checkAbort.current?.abort();
     const ctrl = new AbortController();
     checkAbort.current = ctrl;
     setChecking(true);
     setCheckError(null);
     setCheckNote(null);
-    setCheckWasRecent(false);
     try {
-      const { overlay: o, skipped, silent } = await checkForCatalogueUpdates({
-        force,
-        signal: ctrl.signal,
-        onProgress: (done, total, mfr) => setCheckProgress(total ? `${done}/${total}${mfr ? ` ${mfr}` : ''}` : ''),
-      });
+      const { overlay: o, silent } = await checkForCatalogueUpdates({ force: true, signal: ctrl.signal });
       const lines = describeOverlay(o, prefs.units);
       if (silent.length) {
-        lines.push(`thrustcurve.org returned no motors at all for ${silent.join(', ')} — `
-          + 'read as a failed answer, so none of them were marked out of production.');
+        lines.push(`The catalogue lists no motors at all for ${silent.join(', ')} — `
+          + 'read as a gap in the catalogue, so none of them were marked out of production.');
       }
       const mine = changedMotorsInDesign(o, loadedMotors ?? []);
       if (mine.length) {
         // The one line that matters most: a changed certified figure on a motor
         // that is IN THE DESIGN moves its apogee. Say so by name, first.
-        lines.unshift(`In this design: ${mine.map((c) => `${c.after.manufacturerAbbrev} ${c.after.designation} (${c.fields.join(', ')})`).join('; ')} — re-run the flight.`);
+        lines.unshift(designChangeLine(mine));
       }
-      setCheckWasRecent(skipped === 'recent');
       setCheckNote(lines);
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') setCheckNote(['Stopped. Nothing was changed.']);
-      else setCheckError(`Could not check thrustcurve.org: ${e instanceof Error ? e.message : String(e)}`);
+      else setCheckError(`Could not check the motor catalogue: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      if (checkAbort.current === ctrl) { setChecking(false); setCheckProgress(''); }
+      if (checkAbort.current === ctrl) setChecking(false);
     }
   };
 
@@ -626,18 +625,18 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                   once and nobody could see it. */}
               {catalogueAgeDays > 0 ? ` (${catalogueAgeDays} day${catalogueAgeDays === 1 ? '' : 's'} old)` : ''}
               {overlay && (overlay.added.length || overlay.changed.length || overlay.removed.length)
-                ? ` · +${overlay.added.length} new, ${overlay.changed.length} changed since, checked ${overlay.fetchedAt.slice(0, 10) || 'on an unknown date'}`
-                : overlay ? ` · up to date as of ${overlay.fetchedAt.slice(0, 10) || 'an unknown date'}` : ''}
+                ? ` · +${overlay.added.length} new, ${overlay.changed.length} changed since, catalogue checked ${overlay.fetchedAt.slice(0, 10) || 'on an unknown date'}`
+                : overlay ? ` · up to date, catalogue checked ${overlay.fetchedAt.slice(0, 10) || 'on an unknown date'}` : ''}
               {' '}· mount ⌀ {dimUi(mountDiameterMm).toFixed(1)} {motorSym}
             </span>
           </h2>
           <button className="file-btn" disabled={checking || offline}
             title={offline
               ? 'No network — the shipped catalogue is what there is until you are back online'
-              : 'Pull the live motor catalogue from thrustcurve.org and show what has changed since this app\'s copy. Kept in this browser only; nothing is written to the app.'}
-            aria-label="Check thrustcurve.org for newer motors"
-            onClick={() => void runCheck(false)}>
-            {checking ? `↻ checking… ${checkProgress}` : '↻ Check thrustcurve.org'}
+              : 'Read the curated motor catalogue and show what has changed since this app\'s copy. The app also checks by itself on load, at most every six hours. Kept in this browser only; nothing is written to the app.'}
+            aria-label="Check the motor catalogue for newer motors"
+            onClick={() => void runCheck()}>
+            {checking ? '↻ checking…' : '↻ Check for newer motors'}
           </button>
           {checking && (
             <button className="file-btn" onClick={() => checkAbort.current?.abort()} aria-label="Stop the catalogue check">Stop</button>
@@ -654,15 +653,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             user with silence. */}
         <div className="motor-check-status" role="status">
           {/* Progress and the cancel action must be spoken too (audit 2026-10-11, S3a-5). */}
-          {checking && <p>Checking thrustcurve.org… {checkProgress}. Use Stop to cancel.</p>}
+          {checking && <p>Checking the motor catalogue… Use Stop to cancel.</p>}
           {checkNote && (
             <div className="file-note" style={{ marginTop: 6 }}>
-              {checkWasRecent && (
-                <p style={{ margin: '0 0 4px' }}>
-                  Checked less than six hours ago — this is that result.{' '}
-                  <button className="file-btn" onClick={() => void runCheck(true)}>Check again anyway</button>
-                </p>
-              )}
               {checkNote.map((l, i) => <p key={i} style={{ margin: '0 0 2px' }}>{l}</p>)}
               {overlay && (
                 <p style={{ margin: '4px 0 0' }}>

@@ -49,8 +49,8 @@ import type { WeatherSnapshot } from './weatherSnapshot.js';
  *
  * WHAT A HEADLESS RUN DOES NOT SEE (stated, not hidden): App's numbers are the
  * same physics PER INPUTS, and on a user's machine some inputs live in that
- * browser — the thrustcurve.org curve cache, a catalogue overlay from "Check
- * thrustcurve.org", custom presets and the EX motor library. `simulateFile`
+ * browser — the downloaded-curve cache, a catalogue overlay from a catalogue
+ * check, custom presets and the EX motor library. `simulateFile`
  * (simulateFile.ts) defaults to shipped curves, presets and catalogue rows
  * (2026-10-01), because an overlay's dimensions change a bundled motor's CG.
  * Its importers and matcher receive the shipped catalogue; App's Open keeps

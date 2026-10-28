@@ -5,7 +5,7 @@ import { useOnline } from '../hooks/useOnline.js';
  * and the phone Fly screen (weather build, step 3). It opens App's dialog;
  * nothing is fetched until the dialog asks, and nothing written until Apply.
  *
- * Offline it greys out and says why, the way ↻ Check thrustcurve.org does.
+ * Offline it greys out and says why, the way ↻ Check for newer motors does.
  * Weather already applied is ordinary launch conditions and flies offline.
  *
  * "Weather", not "forecast": for a date more than 92 days back the dialog

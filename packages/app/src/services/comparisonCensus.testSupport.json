@@ -1,6 +1,6 @@
 {
   "app": {
-    "App.tsx": 33,
+    "App.tsx": 34,
     "components/BatchSimulate.tsx": 15,
     "components/ComparisonChart.tsx": 4,
     "components/ComponentTree.tsx": 1,
@@ -25,7 +25,7 @@
     "components/GustEstimate.tsx": 6,
     "components/LaunchPanel.tsx": 26,
     "components/MeasuredMassBox.tsx": 16,
-    "components/MotorBrowser.tsx": 17,
+    "components/MotorBrowser.tsx": 16,
     "components/MotorLengthField.tsx": 8,
     "components/MotorPadMass.tsx": 9,
     "components/MountDelayReport.tsx": 3,
@@ -64,7 +64,8 @@
     "services/baseDragImportNotes.ts": 1,
     "services/batchCriteria.ts": 3,
     "services/batchSweep.ts": 1,
-    "services/catalogueOverlay.ts": 20,
+    "services/catalogueClient.ts": 2,
+    "services/catalogueOverlay.ts": 17,
     "services/componentTable.ts": 3,
     "services/deployOverrideNote.ts": 2,
     "services/designFileName.ts": 1,

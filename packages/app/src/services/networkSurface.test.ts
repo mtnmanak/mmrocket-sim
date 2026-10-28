@@ -14,8 +14,9 @@ import { NETWORK_FEATURES, NETWORK_HOSTS } from './net.js';
  *
  * What counts as "named": a SCREAMING_CASE constant assigned an https URL
  * (`API`, `CONTRACT`, `FORECAST_API` …), or an https literal handed straight
- * to `fetch(` / `getJsonCapped(` / `thrustcurveFetch(`, in any non-test module that makes a
- * request. Link hrefs (the feedback tracker, the source repository, the site
+ * to `fetch(` / `getJsonCapped(` / `getBytesCapped(` / `thrustcurveFetch(`, in any non-test
+ * module that makes a request. A module counts as requesting when it calls one of
+ * those, or catalogueClient.ts's readers built on getBytesCapped. Link hrefs (the feedback tracker, the source repository, the site
  * band's fallback menu) are not requests and are not listed.
  */
 
@@ -39,12 +40,12 @@ function sourceFiles(dir: string): string[] {
 const origin = (u: string) => new URL(u).origin;
 
 function originsInRequestingSource(text: string): string[] {
-  if (!/\b(?:fetch|getJsonCapped|thrustcurveFetch)\(/.test(text)) return [];
+  if (!/\b(?:fetch|getJsonCapped|getBytesCapped|thrustcurveFetch)\(/.test(text)) return [];
   const found: string[] = [];
   for (const m of text.matchAll(/\bconst\s+[A-Z][A-Z0-9_]*\s*(?::[^=]+)?=\s*['"`](https:\/\/[^'"`/?]+)/g)) {
     found.push(origin(m[1]!));
   }
-  for (const m of text.matchAll(/\b(?:fetch|getJsonCapped|thrustcurveFetch)\(\s*['"`](https:\/\/[^'"`/?]+)/g)) found.push(origin(m[1]!));
+  for (const m of text.matchAll(/\b(?:fetch|getJsonCapped|getBytesCapped|thrustcurveFetch)\(\s*['"`](https:\/\/[^'"`/?]+)/g)) found.push(origin(m[1]!));
   return found;
 }
 
@@ -63,6 +64,16 @@ describe('the network surface', () => {
   it('recognises the wrapped thrustcurve requester without a fetch comment', () => {
     expect(originsInRequestingSource("const API = 'https://www.thrustcurve.org/api/v1'; thrustcurveFetch()(`${API}/download.json`);"))
       .toEqual(['https://www.thrustcurve.org']);
+  });
+  it('recognises a requester built on getBytesCapped, the curated catalogue\'s reader (row 110)', () => {
+    expect(originsInRequestingSource("export const CATALOGUE_BASE = 'https://catalogue.example/'; return getBytesCapped(href, opts);"))
+      .toEqual(['https://catalogue.example']);
+    expect(originsInRequestingSource("getBytesCapped('https://direct.example/x.json', opts)")).toEqual(['https://direct.example']);
+    // A module that names an origin but requests nothing is still not a requester.
+    expect(originsInRequestingSource("export const CATALOGUE_BASE = 'https://catalogue.example/';")).toEqual([]);
+  });
+  it('sees the catalogue client as a requester of the catalogue origin', () => {
+    expect(requestedOrigins().get('https://catalogue.mountainmanrockets.com')).toContain(join('services', 'catalogueClient.ts'));
   });
   it('lists every outside origin the source requests from', () => {
     const requested = requestedOrigins();
