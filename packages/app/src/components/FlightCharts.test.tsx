@@ -333,12 +333,19 @@ it.each([false, true])('S3b-3: StrictMode clears export busy after rejection=%s'
     <FlightCharts flightName="Big Dog 4in · C6 (Estes)" result={fakeResult()} onFullSeries={full} designName="Strict bird" />
   </PrefsProvider></StrictMode>));
   const csv = labelled('Flight data (.csv)')!;
+  const region = host.querySelector('.flight-export-alert');
+  expect(region?.getAttribute('role')).toBe('alert');
+  expect(region!.textContent).toBe('');
   await act(async () => { csv.click(); });
   expect(full).toHaveBeenCalledOnce();
   expect(csv.disabled).toBe(false);
   if (reject) {
+    // Live-region sweep (audit 2026-09-22): the failure lands in the region
+    // that was there, empty, before the export.
+    expect(region).not.toBeNull();
+    expect(host.querySelector('.flight-export-alert')).toBe(region);
     expect(host.textContent).toContain('export failed');
-    expect(host.querySelector('.message-danger[role="alert"]')?.textContent).toContain('export failed');
+    expect(host.querySelector('.flight-export-alert[role="alert"] > .message-danger')?.textContent).toContain('export failed');
   } else expect(host.querySelector('.message-danger')).toBeNull();
 });
 

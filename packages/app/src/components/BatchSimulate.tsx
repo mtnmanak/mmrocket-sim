@@ -627,18 +627,26 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
 
         <TimeStepCaution dt={candidates.length > 0 ? launch.timeStepS : undefined} flights={totalFlights} />
 
-        {armed && !runAnyway && !running && (
-          <p className="field-caution" role="alert" style={{ margin: '6px 0 0' }}>
-            <Icon name="zap" size={13} /> {batchConfirmWarning(totalFlights, estimate)}
-          </p>
-        )}
+        {/* The two alerts below are ALWAYS MOUNTED (audit 2026-09-22): an
+            alert inserted with its text already in place is announced
+            unreliably. The dialog is a flex column with no gap, so an empty
+            region takes no space. */}
+        <div className="batch-confirm-alert" role="alert">
+          {armed && !runAnyway && !running && (
+            <p className="field-caution" style={{ margin: '6px 0 0' }}>
+              <Icon name="zap" size={13} /> {batchConfirmWarning(totalFlights, estimate)}
+            </p>
+          )}
+        </div>
         {/* On screen, not in a tooltip on the disabled button: a disabled
             button shows nothing when it is clicked (the 2026-09-01b report). */}
-        {refusal && !running && (
-          <Note as="p" tier="danger" className="field-caution batch-refused" role="alert" style={{ margin: '6px 0 0' }}>
-            <Icon name="zap" size={13} /> {refusal}
-          </Note>
-        )}
+        <div className="batch-refused-alert" role="alert">
+          {refusal && !running && (
+            <Note as="p" tier="danger" className="field-caution batch-refused" style={{ margin: '6px 0 0' }}>
+              <Icon name="zap" size={13} /> {refusal}
+            </Note>
+          )}
+        </div>
 
         <div className="motor-load-row">
           <span style={{ flex: 1 }} className="motor-db-meta">
@@ -786,15 +794,22 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
             </Note>
           )}
         </div>
-        {(failure && !running || sorted.some(r => r.optimumForPlugged) || capNote) && <Note
+        {/* ALWAYS MOUNTED, holding an always-mounted alert region (audit
+            2026-09-22, MotorBrowser's motor-import-notes): an alert inserted
+            with its text already in place is announced unreliably. Empty, its
+            tier works out as information (capLosesRows implies capNote), so no
+            tier label paints. */}
+        <Note
           tier={failure && !running ? 'danger' : sorted.some(r => r.optimumForPlugged) || capLosesRows ? 'caution' : 'information'}
           className="batch-outcome-notes">
-        {failure && !running && (
-          <p className="comp-stats batch-failed stability-bad" role="alert" style={{ margin: '6px 0 0' }}>
-            {`The batch stopped before it finished: ${failure}`}
-            {rows.some((r) => r.run) ? ' The rows it flew are below and still download.' : ''}
-          </p>
-        )}
+        <div className="batch-failed-alert" role="alert">
+          {failure && !running && (
+            <p className="comp-stats batch-failed stability-bad" style={{ margin: '6px 0 0' }}>
+              {`The batch stopped before it finished: ${failure}`}
+              {rows.some((r) => r.run) ? ' The rows it flew are below and still download.' : ''}
+            </p>
+          )}
+        </div>
 
         {/* A plugged-only motor on a design that deploys on the ejection
             charge: flown plugged it would never deploy, so its row flies the
@@ -812,7 +827,7 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
           <p className="comp-stats batch-cap" style={{ margin: '4px 0 0' }}>{capNote}</p>
         )}
 
-        </Note>}
+        </Note>
 
         {sorted.length > 0 && (
           <div className="motor-table-wrap" style={{ maxHeight: 320 }}>

@@ -77,7 +77,7 @@ describe('PropertyPanel — the print button', () => {
     const label = radiusMode === 'diameter' ? 'Outer diameter' : 'Outer radius';
     expect(host.textContent).toContain(label);
     await act(async () => { printButton().click(); });
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain(message);
+    expect(host.querySelector('.part-export-alert[role="alert"]')?.textContent).toContain(message);
   });
 
   it('with no printer configured: unchanged caption, one advisory line', () => {

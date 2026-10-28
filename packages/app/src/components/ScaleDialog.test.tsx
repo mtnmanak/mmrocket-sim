@@ -36,6 +36,8 @@ vi.mock('../services/presets.js', () => ({
 }));
 
 let host: HTMLDivElement;
+/** Text in any alert region: the regions stay mounted, empty, between messages. */
+const alertTexts = () => [...host.querySelectorAll('[role="alert"]')].map((a) => a.textContent ?? '').filter(Boolean);
 let root: Root;
 
 /** 54 mm airframe: max body diameter 0.052 m. */
@@ -749,12 +751,12 @@ describe('B6 scaled freeform outlines are checked before Apply', () => {
     await render({}, design);
     type(numberInputs()[0]!, '100');
     expect(applyButton().disabled).toBe(true);
-    expect(host.querySelector('[role="alert"]')!.textContent).toContain('Oversize fins');
+    expect(host.querySelector('.scale-fin-alert[role="alert"]')!.textContent).toContain('Oversize fins');
     act(() => applyButton().click());
     expect(applied).toBeNull();
     type(numberInputs()[0]!, '2');
     expect(applyButton().disabled).toBe(false);
-    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(alertTexts()).toEqual([]);
     act(() => applyButton().click());
     expect(applied).not.toBeNull();
   });

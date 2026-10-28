@@ -297,7 +297,8 @@ describe('PropertyPanel — the export note belongs to one component', () => {
     show(tree, fins);
     const dxf = [...host.querySelectorAll('button')].find((b) => b.textContent?.includes('DXF'))!;
     click(dxf);
-    const note = () => host.querySelector('[role="alert"]')?.textContent ?? '';
+    // Every alert region's text: the regions stay mounted, empty, between messages.
+    const note = () => [...host.querySelectorAll('[role="alert"]')].map((a) => a.textContent).join('');
     expect(note()).toMatch(/fin outline/);
     show(tree, nose);
     expect(note(), 'the fin warning under the nose cone').toBe('');

@@ -24,6 +24,8 @@ const tube = { id: 'tube', type: 'bodytube', name: 'Tube', outerRadius: 0.0127,
   length: 0.1, children: [fins] } as ComponentNode;
 const tree = { name: 'Rocket', components: [{ id: 'stage', type: 'stage', children: [tube] }] } as RocketTree;
 let host: HTMLDivElement;
+/** Text in any alert region: the regions stay mounted, empty, between messages. */
+const alertTexts = () => [...host.querySelectorAll('[role="alert"]')].map((a) => a.textContent ?? '').filter(Boolean);
 let root: Root;
 let style: HTMLStyleElement;
 const mount = (selected: ComponentNode = tube, design = tree) => act(() => root.render(
@@ -96,7 +98,7 @@ it('reports raster failures beside the wrap control with SVG recovery', async ()
   vi.mocked(svgToImage).mockRejectedValue(new Error('Canvas unavailable'));
   mount(); await pick('PNG');
   expect(downloadBlob).not.toHaveBeenCalled();
-  expect(host.querySelector('[role="alert"]')!.textContent).toMatch(/Caution:.*Canvas unavailable.*SVG/);
+  expect(host.querySelector('.tube-wrap-alert[role="alert"]')!.textContent).toMatch(/Caution:.*Canvas unavailable.*SVG/);
   expect(trigger()!.disabled).toBe(false);
 });
 
@@ -139,10 +141,10 @@ it.each([
   expect(opener.getAttribute('aria-disabled')).toBe('false');
   if (outcome === 'failure') {
     expect(downloadBlob).not.toHaveBeenCalled();
-    expect(host.querySelector('[role="alert"]')!.textContent).toMatch(/Canvas unavailable.*SVG/);
+    expect(host.querySelector('.tube-wrap-alert[role="alert"]')!.textContent).toMatch(/Canvas unavailable.*SVG/);
     await pick('SVG, white');
     expect(vi.mocked(downloadBlob).mock.calls[0]![1]).toBe('Tube-wrap.svg');
-    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(alertTexts()).toEqual([]);
   } else {
     expect(downloadBlob).toHaveBeenCalledOnce();
     expect(wrapStatus!.isConnected).toBe(true);

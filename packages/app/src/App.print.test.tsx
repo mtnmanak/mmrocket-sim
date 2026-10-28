@@ -190,7 +190,7 @@ it.each(['preview', 'preparation'] as const)('keeps the export-menu %s error vis
   }
   await act(async () => print.click());
   const stillOpen = host.querySelector('[role="group"][aria-label="Save As / Export"]');
-  const alert = stillOpen?.querySelector('[role="alert"]');
+  const alert = stillOpen?.querySelector('.print-report-alert[role="alert"]');
   expect(alert?.textContent).toContain('Caution: Could not open the report:');
   expect(alert?.textContent).toContain(failure === 'preview' ? 'Allow pop-ups for the app, then try again.' : 'Cannot prepare report');
   expect(exportButton.getAttribute('aria-expanded')).toBe('true');

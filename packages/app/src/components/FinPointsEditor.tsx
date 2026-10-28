@@ -576,11 +576,15 @@ export function FinPointsEditor({ points, onChange }: {
       {/* The status token, not the hard-coded red this line had (audit
           2026-09-22): on the default dark theme's panel that red was 2.95:1;
           the token is 5.57:1 there, and AA in light and Daylight too. */}
-      {(refused || shownProblem) && (
-        <p role="alert" style={{ fontSize: 11, color: 'var(--status-serious)', margin: '6px 0 0' }}>
-          {refused ?? shownProblem}{refused !== null ? ' The fin is unchanged.' : ''}
-        </p>
-      )}
+      {/* Always mounted (audit 2026-09-22): an alert inserted with its text
+          already in place is announced unreliably. */}
+      <div className="fin-points-alert" role="alert">
+        {(refused || shownProblem) && (
+          <p style={{ fontSize: 11, color: 'var(--status-serious)', margin: '6px 0 0' }}>
+            {refused ?? shownProblem}{refused !== null ? ' The fin is unchanged.' : ''}
+          </p>
+        )}
+      </div>
       <p id={helpId} style={{ fontSize: 11, color: 'var(--text-muted)', margin: '6px 0 0' }}>
         Drag empty space or Shift-drag to pan. Use the wheel or pinch with two fingers
         to zoom; move two fingers together to pan. Use arrow keys to pan, + / − to

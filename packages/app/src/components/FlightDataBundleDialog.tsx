@@ -136,7 +136,8 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
           <p>{f.description}</p>
           {!f.path.startsWith('attachment/') && <pre tabIndex={0}>{strFromU8(preview.files![f.path]!)}</pre>}
         </details>) : <Note tier="information" as="p">Preview unavailable: {preview.error}</Note>}
-        {error && <Note tier="information" as="p" role="alert">{error}</Note>}
+        {/* Always mounted (audit 2026-09-22): an alert inserted with its text already in place is announced unreliably. */}
+        <div className="bundle-alert" role="alert">{error && <Note tier="information" as="p">{error}</Note>}</div>
         <p role="status">{status}</p>
         <div className="modal-actions">
           <button type="button" className="file-btn" onClick={onClose}>Close</button>

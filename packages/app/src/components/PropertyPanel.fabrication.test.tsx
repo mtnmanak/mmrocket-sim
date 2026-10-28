@@ -20,6 +20,8 @@ const holes = { ...makeNode('tubehole'), id: 'holes' };
 const tube = { ...makeNode('bodytube'), id: 'tube', children: [fins, holes] };
 const tree = { name: 'Rocket', components: [{ type: 'stage', id: 'stage', children: [tube] }] } as RocketTree;
 let root: Root, host: HTMLDivElement;
+/** Text in any alert region: the regions stay mounted, empty, between messages. */
+const alertTexts = () => [...host.querySelectorAll('[role="alert"]')].map((a) => a.textContent ?? '').filter(Boolean);
 const mount = (node = fins, design = tree) => act(() => root.render(
   <PrefsProvider><PropertyPanel tree={design} node={node} onPatch={() => {}} /></PrefsProvider>,
 ));
@@ -108,8 +110,8 @@ it.each([['PNG', 'png'], ['JPG', 'jpeg']] as const)('exports %s at physical 300 
 it('reports raster failure with an SVG retry and invalid cant beside the control', async () => {
   mount(); vi.mocked(svgToImage).mockRejectedValue(new Error('Canvas unavailable'));
   await pick('PNG');
-  expect(host.querySelector('[role="alert"]')!.textContent).toMatch(/Caution:.*Canvas unavailable.*SVG/);
-  await pick('SVG, white'); expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(host.querySelector('.fin-jig-alert[role="alert"]')!.textContent).toMatch(/Caution:.*Canvas unavailable.*SVG/);
+  await pick('SVG, white'); expect(alertTexts()).toEqual([]);
   const canted = { ...fins, cant: 0.01 };
   const body = { ...tube, children: [canted] };
   mount(canted, { ...tree, components: [{ ...tree.components[0]!, children: [body] }] });
@@ -122,7 +124,7 @@ it('keeps oversized jigs at 1:1 in SVG and refuses a raster before allocating a 
   await pick('PNG');
   expect(svgToImage).not.toHaveBeenCalled();
   expect(downloadBlob).not.toHaveBeenCalled();
-  expect(host.querySelector('[role="alert"]')!.textContent).toBe('⚠ Caution: Could not export the fin alignment jig: too large for a 300 dpi image (limits: 16 million pixels in total, 8192 pixels on either side) — try an SVG option.');
+  expect(host.querySelector('.fin-jig-alert[role="alert"]')!.textContent).toBe('⚠ Caution: Could not export the fin alignment jig: too large for a 300 dpi image (limits: 16 million pixels in total, 8192 pixels on either side) — try an SVG option.');
   await pick('SVG, white');
   expect(downloadBlob).toHaveBeenCalledTimes(1);
 });

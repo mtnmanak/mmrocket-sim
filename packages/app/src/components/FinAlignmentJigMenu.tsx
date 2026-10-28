@@ -64,6 +64,7 @@ export function FinAlignmentJigMenu({ tree, tube, fin }: { tree: RocketTree; tub
     <Note as="p" tier="caution" className="hint">Measure the actual tube and fin stock; check the fit before cutting. Place the jig where every fin fills the slot depth. The jig does not set fin cant.</Note>
     {invalid && <Note as="p" tier="caution" className="hint">{invalid}</Note>}
     <div role="status">{status && <p className="hint">{status}</p>}</div>
-    {error && <Note as="p" tier="caution" className="hint" role="alert">{error}</Note>}
+    {/* Always mounted (audit 2026-09-22): an alert inserted with its text already in place is announced unreliably. */}
+    <div className="fin-jig-alert" role="alert">{error && <Note as="p" tier="caution" className="hint">{error}</Note>}</div>
   </div>;
 }

@@ -29,6 +29,7 @@ export function PaperTemplateButton({ tree, node }: { tree: RocketTree; node: Co
         ? 'No cutting allowance or invented drilling holes. A ring opening fits the stated ID or overlapping mount tube OD.'
         : 'Wraps cover the exterior surface only; shoulders, wall thickness, seam tabs and cutting allowance are omitted.'}
     </Note>
-    {error && <Note as="p" tier="caution" role="alert" className="hint">{error}</Note>}
+    {/* Always mounted (audit 2026-09-22): an alert inserted with its text already in place is announced unreliably. */}
+    <div className="paper-template-alert" role="alert">{error && <Note as="p" tier="caution" className="hint">{error}</Note>}</div>
   </>;
 }

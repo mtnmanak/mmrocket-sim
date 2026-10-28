@@ -435,15 +435,19 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
       </div>}
       {layoutEditor && <FlightExportLayoutDialog layout={layoutEditor === 'edit' ? exportLayout : undefined}
         onClose={() => setLayoutEditor(null)} />}
-      {exportError && (
-        // role="alert" (2026-09-08 audit): this is the outcome of a re-fly the
-        // user pressed a button for and waited several seconds on, and it was
-        // announced to nobody. PropertyPanel and MotorBrowser both use
-        // role="alert" for the same situation.
-        <Note as="p" tier="danger" className="simdet-comments stability-bad" role="alert" style={{ margin: '4px 0 0' }}>
-          Flight-data export failed: {exportError}
-        </Note>
-      )}
+      {/* role="alert" (2026-09-08 audit): this is the outcome of a re-fly the
+          user pressed a button for and waited several seconds on, and it was
+          announced to nobody. PropertyPanel and MotorBrowser both use
+          role="alert" for the same situation. ALWAYS MOUNTED (audit
+          2026-09-22): an alert inserted with its text already in place is
+          announced unreliably. */}
+      <div className="flight-export-alert" role="alert">
+        {exportError && (
+          <Note as="p" tier="danger" className="simdet-comments stability-bad" style={{ margin: '4px 0 0' }}>
+            Flight-data export failed: {exportError}
+          </Note>
+        )}
+      </div>
       <div className="series-picker flight-series-picker" role="group" aria-label="Plot series">
         {catalog.map((d) => {
           const available = usableSeries(shown.series, [String(d.key)]);
@@ -497,7 +501,11 @@ export function FlightCharts({ result, flightName, onFullSeries, designName, sta
               .finally(() => { if (mounted.current) setExportBusy(null); });
           }}>{exportBusy === 'plots' ? 'Re-flying…' : 'Load all plot series'}</button>}
         <span className="chart-comparison-note">Choose from this branch's recorded series.{onFullSeries ? ' Load all plot series re-flies the shown flight for additional quantities.' : ''}</span>
-        {plotError && <Note as="p" tier="information" role="alert">Plot series could not be loaded: {plotError}</Note>}
+        {/* Always mounted (audit 2026-09-22), and sr-only while empty so the
+            row's flex gap does not space an empty region. */}
+        <div role="alert" className={plotError ? 'plot-series-alert' : 'plot-series-alert sr-only'}>
+          {plotError && <Note as="p" tier="information">Plot series could not be loaded: {plotError}</Note>}
+        </div>
       </div>}
       <div className="flight-event-picker" role="group" aria-label="Plot flight events">
         <span className="chart-comparison-note">Events on time charts:</span>

@@ -100,7 +100,7 @@ describe('large batch confirmation', () => {
     expect(dialog()).toBeNull();
     expect(sweep).not.toHaveBeenCalled();
     expect(primary().textContent!.trim()).toBe(`Yes — fly ${flights.toLocaleString('en-US')} flights · ${estimate}`);
-    expect(host.querySelector('[role="alert"]')?.textContent?.trim()).toBe(
+    expect(host.querySelector('.batch-confirm-alert[role="alert"]')?.textContent?.trim()).toBe(
       `${flights.toLocaleString('en-US')} flights is a very long run — ${estimate}. The page `
       + 'cannot respond while a flight runs, and Stop only takes effect between them. Press the button '
       + 'again to start, or untick a combination mode to shrink it.',

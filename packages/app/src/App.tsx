@@ -3296,6 +3296,9 @@ export function App() {
     : result?.runId === lastRun.id ? result.value
     : reflightCache.get(lastRun.id) ?? null;
   const reportRun = inspectedSummary ?? lastRun;
+  // The Results column's classic-model Mach warning, read by its always-mounted region.
+  const machWarning = !inspectedSummary && !!shownResult && lastRun?.aeroModel === 'classic'
+    && shownResult.summary.maxMachNumber > MACH_AUTO_THRESHOLD;
 
   // Vitals strip: apogee of the most recent flight (fresh sim or reopened run).
   const lastApogee = shownResult?.summary.maxAltitude ?? lastRun?.maxAltitude ?? null;
@@ -3705,27 +3708,37 @@ export function App() {
             source&nbsp;(GPL)
           </a>
         </p>
+        {/* The four banners below are ALWAYS-MOUNTED alert regions, each holding
+            its message as a conditional child (audit 2026-09-22): a region
+            inserted with its text already in place is announced unreliably.
+            .app-header is block layout, so an empty region takes no space and
+            the message's own margin collapses through it as before. */}
+        <div className="autosave-paused-alert" role="alert">
         {autosavePaused && (
-          <Note tier="caution" className="file-note autosave-warn" role="alert">
+          <Note tier="caution" className="file-note autosave-warn">
             The autosaved design was not restored because it exceeds the 10,000 expanded component instance limit.
             Autosave is paused to keep that original design. Download it before choosing New or opening another
             design, which resumes autosave. Save edits to the starter design with Save As / Export.{' '}
             <button className="file-btn" onClick={() => { void downloadAutosavedDesign(); }}>Download the autosaved design (.ork)</button>
           </Note>
         )}
+        </div>
+        <div className="autosave-failing-alert" role="alert">
         {autosaveFailing && (
           // Persistent (not dismissible) on purpose: while this shows, edits
           // do NOT survive a reload. It clears itself on the recovery edge.
-          <Note tier="danger" className="file-note file-note-error autosave-warn" role="alert">
+          <Note tier="danger" className="file-note file-note-error autosave-warn">
             ⚠ Autosave can&apos;t write (storage full or blocked) — save your
             design to a file (Save As / Export → .ork) to keep it safe.
           </Note>
         )}
+        </div>
+        <div className="session-conflict-alert" role="alert">
         {sessionConflict && (
           // Persistent until answered: until then neither tab's work is at
           // risk, and a × that merely hid it would leave this tab's changes
           // unsaved with nothing on screen to say so.
-          <Note tier="caution" className="file-note file-note-error autosave-warn" role="alert">
+          <Note tier="caution" className="file-note file-note-error autosave-warn">
             ⚠ This design was changed in another tab. This tab has stopped
             autosaving so it does not overwrite that work — changes made here
             are not kept until you choose.{' '}
@@ -3740,16 +3753,19 @@ export function App() {
             </button>
           </Note>
         )}
+        </div>
+        <div className="prefs-failing-alert" role="alert">
         {prefsSaveFailing && !autosaveFailing && (
           // Same shape, different store. Shown only when autosave is NOT
           // already shouting — one banner is a diagnosis, two are noise, and
           // the autosave one is the more urgent of the pair.
-          <div className="file-note file-note-warn autosave-warn" role="alert">
+          <div className="file-note file-note-warn autosave-warn">
             ⚠ This browser isn&apos;t keeping your preferences (private window,
             or site data blocked) — units, theme and the tour setting will go
             back to their defaults when you reload.
           </div>
         )}
+        </div>
         <Note tier={recentNote ? 'caution' : 'information'} role="status" className={`recent-storage-note ${recentNote ? '' : 'sr-only'}`}>
           {recentNote && <>{recentNote} <button className="file-btn" onClick={() => setRecentNote(null)} aria-label="Dismiss recent storage note">Dismiss</button></>}
         </Note>
@@ -4437,24 +4453,33 @@ export function App() {
             </div>
             {built && <ConfigStabilityRange input={stabilityRangeInput} />}
             {built && hero.open && !hero.wide && statsDrawerNode}
-            {built && built.info.warningTexts.length > 0 && (() => {
+            {built && (() => {
               // Rail-line findings are a mechanical fit problem on the pad, not an
               // aerodynamic footnote or a failed flight (D7 §5, R08): their own
               // block, each with the parts it names one click away, where the
               // rail button's snap controls are. The same sentences buildDesign
               // appended, matched by identity, so nothing is said twice.
-              const railFindings = railInterferenceFindings(tree, prefs.units).filter(f => staticWarningTier(f.text) === 'information');
+              const railFindings = built.info.warningTexts.length > 0
+                ? railInterferenceFindings(tree, prefs.units).filter(f => staticWarningTier(f.text) === 'information') : [];
               const railTexts = new Set(railFindings.map(f => f.text));
               const rest = built.info.warningTexts.filter(t => !railTexts.has(t));
+              // Mounted with the design, one ALWAYS-MOUNTED alert region per tier
+              // and one for rail fit, each holding its note as a conditional
+              // child (audit 2026-09-22): a region inserted with its text already
+              // in place is announced unreliably. With no notes, #design-notes
+              // and its regions are empty blocks that take no space.
               return <div id="design-notes" tabIndex={-1}>
                 {(['danger', 'caution', 'information'] as const).map(tier => {
                   const texts = rest.filter(t => staticWarningTier(t) === tier);
-                  return texts.length ? <Note key={tier} tier={tier} className="file-note" role="alert">
-                    {texts.map((text, i) => <div key={i}><StaticWarning text={text} /></div>)}
-                  </Note> : null;
+                  return <div key={tier} className={`design-notes-${tier}`} role="alert">
+                    {texts.length ? <Note tier={tier} className="file-note">
+                      {texts.map((text, i) => <div key={i}><StaticWarning text={text} /></div>)}
+                    </Note> : null}
+                  </div>;
                 })}
+                <div className="rail-fit-alert" role="alert">
                 {railFindings.length > 0 && (
-                  <Note tier="information" className="file-note rail-fit-findings" role="alert">
+                  <Note tier="information" className="file-note rail-fit-findings">
                     <strong>Rail fit on the pad</strong> (the parts&rsquo; angles; no flight number changes):
                     <ul style={{ margin: '4px 0 0', paddingLeft: 18 }}>
                       {railFindings.map(f => <li key={f.text}>
@@ -4467,6 +4492,7 @@ export function App() {
                     </ul>
                   </Note>
                 )}
+                </div>
               </div>;
             })()}
             <PreflightAudit result={designAudit} onSelectPart={setSelectedId} />
@@ -4934,8 +4960,12 @@ export function App() {
 
         {tab === 'results' && (
         <main className="results-column" data-tour="results-panel" ref={resultsMainRef} tabIndex={-1}>
-          {!inspectedSummary && shownResult && lastRun?.aeroModel === 'classic' && shownResult.summary.maxMachNumber > MACH_AUTO_THRESHOLD && (
-            <div className="file-note file-note-warn" role="alert">
+          {/* ALWAYS MOUNTED (audit 2026-09-22): an alert inserted with its text
+              already in place is announced unreliably. sr-only while empty, so
+              the column's flex gap does not space an empty region. */}
+          <div role="alert" className={machWarning ? 'mach-warn-alert' : 'mach-warn-alert sr-only'}>
+          {machWarning && shownResult && (
+            <div className="file-note file-note-warn">
               ⚠ This flight reaches <strong>Mach {shownResult.summary.maxMachNumber.toFixed(2)}</strong> on
               the classic aero model, which is approximate past ~Mach {MACH_AUTO_THRESHOLD} — supersonic CP travel
               (the stability hazard on fast flights) is not modeled. A wind-tunnel-validated
@@ -4958,6 +4988,7 @@ export function App() {
               <LaunchOverrideWarning id="launch-override-relaunch" summary={launchOverrideSummary} onShow={showFlightOverride} />
             </div>
           )}
+          </div>
           {!inspectedSummary && shownResult && lastRun?.aeroModel === 'auto-supersonic' && (
             <div className="file-note">
               {/* States what the flight DID, not what was predicted: the model can also be
@@ -5104,8 +5135,10 @@ export function App() {
               )}
             </div>
           )}
+          {/* Always mounted, sr-only while empty — the Mach warning's pattern above. */}
+          <div role="alert" className={runsQuotaWarn ? 'runs-quota-alert' : 'runs-quota-alert sr-only'}>
           {runsQuotaWarn && (
-            <Note tier="danger" className="file-note file-note-warn" role="alert">
+            <Note tier="danger" className="file-note file-note-warn">
               {runs.length === 0
                 // Nothing stored at all (private mode / storage blocked): the
                 // "table below / export the CSV" advice is unfollowable —
@@ -5119,6 +5152,7 @@ export function App() {
               <button className="file-note-dismiss" onClick={() => setRunsQuotaWarn(false)} aria-label="Dismiss">×</button>
             </Note>
           )}
+          </div>
           <PanelBoundary what="The run history" resetKey={runs}>
             <SimHistory
               provenance={provenanceKey}

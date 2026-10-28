@@ -12,6 +12,8 @@ vi.mock('../services/printDocument.js', async original => ({
 }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const host = document.createElement('div'); document.body.append(host);
+/** Text in any alert region: the regions stay mounted, empty, between messages. */
+const alertTexts = () => [...host.querySelectorAll('[role="alert"]')].map((a) => a.textContent ?? '').filter(Boolean);
 const root = createRoot(host);
 const mount = (node: ComponentNode) => {
   const tree: RocketTree = { name: 'Rocket', components: [{ type: 'stage', id: 's', children: [node] }] };
@@ -30,16 +32,21 @@ it.each(['bulkhead', 'centeringring', 'transition', 'nosecone'])('offers a calib
 });
 it('keeps an unresolved ring or blocked preview error beside the control and allows retry', () => {
   mount({ id: 'p', type: 'centeringring' });
+  // Live-region sweep (audit 2026-09-22): there, empty, before the error.
+  const region = host.querySelector('.paper-template-alert');
+  expect(region?.getAttribute('role')).toBe('alert');
+  expect(region!.textContent).toBe('');
   act(() => button()!.click());
+  expect(host.querySelector('.paper-template-alert')).toBe(region);
   expect(openPrintDocument).not.toHaveBeenCalled();
-  expect(host.querySelector('[role="alert"]')!.textContent).toMatch(/Caution:.*diameter/);
+  expect(host.querySelector('.paper-template-alert[role="alert"]')!.textContent).toMatch(/Caution:.*diameter/);
   mount({ id: 'p2', type: 'bulkhead', outerRadius: 0.03 });
   vi.mocked(openPrintDocument).mockImplementation(() => { throw new Error('Pop-up blocked'); });
   act(() => button()!.click());
   expect(host.textContent).toContain('Pop-up blocked');
   vi.mocked(openPrintDocument).mockImplementation(() => {});
   act(() => button()!.click());
-  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(alertTexts()).toEqual([]);
 });
 it('does not offer a second paper template for fins or tubes', () => {
   mount({ id: 'p', type: 'bodytube' }); expect(button()).toBeUndefined();

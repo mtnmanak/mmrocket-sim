@@ -318,6 +318,26 @@ describe('a sweep that throws', () => {
     expect(closes).toBe(1);
   });
 
+  // Live-region sweep (audit 2026-09-22): the alert and the Note around it were
+  // both inserted with the failure; they now exist, empty and untiered, first.
+  it('reports into an alert region, inside an outcome Note, that were both there before the run', async () => {
+    sweep.mockRejectedValue(new Error('the nozzle table could not be loaded'));
+    mount();
+    const notes = host.querySelector('.batch-outcome-notes');
+    const alert = host.querySelector('.batch-outcome-notes > .batch-failed-alert');
+    expect(notes).not.toBeNull();
+    expect(notes!.textContent).toBe('');
+    expect(notes!.classList.contains('message-tier')).toBe(false);
+    expect(alert?.getAttribute('role')).toBe('alert');
+    expect(alert!.textContent).toBe('');
+    await start();
+    expect(host.querySelector('.batch-outcome-notes')).toBe(notes);
+    expect(host.querySelector('.batch-outcome-notes > .batch-failed-alert')).toBe(alert);
+    expect(alert!.querySelector('.batch-failed')?.textContent)
+      .toBe('The batch stopped before it finished: the nozzle table could not be loaded');
+    expect(notes!.classList.contains('message-danger')).toBe(true);
+  });
+
   it('keeps the rows it flew before it failed, and says they still download', async () => {
     sweep.mockImplementation(async (_input, hooks: BatchSweepHooks) => {
       hooks.onRows?.([row('a', 'Acme E20', 300)]);

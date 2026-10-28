@@ -588,11 +588,15 @@ export function ScaleDialog({
               </p>
             )}
 
-            {finProblems.length > 0 && (
-              <div className="file-note file-note-warn" role="alert">
-                {finProblems.map((problem, i) => <p key={i}>{problem}</p>)}
-              </div>
-            )}
+            {/* Always mounted (audit 2026-09-22): an alert inserted with its
+                text already in place is announced unreliably. */}
+            <div className="scale-fin-alert" role="alert">
+              {finProblems.length > 0 && (
+                <div className="file-note file-note-warn">
+                  {finProblems.map((problem, i) => <p key={i}>{problem}</p>)}
+                </div>
+              )}
+            </div>
 
             {/* The irrecoverable items sit IMMEDIATELY above Scale, beside the
                 backup button, and only when there is something to lose (D7 §5,

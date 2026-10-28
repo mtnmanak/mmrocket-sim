@@ -53,6 +53,8 @@ const MOUNTS: BatchMountOption[] = [
 
 describe('the batch dialog', () => {
   let host: HTMLDivElement;
+  /** Text in any alert region: the regions stay mounted, empty, between messages. */
+  const alertTexts = () => [...host.querySelectorAll('[role="alert"]')].map((a) => a.textContent ?? '').filter(Boolean);
   let root: Root;
   let closes: number;
 
@@ -265,7 +267,7 @@ describe('the batch dialog', () => {
     act(() => { primary().click(); });
     // Armed, not started: the alert is up, the Stop button is not, and the
     // button now names the count it is asking about.
-    expect(host.querySelector('[role="alert"]')?.textContent ?? '').toContain('very long run');
+    expect(host.querySelector('.batch-confirm-alert[role="alert"]')?.textContent ?? '').toContain('very long run');
     expect(Array.from(host.querySelectorAll('button')).some((b) => b.textContent === 'Stop'))
       .toBe(false);
     expect(primaryText()).toMatch(new RegExp(`^Yes — fly ${en(total)} flights · about \\d`));
@@ -277,7 +279,7 @@ describe('the batch dialog', () => {
     act(() => { primary().click(); });
     expect(primaryText()).toContain('Yes —');
     act(() => { halvesBox().click(); });
-    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(alertTexts()).toEqual([]);
     expect(primaryText()).toContain('motors');
   });
 
@@ -329,7 +331,7 @@ describe('the batch dialog', () => {
     expect(primaryText()).toMatch(new RegExp(`^Simulate ${en(total)} flights · about \\d`));
     // …but will not start it, and the reason is on screen, not in a tooltip.
     expect(primary().disabled).toBe(true);
-    const said = host.querySelector('[role="alert"]')?.textContent ?? '';
+    const said = host.querySelector('.batch-refused-alert[role="alert"]')?.textContent ?? '';
     expect(host.querySelector('.batch-refused')!.classList.contains('message-danger')).toBe(true);
     expect(said).toContain(`${en(total)} flights is more than one batch will fly: the most is ${en(BATCH_MAX_FLIGHTS)}`);
     expect(said).toContain('Untick mixed 4+2 / 2+2+2');
@@ -340,7 +342,7 @@ describe('the batch dialog', () => {
     // Unticked, the sweep is back within the cap and the button with it.
     act(() => { pairsBox().click(); });
     expect(primary().disabled).toBe(false);
-    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(alertTexts()).toEqual([]);
   });
 
   /** The refusal's sentence, or '' when the sweep is not refused. */

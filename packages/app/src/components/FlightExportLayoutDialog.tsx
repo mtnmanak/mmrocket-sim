@@ -71,7 +71,8 @@ export function FlightExportLayoutDialog({ layout, onClose }: {
         </div>;
       })}
     </div>
-    {error && <p role="alert">{error}</p>}
+    {/* Always mounted (audit 2026-09-22): an alert inserted with its text already in place is announced unreliably. */}
+    <div className="export-layout-alert" role="alert">{error && <p>{error}</p>}</div>
     <div className="modal-actions">
       <button className="file-btn" onClick={save}>Save layout</button>
       <button className="file-btn" onClick={onClose}>Cancel</button>

@@ -239,8 +239,12 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
         {' '}This is a diagnostic view; no flight changes. Roll-plane angle is the direction around the body, not roll rate.
         {aoaDeg > 0 && <> Above the fins&apos; stall angle the CP is not validated; the selector stops at 20°.</>}
       </Note>
-      {analysis && 'error' in analysis ? <Note as="p" tier="danger" role="alert">Roll-plane CP could not be computed: {analysis.error}</Note>
-        : analysis && lines && <>
+      {/* Always mounted while the panel is open (audit 2026-09-22): an alert
+          inserted with its text already in place is announced unreliably. */}
+      <div className="roll-plane-alert" role="alert">
+        {analysis && 'error' in analysis && <Note as="p" tier="danger">Roll-plane CP could not be computed: {analysis.error}</Note>}
+      </div>
+      {analysis && !('error' in analysis) && lines && <>
           <p className="motor-db-meta">
             {analysis.worstAngle === null ? worstPlaneNote ?? 'No defined worst plane.' : <>
               <strong>Worst plane: {analysis.worstAngle}°</strong>, marked by a thin vertical line on both charts.

@@ -516,7 +516,8 @@ export function WeatherDialog({
           <p className={busy !== null ? 'weather-small' : 'sr-only'} role="status">
             {busy === null ? '' : busy === 'locate' ? 'Waiting for your browser’s location…' : 'Asking Open-Meteo…'}
           </p>
-        {error && <p className="weather-error" role="alert">{error}</p>}
+        {/* Always mounted (audit 2026-09-22): an alert inserted with its text already in place is announced unreliably. */}
+        <div className="weather-alert" role="alert">{error && <p className="weather-error">{error}</p>}</div>
 
         {answer && hours.length === 0 && <p className="weather-note">{WEATHER_DIALOG_COPY.noHours}</p>}
 
