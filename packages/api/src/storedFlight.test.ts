@@ -299,6 +299,17 @@ describe('API boundaries with stored flights: the same refusals as main, before 
     expect(await respond(at(1), 'samples.ork')).toEqual(TOO_LARGE('samples.ork', 'Stored flight data element limit is 1,000,000.'));
     expect(spy).not.toHaveBeenCalled();
   });
+
+  it('refuses omitted samples past 4,000,000 nodes with that exact message, before any DOM', async () => {
+    // Two nodes per 8 bytes (a text and a comment), inside 16 MiB inflated and far under 1,000,000
+    // elements; the branch's ten events take the total past the budget.
+    const xml = strToU8(storedFlightXml({ simulations: [{ points: 0 }] })
+      .replace('</databranch>', `${'x<!---->'.repeat(2_000_000)}</databranch>`));
+    expect(xml.byteLength).toBeLessThan(16 * 1024 * 1024);
+    const spy = vi.spyOn(DOMParser.prototype, 'parseFromString');
+    expect(await respond(gzipSync(xml), 'nodes.ork')).toEqual(TOO_LARGE('nodes.ork', 'Stored flight data node limit is 4,000,000.'));
+    expect(spy).not.toHaveBeenCalled();
+  });
 });
 
 type LocalWorker = Awaited<ReturnType<typeof unstable_startWorker>>;
