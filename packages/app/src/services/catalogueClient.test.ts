@@ -195,6 +195,26 @@ describe('reading a file: bytes, then size, then sha, then parse', () => {
     expect(fetchImpl).toHaveBeenCalledOnce();
   });
 
+  // E's sibling: the motors file of a check was downloaded whole (about
+  // 600 KB) before the missing hash refused it.
+  it('a browser that cannot hash is told so before any request', async () => {
+    await valid();
+    const fetchImpl = vi.fn(async () => new Response(pub.motorsBytes as Uint8Array<ArrayBuffer>));
+    const own = Object.getOwnPropertyDescriptor(globalThis.crypto, 'subtle');
+    Object.defineProperty(globalThis.crypto, 'subtle', { value: undefined, configurable: true });
+    try {
+      await expect(fetchCatalogueFile(pub.entry.motors, MOTORS_MAX_BYTES, 'motors file', { fetchImpl }))
+        .rejects.toThrow(/cannot check the catalogue's files/);
+    } finally {
+      if (own) Object.defineProperty(globalThis.crypto, 'subtle', own);
+      else delete (globalThis.crypto as { subtle?: unknown }).subtle;
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+    // Positive control: with the hash, the same file is read.
+    await fetchCatalogueFile(pub.entry.motors, MOTORS_MAX_BYTES, 'motors file', { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
   it('stops reading an overlong file as soon as it passes its declared size', async () => {
     await valid();
     let pulled = 0;
