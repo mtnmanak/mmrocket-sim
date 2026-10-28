@@ -68,7 +68,7 @@ const ALLOWED: { file: string; pattern: Pattern; snippet: string; reason: string
   },
   {
     file: 'components/FlightCharts.tsx', pattern: 'nested',
-    snippet: "{comparison === 'custom' && <div className=\"comparison-controls\"> … <div role=\"alert\"",
+    snippet: "{comparison === 'custom' && <div className=\"comparison-controls\"> … <div role=\"alert\" className={plotError ? 'plot-series-alert'",
     reason: 'Its error answers "Load all plot series", a button in this same row, so the first one lands in a region '
       + 'already there. plotError outlives a change of comparison, so choosing Custom again brings the row back '
       + 'with the earlier error in it: accepted for now, an owner question of cloud lane 21.',
@@ -81,7 +81,7 @@ const ALLOWED: { file: string; pattern: Pattern; snippet: string; reason: string
   },
   {
     file: 'components/PropertyPanel.tsx', pattern: 'nested',
-    snippet: '{(linked || detachNote) && ( … <div role="status"',
+    snippet: '{(linked || detachNote) && ( … <div role="status" className={detachNote ? undefined : \'sr-only\'}>',
     reason: 'Mounted while the part is linked; Detach unlinks it and sets the note in one click, and the note then '
       + 'holds the block mounted, so the sentence lands in the region that was already there.',
   },
@@ -221,6 +221,19 @@ describe('live regions mount before their message (source scan)', () => {
   it('every allow-list entry still matches (a stale entry fails)', () => {
     const stale = ALLOWED.filter((a) => !hits.some((h) => allowedFor(h) === a)).map((a) => `${a.file}: ${a.snippet}`);
     expect(stale).toEqual([]);
+  });
+
+  it.each([
+    ['components/FlightCharts.tsx', "{comparison === 'custom' && <div className=\"comparison-controls\">", 'alert'],
+    ['components/PropertyPanel.tsx', '{(linked || detachNote) && (\n<div>', 'status'],
+  ])('does not allow unrelated live regions in %s containers', (file, opening, role) => {
+    for (const attrs of ['', ' className="unrelated-region"']) {
+      const closing = file.includes('FlightCharts') ? '</div>}' : '</div>)}';
+      const form = `const f = () => <>${opening}\n<div role="${role}"${attrs}>{message}</div>\n${closing}</>;`;
+      const found = liveRegionHits(file, form);
+      expect(found).toHaveLength(1);
+      expect(allowedFor(found[0]!)).toBeUndefined();
+    }
   });
 
   it('the patterns see the forms the sweep found, comments included', () => {
