@@ -3380,6 +3380,16 @@ describe('a hand-edited autosave', () => {
     expect(importOrk(xml).embeddedExMotors).toEqual([ex]);
   });
 
+  // The loader screens only the time step and winds aloft in `launch`; the
+  // panels read the rest through their own number checks (sweep pin).
+  it.each([5, [], { ...DEFAULT_CONDITIONS, launchRodLengthM: '1' }, { ...DEFAULT_CONDITIONS, latitudeDeg: {} }].map(v => [v]))(
+    'renders every tab with unreadable stored launch conditions %j', async launch => {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), launch, appVersion: APP_VERSION, savedAt: Date.now() }));
+      const host = await mountApp();
+      for (const tab of ['Motors & Configuration', 'Results', 'Design'] as const) await openTab(host, tab);
+      expect(host.textContent).not.toMatch(/NaN|undefined/);
+    });
+
   it('renders the configuration panel for an unnamed configuration with an unreadable unmatched list', async () => {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), mountMotors: {},
       savedConfigs: [{ id: 'cfg', name: null, isDefault: true, motors: {}, unmatched: 5 }], activeConfigId: 'cfg', emptyConfigVersion: 1,

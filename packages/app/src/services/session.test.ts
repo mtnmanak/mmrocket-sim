@@ -1394,3 +1394,20 @@ describe('stored-state hardening: a configuration is screened before its label i
     expect(loaded.treeRestoreNotes ?? []).toEqual([]);
   });
 });
+
+/** Sweep pins: SessionState fields the loader keeps unscreened, read only through their own checks. */
+describe('stored-state hardening: unscreened session scalars', () => {
+  beforeEach(() => discardSession());
+  it.each([
+    { maxMotorLengthByStage: 5 }, { maxMotorLengthByStage: 'x' }, { maxMotorLengthByStage: [null] },
+    { maxMotorLengthM: '0.1' }, { mountId: 7, motor: { designation: 'C6', ejectionDelay: 5 } }, { mountId: {} },
+    { activeConfigId: 7, savedConfigs: [{ id: '7', name: 'C', isDefault: true, motors: {} }] },
+  ] as Record<string, unknown>[])('restores with %j', fields => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), tree: defaultTree(), ...fields }));
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(restored.refused).toBe(false);
+    expect(() => designFingerprint({ ...restored.state, maxMotorLengthByStage: {} })).not.toThrow();
+  });
+});
