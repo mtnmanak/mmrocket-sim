@@ -124,6 +124,39 @@ describe('GitHub REST source eligibility', () => {
     expect(selectSource(renamed)).toMatchObject({ eligible: false, failed: false, reason: 'source refresh gate did not conclude success' });
   });
 
+  it('a: is red when no recognised refresh job could have produced the catalogue-input artifact', () => {
+    const data = fixture(), next = structuredClone(job(data));
+    // Attempt 1's job is carried into attempt 2's page, so the filter drops it;
+    // the one recognised job failed and its complete window starts after the artifact.
+    data.attempts[1].pages[0].jobs.push(data.attempts[0].pages[0].jobs.pop());
+    next.id = 987; next.run_attempt = 2; next.conclusion = 'failure';
+    next.started_at = '2026-10-21T12:00:00Z'; next.completed_at = '2026-10-21T12:10:00Z';
+    next.steps[1].completed_at = '2026-10-21T12:05:00Z';
+    data.attempts[1].pages[0].jobs.push(next);
+    expect(selectSource(data)).toEqual({ eligible: false, failed: true,
+      reason: 'catalogue-input artifact matches no recognised refresh job in any attempt' });
+    // A windowless failed job whose run time misses the artifact cannot have made it either.
+    next.steps[1].conclusion = 'cancelled';
+    expect(selectSource(data)).toMatchObject({ failed: true, reason: expect.stringContaining('matches no recognised refresh job') });
+    next.started_at = '2026-10-19T09:00:00Z'; next.completed_at = '2026-10-19T09:19:59Z';
+    expect(selectSource(data)).toMatchObject({ failed: true, reason: expect.stringContaining('matches no recognised refresh job') });
+  });
+
+  it('a: stays neutral when a failed job without a complete seal window could have produced the artifact', () => {
+    for (const change of [
+      (j) => { j.steps[1].conclusion = 'cancelled'; },
+      (j) => { j.steps = j.steps.filter((s) => s.name !== SEAL_STEP); },
+      (j) => { j.steps[1].conclusion = 'cancelled'; delete j.completed_at; },
+      (j) => { j.steps[1].conclusion = 'cancelled'; j.completed_at = '2026-10-19T09:20:00Z'; j.started_at = '2026-10-19T09:20:00Z'; },
+      // Unreadable timestamps on a windowless job: a possible producer, not a new red.
+      (j) => { j.steps[1].conclusion = 'cancelled'; j.started_at = 'invalid'; },
+      (j) => { j.steps[1].conclusion = 'cancelled'; j.completed_at = 'invalid'; },
+    ]) {
+      const data = fixture(); job(data).conclusion = 'cancelled'; change(job(data));
+      expect(selectSource(data)).toEqual({ eligible: false, failed: false, reason: 'source refresh gate did not conclude success' });
+    }
+  });
+
   it('ci-1: is red when a later attempt passed the gate but only an earlier failed attempt left an artifact', () => {
     const data = fixture(), next = structuredClone(job(data));
     job(data).conclusion = 'failure';
@@ -165,6 +198,41 @@ describe('GitHub REST source eligibility', () => {
     expect(stderr.mock.calls.flat().join('')).toContain('Invalid source run_attempt');
     expect(main(['approval', '--run', join(dir, 'missing.json')], { stdout, stderr })).toBe(1);
     expect(stdout).not.toHaveBeenCalled();
+  });
+
+  it('b: copies a CLI failure in select into the --summary file, scrubbed of the GitHub token', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'catalogue-source-')); dirs.push(dir);
+    writeFileSync(join(dir, 'run.json'), JSON.stringify(fixture().run));
+    const select = (jobs, summary) => ['select', '--run', join(dir, 'run.json'), '--jobs', jobs,
+      '--artifacts', join(dir, 'artifacts.json'), '--out', join(dir, 'out'), '--summary', summary];
+    // (i) A missing --jobs directory fails inside main, before selectSource returns.
+    let stdout = vi.fn(), stderr = vi.fn();
+    expect(main(select(join(dir, 'missing-jobs'), join(dir, 'summary')), { stdout, stderr, env: {} })).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+    const line = stderr.mock.calls.flat().join('');
+    expect(line).toMatch(/^Catalogue source check failed: .*missing-jobs.*\n$/);
+    expect(readFileSync(join(dir, 'summary'), 'utf8')).toBe(line);
+    // (ii) A secret-shaped value in the failing path is redacted in both outputs.
+    for (const key of ['GH_TOKEN', 'GITHUB_TOKEN']) {
+      const secret = `ghs_${key}0123456789abcdef`;
+      stdout = vi.fn(); stderr = vi.fn();
+      expect(main(select(join(dir, secret), join(dir, `summary-${key}`)), { stdout, stderr, env: { [key]: secret } })).toBe(1);
+      const text = stderr.mock.calls.flat().join('');
+      expect(text).toContain('[REDACTED]');
+      expect(text).not.toContain(secret);
+      expect(readFileSync(join(dir, `summary-${key}`), 'utf8')).toBe(text);
+    }
+    // (iii) A summary path that cannot be appended to keeps exit 1 and the stderr line.
+    mkdirSync(join(dir, 'summary-dir'));
+    stdout = vi.fn(); stderr = vi.fn();
+    expect(main(select(join(dir, 'missing-jobs'), join(dir, 'summary-dir')), { stdout, stderr, env: {} })).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.flat().join('')).toMatch(/^Catalogue source check failed: .*missing-jobs/);
+    // A failure before parseArgs returns writes to stderr only.
+    stderr = vi.fn();
+    expect(main(['select', '--summary', join(dir, 'summary-parse'), '--unknown'], { stdout, stderr, env: {} })).toBe(1);
+    expect(stderr).toHaveBeenCalledTimes(1);
+    expect(() => readFileSync(join(dir, 'summary-parse'))).toThrow(/ENOENT/);
   });
 
   it('R4 #4: classifies a failed environment read: 404 is a missing environment, anything else is unconfirmed', () => {

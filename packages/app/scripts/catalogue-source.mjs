@@ -85,7 +85,14 @@ export function selectSource({ run, attempts, artifacts }) {
       return { artifact, created, owner: owners[0] };
     }).filter((m) => m.owner).sort((a, b) => b.created - a.created);
     if (!matches.length) {
-      if (!jobs.some((job) => job.conclusion === 'success')) return neutral('source refresh gate did not conclude success');
+      if (!jobs.some((job) => job.conclusion === 'success')) {
+        // A job stopped before its seal completed has no window but may have
+        // uploaded; one whose run time cannot be read is given the same benefit.
+        const mayHaveMade = (created) => windows.some(({ job, start }) => start === undefined
+          && !(Date.parse(job.started_at) > created) && !(Date.parse(job.completed_at) < created));
+        if (frozen.every((a) => mayHaveMade(epoch(a.created_at)))) return neutral('source refresh gate did not conclude success');
+        throw new Error(`${INPUT_ARTIFACT} artifact matches no recognised refresh job in any attempt`);
+      }
       throw new Error('catalogue-input artifact is outside every pre-install attempt window');
     }
     const { artifact, owner } = matches[0];
@@ -126,10 +133,16 @@ export function approvalErrorNotice(stderrText) {
     : 'could not confirm the approval rule\n';
 }
 
-export function main(argv = process.argv.slice(2), { stdout = (s) => process.stdout.write(s), stderr = (s) => process.stderr.write(s) } = {}) {
+const scrub = (message, env) => [env.GH_TOKEN, env.GITHUB_TOKEN]
+  .filter(Boolean).reduce((s, secret) => s.split(secret).join('[REDACTED]'), String(message));
+
+export function main(argv = process.argv.slice(2), {
+  stdout = (s) => process.stdout.write(s), stderr = (s) => process.stderr.write(s), env = process.env,
+} = {}) {
+  let values;
   try {
     const [command, ...args] = argv;
-    const { values } = parseArgs({ args, options: Object.fromEntries(['run', 'jobs', 'artifacts', 'out', 'summary', 'error'].map((key) => [key, { type: 'string' }])) });
+    ({ values } = parseArgs({ args, options: Object.fromEntries(['run', 'jobs', 'artifacts', 'out', 'summary', 'error'].map((key) => [key, { type: 'string' }])) }));
     if (command === 'approval-error') { stdout(approvalErrorNotice(readFileSync(values.error, 'utf8'))); return 0; }
     const run = JSON.parse(readFileSync(values.run, 'utf8'));
     if (command === 'approval') { stdout(approvalNotice(run)); return 0; }
@@ -148,7 +161,10 @@ export function main(argv = process.argv.slice(2), { stdout = (s) => process.std
     return result.failed ? 1 : 0;
   } catch (error) {
     // stdout is captured into files and the summary; the reason belongs in the log.
-    stderr(`Catalogue source check failed: ${error.message}\n`);
+    const line = scrub(`Catalogue source check failed: ${error.message}`, env);
+    stderr(`${line}\n`);
+    // A failed step copies no summary of its own; record why it failed there.
+    if (values?.summary) try { appendFileSync(values.summary, `${line}\n`); } catch { /* the log still has it */ }
     return 1;
   }
 }

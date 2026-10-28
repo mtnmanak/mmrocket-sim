@@ -38,15 +38,6 @@ const APP = join(HERE, '..');
 const ROOT = join(APP, '..', '..');
 const CURVES = join(APP, 'src', 'data', 'motorCurves.json');
 
-const argv = process.argv.slice(2);
-const opt = (name) => {
-  const i = argv.indexOf(name);
-  return i >= 0 ? argv[i + 1] : undefined;
-};
-const out = resolve(opt('--out') ?? join(tmpdir(), 'mmrsim-digest-census'));
-const dropbox = argv.includes('--no-dropbox') ? null : (opt('--dropbox') ?? 'G:/Documents/Dropbox');
-mkdirSync(out, { recursive: true });
-
 /** Every *.ork under `dir`, skipping the reference source and tool folders. */
 function walk(dir, found = []) {
   let entries;
@@ -63,33 +54,53 @@ function walk(dir, found = []) {
   return found;
 }
 
-const paths = [...walk(join(ROOT, 'docs')).map((p) => ({ path: p, corpus: 'docs' }))];
-const list = opt('--list');
-if (list) {
-  for (const line of readFileSync(list, 'utf8').split(/\r?\n/)) {
-    if (line.trim()) paths.push({ path: resolve(dropbox ?? '.', line.trim()), corpus: 'dropbox' });
+/**
+ * The raw files, once per bundle generation, cached as DIR/raw-<generated>.json.
+ * The cache is written only after a complete download: every motor asked for
+ * has curves in `bundle`, so a batch with no usable raw file fails rather than
+ * leave a short cache that would read as withdrawn files on every later run.
+ */
+export async function cachedRawFiles(bundle, out, { download = downloadRawFiles, log = (s) => process.stdout.write(s) } = {}) {
+  const rawPath = join(out, `raw-${bundle.generated}.json`);
+  if (!existsSync(rawPath)) {
+    const raw = await download(Object.keys(bundle.curves), { previous: bundle, log });
+    log('\n');
+    writeFileSync(rawPath, JSON.stringify(raw));
   }
-} else if (dropbox && existsSync(dropbox)) {
-  paths.push(...walk(dropbox).map((p) => ({ path: p, corpus: 'dropbox' })));
-}
-const files = paths.filter((f) => statSync(f.path, { throwIfNoEntry: false })?.isFile())
-  .map((f) => ({ ...f, sha256: createHash('sha256').update(readFileSync(f.path)).digest('hex') }));
-console.log(`${files.length} .ork files (${new Set(files.map((f) => f.sha256)).size} distinct by content)`);
-
-// The raw files, once per bundle generation.
-const bundle = JSON.parse(readFileSync(CURVES, 'utf8'));
-const rawPath = join(out, `raw-${bundle.generated}.json`);
-if (!existsSync(rawPath)) {
-  const ids = Object.keys(bundle.curves);
-  const raw = await downloadRawFiles(ids);
-  process.stdout.write('\n');
-  writeFileSync(rawPath, JSON.stringify(raw));
+  return rawPath;
 }
 
-const manifest = join(out, 'manifest.json');
-writeFileSync(manifest, JSON.stringify({ files, raw: rawPath, results: join(out, 'results.json') }));
-const vitest = join(ROOT, 'node_modules', 'vitest', 'vitest.mjs');
-const run = spawnSync(process.execPath, [vitest, 'run', 'src/services/motorDigest.census.test.ts', '--project', 'app'], {
-  cwd: APP, stdio: 'inherit', env: { ...process.env, DIGEST_CENSUS: manifest },
-});
-process.exitCode = run.status ?? 1;
+export async function main(argv = process.argv.slice(2)) {
+  const opt = (name) => {
+    const i = argv.indexOf(name);
+    return i >= 0 ? argv[i + 1] : undefined;
+  };
+  const out = resolve(opt('--out') ?? join(tmpdir(), 'mmrsim-digest-census'));
+  const dropbox = argv.includes('--no-dropbox') ? null : (opt('--dropbox') ?? 'G:/Documents/Dropbox');
+  mkdirSync(out, { recursive: true });
+
+  const paths = [...walk(join(ROOT, 'docs')).map((p) => ({ path: p, corpus: 'docs' }))];
+  const list = opt('--list');
+  if (list) {
+    for (const line of readFileSync(list, 'utf8').split(/\r?\n/)) {
+      if (line.trim()) paths.push({ path: resolve(dropbox ?? '.', line.trim()), corpus: 'dropbox' });
+    }
+  } else if (dropbox && existsSync(dropbox)) {
+    paths.push(...walk(dropbox).map((p) => ({ path: p, corpus: 'dropbox' })));
+  }
+  const files = paths.filter((f) => statSync(f.path, { throwIfNoEntry: false })?.isFile())
+    .map((f) => ({ ...f, sha256: createHash('sha256').update(readFileSync(f.path)).digest('hex') }));
+  console.log(`${files.length} .ork files (${new Set(files.map((f) => f.sha256)).size} distinct by content)`);
+
+  const rawPath = await cachedRawFiles(JSON.parse(readFileSync(CURVES, 'utf8')), out);
+
+  const manifest = join(out, 'manifest.json');
+  writeFileSync(manifest, JSON.stringify({ files, raw: rawPath, results: join(out, 'results.json') }));
+  const vitest = join(ROOT, 'node_modules', 'vitest', 'vitest.mjs');
+  const run = spawnSync(process.execPath, [vitest, 'run', 'src/services/motorDigest.census.test.ts', '--project', 'app'], {
+    cwd: APP, stdio: 'inherit', env: { ...process.env, DIGEST_CENSUS: manifest },
+  });
+  return run.status ?? 1;
+}
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();

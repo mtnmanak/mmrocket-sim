@@ -2,6 +2,7 @@ import { gzipSync, strFromU8, unzipSync, zipSync } from 'fflate';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fileURLToPath } from 'node:url';
 import type { unstable_startWorker } from 'wrangler';
+import { WINDOWS_1252_CHUNK } from '../../app/src/services/xmlUtil.js';
 import { bytesOf } from './fixtures.testSupport.js';
 
 /**
@@ -15,6 +16,7 @@ type LocalWorker = Awaited<ReturnType<typeof unstable_startWorker>>;
 let normal: LocalWorker | undefined;
 let probe: LocalWorker | undefined;
 let table: LocalWorker | undefined;
+let latin1: LocalWorker | undefined;
 
 beforeAll(async () => {
   process.env['WRANGLER_SEND_METRICS'] = 'false';
@@ -36,8 +38,11 @@ beforeAll(async () => {
   table = await start({ ...options,
     entrypoint: fileURLToPath(new URL('./tableDecoderWorker.testSupport.ts', import.meta.url)) });
   await table.ready;
+  latin1 = await start({ ...options,
+    entrypoint: fileURLToPath(new URL('./latin1DecoderWorker.testSupport.ts', import.meta.url)) });
+  await latin1.ready;
 });
-afterAll(async () => { await Promise.all([normal?.dispose(), probe?.dispose(), table?.dispose()]); });
+afterAll(async () => { await Promise.all([normal?.dispose(), probe?.dispose(), table?.dispose(), latin1?.dispose()]); });
 
 const C1 = [0x20ac, 0x81, 0x201a, 0x192, 0x201e, 0x2026, 0x2020, 0x2021, 0x2c6, 0x2030, 0x160, 0x2039, 0x152, 0x8d,
   0x17d, 0x8f, 0x90, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x2dc, 0x2122, 0x161, 0x203a, 0x153,
@@ -107,6 +112,38 @@ describe('a declared windows-1252 design through workerd', () => {
     const body = packed[pack](singleBytes(build('windows-1252')), member);
     for (const worker of [normal!, table!]) {
       const out = await describeBody(`design.${ext}`, body, worker);
+      expect(out.name).toBe(NAME);
+      expect(out.notes.import.text).not.toMatch(NOT_UTF8);
+    }
+  });
+
+  // workerd's own decoder gives the same WHATWG text, so only these counts show that each
+  // test worker's decoder was asked for (and the probe then caches its answer per isolate).
+  it('the table and ISO-8859-1 workers\' windows-1252 decoders are asked for', async () => {
+    for (const worker of [table!, latin1!]) {
+      expect((await describeBody('design.rkt', singleBytes(rkt('windows-1252')), worker)).name).toBe(NAME);
+      const response = await worker.fetch('http://local/__test/decoder-calls');
+      expect(response.status).toBe(200);
+      expect(((await response.json()) as { windows1252Calls: number }).windows1252Calls).toBeGreaterThan(0);
+    }
+  });
+
+  it.each(['plain', 'gzip', 'zip'] as const)('a %s body longer than one decode chunk, the name across its end', async pack => {
+    const xml = rkt('windows-1252');
+    const nameAt = xml.indexOf(`<Name>${RAW_NAME}</Name>`);
+    // Whitespace before the element puts the 32 C1 bytes either side of the chunk boundary.
+    const c1At = nameAt + '<Name>Aero'.length;
+    const padding = WINDOWS_1252_CHUNK - 16 - c1At;
+    expect(nameAt).toBeGreaterThan(0);
+    expect(padding).toBeGreaterThan(0);
+    const bytes = singleBytes(`${xml.slice(0, nameAt)}${' '.repeat(padding)}${xml.slice(nameAt)}`);
+    const start = c1At + padding;
+    expect(Array.from(bytes.subarray(start, start + 32))).toEqual(Array.from({ length: 32 }, (_, i) => 0x80 + i));
+    expect(start).toBeLessThan(WINDOWS_1252_CHUNK);
+    expect(start + 32).toBeGreaterThan(WINDOWS_1252_CHUNK);
+    expect(bytes.length).toBeGreaterThan(WINDOWS_1252_CHUNK);
+    for (const worker of [normal!, table!, latin1!]) {
+      const out = await describeBody('design.rkt', packed[pack](bytes, 'design.rkt'), worker);
       expect(out.name).toBe(NAME);
       expect(out.notes.import.text).not.toMatch(NOT_UTF8);
     }
