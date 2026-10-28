@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -12,6 +12,9 @@ import { BATCH, addDigests, addDigestsMain, compactFile, curvesDocument, downloa
  * tested, and a failed batch was reported only after the short bundle had been
  * written (audit 2026-09-22, Tests rows 480 and 523).
  */
+
+// Every case injects its download; a reach for the real network fails loudly.
+vi.stubGlobal('fetch', async () => { throw new Error('global fetch called'); });
 
 const b64 = (text) => Buffer.from(text, 'utf8').toString('base64');
 
@@ -60,11 +63,25 @@ describe('raw census: a 200 batch with no usable raw file for motors that had cu
     expect(events).toEqual(['request', 250]);
   });
 
-  it('passes motors that never had curves, a partial batch, and any batch without previous', async () => {
+  it('passes motors that never had curves, and any batch without previous', async () => {
     await expect(census(['c', 'd'], () => []).operation).resolves.toEqual({});
     await expect(census(['a', 'b'], () => [], {}).operation).resolves.toEqual({});
-    // The same known limit as ci-3: one usable file clears the batch.
-    await expect(census(['a', 'b'], () => [raw('a')]).operation).resolves.toEqual({ 'f-a': { motorId: 'a', format: 'RASP', source: undefined, data: 'cmF3' } });
+    await expect(census(['a', 'b'], () => [raw('a')], {}).operation).resolves.toEqual({ 'f-a': { motorId: 'a', format: 'RASP', source: undefined, data: 'cmF3' } });
+    // A motor that had curves and one that never did: only the first needs a file.
+    await expect(census(['a', 'c'], () => [raw('a')]).operation).resolves.toEqual({ 'f-a': { motorId: 'a', format: 'RASP', source: undefined, data: 'cmF3' } });
+  });
+
+  it('S2-2: rejects a partial batch that drops a motor that had curves, naming it, and pauses before rejecting', async () => {
+    const { operation, events } = census(['a', 'b', 'c'], () => [raw('a')]);
+    await expect(operation).rejects.toThrow('download.json returned no usable raw file for 1 motor that had curves: b');
+    expect(events).toEqual(['request', 250]);
+  });
+
+  it('S2-2: keeps no raw file for a motor the batch did not ask for', async () => {
+    const got = await census(['a', 'c'], (ids) => [...ids.filter((id) => id === 'a').map(raw), raw('b'), raw('elsewhere')]).operation;
+    expect(Object.keys(got)).toEqual(['f-a']);
+    // An answer holding only un-asked motors is still the empty batch it was.
+    await expect(census(['a'], () => [raw('b')]).operation).rejects.toThrow(/no usable raw file for a batch whose motors had curves/);
   });
 });
 
@@ -335,19 +352,60 @@ describe('ci-3: a 200 batch with no usable file for motors that had curves', () 
     expect(unusable.failed).toHaveLength(2);
   });
 
-  it('passes a batch of motors that never had curves, a partial batch (known limit), and any batch with no previous bundle', async () => {
+  it('passes a batch of motors that never had curves, and any batch with no previous bundle', async () => {
     const { motors } = world(BATCH * 2);
     const previous = bundleOf(motors.slice(0, BATCH).map((m) => m.motorId));
     const curveless = await fetchCurves(motors.slice(BATCH), { fetchImpl: answer(() => []), sleep: noSleep, log: quiet, previous });
     expect(curveless.failed).toEqual([]);
     expect(curvesDocument(curveless, 'x', 'y').complete).toBe(true);
-    // KNOWN LIMIT: one usable file anywhere in the batch passes it, however many motors it dropped.
-    const partial = await fetchCurves(motors.slice(0, BATCH), { fetchImpl: answer((ids) => [sample(ids[0])]), sleep: noSleep, log: quiet, previous });
-    expect(partial.failed).toEqual([]);
-    expect(Object.keys(partial.curves)).toEqual([motors[0].motorId]);
+    // A batch mixing both: the motors that had curves are answered, the curveless ones return none.
+    const mixed = await fetchCurves(motors.slice(BATCH / 2, BATCH + BATCH / 2), {
+      fetchImpl: answer((ids) => ids.filter((id) => Object.hasOwn(previous.curves, id)).map(sample)), sleep: noSleep, log: quiet, previous });
+    expect(mixed.failed).toEqual([]);
+    expect(curvesDocument(mixed, 'x', 'y').complete).toBe(true);
     for (const none of [undefined, null]) {
       const got = await fetchCurves(motors.slice(0, BATCH), { fetchImpl: answer(() => []), sleep: noSleep, log: quiet, previous: none });
       expect(got.failed).toEqual([]);
+    }
+  });
+
+  it('S2-2: fails each motor that had curves when a 200 batch answers only 15 of its 50, one line per motor', async () => {
+    const { motors } = world(BATCH);
+    const previous = bundleOf(motors.map((m) => m.motorId));
+    const got = await fetchCurves(motors, { fetchImpl: answer((ids) => ids.slice(0, 15).map(sample)), sleep: noSleep, log: quiet, previous });
+    expect(Object.keys(got.curves)).toEqual(motors.slice(0, 15).map((m) => m.motorId));
+    expect(got.failed).toEqual(motors.slice(15).map((m) => `${m.manufacturerAbbrev} ${m.designation}: download.json returned `
+      + 'no usable file for a motor that had curves'));
+    expect(curvesDocument(got, 'x', 'y').complete).toBeUndefined();
+    // A file that is not usable is no file: the motor still fails.
+    const unusable = await fetchCurves(motors.slice(0, 2), {
+      fetchImpl: answer((ids) => [sample(ids[0]), { ...sample(ids[1]), samples: [] }]), sleep: noSleep, log: quiet, previous });
+    expect(unusable.failed).toEqual([`Test F1: download.json returned no usable file for a motor that had curves`]);
+  });
+
+  it('S2-2: attaches and counts no file for a motor the batch did not ask for', async () => {
+    const { motors } = world(3);
+    const got = await fetchCurves(motors.slice(0, 2), {
+      fetchImpl: answer((ids) => [...ids.map(sample), sample('m2'), sample('not-in-catalogue')]), sleep: noSleep, log: quiet, previous: null });
+    expect(Object.keys(got.curves)).toEqual(['m0', 'm1']);
+    expect(got.files).toBe(2);
+    expect(got.points).toBe(4);
+    expect(got.failed).toEqual([]);
+  });
+
+  it('S2-2: main exits 1 and writes nothing on a partial batch, unless --allow-partial', async () => {
+    const w = prepared(BATCH, bundleOf(['m0', 'm1']));
+    try {
+      const before = readFileSync(w.outPath, 'utf8');
+      const fetchImpl = answer((ids) => ids.filter((id) => id !== 'm1').map(sample));
+      expect(await main({ dbPath: w.dbPath, outPath: w.outPath, fetchImpl, sleep: noSleep, log: quiet, allowPartial: false })).toBe(1);
+      expect(readFileSync(w.outPath, 'utf8')).toBe(before);
+      expect(await main({ dbPath: w.dbPath, outPath: w.outPath, fetchImpl, sleep: noSleep, log: quiet, allowPartial: true })).toBe(0);
+      const doc = JSON.parse(readFileSync(w.outPath, 'utf8'));
+      expect(doc.complete).toBeUndefined();
+      expect(Object.hasOwn(doc.curves, 'm1')).toBe(false);
+    } finally {
+      rmSync(w.dir, { recursive: true, force: true });
     }
   });
 

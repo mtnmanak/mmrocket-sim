@@ -236,7 +236,8 @@ describe('catalogue workflow isolation and approval boundary', () => {
     expect(condition).toBe("!cancelled() && github.repository == 'mtnmanak/mmrocket-sim' && github.ref == 'refs/heads/main'");
     const input = steps(CATALOGUE, 'plan').find((s) => value(s, 'id') === 'input').join('\n');
     for (const line of ['gh api "$api/runs/$RUN_ID"', 'gh api --paginate --slurp "$api/runs/$RUN_ID/attempts/$attempt/jobs?per_page=100"',
-      'catalogue-source.mjs attempts', 'catalogue-source.mjs select', '--run "$RUNNER_TEMP/source-run.json" --jobs "$jobs" --artifacts "$RUNNER_TEMP/artifacts.json"',
+      'node packages/app/scripts/catalogue-source.mjs attempts --run "$RUNNER_TEMP/source-run.json" --summary "$GITHUB_STEP_SUMMARY" > "$RUNNER_TEMP/attempts.txt"',
+      'catalogue-source.mjs select', '--run "$RUNNER_TEMP/source-run.json" --jobs "$jobs" --artifacts "$RUNNER_TEMP/artifacts.json"',
       '--out "$RUNNER_TEMP/source-output" --summary "$GITHUB_STEP_SUMMARY"']) expect(input).toContain(line);
     expect(path(CATALOGUE, 'jobs', 'plan', 'permissions').filter(isContent).map((l) => l.trim())).toEqual(['contents: read', 'actions: read']);
     expect(path(CATALOGUE, 'jobs', 'plan').join('\n')).not.toMatch(/\bsecrets\b|^\s*(?:run: )?npm ci|cache: npm|environment:/im);

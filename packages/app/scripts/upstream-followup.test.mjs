@@ -49,16 +49,19 @@ it('accepts dotted XML attributes in preset records', () => {
   expect(() => parseOrc('<Components><BodyTube extra.note="x"/></Components>', 'valid.orc', new Map())).not.toThrow();
 });
 
-it.each(['page', 'catalogue population'])('stops after thrustcurve.org signals a rate limit with 403 at %s', async source => {
+it.each(['page', 'catalogue population'])('stops thrustcurve.org checks, and only those, after a 403 at %s', async source => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
-  const later = vi.fn();
+  // Audit S2-1: a later thrustcurve.org check is skipped; an unrelated one still runs.
+  const later = Object.assign(vi.fn(), { needs: ['thrustcurve.org'] });
+  const unrelated = Object.assign(vi.fn(), { needs: ['GitHub'] });
   const fetcher = vi.fn(async () => ({ ok: false, status: 403 }));
   vi.stubGlobal('fetch', fetcher);
   try {
     const check = source === 'page' ? () => checkMotorCorrections() : () => checkThrustCurve();
-    expect(await main([check, later], () => {})).toBe(2);
+    expect(await main([check, later, unrelated], () => {})).toBe(2);
     expect(later).not.toHaveBeenCalled();
+    expect(unrelated).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledOnce();
   } finally { vi.unstubAllGlobals(); }
 });
@@ -145,15 +148,18 @@ it('continues independent checks after a page cannot be parsed, preserving exit 
   expect(later).toHaveBeenCalledOnce();
 });
 
-it.each(['page', 'catalogue population'])('stops requests after an HTTP 429 from %s', async source => {
+it.each(['page', 'catalogue population'])('stops requests to the host that sent an HTTP 429 from %s, and only to it', async source => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
-  const later = vi.fn();
+  const service = source === 'page' ? 'Open-Meteo' : 'thrustcurve.org';
+  const later = Object.assign(vi.fn(), { needs: [service] });
+  const unrelated = Object.assign(vi.fn(), { needs: [service === 'Open-Meteo' ? 'thrustcurve.org' : 'Open-Meteo'] });
   const fetcher = vi.fn(async () => ({ ok: false, status: 429 }));
   vi.stubGlobal('fetch', fetcher);
   try {
-    expect(await main([source === 'page' ? () => checkOpenMeteoTerms() : () => checkThrustCurve(), later], () => {})).toBe(2);
+    expect(await main([source === 'page' ? () => checkOpenMeteoTerms() : () => checkThrustCurve(), later, unrelated], () => {})).toBe(2);
     expect(later).not.toHaveBeenCalled();
+    expect(unrelated).toHaveBeenCalledOnce();
     expect(fetcher).toHaveBeenCalledOnce();
   } finally { vi.unstubAllGlobals(); }
 });

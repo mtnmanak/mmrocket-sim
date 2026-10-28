@@ -157,6 +157,42 @@ describe('GitHub REST source eligibility', () => {
     }
   });
 
+  it('113-13a: is red when a stray catalogue-input artifact sits beside the one that matches', () => {
+    const data = fixture();
+    // Created after every refresh window, and attempt 2 ran no refresh job.
+    data.artifacts.push({ total_count: 1, artifacts: [{ ...artifact(data), id: 333, created_at: '2026-10-22T08:00:00Z' }] });
+    expect(selectSource(data)).toEqual({ eligible: false, failed: true,
+      reason: 'catalogue-input artifact matches no recognised refresh job in any attempt' });
+    // Positive control: without the stray the same run is eligible.
+    data.artifacts.pop();
+    expect(selectSource(data)).toMatchObject({ eligible: true, artifact_id: '321' });
+  });
+
+  it('113-13a: stays eligible when the extra artifact may come from a cancelled, windowless earlier attempt', () => {
+    const data = fixture(), next = structuredClone(job(data));
+    job(data).conclusion = 'cancelled'; job(data).steps[1].conclusion = 'cancelled';
+    next.id = 987; next.run_attempt = 2;
+    next.started_at = '2026-10-21T12:00:00Z'; next.completed_at = '2026-10-21T12:10:00Z';
+    next.steps[1].completed_at = '2026-10-21T12:05:00Z';
+    data.attempts[1].pages[0].jobs.push(next);
+    data.artifacts.push({ total_count: 1, artifacts: [{ ...artifact(data), id: 333, created_at: '2026-10-21T12:04:00Z' }] });
+    expect(selectSource(data)).toMatchObject({ eligible: true, source_attempt: '2', artifact_id: '333' });
+    // Outside the cancelled job's run time it could not have made it: red.
+    job(data).completed_at = '2026-10-19T09:19:00Z';
+    expect(selectSource(data)).toMatchObject({ failed: true, reason: expect.stringContaining('matches no recognised refresh job') });
+  });
+
+  it('113-13e: with no match, every artifact needs a possible producer, not just one', () => {
+    const data = fixture();
+    job(data).conclusion = 'cancelled'; job(data).steps[1].conclusion = 'cancelled';
+    // The windowless job ran 09:17-09:30 and may have made the first; nothing could have made the second.
+    data.artifacts.push({ total_count: 1, artifacts: [{ ...artifact(data), id: 333, created_at: '2026-10-22T08:00:00Z' }] });
+    expect(selectSource(data)).toEqual({ eligible: false, failed: true,
+      reason: 'catalogue-input artifact matches no recognised refresh job in any attempt' });
+    data.artifacts.pop();
+    expect(selectSource(data)).toEqual({ eligible: false, failed: false, reason: 'source refresh gate did not conclude success' });
+  });
+
   it('ci-1: is red when a later attempt passed the gate but only an earlier failed attempt left an artifact', () => {
     const data = fixture(), next = structuredClone(job(data));
     job(data).conclusion = 'failure';
@@ -235,6 +271,29 @@ describe('GitHub REST source eligibility', () => {
     expect(() => readFileSync(join(dir, 'summary-parse'))).toThrow(/ENOENT/);
   });
 
+  it('113-13b: attempts copies a bad run_attempt into --summary and exits 1; a good run writes only the attempt numbers', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'catalogue-source-')); dirs.push(dir);
+    const secret = 'ghs_attempts0123456789abcdef';
+    writeFileSync(join(dir, 'bad.json'), JSON.stringify({ ...fixture().run, run_attempt: 0, note: secret }));
+    writeFileSync(join(dir, 'good.json'), JSON.stringify(fixture().run));
+    let stdout = vi.fn(), stderr = vi.fn();
+    expect(main(['attempts', '--run', join(dir, `${secret}.json`), '--summary', join(dir, 'summary')],
+      { stdout, stderr, env: { GH_TOKEN: secret } })).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+    expect(readFileSync(join(dir, 'summary'), 'utf8')).toBe(stderr.mock.calls.flat().join(''));
+    expect(readFileSync(join(dir, 'summary'), 'utf8')).toContain('[REDACTED]');
+    expect(readFileSync(join(dir, 'summary'), 'utf8')).not.toContain(secret);
+    stdout = vi.fn(); stderr = vi.fn();
+    expect(main(['attempts', '--run', join(dir, 'bad.json'), '--summary', join(dir, 'summary-bad')], { stdout, stderr, env: {} })).toBe(1);
+    expect(readFileSync(join(dir, 'summary-bad'), 'utf8')).toBe('Catalogue source check failed: Invalid source run_attempt\n');
+    expect(stdout).not.toHaveBeenCalled();
+    stdout = vi.fn(); stderr = vi.fn();
+    expect(main(['attempts', '--run', join(dir, 'good.json'), '--summary', join(dir, 'summary-good')], { stdout, stderr, env: {} })).toBe(0);
+    expect(stdout.mock.calls).toEqual([['1\n2\n']]);
+    expect(stderr).not.toHaveBeenCalled();
+    expect(() => readFileSync(join(dir, 'summary-good'))).toThrow(/ENOENT/);
+  });
+
   it('R4 #4: classifies a failed environment read: 404 is a missing environment, anything else is unconfirmed', () => {
     const dir = mkdtempSync(join(tmpdir(), 'catalogue-source-')); dirs.push(dir);
     const missing = approvalErrorNotice('gh: Not Found (HTTP 404)\n');
@@ -273,6 +332,33 @@ describe('GitHub REST source eligibility', () => {
     expect(readFileSync(join(dir, 'summary'), 'utf8')).toContain('ineligible: source run is not on main');
     data.run.head_branch = 'main'; artifact(data).expired = true; write(); expect(main(args, { stdout })).toBe(1);
     expect(readFileSync(join(dir, 'summary'), 'utf8')).toContain('failed: source catalogue-input artifact has expired');
+  });
+
+  it('113-13c: an unwritable --summary leaves a NEUTRAL select at 0 and a failed one at 1, and --out is still written', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'catalogue-source-')); dirs.push(dir);
+    mkdirSync(join(dir, 'jobs')); mkdirSync(join(dir, 'summary-dir'));
+    const data = fixture(), write = () => {
+      writeFileSync(join(dir, 'run.json'), JSON.stringify(data.run));
+      writeFileSync(join(dir, 'artifacts.json'), JSON.stringify(data.artifacts));
+      for (const a of data.attempts) writeFileSync(join(dir, 'jobs', `${a.attempt}.json`), JSON.stringify(a.pages));
+    };
+    const args = ['select', '--run', join(dir, 'run.json'), '--jobs', join(dir, 'jobs'), '--artifacts', join(dir, 'artifacts.json'),
+      '--out', join(dir, 'out'), '--summary', join(dir, 'summary-dir')];
+    data.run.head_branch = 'branch'; write();
+    let stdout = vi.fn(), stderr = vi.fn();
+    expect(main(args, { stdout, stderr, env: {} })).toBe(0);
+    expect(stdout.mock.calls).toEqual([['source run is not on main\n']]);
+    expect(stderr.mock.calls.flat().join('')).toMatch(/^Catalogue source check: the step summary could not be written: EISDIR/);
+    expect(readFileSync(join(dir, 'out'), 'utf8')).toBe('eligible=false\n');
+    data.run.head_branch = 'main'; artifact(data).expired = true; write();
+    stdout = vi.fn(); stderr = vi.fn();
+    expect(main(args, { stdout, stderr, env: {} })).toBe(1);
+    expect(stdout.mock.calls).toEqual([['source catalogue-input artifact has expired; run a new refresh\n']]);
+    expect(readFileSync(join(dir, 'out'), 'utf8')).toBe('eligible=false\neligible=false\n');
+    // The --out file is not a summary: failing to write it stays red.
+    stdout = vi.fn(); stderr = vi.fn();
+    artifact(data).expired = false; write();
+    expect(main(args.map((a) => (a === join(dir, 'out') ? join(dir, 'jobs') : a)), { stdout, stderr, env: {} })).toBe(1);
   });
 
   it('warns about missing required reviewers and reports a configured rule', () => {

@@ -11,6 +11,7 @@ import {
   type CatalogueSnapshotRef, type ManifestSnapshot,
 } from './catalogueClient.js';
 import { correctMotorRow } from '../../scripts/motor-corrections.mjs';
+import { bundledSnapshot } from './bundledSnapshot.js';
 
 /**
  * "Check for newer motors" — the user's way round a stale shipped catalogue,
@@ -444,6 +445,9 @@ export async function checkForCatalogueUpdates(
     if (previous?.snapshot?.id === snapshot.id && previous.snapshot.motorsSha256 === snapshot.motorsSha256) {
       return install({ ...previous, fetchedAt: checkedAt, snapshot });
     }
+    // The snapshot IS the shipped catalogue (owner 113-9e): its rows, projected
+    // and corrected, are MOTOR_DB, so the download would diff to exactly this.
+    if (bundleIsSnapshot(manifest)) return install(...overlayFrom(MOTOR_DB, previous, checkedAt, snapshot));
     let live: MotorDbEntry[];
     try {
       live = await readSnapshotMotors(manifest, io);
@@ -454,6 +458,17 @@ export async function checkForCatalogueUpdates(
     opts.signal?.removeEventListener('abort', relay);
     if (running === ctrl) running = null;
   }
+}
+
+/**
+ * Does the manifest name the very files the release was built from? Both shas,
+ * and the count as a third lock, against catalogueSnapshot.json — which is
+ * unknown (and this false) until a release writes it.
+ */
+function bundleIsSnapshot(manifest: ManifestSnapshot): boolean {
+  const bundled = bundledSnapshot();
+  return bundled !== null && manifest.motors.sha256 === bundled.motorsSha256
+    && manifest.curves.sha256 === bundled.curvesSha256 && manifest.motors.count === MOTOR_DB.length;
 }
 
 /** The diff of `live` against the shipped catalogue, screened, with what a previous check learned carried forward. */

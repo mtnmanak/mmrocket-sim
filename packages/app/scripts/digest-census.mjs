@@ -55,14 +55,33 @@ function walk(dir, found = []) {
 }
 
 /**
+ * Why a cached raw-file map cannot stand for `bundle`, or null when it can: it
+ * must parse to a map of raw files holding one at least for every motor with
+ * curves in the bundle.
+ */
+function cacheProblem(rawPath, bundle) {
+  let held;
+  try { held = JSON.parse(readFileSync(rawPath, 'utf8')); } catch (error) { return `unreadable (${error.message})`; }
+  if (!held || typeof held !== 'object' || Array.isArray(held)) return 'unreadable (not a map of raw files)';
+  const covered = new Set(Object.values(held).filter((f) => f && typeof f === 'object' && typeof f.data === 'string' && f.data)
+    .map((f) => f.motorId));
+  const missing = Object.keys(bundle.curves).filter((id) => bundle.curves[id].length && !covered.has(id));
+  return missing.length ? `incomplete (no raw file for ${missing.length} motor${missing.length === 1 ? '' : 's'} with curves)` : null;
+}
+
+/**
  * The raw files, once per bundle generation, cached as DIR/raw-<generated>.json.
  * The cache is written only after a complete download: every motor asked for
  * has curves in `bundle`, so a batch with no usable raw file fails rather than
  * leave a short cache that would read as withdrawn files on every later run.
+ * An existing cache is read, not trusted: one written before that rule, or one
+ * that cannot be read, is downloaded again (and replaced only on success).
  */
 export async function cachedRawFiles(bundle, out, { download = downloadRawFiles, log = (s) => process.stdout.write(s) } = {}) {
   const rawPath = join(out, `raw-${bundle.generated}.json`);
-  if (!existsSync(rawPath)) {
+  const problem = existsSync(rawPath) ? cacheProblem(rawPath, bundle) : 'absent';
+  if (problem) {
+    if (problem !== 'absent') log(`  cached raw files at ${rawPath} are ${problem}; downloading again\n`);
     const raw = await download(Object.keys(bundle.curves), { previous: bundle, log });
     log('\n');
     writeFileSync(rawPath, JSON.stringify(raw));

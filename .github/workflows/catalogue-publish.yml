@@ -62,7 +62,7 @@ jobs:
           gh api "$api/runs/$RUN_ID" > "$RUNNER_TEMP/source-run.json"
           jobs="$RUNNER_TEMP/catalogue-jobs"
           mkdir -p "$jobs"
-          node packages/app/scripts/catalogue-source.mjs attempts --run "$RUNNER_TEMP/source-run.json" > "$RUNNER_TEMP/attempts.txt"
+          node packages/app/scripts/catalogue-source.mjs attempts --run "$RUNNER_TEMP/source-run.json" --summary "$GITHUB_STEP_SUMMARY" > "$RUNNER_TEMP/attempts.txt"
           while read -r attempt; do
             gh api --paginate --slurp "$api/runs/$RUN_ID/attempts/$attempt/jobs?per_page=100" > "$jobs/$attempt.json"
           done < "$RUNNER_TEMP/attempts.txt"
