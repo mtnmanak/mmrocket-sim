@@ -1908,6 +1908,12 @@ it.each([
   { row: 'S1c-g3', patch: { times: [0], thrusts: [0], masses: [0.02] }, reason: /at least two/ },
   { row: 'S1c-g5', patch: { thrusts: C6_MOTOR.thrusts.map((f, i) => i === 1 ? 20000000 : f) }, reason: /10,000,000 N/ },
   { row: 'S1c-g6', patch: { times: [0.01, ...C6_MOTOR.times.slice(1)] }, reason: /start at.*0 s/ },
+  { row: 'S3-1 masses +1', patch: { masses: [...C6_MOTOR.masses, C6_MOTOR.masses.at(-1)!] }, reason: /mass readings for .* times/ },
+  { row: 'S3-1 masses -1', patch: { masses: C6_MOTOR.masses.slice(0, -1) }, reason: /mass readings for .* times/ },
+  { row: 'S3-1 thrusts +1', patch: { thrusts: [...C6_MOTOR.thrusts, 0] }, reason: /thrust readings for .* times/ },
+  { row: 'S3-1 NaN length', patch: { length: NaN }, reason: /its length must be a finite number above 0 m/ },
+  { row: 'S3-1 Infinity diameter', patch: { diameter: Infinity }, reason: /its diameter must be a finite number above 0 m/ },
+  { row: 'S3-1 0 length', patch: { length: 0, cgX: 0 }, reason: /its length must be a finite number above 0 m/ },
 ])('$row names the motor before refusing an unflyable curve', ({ patch, reason }) => {
   const rocket = OrkRocket.build(REFERENCE_ROCKET);
   expect(() => rocket.setMotor({ ...C6_MOTOR, ...patch })).toThrow(/Motor C6:/);

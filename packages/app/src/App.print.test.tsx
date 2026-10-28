@@ -231,7 +231,7 @@ it.each([false, true])('prints omitted and installed assignments for a partially
   expect(d.textContent).not.toContain('Launch mass');
   expect(d.textContent).not.toMatch(/CG \d|margin \d/);
   expect(d.querySelector('.caution')?.textContent).toContain('Refused mount');
-  expect(d.textContent).toContain('Array lengths do not match');
+  expect(d.textContent).toContain('Motor C6: its thrust curve has 2 thrust readings for 3 times; import a corrected .rse/.eng file.');
   const loadout = [...d.querySelectorAll('p')].find(p => p.textContent!.startsWith('Current configuration'))!;
   expect(loadout.textContent).toContain('Refused mount: C6-5 ×1 (omitted from build)');
   if (partial) expect(loadout.textContent).toContain('Accepted mount: C6-5 ×1 (installed in build)');
