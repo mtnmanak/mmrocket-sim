@@ -1,11 +1,12 @@
 import { noticeNumber } from '../../app/src/prefs/units.js';
 import { boosterBranches } from '@online-openrocket/engine';
 import {
-  APP_VERSION, CURVES_GENERATED, MOTORS_GENERATED, KernelUnavailableError, InflatedFileTooLargeError,
+  KernelUnavailableError, InflatedFileTooLargeError,
   commentsOf, formatWarning, createJsXmlParser, XmlBudgetExceededError, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser,
   simulateFile, SimulateDesignError, type TimedSimulateFileResult, describeFile, type DescribeFileResult, SHARE_TOO_LARGE_ERROR_NAME,
 } from '../../app/src/headless/index.js';
 import { filenameEcho } from './filenameEcho.js';
+import { stampedJson } from './stamp.js';
 
 // 185 local XML/design files: max 40,610 elements, depth 14, including stored
 // flight data (Wildman Mach 2). Leave 23% element headroom and >4x depth.
@@ -24,7 +25,7 @@ const MIN_API_TIME_STEP_S = 0.05;
 const APP_URL = 'https://mmrsim.mountainmanrockets.com';
 
 function error(code: string, message: string, status: number, headers?: HeadersInit): Response {
-  return Response.json({ error: { code, message } }, { status, headers });
+  return stampedJson({ error: { code, message } }, { status, headers });
 }
 
 class BodyTooLarge extends Error {
@@ -110,15 +111,11 @@ function summary(out: TimedSimulateFileResult) {
   };
 }
 
-const stamps = () => ({ appVersion: APP_VERSION, engine: { openRocket: '24.12', appVersion: APP_VERSION },
-  catalogue: { motorsGenerated: MOTORS_GENERATED, curvesGenerated: CURVES_GENERATED } });
-
-/** S3 draft contract: the service's result, stamped like /health, with the fragment's full app link. */
+/** S3 draft contract: the service's result, with the fragment's full app link; stampedJson adds the stamp. */
 function described(out: DescribeFileResult) {
   return {
     experimental: true,
     api: 's3-draft',
-    ...stamps(),
     name: out.name,
     sourceFormat: out.sourceFormat,
     analysis: out.analysis,
@@ -138,7 +135,7 @@ export const worker = {
       const url = new URL(request.url);
       if (url.pathname === '/health') {
         if (request.method !== 'GET') return error('METHOD_NOT_ALLOWED', 'Use GET for /health.', 405, { Allow: 'GET' });
-        return Response.json({ ok: true, api: 's1', ...stamps() });
+        return stampedJson({ ok: true, api: 's1' });
       }
       if (url.pathname === '/describe') {
         describing = true;
@@ -155,7 +152,7 @@ export const worker = {
           kernelDeadHolderMs: 10_000, maxInflatedBytes: MAX_API_INFLATED_BYTES,
         });
         ctx.waitUntil(description.catch(() => undefined));
-        return Response.json(described(await description));
+        return stampedJson(described(await description));
       }
       if (url.pathname !== '/experimental/fly') return error('NOT_FOUND', 'Unknown endpoint.', 404);
       if (request.method !== 'POST') return error('METHOD_NOT_ALLOWED', 'Use POST with a raw design file.', 405, { Allow: 'POST' });
@@ -184,7 +181,7 @@ export const worker = {
       // Defence in depth: keep the real flight and its cleanup alive after disconnect.
       ctx.waitUntil(flight.catch(() => undefined));
       const out = await flight;
-      return Response.json({ ...summary(out), timing: {
+      return stampedJson({ ...summary(out), timing: {
         basis: TIMING_BASIS,
         parseMs: readMs + out.timing.parseMs,
         flyMs: out.timing.flyMs,
@@ -211,7 +208,7 @@ export const worker = {
       if (e instanceof SimulateDesignError) {
         const codes = { file: 'FILE_TOO_LARGE', parse: 'INVALID_FILE', build: 'DESIGN_BUILD_FAILED',
           'no-motor': 'NO_MOTOR', flight: 'FLIGHT_FAILED' } as const;
-        return Response.json({ error: { code: codes[e.kind], message: e.message,
+        return stampedJson({ error: { code: codes[e.kind], message: e.message,
           ...(e.importNote ? { importNote: e.importNote } : {}) } },
         { status: e.kind === 'file' ? 413 : e.kind === 'parse' ? 400 : 422 });
       }

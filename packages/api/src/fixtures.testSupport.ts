@@ -51,3 +51,9 @@ export const timeStepBody = (step: number) => orkOf(referenceXml()
   .replace('<simulations>', `<simulations><simulation status="notsimulated"><name>Step test</name><conditions>
     <configid>b61d1bfe-9ef0-4607-9756-382bf2bab907</configid><timestep>${step}</timestep>
     </conditions></simulation>`));
+
+/** The version-stamp keys of an API body. Every response must carry /health's own. */
+export const stampOf = (body: unknown) => {
+  const { appVersion, engine, catalogue } = body as Record<string, unknown>;
+  return { appVersion, engine, catalogue };
+};

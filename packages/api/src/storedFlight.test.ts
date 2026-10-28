@@ -7,7 +7,7 @@ import type { unstable_startWorker } from 'wrangler';
 import { API_XML_LIMITS, worker } from './index.js';
 import * as staticHeadless from '../../app/src/headless/index.js';
 import { createJsXmlParser, setXmlParser, simulateFile } from '../../app/src/headless/index.js';
-import { bytesOf } from './fixtures.testSupport.js';
+import { bytesOf, stampOf } from './fixtures.testSupport.js';
 import { REFERENCE_CONFIG, SECOND_CONFIG, storedFlightXml, type StoredFlightDesign } from './storedFlight.testSupport.js';
 
 // Main's E1 parser before this opt-in: the baseline every comparison below is held to.
@@ -54,6 +54,9 @@ const DESIGNS: Record<string, StoredFlightDesign> = {
   'airfoil freeform fins': { freeformFins: 'airfoil', simulations: [{ points: 60 }] },
 };
 const DESIGN_NAMES = Object.keys(DESIGNS);
+
+/** /health's own stamp keys: every error body carries them beside `error`. */
+const STAMP = stampOf(await (await worker.fetch(new Request('http://local/health'), undefined, { waitUntil: () => undefined })).json());
 
 /** The flight response with its wall timings removed. */
 async function respond(body: Uint8Array, filename: string) {
@@ -166,7 +169,7 @@ describe('API stored-flight omission: same import and flight as main, without th
     const xml = storedFlightXml({ simulations: [] }).replace('</rocket>', `${'<x/>'.repeat(50_000)}</rocket>`);
     const { baseline, changed, changedDom } = await both(() => respond(strToU8(xml), 'big.ork'));
     expect(changed).toEqual(baseline);
-    expect(changed).toEqual({ status: 413, json: { error: { code: 'FILE_TOO_LARGE',
+    expect(changed).toEqual({ status: 413, json: { ...STAMP, error: { code: 'FILE_TOO_LARGE',
       message: 'big.ork: XML element limit is 50,000. Use https://mmrsim.mountainmanrockets.com for larger files.' } } });
     expect(changedDom).toEqual([]);
   });
@@ -175,7 +178,7 @@ describe('API stored-flight omission: same import and flight as main, without th
     const columns = 2;
     const opened = strToU8(storedFlightXml({ simulations: [{ points: 60_000 }] }, columns));
     const { baseline, changed } = await both(() => respond(opened, 'long.ork'));
-    expect(baseline.json).toEqual({ error: { code: 'FILE_TOO_LARGE',
+    expect(baseline.json).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE',
       message: 'long.ork: XML element limit is 50,000. Use https://mmrsim.mountainmanrockets.com for larger files.' } });
     expect(changed.status, JSON.stringify(changed.json)).toBe(200);
     // The same design with no samples: the flight is the design's, not the stored data's.
@@ -184,7 +187,7 @@ describe('API stored-flight omission: same import and flight as main, without th
     // Past the samples budget (1,000,000, events included): its own refusal, before any DOM.
     const spy = vi.spyOn(DOMParser.prototype, 'parseFromString');
     const refused = await respond(pastSamplesBudget(), 'longer.ork');
-    expect(refused).toEqual({ status: 413, json: { error: { code: 'FILE_TOO_LARGE',
+    expect(refused).toEqual({ status: 413, json: { ...STAMP, error: { code: 'FILE_TOO_LARGE',
       message: 'longer.ork: Stored flight data element limit is 1,000,000. Use https://mmrsim.mountainmanrockets.com for larger files.' } } });
     expect(spy).not.toHaveBeenCalled();
   });
@@ -202,7 +205,7 @@ function declareSmaller(zip: Uint8Array, name: string, by: number): Uint8Array {
   }
   throw new Error(`no central-directory record for ${name}`);
 }
-const TOO_LARGE = (filename: string, what: string) => ({ status: 413, json: { error: { code: 'FILE_TOO_LARGE',
+const TOO_LARGE = (filename: string, what: string) => ({ status: 413, json: { ...STAMP, error: { code: 'FILE_TOO_LARGE',
   message: `${filename}: ${what} Use https://mmrsim.mountainmanrockets.com for larger files.` } } });
 
 describe('API boundaries with stored flights: the same refusals as main, before any DOM', () => {
@@ -384,7 +387,7 @@ describe('stored flights in real workerd', () => {
     const refused = await local!.fetch('http://local/experimental/fly?filename=longer.ork',
       { method: 'POST', body: pastSamplesBudget() });
     expect(refused.status).toBe(413);
-    expect(await refused.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
+    expect(await refused.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE',
       message: 'longer.ork: Stored flight data element limit is 1,000,000. Use https://mmrsim.mountainmanrockets.com for larger files.' } });
   });
 });

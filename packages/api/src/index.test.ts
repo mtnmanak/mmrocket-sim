@@ -1,4 +1,4 @@
-import { gzipSync, zipSync } from 'fflate';
+import { gzipSync, strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -8,7 +8,7 @@ import {
   commentsOf, jsXmlParser, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser, simulateFile,
 } from '../../app/src/headless/index.js';
 import { boosterBranches } from '@online-openrocket/engine';
-import { autoBody, bytesOf, clusterBody, missingCurveBody, secondaryBody, timeStepBody } from './fixtures.testSupport.js';
+import { autoBody, bytesOf, clusterBody, missingCurveBody, secondaryBody, stampOf, timeStepBody } from './fixtures.testSupport.js';
 
 type LocalWorker = Awaited<ReturnType<typeof unstable_startWorker>>;
 interface FlightResponse {
@@ -32,6 +32,8 @@ const INCOMPLETE_FILE = new URL('../../../docs/User files/TRF RASAero Files/SS W
 let normal: LocalWorker | undefined;
 let trapped: LocalWorker | undefined;
 let overlay: LocalWorker | undefined;
+/** /health's own stamp keys: every error body carries them beside `error`. */
+let STAMP: ReturnType<typeof stampOf>;
 const previews: { fixture: string; phase: string; hostElapsedMs: number; parseMs: number; flyMs: number; totalMs: number }[] = [];
 
 beforeAll(async () => {
@@ -55,6 +57,7 @@ beforeAll(async () => {
   overlay = await start({ ...options,
     entrypoint: fileURLToPath(new URL('./overlayWorker.testSupport.ts', import.meta.url)) });
   await overlay.ready;
+  STAMP = stampOf(await (await normal.fetch('http://local/health')).json());
   setXmlParser(jsXmlParser);
 });
 afterAll(async () => {
@@ -78,7 +81,7 @@ describe('S1 in real workerd', () => {
       { method: 'POST', body: bytesOf('reference.ork') });
     expect(response.status).toBe(503);
     expect(response.headers.get('retry-after')).toBe('5');
-    expect(await response.json()).toEqual({ error: { code: 'KERNEL_UNAVAILABLE',
+    expect(await response.json()).toEqual({ ...STAMP, error: { code: 'KERNEL_UNAVAILABLE',
       message: expect.stringMatching(/previous flight.*stopped part-way.*retry/i) } });
   }, 60_000);
 
@@ -89,7 +92,7 @@ describe('S1 in real workerd', () => {
       const response = await normal!.fetch('http://local/experimental/fly?filename=large.' + extension,
         { method: 'POST', body });
       expect(response.status).toBe(413);
-      expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
+      expect(await response.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE',
         message: expect.stringMatching(/16 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
     });
 
@@ -124,7 +127,7 @@ describe('S1 in real workerd', () => {
     const response = await normal!.fetch('http://local/experimental/fly?filename=structure.ork',
       { method: 'POST', body: `<openrocket><rocket>${payload}</rocket></openrocket>` });
     expect(response.status).toBe(413);
-    expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
+    expect(await response.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE',
       message: `structure.ork: ${limit} Use https://mmrsim.mountainmanrockets.com for larger files.` } });
   });
 
@@ -319,7 +322,7 @@ describe('S1 in real workerd', () => {
   it('rejects a declared oversize body before parsing', async () => {
     const response = await trapped!.fetch('http://local/__test/declared-oversize');
     expect(response.status).toBe(413);
-    expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE', message: expect.stringMatching(/8 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
+    expect(await response.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE', message: expect.stringMatching(/8 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
   });
 
   it('HTTP smoke: an oversize upload is refused (early cancellation is checked inside workerd below)', async () => {
@@ -338,7 +341,7 @@ describe('S1 in real workerd', () => {
     const response = await fetch(new URL('/experimental/fly?filename=stream.ork', await normal!.url),
       { method: 'POST', body, duplex: 'half' } as RequestInit & { duplex: 'half' });
     expect(response.status).toBe(413);
-    expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE', message: expect.any(String) } });
+    expect(await response.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE', message: expect.any(String) } });
   });
 
   it.each(['/__test/streamed-cap', '/__test/streamed-cap-cancel-error'])(
@@ -352,14 +355,14 @@ describe('S1 in real workerd', () => {
   it('hides unexpected failures behind a stable JSON 500', async () => {
     const response = await trapped!.fetch('http://local/__test/body-error');
     expect(response.status).toBe(500);
-    expect(await response.json()).toEqual({ error: { code: 'INTERNAL_ERROR', message: 'The design could not be simulated.' } });
+    expect(await response.json()).toEqual({ ...STAMP, error: { code: 'INTERNAL_ERROR', message: 'The design could not be simulated.' } });
   });
 
   it('returns a semantic no-motor refusal as JSON 422', async () => {
     const response = await normal!.fetch('http://local/experimental/fly?filename=unit-site-notes.ork',
       { method: 'POST', body: bytesOf('unit-site-notes.ork') });
     expect(response.status).toBe(422);
-    expect(await response.json()).toEqual({ error: { code: 'NO_MOTOR', message: expect.any(String),
+    expect(await response.json()).toEqual({ ...STAMP, error: { code: 'NO_MOTOR', message: expect.any(String),
       importNote: expect.objectContaining({ text: expect.any(String), severity: expect.any(String) }) } });
   });
 
@@ -368,7 +371,7 @@ describe('S1 in real workerd', () => {
     expect(response.status).toBe(400);
     expect(response.headers.get('content-type')).toContain('application/json');
     const result = await response.json();
-    expect(result).toEqual({ error: { code: 'INVALID_FILE', message: expect.any(String) } });
+    expect(result).toEqual({ ...STAMP, error: { code: 'INVALID_FILE', message: expect.any(String) } });
     expect(JSON.stringify(result)).not.toMatch(/\n\s+at |"stack"/);
   });
 
@@ -381,8 +384,68 @@ describe('S1 in real workerd', () => {
   ] as const)('%s %s returns %s %s', async (path, method, status, code) => {
     const response = await normal!.fetch(`http://local${path}`, { method });
     expect(response.status).toBe(status);
-    expect(await response.json()).toEqual({ error: { code, message: expect.any(String) } });
+    expect(await response.json()).toEqual({ ...STAMP, error: { code, message: expect.any(String) } });
   });
+});
+
+describe('version stamp on every route in real workerd', () => {
+  const post = (body: Uint8Array | string) => ({ method: 'POST', body });
+  type Send = () => ReturnType<LocalWorker['fetch']>;
+  /** reference.ork with a part comment past the share link's 4 MiB XML limit, inside every API cap. */
+  const pastLinkLimit = () => zipSync({ 'rocket.ork': strToU8(strFromU8(unzipSync(bytesOf('reference.ork'))['rocket.ork']!)
+    .replace('<name>Nose Cone</name>', `<name>Nose Cone</name><comment>${'x'.repeat(4 * 1024 * 1024 + 1)}</comment>`)) });
+  const cases: [string, Send, number, string | null, Record<string, string>?][] = [
+    ['GET /health', () => normal!.fetch('http://local/health'), 200, null],
+    ...FIXTURES.map(name => [`fly ${name}`, () => normal!.fetch(`http://local/experimental/fly?filename=${encodeURIComponent(name)}`,
+      post(bytesOf(name))), 200, null] as [string, Send, number, null]),
+    ['describe reference.ork', () => normal!.fetch('http://local/describe?filename=reference.ork', post(bytesOf('reference.ork'))), 200, null],
+    ['GET /unknown', () => normal!.fetch('http://local/unknown'), 404, 'NOT_FOUND'],
+    ['POST /describe/extra', () => normal!.fetch('http://local/describe/extra', { method: 'POST' }), 404, 'NOT_FOUND'],
+    ['POST /health', () => normal!.fetch('http://local/health', { method: 'POST' }), 405, 'METHOD_NOT_ALLOWED', { allow: 'GET' }],
+    ['GET /describe', () => normal!.fetch('http://local/describe'), 405, 'METHOD_NOT_ALLOWED', { allow: 'POST' }],
+    ['GET /experimental/fly', () => normal!.fetch('http://local/experimental/fly'), 405, 'METHOD_NOT_ALLOWED', { allow: 'POST' }],
+    ['fly without a filename', () => normal!.fetch('http://local/experimental/fly', { method: 'POST' }), 400, 'FILENAME_REQUIRED'],
+    ['fly an empty body', () => normal!.fetch('http://local/experimental/fly?filename=empty.rkt', { method: 'POST' }), 400, 'EMPTY_FILE'],
+    ['fly an unreadable file', () => normal!.fetch('http://local/experimental/fly?filename=bad.ork', post('not a rocket')), 400, 'INVALID_FILE'],
+    ['describe an unreadable file', () => normal!.fetch('http://local/describe?filename=bad.ork', post('not a rocket')), 400, 'INVALID_FILE'],
+    ['fly a declared body over 8 MiB', () => trapped!.fetch('http://local/__test/declared-oversize'), 413, 'FILE_TOO_LARGE'],
+    ['fly a streamed body over 8 MiB', () => trapped!.fetch('http://local/__test/streamed-cap'), 413, 'FILE_TOO_LARGE',
+      { 'x-test-reader-cancelled': 'true' }],
+    ['fly inflated XML over 16 MiB', () => normal!.fetch('http://local/experimental/fly?filename=large.ork',
+      post(zipSync({ 'rocket.ork': new Uint8Array(16 * 1024 * 1024 + 1) }))), 413, 'FILE_TOO_LARGE'],
+    ['fly past the XML element budget', () => normal!.fetch('http://local/experimental/fly?filename=structure.ork',
+      post(`<openrocket><rocket>${'<x/>'.repeat(50_000)}</rocket></openrocket>`)), 413, 'FILE_TOO_LARGE'],
+    ['describe past the share link limit', () => normal!.fetch('http://local/describe?filename=long.ork', post(pastLinkLimit())),
+      413, 'LINK_TOO_LARGE'],
+    ['fly a design with no motor', () => normal!.fetch('http://local/experimental/fly?filename=unit-site-notes.ork',
+      post(bytesOf('unit-site-notes.ork'))), 422, 'NO_MOTOR'],
+    ['describe a refused build', () => trapped!.fetch('http://local/__test/describe-build-failure', post(bytesOf('reference.ork'))),
+      422, 'DESIGN_BUILD_FAILED'],
+    ['fly on a poisoned kernel', () => trapped!.fetch('http://local/__test/dead-kernel', post(bytesOf('reference.ork'))),
+      503, 'KERNEL_UNAVAILABLE', { 'retry-after': '5' }],
+    ['describe on a poisoned kernel', () => trapped!.fetch('http://local/__test/dead-kernel?route=describe', post(bytesOf('reference.ork'))),
+      503, 'KERNEL_UNAVAILABLE', { 'retry-after': '5' }],
+    ['fly an unexpected failure', () => trapped!.fetch('http://local/__test/body-error'), 500, 'INTERNAL_ERROR'],
+    ['describe an unexpected failure', () => trapped!.fetch('http://local/__test/body-error?route=describe'), 500, 'INTERNAL_ERROR'],
+  ];
+
+  it.each(cases)('%s carries /health\'s stamp and the bundled snapshot', async (_label, send, status, code, headers = {}) => {
+    const health = await (await normal!.fetch('http://local/health')).json() as { engine: { openRocket: string } };
+    const response = await send();
+    const body = await response.json() as Record<string, unknown>;
+    expect(response.status, JSON.stringify(body).slice(0, 500)).toBe(status);
+    expect(response.headers.get('content-type')).toContain('application/json');
+    for (const [name, value] of Object.entries(headers)) expect(response.headers.get(name), name).toBe(value);
+    expect(stampOf(body)).toEqual(stampOf(health));
+    expect(stampOf(body)).toEqual({ appVersion: APP_VERSION, engine: { openRocket: health.engine.openRocket, appVersion: APP_VERSION },
+      catalogue: { motorsGenerated: MOTORS_GENERATED, curvesGenerated: CURVES_GENERATED } });
+    if (code) {
+      // Beside the error, never inside it.
+      expect(Object.keys(body)).toEqual(['error', 'appVersion', 'engine', 'catalogue']);
+      expect(Object.keys(body['error'] as object).slice(0, 2)).toEqual(['code', 'message']);
+      expect((body['error'] as { code: string }).code).toBe(code);
+    }
+  }, 60_000);
 });
 
 // Round-2 review measured <=1e-12 SI differences for compared non-time quantities
