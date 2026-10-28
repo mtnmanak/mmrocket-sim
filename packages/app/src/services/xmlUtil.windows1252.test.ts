@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WINDOWS_1252_CHUNK, decodeXml, setTextDecoderFactoryForTests } from './xmlUtil.js';
 
 /**
@@ -120,5 +120,36 @@ describe('decodeXml windows-1252 runtime probe', () => {
     expect(decodeXml(bytes).xml).toBe('<?xml version="1.0" encoding="windows-1252"?><a>\u2122</a>');
     expect(decodeXml(bytes).xml).toBe('<?xml version="1.0" encoding="windows-1252"?><a>\u2122</a>');
     expect(decodes).toBe(1);
+  });
+});
+
+describe('decodeXml in a runtime whose global TextDecoder has no windows-1252', () => {
+  // No seam: makeDecoder and anything that builds a decoder directly both reach this
+  // class, so a head decode that bypassed the table would throw here.
+  const RealTextDecoder = globalThis.TextDecoder;
+  class NoWindows1252 extends RealTextDecoder {
+    constructor(label = 'utf-8', options?: TextDecoderOptions) {
+      if (new RealTextDecoder(label).encoding === 'windows-1252') throw new RangeError(`The "${label}" encoding is not supported`);
+      super(label, options);
+    }
+  }
+  beforeEach(() => {
+    vi.stubGlobal('TextDecoder', NoWindows1252);
+    setTextDecoderFactoryForTests(null);
+  });
+  // In this order: the probe result cached under the stub must not reach later tests.
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    setTextDecoderFactoryForTests(null);
+  });
+
+  it('reads a file declared windows-1252, 0x99 as U+2122, with no note', () => {
+    expect(() => new TextDecoder('windows-1252')).toThrow(RangeError);
+    const bytes = Uint8Array.from([...ascii('<?xml version="1.0" encoding="windows-1252"?><a>'), 0x99, ...ascii('</a>')]);
+    expect(decodeXml(bytes)).toEqual({ xml: '<?xml version="1.0" encoding="windows-1252"?><a>\u2122</a>' });
+  });
+
+  it('still decodes a file whose declaration names no encoding', () => {
+    expect(decodeXml(Uint8Array.from(ascii('<?xml version="1.0"?><a>Fin</a>')))).toEqual({ xml: '<?xml version="1.0"?><a>Fin</a>' });
   });
 });
