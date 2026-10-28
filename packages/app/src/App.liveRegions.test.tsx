@@ -26,11 +26,15 @@ vi.mock('./hooks/useTreeHistory.js', async importOriginal => {
     return history;
   } };
 });
-// Design notes appended here are added to every build's warningTexts.
+// Design notes appended here are added to every build's warningTexts; while
+// failBuild is set, every build fails with BUILD_FAILURE instead.
 let extraNotes: string[] = [];
+let failBuild = false;
+const BUILD_FAILURE = 'Live-region test build failure.';
 vi.mock('./services/buildDesign.js', async original => {
   const real = await original<typeof import('./services/buildDesign.js')>();
   return { ...real, buildDesign: vi.fn((...args: Parameters<typeof real.buildDesign>) => {
+    if (failBuild) return { error: BUILD_FAILURE };
     const result = real.buildDesign(...args);
     if (!('error' in result)) result.info.warningTexts.push(...extraNotes);
     return result;
@@ -117,6 +121,7 @@ function emptyRegion(selector: string, role: 'alert' | 'status' = 'alert'): Elem
 
 beforeEach(() => {
   extraNotes = [];
+  failBuild = false;
   localStorage.clear();
   localStorage.setItem('online-openrocket.workspace.v1', 'design');
   localStorage.setItem(PREFS_KEY, JSON.stringify({ tourOff: true }));
@@ -213,6 +218,31 @@ describe('App design notes — one region per tier, mounted with the design', ()
       expect(region.getAttribute('style')).toBeNull();
       expect(region.children).toHaveLength(0);
     }
+  }, 30_000);
+
+  it('a build error keeps the regions mounted, and the notes after it land in the same ones', async () => {
+    // `built` is null while the design fails to build. #design-notes sat under
+    // `{built && …}`, so fixing the edit re-mounted all four regions with
+    // their notes already inside.
+    await mountApp();
+    const notes = host.querySelector('#design-notes');
+    const regions = [...notes!.children];
+    expect(regions).toHaveLength(4);
+    failBuild = true;
+    await reshape();
+    await waitFor(() => (host.textContent ?? '').includes(BUILD_FAILURE), 'the build error');
+    expect(host.querySelector('#design-notes')).toBe(notes);
+    expect([...notes!.children]).toEqual(regions);
+    for (const region of regions) expect(region.textContent).toBe('');
+    failBuild = false;
+    extraNotes = ['[Warning.NO_RECOVERY_DEVICE]', '[Warning.ZERO_AREA_FIN]', 'A live-region test note.'];
+    await reshape();
+    await waitFor(() => regions.slice(0, 3).every((r) => (r.textContent ?? '') !== ''), 'the notes');
+    expect(host.querySelector('#design-notes')).toBe(notes);
+    for (const [i, region] of regions.entries()) expect(notes!.children[i]).toBe(region);
+    expect(regions[0]!.querySelector('.message-danger')).not.toBeNull();
+    expect(regions[1]!.querySelector('.message-caution')).not.toBeNull();
+    expect(regions[2]!.querySelector('.file-note')).not.toBeNull();
   }, 30_000);
 
   it('the first rail-fit finding lands in the region that was already there', async () => {

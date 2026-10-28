@@ -4491,21 +4491,24 @@ export function App() {
             </div>
             {built && <ConfigStabilityRange input={stabilityRangeInput} />}
             {built && hero.open && !hero.wide && statsDrawerNode}
-            {built && (() => {
+            {(() => {
               // Rail-line findings are a mechanical fit problem on the pad, not an
               // aerodynamic footnote or a failed flight (D7 §5, R08): their own
               // block, each with the parts it names one click away, where the
               // rail button's snap controls are. The same sentences buildDesign
               // appended, matched by identity, so nothing is said twice.
-              const railFindings = built.info.warningTexts.length > 0
+              const warningTexts = built?.info.warningTexts ?? [];
+              const railFindings = warningTexts.length > 0
                 ? railInterferenceFindings(tree, prefs.units).filter(f => staticWarningTier(f.text) === 'information') : [];
               const railTexts = new Set(railFindings.map(f => f.text));
-              const rest = built.info.warningTexts.filter(t => !railTexts.has(t));
-              // Mounted with the design, one ALWAYS-MOUNTED live region per tier
-              // and one for rail fit, each holding its note as a conditional
-              // child (audit 2026-09-22): a region inserted with its text already
-              // in place is announced unreliably. With no notes, #design-notes
-              // and its regions are empty blocks that take no space. Danger and
+              const rest = warningTexts.filter(t => !railTexts.has(t));
+              // One ALWAYS-MOUNTED live region per tier and one for rail fit,
+              // each holding its note as a conditional child (audit 2026-09-22):
+              // a region inserted with its text already in place is announced
+              // unreliably. Mounted while the design fails to build too, empty,
+              // so the notes after a fixed edit land in the same regions. With
+              // no notes, #design-notes and its regions are empty blocks that
+              // take no space. Danger and
               // caution interrupt; information and rail fit, which change no
               // flight number, are polite (owner ruling, row 113 (a)).
               return <div id="design-notes" tabIndex={-1}>
