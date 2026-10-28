@@ -8,7 +8,9 @@ import {
   commentsOf, jsXmlParser, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser, simulateFile,
 } from '../../app/src/headless/index.js';
 import { boosterBranches } from '@online-openrocket/engine';
-import { autoBody, bytesOf, clusterBody, missingCurveBody, rktWithMotor, secondaryBody, stampOf, timeStepBody } from './fixtures.testSupport.js';
+import {
+  autoBody, bytesOf, clusterBody, missingCurveBody, rktWithMotor, secondaryBody, stampOf, timeStepBody, unbundledDigestCase,
+} from './fixtures.testSupport.js';
 import { SNAPSHOT_ADDED } from './snapshotOverlay.testSupport.js';
 
 type LocalWorker = Awaited<ReturnType<typeof unstable_startWorker>>;
@@ -157,6 +159,13 @@ describe('S1 in real workerd', () => {
       expect(text).not.toContain('Flights here now use a 0.01 s');
     }
     if (step === 0.005) expect(result.notes.import.text).toMatch(/0\.005 s[\s\S]*0\.01 s/);
+  }, 60_000);
+
+  it('says when a desktop digest names no bundled curve, as the app\'s open words it', async () => {
+    const { body, sentence } = await unbundledDigestCase();
+    const response = await normal!.fetch('http://local/experimental/fly?filename=digest.ork', { method: 'POST', body });
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect((await response.json() as FlightResponse).notes.import.text).toContain(sentence);
   }, 60_000);
 
   it('accepts exactly 8 MiB at the body cap and parses the received bytes', async () => {

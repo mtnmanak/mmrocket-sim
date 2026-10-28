@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { expect } from 'vitest';
+import { digestCurveNote } from '../../app/src/services/digestCurveNote.js';
 import { MOTOR_DB } from '../../app/src/services/motorDb.js';
-import { bundleHasCurve, defaultDelay } from '../../app/src/services/thrustcurve.js';
+import { simulateFile } from '../../app/src/services/simulateFile.js';
+import { bundledSimFiles, bundleHasCurve, defaultDelay } from '../../app/src/services/thrustcurve.js';
 
 export const bytesOf = (name: string) => new Uint8Array(readFileSync(new URL(`../../app/src/services/__fixtures__/${name}`, import.meta.url)));
 export const rktWithMotor = (designation: string, manufacturer: string, delay: number) => new TextEncoder().encode(
@@ -28,6 +30,31 @@ export async function missingCurveBody() {
 }
 const referenceXml = () => strFromU8(unzipSync(bytesOf('reference.ork'))['rocket.ork']!);
 export const orkOf = (xml: string) => zipSync({ 'rocket.ork': strToU8(xml) });
+/**
+ * reference.ork with its C6's fixture digest replaced by a desktop-shaped one
+ * (32 lowercase hex) that no bundled file carries, and the open's sentence for
+ * it as the app's own digestCurveNote words it for the motor the open matched.
+ */
+export async function unbundledDigestCase() {
+  const { default: doc } = await import('../../app/src/data/motorCurves.json');
+  const taken = new Set(Object.values((doc as unknown as { curves: Record<string, { digests?: string[] }[]> }).curves)
+    .flat().flatMap((f) => f.digests ?? []));
+  const digest = [...'0123456789abcdef'].map((c) => c.repeat(32)).find((d) => !taken.has(d))!;
+  expect(digest).toMatch(/^[0-9a-f]{32}$/);
+  const xml = referenceXml();
+  expect(xml).toMatch(/<digest>gen-c6<\/digest>\s*<designation>C6<\/designation>/);
+  const body = orkOf(xml.replace('<digest>gen-c6</digest>', `<digest>${digest}</digest>`));
+  const node = await simulateFile(body, 'digest.ork');
+  const [mounted] = Object.values(node.state.mountMotors);
+  const matched = MOTOR_DB.find((m) => m.motorId === mounted?.meta.motorId);
+  expect(matched, 'the C6 matches a catalogue motor').toBeDefined();
+  expect((await bundledSimFiles(matched!.motorId)).length, 'the matched motor has bundled files').toBeGreaterThan(0);
+  const sentence = await digestCurveNote(
+    { designation: 'C6', manufacturer: 'custom', diameter: 0.018, length: 0.07, delay: 5, digest }, matched!);
+  expect(sentence).toContain('is not among the app’s bundled curves');
+  expect(node.importNote.text).toContain(sentence);
+  return { body, sentence: sentence! };
+}
 export const clusterBody = () => orkOf(referenceXml().replace('<clusterconfiguration>single', '<clusterconfiguration>4-ring'));
 export function secondaryBody(kind: 'never' | 'refused') {
   let xml = referenceXml();

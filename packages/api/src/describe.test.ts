@@ -8,7 +8,7 @@ import {
 import { decodeShareFragment, MAX_INFLATED_BYTES, SHARE_TOO_LARGE_ERROR_NAME } from '../../app/src/services/shareLink.js';
 import { motorFreeOrk, motorFreeProjection } from '../../app/src/services/describeFile.js';
 import { openHeadlessDesign, planHeadlessImport } from '../../app/src/services/simulateFile.js';
-import { autoBody, bytesOf, clusterBody, orkOf, rktWithMotor, stampOf } from './fixtures.testSupport.js';
+import { autoBody, bytesOf, clusterBody, orkOf, rktWithMotor, stampOf, unbundledDigestCase } from './fixtures.testSupport.js';
 
 /**
  * S3 DRAFT: POST /describe in real local workerd. Every expected figure is the
@@ -109,6 +109,13 @@ describe('S3 draft POST /describe in real workerd', () => {
       if (name === 'cluster.ork') expect(out.mounts[0]!.count).toBe(4);
     }
   });
+
+  it('says when a desktop digest names no bundled curve, as the app\'s open words it', async () => {
+    const { body, sentence } = await unbundledDigestCase();
+    const out = await described(normal!, 'digest.ork', body);
+    expect(out.notes.import.text).toContain(sentence);
+    await sameAsNode(out, await describeFile(body, 'digest.ork'));
+  }, 60_000);
 
   it('ignores unknown query options: they cannot enable network or change the analysis', async () => {
     const body = bytesOf('reference.ork');
