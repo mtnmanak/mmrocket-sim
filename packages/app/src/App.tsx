@@ -794,7 +794,8 @@ export function App() {
     const savedAt: unknown = session.savedAt;
     const when = typeof savedAt === 'number' && savedAt > 0 && Number.isFinite(new Date(savedAt).getTime())
       ? `, saved ${new Date(savedAt).toLocaleString()}` : '';
-    return `Restored your previous session (“${session.tree.name ?? 'unnamed'}”${when}).`;
+    // The sanitised tree's name: the stored one can be any JSON (Gemini review, 28 Oct).
+    return `Restored your previous session (“${initialTree.name ?? 'unnamed'}”${when}).`;
   });
   const [sessionNoteFading, setSessionNoteFading] = useState(false);
   useEffect(() => {

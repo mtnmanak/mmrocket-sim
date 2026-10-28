@@ -326,8 +326,14 @@ export function configOntoTree(
  * order the mounts first say them.
  */
 function unconfirmedNotes(perMount: readonly (string | undefined)[]): string[] {
+  // One line per sentence: an openNote can carry two (the unconfirmed-match sentence and the
+  // desktop-digest one, joined with '\n'), and App removes an answered note line by line
+  // (`acceptedLines`, split on '\n'), so a two-line entry was never removed and only its first
+  // sentence got the mount count (Gemini review of 28 Oct, verified).
   const counts = new Map<string, number>();
-  for (const n of perMount) if (n) counts.set(n, (counts.get(n) ?? 0) + 1);
+  for (const n of perMount) {
+    if (n) for (const line of n.split('\n')) if (line) counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
   return [...counts].map(([n, mounts]) => withMountCount(n, mounts));
 }
 

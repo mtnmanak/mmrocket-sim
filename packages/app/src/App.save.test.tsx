@@ -3398,6 +3398,15 @@ describe('a hand-edited autosave', () => {
     expect(host.textContent).not.toMatch(/Invalid Date|1970/);
   });
 
+  // The note reads the sanitised tree's name, not the stored one (Gemini review, 28 Oct).
+  it.each([{}, { toString: 0 }].map(v => [v]))('restores with an unreadable stored rocket name %j', async name => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: { ...defaultTree(), name }, launch: DEFAULT_CONDITIONS,
+      appVersion: APP_VERSION, savedAt: 'unknown' }));
+    const host = await mountApp();
+    expect(host.textContent).toMatch(/Restored your previous session \(“[^”]+”\)\./);
+    expect(host.textContent).not.toContain('[object Object]');
+  });
+
   it('names the save time of a stored session', async () => {
     const savedAt = Date.UTC(2026, 9, 27, 18, 30);
     localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt }));
