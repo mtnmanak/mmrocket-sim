@@ -3351,3 +3351,72 @@ async function chooseConfiguration(host: HTMLElement, id: string) {
     select.value = id; select.dispatchEvent(new Event('change', { bubbles: true })); select.focus();
   });
 }
+
+/**
+ * STORED-STATE HARDENING (cloud session 10), as a user meets it: an autosave
+ * someone edited by hand restores with a notice, and Save and the
+ * configuration panel still work.
+ */
+describe('a hand-edited autosave', () => {
+  it('saves an EX motor whose stored definition names a non-text maker', async () => {
+    const ex: ExMotor = { motorId: 'ex:stored', designation: 'C6', realManufacturer: 'Stored Test',
+      diameter: 18, length: 70, totalWeightG: 24, propWeightG: 10, delays: '5',
+      samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 12 }, { time: 0.5, thrust: 6 }, { time: 1.2, thrust: 0 }],
+      source: 'eng', addedAt: 1 };
+    localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([ex]));
+    const tree = defaultTree(), mount = motorMounts(tree)[0]!.id!;
+    const loaded = mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5,
+      { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
+    (loaded.spec as { exDefinition?: unknown }).exDefinition = { ...ex, realManufacturer: 7 };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: loaded },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+    const host = await mountApp();
+    await settle(50);
+    expect(host.textContent).toContain('Unreadable EX motor definitions were removed');
+    await saveAs(host, 'Save .ork');
+    await settle();
+    expect(host.textContent).not.toContain('Save .ork failed');
+    const xml = vi.mocked(exportOrk).mock.results.at(-1)!.value as string;
+    expect(importOrk(xml).embeddedExMotors).toEqual([ex]);
+  });
+
+  // The loader screens only the time step and winds aloft in `launch`; the
+  // panels read the rest through their own number checks (sweep pin).
+  it.each([5, [], { ...DEFAULT_CONDITIONS, launchRodLengthM: '1' }, { ...DEFAULT_CONDITIONS, latitudeDeg: {} }].map(v => [v]))(
+    'renders every tab with unreadable stored launch conditions %j', async launch => {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), launch, appVersion: APP_VERSION, savedAt: Date.now() }));
+      const host = await mountApp();
+      for (const tab of ['Motors & Configuration', 'Results', 'Design'] as const) await openTab(host, tab);
+      expect(host.textContent).not.toMatch(/NaN|undefined/);
+    });
+
+  // The writer stamps Date.now(); anything else reads as an unknown save time.
+  it.each(['yesterday', null, {}, 1e20, -1].map(v => [v]))('restores with an unreadable stored save time %j', async savedAt => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt }));
+    const host = await mountApp();
+    expect(host.textContent).toContain('Restored your previous session (“My Rocket”).');
+    expect(host.textContent).not.toMatch(/Invalid Date|1970/);
+  });
+
+  it('names the save time of a stored session', async () => {
+    const savedAt = Date.UTC(2026, 9, 27, 18, 30);
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt }));
+    const host = await mountApp();
+    expect(host.textContent).toContain(`Restored your previous session (“My Rocket”, saved ${new Date(savedAt).toLocaleString()}).`);
+  });
+
+  it('renders the configuration panel for an unnamed configuration with an unreadable unmatched list', async () => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), mountMotors: {},
+      // Not the active one: the layer migration rebuilds the active configuration's list.
+      savedConfigs: [{ id: 'a', name: 'Active', isDefault: true, motors: {} },
+        { id: 'cfg', name: null, isDefault: false, motors: {}, unmatched: 5 }], activeConfigId: 'a', emptyConfigVersion: 1,
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+    const host = await mountApp();
+    await settle(50);
+    await openTab(host, 'Motors & Configuration');
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]');
+    expect(select).not.toBeNull();
+    expect([...select!.options].map(o => o.textContent)).toContain('No motors');
+    expect(host.textContent).toContain('Unreadable lists of unmatched motors were rebuilt');
+  });
+});

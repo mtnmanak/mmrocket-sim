@@ -20,7 +20,12 @@ import { findDbMotor } from './motorDb.js';
 import { mountMotorFromDb } from './motorMatch.js';
 import { autosavedDesignFile } from './autosaveBackup.js';
 import { designStateFromSession } from './sessionRestore.js';
-import { findNode, normalizeTree } from '../tree/treeModel.js';
+import { defaultTree, findNode, motorMounts, normalizeTree } from '../tree/treeModel.js';
+import { exToDbEntry, exToMotorSpec, loadExMotorIdentities, type ExMotor } from './exMotors.js';
+import { exportConfigs, exportMotorsMap } from './exportAssembly.js';
+import { assignedMotorsOf } from './designDerivation.js';
+import { exportOrk } from './orkFile.js';
+import type { SessionState } from './session.js';
 import { MAX_STORED_WARNINGS } from './storedWarnings.js';
 import { tierLines } from './importNotes.js';
 
@@ -1216,4 +1221,193 @@ it('lane C S1c-2 uses the shared Mach-Alt limit on session reload', async () => 
     expect(validMachAltTable([[0, 0], [1, 10]])).toEqual([[0, 0], [1, 10]]);
     expect(validMachAltTable([[0, 0], [1, 10], [2, 20]])).toBeNull();
   } finally { vi.doUnmock('./machAltLimits.js'); vi.resetModules(); }
+});
+
+/**
+ * STORED-STATE HARDENING (cloud session 10). An autosave is anything's to
+ * write; one malformed entry must cost that entry, with a restore note, and
+ * never the design or a later Save.
+ */
+describe('stored-state hardening: EX definitions', () => {
+  const KEY = 'online-openrocket.session.v1';
+  const EX_KEY = 'online-openrocket.ex-motors.v1';
+  const definition = (): ExMotor => ({
+    motorId: 'ex:stored-c6', designation: 'C6', realManufacturer: 'Stored Test',
+    diameter: 18, length: 70, totalWeightG: 24, propWeightG: 10, delays: '5',
+    samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 12 }, { time: 0.5, thrust: 6 }, { time: 1.2, thrust: 0 }],
+    source: 'eng', addedAt: 1,
+  });
+  const exMounted = () => {
+    const ex = definition();
+    return mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5, { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
+  };
+  /** What App's Save .ork hands the writer (App.onSaveOrk via exportAssembly). */
+  const saveOrk = (loaded: SessionState) => {
+    const { state: d } = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    return exportOrk({
+      name: 'Stored', tree: d.tree, launch: d.launch, measured: d.measured, activeConfigId: d.activeConfigId,
+      workingOverrides: d.detachedOverrides, notes: [], onOmittedMotor: () => { throw new Error('omitted a motor'); },
+      motors: exportMotorsMap({ assigned: assignedMotorsOf(d.mountMotors, motorMounts(d.tree)), unmatchedRefs: d.unmatchedRefs,
+        tree: d.tree, activeConfigId: d.activeConfigId, exLibrary: loadExMotorIdentities }),
+      configs: exportConfigs(d.savedConfigs, d.tree, loadExMotorIdentities),
+    });
+  };
+  const noteKinds = (loaded: SessionState) =>
+    designStateFromSession(loaded, { legacyMaxMotorLengthM: null }).restoreNoteTiers.map(n => `${n.tier}:${n.kind}`);
+
+  const badDefinitions: [string, (def: Record<string, unknown>, meta: Record<string, unknown>) => unknown][] = [
+    ['realManufacturer 7', def => ({ ...def, realManufacturer: 7 })],
+    ['realManufacturer {"toString":0}', def => ({ ...def, realManufacturer: { toString: 0 } })],
+    ['motorId 7 with no meta.exMotorId', (def, meta) => { delete meta.exMotorId; return { ...def, motorId: 7 }; }],
+    ['null', () => null],
+    ['"x"', () => 'x'],
+    ['[]', () => []],
+    ['identity only, no samples', def => ({ motorId: def.motorId, designation: def.designation, realManufacturer: def.realManufacturer })],
+    ['samples [null]', def => ({ ...def, samples: [null] })],
+  ];
+  describe.each(['in the library', 'not in the library'])('with the EX motor %s', library => {
+    beforeEach(() => {
+      discardSession();
+      if (library === 'in the library') localStorage.setItem(EX_KEY, JSON.stringify([definition()]));
+    });
+    it.each(badDefinitions)('repairs an unreadable stored exDefinition (%s) and keeps the motor', (_name, corrupt) => {
+      const tree = defaultTree();
+      const mount = motorMounts(tree)[0]!.id!;
+      const motor = exMounted() as unknown as { spec: Record<string, unknown>; meta: Record<string, unknown> };
+      expect(motor.meta.manufacturer).toBe('EX');
+      motor.spec.exDefinition = corrupt(motor.spec.exDefinition as Record<string, unknown>, motor.meta);
+      const raw = JSON.stringify({ ...state(), tree, mountMotors: { [mount]: motor },
+        savedConfigs: [{ id: 'c', name: 'C', isDefault: true, motors: { [mount]: motor } }] });
+      localStorage.setItem(KEY, raw);
+      const loaded = loadSession()!;
+      for (const kept of [loaded.mountMotors![mount], loaded.savedConfigs![0]!.motors[mount]]) {
+        expect(kept).toBeDefined();
+        expect(kept!.spec).not.toHaveProperty('exDefinition');
+        expect(kept!.spec.thrusts).toEqual(motor.spec.thrusts);
+      }
+      expect(noteKinds(loaded)).toContain('caution:G04.ex-definition-removed');
+      // The archive falls back to the library entry or the loaded snapshot.
+      expect(saveOrk(loaded)).toContain('<mmrexmotors');
+      expect(localStorage.getItem(KEY)).toBe(raw);
+      const recovery = autosavedDesignFile()!;
+      expect(recovery.ork).toBe(false);
+      expect(recovery.data).toBe(raw);
+    });
+    it('restores a valid EX definition exactly, with no note, and saves it', () => {
+      const tree = defaultTree();
+      const mount = motorMounts(tree)[0]!.id!;
+      const motor = exMounted();
+      const snap: DesignSnapshot = { ...state(), tree, mountMotors: { [mount]: motor }, maxMotorLengthByStage: {},
+        savedConfigs: [{ id: 'c', name: null, isDefault: true, motors: { [mount]: motor } }],
+        activeConfigId: null, measured: { massKg: null, cgM: null } };
+      const raw = JSON.stringify({ ...snap, savedMark: designFingerprint(snap) });
+      localStorage.setItem(KEY, raw);
+      const loaded = loadSession()!;
+      const stored = JSON.parse(raw) as SessionState;
+      expect(loaded.mountMotors).toStrictEqual(stored.mountMotors);
+      expect(JSON.stringify(loaded.mountMotors)).toBe(JSON.stringify(stored.mountMotors));
+      expect(JSON.stringify(loaded.savedConfigs)).toBe(JSON.stringify(stored.savedConfigs));
+      expect((loaded.mountMotors![mount]!.spec as { exDefinition?: unknown }).exDefinition).toStrictEqual(definition());
+      expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+      expect(isDirty(designFingerprint({ ...snap, tree: loaded.tree, mountMotors: loaded.mountMotors!,
+        savedConfigs: loaded.savedConfigs! }), loaded.savedMark, false)).toBe(false);
+      expect(localStorage.getItem(KEY)).toBe(raw);
+      expect(saveOrk(loaded)).toContain('<mmrexmotors');
+    });
+  });
+
+  // The reference screen (sanitizeSessionFlightLayers) does not read exDefinition:
+  // Save treats an unreadable one as no definition, as for a reference stored without one.
+  it.each(['working set', 'configuration'])('saves a %s reference with an unreadable exDefinition as one with none', where => {
+    discardSession();
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const save = (exDefinition?: unknown) => {
+      const ref = { designation: 'C6', exMotorId: 'ex:stored-c6', diameter: 0.018, length: 0.07, delay: 5,
+        ...(exDefinition !== undefined ? { exDefinition } : {}) };
+      localStorage.setItem(KEY, JSON.stringify({ ...state(), tree, configLayers: 1,
+        ...(where === 'working set' ? { unmatchedRefs: { [mount]: ref } }
+          : { savedConfigs: [{ id: 'c', name: 'C', isDefault: false, motors: {}, unmatchedRefs: { [mount]: ref } }] }) }));
+      const { state: d } = designStateFromSession(loadSession(), { legacyMaxMotorLengthM: null });
+      const notes: string[] = [];
+      const xml = exportOrk({ name: 'Stored', tree: d.tree, launch: d.launch, notes,
+        motors: exportMotorsMap({ assigned: [], unmatchedRefs: d.unmatchedRefs, tree: d.tree, activeConfigId: null, exLibrary: loadExMotorIdentities }),
+        configs: exportConfigs(d.savedConfigs, d.tree, loadExMotorIdentities) });
+      return { xml: xml.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, 'uuid'), notes };
+    };
+    const none = save();
+    for (const bad of [7, 'x', [], { ...definition(), realManufacturer: 7 }, { motorId: 7, designation: 'C6' }, { ...definition(), samples: [null] }]) {
+      expect(save(bad)).toEqual(none);
+    }
+  });
+
+});
+
+describe('stored-state hardening: a configuration is screened before its label is read', () => {
+  const KEY = 'online-openrocket.session.v1';
+  const noteKinds = (loaded: SessionState) =>
+    designStateFromSession(loaded, { legacyMaxMotorLengthM: null }).restoreNoteTiers.map(n => `${n.tier}:${n.kind}`);
+  beforeEach(() => discardSession());
+  it.each([
+    ['motors { m: null }', { motors: { m: null } }],
+    ['unmatched 5', { motors: {}, unmatched: 5 }],
+    ['unmatched {}', { motors: {}, unmatched: {} }],
+  ])('restores an unnamed configuration with %s and a nozzle repair, and keeps the slot', async (_name, fields) => {
+    const { MAX_DIMENSION_M } = await import('../tree/schema.js');
+    const raw = JSON.stringify({ ...state(), nozzleModeVersion: 1,
+      savedConfigs: [{ id: 'B', name: null, isDefault: true, ...fields, nozzles: { s: MAX_DIMENSION_M * 2 } }] });
+    localStorage.setItem(KEY, raw);
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.savedConfigs).toHaveLength(1);
+    expect(loaded!.savedConfigs![0]!.nozzles!.s).toBe(MAX_DIMENSION_M);
+    expect(loaded!.treeRestoreNotes?.join(' ')).toContain('Saved configuration No motors:');
+    expect(loaded!.treeRestoreNotes?.length).toBeGreaterThan(1);
+    // The next autosave writes the restored design, not a starter over it.
+    saveSessionDebounced(loaded!);
+    vi.runAllTimers();
+    expect(JSON.parse(localStorage.getItem(KEY)!).savedConfigs[0].id).toBe('B');
+  });
+  it.each([5, {}, 'K550W', ['K550W', 7]] as unknown[])('repairs a stored unmatched list %j from the screened references', unmatched => {
+    const ref = { designation: 'K550W', diameter: 0.054, length: 0.4, delay: 10 };
+    localStorage.setItem(KEY, JSON.stringify({ ...state(), configLayers: 1,
+      savedConfigs: [{ id: 'B', name: null, isDefault: true, motors: {}, unmatched, unmatchedRefs: { m: ref } }] }));
+    const loaded = loadSession()!;
+    expect(loaded.savedConfigs![0]!.unmatched).toEqual(['K550W']);
+    expect(noteKinds(loaded)).toContain('caution:G04.unmatched-rebuilt');
+  });
+  it('drops a stored unmatched list with no references to rebuild it from', () => {
+    localStorage.setItem(KEY, JSON.stringify({ ...state(),
+      savedConfigs: [{ id: 'B', name: null, isDefault: true, motors: {}, unmatched: 5 }] }));
+    const loaded = loadSession()!;
+    expect(loaded.savedConfigs![0]).not.toHaveProperty('unmatched');
+    expect(noteKinds(loaded)).toContain('caution:G04.unmatched-rebuilt');
+    expect(() => designStateFromSession(loaded, { legacyMaxMotorLengthM: null })).not.toThrow();
+  });
+  it('leaves a valid unnamed configuration unchanged, with no note', () => {
+    const ref = { designation: 'K550W', diameter: 0.054, length: 0.4, delay: 10 };
+    const raw = JSON.stringify({ ...state(), configLayers: 1, nozzleModeVersion: 1,
+      savedConfigs: [{ id: 'B', name: null, isDefault: true, motors: {}, unmatched: ['K550W'], unmatchedRefs: { m: ref } }] });
+    localStorage.setItem(KEY, raw);
+    const loaded = loadSession()!;
+    expect(JSON.stringify(loaded.savedConfigs)).toBe(JSON.stringify(JSON.parse(raw).savedConfigs));
+    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+  });
+});
+
+/** Sweep pins: SessionState fields the loader keeps unscreened, read only through their own checks. */
+describe('stored-state hardening: unscreened session scalars', () => {
+  beforeEach(() => discardSession());
+  it.each([
+    { maxMotorLengthByStage: 5 }, { maxMotorLengthByStage: 'x' }, { maxMotorLengthByStage: [null] },
+    { maxMotorLengthM: '0.1' }, { mountId: 7, motor: { designation: 'C6', ejectionDelay: 5 } }, { mountId: {} },
+    { activeConfigId: 7, savedConfigs: [{ id: '7', name: 'C', isDefault: true, motors: {} }] },
+  ] as Record<string, unknown>[])('restores with %j', fields => {
+    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), tree: defaultTree(), ...fields }));
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    expect(restored.refused).toBe(false);
+    expect(() => designFingerprint({ ...restored.state, maxMotorLengthByStage: {} })).not.toThrow();
+  });
 });

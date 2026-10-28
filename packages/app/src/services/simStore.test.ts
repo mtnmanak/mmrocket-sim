@@ -9,6 +9,8 @@ import { densityAltitudeM } from './atmosphere.js';
 import { commentsOf, deploymentVerdict, runStoppedEarly, SAFETY, type DesignMatchKey, type SimRun } from './simReport.js';
 import { runStatus } from './runConfiguration.js';
 import { MAX_STORED_WARNINGS } from './storedWarnings.js';
+import { summaryOf } from './storedRunIdentity.js';
+import { escapeXmlAttr } from './xmlUtil.js';
 
 /**
  * Store tests exercise the persistence round-trip, not simulation output —
@@ -1041,4 +1043,17 @@ it('persists wind levels and provenance, keeping the wind column before the appe
   expect(headers[at + 1]).toBe('Rail for 15.0 m/s (m)');
   expect(headers[at + 2]).toBe('Max dynamic pressure (Pa)');
   expect(rows.map((r) => r[at])).toEqual([2, '']);
+});
+
+// Stored-state sweep: the .ork writer puts a run's source id in an attribute
+// (orkFile runid=), so a non-string one made every Save .ork throw.
+it.each([7, {}, true].map(v => [v]))('drops an unreadable stored importedRunId %j, keeping the run', importedRunId => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('bad'), importedRunId },
+    { ...mkRun('good'), importedRunId: 'source-run' }]));
+  const [bad, good] = loadRuns();
+  expect(() => escapeXmlAttr(summaryOf(bad!).runId!)).not.toThrow();
+  expect(bad!.id).toBe('bad');
+  expect(bad).not.toHaveProperty('importedRunId');
+  expect(good!.importedRunId).toBe('source-run');
+  localStorage.clear();
 });

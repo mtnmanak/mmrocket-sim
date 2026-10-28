@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { FlightResult, FlightSeries, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import {
   launchGuideExplanation, buildSimRun, commentLevelsAlign, commentsOf, conditionsKeyOf, extractLandingDrift, extractMaxRollRate,
-  formatStability, openingVerdict, deploymentVerdict, deploymentRole, openingPolicy,
+  formatRunLabel, formatStability, openingVerdict, deploymentVerdict, deploymentRole, openingPolicy,
   recommendDelay, PHYSICS_REVISION,
   AERO_MODEL_CHANGED, changedSinceRun, formatRunWhen, formatRunWhenProse, listAnd,
   pressureThrustActive, PRESSURE_THRUST_CHANGED, runCarriesNozzleStamp,
@@ -3016,4 +3016,35 @@ it.each(['km/h', 'mph', 'kt'])('preserves defining opening rules in every report
     const opening = commentsOf(run).find(c => /opens |Deployment /.test(c.text))!;
     expect(opening.text).toContain(fps + ' ft/s');
   }
+});
+
+/**
+ * A stored run can lack rocket, motor or manufacturer: loadRuns blanks a
+ * non-string one to '' and leaves an absent one undefined. The label must not
+ * dangle a separator or print empty brackets (second review of the input lane).
+ */
+describe('formatRunLabel', () => {
+  const blanks = [undefined, '', '   '];
+  it('keeps a complete run and an imported summary run as they were', () => {
+    expect(formatRunLabel({ rocket: 'Alpha', motor: 'C6-5', manufacturer: 'Estes' })).toBe('Alpha · C6-5 (Estes)');
+    expect(formatRunLabel({ rocket: 'Alpha', motor: 'C6-5', manufacturer: '' })).toBe('Alpha · C6-5');
+    expect(formatRunLabel({ rocket: '', motor: 'C6-5', manufacturer: 'Estes' })).toBe('C6-5 (Estes)');
+    expect(formatRunLabel({ rocket: 'Alpha', motor: '', manufacturer: '', importedSummary: true })).toBe('Alpha · Unknown motor');
+    expect(formatRunLabel({ rocket: 'Alpha', motor: '', manufacturer: 'Estes', importedSummary: true })).toBe('Alpha · Unknown motor (Estes)');
+    expect(formatRunLabel({ rocket: 'Alpha', motor: 'C6-5', manufacturer: 'Estes', importedSummary: true })).toBe('Alpha · C6-5 (Estes)');
+  });
+  it.each(blanks.flatMap(rocket => blanks.flatMap(motor => blanks.map(manufacturer => ({ rocket, motor, manufacturer })))))(
+    'reads a run with no motor as "Unknown motor": %j', run => {
+      expect(formatRunLabel(run as Parameters<typeof formatRunLabel>[0])).toBe('Unknown motor');
+    });
+  it.each([
+    [{ rocket: 'Alpha' }, 'Alpha · Unknown motor'],
+    [{ rocket: 'Alpha', motor: '', manufacturer: 'Estes' }, 'Alpha · Unknown motor (Estes)'],
+    [{ manufacturer: 'Estes' }, 'Unknown motor (Estes)'],
+    [{ rocket: '  ', motor: 'C6-5', manufacturer: '  ' }, 'C6-5'],
+  ] as const)('labels a partial run %j as %j', (run, label) => {
+    const text = formatRunLabel(run as Parameters<typeof formatRunLabel>[0]);
+    expect(text).toBe(label);
+    expect(text).not.toMatch(/ · $|\(\s*\)| {2}|undefined/);
+  });
 });

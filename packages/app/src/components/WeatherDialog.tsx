@@ -56,7 +56,9 @@ function readMemory(): DialogMemory {
     if (!m || typeof m !== 'object') return {};
     const o = m as Record<string, unknown>;
     return {
-      ...(typeof o['country'] === 'string' ? { country: o['country'] } : {}),
+      // A code the picker lists, or '' (Any country): it is sent with every search.
+      ...(typeof o['country'] === 'string' && (o['country'] === '' || COUNTRY_CODES.includes(o['country']))
+        ? { country: o['country'] } : {}),
       ...(typeof o['lastQuery'] === 'string' ? { lastQuery: o['lastQuery'] } : {}),
       ...(typeof o['lastHour'] === 'number' && Number.isInteger(o['lastHour']) ? { lastHour: o['lastHour'] } : {}),
     };

@@ -104,6 +104,7 @@ export function loadCustomPresets(notes?: string[]): Preset[] {
     const raw = localStorage.getItem(CUSTOM_KEY);
     const list: unknown = raw ? JSON.parse(raw) : [];
     const repairedRows: string[] = [];
+    const massRows: string[] = [];
     const presets = Array.isArray(list) ? list.filter((p): p is Preset =>
       p !== null && typeof p === 'object' && !Array.isArray(p)
       && ['kind', 'partNo', 'manufacturer', 'description'].every((key) => typeof p[key] === 'string'))
@@ -121,9 +122,17 @@ export function loadCustomPresets(notes?: string[]): Preset[] {
           }
         }
         if (removed) repairedRows.push(`${p.kind}: ${p.manufacturer} ${p.partNo}`);
+        // presetPatch writes any mass > 0 as the override, and "5" > 0 holds:
+        // a string override then flies the computed mass and Save drops it.
+        const mass: unknown = repaired.mass;
+        if (mass !== undefined && !(typeof mass === 'number' && Number.isFinite(mass))) {
+          delete repaired.mass;
+          massRows.push(`${p.kind}: ${p.manufacturer} ${p.partNo}`);
+        }
         return repaired;
       }) : [];
     if (repairedRows.length) notes?.push(`${repairedRows.length} stored preset(s) had unreadable material removed; first: ${repairedRows[0]!}. Their dimensions were kept. Check the part's material after applying it.`);
+    if (massRows.length) notes?.push(`${massRows.length} stored preset(s) had an unreadable mass removed; first: ${massRows[0]!}. Check the part's mass after applying it.`);
     return presets;
   } catch {
     return [];

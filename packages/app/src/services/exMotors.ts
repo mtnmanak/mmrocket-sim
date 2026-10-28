@@ -191,16 +191,21 @@ function validFlightSnapshotFields(v: unknown): v is ExFlightSnapshot {
  */
 let unstored: ExMotor[] | null = null;
 
+/** The identity fields a Save writes, checked without today's flight-data refusals. */
+export function validExMotorIdentity(v: unknown): v is Pick<ExMotor, 'motorId' | 'designation' | 'realManufacturer'> {
+  return record(v) && typeof v['motorId'] === 'string' && v['motorId'].startsWith('ex:')
+    && v['motorId'].length <= MAX_EX_MOTOR_ID_LENGTH
+    && typeof v['designation'] === 'string' && !!v['designation']
+    && typeof v['realManufacturer'] === 'string';
+}
+
 /** Save can retain a legacy maker even when its curve cannot be loaded (audit 2026-10-11, S1c-5 integration). */
 export function loadExMotorIdentities(): Pick<ExMotor, 'motorId' | 'designation' | 'realManufacturer'>[] {
   try {
     const list: unknown = unstored ?? JSON.parse(localStorage.getItem(KEY) ?? '[]');
     if (!Array.isArray(list)) return [];
     return list.flatMap((value: unknown) => {
-      if (!record(value) || typeof value['motorId'] !== 'string' || !value['motorId'].startsWith('ex:')
-        || value['motorId'].length > MAX_EX_MOTOR_ID_LENGTH
-        || typeof value['designation'] !== 'string' || !value['designation']
-        || typeof value['realManufacturer'] !== 'string') return [];
+      if (!validExMotorIdentity(value)) return [];
       // Identity only: never expose rejected flight data to a motor loader.
       return [{ motorId: value['motorId'], designation: value['designation'], realManufacturer: value['realManufacturer'] }];
     });

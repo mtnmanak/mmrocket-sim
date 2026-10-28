@@ -966,8 +966,16 @@ export function designMatchKeyOf(input: DesignMatchInput): DesignMatchKey {
 
 /** The launch report's compact identity, taken from the flight as flown. */
 export function formatRunLabel(run: Pick<SimRun, 'rocket' | 'motor' | 'manufacturer' | 'importedSummary'>): string {
-  return `${run.rocket ? `${run.rocket} · ` : ''}${run.motor || (run.importedSummary ? 'Unknown motor' : '')}`
-    + (run.manufacturer ? ` (${run.manufacturer})` : '');
+  // A stored run can lack any of the three (loadRuns blanks a non-string one);
+  // the print card's rule (designPrintReport.flightCardHeader): a missing rocket
+  // is left out and a missing motor reads "Unknown motor", for every run.
+  const rocket = runLabelText(run.rocket), motor = runLabelText(run.motor), maker = runLabelText(run.manufacturer);
+  return `${rocket ? `${rocket} · ` : ''}${motor || 'Unknown motor'}${maker ? ` (${maker})` : ''}`;
+}
+
+/** A stored run's rocket, motor or manufacturer as a label reads it: a non-blank string, else ''. */
+export function runLabelText(v: unknown): string {
+  return typeof v === 'string' && v.trim() ? v : '';
 }
 
 /**

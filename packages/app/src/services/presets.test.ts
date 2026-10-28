@@ -138,6 +138,33 @@ describe('storage hardening: custom presets', () => {
     }
   });
 
+  // presetPatch tests `p.mass > 0`, which a numeric string passes: the part then
+  // carried overrideMass "5", which the kernel and the .ork writer both ignore.
+  it.each(['5', null, {}] as unknown[])('removes an unreadable stored mass %j, keeping the row, with a note', mass => {
+    vi.stubGlobal('localStorage', { getItem: () => JSON.stringify([{ ...baseTube, mass }, { ...baseTube, partNo: 'BT-5', mass: 5 }]) });
+    try {
+      const notes: string[] = [];
+      const [repaired, kept] = loadCustomPresets(notes);
+      expect(presetPatch('bodytube', repaired!).overrideMass).toBeUndefined();
+      expect(repaired).toEqual(baseTube);
+      expect(kept).toEqual({ ...baseTube, partNo: 'BT-5', mass: 5 });
+      expect(presetPatch('bodytube', kept!).overrideMass).toBe(5);
+      expect(notes).toHaveLength(1);
+      expect(notes[0]).toContain('unreadable mass');
+      expect(notes[0]).toContain('EX BT-2+');
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  it.each([0, -1, 5])('keeps a numeric stored mass %j as stored, with no note', mass => {
+    const row = { ...baseTube, mass };
+    vi.stubGlobal('localStorage', { getItem: () => JSON.stringify([row]) });
+    try {
+      const notes: string[] = [];
+      expect(loadCustomPresets(notes)).toStrictEqual([row]);
+      expect(notes).toEqual([]);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it('S7c-2 normalizes legacy lowercase material types without losing density', () => {
     const legacy = { ...baseTube, outsideDiameter: 0.024, material: { name: 'Cardboard', type: ' bulk ', density: 680 } };
     vi.stubGlobal('localStorage', { getItem: () => JSON.stringify([legacy]) });

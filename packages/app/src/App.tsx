@@ -787,9 +787,15 @@ export function App() {
   const [shroudPrompt, setShroudPrompt] = useState<ShroudCandidate[] | null>(null);
   // Session restore is routine good news — one quiet line that fades out,
   // not an alert banner (identity pass v0.027).
-  const [sessionNote, setSessionNote] = useState<string | null>(
-    session ? `Restored your previous session (“${session.tree.name ?? 'unnamed'}”, saved ${new Date(session.savedAt).toLocaleString()}).` : null,
-  );
+  // The writer stamps Date.now(); a hand-edited time (text, null, out of the
+  // Date range) is left unnamed rather than shown as "Invalid Date" or 1970.
+  const [sessionNote, setSessionNote] = useState<string | null>(() => {
+    if (!session) return null;
+    const savedAt: unknown = session.savedAt;
+    const when = typeof savedAt === 'number' && savedAt > 0 && Number.isFinite(new Date(savedAt).getTime())
+      ? `, saved ${new Date(savedAt).toLocaleString()}` : '';
+    return `Restored your previous session (“${session.tree.name ?? 'unnamed'}”${when}).`;
+  });
   const [sessionNoteFading, setSessionNoteFading] = useState(false);
   useEffect(() => {
     if (!sessionNote) return;
