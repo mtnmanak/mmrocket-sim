@@ -1,5 +1,5 @@
 import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
-import { cautionNote } from '../services/importNotes.js';
+import { cautionNote, noteFlags } from '../services/importNotes.js';
 import { sanitizeDesignProvenance } from '../services/designProvenance.js';
 import { sanitizeDocumentMaterials } from '../services/documentMaterials.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
@@ -97,6 +97,12 @@ interface Finding {
   problem: string;
   /** "set to 8" — the tail of the import note. */
   repair: string;
+  /**
+   * The node was left as it was, so every later pass finds this again. Said
+   * once per load: a pass skips it when an earlier pass already recorded the
+   * same line on the same notes (audit S8-1).
+   */
+  kept?: true;
 }
 
 function limitFinding(
@@ -171,7 +177,8 @@ function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = 
       const limitText = noticeQuantity('length', MAX_FIN_POINT_M, units);
       found.push({ problem: `${partName(n)}: the simulator adjusts the fin outline at its origin or ${limitText} limit`,
         repair: safe ? 'set to the outline actually flown; check the fin shape before flying'
-          : `original coordinates kept to preserve the simulated fin; drawing and simulator differ. Reduce the outline below ${limitText} before flying or cutting it` });
+          : `original coordinates kept to preserve the simulated fin; drawing and simulator differ. Reduce the outline below ${limitText} before flying or cutting it`,
+        ...(safe ? {} : { kept: true as const }) });
     }
   }
   if ((n.type as string) === 'tubehole') {
@@ -370,7 +377,15 @@ export function sanitizeTree(tree: RocketTree, notes?: string[], units: UnitSele
   const components = walk(tree.components, found, units);
   refuseTooManyInstances(components ?? tree.components);
   // D7 I04: a repaired value replaces what the file or session held — Caution.
-  if (notes) for (const f of found) cautionNote(notes, 'I04.limits', `${f.problem} — ${f.repair}.`);
+  // A kept finding recurs on every pass (normalizeTree runs two, restore and
+  // open more), so it is said by the first pass that finds it. Read before
+  // this pass adds its own: two same-named fin sets still get a line each.
+  const earlier = new Set(notes && found.some(f => f.kept)
+    ? noteFlags(notes).filter(r => r.kind === 'I04.limits').map(r => r.text) : []);
+  if (notes) for (const f of found) {
+    const text = `${f.problem} — ${f.repair}.`;
+    if (!(f.kept && earlier.has(text))) cautionNote(notes, 'I04.limits', text);
+  }
   return components ? { ...tree, components } : tree;
 }
 

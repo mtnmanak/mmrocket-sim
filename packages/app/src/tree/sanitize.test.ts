@@ -558,3 +558,17 @@ it.each([{ points: undefined }, { points: null }])('materializes the kernel free
   expect(kid(input)['points']).toBe(points);
   expect(sanitizeTree(out)).toBe(out);
 });
+
+// Only a finding that leaves its node as it was is said once per notes array
+// (audit S8-1): a repair a later pass makes is a new repair, and says so.
+it('reports each repair made, even when an earlier pass said the same line', () => {
+  const notes: string[] = [];
+  // Beside a kept outline (a point past 2.5 m on both axes), which is said once.
+  const raw = (): RocketTree => ({ components: [{ type: 'trapezoidfinset', name: 'Fins', finCount: 70_000 },
+    { type: 'freeformfinset', name: 'Far', points: [[0, 0], [3, 3], [3.5, 0]] }] });
+  sanitizeTree(raw(), notes);
+  sanitizeTree(raw(), notes);
+  expect(notes.filter(n => n.startsWith('“Fins”: fin count'))).toHaveLength(2);
+  expect(notes.filter(n => n.startsWith('“Far”:'))).toHaveLength(1);
+  expect(noteFlags(notes).map(r => r.kind)).toEqual(['I04.limits', 'I04.limits', 'I04.limits']);
+});
