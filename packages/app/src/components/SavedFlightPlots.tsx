@@ -72,7 +72,8 @@ export function SavedFlightPlots({ current, onApply }: { current: Layout; onAppl
         onChange={e => { setName(e.target.value); setError(''); }} />
       <button className="chart-btn" type="submit">Save current plots</button>
     </form>
-    {error && <Note as="p" tier="information" id={errorId} role="alert">{error}</Note>}
+    {/* Always mounted (audit 2026-09-22): an alert inserted with its text already in place is announced unreliably. */}
+    <div className="saved-plots-alert" role="alert">{error && <Note as="p" tier="information" id={errorId}>{error}</Note>}</div>
     <p className="chart-comparison-note" role="status">{status || 'Save the series and comparison axes for use with any flight in this browser.'}</p>
     {deleted && <button className="chart-btn" onClick={() => {
       if (plots.some(p => p.id === deleted.plot.id || p.name.toLowerCase() === deleted.plot.name.toLowerCase()) || plots.length >= MAX_FLIGHT_PLOTS) {

@@ -220,7 +220,8 @@ describe('row 466', () => {
   it('the fin editor draws its refusal in the status token, not a hard-coded red', () => {
     const src = read('FinPointsEditor.tsx');
     expect(src).not.toMatch(/#c0392b/i);
-    expect(src).toMatch(/role="alert" style=\{\{ fontSize: 11, color: 'var\(--status-serious\)'/);
+    // The refusal is the conditional child of its always-mounted alert region.
+    expect(src).toMatch(/className="fin-points-alert" role="alert">\s*\{\(refused \|\| shownProblem\) && \(\s*<p style=\{\{ fontSize: 11, color: 'var\(--status-serious\)'/);
   });
 
   /**

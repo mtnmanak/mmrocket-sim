@@ -326,7 +326,7 @@ describe('the design-site longitude check', () => {
     await reviewLem({ route: (u) => new URL(u).searchParams.get('longitude')!.startsWith('-')
       ? { status: 503, body: {} } : LEM_WEATHER(u) });
     await click(button('Fetch for 80.127° W instead'));
-    expect(q('[role="alert"]')!.textContent).toContain('503');
+    expect(q('.weather-alert[role="alert"]')!.textContent).toContain('503');
     expect(q('.weather-review')).toBeNull();
     expect(q('.wind-profile')).toBeNull();
     expect(button('Apply')!.disabled).toBe(true);

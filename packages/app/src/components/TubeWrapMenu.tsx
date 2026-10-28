@@ -74,6 +74,7 @@ export function TubeWrapMenu({ tree, tube }: { tree: RocketTree; tube: Component
     {guide?.notes.map(note => <Note as="p" key={note} tier={note === TUBE_HOLE_ADVICE ? 'information' : 'caution'} className="hint">{note}</Note>)}
     {invalid && <Note as="p" tier="caution" className="hint">{invalid}</Note>}
     <div role="status">{status && <p className="hint">{status}</p>}</div>
-    {error && <Note as="p" tier="caution" className="hint" role="alert">{error}</Note>}
+    {/* Always mounted (audit 2026-09-22): an alert inserted with its text already in place is announced unreliably. */}
+    <div className="tube-wrap-alert" role="alert">{error && <Note as="p" tier="caution" className="hint">{error}</Note>}</div>
   </>;
 }

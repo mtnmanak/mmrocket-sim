@@ -1512,9 +1512,13 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           {node.type.endsWith('finset') && node.type !== 'tubefinset' && (
             <FinPrintScope tree={tree} node={node} lengthSym={lengthSym} />
           )}
-          {exportNote && (
-            <Note as="p" tier="danger" className="print-note print-note-warn" role="alert">{exportNote}</Note>
-          )}
+          {/* Always mounted (audit 2026-09-22): an alert inserted with its text
+              already in place is announced unreliably. */}
+          <div className="part-export-alert" role="alert">
+            {exportNote && (
+              <Note as="p" tier="danger" className="print-note print-note-warn">{exportNote}</Note>
+            )}
+          </div>
         </>
       )}
       {onAutoAlignFins && node.type.endsWith('finset') && parent && parent !== 'stage'

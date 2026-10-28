@@ -33,7 +33,7 @@ const GOOD: FinPoint[] = [[0, 0], [0.020, 0.030], [0.045, 0.030], [0.060, 0]];
 
 it('explains a restored over-limit outline immediately', () => {
   render([[0, 0], [0.02, 3], [0.06, 0]]);
-  expect(host.querySelector('[role="alert"]')?.textContent).toContain('2500 mm (98.425 in) coordinate limit');
+  expect(host.querySelector('.fin-points-alert[role="alert"]')?.textContent).toContain('2500 mm (98.425 in) coordinate limit');
 });
 
 const render = (points: FinPoint[]) => {
@@ -77,7 +77,7 @@ const type = (el: HTMLInputElement, value: string) => {
   });
 };
 
-const alertText = () => host.querySelector('[role="alert"]')?.textContent ?? '';
+const alertText = () => host.querySelector('.fin-points-alert[role="alert"]')?.textContent ?? '';
 const outlineStroke = () => host.querySelector('polygon')!.getAttribute('stroke');
 
 beforeEach(() => {

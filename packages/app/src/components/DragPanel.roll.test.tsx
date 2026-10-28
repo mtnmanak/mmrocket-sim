@@ -116,11 +116,43 @@ it.each(['no lift', 'query failure'])('N022 explains %s without showing a margin
   await act(async () => [...host.querySelectorAll('button')].find((b) => b.textContent === 'Show CP vs roll-plane angle')!.click());
   const panel = host.querySelector('.roll-plane-panel')!;
   if (state === 'query failure') {
-    expect(panel.querySelector('[role="alert"]')?.textContent).toContain('Roll-plane CP could not be computed: test diagnostic failure');
+    expect(panel.querySelector('.roll-plane-alert[role="alert"]')?.textContent).toContain('Roll-plane CP could not be computed: test diagnostic failure');
   } else {
     expect(panel.textContent).toContain('No defined worst plane.');
     expect(panel.textContent).toContain('No lift in this plane: every sampled angle');
     expect(panel.querySelectorAll('canvas')).toHaveLength(2);
   }
   expect(panel.textContent).not.toMatch(/NaN|Infinity|margin: -3/);
+});
+
+// Live-region sweep (audit 2026-09-22): the alert was one arm of a ternary,
+// inserted with its text already in place.
+it('N022 reports a failed roll-plane query into an alert region that was there, empty, with the charts', async () => {
+  let fail = false;
+  const planes: AeroDiagnostics['cp'][] = Array.from({ length: 360 }, () => [0.8, 0, 0, 2]);
+  const diagnostic = () => {
+    if (fail) throw new Error('test diagnostic failure');
+    return { cp: planes[0]!, worstCP: planes[0]!, cpByTheta: planes, stallMargin: 0.1 };
+  };
+  const sweep = { machs: [0.3, 1], cp: [0.8, 0.8], cna: [2, 2], hasNozzle: false,
+    powerOff: { total: [0.4, 0.4] }, powerOn: { total: [0.4, 0.4] }, components: [] };
+  const rocket = { aeroDiagnostics: diagnostic, dragSweep: () => sweep,
+    staticInfo: () => ({ length: 1, cg: 0.3, mass: 0.5, refDiameter: 0.1, cp: 0.8, cna: 2, cpWorst: 0.8, cnaWorst: 2 }) } as unknown as OrkRocket;
+  await act(async () => root.render(<PrefsProvider><DragPanel rocket={rocket} open /></PrefsProvider>));
+  await act(async () => [...host.querySelectorAll('button')].find((b) => b.textContent === 'Show CP vs roll-plane angle')!.click());
+  const panel = host.querySelector('.roll-plane-panel')!;
+  const alert = panel.querySelector('.roll-plane-alert');
+  expect(alert?.getAttribute('role')).toBe('alert');
+  expect(alert!.textContent).toBe('');
+  expect(panel.textContent).toContain('CP position vs roll-plane angle');
+  fail = true;
+  const mach = panel.querySelector<HTMLSelectElement>('select')!;
+  const other = [...mach.options].find((o) => o.value !== mach.value)!.value;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(mach, other);
+    mach.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  expect(panel.querySelector('.roll-plane-alert')).toBe(alert);
+  expect(alert!.textContent).toBe('⛔ Danger: Roll-plane CP could not be computed: test diagnostic failure');
+  expect(panel.textContent).not.toContain('CP position vs roll-plane angle');
 });

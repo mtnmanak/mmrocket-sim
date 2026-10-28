@@ -61,7 +61,12 @@ export function DesignNotesPanel({ tree, onChange, onAddRevision }: {
         <input ref={dateInput} id={`${id}-date`} type="date" value={date}
           aria-invalid={dateError || undefined} aria-describedby={dateError ? `${id}-date-error` : undefined}
           onChange={e => { setDate(e.target.value); setDateError(false); }} />
-        {dateError && <p id={`${id}-date-error`} role="alert">Choose a valid date before adding the revision.</p>}
+        {/* Always mounted (audit 2026-09-22): an alert inserted with its text
+            already in place is announced unreliably. sr-only while empty, so
+            .field's flex gap does not space an empty region. */}
+        <div role="alert" className={dateError ? 'revision-date-alert' : 'revision-date-alert sr-only'}>
+          {dateError && <p id={`${id}-date-error`}>Choose a valid date before adding the revision.</p>}
+        </div>
       </div>
       <div className="field">
         <label htmlFor={`${id}-note`}>Revision note</label>

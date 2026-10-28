@@ -65,6 +65,16 @@ afterEach(() => {
   vi.mocked(buildPrintPack).mockReset();
 });
 
+/** The part's export alert region (always mounted) and the note it holds. */
+const exportRegion = () => host.querySelector('.part-export-alert[role="alert"]');
+const exportNote = () => exportRegion()?.querySelector(':scope > .print-note-warn') ?? null;
+/** The region is there and holds no note. */
+const noExportNote = () => {
+  expect(exportRegion()).not.toBeNull();
+  expect(exportNote()).toBeNull();
+  expect(exportRegion()!.textContent).toBe('');
+};
+
 describe('PropertyPanel — an export that throws says so', () => {
   it('S3a-3 clears the split-print error after a successful retry', async () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ printer: printerFromPreset('bambu-a1mini') }));
@@ -73,10 +83,10 @@ describe('PropertyPanel — an export that throws says so', () => {
     act(() => root.render(<PrefsProvider><PropertyPanel tree={tree} node={nose} onPatch={() => {}} /></PrefsProvider>));
     const print = [...host.querySelectorAll('button')].find(b => b.textContent!.startsWith('🖨'))!;
     await act(async () => print.click());
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain('offline chunk');
+    expect(exportRegion()?.textContent).toContain('offline chunk');
     await act(async () => print.click());
     expect(downloadBlob).toHaveBeenCalledOnce();
-    expect(host.querySelector('.print-note-warn[role="alert"]')).toBeNull();
+    noExportNote();
   });
   it('reports an unusable fin template and clears the note after a successful retry', () => {
     const fin: ComponentNode = { type: 'freeformfinset', id: 'f', name: 'Fins', points: [] };
@@ -95,15 +105,15 @@ describe('PropertyPanel — an export that throws says so', () => {
       act(() => svg.click());
     };
     exportSvg();
-    expect(host.querySelector('.print-note-warn[role="alert"]')?.textContent)
+    expect(exportNote()?.textContent)
       .toBe('⛔ Danger: Could not export this fin template. Check the outline in the fin editor before exporting.');
-    expect(host.querySelector('.message-danger[role="alert"]')).not.toBeNull();
+    expect(exportRegion()!.querySelector(':scope > .message-danger')).not.toBeNull();
     expect(downloadBlob).not.toHaveBeenCalled();
     fin['points'] = [[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]];
     render();
     exportSvg();
     expect(downloadBlob).toHaveBeenCalledOnce();
-    expect(host.querySelector('.print-note-warn[role="alert"]')).toBeNull();
+    noExportNote();
   });
   it('the 🖨 STL button reports the failure in its note instead of rejecting', async () => {
     vi.mocked(componentSolid).mockRejectedValue(new Error('mesher gave up'));
@@ -113,7 +123,7 @@ describe('PropertyPanel — an export that throws says so', () => {
     const print = [...host.querySelectorAll('button')].find((b) => b.textContent!.startsWith('🖨'))!;
     await act(async () => { print.click(); });
     await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
-    const alert = host.querySelector('.print-note-warn[role="alert"]');
+    const alert = exportNote();
     expect(alert?.textContent).toBe('⛔ Danger: Couldn\'t export this part: mesher gave up');
     expect(alert?.classList.contains('message-danger')).toBe(true);
     expect(rejections).toEqual([]);

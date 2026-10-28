@@ -58,7 +58,8 @@ const saved = (): [Blob, string, string] => {
   expect(downloadBlob).toHaveBeenCalledOnce();
   return vi.mocked(downloadBlob).mock.calls[0] as [Blob, string, string];
 };
-const alertText = () => host.querySelector('.print-note-warn[role="alert"]')?.textContent ?? null;
+// The note inside the part's always-mounted export alert region.
+const alertText = () => host.querySelector('.part-export-alert[role="alert"] > .print-note-warn')?.textContent ?? null;
 
 beforeEach(() => {
   localStorage.clear();

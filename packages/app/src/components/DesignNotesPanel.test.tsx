@@ -69,6 +69,13 @@ it('keeps an invalid or empty dated entry out of the design and explains the dat
     onAddRevision={t => { current = t; render(); }} />);
   try {
     await act(async () => render());
+    // Live-region sweep (audit 2026-09-22): the alert is there, empty, before
+    // the error, and out of .field's flex gap (sr-only) while empty.
+    const region = host.querySelector('.revision-date-alert');
+    expect(region?.getAttribute('role')).toBe('alert');
+    expect(region!.textContent).toBe('');
+    expect(region!.classList.contains('sr-only')).toBe(true);
+    expect(region!.parentElement!.classList.contains('field')).toBe(true);
     const add = [...host.querySelectorAll('button')].find(b => b.textContent === 'Add revision')!;
     expect(add.disabled).toBe(true);
     const note = host.querySelector<HTMLTextAreaElement>('[aria-label="Revision note"]')!;
@@ -81,7 +88,9 @@ it('keeps an invalid or empty dated entry out of the design and explains the dat
     });
     await act(async () => add.click());
     expect(current.provenance?.revisions).toBeUndefined();
-    expect(host.querySelector('[role="alert"]')?.textContent).toContain('date');
+    expect(host.querySelector('.revision-date-alert')).toBe(region);
+    expect(region!.textContent).toBe('Choose a valid date before adding the revision.');
+    expect(region!.classList.contains('sr-only')).toBe(false);
     const date = host.querySelector('input[type="date"]')!;
     expect(date.getAttribute('aria-invalid')).toBe('true');
     expect(document.getElementById(date.getAttribute('aria-describedby')!)?.textContent).toContain('date');
