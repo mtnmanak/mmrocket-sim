@@ -214,6 +214,7 @@ import { DesignNotesPanel } from './components/DesignNotesPanel.js';
 import { togglePartVisibility } from './tree/partVisibility.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
 import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
+import { useAfterMount } from './hooks/useAfterMount.js';
 import { useDesignDirty, type PreRankRestore } from './hooks/useDesignDirty.js';
 import { useFirstRunTour } from './hooks/useFirstRunTour.js';
 import { HERO_CHIP_RESERVE, useHeroDrawer } from './hooks/useHeroDrawer.js';
@@ -746,6 +747,11 @@ export function App() {
   // way, and cleared only by a choice in the banner.
   const [sessionConflict, setSessionConflict] = useState(() => sessionConflicted());
   useEffect(() => onSessionConflictChange(setSessionConflict), []);
+  // Both flags are module state and can already be true on App's first render.
+  // Their banners wait for the commit after it, so each region mounts empty and
+  // its message is inserted as a change (owner ruling, row 113 (b)). Display
+  // only: the flags themselves still feed the leave-page prompt from the start.
+  const bannersMounted = useAfterMount();
   // "Load the other tab's design" reloads on purpose, and says so first.
   const leavingForOtherTab = useRef(false);
   const [simulating, setSimulating] = useState(false);
@@ -1786,8 +1792,10 @@ export function App() {
     const next = applySolvedAllowance(tree, sol);
     if (next === tree) return;
     setTree(next);
+    // setTree refuses an edit past the instance cap; select only what landed,
+    // as the add paths do (audit S7-4).
     const id = findAllowance(next)?.id;
-    if (id) setSelectedId(id);
+    if (id && findNode(treeRef.current, id)) setSelectedId(id);
   };
 
   /**
@@ -3762,7 +3770,7 @@ export function App() {
         )}
         </div>
         <div className="autosave-failing-alert" role="alert">
-        {autosaveFailing && (
+        {bannersMounted && autosaveFailing && (
           // Persistent (not dismissible) on purpose: while this shows, edits
           // do NOT survive a reload. It clears itself on the recovery edge.
           <Note tier="danger" className="file-note file-note-error autosave-warn">
@@ -3772,7 +3780,7 @@ export function App() {
         )}
         </div>
         <div className="session-conflict-alert" role="alert">
-        {sessionConflict && (
+        {bannersMounted && sessionConflict && (
           // Persistent until answered: until then neither tab's work is at
           // risk, and a × that merely hid it would leave this tab's changes
           // unsaved with nothing on screen to say so.
@@ -4491,31 +4499,36 @@ export function App() {
             </div>
             {built && <ConfigStabilityRange input={stabilityRangeInput} />}
             {built && hero.open && !hero.wide && statsDrawerNode}
-            {built && (() => {
+            {(() => {
               // Rail-line findings are a mechanical fit problem on the pad, not an
               // aerodynamic footnote or a failed flight (D7 §5, R08): their own
               // block, each with the parts it names one click away, where the
               // rail button's snap controls are. The same sentences buildDesign
               // appended, matched by identity, so nothing is said twice.
-              const railFindings = built.info.warningTexts.length > 0
+              const warningTexts = built?.info.warningTexts ?? [];
+              const railFindings = warningTexts.length > 0
                 ? railInterferenceFindings(tree, prefs.units).filter(f => staticWarningTier(f.text) === 'information') : [];
               const railTexts = new Set(railFindings.map(f => f.text));
-              const rest = built.info.warningTexts.filter(t => !railTexts.has(t));
-              // Mounted with the design, one ALWAYS-MOUNTED alert region per tier
-              // and one for rail fit, each holding its note as a conditional
-              // child (audit 2026-09-22): a region inserted with its text already
-              // in place is announced unreliably. With no notes, #design-notes
-              // and its regions are empty blocks that take no space.
+              const rest = warningTexts.filter(t => !railTexts.has(t));
+              // One ALWAYS-MOUNTED live region per tier and one for rail fit,
+              // each holding its note as a conditional child (audit 2026-09-22):
+              // a region inserted with its text already in place is announced
+              // unreliably. Mounted while the design fails to build too, empty,
+              // so the notes after a fixed edit land in the same regions. With
+              // no notes, #design-notes and its regions are empty blocks that
+              // take no space. Danger and
+              // caution interrupt; information and rail fit, which change no
+              // flight number, are polite (owner ruling, row 113 (a)).
               return <div id="design-notes" tabIndex={-1}>
                 {(['danger', 'caution', 'information'] as const).map(tier => {
                   const texts = rest.filter(t => staticWarningTier(t) === tier);
-                  return <div key={tier} className={`design-notes-${tier}`} role="alert">
+                  return <div key={tier} className={`design-notes-${tier}`} role={tier === 'information' ? 'status' : 'alert'}>
                     {texts.length ? <Note tier={tier} className="file-note">
                       {texts.map((text, i) => <div key={i}><StaticWarning text={text} /></div>)}
                     </Note> : null}
                   </div>;
                 })}
-                <div className="rail-fit-alert" role="alert">
+                <div className="rail-fit-alert" role="status">
                 {railFindings.length > 0 && (
                   <Note tier="information" className="file-note rail-fit-findings">
                     <strong>Rail fit on the pad</strong> (the parts&rsquo; angles; no flight number changes):

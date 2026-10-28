@@ -314,6 +314,9 @@ function Shell({ summary, children }: { summary: string; children: React.ReactNo
   );
 }
 
+/** `rate`'s text: "4.6 m/s (15 ft/s)", with " (defined as 15 ft/s)" after it where neither unit is ft/s. */
+const RATE_PARTS = /^(\S+) \S+ \((\S+) (\S+)\)(?: \(defined as (\S+) (\S+)\))?$/;
+
 function BandSection({
   advice, catalogueReady, catalogueFailed, boreM, roughLength, rate, lenSym, velSym, massSym,
 }: {
@@ -349,13 +352,20 @@ function BandSection({
   // number and has no way to tell which one the panel meant.
   const vented = advice.ventFactor < 1;
   const cdNum = (v: number) => v.toFixed(2).replace(/\.?0+$/, '');
+  // The band's ends in the heading: the preferred-unit numbers bare, since the
+  // unit chip after them names the unit, then the counterpart (and the defined
+  // ft/s figures) once for the pair. Each end through `rate` printed the unit
+  // twice beside the chip (audit S7-2).
+  const [lo, hi] = [advice.band.min, advice.band.max].map((si) => RATE_PARTS.exec(rate(si)));
 
   return (
     <section className="recovery-band">
       <h3>
         {title}
         <span className="recovery-band-range">
-          {rate(advice.band.min)}–{rate(advice.band.max)} <UnitChip quantity="velocity" />
+          {lo && hi
+            ? <>{lo[1]}–{hi[1]} <UnitChip quantity="velocity" /> ({lo[2]}–{hi[2]} {lo[3]}){lo[4] && hi[4] && <> (defined as {lo[4]}–{hi[4]} {lo[5]})</>}</>
+            : <>{rate(advice.band.min)}–{rate(advice.band.max)} <UnitChip quantity="velocity" /></>}
         </span>
       </h3>
 

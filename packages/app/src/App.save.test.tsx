@@ -498,6 +498,7 @@ describe('lane H regressions', () => {
     const status = host.querySelector('.earlier-save-note');
     expect(status).not.toBeNull();
     expect(status!.textContent).toBe('');
+    expect(status!.classList.contains('sr-only')).toBe(true);
     vi.mocked(saveFile).mockImplementationOnce(() => new Promise(resolve => { finishWrite = resolve; }));
     let finishCopy!: (note: string | null) => void;
     const copy = new Promise<string | null>(resolve => { finishCopy = resolve; });
@@ -520,6 +521,7 @@ describe('lane H regressions', () => {
     await act(async () => { finishCopy('The app could not keep a copy in Recent.'); });
     const receipt = host.querySelector('.earlier-save-note')!;
     expect(receipt).toBe(status);
+    expect(receipt.classList.contains('sr-only')).toBe(false);
     expect(receipt.textContent).toContain(originalWarning);
     expect(receipt.textContent).toContain('could not keep a copy in Recent');
     expect(receipt.textContent).toContain('Earlier.ork');

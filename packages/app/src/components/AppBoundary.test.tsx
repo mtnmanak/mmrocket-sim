@@ -45,9 +45,11 @@ it('updates its established recovery outcome region', async () => {
   const status = host.querySelector('[role="status"]');
   expect(status).not.toBeNull();
   expect(status!.textContent).toBe('');
+  expect(status!.classList.contains('sr-only')).toBe(true);
   await act(async () => { button('Download the autosaved design').click(); });
   expect(host.querySelector('[role="status"]')).toBe(status);
   expect(status!.textContent).not.toBe('');
+  expect(status!.classList.contains('sr-only')).toBe(false);
 });
 
 beforeEach(() => {

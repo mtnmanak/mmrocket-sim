@@ -38,7 +38,10 @@ it('updates an established status region while reading an attachment', async () 
   await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })); });
   const reading = [...host.querySelectorAll('[role="status"]')].find(el => el.textContent?.includes('Reading'))!;
   expect(regions.has(reading)).toBe(true);
+  expect(reading.classList.contains('sr-only')).toBe(false);
   await act(async () => { release(new ArrayBuffer(0)); });
+  expect(reading.textContent).toBe('');
+  expect(reading.classList.contains('sr-only')).toBe(true);
 });
 
 it.each(['run', 'summary', 'design'] as const)('credits profile-only weather in the %s with place credit governed by consent', location => {

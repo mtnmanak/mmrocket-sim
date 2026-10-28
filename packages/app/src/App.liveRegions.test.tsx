@@ -9,6 +9,8 @@ import type { TreeHistory } from './hooks/useTreeHistory.js';
 import { flyLaunch } from './services/flightRunner.js';
 import { MACH_AUTO_THRESHOLD } from './services/machProbe.js';
 import { addChild, makeNode, updateNode } from './tree/treeModel.js';
+import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
+import { discardSession, flushSession, saveSessionDebounced, sessionConflicted, sessionSaveFailing } from './services/session.js';
 
 /**
  * The App's live regions exist, empty, before their first message (audit
@@ -26,11 +28,15 @@ vi.mock('./hooks/useTreeHistory.js', async importOriginal => {
     return history;
   } };
 });
-// Design notes appended here are added to every build's warningTexts.
+// Design notes appended here are added to every build's warningTexts; while
+// failBuild is set, every build fails with BUILD_FAILURE instead.
 let extraNotes: string[] = [];
+let failBuild = false;
+const BUILD_FAILURE = 'Live-region test build failure.';
 vi.mock('./services/buildDesign.js', async original => {
   const real = await original<typeof import('./services/buildDesign.js')>();
   return { ...real, buildDesign: vi.fn((...args: Parameters<typeof real.buildDesign>) => {
+    if (failBuild) return { error: BUILD_FAILURE };
     const result = real.buildDesign(...args);
     if (!('error' in result)) result.info.warningTexts.push(...extraNotes);
     return result;
@@ -97,14 +103,16 @@ async function openTab(name: 'Design' | 'Results'): Promise<void> {
     .find((x) => x.textContent?.trim() === name)!;
   await act(async () => { b.click(); });
 }
-/** Every way a storage write can be refused, for keys matching `refuse`. */
-function refuseWrites(refuse: (key: string) => boolean): void {
+/** Every way a storage write can be refused, for keys matching `refuse`. Returns the undo. */
+function refuseWrites(refuse: (key: string) => boolean): () => void {
   const own = localStorage.setItem;
   Object.defineProperty(localStorage, 'setItem', { configurable: true, value: (key: string, value: string) => {
     if (refuse(key)) throw new DOMException('full', 'QuotaExceededError');
     return own.call(localStorage, key, value);
   } });
-  onTestFinished(() => { Object.defineProperty(localStorage, 'setItem', { configurable: true, value: own }); });
+  const restore = () => { Object.defineProperty(localStorage, 'setItem', { configurable: true, value: own }); };
+  onTestFinished(restore);
+  return restore;
 }
 /** The live region, asserted present with its role and empty. */
 function emptyRegion(selector: string, role: 'alert' | 'status' = 'alert'): Element {
@@ -117,6 +125,7 @@ function emptyRegion(selector: string, role: 'alert' | 'status' = 'alert'): Elem
 
 beforeEach(() => {
   extraNotes = [];
+  failBuild = false;
   localStorage.clear();
   localStorage.setItem('online-openrocket.workspace.v1', 'design');
   localStorage.setItem(PREFS_KEY, JSON.stringify({ tourOff: true }));
@@ -180,16 +189,75 @@ describe('App header banners — regions mounted before their message', () => {
   }, 30_000);
 });
 
+/**
+ * A flag already true on App's FIRST render (owner ruling, row 113 (b)): the
+ * region must mount empty and take its message in a later commit. A
+ * MutationObserver on the host from before the first render tells the two
+ * apart: a message inserted with its region arrives inside the region's own
+ * insertion, and no record has the region as its target. No screen reader runs
+ * here; this is the DOM contract only.
+ */
+describe('App header banners — a message due on the first render arrives after it', () => {
+  const held = { tree: { name: 'Held back', components: [] }, mountMotors: {}, launch: DEFAULT_CONDITIONS };
+  async function mountObserved(): Promise<MutationRecord[]> {
+    const records: MutationRecord[] = [];
+    const observer = new MutationObserver((list) => { records.push(...list); });
+    observer.observe(host, { childList: true, subtree: true });
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    records.push(...observer.takeRecords());
+    observer.disconnect();
+    return records;
+  }
+  /** The region was in the page, and the message then went into it. */
+  function insertedLater(records: MutationRecord[], selector: string, message: string): void {
+    const region = host.querySelector(selector)!;
+    const note = region.querySelector(message);
+    expect(note, message).not.toBeNull();
+    expect(records.some((r) => r.target === region && [...r.addedNodes].includes(note!))).toBe(true);
+    expect(host.querySelector(selector)).toBe(region);
+  }
+
+  it('autosave can\'t write: the banner is inserted into its region after the first render', async () => {
+    const restore = refuseWrites(key => key === SESSION_KEY);
+    saveSessionDebounced(held);
+    flushSession();
+    expect(sessionSaveFailing()).toBe(true);
+    const records = await mountObserved();
+    insertedLater(records, '.autosave-failing-alert', '.autosave-warn.message-danger');
+    expect(host.querySelector('.autosave-failing-alert')!.textContent).toContain('Autosave can\'t write');
+    // A write that sticks clears the module's flag for the tests after this one.
+    restore();
+    flushSession();
+    expect(sessionSaveFailing()).toBe(false);
+  }, 30_000);
+
+  it('another tab\'s write: the conflict is inserted into its region after the first render', async () => {
+    onTestFinished(() => { discardSession(); });
+    saveSessionDebounced(held);
+    flushSession();
+    const ours = JSON.parse(localStorage.getItem(SESSION_KEY)!) as object;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...ours, stamp: 'othertab' }));
+    saveSessionDebounced({ ...held, tree: { ...held.tree, name: 'This tab\'s rocket' } });
+    flushSession();
+    expect(sessionConflicted()).toBe(true);
+    const records = await mountObserved();
+    insertedLater(records, '.session-conflict-alert', '.autosave-warn.message-caution');
+    expect(host.querySelector('.session-conflict-alert')!.textContent).toContain('This design was changed in another tab.');
+  }, 30_000);
+});
+
 describe('App design notes — one region per tier, mounted with the design', () => {
+  // Danger and caution interrupt; an information note waits its turn (owner
+  // ruling, row 113 (a)).
   it.each([
-    ['danger', '[Warning.NO_RECOVERY_DEVICE]', 'message-danger'],
-    ['caution', '[Warning.ZERO_AREA_FIN]', 'message-caution'],
-    ['information', 'A live-region test note.', 'file-note'],
-  ] as const)('the first %s note lands in its tier\'s region', async (tier, text, cls) => {
+    ['danger', '[Warning.NO_RECOVERY_DEVICE]', 'message-danger', 'alert'],
+    ['caution', '[Warning.ZERO_AREA_FIN]', 'message-caution', 'alert'],
+    ['information', 'A live-region test note.', 'file-note', 'status'],
+  ] as const)('the first %s note lands in its tier\'s region', async (tier, text, cls, role) => {
     await mountApp();
     const notes = host.querySelector('#design-notes');
     expect(notes, '#design-notes').not.toBeNull();
-    const region = emptyRegion(`#design-notes > .design-notes-${tier}`);
+    const region = emptyRegion(`#design-notes > .design-notes-${tier}`, role);
     extraNotes = [text];
     await reshape();
     await waitFor(() => (region.textContent ?? '') !== '', `the ${tier} note`);
@@ -213,9 +281,35 @@ describe('App design notes — one region per tier, mounted with the design', ()
     }
   }, 30_000);
 
+  it('a build error keeps the regions mounted, and the notes after it land in the same ones', async () => {
+    // `built` is null while the design fails to build. #design-notes sat under
+    // `{built && …}`, so fixing the edit re-mounted all four regions with
+    // their notes already inside.
+    await mountApp();
+    const notes = host.querySelector('#design-notes');
+    const regions = [...notes!.children];
+    expect(regions).toHaveLength(4);
+    failBuild = true;
+    await reshape();
+    await waitFor(() => (host.textContent ?? '').includes(BUILD_FAILURE), 'the build error');
+    expect(host.querySelector('#design-notes')).toBe(notes);
+    expect([...notes!.children]).toEqual(regions);
+    for (const region of regions) expect(region.textContent).toBe('');
+    failBuild = false;
+    extraNotes = ['[Warning.NO_RECOVERY_DEVICE]', '[Warning.ZERO_AREA_FIN]', 'A live-region test note.'];
+    await reshape();
+    await waitFor(() => regions.slice(0, 3).every((r) => (r.textContent ?? '') !== ''), 'the notes');
+    expect(host.querySelector('#design-notes')).toBe(notes);
+    for (const [i, region] of regions.entries()) expect(notes!.children[i]).toBe(region);
+    expect(regions[0]!.querySelector('.message-danger')).not.toBeNull();
+    expect(regions[1]!.querySelector('.message-caution')).not.toBeNull();
+    expect(regions[2]!.querySelector('.file-note')).not.toBeNull();
+  }, 30_000);
+
   it('the first rail-fit finding lands in the region that was already there', async () => {
     await mountApp();
-    const region = emptyRegion('#design-notes > .rail-fit-alert');
+    // Polite: a fit finding changes no flight number (owner ruling, row 113 (a)).
+    const region = emptyRegion('#design-notes > .rail-fit-alert', 'status');
     const withFins = (nodes: ComponentNode[]): ComponentNode | null => {
       for (const n of nodes) {
         if ((n.children ?? []).some((k) => (k.type as string).endsWith('finset'))) return n;

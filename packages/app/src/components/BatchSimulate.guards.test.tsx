@@ -299,7 +299,11 @@ describe('the batch dialog', () => {
 
     await click(primary());
     expect(modal()).not.toBeNull();
-    expect(modal()!.querySelector('[role="alert"]')?.textContent)
+    // The dialog's description is its warning, which is no alert of its own (row 113 (c)).
+    const warning = document.getElementById(modal()!.getAttribute('aria-describedby') ?? '');
+    expect(modal()!.contains(warning)).toBe(true);
+    expect(warning!.hasAttribute('role')).toBe(false);
+    expect(warning!.textContent)
       .toContain(`37,820 flights is a very long run — ${batchEstimate({ flights: 37820, solverFlights: 37820 })}`);
     expect(sweep).not.toHaveBeenCalled();
     expect(document.activeElement).toBe(action('Cancel'));

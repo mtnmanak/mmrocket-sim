@@ -29,9 +29,15 @@ import { useDialog } from './useDialog.js';
  * Escape is enough, and it takes the same non-destructive branch each modal's
  * Cancel / Keep button already takes.
  */
-export function Modal({ label, onClose, children, className = '' }: {
+export function Modal({ label, describedBy, onClose, children, className = '' }: {
   /** The accessible name — what a screen reader announces on open. */
   label: string;
+  /**
+   * The id of the element that describes the dialog — read with its name on
+   * open, so a warning in the body needs no alert role of its own. Without
+   * it the card has no `aria-describedby` at all.
+   */
+  describedBy?: string;
   /** The modal's non-destructive dismissal, run on Escape. */
   onClose: () => void;
   children: ReactNode;
@@ -41,7 +47,7 @@ export function Modal({ label, onClose, children, className = '' }: {
   return (
     <div className="modal-backdrop">
       <div className={`modal-card ${className}`.trim()} role="dialog" aria-modal="true" aria-label={label}
-        ref={ref} tabIndex={-1}>
+        aria-describedby={describedBy} ref={ref} tabIndex={-1}>
         {children}
       </div>
     </div>

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { App } from './App.js';
 import { PrefsProvider } from './prefs/PrefsContext.js';
@@ -11,6 +11,7 @@ import * as files from './services/saveFile.js';
 import { discardSession } from './services/session.js';
 import { exportOrk } from './services/orkFile.js';
 import { encodeShareFragment } from './services/shareLink.js';
+import { applyAllowance, BUILD_ALLOWANCE_NAME, findAllowance, solveBallast } from './services/buildAllowance.js';
 
 let history: TreeHistory;
 vi.mock('./hooks/useTreeHistory.js', async importOriginal => {
@@ -19,6 +20,12 @@ vi.mock('./hooks/useTreeHistory.js', async importOriginal => {
     history = real.useTreeHistory(...args);
     return history;
   } };
+});
+
+// The Measured box's solver and Apply's tree edit, real unless a test says otherwise.
+vi.mock('./services/buildAllowance.js', async importOriginal => {
+  const real = await importOriginal<typeof import('./services/buildAllowance.js')>();
+  return { ...real, applyAllowance: vi.fn(real.applyAllowance), solveBallast: vi.fn(real.solveBallast) };
 });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -153,6 +160,49 @@ it.each(['duplicate', 'paste'] as const)('keeps selection after a refused %s', a
   expect(history.tree).toBe(before);
   expect(history.selectedId).toBe(body.id);
   expect(host.querySelector('.notice-bar')?.textContent).toContain('That change was not applied');
+}, 30_000);
+
+it('S7-4 a refused Build allowance leaves the selection on a part that exists', async () => {
+  onTestFinished(() => { vi.mocked(solveBallast).mockReset(); vi.mocked(applyAllowance).mockReset(); });
+  await mount();
+  const body = history.tree.components[0]!.children!.find(n => n.type === 'bodytube')!;
+  await act(async () => history.setSelectedId(body.id!));
+  // A solution inside the body tube, whatever the scale reads.
+  const station = ((body['length'] as number) ?? 0.3) / 2 + 0.1;
+  vi.mocked(solveBallast).mockReturnValue({ kind: 'ok', massKg: 0.02, stationM: station });
+  const type = async (label: string, text: string) => {
+    const field = host.querySelector<HTMLInputElement>(`input[aria-label^="${label}"]`)!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, text);
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+  await type('Measured mass of the airframe', '200');
+  await type('Measured CG from nose tip', '300');
+  const apply = () => host.querySelector<HTMLButtonElement>('.measured-apply')!;
+  expect(apply().textContent).toBe('Add “Build allowance”');
+  // The insert would cross the instance cap: the edit is refused, and the
+  // allowance it would have added is no part of the design to select.
+  const over = excessiveTree();
+  over.components[0]!.children!.push({ type: 'masscomponent', id: 'refused-allowance', name: BUILD_ALLOWANCE_NAME });
+  vi.mocked(applyAllowance).mockReturnValueOnce(over);
+  const before = history.tree;
+  await act(async () => apply().click());
+  expect(history.tree).toBe(before);
+  expect(host.querySelector('.notice-bar .message-caution')?.textContent).toContain('That change was not applied');
+  expect(history.selectedId).toBe(body.id);
+  // An allowance the cap lets in is selected, and so is the same one updated.
+  await act(async () => apply().click());
+  const added = findAllowance(history.tree)!;
+  expect(added).not.toBeNull();
+  expect(history.selectedId).toBe(added.id);
+  await act(async () => history.setSelectedId(body.id!));
+  vi.mocked(solveBallast).mockReturnValue({ kind: 'ok', massKg: 0.03, stationM: station });
+  await type('Measured mass of the airframe', '210');
+  expect(apply().textContent).toBe('Update “Build allowance”');
+  await act(async () => apply().click());
+  expect(findAllowance(history.tree)!['mass']).toBe(0.03);
+  expect(history.selectedId).toBe(added.id);
 }, 30_000);
 
 it('S4a-1 refuses an autosave before initializing its old file identity', async () => {
