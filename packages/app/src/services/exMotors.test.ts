@@ -906,7 +906,8 @@ describe('library writes keep stored entries the loader refuses', () => {
   const refused = [null, { motorId: 'ex:newer-build', designation: 'Z1', samples: 'later' }, { ...good(), motorId: 'ex:bad', totalWeightG: 'x' }];
   afterEach(() => localStorage.clear());
 
-  it('keeps refused entries verbatim on an add, a delete and a restore', async () => {
+  it('keeps refused entries on add, delete and restore when a different backup exists', async () => {
+    localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
     localStorage.setItem(KEY, JSON.stringify([...refused, good()]));
     const ex = await fresh();
     expect(ex.addExMotors([other()]).stored).toBe(true);

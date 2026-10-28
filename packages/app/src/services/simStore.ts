@@ -152,9 +152,9 @@ export function loadRuns(): SimRun[] {
       // landing figures (simReport.buildSimRun). A run stored before that is
       // read the same way here, so the Safe column, the batch grade and the
       // export agree with a fresh run: its flight time reached the limit, and
-      // nothing records a stop. Only the main flight's figures: a stored
-      // booster branch keeps no end time to judge it by.
-      if (!r.importedSummary && typeof r.totalFlightTime === 'number'
+      // no ground contact or stop was recorded. Only the main flight's figures:
+      // a stored booster branch keeps no end time to judge it by.
+      if (!r.importedSummary && !Number.isFinite(r.groundHitVelocity) && typeof r.totalFlightTime === 'number'
         && r.totalFlightTime >= KERNEL_MAX_FLIGHT_TIME_S - 1e-6 && !runStoppedEarly(r)) {
         r.simWarnings = restoredWarnings([incompleteFlightWarning(undefined, r.totalFlightTime, false), ...(r.simWarnings ?? [])]);
         Object.assign(r, { landingRate: null, safeLandingRate: null, landingDistanceM: null, landingBearingDeg: null });

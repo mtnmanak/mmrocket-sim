@@ -8,6 +8,16 @@
  */
 export const unreadableBackupKey = (key: string): string => `${key}.unreadable-backup`;
 
+/** Whether the side key is free or already holds this copy; never writes. */
+export function canBackUpUnreadableStore(key: string, raw: string): boolean {
+  try {
+    const held = localStorage.getItem(unreadableBackupKey(key));
+    return held === null || held === raw;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Copy `raw`, the unreadable value stored under `key`, to its side key. True
  * when the side key then holds exactly these bytes, so a write may replace

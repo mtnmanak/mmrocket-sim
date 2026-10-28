@@ -169,8 +169,9 @@ describe('writes keep stored entries the reader cannot show', () => {
   const newer = { kind: 'bulk', name: 'Newer build', density: 50, grade: 'A' };
   const invalid = [{ ...valid, kind: 'solid' }, { ...valid, density: '1234' }, null, 'text'];
 
-  it('keeps unreadable entries verbatim on a save, a replacement and a delete', () => {
+  it('keeps unreadable entries on save, replacement and delete when a different backup exists', () => {
     const other: UserMaterial = { kind: 'surface', name: 'Cloth', density: 0.1 };
+    localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup`, 'older');
     localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([...invalid, valid, other]));
     expect(saveUserMaterials([...loadUserMaterials(), { kind: 'line', name: 'Cord', density: 0.002 }])).toBe(true);
     expect(stored().slice(0, 4)).toEqual(invalid);
