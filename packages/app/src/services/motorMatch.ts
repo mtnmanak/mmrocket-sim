@@ -271,8 +271,9 @@ export async function matchImportedMotor(
   // An open resolves each motor's row, then waits for its curve, and an
   // automatic catalogue check can install during that wait — the same race
   // as the starter's (loadCatalogueMotor): the opened motor landed with the
-  // pre-check row. Only the live catalogue moves; a caller's own does not.
-  const live = deps.catalogue ? null : getCatalogue();
+  // pre-check row. Only the live catalogue moves; a caller's own does not,
+  // and an embedded EX reference never looks at the catalogue at all.
+  const live = deps.catalogue || ref.exMotorId !== undefined ? null : getCatalogue();
   const before = live && JSON.stringify(resolveDbRow(ref, deps));
   const first = await matchImportedMotorOnce(ref, deps);
   if (!live || getCatalogue() === live || JSON.stringify(resolveDbRow(ref, deps)) === before) return first;
