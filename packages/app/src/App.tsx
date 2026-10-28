@@ -1792,8 +1792,10 @@ export function App() {
     const next = applySolvedAllowance(tree, sol);
     if (next === tree) return;
     setTree(next);
+    // setTree refuses an edit past the instance cap; select only what landed,
+    // as the add paths do (audit S7-4).
     const id = findAllowance(next)?.id;
-    if (id) setSelectedId(id);
+    if (id && findNode(treeRef.current, id)) setSelectedId(id);
   };
 
   /**
