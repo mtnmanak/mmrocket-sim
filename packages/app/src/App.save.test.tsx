@@ -3392,14 +3392,16 @@ describe('a hand-edited autosave', () => {
 
   it('renders the configuration panel for an unnamed configuration with an unreadable unmatched list', async () => {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), mountMotors: {},
-      savedConfigs: [{ id: 'cfg', name: null, isDefault: true, motors: {}, unmatched: 5 }], activeConfigId: 'cfg', emptyConfigVersion: 1,
+      // Not the active one: the layer migration rebuilds the active configuration's list.
+      savedConfigs: [{ id: 'a', name: 'Active', isDefault: true, motors: {} },
+        { id: 'cfg', name: null, isDefault: false, motors: {}, unmatched: 5 }], activeConfigId: 'a', emptyConfigVersion: 1,
       launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
     const host = await mountApp();
     await settle(50);
     await openTab(host, 'Motors & Configuration');
     const select = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]');
     expect(select).not.toBeNull();
-    expect([...select!.options].map(o => o.textContent)).toContain('No motors — file default');
+    expect([...select!.options].map(o => o.textContent)).toContain('No motors');
     expect(host.textContent).toContain('Unreadable lists of unmatched motors were rebuilt');
   });
 });
