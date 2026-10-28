@@ -93,6 +93,26 @@ describe('S1 in real workerd', () => {
         message: expect.stringMatching(/16 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
     });
 
+  it('bounds a long hostile filename echoed in a refusal, through the local dev proxy', async () => {
+    // About 4,000 characters: NUL, ESC and RLO up front, an astral character, a .ork tail.
+    const name = '\u0000\u001b\u202e' + 'a'.repeat(179) + '\u{1f680}' + 'b'.repeat(3_800) + '-final.ork';
+    // The inflated-XML refusal keeps the upload small.
+    const body = zipSync({ 'rocket.ork': new Uint8Array(16 * 1024 * 1024 + 1) });
+    const response = await normal!.fetch(`http://local/experimental/fly?filename=${encodeURIComponent(name)}`,
+      { method: 'POST', body });
+    const result = await response.json() as { error: { code: string; message: string } };
+    expect(response.status, JSON.stringify(result)).toBe(413);
+    expect(result.error.code).toBe('FILE_TOO_LARGE');
+    const { message } = result.error;
+    expect(message).toMatch(/16 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/);
+    const echo = message.slice(0, message.indexOf(': '));
+    expect(Array.from(echo).length).toBeLessThanOrEqual(200);
+    expect(echo).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u);
+    expect(echo).not.toMatch(/[\ud800-\udfff]/u);
+    expect(echo).toContain('\u{1f680}');
+    expect(echo.endsWith('.ork')).toBe(true);
+  });
+
   it.each([
     ['elements', '<x/>'.repeat(50_000)],
     ['depth', '<x>'.repeat(63) + '</x>'.repeat(63)],

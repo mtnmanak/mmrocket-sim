@@ -5,6 +5,7 @@ import {
   commentsOf, formatWarning, createJsXmlParser, XmlBudgetExceededError, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser,
   simulateFile, SimulateDesignError, type TimedSimulateFileResult, describeFile, type DescribeFileResult, SHARE_TOO_LARGE_ERROR_NAME,
 } from '../../app/src/headless/index.js';
+import { filenameEcho } from './filenameEcho.js';
 
 // 185 local XML/design files: max 40,610 elements, depth 14, including stored
 // flight data (Wildman Mach 2). Leave 23% element headroom and >4x depth.
@@ -190,17 +191,19 @@ export const worker = {
         totalMs: performance.now() - started,
       } });
     } catch (e) {
+      // Display only: the full trimmed name already chose the importer.
+      const shown = filenameEcho(filename);
       if (e instanceof BodyTooLarge) {
-        return error('FILE_TOO_LARGE', `${filename}: the API body limit is 8 MiB; received ${e.received.toLocaleString('en-US')} bytes. Use ${APP_URL} for larger files.`, 413);
+        return error('FILE_TOO_LARGE', `${shown}: the API body limit is 8 MiB; received ${e.received.toLocaleString('en-US')} bytes. Use ${APP_URL} for larger files.`, 413);
       }
       if (e instanceof InflatedFileTooLargeError) {
-        return error('FILE_TOO_LARGE', `${filename}: the API inflated XML limit is 16 MiB. Use ${APP_URL} for larger files.`, 413);
+        return error('FILE_TOO_LARGE', `${shown}: the API inflated XML limit is 16 MiB. Use ${APP_URL} for larger files.`, 413);
       }
       if (e instanceof XmlBudgetExceededError) {
-        return error('FILE_TOO_LARGE', `${filename}: ${e.message} Use ${APP_URL} for larger files.`, 413);
+        return error('FILE_TOO_LARGE', `${shown}: ${e.message} Use ${APP_URL} for larger files.`, 413);
       }
       if (e instanceof Error && e.name === SHARE_TOO_LARGE_ERROR_NAME) {
-        return error('LINK_TOO_LARGE', `${filename}: this design is too large for a share link (the app's limit is 4 MiB of design XML and 1,048,576 link characters). Use ${APP_URL} with the file itself.`, 413);
+        return error('LINK_TOO_LARGE', `${shown}: this design is too large for a share link (the app's limit is 4 MiB of design XML and 1,048,576 link characters). Use ${APP_URL} with the file itself.`, 413);
       }
       if (e instanceof KernelUnavailableError) {
         return error('KERNEL_UNAVAILABLE', e.message, 503, { 'Retry-After': '5' });
