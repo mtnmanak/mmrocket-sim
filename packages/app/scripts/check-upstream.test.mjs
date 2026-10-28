@@ -2,13 +2,14 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  checkMotorCorrections, checkOpenMeteoShape, checkOpenMeteoTerms, main, motorCorrectionVerdicts, OPEN_METEO_HOURLY_UNITS,
+  checkMotorCorrections, checkOpenMeteoShape, checkThrustCurve, checkOpenMeteoTerms, main, motorCorrectionVerdicts, OPEN_METEO_HOURLY_UNITS,
   openMeteoHourlyProblems,
 } from '../../../scripts/check-upstream.mjs';
 import {
   auditFix, checkAdvisories, npmAdvisories, runtimeNodes, wranglerAdvisories, wranglerPins,
 } from '../../../scripts/upstream-advisories.mjs';
 import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
+import { ThrustcurveChallengeError, ThrustcurveUnavailableError } from './thrustcurve-client.mjs';
 
 const { unexpectedFetch } = vi.hoisted(() => {
   const unexpectedFetch = vi.fn(() => { throw new Error('unexpected network request'); });
@@ -353,5 +354,97 @@ describe('Open-Meteo answer shape (section 6b)', () => {
     expect(urls[0]).toContain('start_date=2026-10-09');
     expect(lines.filter((l) => l.startsWith('  ok')).length).toBe(4);
     expect(lines.some((l) => l.startsWith('  **'))).toBe(false);
+  });
+});
+
+/**
+ * Audit S2-1: one service's stop skips only the later checks that need that
+ * service. Stand-ins carry the heading (`section`) and services (`needs`)
+ * the real checks declare; nothing here reaches the network.
+ */
+describe('a stop on one service skips only the checks that need it', () => {
+  const stand = (section, needs, body = async () => {}) => Object.assign(vi.fn(body), { section, needs });
+  const sections = () => ({
+    head: stand('3. openrocket-database HEAD', ['GitHub']),
+    materials: stand('3. OpenRocket 24.12 built-in materials', []),
+    tc: stand('4. ThrustCurve API and the bundled motor catalogue', []),
+    tcRows: stand('4b. thrustcurve.org rows this app corrects', ['thrustcurve.org']),
+    nozzles: stand('5. The nozzle database against the bundled catalogue', []),
+    aerotech: stand('5b. AeroTech published delay documents', []),
+    terms: stand('6. Open-Meteo’s terms', ['Open-Meteo']),
+    shape: stand('6b. Open-Meteo’s answers', ['Open-Meteo']),
+    rows: stand('1. openrocket-database rows this app corrects', ['GitHub']),
+  });
+  const run = async (checks) => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const status = await main(checks, () => {});
+    return { status, out: log.mock.calls.flat().join('\n') };
+  };
+  const summary = (out) => out.slice(out.lastIndexOf('Some checks could not run'));
+
+  it.each([
+    ['a challenge', () => new ThrustcurveChallengeError('https://www.thrustcurve.org/api/v1/search.json', 403)],
+    ['the unavailable latch on a 503', () => new ThrustcurveUnavailableError('https://www.thrustcurve.org/api/v1/search.json', 503)],
+    ['a thrustcurve.org 403', () => Object.assign(new Error('HTTP 403'), { status: 403, url: 'https://www.thrustcurve.org/api/v1/search.json' })],
+  ])('%s in section 4 skips 4b without calling it, runs 5, 5b, 6 and 6b, names 4b, and exits 2', async (_what, error) => {
+    const c = sections();
+    c.tc.mockImplementation(async () => { throw error(); });
+    const { status, out } = await run([c.tc, c.tcRows, c.nozzles, c.aerotech, c.terms, c.shape]);
+    expect(status).toBe(2);
+    expect(c.tcRows).not.toHaveBeenCalled();
+    for (const later of [c.nozzles, c.aerotech, c.terms, c.shape]) expect(later).toHaveBeenCalledOnce();
+    expect(summary(out)).toContain('4b. thrustcurve.org rows this app corrects — skipped: thrustcurve.org stopped answering in 4. ThrustCurve API');
+    expect(summary(out)).toContain('4. ThrustCurve API and the bundled motor catalogue — could not run');
+    expect(summary(out)).not.toMatch(/\b5b?\. .*(skipped|could not run)/);
+  });
+
+  it('a GitHub 429 skips only the later GitHub sections, names them, and exits 2', async () => {
+    const c = sections();
+    c.head.mockImplementation(async () => { throw Object.assign(new Error('HTTP 429'), { status: 429, url: 'https://api.github.com/repos/x/y/commits' }); });
+    const { status, out } = await run([c.head, c.materials, c.tc, c.tcRows, c.rows, c.terms]);
+    expect(status).toBe(2);
+    expect(c.rows).not.toHaveBeenCalled();
+    for (const later of [c.materials, c.tc, c.tcRows, c.terms]) expect(later).toHaveBeenCalledOnce();
+    expect(summary(out)).toContain('1. openrocket-database rows this app corrects — skipped: GitHub stopped answering in 3. openrocket-database HEAD');
+    expect(summary(out)).toContain('3. openrocket-database HEAD — could not run');
+    expect(summary(out)).not.toContain('built-in materials —');
+  });
+
+  it('checkThrustCurve notes a challenge on its probe, runs its local checks, asks nothing more, and 4b is skipped', async () => {
+    const c = sections();
+    const getJson = vi.fn(async (url) => { throw Object.assign(new ThrustcurveChallengeError(url, 403), { url }); });
+    const section4 = Object.assign(() => checkThrustCurve(getJson), { section: '4. ThrustCurve API and the bundled motor catalogue', needs: [] });
+    const { status, out } = await run([section4, c.tcRows, c.nozzles]);
+    expect(status).toBe(2);
+    expect(getJson).toHaveBeenCalledOnce();
+    expect(out).toMatch(/motorCurves\.json (built from this catalogue|was built from)/);
+    expect(out).toContain('metadata.json not asked');
+    expect(c.tcRows).not.toHaveBeenCalled();
+    expect(c.nozzles).toHaveBeenCalledOnce();
+    expect(summary(out)).toContain('4. ThrustCurve API and the bundled motor catalogue — partly run: thrustcurve.org stopped answering');
+    expect(summary(out)).toContain('4b. thrustcurve.org rows this app corrects — skipped');
+  });
+
+  it('a 429 from any other host stops nothing else', async () => {
+    const c = sections();
+    c.aerotech.mockImplementation(async () => { throw Object.assign(new Error('HTTP 429'), { status: 429, url: 'https://www.rocketmotorparts.com/page' }); });
+    const { status, out } = await run([c.aerotech, c.terms, c.shape, c.rows, c.tcRows]);
+    expect(status).toBe(2);
+    for (const later of [c.terms, c.shape, c.rows, c.tcRows]) expect(later).toHaveBeenCalledOnce();
+    expect(summary(out)).toContain('5b. AeroTech published delay documents — could not run');
+  });
+
+  it('declares a heading the check prints, and its services, on every default check', async () => {
+    const source = readFileSync(new URL('../../../scripts/check-upstream.mjs', import.meta.url), 'utf8');
+    const module = await import('../../../scripts/check-upstream.mjs');
+    const checks = module.DEFAULT_CHECKS;
+    expect(checks).toHaveLength(10);
+    for (const check of checks) {
+      expect(source).toContain(`say('${check.section}`);
+      expect(Array.isArray(check.needs)).toBe(true);
+    }
+    expect(checks.filter((c) => c.needs.includes('thrustcurve.org')).map((c) => c.section.split(' ')[0])).toEqual(['4b.']);
+    expect(checks.filter((c) => c.needs.includes('GitHub')).map((c) => c.section.split(' ')[0])).toEqual(['1.', '2.', '3.']);
   });
 });

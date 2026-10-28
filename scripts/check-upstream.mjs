@@ -99,7 +99,7 @@ import { childElements, elementBlocks } from '../packages/app/scripts/fetch-comp
 import { CORRECTIONS, UPSTREAM_WATCH } from '../packages/app/scripts/apply-preset-corrections.mjs';
 import { MOTOR_CORRECTIONS } from '../packages/app/scripts/motor-corrections.mjs';
 import { manufacturerAbbreviations } from '../packages/app/scripts/thrustcurve-api-shapes.mjs';
-import { thrustcurveFetch } from '../packages/app/scripts/thrustcurve-client.mjs';
+import { ThrustcurveChallengeError, ThrustcurveUnavailableError, thrustcurveFetch } from '../packages/app/scripts/thrustcurve-client.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const RAW = 'https://raw.githubusercontent.com/openrocket/openrocket-database/master/orc';
@@ -115,8 +115,30 @@ const say = (s = '') => console.log(s);
 const flag = (s) => { moved++; console.log('  ** ' + s); };
 
 const failedHosts = new Set();
-const rateLimited = err => err.status === 429
-  || (err.status === 403 && typeof err.url === 'string' && new URL(err.url).hostname === 'www.thrustcurve.org');
+
+/**
+ * ONE SERVICE'S STOP SKIPS ONLY WHAT NEEDS IT (audit S2-1, 2026-10-28). Each
+ * check names the services it reads in `needs` (set beside DEFAULT_CHECKS),
+ * and its printed heading in `section`. A stop is thrustcurve.org's challenge
+ * or unavailable latch, its 403 or 429, or a 429 from any other host; the run
+ * then skips only the later checks that need that service. thrustcurve.org's
+ * own traffic needs no loop-wide stop: the client's latch sends nothing more.
+ */
+const serviceOf = (hostname) => /(^|\.)(github\.com|githubusercontent\.com)$/.test(hostname) ? 'GitHub'
+  : hostname === 'www.thrustcurve.org' ? 'thrustcurve.org'
+    : /(^|\.)open-meteo\.com$/.test(hostname) ? 'Open-Meteo' : hostname;
+function stoppedService(err) {
+  if (err instanceof ThrustcurveChallengeError || err instanceof ThrustcurveUnavailableError) return 'thrustcurve.org';
+  let hostname = '';
+  try { hostname = new URL(err.url).hostname; } catch { /* no URL: not a stop */ }
+  const service = serviceOf(hostname);
+  if (err.status === 429 && hostname) return service;
+  return err.status === 403 && service === 'thrustcurve.org' ? service : null;
+}
+/** Services that stopped this run → the section they stopped in; and the closing summary's lines. */
+const stops = new Map();
+const unrun = [];
+const stopIn = (service, section) => { if (!stops.has(service)) stops.set(service, section); };
 
 async function request(url, read, signal) {
   const host = new URL(url).host;
@@ -384,7 +406,12 @@ export async function checkThrustCurve(getJson = json) {
     const msg = cataloguePopulationNote(bundled, probe?.matches);
     if (msg) say(`  note ${msg}`);
   } catch (e) {
-    if (rateLimited(e)) throw e;
+    const service = stoppedService(e);
+    if (service) {
+      // Noted, not thrown: the curve-bundle checks below read only local files.
+      stopIn(service, checkThrustCurve.section);
+      unrun.push(`${checkThrustCurve.section} — partly run: ${service} stopped answering (${e.message})`);
+    }
     say(`  note could not reach thrustcurve.org to compare catalogue size (${e.message}) — the age check above still stands.`);
   }
 
@@ -404,6 +431,10 @@ export async function checkThrustCurve(getJson = json) {
   }
 
   // API SHAPE, as before: the in-app browser and both refresh scripts read it.
+  if (stops.has('thrustcurve.org')) {
+    say('  note metadata.json not asked: thrustcurve.org stopped answering earlier in this run.');
+    return;
+  }
   const meta = await getJson(`${TC_API}/metadata.json`);
   checked++;
   let mfrs;
@@ -815,30 +846,57 @@ export async function checkOpenMeteoShape(getJson = json, today = new Date()) {
   }
 }
 
-export async function main(checks = [checkCorrections, checkWatch, checkHead, checkMaterials,
-  checkThrustCurve, checkMotorCorrections, checkNozzles, checkAerotechDelays, checkOpenMeteoTerms, checkOpenMeteoShape],
-advisories = checkAdvisories) {
+/** Every section in order, each with the heading it prints and the services it reads (Q3: GitHub's 429 skips only GitHub's). */
+export const DEFAULT_CHECKS = [
+  [checkCorrections, '1. openrocket-database rows this app corrects', ['GitHub']],
+  [checkWatch, '2. openrocket-database rows we watch but do NOT correct', ['GitHub']],
+  [checkHead, '3. openrocket-database HEAD', ['GitHub']],
+  [checkMaterials, '3. OpenRocket 24.12 built-in materials', []],
+  // Its probe and metadata need thrustcurve.org; it handles a stop itself and runs its local checks.
+  [checkThrustCurve, '4. ThrustCurve API and the bundled motor catalogue', []],
+  [checkMotorCorrections, '4b. thrustcurve.org rows this app corrects', ['thrustcurve.org']],
+  [checkNozzles, '5. The nozzle database against the bundled catalogue', []],
+  [checkAerotechDelays, '5b. AeroTech published delay documents', []],
+  [checkOpenMeteoTerms, '6. Open-Meteo’s terms', ['Open-Meteo']],
+  [checkOpenMeteoShape, '6b. Open-Meteo’s answers', ['Open-Meteo']],
+].map(([check, section, needs]) => Object.assign(check, { section, needs }));
+
+export async function main(checks = DEFAULT_CHECKS, advisories = checkAdvisories) {
   moved = 0;
   checked = 0;
   notes.length = 0;
   fileCache.clear();
   failedHosts.clear();
+  stops.clear();
+  unrun.length = 0;
   let status;
   try {
     say('Upstream vigilance check — READ ONLY, nothing here is written to the repo.');
     say('');
     for (const check of checks) {
+      const section = check.section ?? (check.name || 'an unnamed check');
+      const blocked = (check.needs ?? []).find((service) => stops.has(service));
+      if (blocked) {
+        say('');
+        say(`${section}: skipped — ${blocked} stopped answering earlier in this run`);
+        unrun.push(`${section} — skipped: ${blocked} stopped answering in ${stops.get(blocked)}`);
+        continue;
+      }
       try { await check(); }
       catch (err) {
         console.error(`check could not run: ${err.message}`);
         console.error('(network or parse failure; NOT a verdict on this section\'s data)');
         status = 2;
-        if (rateLimited(err)) break;
+        unrun.push(`${section} — could not run`);
+        const service = stoppedService(err);
+        if (service) stopIn(service, section);
       }
     }
+    if (unrun.length) status = 2;
     say('');
     if (status === 2) {
       say(`Some checks could not run; ${moved} of ${checked} completed watched values MOVED.`);
+      for (const line of unrun) say(`  ${line}`);
       for (const n of notes) say(`  - ${n}`);
     } else if (moved === 0) {
       say(`All ${checked} watched value(s) in sections 1–6 are where this repo expects them.`);
