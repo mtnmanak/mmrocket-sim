@@ -118,6 +118,8 @@ export const XML_JS_SUITES = [
   'src/services/rocksimFile.bounds.test.ts',
   'src/services/rocksimAmbiguousLoadout.test.ts',
   'src/services/rocksimFileHardening.test.ts',
+  // S8-1: the unsafe-snap fin caution once per fin set, on restore and on .ork open.
+  'src/services/finSnapNote.test.ts',
   'src/services/rocksimFileIgnored.test.ts',
   'src/services/rocksimRecovery.test.ts',
   'src/services/foreignFile.layers.test.ts',
