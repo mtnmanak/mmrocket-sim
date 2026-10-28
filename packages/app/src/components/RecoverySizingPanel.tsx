@@ -364,7 +364,7 @@ function BandSection({
         {title}
         <span className="recovery-band-range">
           {lo && hi
-            ? <>{lo[1]}–{hi[1]} <UnitChip quantity="velocity" /> ({lo[2]}–{hi[2]} {lo[3]}){lo[4] && hi[4] ? ` (defined as ${lo[4]}–${hi[4]} ${lo[5]})` : ''}</>
+            ? <>{lo[1]}–{hi[1]} <UnitChip quantity="velocity" /> ({lo[2]}–{hi[2]} {lo[3]}){lo[4] && hi[4] && <> (defined as {lo[4]}–{hi[4]} {lo[5]})</>}</>
             : <>{rate(advice.band.min)}–{rate(advice.band.max)} <UnitChip quantity="velocity" /></>}
         </span>
       </h3>
