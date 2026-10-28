@@ -3390,6 +3390,21 @@ describe('a hand-edited autosave', () => {
       expect(host.textContent).not.toMatch(/NaN|undefined/);
     });
 
+  // The writer stamps Date.now(); anything else reads as an unknown save time.
+  it.each(['yesterday', null, {}, 1e20, -1].map(v => [v]))('restores with an unreadable stored save time %j', async savedAt => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt }));
+    const host = await mountApp();
+    expect(host.textContent).toContain('Restored your previous session (“My Rocket”).');
+    expect(host.textContent).not.toMatch(/Invalid Date|1970/);
+  });
+
+  it('names the save time of a stored session', async () => {
+    const savedAt = Date.UTC(2026, 9, 27, 18, 30);
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt }));
+    const host = await mountApp();
+    expect(host.textContent).toContain(`Restored your previous session (“My Rocket”, saved ${new Date(savedAt).toLocaleString()}).`);
+  });
+
   it('renders the configuration panel for an unnamed configuration with an unreadable unmatched list', async () => {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), mountMotors: {},
       // Not the active one: the layer migration rebuilds the active configuration's list.
