@@ -125,6 +125,7 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
       if (said.length) notice = said.join(' · ');
     } else {
       notice = `Imported ${list} — they live in this browser under manufacturer EX and survive reloads.`
+        + (write.backedUp ? ' The stored motor library could not be read. The app kept a copy of it in this browser and started a new library.' : '')
         + (said.length ? ` ${said.join(' · ')}` : '');
     }
   }

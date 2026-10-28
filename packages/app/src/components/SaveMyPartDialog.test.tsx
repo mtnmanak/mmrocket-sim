@@ -19,6 +19,7 @@ vi.mock('../services/presets.js', async (importOriginal) => {
 let host: HTMLDivElement;
 let root: Root;
 const close = vi.fn();
+const saved = vi.fn();
 const node: ComponentNode = { type: 'bodytube', id: 'b', name: 'Handmade tube', length: 0.3, outerRadius: 0.025, thickness: 0.002 };
 const flush = async () => { await act(async () => { await Promise.resolve(); }); };
 const field = (label: string) => {
@@ -36,9 +37,9 @@ const save = async () => {
 };
 beforeAll(async () => { await loadBundledPresets(); });
 beforeEach(() => {
-  localStorage.clear(); close.mockClear();
+  localStorage.clear(); close.mockClear(); saved.mockClear();
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
-  act(() => root.render(<SaveMyPartDialog node={node} onClose={close} />));
+  act(() => root.render(<SaveMyPartDialog node={node} onClose={close} onSaved={saved} />));
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
@@ -222,10 +223,19 @@ describe('S7-3 save keeps rows it cannot read', () => {
     expect(stored[3]).toMatchObject({ partNo: 'P1', description: 'Handmade tube' });
     expect(close).toHaveBeenCalledOnce();
   });
-  it.each(['{not json', '{"rows":[]}', 'null'])('refuses to save over an unreadable store %s', async (raw) => {
+  it.each(['{not json', '{"rows":[]}', 'null'])('copies an unreadable store %s aside, then saves into a new list', async (raw) => {
     localStorage.setItem(KEY, raw);
     input('Part number', 'P1'); await save();
-    expect(localStorage.getItem(KEY)).toBe(raw);
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe(raw);
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual([expect.objectContaining({ partNo: 'P1' })]);
+    expect(saved).toHaveBeenCalledWith('My parts P1', 'Stored My parts could not be read. The app kept a copy of them in this browser and started a new list.');
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it('refuses, as before, when an earlier different copy holds the side key', async () => {
+    localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(KEY, '{not json');
+    input('Part number', 'P1'); await save();
+    expect(localStorage.getItem(KEY)).toBe('{not json');
     expect(host.textContent).toContain('Could not save My part. Stored My parts could not be read, so the app left them unchanged.');
     expect(close).not.toHaveBeenCalled();
   });

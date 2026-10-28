@@ -3,6 +3,7 @@ import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type Unit
 import type { MotorDbEntry } from './motorDb.js';
 import { clearCurveCache, flownCurve, MAX_MOTOR_THRUST_N, repairSamples, samplesToMotorSpec, type RepairedMotorSpec } from './thrustcurve.js';
 import { parseDecimal } from './xmlUtil.js';
+import { backUpUnreadableStore } from './storeBackup.js';
 import { parseXml, type XmlElement } from './xmlParse.js';
 import { EX_MOTOR_COUNT_NOTE, EX_SAMPLE_LIMIT_NOTE, MAX_EX_IMPORT_MOTORS, MAX_EX_MOTOR_SAMPLES } from './exMotorLimits.js';
 import type { MotorSpec } from '@online-openrocket/engine';
@@ -256,8 +257,10 @@ export function loadExMotors(notes?: string[], units: UnitSelection = INITIAL_UN
 export interface ExLibraryWrite {
   motors: ExMotor[];
   stored: boolean;
-  /** Not written because the stored library is not a list the app can read; it was left unchanged. */
+  /** Not written because the stored library is not a list the app can read and could not be copied aside; it was left unchanged. */
   unreadable?: true;
+  /** The stored library was not a list the app can read: it was copied to its side key (storeBackup.ts) and a new one started. */
+  backedUp?: true;
 }
 
 // A re-import keeps its id; mounted nozzle consumers must still refresh
@@ -280,17 +283,22 @@ function changedLibrary(): void {
  * one a newer build wrote) and reads a non-list as empty; add, delete and
  * restore wrote what it returned, so one write erased them. They are kept
  * verbatim, ahead of the library, unless they carry the id of a motor this
- * write stores or removes: a re-import is the remedy the I15 note gives. Null
- * when the stored value is not a list the app can read: nothing may be written
- * over it. Blocked storage reads as empty, so the write fails as it always did.
+ * write stores or removes: a re-import is the remedy the I15 note gives. A
+ * stored value that is not a list the app can read is copied to its side key
+ * first and the write starts a new library (`backedUp`; cloud session 20);
+ * null, and nothing may be written over it, when that copy cannot be made.
+ * Blocked storage reads as empty, so the write fails as it always did.
  */
-function refusedStoredEntries(ids: ReadonlySet<string>): unknown[] | null {
+function refusedStoredEntries(ids: ReadonlySet<string>): { kept: unknown[]; backedUp: boolean } | null {
   let raw: string | null;
-  try { raw = localStorage.getItem(KEY); } catch { return []; }
+  try { raw = localStorage.getItem(KEY); } catch { return { kept: [], backedUp: false }; }
   let list: unknown;
-  try { list = raw ? JSON.parse(raw) : []; } catch { return null; }
-  if (!Array.isArray(list)) return null;
-  return list.filter(v => !validExMotor(v) && !(record(v) && typeof v['motorId'] === 'string' && ids.has(v['motorId'])));
+  try { list = raw ? JSON.parse(raw) : []; } catch { list = undefined; }
+  if (!Array.isArray(list)) {
+    return raw !== null && backUpUnreadableStore(KEY, raw) ? { kept: [], backedUp: true } : null;
+  }
+  return { kept: list.filter(v => !validExMotor(v) && !(record(v) && typeof v['motorId'] === 'string' && ids.has(v['motorId']))),
+    backedUp: false };
 }
 
 /**
@@ -304,19 +312,20 @@ function refusedStoredEntries(ids: ReadonlySet<string>): unknown[] | null {
  * the caller can say so instead of promising it survives a reload.
  */
 function persist(motors: ExMotor[], removed: readonly string[] = []): ExLibraryWrite {
-  const kept = refusedStoredEntries(new Set([...motors.map(m => m.motorId), ...removed]));
-  if (kept === null) {
+  const stored = refusedStoredEntries(new Set([...motors.map(m => m.motorId), ...removed]));
+  if (stored === null) {
     unstored = motors;
     changedLibrary();
     return { motors, stored: false, unreadable: true };
   }
+  const { kept, backedUp } = stored;
   const json = JSON.stringify([...kept, ...motors]);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       localStorage.setItem(KEY, json);
       unstored = null;
       changedLibrary();
-      return { motors, stored: true };
+      return { motors, stored: true, ...(backedUp ? { backedUp: true as const } : {}) };
     } catch {
       if (attempt === 0) clearCurveCache();
     }
@@ -367,8 +376,12 @@ export function restoreExMotors(added: readonly ExMotor[], notes: string[]): Map
     ids.set(motor.motorId, id);
     changed = true;
   }
-  if (changed && !persist(library).stored) {
+  const write = changed ? persist(library) : null;
+  if (write && !write.stored) {
     cautionNote(notes, 'I15.ex-session-only', 'Embedded EX motors are available for this session but were not saved in browser storage. Keep the .ork file and reopen it after reloading.');
+  }
+  if (write?.backedUp) {
+    cautionNote(notes, 'I15.ex-library-backed-up', 'The stored motor library could not be read. The app kept a copy of it in this browser and started a new library with these motors.');
   }
   return ids;
 }

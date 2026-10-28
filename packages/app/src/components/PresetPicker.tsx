@@ -7,7 +7,7 @@ import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import {
   KIND_FOR_TYPE, MAX_PRESET_CSV_BYTES, PRESET_CSV_SIZE_CAUTION, csvToPresets, loadBundledPresets, loadCustomPresets, loadPresets, materialTypeFor, presetPatch,
   presetsToCsv, exactCustomPreset, mergeCustomPresetImport, saveCustomPresets, customPresetId,
-  editCustomPresets, CUSTOM_PRESETS_UNREADABLE, type Preset,
+  editCustomPresets, CUSTOM_PRESETS_BACKED_UP, CUSTOM_PRESETS_UNREADABLE, type Preset,
 } from '../services/presets.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSig, siToUi } from '../prefs/units.js';
@@ -251,7 +251,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
         setNote(`Nothing imported. ${CUSTOM_PRESETS_UNREADABLE}`);
         return;
       }
-      const written = saveCustomPresets(next);
+      const written = saveCustomPresets(next.list);
       // Read the store back before claiming the import worked.
       // `saveCustomPresets` reports setItem failure (honoured: a refused write
       // stored nothing, even when the store already held the same rows, audit
@@ -268,7 +268,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
       const imported = missing > 0
         ? `Could not store ${missing} of ${good.length} preset(s) — this browser's storage`
           + ` is full or blocked, so the new values were not saved.${droppedNote}`
-        : `Imported ${good.length} preset(s) — stored in this browser.${droppedNote}`;
+        : `Imported ${good.length} preset(s) — stored in this browser.${droppedNote}${next.backedUp ? ` ${CUSTOM_PRESETS_BACKED_UP}` : ''}`;
       // The reload had no catch (audit 2026-09-22): a failure was an unhandled
       // rejection that left `all` null under the note above — and a note hides
       // the "Loading…" line — so the dialog showed an empty table. It now keeps
@@ -319,7 +319,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
       setDeleting(null);
       return;
     }
-    if (!saveCustomPresets(keep)) {
+    if (!saveCustomPresets(keep.list)) {
       setNote('Could not delete My part — this browser’s storage is full or blocked. Try again.');
       setDeleting(null);
       return;
@@ -329,7 +329,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
     setAll(remaining);
     if (mfr && !remaining?.some((p) => p.kind === kind && p.manufacturer === mfr && (!myPartsOnly || !bundledRows.has(p)))) setMfr('');
     setNoteTier('information');
-    setNote(`Deleted ${deleting.manufacturer} ${deleting.partNo} from My parts. Parts already in a design keep their values.`);
+    setNote(`Deleted ${deleting.manufacturer} ${deleting.partNo} from My parts. Parts already in a design keep their values.${keep.backedUp ? ` ${CUSTOM_PRESETS_BACKED_UP}` : ''}`);
     setDeleting(null);
   };
 

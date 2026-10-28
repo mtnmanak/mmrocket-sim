@@ -221,9 +221,20 @@ it('F imports a RockSim XML motor file named .txt', async () => {
   expect(out.parsed[0]!.realManufacturer).toBe('Maker');
 });
 
+it('says the stored library was copied aside when it replaced an unreadable one', async () => {
+  vi.resetModules();
+  const { importMotorFiles: read } = await import('./importMotorFiles.js');
+  localStorage.setItem('online-openrocket.ex-motors.v1', '{broken');
+  const out = await read([new File(['Kept 18 70 P 0.01 0.02 KeptMaker\n0 0\n0.5 20\n1 0'], 'kept.eng')]);
+  expect(out.write?.stored).toBe(true);
+  expect(out.notice).toContain('The stored motor library could not be read. The app kept a copy of it in this browser and started a new library.');
+  expect(localStorage.getItem('online-openrocket.ex-motors.v1.unreadable-backup')).toBe('{broken');
+});
+
 it('says the stored library was unreadable, not full, when it refuses to write over it', async () => {
   vi.resetModules();
   const { importMotorFiles: read } = await import('./importMotorFiles.js');
+  localStorage.setItem('online-openrocket.ex-motors.v1.unreadable-backup', 'older');
   localStorage.setItem('online-openrocket.ex-motors.v1', '{broken');
   const out = await read([new File(['Kept 18 70 P 0.01 0.02 KeptMaker\n0 0\n0.5 20\n1 0'], 'kept.eng')]);
   expect(out.write?.stored).toBe(false);

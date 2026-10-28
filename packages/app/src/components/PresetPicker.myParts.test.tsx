@@ -267,14 +267,33 @@ describe('S7-3 My parts writes keep rows they cannot read', () => {
     await importCsv(presetsToCsv([replaced]));
     expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual([UNREADABLE[0], replaced]);
   });
-  it.each(['{not json', '{"rows":[]}', '"text"', 'null'])('refuses to delete or import over an unreadable store %s', async (raw) => {
+  // An unreadable store is copied aside, then replaced: refusing left the user
+  // nothing in the app that could recover (cloud session 20).
+  it.each(['{not json', '{"rows":[]}', '"text"', 'null'])('copies an unreadable store %s aside, then imports into a new list', async (raw) => {
     saveCustomPresets([CUSTOM]); await render();
     localStorage.setItem(KEY, raw);
+    await importCsv(presetsToCsv([NEW_ROW]));
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe(raw);
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual([NEW_ROW]);
+    expect(host.textContent).toContain('Stored My parts could not be read. The app kept a copy of them in this browser and started a new list.');
+  });
+  it('copies an unreadable store aside on a delete too', async () => {
+    saveCustomPresets([CUSTOM]); await render();
+    localStorage.setItem(KEY, '{not json');
     confirmDelete();
-    expect(localStorage.getItem(KEY)).toBe(raw);
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe('{not json');
+    expect(localStorage.getItem(KEY)).toBe('[]');
+  });
+  it('refuses, as before, when an earlier different copy holds the side key', async () => {
+    saveCustomPresets([CUSTOM]); await render();
+    localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(KEY, '{not json');
+    confirmDelete();
+    expect(localStorage.getItem(KEY)).toBe('{not json');
     expect(host.textContent).toContain('Could not delete My part. Stored My parts could not be read, so the app left them unchanged.');
     await importCsv(presetsToCsv([NEW_ROW]));
-    expect(localStorage.getItem(KEY)).toBe(raw);
+    expect(localStorage.getItem(KEY)).toBe('{not json');
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe('older');
     expect(host.textContent).toContain('Nothing imported. Stored My parts could not be read, so the app left them unchanged.');
   });
   it('rewrites a valid list byte for byte and leaves a row repaired on read as stored', () => {
@@ -282,13 +301,13 @@ describe('S7-3 My parts writes keep rows they cannot read', () => {
     const raw = JSON.stringify([CUSTOM, repairedOnRead, NEW_ROW]);
     localStorage.setItem(KEY, raw);
     const before = loadCustomPresets();
-    expect(saveCustomPresets(editCustomPresets(() => false)!)).toBe(true);
+    expect(saveCustomPresets(editCustomPresets(() => false)!.list)).toBe(true);
     expect(localStorage.getItem(KEY)).toBe(raw);
     expect(loadCustomPresets()).toEqual(before);
-    expect(editCustomPresets((p) => p.partNo === 'M1')).toEqual([repairedOnRead, NEW_ROW]);
+    expect(editCustomPresets((p) => p.partNo === 'M1')).toEqual({ list: [repairedOnRead, NEW_ROW], backedUp: false });
   });
   it('reads an absent store as empty and refuses one that cannot be read', () => {
-    expect(editCustomPresets(() => true, [NEW_ROW])).toEqual([NEW_ROW]);
+    expect(editCustomPresets(() => true, [NEW_ROW])).toEqual({ list: [NEW_ROW], backedUp: false });
     const original = localStorage.getItem;
     Object.defineProperty(localStorage, 'getItem', { configurable: true, value: () => { throw new Error('blocked'); } });
     try {

@@ -909,13 +909,35 @@ describe('library writes keep stored entries the loader refuses', () => {
     expect(stored()).toEqual([second]);
   });
 
-  it.each(['{broken', '{}', 'null', '"motors"'])('never writes over an unreadable library %s; the motor flies this session', async raw => {
+  it.each(['{broken', '{}', 'null', '"motors"'])('copies an unreadable library %s aside, then stores a new one', async raw => {
     localStorage.setItem(KEY, raw);
+    const ex = await fresh();
+    const motor = good();
+    const write = ex.addExMotors([motor]);
+    expect(write.stored).toBe(true);
+    expect(write.backedUp).toBe(true);
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe(raw);
+    expect(stored()).toEqual([motor]);
+  });
+
+  it('notes the copy when a design file restores its motors over an unreadable library', async () => {
+    localStorage.setItem(KEY, '{broken');
+    const ex = await fresh();
+    const notes: string[] = [];
+    ex.restoreExMotors([good()], notes);
+    expect(notes).toEqual(['The stored motor library could not be read. The app kept a copy of it in this browser and started a new library with these motors.']);
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe('{broken');
+  });
+
+  it('never writes over an unreadable library it cannot copy aside; the motor flies this session', async () => {
+    localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(KEY, '{broken');
     const ex = await fresh();
     const write = ex.addExMotors([good()]);
     expect(write.stored).toBe(false);
     expect(write.unreadable).toBe(true);
-    expect(localStorage.getItem(KEY)).toBe(raw);
+    expect(localStorage.getItem(KEY)).toBe('{broken');
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe('older');
     expect(ex.getExMotor(good().motorId)?.designation).toBe('K550W');
   });
 

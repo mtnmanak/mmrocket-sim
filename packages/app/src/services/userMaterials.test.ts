@@ -203,13 +203,22 @@ describe('writes keep stored entries the reader cannot show', () => {
     expect(loadUserMaterials().map(m => m.name)).not.toContain('Mix 500');
   });
 
-  it.each(['{broken', '{"rows":[]}', '"text"', 'null'])('refuses to write over an unreadable store %s and leaves it byte-identical', raw => {
+  it.each(['{broken', '{"rows":[]}', '"text"', 'null'])('copies an unreadable store %s aside, then starts a new list', raw => {
     localStorage.setItem(USER_MATERIALS_KEY, raw);
+    expect(readUserMaterials().note).toContain('could not be read');
+    expect(readUserMaterials().note).toContain('keeps a copy');
+    expect(writeUserMaterials([valid])).toBe('backed-up');
+    expect(localStorage.getItem(`${USER_MATERIALS_KEY}.unreadable-backup`)).toBe(raw);
+    expect(stored()).toEqual([valid]);
+  });
+
+  it('refuses, as before, when an earlier different copy holds the side key', () => {
+    localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(USER_MATERIALS_KEY, '{broken');
     expect(writeUserMaterials([valid])).toBe('unreadable');
     expect(saveUserMaterials([valid])).toBe(false);
-    expect(localStorage.getItem(USER_MATERIALS_KEY)).toBe(raw);
-    expect(readUserMaterials().note).toContain('could not be read');
-    expect(readUserMaterials().note).not.toContain('Import');
+    expect(localStorage.getItem(USER_MATERIALS_KEY)).toBe('{broken');
+    expect(localStorage.getItem(`${USER_MATERIALS_KEY}.unreadable-backup`)).toBe('older');
   });
 
   it('writes an absent store as a new list, and says when storage refuses the write', () => {

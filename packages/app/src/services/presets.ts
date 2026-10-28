@@ -1,4 +1,5 @@
 import { cautionNote } from './importNotes.js';
+import { backUpUnreadableStore } from './storeBackup.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { csvCell, unescapeCsvText } from './csvUtil.js';
 import { lookupTable, parseDecimal } from './xmlUtil.js';
@@ -156,7 +157,10 @@ export function saveCustomPresets(presets: unknown[]): boolean {
 }
 
 /** Why a My parts write was refused: the store holds something other than a list (audit S7-3). */
+/** Why a My parts write was refused: the store could not be read, and could not be copied aside. */
 export const CUSTOM_PRESETS_UNREADABLE = 'Stored My parts could not be read, so the app left them unchanged.';
+/** Said after a write that copied an unreadable store aside (storeBackup.ts) and started a new list. */
+export const CUSTOM_PRESETS_BACKED_UP = 'Stored My parts could not be read. The app kept a copy of them in this browser and started a new list.';
 
 /**
  * THE LIST A MY PARTS WRITE STARTS FROM (audit S7-3). `loadCustomPresets`
@@ -167,22 +171,33 @@ export const CUSTOM_PRESETS_UNREADABLE = 'Stored My parts could not be read, so 
  * readable row's screened form, and every other entry is kept verbatim and in
  * place, `add` after them. A row repaired on read (material or mass removed)
  * is kept unrepaired, as it was stored, and repaired again on each read.
- * Null — and nothing may be written — when the store is not a list or cannot
- * be read at all; an absent store is an empty list.
+ *
+ * A store that is not a list is copied to its side key first and the write
+ * starts a new list (`backedUp`; cloud session 20). Null, and nothing may be
+ * written, when storage cannot be read or the copy cannot be made. An absent
+ * store is an empty list.
  */
-export function editCustomPresets(remove: (p: Preset) => boolean, add: Preset[] = []): unknown[] | null {
-  let list: unknown;
+export function editCustomPresets(remove: (p: Preset) => boolean, add: Preset[] = []): { list: unknown[]; backedUp: boolean } | null {
+  let raw: string | null;
   try {
-    const raw = localStorage.getItem(CUSTOM_KEY);
-    list = raw ? JSON.parse(raw) : [];
+    raw = localStorage.getItem(CUSTOM_KEY);
   } catch {
     return null;
   }
-  if (!Array.isArray(list)) return null;
-  return [...list.filter((p) => {
+  let list: unknown;
+  try {
+    list = raw ? JSON.parse(raw) : [];
+  } catch {
+    list = undefined;
+  }
+  if (!Array.isArray(list)) {
+    if (raw === null || !backUpUnreadableStore(CUSTOM_KEY, raw)) return null;
+    return { list: [...add], backedUp: true };
+  }
+  return { list: [...list.filter((p) => {
     const screened = screenCustomPreset(p);
     return !screened || !remove(screened.preset);
-  }), ...add];
+  }), ...add], backedUp: false };
 }
 
 /** Custom identities retain Unicode; the bundled catalogue's ASCII key cannot distinguish these names. */
