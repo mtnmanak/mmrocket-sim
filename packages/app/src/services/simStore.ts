@@ -3,7 +3,7 @@ import { validRunExportContext } from './runExportContext.js';
 import type { DesignMatchKey } from './simReport.js';
 import { restoredWarnings, storedWarnings } from './storedWarnings.js';
 import { csvCell } from './csvUtil.js';
-import { deploymentVerdict, openingVerdict, descentVerdict, SAFETY, type SimRun } from './simReport.js';
+import { deploymentVerdict, openingVerdict, descentVerdict, incompleteFlightWarning, KERNEL_MAX_FLIGHT_TIME_S, runStoppedEarly, SAFETY, type SimRun } from './simReport.js';
 import { isAeroModel } from './aeroProvenance.js';
 import { railNeeded, railNeededResultCell, railNeededHeader } from './railNeeded.js';
 import { createWarningMergeBudget, mergeImportedWarnings, mergeStoredWarnings, sameStoredFlight, verifiesStoredRow, type WarningMergeBudget } from './storedRunIdentity.js';
@@ -146,6 +146,21 @@ export function loadRuns(): SimRun[] {
       for (const d of [...(r.deployments ?? []), ...(r.branches ?? []).flatMap(b => b.deployments)]) {
         if (typeof d.device !== 'string') d.device = '';
         if (d.role !== undefined && !['main', 'drogue', 'unknown'].includes(d.role)) d.role = 'unknown';
+      }
+      // A FLIGHT THE KERNEL'S TIME LIMIT CUT OFF (audit S6-1). From v0.193 a
+      // fresh flight that ends airborne carries INCOMPLETE_FLIGHT and no
+      // landing figures (simReport.buildSimRun). A run stored before that is
+      // read the same way here, so the Safe column, the batch grade and the
+      // export agree with a fresh run: its flight time reached the limit, and
+      // nothing records a stop. Only the main flight's figures: a stored
+      // booster branch keeps no end time to judge it by.
+      if (!r.importedSummary && typeof r.totalFlightTime === 'number'
+        && r.totalFlightTime >= KERNEL_MAX_FLIGHT_TIME_S - 1e-6 && !runStoppedEarly(r)) {
+        r.simWarnings = restoredWarnings([incompleteFlightWarning(undefined, r.totalFlightTime, false), ...(r.simWarnings ?? [])]);
+        Object.assign(r, { landingRate: null, safeLandingRate: null, landingDistanceM: null, landingBearingDeg: null });
+        for (const d of r.deployments ?? []) {
+          if (d.isLanding) Object.assign(d, { descentRate: null, groundSpeed: null });
+        }
       }
       // Revive plugged delays (persisted as the string "Infinity" — see persist).
       // Runs saved before that fix came back as null; treat those as plugged too
