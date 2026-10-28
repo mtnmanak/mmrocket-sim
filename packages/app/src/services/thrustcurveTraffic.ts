@@ -1,6 +1,16 @@
 /** One back-off window for all thrustcurve.org requests in this tab. */
 let retryAt = 0;
 let refuseUntil = 0;
+/**
+ * When each window last opened, and when each request was sent, on one
+ * counter (audit S5-4). Batch fetches run side by side (batchSweep.ts), so a
+ * 200 to a request sent before another's 429 can land after it; that 200 says
+ * nothing about the window and must not clear it. A counter rather than the
+ * clock, so two events in one millisecond still have an order.
+ */
+let sequence = 0;
+let retryOpened = 0;
+let refuseOpened = 0;
 const DEFAULT_BACKOFF_MS = 10 * 60_000;
 
 /** Test isolation only; production resets on a successful response or reconnect. */
@@ -48,8 +58,13 @@ function backOff(retryAfter?: string | null, status?: number): void {
     const parsed = /^\d+(?:\.\d+)?$/.test(value) ? Number(value) * 1000 : Date.parse(value) - now;
     if (Number.isFinite(parsed)) ms = Math.max(60_000, Math.min(60 * 60_000, parsed));
   }
-  if (status === 429) refuseUntil = Math.max(refuseUntil, now + ms);
+  const opened = ++sequence;
+  if (status === 429) {
+    refuseUntil = Math.max(refuseUntil, now + ms);
+    refuseOpened = opened;
+  }
   retryAt = Math.max(retryAt, now + ms);
+  retryOpened = opened;
 }
 
 /** A caller's Stop never opens the breaker; a deadline or lost connection does. */
@@ -61,6 +76,7 @@ export function recordThrustcurveFailure(timedOut: boolean, cancelled: boolean, 
 export function thrustcurveFetch(fetchImpl: typeof fetch = (input, init) => fetch(input, init)): typeof fetch {
   return async (input, init) => {
     assertThrustcurveAvailable();
+    const sent = ++sequence;
     try {
       const res = await fetchImpl(input, init);
       if (res.status === 429 || res.status >= 500 && res.status <= 599 && res.status !== 511) {
@@ -68,8 +84,8 @@ export function thrustcurveFetch(fetchImpl: typeof fetch = (input, init) => fetc
         // with Access-Control-Expose-Headers. When unavailable, use the default.
         backOff(res.headers?.get('retry-after'), res.status);
       } else if (res.ok) {
-        retryAt = 0;
-        refuseUntil = 0;
+        if (sent > retryOpened) retryAt = 0;
+        if (sent > refuseOpened) refuseUntil = 0;
       }
       return res;
     } catch (err) {
