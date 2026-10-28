@@ -214,10 +214,20 @@ export async function readCatalogueBytes(href: string, opts: ReadOptions & {
   return getBytesCapped(href, opts);
 }
 
+/** Why a browser with no `crypto.subtle` reads no catalogue file. */
+export const NO_HASH_MESSAGE = 'This browser cannot check the catalogue\'s files, so none were read.';
+
+/**
+ * Can this browser check a catalogue file's sha256? Only in a secure context
+ * (https, or localhost). Asked before a file is downloaded, so a browser that
+ * cannot is not sent the file only to fail at the hash (2026-10-28, E).
+ */
+export const canCheckCatalogueFiles = (): boolean => !!globalThis.crypto?.subtle;
+
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   // Only in a secure context (https, or localhost). Fail closed without it.
   const subtle = globalThis.crypto?.subtle;
-  if (!subtle) throw new CatalogueError('integrity', 'This browser cannot check the catalogue\'s files, so none were read.');
+  if (!subtle) throw new CatalogueError('integrity', NO_HASH_MESSAGE);
   const hash = new Uint8Array(await subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>));
   return [...hash].map(b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -247,6 +257,7 @@ export async function fetchCatalogueFile(file: CatalogueFileRef, maxBytes: numbe
     throw new CatalogueError('integrity', `The catalogue's ${what} is larger than the app accepts (${Math.round(maxBytes / 1024 / 1024)} MB), so it was not read.`);
   }
   if (!digest(file.sha256)) throw new CatalogueError('manifest', `The catalogue's ${what} has no usable sha256.`);
+  if (!canCheckCatalogueFiles()) throw new CatalogueError('integrity', NO_HASH_MESSAGE);
   const bytes = await readCatalogueBytes(catalogueFileUrl(file.path), {
     ...opts, maxBytes: file.bytes, timeoutMs: FILE_TIMEOUT_MS,
   });

@@ -6,7 +6,8 @@ import { digestMotorFile, motorHeaderMasses } from './motorDigest.js';
 import { MAX_MOTOR_THRUST_N, sampleListProblem, repairSamples, flownCurve } from '../../scripts/motor-samples.mjs';
 import { MOTOR_DB, MOTOR_DB_DATE, getCatalogueOverlay } from './motorDb.js';
 import {
-  CatalogueError, CURVES_MAX_BYTES, fetchCatalogueFile, isThrustcurvePull, validSnapshotRef, type CatalogueSnapshotRef,
+  CatalogueError, CURVES_MAX_BYTES, NO_HASH_MESSAGE, canCheckCatalogueFiles, fetchCatalogueFile, isThrustcurvePull, validSnapshotRef,
+  type CatalogueSnapshotRef,
 } from './catalogueClient.js';
 import { NetError } from './net.js';
 import { assertThrustcurveAvailable, recordThrustcurveFailure, thrustcurveFetch, thrustcurveBackoffMessage, ThrustcurveBackoffError, withThrustcurveBackoff } from './thrustcurveTraffic.js';
@@ -701,14 +702,15 @@ export async function bundleHasCurve(motorId: string): Promise<boolean | null> {
  * Only a complete, matching bundle and no newer check establish an absent
  * curve. Under a curated snapshot a shipped motor with no bundled curve is
  * answered by the snapshot's curves file instead (D.7): absent once that file
- * has been read and lacks it, or was refused; unknown (false) until it has
- * been read, which happens only when the motor is flown, never here.
+ * has been read and lacks it; unknown (false) until it has been read, which
+ * happens only when the motor is flown, never here. A file refused for its
+ * size, sha or shape was not read, and says nothing about the motor
+ * (2026-10-28, audit S5-1): it said "absent" until then.
  */
 export async function knownNoPublishedCurve(motorId: string): Promise<boolean> {
   const snapshot = activeSnapshot();
   if (snapshot) {
     if (!shippedMotorIds.has(motorId) || (await bundleHasCurve(motorId)) !== false) return false;
-    if (refusedSnapshotCurves.has(snapshot.curves.sha256)) return true;
     const read = readSnapshotCurves.get(snapshot.curves.sha256);
     return read ? !read.has(motorId) : false;
   }
@@ -755,7 +757,9 @@ function simFiles(files: readonly BundledSimFile[]): TcSimFile[] {
  * trusts the bundle, which a human looked at; this file nobody did, and the
  * sha says only that it is the file the manifest names. One promise per curves
  * sha; a network failure clears it, so the next use asks again; a size, sha or
- * shape failure is remembered for the page session.
+ * shape failure is remembered for the page session. A browser that cannot
+ * hash (no `crypto.subtle`) is told so before any download, and that is not
+ * a refusal of the file: nothing was read.
  */
 const snapshotCurves = new Map<string, Promise<Map<string, BundledSimFile[]>>>();
 /** The eligible subset of each curves file read so far, by its sha. */
@@ -794,6 +798,8 @@ function loadSnapshotCurves(snapshot: CatalogueSnapshotRef): Promise<Map<string,
   if (refusedSnapshotCurves.has(sha)) {
     return Promise.reject(new CatalogueError('integrity', 'The catalogue\'s curves file was refused earlier.'));
   }
+  // Not a CatalogueError, so not remembered as a refusal of this file.
+  if (!canCheckCatalogueFiles()) return Promise.reject(new Error(NO_HASH_MESSAGE));
   let pending = snapshotCurves.get(sha);
   if (!pending) {
     pending = (async () => {
@@ -1204,6 +1210,14 @@ function writeCurveCache(cacheKey: string, samples: TcSample[], masses: TcHeader
   }
 }
 
+/** E (audit S5-1): a curves file that was not read says nothing about the motor, and must not read as "none exists". */
+function unreadableCurvesFile(designation: string, err: unknown): Error {
+  const why = err instanceof CatalogueError || err instanceof NetError || (err instanceof Error && err.message === NO_HASH_MESSAGE)
+    ? ` ${err.message}` : '';
+  return new Error(`The curated catalogue's curves file, the only source of a curve for ${designation}, could not be read.${why}`,
+    { cause: err });
+}
+
 /**
  * Fetches thrust samples (localStorage-cached) and builds the MotorSpec.
  * Imported EX motors ("ex:" ids) build entirely from local data — an .rse that
@@ -1333,9 +1347,10 @@ export async function fetchMotorSpec(
   // The curated snapshot's curves file (row 110), for a motor the app shipped
   // no curve for: one the overlay ADDED, or a shipped motor the bundle lacks
   // (D.7). Never for a shipped motor the bundle has — that curve is never
-  // replaced — and never bundle-only. A shipped motor the file does not give a
-  // curve for has no published curve, and thrustcurve.org is not asked; an
-  // added one falls through to the download below.
+  // replaced — and never bundle-only. A shipped motor the file, READ, gives no
+  // curve for has no published curve, and thrustcurve.org is not asked; a file
+  // that could not be read says only that (audit S5-1). An added motor falls
+  // through to the download below either way.
   const snapshot = !samples ? activeSnapshot() : null;
   if (snapshot) {
     const shipped = shippedMotorIds.has(motor.motorId);
@@ -1343,11 +1358,15 @@ export async function fetchMotorSpec(
     const curveless = shipped && !bundleFailed && !await bundleListsMotor(motor.motorId);
     if (added || curveless) {
       let files: TcSimFile[] = [];
+      /** Was the file read and accepted? Only then is a missing motor "none published". */
+      let read = false;
+      let unread: unknown;
       try {
         files = simFiles((await untilAborted(loadSnapshotCurves(snapshot), signal)).get(motor.motorId) ?? []);
+        read = true;
       } catch (err) {
         if (signal?.aborted) throw err;
-        // Unreachable or refused: the bundle and the stored overlay stand.
+        unread = err;
       }
       const usual = pickSampleFile(files, motor);
       const file = (digest ? pickDigestFile(files, digest, motor) : null) ?? usual;
@@ -1356,7 +1375,7 @@ export async function fetchMotorSpec(
         fromFile = headerMasses(file);
         if (file === usual) writeCurveCache(cacheKey, samples, fromFile);
       } else if (curveless) {
-        throw new NoPublishedCurveError(motor.designation);
+        throw read ? new NoPublishedCurveError(motor.designation) : unreadableCurvesFile(motor.designation, unread);
       }
     }
   }

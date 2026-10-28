@@ -73,6 +73,10 @@ const legacy = (fetchedAt: string, added: MotorDbEntry[] = []) => db.setCatalogu
   baseGenerated: db.MOTOR_DB_DATE, fetchedAt, liveCount: 0, added, changed: [], removed: [], rejected: [] });
 const miss = (p: Promise<unknown>): Promise<Error> => p.then(() => { throw new Error('expected rejection'); }, (e: unknown) => e as Error);
 const thrusts = async (m: TcMotor, opts?: Parameters<Client['fetchMotorSpec']>[3]) => (await tc.fetchMotorSpec(m, 5, undefined, opts)).thrusts;
+/** E: the failure for a curves file that could not be read — never "none exists". */
+const unreadable = (err: Error): boolean => !(err instanceof tc.NoPublishedCurveError)
+  && /^The curated catalogue's curves file, the only source of a curve for .+, could not be read\./.test(err.message);
+
 
 describe('an added motor', () => {
   it('flies the snapshot file\'s curve, with no thrustcurve.org request, and the file is read once', async () => {
@@ -142,11 +146,14 @@ describe('a shipped motor with no bundled curve (D.7)', () => {
     expect(catalogueRequests).toEqual([]);
   });
 
-  it('stays "no published curve" with no thrustcurve.org request when the file cannot be fetched, and the next use asks the catalogue again', async () => {
+  // E (audit S5-1): a file that could not be read says nothing about the
+  // motor. Until the fix this was NoPublishedCurveError, "publishes none".
+  it('is "could not be read", not "no published curve", with no thrustcurve.org request when the file cannot be fetched, and the next use asks the catalogue again', async () => {
     let up = false;
     await install({ [curveless.motorId]: [file(55)] }, { curvesAnswer: () => up ? fetchedCurves() : Promise.reject(new TypeError('Failed to fetch')) });
     let fetchedCurves!: () => Response;
-    expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(unreadable(await miss(tc.fetchMotorSpec(curveless, 5)))).toBe(true);
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
     expect(tcRequests).toEqual([]);
     expect(catalogueRequests).toHaveLength(1);
     // A network failure is not remembered: the next pick asks again.
@@ -199,11 +206,14 @@ describe('the curves file is checked before anything flies from it', () => {
       curvesAnswer: () => new Response(other.curvesBytes.slice(0, pub.curvesBytes.length) as Uint8Array<ArrayBuffer>),
     });
     expect(other.curvesBytes.length).toBe(pub.curvesBytes.length);
-    expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    const err = await miss(tc.fetchMotorSpec(curveless, 5));
+    expect(unreadable(err)).toBe(true);
+    expect(err.message).toContain('does not match its manifest');
     await miss(tc.fetchMotorSpec(addedMotor, 5));
     expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
     expect(catalogueRequests).toHaveLength(1);
-    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(true);
+    // A refusal alone is not "none exists" (E).
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
   });
 
   it.each([
@@ -219,7 +229,8 @@ describe('the curves file is checked before anything flies from it', () => {
       ...('curves' in doc && doc.curves === 'GOOD' ? { curves: good } : {}) };
     await install({}, { added: [addedMotor], curvesDoc });
     await miss(tc.fetchMotorSpec(addedMotor, 5));
-    expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(unreadable(await miss(tc.fetchMotorSpec(curveless, 5)))).toBe(true);
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
     expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
     expect(catalogueRequests).toHaveLength(1);
   });
@@ -333,6 +344,65 @@ describe('a shipped motor the bundle lists never reads the snapshot file, even w
     await miss(tc.fetchMotorSpec(listed, 5));
     expect(catalogueRequests).toEqual([]);
     expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
+  });
+});
+
+describe('E: a curves file that was not read is "could not be read", never "none exists" (audit S5-1)', () => {
+  it.each([
+    ['an HTTP 503', () => new Response('down', { status: 503 })],
+    ['a dropped connection', () => Promise.reject(new TypeError('Failed to fetch'))],
+  ])('%s: the unreadable error, zero thrustcurve.org requests, knownNoPublishedCurve false', async (_name, answer) => {
+    await install({ [curveless.motorId]: [file(55)] }, { curvesAnswer: answer });
+    const err = await miss(tc.fetchMotorSpec(curveless, 5));
+    expect(unreadable(err)).toBe(true);
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
+    expect(tcRequests).toEqual([]);
+  });
+
+  it('a browser with no crypto.subtle: the unreadable error, no download at all, and not remembered as refused', async () => {
+    await install({ [curveless.motorId]: [file(55)] });
+    // An own property over the prototype's getter, removed again below.
+    const own = Object.getOwnPropertyDescriptor(globalThis.crypto, 'subtle');
+    Object.defineProperty(globalThis.crypto, 'subtle', { value: undefined, configurable: true });
+    try {
+      const err = await miss(tc.fetchMotorSpec(curveless, 5));
+      expect(unreadable(err)).toBe(true);
+      expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
+      // Checked before the download: no file is fetched only to fail at the hash.
+      expect(catalogueRequests).toEqual([]);
+      expect(tcRequests).toEqual([]);
+    } finally {
+      if (own) Object.defineProperty(globalThis.crypto, 'subtle', own);
+      else delete (globalThis.crypto as { subtle?: unknown }).subtle;
+    }
+    expect(globalThis.crypto.subtle).toBeDefined();
+    // Not refused for the session: with the hash back, the next use reads the file.
+    expect(Math.max(...await thrusts(curveless))).toBeCloseTo(55, 9);
+    expect(catalogueRequests).toHaveLength(1);
+  });
+
+  it('a file that was read and lacks the motor is still "no published curve" (positive control)', async () => {
+    await install({});
+    expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(true);
+  });
+
+  it('an added motor whose file cannot be read still falls through to the download', async () => {
+    await install({ [addedMotor.motorId]: [file(40)] }, { added: [addedMotor], curvesAnswer: () => new Response('down', { status: 503 }),
+      tcAnswer: () => new Response(JSON.stringify({ results: [{ format: 'RASP', source: 'cert', samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 33 }, { time: 1, thrust: 0 }] }] })) });
+    expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(33, 9);
+    expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
+  });
+
+  it('the open\'s note is the "could not be loaded" form, never "publishes none"', async () => {
+    await install({ [curveless.motorId]: [file(55)] }, { curvesAnswer: () => new Response('down', { status: 503 }) });
+    const { matchImportedMotor } = await import('./motorMatch.js');
+    const result = await matchImportedMotor({ designation: curveless.designation, manufacturer: curveless.manufacturerAbbrev,
+      diameter: curveless.diameter / 1000, length: curveless.length / 1000, delay: 5 }, { findDb: () => curveless });
+    expect(result.note).toContain('its thrust curve could not be loaded');
+    expect(result.note).not.toContain('publishes none');
+    expect(result.missing).toBeUndefined();
+    expect(tcRequests).toEqual([]);
   });
 });
 
