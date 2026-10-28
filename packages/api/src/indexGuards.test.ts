@@ -180,16 +180,16 @@ it.each([
 });
 
 it.each([
-  ['ork', '<openrocket><rocket><x></rocket></openrocket>', 'Not a valid .ork file (XML parse error)'],
-  ['rkt', '<RockSimDocument><x></RockSimDocument>', 'Not a valid RockSim file (XML parse error)'],
-  ['CDX1', '<RASAeroDocument><x></RASAeroDocument>', 'Not a valid RASAero file (XML parse error)'],
+  ['ork', '<openrocket><rocket><x></rocket></openrocket>', 'Could not open that .ork file: Not a valid .ork file (XML parse error)'],
+  ['rkt', '<RockSimDocument><x></RockSimDocument>', 'Could not open that .rkt file: Not a valid RockSim file (XML parse error)'],
+  ['CDX1', '<RASAeroDocument><x></RASAeroDocument>', 'Could not open that .CDX1 file: Not a valid RASAero file (XML parse error)'],
 ])('keeps the %s malformed-XML message while refusing before pre-passes', async (ext, xml, message) => {
   const parts = vi.spyOn(foreignParts, 'refuseOversizedForeignXml');
   const slices = vi.spyOn(extensions, 'extensionXmlBySimulation');
   try {
     const response = await worker.fetch(request(xml!, 'broken.' + ext), undefined, ctx);
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: 'INVALID_FILE', message: expect.stringContaining(message!) } });
+    expect(await response.json()).toMatchObject({ error: { code: 'INVALID_FILE', message } });
     expect(parts.mock.calls.length).toBe(0);
     expect(slices.mock.calls.length).toBe(0);
   } finally { parts.mockRestore(); slices.mockRestore(); }
