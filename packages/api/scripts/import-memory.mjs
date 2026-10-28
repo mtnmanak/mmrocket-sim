@@ -42,7 +42,8 @@ import { build } from 'esbuild';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../../..');
-const work = mkdtempSync(join(tmpdir(), 'import-memory-'));
+/** The CLI's scratch directory, made when the CLI runs: importing this module has no side effects. */
+let work;
 
 async function bundle(entry, outfile, root) {
   await build({ entryPoints: [entry], outfile, bundle: true, format: 'esm', platform: 'node', minify: true,
@@ -111,7 +112,8 @@ function run(probe, mode, file, oldSpaceMiB) {
   return { ...result, peakHeapBeforeGcMB: beforeGc.length ? Math.max(...beforeGc) : null };
 }
 
-async function smallestOldSpace(probe, mode, file, reps) {
+/** The bisection, with the runner passed in (`run` above for the CLI; a stub for its tests). */
+export async function smallestOldSpace(run, probe, mode, file, reps) {
   let low = 4, high = 512; // high must pass; low must fail.
   if (!run(probe, mode, file, high).ok) return null;
   while (high - low > 1) {
@@ -140,7 +142,7 @@ async function measure(argv) {
     for (const which of ['baseline', 'changed']) {
       const uncapped = Array.from({ length: reps }, () => run(probes[which], mode, file));
       const ok = uncapped.every(r => r.ok);
-      const cap = ok ? await smallestOldSpace(probes[which], mode, file, reps) : null;
+      const cap = ok ? await smallestOldSpace(run, probes[which], mode, file, reps) : null;
       rows.push({ points: n, ...stats, tree: which, sha: git(trees[which]), mode, outcome: ok ? 'ok' : uncapped[0].status,
         refusal: ok ? undefined : uncapped[0].error, minOldSpaceMiB: cap?.mib ?? null,
         maxRssMiB: ok ? uncapped.map(r => +(r.maxRssKiB / 1024).toFixed(1)) : null,
@@ -152,14 +154,19 @@ async function measure(argv) {
   console.log(JSON.stringify({ node: process.version, reps, columns, mode, trees, rows }, null, 2));
 }
 
-try {
-  const [command, ...rest] = process.argv.slice(2);
-  if (command === 'gen') {
-    const { zip, stats } = await generate(Number(rest[0]), Number(rest[1] ?? 52));
-    if (rest[2]) writeFileSync(rest[2], zip);
-    console.log(JSON.stringify(stats));
-  } else if (command === 'measure') await measure(rest);
-  else throw new Error('Usage: import-memory.mjs gen <points> [columns] [out.ork] | measure --baseline <tree> [...]');
-} finally {
-  rmSync(work, { recursive: true, force: true });
+async function main() {
+  work = mkdtempSync(join(tmpdir(), 'import-memory-'));
+  try {
+    const [command, ...rest] = process.argv.slice(2);
+    if (command === 'gen') {
+      const { zip, stats } = await generate(Number(rest[0]), Number(rest[1] ?? 52));
+      if (rest[2]) writeFileSync(rest[2], zip);
+      console.log(JSON.stringify(stats));
+    } else if (command === 'measure') await measure(rest);
+    else throw new Error('Usage: import-memory.mjs gen <points> [columns] [out.ork] | measure --baseline <tree> [...]');
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
 }
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
