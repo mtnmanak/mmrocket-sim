@@ -93,19 +93,39 @@ describe('S1 in real workerd', () => {
         message: expect.stringMatching(/16 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
     });
 
+  it('bounds a long hostile filename echoed in a refusal, through the local dev proxy', async () => {
+    // About 4,000 characters: NUL, ESC and RLO up front, an astral character, a .ork tail.
+    const name = '\u0000\u001b\u202e' + 'a'.repeat(179) + '\u{1f680}' + 'b'.repeat(3_800) + '-final.ork';
+    // The inflated-XML refusal keeps the upload small.
+    const body = zipSync({ 'rocket.ork': new Uint8Array(16 * 1024 * 1024 + 1) });
+    const response = await normal!.fetch(`http://local/experimental/fly?filename=${encodeURIComponent(name)}`,
+      { method: 'POST', body });
+    const result = await response.json() as { error: { code: string; message: string } };
+    expect(response.status, JSON.stringify(result)).toBe(413);
+    expect(result.error.code).toBe('FILE_TOO_LARGE');
+    const { message } = result.error;
+    expect(message).toMatch(/16 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/);
+    const echo = message.slice(0, message.indexOf(': '));
+    expect(Array.from(echo).length).toBeLessThanOrEqual(200);
+    expect(echo).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u);
+    expect(echo).not.toMatch(/[\ud800-\udfff]/u);
+    expect(echo).toContain('\u{1f680}');
+    expect(echo.endsWith('.ork')).toBe(true);
+  });
+
   it.each([
-    ['elements', '<x/>'.repeat(50_000)],
-    ['depth', '<x>'.repeat(63) + '</x>'.repeat(63)],
-    ['comments', '<!---->'.repeat(200_000)],
-    ['processing instructions', '<?a?>'.repeat(200_000)],
-    ['text siblings', 'x<!---->'.repeat(100_000)],
-    ['attributes', '<x ' + Array.from({ length: 200_000 }, (_, i) => `a${i}=""`).join(' ') + '/>'],
-  ])('refuses excessive XML %s as JSON inside workerd', async (_kind, payload) => {
+    ['elements', '<x/>'.repeat(50_000), 'XML element limit is 50,000.'],
+    ['depth', '<x>'.repeat(63) + '</x>'.repeat(63), 'XML nesting limit is 64.'],
+    ['comments', '<!---->'.repeat(200_000), 'XML node limit is 200,000.'],
+    ['processing instructions', '<?a?>'.repeat(200_000), 'XML node limit is 200,000.'],
+    ['text siblings', 'x<!---->'.repeat(100_000), 'XML node limit is 200,000.'],
+    ['attributes', '<x ' + Array.from({ length: 200_000 }, (_, i) => `a${i}=""`).join(' ') + '/>', 'XML node limit is 200,000.'],
+  ])('refuses excessive XML %s as JSON inside workerd', async (_kind, payload, limit) => {
     const response = await normal!.fetch('http://local/experimental/fly?filename=structure.ork',
       { method: 'POST', body: `<openrocket><rocket>${payload}</rocket></openrocket>` });
     expect(response.status).toBe(413);
     expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
-      message: expect.stringMatching(/XML.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
+      message: `structure.ork: ${limit} Use https://mmrsim.mountainmanrockets.com for larger files.` } });
   });
 
   it.each([0.005, 0.01, 0.05, 0.1])('flies an own-file step of %s s with the API floor and reports any change', async step => {
@@ -203,6 +223,15 @@ describe('S1 in real workerd', () => {
       expect(response.status, await response.clone().text()).toBe(200);
       expect(response.headers.get('x-test-fetch-attempts')).toBe('0');
     }
+  });
+
+  it('the timer trap counts every macrotask source workerd offers', async () => {
+    const probe = await trapped!.fetch('http://local/__test/probe-timer-trap');
+    const { sources, counted } = await probe.json() as { sources: string[]; counted: Record<string, number> };
+    // All four exist in the pinned local workerd; a lost wrapper or source fails here.
+    expect(sources).toEqual(['setTimeout', 'setInterval', 'scheduler.wait', 'MessagePort.postMessage']);
+    expect(Object.keys(counted).sort()).toEqual([...sources].sort());
+    for (const source of sources) expect(counted[source], source).toBe(1);
   });
 
   it('auto-delay schedules zero timers inside workerd', async () => {
@@ -388,8 +417,9 @@ function expectedFailures(node: Awaited<ReturnType<typeof simulateFile>>) {
 function expectedMotors(node: Awaited<ReturnType<typeof simulateFile>>) {
   const state = resolveFlightState(node.state.tree, node.state.savedConfigs, node.state.activeConfigId,
     node.state.detachedOverrides ?? {}, node.state.mountMotors);
-  return node.flight.delayResolution.mounts.filter(m => state.mountMotors[m.mountId]?.ignition?.event !== 'never')
-    .map(m => ({ mount: m.mountName, designation: state.mountMotors[m.mountId]!.spec.designation,
-      manufacturer: state.mountMotors[m.mountId]!.meta.manufacturer ?? '',
-      count: mountMotorCount(state.tree, m.mountId), delayS: m.flownDelay }));
+  return node.flight.delayResolution.mounts.flatMap(m => {
+    const motor = state.mountMotors[m.mountId];
+    return !motor || motor.ignition?.event === 'never' ? [] : [{ mount: m.mountName, designation: motor.spec.designation,
+      manufacturer: motor.meta.manufacturer ?? '', count: mountMotorCount(state.tree, m.mountId), delayS: m.flownDelay }];
+  });
 }
