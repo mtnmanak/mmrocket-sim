@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  DEFAULT_INTERVAL_MS, MAX_RETRY_WAIT_MS, ThrustcurveChallengeError, USER_AGENT,
+  DEFAULT_INTERVAL_MS, MAX_RETRY_WAIT_MS, ThrustcurveChallengeError, ThrustcurveUnavailableError, USER_AGENT,
   createThrustcurveFetch, intervalFromEnv, retryAfterMs,
 } from './thrustcurve-client.mjs';
 
@@ -68,6 +68,34 @@ describe('thrustcurve-client pacing', () => {
   });
 });
 
+describe('thrustcurve-client defaults', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it('paces at DEFAULT_INTERVAL_MS when no interval is given and the variable is unset', async () => {
+    vi.stubEnv('THRUSTCURVE_INTERVAL_MS', '');
+    const { client, sent } = harness([], { intervalMs: undefined });
+    await client('https://www.thrustcurve.org/a');
+    await client('https://www.thrustcurve.org/b');
+    expect(sent[0].at).toBe(1_000_000 + DEFAULT_INTERVAL_MS);
+    expect(sent[1].at - sent[0].at).toBe(DEFAULT_INTERVAL_MS);
+    expect(DEFAULT_INTERVAL_MS).toBe(5000);
+  });
+
+  it('takes the pace from THRUSTCURVE_INTERVAL_MS when no interval is given', async () => {
+    vi.stubEnv('THRUSTCURVE_INTERVAL_MS', '2500');
+    const { client, sent } = harness([], { intervalMs: undefined });
+    await client('https://www.thrustcurve.org/a');
+    await client('https://www.thrustcurve.org/b');
+    expect(sent[1].at - sent[0].at).toBe(2500);
+  });
+
+  it('retries three times by default', async () => {
+    const { client, sent } = harness(Array(6).fill({ status: 503 }), { retries: undefined });
+    expect((await client('https://www.thrustcurve.org/a')).status).toBe(503);
+    expect(sent).toHaveLength(4);
+  });
+});
+
 describe('thrustcurve-client challenge', () => {
   it('throws on a Cloudflare challenge and never sends another request', async () => {
     const { client, sent } = harness([challenge]);
@@ -102,6 +130,20 @@ describe('thrustcurve-client retries', () => {
     const { client, sent } = harness(Array(5).fill({ status: 429 }), { retries: 2 });
     expect((await client('https://www.thrustcurve.org/a')).status).toBe(429);
     expect(sent).toHaveLength(3);
+  });
+
+  it('paces a retry even when Retry-After is shorter than the interval', async () => {
+    const { client, sent } = harness([{ status: 429, headers: { 'retry-after': '1' } }, { status: 200 }]);
+    await client('https://www.thrustcurve.org/a');
+    expect(sent[1].at - sent[0].at).toBeGreaterThanOrEqual(5000);
+  });
+
+  it('sends nothing more once a request has used up its retries', async () => {
+    const { client, sent } = harness(Array(5).fill({ status: 503 }), { retries: 1 });
+    expect((await client('https://www.thrustcurve.org/a')).status).toBe(503);
+    await expect(client('https://www.thrustcurve.org/b')).rejects.toBeInstanceOf(ThrustcurveUnavailableError);
+    await expect(client('https://www.thrustcurve.org/c')).rejects.toMatchObject({ status: 503 });
+    expect(sent).toHaveLength(2);
   });
 
   it('does not retry other failures', async () => {

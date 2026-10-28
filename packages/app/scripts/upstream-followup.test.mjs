@@ -3,7 +3,33 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { aerotechDocumentLinks, rowsByPart, materialDensityIn, checkHead, checkThrustCurve, checkMotorCorrections, main, checkOpenMeteoTerms } from '../../../scripts/check-upstream.mjs';
 import { parseOrc } from './fetch-component-presets.mjs';
 
+// check-upstream sends thrustcurve.org requests through the paced client, one
+// per 5 s. These tests stub globalThis.fetch and judge what the script does
+// with each answer, not the pace, so the client is a pass-through here that
+// records what reached it (the pace itself: thrustcurve-client.test.mjs).
+const paced = vi.hoisted(() => []);
+vi.mock('./thrustcurve-client.mjs', async (importOriginal) => ({
+  ...(await importOriginal()),
+  thrustcurveFetch: (url, init) => { paced.push(String(url)); return globalThis.fetch(url, init); },
+}));
+
 afterEach(() => vi.restoreAllMocks());
+
+it('sends thrustcurve.org requests, and only those, through the paced client', async () => {
+  vi.spyOn(console, 'log').mockImplementation(() => {});
+  vi.spyOn(console, 'error').mockImplementation(() => {});
+  const fetcher = vi.fn(async () => ({ ok: false, status: 404 }));
+  vi.stubGlobal('fetch', fetcher);
+  paced.length = 0;
+  try {
+    await checkThrustCurve().catch(() => {});
+    await checkHead().catch(() => {});
+    const tc = fetcher.mock.calls.map(([url]) => String(url)).filter((url) => new URL(url).hostname === 'www.thrustcurve.org');
+    expect(tc.length).toBeGreaterThan(0);
+    expect(paced).toEqual(tc);
+    expect(fetcher.mock.calls.some(([url]) => new URL(String(url)).hostname === 'api.github.com')).toBe(true);
+  } finally { vi.unstubAllGlobals(); }
+});
 
 it.each(['@click', 'x-on:click.prevent', 'data-foo.bar', 'data.foo'])('accepts valid HTML attribute %s and apostrophes in unquoted values', name => {
   expect(aerotechDocumentLinks(`<a ${name}="x" href="/real.pdf">real</a>`, 'https://example.test/'))

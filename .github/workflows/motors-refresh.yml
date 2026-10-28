@@ -159,15 +159,19 @@ jobs:
       # of the API's own `matches` count, fetch-motor-curves.mjs on any failed
       # batch (only its --allow-partial, never passed here, writes a short
       # bundle). A non-zero exit ends the job here, before anything is
-      # committed, so a partial catalogue or bundle never becomes a PR. There is
-      # no retry: the next weekly run is the retry, and a red run is the
-      # notification. To retry now, use "Run workflow" on the Actions tab.
+      # committed, so a partial catalogue or bundle never becomes a PR. The only
+      # retries are thrustcurve-client.mjs's own (a 429 or 503, up to three per
+      # request, after which it sends nothing more that run); otherwise the next
+      # weekly run is the retry, and a red run is the notification. To retry
+      # now, use "Run workflow" on the Actions tab.
       #
       # Both send the User-Agent 'mmrocket-sim-upstream-check', as
       # check-upstream.mjs does: weekly from a datacentre IP with 24 POSTs to
       # download.json, an anonymous client is the profile a small volunteer-run
       # service rate-limits. If it ever does, the symptom is this step red with
-      # HTTP 403 or HTTP 429.
+      # HTTP 403 or HTTP 429 — or, since thrustcurve.org went behind Cloudflare
+      # (27 Oct 2026), "answered … with a Cloudflare challenge", which no pace
+      # gets past: that one needs the operator's agreement, not a re-run.
       - name: Refresh the catalogue, the curve bundle and the user guide
         run: |
           node packages/app/scripts/fetch-motor-db.mjs --full-out "$RUNNER_TEMP/catalogue-input/motors-full.json"
@@ -242,8 +246,8 @@ jobs:
       #
       # Cost: `npm test` builds the engine package (tsc; the TeaVM kernel is the
       # committed artifact, so still no Java) and runs the whole suite — about
-      # 4,000 tests in September 2026 — in a few minutes of the 30-minute
-      # budget; the other three steps are the ones deploy.yml's build job runs
+      # 4,000 tests in September 2026; 17.8 minutes of the job's 45 on
+      # 26 October 2026 — the other three steps are the ones deploy.yml's build job runs
       # beside it inside 15 minutes. Cheap against a merged PR that turns main
       # red, which is the shape deploy.yml's own typecheck comment exists to
       # avoid.
