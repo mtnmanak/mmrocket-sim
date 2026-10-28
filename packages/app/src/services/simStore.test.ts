@@ -1057,3 +1057,34 @@ it.each([7, {}, true].map(v => [v]))('drops an unreadable stored importedRunId %
   expect(good!.importedRunId).toBe('source-run');
   localStorage.clear();
 });
+
+/**
+ * STORED-STATE SIBLINGS (cloud session 20): a stored run's model fields, read
+ * back the way a fresh run reads.
+ */
+describe('stored runs: aero model fields', () => {
+  const csvAero = (runs: SimRun[]) => {
+    const table = runsToTable(runs);
+    return runs.map((_, i) => table.rows[i]![table.headers.indexOf('Aero model')]);
+  };
+  it.each([{}, 'quantum', 7, null, { toString: 0 }].map(v => [v]))('drops an unreadable aeroModel %j: model not recorded', aeroModel => {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([mkRun('bad', { aeroModel } as never)]));
+    const runs = loadRuns();
+    expect(runs[0]).not.toHaveProperty('aeroModel');
+    expect(csvAero(runs)).toEqual(['']);
+  });
+  it.each(['false', 1, {}, null].map(v => [v]))('drops a non-boolean rogersKbf %j rather than print +kbf', rogersKbf => {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+      mkRun('super', { aeroModel: 'supersonic', rogersKbf } as never), mkRun('classic', { aeroModel: 'classic', rogersKbf } as never)]));
+    const runs = loadRuns();
+    for (const r of runs) expect(r).not.toHaveProperty('rogersKbf');
+    expect(csvAero(runs)).toEqual(['supersonic', 'classic (Kbf not recorded)']);
+  });
+  it('keeps every recorded model exactly', () => {
+    const stored = [mkRun('a', { aeroModel: 'classic', rogersKbf: true }), mkRun('b', { aeroModel: 'supersonic', rogersKbf: false }),
+      mkRun('c', { aeroModel: 'auto-supersonic' }), mkRun('d', { aeroModel: 'hybrid', rogersKbf: true }), mkRun('e')]
+      .map(r => ({ ...r, comments: '' }));
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify(stored));
+    expect(JSON.stringify(loadRuns())).toBe(JSON.stringify(stored));
+  });
+});

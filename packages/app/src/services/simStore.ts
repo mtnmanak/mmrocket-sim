@@ -4,6 +4,7 @@ import type { DesignMatchKey } from './simReport.js';
 import { restoredWarnings, storedWarnings } from './storedWarnings.js';
 import { csvCell } from './csvUtil.js';
 import { deploymentVerdict, openingVerdict, descentVerdict, SAFETY, type SimRun } from './simReport.js';
+import { isAeroModel } from './aeroProvenance.js';
 import { railNeeded, railNeededResultCell, railNeededHeader } from './railNeeded.js';
 import { createWarningMergeBudget, mergeImportedWarnings, mergeStoredWarnings, sameStoredFlight, verifiesStoredRow, type WarningMergeBudget } from './storedRunIdentity.js';
 import { warningKeysCell } from './simWarnings.js';
@@ -68,6 +69,11 @@ export function loadRuns(): SimRun[] {
       for (const key of ['maxMach', 'maxRollRateRadS', 'rodExitAoa', 'windAvg', 'motorCount'] as const) {
         if (r[key] != null && (typeof r[key] !== 'number' || !Number.isFinite(r[key]))) Object.assign(r, { [key]: null });
       }
+      // Absent is "model not recorded", as on a run stored before v0.025. A
+      // value that is not a model printed "[object Object]" in the export, and
+      // a non-boolean Kbf printed "+kbf" beside a model it never flew.
+      if (r.aeroModel !== undefined && !isAeroModel(r.aeroModel)) delete r.aeroModel;
+      if (r.rogersKbf !== undefined && typeof r.rogersKbf !== 'boolean') delete r.rogersKbf;
       if (r.recommendedDelayS != null && !Number.isFinite(r.recommendedDelayS)) r.recommendedDelayS = null;
       if (r.weathercockRisk != null && !['low', 'moderate', 'high'].includes(r.weathercockRisk)) r.weathercockRisk = null;
       if (r.hybridBand !== undefined && (!Array.isArray(r.hybridBand) || r.hybridBand.length !== 2
