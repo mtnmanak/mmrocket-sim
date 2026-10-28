@@ -2,7 +2,7 @@ import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/unit
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import {
-  displayDesignation, motorLabel, findDbMotor, isAvailable, isHighPower, manufacturerMatches, matchDbMotor,
+  displayDesignation, motorLabel, findDbMotor, getCatalogue, isAvailable, isHighPower, manufacturerMatches, matchDbMotor,
   type DbMotorMatch, type MotorDbEntry,
 } from './motorDb.js';
 import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
@@ -225,9 +225,22 @@ export async function loadCatalogueMotor(
 ): Promise<MountMotor | null> {
   const findDb = deps.findDb ?? findDbMotor;
   const fetchSpec = deps.fetchSpec ?? ((motor, delay) => fetchMotorSpec(motor, delay, undefined, { units: deps.units }));
-  const db = findDb(designation, undefined, deps.catalogue, manufacturer);
+  // The catalogue the row came from, when it is the live one: an automatic
+  // check can install while the curve loads (the first-visit starter in
+  // App.tsx), and App works out that check's notice from the motors loaded
+  // when its result arrives — so a motor that lands with the pre-check row
+  // never gets one (2026-10-28 audit, D).
+  const live = deps.catalogue ? null : getCatalogue();
+  let db = findDb(designation, undefined, deps.catalogue, manufacturer);
   if (!db) return null;
-  const spec = await fetchSpec(db, delay);
+  let spec = await fetchSpec(db, delay);
+  if (live && getCatalogue() !== live) {
+    const now = findDb(designation, undefined, undefined, manufacturer);
+    if (now && JSON.stringify(now) !== JSON.stringify(db)) {
+      db = now;
+      spec = await fetchSpec(db, delay);
+    }
+  }
   return mountMotorFromDb(db, spec, delay, { event: 'automatic', delay: 0 });
 }
 
