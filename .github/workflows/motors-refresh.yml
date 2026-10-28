@@ -111,10 +111,12 @@ jobs:
     # Pinned with deploy.yml's two jobs (see the note on its build job); move all four together.
     runs-on: ubuntu-24.04
     # Measured shape of the work: ~27 GETs for the catalogue plus 24 POST batches
-    # for the curves with a 250 ms pause between them (fetch-motor-curves.mjs
-    # BATCH=50, PAUSE_MS=250, 1,155 motors) — a couple of minutes when upstream is
-    # healthy. 30 minutes is headroom for a slow day, not an expectation.
-    timeout-minutes: 30
+    # for the curves (fetch-motor-curves.mjs BATCH=50, 1,155 motors). Since
+    # 27 Oct 2026 every one goes through thrustcurve-client.mjs, one request per
+    # 5 s for thrustcurve.org's rate limit (3, going to 5, per 10 s): about four
+    # minutes. The 26 Oct run took 22.4 minutes, 17.8 of them the test suite,
+    # which grows; 45 minutes is headroom for both, not an expectation.
+    timeout-minutes: 45
     permissions:
       contents: read
     # The verdict the publish job runs on (motor-diff-summary.mjs --github-output).

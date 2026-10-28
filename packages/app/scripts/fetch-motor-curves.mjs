@@ -60,6 +60,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { digestMotorFile, motorHeaderMasses } from './motor-digest.mjs';
 import { sampleListProblem } from './motor-samples.mjs';
+import { thrustcurveFetch } from './thrustcurve-client.mjs';
 
 const API = 'https://www.thrustcurve.org/api/v1';
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -165,7 +166,7 @@ export function downloadResults(body) {
 
 /** Raw census downloads stop on failure and always pause before returning. */
 export async function downloadRawFiles(ids, {
-  fetchImpl = fetch, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
+  fetchImpl = thrustcurveFetch, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
   log = s => process.stdout.write(s),
 } = {}) {
   const raw = Object.create(null);
@@ -195,7 +196,7 @@ export async function downloadRawFiles(ids, {
  * batch that drops only SOME motors still passes: one usable file clears it.
  */
 export async function fetchCurves(motors, {
-  fetchImpl = fetch,
+  fetchImpl = thrustcurveFetch,
   sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   log = (s) => process.stdout.write(s),
   previous = null,
@@ -319,7 +320,7 @@ export async function main({
  * addDigests over the bundle on disk. Exit 1, writing nothing, if a batch
  * fails (the same rule as a refresh).
  */
-export async function addDigestsMain({ outPath = OUT, fetchImpl = fetch, sleep, log } = {}) {
+export async function addDigestsMain({ outPath = OUT, fetchImpl = thrustcurveFetch, sleep, log } = {}) {
   const bundle = JSON.parse(readFileSync(outPath, 'utf8'));
   const motors = Object.keys(bundle.curves).map((motorId) => ({ motorId, manufacturerAbbrev: '', designation: motorId }));
   const results = [];

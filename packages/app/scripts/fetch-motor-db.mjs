@@ -41,6 +41,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { applyMotorCorrections } from './motor-corrections.mjs';
 import { manufacturerAbbreviations } from './thrustcurve-api-shapes.mjs';
+import { thrustcurveFetch } from './thrustcurve-client.mjs';
 
 const API = 'https://www.thrustcurve.org/api/v1';
 const OUT = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'data', 'motors.json');
@@ -73,9 +74,10 @@ const UA = { 'user-agent': 'mmrocket-sim-upstream-check' };
 /**
  * The whole catalogue, projected to FIELDS and sorted — or a throw naming the
  * query that came back short. `fetchImpl` is the network, injectable so the
- * test can stand in for thrustcurve.org.
+ * test can stand in for thrustcurve.org. By default it is thrustcurve-client.mjs's
+ * paced client, which keeps the run under the operator's rate limit.
  */
-export async function fetchCatalogue({ fetchImpl = fetch, log = (s) => process.stdout.write(s), fields = FIELDS } = {}) {
+export async function fetchCatalogue({ fetchImpl = thrustcurveFetch, log = (s) => process.stdout.write(s), fields = FIELDS } = {}) {
   async function getJson(url) {
     const res = await fetchImpl(url, { headers: UA });
     if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
@@ -155,7 +157,7 @@ export function catalogueDocument(motors, today) {
 }
 
 /** Fetch, check, and only then write. Resolves to the process exit code. */
-export async function main({ outPath = OUT, fullOutPath, fetchImpl = fetch, log } = {}) {
+export async function main({ outPath = OUT, fullOutPath, fetchImpl = thrustcurveFetch, log } = {}) {
   if (fullOutPath && resolve(fullOutPath) === resolve(outPath)) {
     throw new Error('--full-out must differ from the bundled output path');
   }

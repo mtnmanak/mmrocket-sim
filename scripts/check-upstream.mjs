@@ -99,6 +99,7 @@ import { childElements, elementBlocks } from '../packages/app/scripts/fetch-comp
 import { CORRECTIONS, UPSTREAM_WATCH } from '../packages/app/scripts/apply-preset-corrections.mjs';
 import { MOTOR_CORRECTIONS } from '../packages/app/scripts/motor-corrections.mjs';
 import { manufacturerAbbreviations } from '../packages/app/scripts/thrustcurve-api-shapes.mjs';
+import { thrustcurveFetch } from '../packages/app/scripts/thrustcurve-client.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const RAW = 'https://raw.githubusercontent.com/openrocket/openrocket-database/master/orc';
@@ -121,7 +122,9 @@ async function request(url, read, signal) {
   const host = new URL(url).host;
   if (failedHosts.delete(host)) await new Promise(resolve => setTimeout(resolve, 250));
   try {
-    const res = await fetch(url, { headers: UA, ...(signal ? { signal } : {}) });
+    // thrustcurve.org goes through the shared paced client (its operator's rate limit, 27 Oct 2026).
+    const send = new URL(url).hostname === 'www.thrustcurve.org' ? thrustcurveFetch : fetch;
+    const res = await send(url, { headers: UA, ...(signal ? { signal } : {}) });
     if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status} for ${url}`), { status: res.status });
     return await read(res);
   } catch (err) {
