@@ -580,6 +580,19 @@ function readSession(restoreRoot: boolean): SessionState | null {
       }
       cautionNote(s.treeRestoreNotes ??= [], 'G04.unmatched-rebuilt', 'Unreadable lists of unmatched motors were rebuilt from the motor references.');
     }
+    // Ids are compared with ===, and a legacy mount id is reserved through a
+    // regex (treeModel.reserveNodeIds): one that is not a string matched no
+    // configuration and no mount, and lost the legacy motor or threw. A cleared
+    // choice is the working settings; a removed mount id puts the legacy motor
+    // on the first mount, as a session that stored none.
+    if (s.activeConfigId != null && typeof s.activeConfigId !== 'string') {
+      s.activeConfigId = null;
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.active-config-reset', 'An unreadable flight configuration choice was cleared.');
+    }
+    if (s.mountId != null && typeof s.mountId !== 'string') {
+      delete s.mountId;
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.mount-reset', 'An unreadable motor mount reference was removed.');
+    }
     // Revive plugged ejection delays (persisted as "Infinity" — JSON has no
     // Infinity literal; a plain stringify would have stored null). The
     // Stage B config presets carry the same MountMotor shape.

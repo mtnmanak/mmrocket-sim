@@ -1396,20 +1396,56 @@ describe('stored-state hardening: a configuration is screened before its label i
   });
 });
 
-/** Sweep pins: SessionState fields the loader keeps unscreened, read only through their own checks. */
+/**
+ * Sweep pins: SessionState scalars. The motor-length limits are read only through
+ * their own checks; a configuration id or legacy mount id that is not a string
+ * is repaired with a note (cloud session 20). `configLayers: 1`, as every
+ * current autosave has: without it the layer migration re-derives
+ * activeConfigId and hid a stored number.
+ */
 describe('stored-state hardening: unscreened session scalars', () => {
   beforeEach(() => discardSession());
   it.each([
     { maxMotorLengthByStage: 5 }, { maxMotorLengthByStage: 'x' }, { maxMotorLengthByStage: [null] },
     { maxMotorLengthM: '0.1' }, { mountId: 7, motor: { designation: 'C6', ejectionDelay: 5 } }, { mountId: {} },
+    { mountId: { toString: 0 }, motor: { designation: 'C6', ejectionDelay: 5 } },
     { activeConfigId: 7, savedConfigs: [{ id: '7', name: 'C', isDefault: true, motors: {} }] },
+    { activeConfigId: {}, savedConfigs: [{ id: '7', name: 'C', isDefault: true, motors: {} }] },
   ] as Record<string, unknown>[])('restores with %j', fields => {
-    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), tree: defaultTree(), ...fields }));
+    const raw = JSON.stringify({ ...state(), tree: defaultTree(), configLayers: 1, ...fields });
+    localStorage.setItem('online-openrocket.session.v1', raw);
     const loaded = loadSession();
     expect(loaded).not.toBeNull();
     const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
     expect(restored.refused).toBe(false);
     expect(() => designFingerprint({ ...restored.state, maxMotorLengthByStage: {} })).not.toThrow();
+    const kinds = restored.restoreNoteTiers.map(n => `${n.tier}:${n.kind}`);
+    if ('activeConfigId' in fields) {
+      expect(loaded!.activeConfigId).toBeNull();
+      expect(restored.state.activeConfigId).toBeNull();
+      expect(kinds).toContain('caution:G04.active-config-reset');
+    }
+    if ('mountId' in fields) {
+      expect(loaded).not.toHaveProperty('mountId');
+      expect(kinds).toContain('caution:G04.mount-reset');
+      // The legacy motor goes on the first mount, as with no mount stored.
+      if ('motor' in fields) expect(Object.keys(restored.state.mountMotors)).toEqual([motorMounts(restored.state.tree)[0]!.id]);
+    }
+    if ('activeConfigId' in fields || 'mountId' in fields) {
+      expect(() => saveOrk(loaded!)).not.toThrow();
+      expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+      expect(autosavedDesignFile()).toMatchObject({ ork: false, data: raw });
+    }
+  });
+  it.each([['a', 'm'], [null, null]] as const)('keeps a stored activeConfigId %j and mountId %j, with no note', (activeConfigId, mountId) => {
+    const tree = defaultTree();
+    const raw = JSON.stringify({ ...state(), tree, configLayers: 1, activeConfigId, mountId,
+      savedConfigs: [{ id: 'a', name: 'A', isDefault: true, motors: {} }] });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    const loaded = loadSession()!;
+    expect(loaded.activeConfigId).toBe(activeConfigId);
+    expect(loaded.mountId).toBe(mountId);
+    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
   });
 });
 
