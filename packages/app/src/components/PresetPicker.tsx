@@ -6,7 +6,8 @@ import { useRovingRows } from './useRovingRows.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import {
   KIND_FOR_TYPE, MAX_PRESET_CSV_BYTES, PRESET_CSV_SIZE_CAUTION, csvToPresets, loadBundledPresets, loadCustomPresets, loadPresets, materialTypeFor, presetPatch,
-  presetsToCsv, exactCustomPreset, mergeCustomPresetImport, saveCustomPresets, type Preset,
+  presetsToCsv, exactCustomPreset, mergeCustomPresetImport, saveCustomPresets, customPresetId,
+  editCustomPresets, CUSTOM_PRESETS_UNREADABLE, type Preset,
 } from '../services/presets.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSig, siToUi } from '../prefs/units.js';
@@ -232,14 +233,25 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
         return;
       }
       // Imported rows replace custom presets with the same kind+manufacturer+partNo.
-      const { presets, linkError } = mergeCustomPresetImport(loadCustomPresets(), good);
+      const { linkError } = mergeCustomPresetImport(loadCustomPresets(), good);
       if (linkError) {
         sessionDebugLog.record('import-failed', new Error(linkError));
         setNoteTier('caution');
         setNote(`Nothing imported. ${linkError}`);
         return;
       }
-      saveCustomPresets(presets);
+      // The merge above decides the link error; what is written is the RAW
+      // list with the replaced rows out and the import after it, so rows the
+      // reader could not screen survive (audit S7-3).
+      const replaced = new Set(good.map(customPresetId));
+      const next = editCustomPresets((p) => replaced.has(customPresetId(p)), good);
+      if (!next) {
+        sessionDebugLog.record('import-failed', new Error('Preset storage could not be read.'));
+        setNoteTier('caution');
+        setNote(`Nothing imported. ${CUSTOM_PRESETS_UNREADABLE}`);
+        return;
+      }
+      saveCustomPresets(next);
       // Read the store back before claiming the import worked.
       // `saveCustomPresets` reports setItem failure; also verify the stored rows, since
       // localStorage is the ONLY place custom presets live — there is no
@@ -298,8 +310,13 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
 
   const deletePart = () => {
     if (!deleting || bundledRows.has(deleting)) return;
-    const keep = loadCustomPresets().filter((p) => !exactCustomPreset(p, deleting));
+    const keep = editCustomPresets((p) => exactCustomPreset(p, deleting));
     setNoteTier('caution');
+    if (!keep) {
+      setNote(`Could not delete My part. ${CUSTOM_PRESETS_UNREADABLE}`);
+      setDeleting(null);
+      return;
+    }
     if (!saveCustomPresets(keep)) {
       setNote('Could not delete My part — this browser’s storage is full or blocked. Try again.');
       setDeleting(null);

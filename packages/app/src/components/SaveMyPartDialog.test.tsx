@@ -206,3 +206,27 @@ describe('M2.2 save dialog', () => {
     expect(host.textContent).not.toContain('Save as My part');
   });
 });
+
+/** Audit S7-3: Save rebuilds the list from the raw store, never from the filtering reader. */
+describe('S7-3 save keeps rows it cannot read', () => {
+  const KEY = 'online-openrocket.custom-presets.v1';
+  const unreadable = { kind: 'BodyTube', manufacturer: 'Newer build', partNo: 7, description: 'x' };
+  it('keeps unreadable rows verbatim and replaces the matching row', async () => {
+    const existing = { kind: 'BodyTube', manufacturer: 'My parts', partNo: 'P1', description: 'Old', length: 0.1 };
+    const other = { ...existing, partNo: 'P2' };
+    localStorage.setItem(KEY, JSON.stringify([unreadable, existing, 'junk', other]));
+    input('Part number', 'P1'); await save();
+    const stored = JSON.parse(localStorage.getItem(KEY)!) as unknown[];
+    expect(stored.slice(0, 3)).toEqual([unreadable, 'junk', other]);
+    expect(stored).toHaveLength(4);
+    expect(stored[3]).toMatchObject({ partNo: 'P1', description: 'Handmade tube' });
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it.each(['{not json', '{"rows":[]}', 'null'])('refuses to save over an unreadable store %s', async (raw) => {
+    localStorage.setItem(KEY, raw);
+    input('Part number', 'P1'); await save();
+    expect(localStorage.getItem(KEY)).toBe(raw);
+    expect(host.textContent).toContain('Could not save My part. Stored My parts could not be read, so the app left them unchanged.');
+    expect(close).not.toHaveBeenCalled();
+  });
+});
