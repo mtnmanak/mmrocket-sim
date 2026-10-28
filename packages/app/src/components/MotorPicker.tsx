@@ -70,7 +70,7 @@ export function MotorPicker({ mountDiameterMm, maxMotorLengthM, selectedLabel, o
   const [problem, setProblem] = useState<string | null>(null);
   const ownPicksId = useId();
 
-  // The live catalogue, so a "check thrustcurve.org" overlay reaches the picks
+  // The effective catalogue, so a catalogue-check overlay reaches the picks
   // the same way it reaches the browser.
   const catalogue = useCatalogue();
   /**

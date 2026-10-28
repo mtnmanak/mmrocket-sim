@@ -14,7 +14,7 @@ import { findAllowance, solePinnedStage } from './services/buildAllowance.js';
 import { buildDesign, KERNEL_HANDLES } from './services/buildDesign.js';
 import { flyBuiltDesign } from './services/simulateDesign.js';
 import { catalogueMotorMass } from './services/hardwareMass.js';
-import { classLabel, MOTOR_DB, setCatalogueOverlay } from './services/motorDb.js';
+import { classLabel, MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay } from './services/motorDb.js';
 import { discardCatalogueOverlay } from './services/catalogueOverlay.js';
 import { designFingerprint } from './services/dirtyState.js';
 import { getExMotor, loadExMotors } from './services/exMotors.js';
@@ -2375,15 +2375,11 @@ describe('the Motor vitals designation and tooltip', () => {
     await act(async () => { button(host, 'Browse').click(); });
     // Drive the actual check through App -> MotorPicker -> MotorBrowser, with no network.
     const rows = MOTOR_DB.map(m => m.motorId === mm.meta.motorId ? { ...m, designation: 'F67C-UPDATED' } : m);
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      const u = new URL(url);
-      const results = rows.filter(m => m.manufacturerAbbrev === u.searchParams.get('manufacturer'));
-      const body = u.pathname.endsWith('/metadata.json')
-        ? { manufacturers: [...new Set(rows.map(m => m.manufacturerAbbrev))].map(abbrev => ({ abbrev })), impulseClasses: [] }
-        : { results, matches: results.length };
-      return new Response(JSON.stringify(body), { status: 200 });
-    }));
-    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Check thrustcurve.org for newer motors"]')!.click(); });
+    // The curated catalogue (row 110), its snapshot listing the changed row.
+    const { catalogueFetch, daysAfter, manifestOf, publication } = await import('./services/catalogueFixture.testSupport.js');
+    const pub = await publication(`${daysAfter(MOTOR_DB_DATE, 1)}.2`, rows);
+    vi.stubGlobal('fetch', vi.fn(catalogueFetch(manifestOf(pub), [pub])));
+    await act(async () => { host.querySelector<HTMLButtonElement>('[aria-label="Check the motor catalogue for newer motors"]')!.click(); });
     await waitFor(() => !!host.querySelector('.motor-check-status .file-note'), 'catalogue check');
     expect(host.querySelector('.motor-check-status')?.textContent).toContain('In this design: AeroTech F67C-UPDATED');
     const expectDisplay = (base: string, delay = 9) => {
@@ -2403,7 +2399,7 @@ describe('the Motor vitals designation and tooltip', () => {
     await settle(500);
     expect(peekSession()!.savedMark).toBe(original.savedMark);
     // Repeat installation, then edit delay: all three views keep the updated base.
-    await act(async () => { button(host, 'Check thrustcurve.org').click(); });
+    await act(async () => { button(host, 'Check for newer motors').click(); });
     await waitFor(() => host.querySelector('.vitals-motor-label')?.textContent === 'F67C-UPDATED-9', 'second check');
     const delay = host.querySelector<HTMLInputElement>(`[id="ejection-delay-${mount}"]`)!;
     await act(async () => { delay.focus(); });

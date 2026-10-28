@@ -252,8 +252,8 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   const criteriaRef = useRef(criteria);
   criteriaRef.current = criteria;
 
-  // The EFFECTIVE catalogue — shipped rows plus any "Check thrustcurve.org"
-  // overlay — and the imported EX motors, which simulate like any other; the
+  // The EFFECTIVE catalogue — shipped rows plus any catalogue-check overlay
+  // — and the imported EX motors, which simulate like any other; the
   // same pair the motor browser lists. This was the static MOTOR_DB import, so
   // after a check the same motor could fly a changed catalogue row on the
   // design page and the stale one here: two apogees for one motor, which is

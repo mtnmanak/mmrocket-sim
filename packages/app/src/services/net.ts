@@ -24,7 +24,10 @@
  * tag, no `_headers`).
  */
 export const NETWORK_HOSTS: readonly string[] = [
+  // thrust-curve downloads (services/thrustcurve.ts download.json).
   'https://www.thrustcurve.org',
+  // The motor catalogue check and its curves file (services/catalogueClient.ts).
+  'https://catalogue.mountainmanrockets.com',
   'https://www.mountainmanrockets.com',
   // The weather lookup (services/openMeteo.ts): forecasts and terrain height,
   // the ERA5 archive for dates more than 92 days back, and place search.
@@ -43,7 +46,7 @@ export const NETWORK_HOSTS: readonly string[] = [
 export const NETWORK_FEATURES = [
   'the version badge',
   'the site navigation band',
-  '↻ Check thrustcurve.org',
+  '↻ Check for newer motors',
   'a thrust-curve download',
   '☁ Get weather',
 ] as const;

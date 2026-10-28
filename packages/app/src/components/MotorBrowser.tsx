@@ -213,8 +213,9 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const { prefs } = usePrefs();
   const motorSym = prefs.units.motorDimensions;
 
-  // --- "Check thrustcurve.org for newer motors" (v0.110). The shipped catalogue
-  // plus whatever a previous check left in this browser; see catalogueOverlay.ts.
+  // --- "Check for newer motors" (v0.110; the curated catalogue since row 110).
+  // The shipped catalogue plus whatever a previous check — this button, or the
+  // automatic one on load — left in this browser; see catalogueOverlay.ts.
   const catalogue = useCatalogue();
   const overlay = useCatalogueOverlay();
   const [checking, setChecking] = useState(false);
@@ -251,8 +252,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       const { overlay: o, silent } = await checkForCatalogueUpdates({ force: true, signal: ctrl.signal });
       const lines = describeOverlay(o, prefs.units);
       if (silent.length) {
-        lines.push(`thrustcurve.org returned no motors at all for ${silent.join(', ')} — `
-          + 'read as a failed answer, so none of them were marked out of production.');
+        lines.push(`The catalogue lists no motors at all for ${silent.join(', ')} — `
+          + 'read as a gap in the catalogue, so none of them were marked out of production.');
       }
       const mine = changedMotorsInDesign(o, loadedMotors ?? []);
       if (mine.length) {
@@ -263,7 +264,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       setCheckNote(lines);
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') setCheckNote(['Stopped. Nothing was changed.']);
-      else setCheckError(`Could not check thrustcurve.org: ${e instanceof Error ? e.message : String(e)}`);
+      else setCheckError(`Could not check the motor catalogue: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
       if (checkAbort.current === ctrl) setChecking(false);
     }
@@ -624,18 +625,18 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                   once and nobody could see it. */}
               {catalogueAgeDays > 0 ? ` (${catalogueAgeDays} day${catalogueAgeDays === 1 ? '' : 's'} old)` : ''}
               {overlay && (overlay.added.length || overlay.changed.length || overlay.removed.length)
-                ? ` · +${overlay.added.length} new, ${overlay.changed.length} changed since, checked ${overlay.fetchedAt.slice(0, 10) || 'on an unknown date'}`
-                : overlay ? ` · up to date as of ${overlay.fetchedAt.slice(0, 10) || 'an unknown date'}` : ''}
+                ? ` · +${overlay.added.length} new, ${overlay.changed.length} changed since, catalogue checked ${overlay.fetchedAt.slice(0, 10) || 'on an unknown date'}`
+                : overlay ? ` · up to date, catalogue checked ${overlay.fetchedAt.slice(0, 10) || 'on an unknown date'}` : ''}
               {' '}· mount ⌀ {dimUi(mountDiameterMm).toFixed(1)} {motorSym}
             </span>
           </h2>
           <button className="file-btn" disabled={checking || offline}
             title={offline
               ? 'No network — the shipped catalogue is what there is until you are back online'
-              : 'Pull the live motor catalogue from thrustcurve.org and show what has changed since this app\'s copy. Kept in this browser only; nothing is written to the app.'}
-            aria-label="Check thrustcurve.org for newer motors"
+              : 'Read the curated motor catalogue and show what has changed since this app\'s copy. The app also checks by itself on load, at most every six hours. Kept in this browser only; nothing is written to the app.'}
+            aria-label="Check the motor catalogue for newer motors"
             onClick={() => void runCheck()}>
-            {checking ? '↻ checking…' : '↻ Check thrustcurve.org'}
+            {checking ? '↻ checking…' : '↻ Check for newer motors'}
           </button>
           {checking && (
             <button className="file-btn" onClick={() => checkAbort.current?.abort()} aria-label="Stop the catalogue check">Stop</button>
@@ -652,7 +653,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             user with silence. */}
         <div className="motor-check-status" role="status">
           {/* Progress and the cancel action must be spoken too (audit 2026-10-11, S3a-5). */}
-          {checking && <p>Checking thrustcurve.org… Use Stop to cancel.</p>}
+          {checking && <p>Checking the motor catalogue… Use Stop to cancel.</p>}
           {checkNote && (
             <div className="file-note" style={{ marginTop: 6 }}>
               {checkNote.map((l, i) => <p key={i} style={{ margin: '0 0 2px' }}>{l}</p>)}

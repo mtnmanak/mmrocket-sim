@@ -558,7 +558,7 @@ describe('MotorBrowser — what an import says about the motors it took (audit 2
 });
 
 
-describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)', () => {
+describe('MotorBrowser — the "Check for newer motors" button (audit 2026-09-22, row 110)', () => {
   let h: Harness;
   beforeEach(() => { vi.useFakeTimers(); });
   afterEach(async () => {
@@ -585,7 +585,7 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     const { MOTOR_DB } = await import('../services/motorDb.js');
     return stubCatalogue(MOTOR_DB.filter(live));
   };
-  const checkButton = (h: Harness) => h.host.querySelector<HTMLButtonElement>('button[aria-label="Check thrustcurve.org for newer motors"]')!;
+  const checkButton = (h: Harness) => h.host.querySelector<HTMLButtonElement>('button[aria-label="Check the motor catalogue for newer motors"]')!;
 
   it('reports the diff in a status region, and names a maker that came back empty', async () => {
     await stubThrustcurve((m) => m.manufacturerAbbrev !== 'Klima');
@@ -594,7 +594,7 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     for (let i = 0; i < 200 && !h.host.querySelector('.motor-check-status .file-note'); i++) await settleReal(10);
     const note = h.host.querySelector('.motor-check-status .file-note')!;
     expect(note.textContent).toMatch(/0 new, 0 changed, 0 no longer listed/);
-    expect(note.textContent).toMatch(/returned no motors at all for Klima/);
+    expect(note.textContent).toMatch(/The catalogue lists no motors at all for Klima/);
   });
 
   /**
@@ -628,7 +628,7 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     click(checkButton(h));
     for (let i = 0; i < 200 && !/Could not check/.test(h.host.textContent ?? ''); i++) await settleReal(10);
     expect(h.host.querySelector('.motor-check-alert')).toBe(alert);
-    expect(alert!.textContent).toMatch(/Could not check thrustcurve\.org: .*HTTP 503/);
+    expect(alert!.textContent).toBe('Could not check the motor catalogue: catalogue.mountainmanrockets.com answered HTTP 503.');
     const { getCatalogueOverlay } = await import('../services/motorDb.js');
     expect(getCatalogueOverlay()).toBeNull();
   });

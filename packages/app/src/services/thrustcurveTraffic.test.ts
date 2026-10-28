@@ -82,7 +82,8 @@ it.each(['garbage', '2026-02-31'])('a corrupt persisted overlay date (%s) preser
   expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ retained: db.MOTOR_DB_DATE, [motor.motorId]: db.MOTOR_DB_DATE });
 });
 
-it('remembers empty answers across module reloads, and retries once the catalogue date changes', async () => {
+// Under a legacy (pre-row-110) overlay; a curated snapshot keys on its own date (thrustcurve.snapshotCurves.test.ts, D.7).
+it('remembers empty answers across module reloads, and retries once a legacy overlay\'s check date changes', async () => {
   const fetcher = vi.fn(async () => response({ results: [] }));
   vi.stubGlobal('fetch', fetcher);
   expect(await miss(tc.fetchMotorSpec(motor, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
@@ -110,7 +111,9 @@ it.each(['', 'garbage', '2026-02-31'])('an invalid overlay date (%s) still remem
   expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ [motor.motorId]: db.MOTOR_DB_DATE });
 });
 
-it('a newer check retries a shipped absent curve once per catalogue check', async () => {
+// A legacy overlay only: under a curated snapshot the snapshot's curves file answers instead, with no
+// thrustcurve.org request (thrustcurve.snapshotCurves.test.ts, D.7).
+it('a newer legacy check retries a shipped absent curve once per catalogue check', async () => {
   const fetcher = vi.fn(async () => response({ results: [] }));
   vi.stubGlobal('fetch', fetcher);
   await miss(tc.fetchMotorSpec(noCurveMotor, 5));
@@ -507,15 +510,17 @@ it('keeps legacy cached masses ahead of the bundle while the breaker is open', a
   expect(fetcher).toHaveBeenCalledOnce();
 });
 
-it('documents no requests for known missing curves and the reload/back-off paths', () => {
+it('documents no thrustcurve.org requests for known missing curves and the reload/back-off paths', () => {
   const guide = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../user-guide.md'), 'utf8');
-  expect(guide).toContain('the app makes no request when you pick one');
-  expect(guide).toContain('at most every six hours unless you ask again');
+  // Row 110 / D.7: a missing curve is answered by the curated catalogue, never thrustcurve.org.
+  expect(guide).toContain('the app says there is no sample data, online or offline');
+  expect(guide).toContain('the motor stays without one and thrustcurve.org is not asked');
+  expect(guide).toContain('When it loads online, at most every six hours');
   expect(guide).toContain('loading a motor or opening a design can download its curve');
   expect(guide.indexOf('The app ships every thrust curve')).toBeLessThan(guide.indexOf('Three filter rows'));
   expect(guide).toContain('the app stops asking for a while and says so');
   expect(guide).toContain('loaded, opened in a design or flown in **Batch simulate**');
-  expect(guide).toContain('a newer check allows one download attempt per motor again');
+  expect(guide.match(/a newer catalogue can supply a curve the app did not ship, from the curated catalogue rather than thrustcurve\.org/gi)).toHaveLength(2);
   expect(guide).toContain('unless every candidate already has a cached curve');
 });
 
