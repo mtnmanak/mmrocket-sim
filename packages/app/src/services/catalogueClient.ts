@@ -147,7 +147,7 @@ export function validateCatalogueManifest(manifest: unknown): ManifestSnapshot {
  * check that finds only a snapshot older than the build writes none either
  * (catalogueOverlay.ts, 2026-10-28 C). The check date tells the two apart.
  */
-export const CURATED_CHECK_SINCE = '2026-10-28';
+const CURATED_CHECK_SINCE = '2026-10-28';
 
 /**
  * Was this overlay written by a thrustcurve.org pull (before row 110)? Only
