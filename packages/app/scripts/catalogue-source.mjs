@@ -160,7 +160,12 @@ export function main(argv = process.argv.slice(2), {
       pages: JSON.parse(readFileSync(join(values.jobs, file), 'utf8')) }));
     const result = selectSource({ run, attempts, artifacts: JSON.parse(readFileSync(values.artifacts, 'utf8')) });
     stdout(`${result.reason}\n`);
-    if (!result.eligible && values.summary) appendFileSync(values.summary, `Catalogue publication ${result.failed ? 'failed' : 'ineligible'}: ${result.reason}\n`);
+    // The summary is a copy for the reader: failing to write it changes no outcome (owner 113-13c).
+    if (!result.eligible && values.summary) {
+      try { appendFileSync(values.summary, `Catalogue publication ${result.failed ? 'failed' : 'ineligible'}: ${result.reason}\n`); } catch (error) {
+        stderr(`${scrub(`Catalogue source check: the step summary could not be written: ${error.message}`, env)}\n`);
+      }
+    }
     if (values.out) appendFileSync(values.out, `${Object.entries(result).filter(([key]) => !['failed', 'reason'].includes(key))
       .map(([key, val]) => `${key}=${val}`).join('\n')}\n`);
     return result.failed ? 1 : 0;

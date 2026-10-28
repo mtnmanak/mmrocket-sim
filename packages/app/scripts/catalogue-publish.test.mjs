@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { contentHash, freezeInputs, main, planPublication, publicationSummary, readPublication, stagePublication,
@@ -742,6 +742,18 @@ describe('CLI main (all external dependencies faked)', () => {
     expect(await main(['upload', '--plan', staged(plan)], { env: { ...env, GITHUB_STEP_SUMMARY: summary },
       stdout, stderr, runCommand: b.runCommand })).toBe(0);
     expect(readFileSync(summary, 'utf8')).toBe('Catalogue publication: published as 2026-10-22.2\n');
+  });
+
+  it('113-13c: a finished upload stays green when its summary line cannot be written', async () => {
+    const plan = planPublication({ ...inputs(), sourceAttempt: '1' }), summary = join(tmp(), 'summary-dir');
+    mkdirSync(summary);
+    const b = bucket(), stdout = vi.fn(), stderr = vi.fn();
+    expect(await main(['upload', '--plan', staged(plan)], { env: { ...env, GITHUB_STEP_SUMMARY: summary },
+      stdout, stderr, runCommand: b.runCommand })).toBe(0);
+    expect(stdout.mock.calls).toEqual([['published as 2026-10-22\n']]);
+    expect(stderr.mock.calls.flat().join('\n')).toMatch(/^Catalogue publication: the step summary could not be written: EISDIR/);
+    expect(stderr.mock.calls.flat().join('\n')).not.toMatch(/secret-key|secret-id/);
+    expect(puts(b)).toContain(plan.uploads.at(-1).key);
   });
 
   it('can determine commit via injected read-only git, and returns failure when it cannot', async () => {

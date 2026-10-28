@@ -503,7 +503,12 @@ export async function main(argv = process.argv.slice(2), { env = process.env, st
       const id = result === 'unchanged' ? '' : JSON.parse(readFileSync(receiptFile, 'utf8')).snapshotId;
       const message = result === 'unchanged' ? result : `${result} as ${id}`;
       stdout(`${message}\n`);
-      if (env.GITHUB_STEP_SUMMARY) appendFileSync(env.GITHUB_STEP_SUMMARY, `Catalogue publication: ${message}\n`);
+      // The upload has finished: a summary that cannot be written must not turn it red (owner 113-13c).
+      if (env.GITHUB_STEP_SUMMARY) {
+        try { appendFileSync(env.GITHUB_STEP_SUMMARY, `Catalogue publication: ${message}\n`); } catch (error) {
+          stderr(scrub(`Catalogue publication: the step summary could not be written: ${error.message}`, env));
+        }
+      }
     }
     else if (command === 'verify') await verifyPublication(values.plan, { base: values.base, fetchImpl, sleep });
     else if (command === 'freeze') freezeInputs({ motorsBytes: readFileSync(values.motors), curvesBytes: readFileSync(values.curves) }, values.out);

@@ -334,6 +334,33 @@ describe('GitHub REST source eligibility', () => {
     expect(readFileSync(join(dir, 'summary'), 'utf8')).toContain('failed: source catalogue-input artifact has expired');
   });
 
+  it('113-13c: an unwritable --summary leaves a NEUTRAL select at 0 and a failed one at 1, and --out is still written', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'catalogue-source-')); dirs.push(dir);
+    mkdirSync(join(dir, 'jobs')); mkdirSync(join(dir, 'summary-dir'));
+    const data = fixture(), write = () => {
+      writeFileSync(join(dir, 'run.json'), JSON.stringify(data.run));
+      writeFileSync(join(dir, 'artifacts.json'), JSON.stringify(data.artifacts));
+      for (const a of data.attempts) writeFileSync(join(dir, 'jobs', `${a.attempt}.json`), JSON.stringify(a.pages));
+    };
+    const args = ['select', '--run', join(dir, 'run.json'), '--jobs', join(dir, 'jobs'), '--artifacts', join(dir, 'artifacts.json'),
+      '--out', join(dir, 'out'), '--summary', join(dir, 'summary-dir')];
+    data.run.head_branch = 'branch'; write();
+    let stdout = vi.fn(), stderr = vi.fn();
+    expect(main(args, { stdout, stderr, env: {} })).toBe(0);
+    expect(stdout.mock.calls).toEqual([['source run is not on main\n']]);
+    expect(stderr.mock.calls.flat().join('')).toMatch(/^Catalogue source check: the step summary could not be written: EISDIR/);
+    expect(readFileSync(join(dir, 'out'), 'utf8')).toBe('eligible=false\n');
+    data.run.head_branch = 'main'; artifact(data).expired = true; write();
+    stdout = vi.fn(); stderr = vi.fn();
+    expect(main(args, { stdout, stderr, env: {} })).toBe(1);
+    expect(stdout.mock.calls).toEqual([['source catalogue-input artifact has expired; run a new refresh\n']]);
+    expect(readFileSync(join(dir, 'out'), 'utf8')).toBe('eligible=false\neligible=false\n');
+    // The --out file is not a summary: failing to write it stays red.
+    stdout = vi.fn(); stderr = vi.fn();
+    artifact(data).expired = false; write();
+    expect(main(args.map((a) => (a === join(dir, 'out') ? join(dir, 'jobs') : a)), { stdout, stderr, env: {} })).toBe(1);
+  });
+
   it('warns about missing required reviewers and reports a configured rule', () => {
     expect(approvalNotice({ protection_rules: [] })).toMatch(/^\*\*WARNING:/);
     expect(approvalNotice({ protection_rules: [{ type: 'required_reviewers', reviewers: [] }] })).toMatch(/^\*\*WARNING:/);
