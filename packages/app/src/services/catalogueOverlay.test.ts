@@ -15,16 +15,16 @@ import { statedWeightTextFor } from './unitText.js';
 import { DEFAULT_PREFS } from '../prefs/preferences.js';
 import { MOTOR_CORRECTIONS } from '../../scripts/motor-corrections.mjs';
 import { DEFAULT_MAX_JSON_BYTES } from './net.js';
-import { resetThrustcurveBackoffForTests } from './thrustcurveTraffic.js';
-import type { CheckOptions } from './catalogueOverlay.js';
+import { resetThrustcurveBackoffForTests, thrustcurveBackoffMessage } from './thrustcurveTraffic.js';
+import { CATALOGUE_BASE } from './catalogueClient.js';
+import { catalogueFetch, daysAfter, manifestOf, publication, type Publication } from './catalogueFixture.testSupport.js';
 
-// Existing catalogue/diff cases need no real pacing delay; the pacing case
-// below injects a recorder and checks the actual request/sleep order.
-const checkForCatalogueUpdates = (opts: CheckOptions = {}) => checkUpdates({ sleep: async () => {}, ...opts });
+const checkForCatalogueUpdates = checkUpdates;
 
 /**
- * The in-app "check thrustcurve.org for newer motors" path. Everything here
- * runs against a stubbed fetch and the REAL shipped catalogue as the base.
+ * The in-app "check for newer motors" path, which reads the curated
+ * catalogue's current snapshot (row 110). Everything here runs against a
+ * stubbed fetch and the REAL shipped catalogue as the base.
  */
 
 const row = (over: Partial<MotorDbEntry> = {}): MotorDbEntry => ({
@@ -35,33 +35,25 @@ const row = (over: Partial<MotorDbEntry> = {}): MotorDbEntry => ({
 });
 
 /**
- * A fetch that serves metadata.json and one search.json page per manufacturer,
- * as real Responses: the check reads each body capped, as a stream.
- * `pad` adds that many bytes to every search page — a runaway answer.
+ * A fetch that serves the curated catalogue: a manifest whose current snapshot
+ * lists `live` (with the seven extra fields the published file carries), and
+ * that snapshot's files, as real Responses. Each stub is a NEW snapshot — its
+ * own id and sha — unless `same` reuses an earlier stub's publication.
+ * `generated` dates the snapshot (default: a day after the shipped catalogue).
  */
-function stubApi(live: MotorDbEntry[], opts: { cap?: string[]; pad?: number } = {}) {
-  const mfrs = [...new Set(live.map((m) => m.manufacturerAbbrev))];
-  const spy = vi.fn(async (url: string) => {
-    const u = new URL(url);
-    let body: unknown;
-    if (u.pathname.endsWith('/metadata.json')) {
-      body = { manufacturers: mfrs.map((abbrev) => ({ abbrev })), impulseClasses: ['A', 'B', 'C'] };
-    } else {
-      const mfr = u.searchParams.get('manufacturer');
-      const ic = u.searchParams.get('impulseClass');
-      let results = live.filter((m) => m.manufacturerAbbrev === mfr && (!ic || m.impulseClass === ic));
-      // Simulate the 500 cap for a named manufacturer: the un-subdivided
-      // query returns 500 stub rows so the caller must page by class.
-      const matches = results.length;
-      if (!ic && opts.cap?.includes(mfr!)) results = results.slice(0, 500);
-      body = { results, matches, ...(opts.pad ? { pad: 'x'.repeat(opts.pad) } : {}) };
-    }
-    return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+let snapshotSeq = 0;
+function stubCatalogue(live: readonly object[], opts: { generated?: string; motorsDoc?: unknown; same?: { pub: Promise<Publication> } } = {}) {
+  const generated = opts.generated ?? daysAfter(MOTOR_DB_DATE, 1);
+  const id = `${generated}.${2 + snapshotSeq++}`;
+  const pub = opts.same?.pub ?? publication(id, live, {}, { generated, ...('motorsDoc' in opts ? { motorsDoc: opts.motorsDoc } : {}) });
+  const spy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const p = await pub;
+    return catalogueFetch(manifestOf(p), [p])(input, init);
   });
-  return spy;
+  return Object.assign(spy as unknown as typeof fetch & typeof spy, { pub });
 }
 
-/** A fetch that never answers until its signal aborts — a stalled thrustcurve.org — and then fails as fetch does. */
+/** A fetch that never answers until its signal aborts — a stalled catalogue — and then fails as fetch does. */
 const stalled = (): typeof fetch => (_input, init) => new Promise<Response>((_resolve, reject) => {
   const sig = init?.signal;
   const fail = () => reject(sig?.reason instanceof Error ? sig.reason : Object.assign(new Error('aborted'), { name: 'AbortError' }));
@@ -87,11 +79,11 @@ it('keeps a previously fetched motor as OOP when an answering maker delists it',
   localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date(0).toISOString(),
     liveCount: 1, added: [learned], changed: [], removed: [], rejected: [] }));
   const live = [row({ motorId: 'still-listed' })];
-  const { overlay } = await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi(live) as typeof fetch });
+  const { overlay } = await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue(live) as typeof fetch });
   expect(overlay.added.find(m => m.motorId === learned.motorId)).toBeDefined();
   expect(overlay.removed).toContain(learned.motorId);
   expect(getCatalogue().find(m => m.motorId === learned.motorId)?.availability).toBe('OOP');
-  await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi([row({ manufacturerAbbrev: 'Another maker' })]) as typeof fetch });
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue([row({ manufacturerAbbrev: 'Another maker' })]) as typeof fetch });
   expect(getCatalogue().find(m => m.motorId === learned.motorId)?.availability).toBe('OOP');
 });
 it('keeps the last usable fetched motor when its newly listed replacement is refused', async () => {
@@ -99,7 +91,7 @@ it('keeps the last usable fetched motor when its newly listed replacement is ref
   localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date(0).toISOString(),
     liveCount: 1, added: [learned], changed: [], removed: [], rejected: [] }));
   const { overlay } = await checkForCatalogueUpdates({ force: true,
-    fetchImpl: stubApi([{ ...learned, diameter: -1 }]) as typeof fetch });
+    fetchImpl: stubCatalogue([{ ...learned, diameter: -1 }]) as typeof fetch });
   expect(overlay.rejected).toHaveLength(1);
   expect(getCatalogue().find(m => m.motorId === learned.motorId)?.diameter).toBe(18);
   expect(overlay.removed).not.toContain(learned.motorId);
@@ -130,57 +122,56 @@ it('S7c-g4 repairs stored rejected wrappers, removed IDs and invalid fetch dates
   expect(describeOverlay(loaded).join(' ')).toContain('stored');
 });
 
-it.each([null, { manufacturers: [null] }, { manufacturers: [7, 'wrong', { abbrev: 42 }] }])('S7c-g7 reports metadata API shape for %j', async meta => {
-  const fetchImpl = vi.fn(async () => new Response(JSON.stringify(meta)));
-  await expect(checkForCatalogueUpdates({ force: true, fetchImpl })).rejects.toThrow(/API shape/);
-});
-
-it.each([null, { results: [null], matches: 1 }])('S7c-g7 reports search API shape for %j', async body => {
-  const fetchImpl = vi.fn(async (url: RequestInfo | URL) => new Response(JSON.stringify(String(url).includes('metadata.json')
-    ? { manufacturers: [{ abbrev: 'Estes' }], impulseClasses: ['A'] } : body)));
-  await expect(checkForCatalogueUpdates({ force: true, fetchImpl })).rejects.toThrow(/API shape/);
-});
-
-it('S7c-g7 skips null/non-text metadata entries instead of coercing them into searches', async () => {
-  const api = stubApi([row()]);
-  const fetchImpl: typeof fetch = async url => String(url).includes('metadata.json')
-    ? new Response(JSON.stringify({ manufacturers: [null, { abbrev: 42 }, { abbrev: 'Estes' }], impulseClasses: [null, 42, 'A'] }))
-    : api(String(url));
-  const result = await checkForCatalogueUpdates({ force: true, fetchImpl });
-  expect(result.overlay.added.map(m => m.motorId)).toEqual(['live-1']);
-  expect(api).toHaveBeenCalledOnce();
-  expect(api.mock.calls[0]![0]).toContain('manufacturer=Estes');
-});
-
-it.each([undefined, -1, 1.5, 3])('S7c-b1 rejects an unproven or short page (matches %s) without replacing the overlay', async matches => {
-  await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi([row()]) as unknown as typeof fetch });
+/**
+ * B.1 — a motors file is the whole catalogue or nothing. These replace the
+ * thrustcurve.org pull's API-shape and page-completeness cases (S7c-g7,
+ * S7c-b1): the shape is now one file, its rows counted twice, by the file and
+ * by the manifest.
+ */
+it.each([
+  ['no motor list', (rows: object[]) => ({ generated: 'x', count: rows.length })],
+  ['a motor list that is not an array', (rows: object[]) => ({ count: rows.length, motors: {} })],
+  ['a count that is not the list\'s length', (rows: object[]) => ({ count: rows.length + 1, motors: rows })],
+  ['a null row', (rows: object[]) => ({ count: rows.length + 1, motors: [...rows, null] })],
+  ['an array row', (rows: object[]) => ({ count: rows.length + 1, motors: [...rows, []] })],
+  ['a row with no motorId', (rows: object[]) => ({ count: rows.length + 1, motors: [...rows, { ...row(), motorId: '' }] })],
+  ['a row with a numeric motorId', (rows: object[]) => ({ count: rows.length + 1, motors: [...rows, { ...row(), motorId: 7 }] })],
+  ['a repeated motorId', (rows: object[]) => ({ count: rows.length + 1, motors: [...rows, rows[0]] })],
+  ['a JSON null file', () => null],
+])('B.1 refuses a motors file with %s, and leaves the stored overlay as it was', async (_name, doc) => {
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue([row()]) });
   const previous = localStorage.getItem(OVERLAY_KEY);
-  const fetchImpl: typeof fetch = async url => new Response(JSON.stringify(String(url).includes('metadata.json')
-    ? { manufacturers: [{ abbrev: 'Estes' }] } : { results: [row()], matches }));
-  await expect(checkForCatalogueUpdates({ force: true, fetchImpl })).rejects.toThrow(/complete|matches/);
+  const installed = getCatalogue();
+  const rows = [row({ motorId: 'a' }), row({ motorId: 'b' })];
+  const fetchImpl = stubCatalogue(rows, { motorsDoc: doc(rows) });
+  await expect(checkForCatalogueUpdates({ force: true, fetchImpl })).rejects.toThrow(/motors file .* not used/);
   expect(localStorage.getItem(OVERLAY_KEY)).toBe(previous);
+  expect(getCatalogue()).toBe(installed);
 });
 
-it('S7c-b1 rejects incomplete impulse-class totals', async () => {
-  const live = Array.from({ length: 501 }, (_, i) => row({ motorId: `cap-${i}`, impulseClass: 'A' }));
-  const api = stubApi(live, { cap: ['Estes'] });
-  const fetchImpl: typeof fetch = async url => {
-    const response = await api(String(url));
-    const body = await response.json();
-    if (String(url).includes('search.json') && !String(url).includes('impulseClass')) body.matches++;
-    return new Response(JSON.stringify(body));
-  };
-  await expect(checkForCatalogueUpdates({ force: true, fetchImpl })).rejects.toThrow(/classes|matches/);
+it('B.1 refuses a motors file whose count disagrees with the manifest\'s', async () => {
+  const rows = [row({ motorId: 'a' }), row({ motorId: 'b' })];
+  const pub = publication(`${daysAfter(MOTOR_DB_DATE, 1)}.99`, rows);
+  const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const p = await pub;
+    const manifest = manifestOf(p) as { snapshots: { motors: { count: number } }[] };
+    manifest.snapshots[0]!.motors.count = 3;
+    return catalogueFetch(manifest, [p])(input, init);
+  });
+  await expect(checkForCatalogueUpdates({ force: true, fetchImpl })).rejects.toThrow(/number of motors/);
   expect(localStorage.getItem(OVERLAY_KEY)).toBeNull();
+  // Positive control: the same file under its own count installs.
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue(rows) });
+  expect(getCatalogueOverlay()?.added.map(m => m.motorId)).toEqual(['a', 'b']);
 });
 
 it('S7c-b2 retains previous additions and changes when their maker is silent on the next check', async () => {
   const before = MOTOR_DB[0]!;
   const added = row({ motorId: 'previous-new', manufacturerAbbrev: before.manufacturerAbbrev });
   const after = { ...before, length: before.length + 1 };
-  await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi([...MOTOR_DB.filter(m => m.motorId !== before.motorId), after, added]) as unknown as typeof fetch });
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue([...MOTOR_DB.filter(m => m.motorId !== before.motorId), after, added]) as unknown as typeof fetch });
   const live = MOTOR_DB.filter(m => m.manufacturerAbbrev !== before.manufacturerAbbrev);
-  const result = await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi(live) as unknown as typeof fetch });
+  const result = await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue(live) as unknown as typeof fetch });
   expect(result.silent).toContain(before.manufacturerAbbrev);
   expect(getCatalogue().find(m => m.motorId === added.motorId)).toEqual(added);
   expect(getCatalogue().find(m => m.motorId === before.motorId)).toEqual(after);
@@ -191,11 +182,11 @@ it.each(['added', 'changed'] as const)('fresh same-ID results supersede a silent
   const before = MOTOR_DB[0]!;
   const previous = kind === 'added' ? row({ motorId: 'moved-maker' }) : before;
   const old = { ...previous, manufacturerAbbrev: 'Previous maker', length: previous.length + 1 };
-  await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi([
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue([
     ...MOTOR_DB.filter(m => m.motorId !== previous.motorId), old,
   ]) as unknown as typeof fetch });
   const fresh = { ...previous, manufacturerAbbrev: before.manufacturerAbbrev, length: previous.length + 2 };
-  const result = await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi([
+  const result = await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue([
     ...MOTOR_DB.filter(m => m.motorId !== previous.motorId), fresh,
   ]) as unknown as typeof fetch });
   expect(getCatalogue().find(m => m.motorId === previous.motorId)).toEqual(fresh);
@@ -205,10 +196,10 @@ it.each(['added', 'changed'] as const)('fresh same-ID results supersede a silent
 
 it('a newly removed motor cannot retain a stale change attributed to a silent maker', async () => {
   const before = MOTOR_DB.find(m => MOTOR_DB.some(other => other.motorId !== m.motorId && other.manufacturerAbbrev === m.manufacturerAbbrev))!;
-  await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi([
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue([
     ...MOTOR_DB.filter(m => m.motorId !== before.motorId), { ...before, manufacturerAbbrev: 'Previous maker' },
   ]) as unknown as typeof fetch });
-  const result = await checkForCatalogueUpdates({ force: true, fetchImpl: stubApi(
+  const result = await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue(
     MOTOR_DB.filter(m => m.motorId !== before.motorId),
   ) as unknown as typeof fetch });
   expect(result.overlay.removed).toContain(before.motorId);
@@ -222,7 +213,7 @@ it.each(['garbage', '2026-02-31'])('a stored invalid check date (%s) stays unkno
   const restored = restoreCatalogueOverlay()!;
   expect(restored.fetchedAt).toBe('');
   expect(describeOverlay(restored)[0]).not.toMatch(/1970|2026-02-31/);
-  const result = await checkForCatalogueUpdates({ fetchImpl: stubApi([row()]) as unknown as typeof fetch });
+  const result = await checkForCatalogueUpdates({ fetchImpl: stubCatalogue([row()]) as unknown as typeof fetch });
   expect(result.skipped).toBeNull();
   expect(result.overlay.added.map(m => m.motorId)).toContain('live-1');
 });
@@ -231,32 +222,98 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-it('pauses 250 ms between every catalogue request, including impulse-class pages', async () => {
-  const live = [...Array.from({ length: 501 }, (_, i) => row({ motorId: `a-${i}`, manufacturerAbbrev: 'A', impulseClass: 'A' })), row({ motorId: 'b', manufacturerAbbrev: 'B' })];
-  const api = stubApi(live, { cap: ['A'] });
-  const fetchApi = api as unknown as typeof fetch;
-  const events: string[] = [];
-  const fetchImpl: typeof fetch = async (url) => { events.push('fetch'); return fetchApi(String(url)); };
-  const sleep = vi.fn(async (ms: number) => { events.push(`sleep ${ms}`); });
-  await checkForCatalogueUpdates({ force: true, fetchImpl, sleep });
-  expect(api).toHaveBeenCalledTimes(6); // metadata, A, A's three classes, B
-  expect(sleep).toHaveBeenCalledTimes(5);
-  expect(events).toEqual(['fetch', ...Array.from({ length: 5 }, () => ['sleep 250', 'fetch']).flat()]);
+/**
+ * B.3 — what a check costs. These replace the 250 ms pacing cases: there is
+ * no per-maker pull left to pace.
+ */
+it('B.3 a new snapshot costs two requests; the same snapshot again costs one and changes only the check date', async () => {
+  let t = Date.parse(`${daysAfter(MOTOR_DB_DATE, 2)}T12:00:00Z`);
+  const now = () => t;
+  const first = stubCatalogue([...MOTOR_DB, row({ motorId: 'new-1' })]);
+  const a = await checkForCatalogueUpdates({ force: true, fetchImpl: first, now });
+  expect(first.mock.calls.map(c => String(c[0]))).toEqual([`${CATALOGUE_BASE}manifest.json`, `${CATALOGUE_BASE}${(await first.pub).entry.motors.path}`]);
+  expect(a.overlay.snapshot?.id).toBe((await first.pub).id);
+  const storedBefore = JSON.parse(localStorage.getItem(OVERLAY_KEY)!) as CatalogueOverlay;
+  t += 60_000;
+  const again = stubCatalogue([], { same: first });
+  const b = await checkForCatalogueUpdates({ force: true, fetchImpl: again, now });
+  expect(again).toHaveBeenCalledOnce();
+  expect(String(again.mock.calls[0]![0])).toBe(`${CATALOGUE_BASE}manifest.json`);
+  expect(b.overlay.fetchedAt).toBe(new Date(t).toISOString());
+  const storedAfter = JSON.parse(localStorage.getItem(OVERLAY_KEY)!) as CatalogueOverlay;
+  expect({ ...storedAfter, fetchedAt: storedBefore.fetchedAt }).toEqual(storedBefore);
+  // Positive control: a new snapshot of the same rows is downloaded.
+  const next = stubCatalogue([...MOTOR_DB, row({ motorId: 'new-1' })]);
+  await checkForCatalogueUpdates({ force: true, fetchImpl: next, now });
+  expect(next).toHaveBeenCalledTimes(2);
 });
 
-it('the default sleep waits 250 ms before the second catalogue request', async () => {
-  vi.useFakeTimers();
-  const fetchImpl = stubApi([row()]) as unknown as typeof fetch;
-  const pending = checkUpdates({ force: true, fetchImpl });
-  await vi.advanceTimersByTimeAsync(0);
-  expect(fetchImpl).toHaveBeenCalledTimes(1);
-  await vi.advanceTimersByTimeAsync(249);
-  expect(fetchImpl).toHaveBeenCalledTimes(1);
-  await vi.advanceTimersByTimeAsync(1);
+it('B.3 the first check after an install downloads the motors file once, and a snapshot equal to the bundle reads as no change', async () => {
+  const fetchImpl = stubCatalogue(MOTOR_DB);
+  const { overlay } = await checkForCatalogueUpdates({ fetchImpl });
   expect(fetchImpl).toHaveBeenCalledTimes(2);
-  await pending;
+  expect([overlay.added, overlay.changed, overlay.removed, overlay.rejected]).toEqual([[], [], [], []]);
+  expect(overlay.liveCount).toBe(MOTOR_DB.length);
+  expect(getCatalogue()).toBe(MOTOR_DB);
 });
-afterEach(() => { localStorage.clear(); setCatalogueOverlay(null); });
+
+it('B.4 a snapshot older than the shipped catalogue downloads nothing, removes nothing, and records the check', async () => {
+  const older = stubCatalogue(MOTOR_DB.slice(1), { generated: daysAfter(MOTOR_DB_DATE, -3) });
+  const { overlay, skipped, stored } = await checkForCatalogueUpdates({ fetchImpl: older });
+  expect(older).toHaveBeenCalledOnce();
+  expect(skipped).toBeNull();
+  expect(stored).toBe(true);
+  expect([overlay.added, overlay.changed, overlay.removed]).toEqual([[], [], []]);
+  expect(overlay.snapshot?.id).toBe((await older.pub).id);
+  expect(overlay.snapshot?.generated).toBe(daysAfter(MOTOR_DB_DATE, -3));
+  expect(getCatalogue()).toBe(MOTOR_DB);
+  expect(loadStoredOverlay()?.snapshot?.id).toBe((await older.pub).id);
+  // The throttle holds after it, and the next check costs one request.
+  expect((await checkForCatalogueUpdates({ fetchImpl: older })).skipped).toBe('recent');
+  await checkForCatalogueUpdates({ force: true, fetchImpl: older });
+  expect(older).toHaveBeenCalledTimes(2);
+  // Positive control: the same rows dated the shipped catalogue's day are read, and the missing motor is removed.
+  const same = stubCatalogue(MOTOR_DB.slice(1), { generated: MOTOR_DB_DATE });
+  const read = await checkForCatalogueUpdates({ force: true, fetchImpl: same });
+  expect(same).toHaveBeenCalledTimes(2);
+  expect(read.overlay.removed).toEqual([MOTOR_DB[0]!.motorId]);
+});
+
+it('B.4 an older snapshot keeps what an earlier check learned', async () => {
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue([...MOTOR_DB, row({ motorId: 'learned' })]) });
+  const { overlay } = await checkForCatalogueUpdates({ force: true,
+    fetchImpl: stubCatalogue([], { generated: daysAfter(MOTOR_DB_DATE, -1) }) });
+  expect(overlay.added.map(m => m.motorId)).toEqual(['learned']);
+  expect(getCatalogue().some(m => m.motorId === 'learned')).toBe(true);
+});
+
+it('B.2 installs only the 18 catalogue fields of a row, and nothing a __proto__ or constructor key carries', async () => {
+  const hostile = JSON.parse(`{${JSON.stringify(row({ motorId: 'proto-row' })).slice(1, -1)},
+    "__proto__": { "polluted": true, "realManufacturer": 7 }, "constructor": { "prototype": { "polluted": true } },
+    "realManufacturer": 7}`) as object;
+  const fetchImpl = stubCatalogue([hostile]);
+  const { overlay } = await checkForCatalogueUpdates({ force: true, fetchImpl });
+  const added = overlay.added.find(m => m.motorId === 'proto-row')!;
+  expect(Object.keys(added).sort()).toEqual(Object.keys(row()).sort());
+  expect(Object.getPrototypeOf(added)).toBe(Object.prototype);
+  expect(({} as Record<string, unknown>)['polluted']).toBeUndefined();
+  expect(displayMotorManufacturer(added)).toBe('Estes');
+  // The full-field publication's extras never arrive either.
+  for (const m of getCatalogue()) expect(Object.hasOwn(m, 'certOrg') || Object.hasOwn(m, 'infoUrl')).toBe(false);
+});
+
+it('B.2 / A.3 a catalogue failure never touches thrustcurve.org\'s back-off, and an open back-off does not block a check', async () => {
+  const down = vi.fn(async () => new Response('<html>503</html>', { status: 503 }));
+  await expect(checkForCatalogueUpdates({ force: true, fetchImpl: down })).rejects.toThrow(/HTTP 503/);
+  expect(thrustcurveBackoffMessage()).toBe('');
+  // Open thrustcurve.org's breaker; the catalogue check still runs.
+  const { thrustcurveFetch } = await import('./thrustcurveTraffic.js');
+  await thrustcurveFetch(async () => new Response('{}', { status: 503 }))('https://www.thrustcurve.org/api/v1/download.json');
+  expect(thrustcurveBackoffMessage()).not.toBe('');
+  const fetchImpl = stubCatalogue([row()]);
+  await checkForCatalogueUpdates({ force: true, fetchImpl });
+  expect(fetchImpl).toHaveBeenCalledTimes(2);
+});
 
 describe('screenEntry — a live row must be a possible motor', () => {
   it.each(['impulseClass', 'propInfo', 'caseInfo', 'delays', 'type'])('storage hardening: refuses non-text %s', (field) => {
@@ -433,17 +490,23 @@ describe('persistence and expiry', () => {
 });
 
 describe('checkForCatalogueUpdates — the button', () => {
-  it('pulls one page per manufacturer, screens, diffs, persists and installs', async () => {
+  it('reads the manifest and the snapshot\'s motors file, screens, diffs, persists and installs', async () => {
     const c6 = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'Estes' && m.designation === 'C6')!;
     const live = MOTOR_DB
       .map((m) => (m.motorId === c6.motorId ? { ...m, totImpulseNs: 9.1 } : m))
       .concat([row({ motorId: 'new-1', manufacturerAbbrev: 'Estes' }), row({ motorId: 'bad-1', manufacturerAbbrev: 'Estes', diameter: 0 })]);
-    const spy = stubApi(live);
+    const spy = stubCatalogue(live);
     const { overlay, skipped, stored } = await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch });
     expect(skipped).toBeNull();
     expect(stored).toBe(true);
-    const mfrCount = new Set(live.map((m) => m.manufacturerAbbrev)).size;
-    expect(spy).toHaveBeenCalledTimes(1 + mfrCount);
+    // The whole shipped catalogue's rows, with the published file's extra
+    // fields: past net.ts's 256 KB JSON default, which the motors file is not held to.
+    expect((await spy.pub).motorsBytes.length).toBeGreaterThan(DEFAULT_MAX_JSON_BYTES);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(overlay.liveCount).toBe(live.length);
+    expect(overlay.snapshot).toEqual({ id: (await spy.pub).id, generated: (await spy.pub).generated,
+      motorsSha256: (await spy.pub).entry.motors.sha256, curves: { path: (await spy.pub).entry.curves.path,
+        bytes: (await spy.pub).entry.curves.bytes, sha256: (await spy.pub).entry.curves.sha256 } });
     expect(overlay.added.map((m) => m.motorId)).toEqual(['new-1']);
     expect(overlay.changed.map((c) => c.motorId)).toEqual([c6.motorId]);
     expect(overlay.rejected).toHaveLength(1);
@@ -454,15 +517,6 @@ describe('checkForCatalogueUpdates — the button', () => {
     expect(getCatalogue().find((m) => m.motorId === 'new-1')).toBeDefined();
     expect(getCatalogue().find((m) => m.motorId === 'bad-1')).toBeUndefined();
     expect(loadStoredOverlay()?.added).toHaveLength(1);
-  });
-
-  it('pages by impulse class when a manufacturer hits the 500 cap', async () => {
-    const live = Array.from({ length: 501 }, (_, i) => row({ motorId: `big-${i}`, manufacturerAbbrev: 'Big', impulseClass: i % 2 ? 'A' : 'B' }));
-    const spy = stubApi(live, { cap: ['Big'] });
-    const { overlay } = await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, force: true });
-    // metadata + the capped query + one per class (A, B, C)
-    expect(spy).toHaveBeenCalledTimes(1 + 1 + 3);
-    expect(overlay.added.map((m) => m.motorId).sort()).toEqual(live.map(m => m.motorId).sort());
   });
 
   it('reads a live row still carrying a figure the shipped catalogue corrects as no change at all', async () => {
@@ -485,7 +539,7 @@ describe('checkForCatalogueUpdates — the button', () => {
     // Not vacuous: compared raw, every one of those live rows is a change.
     expect(diffCatalogue(MOTOR_DB, live).changed.map((c) => c.motorId).sort())
       .toEqual(MOTOR_CORRECTIONS.map((c) => c.motorId).sort());
-    const spy = stubApi(live);
+    const spy = stubCatalogue(live);
     const { overlay } = await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, force: true });
     expect(overlay.rejected).toEqual([]);
     expect(overlay.removed).toEqual([]);
@@ -494,11 +548,11 @@ describe('checkForCatalogueUpdates — the button', () => {
     expect(getCatalogue()).toBe(MOTOR_DB);
   });
 
-  it('still reports a corrected row that thrustcurve.org moves to a third figure, as any change', async () => {
+  it('still reports a corrected row that the catalogue moves to a third figure, as any change', async () => {
     // The corrections hide only their own known-bad figure, never a real move.
     const id = '5f4294d200023100000000f5'; // Contrail J234-BG, shipped corrected to 922 mm
     const live = MOTOR_DB.map((m) => (m.motorId === id ? { ...m, length: 914 } : m));
-    const spy = stubApi(live);
+    const spy = stubCatalogue(live);
     const { overlay } = await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, force: true });
     expect(overlay.changed.map((c) => [c.motorId, c.fields])).toEqual([[id, ['length']]]);
     expect(getCatalogue().find((m) => m.motorId === id)!.length).toBe(914);
@@ -507,7 +561,7 @@ describe('checkForCatalogueUpdates — the button', () => {
   it('refuses a CHANGE that makes a motor implausible, and keeps the shipped row', async () => {
     const c6 = MOTOR_DB.find((m) => m.manufacturerAbbrev === 'Estes' && m.designation === 'C6')!;
     const live = MOTOR_DB.map((m) => (m.motorId === c6.motorId ? { ...m, propWeightG: 999 } : m));
-    const spy = stubApi(live);
+    const spy = stubCatalogue(live);
     const { overlay } = await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, force: true });
     expect(overlay.changed).toEqual([]);
     expect(overlay.rejected).toHaveLength(1);
@@ -516,7 +570,7 @@ describe('checkForCatalogueUpdates — the button', () => {
   });
 
   it('refuses a repeat inside six hours unless forced, and keeps the previous result', async () => {
-    const spy = stubApi(MOTOR_DB);
+    const spy = stubCatalogue(MOTOR_DB);
     let t = Date.parse('2026-09-05T12:00:00Z');
     const now = () => t;
     await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, now });
@@ -534,16 +588,16 @@ describe('checkForCatalogueUpdates — the button', () => {
     expect(later.skipped).toBeNull();
   });
 
-  it('never marks a whole maker out of production because its pull came back empty (audit 2026-09-22)', async () => {
-    // Estes answers with nothing at all (the stub's metadata then omits it too,
-    // which is the "maker missing from metadata.json" shape); Quest answers
-    // with all but one row. Only Quest's missing motor is believed removed.
+  it('never marks a whole maker out of production because the snapshot carries none of its rows (audit 2026-09-22)', async () => {
+    // The snapshot carries no Estes rows at all — the silent-maker rule now
+    // reads "a maker the snapshot carries no rows for" — and all but one of
+    // Quest's. Only Quest's missing motor is believed removed.
     const estes = MOTOR_DB.filter((m) => m.manufacturerAbbrev === 'Estes');
     const quest = MOTOR_DB.filter((m) => m.manufacturerAbbrev === 'Quest');
     expect(estes.length).toBeGreaterThan(10);
     const live = MOTOR_DB.filter((m) => m.manufacturerAbbrev !== 'Estes' && m.motorId !== quest[0]!.motorId);
     const { overlay, silent } = await checkForCatalogueUpdates({
-      fetchImpl: stubApi(live) as unknown as typeof fetch, force: true,
+      fetchImpl: stubCatalogue(live) as unknown as typeof fetch, force: true,
     });
     expect(overlay.removed).toEqual([quest[0]!.motorId]);
     expect(silent).toEqual(['Estes']);
@@ -551,27 +605,29 @@ describe('checkForCatalogueUpdates — the button', () => {
       .toBe(estes.filter((m) => m.availability === 'OOP').length);
   });
 
-  it('surfaces an HTTP failure as an error naming the endpoint, and installs nothing', async () => {
+  it.each(['manifest.json', 'motors'])('surfaces an HTTP failure on %s as one sentence naming the catalogue, and installs nothing', async (which) => {
     // The service's own error page, not JSON: the status is what there is to say.
-    const spy = vi.fn(async () => new Response('<html><h1>503 Service Unavailable</h1></html>', { status: 503 }));
-    await expect(checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch })).rejects.toThrow(/HTTP 503/);
+    const good = stubCatalogue([row()]);
+    const path = which === 'manifest.json' ? which : (await good.pub).entry.motors.path;
+    const spy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith(path)
+      ? new Response('<html><h1>503 Service Unavailable</h1></html>', { status: 503 }) : good(input, init));
+    const err = await checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch }).then(() => null, (e: unknown) => e as Error);
+    expect(err?.message).toBe('catalogue.mountainmanrockets.com answered HTTP 503.');
     expect(getCatalogueOverlay()).toBeNull();
     expect(localStorage.getItem(OVERLAY_KEY)).toBeNull();
   });
 });
 
 /**
- * A DEADLINE AND A CAP ON EVERY ANSWER (audit 2026-09-30). The check called
- * bare fetch with only the caller's signal — no deadline and no body cap — for
- * metadata.json and the ~27 per-maker pages, so a stalled thrustcurve.org or a
- * captive portal held "Check thrustcurve.org" in its checking state until the
- * user pressed Stop, and a runaway answer was read whole before anything
- * looked at it. Every request now goes through net.ts's getJsonCapped.
+ * A DEADLINE AND A CAP ON EVERY ANSWER (audit 2026-09-30, carried to the
+ * curated catalogue). The manifest has 30 s and 256 KB; each snapshot file has
+ * 120 s and is read no further than the size its manifest declares
+ * (catalogueClient.test.ts holds the reader itself).
  */
 describe('checkForCatalogueUpdates — a deadline and a cap on every answer', () => {
   afterEach(() => { vi.useRealTimers(); });
 
-  it('gives up on a stalled thrustcurve.org at its deadline, says so, and installs nothing', async () => {
+  it('gives up on a stalled manifest at its deadline, says so, and installs nothing', async () => {
     vi.useFakeTimers();
     let outcome: unknown = 'pending';
     void checkForCatalogueUpdates({ fetchImpl: stalled(), force: true })
@@ -584,27 +640,40 @@ describe('checkForCatalogueUpdates — a deadline and a cap on every answer', ()
     expect(getCatalogueOverlay()).toBeNull();
   });
 
-  it('stops reading a runaway answer at the cap rather than holding it whole', async () => {
-    const live = [row({ motorId: 'r1', manufacturerAbbrev: 'Estes' })];
-    const spy = stubApi(live, { pad: 2 * 1024 * 1024 });
+  it('gives up on a stalled motors file at 120 s', async () => {
+    const good = stubCatalogue([row()]);
+    const path = (await good.pub).entry.motors.path;
+    const hang = stalled();
+    vi.useFakeTimers();
+    let outcome: unknown = 'pending';
+    void checkForCatalogueUpdates({ force: true, fetchImpl: (input, init) => String(input).endsWith(path) ? hang(input, init) : good(input, init) })
+      .then(() => { outcome = 'resolved'; }, (e: unknown) => { outcome = e; });
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(outcome).toBe('pending');
+    await vi.advanceTimersByTimeAsync(1);
+    expect((outcome as Error).message).toMatch(/did not answer within 120 s/);
+    expect(getCatalogueOverlay()).toBeNull();
+  });
+
+  it('stops reading a motors file that runs past its declared size, and installs nothing', async () => {
+    const good = stubCatalogue([row({ motorId: 'r1' })]);
+    const p = await good.pub;
+    const spy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith(p.entry.motors.path)
+      ? new Response(new Uint8Array([...p.motorsBytes, ...new Uint8Array(2 * 1024 * 1024)])) : good(input, init));
     await expect(checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, force: true }))
       .rejects.toThrow(/ran past \d+ KB/);
     expect(getCatalogueOverlay()).toBeNull();
   });
 
-  it('reads a maker’s page as large as the biggest live ones, past net.ts’s 256 KB default', async () => {
-    // Measured 2026-10-01: AeroTech's page was 249,667 bytes for 307 motors —
-    // about 813 a motor, 95 % of the default cap. A page holds at most 500
-    // motors (past that the check pages by class), so 499 rows of that size
-    // is the largest page one request can bring.
-    const live = Array.from({ length: 499 }, (_, i) => row({
-      motorId: `big-${i}`, manufacturerAbbrev: 'Big', caseInfo: 'x'.repeat(560),
-    }));
-    const page = JSON.stringify({ results: live }).length;
-    expect(page / live.length).toBeGreaterThan(813);
-    expect(page).toBeGreaterThan(DEFAULT_MAX_JSON_BYTES);
-    const { overlay } = await checkForCatalogueUpdates({ fetchImpl: stubApi(live) as unknown as typeof fetch, force: true });
-    expect(overlay.added).toHaveLength(499);
+  it('a motors file that is not the one its manifest names installs nothing', async () => {
+    const good = stubCatalogue([row({ motorId: 'r1' })]);
+    const swapped = await publication(`${daysAfter(MOTOR_DB_DATE, 1)}.98`, [row({ motorId: 'r2' })]);
+    const p = await good.pub;
+    const spy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => String(input).endsWith(p.entry.motors.path)
+      ? new Response(swapped.motorsBytes.slice(0, p.motorsBytes.length) as Uint8Array<ArrayBuffer>) : good(input, init));
+    await expect(checkForCatalogueUpdates({ fetchImpl: spy as unknown as typeof fetch, force: true })).rejects.toThrow(/does not match|not the size/);
+    expect(getCatalogueOverlay()).toBeNull();
+    expect(localStorage.getItem(OVERLAY_KEY)).toBeNull();
   });
 
   it('still stops on the user’s Stop, as the AbortError the motor browser tells a Stop by', async () => {
@@ -910,4 +979,117 @@ it.each(extraField)('D labels a loaded motor at startup past a stored realManufa
   const mm = mountMotorFromDb(entry, { designation: entry.designation, ejectionDelay: 9 } as MotorSpec,
     9, { event: 'automatic', delay: 0 });
   expect(motorTooltip(mm)).toBe('Cesaroni 1013J453-16A, 9 s delay (J453-9)');
+});
+
+/** B.5 — the snapshot record an overlay keeps, re-validated on every restore. */
+describe('the stored snapshot record', () => {
+  const ID = `${daysAfter(MOTOR_DB_DATE, 1)}.7`;
+  const good = {
+    id: ID, generated: daysAfter(MOTOR_DB_DATE, 1), motorsSha256: 'a'.repeat(64),
+    curves: { path: `v1/${ID}/motorCurves.json`, bytes: 1000, sha256: 'b'.repeat(64) },
+  };
+  const stored = (snapshot?: unknown) => ({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: 1,
+    added: [row({ motorId: 'kept' })], changed: [], removed: [], rejected: [], ...(snapshot === undefined ? {} : { snapshot }) });
+
+  it('restores a valid record as it was stored', () => {
+    const overlay = stored(good);
+    localStorage.setItem(OVERLAY_KEY, JSON.stringify(overlay));
+    expect(loadStoredOverlay()).toStrictEqual(overlay);
+  });
+
+  it.each([
+    ['another origin', { ...good, curves: { ...good.curves, path: 'https://evil.example/motorCurves.json' } }],
+    ['another snapshot\'s file', { ...good, curves: { ...good.curves, path: `v1/${MOTOR_DB_DATE}/motorCurves.json` } }],
+    ['an uppercase sha', { ...good, curves: { ...good.curves, sha256: 'B'.repeat(64) } }],
+    ['a short motors sha', { ...good, motorsSha256: 'a'.repeat(63) }],
+    ['a non-integer size', { ...good, curves: { ...good.curves, bytes: 2.5 } }],
+    ['a prototype-key id', { ...good, id: '__proto__' }],
+    ['null', null],
+    ['a string', 'snapshot'],
+  ])('drops a record with %s, keeps the rows, and says so', (_name, snapshot) => {
+    localStorage.setItem(OVERLAY_KEY, JSON.stringify(stored(snapshot)));
+    const restored = restoreCatalogueOverlay()!;
+    expect(Object.hasOwn(restored, 'snapshot')).toBe(false);
+    expect(restored.added.map(m => m.motorId)).toEqual(['kept']);
+    expect(restored.rejected.map(r => r.reason)).toEqual(['unreadable stored catalogue snapshot discarded; check the catalogue again']);
+  });
+
+  it('a legacy overlay with no record restores unchanged, and gains no snapshot key', () => {
+    const overlay = stored();
+    localStorage.setItem(OVERLAY_KEY, JSON.stringify(overlay));
+    const restored = loadStoredOverlay()!;
+    expect(restored).toStrictEqual(overlay);
+    expect(Object.hasOwn(restored, 'snapshot')).toBe(false);
+  });
+
+  it('the first snapshot check marks a legacy overlay\'s added motors the snapshot does not list as no longer listed (OOP)', async () => {
+    // Reported to the owner: a motor a thrustcurve.org pull added, from a maker
+    // the snapshot carries, reads as removed once the snapshot omits it.
+    const learned = row({ motorId: 'legacy-added', manufacturerAbbrev: 'Estes' });
+    localStorage.setItem(OVERLAY_KEY, JSON.stringify({ ...stored(), added: [learned], fetchedAt: new Date(0).toISOString() }));
+    restoreCatalogueOverlay();
+    expect(getCatalogue().find(m => m.motorId === learned.motorId)?.availability).toBe('regular');
+    const { overlay } = await checkForCatalogueUpdates({ fetchImpl: stubCatalogue(MOTOR_DB) });
+    expect(overlay.removed).toEqual([learned.motorId]);
+    expect(getCatalogue().find(m => m.motorId === learned.motorId)?.availability).toBe('OOP');
+    // Positive control: a snapshot that lists it keeps it in production.
+    const listed = await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue([...MOTOR_DB, learned]) });
+    expect(listed.overlay.removed).toEqual([]);
+  });
+});
+
+/**
+ * B.7 — one check at a time. The stub below IGNORES the abort, as a fetch
+ * that has already answered would, so only the generation guard stands
+ * between a superseded check and the store.
+ */
+describe('one check at a time', () => {
+  const held = () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    return { gate, release };
+  };
+  const gatedManifest = (inner: typeof fetch, gate: Promise<void>): typeof fetch & ReturnType<typeof vi.fn> =>
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith('manifest.json')) await gate;
+      return inner(input, { ...init, signal: undefined });
+    }) as unknown as typeof fetch & ReturnType<typeof vi.fn>;
+
+  it('a Discard while a check is in flight: the check installs nothing and stores nothing afterwards', async () => {
+    const { gate, release } = held();
+    const fetchImpl = gatedManifest(stubCatalogue([...MOTOR_DB, row({ motorId: 'late' })]), gate);
+    const pending = checkForCatalogueUpdates({ force: true, fetchImpl });
+    await vi.waitFor(() => expect(fetchImpl).toHaveBeenCalledOnce());
+    discardCatalogueOverlay();
+    release();
+    expect((await pending.then(() => null, (e: unknown) => e as Error))?.name).toBe('AbortError');
+    expect(localStorage.getItem(OVERLAY_KEY)).toBeNull();
+    expect(getCatalogueOverlay()).toBeNull();
+    // Positive control: the same check without the Discard installs.
+    const { overlay } = await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue([...MOTOR_DB, row({ motorId: 'late' })]) });
+    expect(overlay.added.map(m => m.motorId)).toEqual(['late']);
+  });
+
+  it('a newer check supersedes one in flight: only the newer result is installed', async () => {
+    const { gate, release } = held();
+    const older = gatedManifest(stubCatalogue([...MOTOR_DB, row({ motorId: 'older' })]), gate);
+    const first = checkForCatalogueUpdates({ force: true, fetchImpl: older }).then(() => null, (e: unknown) => e as Error);
+    await vi.waitFor(() => expect(older).toHaveBeenCalledOnce());
+    const second = await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue([...MOTOR_DB, row({ motorId: 'newer' })]) });
+    release();
+    expect((await first)?.name).toBe('AbortError');
+    expect(second.overlay.added.map(m => m.motorId)).toEqual(['newer']);
+    expect(getCatalogueOverlay()?.added.map(m => m.motorId)).toEqual(['newer']);
+    expect(loadStoredOverlay()?.added.map(m => m.motorId)).toEqual(['newer']);
+  });
+
+  it('a newer check aborts the request of the one in flight', async () => {
+    const seen: (AbortSignal | null | undefined)[] = [];
+    const first = checkForCatalogueUpdates({ force: true, fetchImpl: async (_input, init) => { seen.push(init?.signal); return stalled()(_input, init); } })
+      .then(() => null, (e: unknown) => e as Error);
+    await vi.waitFor(() => expect(seen).toHaveLength(1));
+    await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue(MOTOR_DB) });
+    expect(seen[0]?.aborted).toBe(true);
+    expect((await first)?.name).toBe('AbortError');
+  });
 });

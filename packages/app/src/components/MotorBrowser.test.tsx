@@ -11,6 +11,7 @@ import { MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay } from '../services/motorD
 import { resetThrustcurveBackoffForTests } from '../services/thrustcurveTraffic.js';
 import { parseEng } from '../services/exMotors.js';
 import * as thrustcurve from '../services/thrustcurve.js';
+import { catalogueFetch, daysAfter, manifestOf, publication } from '../services/catalogueFixture.testSupport.js';
 
 /**
  * The motor database's sortable column headers.
@@ -179,6 +180,9 @@ const rowFor = (h: Harness, mfr: string, designation: string) => bodyRows(h).fin
 const delaySelect = (h: Harness) => h.host.querySelector<HTMLSelectElement>('.motor-load-row select');
 const click = (el: Element) => act(() => { (el as HTMLElement).click(); });
 /** Lets pending promises (a lazy JSON chunk, a file read) settle inside act. */
+/** Captured before any test fakes the clock: the catalogue check hashes its files with Web Crypto, which answers in real time. */
+const realSetTimeout = globalThis.setTimeout;
+const settleReal = async (ms = 0) => { await settle(ms); await act(async () => { await new Promise((r) => realSetTimeout(r, 2)); }); };
 const settle = async (ms = 0) => { await act(async () => {
   if (vi.isFakeTimers()) await vi.advanceTimersByTimeAsync(Math.max(250, ms));
   else await new Promise((r) => setTimeout(r, ms));
@@ -566,21 +570,20 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
   });
 
   /**
-   * A thrustcurve.org stand-in: metadata, then one search page per maker, from
-   * `live` — as real Responses, since the check reads each body capped.
+   * The curated catalogue as a stand-in (row 110): a manifest and a snapshot
+   * whose motors file lists `live`, as real Responses. Each call publishes a
+   * new snapshot, so a second check downloads again.
    */
+  let seq = 0;
+  const stubCatalogue = async (rows: readonly object[]) => {
+    const pub = await publication(`${daysAfter(MOTOR_DB_DATE, 1)}.${2 + seq++}`, rows);
+    const fetcher = vi.fn(catalogueFetch(manifestOf(pub), [pub]));
+    vi.stubGlobal('fetch', fetcher);
+    return { pub, fetcher };
+  };
   const stubThrustcurve = async (live: (m: { manufacturerAbbrev: string }) => boolean) => {
     const { MOTOR_DB } = await import('../services/motorDb.js');
-    const rows = MOTOR_DB.filter(live);
-    const makers = [...new Set(rows.map((m) => m.manufacturerAbbrev))];
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      const u = new URL(url);
-      const results = rows.filter((m) => m.manufacturerAbbrev === u.searchParams.get('manufacturer'));
-      const body = u.pathname.endsWith('/metadata.json')
-        ? { manufacturers: makers.map((abbrev) => ({ abbrev })), impulseClasses: [] }
-        : { results, matches: results.length };
-      return new Response(JSON.stringify(body), { status: 200 });
-    }));
+    return stubCatalogue(MOTOR_DB.filter(live));
   };
   const checkButton = (h: Harness) => h.host.querySelector<HTMLButtonElement>('button[aria-label="Check thrustcurve.org for newer motors"]')!;
 
@@ -588,7 +591,7 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     await stubThrustcurve((m) => m.manufacturerAbbrev !== 'Klima');
     h = openBrowser({ mountDiameterMm: 29 });
     click(checkButton(h));
-    for (let i = 0; i < 50 && !h.host.querySelector('.motor-check-status .file-note'); i++) await settle(10);
+    for (let i = 0; i < 200 && !h.host.querySelector('.motor-check-status .file-note'); i++) await settleReal(10);
     const note = h.host.querySelector('.motor-check-status .file-note')!;
     expect(note.textContent).toMatch(/0 new, 0 changed, 0 no longer listed/);
     expect(note.textContent).toMatch(/returned no motors at all for Klima/);
@@ -607,7 +610,7 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     expect(region?.getAttribute('role')).toBe('status');
     expect(region!.textContent).toBe('');
     click(checkButton(h));
-    for (let i = 0; i < 50 && !region!.querySelector('.file-note'); i++) await settle(10);
+    for (let i = 0; i < 200 && !region!.querySelector('.file-note'); i++) await settleReal(10);
     // The same node, not a fresh one inserted with the text in place.
     expect(h.host.querySelector('.motor-check-status')).toBe(region);
     expect(region!.textContent).toMatch(/0 new, 0 changed, 0 no longer listed/);
@@ -623,7 +626,7 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     expect(alert?.getAttribute('role')).toBe('alert');
     expect(alert!.textContent).toBe('');
     click(checkButton(h));
-    for (let i = 0; i < 50 && !/Could not check/.test(h.host.textContent ?? ''); i++) await settle(10);
+    for (let i = 0; i < 200 && !/Could not check/.test(h.host.textContent ?? ''); i++) await settleReal(10);
     expect(h.host.querySelector('.motor-check-alert')).toBe(alert);
     expect(alert!.textContent).toMatch(/Could not check thrustcurve\.org: .*HTTP 503/);
     const { getCatalogueOverlay } = await import('../services/motorDb.js');
@@ -631,13 +634,13 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
   });
 
   it('Stop on a check that has stalled says it stopped, not that it failed (audit 2026-09-30)', async () => {
-    // Every request now carries a deadline merged with the caller's signal
-    // (net.ts getJsonCapped), which reports a cancel in its own words; the
+    // Every request carries a deadline merged with the caller's signal
+    // (net.ts getBytesCapped), which reports a cancel in its own words; the
     // browser must still read the user's Stop as a Stop.
+    const { pub } = await stubCatalogue(MOTOR_DB);
+    const serve = catalogueFetch(manifestOf(pub), [pub]);
     vi.stubGlobal('fetch', vi.fn((url: string, init?: RequestInit) => {
-      if (url.includes('/metadata.json')) return Promise.resolve(new Response(JSON.stringify({
-        manufacturers: [{ abbrev: 'AeroTech' }], impulseClasses: [],
-      })));
+      if (url.endsWith('manifest.json')) return serve(url, init);
       return new Promise<Response>((_resolve, reject) => {
         const sig = init?.signal;
         sig?.addEventListener('abort', () => reject(sig.reason instanceof Error
@@ -650,18 +653,17 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     expect(stop, 'the Stop button while checking').not.toBeNull();
     expect(h.host.querySelector('.motor-check-status')!.textContent).toMatch(/Checking.*Stop/s);
     await settle();
-    expect(h.host.querySelector('.motor-check-status')!.textContent).toContain('0/1 AeroTech');
     click(stop!);
     // The result renders into the always-mounted status region (audit 2026-09-30).
     const region = h.host.querySelector('.motor-check-status')!;
-    for (let i = 0; i < 50 && !region.querySelector('.file-note'); i++) await settle(10);
+    for (let i = 0; i < 200 && !region.querySelector('.file-note'); i++) await settleReal(10);
     expect(region.textContent).toMatch(/Stopped\. Nothing was changed\./);
-    expect(h.host.textContent).not.toMatch(/Could not check thrustcurve/);
+    expect(h.host.textContent).not.toMatch(/Could not check/);
   });
 
   const C6_ID = '5f4294d20002310000000015';
   /**
-   * thrustcurve.org as the whole shipped catalogue, with Estes C6 given a 9 s
+   * The catalogue as the whole shipped catalogue, with Estes C6 given a 9 s
    * delay and one motor added — and, when `drop` names one, that motor gone.
    */
   const stubWithChanges = async ({ drop }: { drop?: string } = {}) => {
@@ -674,21 +676,12 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
       { ...c6, delays: '0,3,5,7,9' },
       { ...d12, motorId: 'overlay-only-e99', designation: 'E99', commonName: 'E99', availability: 'regular' },
     ];
-    const makers = [...new Set(live.map((m) => m.manufacturerAbbrev))];
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      const u = new URL(url);
-      const results = live.filter((m) => m.manufacturerAbbrev === u.searchParams.get('manufacturer'));
-      const body = u.pathname.endsWith('/metadata.json')
-        ? { manufacturers: makers.map((abbrev) => ({ abbrev })), impulseClasses: [] }
-        : { results, matches: results.length };
-      // A real Response: the check reads bodies through getJsonCapped (audit 2026-09-30).
-      return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
-    }));
+    await stubCatalogue(live);
   };
   /** Presses `button` (the Check button by default) and waits for the result it reports. */
   const check = async (h: Harness, button: Element = checkButton(h)) => {
     click(button);
-    for (let i = 0; i < 100 && !h.host.querySelector('.motor-check-status .file-note'); i++) await settle(10);
+    for (let i = 0; i < 200 && !h.host.querySelector('.motor-check-status .file-note'); i++) await settleReal(10);
     expect(h.host.querySelector('.motor-check-status .file-note')!.textContent).toMatch(/1 new, 1 changed/);
   };
   const discard = (h: Harness) => click(Array.from(h.host.querySelectorAll('button'))

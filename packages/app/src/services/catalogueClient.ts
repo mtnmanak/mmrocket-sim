@@ -35,11 +35,11 @@ export const CATALOGUE_BASE = 'https://catalogue.mountainmanrockets.com/';
  * 614,581 bytes (motors) and 982,033 bytes (curves); each cap is several times
  * that. 120 s brings a 1 MB file in on a link of about 70 kbit/s.
  */
-export const MANIFEST_MAX_BYTES = DEFAULT_MAX_JSON_BYTES;
-export const MANIFEST_TIMEOUT_MS = 30_000;
+const MANIFEST_MAX_BYTES = DEFAULT_MAX_JSON_BYTES;
+const MANIFEST_TIMEOUT_MS = 30_000;
 export const MOTORS_MAX_BYTES = 4 * 1024 * 1024;
 export const CURVES_MAX_BYTES = 8 * 1024 * 1024;
-export const FILE_TIMEOUT_MS = 120_000;
+const FILE_TIMEOUT_MS = 120_000;
 
 /** One snapshot file as the manifest names it. */
 export interface CatalogueFileRef {

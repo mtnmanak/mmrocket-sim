@@ -218,7 +218,6 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const catalogue = useCatalogue();
   const overlay = useCatalogueOverlay();
   const [checking, setChecking] = useState(false);
-  const [checkProgress, setCheckProgress] = useState('');
   const [checkNote, setCheckNote] = useState<string[] | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [checkWasRecent, setCheckWasRecent] = useState(false);
@@ -245,11 +244,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
     setCheckNote(null);
     setCheckWasRecent(false);
     try {
-      const { overlay: o, skipped, silent } = await checkForCatalogueUpdates({
-        force,
-        signal: ctrl.signal,
-        onProgress: (done, total, mfr) => setCheckProgress(total ? `${done}/${total}${mfr ? ` ${mfr}` : ''}` : ''),
-      });
+      const { overlay: o, skipped, silent } = await checkForCatalogueUpdates({ force, signal: ctrl.signal });
       const lines = describeOverlay(o, prefs.units);
       if (silent.length) {
         lines.push(`thrustcurve.org returned no motors at all for ${silent.join(', ')} — `
@@ -267,7 +262,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       if (e instanceof Error && e.name === 'AbortError') setCheckNote(['Stopped. Nothing was changed.']);
       else setCheckError(`Could not check thrustcurve.org: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
-      if (checkAbort.current === ctrl) { setChecking(false); setCheckProgress(''); }
+      if (checkAbort.current === ctrl) setChecking(false);
     }
   };
 
@@ -637,7 +632,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
               : 'Pull the live motor catalogue from thrustcurve.org and show what has changed since this app\'s copy. Kept in this browser only; nothing is written to the app.'}
             aria-label="Check thrustcurve.org for newer motors"
             onClick={() => void runCheck(false)}>
-            {checking ? `↻ checking… ${checkProgress}` : '↻ Check thrustcurve.org'}
+            {checking ? '↻ checking…' : '↻ Check thrustcurve.org'}
           </button>
           {checking && (
             <button className="file-btn" onClick={() => checkAbort.current?.abort()} aria-label="Stop the catalogue check">Stop</button>
@@ -654,7 +649,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
             user with silence. */}
         <div className="motor-check-status" role="status">
           {/* Progress and the cancel action must be spoken too (audit 2026-10-11, S3a-5). */}
-          {checking && <p>Checking thrustcurve.org… {checkProgress}. Use Stop to cancel.</p>}
+          {checking && <p>Checking thrustcurve.org… Use Stop to cancel.</p>}
           {checkNote && (
             <div className="file-note" style={{ marginTop: 6 }}>
               {checkWasRecent && (

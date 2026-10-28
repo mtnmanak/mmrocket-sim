@@ -1,5 +1,6 @@
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { TcMotor } from './thrustcurve.js';
+import type { CatalogueSnapshotRef } from './catalogueClient.js';
 import { lookupTable } from './xmlUtil.js';
 import { IMPULSE_PREFIX, looseDesignation as loose, prefixWithoutSplit } from './designationText.js';
 import rawDb from '../data/motors.json';
@@ -41,7 +42,7 @@ export const MOTOR_DB_DATE: string = db.generated;
 // ------------------------------------------------------------ the live overlay
 
 /**
- * One row that thrustcurve.org has changed since the shipped catalogue was
+ * One row the catalogue has changed since the shipped catalogue was
  * generated, with the fields that differ, so the user can be TOLD — a changed
  * certified impulse moves an apogee, and silence about it is the failure class
  * this project spent 4–5 September on.
@@ -54,9 +55,12 @@ export interface CatalogueChange {
 }
 
 /**
- * The difference between the shipped catalogue and thrustcurve.org as of
- * `fetchedAt`, fetched on the user's request from the motor browser and kept
- * in THIS BROWSER only — motors.json is never written by the app.
+ * The difference between the shipped catalogue and a newer one, kept in THIS
+ * BROWSER only — motors.json is never written by the app. Since row 110
+ * (2026-10-27) the newer catalogue is the curated snapshot at
+ * catalogue.mountainmanrockets.com (catalogueClient.ts), checked by itself on
+ * load at most every six hours and on the motor browser's button; an overlay
+ * stored before then came from a thrustcurve.org pull and still restores.
  *
  * Why an overlay and not a session flag (owner, 2026-09-05): a session-only
  * result means a design saved with a motor that exists only in the overlay
@@ -64,29 +68,36 @@ export interface CatalogueChange {
  * and discarded automatically the moment a shipped motors.json is newer than
  * the base it was diffed against — a release supersedes it. Why not a second
  * permanent catalogue: the shipped file gets a human look at its diff at every
- * refresh; a live pull does not, so every overlay row is screened first and
- * the rejects are reported rather than applied.
+ * refresh; a snapshot the app reads does not, so every overlay row is screened
+ * first and the rejects are reported rather than applied.
  */
 export interface CatalogueOverlay {
   /** MOTOR_DB_DATE this overlay was diffed against. Any other date → discard. */
   baseGenerated: string;
-  /** ISO timestamp of the fetch. */
+  /** ISO timestamp of the check; the six-hour throttle runs from it. */
   fetchedAt: string;
-  /** How many motors thrustcurve.org returned. */
+  /** How many motors the catalogue listed. */
   liveCount: number;
   added: MotorDbEntry[];
   changed: CatalogueChange[];
-  /** motorIds in the shipped catalogue that thrustcurve.org no longer returns. */
+  /** motorIds in the shipped catalogue that the catalogue no longer lists. */
   removed: string[];
-  /** Live rows that failed the plausibility screen, with the reason. Never applied. */
+  /** Rows that failed the plausibility screen, with the reason. Never applied. */
   rejected: { entry: Partial<MotorDbEntry>; reason: string }[];
+  /**
+   * The curated snapshot this overlay came from. Absent on an overlay from a
+   * thrustcurve.org pull (before row 110). A check that finds the same id and
+   * motors sha downloads nothing; thrustcurve.ts finds the curves file
+   * through it. Re-validated on every restore (catalogueOverlay.ts rescreen).
+   */
+  snapshot?: CatalogueSnapshotRef;
 }
 
 /**
  * The shipped catalogue with an overlay applied: changed rows replaced, added
  * rows appended, removed rows KEPT but marked out of production — a design may
  * still reference one, and "hidden by default but resolvable" is the honest
- * state for a motor thrustcurve.org has dropped. With no overlay it returns
+ * state for a motor the catalogue has dropped. With no overlay it returns
  * `base` itself; non-empty overlays get their own stable catalogue identity.
  * @internal Exported for services/catalogueOverlay.test.ts; no other module imports it.
  */

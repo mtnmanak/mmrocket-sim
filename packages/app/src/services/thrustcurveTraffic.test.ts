@@ -297,9 +297,7 @@ it('HTTP 511 captive portal does not open the breaker', async () => {
   vi.stubGlobal('fetch', fetcher);
   await expect(tc.fetchMotorSpec(motor, 5)).rejects.toThrow(/HTTP 511/);
   expect(() => traffic.assertThrustcurveAvailable()).not.toThrow();
-  await expect(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: fetcher })).rejects.toThrow(/HTTP 511/);
-  expect(fetcher).toHaveBeenCalledTimes(2);
-  expect(() => traffic.assertThrustcurveAvailable()).not.toThrow();
+  expect(fetcher).toHaveBeenCalledOnce();
 });
 
 it('a Stop reported as TypeError or timeout does not open the breaker', async () => {
@@ -365,7 +363,7 @@ it.each([
   ['429 date', 429, 'Sat, 17 Oct 2026 12:03:00 GMT', 180_000],
   ['minimum', 503, '0', 60_000], ['maximum', 503, '99999', 3_600_000],
   ['invalid', 503, 'nonsense', 600_000], ['network', 0, undefined, 600_000],
-] as const)('shares %s back-off between download and catalogue, then permits one request', async (_label, status, retryAfter, duration) => {
+] as const)('holds a %s back-off on downloads, never on the catalogue check, then permits one request', async (_label, status, retryAfter, duration) => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2026-10-17T12:00:00Z'));
   const fetcher = vi.fn(async () => {
@@ -381,8 +379,11 @@ it.each([
   if (!status) expect(first.message).not.toContain('are you offline?');
   expect(first.message).not.toContain('Check the connection and try again');
   await expect(tc.fetchMotorSpec({ ...motor, motorId: 'another' }, 5)).rejects.toThrow(expected);
-  await expect(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: fetcher })).rejects.toThrow(expected);
   expect(fetcher).toHaveBeenCalledOnce();
+  // The catalogue is not thrustcurve.org: its check still asks (A.3).
+  const curated = vi.fn(async () => response({}, 503));
+  await expect(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: curated })).rejects.toThrow(/catalogue\.mountainmanrockets\.com answered HTTP 503/);
+  expect(curated).toHaveBeenCalledOnce();
   await vi.advanceTimersByTimeAsync(duration - 1);
   await expect(tc.fetchMotorSpec(motor, 5)).rejects.toThrow(/about 1 minute\./);
   expect(fetcher).toHaveBeenCalledOnce();
@@ -399,20 +400,28 @@ const hanging: typeof fetch = (_url, init) => new Promise((_resolve, reject) => 
   else init?.signal?.addEventListener('abort', abort, { once: true });
 });
 
-it.each(['download', 'catalogue'] as const)('%s timeout opens the shared breaker without another request', async (source) => {
+it('a download timeout opens the breaker without another request', async () => {
   vi.useFakeTimers();
   const fetcher = vi.fn(hanging);
   vi.stubGlobal('fetch', fetcher);
-  const p = miss(source === 'download' ? tc.fetchMotorSpec(motor, 5)
-    : catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: fetcher }));
-  await vi.advanceTimersByTimeAsync(source === 'download' ? 15_000 : 30_000);
+  const p = miss(tc.fetchMotorSpec(motor, 5));
+  await vi.advanceTimersByTimeAsync(15_000);
   expect((await p).message).toMatch(/did not answer within/);
   expect((await p).message).toMatch(/\. thrustcurve.org is not answering/);
   expect((await p).message).toContain('app will not ask it again for about 10 minutes');
   expect(() => traffic.assertThrustcurveAvailable()).toThrow(/about 10 minutes/);
   await expect(tc.fetchMotorSpec(motor, 5)).rejects.toThrow(/about 10 minutes/);
-  await expect(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: fetcher })).rejects.toThrow(/about 10 minutes/);
   expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it('a catalogue timeout leaves thrustcurve.org\'s breaker closed (replaces the shared-breaker case)', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn(hanging);
+  const p = miss(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: fetcher }));
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect((await p).message).toBe('catalogue.mountainmanrockets.com did not answer within 30 s.');
+  expect(traffic.thrustcurveBackoffMessage()).toBe('');
+  expect(() => traffic.assertThrustcurveAvailable()).not.toThrow();
 });
 
 it.each(['download', 'catalogue'] as const)('%s Stop leaves the breaker closed', async (source) => {
@@ -430,33 +439,32 @@ it.each(['download', 'catalogue'] as const)('%s Stop leaves the breaker closed',
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
 
-it('a catalogue HTTP failure blocks subsequent downloads and checks, even when forced', async () => {
-  const fetcher = vi.fn(async () => response({}, 503));
-  const first = await miss(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: fetcher }));
-  expect(first.message).toMatch(/HTTP 503 for \/metadata.json\?availability=all\. thrustcurve.org is not answering.*app will not ask it again for about 10 minutes/);
-  vi.stubGlobal('fetch', fetcher);
-  await expect(tc.fetchMotorSpec(motor, 5)).rejects.toThrow(/about 10 minutes/);
-  await expect(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: fetcher })).rejects.toThrow(/about 10 minutes/);
-  expect(fetcher).toHaveBeenCalledOnce();
+it('a catalogue 503 leaves thrustcurve.org\'s back-off empty and its downloads open (replaces "a catalogue HTTP failure blocks subsequent downloads and checks")', async () => {
+  const curated = vi.fn(async () => response({}, 503));
+  const first = await miss(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: curated }));
+  expect(first.message).toBe('catalogue.mountainmanrockets.com answered HTTP 503.');
+  expect(traffic.thrustcurveBackoffMessage()).toBe('');
+  const download = vi.fn(async () => response({ results: [{ samples }] }));
+  vi.stubGlobal('fetch', download);
+  await tc.fetchMotorSpec(motor, 5);
+  expect(download).toHaveBeenCalledOnce();
+  // And a second check asks again: there is no catalogue breaker either.
+  await miss(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: curated }));
+  expect(curated).toHaveBeenCalledTimes(2);
 });
 
-it('a catalogue 429 says requests are refused, with a separate back-off sentence', async () => {
-  const fetcher = vi.fn(async () => response({}, 429, { 'Retry-After': '120' }));
-  const first = await miss(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: fetcher }));
-  expect(first.message).toMatch(/HTTP 429 for \/metadata.json\?availability=all\. thrustcurve.org is refusing requests right now/);
-  expect(first.message).toContain('about 2 minutes.');
-  expect(fetcher).toHaveBeenCalledOnce();
-});
-
-it('a recent cached catalogue check remains available while the breaker is open', async () => {
+it('an open thrustcurve.org back-off does not block a catalogue check (replaces "a recent cached catalogue check remains available while the breaker is open")', async () => {
   localStorage.setItem(catalogue.OVERLAY_KEY, JSON.stringify({ baseGenerated: db.MOTOR_DB_DATE,
     fetchedAt: new Date().toISOString(), liveCount: 0, added: [], changed: [], removed: [], rejected: [] }));
-  const fetcher = vi.fn(async () => response({}, 503));
-  vi.stubGlobal('fetch', fetcher);
+  vi.stubGlobal('fetch', vi.fn(async () => response({}, 503)));
   await miss(tc.fetchMotorSpec(motor, 5));
-  expect((await catalogue.checkForCatalogueUpdates({ fetchImpl: fetcher })).skipped).toBe('recent');
-  await expect(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: fetcher })).rejects.toThrow(/about 10 minutes/);
-  expect(fetcher).toHaveBeenCalledOnce();
+  expect(() => traffic.assertThrustcurveAvailable()).toThrow(/about 10 minutes/);
+  const curated = vi.fn(async () => response({}, 500));
+  expect((await catalogue.checkForCatalogueUpdates({ fetchImpl: curated })).skipped).toBe('recent');
+  expect(curated).not.toHaveBeenCalled();
+  // Forced, it asks the catalogue — the breaker is thrustcurve.org's alone.
+  await expect(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: curated })).rejects.toThrow(/HTTP 500/);
+  expect(curated).toHaveBeenCalledOnce();
 });
 
 it('bundled and cached curves load byte for byte while the breaker is open', async () => {

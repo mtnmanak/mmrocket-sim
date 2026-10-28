@@ -42,7 +42,7 @@ export interface Publication {
 export async function publication(id: string, motors: readonly object[], curves: Record<string, unknown[]> = {},
   over: { motorsDoc?: unknown; curvesDoc?: unknown; generated?: string } = {}): Promise<Publication> {
   const generated = over.generated ?? id.slice(0, 10);
-  const motorsDoc = over.motorsDoc ?? { generated, source: 'test', count: motors.length, fields: [], motors: motors.map(withFullFields) };
+  const motorsDoc = over.motorsDoc !== undefined ? over.motorsDoc : { generated, source: 'test', count: motors.length, fields: [], motors: motors.map(withFullFields) };
   const curvesDoc = over.curvesDoc ?? {
     generated, source: 'test', catalogueGenerated: generated, complete: true,
     motors: Object.keys(curves).length, files: Object.values(curves).reduce((n, f) => n + f.length, 0), curves,
