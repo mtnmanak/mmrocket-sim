@@ -85,7 +85,14 @@ export function selectSource({ run, attempts, artifacts }) {
       return { artifact, created, owner: owners[0] };
     }).filter((m) => m.owner).sort((a, b) => b.created - a.created);
     if (!matches.length) {
-      if (!jobs.some((job) => job.conclusion === 'success')) return neutral('source refresh gate did not conclude success');
+      if (!jobs.some((job) => job.conclusion === 'success')) {
+        // A job stopped before its seal completed has no window but may have
+        // uploaded; one whose run time cannot be read is given the same benefit.
+        const mayHaveMade = (created) => windows.some(({ job, start }) => start === undefined
+          && !(Date.parse(job.started_at) > created) && !(Date.parse(job.completed_at) < created));
+        if (frozen.every((a) => mayHaveMade(epoch(a.created_at)))) return neutral('source refresh gate did not conclude success');
+        throw new Error(`${INPUT_ARTIFACT} artifact matches no recognised refresh job in any attempt`);
+      }
       throw new Error('catalogue-input artifact is outside every pre-install attempt window');
     }
     const { artifact, owner } = matches[0];

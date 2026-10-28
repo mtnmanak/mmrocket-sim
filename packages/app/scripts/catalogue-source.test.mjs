@@ -124,6 +124,39 @@ describe('GitHub REST source eligibility', () => {
     expect(selectSource(renamed)).toMatchObject({ eligible: false, failed: false, reason: 'source refresh gate did not conclude success' });
   });
 
+  it('a: is red when no recognised refresh job could have produced the catalogue-input artifact', () => {
+    const data = fixture(), next = structuredClone(job(data));
+    // Attempt 1's job is carried into attempt 2's page, so the filter drops it;
+    // the one recognised job failed and its complete window starts after the artifact.
+    data.attempts[1].pages[0].jobs.push(data.attempts[0].pages[0].jobs.pop());
+    next.id = 987; next.run_attempt = 2; next.conclusion = 'failure';
+    next.started_at = '2026-10-21T12:00:00Z'; next.completed_at = '2026-10-21T12:10:00Z';
+    next.steps[1].completed_at = '2026-10-21T12:05:00Z';
+    data.attempts[1].pages[0].jobs.push(next);
+    expect(selectSource(data)).toEqual({ eligible: false, failed: true,
+      reason: 'catalogue-input artifact matches no recognised refresh job in any attempt' });
+    // A windowless failed job whose run time misses the artifact cannot have made it either.
+    next.steps[1].conclusion = 'cancelled';
+    expect(selectSource(data)).toMatchObject({ failed: true, reason: expect.stringContaining('matches no recognised refresh job') });
+    next.started_at = '2026-10-19T09:00:00Z'; next.completed_at = '2026-10-19T09:19:59Z';
+    expect(selectSource(data)).toMatchObject({ failed: true, reason: expect.stringContaining('matches no recognised refresh job') });
+  });
+
+  it('a: stays neutral when a failed job without a complete seal window could have produced the artifact', () => {
+    for (const change of [
+      (j) => { j.steps[1].conclusion = 'cancelled'; },
+      (j) => { j.steps = j.steps.filter((s) => s.name !== SEAL_STEP); },
+      (j) => { j.steps[1].conclusion = 'cancelled'; delete j.completed_at; },
+      (j) => { j.steps[1].conclusion = 'cancelled'; j.completed_at = '2026-10-19T09:20:00Z'; j.started_at = '2026-10-19T09:20:00Z'; },
+      // Unreadable timestamps on a windowless job: a possible producer, not a new red.
+      (j) => { j.steps[1].conclusion = 'cancelled'; j.started_at = 'invalid'; },
+      (j) => { j.steps[1].conclusion = 'cancelled'; j.completed_at = 'invalid'; },
+    ]) {
+      const data = fixture(); job(data).conclusion = 'cancelled'; change(job(data));
+      expect(selectSource(data)).toEqual({ eligible: false, failed: false, reason: 'source refresh gate did not conclude success' });
+    }
+  });
+
   it('ci-1: is red when a later attempt passed the gate but only an earlier failed attempt left an artifact', () => {
     const data = fixture(), next = structuredClone(job(data));
     job(data).conclusion = 'failure';
