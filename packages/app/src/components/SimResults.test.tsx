@@ -1002,10 +1002,15 @@ describe('SimHistory — nothing is destroyed by one stray click (audit 2026-09-
     expect(host.textContent).toContain('Deleted run Bravo');
     const heading = host.querySelector('h2')!;
     expect(heading.compareDocumentPosition(undo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(regions).toContain([...host.querySelectorAll('[role="status"]')].find(n => n.textContent?.includes('Deleted run Bravo')));
+    const line = [...host.querySelectorAll('[role="status"]')].find(n => n.textContent?.includes('Deleted run Bravo'))!;
+    expect(regions).toContain(line);
+    expect(line.classList.contains('sr-only')).toBe(false);
     act(() => { undo.click(); });
     expect(loadRuns().map((r) => r.id)).toEqual(['a', 'b', 'c']);
     expect(host.textContent).not.toContain('Deleted run');
+    // Emptied, and out of the flow again.
+    expect(line.isConnected).toBe(true);
+    expect(line.classList.contains('sr-only')).toBe(true);
   });
 
   it('Undo still works after the LAST run is deleted', () => {

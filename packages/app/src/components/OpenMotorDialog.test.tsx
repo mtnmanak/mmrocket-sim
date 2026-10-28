@@ -24,9 +24,11 @@ it('establishes a silent outcome region before a motor answer', async () => {
   const status = host.querySelector('[role="status"]');
   expect(status).not.toBeNull();
   expect(status!.textContent).toBe('');
+  expect(status!.classList.contains('sr-only')).toBe(true);
   await importText(0, enerjetEng);
   expect(host.querySelector('[role="status"]')).toBe(status);
   expect(status!.textContent).toContain('Imported 1 EX motor');
+  expect(status!.classList.contains('sr-only')).toBe(false);
 });
 it('B establishes an empty alert region that receives a refused selection', async () => {
   render();
