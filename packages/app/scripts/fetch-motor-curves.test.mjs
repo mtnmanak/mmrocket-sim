@@ -35,6 +35,39 @@ it('raw census retains prototype-named file IDs as own records', async () => {
   for (const id of Object.keys(raw)) expect(raw[id]).toEqual({ motorId: 'motor', format: 'RASP', source: undefined, data: 'cmF3' });
 });
 
+describe('raw census: a 200 batch with no usable raw file for motors that had curves', () => {
+  const raw = (motorId) => ({ motorId, simfileId: `f-${motorId}`, format: 'RASP', data: 'cmF3' });
+  const previous = { generated: '2026-09-21', curves: { a: [{ samples: [[0, 0]] }], b: [{ samples: [[0, 0]] }] } };
+  const census = (ids, pick, options = { previous }) => {
+    const events = [];
+    const operation = downloadRawFiles(ids, {
+      fetchImpl: async (_url, opts) => {
+        events.push('request');
+        return { ok: true, status: 200, json: async () => ({ results: pick(JSON.parse(opts.body).motorIds) }) };
+      },
+      sleep: async (ms) => { events.push(ms); }, log: () => {}, ...options,
+    });
+    return { operation, events };
+  };
+
+  it.each([
+    ['{results: []}', () => []],
+    ['results only for motors it did not request', (ids) => ids.map((id) => raw(`${id}-other`))],
+    ['results without simfileId or data', (ids) => ids.flatMap((id) => [{ ...raw(id), simfileId: undefined }, { ...raw(id), data: '' }])],
+  ])('rejects %s and pauses before rejecting', async (_what, pick) => {
+    const { operation, events } = census(['a', 'b'], pick);
+    await expect(operation).rejects.toThrow(/download\.json returned no usable raw file for a batch whose motors had curves/);
+    expect(events).toEqual(['request', 250]);
+  });
+
+  it('passes motors that never had curves, a partial batch, and any batch without previous', async () => {
+    await expect(census(['c', 'd'], () => []).operation).resolves.toEqual({});
+    await expect(census(['a', 'b'], () => [], {}).operation).resolves.toEqual({});
+    // The same known limit as ci-3: one usable file clears the batch.
+    await expect(census(['a', 'b'], () => [raw('a')]).operation).resolves.toEqual({ 'f-a': { motorId: 'a', format: 'RASP', source: undefined, data: 'cmF3' } });
+  });
+});
+
 describe('headerMasses, the build-time mirror of thrustcurve.ts', () => {
   // The bundle stores the two numbers instead of the file, and the app then
   // trusts them; a bundled curve must yield exactly the masses a live download

@@ -163,21 +163,33 @@ export function downloadResults(body) {
   return body.results;
 }
 
-/** Raw census downloads stop on failure and always pause before returning. */
+/**
+ * Raw census downloads stop on failure and always pause before returning.
+ * `previous` is the bundle the IDs came from, or null: as in fetchCurves, a
+ * 200 batch with no usable raw file for any motor it asked for fails when one
+ * of those motors had curves in `previous`. A partial batch still passes.
+ */
 export async function downloadRawFiles(ids, {
   fetchImpl = fetch, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
-  log = s => process.stdout.write(s),
+  log = s => process.stdout.write(s), previous = null,
 } = {}) {
   const raw = Object.create(null);
   for (let i = 0; i < ids.length; i += BATCH) {
     try {
+      const batch = ids.slice(i, i + BATCH);
       const res = await fetchImpl(`${API}/download.json`, {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
-        body: JSON.stringify({ motorIds: ids.slice(i, i + BATCH), data: 'file' }),
+        body: JSON.stringify({ motorIds: batch, data: 'file' }),
       });
       if (!res.ok) throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
-      for (const f of downloadResults(await res.json())) {
+      const results = downloadResults(await res.json());
+      const asked = new Set(batch);
+      if (previous && batch.some((id) => Object.hasOwn(previous.curves, id) && previous.curves[id].length)
+        && !results.some((f) => asked.has(f.motorId) && f.simfileId && f.data)) {
+        throw new Error('download.json returned no usable raw file for a batch whose motors had curves');
+      }
+      for (const f of results) {
         if (f.simfileId && f.data) raw[f.simfileId] = { motorId: f.motorId, format: f.format, source: f.source, data: f.data };
       }
       log(`  raw files: ${Math.min(i + BATCH, ids.length)} / ${ids.length} motors\r`);
