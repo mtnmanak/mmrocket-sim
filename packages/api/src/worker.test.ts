@@ -24,40 +24,32 @@ it.each([undefined, '3', '1', '10'])('assembles received bytes with Content-Leng
   const response = await worker.fetch(request, undefined, { waitUntil: () => undefined });
   expect(response.status).toBe(500);
   const data = vi.mocked(simulateFile).mock.calls[0]![0];
-  expect(data).toBeInstanceOf(ArrayBuffer);
-  expect([...new Uint8Array(data as ArrayBuffer)]).toEqual([1, 2, 3]);
+  expect(data).toBeInstanceOf(Uint8Array);
+  expect([...data as Uint8Array]).toEqual([1, 2, 3]);
 });
 
 it('sizes the body buffer from received bytes, never a declared 8 MiB length, and takes no slice', async () => {
   // The API's body cap: a declared length AT the cap is read, so it must not size anything.
-  type Traced = ArrayBuffer & { resize(n: number): void; readonly maxByteLength: number };
-  const proto = ArrayBuffer.prototype as Traced;
+  const proto = ArrayBuffer.prototype;
   const originalSlice = proto.slice;
-  const originalResize = proto.resize;
-  /** The reader's own buffer steps (each resize, with the buffer's maxByteLength) and any slice, for one request. */
   async function trace(length: string | undefined) {
     const steps: unknown[] = [];
-    const inReader = () => new Error().stack?.includes('readBody') ?? false;
     const sliceSpy = vi.spyOn(proto, 'slice').mockImplementation(function (this: ArrayBuffer, ...args) {
-      if (inReader()) steps.push(['slice', ...args]);
+      if (new Error().stack?.includes('readBody')) steps.push(['slice', ...args]);
       return originalSlice.apply(this, args);
-    });
-    const resizeSpy = vi.spyOn(proto, 'resize').mockImplementation(function (this: Traced, n: number) {
-      if (inReader()) steps.push(['resize', n, this.maxByteLength]);
-      originalResize.call(this, n);
     });
     const request = new Request(url, { method: 'POST', body: new Uint8Array(10) });
     if (length !== undefined) request.headers.set('Content-Length', length);
     vi.mocked(simulateFile).mockReset().mockRejectedValue(new Error('test flight refusal'));
     try {
       await worker.fetch(request, undefined, { waitUntil: () => undefined });
-    } finally { sliceSpy.mockRestore(); resizeSpy.mockRestore(); }
-    return { steps, received: vi.mocked(simulateFile).mock.calls[0]![0].byteLength };
+    } finally { sliceSpy.mockRestore(); }
+    const data = vi.mocked(simulateFile).mock.calls[0]![0] as Uint8Array;
+    return { steps, received: data.byteLength, capacity: data.buffer.byteLength };
   }
   const declared = await trace(String(8 * 1024 * 1024));
-  // One buffer that may grow to the cap: a first step for the bytes, then exactly them.
-  const cap = 8 * 1024 * 1024;
-  expect(declared).toEqual({ steps: [['resize', 65_536, cap], ['resize', 10, cap]], received: 10 });
+  // The view has exactly ten bytes, backed by the small first growth step.
+  expect(declared).toEqual({ steps: [], received: 10, capacity: 65_536 });
   expect(await trace(undefined)).toEqual(declared);
 });
 

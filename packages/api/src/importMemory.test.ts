@@ -26,6 +26,20 @@ describe('import-memory bisection', () => {
     expect(await smallestOldSpace(run, 'p', 'fly', 'f', 3)).toEqual({ mib: 37, failedAt: 36 });
   });
 
+  it('requires a fresh consecutive-pass streak after raising a flaky boundary', async () => {
+    let reruns = false;
+    const boundary: number[] = [];
+    const { run } = stub(37, OOM, mib => {
+      if (mib === 36) reruns = true;
+      if (!reruns || mib < 37) return undefined;
+      boundary.push(mib);
+      return boundary.length === 3 ? OOM : undefined;
+    });
+    const result = await smallestOldSpace(run, 'p', 'fly', 'f', 3);
+    expect(boundary).toEqual([37, 37, 37, 38, 38, 38]);
+    expect(result).toEqual({ mib: 38, failedAt: 37 });
+  });
+
   it('stops, with the reason, when a run near the boundary fails for another reason', async () => {
     // Every boundary rerun times out: the uncapped loop raised `high` without end.
     const { run, calls } = stub(37, OOM, (mib, call) => (call > 12 && mib >= 37 ? TIMEOUT : undefined));
