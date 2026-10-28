@@ -3,7 +3,7 @@ import { csvCell, unescapeCsvText } from './csvUtil.js';
 import { parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { MAX_BULK_DENSITY } from '../tree/schema.js';
-import { backUpUnreadableStore } from './storeBackup.js';
+import { backUpUnreadableStore, canBackUpUnreadableStore } from './storeBackup.js';
 import { builtInMaterial, materialNameKey, MATERIAL_UNITS, usableMaterialDensity, type MaterialKind } from './designMaterials.js';
 
 export interface UserMaterial { kind: MaterialKind; name: string; density: number }
@@ -34,6 +34,8 @@ function normalized(value: unknown): UserMaterial {
 
 /** A stored library the app cannot read is copied aside by the next write (see writeUserMaterials). */
 const UNREADABLE_KEPT = 'The next save keeps a copy of it in this browser and starts a new list.';
+const unreadableNote = (raw: string | null): string => raw !== null && canBackUpUnreadableStore(USER_MATERIALS_KEY, raw)
+  ? UNREADABLE_KEPT : 'The app leaves this list unchanged if it cannot keep a copy.';
 /** Why a My materials write was refused: the store could not be read, and could not be copied aside. */
 export const USER_MATERIALS_UNREADABLE = 'My materials could not be read from browser storage, so the app left them unchanged.';
 /** Said after a write that copied an unreadable store aside (storeBackup.ts) and started a new list. */
@@ -61,13 +63,13 @@ export function readUserMaterials(): { materials: UserMaterial[]; note: string }
   try {
     if (!raw) return { materials: [], note: '' };
     const data: unknown = JSON.parse(raw);
-    if (!Array.isArray(data)) return { materials: [], note: `My materials could not be read: expected a list. ${UNREADABLE_KEPT}` };
+    if (!Array.isArray(data)) return { materials: [], note: `My materials could not be read: expected a list. ${unreadableNote(raw)}` };
     const { materials, refused, overflow } = screenUserMaterials(data);
     const note = [refused ? `${refused} invalid My materials entries were ignored.` : '',
       overflow ? `My materials has a limit of 500 entries; ${overflow} older entries were ignored.` : ''].filter(Boolean).join(' ');
     return { materials, note };
   } catch {
-    return { materials: [], note: `My materials could not be read from browser storage. ${UNREADABLE_KEPT}` };
+    return { materials: [], note: `My materials could not be read from browser storage. ${unreadableNote(raw)}` };
   }
 }
 
@@ -78,10 +80,11 @@ export const loadUserMaterials = (): UserMaterial[] => readUserMaterials().mater
  * S7-3). readUserMaterials drops invalid entries and those past the 500 limit,
  * and reads a non-list as empty; every writer saved what it returned, so one
  * save erased them. A write now replaces only what the library SHOWED: every
- * stored entry it could not show (invalid, a newer build's, past the limit) is
- * kept verbatim, ahead of the list, and an entry the caller left unchanged is
- * written as it was stored. An entry shadowed by a later one with the same
- * name is dropped with it, so a deleted material cannot come back. A stored
+ * invalid entry is copied aside before being dropped; if that copy fails it
+ * stays ahead of the list. Entries past the limit stay, and an entry the caller
+ * left unchanged is written as it was stored. An entry shadowed by a later
+ * one with the same name is dropped with it, so a deleted material cannot
+ * come back. A stored
  * value that is not a readable list is copied to its side key first and the
  * write starts a new list ('backed-up'); 'unreadable' only when that copy
  * cannot be made, and then nothing is written.
@@ -98,10 +101,12 @@ export function writeUserMaterials(materials: readonly UserMaterial[]): 'saved' 
     data = [];
   }
   if (!Array.isArray(data)) return 'unreadable';
-  const shown = new Set(screenUserMaterials(data).materials.map(userMaterialKey));
+  const screened = screenUserMaterials(data);
+  const copiedInvalid = screened.refused > 0 && raw !== null && backUpUnreadableStore(USER_MATERIALS_KEY, raw);
+  const shown = new Set(screened.materials.map(userMaterialKey));
   const storedAs = new Map<string, unknown>();
   const kept = data.filter(entry => {
-    if (materialProblem(entry)) return true;
+    if (materialProblem(entry)) return !copiedInvalid;
     const key = userMaterialKey(normalized(entry));
     storedAs.set(key, entry);
     return !shown.has(key);

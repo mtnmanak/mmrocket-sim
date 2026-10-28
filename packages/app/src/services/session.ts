@@ -1,6 +1,7 @@
 import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
 import { carryFlags, cautionNote, noteFlags } from './importNotes.js';
 import { restoredWarnings } from './storedWarnings.js';
+import { isAeroModel, validHybridBand } from './aeroProvenance.js';
 import { sanitizeDesignProvenance } from './designProvenance.js';
 import { sanitizeDocumentMaterials } from './documentMaterials.js';
 import type { ComponentNode, MotorSpec } from '@online-openrocket/engine';
@@ -474,6 +475,17 @@ function readSession(restoreRoot: boolean): SessionState | null {
           && (sim.status === undefined || typeof sim.status === 'string') && isTable(sim.data)) : [];
         if (!Array.isArray(raw) || readable.length !== raw.length) {
           cautionNote(s.treeRestoreNotes ??= [], 'G04.simulations-removed', 'Unreadable imported simulation records were removed.');
+        }
+        for (const sim of readable) {
+          const data = sim.data;
+          if (typeof data.runId !== 'string') delete data.runId;
+          if (!isAeroModel(data.aeroModel)) delete data.aeroModel;
+          if (!validHybridBand(data.hybridBand)) delete data.hybridBand;
+          if (typeof data.rogersKbf !== 'boolean') delete data.rogersKbf;
+          for (const key of ['maxAltitude', 'maxVelocity', 'maxAcceleration', 'maxMach', 'timeToApogee',
+            'flightTime', 'groundHitVelocity', 'launchRodVelocity', 'deploymentVelocity', 'optimumDelay'] as const) {
+            if (data[key] != null && !Number.isFinite(data[key])) delete data[key];
+          }
         }
         s.importedDocument.storedSimulations = readable;
       }

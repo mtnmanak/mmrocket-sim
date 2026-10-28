@@ -1122,6 +1122,8 @@ describe('stored runs: a flight the time limit cut off (audit S6-1)', () => {
   });
   it.each([
     ['landed', mkRun('landed', { comments: '', totalFlightTime: 95.5, landingRate: 4.2, safeLandingRate: true, simWarnings: [] })],
+    ['landed at the time limit', airborne({ groundHitVelocity: 6 })],
+    ['landed before later queued events', airborne({ groundHitVelocity: 0, totalFlightTime: 1300 })],
     ['already stopped early', airborne({ simWarnings: [{ key: 'SIM_ABORT', priority: 'HIGH', message: 'Stopped.' }] })],
     ['already incomplete', airborne({ simWarnings: [{ key: 'INCOMPLETE_FLIGHT', priority: 'HIGH', message: 'Ended.' }] })],
     ['imported from a file', airborne({ importedSummary: true } as Partial<SimRun>)],

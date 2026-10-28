@@ -282,8 +282,8 @@ function changedLibrary(): void {
  * S7-3). loadExMotors refuses entries that fail validExMotor (a damaged one, or
  * one a newer build wrote) and reads a non-list as empty; add, delete and
  * restore wrote what it returned, so one write erased them. They are kept
- * verbatim, ahead of the library, unless they carry the id of a motor this
- * write stores or removes: a re-import is the remedy the I15 note gives. A
+ * in a raw backup before being dropped. If that copy fails they stay ahead
+ * of the library, unless this write stores or removes their motor id. A
  * stored value that is not a list the app can read is copied to its side key
  * first and the write starts a new library (`backedUp`; cloud session 20);
  * null, and nothing may be written over it, when that copy cannot be made.
@@ -296,6 +296,9 @@ function refusedStoredEntries(ids: ReadonlySet<string>): { kept: unknown[]; back
   try { list = raw ? JSON.parse(raw) : []; } catch { list = undefined; }
   if (!Array.isArray(list)) {
     return raw !== null && backUpUnreadableStore(KEY, raw) ? { kept: [], backedUp: true } : null;
+  }
+  if (list.some(v => !validExMotor(v)) && raw !== null && backUpUnreadableStore(KEY, raw)) {
+    return { kept: [], backedUp: false };
   }
   return { kept: list.filter(v => !validExMotor(v) && !(record(v) && typeof v['motorId'] === 'string' && ids.has(v['motorId']))),
     backedUp: false };
