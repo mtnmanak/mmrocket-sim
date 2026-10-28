@@ -13,11 +13,13 @@ npm test -w @online-openrocket/api
 
 `GET http://127.0.0.1:8787/health` reports app/engine versions and the bundled catalogue dates. POST a raw file to `http://127.0.0.1:8787/experimental/fly?filename=reference.ork` (for example, `curl --data-binary @reference.ork 'http://127.0.0.1:8787/experimental/fly?filename=reference.ork'`). The experimental JSON includes apogee in m, velocity in m/s, Mach, flight time in s, installed motors with counts and flown delays (`"plugged"` for no charge), existing warnings and notes, and wall timings in ms. This is not the API contract.
 
+Every JSON body, success or error, from every route carries the same version stamp as top-level keys beside the route's own: `appVersion`, `engine: { openRocket: "24.12", appVersion }` and `catalogue: { motorsGenerated, curvesGenerated }`. An error body is `{ error: { code, message, importNote? }, appVersion, engine, catalogue }`; the `error` object is unchanged. The catalogue dates are the bundled snapshot's: the Worker flies with `network: 'forbid'` and never installs a catalogue overlay. The test-only overlay isolate does, and its stamp still shows the bundled dates. One builder (`src/stamp.ts`) makes every response.
+
 `parseMs` includes upload/body reading, bundled preset loading and import; `flyMs` includes motor resolution, planning, build, flight and report. Both can include waiting behind other flights in the same isolate; they do not isolate contention or CPU cost. There is no lock-queue timing field. `totalMs` also includes summary preparation. Every timing block labels its basis: wall-clock, not CPU time; deployed Workers advance the clock only at I/O, so treat these as local-only. The tests record first-per-fixture and repeat values in `packages/api/.wrangler/timing-previews.json`.
 
 S2 measures resources from outside: host-side elapsed time and workerd process memory locally, then Workers CPU metrics after deploy. A body over 8 MiB (8,388,608 bytes), a ZIP member whose declared size is over 16 MiB (16,777,216 bytes), or gzip XML that expands past 16 MiB returns HTTP 413 `FILE_TOO_LARGE` and points to https://mmrsim.mountainmanrockets.com for larger files. ZIP data that inflates past its own declared size is refused as damaged with HTTP 400 `INVALID_FILE`, whatever its size. These API-only caps leave the app's 64 MiB limits unchanged. They do not establish safety within a 128 MB isolate: deployed memory peaked at 118.7 MB, leaving about 9 MB of headroom. Content-Length only enables early rejection above the cap; it never reserves memory. Bodies retain received chunks until one final assembly, briefly retaining both chunks and output. A header declaring 8 MiB but sending ten bytes assembles ten bytes. The reader passes the assembled ArrayBuffer to simulateFile without slicing it; format decoding can allocate further buffers.
 
-Responses explicitly say `outcome: "completed" | "aborted" | "incomplete"`; `aborts` gives the reason and stopping event, and `partial: true` means at least one flight branch did not complete (`partial: false` for completed flights). SIM_ABORT or EXCEPTION on any flight branch marks the result aborted. Without an abort, an INCOMPLETE_FLIGHT warning on any branch marks it incomplete, matching the app's stopped-flight signal. The top-level numbers always describe the main flight. If only a booster is incomplete, `outcome` is still `incomplete` and `partial` is true, but the completed main flight's numbers remain valid, including its time to landing in `flightTimeS`. If the main flight is incomplete, its numbers cover only the recorded part of that flight and `flightTimeS` is its last recorded sample time, not time to landing. The required Show-off.CDX1 fixture currently aborts when recovery deploys under thrust. `motorFailures` preserves kernel build refusals with the same mount display labels used by the flight runner. The motor list uses post-projection ignition and excludes ignition `never`, and warnings use the app's human text. Error bodies retain import notes, including the reason for a missing motor. `/health` pairs OpenRocket 24.12 with the app version; there is no independent kernel build identity yet.
+Responses explicitly say `outcome: "completed" | "aborted" | "incomplete"`; `aborts` gives the reason and stopping event, and `partial: true` means at least one flight branch did not complete (`partial: false` for completed flights). SIM_ABORT or EXCEPTION on any flight branch marks the result aborted. Without an abort, an INCOMPLETE_FLIGHT warning on any branch marks it incomplete, matching the app's stopped-flight signal. The top-level numbers always describe the main flight. If only a booster is incomplete, `outcome` is still `incomplete` and `partial` is true, but the completed main flight's numbers remain valid, including its time to landing in `flightTimeS`. If the main flight is incomplete, its numbers cover only the recorded part of that flight and `flightTimeS` is its last recorded sample time, not time to landing. The required Show-off.CDX1 fixture currently aborts when recovery deploys under thrust. `motorFailures` preserves kernel build refusals with the same mount display labels used by the flight runner. The motor list uses post-projection ignition and excludes ignition `never`, and warnings use the app's human text. Error bodies retain import notes, including the reason for a missing motor. The stamp pairs OpenRocket 24.12 with the app version; there is no independent kernel build identity yet.
 
 The headless barrel defaults to a timer-free microtask yield; the underlying service retains its timer default when the watchdog is off for app parity tests, and App still yields between auto-delay probes. Enabling the watchdog without an explicit yield also selects microtask-only yields. The Worker explicitly passes the microtask yield and keeps the real flight in `ctx.waitUntil` as defence in depth. It opts into a 10 s dead-holder watchdog only while a call waits for the kernel lock. Because locked API work is microtask-only, a watchdog timer firing means no holder is running: the instance is then poisoned, the waiter and later flights return HTTP 503 `KERNEL_UNAVAILABLE` with `Retry-After: 5`, and the client should retry. This guard is unsafe with browser macrotask yields and is off by default. Any future in-lock I/O or timer requires revisiting this assumption. A poisoned instance keeps answering 503 until Cloudflare replaces it; a redeploy replaces every instance. Resetting the lock instead is unsafe: the per-flight kernel reset (`OrkEngine.reset`) clears handles only, not the kernel's static state or class initialisers. There is no queue bound or BUSY response; on the deployed Worker (2026-10-23), Cloudflare spread concurrent requests over isolates, and eight simultaneous requests for the memory-heaviest corpus design all succeeded. Platform termination itself cannot be caught as JSON.
 
@@ -63,7 +65,7 @@ Fly, the same files: 1,000 datapoints 31 → 31 MiB old space; 40,500 datapoints
 
 ## S3 draft: `POST /describe` (first draft for owner review; not deployed)
 
-**Status.** A first draft of the contract and its implementation, for review before any integration or shipping decision. Nothing here is deployed, the shape may change, and `api: "s3-draft"` says so on every response. `/health` and `/experimental/fly` are unchanged.
+**Status.** A first draft of the contract and its implementation, for review before any integration or shipping decision. Nothing here is deployed, the shape may change, and `api: "s3-draft"` says so on every response. `/health` is unchanged; `/experimental/fly` gains the version stamp's `engine` and `catalogue` beside its `appVersion`.
 
 **Request.** `POST /describe?filename=<name>` with the raw `.ork`, `.rkt` or `.CDX1` bytes as the body: the same reader, caps and importer as `/experimental/fly` (the extension picks the importer, case-insensitively; anything else reads as `.ork`). There are no caller options: no launch, site, motor, curve, aero or delay fields, and any other query parameter is ignored and cannot enable the network. The bundled motor snapshot is the only motor source (`network: 'forbid'`); a motorless or unmatched-motor design is described like any other. Nothing is flown: no flight, no auto-delay solve and no auto-aero Mach probe.
 
@@ -73,9 +75,6 @@ Fly, the same files: 1,000 datapoints 31 → 31 MiB old space; 40,500 datapoints
 {
   experimental: true,
   api: "s3-draft",
-  appVersion: string,                       // same stamps as /health
-  engine: { openRocket: "24.12", appVersion: string },
-  catalogue: { motorsGenerated: string, curvesGenerated: string },
   name: string,
   sourceFormat: "ork" | "rkt" | "cdx1",
   analysis: {
@@ -113,7 +112,10 @@ Fly, the same files: 1,000 datapoints 31 → 31 MiB old space; 40,500 datapoints
     import: { text: string, severity: string },   // the app's own import note
     analysis: string[],                     // why a figure is null, and other cautions
     export: string[]                        // what the fragment left out, and the writer's own save notes
-  }
+  },
+  appVersion: string,                       // the version stamp, as on every response
+  engine: { openRocket: "24.12", appVersion: string },
+  catalogue: { motorsGenerated: string, curvesGenerated: string }
 }
 ```
 
@@ -121,9 +123,7 @@ Example: `reference.ork` at app 0.195 (the fragment and link are truncated here;
 
 ```json
 {
-  "experimental": true, "api": "s3-draft", "appVersion": "0.195",
-  "engine": { "openRocket": "24.12", "appVersion": "0.195" },
-  "catalogue": { "motorsGenerated": "2026-10-12", "curvesGenerated": "2026-10-12" },
+  "experimental": true, "api": "s3-draft",
   "name": "Reference Rocket", "sourceFormat": "ork",
   "analysis": {
     "basis": "dry; no installed motors", "aeroModel": "classic+kbf", "mach": 0.3, "angleOfAttackRad": 0,
@@ -140,7 +140,9 @@ Example: `reference.ork` at app 0.195 (the fragment and link are truncated here;
     "import": { "text": "Loaded “Reference Rocket”.\nMotor “C6” loaded as Estes C6 … Check it is the motor you fly, or pick another via Browse motor database.", "severity": "warn" },
     "analysis": [],
     "export": ["Motor selections were removed from the link: 1 on the opened motor set and 1 across 1 saved configuration (unmatched references included). Each selected motor's ejection delay went with it; mount ignition settings are kept."]
-  }
+  },
+  "appVersion": "0.195", "engine": { "openRocket": "24.12", "appVersion": "0.195" },
+  "catalogue": { "motorsGenerated": "2026-10-12", "curvesGenerated": "2026-10-12" }
 }
 ```
 
@@ -157,7 +159,7 @@ Example: `reference.ork` at app 0.195 (the fragment and link are truncated here;
 
 **Determinism.** Node ids come from a module counter, so they depend on earlier requests in the isolate. The projection renames every node depth-first (`n1`, `n2`, …) on its clone, with every id-keyed map and id-naming record (`mountId`) following; configuration ids already come from the bytes (the `.ork` configid, `rocksim-sim-N`, `rasaero-sim-N`) and are kept; `exportOrk` takes an optional id source (absent in the app, so app saves and share links keep random UUIDs) and the projection passes a counter. The global counter is never reset. Tests repeat identical describes around unrelated describes and flights in one isolate and compare the complete JSON and fragment.
 
-**Errors** (S1's `{ error: { code, message, importNote? } }` envelope, no stacks):
+**Errors** (S1's `{ error: { code, message, importNote? } }` envelope with the version stamp beside it, `{ error, appVersion, engine, catalogue }`; no stacks):
 
 | HTTP | code | when |
 | --- | --- | --- |
@@ -170,6 +172,8 @@ Example: `reference.ork` at app 0.195 (the fragment and link are truncated here;
 | 422 | `DESIGN_BUILD_FAILED` | the kernel will not build the design (with the import note); missing motors are not an error here |
 | 503 | `KERNEL_UNAVAILABLE` | poisoned instance, `Retry-After: 5` |
 | 500 | `INTERNAL_ERROR` | anything else: "The design could not be described." |
+
+Every row's body carries `appVersion`, `engine` and `catalogue` beside `error`.
 
 **Tests.** `describe.test.ts` runs in real local workerd (a normal and a fetch-trapped Worker): the three formats against a fresh Node `describeFile` oracle (non-time quantities at 1e-10 relative, the S1 tolerance; mounts, notes and the decoded fragment XML exactly, since deflate bytes may differ between runtimes), motorless/unmatched/cluster designs, ignored options, zero fetch attempts and zero timers, determinism around unrelated requests, overlapping describes and flights, a forced build refusal followed by success, the poisoned kernel, every error row above (`LINK_TOO_LARGE` for both the XML-byte and the fragment-character limit) and the body/stream/inflate/XML caps. `packages/app/src/services/describeFile.test.ts` holds the service in Node to the flight build's own dry figures, the Design tab's loaded-build Cd (1e-12 relative: same kernel, same tree), the fixture XML's tube walls, pod, strap-on, cluster, case-airframe and length-limit semantics, a share link written by release v0.100 (`__fixtures__/share-link-v0.100.txt`, made with that release's own code) decoding and describing like its source file, a fixed point through the fragment (the reopened fragment describes to the same analysis and mounts), motor-free inactive configurations, unchanged source state, id-independent projection and lock ordering. All on committed fixtures; the owner's 276 tester files are local-only and have NOT been run.
 
