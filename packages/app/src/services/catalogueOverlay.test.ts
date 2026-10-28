@@ -165,6 +165,19 @@ it('B.1 refuses a motors file whose count disagrees with the manifest\'s', async
   expect(getCatalogueOverlay()?.added.map(m => m.motorId)).toEqual(['a', 'b']);
 });
 
+// H1: planPublication writes a motors file only with rows, and dated as its
+// manifest entry; the app holds the file it reads to both.
+it('H1 refuses a motors file dated other than its manifest entry, and leaves storage as it was', async () => {
+  const rows = [row({ motorId: 'a' }), row({ motorId: 'b' })];
+  const generated = daysAfter(MOTOR_DB_DATE, 1);
+  const fetchImpl = stubCatalogue(rows, { motorsDoc: { generated: daysAfter(MOTOR_DB_DATE, 2), count: 2, motors: rows } });
+  await expect(checkForCatalogueUpdates({ force: true, fetchImpl })).rejects.toThrow(/motors file .* not used/);
+  expect(localStorage.getItem(OVERLAY_KEY)).toBeNull();
+  // Positive control: the same rows dated as the manifest says install.
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue(rows, { motorsDoc: { generated, count: 2, motors: rows } }) });
+  expect(getCatalogueOverlay()?.added.map(m => m.motorId)).toEqual(['a', 'b']);
+});
+
 it('S7c-b2 retains previous additions and changes when their maker is silent on the next check', async () => {
   const before = MOTOR_DB[0]!;
   const added = row({ motorId: 'previous-new', manufacturerAbbrev: before.manufacturerAbbrev });
@@ -264,10 +277,12 @@ it('B.4 a snapshot older than the shipped catalogue downloads nothing, removes n
   expect(skipped).toBeNull();
   expect(stored).toBe(true);
   expect([overlay.added, overlay.changed, overlay.removed]).toEqual([[], [], []]);
-  expect(overlay.snapshot?.id).toBe((await older.pub).id);
-  expect(overlay.snapshot?.generated).toBe(daysAfter(MOTOR_DB_DATE, -3));
+  // C (audit S5-2): the older snapshot is never recorded — the field is
+  // absent, not undefined, which rescreen would read as a bad snapshot.
+  expect(Object.hasOwn(overlay, 'snapshot')).toBe(false);
   expect(getCatalogue()).toBe(MOTOR_DB);
-  expect(loadStoredOverlay()?.snapshot?.id).toBe((await older.pub).id);
+  expect(Object.hasOwn(JSON.parse(localStorage.getItem(OVERLAY_KEY)!) as object, 'snapshot')).toBe(false);
+  expect(loadStoredOverlay()?.rejected).toEqual([]);
   // The throttle holds after it, and the next check costs one request.
   expect((await checkForCatalogueUpdates({ fetchImpl: older })).skipped).toBe('recent');
   await checkForCatalogueUpdates({ force: true, fetchImpl: older });
@@ -279,12 +294,45 @@ it('B.4 a snapshot older than the shipped catalogue downloads nothing, removes n
   expect(read.overlay.removed).toEqual([MOTOR_DB[0]!.motorId]);
 });
 
-it('B.4 an older snapshot keeps what an earlier check learned', async () => {
-  await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue([...MOTOR_DB, row({ motorId: 'learned' })]) });
+it('B.4 an older snapshot keeps what an earlier check learned, and the snapshot that check read', async () => {
+  const learnedFrom = stubCatalogue([...MOTOR_DB, row({ motorId: 'learned' })]);
+  await checkForCatalogueUpdates({ force: true, fetchImpl: learnedFrom });
   const { overlay } = await checkForCatalogueUpdates({ force: true,
-    fetchImpl: stubCatalogue([], { generated: daysAfter(MOTOR_DB_DATE, -1) }) });
+    fetchImpl: stubCatalogue([row({ motorId: 'older-only' })], { generated: daysAfter(MOTOR_DB_DATE, -1) }) });
   expect(overlay.added.map(m => m.motorId)).toEqual(['learned']);
   expect(getCatalogue().some(m => m.motorId === 'learned')).toBe(true);
+  // C: the newer snapshot the rows came from stays the active one.
+  expect(overlay.snapshot?.id).toBe((await learnedFrom.pub).id);
+  expect(loadStoredOverlay()?.snapshot?.id).toBe((await learnedFrom.pub).id);
+});
+
+// C: v0.196 stored the older ref, and its same-snapshot shortcut put it back
+// on every check (and would under a release that keeps MOTOR_DB_DATE).
+it('C an older ref an earlier check stored is dropped by the same-snapshot shortcut, and the rows are kept', async () => {
+  const older = stubCatalogue([row({ motorId: 'older-only' })], { generated: daysAfter(MOTOR_DB_DATE, -2) });
+  const p = await older.pub;
+  localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE, fetchedAt: '2026-01-01T00:00:00.000Z', liveCount: 1,
+    added: [row({ motorId: 'kept' })], changed: [], removed: [], rejected: [],
+    snapshot: { id: p.id, generated: p.generated, motorsSha256: p.entry.motors.sha256,
+      curves: { path: p.entry.curves.path, bytes: p.entry.curves.bytes, sha256: p.entry.curves.sha256 } } }));
+  const { overlay } = await checkForCatalogueUpdates({ force: true, fetchImpl: older });
+  expect(older).toHaveBeenCalledOnce();
+  expect(Object.hasOwn(overlay, 'snapshot')).toBe(false);
+  expect(overlay.added.map(m => m.motorId)).toEqual(['kept']);
+  expect(Object.hasOwn(JSON.parse(localStorage.getItem(OVERLAY_KEY)!) as object, 'snapshot')).toBe(false);
+  // Positive control: a newer snapshot still becomes the active one.
+  const newer = stubCatalogue([...MOTOR_DB, row({ motorId: 'kept' })]);
+  const read = await checkForCatalogueUpdates({ force: true, fetchImpl: newer });
+  expect(read.overlay.snapshot?.id).toBe((await newer.pub).id);
+});
+
+it('C an overlay a curated check wrote with no snapshot is described as the curated catalogue, not thrustcurve.org', async () => {
+  const { overlay } = await checkForCatalogueUpdates({ force: true,
+    fetchImpl: stubCatalogue([row({ motorId: 'older-only' })], { generated: daysAfter(MOTOR_DB_DATE, -2) }) });
+  expect(describeOverlay(overlay)[0]).toContain('curated catalogue checked');
+  expect(describeOverlay(overlay)[0]).not.toContain('thrustcurve.org');
+  // A pre-row-110 pull still reads as one.
+  expect(describeOverlay({ ...overlay, fetchedAt: `${daysAfter(MOTOR_DB_DATE, 1)}T00:00:00.000Z` })[0]).toContain('thrustcurve.org checked');
 });
 
 it('B.2 installs only the 18 catalogue fields of a row, and nothing a __proto__ or constructor key carries', async () => {

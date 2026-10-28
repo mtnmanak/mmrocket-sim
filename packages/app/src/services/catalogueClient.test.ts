@@ -94,6 +94,17 @@ describe('the manifest check', () => {
     expect(() => validatePreviousManifest(m)).toThrow();
   });
 
+  // H1: planPublication refuses a motors file with no rows, so a count of 0 is
+  // never published; the app refuses it too (validatePreviousManifest does not).
+  it.each(['current', 'older'] as const)('refuses a zero motor count in the %s snapshot', async (which) => {
+    const m = clone(await valid()) as Manifest;
+    m['snapshots'][which === 'current' ? 1 : 0].motors.count = 0;
+    expect(() => validateCatalogueManifest(m)).toThrow(/invalid counts or dates/);
+    // Positive control: a count of one is a catalogue.
+    m['snapshots'][which === 'current' ? 1 : 0].motors.count = 1;
+    expect(() => validateCatalogueManifest(m)).not.toThrow();
+  });
+
   it('refuses a missing manifest, which the publisher deliberately accepts (the one place the app is stricter)', () => {
     expect(() => validateCatalogueManifest(undefined)).toThrow(CatalogueError);
     expect(() => validateCatalogueManifest(null)).toThrow(CatalogueError);
@@ -180,6 +191,26 @@ describe('reading a file: bytes, then size, then sha, then parse', () => {
       .rejects.toThrow(/larger than the app accepts/);
     expect(fetchImpl).not.toHaveBeenCalled();
     // Positive control: the same file at its declared size is read.
+    await fetchCatalogueFile(pub.entry.motors, MOTORS_MAX_BYTES, 'motors file', { fetchImpl });
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  });
+
+  // E's sibling: the motors file of a check was downloaded whole (about
+  // 600 KB) before the missing hash refused it.
+  it('a browser that cannot hash is told so before any request', async () => {
+    await valid();
+    const fetchImpl = vi.fn(async () => new Response(pub.motorsBytes as Uint8Array<ArrayBuffer>));
+    const own = Object.getOwnPropertyDescriptor(globalThis.crypto, 'subtle');
+    Object.defineProperty(globalThis.crypto, 'subtle', { value: undefined, configurable: true });
+    try {
+      await expect(fetchCatalogueFile(pub.entry.motors, MOTORS_MAX_BYTES, 'motors file', { fetchImpl }))
+        .rejects.toThrow(/cannot check the catalogue's files/);
+    } finally {
+      if (own) Object.defineProperty(globalThis.crypto, 'subtle', own);
+      else delete (globalThis.crypto as { subtle?: unknown }).subtle;
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+    // Positive control: with the hash, the same file is read.
     await fetchCatalogueFile(pub.entry.motors, MOTORS_MAX_BYTES, 'motors file', { fetchImpl });
     expect(fetchImpl).toHaveBeenCalledOnce();
   });

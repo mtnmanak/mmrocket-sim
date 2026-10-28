@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MotorSpec } from '@online-openrocket/engine';
-import { findDbMotor, MOTOR_DB, type MotorDbEntry } from './motorDb.js';
+import { findDbMotor, getCatalogue, MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay, type MotorDbEntry } from './motorDb.js';
 import type { OrkMotorRef } from './orkFile.js';
 import {
   baseDesignation, stripDelay, loadCatalogueMotor, matchImportedMotor, mountMotorFromDb, refToExportMotor,
@@ -614,5 +614,131 @@ describe('imported EX library matching — @atestani, TRF #162, 2026-10-06', () 
       expect(result.motor?.meta.manufacturer).toBe('AeroTech');
       expect(result.openNote).not.toContain('Your imported EX motors');
     } finally { vi.unstubAllGlobals(); }
+  });
+});
+
+/**
+ * D (2026-10-28 audit): the first-visit starter (App.tsx) and the quick picks
+ * resolve their row, then wait for the curve. An automatic catalogue check
+ * that installs during that wait changed the row; the motor landed with the
+ * pre-check row, and App, which works out the check's notice from the motors
+ * loaded when the result arrives, said nothing.
+ */
+describe('loadCatalogueMotor while the catalogue changes under it', () => {
+  afterEach(() => setCatalogueOverlay(null));
+  const c6 = (): MotorDbEntry => MOTOR_DB.find(m => m.manufacturerAbbrev === 'Estes' && m.designation === 'C6')!;
+  const changing = (after: MotorDbEntry) => setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE,
+    fetchedAt: new Date().toISOString(), liveCount: MOTOR_DB.length, added: [], removed: [], rejected: [],
+    changed: [{ motorId: after.motorId, before: c6(), after, fields: ['propInfo'] }] });
+  /** fetchSpec whose first call waits for `release`, as a curve chunk still loading does. */
+  const deferred = () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const fetchSpec = vi.fn(async (motor: MotorDbEntry, delay: number) => {
+      if (fetchSpec.mock.calls.length === 1) await gate;
+      return spec(motor.designation, delay);
+    });
+    return { fetchSpec, release: () => release() };
+  };
+
+  it('a check that changes the row during the wait: the motor carries the row after the change', async () => {
+    const after = { ...c6(), propInfo: 'post-check propellant' };
+    const { fetchSpec, release } = deferred();
+    const pending = loadCatalogueMotor('Estes', 'C6', 5, { fetchSpec });
+    changing(after);
+    release();
+    const motor = (await pending)!;
+    expect(motor.meta.propellant).toBe('post-check propellant');
+    expect(fetchSpec).toHaveBeenCalledTimes(2);
+    expect(fetchSpec.mock.calls[1]![0]).toEqual(after);
+  });
+
+  it('a check that installs during the wait without touching the row: one curve load, the same row', async () => {
+    const { fetchSpec, release } = deferred();
+    const before = getCatalogue();
+    const pending = loadCatalogueMotor('Estes', 'C6', 5, { fetchSpec });
+    changing({ ...MOTOR_DB.find(m => m.motorId !== c6().motorId)!, propInfo: 'another motor' });
+    expect(getCatalogue()).not.toBe(before);
+    release();
+    const motor = (await pending)!;
+    expect(fetchSpec).toHaveBeenCalledOnce();
+    expect(motor.meta.propellant).toBe(c6().propInfo);
+  });
+
+  it('an unchanged catalogue: exactly one curve load', async () => {
+    const { fetchSpec, release } = deferred();
+    const pending = loadCatalogueMotor('Estes', 'C6', 5, { fetchSpec });
+    release();
+    expect((await pending)!.meta.propellant).toBe(c6().propInfo);
+    expect(fetchSpec).toHaveBeenCalledOnce();
+  });
+
+  it('a caller that passes its own catalogue keeps the row it resolved there', async () => {
+    const { fetchSpec, release } = deferred();
+    const pending = loadCatalogueMotor('Estes', 'C6', 5, { fetchSpec, catalogue: MOTOR_DB });
+    changing({ ...c6(), propInfo: 'post-check propellant' });
+    release();
+    expect((await pending)!.meta.propellant).toBe(c6().propInfo);
+    expect(fetchSpec).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * D's sibling (owner, 2026-10-28): opening a design resolves each motor's
+ * row, then waits for its curve; an automatic check that installs during the
+ * wait left the opened motor on the pre-check row, as it did the starter.
+ */
+describe('matchImportedMotor while the catalogue changes under it', () => {
+  afterEach(() => setCatalogueOverlay(null));
+  const c6 = (): MotorDbEntry => MOTOR_DB.find(m => m.manufacturerAbbrev === 'Estes' && m.designation === 'C6')!;
+  const changing = (after: MotorDbEntry) => setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE,
+    fetchedAt: new Date().toISOString(), liveCount: MOTOR_DB.length, added: [], removed: [], rejected: [],
+    changed: [{ motorId: after.motorId, before: MOTOR_DB.find(m => m.motorId === after.motorId)!, after, fields: ['propInfo'] }] });
+  const deferred = () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const fetchSpec = vi.fn(async (motor: MotorDbEntry, delay: number) => {
+      if (fetchSpec.mock.calls.length === 1) await gate;
+      return spec(motor.designation, delay);
+    });
+    return { fetchSpec, release: () => release() };
+  };
+
+  it('a check that changes the row during the wait: the opened motor carries the row after the change', async () => {
+    const after = { ...c6(), propInfo: 'post-check propellant' };
+    const { fetchSpec, release } = deferred();
+    const pending = matchImportedMotor(ref(), { fetchSpec, exMotors: [] });
+    changing(after);
+    release();
+    const result = await pending;
+    expect(result.motor?.meta.propellant).toBe('post-check propellant');
+    expect(fetchSpec).toHaveBeenCalledTimes(2);
+    expect(fetchSpec.mock.calls[1]![0]).toEqual(after);
+  });
+
+  it('a check that installs during the wait without touching the row: one curve load', async () => {
+    const { fetchSpec, release } = deferred();
+    const pending = matchImportedMotor(ref(), { fetchSpec, exMotors: [] });
+    changing({ ...MOTOR_DB.find(m => m.motorId !== c6().motorId)!, propInfo: 'another motor' });
+    release();
+    expect((await pending).motor?.meta.propellant).toBe(c6().propInfo);
+    expect(fetchSpec).toHaveBeenCalledOnce();
+  });
+
+  it('an unchanged catalogue: exactly one curve load', async () => {
+    const { fetchSpec, release } = deferred();
+    const pending = matchImportedMotor(ref(), { fetchSpec, exMotors: [] });
+    release();
+    expect((await pending).motor?.meta.propellant).toBe(c6().propInfo);
+    expect(fetchSpec).toHaveBeenCalledOnce();
+  });
+
+  it('a caller that passes its own catalogue (a headless open) keeps the row it resolved there', async () => {
+    const { fetchSpec, release } = deferred();
+    const pending = matchImportedMotor(ref(), { fetchSpec, exMotors: [], catalogue: MOTOR_DB });
+    changing({ ...c6(), propInfo: 'post-check propellant' });
+    release();
+    expect((await pending).motor?.meta.propellant).toBe(c6().propInfo);
+    expect(fetchSpec).toHaveBeenCalledOnce();
   });
 });

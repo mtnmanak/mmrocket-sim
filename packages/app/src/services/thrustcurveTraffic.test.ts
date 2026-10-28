@@ -55,6 +55,39 @@ it.each(['timeout', '503'] as const)('S7d-g6 retains a governing 429 refusal aft
   expect(traffic.thrustcurveBackoffMessage()).toContain('not answering');
 });
 
+// Audit S5-4: batchSweep fetches in parallel, so a 200 sent BEFORE another
+// request's 429 can land after it. Only a request sent after a window opened
+// says anything about that window.
+it('a 200 to a request sent before a 429 window opened leaves the window standing', async () => {
+  vi.useFakeTimers();
+  let finishA!: (response: Response) => void;
+  const a = traffic.thrustcurveFetch(() => new Promise(resolve => { finishA = resolve; }))('https://www.thrustcurve.org/api/v1/download.json');
+  await vi.advanceTimersByTimeAsync(1);
+  await traffic.thrustcurveFetch(async () => response({}, 429, { 'Retry-After': '1800' }))('https://www.thrustcurve.org/api/v1/download.json');
+  finishA(response({ results: [] }));
+  await a;
+  expect(traffic.thrustcurveBackoffMessage()).toContain('refusing requests');
+  expect(traffic.thrustcurveBackoffMessage()).toContain('30 minutes');
+  expect(() => traffic.assertThrustcurveAvailable()).toThrow(traffic.ThrustcurveBackoffError);
+  const blocked = vi.fn(async () => response({ results: [] }));
+  await expect(traffic.thrustcurveFetch(blocked)('https://www.thrustcurve.org/api/v1/download.json')).rejects.toThrow(/refusing requests/);
+  expect(blocked).not.toHaveBeenCalled();
+});
+
+// No request passes assertThrustcurveAvailable while a window is open, so the
+// only request "sent after" a window is one sent once it has passed.
+it('positive control: a request sent after the window opened, once it allows one, goes through and clears it', async () => {
+  vi.useFakeTimers();
+  await traffic.thrustcurveFetch(async () => response({}, 429, { 'Retry-After': '60' }))('https://www.thrustcurve.org/api/v1/download.json');
+  expect(traffic.thrustcurveBackoffMessage()).toContain('refusing requests');
+  await vi.advanceTimersByTimeAsync(60_000);
+  const sent = vi.fn(async () => response({ results: [] }));
+  await traffic.thrustcurveFetch(sent)('https://www.thrustcurve.org/api/v1/download.json');
+  expect(sent).toHaveBeenCalledOnce();
+  expect(traffic.thrustcurveBackoffMessage()).toBe('');
+  expect(() => traffic.assertThrustcurveAvailable()).not.toThrow();
+});
+
 it.each([undefined, '60', '600'])('retains the active 429 reason with Retry-After %s when a later failure extends the pause', async retryAfter => {
   vi.useFakeTimers();
   let finish!: (response: Response) => void;
@@ -338,7 +371,9 @@ it('the test-only reset isolates a previous request failure', async () => {
   expect(() => traffic.assertThrustcurveAvailable()).not.toThrow();
 });
 
-it('a success already in flight closes a breaker opened by another request', async () => {
+// Until audit S5-4 this success closed the breaker: it was sent before the
+// 503 opened it, so it says nothing about the window.
+it('a success already in flight does not close a breaker another request opened after it was sent', async () => {
   let resolve!: (value: Response) => void;
   const wrapped = traffic.thrustcurveFetch(vi.fn(() => new Promise<Response>((r) => { resolve = r; })));
   const inFlight = wrapped('https://www.thrustcurve.org/api/v1/metadata.json');
@@ -347,7 +382,7 @@ it('a success already in flight closes a breaker opened by another request', asy
   expect(() => traffic.assertThrustcurveAvailable()).toThrow(/about 10 minutes/);
   resolve(response({}));
   await inFlight;
-  expect(() => traffic.assertThrustcurveAvailable()).not.toThrow();
+  expect(() => traffic.assertThrustcurveAvailable()).toThrow(/about 10 minutes/);
 });
 
 it('does not remember malformed answers or open the breaker for HTTP 404', async () => {
@@ -497,15 +532,17 @@ it.each([null, { totalWeightG: 2000, propWeightG: 1000 }])('flies legacy cached 
   expect(fetcher).toHaveBeenCalledOnce();
 });
 
-it('keeps legacy cached masses ahead of the bundle while the breaker is open', async () => {
+// Until audit S5-3 the entry flew ahead of the bundle; it is kept, and the
+// loaded bundle flies, with the breaker open or not.
+it('keeps legacy cached masses while the breaker is open, and flies the bundle over them', async () => {
   const bundled = db.MOTOR_DB.find(m => m.designation === 'C6' && m.manufacturerAbbrev === 'Estes')!;
-  await tc.fetchMotorSpec(bundled, 5, undefined, { bundleOnly: true });
+  const shipped = await tc.fetchMotorSpec(bundled, 5, undefined, { bundleOnly: true });
   const fetcher = vi.fn(async () => response({}, 503));
   vi.stubGlobal('fetch', fetcher);
   await miss(tc.fetchMotorSpec(motor, 5));
   const key = 'tc:samples:v7:' + bundled.motorId;
   localStorage.setItem(key, JSON.stringify({ samples, masses: { totalWeightG: 2000, propWeightG: 1000 } }));
-  expect((await tc.fetchMotorSpec(bundled, 5)).masses[0]).toBeCloseTo(2, 12);
+  expect(await tc.fetchMotorSpec(bundled, 5)).toStrictEqual(shipped);
   expect(localStorage.getItem(key)).not.toBeNull();
   expect(fetcher).toHaveBeenCalledOnce();
 });

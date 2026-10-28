@@ -7,7 +7,7 @@ import { baseDesignation } from './motorMatch.js';
 import { NetError } from './net.js';
 import { validCatalogueDate } from './thrustcurve.js';
 import {
-  CatalogueError, MOTORS_MAX_BYTES, fetchCatalogueFile, fetchCatalogueManifest, validSnapshotRef,
+  CatalogueError, MOTORS_MAX_BYTES, fetchCatalogueFile, fetchCatalogueManifest, isThrustcurvePull, validSnapshotRef,
   type CatalogueSnapshotRef, type ManifestSnapshot,
 } from './catalogueClient.js';
 import { correctMotorRow } from '../../scripts/motor-corrections.mjs';
@@ -341,8 +341,10 @@ async function readSnapshotMotors(current: ManifestSnapshot, opts: { signal: Abo
   const doc = await fetchCatalogueFile(current.motors, MOTORS_MAX_BYTES, 'motors file', opts);
   const unreadable = (why: string): never => { throw new CatalogueError('shape', `The catalogue's motors file ${why}, so it was not used.`); };
   if (!object(doc) || !Array.isArray(doc['motors'])) return unreadable('has no motor list');
+  // Dated as its manifest entry, and not empty: what planPublication writes.
+  if (doc['generated'] !== current.motors.generated) return unreadable('is not dated as its manifest entry');
   const rows = doc['motors'] as unknown[];
-  if (rows.length !== doc['count'] || rows.length !== current.motors.count) return unreadable('does not hold the number of motors it states');
+  if (!rows.length || rows.length !== doc['count'] || rows.length !== current.motors.count) return unreadable('does not hold the number of motors it states');
   const ids = new Set<string>();
   for (const m of rows) {
     if (!object(m) || typeof m['motorId'] !== 'string' || !m['motorId'] || ids.has(m['motorId'])) {
@@ -419,20 +421,28 @@ export async function checkForCatalogueUpdates(
       return { overlay, skipped: null, stored, silent };
     };
     const checkedAt = new Date(now()).toISOString();
+    // A snapshot OLDER than the shipped catalogue (a release built from a
+    // refresh that was never published): this build already knows better.
+    // Download nothing and remove nothing; record the check, so the throttle
+    // holds and the next check costs one request. Ahead of the same-snapshot
+    // shortcut below, which put back an older ref an earlier check stored.
+    //
+    // The older snapshot is not recorded (2026-10-28, audit S5-2): its curves
+    // file would answer for motors the build knows better (thrustcurve.ts
+    // activeSnapshot ignores one regardless). A previous snapshot that is not
+    // older is kept, with the rows it gave (113-9c); otherwise the field is
+    // left out — rescreen reads a present `snapshot: undefined` as a bad one.
+    if (manifest.motors.generated < MOTOR_DB_DATE) {
+      const { snapshot: kept, ...rows } = previous ?? { baseGenerated: MOTOR_DB_DATE, added: [], changed: [], removed: [], rejected: [] };
+      return install({
+        ...rows, fetchedAt: checkedAt, liveCount: manifest.motors.count,
+        ...(validSnapshotRef(kept) && kept.generated >= MOTOR_DB_DATE ? { snapshot: kept } : {}),
+      });
+    }
     // The same snapshot as last time: nothing to download, and nothing changes
     // but the date the throttle runs from.
     if (previous?.snapshot?.id === snapshot.id && previous.snapshot.motorsSha256 === snapshot.motorsSha256) {
       return install({ ...previous, fetchedAt: checkedAt, snapshot });
-    }
-    // A snapshot OLDER than the shipped catalogue (a release built from a
-    // refresh that was never published): this build already knows better.
-    // Download nothing and remove nothing; record the check, so the throttle
-    // holds and the next check costs one request.
-    if (manifest.motors.generated < MOTOR_DB_DATE) {
-      return install({
-        ...(previous ?? { baseGenerated: MOTOR_DB_DATE, added: [], changed: [], removed: [], rejected: [] }),
-        fetchedAt: checkedAt, liveCount: manifest.motors.count, snapshot,
-      });
     }
     let live: MotorDbEntry[];
     try {
@@ -521,7 +531,7 @@ export function describeOverlay(o: CatalogueOverlay, units: UnitSelection = INIT
   const lines: string[] = [];
   lines.push(`${o.added.length} new, ${o.changed.length} changed, ${o.removed.length} no longer listed`
     + (o.rejected.length ? `, ${o.rejected.length} refused as implausible` : '')
-    + ` — ${o.snapshot ? `curated catalogue ${o.snapshot.id}` : 'thrustcurve.org'} checked ${o.fetchedAt ? o.fetchedAt.slice(0, 10) : "on an unknown date"} against the catalogue of ${o.baseGenerated}.`);
+    + ` — ${o.snapshot ? `curated catalogue ${o.snapshot.id}` : isThrustcurvePull(o) ? 'thrustcurve.org' : 'curated catalogue'} checked ${o.fetchedAt ? o.fetchedAt.slice(0, 10) : "on an unknown date"} against the catalogue of ${o.baseGenerated}.`);
   for (const c of o.changed.slice(0, 12)) {
     const parts = c.fields.map((f) => {
       const a = field(c.before, f); const b = field(c.after, f);

@@ -49,9 +49,9 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.doUnmock('../d
 /** A snapshot whose curves file holds `curves`, installed as the active overlay; fetch serves it, and refuses thrustcurve.org with `tcAnswer`. */
 async function install(curves: Record<string, unknown[]>, opts: {
   added?: MotorDbEntry[]; changed?: CatalogueOverlay['changed']; fetchedAt?: string; curvesDoc?: unknown;
-  curvesAnswer?: () => Response | Promise<Response>; tcAnswer?: () => Response;
+  curvesAnswer?: () => Response | Promise<Response>; tcAnswer?: () => Response | Promise<Response>; generated?: string;
 } = {}): Promise<{ pub: Publication; overlay: CatalogueOverlay }> {
-  const generated = daysAfter(db.MOTOR_DB_DATE, 2);
+  const generated = opts.generated ?? daysAfter(db.MOTOR_DB_DATE, 2);
   const pub = await publication(`${generated}.2`, db.MOTOR_DB, curves, opts.curvesDoc !== undefined ? { curvesDoc: opts.curvesDoc } : {});
   const serve = catalogueFetch(manifestOf(pub), [pub], opts.curvesAnswer ? { [pub.entry.curves.path]: opts.curvesAnswer } : {});
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -73,6 +73,9 @@ const legacy = (fetchedAt: string, added: MotorDbEntry[] = []) => db.setCatalogu
   baseGenerated: db.MOTOR_DB_DATE, fetchedAt, liveCount: 0, added, changed: [], removed: [], rejected: [] });
 const miss = (p: Promise<unknown>): Promise<Error> => p.then(() => { throw new Error('expected rejection'); }, (e: unknown) => e as Error);
 const thrusts = async (m: TcMotor, opts?: Parameters<Client['fetchMotorSpec']>[3]) => (await tc.fetchMotorSpec(m, 5, undefined, opts)).thrusts;
+/** E: the failure for a curves file that could not be read — never "none exists". */
+const unreadable = (err: Error): boolean => !(err instanceof tc.NoPublishedCurveError)
+  && /^The curated catalogue's curves file, the only source of a curve for .+, could not be read\./.test(err.message);
 
 describe('an added motor', () => {
   it('flies the snapshot file\'s curve, with no thrustcurve.org request, and the file is read once', async () => {
@@ -142,11 +145,14 @@ describe('a shipped motor with no bundled curve (D.7)', () => {
     expect(catalogueRequests).toEqual([]);
   });
 
-  it('stays "no published curve" with no thrustcurve.org request when the file cannot be fetched, and the next use asks the catalogue again', async () => {
+  // E (audit S5-1): a file that could not be read says nothing about the
+  // motor. Until the fix this was NoPublishedCurveError, "publishes none".
+  it('is "could not be read", not "no published curve", with no thrustcurve.org request when the file cannot be fetched, and the next use asks the catalogue again', async () => {
     let up = false;
     await install({ [curveless.motorId]: [file(55)] }, { curvesAnswer: () => up ? fetchedCurves() : Promise.reject(new TypeError('Failed to fetch')) });
     let fetchedCurves!: () => Response;
-    expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(unreadable(await miss(tc.fetchMotorSpec(curveless, 5)))).toBe(true);
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
     expect(tcRequests).toEqual([]);
     expect(catalogueRequests).toHaveLength(1);
     // A network failure is not remembered: the next pick asks again.
@@ -199,11 +205,14 @@ describe('the curves file is checked before anything flies from it', () => {
       curvesAnswer: () => new Response(other.curvesBytes.slice(0, pub.curvesBytes.length) as Uint8Array<ArrayBuffer>),
     });
     expect(other.curvesBytes.length).toBe(pub.curvesBytes.length);
-    expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    const err = await miss(tc.fetchMotorSpec(curveless, 5));
+    expect(unreadable(err)).toBe(true);
+    expect(err.message).toContain('does not match its manifest');
     await miss(tc.fetchMotorSpec(addedMotor, 5));
     expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
     expect(catalogueRequests).toHaveLength(1);
-    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(true);
+    // A refusal alone is not "none exists" (E).
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
   });
 
   it.each([
@@ -219,7 +228,8 @@ describe('the curves file is checked before anything flies from it', () => {
       ...('curves' in doc && doc.curves === 'GOOD' ? { curves: good } : {}) };
     await install({}, { added: [addedMotor], curvesDoc });
     await miss(tc.fetchMotorSpec(addedMotor, 5));
-    expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(unreadable(await miss(tc.fetchMotorSpec(curveless, 5)))).toBe(true);
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
     expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
     expect(catalogueRequests).toHaveLength(1);
   });
@@ -235,6 +245,23 @@ describe('the curves file is checked before anything flies from it', () => {
     expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
     await miss(tc.fetchMotorSpec(addedMotor, 5));
     expect(tcRequests).toHaveLength(1);
+  });
+
+  // H1: planPublication publishes only a complete curves file.
+  it.each([false, undefined])('refuses a curves file whose complete is %s: an added motor flies nothing from it', async (complete) => {
+    const generated = daysAfter(db.MOTOR_DB_DATE, 2);
+    const curves = { [addedMotor.motorId]: [file(40)] };
+    const curvesDoc = { generated, catalogueGenerated: generated, ...(complete === undefined ? {} : { complete }), motors: 1, files: 1, curves };
+    await install({}, { added: [addedMotor], curvesDoc });
+    await miss(tc.fetchMotorSpec(addedMotor, 5));
+    expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
+    expect(catalogueRequests).toHaveLength(1);
+    // Positive control: the same file, complete, flies.
+    vi.resetModules();
+    tc = await import('./thrustcurve.js');
+    db = await import('./motorDb.js');
+    await install({}, { added: [addedMotor], curvesDoc: { ...curvesDoc, complete: true } });
+    expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(40, 9);
   });
 
   it('keeps the good file of a motor beside a bad one', async () => {
@@ -316,5 +343,215 @@ describe('a shipped motor the bundle lists never reads the snapshot file, even w
     await miss(tc.fetchMotorSpec(listed, 5));
     expect(catalogueRequests).toEqual([]);
     expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
+  });
+});
+
+describe('E: a curves file that was not read is "could not be read", never "none exists" (audit S5-1)', () => {
+  it.each([
+    ['an HTTP 503', () => new Response('down', { status: 503 })],
+    ['a dropped connection', () => Promise.reject(new TypeError('Failed to fetch'))],
+  ])('%s: the unreadable error, zero thrustcurve.org requests, knownNoPublishedCurve false', async (_name, answer) => {
+    await install({ [curveless.motorId]: [file(55)] }, { curvesAnswer: answer });
+    const err = await miss(tc.fetchMotorSpec(curveless, 5));
+    expect(unreadable(err)).toBe(true);
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
+    expect(tcRequests).toEqual([]);
+  });
+
+  it('a browser with no crypto.subtle: the unreadable error, no download at all, and not remembered as refused', async () => {
+    await install({ [curveless.motorId]: [file(55)] });
+    // An own property over the prototype's getter, removed again below.
+    const own = Object.getOwnPropertyDescriptor(globalThis.crypto, 'subtle');
+    Object.defineProperty(globalThis.crypto, 'subtle', { value: undefined, configurable: true });
+    try {
+      const err = await miss(tc.fetchMotorSpec(curveless, 5));
+      expect(unreadable(err)).toBe(true);
+      expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
+      // Checked before the download: no file is fetched only to fail at the hash.
+      expect(catalogueRequests).toEqual([]);
+      expect(tcRequests).toEqual([]);
+    } finally {
+      if (own) Object.defineProperty(globalThis.crypto, 'subtle', own);
+      else delete (globalThis.crypto as { subtle?: unknown }).subtle;
+    }
+    expect(globalThis.crypto.subtle).toBeDefined();
+    // Not refused for the session: with the hash back, the next use reads the file.
+    expect(Math.max(...await thrusts(curveless))).toBeCloseTo(55, 9);
+    expect(catalogueRequests).toHaveLength(1);
+  });
+
+  it('a file that was read and lacks the motor is still "no published curve" (positive control)', async () => {
+    await install({});
+    expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(true);
+  });
+
+  it('an added motor whose file cannot be read still falls through to the download', async () => {
+    await install({ [addedMotor.motorId]: [file(40)] }, { added: [addedMotor], curvesAnswer: () => new Response('down', { status: 503 }),
+      tcAnswer: () => new Response(JSON.stringify({ results: [{ format: 'RASP', source: 'cert', samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 33 }, { time: 1, thrust: 0 }] }] })) });
+    expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(33, 9);
+    expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
+  });
+
+  it('the open\'s note is the "could not be loaded" form, never "publishes none"', async () => {
+    await install({ [curveless.motorId]: [file(55)] }, { curvesAnswer: () => new Response('down', { status: 503 }) });
+    const { matchImportedMotor } = await import('./motorMatch.js');
+    const result = await matchImportedMotor({ designation: curveless.designation, manufacturer: curveless.manufacturerAbbrev,
+      diameter: curveless.diameter / 1000, length: curveless.length / 1000, delay: 5 }, { findDb: () => curveless });
+    expect(result.note).toContain('its thrust curve could not be loaded');
+    expect(result.note).not.toContain('publishes none');
+    expect(result.missing).toBeUndefined();
+    expect(tcRequests).toEqual([]);
+  });
+});
+
+describe('C: a snapshot older than the build is never active (audit S5-2)', () => {
+  it('an older stored ref reads no curves file: a curveless shipped motor is the bundle\'s "none", an added one downloads', async () => {
+    await install({ [curveless.motorId]: [file(55)], [addedMotor.motorId]: [file(40)] },
+      { added: [addedMotor], generated: daysAfter(db.MOTOR_DB_DATE, -3) });
+    expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(true);
+    await miss(tc.fetchMotorSpec(addedMotor, 5));
+    expect(catalogueRequests).toEqual([]);
+    expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
+  });
+
+  it('positive control: a snapshot dated the shipped catalogue\'s day is active', async () => {
+    await install({ [curveless.motorId]: [file(55)] }, { generated: db.MOTOR_DB_DATE });
+    expect(Math.max(...await thrusts(curveless))).toBeCloseTo(55, 9);
+    expect(catalogueRequests).toHaveLength(1);
+  });
+
+  /**
+   * The trap: with no active snapshot an overlay looks like a pre-row-110
+   * thrustcurve.org pull, whose date is its check time — and the automatic
+   * check rewrites that every six hours. Two real checks against an older
+   * snapshot, an added motor kept from before, and a curveless shipped motor.
+   */
+  it('two checks against an older snapshot: zero requests for a curveless shipped motor, and the no-curve date does not move', async () => {
+    const catalogue = await import('./catalogueOverlay.js');
+    const older = daysAfter(db.MOTOR_DB_DATE, -3);
+    const pub = await publication(`${older}.2`, db.MOTOR_DB.slice(0, 1), { [curveless.motorId]: [file(55)], [addedMotor.motorId]: [file(40)] });
+    const serve = catalogueFetch(manifestOf(pub), [pub]);
+    const fetchImpl = vi.fn(serve);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith(CATALOGUE_BASE)) { catalogueRequests.push(String(input)); return serve(input, init); }
+      tcRequests.push(String(input));
+      return new Response(JSON.stringify({ results: [] }));
+    }));
+    // What an earlier check learned: a motor it added.
+    localStorage.setItem(catalogue.OVERLAY_KEY, JSON.stringify({ baseGenerated: db.MOTOR_DB_DATE,
+      fetchedAt: new Date().toISOString(), liveCount: 1, added: [addedMotor], changed: [], removed: [], rejected: [] }));
+    let now = Date.now() + 7 * 3_600_000;
+    const dates: string[] = [];
+    for (let check = 0; check < 2; check++) {
+      const { overlay } = await catalogue.checkForCatalogueUpdates({ fetchImpl, now: () => now });
+      expect(Object.hasOwn(overlay, 'snapshot')).toBe(false);
+      expect(overlay.added.map(m => m.motorId)).toEqual([addedMotor.motorId]);
+      expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+      await miss(tc.fetchMotorSpec(addedMotor, 5));
+      dates.push((JSON.parse(localStorage.getItem(NO_CURVE_KEY)!) as Record<string, string>)[addedMotor.motorId]!);
+      now += 7 * 3_600_000;
+    }
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(dates).toEqual([db.MOTOR_DB_DATE, db.MOTOR_DB_DATE]);
+    // The added motor asked thrustcurve.org once, the curveless one never.
+    expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
+    expect(catalogueRequests.filter(u => u.endsWith('motorCurves.json'))).toEqual([]);
+  });
+
+  it('an added motor whose snapshot is gone flies its cached curve, offline too', async () => {
+    const { overlay } = await install({ [addedMotor.motorId]: [file(40)] }, { added: [addedMotor] });
+    expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(40, 9);
+    db.setCatalogueOverlay({ ...overlay, snapshot: { ...overlay.snapshot!, generated: daysAfter(db.MOTOR_DB_DATE, -1) } });
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch'); }));
+    expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(40, 9);
+  });
+});
+
+describe('A: a warm cache does not beat the file a desktop digest names (no bundled file)', () => {
+  /** Two files of one motor; `named` is the one a desktop .ork's digest names, not the usual pick. */
+  const usualFile = () => file(40, { simfileId: 'sf-usual', samples: [[0, 0], [0.1, 40], [0.5, 20], [1, 0], [1.2, 0]], digests: ['a'.repeat(32)] });
+  const namedFile = () => file(77, { simfileId: 'sf-named', source: 'user', digests: ['b'.repeat(32)] });
+  const NAMED = 'b'.repeat(32);
+  const cases = (): [string, MotorDbEntry, { added?: MotorDbEntry[] }][] =>
+    [['an added motor', addedMotor, { added: [addedMotor] }], ['a curveless shipped motor', curveless, {}]];
+
+  it.each([0, 1])('%#: plain first, then the digest: the named file flies', async (which) => {
+    const [, motor, extra] = cases()[which]!;
+    await install({ [motor.motorId]: [usualFile(), namedFile()] }, extra);
+    expect(Math.max(...await thrusts(motor))).toBeCloseTo(40, 9);
+    expect(localStorage.getItem(`tc:samples:v7:${motor.motorId}`)).not.toBeNull();
+    expect(Math.max(...await thrusts(motor, { digest: NAMED }))).toBeCloseTo(77, 9);
+    expect(tc.lastCurveFiles(motor.motorId)).toMatchObject({ origin: 'snapshot', digest: { value: NAMED, named: 'flown' } });
+    expect(tcRequests).toEqual([]);
+  });
+
+  it.each([0, 1])('%#: offline (navigator.onLine false) the cached curve flies at once, and the fallback is recorded', async (which) => {
+    const [, motor, extra] = cases()[which]!;
+    await install({ [motor.motorId]: [usualFile(), namedFile()] }, extra);
+    await thrusts(motor);
+    // A fresh page load: the file is no longer held in memory.
+    vi.resetModules();
+    tc = await import('./thrustcurve.js');
+    db = await import('./motorDb.js');
+    await install({ [motor.motorId]: [usualFile(), namedFile()] }, extra);
+    vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    expect(Math.max(...await thrusts(motor, { digest: NAMED }))).toBeCloseTo(40, 9);
+    expect(catalogueRequests).toHaveLength(1);
+    expect(tc.lastCurveFiles(motor.motorId)).toMatchObject({ origin: 'cache', cacheFallback: 'offline', digest: { value: NAMED, named: 'unknown' } });
+  });
+
+  it('a legacy-overlay added motor (the download path): plain first, then the digest: the named file flies', async () => {
+    const asDownload = (f: ReturnType<typeof file>) => ({ ...f, samples: f.samples.map(([time, thrust]) => ({ time, thrust })) });
+    legacy(`${daysAfter(db.MOTOR_DB_DATE, 1)}T00:00:00.000Z`, [addedMotor]);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      tcRequests.push(String(input));
+      return new Response(JSON.stringify({ results: [asDownload(usualFile()), asDownload(namedFile())] }));
+    }));
+    expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(40, 9);
+    expect(Math.max(...await thrusts(addedMotor, { digest: NAMED }))).toBeCloseTo(77, 9);
+    expect(tcRequests).toHaveLength(2);
+    expect(tc.lastCurveFiles(addedMotor.motorId)).toMatchObject({ origin: 'download', digest: { named: 'flown' } });
+  });
+
+  it('a digest the cached file carries flies from the cache with no request', async () => {
+    await install({ [addedMotor.motorId]: [usualFile(), namedFile()] }, { added: [addedMotor] });
+    await thrusts(addedMotor);
+    vi.resetModules();
+    tc = await import('./thrustcurve.js');
+    db = await import('./motorDb.js');
+    await install({ [addedMotor.motorId]: [usualFile(), namedFile()] }, { added: [addedMotor] });
+    expect(Math.max(...await thrusts(addedMotor, { digest: 'a'.repeat(32) }))).toBeCloseTo(40, 9);
+    expect(catalogueRequests).toHaveLength(1);
+    expect(tc.lastCurveFiles(addedMotor.motorId)).toMatchObject({ origin: 'cache', cachedFrom: 'snapshot', digest: { named: 'flown' } });
+  });
+});
+
+describe('B: a cached curve never beats a curve the loaded bundle has (audit S5-3, 113-9b, 113-16e)', () => {
+  const hot = (m: MotorDbEntry, over: Record<string, unknown> = {}) => localStorage.setItem(`tc:samples:v7:${m.motorId}`, JSON.stringify({
+    samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 999 }, { time: 1, thrust: 0 }], masses: null, massParser: 1, t: 1, ...over }));
+  const shipped = async () => tc.samplesToMotorSpec(bundled, tc.pickSampleFile(await tc.bundledFiles(bundled.motorId), bundled)!.samples!, 5,
+    tc.headerMasses(tc.pickSampleFile(await tc.bundledFiles(bundled.motorId), bundled)!));
+
+  it.each([
+    ['a snapshot-written entry', { origin: 'snapshot' }], ['a download-written entry', { origin: 'download' }], ['an untagged (v0.196) entry', {}],
+  ])('%s for a motor a later release bundles: the bundle flies, with no request and no read of the curves file', async (_name, tag) => {
+    await install({ [bundled.motorId]: [file(999)] }, { added: [bundled] });
+    hot(bundled, tag);
+    const flown = await tc.fetchMotorSpec(bundled, 5);
+    expect(flown.thrusts).toEqual((await shipped()).thrusts);
+    expect(catalogueRequests).toEqual([]);
+    expect(tcRequests).toEqual([]);
+    expect(tc.lastCurveFiles(bundled.motorId)).toMatchObject({ origin: 'bundle' });
+  });
+
+  it('lane 16\'s case: a bundled motor, a digest that names none of its files, and a cache entry: the bundle\'s pick', async () => {
+    hot(bundled);
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => { tcRequests.push(String(input)); return new Response('{}'); }));
+    const flown = await tc.fetchMotorSpec(bundled, 5, undefined, { digest: 'c'.repeat(32) });
+    expect(flown.thrusts).toEqual((await shipped()).thrusts);
+    expect(tcRequests).toEqual([]);
+    expect(tc.lastCurveFiles(bundled.motorId)).toMatchObject({ origin: 'bundle', digest: { named: 'absent' } });
   });
 });

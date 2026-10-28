@@ -324,9 +324,12 @@ describe('simulateFile reads the shipped data only', () => {
     const again = await simulateImported(cloneParsed(parsed));
     expect(comparable(again.run)).toStrictEqual(comparable(plain.run));
     expect(localStorage.getItem(key)).not.toBeNull();
-    // The app's own path WOULD fly the cached curve — else this proves nothing.
+    // Since audit S5-3 the app's own path flies the loaded bundle over that
+    // entry too; that the bundle-only read never reads the cache at all is
+    // held where an entry is all there is (thrustcurve.fetch.test.ts,
+    // "fetchMotorSpec, bundle only").
     const viaApp = await simulateImported(cloneParsed(parsed), { network: 'allow' });
-    expect(viaApp.result.summary.maxAltitude).toBeGreaterThan(plain.result.summary.maxAltitude);
+    expect(viaApp.result.summary.maxAltitude).toBe(plain.result.summary.maxAltitude);
   }, 60000);
 
   it('reports a catalogue motor the bundle has no curve for as unloaded — and makes no request', async () => {

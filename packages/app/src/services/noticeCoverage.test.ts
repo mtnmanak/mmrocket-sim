@@ -97,7 +97,9 @@ describe('U: catalogue, fabrication and density notification units', () => {
       fetchSpec: async () => ({ designation: db.designation, diameter: 0.0254, length: 0.1, times: [0, 1], thrusts: [0, 0], masses: [0.1, 0.1], cgX: 0.05, ejectionDelay: 0 }),
     });
     expect(result.openNote).toContain(units.length === 'in' ? '1 in [25.4 mm]' : '25.4 mm [1 in]');
-    const invalid = { ...MOTOR_DB[0]!, totalWeightG: 100, propWeightG: 200 };
+    // An id the bundle does not hold, so the cache entry below is what flies
+    // (a loaded bundle comes before the cache since audit S5-3).
+    const invalid = { ...MOTOR_DB[0]!, motorId: 'test:unbundled:units', totalWeightG: 100, propWeightG: 200 };
     // Real sample-cache shape: thrustcurve.ts reads samples plus nullable header
     // masses. No header means the catalogue masses must be checked, with the
     // loader's default fetchSpec forwarding this user's units.

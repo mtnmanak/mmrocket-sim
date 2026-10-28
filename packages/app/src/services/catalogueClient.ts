@@ -122,7 +122,9 @@ export function validateCatalogueManifest(manifest: unknown): ManifestSnapshot {
     }
     const motors = entry['motors'] as Record<string, unknown>;
     const curves = entry['curves'] as Record<string, unknown>;
-    if (!integer(motors['count']) || !integer(curves['motors']) || !integer(curves['files'])
+    // A count of at least one: planPublication refuses a motors file with no
+    // rows, so a 0 is never published (validatePreviousManifest accepts it).
+    if (!integer(motors['count']) || (motors['count'] as number) < 1 || !integer(curves['motors']) || !integer(curves['files'])
       || curves['catalogueGenerated'] !== motors['generated']) return bad(`snapshot ${id} has invalid counts or dates`);
     byId.set(id, {
       id,
@@ -136,6 +138,29 @@ export function validateCatalogueManifest(manifest: unknown): ManifestSnapshot {
   const current = byId.get(manifest['current']);
   if (!current) return bad('the current snapshot is not in its history');
   return current;
+}
+
+/**
+ * The first day a build could write a curated overlay (row 110: the first
+ * commit that did, 71fe22a, is 2026-10-28T01:52Z). Before it, overlays came
+ * from a thrustcurve.org pull and carried no `snapshot`; since it, a curated
+ * check that finds only a snapshot older than the build writes none either
+ * (catalogueOverlay.ts, 2026-10-28 C). The check date tells the two apart.
+ */
+const CURATED_CHECK_SINCE = '2026-10-28';
+
+/**
+ * Was this overlay written by a thrustcurve.org pull (before row 110)? Only
+ * those key the no-curve memory on their check date (thrustcurve.ts
+ * catalogueDate); a curated check rewrites that date every six hours. Read
+ * from what the overlay already stores, so its format does not change: no
+ * `snapshot` field at all, and a valid check date before CURATED_CHECK_SINCE.
+ * A pull written later by a tab left open on an old build reads as curated,
+ * the side that asks thrustcurve.org less.
+ */
+export function isThrustcurvePull(o: { fetchedAt?: unknown } | null | undefined): boolean {
+  if (!o || Object.hasOwn(o, 'snapshot') || typeof o.fetchedAt !== 'string') return false;
+  return Date.parse(o.fetchedAt) < Date.parse(CURATED_CHECK_SINCE);
 }
 
 /** A stored overlay's snapshot record, held to the same rules as the manifest it came from. */
@@ -189,10 +214,20 @@ export async function readCatalogueBytes(href: string, opts: ReadOptions & {
   return getBytesCapped(href, opts);
 }
 
+/** Why a browser with no `crypto.subtle` reads no catalogue file. */
+export const NO_HASH_MESSAGE = 'This browser cannot check the catalogue\'s files, so none were read.';
+
+/**
+ * Can this browser check a catalogue file's sha256? Only in a secure context
+ * (https, or localhost). Asked before a file is downloaded, so a browser that
+ * cannot is not sent the file only to fail at the hash (2026-10-28, E).
+ */
+export const canCheckCatalogueFiles = (): boolean => !!globalThis.crypto?.subtle;
+
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   // Only in a secure context (https, or localhost). Fail closed without it.
   const subtle = globalThis.crypto?.subtle;
-  if (!subtle) throw new CatalogueError('integrity', 'This browser cannot check the catalogue\'s files, so none were read.');
+  if (!subtle) throw new CatalogueError('integrity', NO_HASH_MESSAGE);
   const hash = new Uint8Array(await subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>));
   return [...hash].map(b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -222,6 +257,7 @@ export async function fetchCatalogueFile(file: CatalogueFileRef, maxBytes: numbe
     throw new CatalogueError('integrity', `The catalogue's ${what} is larger than the app accepts (${Math.round(maxBytes / 1024 / 1024)} MB), so it was not read.`);
   }
   if (!digest(file.sha256)) throw new CatalogueError('manifest', `The catalogue's ${what} has no usable sha256.`);
+  if (!canCheckCatalogueFiles()) throw new CatalogueError('integrity', NO_HASH_MESSAGE);
   const bytes = await readCatalogueBytes(catalogueFileUrl(file.path), {
     ...opts, maxBytes: file.bytes, timeoutMs: FILE_TIMEOUT_MS,
   });

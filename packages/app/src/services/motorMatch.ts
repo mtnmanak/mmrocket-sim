@@ -2,7 +2,7 @@ import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/unit
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import {
-  displayDesignation, motorLabel, findDbMotor, isAvailable, isHighPower, manufacturerMatches, matchDbMotor,
+  displayDesignation, motorLabel, findDbMotor, getCatalogue, isAvailable, isHighPower, manufacturerMatches, matchDbMotor,
   type DbMotorMatch, type MotorDbEntry,
 } from './motorDb.js';
 import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
@@ -225,9 +225,22 @@ export async function loadCatalogueMotor(
 ): Promise<MountMotor | null> {
   const findDb = deps.findDb ?? findDbMotor;
   const fetchSpec = deps.fetchSpec ?? ((motor, delay) => fetchMotorSpec(motor, delay, undefined, { units: deps.units }));
-  const db = findDb(designation, undefined, deps.catalogue, manufacturer);
+  // The catalogue the row came from, when it is the live one: an automatic
+  // check can install while the curve loads (the first-visit starter in
+  // App.tsx), and App works out that check's notice from the motors loaded
+  // when its result arrives — so a motor that lands with the pre-check row
+  // never gets one (2026-10-28 audit, D).
+  const live = deps.catalogue ? null : getCatalogue();
+  let db = findDb(designation, undefined, deps.catalogue, manufacturer);
   if (!db) return null;
-  const spec = await fetchSpec(db, delay);
+  let spec = await fetchSpec(db, delay);
+  if (live && getCatalogue() !== live) {
+    const now = findDb(designation, undefined, undefined, manufacturer);
+    if (now && JSON.stringify(now) !== JSON.stringify(db)) {
+      db = now;
+      spec = await fetchSpec(db, delay);
+    }
+  }
   return mountMotorFromDb(db, spec, delay, { event: 'automatic', delay: 0 });
 }
 
@@ -254,6 +267,34 @@ export function matchingExMotors(ref: OrkMotorRef, library: ExMotor[]): ExMotor[
 export async function matchImportedMotor(
   ref: OrkMotorRef,
   deps: MotorMatchDeps = {},
+): Promise<MotorMatchResult> {
+  // An open resolves each motor's row, then waits for its curve, and an
+  // automatic catalogue check can install during that wait — the same race
+  // as the starter's (loadCatalogueMotor): the opened motor landed with the
+  // pre-check row. Only the live catalogue moves; a caller's own does not,
+  // and an embedded EX reference never looks at the catalogue at all.
+  const live = deps.catalogue || ref.exMotorId !== undefined ? null : getCatalogue();
+  const before = live && JSON.stringify(resolveDbRow(ref, deps));
+  const first = await matchImportedMotorOnce(ref, deps);
+  if (!live || getCatalogue() === live || JSON.stringify(resolveDbRow(ref, deps)) === before) return first;
+  return matchImportedMotorOnce(ref, deps);
+}
+
+/** The catalogue row a reference resolves to, and how (null `how` when the caller injected findDb). */
+function resolveDbRow(ref: OrkMotorRef, deps: MotorMatchDeps): { how: DbMotorMatch | null; dbMatch: MotorDbEntry | null } {
+  // RockSim refs carry no motor diameter (0) — match by designation only.
+  const diameterMm = ref.diameter > 0 ? ref.diameter * 1000 : undefined;
+  const how = deps.findDb ? null : matchDbMotor(ref.designation, diameterMm, deps.catalogue, ref.manufacturer, ref.matchContext, deps.units);
+  const dbMatch = deps.findDb
+    ? (ref.matchContext ? deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer, ref.matchContext)
+      : deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer))
+    : how?.motor ?? null;
+  return { how, dbMatch };
+}
+
+async function matchImportedMotorOnce(
+  ref: OrkMotorRef,
+  deps: MotorMatchDeps,
 ): Promise<MotorMatchResult> {
   const fetchSpec = deps.fetchSpec ?? ((motor, delay, digest) => fetchMotorSpec(motor, delay, undefined, { digest, units: deps.units }));
 
@@ -282,13 +323,7 @@ export async function matchImportedMotor(
     }
   }
 
-  // RockSim refs carry no motor diameter (0) — match by designation only.
-  const diameterMm = ref.diameter > 0 ? ref.diameter * 1000 : undefined;
-  let how = deps.findDb ? null : matchDbMotor(ref.designation, diameterMm, deps.catalogue, ref.manufacturer, ref.matchContext, deps.units);
-  let dbMatch = deps.findDb
-    ? (ref.matchContext ? deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer, ref.matchContext)
-      : deps.findDb(ref.designation, diameterMm, undefined, ref.manufacturer))
-    : how?.motor ?? null;
+  let { how, dbMatch } = resolveDbRow(ref, deps);
   // @atestani, TRF #162, 2026-10-06: an imported curve for the named maker
   // beats another maker's catalogue guess, but never a same-maker match.
   const maker = namedMaker(ref);
