@@ -71,9 +71,11 @@ export interface TcSimFile {
   /** The raw .eng/.rse, base64, as download.json returns it for data:"both". */
   data?: string;
   /**
-   * The header masses already parsed — set only on a file that came out of the
-   * shipped bundle (src/data/motorCurves.json), which stores the two numbers
-   * rather than the raw text they were read from. headerMasses() honours it.
+   * The header masses already parsed — set on a file that came out of the
+   * shipped bundle (src/data/motorCurves.json) or the curated snapshot's
+   * curves file, which store the two numbers rather than the raw text they
+   * were read from, and on the one file this browser's curve cache holds
+   * (curveFiles). headerMasses() honours it.
    */
   bundledMasses?: TcHeaderMasses;
   /**
@@ -1061,6 +1063,23 @@ export function samplesToMotorSpec(
  * never its position in the list, which moves 7 motors of the 2026-09-30
  * bundle (the Hypertek 2800CCRGLFX-L625FX back to 5,706.2 g loaded). Same
  * rule, so v6 is dead too.
+ *
+ * NOT bumped for the tags (2026-10-28, lane 18). An entry written since then
+ * carries three OPTIONAL fields: `origin` ('snapshot' or 'download'), the
+ * cached file's own desktop `digests`, and `motorDigests`, every digest of
+ * the motor's flyable files when each of them has one. They change no pick
+ * and nothing that flies — the samples and masses are what v7 always stored,
+ * chosen by the same pickSampleFile — so no entry was written under an old
+ * picking rule, which is what this rule exists for. An entry without them
+ * (v0.196 and earlier) reads as "origin and digests unknown": with no digest
+ * asked for it flies as it always did, and with one, the snapshot or the
+ * download is asked first and the entry stands in when neither can be
+ * reached (curveFiles). A bump would only throw away every cached curve —
+ * for a motor with no bundled curve, the one copy it has offline.
+ *
+ * And since that day a loaded bundle that can fly the motor comes BEFORE the
+ * entry (audit S5-3): an entry still outranks the snapshot and the network,
+ * but no longer a curve the app ships, even one a later release added.
  */
 const CACHE_ROOT = 'tc:samples:';
 const CACHE_PREFIX = `${CACHE_ROOT}v7:`;
@@ -1071,6 +1090,21 @@ function isCurrentCurveCache(entry: unknown): entry is { samples: TcSample[]; ma
   return !!entry && typeof entry === 'object'
     && 'samples' in entry && isSampleList(entry.samples);
 }
+
+/** Where a cached curve came from: the curated snapshot's curves file, or a thrustcurve.org download. */
+export type CachedCurveOrigin = 'snapshot' | 'download';
+
+/** A cache entry as read: the curve, its checked masses, and whichever tags it carries (see the comment above). */
+interface CachedCurve {
+  samples: TcSample[];
+  masses: TcHeaderMasses | null;
+  origin?: CachedCurveOrigin;
+  digests?: string[];
+  motorDigests?: string[];
+}
+
+const digestList = (v: unknown): string[] | undefined =>
+  Array.isArray(v) && v.length > 0 && v.every((d) => typeof d === 'string') ? v as string[] : undefined;
 
 /**
  * Cap on the live generation, and the mark eviction prunes back to.
@@ -1191,9 +1225,25 @@ async function bundleListsMotor(motorId: string): Promise<boolean> {
   return Object.hasOwn(await loadBundledCurves(), motorId);
 }
 
-/** A curve the network or the curated snapshot gave, into this browser's curve cache. */
-function writeCurveCache(cacheKey: string, samples: TcSample[], masses: TcHeaderMasses | null): void {
-  const entry = JSON.stringify({ samples, masses, massParser: MASS_PARSER_VERSION, t: Date.now() });
+/** The files pickSampleFile can choose among: the same test it applies first. */
+const flyable = (files: readonly TcSimFile[]): TcSimFile[] =>
+  files.filter((f) => (f.samples?.length ?? 0) >= 2 && isSampleList(f.samples));
+
+/**
+ * A curve the network or the curated snapshot gave, into this browser's curve
+ * cache — the motor's USUAL pick, with the tags the comment above describes.
+ * `motorDigests` only when every flyable file has a digest: without one, a
+ * digest might name a file the list cannot show, and "not among them" would
+ * be a guess.
+ */
+function writeCurveCache(cacheKey: string, file: TcSimFile, origin: CachedCurveOrigin, files: readonly TcSimFile[]): void {
+  const digests = fileDigests(file);
+  const all = flyable(files).map(fileDigests);
+  const entry = JSON.stringify({
+    samples: file.samples, masses: headerMasses(file), massParser: MASS_PARSER_VERSION, t: Date.now(), origin,
+    ...(digests.length ? { digests } : {}),
+    ...(all.length && all.every((d) => d.length) ? { motorDigests: [...new Set(all.flat())] } : {}),
+  });
   try {
     if (liveKeys().length > MAX_CACHED_CURVES) evictOldest(EVICT_TO);
     localStorage.setItem(cacheKey, entry);
@@ -1210,6 +1260,103 @@ function writeCurveCache(cacheKey: string, samples: TcSample[], masses: TcHeader
   }
 }
 
+/** This browser's entry for a motor, checked, or null (none, corrupt — then dropped — or no storage). */
+function readCurveCache(cacheKey: string): CachedCurve | null {
+  try {
+    const cached = localStorage.getItem(cacheKey);
+    if (!cached) return null;
+    const parsed = JSON.parse(cached) as unknown;
+    // Validate the shape — a corrupt entry parses fine but would break
+    // samplesToMotorSpec forever (the cache is never invalidated otherwise).
+    if (!isCurrentCurveCache(parsed)) {
+      localStorage.removeItem(cacheKey);
+      return null;
+    }
+    // The masses get the SAME test headerMasses applies on the write path.
+    // Taken verbatim they bypassed the sanity checks in samplesToMotorSpec
+    // — those inspect the CATALOG pair, and a file pair overrides it — so
+    // an impossible cached pair silently changed apogee and the recovery
+    // numbers instead of throwing. null is not a made-up mass: it is
+    // headerMasses' own documented answer for a file it cannot read, and
+    // the caller then flies the catalog values, which ARE checked.
+    const tags = parsed as Record<string, unknown>;
+    const origin = tags['origin'] === 'snapshot' || tags['origin'] === 'download' ? tags['origin'] : undefined;
+    const digests = digestList(tags['digests']);
+    const motorDigests = digestList(tags['motorDigests']);
+    return {
+      samples: parsed.samples, masses: isHeaderMasses(parsed.masses) ? parsed.masses : null,
+      ...(origin ? { origin } : {}), ...(digests ? { digests } : {}), ...(motorDigests ? { motorDigests } : {}),
+    };
+  } catch {
+    return null; // storage unavailable (private mode etc.) — just fetch
+  }
+}
+
+/** Desktop's digest: the MD5 of the file it loaded, lowercase hex (scripts/motor-digest.mjs md5Hex). */
+const DESKTOP_DIGEST = /^[0-9a-f]{32}$/;
+
+const isOffline = (): boolean => typeof navigator !== 'undefined' && navigator.onLine === false;
+
+// ------------------------------------------------- the files a motor flies from
+
+/** Where the files a motor flew from came from. */
+export type CurveOrigin = 'bundle' | 'cache' | 'snapshot' | 'download';
+
+/**
+ * THE FILES A MOTOR FLIES FROM, AND WHERE THEY CAME FROM (2026-10-28, lane
+ * 18): curveFiles' answer, which fetchMotorSpec flies and lastCurveFiles keeps.
+ */
+export interface CurveFiles {
+  motorId: string;
+  origin: CurveOrigin;
+  /**
+   * Every file that origin holds for the motor, as pickSampleFile and
+   * pickDigestFile saw them. For the cache, the one file it holds, which
+   * carries its stored digests when the entry has them.
+   */
+  files: TcSimFile[];
+  /** The file flown: the one the digest names when `files` has it, else `usual`. */
+  flown: TcSimFile;
+  /** pickSampleFile's choice among `files` (for the cache, the file it holds: the cache keeps the usual pick). */
+  usual: TcSimFile;
+  /**
+   * Present when a digest was asked for. `named`: 'flown', a file it names
+   * flew; 'absent', the motor's files hold none it names, so the usual pick
+   * flew; 'unknown', the cache stood in and cannot say.
+   */
+  digest?: { value: string; named: 'flown' | 'absent' | 'unknown' };
+  /** For origin 'cache': what wrote the entry, when the entry says (v0.196 entries do not). */
+  cachedFrom?: CachedCurveOrigin;
+  /**
+   * The cache flew IN PLACE of a file the digest may name, because the
+   * snapshot's curves file or thrustcurve.org could not be asked ('offline':
+   * navigator.onLine was false, and nothing was asked) or did not answer with
+   * a curve ('failed').
+   */
+  cacheFallback?: 'offline' | 'failed';
+}
+
+/** How many motors' last reads lastCurveFiles keeps for the page session. */
+const MAX_REMEMBERED_READS = 64;
+const rememberedReads = new Map<string, CurveFiles>();
+
+function remember(read: CurveFiles): CurveFiles {
+  rememberedReads.delete(read.motorId);
+  rememberedReads.set(read.motorId, read);
+  if (rememberedReads.size > MAX_REMEMBERED_READS) rememberedReads.delete(rememberedReads.keys().next().value!);
+  return read;
+}
+
+/**
+ * The last curveFiles answer for this motor in this page session, or
+ * undefined — with no read of its own, so a caller that reports on a curve
+ * (digestCurveNote, lane 22) can say what flew without a second request. The
+ * newest MAX_REMEMBERED_READS motors are kept.
+ */
+export function lastCurveFiles(motorId: string): CurveFiles | undefined {
+  return rememberedReads.get(motorId);
+}
+
 /** E (audit S5-1): a curves file that was not read says nothing about the motor, and must not read as "none exists". */
 function unreadableCurvesFile(designation: string, err: unknown): Error {
   const why = err instanceof CatalogueError || err instanceof NetError || (err instanceof Error && err.message === NO_HASH_MESSAGE)
@@ -1219,7 +1366,242 @@ function unreadableCurvesFile(designation: string, err: unknown): Error {
 }
 
 /**
- * Fetches thrust samples (localStorage-cached) and builds the MotorSpec.
+ * ONE SOURCE FOR THE FILES A MOTOR FLIES FROM (2026-10-28, lane 18). In order:
+ *
+ * 1. The shipped bundle. It holds every file thrustcurve.org publishes for
+ *    the catalogue it was built from, chosen by the same pickSampleFile a
+ *    live response goes through, so a motor flies the same curve offline as
+ *    on. It comes before this browser's cache (audit S5-3, owner 113-9b): a
+ *    curve cached from the snapshot or a download no longer outlives a
+ *    release that ships the motor, and the file a digest names among the
+ *    bundled ones flies, else the bundle's pick (113-16e). A bundle chunk
+ *    that would not load (a tab left open across an update) is not "no
+ *    files": the cache and then the download stand in.
+ * 2. This browser's cache, the motor's USUAL pick from an earlier read. With
+ *    no digest it answers. With one, it answers when its file carries that
+ *    digest, or when the motor's files carry none that do (the usual pick is
+ *    then what any read would fly); otherwise the snapshot or the download is
+ *    asked for the named file first (113-16e: a warm cache flew the usual
+ *    pick instead, and said nothing), and the cache stands in when they
+ *    cannot answer — at once, with no request, when the browser says it is
+ *    offline.
+ * 3. The curated snapshot's curves file (row 110), for a motor the overlay
+ *    added or a shipped motor the bundle has no curve for (D.7).
+ * 4. thrustcurve.org's download.
+ *
+ * `bundleOnly` stops after step 1 (fetchMotorSpec's `opts`). Not for an EX
+ * motor, whose curve lives in the EX library. Every answer is kept for
+ * lastCurveFiles.
+ */
+export async function curveFiles(
+  motor: TcMotor,
+  opts: { bundleOnly?: boolean; digest?: string; signal?: AbortSignal } = {},
+): Promise<CurveFiles> {
+  const { motorId } = motor;
+  if (motorId.startsWith('ex:')) throw new TypeError(`curveFiles reads catalogue curves; ${motorId} is an EX-library motor.`);
+  const { bundleOnly = false, digest, signal } = opts;
+  const cacheKey = CACHE_PREFIX + motorId;
+  // Once per page load, on the app's path only (see fetchMotorSpec's `opts`),
+  // whether or not this motor reaches the cache.
+  if (!bundleOnly) {
+    try { sweepDeadGenerations(); } catch { /* storage unavailable */ }
+  }
+  /** The usual pick among one origin's files, and the file the digest names among them; null when none can fly. */
+  const chosen = (origin: CurveOrigin, files: TcSimFile[]): CurveFiles | null => {
+    const usual = pickSampleFile(files, motor);
+    if (!usual?.samples) return null;
+    const named = digest ? pickDigestFile(files, digest, motor) : null;
+    return { motorId, origin, files, flown: named ?? usual, usual,
+      ...(digest ? { digest: { value: digest, named: named ? 'flown' : 'absent' } } : {}) };
+  };
+
+  // 1. The shipped bundle.
+  let bundle: TcSimFile[] = [];
+  let bundleFailed = false;
+  try {
+    bundle = await bundledFiles(motorId);
+  } catch {
+    bundleFailed = true;
+  }
+  const fromBundle = chosen('bundle', bundle);
+  if (fromBundle) return remember(fromBundle);
+  if (bundleOnly) {
+    throw new OfflineCurveError(bundleFailed
+      ? 'The thrust curves bundled with the app did not load, and this run does not use the network.'
+      : `The thrust curve for ${motor.designation} is not among the curves bundled with the app,`
+        + ' and this run does not use the network.');
+  }
+
+  // 2. This browser's cache.
+  const cached = readCurveCache(cacheKey);
+  const fromCache = (entry: CachedCurve, named: 'flown' | 'absent' | 'unknown', fallback?: 'offline' | 'failed'): CurveFiles => {
+    const file: TcSimFile = { samples: entry.samples, ...(entry.masses ? { bundledMasses: entry.masses } : {}),
+      ...(entry.digests ? { digests: entry.digests } : {}) };
+    return remember({ motorId, origin: 'cache', files: [file], flown: file, usual: file,
+      ...(digest ? { digest: { value: digest, named } } : {}),
+      ...(entry.origin ? { cachedFrom: entry.origin } : {}), ...(fallback ? { cacheFallback: fallback } : {}) });
+  };
+  if (cached) {
+    if (!digest) return fromCache(cached, 'unknown');
+    if (cached.digests?.includes(digest)) return fromCache(cached, 'flown');
+    // Not desktop's form (32 lowercase hex, its MD5; digestCurveNote holds
+    // the same test): no published file has it, so nothing to ask for.
+    if (!DESKTOP_DIGEST.test(digest)
+      || (cached.motorDigests && !cached.motorDigests.includes(digest))) return fromCache(cached, 'absent');
+    // The snapshot's curves file may take 120 s to give up (catalogueClient.ts).
+    if (isOffline()) return fromCache(cached, 'unknown', 'offline');
+  }
+  try {
+    return remember(await curveFilesFromNetwork(motor, { digest, signal, bundleFailed,
+      bundleEmpty: !bundleFailed && bundle.length === 0, chosen }));
+  } catch (err) {
+    // A named file the network could not give: the usual pick, from the
+    // cache, stands in — never for the caller's own Stop.
+    if (!cached || signal?.aborted) throw err;
+    return fromCache(cached, 'unknown', 'failed');
+  }
+}
+
+/** curveFiles' steps 3 and 4: the curated snapshot's curves file, then thrustcurve.org. */
+async function curveFilesFromNetwork(motor: TcMotor, ctx: {
+  digest?: string; signal?: AbortSignal; bundleFailed: boolean; bundleEmpty: boolean;
+  chosen: (origin: CurveOrigin, files: TcSimFile[]) => CurveFiles | null;
+}): Promise<CurveFiles> {
+  const { signal, bundleFailed, bundleEmpty, chosen } = ctx;
+  const cacheKey = CACHE_PREFIX + motor.motorId;
+
+  // The curated snapshot's curves file (row 110), for a motor the app shipped
+  // no curve for: one the overlay ADDED, or a shipped motor the bundle lacks
+  // (D.7). Never for a shipped motor the bundle has — that curve is never
+  // replaced — and never bundle-only. A shipped motor the file, READ, gives no
+  // curve for has no published curve, and thrustcurve.org is not asked; a file
+  // that could not be read says only that (audit S5-1). An added motor falls
+  // through to the download below either way.
+  const snapshot = activeSnapshot();
+  if (snapshot) {
+    const shipped = shippedMotorIds.has(motor.motorId);
+    const added = !shipped && (getCatalogueOverlay()?.added.some((m) => m.motorId === motor.motorId) ?? false);
+    const curveless = shipped && !bundleFailed && !await bundleListsMotor(motor.motorId);
+    if (added || curveless) {
+      /** The motor's files in the file, or null when the file was not read and accepted. */
+      let files: TcSimFile[] | null = null;
+      let unread: unknown;
+      try {
+        files = simFiles((await untilAborted(loadSnapshotCurves(snapshot), signal)).get(motor.motorId) ?? []);
+      } catch (err) {
+        if (signal?.aborted) throw err;
+        unread = err;
+      }
+      const read = files && chosen('snapshot', files);
+      if (read) {
+        // The cache holds the motor's USUAL curve, which every pick of it
+        // reads; a file only one design names is flown, not cached.
+        if (read.flown === read.usual) writeCurveCache(cacheKey, read.usual, 'snapshot', files!);
+        return read;
+      }
+      if (curveless) throw files ? new NoPublishedCurveError(motor.designation) : unreadableCurvesFile(motor.designation, unread);
+    }
+  }
+
+  // The builder downloads the entire shipped catalogue, not just the IDs
+  // present in `curves`. Only a complete bundle and equal dates establish that set:
+  // a newer overlay ID or mismatched bundle must retain its download path.
+  if (!bundleFailed && bundleEmpty && await knownNoPublishedCurve(motor.motorId)) {
+    throw new NoPublishedCurveError(motor.designation);
+  }
+  if (noCurveEntries().get(motor.motorId) === catalogueDate()) throw new NoPublishedCurveError(motor.designation);
+  const limit = deadline(signal, FETCH_TIMEOUT_MS);
+  let body: { results?: unknown } | null | undefined;
+  try {
+    assertThrustcurveAvailable();
+    const res = await thrustcurveFetch()(`${API}/download.json`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      // "both" carries the raw .eng/.rse alongside the samples, so the masses
+      // can come from the same document as the curve (see headerMasses).
+      body: JSON.stringify({ motorIds: [motor.motorId], data: 'both' }),
+      signal: limit.signal,
+    });
+    if (!res.ok) {
+      throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
+    }
+    // Reading the body is inside the deadline too: a connection that answers
+    // its headers and then stalls hangs while reading the body. It is read
+    // CAPPED, never whole (see readJsonCapped).
+    body = (await readJsonCapped(res, motor.designation)) as { results?: unknown } | null;
+  } catch (err) {
+    const timedOut = limit.timedOut();
+    recordThrustcurveFailure(timedOut, signal?.aborted === true, err instanceof TypeError);
+    // An HTTP error, an unreadable answer and the caller's own cancel (Stop,
+    // in BatchSimulate) go back as they came. What is left is a connection
+    // that never opened — fetch's TypeError, worded differently by every
+    // browser ("Failed to fetch", "Load failed") — or our deadline, and both
+    // are said in words a note can repeat (motorMatch.ts).
+    if (signal?.aborted) throw err;
+    const backoff = thrustcurveBackoffMessage();
+    if (bundleFailed && backoff && !timedOut && !(err instanceof TypeError)) {
+      throw new Error(`The thrust curves bundled with the app did not load, and ${backoff} `
+        + "Reload the app with a connection, or import the motor's .rse/.eng file.", { cause: err });
+    }
+    if (!timedOut && !(err instanceof TypeError)) {
+      if (backoff && !(err instanceof ThrustcurveBackoffError)) {
+        throw new Error(withThrustcurveBackoff(err instanceof Error ? err.message : String(err)), { cause: err });
+      }
+      throw err;
+    }
+    const miss = timedOut
+      ? `thrustcurve.org did not answer within ${FETCH_TIMEOUT_MS / 1000} s for ${motor.designation}`
+      : `thrustcurve.org could not be reached for ${motor.designation}`;
+    throw new Error(
+      bundleFailed
+        ? `The thrust curves bundled with the app did not load, and ${miss}. ${backoff ? backoff + ' ' : ''}Reload the app with a `
+          + "connection, or import the motor's .rse/.eng file."
+        : backoff
+          ? `${miss}. ${backoff} You can import the motor's .rse/.eng file.`
+          : `${miss}${timedOut ? '.' : ' — are you offline?'} Check the connection and try again, or import `
+            + "the motor's .rse/.eng file.",
+      { cause: err },
+    );
+  } finally {
+    limit.done();
+  }
+
+  // Array.isArray, not `?? []`: a body whose `results` is a string or an
+  // object reached .map() as a TypeError with no motor name in it. Same
+  // failure class as the sample guard below — trust nothing in this body,
+  // its ELEMENTS included: `{"results":[null]}` threw "Cannot read
+  // properties of null" from pickSampleFile (audit 2026-09-22).
+  const listed = body?.results;
+  const results = Array.isArray(listed)
+    ? listed.filter((f): f is TcSimFile => typeof f === 'object' && f !== null)
+    : [];
+  const read = chosen('download', results);
+  if (!read) {
+    // Report the actual problem; numeric curves can exceed the thrust
+    // limit or collapse to too few distinct points.
+    const rejected = results.find(f => (f.samples?.length ?? 0) >= 2);
+    if (rejected) {
+      throw new Error(`thrustcurve.org returned a thrust curve for ${motor.designation} that cannot be simulated: `
+        + `${sampleListProblem(rejected.samples) ?? 'its samples are unusable'}. `
+        + 'Pick another motor, or import its .rse/.eng file.');
+    }
+    // thrustcurve.org answered, and lists nothing to fly: the one failure
+    // that means no curve exists. An answer with no `results` list at all is
+    // a broken answer, not that one.
+    if (Array.isArray(listed)) rememberNoCurve(motor.motorId);
+    throw Array.isArray(listed)
+      ? new NoPublishedCurveError(motor.designation)
+      : new Error(`No sample data available for ${motor.designation}`);
+  }
+  // The cache holds the motor's USUAL curve, which every pick of it reads;
+  // a file only one design names is flown, not cached.
+  if (read.flown === read.usual) writeCurveCache(cacheKey, read.usual, 'download', results);
+  return read;
+}
+
+/**
+ * Fetches thrust samples (through curveFiles: the bundle, this browser's
+ * cache, the curated snapshot, thrustcurve.org) and builds the MotorSpec.
  * Imported EX motors ("ex:" ids) build entirely from local data — an .rse that
  * turns RockSim's own mass model off carries per-sample masses, which fly
  * instead of the impulse-proportional approximation (exMotors.rseSampleMassesKg).
@@ -1248,7 +1630,8 @@ export async function fetchMotorSpec(
     /**
      * A desktop .ork's motor `<digest>` (motorMatch passes the file's own).
      * The file it names is flown instead of pickSampleFile's choice, when the
-     * bundle or the download has it (pickDigestFile has why); otherwise the
+     * bundle, the curated snapshot's curves file or the download has it
+     * (pickDigestFile has why; curveFiles has the order); otherwise the
      * usual pick, so a digest can only ever choose among the motor's own
      * published files.
      */
@@ -1269,217 +1652,9 @@ export async function fetchMotorSpec(
     return exToMotorSpec(ex, ejectionDelay);
   }
 
-  const cacheKey = CACHE_PREFIX + motor.motorId;
-  let samples: TcSample[] | null = null;
-  let fromFile: TcHeaderMasses | null = null;
-
-  // The file a desktop design names comes first — before this browser's
-  // cache, which holds the usual pick of a motor downloaded earlier. A bundle
-  // that will not load is said further down, where its absence matters.
-  if (digest) {
-    const named = pickDigestFile(await bundledFiles(motor.motorId).catch(() => []), digest, motor);
-    if (named?.samples) {
-      samples = named.samples;
-      fromFile = headerMasses(named);
-    }
-  }
-
-  // A bundle-only read never touches this browser's cache (see `opts`).
-  if (!bundleOnly && !samples) {
-    try {
-      sweepDeadGenerations();
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) {
-        const parsed = JSON.parse(cached) as unknown;
-        // Validate the shape — a corrupt entry parses fine but would break
-        // samplesToMotorSpec forever (the cache is never invalidated otherwise).
-        if (isCurrentCurveCache(parsed)) {
-          samples = parsed.samples;
-          // The masses get the SAME test headerMasses applies on the write path.
-          // Taken verbatim they bypassed the sanity checks in samplesToMotorSpec
-          // — those inspect the CATALOG pair, and a file pair overrides it — so
-          // an impossible cached pair silently changed apogee and the recovery
-          // numbers instead of throwing. null is not a made-up mass: it is
-          // headerMasses' own documented answer for a file it cannot read, and
-          // the caller then flies the catalog values, which ARE checked.
-          const m = parsed.masses;
-          fromFile = isHeaderMasses(m) ? m : null;
-        } else {
-          localStorage.removeItem(cacheKey);
-        }
-      }
-    } catch {
-      // storage unavailable (private mode etc.) — just fetch
-    }
-  }
-
-  // The shipped bundle comes BEFORE the network: it holds every file
-  // thrustcurve.org publishes for this motor, chosen by the same pickSampleFile
-  // a live response goes through, so a motor flies the same curve offline as
-  // on. It is not written to localStorage — it is already local. A bundle
-  // chunk that would not load (a tab left open across an update) is not "no
-  // files": the download stands in for it, and if that fails too the error
-  // says both, because the cure for each is different.
-  let bundleFailed = false;
-  let bundleEmpty = false;
-  if (!samples) {
-    let files: TcSimFile[] = [];
-    try {
-      files = await bundledFiles(motor.motorId);
-      bundleEmpty = files.length === 0;
-    } catch {
-      bundleFailed = true;
-    }
-    const file = pickSampleFile(files, motor);
-    if (file?.samples) {
-      samples = file.samples;
-      fromFile = headerMasses(file);
-    }
-  }
-
-  if (!samples && bundleOnly) {
-    throw new OfflineCurveError(bundleFailed
-      ? 'The thrust curves bundled with the app did not load, and this run does not use the network.'
-      : `The thrust curve for ${motor.designation} is not among the curves bundled with the app,`
-        + ' and this run does not use the network.');
-  }
-
-  // The curated snapshot's curves file (row 110), for a motor the app shipped
-  // no curve for: one the overlay ADDED, or a shipped motor the bundle lacks
-  // (D.7). Never for a shipped motor the bundle has — that curve is never
-  // replaced — and never bundle-only. A shipped motor the file, READ, gives no
-  // curve for has no published curve, and thrustcurve.org is not asked; a file
-  // that could not be read says only that (audit S5-1). An added motor falls
-  // through to the download below either way.
-  const snapshot = !samples ? activeSnapshot() : null;
-  if (snapshot) {
-    const shipped = shippedMotorIds.has(motor.motorId);
-    const added = !shipped && (getCatalogueOverlay()?.added.some((m) => m.motorId === motor.motorId) ?? false);
-    const curveless = shipped && !bundleFailed && !await bundleListsMotor(motor.motorId);
-    if (added || curveless) {
-      let files: TcSimFile[] = [];
-      /** Was the file read and accepted? Only then is a missing motor "none published". */
-      let read = false;
-      let unread: unknown;
-      try {
-        files = simFiles((await untilAborted(loadSnapshotCurves(snapshot), signal)).get(motor.motorId) ?? []);
-        read = true;
-      } catch (err) {
-        if (signal?.aborted) throw err;
-        unread = err;
-      }
-      const usual = pickSampleFile(files, motor);
-      const file = (digest ? pickDigestFile(files, digest, motor) : null) ?? usual;
-      if (file?.samples) {
-        samples = file.samples;
-        fromFile = headerMasses(file);
-        if (file === usual) writeCurveCache(cacheKey, samples, fromFile);
-      } else if (curveless) {
-        throw read ? new NoPublishedCurveError(motor.designation) : unreadableCurvesFile(motor.designation, unread);
-      }
-    }
-  }
-
-  if (!samples) {
-    // The builder downloads the entire shipped catalogue, not just the IDs
-    // present in `curves`. Only a complete bundle and equal dates establish that set:
-    // a newer overlay ID or mismatched bundle must retain its download path.
-    if (!bundleFailed && bundleEmpty && await knownNoPublishedCurve(motor.motorId)) {
-      throw new NoPublishedCurveError(motor.designation);
-    }
-    if (noCurveEntries().get(motor.motorId) === catalogueDate()) throw new NoPublishedCurveError(motor.designation);
-    const limit = deadline(signal, FETCH_TIMEOUT_MS);
-    let body: { results?: unknown } | null | undefined;
-    try {
-      assertThrustcurveAvailable();
-      const res = await thrustcurveFetch()(`${API}/download.json`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // "both" carries the raw .eng/.rse alongside the samples, so the masses
-        // can come from the same document as the curve (see headerMasses).
-        body: JSON.stringify({ motorIds: [motor.motorId], data: 'both' }),
-        signal: limit.signal,
-      });
-      if (!res.ok) {
-        throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
-      }
-      // Reading the body is inside the deadline too: a connection that answers
-      // its headers and then stalls hangs while reading the body. It is read
-      // CAPPED, never whole (see readJsonCapped).
-      body = (await readJsonCapped(res, motor.designation)) as { results?: unknown } | null;
-    } catch (err) {
-      const timedOut = limit.timedOut();
-      recordThrustcurveFailure(timedOut, signal?.aborted === true, err instanceof TypeError);
-      // An HTTP error, an unreadable answer and the caller's own cancel (Stop,
-      // in BatchSimulate) go back as they came. What is left is a connection
-      // that never opened — fetch's TypeError, worded differently by every
-      // browser ("Failed to fetch", "Load failed") — or our deadline, and both
-      // are said in words a note can repeat (motorMatch.ts).
-      if (signal?.aborted) throw err;
-      const backoff = thrustcurveBackoffMessage();
-      if (bundleFailed && backoff && !timedOut && !(err instanceof TypeError)) {
-        throw new Error(`The thrust curves bundled with the app did not load, and ${backoff} `
-          + "Reload the app with a connection, or import the motor's .rse/.eng file.", { cause: err });
-      }
-      if (!timedOut && !(err instanceof TypeError)) {
-        if (backoff && !(err instanceof ThrustcurveBackoffError)) {
-          throw new Error(withThrustcurveBackoff(err instanceof Error ? err.message : String(err)), { cause: err });
-        }
-        throw err;
-      }
-      const miss = timedOut
-        ? `thrustcurve.org did not answer within ${FETCH_TIMEOUT_MS / 1000} s for ${motor.designation}`
-        : `thrustcurve.org could not be reached for ${motor.designation}`;
-      throw new Error(
-        bundleFailed
-          ? `The thrust curves bundled with the app did not load, and ${miss}. ${backoff ? backoff + ' ' : ''}Reload the app with a `
-            + "connection, or import the motor's .rse/.eng file."
-          : backoff
-            ? `${miss}. ${backoff} You can import the motor's .rse/.eng file.`
-            : `${miss}${timedOut ? '.' : ' — are you offline?'} Check the connection and try again, or import `
-              + "the motor's .rse/.eng file.",
-        { cause: err },
-      );
-    } finally {
-      limit.done();
-    }
-
-    // Array.isArray, not `?? []`: a body whose `results` is a string or an
-    // object reached .map() as a TypeError with no motor name in it. Same
-    // failure class as the sample guard below — trust nothing in this body,
-    // its ELEMENTS included: `{"results":[null]}` threw "Cannot read
-    // properties of null" from pickSampleFile (audit 2026-09-22).
-    const listed = body?.results;
-    const results = Array.isArray(listed)
-      ? listed.filter((f): f is TcSimFile => typeof f === 'object' && f !== null)
-      : [];
-    const usual = pickSampleFile(results, motor);
-    const file = (digest ? pickDigestFile(results, digest, motor) : null) ?? usual;
-    if (!file?.samples) {
-      // Report the actual problem; numeric curves can exceed the thrust
-      // limit or collapse to too few distinct points.
-      const rejected = results.find(f => (f.samples?.length ?? 0) >= 2);
-      if (rejected) {
-        throw new Error(`thrustcurve.org returned a thrust curve for ${motor.designation} that cannot be simulated: `
-          + `${sampleListProblem(rejected.samples) ?? 'its samples are unusable'}. `
-          + 'Pick another motor, or import its .rse/.eng file.');
-      }
-      // thrustcurve.org answered, and lists nothing to fly: the one failure
-      // that means no curve exists. An answer with no `results` list at all is
-      // a broken answer, not that one.
-      if (Array.isArray(listed)) rememberNoCurve(motor.motorId);
-      throw Array.isArray(listed)
-        ? new NoPublishedCurveError(motor.designation)
-        : new Error(`No sample data available for ${motor.designation}`);
-    }
-    samples = file.samples;
-    fromFile = headerMasses(file);
-    // The cache holds the motor's USUAL curve, which every pick of it reads;
-    // a file only one design names is flown, not cached.
-    if (file === usual) writeCurveCache(cacheKey, samples, fromFile);
-  }
-
-  const spec = samplesToMotorSpec(motor, samples, ejectionDelay, fromFile, opts.units);
+  // The files it flies from, and which one: curveFiles has the order and why.
+  const { flown } = await curveFiles(motor, { bundleOnly, digest, signal });
+  const spec = samplesToMotorSpec(motor, flown.samples!, ejectionDelay, headerMasses(flown), opts.units);
   // Say when the curve flown disagrees with the motor's certification, in the
   // list the app already shows curve repairs from (services/notices.ts, which
   // tells this sentence apart from a repair and shows it as written). Found

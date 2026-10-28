@@ -532,15 +532,17 @@ it.each([null, { totalWeightG: 2000, propWeightG: 1000 }])('flies legacy cached 
   expect(fetcher).toHaveBeenCalledOnce();
 });
 
-it('keeps legacy cached masses ahead of the bundle while the breaker is open', async () => {
+// Until audit S5-3 the entry flew ahead of the bundle; it is kept, and the
+// loaded bundle flies, with the breaker open or not.
+it('keeps legacy cached masses while the breaker is open, and flies the bundle over them', async () => {
   const bundled = db.MOTOR_DB.find(m => m.designation === 'C6' && m.manufacturerAbbrev === 'Estes')!;
-  await tc.fetchMotorSpec(bundled, 5, undefined, { bundleOnly: true });
+  const shipped = await tc.fetchMotorSpec(bundled, 5, undefined, { bundleOnly: true });
   const fetcher = vi.fn(async () => response({}, 503));
   vi.stubGlobal('fetch', fetcher);
   await miss(tc.fetchMotorSpec(motor, 5));
   const key = 'tc:samples:v7:' + bundled.motorId;
   localStorage.setItem(key, JSON.stringify({ samples, masses: { totalWeightG: 2000, propWeightG: 1000 } }));
-  expect((await tc.fetchMotorSpec(bundled, 5)).masses[0]).toBeCloseTo(2, 12);
+  expect(await tc.fetchMotorSpec(bundled, 5)).toStrictEqual(shipped);
   expect(localStorage.getItem(key)).not.toBeNull();
   expect(fetcher).toHaveBeenCalledOnce();
 });

@@ -628,7 +628,9 @@ describe('cached masses are validated before they override the catalog', () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
-  it('keeps a legacy cache entry even when a bundle is available', async () => {
+  // B (audit S5-3): the entry is kept, but a loaded bundle with a flyable
+  // file for the motor flies; until the fix the entry outranked it.
+  it('keeps a legacy cache entry when a bundle is available, and flies the bundle', async () => {
     const tc = await freshModule();
     const { MOTOR_DB } = await import('./motorDb.js');
     let motor: TcMotor | undefined;
@@ -636,12 +638,32 @@ describe('cached masses are validated before they override the catalog', () => {
       if ((await tc.bundledSimFiles(candidate.motorId)).length) { motor = candidate; break; }
     }
     expect(motor).toBeDefined();
-    await tc.fetchMotorSpec(motor!, 5, undefined, { bundleOnly: true });
-    localStorage.setItem(`tc:samples:v7:${motor!.motorId}`, JSON.stringify({ samples: GOOD_SAMPLES,
-      masses: { totalWeightG: 2000, propWeightG: 1000 } }));
+    const shipped = await tc.fetchMotorSpec(motor!, 5, undefined, { bundleOnly: true });
+    const entry = JSON.stringify({ samples: GOOD_SAMPLES, masses: { totalWeightG: 2000, propWeightG: 1000 } });
+    localStorage.setItem(`tc:samples:v7:${motor!.motorId}`, entry);
     const spy = stubDownload([]);
-    expect((await tc.fetchMotorSpec(motor!, 5)).masses[0]).toBeCloseTo(2, 12);
+    expect(await tc.fetchMotorSpec(motor!, 5)).toStrictEqual(shipped);
     expect(spy).not.toHaveBeenCalled();
+    expect(localStorage.getItem(`tc:samples:v7:${motor!.motorId}`)).toBe(entry);
+  });
+
+  it('the cache still stands in for a bundle chunk that will not load, in requireCurveBundle too', async () => {
+    vi.resetModules();
+    vi.doMock('../data/motorCurves.json', () => { throw new Error('Failed to fetch dynamically imported module'); });
+    try {
+      const tc = await import('./thrustcurve.js');
+      const bundledC6: TcMotor = { ...QUEST_C6, motorId: '5f4294d20002310000000016' };
+      localStorage.setItem(`tc:samples:v7:${bundledC6.motorId}`, JSON.stringify({ samples: GOOD_SAMPLES, masses: null }));
+      const spy = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+      vi.stubGlobal('fetch', spy);
+      expect(Math.max(...(await tc.fetchMotorSpec(bundledC6, 5)).thrusts)).toBe(11.75);
+      expect(spy).not.toHaveBeenCalled();
+      await expect(tc.requireCurveBundle([bundledC6])).resolves.toBeUndefined();
+      await expect(tc.requireCurveBundle([QUEST_C6])).rejects.toThrow(/did not load/);
+    } finally {
+      vi.doUnmock('../data/motorCurves.json');
+      vi.resetModules();
+    }
   });
   const cacheWith = (masses: unknown): void => {
     localStorage.setItem(CACHE_KEY, JSON.stringify({ samples: GOOD_SAMPLES, masses, massParser: 1, t: Date.now() }));
@@ -722,8 +744,9 @@ describe('fetchMotorSpec, bundle only', () => {
     const key = `tc:samples:v7:${motor.motorId}`;
     localStorage.setItem(key, JSON.stringify({ samples: hot, masses: null, massParser: 1, t: 1 }));
     localStorage.setItem('tc:samples:v6:retired', '{}');
-    const viaCache = await tc.fetchMotorSpec(motor, 5);
-    expect(Math.max(...viaCache.thrusts)).toBeGreaterThan(Math.max(...plain.thrusts) * 1.05);
+    // Since audit S5-3 the app's path flies the bundle over that entry too.
+    const viaApp = await tc.fetchMotorSpec(motor, 5);
+    expect(viaApp).toStrictEqual(plain);
 
     const tc2 = await freshModule(); // a page load that has not swept yet
     localStorage.setItem('tc:samples:v6:retired', '{}');
@@ -731,6 +754,16 @@ describe('fetchMotorSpec, bundle only', () => {
     expect(bundleOnly).toStrictEqual(plain);
     expect(localStorage.getItem(key)).not.toBeNull();
     expect(localStorage.getItem('tc:samples:v6:retired')).toBe('{}');
+  });
+
+  it('never reads this browser\'s cache: a motor the bundle lacks is refused even with an entry the app\'s path would fly', async () => {
+    const tc = await freshModule();
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples: GOOD_SAMPLES, masses: null, massParser: 1, t: 1 }));
+    const spy = stubDownload([]);
+    expect(await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { bundleOnly: true }).catch((e: unknown) => e)).toBeInstanceOf(tc.OfflineCurveError);
+    // Positive control: the app's path flies the entry.
+    expect(Math.max(...(await tc.fetchMotorSpec(QUEST_C6, 5)).thrusts)).toBe(11.75);
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('refuses an EX-library motor: it lives in one browser, not in the app', async () => {
@@ -778,6 +811,161 @@ describe('a desktop design\'s <digest> picks among a downloaded motor\'s files',
     stubDownload([usual, other]);
     const spec = await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { digest: '0'.repeat(32) });
     expect(Math.max(...spec.thrusts)).toBe(11.75);
+  });
+
+  // A (113-16e): the cache holds the usual pick only; a warm cache flew it
+  // for a design whose digest names the other file, and said nothing.
+  it('plain first, then the digest: the named file flies, not the warm cache', async () => {
+    const tc = await freshModule();
+    const digest = tc.fileDigests(other)[0]!;
+    const spy = stubDownload([usual, other]);
+    expect(Math.max(...(await tc.fetchMotorSpec(QUEST_C6, 5)).thrusts)).toBe(11.75);
+    expect(localStorage.getItem(CACHE_KEY)).not.toBeNull();
+    expect(Math.max(...(await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { digest })).thrusts)).toBe(14);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(tc.lastCurveFiles(QUEST_C6.motorId)).toMatchObject({ origin: 'download', digest: { value: digest, named: 'flown' } });
+    // With no digest, the warm cache answers as before.
+    expect(Math.max(...(await tc.fetchMotorSpec(QUEST_C6, 5)).thrusts)).toBe(11.75);
+    expect(spy).toHaveBeenCalledTimes(2);
+  });
+
+  it('offline (navigator.onLine false): the cached curve flies at once, with no request, and the fallback is recorded', async () => {
+    const tc = await freshModule();
+    const digest = tc.fileDigests(other)[0]!;
+    stubDownload([usual, other]);
+    await tc.fetchMotorSpec(QUEST_C6, 5);
+    const spy = stubDownload([usual, other]);
+    const offline = vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    try {
+      expect(Math.max(...(await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { digest })).thrusts)).toBe(11.75);
+    } finally {
+      offline.mockRestore();
+    }
+    expect(spy).not.toHaveBeenCalled();
+    expect(tc.lastCurveFiles(QUEST_C6.motorId)).toMatchObject({ origin: 'cache', cachedFrom: 'download', cacheFallback: 'offline',
+      digest: { value: digest, named: 'unknown' } });
+  });
+
+  it('a download that cannot be reached (TypeError): the cached curve flies, and the fallback is recorded', async () => {
+    const tc = await freshModule();
+    const digest = tc.fileDigests(other)[0]!;
+    stubDownload([usual, other]);
+    await tc.fetchMotorSpec(QUEST_C6, 5);
+    const spy = vi.fn(async () => { throw new TypeError('Failed to fetch'); });
+    vi.stubGlobal('fetch', spy);
+    expect(Math.max(...(await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { digest })).thrusts)).toBe(11.75);
+    expect(spy).toHaveBeenCalledOnce();
+    expect(tc.lastCurveFiles(QUEST_C6.motorId)).toMatchObject({ origin: 'cache', cacheFallback: 'failed', digest: { named: 'unknown' } });
+  });
+
+  it('a digest the cached file carries, or one the motor never published, flies from the cache with no request', async () => {
+    const tc = await freshModule();
+    stubDownload([usual, other]);
+    await tc.fetchMotorSpec(QUEST_C6, 5);
+    const spy = stubDownload([usual, other]);
+    expect(Math.max(...(await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { digest: tc.fileDigests(usual)[0]! })).thrusts)).toBe(11.75);
+    expect(tc.lastCurveFiles(QUEST_C6.motorId)).toMatchObject({ origin: 'cache', digest: { named: 'flown' } });
+    expect(Math.max(...(await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { digest: '0'.repeat(32) })).thrusts)).toBe(11.75);
+    expect(tc.lastCurveFiles(QUEST_C6.motorId)).toMatchObject({ origin: 'cache', digest: { named: 'absent' } });
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('an untagged (v0.196) entry with a digest reads as "digest unknown": the download is asked, and its fall-back is the entry', async () => {
+    const tc = await freshModule();
+    const digest = tc.fileDigests(usual)[0]!;
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples: usual.samples, masses: null, massParser: 1, t: 1 }));
+    const spy = stubDownload([usual, other]);
+    expect(Math.max(...(await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { digest })).thrusts)).toBe(11.75);
+    expect(spy).toHaveBeenCalledOnce();
+    // The download rewrote the entry with its tags, so the next open needs no request.
+    await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { digest });
+    expect(spy).toHaveBeenCalledOnce();
+  });
+});
+
+describe('the cache and a digest that is not desktop\'s', () => {
+  it('a label in no desktop form (not 32 lowercase hex) names no published file: the entry flies, with no request', async () => {
+    const tc = await freshModule();
+    localStorage.setItem(CACHE_KEY, JSON.stringify({ samples: GOOD_SAMPLES, masses: null, massParser: 1, t: 1 }));
+    const spy = stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
+    await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { digest: 'file-digest' });
+    expect(spy).not.toHaveBeenCalled();
+    expect(tc.lastCurveFiles(QUEST_C6.motorId)).toMatchObject({ origin: 'cache', digest: { value: 'file-digest', named: 'absent' } });
+    // Positive control: a desktop-form digest the untagged entry cannot vouch for asks.
+    await tc.fetchMotorSpec(QUEST_C6, 5, undefined, { digest: 'f'.repeat(32) });
+    expect(spy).toHaveBeenCalledOnce();
+  });
+});
+
+/**
+ * H2: one source for "the files this motor flies from" (curveFiles), which
+ * fetchMotorSpec flies and lastCurveFiles keeps for the page session, so a
+ * caller that reports on the curve (digestCurveNote, lane 22) needs no
+ * second read.
+ */
+describe('curveFiles and lastCurveFiles', () => {
+  it('fetchMotorSpec flies the file curveFiles names, and lastCurveFiles holds that answer', async () => {
+    const tc = await freshModule();
+    const { findDbMotor } = await import('./motorDb.js');
+    const motor = findDbMotor('C6', 18, undefined, 'Estes')!;
+    expect(tc.lastCurveFiles(motor.motorId)).toBeUndefined();
+    const spec = await tc.fetchMotorSpec(motor, 5);
+    const read = tc.lastCurveFiles(motor.motorId)!;
+    expect(read.origin).toBe('bundle');
+    expect(read.files).toEqual(await tc.bundledFiles(motor.motorId));
+    expect(read.flown).toBe(read.usual);
+    expect(tc.samplesToMotorSpec(motor, read.flown.samples!, 5, tc.headerMasses(read.flown)).thrusts).toEqual(spec.thrusts);
+    // The same answer, asked directly.
+    expect((await tc.curveFiles(motor)).flown).toEqual(read.flown);
+  });
+
+  it('digestCurveNote reads the same files from it as from the bundle, with no second read', async () => {
+    const tc = await freshModule();
+    const { digestCurveNote } = await import('./digestCurveNote.js');
+    const { MOTOR_DB } = await import('./motorDb.js');
+    // A bundled motor whose files fly differently, named by a digest that is not the usual pick's.
+    let found: { motor: TcMotor; digest: string } | undefined;
+    for (const m of MOTOR_DB) {
+      const files = await tc.bundledFiles(m.motorId);
+      const usual = tc.pickSampleFile(files, m);
+      const other = files.find(f => f !== usual && f.samples && usual && !tc.fliesTheSame(f, usual) && tc.fileDigests(f).length);
+      if (other) { found = { motor: m, digest: tc.fileDigests(other)[0]! }; break; }
+    }
+    expect(found).toBeDefined();
+    const { motor, digest } = found!;
+    await tc.fetchMotorSpec(motor, 5, undefined, { digest });
+    const ref = { designation: motor.designation, manufacturer: motor.manufacturerAbbrev, diameter: motor.diameter / 1000,
+      length: motor.length / 1000, delay: 5, digest };
+    const memo = vi.fn(async () => tc.lastCurveFiles(motor.motorId)!.files);
+    const note = await digestCurveNote(ref, motor, memo);
+    expect(note).toBeDefined();
+    expect(note).toBe(await digestCurveNote(ref, motor));
+    expect(tc.lastCurveFiles(motor.motorId)).toMatchObject({ origin: 'bundle', digest: { value: digest, named: 'flown' } });
+  });
+
+  it('keeps the newest 64 motors, dropping the oldest first', async () => {
+    const tc = await freshModule();
+    const { MOTOR_DB } = await import('./motorDb.js');
+    const bundled: TcMotor[] = [];
+    for (const m of MOTOR_DB) {
+      if (bundled.length === 66) break;
+      if ((await tc.bundledFiles(m.motorId)).length) bundled.push(m);
+    }
+    for (const m of bundled.slice(0, 65)) await tc.curveFiles(m);
+    expect(tc.lastCurveFiles(bundled[0]!.motorId)).toBeUndefined();
+    expect(tc.lastCurveFiles(bundled[1]!.motorId)).toBeDefined();
+    expect(tc.lastCurveFiles(bundled[64]!.motorId)).toBeDefined();
+    // A read moves a motor to the newest end: the next new motor drops
+    // bundled[2], not bundled[1].
+    await tc.curveFiles(bundled[1]!);
+    await tc.curveFiles(bundled[65]!);
+    expect(tc.lastCurveFiles(bundled[1]!.motorId)).toBeDefined();
+    expect(tc.lastCurveFiles(bundled[2]!.motorId)).toBeUndefined();
+  });
+
+  it('refuses an EX-library motor, whose curve is not a catalogue file', async () => {
+    const tc = await freshModule();
+    await expect(tc.curveFiles({ ...QUEST_C6, motorId: 'ex:abc' })).rejects.toThrow(TypeError);
   });
 });
 
