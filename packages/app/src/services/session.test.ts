@@ -1377,6 +1377,7 @@ describe('stored-state hardening: a configuration is screened before its label i
     const loaded = loadSession()!;
     expect(loaded.savedConfigs![0]!.unmatched).toEqual(['K550W']);
     expect(noteKinds(loaded)).toContain('caution:G04.unmatched-rebuilt');
+    expect(loaded.treeRestoreNotes).toContain('Unreadable lists of unmatched motors were rebuilt from the motor references or removed.');
   });
   it('drops a stored unmatched list with no references to rebuild it from', () => {
     localStorage.setItem(KEY, JSON.stringify({ ...state(),
@@ -1384,6 +1385,7 @@ describe('stored-state hardening: a configuration is screened before its label i
     const loaded = loadSession()!;
     expect(loaded.savedConfigs![0]).not.toHaveProperty('unmatched');
     expect(noteKinds(loaded)).toContain('caution:G04.unmatched-rebuilt');
+    expect(loaded.treeRestoreNotes).toContain('Unreadable lists of unmatched motors were rebuilt from the motor references or removed.');
     expect(() => designStateFromSession(loaded, { legacyMaxMotorLengthM: null })).not.toThrow();
   });
   it('leaves a valid unnamed configuration unchanged, with no note', () => {

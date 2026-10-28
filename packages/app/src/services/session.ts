@@ -622,7 +622,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
         const refs = Object.values(cfg.unmatchedRefs ?? {});
         if (refs.length) cfg.unmatched = refs.map(r => r.designation);
       }
-      cautionNote(s.treeRestoreNotes ??= [], 'G04.unmatched-rebuilt', 'Unreadable lists of unmatched motors were rebuilt from the motor references.');
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.unmatched-rebuilt', 'Unreadable lists of unmatched motors were rebuilt from the motor references or removed.');
     }
     // Ids are compared with ===, and a legacy mount id is reserved through a
     // regex (treeModel.reserveNodeIds): one that is not a string matched no
