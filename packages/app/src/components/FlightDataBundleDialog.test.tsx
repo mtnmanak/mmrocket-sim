@@ -10,6 +10,7 @@ import type { SimRun } from '../services/simReport.js';
 import { saveFile } from '../services/saveFile.js';
 import { runExportContext } from '../services/runExportContext.js';
 import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
+import { loadRuns } from '../services/simStore.js';
 vi.mock('../services/saveFile.js', () => ({ saveFile: vi.fn(async () => ({ kind: 'cancelled' })) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
@@ -174,4 +175,13 @@ it('refuses a hex measurement rather than exporting it as decimal (closure audit
   expect(saveFile).not.toHaveBeenCalled();
   fill(apogee, '16');
   expect(apogee.getAttribute('aria-invalid')).toBe('false');
+});
+
+it('names a stored run with no motor as "Unknown motor"', () => {
+  localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...source().run, motor: 7, manufacturer: undefined }]));
+  const [run] = loadRuns();
+  act(() => root.render(<FlightDataBundleDialog source={{ ...source(), run: run! }} onClose={() => {}} />));
+  const selected = [...host.querySelectorAll('p')].find(p => p.textContent?.startsWith('Selected run:'))!;
+  expect(selected.querySelector('strong')!.textContent).toBe('Chosen run · Unknown motor');
+  localStorage.clear();
 });

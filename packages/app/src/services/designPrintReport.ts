@@ -13,7 +13,7 @@ import { formatWarning } from './simWarnings.js';
 import { recordedConfiguration, runConfigurationHeading } from './runConfiguration.js';
 import { dataHeaderLines, EXPORT_VARS } from './schematicExport.js';
 import { aeroModelLabel, commentsOf, formatRunStability, formatRunWhenProse, formatStability, hasAerodynamicForce, describeRunChanges,
-  type DeploymentReport, type SimRun, type StabilityUnit } from './simReport.js';
+  runLabelText, type DeploymentReport, type SimRun, type StabilityUnit } from './simReport.js';
 import { escapeXml } from './xmlUtil.js';
 import { printDocument } from './printDocument.js';
 
@@ -185,7 +185,7 @@ export function designPrintHtml(input: DesignPrintInput): string {
  * motor reads "Unknown motor". A complete run prints exactly as before.
  */
 function flightCardHeader(run: SimRun): string {
-  const text = (v: unknown) => typeof v === 'string' && v.trim() ? v : '';
+  const text = runLabelText;
   const motor = [text(run.manufacturer), text(run.motor)].filter(Boolean).join(' ') || 'Unknown motor';
   return [text(run.rocket), motor, `flown ${formatRunWhenProse(run.when)}`].filter(Boolean).join(' — ');
 }
