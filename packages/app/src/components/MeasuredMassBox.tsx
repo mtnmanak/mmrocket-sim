@@ -2,6 +2,7 @@ import { Note } from './Note.js';
 import type { ReactNode } from 'react';
 import { NumField } from './NumField.js';
 import { UnitChip } from './UnitChip.js';
+import { useAfterMount } from '../hooks/useAfterMount.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { noticeQuantity, fmtSi, niceStep, siToUi, uiToSi } from '../prefs/units.js';
 import { solveBallast, type BallastSolution } from '../services/buildAllowance.js';
@@ -51,6 +52,7 @@ export function MeasuredMassBox({
   onPinStage?: () => void;
 }) {
   const { prefs } = usePrefs();
+  const afterMount = useAfterMount();
   const massSym = prefs.units.mass;
   const lenSym = prefs.units.length;
 
@@ -158,11 +160,13 @@ export function MeasuredMassBox({
         its own role="status", rendered only once both boxes were filled, so the
         first verdict — and the first after a box was cleared to retype it —
         arrived as a new region with its text already in it, which a screen
-        reader announces unreliably. The buttons stay outside it, so an
+        reader announces unreliably. A remounted box can already have both
+        figures; defer its verdict until after mount for the same reason.
+        The buttons stay outside it, so an
         announcement is the verdict alone and not "… Add Build allowance,
         button".
       */}
-      <div role="status">{shown?.text}</div>
+      <div role="status">{afterMount && shown?.text}</div>
       {shown?.action}
       {hasAllowance && solution && ['matches', 'cg-only', 'overweight-model'].includes(solution.kind) && (
         <button className="file-btn measured-apply" onClick={onRemove}>Remove Build allowance</button>

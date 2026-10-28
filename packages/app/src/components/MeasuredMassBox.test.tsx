@@ -236,6 +236,27 @@ describe('MeasuredMassBox — the verdict is announced from one always-mounted r
   };
   const button = (re: RegExp) => [...host.querySelectorAll('button')].find((b) => re.test(b.textContent ?? ''))!;
 
+  it.each(['first mount', 'remount'])('inserts a prefilled verdict after its region on %s', (when) => {
+    if (when === 'remount') {
+      show({ massKg: 1.1, cgM: 0.5 });
+      act(() => root.render(null));
+    }
+    const records: MutationRecord[] = [];
+    const observer = new MutationObserver((list) => { records.push(...list); });
+    observer.observe(host, { childList: true, subtree: true });
+    try {
+      show({ massKg: 1.1, cgM: 0.5 });
+      records.push(...observer.takeRecords());
+      const live = region();
+      const verdict = live.querySelector('.measured-verdict');
+      expect(verdict?.textContent).toContain('Add 100 g');
+      // A populated region inserted in one commit has no record targeting it.
+      expect(records.some((r) => r.target === live && [...r.addedNodes].includes(verdict!))).toBe(true);
+    } finally {
+      observer.disconnect();
+    }
+  });
+
   it('is there, empty, before both numbers are in, and the first verdict lands in it', () => {
     show({ massKg: null, cgM: null });
     const live = region();
