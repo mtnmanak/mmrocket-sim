@@ -80,7 +80,7 @@ import { WRAP_FINS } from '../services/tubeWrapGuide.js';
 import { safeName } from '../services/fileName.js';
 import { downloadBlob } from '../services/saveFile.js';
 import { builtInMaterial, designMaterials, materialNameKey, type MaterialKind } from '../services/designMaterials.js';
-import { materialProblem, saveUserMaterials, USER_MATERIALS_LIMIT, userMaterialKey } from '../services/userMaterials.js';
+import { materialProblem, USER_MATERIALS_LIMIT, USER_MATERIALS_UNREADABLE, userMaterialKey, writeUserMaterials } from '../services/userMaterials.js';
 import { useUserMaterials } from './useUserMaterials.js';
 import { MATERIAL_STORAGE_FAILURE, MyMaterialsDialog } from './MyMaterialsDialog.js';
 
@@ -403,9 +403,10 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
           if (problem) { setMessage(problem); return; }
           if (!saved && materials.length >= USER_MATERIALS_LIMIT) { setMessage('My materials has a limit of 500 entries. Delete an entry before saving another.'); return; }
           const next = materials.filter(m => userMaterialKey(m) !== userMaterialKey(entry));
-          const success = saveUserMaterials([...next, entry]);
-          setMessage(success ? 'Saved in My materials.' : MATERIAL_STORAGE_FAILURE);
-          if (success) selectRef.current?.focus();
+          const written = writeUserMaterials([...next, entry]);
+          setMessage(written === 'saved' ? 'Saved in My materials.'
+            : written === 'unreadable' ? USER_MATERIALS_UNREADABLE : MATERIAL_STORAGE_FAILURE);
+          if (written === 'saved') selectRef.current?.focus();
         }}>
         {saved ? saved.density === foreignDensity ? 'Saved in My materials' : 'Update in My materials' : '☆ Save to My materials'}
       </button>}

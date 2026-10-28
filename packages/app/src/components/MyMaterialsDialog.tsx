@@ -7,7 +7,7 @@ import { readDecimal } from '../prefs/units.js';
 import { useUserMaterials } from './useUserMaterials.js';
 import { MATERIAL_UNITS, type MaterialKind } from '../services/designMaterials.js';
 import {
-  importUserMaterialsCsv, loadUserMaterials, materialProblem, saveUserMaterials, userMaterialKey, userMaterialsToCsv,
+  importUserMaterialsCsv, loadUserMaterials, materialProblem, USER_MATERIALS_UNREADABLE, userMaterialKey, userMaterialsToCsv, writeUserMaterials,
   type UserMaterial,
 } from '../services/userMaterials.js';
 import { downloadBlob } from '../services/saveFile.js';
@@ -43,7 +43,8 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
   });
   const uid = useId();
   const persist = (next: UserMaterial[], success: string): boolean => {
-    if (!saveUserMaterials(next)) { setMessage(MATERIAL_STORAGE_FAILURE); return false; }
+    const written = writeUserMaterials(next);
+    if (written !== 'saved') { setMessage(written === 'unreadable' ? USER_MATERIALS_UNREADABLE : MATERIAL_STORAGE_FAILURE); return false; }
     setMessage(success);
     return true;
   };
