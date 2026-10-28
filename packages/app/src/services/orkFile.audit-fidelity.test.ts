@@ -90,12 +90,12 @@ describe('audit 2026-10-11 .ork fidelity and bounds', () => {
       expect(reopened.notes.join('\n')).not.toContain(`invalid <${tag}> value`);
     });
     it.each([
-      ['parachute', 'packedRadius', 0.0125], ['streamer', 'packedRadius', 0.0125],
-      ['shockcord', 'packedRadius', 0.0125], ['masscomponent', 'radius', 0.005],
-    ])('keeps the %s packed fallback with a note on import and reopen', (part, prop, fallback) => {
+      ['parachute', 'packedRadius', 0.0125, '12.5 mm [0.492 in]'], ['streamer', 'packedRadius', 0.0125, '12.5 mm [0.492 in]'],
+      ['shockcord', 'packedRadius', 0.0125, '12.5 mm [0.492 in]'], ['masscomponent', 'radius', 0.005, '5 mm [0.197 in]'],
+    ])('keeps the %s packed fallback with a note on import and reopen', (part, prop, fallback, shown) => {
       const packed = `<${part}>${element('packedradius')}</${part}>`;
       const r = importOrk(fixture(tube.replace('</bodytube>', `<subcomponents>${packed}</subcomponents></bodytube>`)));
-      expect(r.notes.join('\n')).toContain(`invalid <packedradius> value; using the default (${fallback})`);
+      expect(r.notes.join('\n')).toContain(`invalid <packedradius> value; using the default (${shown})`);
       expect(r.tree.components[0]!.children![0]!.children![0]![prop]).toBe(fallback);
       const reopened = importOrk(save(r));
       expect(reopened.tree.components[0]!.children![0]!.children![0]![prop]).toBe(fallback);
