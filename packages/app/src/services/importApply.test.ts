@@ -4,9 +4,9 @@ import type { MountMotor, SavedConfig } from '../model/design.js';
 import { DEFAULT_CONDITIONS, kernelSimOptions, type LaunchConditions } from '../components/LaunchPanel.js';
 import { designFingerprint, isDirty, type DesignSnapshot } from './dirtyState.js';
 import { LEGACY_PAD_MASS_KEY, motorIdentity, motorSetIdentity } from './hardwareMass.js';
-import { MOTOR_DB } from './motorDb.js';
+import { MOTOR_DB, MOTOR_DB_DATE, getCatalogue, setCatalogueOverlay } from './motorDb.js';
 import { savedConfigLabel } from '../model/design.js';
-import { matchImportedMotor, type MotorMatchResult } from './motorMatch.js';
+import { matchImportedMotor, mountMotorFromDb, type MotorMatchResult } from './motorMatch.js';
 import { parseEng } from './exMotors.js';
 import type { OrkFlightConfig, OrkMotorRef } from './orkFile.js';
 import { padMassSetKey } from './configSync.js';
@@ -129,6 +129,38 @@ describe('resolveImportMotors — the awaits of an open', () => {
     expect(Object.hasOwn(out.configs[id]!, id)).toBe(true);
     expect(Object.hasOwn(out.configResults!, id)).toBe(true);
   });
+  it.each(['working', 'config'] as const)('revisits an earlier %s match after a later mount installs a catalogue change', async where => {
+    setCatalogueOverlay(null);
+    const original = MOTOR_DB[0]!;
+    const changed = { ...original, propInfo: 'updated propellant', length: original.length + 10 };
+    const reference: OrkMotorRef = { designation: original.designation, manufacturer: original.manufacturerAbbrev,
+      diameter: original.diameter / 1000, length: original.length / 1000, delay: 5 };
+    const refs = { first: reference, second: reference, ex: { ...reference, exMotorId: 'ex:test' } };
+    const imported: ImportedDesign = { name: 'two mounts', tree: podTree(), notes: [],
+      motors: where === 'working' ? refs : {}, configs: where === 'config' ? [config('B', refs)] : [] };
+    const match = vi.fn(async (r: OrkMotorRef): Promise<MotorMatchResult> => {
+      const row = getCatalogue().find(m => m.motorId === original.motorId)!;
+      if (match.mock.calls.length === 2) {
+        await Promise.resolve();
+        setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: MOTOR_DB.length,
+          added: [], changed: [{ motorId: original.motorId, before: original, after: changed, fields: ['length', 'propInfo'] }], removed: [], rejected: [] });
+      }
+      return { note: row.propInfo ?? '', motor: mountMotorFromDb(row, { ...motor(row.designation).spec, length: row.length / 1000 }, r.delay,
+        { event: 'automatic', delay: 0 }) };
+    });
+    try {
+      const out = await resolveImportMotors(imported, match);
+      const results = where === 'working' ? out.working : out.configResults!.B!;
+      for (const id of ['first', 'second']) {
+        expect(results[id]!.motor!.meta.propellant).toBe(changed.propInfo);
+        expect(results[id]!.motor!.spec.length).toBeCloseTo(changed.length / 1000, 12);
+        if (where === 'config') expect(out.configs.B![id]).toBe(results[id]!.motor);
+      }
+      expect(match.mock.calls.filter(([r]) => r.exMotorId !== undefined)).toHaveLength(1);
+      expect(match).toHaveBeenCalledTimes(5);
+    } finally { setCatalogueOverlay(null); }
+  });
+
   it('matches the applied set once and every OTHER configuration after it, in file order', async () => {
     const imported: ImportedDesign = {
       name: 'x', tree: podTree(), notes: [], motors: { mmt: ref('H100') },

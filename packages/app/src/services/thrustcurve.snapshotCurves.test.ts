@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TcMotor } from './thrustcurve.js';
 import type { CatalogueOverlay, MotorDbEntry } from './motorDb.js';
-import { CATALOGUE_BASE } from './catalogueClient.js';
+import { CATALOGUE_BASE, CURATED_CHECK_SINCE } from './catalogueClient.js';
 import { catalogueFetch, daysAfter, manifestOf, publication, type Publication } from './catalogueFixture.testSupport.js';
 
 /**
@@ -49,10 +49,10 @@ afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.doUnmock('../d
 /** A snapshot whose curves file holds `curves`, installed as the active overlay; fetch serves it, and refuses thrustcurve.org with `tcAnswer`. */
 async function install(curves: Record<string, unknown[]>, opts: {
   added?: MotorDbEntry[]; changed?: CatalogueOverlay['changed']; fetchedAt?: string; curvesDoc?: unknown;
-  curvesAnswer?: () => Response | Promise<Response>; tcAnswer?: () => Response | Promise<Response>; generated?: string;
+  curvesAnswer?: () => Response | Promise<Response>; tcAnswer?: () => Response | Promise<Response>; generated?: string; revision?: number;
 } = {}): Promise<{ pub: Publication; overlay: CatalogueOverlay }> {
   const generated = opts.generated ?? daysAfter(db.MOTOR_DB_DATE, 2);
-  const pub = await publication(`${generated}.2`, db.MOTOR_DB, curves, opts.curvesDoc !== undefined ? { curvesDoc: opts.curvesDoc } : {});
+  const pub = await publication(`${generated}.${opts.revision ?? 2}`, db.MOTOR_DB, curves, opts.curvesDoc !== undefined ? { curvesDoc: opts.curvesDoc } : {});
   const serve = catalogueFetch(manifestOf(pub), [pub], opts.curvesAnswer ? { [pub.entry.curves.path]: opts.curvesAnswer } : {});
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -139,9 +139,10 @@ describe('a shipped motor with no bundled curve (D.7)', () => {
 
   it('positive control: the same motor under a legacy overlay still reaches today\'s download', async () => {
     await install({});
-    legacy(new Date(Date.parse(db.MOTOR_DB_DATE) + 86_400_000).toISOString());
+    legacy(`${daysAfter(CURATED_CHECK_SINCE, -2)}T00:00:00.000Z`);
     await miss(tc.fetchMotorSpec(curveless, 5));
-    expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
+    expect(tcRequests).toEqual(daysAfter(CURATED_CHECK_SINCE, -2) > db.MOTOR_DB_DATE
+      ? ['https://www.thrustcurve.org/api/v1/download.json'] : []);
     expect(catalogueRequests).toEqual([]);
   });
 
@@ -312,10 +313,10 @@ describe('D.7: the no-curve date does not churn under a snapshot', () => {
   });
 
   it('a legacy overlay still keys on its check date, as before', async () => {
-    legacy(new Date(Date.parse(db.MOTOR_DB_DATE) + 86_400_000).toISOString(), [addedMotor]);
+    legacy(`${daysAfter(CURATED_CHECK_SINCE, -2)}T00:00:00.000Z`, [addedMotor]);
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => { tcRequests.push(String(input)); return new Response(JSON.stringify({ results: [] })); }));
     await miss(tc.fetchMotorSpec(addedMotor, 5));
-    legacy(new Date(Date.parse(db.MOTOR_DB_DATE) + 2 * 86_400_000).toISOString(), [addedMotor]);
+    legacy(`${daysAfter(CURATED_CHECK_SINCE, -1)}T00:00:00.000Z`, [addedMotor]);
     await miss(tc.fetchMotorSpec(addedMotor, 5));
     expect(tcRequests).toHaveLength(2);
   });
@@ -388,7 +389,7 @@ describe('E: a curves file that was not read is "could not be read", never "none
 
   it('an added motor whose file cannot be read still falls through to the download', async () => {
     await install({ [addedMotor.motorId]: [file(40)] }, { added: [addedMotor], curvesAnswer: () => new Response('down', { status: 503 }),
-      tcAnswer: () => new Response(JSON.stringify({ results: [{ format: 'RASP', source: 'cert', samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 33 }, { time: 1, thrust: 0 }] }] })) });
+      tcAnswer: () => new Response(JSON.stringify({ results: [{ motorId: addedMotor.motorId, format: 'RASP', source: 'cert', samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 33 }, { time: 1, thrust: 0 }] }] })) });
     expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(33, 9);
     expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
   });
@@ -487,6 +488,43 @@ describe('A: a warm cache does not beat the file a desktop digest names (no bund
     expect(tcRequests).toEqual([]);
   });
 
+  it.each([0, 1])('%#: a newer snapshot can add the digest a cached list lacked', async (which) => {
+    const [, motor, extra] = cases()[which]!;
+    const { overlay } = await install({ [motor.motorId]: [usualFile()] }, extra);
+    await thrusts(motor);
+    const key = `tc:samples:v7:${motor.motorId}`;
+    const cached = localStorage.getItem(key)!;
+    expect(JSON.parse(cached)).toMatchObject({ motorDigests: ['a'.repeat(32)], motorDigestsSource: overlay.snapshot!.curves.sha256 });
+    await thrusts(motor, { digest: NAMED });
+    expect(tc.lastCurveFiles(motor.motorId)).toMatchObject({ origin: 'cache', digest: { named: 'absent' } });
+    const requests = catalogueRequests.length;
+    await install({ [motor.motorId]: [usualFile(), namedFile()] }, { ...extra, revision: 3 });
+    expect(Math.max(...await thrusts(motor, { digest: NAMED }))).toBeCloseTo(77, 9);
+    expect(tc.lastCurveFiles(motor.motorId)).toMatchObject({ origin: 'snapshot', digest: { named: 'flown' } });
+    expect(catalogueRequests).toHaveLength(requests + 1);
+    expect(tcRequests).toEqual([]);
+    expect(localStorage.getItem(key)).toBe(cached);
+  });
+
+  it.each(['offline', 'failed', 'untagged'] as const)('a stale digest list keeps its cached stand-in when %s', async kind => {
+    await install({ [addedMotor.motorId]: [usualFile()] }, { added: [addedMotor] });
+    await thrusts(addedMotor);
+    const key = `tc:samples:v7:${addedMotor.motorId}`;
+    if (kind === 'untagged') {
+      const cached = JSON.parse(localStorage.getItem(key)!);
+      delete cached.motorDigestsSource;
+      localStorage.setItem(key, JSON.stringify(cached));
+    }
+    const cached = localStorage.getItem(key);
+    await install({}, { added: [addedMotor], generated: daysAfter(db.MOTOR_DB_DATE, 3),
+      curvesAnswer: () => new Response('down', { status: 503 }), tcAnswer: () => new Response('down', { status: 503 }) });
+    if (kind === 'offline') vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    expect(Math.max(...await thrusts(addedMotor, { digest: NAMED }))).toBeCloseTo(40, 9);
+    expect(tc.lastCurveFiles(addedMotor.motorId)).toMatchObject({ origin: 'cache',
+      cacheFallback: kind === 'offline' ? 'offline' : 'failed', digest: { named: 'unknown' } });
+    expect(localStorage.getItem(key)).toBe(cached);
+  });
+
   it.each([0, 1])('%#: offline (navigator.onLine false) the cached curve flies at once, and the fallback is recorded', async (which) => {
     const [, motor, extra] = cases()[which]!;
     await install({ [motor.motorId]: [usualFile(), namedFile()] }, extra);
@@ -503,8 +541,8 @@ describe('A: a warm cache does not beat the file a desktop digest names (no bund
   });
 
   it('a legacy-overlay added motor (the download path): plain first, then the digest: the named file flies', async () => {
-    const asDownload = (f: ReturnType<typeof file>) => ({ ...f, samples: f.samples.map(([time, thrust]) => ({ time, thrust })) });
-    legacy(`${daysAfter(db.MOTOR_DB_DATE, 1)}T00:00:00.000Z`, [addedMotor]);
+    const asDownload = (f: ReturnType<typeof file>) => ({ ...f, motorId: addedMotor.motorId, samples: f.samples.map(([time, thrust]) => ({ time, thrust })) });
+    legacy(`${daysAfter(CURATED_CHECK_SINCE, -1)}T00:00:00.000Z`, [addedMotor]);
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       tcRequests.push(String(input));
       return new Response(JSON.stringify({ results: [asDownload(usualFile()), asDownload(namedFile())] }));

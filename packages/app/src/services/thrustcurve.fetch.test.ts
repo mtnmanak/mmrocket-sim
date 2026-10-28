@@ -67,8 +67,8 @@ const okResponse = (body: unknown): Response =>
   ({ ok: true, status: 200, json: async () => body }) as unknown as Response;
 
 /** Stubs fetch with one canned download.json body; returns the spy. */
-function stubDownload(results: TcSimFile[]): ReturnType<typeof vi.fn> {
-  const spy = vi.fn(async () => okResponse({ results }));
+function stubDownload(results: TcSimFile[], motorId = QUEST_C6.motorId): ReturnType<typeof vi.fn> {
+  const spy = vi.fn(async () => okResponse({ results: results.map(f => ({ motorId, ...f })) }));
   vi.stubGlobal('fetch', spy);
   return spy;
 }
@@ -145,6 +145,30 @@ describe('isHeaderMasses — the one mass test, shared by file and cache', () =>
   });
 });
 
+describe('download motor identity', () => {
+  it.each([undefined, 'another-motor'])('refuses a file for motorId %s without flying or caching it', async motorId => {
+    const tc = await freshModule();
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ results: [{ motorId, samples: GOOD_SAMPLES }] })));
+    await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(localStorage.getItem(CACHE_KEY)).toBeNull();
+    expect(tc.lastCurveFiles(QUEST_C6.motorId)).toBeUndefined();
+  });
+
+  it('ignores another motor even when its file has the requested digest', async () => {
+    const tc = await freshModule();
+    const digest = 'a'.repeat(32);
+    vi.stubGlobal('fetch', vi.fn(async () => okResponse({ results: [
+      { motorId: 'another-motor', samples: GOOD_SAMPLES, digests: [digest] },
+      { motorId: QUEST_C6.motorId, samples: GOOD_SAMPLES.map(s => ({ ...s, thrust: s.thrust * 2 })) },
+    ] })));
+    const read = await tc.curveFiles(QUEST_C6, { digest });
+    expect(read.digest?.named).toBe('absent');
+    expect(read.files).toHaveLength(1);
+    expect(Math.max(...read.flown.samples!.map(s => s.thrust))).toBeCloseTo(23.5, 9);
+    expect(JSON.parse(localStorage.getItem(CACHE_KEY)!).samples).toEqual(read.flown.samples);
+  });
+});
+
 describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN', () => {
   const BROKEN: TcSimFile = { format: 'RASP', samples: [{ thrust: 5 }, { thrust: 7 }] as TcSample[] };
 
@@ -206,7 +230,7 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
     await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(/No sample data available for C6/);
     // …and a sound file beside the junk is still found on a fresh attempt.
     localStorage.removeItem('online-openrocket.no-curve.v1');
-    const fetcher = vi.fn(async () => okResponse({ results: [null, { format: 'RASP', samples: GOOD_SAMPLES }] }));
+    const fetcher = vi.fn(async () => okResponse({ results: [null, { motorId: QUEST_C6.motorId, format: 'RASP', samples: GOOD_SAMPLES }] }));
     vi.stubGlobal('fetch', fetcher);
     const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
     expect(fetcher).toHaveBeenCalledOnce();
@@ -217,7 +241,7 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
     // Audit 2026-09-22: `res.json()` read any size of body whole. This one
     // is well-formed JSON a little over 4 MB — the old reader flew it.
     const tc = await freshModule();
-    const big = JSON.stringify({ results: [{ format: 'RASP', samples: GOOD_SAMPLES }], pad: 'x'.repeat(4.5e6) });
+    const big = JSON.stringify({ results: [{ motorId: QUEST_C6.motorId, format: 'RASP', samples: GOOD_SAMPLES }], pad: 'x'.repeat(4.5e6) });
     vi.stubGlobal('fetch', vi.fn(async () => new Response(big, { status: 200 })));
     await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(/answer for C6 ran past 4 MB/);
   });
@@ -225,7 +249,7 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
   it('reads an ordinary streamed body exactly as before', async () => {
     const tc = await freshModule();
     vi.stubGlobal('fetch', vi.fn(async () =>
-      new Response(JSON.stringify({ results: [{ format: 'RASP', samples: GOOD_SAMPLES }] }), { status: 200 })));
+      new Response(JSON.stringify({ results: [{ motorId: QUEST_C6.motorId, format: 'RASP', samples: GOOD_SAMPLES }] }), { status: 200 })));
     const spec = await tc.fetchMotorSpec(QUEST_C6, 5);
     expect(spec.masses.every((m) => Number.isFinite(m))).toBe(true);
   });
@@ -386,7 +410,7 @@ describe('"no curve exists" is said only when thrustcurve.org says so', () => {
       vi.useFakeTimers();
       await vi.advanceTimersByTimeAsync(600_000);
       // With a connection the download stands in for the bundle, as before.
-      stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }]);
+      stubDownload([{ format: 'RASP', samples: GOOD_SAMPLES }], bundled.motorId);
       expect((await tc.fetchMotorSpec(bundled, 5)).times.length).toBeGreaterThan(1);
       // And thrustcurve.org's own "none" is still that, bundle or no bundle.
       localStorage.clear();

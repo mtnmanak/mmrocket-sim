@@ -59,6 +59,7 @@ export interface TcSample {
 
 /** One simulator file as thrustcurve.org's download.json returns it. */
 export interface TcSimFile {
+  motorId?: string;
   /**
    * thrustcurve.org's id for this data file, the same in every answer and
    * every refresh (the bundle stores it for every file). pickSampleFile's last
@@ -1065,9 +1066,11 @@ export function samplesToMotorSpec(
  * rule, so v6 is dead too.
  *
  * NOT bumped for the tags (2026-10-28, lane 18). An entry written since then
- * carries three OPTIONAL fields: `origin` ('snapshot' or 'download'), the
+ * carries OPTIONAL fields: `origin` ('snapshot' or 'download'), the
  * cached file's own desktop `digests`, and `motorDigests`, every digest of
- * the motor's flyable files when each of them has one. They change no pick
+ * the motor's flyable files when each of them has one. `motorDigestsSource`
+ * binds that list to the curves sha (or download catalogue date), so a later
+ * source can add a named file. They change no pick
  * and nothing that flies — the samples and masses are what v7 always stored,
  * chosen by the same pickSampleFile — so no entry was written under an old
  * picking rule, which is what this rule exists for. An entry without them
@@ -1101,6 +1104,7 @@ interface CachedCurve {
   origin?: CachedCurveOrigin;
   digests?: string[];
   motorDigests?: string[];
+  motorDigestsSource?: string;
 }
 
 const digestList = (v: unknown): string[] | undefined =>
@@ -1236,13 +1240,13 @@ const flyable = (files: readonly TcSimFile[]): TcSimFile[] =>
  * digest might name a file the list cannot show, and "not among them" would
  * be a guess.
  */
-function writeCurveCache(cacheKey: string, file: TcSimFile, origin: CachedCurveOrigin, files: readonly TcSimFile[]): void {
+function writeCurveCache(cacheKey: string, file: TcSimFile, origin: CachedCurveOrigin, files: readonly TcSimFile[], source: string): void {
   const digests = fileDigests(file);
   const all = flyable(files).map(fileDigests);
   const entry = JSON.stringify({
     samples: file.samples, masses: headerMasses(file), massParser: MASS_PARSER_VERSION, t: Date.now(), origin,
     ...(digests.length ? { digests } : {}),
-    ...(all.length && all.every((d) => d.length) ? { motorDigests: [...new Set(all.flat())] } : {}),
+    ...(all.length && all.every((d) => d.length) ? { motorDigests: [...new Set(all.flat())], motorDigestsSource: source } : {}),
   });
   try {
     if (liveKeys().length > MAX_CACHED_CURVES) evictOldest(EVICT_TO);
@@ -1283,9 +1287,11 @@ function readCurveCache(cacheKey: string): CachedCurve | null {
     const origin = tags['origin'] === 'snapshot' || tags['origin'] === 'download' ? tags['origin'] : undefined;
     const digests = digestList(tags['digests']);
     const motorDigests = digestList(tags['motorDigests']);
+    const motorDigestsSource = typeof tags['motorDigestsSource'] === 'string' ? tags['motorDigestsSource'] : undefined;
     return {
       samples: parsed.samples, masses: isHeaderMasses(parsed.masses) ? parsed.masses : null,
       ...(origin ? { origin } : {}), ...(digests ? { digests } : {}), ...(motorDigests ? { motorDigests } : {}),
+      ...(motorDigestsSource ? { motorDigestsSource } : {}),
     };
   } catch {
     return null; // storage unavailable (private mode etc.) — just fetch
@@ -1446,8 +1452,9 @@ export async function curveFiles(
     if (cached.digests?.includes(digest)) return fromCache(cached, 'flown');
     // Not desktop's form (32 lowercase hex, its MD5; digestCurveNote holds
     // the same test): no published file has it, so nothing to ask for.
+    const source = activeSnapshot()?.curves.sha256 ?? catalogueDate();
     if (!DESKTOP_DIGEST.test(digest)
-      || (cached.motorDigests && !cached.motorDigests.includes(digest))) return fromCache(cached, 'absent');
+      || (cached.motorDigestsSource === source && cached.motorDigests && !cached.motorDigests.includes(digest))) return fromCache(cached, 'absent');
     // The snapshot's curves file may take 120 s to give up (catalogueClient.ts).
     if (isOffline()) return fromCache(cached, 'unknown', 'offline');
   }
@@ -1496,7 +1503,7 @@ async function curveFilesFromNetwork(motor: TcMotor, ctx: {
       if (read) {
         // The cache holds the motor's USUAL curve, which every pick of it
         // reads; a file only one design names is flown, not cached.
-        if (read.flown === read.usual) writeCurveCache(cacheKey, read.usual, 'snapshot', files!);
+        if (read.flown === read.usual) writeCurveCache(cacheKey, read.usual, 'snapshot', files!, snapshot.curves.sha256);
         return read;
       }
       if (curveless) throw files ? new NoPublishedCurveError(motor.designation) : unreadableCurvesFile(motor.designation, unread);
@@ -1511,6 +1518,7 @@ async function curveFilesFromNetwork(motor: TcMotor, ctx: {
   }
   if (noCurveEntries().get(motor.motorId) === catalogueDate()) throw new NoPublishedCurveError(motor.designation);
   const limit = deadline(signal, FETCH_TIMEOUT_MS);
+  const source = activeSnapshot()?.curves.sha256 ?? catalogueDate();
   let body: { results?: unknown } | null | undefined;
   try {
     assertThrustcurveAvailable();
@@ -1573,7 +1581,7 @@ async function curveFilesFromNetwork(motor: TcMotor, ctx: {
   // properties of null" from pickSampleFile (audit 2026-09-22).
   const listed = body?.results;
   const results = Array.isArray(listed)
-    ? listed.filter((f): f is TcSimFile => typeof f === 'object' && f !== null)
+    ? listed.filter((f): f is TcSimFile => typeof f === 'object' && f !== null && 'motorId' in f && f.motorId === motor.motorId)
     : [];
   const read = chosen('download', results);
   if (!read) {
@@ -1595,7 +1603,7 @@ async function curveFilesFromNetwork(motor: TcMotor, ctx: {
   }
   // The cache holds the motor's USUAL curve, which every pick of it reads;
   // a file only one design names is flown, not cached.
-  if (read.flown === read.usual) writeCurveCache(cacheKey, read.usual, 'download', results);
+  if (read.flown === read.usual) writeCurveCache(cacheKey, read.usual, 'download', results, source);
   return read;
 }
 

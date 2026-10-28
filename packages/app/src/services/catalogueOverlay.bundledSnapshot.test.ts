@@ -20,6 +20,20 @@ import committedRecord from '../data/catalogueSnapshot.json';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
+function checkCommittedRecord(record: { schema: number; generated: string | null; motorsSha256: string | null; curvesSha256: string | null }): void {
+  if (record.motorsSha256 === null && record.curvesSha256 === null) {
+    // Nothing to hold yet: the release pipeline does not write the record (owner question Q1).
+    console.info('catalogueSnapshot.json is unknown (null values); the bundle-equals-snapshot shortcut is off and this check does nothing.');
+    return;
+  }
+  expect(record.schema).toBe(1);
+  expect(record.motorsSha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(record.curvesSha256).toMatch(/^[a-f0-9]{64}$/);
+  expect(record.generated).toBe(MOTOR_DB_DATE);
+  const curves = readFileSync(join(here, '../data/motorCurves.json'));
+  expect(record.curvesSha256).toBe(createHash('sha256').update(curves).digest('hex'));
+}
+
 const row = (over: Partial<MotorDbEntry> = {}): MotorDbEntry => ({
   motorId: 'live-1', manufacturerAbbrev: 'Estes', designation: 'Z9', commonName: 'Z9', impulseClass: 'Z',
   diameter: 18, length: 70, type: 'SU', avgThrustN: 5, maxThrustN: 10, totImpulseNs: 8,
@@ -189,17 +203,26 @@ describe('the bundled snapshot record', () => {
     }
   });
 
+  it.each(['stale date', 'missing motors sha', 'missing curves sha', 'schema', 'sha format'] as const)('the CI guard refuses a raw record with %s', kind => {
+    const curvesSha256 = createHash('sha256').update(readFileSync(join(here, '../data/motorCurves.json'))).digest('hex');
+    const known = { schema: 1, generated: MOTOR_DB_DATE, motorsSha256: 'a'.repeat(64), curvesSha256 };
+    expect(() => checkCommittedRecord(known)).not.toThrow();
+    const bad = { ...known,
+      ...(kind === 'stale date' ? { generated: daysAfter(MOTOR_DB_DATE, -1) } : {}),
+      ...(kind === 'missing motors sha' ? { motorsSha256: null } : {}),
+      ...(kind === 'missing curves sha' ? { curvesSha256: null } : {}),
+      ...(kind === 'schema' ? { schema: 2 } : {}),
+      ...(kind === 'sha format' ? { motorsSha256: 'not-a-sha' } : {}),
+    };
+    expect(() => checkCommittedRecord(bad)).toThrow();
+  });
+
+  it('the CI guard accepts the explicitly unknown raw record', () => {
+    expect(() => checkCommittedRecord(UNKNOWN)).not.toThrow();
+  });
+
   it('the committed record, when known, is this bundle\'s: its curves sha is motorCurves.json\'s and its date is the catalogue\'s', () => {
     setBundledSnapshotForTests(null);
-    const known = bundledSnapshot();
-    if (!known) {
-      // Nothing to hold yet: the release pipeline does not write the record (owner question Q1).
-      console.info('catalogueSnapshot.json is unknown (null values); the bundle-equals-snapshot shortcut is off and this check does nothing.');
-      expect(committedRecord.motorsSha256 === null || committedRecord.generated !== MOTOR_DB_DATE).toBe(true);
-      return;
-    }
-    const curves = readFileSync(join(here, '../data/motorCurves.json'));
-    expect(known.curvesSha256).toBe(createHash('sha256').update(curves).digest('hex'));
-    expect(known.generated).toBe(MOTOR_DB_DATE);
+    checkCommittedRecord(committedRecord);
   });
 });

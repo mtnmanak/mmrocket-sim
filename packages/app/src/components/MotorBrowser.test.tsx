@@ -1102,7 +1102,7 @@ describe('MotorBrowser — two earlier fixes with no test until now (audit 2026-
     }
     await act(async () => {
       answer!({ ok: true, status: 200,
-        json: async () => ({ results: [{ format: 'RASP', samples: [{ time: 0.1, thrust: 80 }, { time: 1.5, thrust: 0 }] }] }),
+        json: async () => ({ results: [{ motorId: 'overlay-network-g81', format: 'RASP', samples: [{ time: 0.1, thrust: 80 }, { time: 1.5, thrust: 0 }] }] }),
       } as Response);
       await new Promise(r => setTimeout(r, 50));
     });
@@ -1119,7 +1119,7 @@ describe('MotorBrowser — two earlier fixes with no test until now (audit 2026-
       answered = true;
       resolve({
         ok: true, status: 200,
-        json: async () => ({ results: [{ format: 'RASP', samples: [{ time: 0.1, thrust: 80 }, { time: 1.5, thrust: 0 }] }] }),
+        json: async () => ({ results: [{ motorId: 'overlay-network-g81', format: 'RASP', samples: [{ time: 0.1, thrust: 80 }, { time: 1.5, thrust: 0 }] }] }),
       } as unknown as Response);
     }, 30)));
     vi.stubGlobal('fetch', spy);

@@ -4,7 +4,7 @@ import { overrideFor } from './flightState.js';
 import { ownEntry } from './ownEntry.js';
 import { savedConfigLabel } from '../model/design.js';
 import type { ImportedDesign, ResolvedImportMotors } from './importApply.js';
-import type { MotorDbEntry } from './motorDb.js';
+import { getCatalogue, type MotorDbEntry } from './motorDb.js';
 import type { OrkMotorRef } from './orkFile.js';
 import { fetchSpecByDigest, fileMotorIdentity, mountMotorFromDb, namesOtherMaker, type MotorMatchDeps } from './motorMatch.js';
 import { exToDbEntry, exToMotorSpec, type ExMotor } from './exMotors.js';
@@ -109,17 +109,27 @@ export async function applyOpenMotorChoices(
       Object.defineProperty(motors, mountId, { value: kept, enumerable: true, writable: true, configurable: true });
       return;
     }
-    const db = choice.kind === 'ex' ? exToDbEntry(choice.motor) : choice.motor;
+    const liveRow = (motor: MotorDbEntry) => getCatalogue().find(m => m.motorId === motor.motorId) ?? motor;
+    let db = choice.kind === 'ex' ? exToDbEntry(choice.motor) : liveRow(choice.motor);
     const previousDelay = old?.spec.ejectionDelay ?? ref.delay;
     // The chosen EX motor owns its every-delay list, just as it does on open
     // (audit 2026-10-11, S7a-2). Explicit Auto survives the choice as well.
     const exAuto = choice.kind === 'ex' && (ref.rktEveryDelay ? defaultDelay(db) === null : ref.autoDelay);
-    const delay = choice.kind === 'ex' && ref.rktEveryDelay ? defaultDelay(db) ?? 0
+    const delayFor = () => choice.kind === 'ex' && ref.rktEveryDelay ? defaultDelay(db) ?? 0
       : choice.kind === 'ex' || delayOptions(db).includes(previousDelay) ? previousDelay : defaultDelay(db) ?? 0;
+    let delay = delayFor();
     // The file's <digest> goes along: on the motor the file named, it is the
     // curve desktop flew (thrustcurve.ts pickDigestFile); on another, it names
     // none of its files and changes nothing.
-    const spec = choice.kind === 'ex' ? exToMotorSpec(choice.motor, delay) : await loadSpec(db, delay, ref.digest);
+    let spec = choice.kind === 'ex' ? exToMotorSpec(choice.motor, delay) : await loadSpec(db, delay, ref.digest);
+    if (choice.kind === 'catalogue') {
+      const now = liveRow(choice.motor);
+      if (JSON.stringify(now) !== JSON.stringify(db)) {
+        db = now;
+        delay = delayFor();
+        spec = await loadSpec(db, delay, ref.digest);
+      }
+    }
     const identity = fileMotorIdentity(ref);
     if (choice.kind === 'catalogue' && namesOtherMaker(ref, db)) delete identity.orkManufacturer;
     const motor = mountMotorFromDb(db, spec, delay,
