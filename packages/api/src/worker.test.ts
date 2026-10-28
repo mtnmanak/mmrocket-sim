@@ -1,7 +1,9 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import { worker } from './index.js';
-import { simulateFile } from '../../app/src/headless/index.js';
-import { bytesOf } from './fixtures.testSupport.js';
+import {
+  APP_VERSION, CURVES_GENERATED, KernelUnavailableError, MOTORS_GENERATED, SimulateDesignError, simulateFile,
+} from '../../app/src/headless/index.js';
+import { bytesOf, stampOf } from './fixtures.testSupport.js';
 
 vi.mock('../../app/src/headless/index.js', async importOriginal => {
   const actual = await importOriginal<typeof import('../../app/src/headless/index.js')>();
@@ -108,4 +110,28 @@ it('filters the motor list using projected ignition, including tree defaults', a
     { waitUntil: () => undefined });
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ motors: [] });
+});
+
+// Fly-route refusals no committed fixture reaches over HTTP (a 'file' refusal sits behind the 8 MiB body cap).
+it.each([
+  [new SimulateDesignError('file', 'Too large.'), 413, 'FILE_TOO_LARGE'],
+  [new SimulateDesignError('parse', 'Unreadable.'), 400, 'INVALID_FILE'],
+  [new SimulateDesignError('build', 'Refused.', { importNote: { text: 'Imported.', severity: 'info' } }), 422, 'DESIGN_BUILD_FAILED'],
+  [new SimulateDesignError('no-motor', 'No motor.'), 422, 'NO_MOTOR'],
+  [new SimulateDesignError('flight', 'Failed.'), 422, 'FLIGHT_FAILED'],
+  [new KernelUnavailableError(), 503, 'KERNEL_UNAVAILABLE'],
+  [new Error('test flight refusal'), 500, 'INTERNAL_ERROR'],
+] as const)('stamps the fly refusal %s beside an unchanged error', async (refusal, status, code) => {
+  vi.mocked(simulateFile).mockRejectedValue(refusal);
+  const health = await (await worker.fetch(new Request('http://local/health'), undefined, { waitUntil: () => undefined })).json();
+  const response = await worker.fetch(new Request(url, { method: 'POST', body: 'x' }), undefined, { waitUntil: () => undefined });
+  expect(response.status).toBe(status);
+  expect(response.headers.get('retry-after')).toBe(code === 'KERNEL_UNAVAILABLE' ? '5' : null);
+  const body = await response.json() as Record<string, unknown>;
+  expect(Object.keys(body)).toEqual(['error', 'appVersion', 'engine', 'catalogue']);
+  expect(body['error']).toEqual({ code, message: expect.any(String),
+    ...(refusal instanceof SimulateDesignError && refusal.importNote ? { importNote: refusal.importNote } : {}) });
+  expect(stampOf(body)).toEqual(stampOf(health));
+  expect({ appVersion: body['appVersion'], catalogue: body['catalogue'] })
+    .toEqual({ appVersion: APP_VERSION, catalogue: { motorsGenerated: MOTORS_GENERATED, curvesGenerated: CURVES_GENERATED } });
 });

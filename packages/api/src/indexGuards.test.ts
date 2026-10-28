@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { gzipSync, zipSync } from 'fflate';
 import { worker } from './index.js';
-import { bytesOf, secondaryBody, timeStepBody } from './fixtures.testSupport.js';
+import { bytesOf, secondaryBody, stampOf, timeStepBody } from './fixtures.testSupport.js';
 import { simulateFile } from '../../app/src/headless/index.js';
 import { resetKernelForTests, withKernel } from '../../app/src/services/simulateDesign.js';
 import { DOMParser } from '@xmldom/xmldom';
@@ -13,6 +13,8 @@ afterEach(() => { vi.useRealTimers(); resetKernelForTests(); });
 const request = (body: Uint8Array | string, filename = 'test.ork', headers?: HeadersInit) =>
   new Request('http://local/experimental/fly?filename=' + filename, { method: 'POST', body: typeof body === 'string' ? body : new Uint8Array(body).buffer, headers });
 const ctx = { waitUntil: (_p: Promise<unknown>) => {} };
+/** /health's own stamp keys: every error body carries them beside `error`. */
+const STAMP = stampOf(await (await worker.fetch(new Request('http://local/health'), undefined, ctx)).json());
 
 it('reports an out-of-motor EX snapshot as an import refusal before installation', async () => {
   const body = secondaryBody('refused');
@@ -34,7 +36,7 @@ it('refuses 9 MiB bodies and declared sizes above 8 MiB with app guidance', asyn
     request('x', 'test.ork', { 'Content-Length': String(8 * 1024 * 1024 + 1) })]) {
     const response = await worker.fetch(input, undefined, ctx);
     expect(response.status).toBe(413);
-    expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
+    expect(await response.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE',
       message: expect.stringMatching(/8 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
   }
 });
@@ -74,7 +76,7 @@ it.each([['ork', 'zip'], ['ork', 'gzip'], ['rkt', 'zip'], ['rkt', 'gzip'], ['CDX
     const body = compression === 'zip' ? zipSync({ ['rocket.' + ext]: xml }) : gzipSync(xml);
     const response = await worker.fetch(request(body, 'large.' + ext), undefined, ctx);
     expect(response.status).toBe(413);
-    expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
+    expect(await response.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE',
       message: expect.stringMatching(/16 MiB.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
   });
 
@@ -91,7 +93,7 @@ it.each([
   try {
     const response = await worker.fetch(request(`<openrocket><rocket>${payload}</rocket></openrocket>`), undefined, ctx);
     expect(response.status).toBe(413);
-    expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
+    expect(await response.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE',
       message: expect.stringMatching(/XML.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
     expect(dom).not.toHaveBeenCalled();
   } finally { dom.mockRestore(); }
@@ -116,7 +118,7 @@ it.each([
       : compression === 'zip' ? zipSync({ ['rocket.' + ext]: bytes }) : gzipSync(bytes);
     const response = await worker.fetch(request(body, 'flood.' + ext), undefined, ctx);
     expect(response.status).toBe(413);
-    expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
+    expect(await response.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE',
       message: expect.stringMatching(/XML.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
     expect(parts.mock.calls.length).toBe(0);
     expect(slices.mock.calls.length).toBe(0);
@@ -196,7 +198,7 @@ it('passes the ten-second watchdog through simulateFile and returns unwrapped 50
   const response = await flight;
   expect(response.status).toBe(503);
   expect(response.headers.get('retry-after')).toBe('5');
-  expect(await response.json()).toEqual({ error: { code: 'KERNEL_UNAVAILABLE',
+  expect(await response.json()).toEqual({ ...STAMP, error: { code: 'KERNEL_UNAVAILABLE',
     message: expect.stringMatching(/previous flight.*stopped part-way.*retry/i) } });
   const later = await worker.fetch(request(body), undefined, ctx);
   expect(later.status).toBe(503);
