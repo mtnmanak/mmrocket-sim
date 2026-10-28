@@ -1493,7 +1493,7 @@ describe('stored-state siblings: launch conditions', () => {
 
   const REQUIRED = ['launchRodLengthM', 'launchRodAngleDeg', 'windAverage', 'windStdDev', 'launchAltitudeM', 'latitudeDeg'] as const;
   const badValues: unknown[] = [null, '1', '<x/>', { toString: 0 }, true, []];
-  it.each(REQUIRED.flatMap(key => [...badValues.map(v => [key, v]), [key, 'absent']]))(
+  it.each(REQUIRED.flatMap(key => [...badValues.map(v => [key, v]), [key, 'absent']]) as [string, unknown][])(
     'resets a required %s of %j to the default', (key, value) => {
       const launch: Record<string, unknown> = { ...state().launch };
       if (value === 'absent') delete launch[key as string];

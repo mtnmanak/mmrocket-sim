@@ -1099,7 +1099,7 @@ describe('stored runs: a flight the time limit cut off (audit S6-1)', () => {
     totalFlightTime: 1200, landingRate: 4.2, safeLandingRate: true, groundHitVelocity: null as never,
     landingDistanceM: 900, landingBearingDeg: 90, simWarnings: [],
     deployments: [{ device: 'Drogue', time: 10, altitude: 900, velocityAtDeployment: 5, descentRate: 20, groundSpeed: 21, isLanding: false },
-      { device: 'Main', time: 300, altitude: 150, velocityAtDeployment: 20, descentRate: 4.2, groundSpeed: 6, isLanding: true }],
+      { device: 'Main', time: 300, altitude: 150, velocityAtDeployment: 20, descentRate: 4.2, groundSpeed: 6, isLanding: true }] as never,
     ...over,
   });
   it.each([
