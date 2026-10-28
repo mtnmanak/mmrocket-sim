@@ -1326,8 +1326,10 @@ export function physicsRevisionsMissed(
   const unknownModel = !run.aeroModel || (run.aeroModel === 'classic' && run.rogersKbf === undefined);
   const version = /^(\d+)\.(\d+)(?:\.\d+)?$/.exec(run.exportContext?.appVersion ?? '');
   const major = Number(version?.[1]), release = Number(version?.[2]);
+  // The revision's last aero change, 1b01e5ce (the signed Kbf ogive blend),
+  // first shipped in v0.180 (release commit 4cc4b1e8), not v0.179.
   const aeroShipped = Number.isSafeInteger(major) && Number.isSafeInteger(release)
-    ? major > 0 || release >= 179 : undefined;
+    ? major > 0 || release >= 180 : undefined;
   const v6Aero = (id: string) => id === 'transonic-ogive-aero-v6a' && run.physicsRevision === 'recovery-radial-mass-v6';
   return PHYSICS_REVISIONS.filter(({ id, affectsModel, affects, affectsTree, atmosphereOnly }, i) => (i > flownIndex || v6Aero(id))
     && !(v6Aero(id) && aeroShipped === true)
