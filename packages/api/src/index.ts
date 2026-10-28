@@ -87,14 +87,15 @@ function summary(out: TimedSimulateFileResult) {
     maxVelocityMs: maxVelocity,
     maxMach: maxMachNumber,
     flightTimeS: flightTime,
-    motors: out.flight.delayResolution.mounts.filter(mount =>
-      state.mountMotors[mount.mountId]?.ignition?.event !== 'never').map((mount) => {
-      const motor = state.mountMotors[mount.mountId]!;
-      return {
+    motors: out.flight.delayResolution.mounts.flatMap((mount) => {
+      const motor = state.mountMotors[mount.mountId];
+      // A flown mount with no motor entry (no known input) is left out, not a 500 after the flight.
+      if (!motor || motor.ignition?.event === 'never') return [];
+      return [{
         mount: mount.mountName, designation: motor.spec.designation,
         manufacturer: motor.meta.manufacturer ?? '',
         count: mountMotorCount(state.tree, mount.mountId), delayS: mount.flownDelay,
-      };
+      }];
     }),
     warnings: (out.run.simWarnings ?? []).map(warning => {
       const text = formatWarning(warning);

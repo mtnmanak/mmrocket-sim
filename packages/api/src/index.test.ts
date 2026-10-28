@@ -388,8 +388,9 @@ function expectedFailures(node: Awaited<ReturnType<typeof simulateFile>>) {
 function expectedMotors(node: Awaited<ReturnType<typeof simulateFile>>) {
   const state = resolveFlightState(node.state.tree, node.state.savedConfigs, node.state.activeConfigId,
     node.state.detachedOverrides ?? {}, node.state.mountMotors);
-  return node.flight.delayResolution.mounts.filter(m => state.mountMotors[m.mountId]?.ignition?.event !== 'never')
-    .map(m => ({ mount: m.mountName, designation: state.mountMotors[m.mountId]!.spec.designation,
-      manufacturer: state.mountMotors[m.mountId]!.meta.manufacturer ?? '',
-      count: mountMotorCount(state.tree, m.mountId), delayS: m.flownDelay }));
+  return node.flight.delayResolution.mounts.flatMap(m => {
+    const motor = state.mountMotors[m.mountId];
+    return !motor || motor.ignition?.event === 'never' ? [] : [{ mount: m.mountName, designation: motor.spec.designation,
+      manufacturer: motor.meta.manufacturer ?? '', count: mountMotorCount(state.tree, m.mountId), delayS: m.flownDelay }];
+  });
 }

@@ -109,3 +109,22 @@ it('filters the motor list using projected ignition, including tree defaults', a
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ motors: [] });
 });
+
+it('skips a flown mount with no motor entry instead of turning a finished flight into a 500', async () => {
+  const actual = await vi.importActual<typeof import('../../app/src/headless/index.js')>('../../app/src/headless/index.js');
+  const out = await actual.simulateFile(bytesOf('reference.ork'), 'reference.ork', { reportSeries: 'summary' });
+  const id = out.flight.delayResolution.mounts[0]!.mountId;
+  const name = out.flight.delayResolution.mounts[0]!.mountName;
+  // No real input is known to reach this: the flight's mounts come from these same entries.
+  delete out.state.mountMotors[id];
+  vi.mocked(simulateFile).mockResolvedValue(out);
+  const response = await worker.fetch(new Request(url, { method: 'POST', body: 'x' }), undefined,
+    { waitUntil: () => undefined });
+  expect(response.status, await response.clone().text()).toBe(200);
+  const result = await response.json() as { motors: { mount: string }[]; apogeeM: number; maxVelocityMs: number;
+    maxMach: number; flightTimeS: number };
+  expect(result.motors.some(motor => motor.mount === name)).toBe(false);
+  const { maxAltitude, maxVelocity, maxMachNumber, flightTime } = out.result.summary;
+  expect({ apogeeM: result.apogeeM, maxVelocityMs: result.maxVelocityMs, maxMach: result.maxMach, flightTimeS: result.flightTimeS })
+    .toEqual({ apogeeM: maxAltitude, maxVelocityMs: maxVelocity, maxMach: maxMachNumber, flightTimeS: flightTime });
+});
