@@ -13,7 +13,7 @@ const run = (over: Partial<SimRun> = {}): SimRun => ({ ...key, id: 'r', when: 1,
   delayResolution: testResolution([['m', testMotor()]], [5]),
   recoveryEvents: [{ type: 'STAGE_SEPARATION', time: 3, sourceId: 'booster' }], ...over } as SimRun);
 describe('K1 matching recovery evidence', () => {
-  it.each([['0.178', false], ['0.179', true]] as const)('uses dated v6 recovery evidence from app %s', (appVersion, accepted) => {
+  it.each([['0.178', false], ['0.179', false], ['0.180', true]] as const)('uses dated v6 recovery evidence from app %s', (appVersion, accepted) => {
     const current = { ...key, effectiveKbf: true, physicsRevisions: ['transonic-ogive-aero-v6a'] };
     const stored = run({ rogersKbf: true, physicsRevision: 'recovery-radial-mass-v6',
       exportContext: { appVersion, launch: DEFAULT_CONDITIONS, weather: null } });

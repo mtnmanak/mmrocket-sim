@@ -88,7 +88,7 @@ it.each(['constructor', 'toString', '__proto__'])('ignores inherited Auto delays
 });
 
 describe('Round 2 atmosphere export provenance', () => {
-  it.each([['0.178', false], ['0.179', true]] as const)('uses dated v6 Auto delay evidence from app %s', (appVersion, accepted) => {
+  it.each([['0.178', false], ['0.179', false], ['0.180', true]] as const)('uses dated v6 Auto delay evidence from app %s', (appVersion, accepted) => {
     const auto = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } };
     const assigned: [string, MountMotor][] = [['m1', auto]];
     const saved: SimRun = { ...RUN, physicsRevision: 'recovery-radial-mass-v6',

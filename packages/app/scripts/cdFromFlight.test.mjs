@@ -44,6 +44,7 @@ import {
   MU_B,
   R_AIR,
   SMOOTH_S,
+  TROPOPAUSE_PRESSURE_PA,
   analyse,
   atmosphere,
   binByMach,
@@ -375,6 +376,29 @@ it('refuses measured-pressure temperatures outside the supported troposphere', (
 it.each([NaN, Infinity, -Infinity])('treats non-finite site elevation as unknown at the measured-pressure ceiling: %s', siteElevationM => {
   expect(() => atmosphere({ altitudeM: 12000, pressurePa: 18000, padTempK: 308.15, siteElevationM }))
     .toThrow(/R5:.*11.*km/);
+});
+
+// A 1,400 m site at its ISA pad temperature, the site NOT passed: 10.5 km above
+// the pad is 11.9 km MSL, and the measured pressure says so. Without the site
+// the 11 km ceiling is above the pad, so only the pressure can catch it.
+const ABOVE_TROPOPAUSE = { altitudeM: 10500, pressurePa: 19637.6, padTempK: 279.05 };
+
+it('refuses a measured pressure below the standard tropopause pressure when the site is unknown', () => {
+  expect(() => atmosphere(ABOVE_TROPOPAUSE)).toThrow(/^R5:.*11.*km/);
+  expect(() => atmosphere(ABOVE_TROPOPAUSE)).toThrow(/22,632 Pa.*--site-elevation-m/);
+  expect(TROPOPAUSE_PRESSURE_PA).toBeGreaterThan(22600);
+  expect(TROPOPAUSE_PRESSURE_PA).toBeLessThan(22700);
+  expect(22700).toBeGreaterThan(TROPOPAUSE_PRESSURE_PA);
+  expect(atmosphere({ ...ABOVE_TROPOPAUSE, pressurePa: 22700 }).temperatureK).toEqual(expect.any(Number));
+});
+
+it('leaves the known-site measured-pressure path to the MSL ceiling', () => {
+  expect(atmosphere({ ...ABOVE_TROPOPAUSE, siteElevationM: 0 }).temperatureK)
+    .toBeCloseTo(ABOVE_TROPOPAUSE.padTempK - LAPSE * ABOVE_TROPOPAUSE.altitudeM, 9);
+});
+
+it.each([NaN, Infinity, -Infinity])('applies the tropopause pressure guard to a non-finite site elevation: %s', siteElevationM => {
+  expect(() => atmosphere({ ...ABOVE_TROPOPAUSE, siteElevationM })).toThrow(/^R5:.*11.*km/);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

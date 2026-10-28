@@ -120,6 +120,14 @@ export const LAPSE = 0.0065;
  */
 export const R_AIR = 287.053;
 
+/**
+ * ISA pressure at the 11 km tropopause, Pa (22,632.06), derived from the
+ * constants above. On the measured-pressure path with no site elevation the
+ * altitude ceiling can only be 11 km above the pad, so a measured pressure
+ * below this is the one sign that a sample has left the troposphere.
+ */
+export const TROPOPAUSE_PRESSURE_PA = ISA_P0 * Math.pow((ISA_T0 - LAPSE * 11000) / ISA_T0, G0 / (LAPSE * R_AIR));
+
 /** Ratio of specific heats for diatomic air, for a = sqrt(gamma.R.T). */
 export const GAMMA = 1.4;
 
@@ -676,6 +684,11 @@ export function atmosphere({ altitudeM, pressurePa = null, padTempK = null, site
     tempK = padTempK - LAPSE * altitudeM;
     if (altitudeM + (Number.isFinite(siteElevationM) ? siteElevationM : 0) > 11000) {
       fail('R5', 'the measured-pressure temperature model supports only the troposphere, up to 11 km MSL (11 km above the pad when site elevation is unknown); Cd cannot be inferred above that boundary.');
+    }
+    if (!Number.isFinite(siteElevationM) && pressurePa < TROPOPAUSE_PRESSURE_PA) {
+      fail('R5', 'the measured pressure is below 22,632 Pa, the standard pressure at the 11 km tropopause, '
+        + 'and the site elevation is unknown, so the sample may be above 11 km MSL where the temperature '
+        + 'model does not apply; Cd cannot be inferred. Pass --site-elevation-m.');
     }
     pPa = pressurePa;
   } else {

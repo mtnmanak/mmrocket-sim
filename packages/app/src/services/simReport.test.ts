@@ -75,7 +75,7 @@ it.each(['classic', 'supersonic'] as const)('treats affected v6 %s aero as ambig
     { aeroMode: aeroModel, effectiveKbf: true, autoSupersonic: false, physicsRevisions: ['transonic-ogive-aero-v6a'] })).toEqual([]);
 });
 it.each([
-  ['0.178', true, false], ['0.179', false, false], ['0.180', false, false], ['unknown', true, true],
+  ['0.178', true, false], ['0.179', true, false], ['0.180', false, false], ['unknown', true, true],
 ] as const)('uses the stored run app version %s to date v6 aero', (appVersion, missed, ambiguous) => {
   const revisions = physicsRevisionsMissed({ physicsRevision: 'recovery-radial-mass-v6', aeroModel: 'classic', rogersKbf: true,
     exportContext: { appVersion, launch: DEFAULT_CONDITIONS, weather: null } },

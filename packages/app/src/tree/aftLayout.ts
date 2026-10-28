@@ -231,7 +231,7 @@ export function aftLayout(
         } else {
           // A lug is a tube lying ON the surface: round end-on, and it stands
           // off by its own diameter.
-          const r = num(child, 'outerRadius', 0.002);
+          const r = kernelNum(child, 'outerRadius');
           outer.push({
             key: keyFor(child), kind: 'circle',
             y: cy + (pRadius + r) * Math.cos(a), z: cz + (pRadius + r) * Math.sin(a), r,
