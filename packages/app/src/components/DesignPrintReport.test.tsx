@@ -29,3 +29,16 @@ it('opens the prepared report from a keyboard reachable button and reports prepa
   act(() => host.querySelector('button')!.click());
   expect(host.textContent).toContain('Cannot build report');
 });
+it('its alert is sr-only while empty, and the same region shows a failure', () => {
+  // One placement is the Results column's flex gap, so the empty region must be out of the flow.
+  act(() => root.render(<DesignPrintReport prepare={() => '<html>Report</html>'} />));
+  const region = host.querySelector('.print-report-alert')!;
+  expect(region.getAttribute('role')).toBe('alert');
+  expect(region.classList.contains('sr-only')).toBe(true);
+  expect(region.textContent).toBe('');
+  vi.mocked(openPrintDocument).mockImplementation(() => { throw new Error('Pop-up blocked'); });
+  act(() => host.querySelector('button')!.click());
+  expect(host.querySelector('.print-report-alert')).toBe(region);
+  expect(region.classList.contains('sr-only')).toBe(false);
+  expect(region.textContent).toContain('Could not open the report: Pop-up blocked');
+});

@@ -367,3 +367,18 @@ it('S3b-2: retains plots for unrelated preferences, rebuilds for units', () => {
   act(() => { host.querySelector<HTMLButtonElement>('#unit-pref')!.click(); });
   expect(host.querySelector('canvas')).not.toBe(canvas);
 });
+
+it('the plot-series alert is sr-only while empty, and the same region shows the error', async () => {
+  // In the Custom row's flex gap, so the empty region must be out of the flow.
+  await act(async () => { mount(() => Promise.reject(new Error('Re-fly refused (test).'))); });
+  const chooser = [...host.querySelectorAll('select')].find((s) => [...s.options].some((o) => o.value === 'custom'))!;
+  await act(async () => { chooser.value = 'custom'; chooser.dispatchEvent(new Event('change', { bubbles: true })); });
+  const region = host.querySelector('.plot-series-alert')!;
+  expect(region.getAttribute('role')).toBe('alert');
+  expect(region.classList.contains('sr-only')).toBe(true);
+  expect(region.textContent).toBe('');
+  await act(async () => { labelled('Load all plot series')!.click(); });
+  expect(host.querySelector('.plot-series-alert')).toBe(region);
+  expect(region.classList.contains('sr-only')).toBe(false);
+  expect(region.textContent).toBe('Plot series could not be loaded: Re-fly refused (test).');
+});
