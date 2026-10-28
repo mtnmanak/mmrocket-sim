@@ -181,15 +181,17 @@ describe('App header banners — regions mounted before their message', () => {
 });
 
 describe('App design notes — one region per tier, mounted with the design', () => {
+  // Danger and caution interrupt; an information note waits its turn (owner
+  // ruling, row 113 (a)).
   it.each([
-    ['danger', '[Warning.NO_RECOVERY_DEVICE]', 'message-danger'],
-    ['caution', '[Warning.ZERO_AREA_FIN]', 'message-caution'],
-    ['information', 'A live-region test note.', 'file-note'],
-  ] as const)('the first %s note lands in its tier\'s region', async (tier, text, cls) => {
+    ['danger', '[Warning.NO_RECOVERY_DEVICE]', 'message-danger', 'alert'],
+    ['caution', '[Warning.ZERO_AREA_FIN]', 'message-caution', 'alert'],
+    ['information', 'A live-region test note.', 'file-note', 'status'],
+  ] as const)('the first %s note lands in its tier\'s region', async (tier, text, cls, role) => {
     await mountApp();
     const notes = host.querySelector('#design-notes');
     expect(notes, '#design-notes').not.toBeNull();
-    const region = emptyRegion(`#design-notes > .design-notes-${tier}`);
+    const region = emptyRegion(`#design-notes > .design-notes-${tier}`, role);
     extraNotes = [text];
     await reshape();
     await waitFor(() => (region.textContent ?? '') !== '', `the ${tier} note`);
@@ -215,7 +217,8 @@ describe('App design notes — one region per tier, mounted with the design', ()
 
   it('the first rail-fit finding lands in the region that was already there', async () => {
     await mountApp();
-    const region = emptyRegion('#design-notes > .rail-fit-alert');
+    // Polite: a fit finding changes no flight number (owner ruling, row 113 (a)).
+    const region = emptyRegion('#design-notes > .rail-fit-alert', 'status');
     const withFins = (nodes: ComponentNode[]): ComponentNode | null => {
       for (const n of nodes) {
         if ((n.children ?? []).some((k) => (k.type as string).endsWith('finset'))) return n;

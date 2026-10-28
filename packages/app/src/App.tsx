@@ -4501,21 +4501,23 @@ export function App() {
                 ? railInterferenceFindings(tree, prefs.units).filter(f => staticWarningTier(f.text) === 'information') : [];
               const railTexts = new Set(railFindings.map(f => f.text));
               const rest = built.info.warningTexts.filter(t => !railTexts.has(t));
-              // Mounted with the design, one ALWAYS-MOUNTED alert region per tier
+              // Mounted with the design, one ALWAYS-MOUNTED live region per tier
               // and one for rail fit, each holding its note as a conditional
               // child (audit 2026-09-22): a region inserted with its text already
               // in place is announced unreliably. With no notes, #design-notes
-              // and its regions are empty blocks that take no space.
+              // and its regions are empty blocks that take no space. Danger and
+              // caution interrupt; information and rail fit, which change no
+              // flight number, are polite (owner ruling, row 113 (a)).
               return <div id="design-notes" tabIndex={-1}>
                 {(['danger', 'caution', 'information'] as const).map(tier => {
                   const texts = rest.filter(t => staticWarningTier(t) === tier);
-                  return <div key={tier} className={`design-notes-${tier}`} role="alert">
+                  return <div key={tier} className={`design-notes-${tier}`} role={tier === 'information' ? 'status' : 'alert'}>
                     {texts.length ? <Note tier={tier} className="file-note">
                       {texts.map((text, i) => <div key={i}><StaticWarning text={text} /></div>)}
                     </Note> : null}
                   </div>;
                 })}
-                <div className="rail-fit-alert" role="alert">
+                <div className="rail-fit-alert" role="status">
                 {railFindings.length > 0 && (
                   <Note tier="information" className="file-note rail-fit-findings">
                     <strong>Rail fit on the pad</strong> (the parts&rsquo; angles; no flight number changes):
