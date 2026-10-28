@@ -1009,6 +1009,24 @@ describe('the weather dialog', () => {
   // 2 PM air for Saturday's launch — and an ERA5 re-fly lost its date
   // altogether. It opens on the applied hour's own date now, and picks that
   // hour, ahead of the hour the dialog last remembered.
+  // Stored-state sweep: the remembered country is anything's to write. One the
+  // picker cannot show read "Any country" while every search sent it.
+  it.each(['ZZ', 'us', ' US'])('forgets a remembered country %j that is not a country code', async country => {
+    localStorage.setItem('online-openrocket.weather.v1', JSON.stringify({ country }));
+    render({});
+    const picked = q<HTMLSelectElement>('.weather-country select')!.value;
+    expect(picked).not.toBe(country);
+    typeInto(q('input[aria-label="Place"]'), 'Gerlach, NV');
+    await click(button('Search'));
+    expect(urls[0]).not.toContain(`countryCode=${encodeURIComponent(country)}`);
+  });
+
+  it.each(['US', ''])('keeps a remembered country %j', country => {
+    localStorage.setItem('online-openrocket.weather.v1', JSON.stringify({ country }));
+    render({});
+    expect(q<HTMLSelectElement>('.weather-country select')!.value).toBe(country);
+  });
+
   it('opens Fetch again on the applied weather’s date, and picks its hour', async () => {
     localStorage.setItem('online-openrocket.weather.v1', JSON.stringify({ lastHour: 9 }));
     render({
