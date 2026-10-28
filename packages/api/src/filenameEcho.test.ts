@@ -11,7 +11,7 @@ const post = (route: string, filename: string, body: BodyInit, headers?: Headers
 const ROUTES = ['/experimental/fly', '/describe'] as const;
 
 // Each listed code point a client's log or terminal could act on; JSON escapes only the first two.
-const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u;
+const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u;
 const LONE_SURROGATE = /[\ud800-\udfff]/u;
 const ROCKET = '\u{1f680}';
 /**
@@ -20,7 +20,7 @@ const ROCKET = '\u{1f680}';
  * a .ork tail.
  */
 function hostileName(length = 10_000) {
-  const head = '\u0000\u001b\u202e\u007f\u0085\u2028\u2029\u2066';
+  const head = '\u0000\u001b\u202e\u007f\u0085\u2028\u2029\u2066\u061c\u200e\u200f';
   const before = head + 'a'.repeat(182 - head.length);
   const tail = '-final.ork';
   return before + ROCKET + 'b'.repeat(length - before.length - ROCKET.length - tail.length) + tail;
@@ -110,6 +110,14 @@ describe('a caller filename echoed in an error is bounded and made safe for disp
 });
 
 describe('filenameEcho for a direct caller', () => {
+  it('shows every Unicode bidi control as ?, the marks ALM, LRM and RLM included', () => {
+    const bidiControls = '؜‎‏‪‫‬‭‮⁦⁧⁨⁩';
+    expect(Array.from(bidiControls).every(ch => /\p{Bidi_Control}/u.test(ch))).toBe(true);
+    const all = Array.from({ length: 0x10000 }, (_, c) => String.fromCharCode(c)).filter(ch => /\p{Bidi_Control}/u.test(ch)).join('');
+    expect(all).toBe(bidiControls);
+    expect(filenameEcho(`a${bidiControls}b.ork`)).toBe(`a${'?'.repeat(12)}b.ork`);
+  });
+
   it('shows a lone surrogate as ?, keeping a paired one, inside and past the bound', () => {
     // URL decoding never yields a lone surrogate (it gives U+FFFD), but a direct caller can pass one.
     expect(filenameEcho('a\ud800b\udc00c\u{1f680}.ork')).toBe('a?b?c\u{1f680}.ork');

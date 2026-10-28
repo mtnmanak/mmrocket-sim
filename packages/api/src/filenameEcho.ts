@@ -5,13 +5,16 @@ const FILENAME_ECHO_TAIL = 16;
 const CUT = '\u2026';
 
 /**
- * C0 and C1 controls, DEL, the line and paragraph separators, and the bidi
- * embeddings, overrides and isolates: JSON leaves all but C0 raw, and each
- * can rewrite a client's log or terminal line. Also a lone surrogate (never
- * from URL decoding, which gives U+FFFD, but possible from a direct caller):
- * the echo stays well-formed. A paired surrogate arrives as one code point.
+ * C0 and C1 controls, DEL, the line and paragraph separators, and every bidi
+ * control (Unicode's Bidi_Control set: the marks ALM, LRM and RLM as well as
+ * the embeddings, overrides and isolates; the three marks were missing until
+ * the Gemini review of 28 Oct): JSON leaves all but C0 raw, and each can
+ * rewrite a client's log or terminal line. Also a lone surrogate (never from
+ * URL decoding, which gives U+FFFD, but possible from a direct caller): the
+ * echo stays well-formed. A paired surrogate arrives as one code point.
  */
 const unsafe = (c: number) => c <= 0x1f || (c >= 0x7f && c <= 0x9f) || c === 0x2028 || c === 0x2029
+  || c === 0x061c || c === 0x200e || c === 0x200f
   || (c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069) || (c >= 0xd800 && c <= 0xdfff);
 
 /**
