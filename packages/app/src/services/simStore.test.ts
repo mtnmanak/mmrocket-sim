@@ -1051,7 +1051,7 @@ it.each([7, {}, true].map(v => [v]))('drops an unreadable stored importedRunId %
   localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([{ ...mkRun('bad'), importedRunId },
     { ...mkRun('good'), importedRunId: 'source-run' }]));
   const [bad, good] = loadRuns();
-  expect(() => escapeXmlAttr(summaryOf(bad!).runId)).not.toThrow();
+  expect(() => escapeXmlAttr(summaryOf(bad!).runId!)).not.toThrow();
   expect(bad!.id).toBe('bad');
   expect(bad).not.toHaveProperty('importedRunId');
   expect(good!.importedRunId).toBe('source-run');

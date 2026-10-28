@@ -3045,6 +3045,6 @@ describe('formatRunLabel', () => {
   ] as const)('labels a partial run %j as %j', (run, label) => {
     const text = formatRunLabel(run as Parameters<typeof formatRunLabel>[0]);
     expect(text).toBe(label);
-    expect(text).not.toMatch(/ · $|\(\s*\)|  |undefined/);
+    expect(text).not.toMatch(/ · $|\(\s*\)| {2}|undefined/);
   });
 });
