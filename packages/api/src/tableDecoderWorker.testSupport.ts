@@ -3,15 +3,21 @@ import { worker } from './index.js';
 
 // Test-only: the production worker in a runtime with no windows-1252 decoder, so
 // decodeXml takes its built-in table (xmlUtil.ts decodeWindows1252) inside workerd.
+// workerd's own decoder gives the same output, so the count is what shows the seam ran.
+let windows1252Calls = 0;
 setTextDecoderFactoryForTests(label => {
   const decoder = new TextDecoder(label);
-  if (decoder.encoding === 'windows-1252') throw new RangeError(`The "${label}" encoding is not supported`);
+  if (decoder.encoding === 'windows-1252') {
+    windows1252Calls++;
+    throw new RangeError(`The "${label}" encoding is not supported`);
+  }
   return decoder;
 });
 
 // eslint-disable-next-line no-restricted-syntax -- Test-only Cloudflare module entry requires a default export.
 export default {
   fetch(request: Request, env: unknown, ctx: { waitUntil(p: Promise<unknown>): void }): Promise<Response> {
+    if (new URL(request.url).pathname === '/__test/decoder-calls') return Promise.resolve(Response.json({ windows1252Calls }));
     return worker.fetch(request, env, ctx);
   },
 };
