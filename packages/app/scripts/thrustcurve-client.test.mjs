@@ -146,6 +146,33 @@ describe('thrustcurve-client retries', () => {
     expect(sent).toHaveLength(2);
   });
 
+  it('stays open after a request that recovered on a retry', async () => {
+    const { client, sent } = harness([{ status: 503 }, { status: 200 }, { status: 429 }, { status: 200 }, { status: 200 }]);
+    expect((await client('https://www.thrustcurve.org/a')).status).toBe(200);
+    expect((await client('https://www.thrustcurve.org/b')).status).toBe(200);
+    expect((await client('https://www.thrustcurve.org/c')).status).toBe(200);
+    expect(sent).toHaveLength(5);
+  });
+
+  it('stops once the run has spent its retry budget, even on requests that would recover', async () => {
+    // Every request fails until its last retry: 30 + 60 + 120 s of waits each. A 10-minute budget
+    // covers two such requests (420 s); the third's waits would pass it.
+    const flaky = [{ status: 503 }, { status: 503 }, { status: 503 }, { status: 200 }];
+    const { client, sent } = harness([...flaky, ...flaky, ...flaky, ...flaky]);
+    expect((await client('https://www.thrustcurve.org/1')).status).toBe(200);
+    expect((await client('https://www.thrustcurve.org/2')).status).toBe(200);
+    expect((await client('https://www.thrustcurve.org/3')).status).toBe(503);
+    await expect(client('https://www.thrustcurve.org/4')).rejects.toBeInstanceOf(ThrustcurveUnavailableError);
+    expect(sent).toHaveLength(4 + 4 + 3);
+  });
+
+  it('names the refused URL and the one that tripped the stop', async () => {
+    const { client } = harness([challenge]);
+    await expect(client('https://www.thrustcurve.org/first')).rejects.not.toThrow(/Not sent/);
+    await expect(client('https://www.thrustcurve.org/second'))
+      .rejects.toThrow(/^Not sent: https:\/\/www\.thrustcurve\.org\/second\. thrustcurve\.org answered https:\/\/www\.thrustcurve\.org\/first/);
+  });
+
   it('does not retry other failures', async () => {
     const { client, sent } = harness([{ status: 500 }]);
     expect((await client('https://www.thrustcurve.org/a')).status).toBe(500);

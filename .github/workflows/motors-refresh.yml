@@ -246,9 +246,9 @@ jobs:
       #
       # Cost: `npm test` builds the engine package (tsc; the TeaVM kernel is the
       # committed artifact, so still no Java) and runs the whole suite — about
-      # 4,000 tests in September 2026; 17.8 minutes of the job's 45 on
-      # 26 October 2026 — the other three steps are the ones deploy.yml's build job runs
-      # beside it inside 15 minutes. Cheap against a merged PR that turns main
+      # 4,000 tests in September 2026, 17.8 minutes of this job's 45 on
+      # 26 October 2026. The other three steps are the ones deploy.yml's build
+      # job runs beside it (its limit is 30 minutes). Cheap against a merged PR that turns main
       # red, which is the shape deploy.yml's own typecheck comment exists to
       # avoid.
       - name: Deploy gate on the refreshed data — tests
