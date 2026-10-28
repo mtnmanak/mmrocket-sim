@@ -36,7 +36,7 @@
     "components/PreferencesDialog.tsx": 13,
     "components/PreflightAudit.tsx": 5,
     "components/PresetPicker.tsx": 10,
-    "components/PropertyPanel.tsx": 81,
+    "components/PropertyPanel.tsx": 82,
     "components/RecentDesignsDialog.tsx": 1,
     "components/recoveryContext.ts": 1,
     "components/RecoverySizingPanel.tsx": 17,
