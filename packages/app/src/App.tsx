@@ -214,6 +214,7 @@ import { DesignNotesPanel } from './components/DesignNotesPanel.js';
 import { togglePartVisibility } from './tree/partVisibility.js';
 import { useNozzleFollow } from './hooks/useNozzleFollow.js';
 import { useRelaunchLatch } from './hooks/useRelaunchLatch.js';
+import { useAfterMount } from './hooks/useAfterMount.js';
 import { useDesignDirty, type PreRankRestore } from './hooks/useDesignDirty.js';
 import { useFirstRunTour } from './hooks/useFirstRunTour.js';
 import { HERO_CHIP_RESERVE, useHeroDrawer } from './hooks/useHeroDrawer.js';
@@ -746,6 +747,11 @@ export function App() {
   // way, and cleared only by a choice in the banner.
   const [sessionConflict, setSessionConflict] = useState(() => sessionConflicted());
   useEffect(() => onSessionConflictChange(setSessionConflict), []);
+  // Both flags are module state and can already be true on App's first render.
+  // Their banners wait for the commit after it, so each region mounts empty and
+  // its message is inserted as a change (owner ruling, row 113 (b)). Display
+  // only: the flags themselves still feed the leave-page prompt from the start.
+  const bannersMounted = useAfterMount();
   // "Load the other tab's design" reloads on purpose, and says so first.
   const leavingForOtherTab = useRef(false);
   const [simulating, setSimulating] = useState(false);
@@ -3762,7 +3768,7 @@ export function App() {
         )}
         </div>
         <div className="autosave-failing-alert" role="alert">
-        {autosaveFailing && (
+        {bannersMounted && autosaveFailing && (
           // Persistent (not dismissible) on purpose: while this shows, edits
           // do NOT survive a reload. It clears itself on the recovery edge.
           <Note tier="danger" className="file-note file-note-error autosave-warn">
@@ -3772,7 +3778,7 @@ export function App() {
         )}
         </div>
         <div className="session-conflict-alert" role="alert">
-        {sessionConflict && (
+        {bannersMounted && sessionConflict && (
           // Persistent until answered: until then neither tab's work is at
           // risk, and a × that merely hid it would leave this tab's changes
           // unsaved with nothing on screen to say so.

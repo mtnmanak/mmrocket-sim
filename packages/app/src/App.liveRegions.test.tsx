@@ -9,6 +9,8 @@ import type { TreeHistory } from './hooks/useTreeHistory.js';
 import { flyLaunch } from './services/flightRunner.js';
 import { MACH_AUTO_THRESHOLD } from './services/machProbe.js';
 import { addChild, makeNode, updateNode } from './tree/treeModel.js';
+import { DEFAULT_CONDITIONS } from './components/LaunchPanel.js';
+import { discardSession, flushSession, saveSessionDebounced, sessionConflicted, sessionSaveFailing } from './services/session.js';
 
 /**
  * The App's live regions exist, empty, before their first message (audit
@@ -101,14 +103,16 @@ async function openTab(name: 'Design' | 'Results'): Promise<void> {
     .find((x) => x.textContent?.trim() === name)!;
   await act(async () => { b.click(); });
 }
-/** Every way a storage write can be refused, for keys matching `refuse`. */
-function refuseWrites(refuse: (key: string) => boolean): void {
+/** Every way a storage write can be refused, for keys matching `refuse`. Returns the undo. */
+function refuseWrites(refuse: (key: string) => boolean): () => void {
   const own = localStorage.setItem;
   Object.defineProperty(localStorage, 'setItem', { configurable: true, value: (key: string, value: string) => {
     if (refuse(key)) throw new DOMException('full', 'QuotaExceededError');
     return own.call(localStorage, key, value);
   } });
-  onTestFinished(() => { Object.defineProperty(localStorage, 'setItem', { configurable: true, value: own }); });
+  const restore = () => { Object.defineProperty(localStorage, 'setItem', { configurable: true, value: own }); };
+  onTestFinished(restore);
+  return restore;
 }
 /** The live region, asserted present with its role and empty. */
 function emptyRegion(selector: string, role: 'alert' | 'status' = 'alert'): Element {
@@ -182,6 +186,63 @@ describe('App header banners — regions mounted before their message', () => {
     expect(host.querySelector('.prefs-failing-alert')).toBe(region);
     expect(region.textContent).toContain('This browser isn\'t keeping your preferences');
     expect(region.querySelector('.autosave-warn.file-note-warn')).not.toBeNull();
+  }, 30_000);
+});
+
+/**
+ * A flag already true on App's FIRST render (owner ruling, row 113 (b)): the
+ * region must mount empty and take its message in a later commit. A
+ * MutationObserver on the host from before the first render tells the two
+ * apart: a message inserted with its region arrives inside the region's own
+ * insertion, and no record has the region as its target. No screen reader runs
+ * here; this is the DOM contract only.
+ */
+describe('App header banners — a message due on the first render arrives after it', () => {
+  const held = { tree: { name: 'Held back', components: [] }, mountMotors: {}, launch: DEFAULT_CONDITIONS };
+  async function mountObserved(): Promise<MutationRecord[]> {
+    const records: MutationRecord[] = [];
+    const observer = new MutationObserver((list) => { records.push(...list); });
+    observer.observe(host, { childList: true, subtree: true });
+    await act(async () => root.render(<PrefsProvider><App /></PrefsProvider>));
+    records.push(...observer.takeRecords());
+    observer.disconnect();
+    return records;
+  }
+  /** The region was in the page, and the message then went into it. */
+  function insertedLater(records: MutationRecord[], selector: string, message: string): void {
+    const region = host.querySelector(selector)!;
+    const note = region.querySelector(message);
+    expect(note, message).not.toBeNull();
+    expect(records.some((r) => r.target === region && [...r.addedNodes].includes(note!))).toBe(true);
+    expect(host.querySelector(selector)).toBe(region);
+  }
+
+  it('autosave can\'t write: the banner is inserted into its region after the first render', async () => {
+    const restore = refuseWrites(key => key === SESSION_KEY);
+    saveSessionDebounced(held);
+    flushSession();
+    expect(sessionSaveFailing()).toBe(true);
+    const records = await mountObserved();
+    insertedLater(records, '.autosave-failing-alert', '.autosave-warn.message-danger');
+    expect(host.querySelector('.autosave-failing-alert')!.textContent).toContain('Autosave can\'t write');
+    // A write that sticks clears the module's flag for the tests after this one.
+    restore();
+    flushSession();
+    expect(sessionSaveFailing()).toBe(false);
+  }, 30_000);
+
+  it('another tab\'s write: the conflict is inserted into its region after the first render', async () => {
+    onTestFinished(() => { discardSession(); });
+    saveSessionDebounced(held);
+    flushSession();
+    const ours = JSON.parse(localStorage.getItem(SESSION_KEY)!) as object;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ ...ours, stamp: 'othertab' }));
+    saveSessionDebounced({ ...held, tree: { ...held.tree, name: 'This tab\'s rocket' } });
+    flushSession();
+    expect(sessionConflicted()).toBe(true);
+    const records = await mountObserved();
+    insertedLater(records, '.session-conflict-alert', '.autosave-warn.message-caution');
+    expect(host.querySelector('.session-conflict-alert')!.textContent).toContain('This design was changed in another tab.');
   }, 30_000);
 });
 
