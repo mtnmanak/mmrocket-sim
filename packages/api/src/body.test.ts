@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { worker } from './index.js';
-import { MAX_API_BODY_BYTES, MAX_IN_FLIGHT_BODY_BYTES, reservedBodyBytes } from './body.js';
+import { BodyReservation, readBody, MAX_API_BODY_BYTES, MAX_IN_FLIGHT_BODY_BYTES, reservedBodyBytes } from './body.js';
 import { bytesOf, stampOf } from './fixtures.testSupport.js';
 import * as headless from '../../app/src/headless/index.js';
 
@@ -44,6 +44,19 @@ function upload(route = '/experimental/fly') {
 const pattern = (size: number) => Uint8Array.from({ length: size }, (_, i) => (i * 31 + 7) & 0xff);
 
 describe('the isolate-wide body budget', () => {
+  it('reserves old plus new capacity before growth and refuses when only the new buffer fits', async () => {
+    const other = new BodyReservation();
+    other.reserve(MAX_IN_FLIGHT_BODY_BYTES - 128 * 1024);
+    try {
+      const one = upload('/describe');
+      await one.send(new Uint8Array(64 * 1024));
+      await one.send(new Uint8Array(1));
+      expect((await one.response).status).toBe(503);
+      expect(one.state.cancelled).toBe(true);
+      expect(reservedBodyBytes()).toBe(MAX_IN_FLIGHT_BODY_BYTES - 128 * 1024);
+    } finally { other.release(); }
+  });
+
   it('refuses the upload that would cross it with 503, Retry-After and the stamp, then serves again', async () => {
     expect(MAX_IN_FLIGHT_BODY_BYTES).toBe(3 * MAX_API_BODY_BYTES);
     const full = new Uint8Array(MAX_API_BODY_BYTES);
@@ -78,11 +91,44 @@ describe('the isolate-wide body budget', () => {
 });
 
 describe('the body reader keeps exactly the bytes received', () => {
+  it('hands off the last fixed buffer without copying and reserves both buffers while growing', async () => {
+    const reservation = new BodyReservation();
+    let peak = 0;
+    const reserve = reservation.reserve.bind(reservation);
+    vi.spyOn(reservation, 'reserve').mockImplementation(bytes => {
+      reserve(bytes);
+      peak = Math.max(peak, reservedBodyBytes());
+    });
+    const bytes = pattern(65_537);
+    const body = new ReadableStream<Uint8Array>({ start(c) {
+      c.enqueue(bytes.subarray(0, 65_536));
+      c.enqueue(bytes.subarray(65_536));
+      c.close();
+    } });
+    let lastBuffer: ArrayBufferLike | undefined;
+    const set = Uint8Array.prototype.set;
+    vi.spyOn(Uint8Array.prototype, 'set').mockImplementation(function (this: Uint8Array, ...args) {
+      lastBuffer = this.buffer;
+      return set.apply(this, args);
+    });
+    try {
+      const data = await readBody(new Request('http://local', { method: 'POST', body, duplex: 'half' } as RequestInit), reservation);
+      expect(data).toBeInstanceOf(Uint8Array);
+      const view = data as Uint8Array;
+      expect(view.buffer).toBe(lastBuffer);
+      expect(view.buffer.byteLength).toBe(131_072);
+      expect(view.byteLength).toBe(bytes.byteLength);
+      expect(Buffer.from(view).equals(Buffer.from(bytes))).toBe(true);
+      expect(peak).toBe(196_608);
+      expect(reservedBodyBytes()).toBe(131_072);
+    } finally { reservation.release(); }
+  });
+
   /** What the Worker handed the service: the describe call is stubbed to capture it and refuse. */
   function capture() {
     const seen: Uint8Array[] & { held?: number } = [];
     vi.spyOn(headless, 'describeFile').mockImplementation(async data => {
-      // What the request holds while the service runs: its body, not the buffer's last growth step.
+      // The reader retains its final backing capacity while the service runs.
       seen.held = reservedBodyBytes();
       seen.push(new Uint8Array(data instanceof Uint8Array ? data : new Uint8Array(data)));
       throw new headless.SimulateDesignError('parse', 'Captured for the test.');
@@ -96,6 +142,7 @@ describe('the body reader keeps exactly the bytes received', () => {
     ['65,537 bytes in 4,096-byte chunks (past the first step)', 65_537, 4_096],
     ['the cap in 65,537-byte chunks', MAX_API_BODY_BYTES, 65_537],
     ['the cap in one chunk', MAX_API_BODY_BYTES, MAX_API_BODY_BYTES],
+    ['a large non-power-of-two first chunk', 4 * 1024 * 1024 + 1, 4 * 1024 * 1024 + 1],
   ])('%s', async (_label, size, chunk) => {
     const seen = capture();
     const bytes = pattern(size);
@@ -106,7 +153,7 @@ describe('the body reader keeps exactly the bytes received', () => {
     expect(response.status).toBe(400);
     expect(seen).toHaveLength(1);
     expect(seen[0]!.byteLength).toBe(size);
-    expect(seen.held).toBe(size);
+    expect(seen.held).toBe(Math.max(64 * 1024, 2 ** Math.ceil(Math.log2(size))));
     expect(Buffer.from(seen[0]!).equals(Buffer.from(bytes))).toBe(true);
   }, 60_000);
 

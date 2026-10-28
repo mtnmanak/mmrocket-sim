@@ -1,9 +1,9 @@
 /** The whole-file cap on a request body. */
 export const MAX_API_BODY_BYTES = 8 * 1024 * 1024;
 /**
- * Body bytes every request in this isolate may hold at once: three bodies at
- * the cap. The isolate's 128 MB also holds the kernel, the bundle and each
- * parse, so a fourth full upload waits for one of these to finish.
+ * Reader buffer capacity across this isolate, including both buffers during
+ * growth. Three full bodies fit when none is growing. The isolate's 128 MB
+ * also holds the kernel, the bundle, incoming chunks and each parse.
  */
 export const MAX_IN_FLIGHT_BODY_BYTES = 3 * MAX_API_BODY_BYTES;
 /** The first allocation for a body: small, so a short upload holds little. */
@@ -19,24 +19,13 @@ export class ServerBusy extends Error {
   constructor() { super('Body bytes in flight exceed the isolate budget.'); }
 }
 
-/**
- * An ES2024 resizable ArrayBuffer (Node 22 and workerd have one). Declared here
- * rather than through tsconfig's lib: the app's test program imports the Worker
- * and checks it against ES2022.
- */
-interface ResizableArrayBuffer extends ArrayBuffer {
-  resize(byteLength: number): void;
-  transferToFixedLength(): ArrayBuffer;
-}
-const ResizableArrayBuffer = ArrayBuffer as unknown as new (byteLength: number, options: { maxByteLength: number }) => ResizableArrayBuffer;
-
 let reserved = 0;
 /** Body bytes reserved across this isolate's requests now (tests). */
 export const reservedBodyBytes = () => reserved;
 
 /**
  * One request's share of the isolate's body budget. It reserves what its
- * buffer holds as the buffer grows, and gives everything back once: the Worker
+ * buffers hold as the buffer grows, and gives everything back once: the Worker
  * releases it in a `finally` around the whole request, so success, refusals,
  * a client abort, a parse failure and a 500 all return it.
  */
@@ -60,19 +49,18 @@ export class BodyReservation {
 }
 
 /**
- * The request body in ONE buffer, never more than the cap. Content-Length is
- * only an early refusal hint: the buffer grows from received bytes alone, in
- * place (a resizable ArrayBuffer, doubling up to the cap), so no chunk is kept
- * and no second copy of the body is assembled. The result is the same memory
- * as a fixed-length ArrayBuffer, which every consumer (TextDecoder, fflate)
- * accepts.
+ * Fixed buffers double up to the cap. Growth temporarily holds old + new
+ * capacity (at most 12 MiB), both reserved before allocation. No chunks are
+ * retained. A bounded view trims the logical length without a hand-off copy;
+ * a full buffer is passed directly, avoiding the importer's view-input copy.
+ * Content-Length is only an early refusal hint, never an allocation size.
  */
-export async function readBody(request: Request, reservation: BodyReservation): Promise<ArrayBuffer> {
+export async function readBody(request: Request, reservation: BodyReservation): Promise<ArrayBuffer | Uint8Array> {
   const length = request.headers.get('content-length');
   const declared = length !== null && /^\d+$/.test(length) ? Number(length) : undefined;
   if (declared !== undefined && declared > MAX_API_BODY_BYTES) throw new BodyTooLarge(declared);
   if (!request.body) return new ArrayBuffer(0);
-  const buffer = new ResizableArrayBuffer(0, { maxByteLength: MAX_API_BODY_BYTES });
+  let buffer = new ArrayBuffer(0);
   const reader = request.body.getReader();
   let size = 0;
   try {
@@ -84,21 +72,22 @@ export async function readBody(request: Request, reservation: BodyReservation): 
         throw new BodyTooLarge(size + value.byteLength);
       }
       if (size + value.byteLength > buffer.byteLength) {
-        const grown = Math.min(MAX_API_BODY_BYTES, Math.max(size + value.byteLength, buffer.byteLength * 2, FIRST_STEP_BYTES));
+        let grown = Math.max(buffer.byteLength, FIRST_STEP_BYTES);
+        while (grown < size + value.byteLength) grown = Math.min(MAX_API_BODY_BYTES, grown * 2);
         try {
-          reservation.reserve(grown - buffer.byteLength);
+          reservation.reserve(grown);
         } catch (e) {
           await reader.cancel().catch(() => undefined);
           throw e;
         }
-        buffer.resize(grown);
+        const next = new ArrayBuffer(grown);
+        new Uint8Array(next).set(new Uint8Array(buffer, 0, size));
+        reservation.return(buffer.byteLength);
+        buffer = next;
       }
       new Uint8Array(buffer, size, value.byteLength).set(value);
       size += value.byteLength;
     }
   } finally { reader.releaseLock(); }
-  const capacity = buffer.byteLength;
-  buffer.resize(size);
-  reservation.return(capacity - size);
-  return buffer.transferToFixedLength();
+  return size === buffer.byteLength ? buffer : new Uint8Array(buffer, 0, size);
 }

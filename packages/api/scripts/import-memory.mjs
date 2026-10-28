@@ -161,13 +161,13 @@ export async function smallestOldSpace(run, probe, mode, file, reps) {
     if (at === true) high = mid; else if (at === false) low = mid; else return at;
   }
   // Repeat the boundary: a flaky pass at `high` would understate the cap.
-  for (let r = 0; r < reps; r++) {
-    for (;;) {
-      const at = passes(high);
-      if (at === true) break;
-      if (at !== false) return at;
-      if (++high > MAX_OLD_SPACE_MIB) return noCap;
-    }
+  for (let streak = 0; streak < reps;) {
+    const at = passes(high);
+    if (at === true) { streak++; continue; }
+    if (at !== false) return at;
+    low = high;
+    if (++high > MAX_OLD_SPACE_MIB) return noCap;
+    streak = 0;
   }
   return { mib: high, failedAt: high - 1 >= low ? low : null };
 }

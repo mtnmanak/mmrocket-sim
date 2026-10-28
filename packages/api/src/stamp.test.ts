@@ -1,4 +1,7 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { worker } from './index.js';
 import { SimulateDesignError, simulateFile } from '../../app/src/headless/index.js';
@@ -26,9 +29,22 @@ it.each([
 });
 
 /** Every production module of the Worker: not a test, not test support. */
-const productionModules = () => readdirSync(new URL('.', import.meta.url))
-  .filter(name => name.endsWith('.ts') && !name.endsWith('.test.ts') && !name.endsWith('.testSupport.ts'));
+const productionModules = (root = new URL('.', import.meta.url)) => readdirSync(root, { recursive: true, encoding: 'utf8' })
+  .map(name => name.replace(/\\/g, '/'))
+  .filter(name => /\.[cm]?[jt]sx?$/.test(name) && !/\.(?:test|testSupport)\.[cm]?[jt]sx?$/.test(name));
 const RESPONSE_BUILDER = /Response\.json\(|new Response\(|Response\.redirect\(|Response\.error\(/g;
+
+it('scans nested modules of every source extension and excludes tests and support', () => {
+  const root = mkdtempSync(join(tmpdir(), 'stamp-modules-'));
+  const modules = ['index.ts', ...['ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs'].map(ext => 'routes/nested/route.' + ext)];
+  try {
+    mkdirSync(join(root, 'routes/nested'), { recursive: true });
+    for (const name of [...modules, 'routes/nested/route.test.mts', 'routes/nested/route.testSupport.js', 'routes/readme.md']) {
+      writeFileSync(join(root, name), 'new Response();', 'utf8');
+    }
+    expect(productionModules(pathToFileURL(root + '/')).sort()).toEqual(modules.sort());
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
 
 it('builds every Worker response through the stamped helper', () => {
   // A later route, error or module that builds its own Response would ship unstamped.
