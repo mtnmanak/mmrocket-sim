@@ -80,6 +80,21 @@ describe('RecoverySizingPanel', () => {
     }
   };
 
+  /** A band heading as it reads: its text, with the unit chip as [the unit it shows]. */
+  const headingReading = (el: Element) => [...el.childNodes]
+    .map((n) => n.nodeType === 3 ? n.textContent : n instanceof HTMLSelectElement ? `[${n.value}]` : '').join('');
+
+  it.each(['ft/s', 'm/s', 'km/h', 'mph', 'kt'])('S7-2 names the band\'s unit once, in its chip (%s)', async (unit) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { velocity: unit } }));
+    await mount();
+    const ranges = [...host.querySelectorAll('.recovery-band-range')].map(headingReading);
+    expect(ranges).toHaveLength(2);
+    for (const range of ranges) expect(range.split(unit).length - 1, range).toBe(1);
+    // The defined ft/s figures stay, whichever unit leads.
+    expect(ranges[0]).toContain('15–20');
+    expect(ranges[1]).toContain('50–75');
+  });
+
   it('keeps an interactive velocity-unit selector in each sizing band', async () => {
     await mount();
     for (const [index, band] of [...host.querySelectorAll('.recovery-band')].entries()) {
@@ -88,9 +103,9 @@ describe('RecoverySizingPanel', () => {
       const symbol = index === 0 ? 'm/s' : 'ft/s';
       act(() => { select!.value = symbol; select!.dispatchEvent(new Event('change', { bubbles: true })); });
       expect(JSON.parse(localStorage.getItem('online-openrocket.prefs.v1')!).units.velocity).toBe(symbol);
+      // Read with the chip in place: the numbers switch with it, and the unit is said once.
       const range = host.querySelector('.recovery-band-range')!;
-      const text = [...range.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim();
-      expect(text).toBe(index === 0 ? '4.6 m/s (15 ft/s)–6.1 m/s (20 ft/s)' : '15 ft/s (4.6 m/s)–20 ft/s (6.1 m/s)');
+      expect(headingReading(range)).toBe(index === 0 ? '4.6–6.1 [m/s] (15–20 ft/s)' : '15–20 [ft/s] (4.6–6.1 m/s)');
       expect([...host.querySelectorAll<HTMLSelectElement>('select[aria-label="Velocity unit"]')].map(s => s.value))
         .toEqual([symbol, symbol]);
     }
@@ -554,14 +569,11 @@ describe('RecoverySizingPanel', () => {
 
   it('states the bands themselves, so the number has a window around it', async () => {
     await mount();
-    // Text nodes only: the unit is a <select>, whose textContent drags in every
-    // option it offers ("m/skm/hft/s…").
-    const ranges = Array.from(host.querySelectorAll('.recovery-band-range'))
-      .map((el) => Array.from(el.childNodes)
-        .filter((n) => n.nodeType === 3)
-        .map((n) => n.textContent).join('').trim());
-    expect(ranges[0]).toBe('15 ft/s (4.6 m/s)–20 ft/s (6.1 m/s)');
-    expect(ranges[1]).toBe('50 ft/s (15.2 m/s)–75 ft/s (22.9 m/s)');
+    // The unit is a <select>, whose textContent drags in every option it offers
+    // ("m/skm/hft/s…"), so it reads as [the unit it shows].
+    const ranges = Array.from(host.querySelectorAll('.recovery-band-range')).map(headingReading);
+    expect(ranges[0]).toBe('15–20 [ft/s] (4.6–6.1 m/s)');
+    expect(ranges[1]).toBe('50–75 [ft/s] (15.2–22.9 m/s)');
   });
 
   it('says how many canopies were dropped for fit, rather than looking arbitrary', async () => {
