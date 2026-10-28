@@ -3358,6 +3358,28 @@ async function chooseConfiguration(host: HTMLElement, id: string) {
  * configuration panel still work.
  */
 describe('a hand-edited autosave', () => {
+  it('saves an EX motor whose stored definition names a non-text maker', async () => {
+    const ex: ExMotor = { motorId: 'ex:stored', designation: 'C6', realManufacturer: 'Stored Test',
+      diameter: 18, length: 70, totalWeightG: 24, propWeightG: 10, delays: '5',
+      samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 12 }, { time: 0.5, thrust: 6 }, { time: 1.2, thrust: 0 }],
+      source: 'eng', addedAt: 1 };
+    localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([ex]));
+    const tree = defaultTree(), mount = motorMounts(tree)[0]!.id!;
+    const loaded = mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5,
+      { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
+    (loaded.spec as { exDefinition?: unknown }).exDefinition = { ...ex, realManufacturer: 7 };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: loaded },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+    const host = await mountApp();
+    await settle(50);
+    expect(host.textContent).toContain('Unreadable EX motor definitions were removed');
+    await saveAs(host, 'Save .ork');
+    await settle();
+    expect(host.textContent).not.toContain('Save .ork failed');
+    const xml = vi.mocked(exportOrk).mock.results.at(-1)!.value as string;
+    expect(importOrk(xml).embeddedExMotors).toEqual([ex]);
+  });
+
   it('renders the configuration panel for an unnamed configuration with an unreadable unmatched list', async () => {
     localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), mountMotors: {},
       savedConfigs: [{ id: 'cfg', name: null, isDefault: true, motors: {}, unmatched: 5 }], activeConfigId: 'cfg', emptyConfigVersion: 1,

@@ -20,6 +20,8 @@ import { validLossySaveMark, type LossySaveMark } from './lossySave.js';
 import { designFingerprint } from './dirtyState.js';
 import { sanitizeSessionFlightLayers } from './sessionFlightLayers.js';
 import { boundedNozzleDiameter } from '../tree/nozzles.js';
+import { validExMotorIdentity } from './exMotors.js';
+import type { RepairedMotorSpec } from './thrustcurve.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -325,6 +327,8 @@ function setConflicted(next: boolean): void {
 }
 
 const isTable = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+const validStoredExDefinition = (v: unknown): boolean => validExMotorIdentity(v)
+  && Array.isArray((v as { samples?: unknown }).samples) && (v as { samples: unknown[] }).samples.every(isTable);
 
 /**
  * A stored `flownAutoDelays`, or undefined when there is no table of delays in
@@ -471,6 +475,24 @@ function readSession(restoreRoot: boolean): SessionState | null {
     }
     if (motorsRemoved) {
       cautionNote(s.treeRestoreNotes ??= [], 'G04.motors-removed', 'Unreadable motor records were removed.');
+    }
+    // An EX motor's captured library definition (exMotors.exToMotorSpec), which
+    // Save writes and compares (orkExportMotors.exIdentity, exMotorArchive): the
+    // library's identity checks, and the samples exMotorIdentity reads. Not
+    // today's whole validExMotor: a definition an older build captured can fail a
+    // later refusal while every reader copes. A failing one is removed and the
+    // motor kept, as an EX session stored before definitions were captured.
+    let definitionsRemoved = false;
+    const specs = [s.motor, ...[s.mountMotors ?? {}, ...(s.savedConfigs ?? []).map(c => c.motors)]
+      .flatMap(set => Object.values(set).map(mm => mm.spec))] as (RepairedMotorSpec | undefined)[];
+    for (const spec of specs) {
+      if (spec?.exDefinition !== undefined && !validStoredExDefinition(spec.exDefinition)) {
+        delete spec.exDefinition;
+        definitionsRemoved = true;
+      }
+    }
+    if (definitionsRemoved) {
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.ex-definition-removed', 'Unreadable EX motor definitions were removed; the loaded thrust curves were kept.');
     }
     // A configuration's `unmatched` is display text derived from its references
     // (configSync); one that is not a list of names is rebuilt from them once
