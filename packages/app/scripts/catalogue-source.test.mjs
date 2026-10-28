@@ -157,6 +157,42 @@ describe('GitHub REST source eligibility', () => {
     }
   });
 
+  it('113-13a: is red when a stray catalogue-input artifact sits beside the one that matches', () => {
+    const data = fixture();
+    // Created after every refresh window, and attempt 2 ran no refresh job.
+    data.artifacts.push({ total_count: 1, artifacts: [{ ...artifact(data), id: 333, created_at: '2026-10-22T08:00:00Z' }] });
+    expect(selectSource(data)).toEqual({ eligible: false, failed: true,
+      reason: 'catalogue-input artifact matches no recognised refresh job in any attempt' });
+    // Positive control: without the stray the same run is eligible.
+    data.artifacts.pop();
+    expect(selectSource(data)).toMatchObject({ eligible: true, artifact_id: '321' });
+  });
+
+  it('113-13a: stays eligible when the extra artifact may come from a cancelled, windowless earlier attempt', () => {
+    const data = fixture(), next = structuredClone(job(data));
+    job(data).conclusion = 'cancelled'; job(data).steps[1].conclusion = 'cancelled';
+    next.id = 987; next.run_attempt = 2;
+    next.started_at = '2026-10-21T12:00:00Z'; next.completed_at = '2026-10-21T12:10:00Z';
+    next.steps[1].completed_at = '2026-10-21T12:05:00Z';
+    data.attempts[1].pages[0].jobs.push(next);
+    data.artifacts.push({ total_count: 1, artifacts: [{ ...artifact(data), id: 333, created_at: '2026-10-21T12:04:00Z' }] });
+    expect(selectSource(data)).toMatchObject({ eligible: true, source_attempt: '2', artifact_id: '333' });
+    // Outside the cancelled job's run time it could not have made it: red.
+    job(data).completed_at = '2026-10-19T09:19:00Z';
+    expect(selectSource(data)).toMatchObject({ failed: true, reason: expect.stringContaining('matches no recognised refresh job') });
+  });
+
+  it('113-13e: with no match, every artifact needs a possible producer, not just one', () => {
+    const data = fixture();
+    job(data).conclusion = 'cancelled'; job(data).steps[1].conclusion = 'cancelled';
+    // The windowless job ran 09:17-09:30 and may have made the first; nothing could have made the second.
+    data.artifacts.push({ total_count: 1, artifacts: [{ ...artifact(data), id: 333, created_at: '2026-10-22T08:00:00Z' }] });
+    expect(selectSource(data)).toEqual({ eligible: false, failed: true,
+      reason: 'catalogue-input artifact matches no recognised refresh job in any attempt' });
+    data.artifacts.pop();
+    expect(selectSource(data)).toEqual({ eligible: false, failed: false, reason: 'source refresh gate did not conclude success' });
+  });
+
   it('ci-1: is red when a later attempt passed the gate but only an earlier failed attempt left an artifact', () => {
     const data = fixture(), next = structuredClone(job(data));
     job(data).conclusion = 'failure';

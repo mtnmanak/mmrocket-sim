@@ -78,23 +78,28 @@ export function selectSource({ run, attempts, artifacts }) {
       if (seals.length !== 1 || seals[0].conclusion !== 'success') return { job };
       return { job, start: epoch(job.started_at), end: epoch(seals[0].completed_at) };
     });
-    const matches = frozen.map((artifact) => {
+    const placed = frozen.map((artifact) => {
       const created = epoch(artifact.created_at);
       const owners = windows.filter((w) => created >= w.start && created < w.end);
       if (owners.length > 1) throw new Error('ambiguous catalogue-input artifact producing attempt');
       return { artifact, created, owner: owners[0] };
-    }).filter((m) => m.owner).sort((a, b) => b.created - a.created);
+    });
+    const matches = placed.filter((m) => m.owner).sort((a, b) => b.created - a.created);
+    // A job stopped before its seal completed has no window but may have
+    // uploaded; one whose run time cannot be read is given the same benefit.
+    const mayHaveMade = (created) => windows.some(({ job, start }) => start === undefined
+      && !(Date.parse(job.started_at) > created) && !(Date.parse(job.completed_at) < created));
+    const unproduced = `${INPUT_ARTIFACT} artifact matches no recognised refresh job in any attempt`;
     if (!matches.length) {
       if (!jobs.some((job) => job.conclusion === 'success')) {
-        // A job stopped before its seal completed has no window but may have
-        // uploaded; one whose run time cannot be read is given the same benefit.
-        const mayHaveMade = (created) => windows.some(({ job, start }) => start === undefined
-          && !(Date.parse(job.started_at) > created) && !(Date.parse(job.completed_at) < created));
         if (frozen.every((a) => mayHaveMade(epoch(a.created_at)))) return neutral('source refresh gate did not conclude success');
-        throw new Error(`${INPUT_ARTIFACT} artifact matches no recognised refresh job in any attempt`);
+        throw new Error(unproduced);
       }
       throw new Error('catalogue-input artifact is outside every pre-install attempt window');
     }
+    // A match does not vouch for an artifact beside it (owner 113-13a): every
+    // one outside a window still needs a job that may have made it.
+    if (placed.some((m) => !m.owner && !mayHaveMade(m.created))) throw new Error(unproduced);
     const { artifact, owner } = matches[0];
     if (matches.filter((m) => m.owner.job.run_attempt === owner.job.run_attempt).length !== 1) {
       throw new Error('ambiguous catalogue-input artifacts in producing attempt');
