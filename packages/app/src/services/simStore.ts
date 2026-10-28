@@ -59,7 +59,7 @@ export function loadRuns(): SimRun[] {
       typeof r === 'object' && r !== null && !Array.isArray(r)
       && typeof (r as { id?: unknown }).id === 'string');
     for (const r of list) {
-      for (const key of ['motorSetKey', 'designKey', 'conditionsKey', 'motorConfig', 'flightConfig', 'flightConfigId', 'motorType', 'propellant', 'motorCase', 'motorDesignation'] as const) {
+      for (const key of ['motorSetKey', 'designKey', 'conditionsKey', 'motorConfig', 'flightConfig', 'flightConfigId', 'motorType', 'propellant', 'motorCase', 'motorDesignation', 'importedRunId'] as const) {
         if (typeof r[key] !== 'string') delete r[key];
       }
       for (const key of ['rocket', 'motor', 'manufacturer'] as const) {
