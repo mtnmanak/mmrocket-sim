@@ -8,7 +8,8 @@ import {
   commentsOf, jsXmlParser, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser, simulateFile,
 } from '../../app/src/headless/index.js';
 import { boosterBranches } from '@online-openrocket/engine';
-import { autoBody, bytesOf, clusterBody, missingCurveBody, secondaryBody, timeStepBody } from './fixtures.testSupport.js';
+import { autoBody, bytesOf, clusterBody, missingCurveBody, rktWithMotor, secondaryBody, timeStepBody } from './fixtures.testSupport.js';
+import { SNAPSHOT_ADDED } from './snapshotOverlay.testSupport.js';
 
 type LocalWorker = Awaited<ReturnType<typeof unstable_startWorker>>;
 interface FlightResponse {
@@ -225,6 +226,18 @@ describe('S1 in real workerd', () => {
     const body = await response.json() as { error: { code: string; importNote: { text: string } } };
     expect(body.error.code).toBe('NO_MOTOR');
     expect(body.error.importNote.text).toMatch(/thrust curve/);
+  });
+
+  it('under a curated-snapshot overlay with an added motor, the API still matches the shipped catalogue and asks nothing', async () => {
+    // The headless matcher reads the shipped catalogue, not the overlay, so
+    // the added motor is unknown here and its curves file is never asked for.
+    const response = await overlay!.fetch('http://local/experimental/fly?filename=added.rkt&network=allow',
+      { method: 'POST', body: rktWithMotor(SNAPSHOT_ADDED.designation, SNAPSHOT_ADDED.manufacturerAbbrev, 5) });
+    expect(response.headers.get('x-test-fetch-attempts')).toBe('0');
+    expect(response.status, await response.clone().text()).toBe(422);
+    const body = await response.json() as { error: { code: string; importNote: { text: string } } };
+    expect(body.error.code).toBe('NO_MOTOR');
+    expect(body.error.importNote.text).toMatch(/Motor “C99” matched no motor in the motor database/);
   });
 
   it.each(['cluster', 'never', 'refused'] as const)('reports the actual %s loadout and build refusals', async kind => {

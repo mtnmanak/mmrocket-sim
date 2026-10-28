@@ -370,9 +370,11 @@ export async function matchImportedMotor(
   // catalogued motors thrustcurve.org has no simulator file for at all — and
   // it is SAID only when that is known: thrustcurve.org answered so
   // (NoPublishedCurveError), or the motor is one of the shipped catalogue's and
-  // the shipped bundle, loaded, has nothing for it. Any other failure — offline
-  // with a motor the catalogue check added since, a bundle chunk that would not
-  // load, a timeout — is not that, and the note repeats the reason instead
+  // the shipped bundle, loaded, has nothing for it — or, under a curated
+  // snapshot overlay, the snapshot's curves file, read, has nothing for it
+  // either (thrustcurve.ts knownNoPublishedCurve, D.7). Any other failure —
+  // offline with a motor the catalogue check added since, a bundle chunk that
+  // would not load, a timeout — is not that, and the note repeats the reason instead
   // (audit 2026-09-30): it said "publishes none" for every one, and a user
   // went looking for a file they did not need.
   if (dbMatch) {
