@@ -155,6 +155,9 @@ export function addDigests(bundle, results) {
  * motors as failed too. `fetchImpl` and `sleep` are injectable so the
  * test can stand in for the network and the courtesy pause.
  */
+/** Did `previous` (a bundle, or null) hold at least one curve for this motor? */
+const hadCurves = (previous, id) => Object.hasOwn(previous.curves, id) && previous.curves[id].length > 0;
+
 export function downloadResults(body) {
   if (!body || typeof body !== 'object' || !Array.isArray(body.results)
     || !body.results.every(f => f && typeof f === 'object' && !Array.isArray(f)
@@ -167,8 +170,8 @@ export function downloadResults(body) {
 /**
  * Raw census downloads stop on failure and always pause before returning.
  * `previous` is the bundle the IDs came from, or null: as in fetchCurves, a
- * 200 batch with no usable raw file for any motor it asked for fails when one
- * of those motors had curves in `previous`. A partial batch still passes.
+ * 200 batch fails when a motor it asked for had curves in `previous` and got
+ * no usable raw file. Files for motors it did not ask for are ignored.
  */
 export async function downloadRawFiles(ids, {
   fetchImpl = thrustcurveFetch, sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
@@ -184,11 +187,15 @@ export async function downloadRawFiles(ids, {
         body: JSON.stringify({ motorIds: batch, data: 'file' }),
       });
       if (!res.ok) throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
-      const results = downloadResults(await res.json());
+      // A file for a motor this batch did not ask for is not this batch's answer.
       const asked = new Set(batch);
-      if (previous && batch.some((id) => Object.hasOwn(previous.curves, id) && previous.curves[id].length)
-        && !results.some((f) => asked.has(f.motorId) && f.simfileId && f.data)) {
-        throw new Error('download.json returned no usable raw file for a batch whose motors had curves');
+      const results = downloadResults(await res.json()).filter((f) => asked.has(f.motorId) && f.simfileId && f.data);
+      const owed = previous ? batch.filter((id) => hadCurves(previous, id)) : [];
+      if (owed.length && !results.length) throw new Error('download.json returned no usable raw file for a batch whose motors had curves');
+      const missing = owed.filter((id) => !results.some((f) => f.motorId === id));
+      if (missing.length) {
+        throw new Error(`download.json returned no usable raw file for ${missing.length} motor${missing.length === 1 ? '' : 's'} `
+          + `that had curves: ${missing.join(', ')}`);
       }
       for (const f of results) {
         if (f.simfileId && f.data) raw[f.simfileId] = { motorId: f.motorId, format: f.format, source: f.source, data: f.data };
@@ -205,7 +212,9 @@ export async function downloadRawFiles(ids, {
  * `previous` is the bundle on disk before this run, or null. A 200 batch with
  * no usable file for any motor it asked for counts as failed when one of those
  * motors had curves in `previous` (an empty answer, not a withdrawn motor). A
- * batch that drops only SOME motors still passes: one usable file clears it.
+ * batch that drops only SOME such motors fails those motors, one line each
+ * (audit S2-2): a short answer must not be stamped complete. Files for motors
+ * the batch did not ask for are neither counted nor kept.
  */
 export async function fetchCurves(motors, {
   fetchImpl = thrustcurveFetch,
@@ -241,16 +250,20 @@ export async function fetchCurves(motors, {
     } finally {
       await sleep(PAUSE_MS);
     }
+    // Only files for the motors this batch asked for count, or are kept (audit S2-2).
     const asked = new Set(batch.map((m) => m.motorId));
-    if (previous && batch.some((m) => Object.hasOwn(previous.curves, m.motorId) && previous.curves[m.motorId].length)
-      && !body.results.some((f) => asked.has(f.motorId) && compactFile(f))) {
+    const usable = body.results.filter((f) => asked.has(f.motorId)).map((f) => [f, compactFile(f)]).filter(([, c]) => c);
+    if (previous && batch.some((m) => hadCurves(previous, m.motorId)) && !usable.length) {
       failed.push(...batch.map((m) => `${m.manufacturerAbbrev} ${m.designation}: download.json returned no usable file `
         + 'for a batch whose motors had curves'));
       continue;
     }
-    for (const f of body.results ?? []) {
-      const compact = compactFile(f);
-      if (!compact) continue;
+    // A motor that had curves and came back with none is a short answer, not a withdrawal (owner question Q2).
+    const answered = new Set(usable.map(([f]) => f.motorId));
+    const dropped = previous ? batch.filter((m) => hadCurves(previous, m.motorId) && !answered.has(m.motorId)) : [];
+    failed.push(...dropped.map((m) => `${m.manufacturerAbbrev} ${m.designation}: download.json returned no usable file `
+      + 'for a motor that had curves'));
+    for (const [f, compact] of usable) {
       (curves[f.motorId] ??= []).push(compact);
       files++;
       points += f.samples.length;
