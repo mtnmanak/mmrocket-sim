@@ -341,8 +341,10 @@ async function readSnapshotMotors(current: ManifestSnapshot, opts: { signal: Abo
   const doc = await fetchCatalogueFile(current.motors, MOTORS_MAX_BYTES, 'motors file', opts);
   const unreadable = (why: string): never => { throw new CatalogueError('shape', `The catalogue's motors file ${why}, so it was not used.`); };
   if (!object(doc) || !Array.isArray(doc['motors'])) return unreadable('has no motor list');
+  // Dated as its manifest entry, and not empty: what planPublication writes.
+  if (doc['generated'] !== current.motors.generated) return unreadable('is not dated as its manifest entry');
   const rows = doc['motors'] as unknown[];
-  if (rows.length !== doc['count'] || rows.length !== current.motors.count) return unreadable('does not hold the number of motors it states');
+  if (!rows.length || rows.length !== doc['count'] || rows.length !== current.motors.count) return unreadable('does not hold the number of motors it states');
   const ids = new Set<string>();
   for (const m of rows) {
     if (!object(m) || typeof m['motorId'] !== 'string' || !m['motorId'] || ids.has(m['motorId'])) {

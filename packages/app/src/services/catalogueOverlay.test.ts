@@ -165,6 +165,19 @@ it('B.1 refuses a motors file whose count disagrees with the manifest\'s', async
   expect(getCatalogueOverlay()?.added.map(m => m.motorId)).toEqual(['a', 'b']);
 });
 
+// H1: planPublication writes a motors file only with rows, and dated as its
+// manifest entry; the app holds the file it reads to both.
+it('H1 refuses a motors file dated other than its manifest entry, and leaves storage as it was', async () => {
+  const rows = [row({ motorId: 'a' }), row({ motorId: 'b' })];
+  const generated = daysAfter(MOTOR_DB_DATE, 1);
+  const fetchImpl = stubCatalogue(rows, { motorsDoc: { generated: daysAfter(MOTOR_DB_DATE, 2), count: 2, motors: rows } });
+  await expect(checkForCatalogueUpdates({ force: true, fetchImpl })).rejects.toThrow(/motors file .* not used/);
+  expect(localStorage.getItem(OVERLAY_KEY)).toBeNull();
+  // Positive control: the same rows dated as the manifest says install.
+  await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue(rows, { motorsDoc: { generated, count: 2, motors: rows } }) });
+  expect(getCatalogueOverlay()?.added.map(m => m.motorId)).toEqual(['a', 'b']);
+});
+
 it('S7c-b2 retains previous additions and changes when their maker is silent on the next check', async () => {
   const before = MOTOR_DB[0]!;
   const added = row({ motorId: 'previous-new', manufacturerAbbrev: before.manufacturerAbbrev });
@@ -282,7 +295,7 @@ it('B.4 a snapshot older than the shipped catalogue downloads nothing, removes n
 it('B.4 an older snapshot keeps what an earlier check learned', async () => {
   await checkForCatalogueUpdates({ force: true, fetchImpl: stubCatalogue([...MOTOR_DB, row({ motorId: 'learned' })]) });
   const { overlay } = await checkForCatalogueUpdates({ force: true,
-    fetchImpl: stubCatalogue([], { generated: daysAfter(MOTOR_DB_DATE, -1) }) });
+    fetchImpl: stubCatalogue([row({ motorId: 'older-only' })], { generated: daysAfter(MOTOR_DB_DATE, -1) }) });
   expect(overlay.added.map(m => m.motorId)).toEqual(['learned']);
   expect(getCatalogue().some(m => m.motorId === 'learned')).toBe(true);
 });

@@ -785,7 +785,9 @@ function loadSnapshotCurves(snapshot: CatalogueSnapshotRef): Promise<Map<string,
   if (!pending) {
     pending = (async () => {
       const doc = await fetchCatalogueFile(snapshot.curves, CURVES_MAX_BYTES, 'curves file');
-      if (!plainObject(doc) || doc['catalogueGenerated'] !== snapshot.generated || !plainObject(doc['curves'])) {
+      // `complete`, as planPublication requires of every curves file it publishes.
+      if (!plainObject(doc) || doc['catalogueGenerated'] !== snapshot.generated || doc['complete'] !== true
+        || !plainObject(doc['curves'])) {
         throw new CatalogueError('shape', 'The catalogue\'s curves file is not the one its snapshot names, so it was not used.');
       }
       // A bundle that would not load cannot say which shipped motors lack a

@@ -94,6 +94,17 @@ describe('the manifest check', () => {
     expect(() => validatePreviousManifest(m)).toThrow();
   });
 
+  // H1: planPublication refuses a motors file with no rows, so a count of 0 is
+  // never published; the app refuses it too (validatePreviousManifest does not).
+  it.each(['current', 'older'] as const)('refuses a zero motor count in the %s snapshot', async (which) => {
+    const m = clone(await valid()) as Manifest;
+    m['snapshots'][which === 'current' ? 1 : 0].motors.count = 0;
+    expect(() => validateCatalogueManifest(m)).toThrow(/invalid counts or dates/);
+    // Positive control: a count of one is a catalogue.
+    m['snapshots'][which === 'current' ? 1 : 0].motors.count = 1;
+    expect(() => validateCatalogueManifest(m)).not.toThrow();
+  });
+
   it('refuses a missing manifest, which the publisher deliberately accepts (the one place the app is stricter)', () => {
     expect(() => validateCatalogueManifest(undefined)).toThrow(CatalogueError);
     expect(() => validateCatalogueManifest(null)).toThrow(CatalogueError);

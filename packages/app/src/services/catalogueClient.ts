@@ -122,7 +122,9 @@ export function validateCatalogueManifest(manifest: unknown): ManifestSnapshot {
     }
     const motors = entry['motors'] as Record<string, unknown>;
     const curves = entry['curves'] as Record<string, unknown>;
-    if (!integer(motors['count']) || !integer(curves['motors']) || !integer(curves['files'])
+    // A count of at least one: planPublication refuses a motors file with no
+    // rows, so a 0 is never published (validatePreviousManifest accepts it).
+    if (!integer(motors['count']) || (motors['count'] as number) < 1 || !integer(curves['motors']) || !integer(curves['files'])
       || curves['catalogueGenerated'] !== motors['generated']) return bad(`snapshot ${id} has invalid counts or dates`);
     byId.set(id, {
       id,

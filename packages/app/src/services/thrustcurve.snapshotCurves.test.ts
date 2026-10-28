@@ -237,6 +237,23 @@ describe('the curves file is checked before anything flies from it', () => {
     expect(tcRequests).toHaveLength(1);
   });
 
+  // H1: planPublication publishes only a complete curves file.
+  it.each([false, undefined])('refuses a curves file whose complete is %s: an added motor flies nothing from it', async (complete) => {
+    const generated = daysAfter(db.MOTOR_DB_DATE, 2);
+    const curves = { [addedMotor.motorId]: [file(40)] };
+    const curvesDoc = { generated, catalogueGenerated: generated, ...(complete === undefined ? {} : { complete }), motors: 1, files: 1, curves };
+    await install({}, { added: [addedMotor], curvesDoc });
+    await miss(tc.fetchMotorSpec(addedMotor, 5));
+    expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
+    expect(catalogueRequests).toHaveLength(1);
+    // Positive control: the same file, complete, flies.
+    vi.resetModules();
+    tc = await import('./thrustcurve.js');
+    db = await import('./motorDb.js');
+    await install({}, { added: [addedMotor], curvesDoc: { ...curvesDoc, complete: true } });
+    expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(40, 9);
+  });
+
   it('keeps the good file of a motor beside a bad one', async () => {
     await install({ [addedMotor.motorId]: [file(40, { samples: 'bad' }), file(44)] }, { added: [addedMotor] });
     expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(44, 9);
