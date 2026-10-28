@@ -96,8 +96,13 @@ export async function rememberRecentDesign(name: string, bytes: ArrayBuffer): Pr
           const entry = { name, bytes, openedAt: Math.max(Date.now(), (previous[0]?.openedAt ?? 0) + 1) };
           const next = boundedRecentDesigns([entry, ...previous.filter(e => e.name !== name)]);
           // C-A2: one read/write transaction serializes tabs, including Clear recent.
-          store.clear();
-          next.forEach(e => store.put(e));
+          // Only the readable copies the cap evicts are deleted, and only the new
+          // one is written: a record the list cannot read (a newer build's) is
+          // kept as stored, and replaced only by the same file opened again
+          // (cloud session 20, the My parts rule of audit S7-3).
+          const kept = new Set(next.map(e => e.name));
+          for (const e of request.result as unknown[]) if (validRecord(e) && !kept.has(e.name)) store.delete(e.name);
+          if (kept.has(name)) store.put(entry);
           done(undefined);
         } catch { store.transaction.abort(); }
       };
