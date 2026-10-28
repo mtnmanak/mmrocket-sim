@@ -1650,3 +1650,29 @@ describe('stored-state siblings: reference EX definitions', () => {
     });
   });
 });
+
+describe('stored-state siblings: the legacy inline motor', () => {
+  const KEY = 'online-openrocket.session.v1';
+  beforeEach(() => discardSession());
+  // A pre-per-mount session carried one motor inline: { motor, motorMeta, motorLabel, mountId }.
+  it.each([7, { ...definition(), realManufacturer: 7 }, { ...definition(), samples: [null] }].map(v => [v]))(
+    'repairs an unreadable exDefinition %j on the legacy motor and keeps it on its mount', bad => {
+      const tree = defaultTree();
+      const mount = motorMounts(tree)[0]!.id!;
+      const ex = exMounted() as unknown as { label: string; spec: Record<string, unknown>; meta: Record<string, unknown> };
+      expect(ex.meta.exMotorId).toBe(definition().motorId);
+      ex.spec.exDefinition = bad;
+      const raw = JSON.stringify({ ...state(), tree, motor: ex.spec, motorMeta: ex.meta, motorLabel: ex.label, mountId: mount });
+      localStorage.setItem(KEY, raw);
+      const loaded = loadSession()!;
+      expect(loaded.motor).toBeDefined();
+      expect(loaded.motor).not.toHaveProperty('exDefinition');
+      expect(noteKinds(loaded)).toContain('caution:G04.ex-definition-removed');
+      const { state: d } = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+      expect(Object.keys(d.mountMotors)).toEqual([mount]);
+      expect(d.mountMotors[mount]!.spec.thrusts).toEqual(ex.spec.thrusts);
+      expect(() => saveOrk(loaded)).not.toThrow();
+      expect(localStorage.getItem(KEY)).toBe(raw);
+      expect(autosavedDesignFile()).toMatchObject({ ork: false, data: raw });
+    });
+});
