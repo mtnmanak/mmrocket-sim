@@ -28,6 +28,8 @@ import { exportOrk } from './orkFile.js';
 import type { SessionState } from './session.js';
 import { MAX_STORED_WARNINGS } from './storedWarnings.js';
 import { tierLines } from './importNotes.js';
+import { DEFAULT_CONDITIONS } from './launchConditions.js';
+import { checkFormatLoss } from './formatLoss.js';
 
 const restoreTier = (restored: ReturnType<typeof designStateFromSession>, text: string) =>
   tierLines(restored.restoreNotes, restored.restoreNoteTiers).find(note => note.text === text)?.tier;
@@ -1223,6 +1225,30 @@ it('lane C S1c-2 uses the shared Mach-Alt limit on session reload', async () => 
   } finally { vi.doUnmock('./machAltLimits.js'); vi.resetModules(); }
 });
 
+const definition = (): ExMotor => ({
+  motorId: 'ex:stored-c6', designation: 'C6', realManufacturer: 'Stored Test',
+  diameter: 18, length: 70, totalWeightG: 24, propWeightG: 10, delays: '5',
+  samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 12 }, { time: 0.5, thrust: 6 }, { time: 1.2, thrust: 0 }],
+  source: 'eng', addedAt: 1,
+});
+const exMounted = () => {
+  const ex = definition();
+  return mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5, { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
+};
+/** What App's Save .ork hands the writer (App.onSaveOrk via exportAssembly). */
+const saveOrk = (loaded: SessionState) => {
+  const { state: d } = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+  return exportOrk({
+    name: 'Stored', tree: d.tree, launch: d.launch, measured: d.measured, activeConfigId: d.activeConfigId,
+    workingOverrides: d.detachedOverrides, notes: [], onOmittedMotor: () => { throw new Error('omitted a motor'); },
+    motors: exportMotorsMap({ assigned: assignedMotorsOf(d.mountMotors, motorMounts(d.tree)), unmatchedRefs: d.unmatchedRefs,
+      tree: d.tree, activeConfigId: d.activeConfigId, exLibrary: loadExMotorIdentities }),
+    configs: exportConfigs(d.savedConfigs, d.tree, loadExMotorIdentities),
+  });
+};
+const noteKinds = (loaded: SessionState) =>
+  designStateFromSession(loaded, { legacyMaxMotorLengthM: null }).restoreNoteTiers.map(n => `${n.tier}:${n.kind}`);
+
 /**
  * STORED-STATE HARDENING (cloud session 10). An autosave is anything's to
  * write; one malformed entry must cost that entry, with a restore note, and
@@ -1231,30 +1257,6 @@ it('lane C S1c-2 uses the shared Mach-Alt limit on session reload', async () => 
 describe('stored-state hardening: EX definitions', () => {
   const KEY = 'online-openrocket.session.v1';
   const EX_KEY = 'online-openrocket.ex-motors.v1';
-  const definition = (): ExMotor => ({
-    motorId: 'ex:stored-c6', designation: 'C6', realManufacturer: 'Stored Test',
-    diameter: 18, length: 70, totalWeightG: 24, propWeightG: 10, delays: '5',
-    samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 12 }, { time: 0.5, thrust: 6 }, { time: 1.2, thrust: 0 }],
-    source: 'eng', addedAt: 1,
-  });
-  const exMounted = () => {
-    const ex = definition();
-    return mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5, { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
-  };
-  /** What App's Save .ork hands the writer (App.onSaveOrk via exportAssembly). */
-  const saveOrk = (loaded: SessionState) => {
-    const { state: d } = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
-    return exportOrk({
-      name: 'Stored', tree: d.tree, launch: d.launch, measured: d.measured, activeConfigId: d.activeConfigId,
-      workingOverrides: d.detachedOverrides, notes: [], onOmittedMotor: () => { throw new Error('omitted a motor'); },
-      motors: exportMotorsMap({ assigned: assignedMotorsOf(d.mountMotors, motorMounts(d.tree)), unmatchedRefs: d.unmatchedRefs,
-        tree: d.tree, activeConfigId: d.activeConfigId, exLibrary: loadExMotorIdentities }),
-      configs: exportConfigs(d.savedConfigs, d.tree, loadExMotorIdentities),
-    });
-  };
-  const noteKinds = (loaded: SessionState) =>
-    designStateFromSession(loaded, { legacyMaxMotorLengthM: null }).restoreNoteTiers.map(n => `${n.tier}:${n.kind}`);
-
   const badDefinitions: [string, (def: Record<string, unknown>, meta: Record<string, unknown>) => unknown][] = [
     ['realManufacturer 7', def => ({ ...def, realManufacturer: 7 })],
     ['realManufacturer {"toString":0}', def => ({ ...def, realManufacturer: { toString: 0 } })],
@@ -1316,8 +1318,8 @@ describe('stored-state hardening: EX definitions', () => {
     });
   });
 
-  // The reference screen (sanitizeSessionFlightLayers) does not read exDefinition:
-  // Save treats an unreadable one as no definition, as for a reference stored without one.
+  // The reference screen (sanitizeSessionFlightLayers) removes an unreadable
+  // exDefinition (cloud session 20): Save writes it as a reference stored without one.
   it.each(['working set', 'configuration'])('saves a %s reference with an unreadable exDefinition as one with none', where => {
     discardSession();
     const tree = defaultTree();
@@ -1375,6 +1377,7 @@ describe('stored-state hardening: a configuration is screened before its label i
     const loaded = loadSession()!;
     expect(loaded.savedConfigs![0]!.unmatched).toEqual(['K550W']);
     expect(noteKinds(loaded)).toContain('caution:G04.unmatched-rebuilt');
+    expect(loaded.treeRestoreNotes).toContain('Unreadable lists of unmatched motors were rebuilt from the motor references or removed.');
   });
   it('drops a stored unmatched list with no references to rebuild it from', () => {
     localStorage.setItem(KEY, JSON.stringify({ ...state(),
@@ -1382,6 +1385,7 @@ describe('stored-state hardening: a configuration is screened before its label i
     const loaded = loadSession()!;
     expect(loaded.savedConfigs![0]).not.toHaveProperty('unmatched');
     expect(noteKinds(loaded)).toContain('caution:G04.unmatched-rebuilt');
+    expect(loaded.treeRestoreNotes).toContain('Unreadable lists of unmatched motors were rebuilt from the motor references or removed.');
     expect(() => designStateFromSession(loaded, { legacyMaxMotorLengthM: null })).not.toThrow();
   });
   it('leaves a valid unnamed configuration unchanged, with no note', () => {
@@ -1395,19 +1399,321 @@ describe('stored-state hardening: a configuration is screened before its label i
   });
 });
 
-/** Sweep pins: SessionState fields the loader keeps unscreened, read only through their own checks. */
+/**
+ * Sweep pins: SessionState scalars. The motor-length limits are read only through
+ * their own checks; a configuration id or legacy mount id that is not a string
+ * is repaired with a note (cloud session 20). `configLayers: 1`, as every
+ * current autosave has: without it the layer migration re-derives
+ * activeConfigId and hid a stored number.
+ */
 describe('stored-state hardening: unscreened session scalars', () => {
   beforeEach(() => discardSession());
   it.each([
     { maxMotorLengthByStage: 5 }, { maxMotorLengthByStage: 'x' }, { maxMotorLengthByStage: [null] },
     { maxMotorLengthM: '0.1' }, { mountId: 7, motor: { designation: 'C6', ejectionDelay: 5 } }, { mountId: {} },
+    { mountId: { toString: 0 }, motor: { designation: 'C6', ejectionDelay: 5 } },
     { activeConfigId: 7, savedConfigs: [{ id: '7', name: 'C', isDefault: true, motors: {} }] },
+    { activeConfigId: {}, savedConfigs: [{ id: '7', name: 'C', isDefault: true, motors: {} }] },
   ] as Record<string, unknown>[])('restores with %j', fields => {
-    localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), tree: defaultTree(), ...fields }));
+    const raw = JSON.stringify({ ...state(), tree: defaultTree(), configLayers: 1, ...fields });
+    localStorage.setItem('online-openrocket.session.v1', raw);
     const loaded = loadSession();
     expect(loaded).not.toBeNull();
     const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
     expect(restored.refused).toBe(false);
     expect(() => designFingerprint({ ...restored.state, maxMotorLengthByStage: {} })).not.toThrow();
+    const kinds = restored.restoreNoteTiers.map(n => `${n.tier}:${n.kind}`);
+    if ('activeConfigId' in fields) {
+      expect(loaded!.activeConfigId).toBeNull();
+      expect(restored.state.activeConfigId).toBeNull();
+      expect(kinds).toContain('caution:G04.active-config-reset');
+    }
+    if ('mountId' in fields) {
+      expect(loaded).not.toHaveProperty('mountId');
+      expect(kinds).toContain('caution:G04.mount-reset');
+      // The legacy motor goes on the first mount, as with no mount stored.
+      if ('motor' in fields) expect(Object.keys(restored.state.mountMotors)).toEqual([motorMounts(restored.state.tree)[0]!.id]);
+    }
+    if ('activeConfigId' in fields || 'mountId' in fields) {
+      expect(() => saveOrk(loaded!)).not.toThrow();
+      expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
+      expect(autosavedDesignFile()).toMatchObject({ ork: false, data: raw });
+    }
+  });
+  it.each([['a', 'm'], [null, null]] as const)('keeps a stored activeConfigId %j and mountId %j, with no note', (activeConfigId, mountId) => {
+    const tree = defaultTree();
+    const raw = JSON.stringify({ ...state(), tree, configLayers: 1, activeConfigId, mountId,
+      savedConfigs: [{ id: 'a', name: 'A', isDefault: true, motors: {} }] });
+    localStorage.setItem('online-openrocket.session.v1', raw);
+    const loaded = loadSession()!;
+    expect(loaded.activeConfigId).toBe(activeConfigId);
+    expect(loaded.mountId).toBe(mountId);
+    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+  });
+});
+
+/**
+ * STORED-STATE SIBLINGS (cloud session 20): the restore-time siblings lane 10
+ * left. Each repair costs the bad value only, leaves a Caution note, and keeps
+ * the slot's bytes for the recovery download.
+ */
+describe('stored-state siblings: launch conditions', () => {
+  const KEY = 'online-openrocket.session.v1';
+  beforeEach(() => discardSession());
+  /** Restore `launch`, then the checks every repaired case shares. */
+  const restoreLaunch = (launch: unknown) => {
+    const raw = JSON.stringify({ ...state(), tree: defaultTree(), launch });
+    localStorage.setItem(KEY, raw);
+    const loaded = loadSession()!;
+    expect(noteKinds(loaded)).toContain('caution:G04.launch-reset');
+    const xml = saveOrk(loaded);
+    expect(xml).not.toMatch(/undefined|NaN|\[object/);
+    expect(() => conditionsKeyOf(loaded.launch)).not.toThrow();
+    expect(() => kernelSimOptions(loaded.launch)).not.toThrow();
+    expect(localStorage.getItem(KEY)).toBe(raw);
+    const recovery = autosavedDesignFile()!;
+    expect(recovery.ork).toBe(false);
+    expect(recovery.data).toBe(raw);
+    return { loaded, xml };
+  };
+
+  it.each([5, [], 'x', true].map(v => [v]))('replaces a stored launch %j with a fresh copy of the defaults', launch => {
+    const { loaded } = restoreLaunch(launch);
+    expect(loaded.launch).toEqual(DEFAULT_CONDITIONS);
+    expect(loaded.launch).not.toBe(DEFAULT_CONDITIONS);
+  });
+
+  it.each([undefined, null])('leaves a stored launch of %j to the restore fallback, with no note', launch => {
+    localStorage.setItem(KEY, JSON.stringify({ ...state(), launch }));
+    const loaded = loadSession()!;
+    expect(loaded.launch ?? null).toBeNull();
+    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+    expect(designStateFromSession(loaded, { legacyMaxMotorLengthM: null }).state.launch).toEqual(DEFAULT_CONDITIONS);
+  });
+
+  const REQUIRED = ['launchRodLengthM', 'launchRodAngleDeg', 'windAverage', 'windStdDev', 'launchAltitudeM', 'latitudeDeg'] as const;
+  const badValues: unknown[] = [null, '1', '<x/>', { toString: 0 }, true, []];
+  it.each(REQUIRED.flatMap(key => [...badValues.map(v => [key, v]), [key, 'absent']]) as [string, unknown][])(
+    'resets a required %s of %j to the default', (key, value) => {
+      const launch: Record<string, unknown> = { ...state().launch };
+      if (value === 'absent') delete launch[key as string];
+      else launch[key as string] = value;
+      const { loaded, xml } = restoreLaunch(launch);
+      expect(loaded.launch[key as typeof REQUIRED[number]]).toBe(DEFAULT_CONDITIONS[key as typeof REQUIRED[number]]);
+      expect(xml).not.toContain('<x/>');
+      // Every other key kept as stored.
+      for (const k of REQUIRED) if (k !== key) expect(loaded.launch[k]).toBe(state().launch[k]);
+    });
+
+  it.each(['temperatureC', 'pressureHPa'].flatMap(key => ['15', { toString: 0 }, true, '<x/>'].map(v => [key, v])))(
+    'blanks a present %s of %j', (key, value) => {
+      const { loaded, xml } = restoreLaunch({ ...state().launch, temperatureC: 15, pressureHPa: 1000, [key as string]: value });
+      expect(loaded.launch[key as 'temperatureC']).toBeNull();
+      expect(xml).not.toContain('<x/>');
+    });
+
+  it.each([
+    ['launchRodAimDeg', '5', undefined], ['launchRodAimDeg', null, undefined], ['launchRodAimDeg', { toString: 0 }, undefined],
+    ['longitudeDeg', '5', null], ['longitudeDeg', { toString: 0 }, null], ['longitudeDeg', true, null],
+    ['launchGuideAllowance', 'false', undefined], ['launchGuideAllowance', 0, undefined], ['launchGuideAllowance', { toString: 0 }, undefined],
+    ['geodeticMethod', 'round', undefined], ['geodeticMethod', 7, undefined], ['geodeticMethod', { toString: 0 }, undefined],
+  ] as [string, unknown, unknown][])('repairs an optional %s of %j', (key, value, expected) => {
+    const { loaded } = restoreLaunch({ ...state().launch, launchRodAngleDeg: 5, [key]: value });
+    const launch = loaded.launch as unknown as Record<string, unknown>;
+    if (expected === undefined) expect(launch).not.toHaveProperty(key);
+    else expect(launch[key]).toBe(expected);
+  });
+
+  it('drops an unknown extra key that cannot be keyed, and keeps one that can', () => {
+    const { loaded } = restoreLaunch({ ...state().launch, futureNumber: 3, futureText: 'a', futureObject: { toString: 0 } });
+    const launch = loaded.launch as unknown as Record<string, unknown>;
+    expect(launch).not.toHaveProperty('futureObject');
+    expect(launch['futureNumber']).toBe(3);
+    expect(launch['futureText']).toBe('a');
+  });
+
+  it('writes one note for several repairs', () => {
+    const { loaded } = restoreLaunch({ ...state().launch, windAverage: '3', temperatureC: '15', geodeticMethod: 1 });
+    expect(noteKinds(loaded).filter(k => k === 'caution:G04.launch-reset')).toHaveLength(1);
+  });
+
+  it.each([
+    ['longitude absent', {}],
+    ['longitude null', { longitudeDeg: null }],
+    ['every optional field', { longitudeDeg: -100, launchRodAimDeg: 15, launchGuideAllowance: false, geodeticMethod: 'wgs84',
+      timeStepS: 0.02, temperatureC: 20, pressureHPa: 900 }],
+  ] as [string, Record<string, unknown>][])('restores a valid launch (%s) exactly, with no note', (_name, extra) => {
+    const launch = { ...state().launch, ...extra };
+    const raw = JSON.stringify({ ...state(), tree: defaultTree(), launch, appVersion: APP_VERSION });
+    localStorage.setItem(KEY, raw);
+    const loaded = loadSession()!;
+    expect(loaded.launch).toStrictEqual(launch);
+    expect(JSON.stringify(loaded.launch)).toBe(JSON.stringify(launch));
+    expect(conditionsKeyOf(loaded.launch)).toBe(conditionsKeyOf(launch as LaunchConditions));
+    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+    expect(localStorage.getItem(KEY)).toBe(raw);
+  });
+});
+
+describe('stored-state siblings: stage-mass snapshots', () => {
+  const KEY = 'online-openrocket.session.v1';
+  beforeEach(() => discardSession());
+  /** Two configurations; `stored` is the inactive one's snapshot of the first stage (Save writes it as stored). */
+  const restore = (stored: unknown) => {
+    const tree = defaultTree();
+    const stage = tree.components[0]!.id!;
+    const raw = JSON.stringify({ ...state(), tree, configLayers: 1, activeConfigId: 'a', savedConfigs: [
+      { id: 'a', name: 'A', isDefault: true, motors: {}, stageMassOverrides: { [stage]: {} } },
+      { id: 'b', name: 'B', isDefault: false, motors: {}, stageMassOverrides: { [stage]: stored } },
+    ] });
+    localStorage.setItem(KEY, raw);
+    return { raw, stage, loaded: loadSession()! };
+  };
+  const valid = { overrideMass: 0.2, overrideCGX: 0.1, overrideSubcomponentsMass: true, overrideSubcomponentsCG: false,
+    overrideIncludesMotor: 'C6', statedStageFigures: { includesMotor: true, motor: 'C6', launchKg: 0.2, massKg: 0.2 } };
+
+  it.each([null, 5, 'x', []].map(v => [v]))('clears an unreadable snapshot %j and saves', value => {
+    const { raw, stage, loaded } = restore(value);
+    expect(loaded.savedConfigs![1]!.stageMassOverrides![stage]).toEqual({});
+    expect(noteKinds(loaded)).toContain('caution:G04.stage-mass-repaired');
+    expect(() => saveOrk(loaded)).not.toThrow();
+    expect(localStorage.getItem(KEY)).toBe(raw);
+    expect(autosavedDesignFile()).toMatchObject({ ork: false, data: raw });
+  });
+
+  it.each([
+    ['overrideMass', '0.2'], ['overrideMass', null], ['overrideCGX', {}], ['overrideSubcomponentsMass', 'true'],
+    ['overrideSubcomponentsCG', 1], ['overrideIncludesMotor', 7], ['overrideIncludesMotor', { toString: 0 }],
+    ['statedStageFigures', { motor: 7, launchKg: 0.2 }], ['statedStageFigures', 'C6'],
+  ] as [string, unknown][])('removes an unreadable %s of %j and keeps the rest', (key, value) => {
+    const { stage, loaded } = restore({ ...valid, [key]: value });
+    const { [key as keyof typeof valid]: _gone, ...rest } = valid;
+    expect(loaded.savedConfigs![1]!.stageMassOverrides![stage]).toStrictEqual(rest);
+    expect(noteKinds(loaded)).toContain('caution:G04.stage-mass-repaired');
+    const xml = saveOrk(loaded);
+    expect(xml).not.toMatch(/undefined|NaN|\[object/);
+  });
+
+  it('restores valid snapshots exactly, with no note, and saves them', () => {
+    const { raw, stage, loaded } = restore(valid);
+    const stored = JSON.parse(raw) as SessionState;
+    expect(loaded.savedConfigs).toStrictEqual(stored.savedConfigs);
+    expect(JSON.stringify(loaded.savedConfigs)).toBe(JSON.stringify(stored.savedConfigs));
+    expect(loaded.savedConfigs![1]!.stageMassOverrides![stage]).toStrictEqual(valid);
+    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+    expect(saveOrk(loaded)).toContain('<overrideincludesmotor>C6</overrideincludesmotor>');
+  });
+});
+
+describe('stored-state siblings: reference EX definitions', () => {
+  const KEY = 'online-openrocket.session.v1';
+  beforeEach(() => discardSession());
+  /** A reference nothing matched, in the working set or a saved configuration, through the .rkt save preview. */
+  const restore = (where: string, exDefinition?: unknown) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const ref = { designation: 'Z9-4', manufacturer: 'Nobody', diameter: 0.018, length: 0.07, delay: 4,
+      ...(exDefinition !== undefined ? { exDefinition } : {}) };
+    const raw = JSON.stringify({ ...state(), tree, configLayers: 1,
+      ...(where === 'working set' ? { unmatchedRefs: { [mount]: ref } }
+        : { activeConfigId: 'c', savedConfigs: [{ id: 'c', name: 'C', isDefault: true, motors: {}, unmatchedRefs: { [mount]: ref } }] }) });
+    localStorage.setItem(KEY, raw);
+    const loaded = loadSession()!;
+    const { state: d } = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    const motors = exportMotorsMap({ assigned: [], unmatchedRefs: d.unmatchedRefs, tree: d.tree,
+      activeConfigId: d.activeConfigId, exLibrary: loadExMotorIdentities });
+    const report = checkFormatLoss('rkt', { tree: d.tree, motors, launch: d.launch, configs: d.savedConfigs,
+      activeConfigId: d.activeConfigId, measured: d.measured, flightData: {} });
+    return { raw, loaded, mount, lines: report.losses };
+  };
+  describe.each(['working set', 'configuration'])('in the %s', where => {
+    it.each([7, 'x', [], { ...definition(), realManufacturer: 7 }, { motorId: 7, designation: 'C6' }, { ...definition(), samples: [null] }]
+      .map(v => [v]))('removes an unreadable definition %j and previews the reference as one with none', bad => {
+      const none = restore(where).lines;
+      const { raw, loaded, mount, lines } = restore(where, bad);
+      const ref = where === 'working set' ? loaded.unmatchedRefs![mount]! : loaded.savedConfigs![0]!.unmatchedRefs![mount]!;
+      expect(ref).not.toHaveProperty('exDefinition');
+      expect(ref.designation).toBe('Z9-4');
+      expect(noteKinds(loaded)).toContain('caution:G04.ref-definition-removed');
+      expect(lines).toEqual(none);
+      expect(lines.join(' ')).not.toMatch(/EX motor/);
+      expect(lines.join(' ')).toMatch(/Motor identity/);
+      expect(localStorage.getItem(KEY)).toBe(raw);
+      expect(autosavedDesignFile()).toMatchObject({ ork: false, data: raw });
+    });
+    it('keeps a valid definition on a reference, with no note', () => {
+      const { raw, loaded, mount } = restore(where, definition());
+      const stored = JSON.parse(raw) as SessionState;
+      expect(JSON.stringify(loaded.unmatchedRefs ?? null)).toBe(JSON.stringify(stored.unmatchedRefs ?? null));
+      expect(JSON.stringify(loaded.savedConfigs ?? null)).toBe(JSON.stringify(stored.savedConfigs ?? null));
+      const ref = where === 'working set' ? loaded.unmatchedRefs![mount]! : loaded.savedConfigs![0]!.unmatchedRefs![mount]!;
+      expect((ref as { exDefinition?: unknown }).exDefinition).toStrictEqual(definition());
+      expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+    });
+  });
+});
+
+describe('stored-state siblings: the legacy inline motor', () => {
+  const KEY = 'online-openrocket.session.v1';
+  beforeEach(() => discardSession());
+  // A pre-per-mount session carried one motor inline: { motor, motorMeta, motorLabel, mountId }.
+  it.each([7, { ...definition(), realManufacturer: 7 }, { ...definition(), samples: [null] }].map(v => [v]))(
+    'repairs an unreadable exDefinition %j on the legacy motor and keeps it on its mount', bad => {
+      const tree = defaultTree();
+      const mount = motorMounts(tree)[0]!.id!;
+      const ex = exMounted() as unknown as { label: string; spec: Record<string, unknown>; meta: Record<string, unknown> };
+      expect(ex.meta.exMotorId).toBe(definition().motorId);
+      ex.spec.exDefinition = bad;
+      const raw = JSON.stringify({ ...state(), tree, motor: ex.spec, motorMeta: ex.meta, motorLabel: ex.label, mountId: mount });
+      localStorage.setItem(KEY, raw);
+      const loaded = loadSession()!;
+      expect(loaded.motor).toBeDefined();
+      expect(loaded.motor).not.toHaveProperty('exDefinition');
+      expect(noteKinds(loaded)).toContain('caution:G04.ex-definition-removed');
+      const { state: d } = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+      expect(Object.keys(d.mountMotors)).toEqual([mount]);
+      expect(d.mountMotors[mount]!.spec.thrusts).toEqual(ex.spec.thrusts);
+      expect(() => saveOrk(loaded)).not.toThrow();
+      expect(localStorage.getItem(KEY)).toBe(raw);
+      expect(autosavedDesignFile()).toMatchObject({ ork: false, data: raw });
+    });
+});
+
+describe('stored-state siblings: a valid session is untouched', () => {
+  const KEY = 'online-openrocket.session.v1';
+  beforeEach(() => discardSession());
+  it.each([
+    ['longitude absent', {}],
+    ['longitude null', { longitudeDeg: null }],
+  ] as [string, Record<string, unknown>][])('restores every screened field exactly, with no note and a clean saved mark (%s)', (_name, extra) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const stage = tree.components[0]!.id!;
+    const motor = exMounted();
+    const ref = { designation: 'Z9-4', exMotorId: 'ex:stored-c6', exDefinition: definition(), diameter: 0.018, length: 0.07, delay: 4 };
+    const launch = { ...state().launch, launchRodAimDeg: 10, launchRodAngleDeg: 5, launchGuideAllowance: false,
+      geodeticMethod: 'flat', timeStepS: 0.02, temperatureC: 15, pressureHPa: 1000, ...extra } as LaunchConditions;
+    const snap: DesignSnapshot = { tree, launch, mountMotors: { [mount]: motor }, maxMotorLengthByStage: {},
+      savedConfigs: [
+        { id: 'a', name: 'A', isDefault: true, motors: { [mount]: motor },
+          stageMassOverrides: { [stage]: { overrideMass: 0.2, overrideSubcomponentsMass: true, overrideIncludesMotor: 'C6',
+            statedStageFigures: { includesMotor: true, motor: 'C6', launchKg: 0.2, massKg: 0.2 } } } },
+        { id: 'b', name: 'B', isDefault: false, motors: {}, unmatchedRefs: { [mount]: ref as never }, unmatched: ['Z9-4'],
+          stageMassOverrides: { [stage]: {} } },
+      ],
+      activeConfigId: 'a', measured: { massKg: null, cgM: null } };
+    const raw = JSON.stringify({ ...snap, configLayers: 1, nozzleModeVersion: 1, mountId: mount,
+      unmatchedRefs: {}, appVersion: APP_VERSION, savedMark: designFingerprint(snap), savedAt: 1 });
+    localStorage.setItem(KEY, raw);
+    const loaded = loadSession()!;
+    // The loader's (empty) note list is transient: never written back.
+    const { treeRestoreNotes, ...rest } = loaded;
+    expect(treeRestoreNotes ?? []).toEqual([]);
+    expect(rest).toStrictEqual(JSON.parse(raw));
+    expect(JSON.stringify(rest)).toBe(raw);
+    expect(localStorage.getItem(KEY)).toBe(raw);
+    expect(isDirty(designFingerprint({ ...snap, tree: loaded.tree, launch: loaded.launch, mountMotors: loaded.mountMotors!,
+      savedConfigs: loaded.savedConfigs!, activeConfigId: loaded.activeConfigId! }), loaded.savedMark, false)).toBe(false);
+    expect(() => saveOrk(loaded)).not.toThrow();
   });
 });

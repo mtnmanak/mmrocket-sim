@@ -4,7 +4,9 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PresetPicker } from './PresetPicker.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { componentToPreset, csvToPresets, loadBundledPresets, loadCustomPresets, presetsToCsv, saveCustomPresets, type Preset } from '../services/presets.js';
+import {
+  componentToPreset, csvToPresets, editCustomPresets, loadBundledPresets, loadCustomPresets, presetsToCsv, saveCustomPresets, type Preset,
+} from '../services/presets.js';
 import { downloadBlob } from '../services/saveFile.js';
 
 vi.mock('../data/presets.json', () => ({ default: { presets: [
@@ -232,5 +234,94 @@ describe('M2.3 My parts picker', () => {
       presetManufacturer: 'Factory', presetPartNo: 'B1', orkPresetManufacturer: undefined,
       orkPresetPartNo: undefined, orkPresetDigest: undefined });
     expect(close).toHaveBeenCalledTimes(1);
+  });
+});
+
+/** Audit S7-3 / S3c-4: a write rebuilds the list from the raw store, never from the filtering reader. */
+describe('S7-3 My parts writes keep rows they cannot read', () => {
+  const KEY = 'online-openrocket.custom-presets.v1';
+  const UNREADABLE = [{ kind: 'BodyTube', manufacturer: 'Newer build', partNo: 7, description: 'x' }, 'not a row', null];
+  const NEW_ROW: Preset = { kind: 'BodyTube', manufacturer: 'My parts', partNo: 'N1', description: 'New', length: 0.3 };
+  const confirmDelete = () => {
+    act(() => deleting().click());
+    const confirm = host.querySelector('[aria-label="Delete My part"]')!;
+    act(() => [...confirm.querySelectorAll('button')].find((b) => b.textContent === 'Delete')!.click());
+  };
+  it('deletes only the chosen row and keeps unreadable rows verbatim and in place', async () => {
+    localStorage.setItem(KEY, JSON.stringify([UNREADABLE[0], CUSTOM, ...UNREADABLE.slice(1)]));
+    await render();
+    confirmDelete();
+    expect(localStorage.getItem(KEY)).toBe(JSON.stringify(UNREADABLE));
+  });
+  it('imports beside unreadable rows and keeps them verbatim', async () => {
+    localStorage.setItem(KEY, JSON.stringify([UNREADABLE[0], CUSTOM]));
+    await render();
+    await importCsv(presetsToCsv([NEW_ROW]));
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual([UNREADABLE[0], CUSTOM, NEW_ROW]);
+    expect(host.textContent).toContain('Imported 1 preset(s)');
+  });
+  it('drops the replaced row and appends its import beside an unreadable row', async () => {
+    localStorage.setItem(KEY, JSON.stringify([CUSTOM, UNREADABLE[0]]));
+    await render();
+    const replaced = { ...CUSTOM, description: 'Replaced' };
+    await importCsv(presetsToCsv([replaced]));
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual([UNREADABLE[0], replaced]);
+  });
+  // An unreadable store is copied aside, then replaced: refusing left the user
+  // nothing in the app that could recover (cloud session 20).
+  it.each(['{not json', '{"rows":[]}', '"text"', 'null'])('copies an unreadable store %s aside, then imports into a new list', async (raw) => {
+    saveCustomPresets([CUSTOM]); await render();
+    localStorage.setItem(KEY, raw);
+    await importCsv(presetsToCsv([NEW_ROW]));
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe(raw);
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual([NEW_ROW]);
+    expect(host.textContent).toContain('Stored My parts could not be read. The app kept a copy of them in this browser and started a new list.');
+  });
+  it('copies an unreadable store aside on a delete too', async () => {
+    saveCustomPresets([CUSTOM]); await render();
+    localStorage.setItem(KEY, '{not json');
+    confirmDelete();
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe('{not json');
+    expect(localStorage.getItem(KEY)).toBe('[]');
+  });
+  it('refuses, as before, when an earlier different copy holds the side key', async () => {
+    saveCustomPresets([CUSTOM]); await render();
+    localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(KEY, '{not json');
+    confirmDelete();
+    expect(localStorage.getItem(KEY)).toBe('{not json');
+    expect(host.textContent).toContain('Could not delete My part. Stored My parts could not be read, so the app left them unchanged.');
+    await importCsv(presetsToCsv([NEW_ROW]));
+    expect(localStorage.getItem(KEY)).toBe('{not json');
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe('older');
+    expect(host.textContent).toContain('Nothing imported. Stored My parts could not be read, so the app left them unchanged.');
+  });
+  it('rewrites a valid list byte for byte and leaves a row repaired on read as stored', () => {
+    const repairedOnRead = { ...CUSTOM, partNo: 'R1', mass: '5' };
+    const raw = JSON.stringify([CUSTOM, repairedOnRead, NEW_ROW]);
+    localStorage.setItem(KEY, raw);
+    const before = loadCustomPresets();
+    expect(saveCustomPresets(editCustomPresets(() => false)!.list)).toBe(true);
+    expect(localStorage.getItem(KEY)).toBe(raw);
+    expect(loadCustomPresets()).toEqual(before);
+    expect(editCustomPresets((p) => p.partNo === 'M1')).toEqual({ list: [repairedOnRead, NEW_ROW], backedUp: false });
+  });
+  it('reads an absent store as empty and refuses one that cannot be read', () => {
+    expect(editCustomPresets(() => true, [NEW_ROW])).toEqual({ list: [NEW_ROW], backedUp: false });
+    const original = localStorage.getItem;
+    Object.defineProperty(localStorage, 'getItem', { configurable: true, value: () => { throw new Error('blocked'); } });
+    try {
+      expect(editCustomPresets(() => true, [NEW_ROW])).toBeNull();
+    } finally { Object.defineProperty(localStorage, 'getItem', { configurable: true, value: original }); }
+  });
+  it('S3c-4 reports a refused import write even when storage already holds the same rows', async () => {
+    saveCustomPresets([NEW_ROW]); await render();
+    const original = localStorage.setItem;
+    Object.defineProperty(localStorage, 'setItem', { configurable: true, value: () => { throw new Error('blocked'); } });
+    try {
+      await importCsv(presetsToCsv([NEW_ROW]));
+    } finally { Object.defineProperty(localStorage, 'setItem', { configurable: true, value: original }); }
+    expect(host.textContent).toContain('Could not store 1 of 1 preset(s)');
+    expect(host.textContent).not.toContain('Imported 1 preset(s)');
   });
 });

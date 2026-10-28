@@ -19,6 +19,7 @@ vi.mock('../services/presets.js', async (importOriginal) => {
 let host: HTMLDivElement;
 let root: Root;
 const close = vi.fn();
+const saved = vi.fn();
 const node: ComponentNode = { type: 'bodytube', id: 'b', name: 'Handmade tube', length: 0.3, outerRadius: 0.025, thickness: 0.002 };
 const flush = async () => { await act(async () => { await Promise.resolve(); }); };
 const field = (label: string) => {
@@ -36,9 +37,9 @@ const save = async () => {
 };
 beforeAll(async () => { await loadBundledPresets(); });
 beforeEach(() => {
-  localStorage.clear(); close.mockClear();
+  localStorage.clear(); close.mockClear(); saved.mockClear();
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
-  act(() => root.render(<SaveMyPartDialog node={node} onClose={close} />));
+  act(() => root.render(<SaveMyPartDialog node={node} onClose={close} onSaved={saved} />));
 });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
@@ -204,5 +205,38 @@ describe('M2.2 save dialog', () => {
     const fin: ComponentNode = { type: 'freeformfinset', id: 'f' };
     act(() => root.render(<PrefsProvider><PropertyPanel node={fin} tree={{ components: [fin] }} onPatch={() => {}} /></PrefsProvider>));
     expect(host.textContent).not.toContain('Save as My part');
+  });
+});
+
+/** Audit S7-3: Save rebuilds the list from the raw store, never from the filtering reader. */
+describe('S7-3 save keeps rows it cannot read', () => {
+  const KEY = 'online-openrocket.custom-presets.v1';
+  const unreadable = { kind: 'BodyTube', manufacturer: 'Newer build', partNo: 7, description: 'x' };
+  it('keeps unreadable rows verbatim and replaces the matching row', async () => {
+    const existing = { kind: 'BodyTube', manufacturer: 'My parts', partNo: 'P1', description: 'Old', length: 0.1 };
+    const other = { ...existing, partNo: 'P2' };
+    localStorage.setItem(KEY, JSON.stringify([unreadable, existing, 'junk', other]));
+    input('Part number', 'P1'); await save();
+    const stored = JSON.parse(localStorage.getItem(KEY)!) as unknown[];
+    expect(stored.slice(0, 3)).toEqual([unreadable, 'junk', other]);
+    expect(stored).toHaveLength(4);
+    expect(stored[3]).toMatchObject({ partNo: 'P1', description: 'Handmade tube' });
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it.each(['{not json', '{"rows":[]}', 'null'])('copies an unreadable store %s aside, then saves into a new list', async (raw) => {
+    localStorage.setItem(KEY, raw);
+    input('Part number', 'P1'); await save();
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe(raw);
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual([expect.objectContaining({ partNo: 'P1' })]);
+    expect(saved).toHaveBeenCalledWith('My parts P1', 'Stored My parts could not be read. The app kept a copy of them in this browser and started a new list.');
+    expect(close).toHaveBeenCalledOnce();
+  });
+  it('refuses, as before, when an earlier different copy holds the side key', async () => {
+    localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(KEY, '{not json');
+    input('Part number', 'P1'); await save();
+    expect(localStorage.getItem(KEY)).toBe('{not json');
+    expect(host.textContent).toContain('Could not save My part. Stored My parts could not be read, so the app left them unchanged.');
+    expect(close).not.toHaveBeenCalled();
   });
 });

@@ -6,7 +6,8 @@ import { useRovingRows } from './useRovingRows.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import {
   KIND_FOR_TYPE, MAX_PRESET_CSV_BYTES, PRESET_CSV_SIZE_CAUTION, csvToPresets, loadBundledPresets, loadCustomPresets, loadPresets, materialTypeFor, presetPatch,
-  presetsToCsv, exactCustomPreset, mergeCustomPresetImport, saveCustomPresets, type Preset,
+  presetsToCsv, exactCustomPreset, mergeCustomPresetImport, saveCustomPresets, customPresetId,
+  editCustomPresets, CUSTOM_PRESETS_BACKED_UP, CUSTOM_PRESETS_UNREADABLE, type Preset,
 } from '../services/presets.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSig, siToUi } from '../prefs/units.js';
@@ -232,29 +233,42 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
         return;
       }
       // Imported rows replace custom presets with the same kind+manufacturer+partNo.
-      const { presets, linkError } = mergeCustomPresetImport(loadCustomPresets(), good);
+      const { linkError } = mergeCustomPresetImport(loadCustomPresets(), good);
       if (linkError) {
         sessionDebugLog.record('import-failed', new Error(linkError));
         setNoteTier('caution');
         setNote(`Nothing imported. ${linkError}`);
         return;
       }
-      saveCustomPresets(presets);
+      // The merge above decides the link error; what is written is the RAW
+      // list with the replaced rows out and the import after it, so rows the
+      // reader could not screen survive (audit S7-3).
+      const replaced = new Set(good.map(customPresetId));
+      const next = editCustomPresets((p) => replaced.has(customPresetId(p)), good);
+      if (!next) {
+        sessionDebugLog.record('import-failed', new Error('Preset storage could not be read.'));
+        setNoteTier('caution');
+        setNote(`Nothing imported. ${CUSTOM_PRESETS_UNREADABLE}`);
+        return;
+      }
+      const written = saveCustomPresets(next.list);
       // Read the store back before claiming the import worked.
-      // `saveCustomPresets` reports setItem failure; also verify the stored rows, since
+      // `saveCustomPresets` reports setItem failure (honoured: a refused write
+      // stored nothing, even when the store already held the same rows, audit
+      // S3c-4); also verify the stored rows, since
       // localStorage is the ONLY place custom presets live — there is no
       // in-memory copy — so on a QuotaExceededError (a re-imported ~1,300-row
       // tube list, a private window, blocked site data) the table quietly
       // reloads the OLD rows while the note claims the new ones were stored.
       const stored = new Set(loadCustomPresets().map((p) => JSON.stringify(p)));
-      const missing = good.filter((p) => !stored.has(JSON.stringify(p))).length;
+      const missing = written ? good.filter((p) => !stored.has(JSON.stringify(p))).length : good.length;
       sessionDebugLog.record(missing > 0 ? 'import-failed' : 'import-complete',
         missing > 0 ? new Error('Preset storage refused the import.') : undefined);
       setNoteTier(dropped > 0 || missing > 0 ? 'caution' : 'information');
       const imported = missing > 0
         ? `Could not store ${missing} of ${good.length} preset(s) — this browser's storage`
           + ` is full or blocked, so the new values were not saved.${droppedNote}`
-        : `Imported ${good.length} preset(s) — stored in this browser.${droppedNote}`;
+        : `Imported ${good.length} preset(s) — stored in this browser.${droppedNote}${next.backedUp ? ` ${CUSTOM_PRESETS_BACKED_UP}` : ''}`;
       // The reload had no catch (audit 2026-09-22): a failure was an unhandled
       // rejection that left `all` null under the note above — and a note hides
       // the "Loading…" line — so the dialog showed an empty table. It now keeps
@@ -298,9 +312,14 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
 
   const deletePart = () => {
     if (!deleting || bundledRows.has(deleting)) return;
-    const keep = loadCustomPresets().filter((p) => !exactCustomPreset(p, deleting));
+    const keep = editCustomPresets((p) => exactCustomPreset(p, deleting));
     setNoteTier('caution');
-    if (!saveCustomPresets(keep)) {
+    if (!keep) {
+      setNote(`Could not delete My part. ${CUSTOM_PRESETS_UNREADABLE}`);
+      setDeleting(null);
+      return;
+    }
+    if (!saveCustomPresets(keep.list)) {
       setNote('Could not delete My part — this browser’s storage is full or blocked. Try again.');
       setDeleting(null);
       return;
@@ -310,7 +329,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
     setAll(remaining);
     if (mfr && !remaining?.some((p) => p.kind === kind && p.manufacturer === mfr && (!myPartsOnly || !bundledRows.has(p)))) setMfr('');
     setNoteTier('information');
-    setNote(`Deleted ${deleting.manufacturer} ${deleting.partNo} from My parts. Parts already in a design keep their values.`);
+    setNote(`Deleted ${deleting.manufacturer} ${deleting.partNo} from My parts. Parts already in a design keep their values.${keep.backedUp ? ` ${CUSTOM_PRESETS_BACKED_UP}` : ''}`);
     setDeleting(null);
   };
 

@@ -1839,12 +1839,7 @@ function abortWarnings(result: FlightResult): EngineWarning[] {
     landedAt.push(ground);
     const abort = b.events.find((e) => e.type === 'SIM_ABORT');
     if (!abort) {
-      if (ground === undefined) {
-        const end = b.series.time.at(-1);
-        out.push({ key: 'INCOMPLETE_FLIGHT', priority: 'HIGH',
-          message: `${b.name ? `The ${b.name} stage's flight` : 'The flight'} ended${Number.isFinite(end) ? ` at T+${end!.toFixed(2)} s` : ''} before ground contact was recorded. ${index > 0 ? 'That stage\'s flight is incomplete; its landing rate is unavailable.' : 'The flight is incomplete; landing rate and landing drift are unavailable.'}`,
-        });
-      }
+      if (ground === undefined) out.push(incompleteFlightWarning(b.name, b.series.time.at(-1), index > 0));
       continue;
     }
     const when = Number.isFinite(abort.time) ? ` at T+${abort.time.toFixed(2)} s` : '';
@@ -1858,6 +1853,27 @@ function abortWarnings(result: FlightResult): EngineWarning[] {
     });
   }
   return out;
+}
+
+/**
+ * The kernel's flight-time limit (s). OrkEngine.simulateJson sets
+ * `setMaxSimulationTime(JsonLite.dbl(o, "maxTime", 1200))`
+ * (engine-java/src/api/java/api/OrkEngine.java, ~l. 1089), and the app passes
+ * `maxTime` only for the Mach probe (flightRunner.ts). A flight still airborne
+ * there ends with no ground contact, and its last time sample is its flight
+ * time (FlightData.calculateInterestingValues).
+ */
+export const KERNEL_MAX_FLIGHT_TIME_S = 1200;
+
+/**
+ * The HIGH warning a flight or booster branch gets when it ended without ground
+ * contact: ONE wording for a fresh flight (abortWarnings) and for a stored one
+ * that predates the warning (simStore.loadRuns).
+ */
+export function incompleteFlightWarning(stage: string | undefined, end: number | undefined, booster: boolean): EngineWarning {
+  return { key: 'INCOMPLETE_FLIGHT', priority: 'HIGH',
+    message: `${stage ? `The ${stage} stage's flight` : 'The flight'} ended${Number.isFinite(end) ? ` at T+${end!.toFixed(2)} s` : ''} before ground contact was recorded. ${booster ? 'That stage\'s flight is incomplete; its landing rate is unavailable.' : 'The flight is incomplete; landing rate and landing drift are unavailable.'}`,
+  };
 }
 
 /**

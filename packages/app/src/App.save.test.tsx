@@ -3382,12 +3382,13 @@ describe('a hand-edited autosave', () => {
     expect(importOrk(xml).embeddedExMotors).toEqual([ex]);
   });
 
-  // The loader screens only the time step and winds aloft in `launch`; the
-  // panels read the rest through their own number checks (sweep pin).
+  // The loader repairs an unreadable `launch` with a note (session.ts,
+  // repairStoredLaunch); every tab then renders the repaired conditions.
   it.each([5, [], { ...DEFAULT_CONDITIONS, launchRodLengthM: '1' }, { ...DEFAULT_CONDITIONS, latitudeDeg: {} }].map(v => [v]))(
     'renders every tab with unreadable stored launch conditions %j', async launch => {
       localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), launch, appVersion: APP_VERSION, savedAt: Date.now() }));
       const host = await mountApp();
+      expect(host.textContent).toContain('Unreadable launch conditions were reset to their defaults.');
       for (const tab of ['Motors & Configuration', 'Results', 'Design'] as const) await openTab(host, tab);
       expect(host.textContent).not.toMatch(/NaN|undefined/);
     });

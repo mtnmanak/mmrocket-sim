@@ -1,4 +1,5 @@
 import { cautionNote } from './importNotes.js';
+import { backUpUnreadableStore } from './storeBackup.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import { csvCell, unescapeCsvText } from './csvUtil.js';
 import { lookupTable, parseDecimal } from './xmlUtil.js';
@@ -99,38 +100,45 @@ const validMaterial = (m: unknown, wantType: string, saved: boolean): boolean =>
     && typeof density === 'number' && Number.isFinite(density) && (saved ? density >= 0 : density > 0);
 };
 
+/** One stored row as the reader screens it, or null when it is not a row at all. */
+function screenCustomPreset(p: unknown): { preset: Preset; materialRemoved: boolean; massRemoved: boolean } | null {
+  if (!(p !== null && typeof p === 'object' && !Array.isArray(p)
+    && ['kind', 'partNo', 'manufacturer', 'description'].every((key) => typeof (p as Record<string, unknown>)[key] === 'string'))) return null;
+  const row = p as Preset;
+  const repaired = { ...row };
+  let materialRemoved = false;
+  for (const key of ['material', 'lineMaterial'] as const) {
+    const m = repaired[key];
+    if (m && typeof m.type === 'string') repaired[key] = { ...m, type: m.type.trim().toUpperCase() };
+    const named = repaired[key];
+    if (named && typeof named.name === 'string' && named.name !== named.name.trim()) repaired[key] = { ...named, name: named.name.trim() };
+    if (!validMaterial(repaired[key], key === 'material' ? materialTypeFor(row.kind) : 'LINE', row['savedComponent'] === true)) {
+      delete repaired[key];
+      materialRemoved = true;
+    }
+  }
+  // presetPatch writes any mass > 0 as the override, and "5" > 0 holds:
+  // a string override then flies the computed mass and Save drops it.
+  const mass: unknown = repaired.mass;
+  const massRemoved = mass !== undefined && !(typeof mass === 'number' && Number.isFinite(mass));
+  if (massRemoved) delete repaired.mass;
+  return { preset: repaired, materialRemoved, massRemoved };
+}
+
 export function loadCustomPresets(notes?: string[]): Preset[] {
   try {
     const raw = localStorage.getItem(CUSTOM_KEY);
     const list: unknown = raw ? JSON.parse(raw) : [];
     const repairedRows: string[] = [];
     const massRows: string[] = [];
-    const presets = Array.isArray(list) ? list.filter((p): p is Preset =>
-      p !== null && typeof p === 'object' && !Array.isArray(p)
-      && ['kind', 'partNo', 'manufacturer', 'description'].every((key) => typeof p[key] === 'string'))
-      .map(p => {
-        const repaired = { ...p };
-        let removed = false;
-        for (const key of ['material', 'lineMaterial'] as const) {
-          const m = repaired[key];
-          if (m && typeof m.type === 'string') repaired[key] = { ...m, type: m.type.trim().toUpperCase() };
-          const named = repaired[key];
-          if (named && typeof named.name === 'string' && named.name !== named.name.trim()) repaired[key] = { ...named, name: named.name.trim() };
-          if (!validMaterial(repaired[key], key === 'material' ? materialTypeFor(p.kind) : 'LINE', p['savedComponent'] === true)) {
-            delete repaired[key];
-            removed = true;
-          }
-        }
-        if (removed) repairedRows.push(`${p.kind}: ${p.manufacturer} ${p.partNo}`);
-        // presetPatch writes any mass > 0 as the override, and "5" > 0 holds:
-        // a string override then flies the computed mass and Save drops it.
-        const mass: unknown = repaired.mass;
-        if (mass !== undefined && !(typeof mass === 'number' && Number.isFinite(mass))) {
-          delete repaired.mass;
-          massRows.push(`${p.kind}: ${p.manufacturer} ${p.partNo}`);
-        }
-        return repaired;
-      }) : [];
+    const presets = Array.isArray(list) ? list.flatMap((p) => {
+      const screened = screenCustomPreset(p);
+      if (!screened) return [];
+      const { preset, materialRemoved, massRemoved } = screened;
+      if (materialRemoved) repairedRows.push(`${preset.kind}: ${preset.manufacturer} ${preset.partNo}`);
+      if (massRemoved) massRows.push(`${preset.kind}: ${preset.manufacturer} ${preset.partNo}`);
+      return [preset];
+    }) : [];
     if (repairedRows.length) notes?.push(`${repairedRows.length} stored preset(s) had unreadable material removed; first: ${repairedRows[0]!}. Their dimensions were kept. Check the part's material after applying it.`);
     if (massRows.length) notes?.push(`${massRows.length} stored preset(s) had an unreadable mass removed; first: ${massRows[0]!}. Check the part's mass after applying it.`);
     return presets;
@@ -139,7 +147,7 @@ export function loadCustomPresets(notes?: string[]): Preset[] {
   }
 }
 
-export function saveCustomPresets(presets: Preset[]): boolean {
+export function saveCustomPresets(presets: unknown[]): boolean {
   try {
     localStorage.setItem(CUSTOM_KEY, JSON.stringify(presets));
     return true;
@@ -148,12 +156,59 @@ export function saveCustomPresets(presets: Preset[]): boolean {
   }
 }
 
+/** Why a My parts write was refused: the store holds something other than a list (audit S7-3). */
+/** Why a My parts write was refused: the store could not be read, and could not be copied aside. */
+export const CUSTOM_PRESETS_UNREADABLE = 'Stored My parts could not be read, so the app left them unchanged.';
+/** Said after a write that copied an unreadable store aside (storeBackup.ts) and started a new list. */
+export const CUSTOM_PRESETS_BACKED_UP = 'Stored My parts could not be read. The app kept a copy of them in this browser and started a new list.';
+
+/**
+ * THE LIST A MY PARTS WRITE STARTS FROM (audit S7-3). `loadCustomPresets`
+ * filters: it drops rows it cannot read (a row a newer build wrote, a damaged
+ * one) and reads an unparseable or non-list store as empty. A delete, save or
+ * import rebuilt from it erased those rows, and a corrupt store became a
+ * one-row library. A write therefore edits the RAW list: `remove` sees each
+ * readable row's screened form, and every other entry is kept verbatim and in
+ * place, `add` after them. A row repaired on read (material or mass removed)
+ * is kept unrepaired, as it was stored, and repaired again on each read.
+ *
+ * A store that is not a list is copied to its side key first and the write
+ * starts a new list (`backedUp`; cloud session 20). Null, and nothing may be
+ * written, when storage cannot be read or the copy cannot be made. An absent
+ * store is an empty list.
+ */
+export function editCustomPresets(remove: (p: Preset) => boolean, add: Preset[] = []): { list: unknown[]; backedUp: boolean } | null {
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(CUSTOM_KEY);
+  } catch {
+    return null;
+  }
+  let list: unknown;
+  try {
+    list = raw ? JSON.parse(raw) : [];
+  } catch {
+    list = undefined;
+  }
+  if (!Array.isArray(list)) {
+    if (raw === null || !backUpUnreadableStore(CUSTOM_KEY, raw)) return null;
+    return { list: [...add], backedUp: true };
+  }
+  return { list: [...list.filter((p) => {
+    const screened = screenCustomPreset(p);
+    return !screened || !remove(screened.preset);
+  }), ...add], backedUp: false };
+}
+
 /** Custom identities retain Unicode; the bundled catalogue's ASCII key cannot distinguish these names. */
 export const customPartKey = (value: string): string => value.normalize('NFC').toLowerCase().replace(/[^\p{L}\p{M}\p{N}+]/gu, '');
 const customManufacturerKey = (value: string): string => {
   const key = customPartKey(value).replace(/\+/g, '');
   return /^[a-z0-9]*$/.test(key) ? mfrKey(value) : key;
 };
+/** The identity `sameCustomPreset` compares, as one string: what an import replaces by. */
+export const customPresetId = (row: Preset): string =>
+  `${row.kind}|${customManufacturerKey(row.manufacturer)}|${customPartKey(row.partNo)}`;
 export const sameCustomPreset = (a: Preset, b: Preset): boolean =>
   a.kind === b.kind && customManufacturerKey(a.manufacturer) === customManufacturerKey(b.manufacturer) && customPartKey(a.partNo) === customPartKey(b.partNo);
 
@@ -171,7 +226,7 @@ export function customPresetLinkError(row: Preset, remaining: Preset[]): string 
 export function mergeCustomPresetImport(stored: Preset[], good: Preset[]): { presets: Preset[]; linkError?: string } {
   const identify = (row: Preset) => ({
     row,
-    id: `${row.kind}|${customManufacturerKey(row.manufacturer)}|${customPartKey(row.partNo)}`,
+    id: customPresetId(row),
     link: linkKey(row.kind, row.manufacturer, row.partNo),
   });
   const incoming = good.map(identify);

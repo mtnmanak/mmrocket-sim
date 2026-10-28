@@ -66,6 +66,7 @@ function storageDouble() {
           getAll: () => operation(() => structuredClone([...local.values()])),
           get: (key: string) => operation(() => structuredClone(local.get(key))),
           clear: () => operation(() => { local.clear(); }),
+          delete: (key: string) => operation(() => { local.delete(key); }),
           put: (value: { name: string }) => operation(() => {
             if (failPut) { failPut = false; throw new Error('QuotaExceededError'); }
             local.set(value.name, structuredClone(value));
@@ -139,13 +140,45 @@ describe('C-A2 recent storage transactions', () => {
     expect(await rememberRecentDesign('new.ork', new ArrayBuffer(1))).toContain('could not keep');
     expect((await listRecentDesigns()).map(e => e.name)).toEqual(['old.ork']);
   });
-  it('skips corrupt stored values and repairs the store on the next successful write', async () => {
+  // A write keeps what the list could not show (cloud session 20, the My parts
+  // rule of audit S7-3): it used to clear the store and put back only the
+  // records it could read, so one open erased a record a newer build wrote.
+  it('skips corrupt stored values and keeps them, verbatim, through the next write', async () => {
     const storage = storageDouble();
-    storage.rows.set('invalid.ork', { name: 'invalid.ork', bytes: 'bad', openedAt: 1 });
+    const unreadable = [
+      { name: 'invalid.ork', bytes: 'bad', openedAt: 1 },
+      { name: 'newer.ork', bytes: new Uint8Array([1, 2, 3]), openedAt: 2 },
+      { name: 'fraction.ork', bytes: new ArrayBuffer(1), openedAt: 1.5 },
+    ];
+    for (const row of unreadable) storage.rows.set(row.name, row);
     expect(await listRecentDesigns()).toEqual([]);
     expect(await recentDesignFile('invalid.ork')).toBeNull();
+    expect(await rememberRecentDesign('good.ork', new ArrayBuffer(1))).toBeNull();
+    for (const row of unreadable) expect(storage.rows.get(row.name)).toEqual(row);
+    expect((await listRecentDesigns()).map(e => e.name)).toEqual(['good.ork']);
+  });
+  it('replaces an unreadable record when the same file is opened again', async () => {
+    const storage = storageDouble();
+    storage.rows.set('invalid.ork', { name: 'invalid.ork', bytes: 'bad', openedAt: 1 });
+    expect(await rememberRecentDesign('invalid.ork', new ArrayBuffer(4))).toBeNull();
+    expect((await listRecentDesigns())).toEqual([{ name: 'invalid.ork', openedAt: expect.any(Number), size: 4 }]);
+  });
+  it('still evicts readable copies past the cap, and leaves the kept ones untouched', async () => {
+    const storage = storageDouble();
+    for (let i = 0; i < MAX_RECENT_DESIGNS; i++) storage.rows.set(`${i}.ork`, { ...entry(`${i}.ork`, i + 1), extra: i });
+    storage.rows.set('invalid.ork', { name: 'invalid.ork', bytes: 'bad', openedAt: 1 });
+    await rememberRecentDesign('new.ork', new ArrayBuffer(1));
+    expect(storage.rows.has('0.ork')).toBe(false);
+    expect(storage.rows.get('7.ork')).toEqual({ ...entry('7.ork', 8), extra: 7 });
+    expect(storage.rows.has('invalid.ork')).toBe(true);
+    expect((await listRecentDesigns()).map(e => e.name)).toEqual(['new.ork', '7.ork', '6.ork', '5.ork', '4.ork', '3.ork', '2.ork', '1.ork']);
+  });
+  it('Clear recent clears unreadable records too: it is the user asking for none to be kept', async () => {
+    const storage = storageDouble();
+    storage.rows.set('invalid.ork', { name: 'invalid.ork', bytes: 'bad', openedAt: 1 });
     await rememberRecentDesign('good.ork', new ArrayBuffer(1));
-    expect(storage.rows.has('invalid.ork')).toBe(false);
+    await clearRecentDesigns();
+    expect(storage.rows.size).toBe(0);
   });
 
   it('reports a blocked upgrade and closes a connection that eventually opens after the rejection', async () => {

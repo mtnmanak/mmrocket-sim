@@ -258,3 +258,27 @@ function storageSpy(key: 'getItem' | 'setItem') {
   onTestFinished(() => { Object.defineProperty(localStorage, key, { configurable: true, value: own }); });
   return vi.spyOn(localStorage, key);
 }
+
+it.each(['{broken', '{"rows":[]}'])('copies an unreadable stored library %s aside, then imports into a new list', async raw => {
+  localStorage.setItem(USER_MATERIALS_KEY, raw); mount();
+  await upload('kind,name,density,unit\nbulk,Mix,1000,kg/m3\n');
+  expect(localStorage.getItem(`${USER_MATERIALS_KEY}.unreadable-backup`)).toBe(raw);
+  expect(loadUserMaterials()).toEqual([{ kind: 'bulk', name: 'Mix', density: 1000 }]);
+  expect(host.querySelector('[role="status"]')!.textContent).toContain('My materials could not be read. The app kept a copy of them in this browser and started a new list.');
+});
+it('refuses an import when an earlier different copy holds the side key', async () => {
+  localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup`, 'older');
+  localStorage.setItem(USER_MATERIALS_KEY, '{broken'); mount();
+  await upload('kind,name,density,unit\nbulk,Mix,1000,kg/m3\n');
+  expect(localStorage.getItem(USER_MATERIALS_KEY)).toBe('{broken');
+  expect(host.querySelector('[role="status"]')!.textContent).toContain('My materials could not be read from browser storage, so the app left them unchanged.');
+});
+it('deletes a material and keeps a stored entry the library could not show', () => {
+  const unreadable = { kind: 'solid', name: 'From a newer build', density: 5 };
+  localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([unreadable, { kind: 'bulk', name: 'Mix', density: 900 }]));
+  mount();
+  click(button('Delete bulk material Mix'));
+  click(button('Delete material'));
+  expect(host.textContent).toContain('Material deleted.');
+  expect(JSON.parse(localStorage.getItem(USER_MATERIALS_KEY)!)).toEqual([unreadable]);
+});

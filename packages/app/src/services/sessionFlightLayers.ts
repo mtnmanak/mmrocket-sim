@@ -4,6 +4,7 @@ import { carryFlags, cautionNote, noteFlags } from './importNotes.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { canonicalEnum, SEPARATION_EVENT_VALUES } from '../tree/schema.js';
 import type { OrkMotorRef } from './orkFile.js';
+import { validStoredExDefinition } from './exMotors.js';
 
 const table = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -63,6 +64,7 @@ export function sanitizeSessionFlightLayers(input: SessionState): SessionState {
       : { ...motor, ignition: ignition ?? { event: 'automatic', delay: 0 } };
   });
   let refsRemoved = false;
+  let definitionsRemoved = false;
   const refs = (v: Record<string, OrkMotorRef> | undefined) => map(v, entry => {
     if (table(entry) && typeof entry['designation'] === 'string'
       && ['manufacturer', 'digest', 'motorType', 'mountId', 'exMotorId'].every(k => entry[k] === undefined || typeof entry[k] === 'string')
@@ -70,7 +72,14 @@ export function sanitizeSessionFlightLayers(input: SessionState): SessionState {
       && ['padMassKg', 'rktBurnTimeS'].every(k => entry[k] === undefined || (finite(entry[k]) && entry[k] > 0))
       && (entry['delay'] === undefined || finite(entry['delay']) || entry['delay'] === Infinity || entry['delay'] === 'Infinity' || entry['delay'] === null)
       && (entry['ignitionEvent'] === undefined || (typeof entry['ignitionEvent'] === 'string' && !!knownIgnitionEvent(entry['ignitionEvent'])))
-      && ['autoDelay', 'rktEveryDelay', 'exMotorMissing'].every(k => entry[k] === undefined || entry[k] === true)) return entry as unknown as OrkMotorRef;
+      && ['autoDelay', 'rktEveryDelay', 'exMotorMissing'].every(k => entry[k] === undefined || entry[k] === true)) {
+      // A captured EX definition Save cannot write is dropped and the reference
+      // kept: the save previews read any value as an embedded definition.
+      if (entry['exDefinition'] === undefined || validStoredExDefinition(entry['exDefinition'])) return entry as unknown as OrkMotorRef;
+      const { exDefinition: _unreadable, ...ref } = entry;
+      definitionsRemoved = true;
+      return ref as unknown as OrkMotorRef;
+    }
     refsRemoved = true;
     return undefined;
   });
@@ -93,12 +102,13 @@ export function sanitizeSessionFlightLayers(input: SessionState): SessionState {
       ? config : { ...config, ...cleaned, motors: records, unmatchedRefs };
   });
   if (savedConfigs?.some((c, i) => c !== input.savedConfigs![i])) state = { ...state, savedConfigs };
-  if (repaired || refsRemoved) {
+  if (repaired || refsRemoved || definitionsRemoved) {
     const notes = [...(state.treeRestoreNotes ?? [])];
     // Keep the loader's earlier consequence tiers when adding this repair.
     carryFlags(notes, noteFlags(state.treeRestoreNotes ?? []));
     if (repaired) cautionNote(notes, 'G04.flight-settings-repaired', 'Unreadable flight settings were removed or reset. Check ignition, deployment and separation before launching.');
     if (refsRemoved) cautionNote(notes, 'G04.motor-refs-removed', 'Unreadable motor references were removed. Check the motor assignments before launching.');
+    if (definitionsRemoved) cautionNote(notes, 'G04.ref-definition-removed', 'Unreadable EX motor definitions were removed from motors the app could not load; the motor references were kept.');
     state = { ...state, treeRestoreNotes: notes };
   }
   return state;

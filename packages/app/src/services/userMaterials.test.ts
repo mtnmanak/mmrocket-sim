@@ -5,7 +5,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   importUserMaterialsCsv, loadUserMaterials, materialProblem, readUserMaterials, saveUserMaterials,
-  USER_MATERIALS_KEY, userMaterialsToCsv, type UserMaterial,
+  USER_MATERIALS_KEY, userMaterialsToCsv, writeUserMaterials, type UserMaterial,
 } from './userMaterials.js';
 
 const valid: UserMaterial = { kind: 'bulk', name: 'My laminate', density: 1234 };
@@ -156,3 +156,86 @@ function storageSpy(key: 'getItem' | 'setItem') {
   onTestFinished(() => { Object.defineProperty(localStorage, key, { configurable: true, value: own }); });
   return vi.spyOn(localStorage, key);
 }
+
+/**
+ * A WRITE KEEPS WHAT THE READER COULD NOT SHOW (cloud session 20, the S7-3
+ * pattern on My materials). readUserMaterials drops invalid entries and those
+ * past the 500 limit and reads a non-list as empty; every writer saved what it
+ * returned, so one save erased them, and a corrupt store became a one-entry
+ * library.
+ */
+describe('writes keep stored entries the reader cannot show', () => {
+  const stored = () => JSON.parse(localStorage.getItem(USER_MATERIALS_KEY)!) as unknown[];
+  const newer = { kind: 'bulk', name: 'Newer build', density: 50, grade: 'A' };
+  const invalid = [{ ...valid, kind: 'solid' }, { ...valid, density: '1234' }, null, 'text'];
+
+  it('keeps unreadable entries verbatim on a save, a replacement and a delete', () => {
+    const other: UserMaterial = { kind: 'surface', name: 'Cloth', density: 0.1 };
+    localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([...invalid, valid, other]));
+    expect(saveUserMaterials([...loadUserMaterials(), { kind: 'line', name: 'Cord', density: 0.002 }])).toBe(true);
+    expect(stored().slice(0, 4)).toEqual(invalid);
+    expect(saveUserMaterials(loadUserMaterials().map(m => m.name === valid.name ? { ...m, density: 999 } : m))).toBe(true);
+    expect(stored().slice(0, 4)).toEqual(invalid);
+    expect(loadUserMaterials().find(m => m.name === valid.name)?.density).toBe(999);
+    expect(saveUserMaterials(loadUserMaterials().filter(m => m.name !== 'Cloth'))).toBe(true);
+    expect(stored().slice(0, 4)).toEqual(invalid);
+    expect(loadUserMaterials().map(m => m.name)).toEqual([valid.name, 'Cord']);
+  });
+
+  it('keeps an entry a newer build wrote with extra fields as stored, until it is edited', () => {
+    localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([newer, valid]));
+    expect(saveUserMaterials([...loadUserMaterials(), { kind: 'line', name: 'Cord', density: 0.002 }])).toBe(true);
+    expect(stored()[0]).toEqual(newer);
+  });
+
+  it('does not bring back a shadowed duplicate of a deleted material', () => {
+    localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([{ ...valid, density: 1 }, valid]));
+    expect(saveUserMaterials(loadUserMaterials().filter(m => m.name !== valid.name))).toBe(true);
+    expect(loadUserMaterials()).toEqual([]);
+    expect(stored()).toEqual([]);
+  });
+
+  it('keeps the oldest entries past the 500 limit that the library could not show', () => {
+    const many = Array.from({ length: 501 }, (_, i) => ({ ...valid, name: `Mix ${i}` }));
+    localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify(many));
+    expect(saveUserMaterials(loadUserMaterials().filter(m => m.name !== 'Mix 500'))).toBe(true);
+    expect(stored()[0]).toEqual(many[0]);
+    expect(loadUserMaterials().map(m => m.name)).not.toContain('Mix 500');
+  });
+
+  it.each(['{broken', '{"rows":[]}', '"text"', 'null'])('copies an unreadable store %s aside, then starts a new list', raw => {
+    localStorage.setItem(USER_MATERIALS_KEY, raw);
+    expect(readUserMaterials().note).toContain('could not be read');
+    expect(readUserMaterials().note).toContain('keeps a copy');
+    expect(writeUserMaterials([valid])).toBe('backed-up');
+    expect(localStorage.getItem(`${USER_MATERIALS_KEY}.unreadable-backup`)).toBe(raw);
+    expect(stored()).toEqual([valid]);
+  });
+
+  it('refuses, as before, when an earlier different copy holds the side key', () => {
+    localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(USER_MATERIALS_KEY, '{broken');
+    expect(writeUserMaterials([valid])).toBe('unreadable');
+    expect(saveUserMaterials([valid])).toBe(false);
+    expect(localStorage.getItem(USER_MATERIALS_KEY)).toBe('{broken');
+    expect(localStorage.getItem(`${USER_MATERIALS_KEY}.unreadable-backup`)).toBe('older');
+  });
+
+  it('writes an absent store as a new list, and says when storage refuses the write', () => {
+    expect(writeUserMaterials([valid])).toBe('saved');
+    expect(stored()).toEqual([valid]);
+    localStorage.removeItem(USER_MATERIALS_KEY);
+    storageSpy('setItem').mockImplementation(() => { throw new DOMException('Quota', 'QuotaExceededError'); });
+    expect(writeUserMaterials([valid])).toBe('failed');
+    // Blocked storage is a storage failure, not an unreadable library.
+    storageSpy('getItem').mockImplementation(() => { throw Error('blocked'); });
+    expect(writeUserMaterials([valid])).toBe('failed');
+  });
+
+  it('rewrites a valid library byte for byte', () => {
+    const raw = JSON.stringify([valid, { kind: 'surface', name: 'Cloth', density: 0.1 }]);
+    localStorage.setItem(USER_MATERIALS_KEY, raw);
+    expect(saveUserMaterials(loadUserMaterials())).toBe(true);
+    expect(localStorage.getItem(USER_MATERIALS_KEY)).toBe(raw);
+  });
+});

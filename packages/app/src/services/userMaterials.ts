@@ -3,6 +3,7 @@ import { csvCell, unescapeCsvText } from './csvUtil.js';
 import { parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { MAX_BULK_DENSITY } from '../tree/schema.js';
+import { backUpUnreadableStore } from './storeBackup.js';
 import { builtInMaterial, materialNameKey, MATERIAL_UNITS, usableMaterialDensity, type MaterialKind } from './designMaterials.js';
 
 export interface UserMaterial { kind: MaterialKind; name: string; density: number }
@@ -31,6 +32,28 @@ function normalized(value: unknown): UserMaterial {
   return { kind: m.kind, name: m.name.trim(), density: m.density };
 }
 
+/** A stored library the app cannot read is copied aside by the next write (see writeUserMaterials). */
+const UNREADABLE_KEPT = 'The next save keeps a copy of it in this browser and starts a new list.';
+/** Why a My materials write was refused: the store could not be read, and could not be copied aside. */
+export const USER_MATERIALS_UNREADABLE = 'My materials could not be read from browser storage, so the app left them unchanged.';
+/** Said after a write that copied an unreadable store aside (storeBackup.ts) and started a new list. */
+export const USER_MATERIALS_BACKED_UP = 'My materials could not be read. The app kept a copy of them in this browser and started a new list.';
+
+/** The stored entries the library shows: valid ones, the last of each key winning, at most the newest 500. */
+function screenUserMaterials(data: readonly unknown[]): { materials: UserMaterial[]; refused: number; overflow: number } {
+  const byKey = new Map<string, UserMaterial>();
+  let refused = 0;
+  for (const entry of data) {
+    if (materialProblem(entry)) { refused++; continue; }
+    const m = normalized(entry);
+    byKey.delete(userMaterialKey(m));
+    byKey.set(userMaterialKey(m), m);
+  }
+  const all = [...byKey.values()];
+  const overflow = Math.max(0, all.length - USER_MATERIALS_LIMIT);
+  return { materials: all.slice(-USER_MATERIALS_LIMIT), refused, overflow };
+}
+
 export function readUserMaterials(): { materials: UserMaterial[]; note: string } {
   let raw: string | null;
   try { raw = localStorage.getItem(USER_MATERIALS_KEY); }
@@ -38,38 +61,70 @@ export function readUserMaterials(): { materials: UserMaterial[]; note: string }
   try {
     if (!raw) return { materials: [], note: '' };
     const data: unknown = JSON.parse(raw);
-    if (!Array.isArray(data)) return { materials: [], note: 'My materials could not be read: expected a list. Import a saved CSV to restore it.' };
-    const byKey = new Map<string, UserMaterial>();
-    let refused = 0;
-    for (const entry of data) {
-      if (materialProblem(entry)) { refused++; continue; }
-      const m = normalized(entry);
-      byKey.delete(userMaterialKey(m));
-      byKey.set(userMaterialKey(m), m);
-    }
-    const all = [...byKey.values()];
-    const overflow = Math.max(0, all.length - USER_MATERIALS_LIMIT);
+    if (!Array.isArray(data)) return { materials: [], note: `My materials could not be read: expected a list. ${UNREADABLE_KEPT}` };
+    const { materials, refused, overflow } = screenUserMaterials(data);
     const note = [refused ? `${refused} invalid My materials entries were ignored.` : '',
       overflow ? `My materials has a limit of 500 entries; ${overflow} older entries were ignored.` : ''].filter(Boolean).join(' ');
-    return { materials: all.slice(-USER_MATERIALS_LIMIT), note };
+    return { materials, note };
   } catch {
-    return { materials: [], note: 'My materials could not be read from browser storage. Import a saved CSV to restore it.' };
+    return { materials: [], note: `My materials could not be read from browser storage. ${UNREADABLE_KEPT}` };
   }
 }
 
 export const loadUserMaterials = (): UserMaterial[] => readUserMaterials().materials;
 
-/** No UI changes its saved state unless storage accepted the whole library. */
-export function saveUserMaterials(materials: readonly UserMaterial[]): boolean {
-  if (materials.length > USER_MATERIALS_LIMIT || materials.some(m => materialProblem(m))) return false;
-  const byKey = new Map<string, UserMaterial>();
-  for (const m of materials) byKey.set(userMaterialKey(m), normalized(m));
+/**
+ * THE LIBRARY A WRITE STARTS FROM (cloud session 20, the My parts rule of audit
+ * S7-3). readUserMaterials drops invalid entries and those past the 500 limit,
+ * and reads a non-list as empty; every writer saved what it returned, so one
+ * save erased them. A write now replaces only what the library SHOWED: every
+ * stored entry it could not show (invalid, a newer build's, past the limit) is
+ * kept verbatim, ahead of the list, and an entry the caller left unchanged is
+ * written as it was stored. An entry shadowed by a later one with the same
+ * name is dropped with it, so a deleted material cannot come back. A stored
+ * value that is not a readable list is copied to its side key first and the
+ * write starts a new list ('backed-up'); 'unreadable' only when that copy
+ * cannot be made, and then nothing is written.
+ */
+export function writeUserMaterials(materials: readonly UserMaterial[]): 'saved' | 'backed-up' | 'unreadable' | 'failed' {
+  if (materials.length > USER_MATERIALS_LIMIT || materials.some(m => materialProblem(m))) return 'failed';
+  let raw: string | null;
+  try { raw = localStorage.getItem(USER_MATERIALS_KEY); } catch { return 'failed'; }
+  let data: unknown;
+  try { data = raw ? JSON.parse(raw) : []; } catch { data = undefined; }
+  const backedUp = !Array.isArray(data);
+  if (backedUp) {
+    if (raw === null || !backUpUnreadableStore(USER_MATERIALS_KEY, raw)) return 'unreadable';
+    data = [];
+  }
+  if (!Array.isArray(data)) return 'unreadable';
+  const shown = new Set(screenUserMaterials(data).materials.map(userMaterialKey));
+  const storedAs = new Map<string, unknown>();
+  const kept = data.filter(entry => {
+    if (materialProblem(entry)) return true;
+    const key = userMaterialKey(normalized(entry));
+    storedAs.set(key, entry);
+    return !shown.has(key);
+  });
+  const byKey = new Map<string, unknown>();
+  for (const m of materials) {
+    const next = normalized(m), key = userMaterialKey(next);
+    const was = storedAs.get(key);
+    const same = was !== undefined && shown.has(key) && JSON.stringify(normalized(was)) === JSON.stringify(next);
+    byKey.set(key, same ? was : next);
+  }
   try {
-    localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([...byKey.values()]));
-  } catch { return false; }
+    localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([...kept, ...byKey.values()]));
+  } catch { return 'failed'; }
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(USER_MATERIALS_CHANGED));
-  return true;
+  return backedUp ? 'backed-up' : 'saved';
 }
+
+/** No UI changes its saved state unless storage accepted the whole library. */
+export const saveUserMaterials = (materials: readonly UserMaterial[]): boolean => {
+  const written = writeUserMaterials(materials);
+  return written === 'saved' || written === 'backed-up';
+};
 
 export function userMaterialsToCsv(materials: readonly UserMaterial[]): string {
   return 'kind,name,density,unit\n' + materials.map(m =>

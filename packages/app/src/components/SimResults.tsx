@@ -18,7 +18,7 @@ import { Modal } from './Modal.js';
 import { UnitChip } from './UnitChip.js';
 import {
   launchGuideExplanation, aeroModelLabel, commentsOf, deploymentVerdict, openingVerdict, descentVerdict, formatRunLabel, formatRunStability, formatRunWhen, formatRunWhenProse, describeRunChanges,
-  ROLL_RATE_MEANINGFUL_RAD_S, runStoppedEarly, SAFETY, stabilityState, WIND_BLOWS_TOWARD_DEG,
+  ROLL_RATE_MEANINGFUL_RAD_S, runLabelText, runStoppedEarly, SAFETY, stabilityState, WIND_BLOWS_TOWARD_DEG,
   type DeploymentReport, type DeploymentVerdict, type SimRun,
 } from '../services/simReport.js';
 import { clearRuns, deleteRun, restoreRun, runsToCsv, runsToTable } from '../services/simStore.js';
@@ -515,6 +515,12 @@ export function SimRunDetails({ run, hasSeries, changedSince }: {
  * @internal Exported for services/batchSweep.test.ts; no other module imports it.
  */
 export function historyMotorLabel(r: Pick<SimRun, 'manufacturer' | 'motor' | 'motorConfig'>): string {
+  // A run with no motor reads as the run label does (formatRunLabel): "Unknown
+  // motor", with its maker when one is recorded (owner ruling 113-10(a)).
+  if (!runLabelText(r.motor)) {
+    const maker = runLabelText(r.manufacturer);
+    return maker ? `Unknown motor (${maker})` : 'Unknown motor';
+  }
   const motor = r.motor ?? '';
   if (!r.manufacturer) return motor;
   const named = (r.motorConfig ?? '').startsWith('mixed')

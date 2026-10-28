@@ -890,3 +890,85 @@ it('names corrupt stored mass tokens without inventing a physical quantity', () 
     expect(notes[2]).toContain('invalid dimensions, curve or motor fields');
   } finally { localStorage.clear(); }
 });
+
+/**
+ * A WRITE KEEPS WHAT THE READER COULD NOT LOAD (cloud session 20, the S7-3
+ * pattern on the EX library). loadExMotors drops entries that fail
+ * validExMotor and reads a non-list as empty; add, delete and restore wrote
+ * what it returned, so one write erased them.
+ */
+describe('library writes keep stored entries the loader refuses', () => {
+  const KEY = 'online-openrocket.ex-motors.v1';
+  const fresh = async () => { vi.resetModules(); return import('./exMotors.js'); };
+  const stored = () => JSON.parse(localStorage.getItem(KEY)!) as unknown[];
+  const good = () => parseEng(ENG)[0]!;
+  const other = () => ({ ...good(), motorId: 'ex:other-k550w', designation: 'K551W' });
+  const refused = [null, { motorId: 'ex:newer-build', designation: 'Z1', samples: 'later' }, { ...good(), motorId: 'ex:bad', totalWeightG: 'x' }];
+  afterEach(() => localStorage.clear());
+
+  it('keeps refused entries verbatim on an add, a delete and a restore', async () => {
+    localStorage.setItem(KEY, JSON.stringify([...refused, good()]));
+    const ex = await fresh();
+    expect(ex.addExMotors([other()]).stored).toBe(true);
+    expect(stored().slice(0, 3)).toEqual(refused);
+    ex.deleteExMotor(good().motorId);
+    expect(stored().slice(0, 3)).toEqual(refused);
+    expect(ex.loadExMotors().map(m => m.motorId)).toEqual(['ex:other-k550w']);
+    ex.restoreExMotors([{ ...good(), motorId: 'ex:restored' }], []);
+    expect(stored().slice(0, 3)).toEqual(refused);
+    expect(ex.loadExMotors().map(m => m.motorId)).toEqual(['ex:other-k550w', 'ex:restored']);
+  });
+
+  it('lets a re-import replace the refused copy of the same motor, and a delete remove it', async () => {
+    const motor = good(), second = other();
+    const broken = { ...motor, totalWeightG: 'x' };
+    localStorage.setItem(KEY, JSON.stringify([broken]));
+    const ex = await fresh();
+    ex.addExMotors([motor]);
+    expect(stored()).toEqual([motor]);
+    localStorage.setItem(KEY, JSON.stringify([broken, second]));
+    const again = await fresh();
+    again.deleteExMotor(motor.motorId);
+    expect(stored()).toEqual([second]);
+  });
+
+  it.each(['{broken', '{}', 'null', '"motors"'])('copies an unreadable library %s aside, then stores a new one', async raw => {
+    localStorage.setItem(KEY, raw);
+    const ex = await fresh();
+    const motor = good();
+    const write = ex.addExMotors([motor]);
+    expect(write.stored).toBe(true);
+    expect(write.backedUp).toBe(true);
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe(raw);
+    expect(stored()).toEqual([motor]);
+  });
+
+  it('notes the copy when a design file restores its motors over an unreadable library', async () => {
+    localStorage.setItem(KEY, '{broken');
+    const ex = await fresh();
+    const notes: string[] = [];
+    ex.restoreExMotors([good()], notes);
+    expect(notes).toEqual(['The stored motor library could not be read. The app kept a copy of it in this browser and started a new library with these motors.']);
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe('{broken');
+  });
+
+  it('never writes over an unreadable library it cannot copy aside; the motor flies this session', async () => {
+    localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(KEY, '{broken');
+    const ex = await fresh();
+    const write = ex.addExMotors([good()]);
+    expect(write.stored).toBe(false);
+    expect(write.unreadable).toBe(true);
+    expect(localStorage.getItem(KEY)).toBe('{broken');
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe('older');
+    expect(ex.getExMotor(good().motorId)?.designation).toBe('K550W');
+  });
+
+  it('rewrites a valid library byte for byte', async () => {
+    const raw = JSON.stringify([good(), other()]);
+    localStorage.setItem(KEY, raw);
+    const ex = await fresh();
+    ex.deleteExMotor('ex:not-there');
+    expect(localStorage.getItem(KEY)).toBe(raw);
+  });
+});

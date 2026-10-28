@@ -3,8 +3,8 @@ import { carryFlags, cautionNote, noteFlags } from './importNotes.js';
 import { restoredWarnings } from './storedWarnings.js';
 import { sanitizeDesignProvenance } from './designProvenance.js';
 import { sanitizeDocumentMaterials } from './documentMaterials.js';
-import type { MotorSpec } from '@online-openrocket/engine';
-import type { LaunchConditions } from './launchConditions.js';
+import type { ComponentNode, MotorSpec } from '@online-openrocket/engine';
+import { DEFAULT_CONDITIONS, GEODETIC_METHODS, type LaunchConditions } from './launchConditions.js';
 import type { FlightTree, FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
 import { savedConfigLabel } from '../model/design.js';
 import { shortHash, type MotorMeta } from './simReport.js';
@@ -20,8 +20,9 @@ import { validLossySaveMark, type LossySaveMark } from './lossySave.js';
 import { designFingerprint } from './dirtyState.js';
 import { sanitizeSessionFlightLayers } from './sessionFlightLayers.js';
 import { boundedNozzleDiameter } from '../tree/nozzles.js';
-import { validExMotorIdentity } from './exMotors.js';
+import { validStoredExDefinition } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
+import { STATED_STAGE_FIGURES, statedFiguresOf } from './statedLaunchWeight.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -327,10 +328,6 @@ function setConflicted(next: boolean): void {
 }
 
 const isTable = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-const validStoredExDefinition = (v: unknown): boolean => {
-  const samples = isTable(v) ? v['samples'] : undefined;
-  return validExMotorIdentity(v) && Array.isArray(samples) && samples.every(isTable);
-};
 
 /**
  * A stored `flownAutoDelays`, or undefined when there is no table of delays in
@@ -350,6 +347,85 @@ function validFlownAutoDelays(v: unknown): Record<string, Record<string, number>
     }
   }
   return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/** The launch keys this build reads; any other is a newer build's, kept when it can be keyed. */
+const LAUNCH_KEYS: ReadonlySet<string> = new Set(['launchRodLengthM', 'launchGuideAllowance', 'launchRodAngleDeg',
+  'launchRodAimDeg', 'windAverage', 'windStdDev', 'launchAltitudeM', 'temperatureC', 'pressureHPa', 'latitudeDeg',
+  'longitudeDeg', 'geodeticMethod', 'timeStepS', 'windLevels', 'windProfileSource']);
+const REQUIRED_LAUNCH_NUMBERS = ['launchRodLengthM', 'launchRodAngleDeg', 'windAverage', 'windStdDev',
+  'launchAltitudeM', 'latitudeDeg'] as const;
+const finiteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * Repair a stored launch table IN PLACE, so a valid one stays the same object;
+ * true when anything changed. Save writes these fields raw into the file and
+ * the run history keys on them (simReport.conditionsKeyOf), so a value of the
+ * wrong type wrote `undefined` or unescaped markup, or threw. No absent key is
+ * added but the six required numbers: conditionsKeyOf writes `temperatureC=`
+ * for a null and nothing for an absent key, so an added null would re-key
+ * every stored run. The time step and winds aloft are screened after this.
+ */
+function repairStoredLaunch(l: Record<string, unknown>): boolean {
+  let repaired = false;
+  for (const key of REQUIRED_LAUNCH_NUMBERS) {
+    if (!finiteNumber(l[key])) { l[key] = DEFAULT_CONDITIONS[key]; repaired = true; }
+  }
+  for (const key of ['temperatureC', 'pressureHPa', 'longitudeDeg']) {
+    if (key in l && l[key] !== null && !finiteNumber(l[key])) { l[key] = null; repaired = true; }
+  }
+  const drop = (key: string, ok: (v: unknown) => boolean) => {
+    if (key in l && !ok(l[key])) { delete l[key]; repaired = true; }
+  };
+  drop('launchRodAimDeg', finiteNumber);
+  drop('launchGuideAllowance', v => typeof v === 'boolean');
+  drop('geodeticMethod', v => GEODETIC_METHODS.some(m => m.value === v));
+  // A newer build's key is hashed as stored; one String() cannot print is not.
+  for (const key of Object.keys(l)) {
+    if (!LAUNCH_KEYS.has(key)) drop(key, v => v === null || ['string', 'number', 'boolean'].includes(typeof v));
+  }
+  return repaired;
+}
+
+/**
+ * The fields of a stored stage-mass snapshot (stageMassOverrides.StageMassOverride)
+ * and the type each must have. Save writes an inactive configuration's snapshot
+ * as stored (orkFile, `<stagemassconfiguration>`) and escapes the motor name.
+ */
+const STAGE_MASS_FIELDS: Record<string, (v: unknown) => boolean> = {
+  overrideMass: finiteNumber,
+  overrideCGX: finiteNumber,
+  overrideSubcomponentsMass: v => typeof v === 'boolean',
+  overrideSubcomponentsCG: v => typeof v === 'boolean',
+  overrideIncludesMotor: v => typeof v === 'string',
+  [STATED_STAGE_FIGURES]: v => statedFiguresOf({ type: 'stage', [STATED_STAGE_FIGURES]: v } as ComponentNode) !== null,
+};
+
+/**
+ * Repair one configuration's stored stage-mass snapshots; true when anything
+ * changed. A snapshot that is not a table becomes `{}`, which still owns the
+ * stage and clears its overrides when the configuration is applied, as a
+ * snapshot whose every field was unreadable does. A bad field is deleted in
+ * place, so a valid map stays the same object.
+ */
+function repairStageMassOverrides(cfg: SavedConfig): boolean {
+  const map = cfg.stageMassOverrides;
+  if (!map) return false;
+  let repaired = false;
+  let replaced = false;
+  const entries = Object.entries(map).map(([id, value]) => {
+    if (!isTable(value)) { replaced = true; return [id, {}] as const; }
+    for (const [key, ok] of Object.entries(STAGE_MASS_FIELDS)) {
+      if (key in value && !ok((value as Record<string, unknown>)[key])) {
+        delete (value as Record<string, unknown>)[key];
+        repaired = true;
+      }
+    }
+    return [id, value] as const;
+  });
+  // Rebuilt, not assigned, when a snapshot is replaced: stage ids are file-sourced.
+  if (replaced) cfg.stageMassOverrides = Object.fromEntries(entries);
+  return repaired || replaced;
 }
 
 /** A stored Mach-Alt table, or null: 1–1,000 rows of finite [Mach ≥ 0, altitude m]. */
@@ -506,6 +582,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
         unmatchedRebuilt.add(i);
       }
     });
+    let stageMassRepaired = false;
     for (const cfg of s.savedConfigs ?? []) {
       for (const [id, value] of Object.entries(cfg.nozzles ?? {})) {
         const bounded = boundedNozzleDiameter(value);
@@ -515,6 +592,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
             `Saved configuration ${savedConfigLabel(cfg)}: an invalid or oversized nozzle exit diameter was repaired. Check the nozzle before flying.`);
         }
       }
+      if (repairStageMassOverrides(cfg)) stageMassRepaired = true;
       if (isTable(cfg.stageActiveness)) {
         cfg.stageActiveness = lookupTable(Object.fromEntries(
           Object.entries(cfg.stageActiveness).filter(([, value]) => typeof value === 'boolean'),
@@ -522,6 +600,10 @@ function readSession(restoreRoot: boolean): SessionState | null {
       } else {
         delete cfg.stageActiveness;
       }
+    }
+    if (stageMassRepaired) {
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.stage-mass-repaired',
+        'Unreadable stage mass and CG overrides in saved configurations were cleared. Check the stage masses before flying.');
     }
     // Older configuration maps used 0 as a removal command, not persistent OFF.
     // Preserve their automatic behavior; tree values themselves are untouched.
@@ -540,7 +622,20 @@ function readSession(restoreRoot: boolean): SessionState | null {
         const refs = Object.values(cfg.unmatchedRefs ?? {});
         if (refs.length) cfg.unmatched = refs.map(r => r.designation);
       }
-      cautionNote(s.treeRestoreNotes ??= [], 'G04.unmatched-rebuilt', 'Unreadable lists of unmatched motors were rebuilt from the motor references.');
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.unmatched-rebuilt', 'Unreadable lists of unmatched motors were rebuilt from the motor references or removed.');
+    }
+    // Ids are compared with ===, and a legacy mount id is reserved through a
+    // regex (treeModel.reserveNodeIds): one that is not a string matched no
+    // configuration and no mount, and lost the legacy motor or threw. A cleared
+    // choice is the working settings; a removed mount id puts the legacy motor
+    // on the first mount, as a session that stored none.
+    if (s.activeConfigId != null && typeof s.activeConfigId !== 'string') {
+      s.activeConfigId = null;
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.active-config-reset', 'An unreadable flight configuration choice was cleared.');
+    }
+    if (s.mountId != null && typeof s.mountId !== 'string') {
+      delete s.mountId;
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.mount-reset', 'An unreadable motor mount reference was removed.');
     }
     // Revive plugged ejection delays (persisted as "Infinity" — JSON has no
     // Infinity literal; a plain stringify would have stored null). The
@@ -563,6 +658,15 @@ function readSession(restoreRoot: boolean): SessionState | null {
         const d = ref.delay as unknown;
         if (d === 'Infinity' || d === null) ref.delay = Infinity;
       }
+    }
+    // A launch that is not a table is replaced by a FRESH copy of the defaults
+    // (the time-step code below writes into it); absent or null is left to the
+    // restore's own fallback (sessionRestore, `?? DEFAULT_CONDITIONS`).
+    const launchReplaced = s.launch != null && !isTable(s.launch);
+    if (launchReplaced) s.launch = { ...DEFAULT_CONDITIONS };
+    if (launchReplaced || (isTable(s.launch) && repairStoredLaunch(s.launch as unknown as Record<string, unknown>))) {
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.launch-reset',
+        'Unreadable launch conditions were reset to their defaults. Check the launch conditions before flying.');
     }
     if (isTable(s.launch)) {
       if (s.launch.timeStepS != null

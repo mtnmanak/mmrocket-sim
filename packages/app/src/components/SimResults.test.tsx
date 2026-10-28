@@ -2,7 +2,7 @@
 import { act, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SimHistory, SimRunDetails } from './SimResults.js';
+import { historyMotorLabel, SimHistory, SimRunDetails } from './SimResults.js';
 import { addRuns, loadRuns } from '../services/simStore.js';
 import { importedSummaryRuns } from '../services/orkFlightData.js';
 import { compassPoint } from '../services/openMeteo.js';
@@ -1271,4 +1271,40 @@ it('uses the report opening threshold in mph role guidance', () => {
   localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units: { velocity: 'mph' } }));
   render(<SimRunDetails run={run()} />);
   expect(host.textContent).toContain('Preferred opening speed ≤47.74 mph (21.3 m/s) (defined as 70 ft/s)');
+});
+
+describe('SimHistory — stored runs with no motor or no landing (cloud session 20)', () => {
+  it.each([
+    [{ motor: undefined, manufacturer: undefined }, 'Unknown motor'],
+    [{ motor: '', manufacturer: '' }, 'Unknown motor'],
+    [{ motor: '  ', manufacturer: 'Estes' }, 'Unknown motor (Estes)'],
+    [{ motor: undefined, manufacturer: 'Estes', motorConfig: 'mixed C6' }, 'Unknown motor (Estes)'],
+    [{ motor: 'C6-5', manufacturer: 'Estes' }, 'Estes C6-5'],
+    [{ motor: 'C6-5', manufacturer: undefined }, 'C6-5'],
+    [{ motor: '3× AeroTech H128W + 3× Cesaroni H255-14A', manufacturer: 'AeroTech+Cesaroni', motorConfig: 'mixed 6' },
+      '3× AeroTech H128W + 3× Cesaroni H255-14A'],
+    [{ motor: '3× H128W + 3× H255-14A', manufacturer: 'AeroTech+Cesaroni', motorConfig: 'mixed 6' },
+      'AeroTech+Cesaroni 3× H128W + 3× H255-14A'],
+  ] as [Partial<SimRun>, string][])('labels %j as %j', (fields, label) => {
+    expect(historyMotorLabel(fields as SimRun)).toBe(label);
+  });
+
+  it('shows Unknown motor and a stopped flight in the table, read back from the store', () => {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+      { ...run(), id: 'no-motor', motor: '', manufacturer: 'Estes' },
+      { ...run(), id: 'limit', motor: 'LIMIT-1', manufacturer: '', totalFlightTime: 1200, safeLandingRate: true, simWarnings: [] },
+      { ...run(), id: 'reference', motor: 'REF-1', manufacturer: '' },
+    ]));
+    render(<SimHistory runs={loadRuns()} onRunsChange={() => {}} />);
+    openTable();
+    const row = (motor: string) => Array.from(host.querySelectorAll('tr.motor-row'))
+      .find(tr => tr.querySelectorAll('td')[1]?.textContent === motor)!;
+    const safe = (tr: Element) => tr.querySelector('td.stability-warn, td.stability-bad, td.stability-good')!
+      .querySelector('[aria-hidden="true"]')?.textContent;
+    expect(row('Unknown motor (Estes)')).toBeDefined();
+    // The missing motor changes the label only; the cut-off flight reads stopped.
+    expect(safe(row('Unknown motor (Estes)'))).toBe(safe(row('REF-1')));
+    expect(safe(row('REF-1'))).not.toBe('⚠');
+    expect(safe(row('LIMIT-1'))).toBe('⚠');
+  });
 });

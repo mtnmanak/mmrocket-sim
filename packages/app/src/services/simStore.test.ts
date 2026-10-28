@@ -6,7 +6,8 @@ import {
 } from './simStore.js';
 import { INITIAL_UNITS, IMPERIAL_UNITS, noticeQuantity } from '../prefs/units.js';
 import { densityAltitudeM } from './atmosphere.js';
-import { commentsOf, deploymentVerdict, runStoppedEarly, SAFETY, type DesignMatchKey, type SimRun } from './simReport.js';
+import { commentsOf, deploymentVerdict, incompleteFlightWarning, KERNEL_MAX_FLIGHT_TIME_S, runStoppedEarly, SAFETY, type DesignMatchKey, type SimRun } from './simReport.js';
+import { gradeBatchRun } from './batchCriteria.js';
 import { runStatus } from './runConfiguration.js';
 import { MAX_STORED_WARNINGS } from './storedWarnings.js';
 import { summaryOf } from './storedRunIdentity.js';
@@ -1056,4 +1057,80 @@ it.each([7, {}, true].map(v => [v]))('drops an unreadable stored importedRunId %
   expect(bad).not.toHaveProperty('importedRunId');
   expect(good!.importedRunId).toBe('source-run');
   localStorage.clear();
+});
+
+/**
+ * STORED-STATE SIBLINGS (cloud session 20): a stored run's model fields and a
+ * flight the kernel's time limit cut off, read back the way a fresh run reads.
+ */
+describe('stored runs: aero model fields', () => {
+  const csvAero = (runs: SimRun[]) => {
+    const table = runsToTable(runs);
+    return runs.map((_, i) => table.rows[i]![table.headers.indexOf('Aero model')]);
+  };
+  it.each([{}, 'quantum', 7, null, { toString: 0 }].map(v => [v]))('drops an unreadable aeroModel %j: model not recorded', aeroModel => {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([mkRun('bad', { aeroModel } as never)]));
+    const runs = loadRuns();
+    expect(runs[0]).not.toHaveProperty('aeroModel');
+    expect(csvAero(runs)).toEqual(['']);
+  });
+  it.each(['false', 1, {}, null].map(v => [v]))('drops a non-boolean rogersKbf %j rather than print +kbf', rogersKbf => {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
+      mkRun('super', { aeroModel: 'supersonic', rogersKbf } as never), mkRun('classic', { aeroModel: 'classic', rogersKbf } as never)]));
+    const runs = loadRuns();
+    for (const r of runs) expect(r).not.toHaveProperty('rogersKbf');
+    expect(csvAero(runs)).toEqual(['supersonic', 'classic (Kbf not recorded)']);
+  });
+  it('keeps every recorded model exactly', () => {
+    const stored = [mkRun('a', { aeroModel: 'classic', rogersKbf: true }), mkRun('b', { aeroModel: 'supersonic', rogersKbf: false }),
+      mkRun('c', { aeroModel: 'auto-supersonic' }), mkRun('d', { aeroModel: 'hybrid', rogersKbf: true }), mkRun('e')]
+      .map(r => ({ ...r, comments: '' }));
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify(stored));
+    expect(JSON.stringify(loadRuns())).toBe(JSON.stringify(stored));
+  });
+});
+
+describe('stored runs: a flight the time limit cut off (audit S6-1)', () => {
+  const NO_CRITERIA = { minRodExit: null, minThrustToWeight: null, minApogee: null, maxApogee: null,
+    autoDelay: true, includeOOP: false, manufacturers: [], classes: [] };
+  /** Stored before v0.193 marked an airborne ending: still descending at the kernel's limit, graded as landed. */
+  const airborne = (over: Partial<SimRun> = {}) => mkRun('airborne', {
+    comments: '',
+    totalFlightTime: 1200, landingRate: 4.2, safeLandingRate: true, groundHitVelocity: null as never,
+    landingDistanceM: 900, landingBearingDeg: 90, simWarnings: [],
+    deployments: [{ device: 'Drogue', time: 10, altitude: 900, velocityAtDeployment: 5, descentRate: 20, groundSpeed: 21, isLanding: false },
+      { device: 'Main', time: 300, altitude: 150, velocityAtDeployment: 20, descentRate: 4.2, groundSpeed: 6, isLanding: true }] as never,
+    ...over,
+  });
+  it.each([
+    ['at the limit', {}], ['a step past it', { totalFlightTime: 1200.03 }],
+    ['with no warning list', { simWarnings: undefined }],
+  ] as [string, Partial<SimRun>][])('reads a run stopped %s as incomplete, as a fresh one reads', (_name, over) => {
+    localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([airborne(over)]));
+    const [r] = loadRuns();
+    expect(runStoppedEarly(r!)).toBe(true);
+    expect(KERNEL_MAX_FLIGHT_TIME_S).toBe(1200);
+    expect(r!.simWarnings![0]).toEqual(incompleteFlightWarning(undefined, r!.totalFlightTime, false));
+    expect(r!.simWarnings![0]!.message).toMatch(/^The flight ended at T\+1200\.\d\d s before ground contact was recorded\. The flight is incomplete; landing rate and landing drift are unavailable\.$/);
+    expect([r!.landingRate, r!.safeLandingRate, r!.landingDistanceM, r!.landingBearingDeg]).toEqual([null, null, null, null]);
+    expect(r!.deployments!.map(d => [d.descentRate, d.groundSpeed])).toEqual([[20, 21], [null, null]]);
+    expect(gradeBatchRun(r!, NO_CRITERIA)).toContain('flight stopped early');
+    const table = runsToTable([r!]);
+    for (const h of ['Landing rate OK', 'Landing bearing (deg from N)']) expect(table.rows[0]![table.headers.indexOf(h)]).toBe('');
+    expect(table.rows[0]![table.headers.findIndex(h => h.startsWith('Landing rate ('))]).toBe('');
+    expect(table.rows[0]![table.headers.findIndex(h => h.startsWith('Landing distance ('))]).toBe('');
+  });
+  it.each([
+    ['landed', mkRun('landed', { comments: '', totalFlightTime: 95.5, landingRate: 4.2, safeLandingRate: true, simWarnings: [] })],
+    ['already stopped early', airborne({ simWarnings: [{ key: 'SIM_ABORT', priority: 'HIGH', message: 'Stopped.' }] })],
+    ['already incomplete', airborne({ simWarnings: [{ key: 'INCOMPLETE_FLIGHT', priority: 'HIGH', message: 'Ended.' }] })],
+    ['imported from a file', airborne({ importedSummary: true } as Partial<SimRun>)],
+    ['with no flight time', airborne({ totalFlightTime: undefined as never })],
+  ] as [string, SimRun][])('leaves a %s run byte-identical through the store and the CSV', (_name, run) => {
+    const raw = JSON.stringify([run]);
+    localStorage.setItem('online-openrocket.sim-runs.v1', raw);
+    const loaded = loadRuns();
+    expect(JSON.stringify(loaded)).toBe(raw);
+    expect(runsToCsv(loaded)).toBe(runsToCsv(JSON.parse(raw) as SimRun[]));
+  });
 });

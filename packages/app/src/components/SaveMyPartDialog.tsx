@@ -3,11 +3,11 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { Modal } from './Modal.js';
 import { Note } from './Note.js';
 import {
-  componentToPreset, customPartKey, customPresetLinkError, loadBundledPresets, loadCustomPresets, sameCustomPreset, saveCustomPresets,
+  CUSTOM_PRESETS_BACKED_UP, CUSTOM_PRESETS_UNREADABLE, componentToPreset, customPartKey, customPresetLinkError, editCustomPresets, loadBundledPresets, loadCustomPresets, sameCustomPreset, saveCustomPresets,
 } from '../services/presets.js';
 import { mfrKey, partKey } from '../../scripts/manufacturers.mjs';
 
-export function SaveMyPartDialog({ node, onClose, onSaved }: { node: ComponentNode; onClose: () => void; onSaved?: (name: string) => void }) {
+export function SaveMyPartDialog({ node, onClose, onSaved }: { node: ComponentNode; onClose: () => void; onSaved?: (name: string, note?: string) => void }) {
   const uid = useId();
   const partInput = useRef<HTMLInputElement>(null);
   const [manufacturer, setManufacturer] = useState('My parts');
@@ -50,11 +50,16 @@ export function SaveMyPartDialog({ node, onClose, onSaved }: { node: ComponentNo
         setError(linkError);
         return;
       }
-      if (!saveCustomPresets([...keep, row])) {
+      const next = editCustomPresets((p) => sameCustomPreset(p, row), [row]);
+      if (!next) {
+        setError(`Could not save My part. ${CUSTOM_PRESETS_UNREADABLE}`);
+        return;
+      }
+      if (!saveCustomPresets(next.list)) {
         setError('Could not save My part — this browser’s storage is full or blocked. Export your parts or free storage, then try again.');
         return;
       }
-      onSaved?.(`${row.manufacturer} ${row.partNo}`);
+      onSaved?.(`${row.manufacturer} ${row.partNo}`, next.backedUp ? CUSTOM_PRESETS_BACKED_UP : undefined);
       onClose();
     } catch {
       setError('Could not save My part. The preset catalogue could not be loaded; try again.');
