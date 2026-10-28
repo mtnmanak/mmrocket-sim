@@ -4,7 +4,7 @@ import { restoredWarnings } from './storedWarnings.js';
 import { sanitizeDesignProvenance } from './designProvenance.js';
 import { sanitizeDocumentMaterials } from './documentMaterials.js';
 import type { MotorSpec } from '@online-openrocket/engine';
-import type { LaunchConditions } from './launchConditions.js';
+import { DEFAULT_CONDITIONS, GEODETIC_METHODS, type LaunchConditions } from './launchConditions.js';
 import type { FlightTree, FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
 import { savedConfigLabel } from '../model/design.js';
 import { shortHash, type MotorMeta } from './simReport.js';
@@ -352,6 +352,44 @@ function validFlownAutoDelays(v: unknown): Record<string, Record<string, number>
   return Object.keys(out).length > 0 ? out : undefined;
 }
 
+/** The launch keys this build reads; any other is a newer build's, kept when it can be keyed. */
+const LAUNCH_KEYS: ReadonlySet<string> = new Set(['launchRodLengthM', 'launchGuideAllowance', 'launchRodAngleDeg',
+  'launchRodAimDeg', 'windAverage', 'windStdDev', 'launchAltitudeM', 'temperatureC', 'pressureHPa', 'latitudeDeg',
+  'longitudeDeg', 'geodeticMethod', 'timeStepS', 'windLevels', 'windProfileSource']);
+const REQUIRED_LAUNCH_NUMBERS = ['launchRodLengthM', 'launchRodAngleDeg', 'windAverage', 'windStdDev',
+  'launchAltitudeM', 'latitudeDeg'] as const;
+const finiteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * Repair a stored launch table IN PLACE, so a valid one stays the same object;
+ * true when anything changed. Save writes these fields raw into the file and
+ * the run history keys on them (simReport.conditionsKeyOf), so a value of the
+ * wrong type wrote `undefined` or unescaped markup, or threw. No absent key is
+ * added but the six required numbers: conditionsKeyOf writes `temperatureC=`
+ * for a null and nothing for an absent key, so an added null would re-key
+ * every stored run. The time step and winds aloft are screened after this.
+ */
+function repairStoredLaunch(l: Record<string, unknown>): boolean {
+  let repaired = false;
+  for (const key of REQUIRED_LAUNCH_NUMBERS) {
+    if (!finiteNumber(l[key])) { l[key] = DEFAULT_CONDITIONS[key]; repaired = true; }
+  }
+  for (const key of ['temperatureC', 'pressureHPa', 'longitudeDeg']) {
+    if (key in l && l[key] !== null && !finiteNumber(l[key])) { l[key] = null; repaired = true; }
+  }
+  const drop = (key: string, ok: (v: unknown) => boolean) => {
+    if (key in l && !ok(l[key])) { delete l[key]; repaired = true; }
+  };
+  drop('launchRodAimDeg', finiteNumber);
+  drop('launchGuideAllowance', v => typeof v === 'boolean');
+  drop('geodeticMethod', v => GEODETIC_METHODS.some(m => m.value === v));
+  // A newer build's key is hashed as stored; one String() cannot print is not.
+  for (const key of Object.keys(l)) {
+    if (!LAUNCH_KEYS.has(key)) drop(key, v => v === null || ['string', 'number', 'boolean'].includes(typeof v));
+  }
+  return repaired;
+}
+
 /** A stored Mach-Alt table, or null: 1–1,000 rows of finite [Mach ≥ 0, altitude m]. */
 export function validMachAltTable(v: unknown): [number, number][] | null {
   if (!Array.isArray(v) || v.length === 0 || v.length > MAX_MACH_ALT_ROWS) return null;
@@ -563,6 +601,15 @@ function readSession(restoreRoot: boolean): SessionState | null {
         const d = ref.delay as unknown;
         if (d === 'Infinity' || d === null) ref.delay = Infinity;
       }
+    }
+    // A launch that is not a table is replaced by a FRESH copy of the defaults
+    // (the time-step code below writes into it); absent or null is left to the
+    // restore's own fallback (sessionRestore, `?? DEFAULT_CONDITIONS`).
+    const launchReplaced = s.launch != null && !isTable(s.launch);
+    if (launchReplaced) s.launch = { ...DEFAULT_CONDITIONS };
+    if (launchReplaced || (isTable(s.launch) && repairStoredLaunch(s.launch as unknown as Record<string, unknown>))) {
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.launch-reset',
+        'Unreadable launch conditions were reset to their defaults. Check the launch conditions before flying.');
     }
     if (isTable(s.launch)) {
       if (s.launch.timeStepS != null

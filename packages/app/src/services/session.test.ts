@@ -28,6 +28,7 @@ import { exportOrk } from './orkFile.js';
 import type { SessionState } from './session.js';
 import { MAX_STORED_WARNINGS } from './storedWarnings.js';
 import { tierLines } from './importNotes.js';
+import { DEFAULT_CONDITIONS } from './launchConditions.js';
 
 const restoreTier = (restored: ReturnType<typeof designStateFromSession>, text: string) =>
   tierLines(restored.restoreNotes, restored.restoreNoteTiers).find(note => note.text === text)?.tier;
@@ -1223,6 +1224,30 @@ it('lane C S1c-2 uses the shared Mach-Alt limit on session reload', async () => 
   } finally { vi.doUnmock('./machAltLimits.js'); vi.resetModules(); }
 });
 
+const definition = (): ExMotor => ({
+  motorId: 'ex:stored-c6', designation: 'C6', realManufacturer: 'Stored Test',
+  diameter: 18, length: 70, totalWeightG: 24, propWeightG: 10, delays: '5',
+  samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 12 }, { time: 0.5, thrust: 6 }, { time: 1.2, thrust: 0 }],
+  source: 'eng', addedAt: 1,
+});
+const exMounted = () => {
+  const ex = definition();
+  return mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5, { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
+};
+/** What App's Save .ork hands the writer (App.onSaveOrk via exportAssembly). */
+const saveOrk = (loaded: SessionState) => {
+  const { state: d } = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+  return exportOrk({
+    name: 'Stored', tree: d.tree, launch: d.launch, measured: d.measured, activeConfigId: d.activeConfigId,
+    workingOverrides: d.detachedOverrides, notes: [], onOmittedMotor: () => { throw new Error('omitted a motor'); },
+    motors: exportMotorsMap({ assigned: assignedMotorsOf(d.mountMotors, motorMounts(d.tree)), unmatchedRefs: d.unmatchedRefs,
+      tree: d.tree, activeConfigId: d.activeConfigId, exLibrary: loadExMotorIdentities }),
+    configs: exportConfigs(d.savedConfigs, d.tree, loadExMotorIdentities),
+  });
+};
+const noteKinds = (loaded: SessionState) =>
+  designStateFromSession(loaded, { legacyMaxMotorLengthM: null }).restoreNoteTiers.map(n => `${n.tier}:${n.kind}`);
+
 /**
  * STORED-STATE HARDENING (cloud session 10). An autosave is anything's to
  * write; one malformed entry must cost that entry, with a restore note, and
@@ -1231,30 +1256,6 @@ it('lane C S1c-2 uses the shared Mach-Alt limit on session reload', async () => 
 describe('stored-state hardening: EX definitions', () => {
   const KEY = 'online-openrocket.session.v1';
   const EX_KEY = 'online-openrocket.ex-motors.v1';
-  const definition = (): ExMotor => ({
-    motorId: 'ex:stored-c6', designation: 'C6', realManufacturer: 'Stored Test',
-    diameter: 18, length: 70, totalWeightG: 24, propWeightG: 10, delays: '5',
-    samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 12 }, { time: 0.5, thrust: 6 }, { time: 1.2, thrust: 0 }],
-    source: 'eng', addedAt: 1,
-  });
-  const exMounted = () => {
-    const ex = definition();
-    return mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5, { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
-  };
-  /** What App's Save .ork hands the writer (App.onSaveOrk via exportAssembly). */
-  const saveOrk = (loaded: SessionState) => {
-    const { state: d } = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
-    return exportOrk({
-      name: 'Stored', tree: d.tree, launch: d.launch, measured: d.measured, activeConfigId: d.activeConfigId,
-      workingOverrides: d.detachedOverrides, notes: [], onOmittedMotor: () => { throw new Error('omitted a motor'); },
-      motors: exportMotorsMap({ assigned: assignedMotorsOf(d.mountMotors, motorMounts(d.tree)), unmatchedRefs: d.unmatchedRefs,
-        tree: d.tree, activeConfigId: d.activeConfigId, exLibrary: loadExMotorIdentities }),
-      configs: exportConfigs(d.savedConfigs, d.tree, loadExMotorIdentities),
-    });
-  };
-  const noteKinds = (loaded: SessionState) =>
-    designStateFromSession(loaded, { legacyMaxMotorLengthM: null }).restoreNoteTiers.map(n => `${n.tier}:${n.kind}`);
-
   const badDefinitions: [string, (def: Record<string, unknown>, meta: Record<string, unknown>) => unknown][] = [
     ['realManufacturer 7', def => ({ ...def, realManufacturer: 7 })],
     ['realManufacturer {"toString":0}', def => ({ ...def, realManufacturer: { toString: 0 } })],
@@ -1409,5 +1410,108 @@ describe('stored-state hardening: unscreened session scalars', () => {
     const restored = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
     expect(restored.refused).toBe(false);
     expect(() => designFingerprint({ ...restored.state, maxMotorLengthByStage: {} })).not.toThrow();
+  });
+});
+
+/**
+ * STORED-STATE SIBLINGS (cloud session 20): the restore-time siblings lane 10
+ * left. Each repair costs the bad value only, leaves a Caution note, and keeps
+ * the slot's bytes for the recovery download.
+ */
+describe('stored-state siblings: launch conditions', () => {
+  const KEY = 'online-openrocket.session.v1';
+  beforeEach(() => discardSession());
+  /** Restore `launch`, then the checks every repaired case shares. */
+  const restoreLaunch = (launch: unknown) => {
+    const raw = JSON.stringify({ ...state(), tree: defaultTree(), launch });
+    localStorage.setItem(KEY, raw);
+    const loaded = loadSession()!;
+    expect(noteKinds(loaded)).toContain('caution:G04.launch-reset');
+    const xml = saveOrk(loaded);
+    expect(xml).not.toMatch(/undefined|NaN|\[object/);
+    expect(() => conditionsKeyOf(loaded.launch)).not.toThrow();
+    expect(() => kernelSimOptions(loaded.launch)).not.toThrow();
+    expect(localStorage.getItem(KEY)).toBe(raw);
+    const recovery = autosavedDesignFile()!;
+    expect(recovery.ork).toBe(false);
+    expect(recovery.data).toBe(raw);
+    return { loaded, xml };
+  };
+
+  it.each([5, [], 'x', true].map(v => [v]))('replaces a stored launch %j with a fresh copy of the defaults', launch => {
+    const { loaded } = restoreLaunch(launch);
+    expect(loaded.launch).toEqual(DEFAULT_CONDITIONS);
+    expect(loaded.launch).not.toBe(DEFAULT_CONDITIONS);
+  });
+
+  it.each([undefined, null])('leaves a stored launch of %j to the restore fallback, with no note', launch => {
+    localStorage.setItem(KEY, JSON.stringify({ ...state(), launch }));
+    const loaded = loadSession()!;
+    expect(loaded.launch ?? null).toBeNull();
+    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+    expect(designStateFromSession(loaded, { legacyMaxMotorLengthM: null }).state.launch).toEqual(DEFAULT_CONDITIONS);
+  });
+
+  const REQUIRED = ['launchRodLengthM', 'launchRodAngleDeg', 'windAverage', 'windStdDev', 'launchAltitudeM', 'latitudeDeg'] as const;
+  const badValues: unknown[] = [null, '1', '<x/>', { toString: 0 }, true, []];
+  it.each(REQUIRED.flatMap(key => [...badValues.map(v => [key, v]), [key, 'absent']]))(
+    'resets a required %s of %j to the default', (key, value) => {
+      const launch: Record<string, unknown> = { ...state().launch };
+      if (value === 'absent') delete launch[key as string];
+      else launch[key as string] = value;
+      const { loaded, xml } = restoreLaunch(launch);
+      expect(loaded.launch[key as typeof REQUIRED[number]]).toBe(DEFAULT_CONDITIONS[key as typeof REQUIRED[number]]);
+      expect(xml).not.toContain('<x/>');
+      // Every other key kept as stored.
+      for (const k of REQUIRED) if (k !== key) expect(loaded.launch[k]).toBe(state().launch[k]);
+    });
+
+  it.each(['temperatureC', 'pressureHPa'].flatMap(key => ['15', { toString: 0 }, true, '<x/>'].map(v => [key, v])))(
+    'blanks a present %s of %j', (key, value) => {
+      const { loaded, xml } = restoreLaunch({ ...state().launch, temperatureC: 15, pressureHPa: 1000, [key as string]: value });
+      expect(loaded.launch[key as 'temperatureC']).toBeNull();
+      expect(xml).not.toContain('<x/>');
+    });
+
+  it.each([
+    ['launchRodAimDeg', '5', undefined], ['launchRodAimDeg', null, undefined], ['launchRodAimDeg', { toString: 0 }, undefined],
+    ['longitudeDeg', '5', null], ['longitudeDeg', { toString: 0 }, null], ['longitudeDeg', true, null],
+    ['launchGuideAllowance', 'false', undefined], ['launchGuideAllowance', 0, undefined], ['launchGuideAllowance', { toString: 0 }, undefined],
+    ['geodeticMethod', 'round', undefined], ['geodeticMethod', 7, undefined], ['geodeticMethod', { toString: 0 }, undefined],
+  ] as [string, unknown, unknown][])('repairs an optional %s of %j', (key, value, expected) => {
+    const { loaded } = restoreLaunch({ ...state().launch, launchRodAngleDeg: 5, [key]: value });
+    const launch = loaded.launch as unknown as Record<string, unknown>;
+    if (expected === undefined) expect(launch).not.toHaveProperty(key);
+    else expect(launch[key]).toBe(expected);
+  });
+
+  it('drops an unknown extra key that cannot be keyed, and keeps one that can', () => {
+    const { loaded } = restoreLaunch({ ...state().launch, futureNumber: 3, futureText: 'a', futureObject: { toString: 0 } });
+    const launch = loaded.launch as unknown as Record<string, unknown>;
+    expect(launch).not.toHaveProperty('futureObject');
+    expect(launch['futureNumber']).toBe(3);
+    expect(launch['futureText']).toBe('a');
+  });
+
+  it('writes one note for several repairs', () => {
+    const { loaded } = restoreLaunch({ ...state().launch, windAverage: '3', temperatureC: '15', geodeticMethod: 1 });
+    expect(noteKinds(loaded).filter(k => k === 'caution:G04.launch-reset')).toHaveLength(1);
+  });
+
+  it.each([
+    ['longitude absent', {}],
+    ['longitude null', { longitudeDeg: null }],
+    ['every optional field', { longitudeDeg: -100, launchRodAimDeg: 15, launchGuideAllowance: false, geodeticMethod: 'wgs84',
+      timeStepS: 0.02, temperatureC: 20, pressureHPa: 900 }],
+  ] as [string, Record<string, unknown>][])('restores a valid launch (%s) exactly, with no note', (_name, extra) => {
+    const launch = { ...state().launch, ...extra };
+    const raw = JSON.stringify({ ...state(), tree: defaultTree(), launch, appVersion: APP_VERSION });
+    localStorage.setItem(KEY, raw);
+    const loaded = loadSession()!;
+    expect(loaded.launch).toStrictEqual(launch);
+    expect(JSON.stringify(loaded.launch)).toBe(JSON.stringify(launch));
+    expect(conditionsKeyOf(loaded.launch)).toBe(conditionsKeyOf(launch as LaunchConditions));
+    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+    expect(localStorage.getItem(KEY)).toBe(raw);
   });
 });
