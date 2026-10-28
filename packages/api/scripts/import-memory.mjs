@@ -108,20 +108,62 @@ function run(probe, mode, file, oldSpaceMiB) {
   const line = child.stdout.split('\n').reverse().find(l => l.startsWith('{'));
   // "[pid:addr] 123 ms: Mark-Compact 45.2 (60.1) -> 30.0 (50.1) MB": heap used before each GC.
   const beforeGc = [...child.stdout.matchAll(/: (?:Scavenge|Mark-Compact|Mark-sweep|Minor Mark-Sweep)[^\d]*([\d.]+) \(/g)].map(m => Number(m[1]));
-  const result = line ? JSON.parse(line) : { ok: false, status: 'crashed', signal: child.signal, code: child.status };
-  return { ...result, peakHeapBeforeGcMB: beforeGc.length ? Math.max(...beforeGc) : null };
+  return { ...classifyRun(child, line), peakHeapBeforeGcMB: beforeGc.length ? Math.max(...beforeGc) : null };
 }
 
-/** The bisection, with the runner passed in (`run` above for the CLI; a stub for its tests). */
+/**
+ * One probe run, classified: `ok`; `oom` when V8 ran out of old space (its
+ * fatal message, or the abort it ends with); `refused` when the probe answered
+ * 413 or 400; `failed` for anything else (a timeout, another crash, another
+ * status). Only `oom` says the cap was too small.
+ */
+export function classifyRun(child, line) {
+  const result = line ? JSON.parse(line) : { ok: false, status: 'crashed', signal: child.signal, code: child.status };
+  if (result.ok) return { ...result, kind: 'ok' };
+  if (child.error?.code === 'ETIMEDOUT') return { ...result, kind: 'failed', error: 'timed out after 600 s' };
+  if (/heap out of memory|Reached heap limit/.test(child.stderr ?? '') || (!line && child.signal === 'SIGABRT')) {
+    return { ...result, kind: 'oom' };
+  }
+  if (result.status === 413 || result.status === 400) return { ...result, kind: 'refused' };
+  return { ...result, kind: 'failed', error: result.error ?? `exited with ${child.signal ?? `code ${child.status}`}` };
+}
+
+/** The largest old space the bisection tries, in MiB. */
+export const MAX_OLD_SPACE_MIB = 1024;
+
+/**
+ * The bisection, with the runner passed in (`run` above for the CLI; a stub for
+ * its tests). Only an out-of-memory run moves it; a refusal or another failure
+ * stops it with the reason, and nothing above MAX_OLD_SPACE_MIB is tried.
+ */
 export async function smallestOldSpace(run, probe, mode, file, reps) {
+  const noCap = { mib: null, stopped: `no passing cap up to ${MAX_OLD_SPACE_MIB.toLocaleString('en-US')} MiB` };
+  /** true: passed; false: out of memory; otherwise the result that stops the search. */
+  const passes = (mib) => {
+    const r = run(probe, mode, file, mib);
+    if (r.ok) return true;
+    if (r.kind === 'oom') return false;
+    return { mib: null, stopped: r.kind === 'refused' ? `refused: ${r.status} ${r.error}` : `failed: ${r.error ?? r.status}` };
+  };
   let low = 4, high = 512; // high must pass; low must fail.
-  if (!run(probe, mode, file, high).ok) return null;
+  let top = passes(high);
+  if (top === false) { low = high; high = MAX_OLD_SPACE_MIB; top = passes(high); }
+  if (top === false) return noCap;
+  if (top !== true) return top;
   while (high - low > 1) {
     const mid = (low + high) >> 1;
-    if (run(probe, mode, file, mid).ok) high = mid; else low = mid;
+    const at = passes(mid);
+    if (at === true) high = mid; else if (at === false) low = mid; else return at;
   }
   // Repeat the boundary: a flaky pass at `high` would understate the cap.
-  for (let r = 0; r < reps; r++) while (!run(probe, mode, file, high).ok) high++;
+  for (let r = 0; r < reps; r++) {
+    for (;;) {
+      const at = passes(high);
+      if (at === true) break;
+      if (at !== false) return at;
+      if (++high > MAX_OLD_SPACE_MIB) return noCap;
+    }
+  }
   return { mib: high, failedAt: high - 1 >= low ? low : null };
 }
 
@@ -144,7 +186,7 @@ async function measure(argv) {
       const ok = uncapped.every(r => r.ok);
       const cap = ok ? await smallestOldSpace(run, probes[which], mode, file, reps) : null;
       rows.push({ points: n, ...stats, tree: which, sha: git(trees[which]), mode, outcome: ok ? 'ok' : uncapped[0].status,
-        refusal: ok ? undefined : uncapped[0].error, minOldSpaceMiB: cap?.mib ?? null,
+        refusal: ok ? undefined : uncapped[0].error, minOldSpaceMiB: cap?.mib ?? null, bisection: cap?.stopped,
         maxRssMiB: ok ? uncapped.map(r => +(r.maxRssKiB / 1024).toFixed(1)) : null,
         peakHeapBeforeGcMB: ok ? uncapped.map(r => r.peakHeapBeforeGcMB) : null,
         afterMiB: ok ? Object.fromEntries(Object.entries(uncapped[0].after).map(([k, v]) => [k, +(v / 2 ** 20).toFixed(1)])) : null });
