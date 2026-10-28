@@ -1,5 +1,5 @@
 {
-  "version": "0.195",
-  "released": "2026-10-26",
-  "note": "The app takes the Mountain Man Rockets look: a navy theme, the Archivo and IBM Plex Mono fonts, the MMRocket Sim logo, and chart lines that carry a line pattern as well as a colour. No simulation number changes."
+  "version": "0.196",
+  "released": "2026-10-28",
+  "note": "The motor catalogue check reads MMRocket Sim's own curated catalogue instead of thrustcurve.org and runs by itself at most every six hours; more screen-reader alerts announce reliably; several import, save and stored-data fixes. No simulation number changes."
 }
