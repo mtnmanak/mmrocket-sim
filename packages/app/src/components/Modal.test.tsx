@@ -75,6 +75,22 @@ describe('Modal', () => {
     expect(card.getAttribute('aria-label')).toBe('Unsaved changes');
     // tabIndex so the card can hold focus even before it has a focusable child.
     expect(card.getAttribute('tabindex')).toBe('-1');
+    // No description unless one is named: the other modals render as before.
+    expect(card.hasAttribute('aria-describedby')).toBe(false);
+  });
+
+  it('names its description on the card when given one (row 113 (c))', () => {
+    act(() => root.render(
+      <Modal label="Run a large batch?" describedBy="batch-warning" onClose={() => {}}>
+        <h2>Run a large batch?</h2>
+        <p id="batch-warning">A very long run.</p>
+        <button>Cancel</button>
+      </Modal>,
+    ));
+    const card = container.querySelector('.modal-card')!;
+    expect(card.getAttribute('role')).toBe('dialog');
+    expect(card.getAttribute('aria-describedby')).toBe('batch-warning');
+    expect(container.querySelector('.modal-backdrop')!.hasAttribute('aria-describedby')).toBe(false);
   });
 
   it('moves focus into the modal on open and back to the opener on close', () => {

@@ -9,7 +9,7 @@ import {
 } from '../services/batchCriteria.js';
 // App retains this re-export until its owning lane updates the import (audit 2026-10-11, S3a-7).
 export { batchUnavailableReason } from '../services/batchCriteria.js';
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { MountMotor } from '../model/design.js';
 import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 import { useBackdropClose, useDialog } from './useDialog.js';
@@ -487,6 +487,8 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
   const [confirmedSweep, setConfirmedSweep] = useState<object | null>(null);
   const armed = batchConfirmationArmed(confirmedSweep, sweepIdentity, totalFlights, refusal);
   const runAnyway = totalFlights > BATCH_RUN_ANYWAY_ABOVE_FLIGHTS;
+  /** The "Run a large batch?" dialog's warning, which describes it. */
+  const confirmWarningId = useId();
 
   return (
     <>
@@ -891,9 +893,12 @@ export function BatchSimulate({ configurationForMount, overrideSummaryForMount, 
       </div>
     </div>
     {armed && runAnyway && !running && (
-      <Modal label="Run a large batch?" onClose={() => setConfirmedSweep(null)}>
+      // The warning is the dialog's description, read with its name when it
+      // opens and takes focus, rather than an alert of its own inside it
+      // (owner ruling, row 113 (c)).
+      <Modal label="Run a large batch?" describedBy={confirmWarningId} onClose={() => setConfirmedSweep(null)}>
         <h2>Run a large batch?</h2>
-        <p role="alert">{batchConfirmWarning(totalFlights, estimate)}</p>
+        <p id={confirmWarningId}>{batchConfirmWarning(totalFlights, estimate)}</p>
         <div className="modal-actions">
           <button className="file-btn" onClick={() => setConfirmedSweep(null)}>Cancel</button>
           <div className="batch-launch-group">

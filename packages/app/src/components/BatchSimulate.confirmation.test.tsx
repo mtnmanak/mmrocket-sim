@@ -116,7 +116,13 @@ describe('large batch confirmation', () => {
     expect(sweep).not.toHaveBeenCalled();
     expect(dialog()?.textContent).toContain(`${flights.toLocaleString('en-US')} flights`);
     expect(dialog()?.textContent).toMatch(/about \d+ h/);
-    expect(dialog()?.querySelector('[role="alert"]')?.textContent).toContain(`${flights.toLocaleString('en-US')} flights`);
+    // The warning is the dialog's description, read with its name on open, not
+    // a second alert inside it (row 113 (c)).
+    const warning = document.getElementById(dialog()!.getAttribute('aria-describedby') ?? '');
+    expect(warning?.tagName).toBe('P');
+    expect(dialog()!.contains(warning)).toBe(true);
+    expect(warning!.hasAttribute('role')).toBe(false);
+    expect(warning!.textContent).toContain(`${flights.toLocaleString('en-US')} flights`);
     expect(document.activeElement).toBe(button('Cancel'));
     // Repeating the original action must never count as confirmation.
     await click(primary());
