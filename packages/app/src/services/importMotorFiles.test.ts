@@ -220,3 +220,14 @@ it('F imports a RockSim XML motor file named .txt', async () => {
   expect(out.write?.motors.map((m) => m.designation)).toEqual(['E20']);
   expect(out.parsed[0]!.realManufacturer).toBe('Maker');
 });
+
+it('says the stored library was unreadable, not full, when it refuses to write over it', async () => {
+  vi.resetModules();
+  const { importMotorFiles: read } = await import('./importMotorFiles.js');
+  localStorage.setItem('online-openrocket.ex-motors.v1', '{broken');
+  const out = await read([new File(['Kept 18 70 P 0.01 0.02 KeptMaker\n0 0\n0.5 20\n1 0'], 'kept.eng')]);
+  expect(out.write?.stored).toBe(false);
+  expect(out.error).toContain('the stored motor library could not be read, so the app left it unchanged');
+  expect(out.error).not.toContain('full or blocked');
+  expect(localStorage.getItem('online-openrocket.ex-motors.v1')).toBe('{broken');
+});

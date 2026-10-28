@@ -256,6 +256,8 @@ export function loadExMotors(notes?: string[], units: UnitSelection = INITIAL_UN
 export interface ExLibraryWrite {
   motors: ExMotor[];
   stored: boolean;
+  /** Not written because the stored library is not a list the app can read; it was left unchanged. */
+  unreadable?: true;
 }
 
 // A re-import keeps its id; mounted nozzle consumers must still refresh
@@ -273,6 +275,25 @@ function changedLibrary(): void {
 }
 
 /**
+ * THE STORED ENTRIES A WRITE KEEPS (cloud session 20, the My parts rule of audit
+ * S7-3). loadExMotors refuses entries that fail validExMotor (a damaged one, or
+ * one a newer build wrote) and reads a non-list as empty; add, delete and
+ * restore wrote what it returned, so one write erased them. They are kept
+ * verbatim, ahead of the library, unless they carry the id of a motor this
+ * write stores or removes: a re-import is the remedy the I15 note gives. Null
+ * when the stored value is not a list the app can read: nothing may be written
+ * over it. Blocked storage reads as empty, so the write fails as it always did.
+ */
+function refusedStoredEntries(ids: ReadonlySet<string>): unknown[] | null {
+  let raw: string | null;
+  try { raw = localStorage.getItem(KEY); } catch { return []; }
+  let list: unknown;
+  try { list = raw ? JSON.parse(raw) : []; } catch { return null; }
+  if (!Array.isArray(list)) return null;
+  return list.filter(v => !validExMotor(v) && !(record(v) && typeof v['motorId'] === 'string' && ids.has(v['motorId'])));
+}
+
+/**
  * Writes the library, and says whether it stuck (audit 2026-09-22).
  *
  * localStorage is one ~5 MB pool per origin, and an EX library can be most of
@@ -282,8 +303,14 @@ function changedLibrary(): void {
  * fails too the list lives in memory for the session and `stored` is false, so
  * the caller can say so instead of promising it survives a reload.
  */
-function persist(motors: ExMotor[]): ExLibraryWrite {
-  const json = JSON.stringify(motors);
+function persist(motors: ExMotor[], removed: readonly string[] = []): ExLibraryWrite {
+  const kept = refusedStoredEntries(new Set([...motors.map(m => m.motorId), ...removed]));
+  if (kept === null) {
+    unstored = motors;
+    changedLibrary();
+    return { motors, stored: false, unreadable: true };
+  }
+  const json = JSON.stringify([...kept, ...motors]);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       localStorage.setItem(KEY, json);
@@ -400,7 +427,7 @@ export function addExMotors(added: ExMotor[]): ExImport {
 }
 
 export function deleteExMotor(motorId: string): ExMotor[] {
-  return persist(loadExMotors().filter((m) => m.motorId !== motorId)).motors;
+  return persist(loadExMotors().filter((m) => m.motorId !== motorId), [motorId]).motors;
 }
 
 export function getExMotor(motorId: string): ExMotor | undefined {

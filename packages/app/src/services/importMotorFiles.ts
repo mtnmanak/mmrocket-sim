@@ -95,8 +95,9 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
   const write = parsed.length ? addExMotors(parsed) : null;
   const unsaved = write !== null && !write.stored;
   if (parsed.length > 0) sessionDebugLog.record('import-complete');
-  if (unsaved) sessionDebugLog.record('import-storage-failed',
-    'Motor storage is full or blocked; imported motors are available only for this session.');
+  if (unsaved) sessionDebugLog.record('import-storage-failed', write.unreadable
+    ? 'The stored motor library could not be read; imported motors are available only for this session.'
+    : 'Motor storage is full or blocked; imported motors are available only for this session.');
   const some = (names: string[]) => `${names.slice(0, 6).join(', ')}${names.length > 6 ? ', …' : ''}`;
   if (write?.duplicates.length) {
     said.push(`${some(write.duplicates)}: listed more than once with different data — each copy is kept `
@@ -113,7 +114,11 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
     // Say "survive reloads" only when they do (audit 2026-09-22). A full
     // browser storage used to be swallowed here, and the motors then could
     // not even fly: every reader went back to storage and found nothing.
-    if (unsaved) {
+    if (unsaved && write.unreadable) {
+      problems.push(`Imported ${list}, but the stored motor library could not be read, so the app left it unchanged `
+        + 'and did NOT save them — they fly in this session and are gone after a reload.');
+      if (said.length) notice = said.join(' · ');
+    } else if (unsaved) {
       problems.push(`Imported ${list}, but this browser's storage is full or blocked, so they are NOT saved — `
         + 'they fly in this session and are gone after a reload. Free some room (the saved-runs '
         + 'table, or imported motors you no longer need) and import them again to keep them.');
