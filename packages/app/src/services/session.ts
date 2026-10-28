@@ -432,33 +432,6 @@ function readSession(restoreRoot: boolean): SessionState | null {
       }
       s.savedConfigs = configs;
     }
-    for (const cfg of s.savedConfigs ?? []) {
-      for (const [id, value] of Object.entries(cfg.nozzles ?? {})) {
-        const bounded = boundedNozzleDiameter(value);
-        if (bounded !== value) {
-          cfg.nozzles![id] = bounded;
-          cautionNote(s.treeRestoreNotes ??= [], 'G04.nozzle-repaired',
-            `Saved configuration ${savedConfigLabel(cfg)}: an invalid or oversized nozzle exit diameter was repaired. Check the nozzle before flying.`);
-        }
-      }
-      if (isTable(cfg.stageActiveness)) {
-        cfg.stageActiveness = lookupTable(Object.fromEntries(
-          Object.entries(cfg.stageActiveness).filter(([, value]) => typeof value === 'boolean'),
-        ));
-      } else {
-        delete cfg.stageActiveness;
-      }
-    }
-    // Older configuration maps used 0 as a removal command, not persistent OFF.
-    // Preserve their automatic behavior; tree values themselves are untouched.
-    if (s.nozzleModeVersion !== 1) {
-      for (const cfg of s.savedConfigs ?? []) {
-        for (const [id, value] of Object.entries(cfg.nozzles ?? {})) {
-          if (value === 0) cfg.nozzles![id] = null;
-        }
-      }
-      s.nozzleModeVersion = 1;
-    }
     const validMotor = (mm: unknown): mm is MountMotor => {
       if (!isTable(mm)) return false;
       const spec = mm['spec'], meta = mm['meta'];
@@ -499,7 +472,52 @@ function readSession(restoreRoot: boolean): SessionState | null {
     if (motorsRemoved) {
       cautionNote(s.treeRestoreNotes ??= [], 'G04.motors-removed', 'Unreadable motor records were removed.');
     }
+    // A configuration's `unmatched` is display text derived from its references
+    // (configSync); one that is not a list of names is rebuilt from them once
+    // they are screened below. Nothing reads it before then.
+    const unmatchedRebuilt = new Set<number>();
+    (s.savedConfigs ?? []).forEach((cfg, i) => {
+      if (cfg.unmatched !== undefined && !(Array.isArray(cfg.unmatched) && cfg.unmatched.every(d => typeof d === 'string'))) {
+        delete cfg.unmatched;
+        unmatchedRebuilt.add(i);
+      }
+    });
+    for (const cfg of s.savedConfigs ?? []) {
+      for (const [id, value] of Object.entries(cfg.nozzles ?? {})) {
+        const bounded = boundedNozzleDiameter(value);
+        if (bounded !== value) {
+          cfg.nozzles![id] = bounded;
+          cautionNote(s.treeRestoreNotes ??= [], 'G04.nozzle-repaired',
+            `Saved configuration ${savedConfigLabel(cfg)}: an invalid or oversized nozzle exit diameter was repaired. Check the nozzle before flying.`);
+        }
+      }
+      if (isTable(cfg.stageActiveness)) {
+        cfg.stageActiveness = lookupTable(Object.fromEntries(
+          Object.entries(cfg.stageActiveness).filter(([, value]) => typeof value === 'boolean'),
+        ));
+      } else {
+        delete cfg.stageActiveness;
+      }
+    }
+    // Older configuration maps used 0 as a removal command, not persistent OFF.
+    // Preserve their automatic behavior; tree values themselves are untouched.
+    if (s.nozzleModeVersion !== 1) {
+      for (const cfg of s.savedConfigs ?? []) {
+        for (const [id, value] of Object.entries(cfg.nozzles ?? {})) {
+          if (value === 0) cfg.nozzles![id] = null;
+        }
+      }
+      s.nozzleModeVersion = 1;
+    }
     s = sanitizeSessionFlightLayers(s);
+    if (unmatchedRebuilt.size) {
+      for (const i of unmatchedRebuilt) {
+        const cfg = s.savedConfigs![i]!;
+        const refs = Object.values(cfg.unmatchedRefs ?? {});
+        if (refs.length) cfg.unmatched = refs.map(r => r.designation);
+      }
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.unmatched-rebuilt', 'Unreadable lists of unmatched motors were rebuilt from the motor references.');
+    }
     // Revive plugged ejection delays (persisted as "Infinity" — JSON has no
     // Infinity literal; a plain stringify would have stored null). The
     // Stage B config presets carry the same MountMotor shape.

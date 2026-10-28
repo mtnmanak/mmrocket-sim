@@ -3351,3 +3351,23 @@ async function chooseConfiguration(host: HTMLElement, id: string) {
     select.value = id; select.dispatchEvent(new Event('change', { bubbles: true })); select.focus();
   });
 }
+
+/**
+ * STORED-STATE HARDENING (cloud session 10), as a user meets it: an autosave
+ * someone edited by hand restores with a notice, and Save and the
+ * configuration panel still work.
+ */
+describe('a hand-edited autosave', () => {
+  it('renders the configuration panel for an unnamed configuration with an unreadable unmatched list', async () => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: defaultTree(), mountMotors: {},
+      savedConfigs: [{ id: 'cfg', name: null, isDefault: true, motors: {}, unmatched: 5 }], activeConfigId: 'cfg', emptyConfigVersion: 1,
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+    const host = await mountApp();
+    await settle(50);
+    await openTab(host, 'Motors & Configuration');
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Flight configuration"]');
+    expect(select).not.toBeNull();
+    expect([...select!.options].map(o => o.textContent)).toContain('No motors — file default');
+    expect(host.textContent).toContain('Unreadable lists of unmatched motors were rebuilt');
+  });
+});

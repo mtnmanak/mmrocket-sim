@@ -21,6 +21,7 @@ import { mountMotorFromDb } from './motorMatch.js';
 import { autosavedDesignFile } from './autosaveBackup.js';
 import { designStateFromSession } from './sessionRestore.js';
 import { findNode, normalizeTree } from '../tree/treeModel.js';
+import type { SessionState } from './session.js';
 import { MAX_STORED_WARNINGS } from './storedWarnings.js';
 import { tierLines } from './importNotes.js';
 
@@ -1216,4 +1217,61 @@ it('lane C S1c-2 uses the shared Mach-Alt limit on session reload', async () => 
     expect(validMachAltTable([[0, 0], [1, 10]])).toEqual([[0, 0], [1, 10]]);
     expect(validMachAltTable([[0, 0], [1, 10], [2, 20]])).toBeNull();
   } finally { vi.doUnmock('./machAltLimits.js'); vi.resetModules(); }
+});
+
+/**
+ * STORED-STATE HARDENING (cloud session 10). An autosave is anything's to
+ * write; one malformed entry must cost that entry, with a restore note, and
+ * never the design or a later Save.
+ */
+describe('stored-state hardening: a configuration is screened before its label is read', () => {
+  const KEY = 'online-openrocket.session.v1';
+  const noteKinds = (loaded: SessionState) =>
+    designStateFromSession(loaded, { legacyMaxMotorLengthM: null }).restoreNoteTiers.map(n => `${n.tier}:${n.kind}`);
+  beforeEach(() => discardSession());
+  it.each([
+    ['motors { m: null }', { motors: { m: null } }],
+    ['unmatched 5', { motors: {}, unmatched: 5 }],
+    ['unmatched {}', { motors: {}, unmatched: {} }],
+  ])('restores an unnamed configuration with %s and a nozzle repair, and keeps the slot', async (_name, fields) => {
+    const { MAX_DIMENSION_M } = await import('../tree/schema.js');
+    const raw = JSON.stringify({ ...state(), nozzleModeVersion: 1,
+      savedConfigs: [{ id: 'B', name: null, isDefault: true, ...fields, nozzles: { s: MAX_DIMENSION_M * 2 } }] });
+    localStorage.setItem(KEY, raw);
+    const loaded = loadSession();
+    expect(loaded).not.toBeNull();
+    expect(loaded!.savedConfigs).toHaveLength(1);
+    expect(loaded!.savedConfigs![0]!.nozzles!.s).toBe(MAX_DIMENSION_M);
+    expect(loaded!.treeRestoreNotes?.join(' ')).toContain('Saved configuration No motors:');
+    expect(loaded!.treeRestoreNotes?.length).toBeGreaterThan(1);
+    // The next autosave writes the restored design, not a starter over it.
+    saveSessionDebounced(loaded!);
+    vi.runAllTimers();
+    expect(JSON.parse(localStorage.getItem(KEY)!).savedConfigs[0].id).toBe('B');
+  });
+  it.each([5, {}, 'K550W', ['K550W', 7]] as unknown[])('repairs a stored unmatched list %j from the screened references', unmatched => {
+    const ref = { designation: 'K550W', diameter: 0.054, length: 0.4, delay: 10 };
+    localStorage.setItem(KEY, JSON.stringify({ ...state(), configLayers: 1,
+      savedConfigs: [{ id: 'B', name: null, isDefault: true, motors: {}, unmatched, unmatchedRefs: { m: ref } }] }));
+    const loaded = loadSession()!;
+    expect(loaded.savedConfigs![0]!.unmatched).toEqual(['K550W']);
+    expect(noteKinds(loaded)).toContain('caution:G04.unmatched-rebuilt');
+  });
+  it('drops a stored unmatched list with no references to rebuild it from', () => {
+    localStorage.setItem(KEY, JSON.stringify({ ...state(),
+      savedConfigs: [{ id: 'B', name: null, isDefault: true, motors: {}, unmatched: 5 }] }));
+    const loaded = loadSession()!;
+    expect(loaded.savedConfigs![0]).not.toHaveProperty('unmatched');
+    expect(noteKinds(loaded)).toContain('caution:G04.unmatched-rebuilt');
+    expect(() => designStateFromSession(loaded, { legacyMaxMotorLengthM: null })).not.toThrow();
+  });
+  it('leaves a valid unnamed configuration unchanged, with no note', () => {
+    const ref = { designation: 'K550W', diameter: 0.054, length: 0.4, delay: 10 };
+    const raw = JSON.stringify({ ...state(), configLayers: 1, nozzleModeVersion: 1,
+      savedConfigs: [{ id: 'B', name: null, isDefault: true, motors: {}, unmatched: ['K550W'], unmatchedRefs: { m: ref } }] });
+    localStorage.setItem(KEY, raw);
+    const loaded = loadSession()!;
+    expect(JSON.stringify(loaded.savedConfigs)).toBe(JSON.stringify(JSON.parse(raw).savedConfigs));
+    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+  });
 });
