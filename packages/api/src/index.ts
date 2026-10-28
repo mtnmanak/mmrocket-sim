@@ -5,7 +5,7 @@ import {
   commentsOf, formatWarning, createJsXmlParser, XmlBudgetExceededError, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser,
   simulateFile, SimulateDesignError, type TimedSimulateFileResult, describeFile, type DescribeFileResult, SHARE_TOO_LARGE_ERROR_NAME,
 } from '../../app/src/headless/index.js';
-import { filenameEcho } from './filenameEcho.js';
+import { displayEcho, filenameEcho } from './filenameEcho.js';
 import { stampedJson } from './stamp.js';
 
 // 185 local XML/design files: max 40,610 elements, depth 14, including stored
@@ -151,7 +151,7 @@ export const worker = {
         // the fragment compression after it run outside, so the watchdog's microtask-only
         // assumption holds. No flight, auto-delay solve or Mach probe.
         const description = describeFile(data, filename, {
-          kernelDeadHolderMs: 10_000, maxInflatedBytes: MAX_API_INFLATED_BYTES,
+          kernelDeadHolderMs: 10_000, maxInflatedBytes: MAX_API_INFLATED_BYTES, designName: displayEcho,
         });
         ctx.waitUntil(description.catch(() => undefined));
         return stampedJson(described(await description));
@@ -179,6 +179,8 @@ export const worker = {
       const flight = simulateFile(data, filename, {
         network: 'forbid', reportSeries: 'summary', yieldToUi: () => Promise.resolve(),
         kernelDeadHolderMs: 10_000, minTimeStepS: MIN_API_TIME_STEP_S, maxInflatedBytes: MAX_API_INFLATED_BYTES,
+        // The design's name, as every response shows it: bounded and made safe like the filename echo.
+        designName: displayEcho,
       });
       // Defence in depth: keep the real flight and its cleanup alive after disconnect.
       ctx.waitUntil(flight.catch(() => undefined));
