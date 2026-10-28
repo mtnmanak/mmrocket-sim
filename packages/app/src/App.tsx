@@ -92,7 +92,7 @@ import { AftView } from './components/AftView.js';
 import { View3DBoundary } from './components/View3DBoundary.js';
 import { PanelBoundary } from './components/PanelBoundary.js';
 import { motorTooltip, restoreConfigLabels, restoreMotorLabels } from './services/motorLabels.js';
-import { getCatalogue, subscribeCatalogue } from './services/motorDb.js';
+import { getCatalogue, getCatalogueOverlay, subscribeCatalogue, type CatalogueOverlay } from './services/motorDb.js';
 import { useCatalogue } from './components/useCatalogue.js';
 import { loadCatalogueMotor, matchImportedMotor } from './services/motorMatch.js';
 import { changedMotorsInDesign, designChangeLine, restoreCatalogueOverlay } from './services/catalogueOverlay.js';
@@ -1035,15 +1035,29 @@ export function App() {
   // says so once, in the message strip; every other automatic result stays
   // silent. The button's own result says it in the motor browser instead, and
   // never arrives here.
-  const [catalogueNotice, setCatalogueNotice] = useState<Notice | null>(null);
+  // Derived, not stored: the notice lasts only while the very motor specs it was about are still
+  // loaded. Picking the motor again, a new design, an open or an import replaces the spec, and a
+  // Discard removes the overlay, so none of them leaves a stale "pick the motor again" behind
+  // (Gemini review of 28 Oct, verified). A label refresh keeps the spec, so it keeps the notice.
+  const [catalogueChange, setCatalogueChange] = useState<{ overlay: CatalogueOverlay; specs: ReadonlySet<MotorSpec> } | null>(null);
+  const loadedForCatalogue = (entries: MountMotor[]) => entries
+    .map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer, motorId: x.meta.motorId }));
   useEffect(() => subscribeAutomaticCatalogueResult((overlay) => {
-    const mine = changedMotorsInDesign(overlay, Object.values(mountMotors)
-      .map((x) => ({ label: x.label, manufacturer: x.meta.manufacturer, motorId: x.meta.motorId })));
-    if (mine.length) {
-      setCatalogueNotice({ id: 'catalogue-changed-motor', severity: 'warn', text: designChangeLine(mine),
-        onDismiss: () => setCatalogueNotice(null) });
+    const entries = Object.values(mountMotors);
+    if (changedMotorsInDesign(overlay, loadedForCatalogue(entries)).length) {
+      setCatalogueChange({ overlay, specs: new Set(entries.map((x) => x.spec)) });
     }
   }), [mountMotors]);
+  const catalogueNotice = useMemo<Notice | null>(() => {
+    if (!catalogueChange) return null;
+    const still = Object.values(mountMotors).filter((x) => catalogueChange.specs.has(x.spec));
+    const mine = changedMotorsInDesign(catalogueChange.overlay, loadedForCatalogue(still));
+    return mine.length ? { id: 'catalogue-changed-motor', severity: 'warn', text: designChangeLine(mine),
+      onDismiss: () => setCatalogueChange(null) } : null;
+  }, [catalogueChange, mountMotors]);
+  useEffect(() => subscribeCatalogue(() => {
+    if (!getCatalogueOverlay()) setCatalogueChange(null);
+  }), []);
 
   const catalogue = useCatalogue();
   useEffect(() => subscribeCatalogue(() => {

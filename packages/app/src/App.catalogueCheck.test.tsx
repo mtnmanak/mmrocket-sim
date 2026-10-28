@@ -125,6 +125,20 @@ it('an automatic result that changes a loaded motor says so once in the message 
   expect(after.spec).toEqual(before.spec);
 }, 30_000);
 
+// The notice is derived from what is loaded: a Discard of the fetched catalogue takes it away
+// (Gemini review of 28 Oct, verified; a re-pick, new design or open replaces the spec the same way).
+it('a Discard of the fetched catalogue takes the automatic result\'s notice away', async () => {
+  const changed = { ...C6, totImpulseNs: C6.totImpulseNs + 0.5 };
+  const pub = await publication(`${daysAfter(MOTOR_DB_DATE, 2)}.2`, MOTOR_DB.map(m => m.motorId === C6.motorId ? changed : m));
+  stubFetch(catalogueFetch(manifestOf(pub), [pub]));
+  await mountApp();
+  await waitFor(starterStored, 'the starter motor');
+  expect(await startCatalogueAutoCheck()).toBe('checked');
+  await waitFor(() => /In this design/.test(notice()), 'the notice');
+  await act(async () => { discardCatalogueOverlay(); });
+  await waitFor(() => !/In this design/.test(notice()), 'the notice to go');
+}, 30_000);
+
 it('an automatic result that changes no loaded motor shows nothing; the button\'s result never reaches the strip', async () => {
   const other = MOTOR_DB.find(m => m.motorId !== C6.motorId && m.manufacturerAbbrev === 'AeroTech')!;
   const pub = await publication(`${daysAfter(MOTOR_DB_DATE, 2)}.2`, MOTOR_DB.map(m => m.motorId === other.motorId ? { ...m, totImpulseNs: m.totImpulseNs + 1 } : m));
