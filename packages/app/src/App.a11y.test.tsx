@@ -211,10 +211,15 @@ describe('App — accessibility, as rendered', () => {
       ] } };
     });
     const host = await mountApp();
-    const region = host.querySelector('.sr-only[role="alert"]:not(.notice-announce)')!;
+    // The flight-warnings region is the only assertive sr-only alert: the
+    // always-mounted message regions (sr-only while empty) carry no aria-live.
+    const warningsRegion = '.sr-only[role="alert"][aria-live="assertive"]:not(.notice-announce)';
+    expect(host.querySelectorAll(warningsRegion)).toHaveLength(1);
+    const region = host.querySelector(warningsRegion)!;
     expect(region.textContent).toBe('');
     await launch(host);
-    expect(host.querySelector('.sr-only[role="alert"]:not(.notice-announce)')).toBe(region);
+    expect(host.querySelectorAll(warningsRegion)).toHaveLength(1);
+    expect(host.querySelector(warningsRegion)).toBe(region);
     expect(region.textContent).toContain('An unmapped recorded event');
     const visible = [...host.querySelectorAll('.flight-notes p')].find(p => p.textContent?.includes('An unmapped recorded event'))!;
     expect(visible).toBeDefined();
