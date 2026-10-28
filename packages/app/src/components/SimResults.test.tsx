@@ -1292,7 +1292,9 @@ describe('SimHistory — stored runs with no motor or no landing (cloud session 
   it('shows Unknown motor and a stopped flight in the table, read back from the store', () => {
     localStorage.setItem('online-openrocket.sim-runs.v1', JSON.stringify([
       { ...run(), id: 'no-motor', motor: '', manufacturer: 'Estes' },
-      { ...run(), id: 'limit', motor: 'LIMIT-1', manufacturer: '', totalFlightTime: 1200, safeLandingRate: true, simWarnings: [] },
+      { ...run(), id: 'limit', motor: 'LIMIT-1', manufacturer: '', totalFlightTime: 1200,
+        groundHitVelocity: null, landingRate: null, safeLandingRate: null, landingDistanceM: null, landingBearingDeg: null,
+        deployments: (run().deployments ?? []).map(d => ({ ...d, descentRate: null, groundSpeed: null, descentOk: null })), simWarnings: [] },
       { ...run(), id: 'reference', motor: 'REF-1', manufacturer: '' },
     ]));
     render(<SimHistory runs={loadRuns()} onRunsChange={() => {}} />);

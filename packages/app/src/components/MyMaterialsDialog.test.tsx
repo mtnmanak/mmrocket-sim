@@ -273,12 +273,16 @@ it('refuses an import when an earlier different copy holds the side key', async 
   expect(localStorage.getItem(USER_MATERIALS_KEY)).toBe('{broken');
   expect(host.querySelector('[role="status"]')!.textContent).toContain('My materials could not be read from browser storage, so the app left them unchanged.');
 });
-it('deletes a material and keeps a stored entry the library could not show', () => {
+it.each([false, true])('deletes a material and preserves unreadable entries in the backup or live list (occupied backup: %s)', occupied => {
   const unreadable = { kind: 'solid', name: 'From a newer build', density: 5 };
-  localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([unreadable, { kind: 'bulk', name: 'Mix', density: 900 }]));
+  const raw = JSON.stringify([unreadable, { kind: 'bulk', name: 'Mix', density: 900 }]);
+  const side = USER_MATERIALS_KEY + '.unreadable-backup';
+  localStorage.setItem(USER_MATERIALS_KEY, raw);
+  if (occupied) localStorage.setItem(side, 'older');
   mount();
   click(button('Delete bulk material Mix'));
   click(button('Delete material'));
   expect(host.textContent).toContain('Material deleted.');
-  expect(JSON.parse(localStorage.getItem(USER_MATERIALS_KEY)!)).toEqual([unreadable]);
+  expect(JSON.parse(localStorage.getItem(USER_MATERIALS_KEY)!)).toEqual(occupied ? [unreadable] : []);
+  expect(localStorage.getItem(side)).toBe(occupied ? 'older' : raw);
 });

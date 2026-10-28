@@ -38,7 +38,7 @@ it.each(['overlay', 'shipped'])('loads network masses for a %s motor absent from
     liveCount: MOTOR_DB.length + 1, added: source === 'overlay' ? [motor] : [], changed: [], removed: [], rejected: [] };
   setCatalogueOverlay(source === 'overlay' ? overlay : null);
   if (source === 'shipped') expect(await knownNoPublishedCurve(motor.motorId)).toBe(true);
-  const fetcher = vi.fn(async () => new Response(JSON.stringify({ results: [{ format: 'RASP',
+  const fetcher = vi.fn(async () => new Response(JSON.stringify({ results: [{ motorId: motor.motorId, format: 'RASP',
     samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 40 }, { time: 2, thrust: 0 }],
     data: btoa('ClosureNew 29 100 P 0.05 0.1 Home\n0 0\n1 40\n2 0'),
   }] }), { headers: { 'Content-Type': 'application/json' } }));
@@ -63,7 +63,10 @@ it.each(['overlay', 'shipped'])('loads network masses for a %s motor absent from
       await act(async () => { setCatalogueOverlay(overlay); });
       await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
     }
-    expect(row.getAttribute('aria-disabled')).toBeNull();
+    await vi.waitFor(async () => {
+      await act(async () => {});
+      expect(row.getAttribute('aria-disabled')).toBeNull();
+    });
     await act(async () => row.click());
     const load = [...host.querySelectorAll<HTMLButtonElement>('.motor-load-row button')].find(b => b.textContent?.includes('Load'))!;
     await act(async () => {

@@ -33,6 +33,8 @@ export const XML_JS_SUITES = [
   'src/services/rasaeroFile.laneAudit.test.ts',
   'src/services/rocksimFile.audit.test.ts',
   'src/services/comparisonProducers.test.ts',
+  // F8/F9: restored flight data survives a file round-trip through either parser.
+  'src/services/storedStateRepairs.test.ts',
   'src/services/noticeBoundaries.test.ts',
   'src/services/noticeFollowup.test.ts',
   'src/App.instances.test.tsx',
