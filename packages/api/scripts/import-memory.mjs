@@ -6,10 +6,15 @@
  * files from the committed reference.ork, then runs the SAME bytes through a
  * baseline source tree and this one, each request in a fresh Node process.
  *
- *   node packages/api/scripts/import-memory.mjs gen <points> [columns] [out.ork]
+ *   node packages/api/scripts/import-memory.mjs gen <points> [columns] [out.ork] [shape]
  *       Writes one design and prints its exact size and structure.
  *   node packages/api/scripts/import-memory.mjs measure --baseline <tree> [--changed <tree>]
  *       [--points 1000,4000,16000,40000] [--columns 52] [--reps 3] [--mode import|fly]
+ *       [--shape samples|extension|rows|attributes|text]
+ *
+ * `--shape` (storedFlight.testSupport.ts keptShapeXml): `samples` (the default) is
+ * the stored flight the API omits; the others are content the API keeps for the
+ * DOM, sized by `--points` (datapoints, nodes or text code units).
  *
  * A <tree> is a checkout root (for the baseline, `git worktree add <dir> <sha>`).
  * Each tree's packages/api/src/index.ts is bundled with esbuild (ESM, minified,
@@ -65,10 +70,10 @@ async function storedFlight() {
   return generator;
 }
 
-async function generate(points, columns) {
-  const { storedFlightXml, xmlStats } = await storedFlight();
+async function generate(points, columns, shape = 'samples') {
+  const { keptShapeXml, xmlStats } = await storedFlight();
   const { zipSync, strToU8 } = await import('fflate');
-  const xml = storedFlightXml({ simulations: [{ points }] }, columns);
+  const xml = keptShapeXml(shape, points, columns);
   const zip = zipSync({ 'rocket.ork': strToU8(xml) });
   return { xml, zip, stats: { ...xmlStats(xml), zipBytes: zip.byteLength } };
 }
@@ -174,18 +179,19 @@ async function measure(argv) {
   const columns = Number(opt('columns', '52'));
   const reps = Number(opt('reps', '3'));
   const mode = opt('mode', 'import');
+  const shape = opt('shape', 'samples');
   const probes = { baseline: await probeFor(trees.baseline, 'baseline'), changed: await probeFor(trees.changed, 'changed') };
   const git = root => spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
   const rows = [];
   for (const n of points) {
-    const { zip, stats } = await generate(n, columns);
-    const file = join(work, `stored-${n}.ork`);
+    const { zip, stats } = await generate(n, columns, shape);
+    const file = join(work, `${shape}-${n}.ork`);
     writeFileSync(file, zip);
     for (const which of ['baseline', 'changed']) {
       const uncapped = Array.from({ length: reps }, () => run(probes[which], mode, file));
       const ok = uncapped.every(r => r.ok);
       const cap = ok ? await smallestOldSpace(run, probes[which], mode, file, reps) : null;
-      rows.push({ points: n, ...stats, tree: which, sha: git(trees[which]), mode, outcome: ok ? 'ok' : uncapped[0].status,
+      rows.push({ shape, points: n, ...stats, tree: which, sha: git(trees[which]), mode, outcome: ok ? 'ok' : uncapped[0].status,
         refusal: ok ? undefined : uncapped[0].error, minOldSpaceMiB: cap?.mib ?? null, bisection: cap?.stopped,
         maxRssMiB: ok ? uncapped.map(r => +(r.maxRssKiB / 1024).toFixed(1)) : null,
         peakHeapBeforeGcMB: ok ? uncapped.map(r => r.peakHeapBeforeGcMB) : null,
@@ -193,7 +199,7 @@ async function measure(argv) {
       console.error(JSON.stringify(rows.at(-1)));
     }
   }
-  console.log(JSON.stringify({ node: process.version, reps, columns, mode, trees, rows }, null, 2));
+  console.log(JSON.stringify({ node: process.version, reps, columns, mode, shape, trees, rows }, null, 2));
 }
 
 async function main() {
@@ -201,7 +207,7 @@ async function main() {
   try {
     const [command, ...rest] = process.argv.slice(2);
     if (command === 'gen') {
-      const { zip, stats } = await generate(Number(rest[0]), Number(rest[1] ?? 52));
+      const { zip, stats } = await generate(Number(rest[0]), Number(rest[1] ?? 52), rest[3] ?? 'samples');
       if (rest[2]) writeFileSync(rest[2], zip);
       console.log(JSON.stringify(stats));
     } else if (command === 'measure') await measure(rest);

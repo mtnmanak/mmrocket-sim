@@ -144,16 +144,56 @@ export function storedFlightXml(design: StoredFlightDesign, columns = TYPES.leng
   return xml.replace('<simulations>\n  </simulations>', `<simulations>\n${out.join('')}  </simulations>`);
 }
 
-/** Exact structure of a generated file, counted by saxes: what the measurement reports. */
-export function xmlStats(xml: string): { chars: number; utf8Bytes: number; elements: number; maxDepth: number; datapoints: number } {
-  let elements = 0, depth = 0, maxDepth = 0, datapoints = 0;
+/**
+ * Exact structure of a generated file, counted by saxes: what the measurement reports.
+ * `nodes` counts as the API's gate does (elements, attributes, text, comments, processing
+ * instructions and CDATA); `textBytes` is the UTF-16 length of all text and CDATA.
+ */
+export function xmlStats(xml: string): { chars: number; utf8Bytes: number; elements: number; nodes: number; textChars: number;
+  maxDepth: number; datapoints: number } {
+  let elements = 0, nodes = 0, textChars = 0, depth = 0, maxDepth = 0, datapoints = 0;
   const sax = new SaxesParser({ xmlns: true });
   sax.on('opentag', tag => {
     elements++;
+    nodes++;
     maxDepth = Math.max(maxDepth, ++depth);
     if (tag.name === 'datapoint') datapoints++;
   });
   sax.on('closetag', () => { depth--; });
+  for (const event of ['attribute', 'comment', 'processinginstruction'] as const) sax.on(event, () => { nodes++; });
+  for (const event of ['text', 'cdata'] as const) sax.on(event, text => { nodes++; textChars += text.length; });
   sax.write(xml).close();
-  return { chars: xml.length, utf8Bytes: new TextEncoder().encode(xml).byteLength, elements, maxDepth, datapoints };
+  return { chars: xml.length, utf8Bytes: new TextEncoder().encode(xml).byteLength, elements, nodes, textChars, maxDepth, datapoints };
+}
+
+/**
+ * The DOM-budget attack shapes (audit S1-1), each content the API KEEPS for the DOM:
+ *  - `extension`: a stored flight whose sample branch holds an <extension/>, so the
+ *    gate keeps the whole branch, `points` datapoints included;
+ *  - `rows`: the same rows directly under <simulation> as <x> elements;
+ *  - `attributes`: elements of 999 empty attributes (1,000 nodes each), `points`
+ *    nodes in all, for the node budget;
+ *  - `text`: `points` code units of datapoint text in 16 kept elements, for a text budget.
+ * `samples` is the stored flight the gate omits.
+ */
+export type KeptShape = 'samples' | 'extension' | 'rows' | 'attributes' | 'text';
+export function keptShapeXml(shape: KeptShape, points: number, columns = TYPES.length): string {
+  if (shape === 'samples') return storedFlightXml({ simulations: [{ points }] }, columns);
+  if (shape === 'extension') {
+    return storedFlightXml({ simulations: [{ points, branchTail: '        <extension extensionid="kept"/>\n' }] }, columns);
+  }
+  const content: string[] = [];
+  if (shape === 'rows') for (let i = 0; i < points; i++) content.push(`      <x>${row(i, columns)}</x>\n`);
+  else if (shape === 'attributes') {
+    const pad = (attributes: number) => '      <x' + Array.from({ length: attributes }, (_, i) => ` a${i}=""`).join('') + '/>\n';
+    // Each element and its trailing newline text: 1,001 nodes for 999 attributes.
+    for (let left = points; left > 0; left -= 1_001) content.push(pad(Math.max(0, Math.min(999, left - 2))));
+  } else {
+    const parts = 16;
+    let text = '';
+    for (let i = 0; text.length < points; i++) text += row(i, columns) + ',';
+    const each = Math.ceil(points / parts);
+    for (let p = 0; p < parts; p++) content.push(`      <x>${text.slice(p * each, Math.min(points, (p + 1) * each))}</x>\n`);
+  }
+  return storedFlightXml({ simulations: [{ points: 0, after: content.join('') }] }, columns);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import { worker } from './index.js';
+import { API_XML_LIMITS, worker } from './index.js';
 import { filenameEcho } from './filenameEcho.js';
 import { bytesOf } from './fixtures.testSupport.js';
 import { describeFile, simulateFile } from '../../app/src/headless/index.js';
@@ -65,9 +65,9 @@ describe('a caller filename echoed in an error is bounded and made safe for disp
   });
 
   it.each(ROUTES)('%s: the XML structure budget', async route => {
-    const body = `<openrocket><rocket>${'<x/>'.repeat(50_000)}</rocket></openrocket>`;
+    const body = `<openrocket><rocket>${'<x/>'.repeat(API_XML_LIMITS.maxElements)}</rocket></openrocket>`;
     const message = await refused(await post(route, hostileName(), body), 413, 'FILE_TOO_LARGE');
-    expect(message).toMatch(/XML element limit is 50,000\./);
+    expect(message).toContain(`XML element limit is ${API_XML_LIMITS.maxElements.toLocaleString('en-US')}.`);
     expectBounded(message);
   });
 

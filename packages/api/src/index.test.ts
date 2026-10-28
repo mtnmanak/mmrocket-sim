@@ -12,6 +12,12 @@ import {
   autoBody, bytesOf, clusterBody, missingCurveBody, rktWithMotor, secondaryBody, stampOf, timeStepBody, unbundledDigestCase,
 } from './fixtures.testSupport.js';
 import { SNAPSHOT_ADDED } from './snapshotOverlay.testSupport.js';
+import { API_XML_LIMITS } from './xmlLimits.js';
+
+/** The API's DOM budgets, as its refusals word them: elements, and nodes at the gate's x4 default. */
+const MAX_ELEMENTS = API_XML_LIMITS.maxElements;
+const MAX_NODES = MAX_ELEMENTS * 4;
+const count = (n: number) => n.toLocaleString('en-US');
 
 type LocalWorker = Awaited<ReturnType<typeof unstable_startWorker>>;
 interface FlightResponse {
@@ -120,12 +126,12 @@ describe('S1 in real workerd', () => {
   });
 
   it.each([
-    ['elements', '<x/>'.repeat(50_000), 'XML element limit is 50,000.'],
+    ['elements', '<x/>'.repeat(MAX_ELEMENTS), `XML element limit is ${count(MAX_ELEMENTS)}.`],
     ['depth', '<x>'.repeat(63) + '</x>'.repeat(63), 'XML nesting limit is 64.'],
-    ['comments', '<!---->'.repeat(200_000), 'XML node limit is 200,000.'],
-    ['processing instructions', '<?a?>'.repeat(200_000), 'XML node limit is 200,000.'],
-    ['text siblings', 'x<!---->'.repeat(100_000), 'XML node limit is 200,000.'],
-    ['attributes', '<x ' + Array.from({ length: 200_000 }, (_, i) => `a${i}=""`).join(' ') + '/>', 'XML node limit is 200,000.'],
+    ['comments', '<!---->'.repeat(MAX_NODES), `XML node limit is ${count(MAX_NODES)}.`],
+    ['processing instructions', '<?a?>'.repeat(MAX_NODES), `XML node limit is ${count(MAX_NODES)}.`],
+    ['text siblings', 'x<!---->'.repeat(MAX_NODES / 2), `XML node limit is ${count(MAX_NODES)}.`],
+    ['attributes', '<x ' + Array.from({ length: MAX_NODES }, (_, i) => `a${i}=""`).join(' ') + '/>', `XML node limit is ${count(MAX_NODES)}.`],
   ])('refuses excessive XML %s as JSON inside workerd', async (_kind, payload, limit) => {
     const response = await normal!.fetch('http://local/experimental/fly?filename=structure.ork',
       { method: 'POST', body: `<openrocket><rocket>${payload}</rocket></openrocket>` });
@@ -437,7 +443,7 @@ describe('version stamp on every route in real workerd', () => {
     ['fly inflated XML over 16 MiB', () => normal!.fetch('http://local/experimental/fly?filename=large.ork',
       post(zipSync({ 'rocket.ork': new Uint8Array(16 * 1024 * 1024 + 1) }))), 413, 'FILE_TOO_LARGE'],
     ['fly past the XML element budget', () => normal!.fetch('http://local/experimental/fly?filename=structure.ork',
-      post(`<openrocket><rocket>${'<x/>'.repeat(50_000)}</rocket></openrocket>`)), 413, 'FILE_TOO_LARGE'],
+      post(`<openrocket><rocket>${'<x/>'.repeat(MAX_ELEMENTS)}</rocket></openrocket>`)), 413, 'FILE_TOO_LARGE'],
     ['describe past the share link limit', () => normal!.fetch('http://local/describe?filename=long.ork', post(pastLinkLimit())),
       413, 'LINK_TOO_LARGE'],
     ['fly a design with no motor', () => normal!.fetch('http://local/experimental/fly?filename=unit-site-notes.ork',

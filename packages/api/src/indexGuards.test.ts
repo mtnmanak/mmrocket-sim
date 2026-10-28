@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { gzipSync, zipSync } from 'fflate';
-import { worker } from './index.js';
+import { API_XML_LIMITS, worker } from './index.js';
+import { keptShapeXml, xmlStats } from './storedFlight.testSupport.js';
 import { bytesOf, orkOf, secondaryBody, stampOf, timeStepBody } from './fixtures.testSupport.js';
 import { strFromU8, unzipSync } from 'fflate';
 import * as headless from '../../app/src/headless/index.js';
@@ -16,6 +17,9 @@ afterEach(() => { vi.useRealTimers(); resetKernelForTests(); });
 const request = (body: Uint8Array | string, filename = 'test.ork', headers?: HeadersInit) =>
   new Request('http://local/experimental/fly?filename=' + filename, { method: 'POST', body: typeof body === 'string' ? body : new Uint8Array(body).buffer, headers });
 const ctx = { waitUntil: (_p: Promise<unknown>) => {} };
+/** The API's DOM budgets: elements, and nodes at the gate's x4 default. */
+const MAX_ELEMENTS = API_XML_LIMITS.maxElements;
+const MAX_NODES = MAX_ELEMENTS * 4;
 /** reference.ork with a second, named copy of its motor mount and motor. */
 function clusterOfTwo() {
   const xml = strFromU8(unzipSync(bytesOf('reference.ork'))['rocket.ork']!);
@@ -134,13 +138,13 @@ it.each([['ork', 'zip'], ['ork', 'gzip'], ['rkt', 'zip'], ['rkt', 'gzip'], ['CDX
   });
 
 it.each([
-  ['elements', '<x/>'.repeat(50_000)],
+  ['elements', '<x/>'.repeat(MAX_ELEMENTS)],
   ['depth', '<x>'.repeat(63) + '</x>'.repeat(63)],
-  ['comments', '<!---->'.repeat(200_000)],
-  ['processing instructions', '<?a?>'.repeat(200_000)],
-  ['text siblings', 'x<!---->'.repeat(100_000)],
-  ['CDATA siblings', '<![CDATA[x]]>'.repeat(200_000)],
-  ['attributes', '<x ' + Array.from({ length: 200_000 }, (_, i) => `a${i}=""`).join(' ') + '/>'],
+  ['comments', '<!---->'.repeat(MAX_NODES)],
+  ['processing instructions', '<?a?>'.repeat(MAX_NODES)],
+  ['text siblings', 'x<!---->'.repeat(MAX_NODES / 2)],
+  ['CDATA siblings', '<![CDATA[x]]>'.repeat(MAX_NODES)],
+  ['attributes', '<x ' + Array.from({ length: MAX_NODES }, (_, i) => `a${i}=""`).join(' ') + '/>'],
 ])('refuses excessive XML %s before constructing any DOM', async (_kind, payload) => {
   const dom = vi.spyOn(DOMParser.prototype, 'parseFromString');
   try {
@@ -152,12 +156,31 @@ it.each([
   } finally { dom.mockRestore(); }
 });
 
+it.each(['extension', 'rows'] as const)('refuses the kept-content attack shape (%s) past the element budget before any DOM', async shape => {
+  // Audit S1-1: stored-flight rows the gate keeps for the DOM (a sample branch holding an
+  // <extension/> is kept whole; rows under <simulation> are never omitted). 30,000 rows passed
+  // main's 50,000-element budget and built the DOM; two columns keep the test small.
+  const xml = keptShapeXml(shape, 30_000, 2);
+  const { elements } = xmlStats(xml);
+  expect(elements).toBeGreaterThan(MAX_ELEMENTS);
+  // Main's budget before the audit: the shape passed it.
+  expect(elements).toBeLessThan(50_000);
+  const dom = vi.spyOn(DOMParser.prototype, 'parseFromString');
+  try {
+    const response = await worker.fetch(request(gzipSync(new TextEncoder().encode(xml)), 'kept.ork'), undefined, ctx);
+    expect(await response.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE',
+      message: `kept.ork: XML element limit is ${MAX_ELEMENTS.toLocaleString('en-US')}. Use https://mmrsim.mountainmanrockets.com for larger files.` } });
+    expect(response.status).toBe(413);
+    expect(dom).not.toHaveBeenCalled();
+  } finally { dom.mockRestore(); }
+}, 60_000);
+
 it.each([
-  ['rkt', '<RockSimDocument><DesignInformation><RocketDesign>', '</RocketDesign></DesignInformation></RockSimDocument>', '<x/>'.repeat(50_000)],
-  ['CDX1', '<RASAeroDocument><RocketDesign>', '</RocketDesign></RASAeroDocument>', '<x/>'.repeat(50_000)],
+  ['rkt', '<RockSimDocument><DesignInformation><RocketDesign>', '</RocketDesign></DesignInformation></RockSimDocument>', '<x/>'.repeat(MAX_ELEMENTS)],
+  ['CDX1', '<RASAeroDocument><RocketDesign>', '</RocketDesign></RASAeroDocument>', '<x/>'.repeat(MAX_ELEMENTS)],
   ['rkt', '<RockSimDocument><DesignInformation><RocketDesign>', '</RocketDesign></DesignInformation></RockSimDocument>', '<x>'.repeat(64) + '</x>'.repeat(64)],
   ['CDX1', '<RASAeroDocument><RocketDesign>', '</RocketDesign></RASAeroDocument>', '<x>'.repeat(64) + '</x>'.repeat(64)],
-  ['ork', '<openrocket><simulations>', '</simulations></openrocket>', '<simulation/>'.repeat(50_000)],
+  ['ork', '<openrocket><simulations>', '</simulations></openrocket>', '<simulation/>'.repeat(MAX_ELEMENTS)],
   ['ork', '<openrocket>', '</openrocket>', '<x>'.repeat(64) + '</x>'.repeat(64)],
 ].flatMap(([ext, open, close, payload]) => ['plain', 'zip', 'gzip'].map(compression => ({
   ext: ext!, compression, xml: open! + payload! + close!,

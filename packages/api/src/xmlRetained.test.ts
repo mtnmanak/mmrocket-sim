@@ -3,6 +3,7 @@ import { gzipSync, strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { DOMParser } from '@xmldom/xmldom';
 import { SaxesParser } from 'saxes';
 import { worker } from './index.js';
+import { API_XML_LIMITS } from './xmlLimits.js';
 import { bytesOf, stampOf } from './fixtures.testSupport.js';
 
 /**
@@ -56,8 +57,11 @@ const STAMP = stampOf(await (await worker.fetch(new Request('http://local/health
   { waitUntil: () => undefined })).json());
 const TOO_LARGE = (filename: string, what: string) => ({ ...STAMP, error: { code: 'FILE_TOO_LARGE',
   message: `${filename}: ${what} Use https://mmrsim.mountainmanrockets.com for larger files.` } });
-const API_MAX_DEPTH = 64;
-const API_MAX_NODES = 200_000;
+const API_MAX_DEPTH = API_XML_LIMITS.maxDepth;
+const API_MAX_ELEMENTS = API_XML_LIMITS.maxElements;
+/** The gate's default: maxElements x 4. */
+const API_MAX_NODES = API_MAX_ELEMENTS * 4;
+const count = (n: number) => n.toLocaleString('en-US');
 
 describe('retained-document XML depth at the API limit', () => {
   // A chain under the root starts at depth 2: n nested elements reach depth n + 1.
@@ -88,11 +92,11 @@ describe('retained-document XML nodes at the API limit', () => {
   };
   const atNodes = (format: Format, total: number) => withFiller(format, nodesOf(total - measure(xmlOf(format)).nodes));
 
-  it.each(FORMATS)('$file ($container): 200,000 nodes pass the gate; 200,001 is refused before any DOM', async format => {
+  it.each(FORMATS)(`$file ($container): ${count(API_MAX_NODES)} nodes pass the gate; ${count(API_MAX_NODES + 1)} is refused before any DOM`, async format => {
     const full = atNodes(format, API_MAX_NODES);
     const counts = measure(full.text);
     expect(counts.nodes).toBe(API_MAX_NODES);
-    expect(counts.elements).toBeLessThan(50_000);
+    expect(counts.elements).toBeLessThan(API_MAX_ELEMENTS);
     const dom = vi.spyOn(DOMParser.prototype, 'parseFromString');
     const opened = await respond(format, full.body);
     // Past the gate, each design here flies; a later refusal would also do, but never a 413.
@@ -102,7 +106,30 @@ describe('retained-document XML nodes at the API limit', () => {
     const past = atNodes(format, API_MAX_NODES + 1);
     expect(measure(past.text).nodes).toBe(API_MAX_NODES + 1);
     const refused = await respond(format, past.body);
-    expect(refused).toEqual({ filename: refused.filename, status: 413, json: TOO_LARGE(refused.filename, 'XML node limit is 200,000.') });
+    expect(refused).toEqual({ filename: refused.filename, status: 413, json: TOO_LARGE(refused.filename, `XML node limit is ${count(API_MAX_NODES)}.`) });
+    expect(dom).not.toHaveBeenCalled();
+  });
+});
+
+describe('retained-document XML elements at the API limit', () => {
+  /** `count` bare filler elements: one node each, so the node budget is never what refuses. */
+  const atElements = (format: Format, total: number) => withFiller(format, '<mmrpad/>'.repeat(total - measure(xmlOf(format)).elements));
+
+  it.each(FORMATS)(`$file ($container): ${count(API_MAX_ELEMENTS)} elements pass the gate; ${count(API_MAX_ELEMENTS + 1)} is refused before any DOM`, async format => {
+    const full = atElements(format, API_MAX_ELEMENTS);
+    const counts = measure(full.text);
+    expect(counts.elements).toBe(API_MAX_ELEMENTS);
+    expect(counts.nodes).toBeLessThan(API_MAX_NODES);
+    const dom = vi.spyOn(DOMParser.prototype, 'parseFromString');
+    const opened = await respond(format, full.body);
+    // Past the gate, each design here flies; a later refusal would also do, but never a 413.
+    expect(opened.status, JSON.stringify(opened.json)).toBe(200);
+    expect(dom).toHaveBeenCalled();
+    dom.mockClear();
+    const past = atElements(format, API_MAX_ELEMENTS + 1);
+    expect(measure(past.text).elements).toBe(API_MAX_ELEMENTS + 1);
+    const refused = await respond(format, past.body);
+    expect(refused).toEqual({ filename: refused.filename, status: 413, json: TOO_LARGE(refused.filename, `XML element limit is ${count(API_MAX_ELEMENTS)}.`) });
     expect(dom).not.toHaveBeenCalled();
   });
 });

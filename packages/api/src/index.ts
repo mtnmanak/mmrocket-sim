@@ -8,16 +8,9 @@ import {
 import { displayEcho, filenameEcho } from './filenameEcho.js';
 import { stampedJson } from './stamp.js';
 import { BodyReservation, BodyTooLarge, readBody, ServerBusy } from './body.js';
+import { API_XML_LIMITS } from './xmlLimits.js';
 
-// 185 local XML/design files: max 40,610 elements, depth 14, including stored
-// flight data (Wildman Mach 2). Leave 23% element headroom and >4x depth.
-// Stored .ork sample branches are validated but never reach the DOM, so the
-// 50,000 counts only what the DOM gets. Their content has its own budget: the
-// gate validates a skipped element without building it in about 0.85 us
-// (Node 22, 4.2 M bare elements in 16 MiB, scripts/import-memory.mjs), so
-// 1,000,000 bounds each of the two gate passes near a second of CPU and still
-// covers a 16 MiB file of one-value datapoints (about 700,000).
-export const API_XML_LIMITS = { maxElements: 50_000, maxDepth: 64, omitOrkSamples: { maxElements: 1_000_000 } } as const;
+export { API_XML_LIMITS };
 setXmlParser(createJsXmlParser(API_XML_LIMITS));
 
 const MAX_API_INFLATED_BYTES = 16 * 1024 * 1024;

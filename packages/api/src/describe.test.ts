@@ -9,6 +9,7 @@ import { decodeShareFragment, MAX_INFLATED_BYTES, SHARE_TOO_LARGE_ERROR_NAME } f
 import { motorFreeOrk, motorFreeProjection } from '../../app/src/services/describeFile.js';
 import { openHeadlessDesign, planHeadlessImport } from '../../app/src/services/simulateFile.js';
 import { displayEcho } from './filenameEcho.js';
+import { API_XML_LIMITS } from './xmlLimits.js';
 import { autoBody, bytesOf, clusterBody, orkOf, rktWithMotor, stampOf, unbundledDigestCase } from './fixtures.testSupport.js';
 
 /**
@@ -218,7 +219,7 @@ describe('S3 draft POST /describe in real workerd', () => {
     const internal = await trapped!.fetch('http://local/__test/body-error?route=describe');
     expect(internal.status).toBe(500);
     expect(await internal.json()).toEqual({ ...STAMP, error: { code: 'INTERNAL_ERROR', message: 'The design could not be described.' } });
-    for (const payload of ['<x/>'.repeat(50_000), '<x>'.repeat(63) + '</x>'.repeat(63)]) {
+    for (const payload of ['<x/>'.repeat(API_XML_LIMITS.maxElements), '<x>'.repeat(63) + '</x>'.repeat(63)]) {
       const structure = await post(normal!, 'structure.ork', `<openrocket><rocket>${payload}</rocket></openrocket>`);
       expect(structure.status).toBe(413);
       expect(await structure.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE', message: expect.stringMatching(/XML.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });

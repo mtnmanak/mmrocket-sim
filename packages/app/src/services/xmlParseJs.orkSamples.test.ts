@@ -4,7 +4,8 @@ import { SaxesParser } from 'saxes';
 import { createJsXmlParser, jsXmlParser, xmlGate, type XmlLimits } from './xmlParseJs.js';
 import { XmlBudgetExceededError, XmlParseError, type XmlDocument, type XmlElement, type XmlList } from './xmlParse.js';
 
-// The API's opt-in (packages/api/src/index.ts) and main's E1 budgets without it.
+// The gate's stored-sample omission (the API's opt-in, packages/api/src/xmlLimits.ts) at main's historical
+// E1 budgets, and E1 without it. The API's own DOM budget is lower since audit S1-1; these test the mechanism.
 const E1: XmlLimits = { maxElements: 50_000, maxDepth: 64 };
 const OMIT: XmlLimits = { ...E1, omitOrkSamples: { maxElements: 1_000_000 } };
 
