@@ -10,8 +10,11 @@ import { createJsXmlParser, setXmlParser, simulateFile } from '../../app/src/hea
 import { bytesOf, stampOf } from './fixtures.testSupport.js';
 import { REFERENCE_CONFIG, SECOND_CONFIG, storedFlightXml, type StoredFlightDesign } from './storedFlight.testSupport.js';
 
-// Main's E1 parser before this opt-in: the baseline every comparison below is held to.
+// Main's E1 parser before this opt-in: the baseline every comparison below is held to. Its 50,000 is
+// historical (the API's own DOM budget is lower since audit S1-1); designs inside both compare exactly.
 const E1 = { maxElements: 50_000, maxDepth: 64 };
+const count = (n: number) => n.toLocaleString('en-US');
+const API_ELEMENT_LIMIT = `XML element limit is ${count(API_XML_LIMITS.maxElements)}.`;
 const API_OPTIONS = { network: 'forbid', reportSeries: 'summary', yieldToUi: () => Promise.resolve(),
   minTimeStepS: 0.05, maxInflatedBytes: 16 * 1024 * 1024 } as const;
 
@@ -165,12 +168,12 @@ describe('API stored-flight omission: same import and flight as main, without th
     expect(changedDom).toEqual([]);
   });
 
-  it('refuses a result-free design past the DOM budget exactly as main does', async () => {
+  it('refuses a result-free design past both DOM budgets, each at its own, before any DOM', async () => {
     const xml = storedFlightXml({ simulations: [] }).replace('</rocket>', `${'<x/>'.repeat(50_000)}</rocket>`);
-    const { baseline, changed, changedDom } = await both(() => respond(strToU8(xml), 'big.ork'));
-    expect(changed).toEqual(baseline);
-    expect(changed).toEqual({ status: 413, json: { ...STAMP, error: { code: 'FILE_TOO_LARGE',
-      message: 'big.ork: XML element limit is 50,000. Use https://mmrsim.mountainmanrockets.com for larger files.' } } });
+    const { baseline, changed, baselineDom, changedDom } = await both(() => respond(strToU8(xml), 'big.ork'));
+    expect(baseline).toEqual(TOO_LARGE('big.ork', 'XML element limit is 50,000.'));
+    expect(changed).toEqual(TOO_LARGE('big.ork', API_ELEMENT_LIMIT));
+    expect(baselineDom).toEqual([]);
     expect(changedDom).toEqual([]);
   });
 
@@ -270,8 +273,9 @@ describe('API boundaries with stored flights: the same refusals as main, before 
     expect(tooDeep.changedDom).toEqual([]);
   });
 
-  it('keeps the DOM budget at exactly 50,000 retained elements beside stored samples', async () => {
-    const design = storedFlightXml({ simulations: [{ points: 1_000 }] });
+  it(`keeps the DOM budget at exactly ${count(API_XML_LIMITS.maxElements)} retained elements beside stored samples`, async () => {
+    // Enough samples that main, which counted them, is past its 50,000; two columns keep the file small.
+    const design = storedFlightXml({ simulations: [{ points: 40_000 }] }, 2);
     const retained = (xml: string) => {
       let n = 0, inBranch = false;
       const sax = new SaxesParser({ xmlns: true });
@@ -281,15 +285,17 @@ describe('API boundaries with stored flights: the same refusals as main, before 
       return n;
     };
     // Pad the rocket with ignored elements up to the budget, then one past it.
-    const pad = 50_000 - retained(design);
+    const pad = API_XML_LIMITS.maxElements - retained(design);
     const at = (extra: number) => strToU8(design.replace('</rocket>', `${'<mmrpad/>'.repeat(pad + extra)}</rocket>`));
-    expect(retained(new TextDecoder().decode(at(0)))).toBe(50_000);
+    expect(retained(new TextDecoder().decode(at(0)))).toBe(API_XML_LIMITS.maxElements);
     const atBudget = await both(() => respond(at(0), 'budget.ork'));
     // Main counted the samples too and refuses; the API opens it.
     expect(atBudget.baseline).toEqual(TOO_LARGE('budget.ork', 'XML element limit is 50,000.'));
     expect(atBudget.changed.status, JSON.stringify(atBudget.changed.json)).toBe(200);
+    const spy = vi.spyOn(DOMParser.prototype, 'parseFromString');
     const pastBudget = await respond(at(1), 'budget.ork');
-    expect(pastBudget).toEqual(TOO_LARGE('budget.ork', 'XML element limit is 50,000.'));
+    expect(pastBudget).toEqual(TOO_LARGE('budget.ork', API_ELEMENT_LIMIT));
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('opens exactly 1,000,000 omitted elements and refuses one more, before any DOM', async () => {

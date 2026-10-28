@@ -6,11 +6,12 @@ import { currentXmlParser, DOCTYPE_REFUSAL, setXmlParser, XmlDoctypeRefused, Xml
 import { importOrk } from '../../app/src/services/orkFile.js';
 import { importRkt } from '../../app/src/services/rocksimFile.js';
 import { importCdx1 } from '../../app/src/services/rasaeroFile.js';
+import { API_XML_LIMITS } from './xmlLimits.js';
 
 describe('importer preflight with the API parser budgets', () => {
   const saved = currentXmlParser();
   afterEach(() => { setXmlParser(saved); vi.restoreAllMocks(); });
-  const limits = { maxElements: 50_000, maxDepth: 64 };
+  const limits = { maxElements: API_XML_LIMITS.maxElements, maxDepth: API_XML_LIMITS.maxDepth };
   const importers = [
     { ext: 'ork', root: 'openrocket', open: importOrk, file: 'reference.ork' },
     { ext: 'rkt', root: 'RockSimDocument', open: importRkt, file: 'TubeFins2.rkt' },
@@ -64,6 +65,7 @@ it.each([
 });
 
 it('keeps the unrestricted parser default for browser-parity and other hosts', () => {
+  // 50,000 is any count past the API's budget; the default parser has none.
   expect(() => xmlGate('<r>' + '<x/>'.repeat(50_000) + '</r>')).not.toThrow();
   expect(() => xmlGate('<r>'.repeat(65) + '</r>'.repeat(65))).not.toThrow();
 });
@@ -71,5 +73,5 @@ it('keeps the unrestricted parser default for browser-parity and other hosts', (
 const largest = new URL('../../../docs/User files/TRF RASAero Files/Wildman Mach 2 this one.ork', import.meta.url);
 it.skipIf(!existsSync(largest))('accepts the largest measured real stored-flight XML at the API budgets', () => {
   const xml = strFromU8(unzipSync(new Uint8Array(readFileSync(largest)))['rocket.ork']!);
-  expect(() => xmlGate(xml, { maxElements: 50_000, maxDepth: 64 })).not.toThrow();
+  expect(() => xmlGate(xml, API_XML_LIMITS)).not.toThrow();
 });

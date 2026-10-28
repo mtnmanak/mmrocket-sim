@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import type { unstable_startWorker } from 'wrangler';
 import { WINDOWS_1252_CHUNK } from '../../app/src/services/xmlUtil.js';
 import { bytesOf } from './fixtures.testSupport.js';
+import { displayEcho } from './filenameEcho.js';
 
 /**
  * Design files that declare windows-1252 (or ISO-8859-1, US-ASCII: the same
@@ -50,6 +51,13 @@ const C1 = [0x20ac, 0x81, 0x201a, 0x192, 0x201e, 0x2026, 0x2020, 0x2021, 0x2c6, 
 /** All 32 bytes 0x80-0x9F and a few above, as one-byte characters. */
 const RAW_NAME = `Aero${String.fromCharCode(...Array.from({ length: 32 }, (_, i) => 0x80 + i))}\xa9\xb0\xe9\xff Test`;
 const NAME = `Aero${String.fromCharCode(...C1)}\u00a9\u00b0\u00e9\u00ff Test`;
+/**
+ * NAME as a response shows a design name (owner ruling 113-14a): the five C1 controls the table
+ * keeps (0x81, 0x8D, 0x8F, 0x90, 0x9D) show as `?`. Every other decoded character, and any wrong
+ * decode of those five to a printable character or U+FFFD, still shows; the mount name below
+ * (not bounded) still carries NAME exactly.
+ */
+const SHOWN = displayEcho(NAME);
 const NOT_UTF8 = /characters? in this file could not be read and (was|were) replaced/;
 
 /** One byte per character; every character must be at most U+00FF. */
@@ -112,7 +120,7 @@ describe('a declared windows-1252 design through workerd', () => {
     const body = packed[pack](singleBytes(build('windows-1252')), member);
     for (const worker of [normal!, table!]) {
       const out = await describeBody(`design.${ext}`, body, worker);
-      expect(out.name).toBe(NAME);
+      expect(out.name).toBe(SHOWN);
       expect(out.notes.import.text).not.toMatch(NOT_UTF8);
     }
   });
@@ -121,7 +129,7 @@ describe('a declared windows-1252 design through workerd', () => {
   // test worker's decoder was asked for (and the probe then caches its answer per isolate).
   it('the table and ISO-8859-1 workers\' windows-1252 decoders are asked for', async () => {
     for (const worker of [table!, latin1!]) {
-      expect((await describeBody('design.rkt', singleBytes(rkt('windows-1252')), worker)).name).toBe(NAME);
+      expect((await describeBody('design.rkt', singleBytes(rkt('windows-1252')), worker)).name).toBe(SHOWN);
       const response = await worker.fetch('http://local/__test/decoder-calls');
       expect(response.status).toBe(200);
       expect(((await response.json()) as { windows1252Calls: number }).windows1252Calls).toBeGreaterThan(0);
@@ -144,16 +152,16 @@ describe('a declared windows-1252 design through workerd', () => {
     expect(bytes.length).toBeGreaterThan(WINDOWS_1252_CHUNK);
     for (const worker of [normal!, table!, latin1!]) {
       const out = await describeBody('design.rkt', packed[pack](bytes, 'design.rkt'), worker);
-      expect(out.name).toBe(NAME);
+      expect(out.name).toBe(SHOWN);
       expect(out.notes.import.text).not.toMatch(NOT_UTF8);
     }
   });
 
   it.each(['ISO-8859-1', 'us-ascii', 'L1'])('a .rkt and an .ork declared %s read the same way', async encoding => {
     for (const worker of [normal!, table!]) {
-      expect((await describeBody('design.rkt', singleBytes(rkt(encoding)), worker)).name).toBe(NAME);
+      expect((await describeBody('design.rkt', singleBytes(rkt(encoding)), worker)).name).toBe(SHOWN);
       expect((await describeBody('design.ork', zipSync({ 'rocket.ork': singleBytes(ork(encoding)) }), worker)).name)
-        .toBe(NAME);
+        .toBe(SHOWN);
     }
   });
 

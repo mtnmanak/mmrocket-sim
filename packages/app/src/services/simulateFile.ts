@@ -63,6 +63,13 @@ export interface SimulateFileOptions extends SimulateDesignOptions {
   network?: 'forbid' | 'allow';
   /** Advanced/tests: replaces the per-reference matcher (resolveImportMotors' own injection point). */
   match?: (ref: OrkMotorRef) => Promise<MotorMatchResult>;
+  /**
+   * A host's display rule for the design's name, applied once after the open
+   * names it (the filename fallback reads the full name) and before the plan,
+   * so the import note, the flight and every result read the same name.
+   * Absent (the app), the name stands as opened.
+   */
+  designName?: (name: string) => string;
 }
 
 export interface SimulateFileResult extends SimulateDesignResult {
@@ -87,7 +94,7 @@ export interface TimedSimulateFileResult extends SimulateFileResult {
  */
 export async function openHeadlessDesign(
   data: ArrayBuffer | Uint8Array, fileName: string,
-  opts: Pick<SimulateFileOptions, 'signal' | 'presets' | 'aero' | 'units' | 'maxInflatedBytes' | 'network'> = {},
+  opts: Pick<SimulateFileOptions, 'signal' | 'presets' | 'aero' | 'units' | 'maxInflatedBytes' | 'network' | 'designName'> = {},
 ): Promise<ImportedDesign> {
   const tooBig = designFileTooLarge(data.byteLength, fileName);
   if (tooBig) throw new SimulateDesignError('file', tooBig);
@@ -96,11 +103,12 @@ export async function openHeadlessDesign(
     ? data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer
     : data;
   const presets = opts.presets ?? await loadBundledPresets();
+  let imported: ImportedDesign;
   try {
     const aero = opts.aero ?? APP_DEFAULT_AERO;
     // The curve load planHeadlessImport's default match flies, so a .CDX1's stated launch
     // weight is backed out with the mass that flight carries.
-    return await openDesignFile(buffer, fileName, { units: opts.units ?? INITIAL_UNITS, maxInflatedBytes: opts.maxInflatedBytes, presets, distanceUnit: (opts.units ?? INITIAL_UNITS).altitude,
+    imported = await openDesignFile(buffer, fileName, { units: opts.units ?? INITIAL_UNITS, maxInflatedBytes: opts.maxInflatedBytes, presets, distanceUnit: (opts.units ?? INITIAL_UNITS).altitude,
       horizontalDistanceUnit: (opts.units ?? INITIAL_UNITS).distance,
       aeroChoice: aero.aeroMode === 'classic' ? (aero.effectiveKbf ? 'kbf' : 'eb') : aero.aeroMode,
       catalogue: opts.network === 'allow' ? undefined : MOTOR_DB,
@@ -111,6 +119,12 @@ export async function openHeadlessDesign(
     if (opts.maxInflatedBytes !== undefined && e instanceof InflatedFileTooLargeError) throw e;
     throw new SimulateDesignError('parse', designFileOpenFailure(fileName, e), { cause: e });
   }
+  const { designName } = opts;
+  if (designName) {
+    if (imported.tree.name !== undefined) imported.tree.name = designName(imported.tree.name);
+    imported.name = designName(imported.name);
+  }
+  return imported;
 }
 
 /** A design file's bytes, flown as the app opens and launches it. The size is refused before anything is parsed. */

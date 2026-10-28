@@ -683,6 +683,20 @@ function assertNoPodSetNozzle(tree: RocketTree): void {
  * naming the motor and a design that silently blanks.
  */
 function assertFiniteCurve(motor: MotorSpec): void {
+  // The bridge sizes the curve by `times`: extra masses were silently dropped
+  // (a wrong mass curve flew), and fewer masses or a thrust count that differs
+  // reached the user as a raw kernel error (audit S3-1).
+  for (const [values, what] of [[motor.thrusts, 'thrust'], [motor.masses, 'mass']] as const) {
+    if (values.length !== motor.times.length) {
+      throw new Error(`Motor ${motor.designation}: its thrust curve has ${values.length} ${what} readings for ${motor.times.length} times; import a corrected .rse/.eng file.`);
+    }
+  }
+  // Before the CG check: a NaN length passed it, since nothing is greater than NaN.
+  for (const [value, what] of [[motor.length, 'length'], [motor.diameter, 'diameter']] as const) {
+    if (!Number.isFinite(value) || value <= 0) {
+      throw new Error(`Motor ${motor.designation}: its ${what} must be a finite number above 0 m; import a corrected .rse/.eng file.`);
+    }
+  }
   if (!Number.isFinite(motor.cgX) || motor.cgX < 0 || motor.cgX > motor.length) {
     throw new Error(`Motor ${motor.designation}: its CG must be between the front and end of the motor; import a corrected .rse/.eng file.`);
   }

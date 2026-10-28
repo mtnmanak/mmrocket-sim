@@ -1,18 +1,32 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { gzipSync, zipSync } from 'fflate';
-import { worker } from './index.js';
-import { bytesOf, secondaryBody, stampOf, timeStepBody } from './fixtures.testSupport.js';
+import { API_XML_LIMITS, worker } from './index.js';
+import { keptShapeXml, xmlStats } from './storedFlight.testSupport.js';
+import { bytesOf, orkOf, secondaryBody, stampOf, timeStepBody } from './fixtures.testSupport.js';
+import { strFromU8, unzipSync } from 'fflate';
+import * as headless from '../../app/src/headless/index.js';
 import { simulateFile } from '../../app/src/headless/index.js';
 import { resetKernelForTests, withKernel } from '../../app/src/services/simulateDesign.js';
 import { DOMParser } from '@xmldom/xmldom';
 import * as foreignParts from '../../app/src/services/foreignPartPrecount.js';
 import * as extensions from '../../app/src/services/orkExtensions.js';
+import * as flightRunner from '../../app/src/services/flightRunner.js';
 
 afterEach(() => { vi.useRealTimers(); resetKernelForTests(); });
 
 const request = (body: Uint8Array | string, filename = 'test.ork', headers?: HeadersInit) =>
   new Request('http://local/experimental/fly?filename=' + filename, { method: 'POST', body: typeof body === 'string' ? body : new Uint8Array(body).buffer, headers });
 const ctx = { waitUntil: (_p: Promise<unknown>) => {} };
+/** The API's DOM budgets: elements, and nodes at the gate's x4 default. */
+const MAX_ELEMENTS = API_XML_LIMITS.maxElements;
+const MAX_NODES = MAX_ELEMENTS * 4;
+/** reference.ork with a second, named copy of its motor mount and motor. */
+function clusterOfTwo() {
+  const xml = strFromU8(unzipSync(bytesOf('reference.ork'))['rocket.ork']!);
+  const mount = xml.match(/<innertube>[\s\S]*?<\/innertube>/)![0]
+    .replace('Inner Tube', 'Secondary mount').replace('cf2a3edb-ead5-4bbd-93b2-1b5631003347', 'secondary-mount');
+  return orkOf(xml.replace('</innertube>', `</innertube>${mount}`));
+}
 /** /health's own stamp keys: every error body carries them beside `error`. */
 const STAMP = stampOf(await (await worker.fetch(new Request('http://local/health'), undefined, ctx)).json());
 
@@ -30,6 +44,49 @@ it('reports an out-of-motor EX snapshot as an import refusal before installation
   expect(result.motors).toHaveLength(1);
   expect(result.motors.some(m => m.mount === 'Secondary mount')).toBe(false);
 });
+
+it('reports a kernel motor refusal with no isolate-history node id: two posts give the same bytes', async () => {
+  // Two mounts, each with the C6; the kernel refuses the second mount's motor in every build.
+  const body = clusterOfTwo();
+  const write = flightRunner.writeMountMotor;
+  const spy = vi.spyOn(flightRunner, 'writeMountMotor');
+  const post = async () => {
+    const seen: string[] = [];
+    spy.mockImplementation((rocket, id, spec, ignition) => {
+      if (!seen.includes(id)) seen.push(id);
+      if (seen.indexOf(id) === 1) throw new Error(`${spec.designation}: refused for this test.`);
+      write(rocket, id, spec, ignition);
+    });
+    const response = await worker.fetch(request(body, 'refused-mount.ork'), undefined, ctx);
+    expect(response.status, await response.clone().text()).toBe(200);
+    return (await response.json() as { motorFailures: Record<string, unknown>[] }).motorFailures;
+  };
+  try {
+    const first = await post();
+    // Unrelated traffic in the same isolate moves the node-id counter.
+    await worker.fetch(request(bytesOf('reference.ork'), 'reference.ork'), undefined, ctx);
+    const second = await post();
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+    expect(first).toEqual([{ mount: 'Secondary mount', text: 'C6: refused for this test.' }]);
+  } finally { spy.mockRestore(); }
+}, 60_000);
+
+it('returns an abort event without its kernel node ids', async () => {
+  // The kernel's EXCEPTION event names the rocket as its source, so it carries the rocket's node id.
+  const fly = headless.simulateFile;
+  const spy = vi.spyOn(headless, 'simulateFile').mockImplementation(async (...args) => {
+    const out = await fly(...args);
+    out.result.events.push({ type: 'EXCEPTION', time: 1, sourceId: 'c99', motorMountId: 'c98', source: 'Reference Rocket' });
+    return out;
+  });
+  try {
+    const response = await worker.fetch(request(bytesOf('reference.ork'), 'reference.ork'), undefined, ctx);
+    const out = await response.json() as { outcome: string; aborts: { branch: string; reason: string; event: Record<string, unknown> }[] };
+    expect(out.outcome).toBe('aborted');
+    expect(out.aborts).toEqual([{ branch: 'Reference Rocket', reason: 'EXCEPTION',
+      event: { type: 'EXCEPTION', time: 1, source: 'Reference Rocket' } }]);
+  } finally { spy.mockRestore(); }
+}, 60_000);
 
 it('refuses 9 MiB bodies and declared sizes above 8 MiB with app guidance', async () => {
   for (const input of [request(new Uint8Array(9 * 1024 * 1024)),
@@ -81,13 +138,13 @@ it.each([['ork', 'zip'], ['ork', 'gzip'], ['rkt', 'zip'], ['rkt', 'gzip'], ['CDX
   });
 
 it.each([
-  ['elements', '<x/>'.repeat(50_000)],
+  ['elements', '<x/>'.repeat(MAX_ELEMENTS)],
   ['depth', '<x>'.repeat(63) + '</x>'.repeat(63)],
-  ['comments', '<!---->'.repeat(200_000)],
-  ['processing instructions', '<?a?>'.repeat(200_000)],
-  ['text siblings', 'x<!---->'.repeat(100_000)],
-  ['CDATA siblings', '<![CDATA[x]]>'.repeat(200_000)],
-  ['attributes', '<x ' + Array.from({ length: 200_000 }, (_, i) => `a${i}=""`).join(' ') + '/>'],
+  ['comments', '<!---->'.repeat(MAX_NODES)],
+  ['processing instructions', '<?a?>'.repeat(MAX_NODES)],
+  ['text siblings', 'x<!---->'.repeat(MAX_NODES / 2)],
+  ['CDATA siblings', '<![CDATA[x]]>'.repeat(MAX_NODES)],
+  ['attributes', '<x ' + Array.from({ length: MAX_NODES }, (_, i) => `a${i}=""`).join(' ') + '/>'],
 ])('refuses excessive XML %s before constructing any DOM', async (_kind, payload) => {
   const dom = vi.spyOn(DOMParser.prototype, 'parseFromString');
   try {
@@ -99,12 +156,31 @@ it.each([
   } finally { dom.mockRestore(); }
 });
 
+it.each(['extension', 'rows'] as const)('refuses the kept-content attack shape (%s) past the element budget before any DOM', async shape => {
+  // Audit S1-1: stored-flight rows the gate keeps for the DOM (a sample branch holding an
+  // <extension/> is kept whole; rows under <simulation> are never omitted). 30,000 rows passed
+  // main's 50,000-element budget and built the DOM; two columns keep the test small.
+  const xml = keptShapeXml(shape, 30_000, 2);
+  const { elements } = xmlStats(xml);
+  expect(elements).toBeGreaterThan(MAX_ELEMENTS);
+  // Main's budget before the audit: the shape passed it.
+  expect(elements).toBeLessThan(50_000);
+  const dom = vi.spyOn(DOMParser.prototype, 'parseFromString');
+  try {
+    const response = await worker.fetch(request(gzipSync(new TextEncoder().encode(xml)), 'kept.ork'), undefined, ctx);
+    expect(await response.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE',
+      message: `kept.ork: XML element limit is ${MAX_ELEMENTS.toLocaleString('en-US')}. Use https://mmrsim.mountainmanrockets.com for larger files.` } });
+    expect(response.status).toBe(413);
+    expect(dom).not.toHaveBeenCalled();
+  } finally { dom.mockRestore(); }
+}, 60_000);
+
 it.each([
-  ['rkt', '<RockSimDocument><DesignInformation><RocketDesign>', '</RocketDesign></DesignInformation></RockSimDocument>', '<x/>'.repeat(50_000)],
-  ['CDX1', '<RASAeroDocument><RocketDesign>', '</RocketDesign></RASAeroDocument>', '<x/>'.repeat(50_000)],
+  ['rkt', '<RockSimDocument><DesignInformation><RocketDesign>', '</RocketDesign></DesignInformation></RockSimDocument>', '<x/>'.repeat(MAX_ELEMENTS)],
+  ['CDX1', '<RASAeroDocument><RocketDesign>', '</RocketDesign></RASAeroDocument>', '<x/>'.repeat(MAX_ELEMENTS)],
   ['rkt', '<RockSimDocument><DesignInformation><RocketDesign>', '</RocketDesign></DesignInformation></RockSimDocument>', '<x>'.repeat(64) + '</x>'.repeat(64)],
   ['CDX1', '<RASAeroDocument><RocketDesign>', '</RocketDesign></RASAeroDocument>', '<x>'.repeat(64) + '</x>'.repeat(64)],
-  ['ork', '<openrocket><simulations>', '</simulations></openrocket>', '<simulation/>'.repeat(50_000)],
+  ['ork', '<openrocket><simulations>', '</simulations></openrocket>', '<simulation/>'.repeat(MAX_ELEMENTS)],
   ['ork', '<openrocket>', '</openrocket>', '<x>'.repeat(64) + '</x>'.repeat(64)],
 ].flatMap(([ext, open, close, payload]) => ['plain', 'zip', 'gzip'].map(compression => ({
   ext: ext!, compression, xml: open! + payload! + close!,
@@ -127,16 +203,16 @@ it.each([
 });
 
 it.each([
-  ['ork', '<openrocket><rocket><x></rocket></openrocket>', 'Not a valid .ork file (XML parse error)'],
-  ['rkt', '<RockSimDocument><x></RockSimDocument>', 'Not a valid RockSim file (XML parse error)'],
-  ['CDX1', '<RASAeroDocument><x></RASAeroDocument>', 'Not a valid RASAero file (XML parse error)'],
+  ['ork', '<openrocket><rocket><x></rocket></openrocket>', 'Could not open that .ork file: Not a valid .ork file (XML parse error)'],
+  ['rkt', '<RockSimDocument><x></RockSimDocument>', 'Could not open that .rkt file: Not a valid RockSim file (XML parse error)'],
+  ['CDX1', '<RASAeroDocument><x></RASAeroDocument>', 'Could not open that .CDX1 file: Not a valid RASAero file (XML parse error)'],
 ])('keeps the %s malformed-XML message while refusing before pre-passes', async (ext, xml, message) => {
   const parts = vi.spyOn(foreignParts, 'refuseOversizedForeignXml');
   const slices = vi.spyOn(extensions, 'extensionXmlBySimulation');
   try {
     const response = await worker.fetch(request(xml!, 'broken.' + ext), undefined, ctx);
     expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: { code: 'INVALID_FILE', message: expect.stringContaining(message!) } });
+    expect(await response.json()).toMatchObject({ error: { code: 'INVALID_FILE', message } });
     expect(parts.mock.calls.length).toBe(0);
     expect(slices.mock.calls.length).toBe(0);
   } finally { parts.mockRestore(); slices.mockRestore(); }

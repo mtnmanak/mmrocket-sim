@@ -6,10 +6,15 @@
  * files from the committed reference.ork, then runs the SAME bytes through a
  * baseline source tree and this one, each request in a fresh Node process.
  *
- *   node packages/api/scripts/import-memory.mjs gen <points> [columns] [out.ork]
+ *   node packages/api/scripts/import-memory.mjs gen <points> [columns] [out.ork] [shape]
  *       Writes one design and prints its exact size and structure.
  *   node packages/api/scripts/import-memory.mjs measure --baseline <tree> [--changed <tree>]
  *       [--points 1000,4000,16000,40000] [--columns 52] [--reps 3] [--mode import|fly]
+ *       [--shape samples|extension|rows|attributes|text]
+ *
+ * `--shape` (storedFlight.testSupport.ts keptShapeXml): `samples` (the default) is
+ * the stored flight the API omits; the others are content the API keeps for the
+ * DOM, sized by `--points` (datapoints, nodes or text code units).
  *
  * A <tree> is a checkout root (for the baseline, `git worktree add <dir> <sha>`).
  * Each tree's packages/api/src/index.ts is bundled with esbuild (ESM, minified,
@@ -42,7 +47,8 @@ import { build } from 'esbuild';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, '../../..');
-const work = mkdtempSync(join(tmpdir(), 'import-memory-'));
+/** The CLI's scratch directory, made when the CLI runs: importing this module has no side effects. */
+let work;
 
 async function bundle(entry, outfile, root) {
   await build({ entryPoints: [entry], outfile, bundle: true, format: 'esm', platform: 'node', minify: true,
@@ -64,10 +70,10 @@ async function storedFlight() {
   return generator;
 }
 
-async function generate(points, columns) {
-  const { storedFlightXml, xmlStats } = await storedFlight();
+async function generate(points, columns, shape = 'samples') {
+  const { keptShapeXml, xmlStats } = await storedFlight();
   const { zipSync, strToU8 } = await import('fflate');
-  const xml = storedFlightXml({ simulations: [{ points }] }, columns);
+  const xml = keptShapeXml(shape, points, columns);
   const zip = zipSync({ 'rocket.ork': strToU8(xml) });
   return { xml, zip, stats: { ...xmlStats(xml), zipBytes: zip.byteLength } };
 }
@@ -107,19 +113,62 @@ function run(probe, mode, file, oldSpaceMiB) {
   const line = child.stdout.split('\n').reverse().find(l => l.startsWith('{'));
   // "[pid:addr] 123 ms: Mark-Compact 45.2 (60.1) -> 30.0 (50.1) MB": heap used before each GC.
   const beforeGc = [...child.stdout.matchAll(/: (?:Scavenge|Mark-Compact|Mark-sweep|Minor Mark-Sweep)[^\d]*([\d.]+) \(/g)].map(m => Number(m[1]));
-  const result = line ? JSON.parse(line) : { ok: false, status: 'crashed', signal: child.signal, code: child.status };
-  return { ...result, peakHeapBeforeGcMB: beforeGc.length ? Math.max(...beforeGc) : null };
+  return { ...classifyRun(child, line), peakHeapBeforeGcMB: beforeGc.length ? Math.max(...beforeGc) : null };
 }
 
-async function smallestOldSpace(probe, mode, file, reps) {
+/**
+ * One probe run, classified: `ok`; `oom` when V8 ran out of old space (its
+ * fatal message, or the abort it ends with); `refused` when the probe answered
+ * 413 or 400; `failed` for anything else (a timeout, another crash, another
+ * status). Only `oom` says the cap was too small.
+ */
+export function classifyRun(child, line) {
+  const result = line ? JSON.parse(line) : { ok: false, status: 'crashed', signal: child.signal, code: child.status };
+  if (result.ok) return { ...result, kind: 'ok' };
+  if (child.error?.code === 'ETIMEDOUT') return { ...result, kind: 'failed', error: 'timed out after 600 s' };
+  if (/heap out of memory|Reached heap limit/.test(child.stderr ?? '') || (!line && child.signal === 'SIGABRT')) {
+    return { ...result, kind: 'oom' };
+  }
+  if (result.status === 413 || result.status === 400) return { ...result, kind: 'refused' };
+  return { ...result, kind: 'failed', error: result.error ?? `exited with ${child.signal ?? `code ${child.status}`}` };
+}
+
+/** The largest old space the bisection tries, in MiB. */
+export const MAX_OLD_SPACE_MIB = 1024;
+
+/**
+ * The bisection, with the runner passed in (`run` above for the CLI; a stub for
+ * its tests). Only an out-of-memory run moves it; a refusal or another failure
+ * stops it with the reason, and nothing above MAX_OLD_SPACE_MIB is tried.
+ */
+export async function smallestOldSpace(run, probe, mode, file, reps) {
+  const noCap = { mib: null, stopped: `no passing cap up to ${MAX_OLD_SPACE_MIB.toLocaleString('en-US')} MiB` };
+  /** true: passed; false: out of memory; otherwise the result that stops the search. */
+  const passes = (mib) => {
+    const r = run(probe, mode, file, mib);
+    if (r.ok) return true;
+    if (r.kind === 'oom') return false;
+    return { mib: null, stopped: r.kind === 'refused' ? `refused: ${r.status} ${r.error}` : `failed: ${r.error ?? r.status}` };
+  };
   let low = 4, high = 512; // high must pass; low must fail.
-  if (!run(probe, mode, file, high).ok) return null;
+  let top = passes(high);
+  if (top === false) { low = high; high = MAX_OLD_SPACE_MIB; top = passes(high); }
+  if (top === false) return noCap;
+  if (top !== true) return top;
   while (high - low > 1) {
     const mid = (low + high) >> 1;
-    if (run(probe, mode, file, mid).ok) high = mid; else low = mid;
+    const at = passes(mid);
+    if (at === true) high = mid; else if (at === false) low = mid; else return at;
   }
   // Repeat the boundary: a flaky pass at `high` would understate the cap.
-  for (let r = 0; r < reps; r++) while (!run(probe, mode, file, high).ok) high++;
+  for (let r = 0; r < reps; r++) {
+    for (;;) {
+      const at = passes(high);
+      if (at === true) break;
+      if (at !== false) return at;
+      if (++high > MAX_OLD_SPACE_MIB) return noCap;
+    }
+  }
   return { mib: high, failedAt: high - 1 >= low ? low : null };
 }
 
@@ -130,36 +179,42 @@ async function measure(argv) {
   const columns = Number(opt('columns', '52'));
   const reps = Number(opt('reps', '3'));
   const mode = opt('mode', 'import');
+  const shape = opt('shape', 'samples');
   const probes = { baseline: await probeFor(trees.baseline, 'baseline'), changed: await probeFor(trees.changed, 'changed') };
   const git = root => spawnSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
   const rows = [];
   for (const n of points) {
-    const { zip, stats } = await generate(n, columns);
-    const file = join(work, `stored-${n}.ork`);
+    const { zip, stats } = await generate(n, columns, shape);
+    const file = join(work, `${shape}-${n}.ork`);
     writeFileSync(file, zip);
     for (const which of ['baseline', 'changed']) {
       const uncapped = Array.from({ length: reps }, () => run(probes[which], mode, file));
       const ok = uncapped.every(r => r.ok);
-      const cap = ok ? await smallestOldSpace(probes[which], mode, file, reps) : null;
-      rows.push({ points: n, ...stats, tree: which, sha: git(trees[which]), mode, outcome: ok ? 'ok' : uncapped[0].status,
-        refusal: ok ? undefined : uncapped[0].error, minOldSpaceMiB: cap?.mib ?? null,
+      const cap = ok ? await smallestOldSpace(run, probes[which], mode, file, reps) : null;
+      rows.push({ shape, points: n, ...stats, tree: which, sha: git(trees[which]), mode, outcome: ok ? 'ok' : uncapped[0].status,
+        refusal: ok ? undefined : uncapped[0].error, minOldSpaceMiB: cap?.mib ?? null, bisection: cap?.stopped,
         maxRssMiB: ok ? uncapped.map(r => +(r.maxRssKiB / 1024).toFixed(1)) : null,
         peakHeapBeforeGcMB: ok ? uncapped.map(r => r.peakHeapBeforeGcMB) : null,
         afterMiB: ok ? Object.fromEntries(Object.entries(uncapped[0].after).map(([k, v]) => [k, +(v / 2 ** 20).toFixed(1)])) : null });
       console.error(JSON.stringify(rows.at(-1)));
     }
   }
-  console.log(JSON.stringify({ node: process.version, reps, columns, mode, trees, rows }, null, 2));
+  console.log(JSON.stringify({ node: process.version, reps, columns, mode, shape, trees, rows }, null, 2));
 }
 
-try {
-  const [command, ...rest] = process.argv.slice(2);
-  if (command === 'gen') {
-    const { zip, stats } = await generate(Number(rest[0]), Number(rest[1] ?? 52));
-    if (rest[2]) writeFileSync(rest[2], zip);
-    console.log(JSON.stringify(stats));
-  } else if (command === 'measure') await measure(rest);
-  else throw new Error('Usage: import-memory.mjs gen <points> [columns] [out.ork] | measure --baseline <tree> [...]');
-} finally {
-  rmSync(work, { recursive: true, force: true });
+async function main() {
+  work = mkdtempSync(join(tmpdir(), 'import-memory-'));
+  try {
+    const [command, ...rest] = process.argv.slice(2);
+    if (command === 'gen') {
+      const { zip, stats } = await generate(Number(rest[0]), Number(rest[1] ?? 52), rest[3] ?? 'samples');
+      if (rest[2]) writeFileSync(rest[2], zip);
+      console.log(JSON.stringify(stats));
+    } else if (command === 'measure') await measure(rest);
+    else throw new Error('Usage: import-memory.mjs gen <points> [columns] [out.ork] | measure --baseline <tree> [...]');
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
 }
+
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();

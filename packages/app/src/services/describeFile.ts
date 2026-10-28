@@ -53,6 +53,8 @@ export interface DescribeFileOptions {
   /** API-only dead-holder detection while waiting for the kernel; see withKernel. */
   kernelDeadHolderMs?: number;
   signal?: AbortSignal;
+  /** A host's display rule for the design's name (simulateFile's `designName`). */
+  designName?: (name: string) => string;
 }
 
 export interface DescribedMount {
@@ -264,7 +266,7 @@ export async function describeFile(
 ): Promise<DescribeFileResult> {
   const aero = APP_DEFAULT_AERO;
   const imported = await openHeadlessDesign(data, fileName, {
-    network: 'forbid', maxInflatedBytes: opts.maxInflatedBytes, signal: opts.signal, aero,
+    network: 'forbid', maxInflatedBytes: opts.maxInflatedBytes, signal: opts.signal, aero, designName: opts.designName,
   });
   const plan = await planHeadlessImport(imported, { network: 'forbid', signal: opts.signal });
   const opened = plan.snapshot;

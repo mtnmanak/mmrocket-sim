@@ -5,60 +5,20 @@ import {
   commentsOf, formatWarning, createJsXmlParser, XmlBudgetExceededError, mountMotorCount, mountNamesOf, motorMounts, resolveFlightState, setXmlParser,
   simulateFile, SimulateDesignError, type TimedSimulateFileResult, describeFile, type DescribeFileResult, SHARE_TOO_LARGE_ERROR_NAME,
 } from '../../app/src/headless/index.js';
-import { filenameEcho } from './filenameEcho.js';
+import { displayEcho, filenameEcho } from './filenameEcho.js';
 import { stampedJson } from './stamp.js';
+import { BodyReservation, BodyTooLarge, readBody, ServerBusy } from './body.js';
+import { API_XML_LIMITS } from './xmlLimits.js';
 
-// 185 local XML/design files: max 40,610 elements, depth 14, including stored
-// flight data (Wildman Mach 2). Leave 23% element headroom and >4x depth.
-// Stored .ork sample branches are validated but never reach the DOM, so the
-// 50,000 counts only what the DOM gets. Their content has its own budget: the
-// gate validates a skipped element without building it in about 0.85 us
-// (Node 22, 4.2 M bare elements in 16 MiB, scripts/import-memory.mjs), so
-// 1,000,000 bounds each of the two gate passes near a second of CPU and still
-// covers a 16 MiB file of one-value datapoints (about 700,000).
-export const API_XML_LIMITS = { maxElements: 50_000, maxDepth: 64, omitOrkSamples: { maxElements: 1_000_000 } } as const;
+export { API_XML_LIMITS };
 setXmlParser(createJsXmlParser(API_XML_LIMITS));
 
-const MAX_API_BODY_BYTES = 8 * 1024 * 1024;
 const MAX_API_INFLATED_BYTES = 16 * 1024 * 1024;
 const MIN_API_TIME_STEP_S = 0.05;
 const APP_URL = 'https://mmrsim.mountainmanrockets.com';
 
 function error(code: string, message: string, status: number, headers?: HeadersInit): Response {
   return stampedJson({ error: { code, message } }, { status, headers });
-}
-
-class BodyTooLarge extends Error {
-  readonly received: number;
-  constructor(received: number) { super('Design body exceeds the whole-file cap.'); this.received = received; }
-}
-
-/** Content-Length is only an early refusal hint; allocate from received bytes alone. */
-async function readDesign(request: Request): Promise<ArrayBuffer> {
-  const length = request.headers.get('content-length');
-  const declared = length !== null && /^\d+$/.test(length) ? Number(length) : undefined;
-  if (declared !== undefined && declared > MAX_API_BODY_BYTES) throw new BodyTooLarge(declared);
-  if (!request.body) return new ArrayBuffer(0);
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.byteLength;
-      if (size > MAX_API_BODY_BYTES) {
-        await reader.cancel().catch(() => undefined);
-        throw new BodyTooLarge(size);
-      }
-      chunks.push(value);
-    }
-  } finally { reader.releaseLock(); }
-  const result = new Uint8Array(size);
-  let offset = 0;
-  for (const chunk of chunks) { result.set(chunk, offset); offset += chunk.byteLength; }
-  chunks.length = 0; // Release incoming chunks before parsing; pass the owned buffer without a slice.
-  return result.buffer;
 }
 
 export interface WorkerContext { waitUntil(promise: Promise<unknown>): void }
@@ -76,14 +36,16 @@ function summary(out: TimedSimulateFileResult) {
     { name: out.state.tree.name ?? 'Rocket', events: out.result.events },
     ...boosterBranches(out.result),
   ].flatMap(branch => branch.events.filter(event => event.type === 'SIM_ABORT' || event.type === 'EXCEPTION')
-    .map(event => ({ branch: branch.name, reason: event.cause ?? event.type, event })));
+    // The kernel's node ids come from a module counter (see motorFailures): never returned.
+    .map(({ sourceId: _sourceId, motorMountId: _motorMountId, ...event }) => ({ branch: branch.name, reason: event.cause ?? event.type, event })));
   const incomplete = out.run.simWarnings?.some(warning => warning.key === 'INCOMPLETE_FLIGHT') ?? false;
   return {
     experimental: true,
     outcome: aborts.length ? 'aborted' : incomplete ? 'incomplete' : 'completed',
     partial: aborts.length > 0 || incomplete,
     aborts,
-    motorFailures: out.build.motorFailures.map(failure => ({ ...failure, mount: mountNames[failure.mountId] })),
+    // No node id: ids come from a module counter, so they would differ per isolate history.
+    motorFailures: out.build.motorFailures.map(({ mountId, text }) => ({ mount: mountNames[mountId], text })),
     appVersion: out.appVersion,
     apogeeM: maxAltitude,
     maxVelocityMs: maxVelocity,
@@ -131,6 +93,8 @@ export const worker = {
     const started = performance.now();
     let filename = '';
     let describing = false;
+    // Held until the response is built: every exit below gives the body bytes back.
+    const reservation = new BodyReservation();
     try {
       const url = new URL(request.url);
       if (url.pathname === '/health') {
@@ -142,14 +106,14 @@ export const worker = {
         if (request.method !== 'POST') return error('METHOD_NOT_ALLOWED', 'Use POST with a raw design file.', 405, { Allow: 'POST' });
         filename = url.searchParams.get('filename')?.trim() ?? '';
         if (!filename) return error('FILENAME_REQUIRED', 'Supply the design filename in ?filename=.', 400);
-        const data = await readDesign(request);
+        const data = await readBody(request, reservation);
         if (!data.byteLength) return error('EMPTY_FILE', 'Supply a raw design file as the request body.', 400);
         // No caller options: every other query parameter is ignored. The build and its
         // handle reads take the kernel lock inside describeFile; the import before it and
         // the fragment compression after it run outside, so the watchdog's microtask-only
         // assumption holds. No flight, auto-delay solve or Mach probe.
         const description = describeFile(data, filename, {
-          kernelDeadHolderMs: 10_000, maxInflatedBytes: MAX_API_INFLATED_BYTES,
+          kernelDeadHolderMs: 10_000, maxInflatedBytes: MAX_API_INFLATED_BYTES, designName: displayEcho,
         });
         ctx.waitUntil(description.catch(() => undefined));
         return stampedJson(described(await description));
@@ -158,7 +122,7 @@ export const worker = {
       if (request.method !== 'POST') return error('METHOD_NOT_ALLOWED', 'Use POST with a raw design file.', 405, { Allow: 'POST' });
       filename = url.searchParams.get('filename')?.trim() ?? '';
       if (!filename) return error('FILENAME_REQUIRED', 'Supply the design filename in ?filename=.', 400);
-      const data = await readDesign(request);
+      const data = await readBody(request, reservation);
       if (!data.byteLength) return error('EMPTY_FILE', 'Supply a raw design file as the request body.', 400);
       const readMs = performance.now() - started;
       // No caller-supplied options; the bundled snapshot is the only external motor source.
@@ -177,6 +141,8 @@ export const worker = {
       const flight = simulateFile(data, filename, {
         network: 'forbid', reportSeries: 'summary', yieldToUi: () => Promise.resolve(),
         kernelDeadHolderMs: 10_000, minTimeStepS: MIN_API_TIME_STEP_S, maxInflatedBytes: MAX_API_INFLATED_BYTES,
+        // The design's name, as every response shows it: bounded and made safe like the filename echo.
+        designName: displayEcho,
       });
       // Defence in depth: keep the real flight and its cleanup alive after disconnect.
       ctx.waitUntil(flight.catch(() => undefined));
@@ -202,6 +168,9 @@ export const worker = {
       if (e instanceof Error && e.name === SHARE_TOO_LARGE_ERROR_NAME) {
         return error('LINK_TOO_LARGE', `${shown}: this design is too large for a share link (the app's limit is 4 MiB of design XML and 1,048,576 link characters). Use ${APP_URL} with the file itself.`, 413);
       }
+      if (e instanceof ServerBusy) {
+        return error('SERVER_BUSY', 'The API is busy with other uploads. Retry in a few seconds.', 503, { 'Retry-After': '5' });
+      }
       if (e instanceof KernelUnavailableError) {
         return error('KERNEL_UNAVAILABLE', e.message, 503, { 'Retry-After': '5' });
       }
@@ -213,6 +182,8 @@ export const worker = {
         { status: e.kind === 'file' ? 413 : e.kind === 'parse' ? 400 : 422 });
       }
       return error('INTERNAL_ERROR', describing ? 'The design could not be described.' : 'The design could not be simulated.', 500);
+    } finally {
+      reservation.release();
     }
   },
 };

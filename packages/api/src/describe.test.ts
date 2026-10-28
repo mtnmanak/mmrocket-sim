@@ -8,6 +8,8 @@ import {
 import { decodeShareFragment, MAX_INFLATED_BYTES, SHARE_TOO_LARGE_ERROR_NAME } from '../../app/src/services/shareLink.js';
 import { motorFreeOrk, motorFreeProjection } from '../../app/src/services/describeFile.js';
 import { openHeadlessDesign, planHeadlessImport } from '../../app/src/services/simulateFile.js';
+import { displayEcho } from './filenameEcho.js';
+import { API_XML_LIMITS } from './xmlLimits.js';
 import { autoBody, bytesOf, clusterBody, orkOf, rktWithMotor, stampOf, unbundledDigestCase } from './fixtures.testSupport.js';
 
 /**
@@ -63,6 +65,8 @@ const close = (actual: number | null, expected: number | null) => {
   if (expected === null) { expect(actual).toBeNull(); return; }
   expect(Math.abs(actual! - expected)).toBeLessThanOrEqual(1e-10 * Math.max(1, Math.abs(expected)));
 };
+/** The Worker's own name rule, so the Node oracle reads the name the API returns. */
+const API_NAME = { designName: displayEcho };
 async function sameAsNode(out: Described, node: DescribeFileResult) {
   const a = out.analysis, b = node.analysis;
   expect({ ...a, lengthM: 0, referenceDiameterM: 0, dryMassKg: 0, dryCgM: 0, cpM: 0, stabilityCalibers: 0,
@@ -93,7 +97,7 @@ describe('S3 draft POST /describe in real workerd', () => {
     expect(out.link).toBe(APP_URL + out.fragment);
     expect(out.fragment).toMatch(/^#d=1\.[A-Za-z0-9_-]+$/);
     expect(Object.keys(out.mounts[0]!).sort()).toEqual(['count', 'diameterM', 'key', 'maxMotorLengthM', 'name', 'stageIndex', 'stageName']);
-    await sameAsNode(out, await describeFile(body, name));
+    await sameAsNode(out, await describeFile(body, name, API_NAME));
   });
 
   it('describes motorless, unmatched and clustered designs without a flight', async () => {
@@ -105,7 +109,7 @@ describe('S3 draft POST /describe in real workerd', () => {
     };
     for (const [name, body] of Object.entries(bodies)) {
       const out = await described(normal!, name, body);
-      await sameAsNode(out, await describeFile(body, name));
+      await sameAsNode(out, await describeFile(body, name, API_NAME));
       if (name === 'cluster.ork') expect(out.mounts[0]!.count).toBe(4);
     }
   });
@@ -114,7 +118,7 @@ describe('S3 draft POST /describe in real workerd', () => {
     const { body, sentence } = await unbundledDigestCase();
     const out = await described(normal!, 'digest.ork', body);
     expect(out.notes.import.text).toContain(sentence);
-    await sameAsNode(out, await describeFile(body, 'digest.ork'));
+    await sameAsNode(out, await describeFile(body, 'digest.ork', API_NAME));
   }, 60_000);
 
   it('ignores unknown query options: they cannot enable network or change the analysis', async () => {
@@ -160,7 +164,7 @@ describe('S3 draft POST /describe in real workerd', () => {
     const [a, , ref, , b] = await Promise.all(responses.map(r => r.json())) as Described[];
     expect(a).toEqual(solo);
     expect(b).toEqual(solo);
-    await sameAsNode(ref!, await describeFile(bytesOf('reference.ork'), 'reference.ork'));
+    await sameAsNode(ref!, await describeFile(bytesOf('reference.ork'), 'reference.ork', API_NAME));
   });
 
   it('a refused build is 422 and releases the kernel for the next request', async () => {
@@ -215,7 +219,7 @@ describe('S3 draft POST /describe in real workerd', () => {
     const internal = await trapped!.fetch('http://local/__test/body-error?route=describe');
     expect(internal.status).toBe(500);
     expect(await internal.json()).toEqual({ ...STAMP, error: { code: 'INTERNAL_ERROR', message: 'The design could not be described.' } });
-    for (const payload of ['<x/>'.repeat(50_000), '<x>'.repeat(63) + '</x>'.repeat(63)]) {
+    for (const payload of ['<x/>'.repeat(API_XML_LIMITS.maxElements), '<x>'.repeat(63) + '</x>'.repeat(63)]) {
       const structure = await post(normal!, 'structure.ork', `<openrocket><rocket>${payload}</rocket></openrocket>`);
       expect(structure.status).toBe(413);
       expect(await structure.json()).toEqual({ ...STAMP, error: { code: 'FILE_TOO_LARGE', message: expect.stringMatching(/XML.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });

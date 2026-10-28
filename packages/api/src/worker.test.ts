@@ -28,37 +28,37 @@ it.each([undefined, '3', '1', '10'])('assembles received bytes with Content-Leng
   expect([...new Uint8Array(data as ArrayBuffer)]).toEqual([1, 2, 3]);
 });
 
-it('assembles only received bytes with no ArrayBuffer reservation or slice despite a declared 8 MiB length', async () => {
-  const request = new Request(url, { method: 'POST', body: new Uint8Array(10) });
-  // The API's body cap: a declared length AT the cap is read, so only received bytes may be allocated.
-  request.headers.set('Content-Length', String(8 * 1024 * 1024));
-  const sizes: number[] = [];
-  const reservations: number[] = [];
-  const slices: unknown[][] = [];
-  const original = globalThis.Uint8Array;
-  const originalBuffer = globalThis.ArrayBuffer;
-  const originalSlice = originalBuffer.prototype.slice;
-  const sliceSpy = vi.spyOn(originalBuffer.prototype, 'slice').mockImplementation(function (this: ArrayBuffer, ...args) {
-    if (new Error().stack?.includes('readDesign')) slices.push(args);
-    return originalSlice.apply(this, args);
-  });
-  vi.stubGlobal('Uint8Array', new Proxy(original, { construct(target, args) {
-    // Observe the reader's allocation path, excluding Response.json/runtime allocations.
-    if (typeof args[0] === 'number' && Number.isFinite(args[0]) && new Error().stack?.includes('readDesign')) sizes.push(args[0]);
-    return Reflect.construct(target, args);
-  } }));
-  vi.stubGlobal('ArrayBuffer', new Proxy(originalBuffer, { construct(target, args) {
-    if (typeof args[0] === 'number' && Number.isFinite(args[0]) && new Error().stack?.includes('readDesign')) reservations.push(args[0]);
-    return Reflect.construct(target, args);
-  } }));
-  vi.mocked(simulateFile).mockRejectedValue(new Error('test flight refusal'));
-  try {
-    await worker.fetch(request, undefined, { waitUntil: () => undefined });
-    expect(sizes).toEqual([10]);
-    expect(reservations).toEqual([]);
-    expect(slices).toEqual([]);
-    expect(vi.mocked(simulateFile).mock.calls[0]![0].byteLength).toBe(10);
-  } finally { sliceSpy.mockRestore(); vi.unstubAllGlobals(); }
+it('sizes the body buffer from received bytes, never a declared 8 MiB length, and takes no slice', async () => {
+  // The API's body cap: a declared length AT the cap is read, so it must not size anything.
+  type Traced = ArrayBuffer & { resize(n: number): void; readonly maxByteLength: number };
+  const proto = ArrayBuffer.prototype as Traced;
+  const originalSlice = proto.slice;
+  const originalResize = proto.resize;
+  /** The reader's own buffer steps (each resize, with the buffer's maxByteLength) and any slice, for one request. */
+  async function trace(length: string | undefined) {
+    const steps: unknown[] = [];
+    const inReader = () => new Error().stack?.includes('readBody') ?? false;
+    const sliceSpy = vi.spyOn(proto, 'slice').mockImplementation(function (this: ArrayBuffer, ...args) {
+      if (inReader()) steps.push(['slice', ...args]);
+      return originalSlice.apply(this, args);
+    });
+    const resizeSpy = vi.spyOn(proto, 'resize').mockImplementation(function (this: Traced, n: number) {
+      if (inReader()) steps.push(['resize', n, this.maxByteLength]);
+      originalResize.call(this, n);
+    });
+    const request = new Request(url, { method: 'POST', body: new Uint8Array(10) });
+    if (length !== undefined) request.headers.set('Content-Length', length);
+    vi.mocked(simulateFile).mockReset().mockRejectedValue(new Error('test flight refusal'));
+    try {
+      await worker.fetch(request, undefined, { waitUntil: () => undefined });
+    } finally { sliceSpy.mockRestore(); resizeSpy.mockRestore(); }
+    return { steps, received: vi.mocked(simulateFile).mock.calls[0]![0].byteLength };
+  }
+  const declared = await trace(String(8 * 1024 * 1024));
+  // One buffer that may grow to the cap: a first step for the bytes, then exactly them.
+  const cap = 8 * 1024 * 1024;
+  expect(declared).toEqual({ steps: [['resize', 65_536, cap], ['resize', 10, cap]], received: 10 });
+  expect(await trace(undefined)).toEqual(declared);
 });
 
 it('keeps waitUntil pending for the real flight and passes a timer-free yield', async () => {
