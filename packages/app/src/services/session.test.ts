@@ -1551,3 +1551,53 @@ describe('stored-state siblings: launch conditions', () => {
     expect(localStorage.getItem(KEY)).toBe(raw);
   });
 });
+
+describe('stored-state siblings: stage-mass snapshots', () => {
+  const KEY = 'online-openrocket.session.v1';
+  beforeEach(() => discardSession());
+  /** Two configurations; `stored` is the inactive one's snapshot of the first stage (Save writes it as stored). */
+  const restore = (stored: unknown) => {
+    const tree = defaultTree();
+    const stage = tree.components[0]!.id!;
+    const raw = JSON.stringify({ ...state(), tree, configLayers: 1, activeConfigId: 'a', savedConfigs: [
+      { id: 'a', name: 'A', isDefault: true, motors: {}, stageMassOverrides: { [stage]: {} } },
+      { id: 'b', name: 'B', isDefault: false, motors: {}, stageMassOverrides: { [stage]: stored } },
+    ] });
+    localStorage.setItem(KEY, raw);
+    return { raw, stage, loaded: loadSession()! };
+  };
+  const valid = { overrideMass: 0.2, overrideCGX: 0.1, overrideSubcomponentsMass: true, overrideSubcomponentsCG: false,
+    overrideIncludesMotor: 'C6', statedStageFigures: { includesMotor: true, motor: 'C6', launchKg: 0.2, massKg: 0.2 } };
+
+  it.each([null, 5, 'x', []].map(v => [v]))('clears an unreadable snapshot %j and saves', value => {
+    const { raw, stage, loaded } = restore(value);
+    expect(loaded.savedConfigs![1]!.stageMassOverrides![stage]).toEqual({});
+    expect(noteKinds(loaded)).toContain('caution:G04.stage-mass-repaired');
+    expect(() => saveOrk(loaded)).not.toThrow();
+    expect(localStorage.getItem(KEY)).toBe(raw);
+    expect(autosavedDesignFile()).toMatchObject({ ork: false, data: raw });
+  });
+
+  it.each([
+    ['overrideMass', '0.2'], ['overrideMass', null], ['overrideCGX', {}], ['overrideSubcomponentsMass', 'true'],
+    ['overrideSubcomponentsCG', 1], ['overrideIncludesMotor', 7], ['overrideIncludesMotor', { toString: 0 }],
+    ['statedStageFigures', { motor: 7, launchKg: 0.2 }], ['statedStageFigures', 'C6'],
+  ] as [string, unknown][])('removes an unreadable %s of %j and keeps the rest', (key, value) => {
+    const { stage, loaded } = restore({ ...valid, [key]: value });
+    const { [key as keyof typeof valid]: _gone, ...rest } = valid;
+    expect(loaded.savedConfigs![1]!.stageMassOverrides![stage]).toStrictEqual(rest);
+    expect(noteKinds(loaded)).toContain('caution:G04.stage-mass-repaired');
+    const xml = saveOrk(loaded);
+    expect(xml).not.toMatch(/undefined|NaN|\[object/);
+  });
+
+  it('restores valid snapshots exactly, with no note, and saves them', () => {
+    const { raw, stage, loaded } = restore(valid);
+    const stored = JSON.parse(raw) as SessionState;
+    expect(loaded.savedConfigs).toStrictEqual(stored.savedConfigs);
+    expect(JSON.stringify(loaded.savedConfigs)).toBe(JSON.stringify(stored.savedConfigs));
+    expect(loaded.savedConfigs![1]!.stageMassOverrides![stage]).toStrictEqual(valid);
+    expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+    expect(saveOrk(loaded)).toContain('<overrideincludesmotor>C6</overrideincludesmotor>');
+  });
+});

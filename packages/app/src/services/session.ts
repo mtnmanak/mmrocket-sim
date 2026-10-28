@@ -3,7 +3,7 @@ import { carryFlags, cautionNote, noteFlags } from './importNotes.js';
 import { restoredWarnings } from './storedWarnings.js';
 import { sanitizeDesignProvenance } from './designProvenance.js';
 import { sanitizeDocumentMaterials } from './documentMaterials.js';
-import type { MotorSpec } from '@online-openrocket/engine';
+import type { ComponentNode, MotorSpec } from '@online-openrocket/engine';
 import { DEFAULT_CONDITIONS, GEODETIC_METHODS, type LaunchConditions } from './launchConditions.js';
 import type { FlightTree, FlightOverrides, MountMotor, SavedConfig } from '../model/design.js';
 import { savedConfigLabel } from '../model/design.js';
@@ -22,6 +22,7 @@ import { sanitizeSessionFlightLayers } from './sessionFlightLayers.js';
 import { boundedNozzleDiameter } from '../tree/nozzles.js';
 import { validExMotorIdentity } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
+import { STATED_STAGE_FIGURES, statedFiguresOf } from './statedLaunchWeight.js';
 
 /**
  * Session autosave: the whole working state (design tree, selected motor,
@@ -390,6 +391,47 @@ function repairStoredLaunch(l: Record<string, unknown>): boolean {
   return repaired;
 }
 
+/**
+ * The fields of a stored stage-mass snapshot (stageMassOverrides.StageMassOverride)
+ * and the type each must have. Save writes an inactive configuration's snapshot
+ * as stored (orkFile, `<stagemassconfiguration>`) and escapes the motor name.
+ */
+const STAGE_MASS_FIELDS: Record<string, (v: unknown) => boolean> = {
+  overrideMass: finiteNumber,
+  overrideCGX: finiteNumber,
+  overrideSubcomponentsMass: v => typeof v === 'boolean',
+  overrideSubcomponentsCG: v => typeof v === 'boolean',
+  overrideIncludesMotor: v => typeof v === 'string',
+  [STATED_STAGE_FIGURES]: v => statedFiguresOf({ type: 'stage', [STATED_STAGE_FIGURES]: v } as ComponentNode) !== null,
+};
+
+/**
+ * Repair one configuration's stored stage-mass snapshots; true when anything
+ * changed. A snapshot that is not a table becomes `{}`, which still owns the
+ * stage and clears its overrides when the configuration is applied, as a
+ * snapshot whose every field was unreadable does. A bad field is deleted in
+ * place, so a valid map stays the same object.
+ */
+function repairStageMassOverrides(cfg: SavedConfig): boolean {
+  const map = cfg.stageMassOverrides;
+  if (!map) return false;
+  let repaired = false;
+  let replaced = false;
+  const entries = Object.entries(map).map(([id, value]) => {
+    if (!isTable(value)) { replaced = true; return [id, {}] as const; }
+    for (const [key, ok] of Object.entries(STAGE_MASS_FIELDS)) {
+      if (key in value && !ok((value as Record<string, unknown>)[key])) {
+        delete (value as Record<string, unknown>)[key];
+        repaired = true;
+      }
+    }
+    return [id, value] as const;
+  });
+  // Rebuilt, not assigned, when a snapshot is replaced: stage ids are file-sourced.
+  if (replaced) cfg.stageMassOverrides = Object.fromEntries(entries);
+  return repaired || replaced;
+}
+
 /** A stored Mach-Alt table, or null: 1–1,000 rows of finite [Mach ≥ 0, altitude m]. */
 export function validMachAltTable(v: unknown): [number, number][] | null {
   if (!Array.isArray(v) || v.length === 0 || v.length > MAX_MACH_ALT_ROWS) return null;
@@ -544,6 +586,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
         unmatchedRebuilt.add(i);
       }
     });
+    let stageMassRepaired = false;
     for (const cfg of s.savedConfigs ?? []) {
       for (const [id, value] of Object.entries(cfg.nozzles ?? {})) {
         const bounded = boundedNozzleDiameter(value);
@@ -553,6 +596,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
             `Saved configuration ${savedConfigLabel(cfg)}: an invalid or oversized nozzle exit diameter was repaired. Check the nozzle before flying.`);
         }
       }
+      if (repairStageMassOverrides(cfg)) stageMassRepaired = true;
       if (isTable(cfg.stageActiveness)) {
         cfg.stageActiveness = lookupTable(Object.fromEntries(
           Object.entries(cfg.stageActiveness).filter(([, value]) => typeof value === 'boolean'),
@@ -560,6 +604,10 @@ function readSession(restoreRoot: boolean): SessionState | null {
       } else {
         delete cfg.stageActiveness;
       }
+    }
+    if (stageMassRepaired) {
+      cautionNote(s.treeRestoreNotes ??= [], 'G04.stage-mass-repaired',
+        'Unreadable stage mass and CG overrides in saved configurations were cleared. Check the stage masses before flying.');
     }
     // Older configuration maps used 0 as a removal command, not persistent OFF.
     // Preserve their automatic behavior; tree values themselves are untouched.
