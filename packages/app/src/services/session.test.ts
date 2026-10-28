@@ -1678,3 +1678,42 @@ describe('stored-state siblings: the legacy inline motor', () => {
       expect(autosavedDesignFile()).toMatchObject({ ork: false, data: raw });
     });
 });
+
+describe('stored-state siblings: a valid session is untouched', () => {
+  const KEY = 'online-openrocket.session.v1';
+  beforeEach(() => discardSession());
+  it.each([
+    ['longitude absent', {}],
+    ['longitude null', { longitudeDeg: null }],
+  ] as [string, Record<string, unknown>][])('restores every screened field exactly, with no note and a clean saved mark (%s)', (_name, extra) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const stage = tree.components[0]!.id!;
+    const motor = exMounted();
+    const ref = { designation: 'Z9-4', exMotorId: 'ex:stored-c6', exDefinition: definition(), diameter: 0.018, length: 0.07, delay: 4 };
+    const launch = { ...state().launch, launchRodAimDeg: 10, launchRodAngleDeg: 5, launchGuideAllowance: false,
+      geodeticMethod: 'flat', timeStepS: 0.02, temperatureC: 15, pressureHPa: 1000, ...extra } as LaunchConditions;
+    const snap: DesignSnapshot = { tree, launch, mountMotors: { [mount]: motor }, maxMotorLengthByStage: {},
+      savedConfigs: [
+        { id: 'a', name: 'A', isDefault: true, motors: { [mount]: motor },
+          stageMassOverrides: { [stage]: { overrideMass: 0.2, overrideSubcomponentsMass: true, overrideIncludesMotor: 'C6',
+            statedStageFigures: { includesMotor: true, motor: 'C6', launchKg: 0.2, massKg: 0.2 } } } },
+        { id: 'b', name: 'B', isDefault: false, motors: {}, unmatchedRefs: { [mount]: ref as never }, unmatched: ['Z9-4'],
+          stageMassOverrides: { [stage]: {} } },
+      ],
+      activeConfigId: 'a', measured: { massKg: null, cgM: null } };
+    const raw = JSON.stringify({ ...snap, configLayers: 1, nozzleModeVersion: 1, mountId: mount,
+      unmatchedRefs: {}, appVersion: APP_VERSION, savedMark: designFingerprint(snap), savedAt: 1 });
+    localStorage.setItem(KEY, raw);
+    const loaded = loadSession()!;
+    // The loader's (empty) note list is transient: never written back.
+    const { treeRestoreNotes, ...rest } = loaded;
+    expect(treeRestoreNotes ?? []).toEqual([]);
+    expect(rest).toStrictEqual(JSON.parse(raw));
+    expect(JSON.stringify(rest)).toBe(raw);
+    expect(localStorage.getItem(KEY)).toBe(raw);
+    expect(isDirty(designFingerprint({ ...snap, tree: loaded.tree, launch: loaded.launch, mountMotors: loaded.mountMotors!,
+      savedConfigs: loaded.savedConfigs!, activeConfigId: loaded.activeConfigId! }), loaded.savedMark, false)).toBe(false);
+    expect(() => saveOrk(loaded)).not.toThrow();
+  });
+});
