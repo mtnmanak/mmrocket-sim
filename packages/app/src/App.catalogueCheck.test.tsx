@@ -116,7 +116,7 @@ it('an automatic result that changes a loaded motor says so once in the message 
   expect(await startCatalogueAutoCheck()).toBe('checked');
   await waitFor(() => /In this design/.test(notice()), 'the notice');
   expect(document.querySelectorAll('.notice-bar').length).toBe(1);
-  expect(notice()).toContain('In this design: Estes C6 (totImpulseNs) — re-run the flight.');
+  expect(notice()).toContain('In this design: Estes C6 (totImpulseNs) — pick the motor again to fly the new figures.');
   expect(getCatalogueOverlay()?.changed.map(c => c.motorId)).toEqual([C6.motorId]);
   // The installed change does not alter the loaded motor's flight data: the
   // spec a Launch flies is the one loaded before the check.

@@ -546,11 +546,13 @@ export function describeOverlay(o: CatalogueOverlay, units: UnitSelection = INIT
 
 /**
  * The one line that matters most after a check: a changed certified figure on
- * a motor that is IN THE DESIGN. The motor browser leads its result with it;
+ * a motor that is IN THE DESIGN. The motor already loaded keeps the figures it
+ * was loaded with (a check relabels it, nothing more), so the line asks for a
+ * new pick, not a re-run. The motor browser leads its result with it;
  * App's message strip shows it for an automatic check (catalogueAutoCheck.ts).
  */
 export function designChangeLine(mine: readonly CatalogueChange[]): string {
-  return `In this design: ${mine.map((c) => `${c.after.manufacturerAbbrev} ${c.after.designation} (${c.fields.join(', ')})`).join('; ')} — re-run the flight.`;
+  return `In this design: ${mine.map((c) => `${c.after.manufacturerAbbrev} ${c.after.designation} (${c.fields.join(', ')})`).join('; ')} — pick the motor again to fly the new figures.`;
 }
 
 /** Prefer catalogue identity; older records without ids can match either side of a rename. */
