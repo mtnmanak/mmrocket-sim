@@ -19,6 +19,17 @@ export class ServerBusy extends Error {
   constructor() { super('Body bytes in flight exceed the isolate budget.'); }
 }
 
+/**
+ * An ES2024 resizable ArrayBuffer (Node 22 and workerd have one). Declared here
+ * rather than through tsconfig's lib: the app's test program imports the Worker
+ * and checks it against ES2022.
+ */
+interface ResizableArrayBuffer extends ArrayBuffer {
+  resize(byteLength: number): void;
+  transferToFixedLength(): ArrayBuffer;
+}
+const ResizableArrayBuffer = ArrayBuffer as unknown as new (byteLength: number, options: { maxByteLength: number }) => ResizableArrayBuffer;
+
 let reserved = 0;
 /** Body bytes reserved across this isolate's requests now (tests). */
 export const reservedBodyBytes = () => reserved;
@@ -61,7 +72,7 @@ export async function readBody(request: Request, reservation: BodyReservation): 
   const declared = length !== null && /^\d+$/.test(length) ? Number(length) : undefined;
   if (declared !== undefined && declared > MAX_API_BODY_BYTES) throw new BodyTooLarge(declared);
   if (!request.body) return new ArrayBuffer(0);
-  const buffer = new ArrayBuffer(0, { maxByteLength: MAX_API_BODY_BYTES });
+  const buffer = new ResizableArrayBuffer(0, { maxByteLength: MAX_API_BODY_BYTES });
   const reader = request.body.getReader();
   let size = 0;
   try {
