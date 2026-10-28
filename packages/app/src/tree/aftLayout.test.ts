@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { aftLayout } from './aftLayout.js';
+import { kernelDefault } from './kernelDefaults.js';
 
 it('uses zero bore for an automatic coupler inside a filled body', () => {
   const layout = aftLayout({ components: [{ type: 'bodytube', id: 'body', length: 0.3,
@@ -16,6 +17,24 @@ it('sizes an automatic aft-view coupler at both stations inside a tapered shell'
       { type: 'tubecoupler', id: 'coupler', length: 0.02, position: { method: 'top', offset: 0.02 } },
     ] }] }, 0);
   expect(layout.inner.find(s => s.key === 'coupler')).toMatchObject({ kind: 'circle', r: expect.closeTo(0.004, 9) });
+});
+
+it('draws an unsized launch lug at the radius the kernel flies, and keeps an explicit one', () => {
+  const pRadius = 0.012, angle = 0.3, roll = 0.4;
+  const layout = aftLayout({ components: [{ type: 'bodytube', id: 'body', length: 0.3, outerRadius: pRadius,
+    children: [
+      { type: 'launchlug', id: 'lug', angleOffset: angle },
+      { type: 'launchlug', id: 'sized', angleOffset: angle, outerRadius: 0.003 },
+    ] }] }, roll);
+  const r = kernelDefault('launchlug', 'outerRadius')!;
+  expect(r).toBeGreaterThan(0);
+  for (const [id, want] of [['lug', r], ['sized', 0.003]] as const) {
+    const lug = layout.outer.find(s => s.key === id);
+    if (lug?.kind !== 'circle') throw new Error('Expected circle');
+    expect(lug.r).toBeCloseTo(want, 12);
+    expect(lug.y).toBeCloseTo((pRadius + want) * Math.cos(angle + roll), 12);
+    expect(lug.z).toBeCloseTo((pRadius + want) * Math.sin(angle + roll), 12);
+  }
 });
 
 const finRocket = (extra: Record<string, unknown> = {}) => ({
