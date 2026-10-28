@@ -19,6 +19,7 @@ beforeEach(() => {
     listeners.push({ type, listener, options }); add(type, listener, options);
   });
   vi.stubGlobal('navigator', { userAgent: 'Merge test browser', serviceWorker: new EventTarget() });
+  vi.stubGlobal('fetch', fetchSpy);
   root = document.createElement('div'); root.id = 'root'; root.textContent = 'Mounted app';
   document.body.append(root);
 });
@@ -26,6 +27,12 @@ afterEach(() => {
   document.querySelector<HTMLButtonElement>('[aria-label="Dismiss error"]')?.click();
   for (const { type, listener, options } of listeners.splice(0)) window.removeEventListener(type, listener, options);
   root.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks();
+});
+
+const fetchSpy = vi.fn(async () => new Response('{}'));
+// No App mounted, so no restore and no catalogue request (main.catalogueCheck.test.tsx has the positive case).
+afterEach(() => {
+  expect(fetchSpy.mock.calls.map(c => String((c as unknown[])[0])).filter(u => u.startsWith('https://catalogue.mountainmanrockets.com/'))).toEqual([]);
 });
 
 const download = () => document.querySelector<HTMLButtonElement>('[data-debug-log]')!;

@@ -661,6 +661,23 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
     expect(h.host.textContent).not.toMatch(/Could not check/);
   });
 
+  it('the button forces its check: inside six hours of an earlier check it still asks, and the same snapshot costs one request', async () => {
+    const { fetcher } = await stubCatalogue(MOTOR_DB);
+    const { checkForCatalogueUpdates } = await import('../services/catalogueOverlay.js');
+    // An earlier check — the automatic one on load — a moment ago.
+    await checkForCatalogueUpdates({ force: true });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    // Positive control for the throttle the button now skips: unforced, it asks nothing.
+    expect((await checkForCatalogueUpdates()).skipped).toBe('recent');
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    h = openBrowser({ mountDiameterMm: 29 });
+    click(checkButton(h));
+    for (let i = 0; i < 200 && !h.host.querySelector('.motor-check-status .file-note'); i++) await settleReal(10);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    expect(String(fetcher.mock.calls[2]![0])).toMatch(/manifest\.json$/);
+    expect(h.host.querySelector('.motor-check-status')!.textContent).not.toMatch(/six hours/);
+  });
+
   const C6_ID = '5f4294d20002310000000015';
   /**
    * The catalogue as the whole shipped catalogue, with Estes C6 given a 9 s
@@ -749,8 +766,8 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
    * A RE-RESOLVED PICK KEEPS THE DELAY CHOSEN FOR IT (review of the fix above,
    * 2026-10-01). Following the catalogue swaps the picked row for the
    * catalogue's own, and every swap re-ran the delay default — but a repeat
-   * check re-reads the stored overlay as fresh rows, and "Check again anyway"
-   * pulls fresh ones, so a delay the user had chosen snapped back to the
+   * check re-reads the stored overlay as fresh rows, and a forced one pulls
+   * fresh ones, so a delay the user had chosen snapped back to the
    * motor's longest and Load loaded C6-9 where C6-3 was on screen a moment
    * before. The delay starts again only for a different motor, or when the
    * motor's new row no longer offers it (the discard above).
@@ -761,10 +778,7 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
       Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(sel, value);
       sel.dispatchEvent(new Event('change', { bubbles: true }));
     });
-    const checkAgainAnyway = (h: Harness) => Array.from(h.host.querySelectorAll('button'))
-      .find((b) => b.textContent === 'Check again anyway')!;
-
-    it('through a repeat check inside six hours, which reads the stored result back', async () => {
+    it('through a repeat check of the same snapshot, which writes the stored result back', async () => {
       await stubWithChanges();
       h = openBrowser({ mountDiameterMm: 18 });
       await check(h);
@@ -772,7 +786,6 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
       click(rowFor(h, 'Estes', 'C6')!);
       chooseDelay(h, '3');
       await check(h);
-      expect(h.host.querySelector('.motor-check-status')!.textContent).toMatch(/Checked less than six hours ago/);
       expect(delaySelect(h)!.value).toBe('3');
       await loadAndWait(h);
       expect(h.selected).toEqual([{ label: 'C6-3', ejectionDelay: 3 }]);
@@ -816,7 +829,7 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
       expect(h.selected[0]!.ejectionDelay).toBe(Infinity);
     });
 
-    it('for a motor the check marks no longer listed, through a repeat check and "Check again anyway"', async () => {
+    it('for a motor the check marks no longer listed, through two repeat checks', async () => {
       const B6_ID = '5f4294d20002310000000010';
       await stubWithChanges({ drop: B6_ID });
       h = openBrowser({ mountDiameterMm: 18, filters: { includeOOP: true } });
@@ -827,7 +840,7 @@ describe('MotorBrowser — the "Check thrustcurve.org" button (audit 2026-09-22)
       chooseDelay(h, '2');
       await check(h);
       expect(delaySelect(h)!.value).toBe('2');
-      await check(h, checkAgainAnyway(h));
+      await check(h);
       expect(delaySelect(h)!.value).toBe('2');
       await loadAndWait(h);
       expect(h.selected).toEqual([{ label: 'B6-2', ejectionDelay: 2 }]);

@@ -544,6 +544,15 @@ export function describeOverlay(o: CatalogueOverlay, units: UnitSelection = INIT
   return lines;
 }
 
+/**
+ * The one line that matters most after a check: a changed certified figure on
+ * a motor that is IN THE DESIGN. The motor browser leads its result with it;
+ * App's message strip shows it for an automatic check (catalogueAutoCheck.ts).
+ */
+export function designChangeLine(mine: readonly CatalogueChange[]): string {
+  return `In this design: ${mine.map((c) => `${c.after.manufacturerAbbrev} ${c.after.designation} (${c.fields.join(', ')})`).join('; ')} — re-run the flight.`;
+}
+
 /** Prefer catalogue identity; older records without ids can match either side of a rename. */
 export function changedMotorsInDesign(
   o: CatalogueOverlay,

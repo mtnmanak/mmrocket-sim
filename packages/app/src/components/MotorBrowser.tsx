@@ -8,7 +8,7 @@ import { useBackdropClose, useDialog } from './useDialog.js';
 import { useRovingRows } from './useRovingRows.js';
 import { useCatalogue, useCatalogueOverlay } from './useCatalogue.js';
 import {
-  changedMotorsInDesign, checkForCatalogueUpdates, describeOverlay, discardCatalogueOverlay,
+  changedMotorsInDesign, checkForCatalogueUpdates, designChangeLine, describeOverlay, discardCatalogueOverlay,
 } from '../services/catalogueOverlay.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import {
@@ -220,7 +220,6 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const [checking, setChecking] = useState(false);
   const [checkNote, setCheckNote] = useState<string[] | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
-  const [checkWasRecent, setCheckWasRecent] = useState(false);
   const checkAbort = useRef<AbortController | null>(null);
   useEffect(() => () => checkAbort.current?.abort(), []);
   /**
@@ -235,16 +234,21 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
   const catalogueAgeDays = Math.max(0, Math.floor((Date.now() - Date.parse(MOTOR_DB_DATE)) / 86_400_000));
   const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
 
-  const runCheck = async (force: boolean): Promise<void> => {
+  /**
+   * The button always FORCES its check (row 110): the check also runs by
+   * itself on load, so an unforced press would almost always answer with that
+   * result instead of asking. When the snapshot has not moved, a forced check
+   * costs one manifest request.
+   */
+  const runCheck = async (): Promise<void> => {
     checkAbort.current?.abort();
     const ctrl = new AbortController();
     checkAbort.current = ctrl;
     setChecking(true);
     setCheckError(null);
     setCheckNote(null);
-    setCheckWasRecent(false);
     try {
-      const { overlay: o, skipped, silent } = await checkForCatalogueUpdates({ force, signal: ctrl.signal });
+      const { overlay: o, silent } = await checkForCatalogueUpdates({ force: true, signal: ctrl.signal });
       const lines = describeOverlay(o, prefs.units);
       if (silent.length) {
         lines.push(`thrustcurve.org returned no motors at all for ${silent.join(', ')} — `
@@ -254,9 +258,8 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
       if (mine.length) {
         // The one line that matters most: a changed certified figure on a motor
         // that is IN THE DESIGN moves its apogee. Say so by name, first.
-        lines.unshift(`In this design: ${mine.map((c) => `${c.after.manufacturerAbbrev} ${c.after.designation} (${c.fields.join(', ')})`).join('; ')} — re-run the flight.`);
+        lines.unshift(designChangeLine(mine));
       }
-      setCheckWasRecent(skipped === 'recent');
       setCheckNote(lines);
     } catch (e) {
       if (e instanceof Error && e.name === 'AbortError') setCheckNote(['Stopped. Nothing was changed.']);
@@ -631,7 +634,7 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
               ? 'No network — the shipped catalogue is what there is until you are back online'
               : 'Pull the live motor catalogue from thrustcurve.org and show what has changed since this app\'s copy. Kept in this browser only; nothing is written to the app.'}
             aria-label="Check thrustcurve.org for newer motors"
-            onClick={() => void runCheck(false)}>
+            onClick={() => void runCheck()}>
             {checking ? '↻ checking…' : '↻ Check thrustcurve.org'}
           </button>
           {checking && (
@@ -652,12 +655,6 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
           {checking && <p>Checking thrustcurve.org… Use Stop to cancel.</p>}
           {checkNote && (
             <div className="file-note" style={{ marginTop: 6 }}>
-              {checkWasRecent && (
-                <p style={{ margin: '0 0 4px' }}>
-                  Checked less than six hours ago — this is that result.{' '}
-                  <button className="file-btn" onClick={() => void runCheck(true)}>Check again anyway</button>
-                </p>
-              )}
               {checkNote.map((l, i) => <p key={i} style={{ margin: '0 0 2px' }}>{l}</p>)}
               {overlay && (
                 <p style={{ margin: '4px 0 0' }}>
