@@ -216,7 +216,7 @@ describe('the curves file is checked before anything flies from it', () => {
     const good = { [addedMotor.motorId]: [file(40)], [curveless.motorId]: [file(55)] };
     const curvesDoc = Array.isArray(doc) ? doc : { ...doc,
       catalogueGenerated: doc.catalogueGenerated === 'SNAP' ? generated : doc.catalogueGenerated,
-      ...(doc.curves === 'GOOD' ? { curves: good } : {}) };
+      ...('curves' in doc && doc.curves === 'GOOD' ? { curves: good } : {}) };
     await install({}, { added: [addedMotor], curvesDoc });
     await miss(tc.fetchMotorSpec(addedMotor, 5));
     expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);

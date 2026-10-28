@@ -513,7 +513,7 @@ it('keeps legacy cached masses ahead of the bundle while the breaker is open', a
 it('documents no thrustcurve.org requests for known missing curves and the reload/back-off paths', () => {
   const guide = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../user-guide.md'), 'utf8');
   // Row 110 / D.7: a missing curve is answered by the curated catalogue, never thrustcurve.org.
-  expect(guide).toContain('the app says there is no sample data, online or offline');
+  expect(guide).toContain('the app makes no request when you pick one before the catalogue has been checked');
   expect(guide).toContain('the motor stays without one and thrustcurve.org is not asked');
   expect(guide).toContain('When it loads online, at most every six hours');
   expect(guide).toContain('loading a motor or opening a design can download its curve');
