@@ -3,7 +3,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
-import { DEFAULT_CONDITIONS, rodLengthHelp } from './LaunchPanel.js';
+import { DEFAULT_CONDITIONS, rodAimHelp, rodLengthHelp } from './LaunchPanel.js';
+import { INITIAL_UNITS } from '../prefs/units.js';
 import { FlyScreen } from './FlyScreen.js';
 import type { SimRun } from '../services/simReport.js';
 import { addRun, loadRuns, runsToTable } from '../services/simStore.js';
@@ -124,6 +125,14 @@ describe('FlyScreen', () => {
     expect(host.textContent).toContain(allowance ? 'allowance on' : 'allowance off');
     mount();
     expect(host.textContent).toContain(rodLengthHelp(false));
+  });
+
+  it.each(['°', 'rad'])('writes Rod aim help in the preferred angle unit (%s)', (angle) => {
+    localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ daylight: true, units: { angle } }));
+    mount();
+    const help = labelledBox(host, 'Rod aim')!.closest('.field')!.getAttribute('title');
+    expect(help).toBe(rodAimHelp({ ...INITIAL_UNITS, angle }));
+    expect(help!.includes('3.142 rad (180°)')).toBe(angle === 'rad');
   });
 
   function mount(over: Partial<Parameters<typeof FlyScreen>[0]> = {}) {

@@ -22,7 +22,7 @@ export function FinAlignmentJigMenu({ tree, tube, fin }: { tree: RocketTree; tub
   const [status, setStatus] = useState<string | null>(null);
   const unit = prefs.units.length;
   let invalid: string | null = null;
-  try { finAlignmentJigGeometry(tube, fin, clearance); }
+  try { finAlignmentJigGeometry(tube, fin, clearance, prefs.units); }
   catch (e) { invalid = e instanceof Error ? e.message : String(e); }
   const ruler = noticeQuantity('length', unit === 'in' || unit === 'ft' ? 0.0508 : 0.05, unit === 'in' || unit === 'ft' ? 'in' : unit);
   const printAdvice = `Print at 100%, with no fit to page. Measure the ruler: ${ruler}. Use paper large enough for the whole jig.`;

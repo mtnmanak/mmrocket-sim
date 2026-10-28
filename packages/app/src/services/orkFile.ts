@@ -366,6 +366,11 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   maxInflatedBytes?: number;
 }): LayeredOrkImportResult {
   const units = opts?.units ?? { ...INITIAL_UNITS, altitude: opts?.distanceUnit ?? INITIAL_UNITS.altitude };
+  // num()'s fallback notes print in the user's units (fallbacks are the app's own, not file tokens).
+  const LENGTH: NumDefault = ['length', units];
+  const MOTOR_DIMENSIONS: NumDefault = ['motorDimensions', units];
+  const ALTITUDE: NumDefault = ['altitude', units];
+  const MASS: NumDefault = ['mass', units];
   let xml: string;
   // Set when the bytes were not valid UTF-8 and named no other encoding (see
   // decodeXml): the first import note, once there are notes.
@@ -542,7 +547,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     if (Number.isFinite(last)) return last; // plain number, or `auto <lastvalue>`
     if (raw.trim().toLowerCase() !== 'auto') {
       // Desktop leaves malformed centreline radii automatic (audit 2026-10-11, S1a-4).
-      invalidNumberNote(el, tag, notes, tag === 'packedradius' ? `using the default (${fallback})` : 'using an automatic radius');
+      invalidNumberNote(el, tag, notes, tag === 'packedradius' ? fallbackAction(fallback, LENGTH) : 'using an automatic radius');
       if (tag === 'packedradius') return fallback;
     }
     const label = text(el, ':scope > name') ?? el.tagName;
@@ -569,7 +574,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
    * mass component's does, else the kernel's 12.5 mm.
    */
   const readPackedSize = (el: XmlElement, n: ComponentNode): void => {
-    if (text(el, ':scope > packedlength') !== null) n['packedLength'] = num(el, 'packedlength', 0.025, notes);
+    if (text(el, ':scope > packedlength') !== null) n['packedLength'] = num(el, 'packedlength', 0.025, notes, LENGTH);
     if (el.querySelector(':scope > packedradius')) {
       n['packedRadius'] = autoDim(el, 'packedradius', 0.0125, autoRadii.packed, 0.0125);
     }
@@ -672,7 +677,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       for (const src of block ? [el, block] : [el]) {
         const event = text(src, ':scope > deployevent');
         if (event) o.deployEvent = event;
-        if (text(src, ':scope > deployaltitude') !== null) o.deployAltitude = num(src, 'deployaltitude', 200, notes);
+        if (text(src, ':scope > deployaltitude') !== null) o.deployAltitude = num(src, 'deployaltitude', 200, notes, ALTITUDE);
         if (text(src, ':scope > deploydelay') !== null) o.deployDelay = num(src, 'deploydelay', 0, notes);
       }
       const own: DeploymentTuple = { deployEvent: String(node['deployEvent'] ?? 'ejection'),
@@ -742,7 +747,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
           o.separationDelay = num(src, 'separationdelay', 0, notes);
         }
         if (text(src, ':scope > separationaltitude') !== null) {
-          o.separationAltitude = num(src, 'separationaltitude', 200, notes);
+          o.separationAltitude = num(src, 'separationaltitude', 200, notes, ALTITUDE);
         }
       }
       const own: SeparationTuple = { separationEvent: separationEventOf(String(node['separationEvent'] ?? 'ejection')) ?? 'ejection',
@@ -823,8 +828,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         ...(exIdElement ? { exMotorId: exIdElement.textContent?.trim() ?? '' } : {}),
         matchContext: { source: 'ork' },
         manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
-        diameter: num(motorEl, 'diameter', 0.018, notes),
-        length: num(motorEl, 'length', 0.07, notes),
+        diameter: num(motorEl, 'diameter', 0.018, notes, MOTOR_DIMENSIONS),
+        length: num(motorEl, 'length', 0.07, notes, MOTOR_DIMENSIONS),
         // A decimal that overflows (1e999) is Infinity: plugged, as desktop's
         // parseDouble makes it.
         delay: Number.isNaN(delayValue) ? Infinity : delayValue,
@@ -935,7 +940,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     switch (tag) {
       case 'nosecone': {
         const n = base('nosecone', false);
-        n['length'] = num(el, 'length', 0.07, notes);
+        n['length'] = num(el, 'length', 0.07, notes, LENGTH);
         // A TAIL CONE: desktop's "Flip to tail cone" (format audit row 30). It
         // still writes the BASE radius and the base's shoulder as <aftradius>
         // and <aftshoulder*> (NoseConeSaver), so they are read as for any nose
@@ -950,7 +955,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         if (text(el, ':scope > thickness') === 'filled') {
           n['filled'] = true;
         } else {
-          n['thickness'] = num(el, 'thickness', 0.002, notes);
+          n['thickness'] = num(el, 'thickness', 0.002, notes, LENGTH);
         }
         n['shape'] = text(el, ':scope > shape') ?? 'ogive';
         n['shapeParameter'] = num(el, 'shapeparameter', shapeParamDefault(String(n['shape'])), notes);
@@ -964,7 +969,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       }
       case 'transition': {
         const n = base('transition', false);
-        n['length'] = num(el, 'length', 0.04, notes);
+        n['length'] = num(el, 'length', 0.04, notes, LENGTH);
         // An ABSENT radius stays absent: ComponentFactory turns that into
         // setFore/AftRadiusAutomatic(true) and the kernel resolves it against
         // the built tree, which is right. A PRESENT bare `auto` is resolved
@@ -979,7 +984,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         if (text(el, ':scope > thickness') === 'filled') {
           n['filled'] = true;
         } else {
-          n['thickness'] = num(el, 'thickness', 0.002, notes);
+          n['thickness'] = num(el, 'thickness', 0.002, notes, LENGTH);
         }
         n['shape'] = text(el, ':scope > shape') ?? 'conical';
         n['shapeParameter'] = num(el, 'shapeparameter', shapeParamDefault(String(n['shape'])), notes);
@@ -1008,7 +1013,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       }
       case 'bodytube': {
         const n = base('bodytube', false);
-        n['length'] = num(el, 'length', 0.2, notes);
+        n['length'] = num(el, 'length', 0.2, notes, LENGTH);
         // THE auto-radius bug: OpenRocket 15.03 writes a bare `auto` here and
         // num()'s trailing-token parse made that the 12 mm fallback, so a
         // 6-inch airframe imported as a pencil and carried ~3x the drag.
@@ -1019,10 +1024,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         if (text(el, ':scope > thickness') === 'filled') {
           n['filled'] = true;
         } else {
-          n['thickness'] = num(el, 'thickness', 0.002, notes);
+          n['thickness'] = num(el, 'thickness', 0.002, notes, LENGTH);
         }
         readMotor(el, n);
-        const mml = num(el, 'maxmotorlength', -1, notes);
+        const mml = num(el, 'maxmotorlength', -1, notes, 'unused');
         if (mml >= 0) n['maxMotorLength'] = mml;
         // Extension tag: sub-minimum flag (motor case is the airframe).
         if (text(el, ':scope > caseairframe') === 'true') n['caseAirframe'] = true;
@@ -1031,11 +1036,11 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       case 'trapezoidfinset': {
         const n = base('trapezoidfinset', true);
         n['finCount'] = Math.round(num(el, 'fincount', 3, notes));
-        n['rootChord'] = num(el, 'rootchord', 0.05, notes);
-        n['tipChord'] = num(el, 'tipchord', 0.03, notes);
-        n['sweep'] = num(el, 'sweeplength', 0.02, notes);
-        n['height'] = num(el, 'height', 0.03, notes);
-        n['thickness'] = num(el, 'thickness', 0.003, notes);
+        n['rootChord'] = num(el, 'rootchord', 0.05, notes, LENGTH);
+        n['tipChord'] = num(el, 'tipchord', 0.03, notes, LENGTH);
+        n['sweep'] = num(el, 'sweeplength', 0.02, notes, LENGTH);
+        n['height'] = num(el, 'height', 0.03, notes, LENGTH);
+        n['thickness'] = num(el, 'thickness', 0.003, notes, LENGTH);
         const cantDeg = num(el, 'cant', 0, notes);
         if (cantDeg !== 0) n['cant'] = (cantDeg * Math.PI) / 180;
         const cs = text(el, ':scope > crosssection');
@@ -1048,7 +1053,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       case 'freeformfinset': {
         const n = base('freeformfinset', true);
         n['finCount'] = Math.round(num(el, 'fincount', 3, notes));
-        n['thickness'] = num(el, 'thickness', 0.003, notes);
+        n['thickness'] = num(el, 'thickness', 0.003, notes, LENGTH);
         const cantDegF = num(el, 'cant', 0, notes);
         if (cantDegF !== 0) n['cant'] = (cantDegF * Math.PI) / 180;
         const csF = text(el, ':scope > crosssection');
@@ -1106,9 +1111,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       case 'ellipticalfinset': {
         const n = base('ellipticalfinset', true);
         n['finCount'] = Math.round(num(el, 'fincount', 3, notes));
-        n['rootChord'] = num(el, 'rootchord', 0.05, notes);
-        n['height'] = num(el, 'height', 0.03, notes);
-        n['thickness'] = num(el, 'thickness', 0.003, notes);
+        n['rootChord'] = num(el, 'rootchord', 0.05, notes, LENGTH);
+        n['height'] = num(el, 'height', 0.03, notes, LENGTH);
+        n['thickness'] = num(el, 'thickness', 0.003, notes, LENGTH);
         const cantDegE = num(el, 'cant', 0, notes);
         if (cantDegE !== 0) n['cant'] = (cantDegE * Math.PI) / 180;
         const csE = text(el, ':scope > crosssection');
@@ -1121,7 +1126,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       case 'tubefinset': {
         const n = base('tubefinset', true);
         n['finCount'] = Math.round(num(el, 'fincount', 6, notes));
-        n['length'] = num(el, 'length', 0.1, notes);
+        n['length'] = num(el, 'length', 0.1, notes, LENGTH);
         const r = num(el, 'radius', NaN, notes);
         if (!Number.isNaN(r)) n['outerRadius'] = r;
         const th = num(el, 'thickness', NaN, notes);
@@ -1131,9 +1136,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       }
       case 'innertube': {
         const n = base('innertube', true);
-        n['length'] = num(el, 'length', 0.07, notes);
-        n['outerRadius'] = num(el, 'outerradius', 0.0095, notes);
-        n['thickness'] = num(el, 'thickness', 0.0005, notes);
+        n['length'] = num(el, 'length', 0.07, notes, LENGTH);
+        n['outerRadius'] = num(el, 'outerradius', 0.0095, notes, LENGTH);
+        n['thickness'] = num(el, 'thickness', 0.0005, notes, LENGTH);
         // Cluster (desktop stores rotation in DEGREES; we keep radians).
         const cluster = text(el, ':scope > clusterconfiguration');
         // Stop an unknown pattern at the file boundary (2026-09-21). The
@@ -1150,7 +1155,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
           n['clusterRotation'] = (num(el, 'clusterrotation', 0, notes) * Math.PI) / 180;
         }
         // Our extension tag: the mount's physical motor-length limit.
-        const mml = num(el, 'maxmotorlength', -1, notes);
+        const mml = num(el, 'maxmotorlength', -1, notes, 'unused');
         if (mml >= 0) n['maxMotorLength'] = mml;
         readRadialPlacement(el, n, notes);
         readMotor(el, n);
@@ -1159,7 +1164,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       case 'tubecoupler': {
         const n = base('tubecoupler', true);
         readRadialPlacement(el, n, notes);
-        n['length'] = num(el, 'length', 0.06, notes);
+        n['length'] = num(el, 'length', 0.06, notes, LENGTH);
         n['thickness'] = num(el, 'thickness', 0, notes);
         readRingRadii(el, n, notes);
         return n;
@@ -1167,7 +1172,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       case 'centeringring': {
         const n = base('centeringring', true);
         readRadialPlacement(el, n, notes);
-        n['length'] = num(el, 'length', 0.002, notes);
+        n['length'] = num(el, 'length', 0.002, notes, LENGTH);
         readRingRadii(el, n, notes);
         readInstances(el, n, notes);
         // Extension tag: a bulkhead with a hole, which stops a motor (motorRoom.ts).
@@ -1177,7 +1182,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       case 'bulkhead': {
         const n = base('bulkhead', true);
         readRadialPlacement(el, n, notes);
-        n['length'] = num(el, 'length', 0.003, notes);
+        n['length'] = num(el, 'length', 0.003, notes, LENGTH);
         readRingRadii(el, n, notes);
         readInstances(el, n, notes);
         return n;
@@ -1185,23 +1190,23 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       case 'engineblock': {
         const n = base('engineblock', true);
         readRadialPlacement(el, n, notes);
-        n['length'] = num(el, 'length', 0.005, notes);
+        n['length'] = num(el, 'length', 0.005, notes, LENGTH);
         n['thickness'] = num(el, 'thickness', 0, notes);
         readRingRadii(el, n, notes);
         return n;
       }
       case 'launchlug': {
         const n = base('launchlug', true);
-        n['length'] = num(el, 'length', 0.03, notes);
-        n['outerRadius'] = num(el, 'radius', 0.005, notes);
-        n['thickness'] = num(el, 'thickness', 0.001, notes);
+        n['length'] = num(el, 'length', 0.03, notes, LENGTH);
+        n['outerRadius'] = num(el, 'radius', 0.005, notes, LENGTH);
+        n['thickness'] = num(el, 'thickness', 0.001, notes, LENGTH);
         readMountAngle(el, n, notes);
         readInstances(el, n, notes);
         return n;
       }
       case 'railbutton': {
         const n = base('railbutton', true);
-        n['outerDiameter'] = num(el, 'outerdiameter', 0.0097, notes);
+        n['outerDiameter'] = num(el, 'outerdiameter', 0.0097, notes, LENGTH);
         // The other FIVE dimensions, dropped until v0.103 — so every desktop
         // button, whatever the file said, was simulated as the kernel
         // constructor's generic 9.7 mm part. Read in desktop's own saver order
@@ -1211,10 +1216,10 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         // Fallbacks are the kernel constructor's own values
         // (RailButton.java:58-64), so a file that omits an element lands
         // exactly where it did before this read existed.
-        n['innerDiameter'] = num(el, 'innerdiameter', 0.008, notes);
-        n['totalHeight'] = num(el, 'height', 0.0097, notes);
-        n['baseHeight'] = num(el, 'baseheight', 0.002, notes);
-        n['flangeHeight'] = num(el, 'flangeheight', 0.002, notes);
+        n['innerDiameter'] = num(el, 'innerdiameter', 0.008, notes, LENGTH);
+        n['totalHeight'] = num(el, 'height', 0.0097, notes, LENGTH);
+        n['baseHeight'] = num(el, 'baseheight', 0.002, notes, LENGTH);
+        n['flangeHeight'] = num(el, 'flangeheight', 0.002, notes, LENGTH);
         n['screwHeight'] = num(el, 'screwheight', 0, notes);
         readMountAngle(el, n, notes);
         readInstances(el, n, notes);
@@ -1224,9 +1229,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       // the unknown element and skips it.
       case 'fairing': {
         const n = base('fairing', true);
-        n['length'] = num(el, 'length', 0.08, notes);
-        n['width'] = num(el, 'width', 0.025, notes);
-        n['height'] = num(el, 'height', 0.02, notes);
+        n['length'] = num(el, 'length', 0.08, notes, LENGTH);
+        n['width'] = num(el, 'width', 0.025, notes, LENGTH);
+        n['height'] = num(el, 'height', 0.02, notes, LENGTH);
         // `<fairingshape>` is the pre-v0.088 single shape. It is still READ,
         // and `shroud.shroudEnds` migrates it onto both ends — dropping the
         // read is precisely the v0.087 data-loss shape (a value written by an
@@ -1242,7 +1247,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         // seating a real shroud has.
         const conf = text(el, ':scope > conformal');
         if (conf) n['conformal'] = conf.trim().toLowerCase() === 'true';
-        n['mass'] = num(el, 'mass', 0.03, notes);
+        n['mass'] = num(el, 'mass', 0.03, notes, MASS);
         readMountAngle(el, n, notes);
         return n;
       }
@@ -1258,13 +1263,13 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
        */
       case 'protuberance': {
         const n = base('protuberance' as ComponentType, true);
-        const pos = (key: string, fb: number): number => {
-          const v = num(el, key, fb, notes);
+        const pos = (key: string, fb: number, shown?: NumDefault): number => {
+          const v = num(el, key, fb, notes, shown);
           return Number.isFinite(v) && v >= 0 ? v : fb;
         };
-        n['width'] = pos('width', 0.02);
-        n['height'] = pos('height', 0.01);
-        n['length'] = pos('length', 0.06);
+        n['width'] = pos('width', 0.02, LENGTH);
+        n['height'] = pos('height', 0.01, LENGTH);
+        n['length'] = pos('length', 0.06, LENGTH);
         n['mass'] = pos('mass', 0);
         const count = Math.round(pos('count', 1));
         n['count'] = count >= 1 && count <= 1000 ? count : 1;
@@ -1284,19 +1289,19 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         const n = base('parachute', true);
         readRadialPlacement(el, n, notes);
         readPackedSize(el, n);
-        n['diameter'] = num(el, 'diameter', 0.3, notes);
+        n['diameter'] = num(el, 'diameter', 0.3, notes, LENGTH);
         // <cd>auto</cd> stays automatic (the kernel's own CD_AUTOMATIC path).
         // Anything unparseable is dropped rather than stored as NaN — a NaN Cd
         // reaches the descent solver and poisons the whole trajectory.
         readAutoCd(el, n, notes);
         n['lineCount'] = Math.round(num(el, 'linecount', 6, notes));
-        n['lineLength'] = num(el, 'linelength', 0.3, notes);
+        n['lineLength'] = num(el, 'linelength', 0.3, notes, LENGTH);
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName', notes);
         readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName', notes, ':scope > linematerial');
         // <deploymentconfiguration> only overrides when a config was chosen —
         // with no declarations the bare tags stay the whole story (a stray
         // block in an undeclared file was never read, keep it that way).
-        readDeployment(el, n, null, notes);
+        readDeployment(el, n, null, notes, units);
         captureDeployments(el, n);
         noteDeployOverride(el, n, 'parachute');
         // Our extension tag (desktop warns-and-ignores) — spill hole diameter.
@@ -1308,11 +1313,11 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         const n = base('streamer', true);
         readRadialPlacement(el, n, notes);
         readPackedSize(el, n);
-        n['stripLength'] = num(el, 'striplength', 0.5, notes);
-        n['stripWidth'] = num(el, 'stripwidth', 0.05, notes);
+        n['stripLength'] = num(el, 'striplength', 0.5, notes, LENGTH);
+        n['stripWidth'] = num(el, 'stripwidth', 0.05, notes, LENGTH);
         readAutoCd(el, n, notes);
         readSoftMaterial(el, n, 'surface', 'surfaceDensity', 'surfaceMaterialName', notes);
-        readDeployment(el, n, null, notes);
+        readDeployment(el, n, null, notes, units);
         captureDeployments(el, n);
         noteDeployOverride(el, n, 'streamer');
         return n;
@@ -1321,14 +1326,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         const n = base('shockcord', true);
         readRadialPlacement(el, n, notes);
         readPackedSize(el, n);
-        n['cordLength'] = num(el, 'cordlength', 0.3, notes);
+        n['cordLength'] = num(el, 'cordlength', 0.3, notes, LENGTH);
         readSoftMaterial(el, n, 'line', 'lineDensity', 'lineMaterialName', notes);
         return n;
       }
       case 'masscomponent': {
         const n = base('masscomponent', true);
-        n['mass'] = num(el, 'mass', 0.01, notes);
-        n['length'] = num(el, 'packedlength', 0.02, notes);
+        n['mass'] = num(el, 'mass', 0.01, notes, MASS);
+        n['length'] = num(el, 'packedlength', 0.02, notes, LENGTH);
         // MassObject:packedradius is automatic-capable too (the cavity it sits
         // in — MassObject.getMaxParentRadius). No aero effect, but it sets the
         // packed cylinder's rotational inertia and how the mass draws.
@@ -1368,7 +1373,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
           if (Number.isFinite(nozzle) && nozzle >= 0) n['nozzleExitDiameter'] = nozzle;
           // Same separation read as a booster <stage> — the chosen config's
           // block wins over the bare defaults.
-          readSeparation(el, n, null, notes);
+          readSeparation(el, n, null, notes, units);
           captureSeparations(el, n);
         }
         return n;
@@ -1392,8 +1397,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
           if (el.tagName !== 'hole') continue;
           out.push({ type: 'tubehole' as ComponentType, id: freshId(),
             name: text(el, ':scope > name') ?? 'Vent / marking hole',
-            holeDiameter: num(el, 'diameter', 0.003, notes),
-            holePosition: num(el, 'axialposition', 0.025, notes),
+            holeDiameter: num(el, 'diameter', 0.003, notes, LENGTH),
+            holePosition: num(el, 'axialposition', 0.025, notes, LENGTH),
             angleOffset: num(el, 'angle', 0, notes) * Math.PI / 180,
             holeCount: num(el, 'count', 1, notes),
             ...(text(el, ':scope > comment') ? { comment: text(el, ':scope > comment') } : {}),
@@ -1483,7 +1488,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     }
     if (i > 0) {
       // Keep bare defaults on the stage, separately from configuration blocks.
-      readSeparation(stageEl, stage, null, notes);
+      readSeparation(stageEl, stage, null, notes, units);
       captureSeparations(stageEl, stage);
     }
     const kids = convertChildren(stageEl);
@@ -2072,7 +2077,7 @@ function readLaunchConditions(
   const averageFrom = averageWindFromRad(condEl, notes);
   let aim = 0;
   if (!intoWind) {
-    const rodDeg = num(condEl, 'launchroddirection', 90, notes);
+    const rodDeg = num(condEl, 'launchroddirection', 90, notes, 'degrees');
     let windRad = profileFrom;
     if (Number.isNaN(windRad)) windRad = averageFrom;
     const a = canonicalRodAimDeg(rodDeg - (windRad * 180) / Math.PI);
@@ -4316,7 +4321,20 @@ function invalidNumberNote(el: XmlElement, tag: string, notes: string[], action 
   noteInvalidNumber(notes, note);
 }
 
-function num(el: XmlElement, tag: string, fallback: number, notes: string[]): number {
+/**
+ * What a num() fallback is, for its note: a quantity printed in the user's
+ * units, file degrees, or a sentinel that is never used. Without one the
+ * fallback prints as the bare number (zero and unitless fallbacks).
+ */
+type NumDefault = readonly ['length' | 'motorDimensions' | 'altitude' | 'mass', UnitSelection] | 'degrees' | 'unused';
+
+function fallbackAction(fallback: number, shown?: NumDefault): string {
+  if (!Number.isFinite(fallback) || shown === 'unused') return 'the value was not used';
+  if (shown === 'degrees') return `using the default (${noticeQuantity('angle', fallback * Math.PI / 180, '°')})`;
+  return `using the default (${shown ? noticeQuantity(shown[0], fallback, shown[1], { parenthesized: true }) : fallback})`;
+}
+
+function num(el: XmlElement, tag: string, fallback: number, notes: string[], shown?: NumDefault): number {
   const field = el.querySelector(`:scope > ${tag}`);
   if (!field) return fallback;
   const t = (field.textContent ?? '').trim();
@@ -4327,7 +4345,7 @@ function num(el: XmlElement, tag: string, fallback: number, notes: string[]): nu
   const v = parseDecimal(t);
   if (Number.isFinite(v)) return v;
   const label = text(el, ':scope > name') ?? el.tagName;
-  const note = `“${label}”: invalid <${tag}> value; ${Number.isFinite(fallback) ? `using the default (${fallback})` : 'the value was not used'}.`;
+  const note = `“${label}”: invalid <${tag}> value; ${fallbackAction(fallback, shown)}.`;
   noteInvalidNumber(notes, note);
   return fallback;
 }
@@ -4538,12 +4556,12 @@ function deployEventXml(node: ComponentNode): string {
  * them PER FIELD — the desktop handler clones the default and applies only
  * the fields the block carries.
  */
-function readDeployment(el: XmlElement, node: ComponentNode, configEl: XmlElement | null = null, notes: string[]): void {
+function readDeployment(el: XmlElement, node: ComponentNode, configEl: XmlElement | null = null, notes: string[], units: UnitSelection): void {
   for (const src of configEl ? [el, configEl] : [el]) {
     const event = text(src, ':scope > deployevent');
     if (event) node['deployEvent'] = event;
     if (text(src, ':scope > deployaltitude') !== null) {
-      node['deployAltitude'] = num(src, 'deployaltitude', 200, notes);
+      node['deployAltitude'] = num(src, 'deployaltitude', 200, notes, ['altitude', units]);
     }
     if (text(src, ':scope > deploydelay') !== null) {
       node['deployDelay'] = num(src, 'deploydelay', 0, notes);
@@ -4552,14 +4570,14 @@ function readDeployment(el: XmlElement, node: ComponentNode, configEl: XmlElemen
 }
 
 /** A partial separation block inherits bare fields, like deployment (audit 2026-10-11, S1a-1). */
-function readSeparation(el: XmlElement, node: ComponentNode, configEl: XmlElement | null, notes: string[]): void {
+function readSeparation(el: XmlElement, node: ComponentNode, configEl: XmlElement | null, notes: string[], units: UnitSelection): void {
   let event = 'ejection';
   let delay = 0;
   let altitude = 200;
   for (const src of configEl ? [el, configEl] : [el]) {
     event = text(src, ':scope > separationevent') || event;
     if (text(src, ':scope > separationdelay') !== null) delay = num(src, 'separationdelay', 0, notes);
-    if (text(src, ':scope > separationaltitude') !== null) altitude = num(src, 'separationaltitude', 200, notes);
+    if (text(src, ':scope > separationaltitude') !== null) altitude = num(src, 'separationaltitude', 200, notes, ['altitude', units]);
   }
   if (event !== 'ejection') node['separationEvent'] = event;
   if (delay !== 0) node['separationDelay'] = delay;

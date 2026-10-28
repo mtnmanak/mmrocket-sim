@@ -228,3 +228,115 @@ describe('fixed-unit notices: the 680 kg/m³ stand-in density', () => {
       .toBe(`The engine replaces zero bulk density with ${density}, adding mass. Saving replaces the zero density.`);
   });
 });
+
+describe('fixed-unit notices: the synthesized fin-outline caution', () => {
+  // Points 2 and 3 pass the raw checks and coincide only once the simulator
+  // pulls every x past 2.5 m back, so the caution comes from the PULLED text.
+  const rkt = `<RockSimDocument><DesignInformation><RocketDesign><Name>Units</Name><StageCount>1</StageCount><Stage3Parts>
+    <Transition><Name>Reducer</Name><Len>100</Len><FrontDia>80</FrontDia><RearDia>100</RearDia><AttachedParts>
+    <FinSet><Name>Big fins</Name><ShapeCode>0</ShapeCode><RootChord>3048</RootChord><TipChord>127</TipChord>
+    <SweepDistance>2667</SweepDistance><SemiSpan>1016</SemiSpan></FinSet></AttachedParts></Transition>
+    </Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
+  const cdx1 = (parent: 'Transition' | 'BoatTail') => `<RASAeroDocument><RocketDesign>
+    <BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>
+    <${parent}><Length>10</Length><Diameter>3</Diameter><RearDiameter>2</RearDiameter>
+    <Fin><Chord>120</Chord><TipChord>5</TipChord><SweepDistance>105</SweepDistance><Span>40</Span><Count>3</Count></Fin></${parent}>
+    </RocketDesign></RASAeroDocument>`;
+  const caution = (result: { noteTiers?: { kind: string; text: string }[] }) =>
+    result.noteTiers?.find(note => note.kind === 'I05.fin-outline')?.text ?? '';
+  const producers = [
+    ['RockSim transition FinSet', (units: typeof INITIAL_UNITS) => importRkt(rkt, { units })],
+    ['RockSim nose-cone FinSet', (units: typeof INITIAL_UNITS) => importRkt(rkt.replace('<Transition><Name>Reducer</Name><Len>100</Len><FrontDia>80</FrontDia><RearDia>100</RearDia>',
+      '<NoseCone><Name>Nose</Name><Len>100</Len><BaseDia>100</BaseDia>').replace('</Transition>', '</NoseCone>'), { units })],
+    ['RASAero Transition fin', (units: typeof INITIAL_UNITS) => importCdx1(cdx1('Transition'), { units })],
+    ['RASAero BoatTail fin', (units: typeof INITIAL_UNITS) => importCdx1(cdx1('BoatTail'), { units })],
+  ] as const;
+  it.each(producers.flatMap(([name, load]) => [
+    [name, 'metric', load, INITIAL_UNITS, '2500 mm (98.425 in)', '98.425 in (2500 mm)'],
+    [name, 'imperial', load, IMPERIAL_UNITS, '98.425 in (2500 mm)', '2500 mm (98.425 in)'],
+  ] as const))('prints the 2.5 m limit in the preferred length first: %s, %s', (_name, _set, load, units, limit, wrong) => {
+    const text = caution(load(units));
+    expect(text).toContain(`land in the same place once the simulator pulls every point more than ${limit}`);
+    expect(text).toContain(`keep the fin within ${limit}.`);
+    expect(text).not.toContain(wrong);
+  });
+});
+
+describe('fixed-unit notices: .ork invalid-number defaults', () => {
+  // `booster` is a second stage's own tags: only a stage after the first reads separation.
+  const ork = (parts: string, { booster = '', rocket = '', conditions = '' } = {}) => `<openrocket version="1.10"><rocket><name>Units</name>${rocket}`
+    + `<subcomponents><stage><subcomponents>${parts}</subcomponents></stage>`
+    + (booster ? `<stage><name>Booster</name>${booster}<subcomponents>${tube()}</subcomponents></stage>` : '')
+    + '</subcomponents></rocket><simulations>'
+    + (conditions ? `<simulation><name>Sim</name><conditions><configid>A</configid>${conditions}</conditions></simulation>` : '')
+    + '</simulations></openrocket>';
+  const tube = (inside = '', extra = '') => `<bodytube><name>Tube</name><length>0.3</length><radius>0.05</radius>${extra}<subcomponents>${inside}</subcomponents></bodytube>`;
+  const config = '<motorconfiguration configid="A" default="true"/>';
+  // [case, file, note under INITIAL_UNITS, note under IMPERIAL_UNITS]
+  const cases: [string, string, string, string][] = [
+    ['length: body tube length', ork('<bodytube><name>Body</name><length>garbage</length><radius>0.05</radius></bodytube>'),
+      '“Body”: invalid <length> value; using the default (200 mm [7.874 in]).',
+      '“Body”: invalid <length> value; using the default (7.874 in [200 mm]).'],
+    ['length: fin thickness', ork(tube('<trapezoidfinset><name>Fins</name><thickness>x</thickness></trapezoidfinset>')),
+      '“Fins”: invalid <thickness> value; using the default (3 mm [0.118 in]).',
+      '“Fins”: invalid <thickness> value; using the default (0.118 in [3 mm]).'],
+    ['length: packed radius', ork(tube('<parachute><name>Chute</name><packedradius>junk</packedradius></parachute>')),
+      '“Chute”: invalid <packedradius> value; using the default (12.5 mm [0.492 in]).',
+      '“Chute”: invalid <packedradius> value; using the default (0.492 in [12.5 mm]).'],
+    ['motorDimensions: motor diameter', ork(tube('', '<motormount><motor configid="A"><designation>F10</designation><diameter>x</diameter>'
+      + '<length>0.07</length><delay>5</delay></motor></motormount>'), { rocket: config }),
+      '“motor”: invalid <diameter> value; using the default (18 mm [0.709 in]).',
+      '“motor”: invalid <diameter> value; using the default (0.709 in [18 mm]).'],
+    ['altitude: deployment', ork(tube('<parachute><name>Chute</name><deployevent>altitude</deployevent><deployaltitude>x</deployaltitude></parachute>')),
+      '“Chute”: invalid <deployaltitude> value; using the default (200 m [656.2 ft]).',
+      '“Chute”: invalid <deployaltitude> value; using the default (656.2 ft [200 m]).'],
+    ['altitude: deployment configuration', ork(tube('<parachute><name>Chute</name><deploymentconfiguration configid="A">'
+      + '<deployevent>altitude</deployevent><deployaltitude>x</deployaltitude></deploymentconfiguration></parachute>'), { rocket: config }),
+      '“deploymentconfiguration”: invalid <deployaltitude> value; using the default (200 m [656.2 ft]).',
+      '“deploymentconfiguration”: invalid <deployaltitude> value; using the default (656.2 ft [200 m]).'],
+    ['altitude: separation', ork(tube(), { booster: '<separationevent>altitude</separationevent><separationaltitude>x</separationaltitude>' }),
+      '“Booster”: invalid <separationaltitude> value; using the default (200 m [656.2 ft]).',
+      '“Booster”: invalid <separationaltitude> value; using the default (656.2 ft [200 m]).'],
+    ['altitude: pod separation', ork(tube() + '<parallelstage><name>Pod</name><separationaltitude>x</separationaltitude>'
+      + `<subcomponents>${tube()}</subcomponents></parallelstage>`),
+      '“Pod”: invalid <separationaltitude> value; using the default (200 m [656.2 ft]).',
+      '“Pod”: invalid <separationaltitude> value; using the default (656.2 ft [200 m]).'],
+    ['altitude: separation configuration', ork(tube(), { rocket: config, booster: '<separationconfiguration configid="A">'
+      + '<separationevent>altitude</separationevent><separationaltitude>x</separationaltitude></separationconfiguration>' }),
+      '“separationconfiguration”: invalid <separationaltitude> value; using the default (200 m [656.2 ft]).',
+      '“separationconfiguration”: invalid <separationaltitude> value; using the default (656.2 ft [200 m]).'],
+    ['mass: fairing', ork('<fairing><name>Shroud</name><mass>x</mass></fairing>' + tube()),
+      '“Shroud”: invalid <mass> value; using the default (30 g [1.06 oz]).',
+      '“Shroud”: invalid <mass> value; using the default (1.06 oz [30 g]).'],
+    ['mass: mass component', ork(tube('<masscomponent><name>Payload</name><mass>x</mass></masscomponent>')),
+      '“Payload”: invalid <mass> value; using the default (10 g [0.353 oz]).',
+      '“Payload”: invalid <mass> value; using the default (0.353 oz [10 g]).'],
+    ['angle: rod direction', ork(tube(), { rocket: config, conditions: '<launchintowind>false</launchintowind><launchroddirection>x</launchroddirection>' }),
+      '“conditions”: invalid <launchroddirection> value; using the default (90°).',
+      '“conditions”: invalid <launchroddirection> value; using the default (90°).'],
+    ['sentinel: body tube max motor length', ork('<bodytube><name>Body</name><length>0.3</length><radius>0.05</radius><maxmotorlength>x</maxmotorlength></bodytube>'),
+      '“Body”: invalid <maxmotorlength> value; the value was not used.',
+      '“Body”: invalid <maxmotorlength> value; the value was not used.'],
+    ['sentinel: inner tube max motor length', ork(tube('<innertube><name>Mount</name><maxmotorlength>x</maxmotorlength></innertube>')),
+      '“Mount”: invalid <maxmotorlength> value; the value was not used.',
+      '“Mount”: invalid <maxmotorlength> value; the value was not used.'],
+  ];
+  it.each(cases.flatMap(([name, file, metric, imperial]) => [
+    [name, 'metric', file, INITIAL_UNITS, metric],
+    [name, 'imperial', file, IMPERIAL_UNITS, imperial],
+  ] as const))('prints the default in the preferred unit first: %s, %s', (_name, _set, file, units, note) => {
+    const result = importOrk(file, { units });
+    expect(result.noteTiers?.filter(tier => tier.kind === 'I04.invalid-number').map(tier => tier.text)).toContain(note);
+  });
+
+  it('prints the default metric-first for a caller with no units, as the API is', () => {
+    const notes = importOrk(ork('<bodytube><name>Body</name><length>garbage</length><radius>0.05</radius></bodytube>')).notes;
+    expect(notes).toContain('“Body”: invalid <length> value; using the default (200 mm [7.874 in]).');
+  });
+
+  it.each([INITIAL_UNITS, IMPERIAL_UNITS])('keeps the zero and unitless defaults as they were (%j)', units => {
+    const notes = importOrk(ork(tube('<trapezoidfinset><name>Fins</name><fincount>x</fincount><cant>x</cant></trapezoidfinset>')), { units }).notes;
+    expect(notes).toContain('“Fins”: invalid <fincount> value; using the default (3).');
+    expect(notes).toContain('“Fins”: invalid <cant> value; using the default (0).');
+  });
+});
