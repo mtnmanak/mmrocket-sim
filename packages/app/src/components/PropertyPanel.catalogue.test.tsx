@@ -7,6 +7,7 @@ import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { detachPatch, presetPatch, type Preset } from '../services/presets.js';
 import presetsJson from '../data/presets.json';
+import { INITIAL_UNITS, IMPERIAL_UNITS, noticeQuantity } from '../prefs/units.js';
 
 /**
  * THE CONFLICT MARKER, tiers (b) and (c) — the property-panel half of the
@@ -117,6 +118,20 @@ afterEach(() => {
 });
 
 describe('the conflict marker in the property panel — tier (b), the ≠ chip', () => {
+  it.each([['metric', INITIAL_UNITS], ['imperial', IMPERIAL_UNITS]] as const)(
+    'writes the canopy and line material markers in the preferred density unit (%s)', async (_set, units) => {
+      localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ units }));
+      const row: Preset = { ...CHUTE, lineMaterial: { name: 'Kevlar', type: 'LINE', density: 0.01 } };
+      loadPresets.mockResolvedValue([row]);
+      await show(linkedChute({ surfaceMaterialName: 'Silk', surfaceDensity: 0.04, lineMaterialName: 'Nylon', lineDensity: 0.002 }, row));
+      const canopy = `Ripstop nylon, ${noticeQuantity('surfaceDensity', 0.067, units)}`;
+      const line = `Kevlar, ${noticeQuantity('lineDensity', 0.01, units)}`;
+      const canopyUse = byLabel(`Use catalogue value ${canopy} for Canopy material`)!;
+      const lineUse = byLabel(`Use catalogue value ${line} for Line material`)!;
+      expect(canopyUse.title).toBe(`Test Chutes TC-36 in the catalogue: ${canopy}. This part: Silk, ${noticeQuantity('surfaceDensity', 0.04, units)}.`);
+      expect(lineUse.title).toBe(`Test Chutes TC-36 in the catalogue: ${line}. This part: Nylon, ${noticeQuantity('lineDensity', 0.002, units)}.`);
+    });
+
   it('N005 catalogue markers quote the four-decimal field and coupled canopy values', async () => {
     localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ fieldPrecision: 4, units: { length: 'in' } }));
     const row = { ...CHUTE, dragCoefficient: 1.0625, spillHoleDiameter: 1.0625 * 0.0254 };

@@ -415,8 +415,13 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
       {catalogue && (() => {
         const { diff, row, onUse } = catalogue;
         const name = diff.patch[nameKey];
-        const figure = `${typeof name === 'string' && name ? `${name}, ` : ''}${String(diff.want)} ${densityUnit}`;
-        const mine = `${typeof current === 'string' && current ? `${current}, ` : ''}${String(diff.have)} ${densityUnit}`;
+        // Canopy and line densities in the preferred unit first; only these two selects carry a marker.
+        const density = (v: CatalogueDifference['have']) => {
+          const n = markerNumber(v);
+          return n === undefined ? `${String(v)} ${densityUnit}` : noticeQuantity(kind === 'surface' ? 'surfaceDensity' : 'lineDensity', n, prefs.units);
+        };
+        const figure = `${typeof name === 'string' && name ? `${name}, ` : ''}${density(diff.want)}`;
+        const mine = `${typeof current === 'string' && current ? `${current}, ` : ''}${density(diff.have)}`;
         return (
           <CatalogueChip figure={figure} label={label} onUse={onUse}
             tip={`${row} in the catalogue: ${figure}. This part: ${mine}.`} />
