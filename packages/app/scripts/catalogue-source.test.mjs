@@ -271,6 +271,29 @@ describe('GitHub REST source eligibility', () => {
     expect(() => readFileSync(join(dir, 'summary-parse'))).toThrow(/ENOENT/);
   });
 
+  it('113-13b: attempts copies a bad run_attempt into --summary and exits 1; a good run writes only the attempt numbers', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'catalogue-source-')); dirs.push(dir);
+    const secret = 'ghs_attempts0123456789abcdef';
+    writeFileSync(join(dir, 'bad.json'), JSON.stringify({ ...fixture().run, run_attempt: 0, note: secret }));
+    writeFileSync(join(dir, 'good.json'), JSON.stringify(fixture().run));
+    let stdout = vi.fn(), stderr = vi.fn();
+    expect(main(['attempts', '--run', join(dir, `${secret}.json`), '--summary', join(dir, 'summary')],
+      { stdout, stderr, env: { GH_TOKEN: secret } })).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+    expect(readFileSync(join(dir, 'summary'), 'utf8')).toBe(stderr.mock.calls.flat().join(''));
+    expect(readFileSync(join(dir, 'summary'), 'utf8')).toContain('[REDACTED]');
+    expect(readFileSync(join(dir, 'summary'), 'utf8')).not.toContain(secret);
+    stdout = vi.fn(); stderr = vi.fn();
+    expect(main(['attempts', '--run', join(dir, 'bad.json'), '--summary', join(dir, 'summary-bad')], { stdout, stderr, env: {} })).toBe(1);
+    expect(readFileSync(join(dir, 'summary-bad'), 'utf8')).toBe('Catalogue source check failed: Invalid source run_attempt\n');
+    expect(stdout).not.toHaveBeenCalled();
+    stdout = vi.fn(); stderr = vi.fn();
+    expect(main(['attempts', '--run', join(dir, 'good.json'), '--summary', join(dir, 'summary-good')], { stdout, stderr, env: {} })).toBe(0);
+    expect(stdout.mock.calls).toEqual([['1\n2\n']]);
+    expect(stderr).not.toHaveBeenCalled();
+    expect(() => readFileSync(join(dir, 'summary-good'))).toThrow(/ENOENT/);
+  });
+
   it('R4 #4: classifies a failed environment read: 404 is a missing environment, anything else is unconfirmed', () => {
     const dir = mkdtempSync(join(tmpdir(), 'catalogue-source-')); dirs.push(dir);
     const missing = approvalErrorNotice('gh: Not Found (HTTP 404)\n');
