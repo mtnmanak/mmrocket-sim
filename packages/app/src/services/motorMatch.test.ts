@@ -552,7 +552,11 @@ describe('imported EX library matching — @atestani, TRF #162, 2026-10-06', () 
     expect(result.motor?.meta).toEqual(before.motor?.meta);
     const sentence = ' Your imported EX motors include 2 that match it (Enerjet F67 [ex:enerjet-f67]; Enerjet F67 [ex:enerjet-f67~2]); pick one via Browse motor database.';
     if (withCatalogue) {
-      expect(result.openNote).toBe(before.openNote + sentence);
+      // The EX sentence closes the note's first line; fileRef's digest names
+      // none of the F67's bundled files, which the note's later line says.
+      const [first, ...rest] = before.openNote!.split('\n');
+      expect(rest.filter((line) => line.includes('is not among the app’s bundled curves'))).toHaveLength(1);
+      expect(result.openNote).toBe([first + sentence, ...rest].join('\n'));
       expect(result.motor?.openNote).toBe(result.openNote);
     } else expect(result.note).toBe(before.note + sentence);
   });
