@@ -207,16 +207,20 @@ describe('the curves file is checked before anything flies from it', () => {
   });
 
   it.each([
-    ['a catalogueGenerated that is not the snapshot\'s', { catalogueGenerated: '2001-01-01', curves: {} }],
+    ['a catalogueGenerated that is not the snapshot\'s', { catalogueGenerated: '2001-01-01', curves: 'GOOD' }],
     ['a curves array', { catalogueGenerated: 'SNAP', curves: [] }],
     ['no curves', { catalogueGenerated: 'SNAP' }],
     ['a JSON array', []],
-  ])('refuses a file with %s, and asks for it no more this session', async (_name, doc) => {
+  ])('refuses a file with %s — even its good curves fly nothing — and asks for it no more this session', async (_name, doc) => {
     const generated = daysAfter(db.MOTOR_DB_DATE, 2);
-    const curvesDoc = Array.isArray(doc) ? doc : { ...doc, catalogueGenerated: doc.catalogueGenerated === 'SNAP' ? generated : doc.catalogueGenerated };
+    const good = { [addedMotor.motorId]: [file(40)], [curveless.motorId]: [file(55)] };
+    const curvesDoc = Array.isArray(doc) ? doc : { ...doc,
+      catalogueGenerated: doc.catalogueGenerated === 'SNAP' ? generated : doc.catalogueGenerated,
+      ...(doc.curves === 'GOOD' ? { curves: good } : {}) };
     await install({}, { added: [addedMotor], curvesDoc });
     await miss(tc.fetchMotorSpec(addedMotor, 5));
-    await miss(tc.fetchMotorSpec(curveless, 5));
+    expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(tcRequests).toEqual(['https://www.thrustcurve.org/api/v1/download.json']);
     expect(catalogueRequests).toHaveLength(1);
   });
 
