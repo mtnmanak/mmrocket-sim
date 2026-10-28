@@ -546,6 +546,12 @@ export function parseEng(text: string, notes?: string[], units: UnitSelection = 
       skipped.push(`${name}: diameter/length missing or not a positive number`);
       return;
     }
+    // In time order first, as desktop's RASPMotorLoader sorts before it
+    // finalizes (AbstractMotorLoader.sortLists, a stable swap sort; audit
+    // S4-1): trimmed in file order, `1.0 5 / 1.5 0 / 1.2 0` kept 1.5 s as
+    // burnout and flew 0.75 N·s more than desktop. Array sort is stable too,
+    // so an in-order file reads exactly as before.
+    pts.sort((a, b) => a.time - b.time);
     // Trailing zeros after the last burning sample go, bar the first.
     let last = pts.length - 1;
     while (last > 0 && pts[last]!.thrust === 0 && pts[last - 1]!.thrust === 0) last--;

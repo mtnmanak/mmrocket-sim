@@ -176,6 +176,29 @@ describe('parseEng (RASP)', () => {
   it('rejects garbage', () => {
     expect(() => parseEng('hello world')).toThrow(/RASP header/);
   });
+
+  // Audit S4-1: desktop's RASPMotorLoader sorts the data (AbstractMotorLoader
+  // sortLists, a stable swap sort) before finalizeThrustCurve trims the zero
+  // tail; the trim here ran in file order and kept a later zero as burnout.
+  it('sorts the data by time before the zero tail is trimmed', () => {
+    const [m] = parseEng('OOO 18 70 0 0.01 0.02 Test\n1.0 5\n1.5 0\n1.2 0\n');
+    const desktop = [{ time: 0, thrust: 0 }, { time: 1.0, thrust: 5 }, { time: 1.2, thrust: 0 }];
+    expect(m!.samples).toEqual(desktop);
+    expect(m!.samples.at(-1)!.time).toBe(1.2);
+    expect(fileImpulseNs({ samples: m!.samples })).toBeCloseTo(fileImpulseNs({ samples: desktop }), 12);
+  });
+
+  it('a file already in time order reads exactly as before, and its shuffle reads the same', () => {
+    const [inOrder] = parseEng(ENG);
+    expect(inOrder!.samples).toEqual([{ time: 0, thrust: 0 }, { time: 0.065, thrust: 604.264 },
+      { time: 0.196, thrust: 642.625 }, { time: 1.86, thrust: 682.197 }, { time: 3.28, thrust: 563.626 },
+      { time: 3.38, thrust: 449.371 }, { time: 3.4, thrust: 0 }]);
+    const lines = ENG.split('\n');
+    const data = lines.slice(3, 9);
+    const shuffled = [...lines.slice(0, 3), data[3], data[0], data[5], data[1], data[4], data[2], ''].join('\n');
+    const [again] = parseEng(shuffled);
+    expect({ ...again!, addedAt: 0 }).toEqual({ ...inOrder!, addedAt: 0 });
+  });
 });
 
 describe('parseRse (RockSim)', () => {
