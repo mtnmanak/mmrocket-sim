@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { worker } from './index.js';
+import { filenameEcho } from './filenameEcho.js';
 import { bytesOf } from './fixtures.testSupport.js';
 
 const APP_URL = 'https://mmrsim.mountainmanrockets.com';
@@ -94,5 +95,17 @@ describe('a caller filename echoed in an error is bounded and made safe for disp
     const response = await post('/experimental/fly', name, '<RockSimDocument><x></RockSimDocument>');
     const message = await refused(response, 400, 'INVALID_FILE');
     expect(message).toContain('Not a valid RockSim file');
+  });
+});
+
+describe('filenameEcho for a direct caller', () => {
+  it('shows a lone surrogate as ?, keeping a paired one, inside and past the bound', () => {
+    // URL decoding never yields a lone surrogate (it gives U+FFFD), but a direct caller can pass one.
+    expect(filenameEcho('a\ud800b\udc00c\u{1f680}.ork')).toBe('a?b?c\u{1f680}.ork');
+    const long = filenameEcho('\udfff' + 'x'.repeat(300) + '\ud83d.ork');
+    expect(long).not.toMatch(LONE_SURROGATE);
+    expect(long.startsWith('?')).toBe(true);
+    expect(long.endsWith('?.ork')).toBe(true);
+    expect(Array.from(long)).toHaveLength(200);
   });
 });
