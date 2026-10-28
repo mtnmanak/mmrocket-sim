@@ -125,6 +125,24 @@ it.each(['no lift', 'query failure'])('N022 explains %s without showing a margin
   expect(panel.textContent).not.toMatch(/NaN|Infinity|margin: -3/);
 });
 
+// The common failure path: the query throws on the very render that opens the panel. The region
+// must already be in the DOM, empty, before the button is pressed (cloud lane 11 review, 28 Oct).
+it('N022 has the roll-plane alert region in place, empty, before the panel opens on a failing first query', async () => {
+  const diagnostic = () => { throw new Error('test diagnostic failure'); };
+  const sweep = { machs: [0.3, 1], cp: [0, 0], cna: [0, 0], hasNozzle: false,
+    powerOff: { total: [0.4, 0.4] }, powerOn: { total: [0.4, 0.4] }, components: [] };
+  const rocket = { aeroDiagnostics: diagnostic, dragSweep: () => sweep,
+    staticInfo: () => ({ length: 1, cg: 0.3, mass: 0.5, refDiameter: 0.1, cp: 0, cna: 0, cpWorst: 0, cnaWorst: 0 }) } as unknown as OrkRocket;
+  await act(async () => root.render(<PrefsProvider><DragPanel rocket={rocket} open /></PrefsProvider>));
+  const panel = host.querySelector('.roll-plane-panel')!;
+  const alert = panel.querySelector('.roll-plane-alert');
+  expect(alert?.getAttribute('role')).toBe('alert');
+  expect(alert!.textContent).toBe('');
+  await act(async () => [...host.querySelectorAll('button')].find((b) => b.textContent === 'Show CP vs roll-plane angle')!.click());
+  expect(panel.querySelector('.roll-plane-alert')).toBe(alert);
+  expect(alert!.textContent).toBe('⛔ Danger: Roll-plane CP could not be computed: test diagnostic failure');
+});
+
 // Live-region sweep (audit 2026-09-22): the alert was one arm of a ternary,
 // inserted with its text already in place.
 it('N022 reports a failed roll-plane query into an alert region that was there, empty, with the charts', async () => {

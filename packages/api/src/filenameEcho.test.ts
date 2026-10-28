@@ -96,6 +96,17 @@ describe('a caller filename echoed in an error is bounded and made safe for disp
     const message = await refused(response, 400, 'INVALID_FILE');
     expect(message).toContain('Not a valid RockSim file');
   });
+
+  it('keeps the full name for the design-name fallback, not the cut echo', async () => {
+    // The test above cannot fail on a cut name (the echo keeps the .rkt tail). Here the
+    // design's own name is generic, so /describe names it from the file: the whole name.
+    const reference = strFromU8(unzipSync(bytesOf('reference.ork'))['rocket.ork']!);
+    const generic = reference.replace('<name>Reference Rocket</name>', '<name>Rocket</name>');
+    expect(generic).not.toBe(reference);
+    const response = await post('/describe', `Long_${'n'.repeat(300)}.ork`, zipSync({ 'rocket.ork': strToU8(generic) }));
+    expect(response.status, await response.clone().text()).toBe(200);
+    expect(((await response.json()) as { name: string }).name).toBe(`Long ${'n'.repeat(300)}`);
+  });
 });
 
 describe('filenameEcho for a direct caller', () => {

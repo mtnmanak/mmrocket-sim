@@ -224,6 +224,12 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
         {open ? 'Hide roll-plane charts' : 'Show CP vs roll-plane angle'}
       </button>
     </div>
+    {/* Always mounted, empty while the panel is closed (audit 2026-09-22; cloud lane 11): the
+        analysis runs in the very render that opens the panel, so a region mounted with the panel
+        would arrive with its text already in place, which is announced unreliably. */}
+    <div className="roll-plane-alert" role="alert">
+      {analysis && 'error' in analysis && <Note as="p" tier="danger">Roll-plane CP could not be computed: {analysis.error}</Note>}
+    </div>
     {open && <>
       <label className="motor-inline-label">Roll-plane Mach
         <select value={mach} onChange={(e) => setChoice(Number(e.target.value))} style={{ marginLeft: 4 }}>
@@ -239,11 +245,6 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
         {' '}This is a diagnostic view; no flight changes. Roll-plane angle is the direction around the body, not roll rate.
         {aoaDeg > 0 && <> Above the fins&apos; stall angle the CP is not validated; the selector stops at 20°.</>}
       </Note>
-      {/* Always mounted while the panel is open (audit 2026-09-22): an alert
-          inserted with its text already in place is announced unreliably. */}
-      <div className="roll-plane-alert" role="alert">
-        {analysis && 'error' in analysis && <Note as="p" tier="danger">Roll-plane CP could not be computed: {analysis.error}</Note>}
-      </div>
       {analysis && !('error' in analysis) && lines && <>
           <p className="motor-db-meta">
             {analysis.worstAngle === null ? worstPlaneNote ?? 'No defined worst plane.' : <>

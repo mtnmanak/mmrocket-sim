@@ -52,10 +52,23 @@ const PROBE_KEY = 'online-openrocket.storage-probe.v1';
 let started = false;
 const listeners = new Set<(overlay: CatalogueOverlay) => void>();
 
-/** App's message strip learns of an automatic result here; the button's own results never arrive. */
+/**
+ * App's message strip learns of an automatic result here; the button's own results never arrive.
+ * A listener gets the installed overlay with `changed` cut to what THIS check newly brought: a
+ * change already in the overlay stored before it, with the same new figures, is left out. The
+ * overlay diffs against the shipped catalogue, so every check after the first carries the earlier
+ * changes again; without the cut, a same-snapshot recheck six hours later told the user to pick a
+ * motor again that they already had (review of 28 Oct).
+ */
 export function subscribeAutomaticCatalogueResult(fn: (overlay: CatalogueOverlay) => void): () => void {
   listeners.add(fn);
   return () => { listeners.delete(fn); };
+}
+
+/** `after`'s changes that `before` did not already hold with the same new figures. */
+export function newlyChanged(after: CatalogueOverlay, before: CatalogueOverlay | null): CatalogueOverlay {
+  const seen = new Set((before?.changed ?? []).map((c) => `${c.motorId}\u0000${JSON.stringify(c.after)}`));
+  return { ...after, changed: after.changed.filter((c) => !seen.has(`${c.motorId}\u0000${JSON.stringify(c.after)}`)) };
 }
 
 /** @internal Test isolation only: the check starts once per page. */
@@ -87,10 +100,12 @@ export async function startCatalogueAutoCheck(env: CatalogueAutoCheckEnv = brows
     await whenRestored(env);
     if (!env.online()) return 'offline';
     if (!storageWritable(env)) return 'no-storage';
-    if (checkedRecently(loadStoredOverlay(), env.now())) return 'recent';
+    const before = loadStoredOverlay();
+    if (checkedRecently(before, env.now())) return 'recent';
     // Forced: the throttle was just checked, with the future-date rule.
     const { overlay } = await checkForCatalogueUpdates({ force: true, fetchImpl: env.fetchImpl, now: env.now });
-    for (const fn of listeners) fn(overlay);
+    const fresh = newlyChanged(overlay, before);
+    for (const fn of listeners) fn(fresh);
     return 'checked';
   } catch (err) {
     console.debug(`MMRocket Sim: the automatic motor catalogue check did not complete: ${err instanceof Error ? err.message : String(err)}`);

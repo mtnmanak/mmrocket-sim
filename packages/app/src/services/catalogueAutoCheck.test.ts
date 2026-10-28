@@ -189,6 +189,32 @@ describe('beside the button and Discard', () => {
     expect(results).not.toHaveBeenCalled();
   });
 
+  it('tells its subscribers of a changed motor once: not again on a same-snapshot recheck or a newer snapshot repeating it', async () => {
+    const shipped = MOTOR_DB.find(m => m.manufacturerAbbrev === 'Estes' && Number.isFinite(m.totImpulseNs))!;
+    const rows = (bump: number) => MOTOR_DB.map(m => (m === shipped ? { ...m, totImpulseNs: m.totImpulseNs + bump } : m));
+    pub = await publication(`${daysAfter(MOTOR_DB_DATE, 2)}.2`, rows(1));
+    fetchImpl = catalogueFetch(manifestOf(pub), [pub]);
+    const changedIds = vi.fn();
+    const stop = subscribeAutomaticCatalogueResult(o => changedIds(o.changed.map(c => c.motorId)));
+    await startCatalogueAutoCheck(env());
+    now = T0 + RECHECK_MIN_MS;
+    reload();
+    await startCatalogueAutoCheck(env()); // the same snapshot
+    const newer = await publication(`${daysAfter(MOTOR_DB_DATE, 2)}.3`, rows(1));
+    fetchImpl = catalogueFetch(manifestOf(newer, [pub]), [pub, newer]);
+    now += RECHECK_MIN_MS;
+    reload();
+    await startCatalogueAutoCheck(env()); // a newer snapshot, the same change
+    const further = await publication(`${daysAfter(MOTOR_DB_DATE, 2)}.4`, rows(2));
+    fetchImpl = catalogueFetch(manifestOf(further, [pub, newer]), [pub, newer, further]);
+    now += RECHECK_MIN_MS;
+    reload();
+    await startCatalogueAutoCheck(env()); // the same motor changed again: new figures, told again
+    stop();
+    expect(changedIds.mock.calls.map(([ids]) => ids)).toEqual([[shipped.motorId], [], [], [shipped.motorId]]);
+    expect(getCatalogueOverlay()?.changed.map(c => c.motorId)).toEqual([shipped.motorId]);
+  });
+
   it('an automatic result reaches its subscribers (positive control for the above)', async () => {
     const results = vi.fn();
     const stop = subscribeAutomaticCatalogueResult(results);
