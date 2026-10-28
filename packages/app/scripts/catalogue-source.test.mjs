@@ -200,6 +200,41 @@ describe('GitHub REST source eligibility', () => {
     expect(stdout).not.toHaveBeenCalled();
   });
 
+  it('b: copies a CLI failure in select into the --summary file, scrubbed of the GitHub token', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'catalogue-source-')); dirs.push(dir);
+    writeFileSync(join(dir, 'run.json'), JSON.stringify(fixture().run));
+    const select = (jobs, summary) => ['select', '--run', join(dir, 'run.json'), '--jobs', jobs,
+      '--artifacts', join(dir, 'artifacts.json'), '--out', join(dir, 'out'), '--summary', summary];
+    // (i) A missing --jobs directory fails inside main, before selectSource returns.
+    let stdout = vi.fn(), stderr = vi.fn();
+    expect(main(select(join(dir, 'missing-jobs'), join(dir, 'summary')), { stdout, stderr, env: {} })).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+    const line = stderr.mock.calls.flat().join('');
+    expect(line).toMatch(/^Catalogue source check failed: .*missing-jobs.*\n$/);
+    expect(readFileSync(join(dir, 'summary'), 'utf8')).toBe(line);
+    // (ii) A secret-shaped value in the failing path is redacted in both outputs.
+    for (const key of ['GH_TOKEN', 'GITHUB_TOKEN']) {
+      const secret = `ghs_${key}0123456789abcdef`;
+      stdout = vi.fn(); stderr = vi.fn();
+      expect(main(select(join(dir, secret), join(dir, `summary-${key}`)), { stdout, stderr, env: { [key]: secret } })).toBe(1);
+      const text = stderr.mock.calls.flat().join('');
+      expect(text).toContain('[REDACTED]');
+      expect(text).not.toContain(secret);
+      expect(readFileSync(join(dir, `summary-${key}`), 'utf8')).toBe(text);
+    }
+    // (iii) A summary path that cannot be appended to keeps exit 1 and the stderr line.
+    mkdirSync(join(dir, 'summary-dir'));
+    stdout = vi.fn(); stderr = vi.fn();
+    expect(main(select(join(dir, 'missing-jobs'), join(dir, 'summary-dir')), { stdout, stderr, env: {} })).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.flat().join('')).toMatch(/^Catalogue source check failed: .*missing-jobs/);
+    // A failure before parseArgs returns writes to stderr only.
+    stderr = vi.fn();
+    expect(main(['select', '--summary', join(dir, 'summary-parse'), '--unknown'], { stdout, stderr, env: {} })).toBe(1);
+    expect(stderr).toHaveBeenCalledTimes(1);
+    expect(() => readFileSync(join(dir, 'summary-parse'))).toThrow(/ENOENT/);
+  });
+
   it('R4 #4: classifies a failed environment read: 404 is a missing environment, anything else is unconfirmed', () => {
     const dir = mkdtempSync(join(tmpdir(), 'catalogue-source-')); dirs.push(dir);
     const missing = approvalErrorNotice('gh: Not Found (HTTP 404)\n');

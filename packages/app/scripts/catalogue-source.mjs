@@ -133,10 +133,16 @@ export function approvalErrorNotice(stderrText) {
     : 'could not confirm the approval rule\n';
 }
 
-export function main(argv = process.argv.slice(2), { stdout = (s) => process.stdout.write(s), stderr = (s) => process.stderr.write(s) } = {}) {
+const scrub = (message, env) => [env.GH_TOKEN, env.GITHUB_TOKEN]
+  .filter(Boolean).reduce((s, secret) => s.split(secret).join('[REDACTED]'), String(message));
+
+export function main(argv = process.argv.slice(2), {
+  stdout = (s) => process.stdout.write(s), stderr = (s) => process.stderr.write(s), env = process.env,
+} = {}) {
+  let values;
   try {
     const [command, ...args] = argv;
-    const { values } = parseArgs({ args, options: Object.fromEntries(['run', 'jobs', 'artifacts', 'out', 'summary', 'error'].map((key) => [key, { type: 'string' }])) });
+    ({ values } = parseArgs({ args, options: Object.fromEntries(['run', 'jobs', 'artifacts', 'out', 'summary', 'error'].map((key) => [key, { type: 'string' }])) }));
     if (command === 'approval-error') { stdout(approvalErrorNotice(readFileSync(values.error, 'utf8'))); return 0; }
     const run = JSON.parse(readFileSync(values.run, 'utf8'));
     if (command === 'approval') { stdout(approvalNotice(run)); return 0; }
@@ -155,7 +161,10 @@ export function main(argv = process.argv.slice(2), { stdout = (s) => process.std
     return result.failed ? 1 : 0;
   } catch (error) {
     // stdout is captured into files and the summary; the reason belongs in the log.
-    stderr(`Catalogue source check failed: ${error.message}\n`);
+    const line = scrub(`Catalogue source check failed: ${error.message}`, env);
+    stderr(`${line}\n`);
+    // A failed step copies no summary of its own; record why it failed there.
+    if (values?.summary) try { appendFileSync(values.summary, `${line}\n`); } catch { /* the log still has it */ }
     return 1;
   }
 }
