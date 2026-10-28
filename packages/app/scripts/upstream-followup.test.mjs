@@ -16,19 +16,23 @@ vi.mock('./thrustcurve-client.mjs', async (importOriginal) => ({
 afterEach(() => vi.restoreAllMocks());
 
 it('sends thrustcurve.org requests, and only those, through the paced client', async () => {
+  // Through main(), as the other checks here run, so its per-run state (failedHosts and the
+  // rest) is reset rather than left behind, and on fake timers so its 250 ms pause never waits.
+  vi.useFakeTimers();
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
   const fetcher = vi.fn(async () => ({ ok: false, status: 404 }));
   vi.stubGlobal('fetch', fetcher);
   paced.length = 0;
   try {
-    await checkThrustCurve().catch(() => {});
-    await checkHead().catch(() => {});
+    const run = main([() => checkThrustCurve(), () => checkHead()], () => {});
+    await vi.runAllTimersAsync();
+    await run;
     const tc = fetcher.mock.calls.map(([url]) => String(url)).filter((url) => new URL(url).hostname === 'www.thrustcurve.org');
     expect(tc.length).toBeGreaterThan(0);
     expect(paced).toEqual(tc);
     expect(fetcher.mock.calls.some(([url]) => new URL(String(url)).hostname === 'api.github.com')).toBe(true);
-  } finally { vi.unstubAllGlobals(); }
+  } finally { vi.useRealTimers(); vi.unstubAllGlobals(); }
 });
 
 it.each(['@click', 'x-on:click.prevent', 'data-foo.bar', 'data.foo'])('accepts valid HTML attribute %s and apostrophes in unquoted values', name => {

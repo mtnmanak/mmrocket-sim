@@ -20,6 +20,7 @@ function harness(answers, options = {}) {
     fetchImpl: async (url, init) => {
       sent.push({ url, at: clock, ua: init.headers.get('user-agent') });
       const next = queue.length ? queue.shift() : { status: 200 };
+      clock += next.delay ?? 0; // time the answer takes to come back
       return new Response(next.body ?? '{}', { status: next.status, headers: next.headers ?? {} });
     },
     log: () => {},
@@ -56,8 +57,18 @@ describe('thrustcurve-client pacing', () => {
     expect(slept).toEqual([5000]);
   });
 
+  it('times the gap from the answer, so a slow request cannot bunch with the next', async () => {
+    const { client, sent } = harness([{ status: 200, delay: 3000 }, { status: 200 }]);
+    await client('https://www.thrustcurve.org/slow');
+    await client('https://www.thrustcurve.org/next');
+    // The slow request's answer came back at start + 3 s; the next starts a full interval after that.
+    expect(sent[1].at - (sent[0].at + 3000)).toBe(5000);
+  });
+
   it('keeps at most two requests in any 10 s at the default pace', async () => {
-    expect(DEFAULT_INTERVAL_MS).toBeGreaterThan(10_000 / 3);
+    // Arrivals are more than one interval apart (each gap is timed from the previous answer), so
+    // three in one 10 s window would need two gaps that add up to under 10 s: impossible at >= 5 s.
+    expect(DEFAULT_INTERVAL_MS).toBeGreaterThanOrEqual(10_000 / 2);
   });
 
   it('names itself unless the caller already did', async () => {
@@ -196,6 +207,10 @@ describe('thrustcurve-client settings', () => {
     expect(retryAfterMs('Tue, 27 Oct 2026 12:00:20 GMT', now)).toBe(20_000);
     expect(retryAfterMs('Tue, 27 Oct 2026 11:00:00 GMT', now)).toBe(0);
     expect(retryAfterMs('soon', now)).toBeNull();
+    // Decimal seconds are seconds, not a date V8 would guess (Date.parse('10.5') is in 2001).
+    expect(retryAfterMs('10.5', now)).toBe(10_500);
+    expect(retryAfterMs('3.25', now)).toBe(3250);
+    expect(retryAfterMs('1.2.3', now)).toBeNull();
     expect(retryAfterMs(null, now)).toBeNull();
   });
 });

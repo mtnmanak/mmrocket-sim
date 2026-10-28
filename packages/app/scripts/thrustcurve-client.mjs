@@ -7,11 +7,16 @@
  * (going to 5), so the weekly refresh's ~50 requests, sent back to back by
  * fetch-motor-db.mjs and 250 ms apart by fetch-motor-curves.mjs, would trip it
  * a few requests in. Every request through this client starts at least
- * `intervalMs` after the one before it (default 5 s: at most two in any 10 s,
- * under either limit), and the first waits one interval too, so a script that
- * starts straight after another one cannot stack its first request on the
- * other's last. About four minutes a weekly run; the refresh job's timeout in
- * motors-refresh.yml allows for it. THRUSTCURVE_INTERVAL_MS overrides the pace
+ * `intervalMs` after the ANSWER to the one before it came back (default 5 s),
+ * so two requests reach Cloudflare more than 5 s apart however slow the
+ * network was for either — at most two in any 10 s, under either limit. Timed
+ * from the answer, not the start, because a request delayed on its way out
+ * would otherwise arrive bunched with the next (Gemini review, 27 Oct); timed
+ * on the monotonic clock, so a wall-clock step cannot shorten a gap. The first
+ * request waits one interval too, so a script that starts straight after
+ * another one cannot stack its first request on the other's last. About five
+ * minutes a weekly run; the refresh job's timeout in motors-refresh.yml
+ * allows for it. THRUSTCURVE_INTERVAL_MS overrides the pace
  * (whole milliseconds, 1000 or more) once a different rate is agreed with him.
  *
  * A CHALLENGE IS NOT A RATE LIMIT. Measured 27 Oct, 6 s apart: Node's fetch got
@@ -87,14 +92,17 @@ export function intervalFromEnv(env = process.env) {
 
 /**
  * Retry-After in ms — delta-seconds or an HTTP date — or null when absent or
- * unreadable. Capped at MAX_RETRY_WAIT_MS and never negative.
+ * unreadable. Capped at MAX_RETRY_WAIT_MS and never negative. Decimal seconds
+ * are read as seconds, and only text with a month or day name goes to
+ * Date.parse: V8 reads a bare "10.5" as a date in 2001, which would have
+ * turned a 10.5 s wait into none (Gemini review, 27 Oct).
  */
 export function retryAfterMs(value, now) {
   if (value == null) return null;
   const text = String(value).trim();
   let ms = null;
-  if (/^\d+$/.test(text)) ms = Number(text) * 1000;
-  else {
+  if (/^\d+(?:\.\d+)?$/.test(text)) ms = Math.ceil(Number(text) * 1000);
+  else if (/[A-Za-z]/.test(text)) {
     const at = Date.parse(text);
     if (Number.isFinite(at)) ms = at - now;
   }
@@ -109,7 +117,9 @@ export function retryAfterMs(value, now) {
 export function createThrustcurveFetch({
   fetchImpl = (...args) => globalThis.fetch(...args),
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  now = () => Date.now(),
+  // The pace runs on the monotonic clock; only an HTTP-date Retry-After needs the wall clock.
+  now = () => performance.now(),
+  wallNow = () => Date.now(),
   intervalMs,
   retries = 3,
   retryBudgetMs = RETRY_BUDGET_MS,
@@ -125,10 +135,14 @@ export function createThrustcurveFetch({
 
   async function paced(url, init) {
     const interval = intervalMs ?? intervalFromEnv();
-    const wait = last === null ? interval : last + interval - now();
-    if (wait > 0) await sleep(wait);
-    last = now();
-    return fetchImpl(url, init);
+    const due = (last ?? now()) + interval;
+    // Re-checked after each sleep: a timer can fire a millisecond early.
+    for (let wait = due - now(); wait > 0; wait = due - now()) await sleep(Math.ceil(wait));
+    try {
+      return await fetchImpl(url, init);
+    } finally {
+      last = now();
+    }
   }
 
   async function send(url, init = {}) {
@@ -144,7 +158,7 @@ export function createThrustcurveFetch({
         throw new ThrustcurveChallengeError(challenged.url, challenged.status);
       }
       if (res.status !== 429 && res.status !== 503) return res;
-      const ms = retryAfterMs(res.headers?.get?.('retry-after'), now())
+      const ms = retryAfterMs(res.headers?.get?.('retry-after'), wallNow())
         ?? Math.min(30_000 * 2 ** attempt, MAX_RETRY_WAIT_MS);
       if (attempt >= retries || retryWaited + ms > retryBudgetMs) {
         unavailable = { url: String(url), status: res.status };
