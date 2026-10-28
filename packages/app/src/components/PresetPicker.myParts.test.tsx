@@ -295,4 +295,14 @@ describe('S7-3 My parts writes keep rows they cannot read', () => {
       expect(editCustomPresets(() => true, [NEW_ROW])).toBeNull();
     } finally { Object.defineProperty(localStorage, 'getItem', { configurable: true, value: original }); }
   });
+  it('S3c-4 reports a refused import write even when storage already holds the same rows', async () => {
+    saveCustomPresets([NEW_ROW]); await render();
+    const original = localStorage.setItem;
+    Object.defineProperty(localStorage, 'setItem', { configurable: true, value: () => { throw new Error('blocked'); } });
+    try {
+      await importCsv(presetsToCsv([NEW_ROW]));
+    } finally { Object.defineProperty(localStorage, 'setItem', { configurable: true, value: original }); }
+    expect(host.textContent).toContain('Could not store 1 of 1 preset(s)');
+    expect(host.textContent).not.toContain('Imported 1 preset(s)');
+  });
 });

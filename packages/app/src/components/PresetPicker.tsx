@@ -251,15 +251,17 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
         setNote(`Nothing imported. ${CUSTOM_PRESETS_UNREADABLE}`);
         return;
       }
-      saveCustomPresets(next);
+      const written = saveCustomPresets(next);
       // Read the store back before claiming the import worked.
-      // `saveCustomPresets` reports setItem failure; also verify the stored rows, since
+      // `saveCustomPresets` reports setItem failure (honoured: a refused write
+      // stored nothing, even when the store already held the same rows, audit
+      // S3c-4); also verify the stored rows, since
       // localStorage is the ONLY place custom presets live — there is no
       // in-memory copy — so on a QuotaExceededError (a re-imported ~1,300-row
       // tube list, a private window, blocked site data) the table quietly
       // reloads the OLD rows while the note claims the new ones were stored.
       const stored = new Set(loadCustomPresets().map((p) => JSON.stringify(p)));
-      const missing = good.filter((p) => !stored.has(JSON.stringify(p))).length;
+      const missing = written ? good.filter((p) => !stored.has(JSON.stringify(p))).length : good.length;
       sessionDebugLog.record(missing > 0 ? 'import-failed' : 'import-complete',
         missing > 0 ? new Error('Preset storage refused the import.') : undefined);
       setNoteTier(dropped > 0 || missing > 0 ? 'caution' : 'information');
