@@ -1,4 +1,4 @@
-import { fetchAttempts, timerCalls } from './networkTrap.testSupport.js';
+import { fetchAttempts, timerCalls, timerSources } from './networkTrap.testSupport.js';
 import { worker } from './index.js';
 import { resetKernelForTests, withKernel } from '../../app/src/services/simulateDesign.js';
 import { KERNEL_HANDLES } from '../../app/src/services/buildDesign.js';
@@ -65,6 +65,29 @@ export default {
       const before = fetchAttempts();
       try { await globalThis.fetch('https://outbound.invalid/'); } catch { /* expected trap */ }
       return Response.json({ trapped: fetchAttempts() === before + 1, before });
+    }
+    // Self-test the timer trap: each source it wraps counts once.
+    if (path === '/__test/probe-timer-trap') {
+      const counted: Record<string, number> = {};
+      const probe = async (source: string, schedule: () => Promise<void> | void) => {
+        const before = timerCalls();
+        await schedule();
+        counted[source] = timerCalls() - before;
+      };
+      await probe('setTimeout', () => new Promise<void>(resolve => { setTimeout(resolve, 0); }));
+      await probe('setInterval', () => new Promise<void>(resolve => {
+        const id = setInterval(() => { clearInterval(id); resolve(); }, 0);
+      }));
+      const { scheduler } = globalThis as { scheduler?: { wait?: (ms: number) => Promise<void> } };
+      if (typeof scheduler?.wait === 'function') await probe('scheduler.wait', () => scheduler.wait!(0));
+      if (typeof MessageChannel !== 'undefined') {
+        await probe('MessagePort.postMessage', () => new Promise<void>(resolve => {
+          const channel = new MessageChannel();
+          channel.port2.onmessage = () => { channel.port1.close(); channel.port2.close(); resolve(); };
+          channel.port1.postMessage(0);
+        }));
+      }
+      return Response.json({ sources: timerSources(), counted });
     }
     const before = fetchAttempts();
     const timersBefore = timerCalls();

@@ -225,6 +225,15 @@ describe('S1 in real workerd', () => {
     }
   });
 
+  it('the timer trap counts every macrotask source workerd offers', async () => {
+    const probe = await trapped!.fetch('http://local/__test/probe-timer-trap');
+    const { sources, counted } = await probe.json() as { sources: string[]; counted: Record<string, number> };
+    // All four exist in the pinned local workerd; a lost wrapper or source fails here.
+    expect(sources).toEqual(['setTimeout', 'setInterval', 'scheduler.wait', 'MessagePort.postMessage']);
+    expect(Object.keys(counted).sort()).toEqual([...sources].sort());
+    for (const source of sources) expect(counted[source], source).toBe(1);
+  });
+
   it('auto-delay schedules zero timers inside workerd', async () => {
     const body = await autoBody();
     const node = await simulateFile(body, 'auto.rkt', { reportSeries: 'summary' });
