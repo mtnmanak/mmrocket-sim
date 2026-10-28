@@ -3,7 +3,7 @@ import { gzipSync, strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { DOMParser } from '@xmldom/xmldom';
 import { SaxesParser } from 'saxes';
 import { worker } from './index.js';
-import { bytesOf } from './fixtures.testSupport.js';
+import { bytesOf, stampOf } from './fixtures.testSupport.js';
 
 /**
  * The SAX gate's depth and node budgets on retained documents (no stored .ork
@@ -51,7 +51,10 @@ async function respond(format: Format, body: Uint8Array) {
     { method: 'POST', body: new Uint8Array(body).buffer }), undefined, { waitUntil: () => undefined });
   return { filename, status: response.status, json: await response.json() as { error?: { code: string; message: string } } };
 }
-const TOO_LARGE = (filename: string, what: string) => ({ error: { code: 'FILE_TOO_LARGE',
+/** /health's version stamp, which every refusal carries beside its error (cloud lane 15). */
+const STAMP = stampOf(await (await worker.fetch(new Request('http://local/health'), undefined,
+  { waitUntil: () => undefined })).json());
+const TOO_LARGE = (filename: string, what: string) => ({ ...STAMP, error: { code: 'FILE_TOO_LARGE',
   message: `${filename}: ${what} Use https://mmrsim.mountainmanrockets.com for larger files.` } });
 const API_MAX_DEPTH = 64;
 const API_MAX_NODES = 200_000;
