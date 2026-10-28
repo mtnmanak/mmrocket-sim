@@ -485,7 +485,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       fin['points'] = tipChord > 1e-9
         ? [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]]
         : [[0, 0], [sweep, height], [rootChord, 0]];
-      repairImportedFinOutline(fin, notes);
+      repairImportedFinOutline(fin, notes, units);
     } else {
       fin['rootChord'] = rootChord;
       fin['tipChord'] = tipChord;

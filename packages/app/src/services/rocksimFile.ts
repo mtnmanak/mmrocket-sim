@@ -893,7 +893,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
               ? [[0, 0], [sweep, height], [sweep + tipChord, height], [rootChord, 0]]
               : [[0, 0], [sweep, height], [rootChord, 0]];
           }
-          const problem = repairImportedFinOutline(n, notes);
+          const problem = repairImportedFinOutline(n, notes, units);
           const note = parent?.type === 'nosecone'
             ? 'Fins on a nose cone were converted to a freeform outline (same planform) — OpenRocket only allows '
               + 'freeform fins on a nose cone.'

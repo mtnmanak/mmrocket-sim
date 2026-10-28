@@ -228,3 +228,36 @@ describe('fixed-unit notices: the 680 kg/m³ stand-in density', () => {
       .toBe(`The engine replaces zero bulk density with ${density}, adding mass. Saving replaces the zero density.`);
   });
 });
+
+describe('fixed-unit notices: the synthesized fin-outline caution', () => {
+  // Points 2 and 3 pass the raw checks and coincide only once the simulator
+  // pulls every x past 2.5 m back, so the caution comes from the PULLED text.
+  const rkt = `<RockSimDocument><DesignInformation><RocketDesign><Name>Units</Name><StageCount>1</StageCount><Stage3Parts>
+    <Transition><Name>Reducer</Name><Len>100</Len><FrontDia>80</FrontDia><RearDia>100</RearDia><AttachedParts>
+    <FinSet><Name>Big fins</Name><ShapeCode>0</ShapeCode><RootChord>3048</RootChord><TipChord>127</TipChord>
+    <SweepDistance>2667</SweepDistance><SemiSpan>1016</SemiSpan></FinSet></AttachedParts></Transition>
+    </Stage3Parts></RocketDesign></DesignInformation></RockSimDocument>`;
+  const cdx1 = (parent: 'Transition' | 'BoatTail') => `<RASAeroDocument><RocketDesign>
+    <BodyTube><Length>20</Length><Diameter>3</Diameter></BodyTube>
+    <${parent}><Length>10</Length><Diameter>3</Diameter><RearDiameter>2</RearDiameter>
+    <Fin><Chord>120</Chord><TipChord>5</TipChord><SweepDistance>105</SweepDistance><Span>40</Span><Count>3</Count></Fin></${parent}>
+    </RocketDesign></RASAeroDocument>`;
+  const caution = (result: { noteTiers?: { kind: string; text: string }[] }) =>
+    result.noteTiers?.find(note => note.kind === 'I05.fin-outline')?.text ?? '';
+  const producers = [
+    ['RockSim transition FinSet', (units: typeof INITIAL_UNITS) => importRkt(rkt, { units })],
+    ['RockSim nose-cone FinSet', (units: typeof INITIAL_UNITS) => importRkt(rkt.replace('<Transition><Name>Reducer</Name><Len>100</Len><FrontDia>80</FrontDia><RearDia>100</RearDia>',
+      '<NoseCone><Name>Nose</Name><Len>100</Len><BaseDia>100</BaseDia>').replace('</Transition>', '</NoseCone>'), { units })],
+    ['RASAero Transition fin', (units: typeof INITIAL_UNITS) => importCdx1(cdx1('Transition'), { units })],
+    ['RASAero BoatTail fin', (units: typeof INITIAL_UNITS) => importCdx1(cdx1('BoatTail'), { units })],
+  ] as const;
+  it.each(producers.flatMap(([name, load]) => [
+    [name, 'metric', load, INITIAL_UNITS, '2500 mm (98.425 in)', '98.425 in (2500 mm)'],
+    [name, 'imperial', load, IMPERIAL_UNITS, '98.425 in (2500 mm)', '2500 mm (98.425 in)'],
+  ] as const))('prints the 2.5 m limit in the preferred length first: %s, %s', (_name, _set, load, units, limit, wrong) => {
+    const text = caution(load(units));
+    expect(text).toContain(`land in the same place once the simulator pulls every point more than ${limit}`);
+    expect(text).toContain(`keep the fin within ${limit}.`);
+    expect(text).not.toContain(wrong);
+  });
+});
