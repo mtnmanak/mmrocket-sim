@@ -29,6 +29,7 @@ import type { SessionState } from './session.js';
 import { MAX_STORED_WARNINGS } from './storedWarnings.js';
 import { tierLines } from './importNotes.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
+import { checkFormatLoss } from './formatLoss.js';
 
 const restoreTier = (restored: ReturnType<typeof designStateFromSession>, text: string) =>
   tierLines(restored.restoreNotes, restored.restoreNoteTiers).find(note => note.text === text)?.tier;
@@ -1317,8 +1318,8 @@ describe('stored-state hardening: EX definitions', () => {
     });
   });
 
-  // The reference screen (sanitizeSessionFlightLayers) does not read exDefinition:
-  // Save treats an unreadable one as no definition, as for a reference stored without one.
+  // The reference screen (sanitizeSessionFlightLayers) removes an unreadable
+  // exDefinition (cloud session 20): Save writes it as a reference stored without one.
   it.each(['working set', 'configuration'])('saves a %s reference with an unreadable exDefinition as one with none', where => {
     discardSession();
     const tree = defaultTree();
@@ -1599,5 +1600,53 @@ describe('stored-state siblings: stage-mass snapshots', () => {
     expect(loaded.savedConfigs![1]!.stageMassOverrides![stage]).toStrictEqual(valid);
     expect(loaded.treeRestoreNotes ?? []).toEqual([]);
     expect(saveOrk(loaded)).toContain('<overrideincludesmotor>C6</overrideincludesmotor>');
+  });
+});
+
+describe('stored-state siblings: reference EX definitions', () => {
+  const KEY = 'online-openrocket.session.v1';
+  beforeEach(() => discardSession());
+  /** A reference nothing matched, in the working set or a saved configuration, through the .rkt save preview. */
+  const restore = (where: string, exDefinition?: unknown) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const ref = { designation: 'Z9-4', manufacturer: 'Nobody', diameter: 0.018, length: 0.07, delay: 4,
+      ...(exDefinition !== undefined ? { exDefinition } : {}) };
+    const raw = JSON.stringify({ ...state(), tree, configLayers: 1,
+      ...(where === 'working set' ? { unmatchedRefs: { [mount]: ref } }
+        : { activeConfigId: 'c', savedConfigs: [{ id: 'c', name: 'C', isDefault: true, motors: {}, unmatchedRefs: { [mount]: ref } }] }) });
+    localStorage.setItem(KEY, raw);
+    const loaded = loadSession()!;
+    const { state: d } = designStateFromSession(loaded, { legacyMaxMotorLengthM: null });
+    const motors = exportMotorsMap({ assigned: [], unmatchedRefs: d.unmatchedRefs, tree: d.tree,
+      activeConfigId: d.activeConfigId, exLibrary: loadExMotorIdentities });
+    const report = checkFormatLoss('rkt', { tree: d.tree, motors, launch: d.launch, configs: d.savedConfigs,
+      activeConfigId: d.activeConfigId, measured: d.measured, flightData: {} });
+    return { raw, loaded, mount, lines: report.losses };
+  };
+  describe.each(['working set', 'configuration'])('in the %s', where => {
+    it.each([7, 'x', [], { ...definition(), realManufacturer: 7 }, { motorId: 7, designation: 'C6' }, { ...definition(), samples: [null] }]
+      .map(v => [v]))('removes an unreadable definition %j and previews the reference as one with none', bad => {
+      const none = restore(where).lines;
+      const { raw, loaded, mount, lines } = restore(where, bad);
+      const ref = where === 'working set' ? loaded.unmatchedRefs![mount]! : loaded.savedConfigs![0]!.unmatchedRefs![mount]!;
+      expect(ref).not.toHaveProperty('exDefinition');
+      expect(ref.designation).toBe('Z9-4');
+      expect(noteKinds(loaded)).toContain('caution:G04.ref-definition-removed');
+      expect(lines).toEqual(none);
+      expect(lines.join(' ')).not.toMatch(/EX motor/);
+      expect(lines.join(' ')).toMatch(/Motor identity/);
+      expect(localStorage.getItem(KEY)).toBe(raw);
+      expect(autosavedDesignFile()).toMatchObject({ ork: false, data: raw });
+    });
+    it('keeps a valid definition on a reference, with no note', () => {
+      const { raw, loaded, mount } = restore(where, definition());
+      const stored = JSON.parse(raw) as SessionState;
+      expect(JSON.stringify(loaded.unmatchedRefs ?? null)).toBe(JSON.stringify(stored.unmatchedRefs ?? null));
+      expect(JSON.stringify(loaded.savedConfigs ?? null)).toBe(JSON.stringify(stored.savedConfigs ?? null));
+      const ref = where === 'working set' ? loaded.unmatchedRefs![mount]! : loaded.savedConfigs![0]!.unmatchedRefs![mount]!;
+      expect((ref as { exDefinition?: unknown }).exDefinition).toStrictEqual(definition());
+      expect(loaded.treeRestoreNotes ?? []).toEqual([]);
+    });
   });
 });

@@ -199,6 +199,18 @@ export function validExMotorIdentity(v: unknown): v is Pick<ExMotor, 'motorId' |
     && typeof v['realManufacturer'] === 'string';
 }
 
+/**
+ * A stored EX definition (a motor spec's or an unmatched reference's
+ * `exDefinition`) that Save can write and compare: the identity a Save writes
+ * and the samples exMotorIdentity reads. Deliberately not today's whole
+ * validExMotor: a definition an older build captured can fail a later refusal
+ * while every reader copes (cloud session 10).
+ */
+export function validStoredExDefinition(v: unknown): boolean {
+  const samples = record(v) ? v['samples'] : undefined;
+  return validExMotorIdentity(v) && Array.isArray(samples) && samples.every(record);
+}
+
 /** Save can retain a legacy maker even when its curve cannot be loaded (audit 2026-10-11, S1c-5 integration). */
 export function loadExMotorIdentities(): Pick<ExMotor, 'motorId' | 'designation' | 'realManufacturer'>[] {
   try {

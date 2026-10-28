@@ -20,7 +20,7 @@ import { validLossySaveMark, type LossySaveMark } from './lossySave.js';
 import { designFingerprint } from './dirtyState.js';
 import { sanitizeSessionFlightLayers } from './sessionFlightLayers.js';
 import { boundedNozzleDiameter } from '../tree/nozzles.js';
-import { validExMotorIdentity } from './exMotors.js';
+import { validStoredExDefinition } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import { STATED_STAGE_FIGURES, statedFiguresOf } from './statedLaunchWeight.js';
 
@@ -328,10 +328,6 @@ function setConflicted(next: boolean): void {
 }
 
 const isTable = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-const validStoredExDefinition = (v: unknown): boolean => {
-  const samples = isTable(v) ? v['samples'] : undefined;
-  return validExMotorIdentity(v) && Array.isArray(samples) && samples.every(isTable);
-};
 
 /**
  * A stored `flownAutoDelays`, or undefined when there is no table of delays in
