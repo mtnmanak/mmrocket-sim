@@ -76,14 +76,16 @@ function summary(out: TimedSimulateFileResult) {
     { name: out.state.tree.name ?? 'Rocket', events: out.result.events },
     ...boosterBranches(out.result),
   ].flatMap(branch => branch.events.filter(event => event.type === 'SIM_ABORT' || event.type === 'EXCEPTION')
-    .map(event => ({ branch: branch.name, reason: event.cause ?? event.type, event })));
+    // The kernel's node ids come from a module counter (see motorFailures): never returned.
+    .map(({ sourceId: _sourceId, motorMountId: _motorMountId, ...event }) => ({ branch: branch.name, reason: event.cause ?? event.type, event })));
   const incomplete = out.run.simWarnings?.some(warning => warning.key === 'INCOMPLETE_FLIGHT') ?? false;
   return {
     experimental: true,
     outcome: aborts.length ? 'aborted' : incomplete ? 'incomplete' : 'completed',
     partial: aborts.length > 0 || incomplete,
     aborts,
-    motorFailures: out.build.motorFailures.map(failure => ({ ...failure, mount: mountNames[failure.mountId] })),
+    // No node id: ids come from a module counter, so they would differ per isolate history.
+    motorFailures: out.build.motorFailures.map(({ mountId, text }) => ({ mount: mountNames[mountId], text })),
     appVersion: out.appVersion,
     apogeeM: maxAltitude,
     maxVelocityMs: maxVelocity,

@@ -20,7 +20,7 @@ interface FlightResponse {
   partial: boolean;
   outcome: 'completed' | 'aborted' | 'incomplete';
   aborts: { reason: string; event: { type: string; time: number; cause?: string } }[];
-  motorFailures: { mountId: string; mount: string; text: string }[];
+  motorFailures: { mount: string; text: string }[];
   apogeeM: number;
   maxVelocityMs: number;
   maxMach: number;
@@ -203,7 +203,8 @@ describe('S1 in real workerd', () => {
       close(result.flightTimeS, node.result.summary.flightTime, true);
       sameNumeric(result.motors, expectedMotors(node));
       const aborts = [node.result, ...boosterBranches(node.result)].flatMap(branch =>
-        branch.events.filter(e => e.type === 'SIM_ABORT' || e.type === 'EXCEPTION'));
+        branch.events.filter(e => e.type === 'SIM_ABORT' || e.type === 'EXCEPTION')
+          .map(({ sourceId: _sourceId, motorMountId: _motorMountId, ...event }) => event));
       const expectedOutcome = name === 'Show-off.CDX1' ? 'aborted' : 'completed';
       expect(result.outcome).toBe(expectedOutcome);
       sameNumeric(result.aborts.map(a => a.event), aborts);
@@ -496,7 +497,7 @@ function sameNumeric(actual: unknown, expected: unknown, eventTime = false): voi
 
 function expectedFailures(node: Awaited<ReturnType<typeof simulateFile>>) {
   const names = mountNamesOf(motorMounts(node.state.tree));
-  return node.build.motorFailures.map(failure => ({ ...failure, mount: names[failure.mountId] }));
+  return node.build.motorFailures.map(({ mountId, text }) => ({ mount: names[mountId], text }));
 }
 
 function expectedMotors(node: Awaited<ReturnType<typeof simulateFile>>) {
