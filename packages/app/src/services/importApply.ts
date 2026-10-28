@@ -16,6 +16,7 @@ import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { LEGACY_PAD_MASS_KEY } from './hardwareMass.js';
 import type { Sequencer } from './latestWins.js';
 import { matchImportedMotor, withMountCount, type MotorMatchResult } from './motorMatch.js';
+import { getCatalogue, matchDbMotor } from './motorDb.js';
 import {
   fmtStepS, type MeasuredFigures, type OrkFlightConfig, type OrkImportResult, type OrkMotorRef,
   type OrkTreeImportResult,
@@ -178,9 +179,18 @@ export async function resolveImportMotors(
   imported: ImportedDesign,
   match: (ref: OrkMotorRef) => Promise<MotorMatchResult> = matchImportedMotor,
 ): Promise<ResolvedImportMotors> {
+  let catalogue = getCatalogue();
+  const row = (ref: OrkMotorRef) => JSON.stringify(matchDbMotor(ref.designation,
+    ref.diameter > 0 ? ref.diameter * 1000 : undefined, undefined, ref.manufacturer, ref.matchContext));
+  const matches: { ref: OrkMotorRef; before: string | undefined; apply: (result: MotorMatchResult) => void }[] = [];
+  const resolve = async (ref: OrkMotorRef, apply: (result: MotorMatchResult) => void) => {
+    const before = ref.exMotorId === undefined ? row(ref) : undefined;
+    apply(await match(ref));
+    if (ref.exMotorId === undefined) matches.push({ ref, before, apply });
+  };
   const working: Record<string, MotorMatchResult> = lookupTable({});
   for (const [nodeId, ref] of Object.entries(imported.motors)) {
-    working[nodeId] = await match(ref);
+    await resolve(ref, result => { working[nodeId] = result; });
   }
   const chosenId = imported.chosenConfigId ?? null;
   const configs: Record<string, Record<string, MountMotor | undefined>> = lookupTable({});
@@ -190,11 +200,21 @@ export async function resolveImportMotors(
     const matched: Record<string, MountMotor | undefined> = lookupTable({});
     const results: Record<string, MotorMatchResult> = lookupTable({});
     for (const [nodeId, ref] of Object.entries(cfg.motors)) {
-      results[nodeId] = await match(ref);
-      matched[nodeId] = results[nodeId].motor;
+      await resolve(ref, result => { results[nodeId] = result; matched[nodeId] = result.motor; });
     }
     configs[cfg.id] = matched;
     configResults[cfg.id] = results;
+  }
+  // A later mount's await can leave an earlier match on the pre-check row.
+  // Revisit changed resolutions across the whole open, with bounded retries.
+  for (let pass = 0; pass < 2 && getCatalogue() !== catalogue; pass++) {
+    catalogue = getCatalogue();
+    for (const entry of matches) {
+      const now = row(entry.ref);
+      if (now === entry.before) continue;
+      entry.before = now;
+      entry.apply(await match(entry.ref));
+    }
   }
   return { working, configs, configResults };
 }

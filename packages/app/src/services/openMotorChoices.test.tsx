@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { RocketTree } from '@online-openrocket/engine';
 import { useTreeHistory } from '../hooks/useTreeHistory.js';
 import { useNozzleFollow } from '../hooks/useNozzleFollow.js';
@@ -9,7 +9,7 @@ import { nozzleForMotorId } from './nozzleDb.js';
 import { stageMotors, type StageMotors } from './nozzleFollow.js';
 import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { IMPERIAL_UNITS } from '../prefs/units.js';
-import { MOTOR_DB, findDbMotor } from './motorDb.js';
+import { MOTOR_DB, MOTOR_DB_DATE, findDbMotor, setCatalogueOverlay } from './motorDb.js';
 import { matchImportedMotor, type fetchSpecByDigest } from './motorMatch.js';
 import { parseEng } from './exMotors.js';
 import { planConfigSwitch, resolveImportMotors, type ImportedDesign } from './importApply.js';
@@ -21,6 +21,7 @@ const fetchSpec = vi.fn<typeof fetchSpecByDigest>(async (row, delay) => ({
   designation: row.designation, diameter: row.diameter / 1000, length: row.length / 1000,
   times: [0, 1], thrusts: [0, 1], masses: [0.1, 0.05], cgX: 0.05, ejectionDelay: delay,
 }));
+afterEach(() => setCatalogueOverlay(null));
 const ref = { manufacturer: 'Enerjet', designation: 'F67', diameter: 0.0286, length: 0.127,
   delay: 6, digest: 'file-digest', motorType: 'single', ignitionEvent: 'burnout', ignitionDelay: 1.5 };
 
@@ -46,6 +47,33 @@ async function fixture() {
 }
 
 describe('ask at open choices', () => {
+  it.each(['before', 'during'] as const)('loads the live catalogue row when an overlay changes %s the curve wait', async when => {
+    setCatalogueOverlay(null);
+    const original = MOTOR_DB[0]!;
+    const changed = { ...original, propInfo: 'updated propellant', length: original.length + 10, delays: '11' };
+    const reference = { ...ref, delay: 6 };
+    const group = { key: 'g', ref: reference, candidates: [original], carriedBy: [],
+      locations: [{ configId: null, mountId: 'm', ref: reference }] };
+    const install = () => setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: MOTOR_DB.length,
+      added: [], changed: [{ motorId: original.motorId, before: original, after: changed, fields: ['length', 'propInfo', 'delays'] }], removed: [], rejected: [] });
+    const load = vi.fn<typeof fetchSpecByDigest>(async (row, delay) => {
+      await Promise.resolve();
+      if (when === 'during' && load.mock.calls.length === 1) install();
+      return fetchSpec(row, delay);
+    });
+    try {
+      if (when === 'before') install();
+      const next = await applyOpenMotorChoices({ tree: { components: [] }, mountMotors: {}, savedConfigs: [], unmatchedRefs: {} },
+        null, [group], { g: { kind: 'catalogue', motor: original } }, load);
+      expect(next.mountMotors.m!.meta.propellant).toBe(changed.propInfo);
+      expect(next.mountMotors.m!.meta.availableDelays).toEqual([11]);
+      expect(next.mountMotors.m!.spec.length).toBeCloseTo(changed.length / 1000, 12);
+      expect(next.mountMotors.m!.spec.ejectionDelay).toBe(11);
+      expect(load).toHaveBeenCalledTimes(when === 'before' ? 1 : 2);
+      expect(load.mock.calls.at(-1)).toEqual([changed, 11, reference.digest]);
+    } finally { setCatalogueOverlay(null); }
+  });
+
   it.each(['toString', 'constructor', '__proto__'])('does not invent an inactive nozzle ownership for %s', async stageId => {
     const { state, groups } = await fixture();
     const tree: RocketTree = { components: [{ type: 'stage', id: stageId, children: [
@@ -219,7 +247,10 @@ describe('ask at open choices', () => {
 
   it('replaces every occurrence, keeps offered delay and ignition, defaults unavailable delay, and preserves file identity', async () => {
     const { state, groups, snapshot } = await fixture();
-    const row = { ...groups[0]!.candidates.find(m => m.designation === 'F67W')!, delays: '4,6' };
+    const original = groups[0]!.candidates.find(m => m.designation === 'F67W')!;
+    const row = { ...original, delays: '4,6' };
+    setCatalogueOverlay({ baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: MOTOR_DB.length,
+      added: [], changed: [{ motorId: row.motorId, before: original, after: row, fields: ['delays'] }], removed: [], rejected: [] });
     fetchSpec.mockClear();
     const next = await applyOpenMotorChoices(state, 'a', groups, { [groups[0]!.key]: { kind: 'catalogue', motor: row } }, fetchSpec);
     // The file's <digest> goes along to the curve load (its third argument),

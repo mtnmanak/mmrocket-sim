@@ -22,7 +22,7 @@ it('lets a motor with unknown bundle mass evidence load usable network masses', 
   expect(motor).toBeDefined();
   const file = bundle.curves[motor.motorId]!.find(f => f.masses && f.masses.totalWeightG > f.masses.propWeightG && f.masses.propWeightG > 0)!;
   const masses = file.masses!;
-  const fetcher = vi.fn(async () => new Response(JSON.stringify({ results: [{ format: file.format,
+  const fetcher = vi.fn(async () => new Response(JSON.stringify({ results: [{ motorId: motor.motorId, format: file.format,
     samples: file.samples.map(([time, thrust]) => ({ time, thrust })),
     data: btoa(`<engine initWt="${masses.totalWeightG}" propWt="${masses.propWeightG}"/>`),
   }] }), { headers: { 'Content-Type': 'application/json' } }));

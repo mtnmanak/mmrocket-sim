@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { TcMotor } from './thrustcurve.js';
+import { CURATED_CHECK_SINCE } from './catalogueClient.js';
 
 type Client = typeof import('./thrustcurve.js');
 let tc: Client;
@@ -16,6 +17,7 @@ const KEY = 'online-openrocket.no-curve.v1';
 const samples = [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 12 }, { time: 1, thrust: 0 }];
 // Catalogue refreshes must preserve the ordering these retry cases exercise.
 const daysAfter = (date: string, days: number): string => new Date(Date.parse(date) + days * 86_400_000).toISOString();
+const legacyDate = (check: number) => daysAfter(CURATED_CHECK_SINCE, check - 4);
 const response = (body: unknown, status = 200, headers?: HeadersInit) => new Response(JSON.stringify(body), { status, headers });
 const miss = (p: Promise<unknown>): Promise<Error> => p.then(() => { throw new Error('expected rejection'); }, (e: unknown) => {
   expect(e).toBeInstanceOf(Error);
@@ -126,7 +128,7 @@ it('remembers empty answers across module reloads, and retries once a legacy ove
   expect(await miss(tc.fetchMotorSpec(motor, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
   expect(fetcher).toHaveBeenCalledTimes(1);
   const currentDb = await import('./motorDb.js');
-  currentDb.setCatalogueOverlay({ baseGenerated: currentDb.MOTOR_DB_DATE, fetchedAt: daysAfter(currentDb.MOTOR_DB_DATE, 1),
+  currentDb.setCatalogueOverlay({ baseGenerated: currentDb.MOTOR_DB_DATE, fetchedAt: legacyDate(1),
     liveCount: 1, added: [], changed: [], removed: [], rejected: [] });
   await miss(tc.fetchMotorSpec(motor, 5));
   await miss(tc.fetchMotorSpec(motor, 5));
@@ -151,23 +153,55 @@ it('a newer legacy check retries a shipped absent curve once per catalogue check
   vi.stubGlobal('fetch', fetcher);
   await miss(tc.fetchMotorSpec(noCurveMotor, 5));
   expect(fetcher).not.toHaveBeenCalled();
-  for (const fetchedAt of [daysAfter(db.MOTOR_DB_DATE, 1), daysAfter(db.MOTOR_DB_DATE, 2)]) {
+  for (const fetchedAt of [legacyDate(1), legacyDate(2)]) {
     db.setCatalogueOverlay({ baseGenerated: db.MOTOR_DB_DATE, fetchedAt,
       liveCount: 0, added: [], changed: [], removed: [], rejected: [] });
     await miss(tc.fetchMotorSpec(noCurveMotor, 5));
     await miss(tc.fetchMotorSpec(noCurveMotor, 5));
   }
-  expect(fetcher).toHaveBeenCalledTimes(2);
-  // A later check can discover a curve published since the shipped build.
-  db.setCatalogueOverlay({ baseGenerated: db.MOTOR_DB_DATE, fetchedAt: daysAfter(db.MOTOR_DB_DATE, 3),
+  expect(fetcher).toHaveBeenCalledTimes([1, 2].filter(n => Date.parse(legacyDate(n)) > Date.parse(db.MOTOR_DB_DATE)).length);
+  // A legacy check can discover a curve only while it is newer than the bundle.
+  db.setCatalogueOverlay({ baseGenerated: db.MOTOR_DB_DATE, fetchedAt: legacyDate(3),
     liveCount: 0, added: [], changed: [], removed: [], rejected: [] });
-  fetcher.mockImplementation(async () => response({ results: [{ samples }] }));
-  expect((await tc.fetchMotorSpec(noCurveMotor, 5)).thrusts).toEqual([0, 12, 0]);
-  expect(fetcher).toHaveBeenCalledTimes(3);
+  fetcher.mockImplementation(async () => response({ results: [{ motorId: noCurveMotor.motorId, samples }] }));
+  if (Date.parse(legacyDate(3)) > Date.parse(db.MOTOR_DB_DATE)) {
+    expect((await tc.fetchMotorSpec(noCurveMotor, 5)).thrusts).toEqual([0, 12, 0]);
+    expect(fetcher).toHaveBeenCalledTimes([1, 2, 3].filter(n => Date.parse(legacyDate(n)) > Date.parse(db.MOTOR_DB_DATE)).length);
+  } else {
+    expect(await miss(tc.fetchMotorSpec(noCurveMotor, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    expect(fetcher).not.toHaveBeenCalled();
+  }
+});
+
+it.each([-1, 0, 1])('legacy retries survive a bundle refreshed cutover %i days', async offset => {
+  const baseGenerated = daysAfter(CURATED_CHECK_SINCE, offset).slice(0, 10);
+  const actualDb = await vi.importActual<typeof import('./motorDb.js')>('./motorDb.js');
+  const actualBundle = await vi.importActual<{ default: Record<string, unknown> }>('../data/motorCurves.json');
+  vi.resetModules();
+  vi.doMock('./motorDb.js', () => ({ ...actualDb, MOTOR_DB_DATE: baseGenerated }));
+  vi.doMock('../data/motorCurves.json', () => ({ default: { ...actualBundle.default, catalogueGenerated: baseGenerated } }));
+  try {
+    const client = await import('./thrustcurve.js');
+    const fetcher = vi.fn(async () => response({ results: [] }));
+    vi.stubGlobal('fetch', fetcher);
+    for (const fetchedAt of [legacyDate(1), legacyDate(2), legacyDate(3)]) {
+      actualDb.setCatalogueOverlay({ baseGenerated, fetchedAt, liveCount: 0, added: [], changed: [], removed: [], rejected: [] });
+      expect(await miss(client.fetchMotorSpec(noCurveMotor, 5))).toBeInstanceOf(client.NoPublishedCurveError);
+      await miss(client.fetchMotorSpec(motor, 5));
+      await miss(client.fetchMotorSpec(motor, 5));
+    }
+    // A bundle this new cannot have a newer legacy check, but an unbundled
+    // motor still keeps the old check-date retry behaviour.
+    expect(fetcher).toHaveBeenCalledTimes(3);
+  } finally {
+    actualDb.setCatalogueOverlay(null);
+    vi.doUnmock('./motorDb.js');
+    vi.doUnmock('../data/motorCurves.json');
+  }
 });
 
 it('remembers an answer whose only file has one sample', async () => {
-  const fetcher = vi.fn(async () => response({ results: [{ samples: [{ time: 0.1, thrust: 5 }] }] }));
+  const fetcher = vi.fn(async () => response({ results: [{ motorId: motor.motorId, samples: [{ time: 0.1, thrust: 5 }] }] }));
   vi.stubGlobal('fetch', fetcher);
   expect(await miss(tc.fetchMotorSpec(motor, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
   expect(await miss(tc.fetchMotorSpec(motor, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
@@ -178,7 +212,7 @@ it.each([
   '', '{', '[]', '{"new-motor":5}', '{"new-motor":"garbage"}', '{"new-motor":"2026-02-31"}', '{"new-motor":"2026-10-09","bad":false}',
 ])('drops a corrupt negative cache (%s) and still downloads', async (raw) => {
   localStorage.setItem(KEY, raw);
-  const fetcher = vi.fn(async () => response({ results: [{ samples }] }));
+  const fetcher = vi.fn(async () => response({ results: [{ motorId: motor.motorId, samples }] }));
   vi.stubGlobal('fetch', fetcher);
   await tc.fetchMotorSpec(motor, 5);
   expect(fetcher).toHaveBeenCalledOnce();
@@ -228,7 +262,7 @@ it('a bundled file that cannot be picked is not mistaken for an absent file', as
     curves: { [shipped.motorId]: [{ samples: [[0, 0]] }] },
   } }));
   const client = await import('./thrustcurve.js');
-  const fetcher = vi.fn(async () => response({ results: [{ samples }] }));
+  const fetcher = vi.fn(async () => response({ results: [{ motorId: shipped.motorId, samples }] }));
   vi.stubGlobal('fetch', fetcher);
   expect((await client.fetchMotorSpec({ ...motor, motorId: shipped.motorId }, 5)).thrusts).toEqual([0, 12, 0]);
   expect(fetcher).toHaveBeenCalledOnce();
@@ -251,7 +285,7 @@ it('a partial bundle cannot establish that a shipped motor has no published curv
   vi.resetModules();
   vi.doMock('../data/motorCurves.json', () => ({ default: { ...original.default, complete: undefined } }));
   const client = await import('./thrustcurve.js');
-  const fetcher = vi.fn(async () => response({ results: [{ samples }] }));
+  const fetcher = vi.fn(async () => response({ results: [{ motorId: noCurveMotor.motorId, samples }] }));
   vi.stubGlobal('fetch', fetcher);
   expect((await client.fetchMotorSpec(noCurveMotor, 5)).thrusts).toEqual([0, 12, 0]);
   expect(fetcher).toHaveBeenCalledOnce();
@@ -266,7 +300,9 @@ it.each(['partial', 'mismatched', 'newer overlay'] as const)('design-open notes 
   } }));
   const currentDb = await import('./motorDb.js');
   if (kind === 'newer overlay') currentDb.setCatalogueOverlay({ baseGenerated: currentDb.MOTOR_DB_DATE,
-    fetchedAt: daysAfter(currentDb.MOTOR_DB_DATE, 1), liveCount: 0, added: [], changed: [], removed: [], rejected: [] });
+    fetchedAt: new Date().toISOString(), liveCount: 0, added: [], changed: [], removed: [], rejected: [],
+    snapshot: { id: daysAfter(currentDb.MOTOR_DB_DATE, 1).slice(0, 10), generated: daysAfter(currentDb.MOTOR_DB_DATE, 1).slice(0, 10),
+      motorsSha256: 'a'.repeat(64), curves: { path: `v1/${daysAfter(currentDb.MOTOR_DB_DATE, 1).slice(0, 10)}/motorCurves.json`, bytes: 1, sha256: 'b'.repeat(64) } } });
   const { matchImportedMotor } = await import('./motorMatch.js');
   const shipped = currentDb.MOTOR_DB.find(m => m.motorId === noCurveMotor.motorId)!;
   const fetchSpec = vi.fn(async () => { throw new Error('download unavailable'); });
@@ -311,7 +347,7 @@ it('offline TypeError leaves requests available after reconnecting', async () =>
   expect(() => traffic.assertThrustcurveAvailable()).not.toThrow();
   vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(true);
   window.dispatchEvent(new Event('online'));
-  const good = vi.fn(async () => response({ results: [{ samples }] }));
+  const good = vi.fn(async () => response({ results: [{ motorId: motor.motorId, samples }] }));
   vi.stubGlobal('fetch', good);
   await tc.fetchMotorSpec(motor, 5);
   expect(good).toHaveBeenCalledOnce();
@@ -322,7 +358,7 @@ it('reconnecting closes an already open breaker', async () => {
   await miss(tc.fetchMotorSpec(motor, 5));
   expect(() => traffic.assertThrustcurveAvailable()).toThrow();
   window.dispatchEvent(new Event('online'));
-  const good = vi.fn(async () => response({ results: [{ samples }] }));
+  const good = vi.fn(async () => response({ results: [{ motorId: motor.motorId, samples }] }));
   vi.stubGlobal('fetch', good);
   await tc.fetchMotorSpec(motor, 5);
   expect(good).toHaveBeenCalledOnce();
@@ -426,7 +462,7 @@ it.each([
   await expect(tc.fetchMotorSpec(motor, 5)).rejects.toThrow(/about 1 minute\./);
   expect(fetcher).toHaveBeenCalledOnce();
   await vi.advanceTimersByTimeAsync(1);
-  fetcher.mockImplementation(async () => response({ results: [{ samples }] }));
+  fetcher.mockImplementation(async () => response({ results: [{ motorId: motor.motorId, samples }] }));
   await tc.fetchMotorSpec(motor, 5);
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(() => traffic.assertThrustcurveAvailable()).not.toThrow();
@@ -472,7 +508,7 @@ it.each(['download', 'catalogue'] as const)('%s Stop leaves the breaker closed',
   expect(fetcher).toHaveBeenCalledOnce();
   ctrl.abort();
   expect((await p).name).toBe('AbortError');
-  fetcher.mockImplementation(async () => response({ results: [{ samples }] }));
+  fetcher.mockImplementation(async () => response({ results: [{ motorId: motor.motorId, samples }] }));
   await tc.fetchMotorSpec(motor, 5);
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
@@ -482,7 +518,7 @@ it('a catalogue 503 leaves thrustcurve.org\'s back-off empty and its downloads o
   const first = await miss(catalogue.checkForCatalogueUpdates({ force: true, fetchImpl: curated }));
   expect(first.message).toBe('catalogue.mountainmanrockets.com answered HTTP 503.');
   expect(traffic.thrustcurveBackoffMessage()).toBe('');
-  const download = vi.fn(async () => response({ results: [{ samples }] }));
+  const download = vi.fn(async () => response({ results: [{ motorId: motor.motorId, samples }] }));
   vi.stubGlobal('fetch', download);
   await tc.fetchMotorSpec(motor, 5);
   expect(download).toHaveBeenCalledOnce();
