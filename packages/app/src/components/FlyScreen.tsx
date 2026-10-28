@@ -16,7 +16,7 @@ import {
 import type { WeatherSnapshot } from '../services/weatherSnapshot.js';
 import { Icon } from './Icon.js';
 import {
-  hasLaunchGuides, rodLengthHelp, LaunchField, ROD_AIM_DEG_RANGE, ROD_AIM_HELP, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE,
+  hasLaunchGuides, rodLengthHelp, LaunchField, ROD_AIM_DEG_RANGE, rodAimHelp, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE,
   type LaunchConditions,
 } from './LaunchPanel.js';
 import { WeatherButton } from './WeatherButton.js';
@@ -234,7 +234,7 @@ export function FlyScreen({ tree, info, run, motorLabel, launch, onLaunchChange,
               onChange={onLaunchChange} stepStored={1} min={ROD_ANGLE_DEG_RANGE[0]} max={ROD_ANGLE_DEG_RANGE[1]} />
             <LaunchField label="Rod aim" field="launchRodAimDeg" value={launch}
               onChange={onLaunchChange} stepStored={15} min={ROD_AIM_DEG_RANGE[0]} max={ROD_AIM_DEG_RANGE[1]}
-              absentStored={0} help={ROD_AIM_HELP} />
+              absentStored={0} help={rodAimHelp(prefs.units)} />
             <LaunchField label="Rod length" field="launchRodLengthM" value={launch}
               onChange={onLaunchChange} stepStored={0.1} min={ROD_LENGTH_M_RANGE[0]}
               help={rodLengthHelp(hasLaunchGuides(tree), launch.launchGuideAllowance)} />
