@@ -114,18 +114,18 @@ describe('S1 in real workerd', () => {
   });
 
   it.each([
-    ['elements', '<x/>'.repeat(50_000)],
-    ['depth', '<x>'.repeat(63) + '</x>'.repeat(63)],
-    ['comments', '<!---->'.repeat(200_000)],
-    ['processing instructions', '<?a?>'.repeat(200_000)],
-    ['text siblings', 'x<!---->'.repeat(100_000)],
-    ['attributes', '<x ' + Array.from({ length: 200_000 }, (_, i) => `a${i}=""`).join(' ') + '/>'],
-  ])('refuses excessive XML %s as JSON inside workerd', async (_kind, payload) => {
+    ['elements', '<x/>'.repeat(50_000), 'XML element limit is 50,000.'],
+    ['depth', '<x>'.repeat(63) + '</x>'.repeat(63), 'XML nesting limit is 64.'],
+    ['comments', '<!---->'.repeat(200_000), 'XML node limit is 200,000.'],
+    ['processing instructions', '<?a?>'.repeat(200_000), 'XML node limit is 200,000.'],
+    ['text siblings', 'x<!---->'.repeat(100_000), 'XML node limit is 200,000.'],
+    ['attributes', '<x ' + Array.from({ length: 200_000 }, (_, i) => `a${i}=""`).join(' ') + '/>', 'XML node limit is 200,000.'],
+  ])('refuses excessive XML %s as JSON inside workerd', async (_kind, payload, limit) => {
     const response = await normal!.fetch('http://local/experimental/fly?filename=structure.ork',
       { method: 'POST', body: `<openrocket><rocket>${payload}</rocket></openrocket>` });
     expect(response.status).toBe(413);
     expect(await response.json()).toEqual({ error: { code: 'FILE_TOO_LARGE',
-      message: expect.stringMatching(/XML.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
+      message: `structure.ork: ${limit} Use https://mmrsim.mountainmanrockets.com for larger files.` } });
   });
 
   it.each([0.005, 0.01, 0.05, 0.1])('flies an own-file step of %s s with the API floor and reports any change', async step => {
