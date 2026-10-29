@@ -94,7 +94,8 @@ describe('S3 draft POST /describe in real workerd', () => {
     expect(out.appVersion).toBe(APP_VERSION);
     expect(out.catalogue).toEqual({ motorsGenerated: MOTORS_GENERATED, curvesGenerated: CURVES_GENERATED });
     expect(out.analysis.basis).toBe('dry; no installed motors');
-    expect(out.link).toBe(APP_URL + out.fragment);
+    expect(out.link).toBe(APP_URL + '/' + out.fragment);
+    expect(out.analysis).toMatchObject({ aeroModel: 'classic', rogersKbf: true });
     expect(out.fragment).toMatch(/^#d=1\.[A-Za-z0-9_-]+$/);
     expect(Object.keys(out.mounts[0]!).sort()).toEqual(['count', 'diameterM', 'key', 'maxMotorLengthM', 'name', 'stageIndex', 'stageName']);
     await sameAsNode(out, await describeFile(body, name, API_NAME));
@@ -250,7 +251,7 @@ describe('S3 draft POST /describe in real workerd', () => {
     const response = await post(normal!, 'long.ork', body);
     expect(response.status).toBe(413);
     const result = await response.json() as Record<string, unknown>;
-    expect(result).toEqual({ ...STAMP, error: { code: 'LINK_TOO_LARGE', message: expect.stringMatching(/share link.*4 MiB.*1,048,576.*https:\/\/mmrsim\.mountainmanrockets\.com/) } });
+    expect(result).toEqual({ ...STAMP, error: { code: 'LINK_TOO_LARGE', message: expect.stringMatching(/share link.*4 MiB.*1,048,576.*https:\/\/mmrsim\.mountainmanrockets\.com\/ with the file itself\./) } });
   });
 
   it('leaves /health and the flight route unchanged', async () => {

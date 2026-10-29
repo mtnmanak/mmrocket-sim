@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import type { ComponentNode } from '@online-openrocket/engine';
@@ -48,12 +48,20 @@ beforeEach(() => { fetchSpy.mockClear(); vi.stubGlobal('fetch', fetchSpy); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); expect(fetchSpy).not.toHaveBeenCalled(); });
 
 describe('describeFile: dry statics on the shipped data, no flight', () => {
+  it.each(readdirSync(join(repoRoot(), 'packages', 'app', 'src', 'services', '__fixtures__'))
+    .filter(name => /\.(ork|rkt|cdx1)$/i.test(name)).sort())('%s: separate aero model and Kbf fields', async file => {
+    const out = await describeFile(bytes(file), file);
+    expect(out.analysis.aeroModel).toBe('classic');
+    expect(out.analysis.rogersKbf).toBe(true);
+  }, 60_000);
+
   it.each(FORMATS)('%s: SI, dry basis and the Design tab conditions, finite JSON only', async (file, format) => {
     const out = await describeFile(bytes(file), file);
     expect(out.sourceFormat).toBe(format);
     const a = out.analysis;
     expect(a.basis).toBe(DESCRIBE_BASIS);
-    expect(a.aeroModel).toBe('classic+kbf');
+    expect(a.aeroModel).toBe('classic');
+    expect(a.rogersKbf).toBe(true);
     expect([a.mach, a.angleOfAttackRad, a.cdEstimate.mach, a.cdEstimate.powerState]).toEqual([0.3, 0, 0.3, 'off']);
     close(a.cdEstimate.referenceAreaM2, Math.PI * a.referenceDiameterM ** 2 / 4);
     // One caliber is the reference diameter; the margin is measured from the dry CG.
@@ -157,6 +165,15 @@ describe('describeFile: dry statics on the shipped data, no flight', () => {
 });
 
 describe('describeFile: mounts', () => {
+  it('notes when no motor can be placed because the design has no motor mount', async () => {
+    const xml = referenceXml().replace(/<motormount>[\s\S]*?<\/motormount>/g, '');
+    const out = await describeFile(ork(xml), 'no-mount.ork');
+    expect(out.mounts).toEqual([]);
+    expect(out.notes.analysis.join(' ')).toMatch(/no motor mount.*no motor can be placed/);
+    const mounted = await describeFile(bytes('reference.ork'), 'reference.ork');
+    expect(mounted.notes.analysis.join(' ')).not.toMatch(/no motor mount/);
+  }, 60_000);
+
   const mountXml = (extra: string) => referenceXml().replace('<clusterconfiguration>single</clusterconfiguration>', extra);
   it('counts a cluster, reads the bore from the tube and the stored length limit (zero is real)', async () => {
     const inner = /<innertube>[\s\S]*?<outerradius>([^<]+)<\/outerradius>\s*<thickness>([^<]+)<\/thickness>/.exec(referenceXml())!;
@@ -222,6 +239,53 @@ describe('describeFile: mounts', () => {
 });
 
 describe('describeFile: the motor-independent fragment', () => {
+  it('reports the committed CDX1 nozzle loss in the link and the shared .ork writer', async () => {
+    const file = '38-54 2-stage.CDX1';
+    const source = await opened(bytes(file), file);
+    const [sustainer, booster] = source.tree.components;
+    expect(source.savedConfigs).toHaveLength(4);
+    expect(source.activeConfigId).toBe('rasaero-sim-2');
+    expect(source.savedConfigs.map(c => c.nozzles![booster!.id!]))
+      .toEqual([null, booster!['nozzleExitDiameter'], sustainer!['nozzleExitDiameter'], booster!['nozzleExitDiameter']]);
+    const out = await describeFile(bytes(file), file);
+    const note = out.notes.export.find(n => /Nozzle exit diameters differ/.test(n));
+    expect(note).toMatch(/1 stage in 2 saved configurations/);
+    const notes: string[] = [];
+    const p = motorFreeProjection(source);
+    exportOrk({ name: file, tree: p.tree, configs: p.savedConfigs, activeConfigId: p.activeConfigId, notes });
+    expect(notes).toContain(note);
+    const back = importOrk(await decodeShareFragment(out.fragment));
+    expect(back.tree.components.map(s => s['nozzleExitDiameter']))
+      .toEqual(source.tree.components.map(s => s['nozzleExitDiameter']));
+    expect(back.configs.every(c => c.nozzles === undefined)).toBe(true);
+  }, 60_000);
+
+  it('counts nozzle loss by distinct stage and configuration, including automatic, off and parallel stages', () => {
+    const tree = { components: [
+      { type: 'stage', id: 's', nozzleExitDiameter: 0.02, children: [
+        { type: 'parallelstage', id: 'p', nozzleExitDiameter: 0, children: [] },
+      ] },
+      { type: 'stage', id: 'auto', children: [] },
+      { type: 'stage', id: 'nan', nozzleExitDiameter: NaN, children: [] },
+      { type: 'stage', id: 'negative', nozzleExitDiameter: -0.01, children: [] },
+      { type: 'stage', id: 'text', nozzleExitDiameter: '0.02', children: [] },
+      { type: 'stage', id: 'inf', nozzleExitDiameter: Infinity, children: [] },
+      { type: 'stage', children: [] },
+    ] as ComponentNode[] };
+    const config = (id: string, nozzles?: Record<string, number | null>) =>
+      ({ id, name: id, isDefault: false, motors: {}, deployments: {}, separations: {}, nozzles });
+    const write = (configs: ReturnType<typeof config>[]) => {
+      const notes: string[] = [];
+      exportOrk({ name: 'Nozzles', tree, configs, notes });
+      return notes;
+    };
+    expect(write([config('a', { s: null, p: null }), config('b', { p: 0.01, auto: 0 })]))
+      .toEqual([expect.stringMatching(/3 stages in 2 saved configurations/)]);
+    expect(write([config('one', { p: null })])).toEqual([expect.stringMatching(/1 stage in 1 saved configuration;/)]);
+    expect(write([config('same', { s: 0.02, p: 0, auto: null, nan: null, negative: null, text: null, inf: null, missing: 0.03, undefined: 0.02 }), config('absent')])).toEqual([]);
+    expect(write([])).toEqual([]);
+  });
+
   const MOTOR_TAGS = ['<motor ', '<motor>', 'mmrexmotors', '<flightdata', '<databranch', 'motorloadoutrefusal', 'measuredpadmass', 'simwarnings'];
 
   it.each(['lemiv-motors.ork', 'Show-off.CDX1', 'rocksimTestRocket1.rkt', 'launch-stage-motorless.CDX1'])(

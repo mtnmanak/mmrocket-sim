@@ -83,7 +83,7 @@ function described(out: DescribeFileResult) {
     analysis: out.analysis,
     mounts: out.mounts,
     fragment: out.fragment,
-    link: `${APP_URL}${out.fragment}`,
+    link: `${APP_URL}/${out.fragment}`,
     notes: out.notes,
   };
 }
@@ -166,7 +166,7 @@ export const worker = {
         return error('FILE_TOO_LARGE', `${shown}: ${e.message} Use ${APP_URL} for larger files.`, 413);
       }
       if (e instanceof Error && e.name === SHARE_TOO_LARGE_ERROR_NAME) {
-        return error('LINK_TOO_LARGE', `${shown}: this design is too large for a share link (the app's limit is 4 MiB of design XML and 1,048,576 link characters). Use ${APP_URL} with the file itself.`, 413);
+        return error('LINK_TOO_LARGE', `${shown}: this design is too large for a share link (the app's limit is 4 MiB of design XML and 1,048,576 link characters). Use ${APP_URL}/ with the file itself.`, 413);
       }
       if (e instanceof ServerBusy) {
         return error('SERVER_BUSY', 'The API is busy with other uploads. Retry in a few seconds.', 503, { 'Retry-After': '5' });
