@@ -113,8 +113,9 @@ jobs:
     # Measured shape of the work: ~27 GETs for the catalogue plus 24 POST batches
     # for the curves (fetch-motor-curves.mjs BATCH=50, 1,155 motors). Since
     # 27 Oct 2026 every one goes through thrustcurve-client.mjs, one request per
-    # 5 s for thrustcurve.org's rate limit (3, going to 5, per 10 s): about four
-    # minutes. The 26 Oct run took 22.4 minutes, 17.8 of them the test suite,
+    # 5 s, well under thrustcurve.org's rate limit (10 per 10 s since 29 Oct),
+    # sent with node:https since 29 Oct (Node fetch draws a Cloudflare
+    # challenge; see the client's header): about four minutes. The 26 Oct run took 22.4 minutes, 17.8 of them the test suite,
     # which grows; 45 minutes is headroom for both, not an expectation.
     timeout-minutes: 45
     permissions:
