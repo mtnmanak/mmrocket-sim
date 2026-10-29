@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { worker } from './index.js';
+import { authenticatedWorker as worker } from './auth.testSupport.js';
 import {
   APP_VERSION, CURVES_GENERATED, KernelUnavailableError, MOTORS_GENERATED, SimulateDesignError, simulateFile,
 } from '../../app/src/headless/index.js';
@@ -57,15 +57,17 @@ it('keeps waitUntil pending for the real flight and passes a timer-free yield', 
   let rejectFlight!: (error: Error) => void;
   const flight = new Promise<never>((_, reject) => { rejectFlight = reject; });
   vi.mocked(simulateFile).mockReturnValue(flight);
-  let register!: () => void;
-  const registered = new Promise<void>(resolve => { register = resolve; });
+  const digest = crypto.subtle.digest.bind(crypto.subtle);
+  const delayedDigest = vi.spyOn(crypto.subtle, 'digest').mockImplementation(async (...args) => {
+    await new Promise(resolve => setTimeout(resolve, 30));
+    return digest(...args);
+  });
   const pending: Promise<unknown>[] = [];
   const response = worker.fetch(new Request(url, { method: 'POST', body: 'x' }), undefined,
-    { waitUntil(p) { pending.push(p); register(); } });
+    { waitUntil(p) { pending.push(p); } });
   try {
-    // Also reaches the assertion if registration is removed (rather than hanging).
-    await Promise.race([registered, new Promise(resolve => setTimeout(resolve, 20))]);
-    expect(pending).toHaveLength(1);
+    // Observe registration after authentication; missing waitUntil still fails within a bound.
+    await vi.waitFor(() => { expect(pending).toHaveLength(1); }, { timeout: 2000, interval: 5 });
     let settled = false;
     void pending[0]!.then(() => { settled = true; });
     await Promise.resolve();
@@ -84,6 +86,7 @@ it('keeps waitUntil pending for the real flight and passes a timer-free yield', 
       expect(timers).not.toHaveBeenCalled();
     } finally { timers.mockRestore(); clearTimeout(timeout); clearImmediate(immediate); }
   } finally {
+    delayedDigest.mockRestore();
     rejectFlight(new Error('test flight refusal'));
     expect((await response).status).toBe(500);
     await Promise.all(pending);

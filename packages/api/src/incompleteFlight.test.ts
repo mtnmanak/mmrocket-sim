@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { bytesOf } from './fixtures.testSupport.js';
-import { worker } from './index.js';
+import { authenticatedWorker as worker } from './auth.testSupport.js';
 
 const injection = vi.hoisted(() => ({ enabled: true, boosterOnly: false, mainLanded: false,
   summary: { maxAltitude: 0, maxVelocity: 0, maxMachNumber: 0, flightTime: 0 } }));

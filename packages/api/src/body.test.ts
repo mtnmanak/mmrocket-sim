@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { worker } from './index.js';
+import { authenticatedWorker as worker } from './auth.testSupport.js';
 import { BodyReservation, readBody, MAX_API_BODY_BYTES, MAX_IN_FLIGHT_BODY_BYTES, reservedBodyBytes } from './body.js';
 import { bytesOf, stampOf } from './fixtures.testSupport.js';
 import * as headless from '../../app/src/headless/index.js';
@@ -17,28 +17,35 @@ afterEach(() => {
   expect(reservedBodyBytes()).toBe(0);
 });
 
-/** Let the Worker's reader take what was enqueued: microtasks only. */
-async function settle(): Promise<void> {
-  for (let i = 0; i < 200; i++) await Promise.resolve();
-}
-
 /** An upload the test feeds: `send` enqueues, `end` closes, `fail` aborts as a lost client would. */
 function upload(route = '/experimental/fly') {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
-  const state = { cancelled: false };
+  const state = { cancelled: false, closed: false, settled: false };
+  let sent = 0;
+  let capacity = 0;
   const body = new ReadableStream<Uint8Array>({
     start(c) { controller = c; },
     cancel() { state.cancelled = true; },
   });
   const response = worker.fetch(new Request(`http://local${route}?filename=upload.ork`,
     { method: 'POST', body, duplex: 'half' } as RequestInit & { duplex: 'half' }), undefined, ctx);
+  void response.then(() => { state.settled = true; });
   return {
     response, state,
-    send: async (bytes: Uint8Array) => { controller.enqueue(bytes); await settle(); },
+    send: async (bytes: Uint8Array) => {
+      const before = reservedBodyBytes();
+      sent += bytes.byteLength;
+      const next = Math.min(MAX_API_BODY_BYTES, Math.max(64 * 1024, 2 ** Math.ceil(Math.log2(sent))));
+      controller.enqueue(bytes);
+      await vi.waitFor(() => {
+        expect(state.settled || reservedBodyBytes() >= before + next - capacity).toBe(true);
+      }, { timeout: 2000, interval: 5 });
+      capacity = next;
+    },
     /** Queue without waiting: the reader drains the queue in order. */
     push: (bytes: Uint8Array) => { controller.enqueue(bytes); },
-    end: () => { controller.close(); },
-    fail: () => { controller.error(new Error('Client went away.')); },
+    end: () => { if (!state.closed && !state.cancelled) { state.closed = true; controller.close(); } },
+    fail: () => { if (!state.closed && !state.cancelled) { state.closed = true; controller.error(new Error('Client went away.')); } },
   };
 }
 const pattern = (size: number) => Uint8Array.from({ length: size }, (_, i) => (i * 31 + 7) & 0xff);
@@ -47,46 +54,58 @@ describe('the isolate-wide body budget', () => {
   it('reserves old plus new capacity before growth and refuses when only the new buffer fits', async () => {
     const other = new BodyReservation();
     other.reserve(MAX_IN_FLIGHT_BODY_BYTES - 128 * 1024);
+    const one = upload('/describe');
     try {
-      const one = upload('/describe');
       await one.send(new Uint8Array(64 * 1024));
       await one.send(new Uint8Array(1));
       expect((await one.response).status).toBe(503);
       expect(one.state.cancelled).toBe(true);
       expect(reservedBodyBytes()).toBe(MAX_IN_FLIGHT_BODY_BYTES - 128 * 1024);
-    } finally { other.release(); }
+    } finally { one.fail(); await one.response; other.release(); }
   });
 
   it('refuses the upload that would cross it with 503, Retry-After and the stamp, then serves again', async () => {
+    // Deliberately delay authentication beyond the old fixed 5 ms sleep.
+    const digest = crypto.subtle.digest.bind(crypto.subtle);
+    vi.spyOn(crypto.subtle, 'digest').mockImplementation(async (...args) => {
+      await new Promise(resolve => setTimeout(resolve, 30));
+      return digest(...args);
+    });
     expect(MAX_IN_FLIGHT_BODY_BYTES).toBe(3 * MAX_API_BODY_BYTES);
     const full = new Uint8Array(MAX_API_BODY_BYTES);
     const held = [upload(), upload(), upload()];
-    for (const one of held) await one.send(full);
-    expect(reservedBodyBytes()).toBe(MAX_IN_FLIGHT_BODY_BYTES);
+    let busy: ReturnType<typeof upload> | undefined;
+    try {
+      for (const one of held) await one.send(full);
+      expect(reservedBodyBytes()).toBe(MAX_IN_FLIGHT_BODY_BYTES);
 
-    const busy = upload('/describe');
-    await busy.send(new Uint8Array(1));
-    const refused = await busy.response;
-    expect(refused.status).toBe(503);
-    expect(refused.headers.get('retry-after')).toBe('5');
-    expect(await refused.json()).toEqual({ error: { code: 'SERVER_BUSY',
-      message: 'The API is busy with other uploads. Retry in a few seconds.' }, ...STAMP });
-    expect(busy.state.cancelled).toBe(true);
-    expect(reservedBodyBytes()).toBe(MAX_IN_FLIGHT_BODY_BYTES);
+      busy = upload('/describe');
+      await busy.send(new Uint8Array(1));
+      const refused = await busy.response;
+      expect(refused.status).toBe(503);
+      expect(refused.headers.get('retry-after')).toBe('5');
+      expect(await refused.json()).toEqual({ error: { code: 'SERVER_BUSY',
+        message: 'The API is busy with other uploads. Retry in a few seconds.' }, ...STAMP });
+      expect(busy.state.cancelled).toBe(true);
+      expect(reservedBodyBytes()).toBe(MAX_IN_FLIGHT_BODY_BYTES);
 
-    // One client aborts, one goes past the cap, one finishes (eight MiB of zeros is no design).
-    const [aborted, tooLarge, finished] = held;
-    aborted!.fail();
-    expect((await aborted!.response).status).toBe(500);
-    await tooLarge!.send(new Uint8Array(1));
-    expect((await tooLarge!.response).status).toBe(413);
-    finished!.end();
-    expect((await finished!.response).status).toBe(400);
-    expect(reservedBodyBytes()).toBe(0);
+      // One client aborts, one goes past the cap, one finishes (eight MiB of zeros is no design).
+      const [aborted, tooLarge, finished] = held;
+      aborted!.fail();
+      expect((await aborted!.response).status).toBe(500);
+      await tooLarge!.send(new Uint8Array(1));
+      expect((await tooLarge!.response).status).toBe(413);
+      finished!.end();
+      expect((await finished!.response).status).toBe(400);
+      expect(reservedBodyBytes()).toBe(0);
 
-    const after = await worker.fetch(new Request('http://local/describe?filename=reference.ork',
-      { method: 'POST', body: bytesOf('reference.ork') }), undefined, ctx);
-    expect(after.status, (await after.clone().text()).slice(0, 300)).toBe(200);
+      const after = await worker.fetch(new Request('http://local/describe?filename=reference.ork',
+        { method: 'POST', body: bytesOf('reference.ork') }), undefined, ctx);
+      expect(after.status, (await after.clone().text()).slice(0, 300)).toBe(200);
+    } finally {
+      for (const one of [...held, ...(busy ? [busy] : [])]) one.fail();
+      await Promise.all([...held.map(one => one.response), busy?.response]);
+    }
   }, 60_000);
 });
 
@@ -147,14 +166,16 @@ describe('the body reader keeps exactly the bytes received', () => {
     const seen = capture();
     const bytes = pattern(size);
     const one = upload('/describe');
-    for (let at = 0; at < size; at += chunk) one.push(bytes.subarray(at, at + chunk));
-    one.end();
-    const response = await one.response;
-    expect(response.status).toBe(400);
-    expect(seen).toHaveLength(1);
-    expect(seen[0]!.byteLength).toBe(size);
-    expect(seen.held).toBe(Math.max(64 * 1024, 2 ** Math.ceil(Math.log2(size))));
-    expect(Buffer.from(seen[0]!).equals(Buffer.from(bytes))).toBe(true);
+    try {
+      for (let at = 0; at < size; at += chunk) one.push(bytes.subarray(at, at + chunk));
+      one.end();
+      const response = await one.response;
+      expect(response.status).toBe(400);
+      expect(seen).toHaveLength(1);
+      expect(seen[0]!.byteLength).toBe(size);
+      expect(seen.held).toBe(Math.max(64 * 1024, 2 ** Math.ceil(Math.log2(size))));
+      expect(Buffer.from(seen[0]!).equals(Buffer.from(bytes))).toBe(true);
+    } finally { one.fail(); await one.response; }
   }, 60_000);
 
   it('0 bytes: no body is EMPTY_FILE, and the service is never called', async () => {
@@ -168,14 +189,16 @@ describe('the body reader keeps exactly the bytes received', () => {
   it('the cap plus one byte is refused with 413 and its exact count', async () => {
     const seen = capture();
     const one = upload('/describe');
-    await one.send(pattern(MAX_API_BODY_BYTES));
-    await one.send(new Uint8Array(1));
-    const response = await one.response;
-    expect(response.status).toBe(413);
-    expect((await response.json() as { error: { message: string } }).error.message)
-      .toBe('upload.ork: the API body limit is 8 MiB; received 8,388,609 bytes. Use https://mmrsim.mountainmanrockets.com for larger files.');
-    expect(one.state.cancelled).toBe(true);
-    expect(seen).toHaveLength(0);
+    try {
+      await one.send(pattern(MAX_API_BODY_BYTES));
+      await one.send(new Uint8Array(1));
+      const response = await one.response;
+      expect(response.status).toBe(413);
+      expect((await response.json() as { error: { message: string } }).error.message)
+        .toBe('upload.ork: the API body limit is 8 MiB; received 8,388,609 bytes. Use https://mmrsim.mountainmanrockets.com for larger files.');
+      expect(one.state.cancelled).toBe(true);
+      expect(seen).toHaveLength(0);
+    } finally { one.fail(); await one.response; }
   });
 
   it('a Content-Length that declares 8 MiB and sends 10 bytes keeps the 10', async () => {

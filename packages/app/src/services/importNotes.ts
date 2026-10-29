@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import type { NoteTier } from '../components/Note.js';
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { KERNEL_DEFAULT_MATERIALS } from '../tree/kernelDefaults.js';
@@ -44,7 +45,7 @@ export function zeroDensityStandIn(units: UnitSelection = INITIAL_UNITS, parenth
 }
 
 export function zeroBulkDensityNote(notes: string[], part: string, units: UnitSelection): void {
-  cautionNote(notes, 'I21.zero-bulk-density', `“${part}”: zero bulk density cannot be flown by the app's engine; it uses ${zeroDensityStandIn(units)} instead, adding mass. Saving replaces the zero density. Check the part mass before flying.`);
+  cautionNote(notes, 'I21.zero-bulk-density', `“${noteField(part)}”: zero bulk density cannot be flown by the app's engine; it uses ${zeroDensityStandIn(units)} instead, adding mass. Saving replaces the zero density. Check the part mass before flying.`);
 }
 
 /** Push a flagged line: the text into `notes`, the entry into its record. */

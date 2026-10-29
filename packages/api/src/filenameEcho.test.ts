@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { openHeadlessDesign } from '../../app/src/services/simulateFile.js';
+import { describe, expect, it, vi } from 'vitest';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import { API_XML_LIMITS, worker } from './index.js';
+import { API_XML_LIMITS, authenticatedWorker as worker } from './auth.testSupport.js';
 import { filenameEcho } from './filenameEcho.js';
 import { bytesOf } from './fixtures.testSupport.js';
 import { describeFile, simulateFile } from '../../app/src/headless/index.js';
@@ -182,8 +183,8 @@ describe('the design name the API returns is bounded as a filename echo is (owne
     expect(response.status).toBe(422);
     expect(out.error.code).toBe('NO_MOTOR');
     const shown = /^Loaded “([^”]*)”\./.exec(out.error.importNote.text)![1]!;
-    const read = /^Loaded “([^”]*)”\./.exec((await simulateFile(strToU8(xml), 'notes.ork', ctxOracle)
-      .catch((e: { importNote: { text: string } }) => e)).importNote.text)![1]!;
+    // The app now cleans file spans before notes are joined; compare to the raw importer name.
+    const read = (await openHeadlessDesign(strToU8(xml), 'notes.ork', { network: 'forbid' })).name;
     expectBoundedName(shown, read);
   });
 
@@ -214,4 +215,18 @@ describe('filenameEcho for a direct caller', () => {
     expect(long.endsWith('?.ork')).toBe(true);
     expect(Array.from(long)).toHaveLength(200);
   });
+});
+
+it('skips the middle of a hostile name instead of iterating over it', () => {
+  const name = 'h'.repeat(100_000) + '\u{1f680}.ork';
+  const iterator = String.prototype[Symbol.iterator];
+  let visited = 0;
+  const spy = vi.spyOn(String.prototype, Symbol.iterator).mockImplementation(function* (this: string): Generator<string, undefined, unknown> {
+    for (const ch of { [Symbol.iterator]: () => iterator.call(this) }) { visited++; yield ch; }
+    return undefined;
+  });
+  let shown: string;
+  try { shown = filenameEcho(name); } finally { spy.mockRestore(); }
+  expect(visited).toBeLessThanOrEqual(201);
+  expect(shown!).toBe('h'.repeat(183) + '\u2026' + 'h'.repeat(11) + '\u{1f680}.ork');
 });

@@ -28,6 +28,7 @@ beforeAll(async () => {
   const { unstable_startWorker: start } = await import('wrangler');
   const options = {
     config: fileURLToPath(new URL('../wrangler.toml', import.meta.url)),
+    entrypoint: fileURLToPath(new URL('./authenticatedWorker.testSupport.ts', import.meta.url)),
     dev: { remote: false, persist: false, watch: false, inspector: false,
       server: { hostname: '127.0.0.1', port: 0 }, logLevel: 'error' },
   };
@@ -54,8 +55,8 @@ const NAME = `Aero${String.fromCharCode(...C1)}\u00a9\u00b0\u00e9\u00ff Test`;
 /**
  * NAME as a response shows a design name (owner ruling 113-14a): the five C1 controls the table
  * keeps (0x81, 0x8D, 0x8F, 0x90, 0x9D) show as `?`. Every other decoded character, and any wrong
- * decode of those five to a printable character or U+FFFD, still shows; the mount name below
- * (not bounded) still carries NAME exactly.
+ * decode of those five to a printable character or U+FFFD, still shows. Mount names
+ * use the same display rule at the API edge.
  */
 const SHOWN = displayEcho(NAME);
 const NOT_UTF8 = /characters? in this file could not be read and (was|were) replaced/;
@@ -182,7 +183,7 @@ describe('a declared windows-1252 design through workerd', () => {
     };
     for (const worker of [normal!, table!]) {
       const declared = await fly(gzipSync(singleBytes(rkt('windows-1252', RAW_NAME))), worker);
-      expect(declared.motors.map(motor => motor.mount)).toEqual([NAME]);
+      expect(declared.motors.map(motor => motor.mount)).toEqual([SHOWN]);
       expect(declared.notes.import.text).not.toMatch(NOT_UTF8);
     }
     const undeclared = await fly(singleBytes(rkt(null, RAW_NAME)));

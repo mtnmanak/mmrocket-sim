@@ -55,6 +55,7 @@ beforeAll(async () => {
   const { unstable_startWorker: start } = await import('wrangler');
   const options = {
     config: fileURLToPath(new URL('../wrangler.toml', import.meta.url)),
+    entrypoint: fileURLToPath(new URL('./authenticatedWorker.testSupport.ts', import.meta.url)),
     dev: { remote: false, persist: false, watch: false, inspector: false,
       server: { hostname: '127.0.0.1', port: 0 }, logLevel: 'error' },
   };
@@ -254,7 +255,7 @@ describe('S1 in real workerd', () => {
     for (const source of sources) expect(counted[source], source).toBe(1);
   });
 
-  it('auto-delay schedules zero timers inside workerd', async () => {
+  it('auto-delay schedules only the upload deadline timer inside workerd', async () => {
     const body = await autoBody();
     const node = await simulateFile(body, 'auto.rkt', { reportSeries: 'summary' });
     expect(node.flight.delayResolution.probes).toBeGreaterThan(0);
@@ -262,7 +263,7 @@ describe('S1 in real workerd', () => {
     const response = await trapped!.fetch('http://local/experimental/fly?filename=auto.rkt',
       { method: 'POST', body });
     expect(response.status, await response.clone().text()).toBe(200);
-    expect(response.headers.get('x-test-timer-calls')).toBe('0');
+    expect(response.headers.get('x-test-timer-calls')).toBe('1');
     expect(response.headers.get('x-test-fetch-attempts')).toBe('0');
   });
 

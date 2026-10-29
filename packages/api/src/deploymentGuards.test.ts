@@ -46,3 +46,15 @@ it('counts the initial cross-runtime comparison as responses, flights and refusa
   expect(readme).toMatch(/127 (?:compared )?responses[\s\S]*109 (?:HTTP 200 )?flight results[\s\S]*18 (?:HTTP 422 )?refusals/);
   expect(readme).not.toContain('127 designs were flown');
 });
+
+it('publishes only the custom hostname with the per-key production binding', () => {
+  const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
+  const root = toml.split(/^\[/m)[0]!;
+  expect(root).toMatch(/^workers_dev\s*=\s*false$/m);
+  expect(root).toMatch(/^preview_urls\s*=\s*false$/m);
+  expect(root).toContain('routes = [{ pattern = "api.mmrsim.mountainmanrockets.com", custom_domain = true }]');
+  const rate = toml.split(/^\[\[ratelimits\]\]\s*$/m)[1]?.split(/^\[/m)[0];
+  expect(rate).toMatch(/^name\s*=\s*"RATE_LIMITER"$/m);
+  expect(rate).toMatch(/^namespace_id\s*=\s*"[^"]+"$/m);
+  expect(rate).toMatch(/^simple\s*=\s*\{ limit = 20, period = 60 \}$/m);
+});

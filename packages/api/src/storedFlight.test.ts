@@ -4,7 +4,7 @@ import { gzipSync, strToU8, zipSync } from 'fflate';
 import { DOMParser } from '@xmldom/xmldom';
 import { SaxesParser } from 'saxes';
 import type { unstable_startWorker } from 'wrangler';
-import { API_XML_LIMITS, worker } from './index.js';
+import { API_XML_LIMITS, authenticatedWorker as worker } from './auth.testSupport.js';
 import * as staticHeadless from '../../app/src/headless/index.js';
 import { createJsXmlParser, setXmlParser, simulateFile } from '../../app/src/headless/index.js';
 import { bytesOf, stampOf } from './fixtures.testSupport.js';
@@ -333,6 +333,7 @@ describe('stored flights in real workerd', () => {
     process.env['XDG_CONFIG_HOME'] = fileURLToPath(new URL('../.wrangler/config', import.meta.url));
     const { unstable_startWorker: start } = await import('wrangler');
     local = await start({ config: fileURLToPath(new URL('../wrangler.toml', import.meta.url)),
+      entrypoint: fileURLToPath(new URL('./authenticatedWorker.testSupport.ts', import.meta.url)),
       dev: { remote: false, persist: false, watch: false, inspector: false,
         server: { hostname: '127.0.0.1', port: 0 }, logLevel: 'error' } });
     await local.ready;

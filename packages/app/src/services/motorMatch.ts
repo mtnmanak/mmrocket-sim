@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
@@ -310,7 +311,7 @@ async function matchImportedMotorOnce(
   const fileIdentity = fileMotorIdentity(ref);
   if (ref.exMotorId !== undefined) {
     const ex = ref.exMotorMissing ? undefined : ref.exDefinition;
-    if (!ex) return { note: `EX motor ${ref.designation}: its embedded definition is missing or refused; re-import the original .eng/.rse.`, missing: 'curve' };
+    if (!ex) return { note: `EX motor ${noteField(ref.designation)}: its embedded definition is missing or refused; re-import the original .eng/.rse.`, missing: 'curve' };
     try {
       const db = exToDbEntry(ex);
       const spec = exToMotorSpec(ex, ref.delay);
@@ -319,7 +320,7 @@ async function matchImportedMotorOnce(
         note: `Motor: EX ${motorLabel(db, ref.delay)} (loaded from the embedded motor library).`,
       };
     } catch (error) {
-      return { note: `EX motor ${ref.designation} could not be loaded: ${error instanceof Error ? error.message : String(error)}` };
+      return { note: `EX motor ${noteField(ref.designation)} could not be loaded: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
 
@@ -338,18 +339,18 @@ async function matchImportedMotorOnce(
       const delay = ref.rktEveryDelay ? defaultDelay(db) ?? 0 : ref.delay;
       const autoDelay = ref.rktEveryDelay ? defaultDelay(db) === null : ref.autoDelay;
       const spec = exToMotorSpec(ex, delay);
-      const note = `Motor “${ref.designation}”: loaded as your imported EX motor ${ex.realManufacturer.trim()} ${db.designation} — the motor database has no ${maker} ${ref.designation}.`;
+      const note = `Motor “${noteField(ref.designation)}”: loaded as your imported EX motor ${noteField(ex.realManufacturer.trim())} ${noteField(db.designation)} — the motor database has no ${noteField(maker)} ${noteField(ref.designation)}.`;
       return {
         motor: mountMotorFromDb(db, spec, delay, ignition, { ...fileIdentity, exMotorId: ex.motorId,
           ...(autoDelay ? { autoDelay: true } : {}) }),
         note, infoNote: note,
       };
     } catch (error) {
-      return { note: `EX motor ${ref.designation} could not be loaded: ${error instanceof Error ? error.message : String(error)}` };
+      return { note: `EX motor ${noteField(ref.designation)} could not be loaded: ${error instanceof Error ? error.message : String(error)}` };
     }
   }
   const exCandidatesNote = exMatches.length > 1
-    ? ` Your imported EX motors include ${exMatches.length} that match it (${exMatches.map(ex => `${ex.realManufacturer.trim()} ${exToDbEntry(ex).designation} [${ex.motorId}]`).join('; ')}); pick one via Browse motor database.`
+    ? ` Your imported EX motors include ${exMatches.length} that match it (${exMatches.map(ex => `${noteField(ex.realManufacturer.trim())} ${noteField(exToDbEntry(ex).designation)} [${noteField(ex.motorId)}]`).join('; ')}); pick one via Browse motor database.`
     : '';
   /** Why the curve could not be had, when it could not. */
   let failure: unknown = null;
@@ -415,16 +416,16 @@ async function matchImportedMotorOnce(
   if (dbMatch) {
     if (failure instanceof NoPublishedCurveError || await knownNoPublishedCurve(dbMatch.motorId)) {
       return {
-        note: `Motor “${ref.designation}” is in the motor database but has no thrust curve — thrustcurve.org publishes none for it. Import its .eng/.rse via Browse motor database.${exCandidatesNote}`,
+        note: `Motor “${noteField(ref.designation)}” is in the motor database but has no thrust curve — thrustcurve.org publishes none for it. Import its .eng/.rse via Browse motor database.${exCandidatesNote}`,
         missing: 'curve',
       };
     }
     return {
-      note: `Motor “${ref.designation}” is in the motor database, but its thrust curve could not be loaded: ${
+      note: `Motor “${noteField(ref.designation)}” is in the motor database, but its thrust curve could not be loaded: ${
         failure instanceof Error ? failure.message : String(failure)}${exCandidatesNote}`,
     };
   }
-  return { note: `Motor “${ref.designation}” ${isE31Conflict(ref.designation)
+  return { note: `Motor “${noteField(ref.designation)}” ${isE31Conflict(ref.designation)
     ? E31_CONFLICT : 'matched no motor in the motor database — pick one via Browse motor database.'}${exCandidatesNote}`, missing: 'database' };
 }
 
@@ -499,12 +500,12 @@ export function unconfirmedMatchNote(
   const named = [db, ...rivals];
   const row = describeRow(db, named, units);
   const opened = other
-    ? `Motor “${ref.designation}”: the file names ${namedMaker(ref)!}, but it loaded as ${row} — the motor the database matched to it.`
+    ? `Motor “${noteField(ref.designation)}”: the file names ${noteField(namedMaker(ref)!)}, but it loaded as ${row} — the motor the database matched to it.`
     : unread
-      ? `Motor “${ref.designation}” matched no motor in the database exactly; it loaded as the closest, ${row}.`
+      ? `Motor “${noteField(ref.designation)}” matched no motor in the database exactly; it loaded as the closest, ${row}.`
       : oopGuess
-        ? `Motor “${ref.designation}”: the file names no manufacturer, and it loaded as ${row} — the motor the database matched to it.`
-        : `Motor “${ref.designation}” loaded as ${row}.`;
+        ? `Motor “${noteField(ref.designation)}”: the file names no manufacturer, and it loaded as ${row} — the motor the database matched to it.`
+        : `Motor “${noteField(ref.designation)}” loaded as ${row}.`;
   const shown = rivals.slice(0, 3).map((r) => describeRow(r, named, units));
   const more = rivals.length > shown.length ? `; and ${rivals.length - shown.length} more` : '';
   const also = rivals.length === 0 ? ''

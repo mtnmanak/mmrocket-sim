@@ -1,5 +1,5 @@
 import { setTextDecoderFactoryForTests } from '../../app/src/services/xmlUtil.js';
-import { worker } from './index.js';
+import { authenticatedWorker as worker } from './auth.testSupport.js';
 
 // Test-only: the production worker in a runtime with no windows-1252 decoder, so
 // decodeXml takes its built-in table (xmlUtil.ts decodeWindows1252) inside workerd.

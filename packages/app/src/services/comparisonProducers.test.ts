@@ -275,7 +275,8 @@ const cases: BoundaryCase[] = [
   }},
   { id:'C46',run:async(_u,d)=>{
     // Call the module Worker directly. No Wrangler, server or network listener.
-    const {worker}=await import('../../../api/src/index.js');
+    // The keyed Worker (go-live gate): the real key check, a test-only key.
+    const {authenticatedWorker:worker}=await import('../../../api/src/auth.testSupport.js');
     const {unzipSync,strFromU8,zipSync,strToU8}=await import('fflate');
     const bytes=new Uint8Array(readFileSync(new NodeURL('./__fixtures__/reference.ork',import.meta.url)));
     const xml=strFromU8(unzipSync(bytes)['rocket.ork']!).replace('creator="OpenRocket 24.12"','creator="MMRocket Sim"')
@@ -310,6 +311,9 @@ it('requires inventory review and a boundary case or scope exemption for new pro
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
   }).toEqual(reviewedCensus);
 }, 30_000);
+// Inventory review (2026-10-29, API go-live gate): the API index.ts count rose
+// 11 -> 12 on the error code string "RATE_LIMITED" (the word "limit"), a code,
+// not a comparison a user reads; the new refusals compare no quantity. Exempt.
 // Inventory review (2026-10-28, cloud lane 20 integration): unreadableNote's
 // backup preflight compares stored bytes, not quantities, so it is exempt from
 // the numeric boundary matrix. Exercise its empty/matching/occupied side-key

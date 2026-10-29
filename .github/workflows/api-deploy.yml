@@ -1,13 +1,11 @@
 # Deploy the headless API Worker (packages/api; Worker name mmrsim-api) to Cloudflare Workers,
 # or delete it. RUN BY HAND ONLY ("Run workflow" in the Actions tab), and only from main.
 #
-# WHAT IT IS FOR, FOR NOW. One confirming deploy on Workers Paid (board row 102; register,
-# 22 October 2026 (night) - S2 follow-up, F): the Worker goes up at
-# https://mmrsim-api.<account subdomain>.workers.dev - unlisted, and with NO API key yet - the
-# heavy corpus designs are flown against it, Cloudflare's own Memory usage and CPU time charts
-# are read, and then this workflow with action=delete takes it down again. It is NOT the
-# go-live job: no custom domain, no key, no push trigger. Go-live
-# (api.mmrsim.mountainmanrockets.com, a ThrustCurve-only key first) changes this file.
+# Go-live configuration: api.mmrsim.mountainmanrockets.com as a Workers Custom Domain.
+# The default and preview hosts are disabled. Configure the API_KEYS Worker secret before use;
+# absent keys or the rate-limit binding fail closed. This manual workflow does not provision keys.
+# Custom-domain token sufficiency must be checked by the owner before deployment: installed
+# Wrangler source identifies the account domain-record endpoints but not their token permissions.
 #
 # THE SAME TWO-JOB SPLIT AS deploy.yml, for the same reason (read its header):
 #   build   holds no secret. npm ci, builds the engine package, and bundles the Worker with the

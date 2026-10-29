@@ -1,9 +1,10 @@
+import { parseEng } from './exMotors.js';
 import { describe, expect, it, vi } from 'vitest';
 import { matchImportedMotor, type fetchSpecByDigest } from './motorMatch.js';
 import { planImport, resolveImportMotors, type ImportedDesign } from './importApply.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { acceptedOtherMakerNotes } from './openMotorChoices.js';
-import { groupOf, withoutLines } from './importNotes.js';
+import { groupOf, withoutLines, zeroBulkDensityNote } from './importNotes.js';
 import { statedWeightTextFor } from './unitText.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
 
@@ -44,4 +45,33 @@ describe('a two-sentence open note', () => {
     expect(after.filter(l => l.includes('F67'))).toEqual([]);
     expect(after).toContain('Keep this unrelated warning.');
   });
+});
+
+it('cleans manufacturer and designation spans before splitting motor notes, and part names before joining', async () => {
+  const ref = { manufacturer: 'OTHER\nFAKE\r\tTAB\u202e', designation: 'F67\n', diameter: 0.0286, length: 0.127,
+    delay: 6, digest: '0123456789abcdef0123456789abcdef' };
+  const notes: string[] = [];
+  zeroBulkDensityNote(notes, 'PART\nFAKE\r\tTAB\u202e', INITIAL_UNITS);
+  const imported = { name: 'ROCKET\nFAKE\r\tTAB\u202e', tree: { components: [] }, notes, motors: { m: ref } } as unknown as ImportedDesign;
+  const resolved = await resolveImportMotors(imported, r => matchImportedMotor(r, { fetchSpec, exMotors: [] }));
+  const plan = planImport(imported, resolved, { launch: DEFAULT_CONDITIONS, text: statedWeightTextFor(INITIAL_UNITS) });
+  expect(plan.note.text).toContain('ROCKETFAKE TAB');
+  expect(plan.note.text).toContain('OTHERFAKE TAB');
+  expect(plan.note.text).toContain('PARTFAKE TAB');
+  expect(plan.note.text).not.toContain('F67\n');
+  expect(plan.note.text).not.toMatch(/[\r\t\u202e]/u);
+  expect(plan.note.group!.lines.filter(l => l.kind === 'I12.motor-unconfirmed')).toHaveLength(2);
+});
+
+it('cleans the named maker in EX info notes before they are split', async () => {
+  const [parsed] = parseEng('F67 29 100 6 0.05 0.1 Test\n0 0\n0.1 10\n1 0\n');
+  const maker = 'OTHER\nFAKE\r\tTAB';
+  const ex = { ...parsed!, realManufacturer: maker };
+  const ref = { manufacturer: maker, designation: 'F67', diameter: 0.029, length: 0.1, delay: 6 };
+  const imported = { name: 'EX', tree: { components: [] }, notes: [], motors: { m: ref } } as unknown as ImportedDesign;
+  const resolved = await resolveImportMotors(imported, r => matchImportedMotor(r, { catalogue: [], exMotors: [ex] }));
+  const plan = planImport(imported, resolved, { launch: DEFAULT_CONDITIONS, text: statedWeightTextFor(INITIAL_UNITS) });
+  expect(plan.note.text).toContain('motor database has no OTHERFAKE TAB F67');
+  expect(plan.note.group!.lines).toHaveLength(1);
+  expect(plan.note.group!.lines[0]!.text).not.toMatch(/[\r\n\t]/);
 });

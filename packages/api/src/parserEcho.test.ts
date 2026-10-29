@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import { worker } from './index.js';
+import { authenticatedWorker as worker } from './auth.testSupport.js';
 import { bytesOf, stampOf } from './fixtures.testSupport.js';
 import { decodeShareFragment } from '../../app/src/services/shareLink.js';
 
@@ -68,9 +68,8 @@ describe('a stored extension that cannot stand alone is reported without its par
   });
 });
 
-describe('sibling, out of scope (owner question): an embedded EX archive refusal quotes V8\'s JSON message', () => {
-  // V8 quotes about ten characters of the text around a JSON syntax error, so the length is bounded,
-  // but the characters are the file's: a bidi control reaches notes.import unreplaced.
+describe('an embedded EX archive refusal sanitises V8\'s JSON message', () => {
+  // V8 quotes the file around a JSON syntax error: the shared importer must strip controls.
   it.each(ROUTES)('%s', async route => {
     const xml = strFromU8(unzipSync(bytesOf('reference.ork'))['rocket.ork']!)
       .replace('<rocket>', '<rocket><mmrexmotors version="1">[{"a":‮qqqqqqqqqqqqqqqqqqqq}]</mmrexmotors>');
@@ -78,7 +77,8 @@ describe('sibling, out of scope (owner question): an embedded EX archive refusal
     const out = await response.json() as { notes: { import: { text: string } } };
     expect(response.status).toBe(200);
     const line = out.notes.import.text.split('\n').find(l => l.startsWith('Embedded EX motors were refused: '))!;
-    expect(line).toContain('‮');
+    expect(line).toBeDefined();
+    expect(line).not.toMatch(/[\u0000-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/u);
     expect(line.length).toBeLessThan(300);
   });
 });

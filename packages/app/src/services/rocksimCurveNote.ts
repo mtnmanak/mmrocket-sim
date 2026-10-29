@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { OrkMotorRef } from './orkFile.js';
 import { bundledSimFiles, fileImpulseNs, flownCurve, isSampleList, type TcMotor, type TcSimFile } from './thrustcurve.js';
@@ -30,7 +31,7 @@ export async function rocksimCurveNote(
   const describe = (f: TcSimFile): string => `${f.source ?? 'unknown source'} ${f.format ?? 'file'} `
     + `(${fileImpulseNs({ samples: flownCurve(f.samples!).samples }).toFixed(1)} N·s, ${flownCurve(f.samples!).samples.at(-1)!.time.toFixed(2)} s to curve end): `
     + `https://www.thrustcurve.org/simfiles/${encodeURIComponent(f.simfileId!)}/`;
-  return `Motor “${ref.designation}”: this RockSim record stores ${stored.toFixed(2)} s from ignition to burnout; `
+  return `Motor “${noteField(ref.designation)}”: this RockSim record stores ${stored.toFixed(2)} s from ignition to burnout; `
     + `the ${motor.manufacturerAbbrev} ${motor.designation} curve loaded at import ends at ${duration.toFixed(2)} s `
     + `(${impulse.toFixed(1)} N·s). A different published curve may explain part of a flight-result difference. `
     + `Published alternatives with similar duration: ${candidates.map(describe).join('; ')}. `

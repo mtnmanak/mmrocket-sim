@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import type { OrkMotorRef } from './orkFile.js';
 import {
   bundledSimFiles, fileImpulseNs, flownCurve, fliesTheSame, pickDigestFile, pickSampleFile,
@@ -37,12 +38,12 @@ export async function digestCurveNote(
   const named = pickDigestFile(all, ref.digest, motor);
   const usual = pickSampleFile(all, motor);
   if (!named && usual && DESKTOP_DIGEST.test(ref.digest)) {
-    return `Motor “${ref.designation}”: the thrust curve this design was saved with in desktop OR is not among `
+    return `Motor “${noteField(ref.designation)}”: the thrust curve this design was saved with in desktop OR is not among `
       + `the app’s bundled curves for the ${motor.manufacturerAbbrev} ${motor.designation}, so it flies the app’s pick `
       + `(${describe(usual)}).`;
   }
   if (!named || !usual || named === usual || fliesTheSame(named, usual)) return undefined;
-  return `Motor “${ref.designation}”: flown with the thrust curve this design was saved with in desktop OR `
+  return `Motor “${noteField(ref.designation)}”: flown with the thrust curve this design was saved with in desktop OR `
     + `(${describe(named)}), not the curve the app picks for the ${motor.manufacturerAbbrev} ${motor.designation} `
     + `(${describe(usual)}). Picking the motor again in “Browse motor database” flies the app’s pick.`;
 }

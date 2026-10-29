@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { lookupTable } from './xmlUtil.js';
 import { noticeEqual, type UnitSelection } from '../prefs/units.js';
 import { applyStageMass, pruneStageMass } from './stageMassOverrides.js';
@@ -289,19 +290,19 @@ function flyablePick(imported: ImportedDesign, resolved: ResolvedImportMotors): 
   const matches: Record<string, MotorMatchResult> = lookupTable({});
   for (const [id, ref] of Object.entries(cfg.motors)) {
     const motor = ownEntry(ownEntry(resolved.configs, cfg.id), id);
-    matches[id] = ownEntry(results, id) ?? { ...(motor ? { motor } : {}), note: motor ? '' : `Motor “${ref.designation}” could not be loaded.` };
+    matches[id] = ownEntry(results, id) ?? { ...(motor ? { motor } : {}), note: motor ? '' : `Motor “${noteField(ref.designation)}” could not be loaded.` };
   }
   // Why the reader's pick was passed over, per motor, in the matcher's own
   // terms but WITHOUT its advice: "pick one via Browse motor database" is the
   // wrong fix when another configuration of the same file flies.
   const why = own.map((id) => {
-    const d = chosen.motors[id]!.designation;
+    const d = noteField(chosen.motors[id]!.designation);
     const missing = ownEntry(resolved.working, id)?.missing;
     return missing === 'database' ? `${d} matched no motor in the motor database`
       : missing === 'curve' ? `${d} is in the motor database but has no thrust curve`
         : `${d} could not be loaded`;
   });
-  const skipNote = `${ownEntry(sources, chosen.id) ?? 'The first simulation'} was not opened: `
+  const skipNote = `${noteField(ownEntry(sources, chosen.id) ?? 'The first simulation')} was not opened: `
     + `${[...new Set(why)].join('; ')}, so it could not leave the pad.`;
   return { cfg, matches, skipNote };
 }
@@ -401,7 +402,7 @@ export function planImport(
   const readerNotes = pick
     ? swapConfigNotes(imported.notes, imported.configNotes, imported.chosenConfigId!, pick.cfg.id, pick.skipNote)
     : imported.notes;
-  const notes: string[] = [`Loaded “${imported.name}”.`, ...readerNotes];
+  const notes: string[] = [`Loaded “${noteField(imported.name)}”.`, ...readerNotes];
   // The readers' own records (services/importNotes.ts), and the re-pick's
   // lead: the configuration the reader chose cannot leave the pad, so
   // another was opened — a source choice not followed (D7 I12).
@@ -489,7 +490,7 @@ export function planImport(
       if (!primary) {
         if (cfg.id === chosenId) {
           cautionNote(notes, 'I16.pad-mass-dropped', `This file's weighed pad mass (${massText(padMassKg)}) has no motor to attach to in configuration`
-            + ` “${cfg.name ?? cfg.id}” and was not kept — re-enter it under the motor you weigh with.`);
+            + ` “${noteField(cfg.name ?? cfg.id)}” and was not kept — re-enter it under the motor you weigh with.`);
         }
       } else {
         // THE key rule (configSync.padMassSetKey) — the one the set on screen
@@ -504,8 +505,8 @@ export function planImport(
           cfgUnmatchedRefs[primary] = { ...ref, padMassKg };
           if (cfg.id === chosenId) {
             const named = mountName(findNode(importedTree, primary));
-            cautionNote(notes, 'I16.pad-mass-inactive', `The file's weighed pad mass (${massText(padMassKg)}) belongs to the motor on “${named}”`
-              + ` (${ref.designation}), which could not be loaded. It is kept so the file saves unchanged,`
+            cautionNote(notes, 'I16.pad-mass-inactive', `The file's weighed pad mass (${massText(padMassKg)}) belongs to the motor on “${noteField(named)}”`
+              + ` (${noteField(ref.designation)}), which could not be loaded. It is kept so the file saves unchanged,`
               + ' and nothing is carried until that motor is loaded — or re-weigh with the motors you have in.');
           }
         }
@@ -541,7 +542,7 @@ export function planImport(
     const index = notes.indexOf(entry.text);
     if (config && index !== -1) {
       // Reworded in place; the line keeps its producer's tier.
-      renameNote(notes, index, entry.text.replace(`“${entry.label}”`, () => `“${savedConfigLabel(config)}”`));
+      renameNote(notes, index, entry.text.replace(`“${entry.label}”`, () => `“${noteField(savedConfigLabel(config))}”`));
     }
   }
   // A stage whose stated launch weight still holds an unidentified motor's
@@ -840,7 +841,7 @@ export function planConfigSwitch(
     const primary = primaryMountOf(state.tree, Object.keys(cfg.motors));
     const pad = primary ? cfg.motors[primary]?.padMassKg : undefined;
     const hasPad = typeof pad === 'number' && Number.isFinite(pad) && pad > 0;
-    note = withSpent([{ kind: 'config-applied', tier: 'information', text: `Flight configuration “${savedConfigLabel(cfg)}” applied — its motors and recovery settings`
+    note = withSpent([{ kind: 'config-applied', tier: 'information', text: `Flight configuration “${noteField(savedConfigLabel(cfg))}” applied — its motors and recovery settings`
       + `${hasPad ? ' and weighed pad mass' : ''} are now live.` }, ...unconfirmed],
     unconfirmed.length > 0 ? 'warn' : 'info');
   }
