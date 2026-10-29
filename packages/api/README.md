@@ -97,7 +97,8 @@ The 16,000 budget keeps the heaviest kept shape at its boundary (rows, 60 MiB) u
   sourceFormat: "ork" | "rkt" | "cdx1",
   analysis: {
     basis: "dry; no installed motors",
-    aeroModel: string,                      // "classic+kbf" today: the app's first-visit default
+    aeroModel: string,                      // "classic" today: the model name alone
+    rogersKbf: boolean,                     // true today: the app's first-visit default
     mach: 0.3,
     angleOfAttackRad: 0,
     lengthM: number,
@@ -125,7 +126,7 @@ The 16,000 budget keeps the heaviest kept shape at its boundary (rows, 60 MiB) u
     count: number                           // motors one motor here becomes: cluster × pods/strap-ons × enclosing clusters
   }],
   fragment: string,                         // "#d=1.…", no motor suffix and no placement key
-  link: string,                             // exactly "https://mmrsim.mountainmanrockets.com" + fragment
+  link: string,                             // exactly "https://mmrsim.mountainmanrockets.com/" + fragment
   notes: {
     import: { text: string, severity: string },   // the app's own import note
     analysis: string[],                     // why a figure is null, and other cautions
@@ -144,7 +145,7 @@ Example: `reference.ork` at app 0.195 (the fragment and link are truncated here;
   "experimental": true, "api": "s3-draft",
   "name": "Reference Rocket", "sourceFormat": "ork",
   "analysis": {
-    "basis": "dry; no installed motors", "aeroModel": "classic+kbf", "mach": 0.3, "angleOfAttackRad": 0,
+    "basis": "dry; no installed motors", "aeroModel": "classic", "rogersKbf": true, "mach": 0.3, "angleOfAttackRad": 0,
     "lengthM": 0.37, "referenceDiameterM": 0.024, "dryMassKg": 0.02733579215809241,
     "dryCgM": 0.19313402043559422, "cpM": 0.2990617804118221, "stabilityCalibers": 4.413656665676161,
     "cdEstimate": { "value": 1.0840587963267343, "mach": 0.3, "angleOfAttackRad": 0, "powerState": "off",
@@ -153,7 +154,7 @@ Example: `reference.ork` at app 0.195 (the fragment and link are truncated here;
   "mounts": [{ "key": "m1", "name": "Inner Tube", "stageIndex": 0, "stageName": "Sustainer",
     "diameterM": 0.018, "maxMotorLengthM": null, "count": 1 }],
   "fragment": "#d=1.vVjbbuM2EH3fryD0khZ…",
-  "link": "https://mmrsim.mountainmanrockets.com#d=1.vVjbbuM2EH3fryD0kh…",
+  "link": "https://mmrsim.mountainmanrockets.com/#d=1.vVjbbuM2EH3fryD0kh…",
   "notes": {
     "import": { "text": "Loaded “Reference Rocket”.\nMotor “C6” loaded as Estes C6 … Check it is the motor you fly, or pick another via Browse motor database.", "severity": "warn" },
     "analysis": [],
@@ -164,16 +165,17 @@ Example: `reference.ork` at app 0.195 (the fragment and link are truncated here;
 }
 ```
 
-**Units and meaning.** Lengths, CG and CP in metres, measured aft from the nose tip; mass in kilograms; angles in radians; Mach, Cd, count and calibers are dimensionless, and one caliber is `referenceDiameterM`. The figures are the Design tab's, with **no motor installed**: `basis` says so, and the margin is the DRY margin, not pad, rod-exit or flight stability. The design is the configuration the app's open selects (the flight route's choice), projected as a flight reads it (`resolveFlightState`); mounts, mass and CG all come from that one projection. Aerodynamics are the app's first-visit default (`APP_DEFAULT_AERO`: classic Barrowman with Rogers Kbf), with imported design overrides (Cd, mass/CG, stage overrides) kept; Auto never upgrades here because nothing flies. `cpM`/`stabilityCalibers` are the app's forward-CP figures (`shownCp`/`shownStability`), and both are `null` with a note when no part produces normal force (the kernel's no-force sentinel would otherwise read as a large negative margin). `cdEstimate` is the Design tab's one-point power-off drag sweep at Mach 0.3, angle of attack 0, in the kernel's default atmosphere: an estimate under those stated conditions, not a measured or flown coefficient. A Cd-only failure gives `null` plus a note; a missing dry CG likewise. JSON never carries NaN or Infinity; a non-finite length, reference diameter or dry mass is a build failure (422), not a zero.
+**Units and meaning.** Lengths, CG and CP in metres, measured aft from the nose tip; mass in kilograms; angles in radians; Mach, Cd, count and calibers are dimensionless, and one caliber is `referenceDiameterM`. The figures are the Design tab's, with **no motor installed**: `basis` says so, and the margin is the DRY margin, not pad, rod-exit or flight stability. The design is the configuration the app's open selects (the flight route's choice), projected as a flight reads it (`resolveFlightState`); mounts, mass and CG all come from that one projection. Aerodynamics are the app's first-visit default (`APP_DEFAULT_AERO`: classic Barrowman with Rogers Kbf), with imported design overrides (Cd, mass/CG, stage overrides) kept; Auto never upgrades here because nothing flies. The model name and Rogers Kbf flag are separate fields (`aeroModel`, `rogersKbf`). When `mounts` is empty, `notes.analysis` says that the design has no motor mount, so no motor can be placed in it. `cpM`/`stabilityCalibers` are the app's forward-CP figures (`shownCp`/`shownStability`), and both are `null` with a note when no part produces normal force (the kernel's no-force sentinel would otherwise read as a large negative margin). `cdEstimate` is the Design tab's one-point power-off drag sweep at Mach 0.3, angle of attack 0, in the kernel's default atmosphere: an estimate under those stated conditions, not a measured or flown coefficient. A Cd-only failure gives `null` plus a note; a missing dry CG likewise. JSON never carries NaN or Infinity; a non-finite length, reference diameter or dry mass is a build failure (422), not a zero.
 
 **Kernel lock.** The build, `staticInfo` and drag sweep share one `withKernel` turn, under the same 10 s dead-holder watchdog as a flight; all of it is synchronous, with no I/O or timer inside the lock. The import before it and the fragment compression after it run outside. A refused build releases the lock; a poisoned instance answers 503.
 
 **Fragment and projection.** The fragment is the app's existing share-link codec, format 1 (`#d=1.` + base64url of deflate-raw .ork XML, `shareLink.ts`), unchanged; any existing `#d=1.` link still decodes, and a future packing change must keep this reader. It is written by `exportOrk` from a private, motor-free projection of the opened design (`describeFile.ts`, `motorFreeProjection`), never by editing XML text:
 
 - Removed: the working motor set and every saved configuration's motors (exportOrk's `motors: {}` alone would have kept the inactive ones), unmatched motor references and their text, motor-loadout refusals, the weighed pad mass (it rides on the motor record) and so any embedded EX motor archive; no stored simulation summaries, warnings, provenance or series are written (every `<simulation>` is `notsimulated`).
-- Kept: the normalized tree (geometry, motor-mount tubes and flags, fins including freeform/rounded/airfoil, materials, component and stage mass/CG overrides, nozzle settings), each mount's ignition default and every configuration's ignition, deployment, separation, stage-activeness and stage mass/CG layers, the launch conditions the open merged (there is no caller location field), the Measured mass & CG box and the design notes. Scripts follow the exporter's existing inert rules.
+- Kept: the normalized tree (geometry, motor-mount tubes and flags, fins including freeform/rounded/airfoil, materials, component and stage mass/CG overrides, the opened configuration's stage nozzle settings), each mount's ignition default and every configuration's ignition, deployment, separation, stage-activeness and stage mass/CG layers, the launch conditions the open merged (there is no caller location field), the Measured mass & CG box and the design notes. Scripts follow the exporter's existing inert rules.
 - A configuration with no motor and no overrides is written with its simulation conditions; the app's reader folds such a lone empty configuration into the launch conditions on reopen, as it does for any dry save.
-- Delay: each selected motor's ejection delay is removed with the motor (said in `notes.export`); a mount's ignition delay is kept. The ruled file-delay fallback (S5) has no carrier here; see the review questions.
+- Other configurations' nozzle maps are not written: `.ork` keeps each stage's current nozzle exit diameter for every configuration. When a saved configuration differs from that written value, `notes.export` reports how many distinct stages and saved configurations are affected (automatic and explicit off count as different).
+- Delay: each selected motor's ejection delay is removed with the motor (said in `notes.export`); a mount's ignition delay is kept. The ruling is to carry the file's ejection delay as a hint for S5: keep it if the new motor offers it, otherwise use the motor's default. The carrier and reader mechanism belong to S5 and are not implemented in this draft; ThrustCurve must not need to append another parameter.
 
 **Determinism.** Node ids come from a module counter, so they depend on earlier requests in the isolate. The projection renames every node depth-first (`n1`, `n2`, …) on its clone, with every id-keyed map and id-naming record (`mountId`) following; configuration ids already come from the bytes (the `.ork` configid, `rocksim-sim-N`, `rasaero-sim-N`) and are kept; `exportOrk` takes an optional id source (absent in the app, so app saves and share links keep random UUIDs) and the projection passes a counter. The global counter is never reset. Tests repeat identical describes around unrelated describes and flights in one isolate and compare the complete JSON and fragment.
 
@@ -187,7 +189,7 @@ Example: `reference.ork` at app 0.195 (the fragment and link are truncated here;
 | 400 | `INVALID_FILE` | the importer's own explanation; false-small ZIP sizes included |
 | 413 | `FILE_TOO_LARGE` | body over 8 MiB, inflated XML over 16 MiB, or the XML structure budget; points to the app |
 | 413 | `LINK_TOO_LARGE` | the design is past the share link's own limits (4 MiB of XML, 1,048,576 characters); no partial result |
-| 422 | `DESIGN_BUILD_FAILED` | the kernel will not build the design (with the import note); missing motors are not an error here |
+| 422 | `DESIGN_BUILD_FAILED` | the kernel will not build the design (with the import note); missing motors are not an error here; wins over `LINK_TOO_LARGE` when both apply |
 | 503 | `KERNEL_UNAVAILABLE` | poisoned instance, `Retry-After: 5` |
 | 503 | `SERVER_BUSY` | the isolate's 24 MiB reader-capacity budget (including old + new buffers during growth) is spent, `Retry-After: 5` |
 | 500 | `INTERNAL_ERROR` | anything else: "The design could not be described." |
@@ -196,15 +198,16 @@ A refusal that repeats `?filename=` (both routes) shows at most 200 code points 
 
 Every row's body carries `appVersion`, `engine` and `catalogue` beside `error`.
 
-**Tests.** `describe.test.ts` runs in real local workerd (a normal and a fetch-trapped Worker): the three formats against a fresh Node `describeFile` oracle (non-time quantities at 1e-10 relative, the S1 tolerance; mounts, notes and the decoded fragment XML exactly, since deflate bytes may differ between runtimes), motorless/unmatched/cluster designs, ignored options, zero fetch attempts and zero timers, determinism around unrelated requests, overlapping describes and flights, a forced build refusal followed by success, the poisoned kernel, every error row above (`LINK_TOO_LARGE` for both the XML-byte and the fragment-character limit) and the body/stream/inflate/XML caps. `packages/app/src/services/describeFile.test.ts` holds the service in Node to the flight build's own dry figures, the Design tab's loaded-build Cd (1e-12 relative: same kernel, same tree), the fixture XML's tube walls, pod, strap-on, cluster, case-airframe and length-limit semantics, a share link written by release v0.100 (`__fixtures__/share-link-v0.100.txt`, made with that release's own code) decoding and describing like its source file, a fixed point through the fragment (the reopened fragment describes to the same analysis and mounts), motor-free inactive configurations, unchanged source state, id-independent projection and lock ordering. All on committed fixtures; the owner's 276 tester files are local-only and have NOT been run.
+**Tests.** `describe.test.ts` runs in real local workerd (a normal and a fetch-trapped Worker): the three formats against a fresh Node `describeFile` oracle (non-time quantities at 1e-10 relative, the S1 tolerance; mounts, notes and the decoded fragment XML exactly, since deflate bytes may differ between runtimes), motorless/unmatched/cluster designs, ignored options, zero fetch attempts and zero timers, determinism around unrelated requests, overlapping describes and flights, a forced build refusal followed by success, the poisoned kernel, every error row above (`LINK_TOO_LARGE` for both the XML-byte and the fragment-character limit) and the body/stream/inflate/XML caps. `packages/app/src/services/describeFile.test.ts` holds the service in Node to the flight build's own dry figures, the Design tab's loaded-build Cd (1e-12 relative: same kernel, same tree), the fixture XML's tube walls, pod, strap-on, cluster, case-airframe and length-limit semantics, a share link written by release v0.100 (`__fixtures__/share-link-v0.100.txt`, made with that release's own code) decoding and describing like its source file, a fixed point through the fragment (the reopened fragment describes to the same analysis and mounts), motor-free inactive configurations, unchanged source state, id-independent projection and lock ordering. The field-shape check covers every committed .ork, .rkt and .CDX1 fixture; generated trees cover nozzle-loss counts, automatic/off values, parallel stages and the no-mount note. `describeLink.test.ts` also exercises the API handler directly with fetch forbidden, checking the link path and oversized-link guidance. The local-only tester corpus is not part of these tests.
 
-**Review questions for the owner** (open; nothing here decides them):
+**Owner rulings** (2026-10-29; all ruled, API remains `s3-draft` pending S5):
 
-1. Delay hint: the ruled S5 rule retains the file's delay if the new motor offers it. With motors removed, the fragment carries no file delay. Keep it out of v1, or add a representation (for example a per-mount `fileDelayS` in `mounts`, or an app extension in the XML)?
-2. `notes.import` is the app's full import note, which talks about the motors the file named (matched, ambiguous, unloaded). Keep it verbatim, or filter motor lines for a motor-independent result?
-3. `aeroModel` is a compact string (`"classic+kbf"`). Keep it, or split into `aeroModel` + `rogersKbf: boolean` like a stored run?
-4. Mount `key` is traversal order (`m1`…). Is that enough for TC's display, given the link motor is not placed by mount id?
-5. `link` is the bare origin + fragment, as specified (no `/`). Confirm, or use `https://mmrsim.mountainmanrockets.com/` + fragment?
-6. Stage mass/CG overrides that the import could not back a motor out of (`overrideIncludesMotor`) are kept and flagged in `notes.analysis`, so the dry figures then include that motor. Keep, or drop those overrides from the dry analysis?
-7. Nozzle exit diameters (RASAero per-simulation) stay on the stages as the opened configuration applied them; other configurations' nozzle maps are not written by the .ork exporter. Acceptable for v1?
-8. Error precedence: a design both over the share-link limit and unbuildable reports the build failure first (422), since the build runs before the export. Confirm.
+1. **Ruled: carry; mechanism in S5.** The link must carry the file's ejection delay as a hint. S5 keeps it if the new motor offers it, otherwise uses the motor's default; ThrustCurve appends no extra delay parameter. This lane records the ruling without changing delay behaviour.
+2. **Ruled: keep verbatim.** `notes.import` remains the app's full import note, including matched, ambiguous and unloaded motors.
+3. **Ruled: split.** `analysis.aeroModel` is the model name alone (`"classic"` today); `analysis.rogersKbf` is a boolean (`true` today), as on a stored run.
+4. **Ruled: keep.** Mount `key` remains request-local traversal order (`m1`...). It is for display, not a link placement instruction.
+5. **Ruled: include the root path.** `link` is `https://mmrsim.mountainmanrockets.com/` + fragment.
+6. **Ruled: keep and flag.** Stage mass/CG overrides marked `overrideIncludesMotor` remain in the dry analysis, with the caution in `notes.analysis` that the figures include that motor.
+7. **Ruled: accept for v1 with a note.** The link keeps each stage's current nozzle exit diameter for every configuration. When another configuration's nozzle differs, `notes.export` reports the number of affected stages and saved configurations.
+8. **Ruled: keep precedence.** A design both unbuildable and over the share-link limit reports `422 DESIGN_BUILD_FAILED` first, because the build runs before export.
+9. **Ruled: note no mount.** When `mounts` is empty, `notes.analysis` says that no motor can be placed in the design.

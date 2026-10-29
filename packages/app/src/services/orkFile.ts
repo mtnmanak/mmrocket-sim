@@ -17,7 +17,7 @@ import {
   LATITUDE_DEG_RANGE, LONGITUDE_DEG_RANGE,
   PANEL_TIME_STEP_FLOOR_S, ROD_ANGLE_DEG_RANGE, ROD_LENGTH_M_RANGE, WIND_MS_RANGE, type LaunchConditions,
 } from './launchConditions.js';
-import { asStageNodes, freshId } from '../tree/treeModel.js';
+import { asStageNodes, freshId, nozzleStages } from '../tree/treeModel.js';
 import { tubeFinRadius, tubeFinWall } from '../tree/tubefins.js';
 import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
@@ -2405,6 +2405,12 @@ export interface OrkExportConfig {
    * `deployments` does (FC-2).
    */
   separations?: Record<string, OrkSeparationOverride>;
+  /**
+   * This configuration's nozzle exit diameter per stage (metres), as SavedConfig
+   * carries it. An `.ork` has one nozzle per stage, so it is only compared with
+   * the written value to say what the file loses; it is never written.
+   */
+  nozzles?: Record<string, number | null>;
 }
 
 export interface OrkTreeExportInput {
@@ -2662,6 +2668,25 @@ export function exportOrk({
     notes?.push('Per-configuration stage mass and CG are saved as an app extension. '
       + 'The app restores them when reopening; OpenRocket desktop uses the active configuration’s '
       + 'stage overrides for every configuration.');
+  }
+  const nozzleList = nozzleStages(tree);
+  const lostNozzleStages = new Set<string>();
+  let lostNozzleConfigs = 0;
+  for (const c of configs ?? []) {
+    let differs = false;
+    for (const stage of nozzleList) {
+      if (!stage.id || !c.nozzles || !Object.hasOwn(c.nozzles, stage.id)) continue;
+      const value = stage['nozzleExitDiameter'];
+      const written = typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
+      if (c.nozzles[stage.id] === written) continue;
+      lostNozzleStages.add(stage.id);
+      differs = true;
+    }
+    if (differs) lostNozzleConfigs++;
+  }
+  if (lostNozzleConfigs) {
+    notes?.push(`Nozzle exit diameters differ on ${lostNozzleStages.size} stage${lostNozzleStages.size === 1 ? '' : 's'}`
+      + ` in ${lostNozzleConfigs} saved configuration${lostNozzleConfigs === 1 ? '' : 's'}; .ork keeps each stage's current value for every configuration.`);
   }
   // With no stored configurations, mint one even without motors: its simulation
   // carries the launch conditions that a dry design must keep on reopen.

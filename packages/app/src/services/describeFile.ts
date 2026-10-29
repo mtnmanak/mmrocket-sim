@@ -74,6 +74,7 @@ export interface DescribedMount {
 export interface DescribeAnalysis {
   basis: typeof DESCRIBE_BASIS;
   aeroModel: string;
+  rogersKbf: boolean;
   mach: number;
   angleOfAttackRad: 0;
   lengthM: number;
@@ -342,6 +343,7 @@ export async function describeFile(
       count: mountMotorCount(tree, m.id!),
     };
   });
+  if (mounts.length === 0) notes.push('This design has no motor mount, so no motor can be placed in it.');
   // Outside the lock: compression awaits a stream.
   const projection = motorFreeProjection(opened);
   const writerNotes: string[] = [];
@@ -351,7 +353,8 @@ export async function describeFile(
     sourceFormat: imported.sourceFormat ?? 'ork',
     analysis: {
       basis: DESCRIBE_BASIS,
-      aeroModel: `${aeroModelFor(aero.aeroMode, effectiveSupersonic)!}${rogersKbfFor(aero.effectiveKbf, effectiveSupersonic) ? '+kbf' : ''}`,
+      aeroModel: aeroModelFor(aero.aeroMode, effectiveSupersonic)!,
+      rogersKbf: rogersKbfFor(aero.effectiveKbf, effectiveSupersonic),
       mach: CD_REFERENCE_MACH,
       angleOfAttackRad: 0,
       lengthM, referenceDiameterM, dryMassKg, dryCgM, cpM, stabilityCalibers,
