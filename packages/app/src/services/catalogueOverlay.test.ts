@@ -16,7 +16,7 @@ import { DEFAULT_PREFS } from '../prefs/preferences.js';
 import { MOTOR_CORRECTIONS } from '../../scripts/motor-corrections.mjs';
 import { DEFAULT_MAX_JSON_BYTES } from './net.js';
 import { resetThrustcurveBackoffForTests, thrustcurveBackoffMessage } from './thrustcurveTraffic.js';
-import { CATALOGUE_BASE } from './catalogueClient.js';
+import { CATALOGUE_BASE, CURATED_CHECK_SINCE } from './catalogueClient.js';
 import { catalogueFetch, daysAfter, manifestOf, publication, type Publication } from './catalogueFixture.testSupport.js';
 
 const checkForCatalogueUpdates = checkUpdates;
@@ -331,8 +331,9 @@ it('C an overlay a curated check wrote with no snapshot is described as the cura
     fetchImpl: stubCatalogue([row({ motorId: 'older-only' })], { generated: daysAfter(MOTOR_DB_DATE, -2) }) });
   expect(describeOverlay(overlay)[0]).toContain('curated catalogue checked');
   expect(describeOverlay(overlay)[0]).not.toContain('thrustcurve.org');
-  // A pre-row-110 pull still reads as one.
-  expect(describeOverlay({ ...overlay, fetchedAt: `${daysAfter(MOTOR_DB_DATE, 1)}T00:00:00.000Z` })[0]).toContain('thrustcurve.org checked');
+  // A pre-row-110 pull still reads as one. Dated from the cutover, not the
+  // build: a refresh past CURATED_CHECK_SINCE moved MOTOR_DB_DATE + 1 after it.
+  expect(describeOverlay({ ...overlay, fetchedAt: `${daysAfter(CURATED_CHECK_SINCE, -1)}T00:00:00.000Z` })[0]).toContain('thrustcurve.org checked');
 });
 
 it('B.2 installs only the 18 catalogue fields of a row, and nothing a __proto__ or constructor key carries', async () => {

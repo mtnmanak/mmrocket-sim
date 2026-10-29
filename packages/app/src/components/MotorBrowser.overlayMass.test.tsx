@@ -8,6 +8,7 @@ import { PrefsProvider } from '../prefs/PrefsContext.js';
 import { displayDesignation, hasMassData, MOTOR_DB, MOTOR_DB_DATE, setCatalogueOverlay } from '../services/motorDb.js';
 import { knownNoPublishedCurve } from '../services/thrustcurve.js';
 import { screenEntry } from '../services/catalogueOverlay.js';
+import { CURATED_CHECK_SINCE } from '../services/catalogueClient.js';
 
 vi.mock('../data/motors.json', async importOriginal => {
   const real = await importOriginal<{ default: { generated: string } }>();
@@ -34,7 +35,15 @@ it.each(['overlay', 'shipped'])('loads network masses for a %s motor absent from
   expect(screenEntry(motor)).toBeNull();
   localStorage.clear();
   localStorage.setItem('online-openrocket.motor-filters.v1', JSON.stringify({ includeOOP: true }));
-  const overlay = { baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date(Date.parse(MOTOR_DB_DATE) + 86400_000).toISOString(),
+  // A thrustcurve.org pull (before row 110) is dated before CURATED_CHECK_SINCE
+  // and after the build. Once the build is newer than that, no such pull can
+  // exist: a check dated after the build is curated, the shipped motor keeps
+  // its no-curve memory and its row stays disabled (the D.7 test below covers
+  // the snapshot side).
+  const legacyAt = Date.parse(CURATED_CHECK_SINCE) - 86400_000;
+  const legacyPull = legacyAt > Date.parse(MOTOR_DB_DATE);
+  const overlay = { baseGenerated: MOTOR_DB_DATE,
+    fetchedAt: new Date(legacyPull ? legacyAt : Date.parse(MOTOR_DB_DATE) + 86400_000).toISOString(),
     liveCount: MOTOR_DB.length + 1, added: source === 'overlay' ? [motor] : [], changed: [], removed: [], rejected: [] };
   setCatalogueOverlay(source === 'overlay' ? overlay : null);
   if (source === 'shipped') expect(await knownNoPublishedCurve(motor.motorId)).toBe(true);
@@ -62,6 +71,11 @@ it.each(['overlay', 'shipped'])('loads network masses for a %s motor absent from
       expect(row.getAttribute('aria-disabled'), host.textContent ?? '').toBe('true');
       await act(async () => { setCatalogueOverlay(overlay); });
       await act(async () => { await new Promise(resolve => setTimeout(resolve, 30)); });
+      if (!legacyPull) {
+        expect(row.getAttribute('aria-disabled')).toBe('true');
+        expect(fetcher).not.toHaveBeenCalled();
+        return;
+      }
     }
     await vi.waitFor(async () => {
       await act(async () => {});
