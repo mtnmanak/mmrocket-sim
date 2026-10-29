@@ -1,5 +1,5 @@
 import { fetchAttempts, timerCalls, timerSources } from './networkTrap.testSupport.js';
-import { worker } from './index.js';
+import { authenticatedWorker as worker } from './auth.testSupport.js';
 import { resetKernelForTests, withKernel } from '../../app/src/services/simulateDesign.js';
 import { KERNEL_HANDLES } from '../../app/src/services/buildDesign.js';
 const BODY_CAP = 8 * 1024 * 1024;

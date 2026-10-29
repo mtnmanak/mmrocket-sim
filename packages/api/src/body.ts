@@ -14,6 +14,10 @@ export class BodyTooLarge extends Error {
   constructor(received: number) { super('Design body exceeds the whole-file cap.'); this.received = received; }
 }
 
+export class BodyTimeout extends Error {
+  constructor() { super('The upload did not finish within 30 seconds.'); }
+}
+
 /** The isolate's body budget is spent: retry after other uploads finish. */
 export class ServerBusy extends Error {
   constructor() { super('Body bytes in flight exceed the isolate budget.'); }
@@ -55,7 +59,7 @@ export class BodyReservation {
  * a full buffer is passed directly, avoiding the importer's view-input copy.
  * Content-Length is only an early refusal hint, never an allocation size.
  */
-export async function readBody(request: Request, reservation: BodyReservation): Promise<ArrayBuffer | Uint8Array> {
+export async function readBody(request: Request, reservation: BodyReservation, deadlineAt = performance.now() + 30_000): Promise<ArrayBuffer | Uint8Array> {
   const length = request.headers.get('content-length');
   const declared = length !== null && /^\d+$/.test(length) ? Number(length) : undefined;
   if (declared !== undefined && declared > MAX_API_BODY_BYTES) throw new BodyTooLarge(declared);
@@ -63,12 +67,33 @@ export async function readBody(request: Request, reservation: BodyReservation): 
   let buffer = new ArrayBuffer(0);
   const reader = request.body.getReader();
   let size = 0;
-  try {
+  let cancelled = false;
+  const cancel = () => {
+    cancelled = true;
+    void reader.cancel().catch(() => undefined);
+  };
+  const checkDeadline = () => {
+    if (performance.now() >= deadlineAt) {
+      cancel();
+      throw new BodyTimeout();
+    }
+  };
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      reject(new BodyTimeout());
+      // A stream's cancel hook may never settle; refusal must not wait on it.
+      cancel();
+    }, Math.max(0, deadlineAt - performance.now()));
+  });
+  const drain = async () => {
     for (;;) {
+      checkDeadline();
       const { done, value } = await reader.read();
+      checkDeadline();
       if (done) break;
       if (size + value.byteLength > MAX_API_BODY_BYTES) {
-        await reader.cancel().catch(() => undefined);
+        cancel();
         throw new BodyTooLarge(size + value.byteLength);
       }
       if (size + value.byteLength > buffer.byteLength) {
@@ -77,7 +102,7 @@ export async function readBody(request: Request, reservation: BodyReservation): 
         try {
           reservation.reserve(grown);
         } catch (e) {
-          await reader.cancel().catch(() => undefined);
+          cancel();
           throw e;
         }
         const next = new ArrayBuffer(grown);
@@ -88,6 +113,13 @@ export async function readBody(request: Request, reservation: BodyReservation): 
       new Uint8Array(buffer, size, value.byteLength).set(value);
       size += value.byteLength;
     }
-  } finally { reader.releaseLock(); }
+  };
+  try {
+    await Promise.race([drain(), timeout]);
+  } finally {
+    clearTimeout(timer!);
+    // Internal workerd streams cannot unlock an outstanding cancelled read.
+    if (!cancelled) reader.releaseLock();
+  }
   return size === buffer.byteLength ? buffer : new Uint8Array(buffer, 0, size);
 }

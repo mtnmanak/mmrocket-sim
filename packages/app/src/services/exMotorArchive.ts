@@ -137,7 +137,8 @@ export function readArchivedExMotors(rocket: XmlElement, notes: string[]): Map<s
     });
     return new Map(usable.map(m => [m.motorId, m]));
   } catch (error) {
-    cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motors were refused: ${error instanceof Error ? error.message : String(error)}. Re-import the original .eng/.rse; these motors were not loaded.`);
+    const reason = (error instanceof Error ? error.message : String(error)).replace(/[\p{Bidi_Control}\p{Cc}\u2028\u2029]/gu, '');
+    cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motors were refused: ${reason}. Re-import the original .eng/.rse; these motors were not loaded.`);
     return new Map();
   }
 }

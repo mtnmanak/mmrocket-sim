@@ -38,6 +38,7 @@ beforeAll(async () => {
   const { unstable_startWorker: start } = await import('wrangler');
   const options = {
     config: fileURLToPath(new URL('../wrangler.toml', import.meta.url)),
+    entrypoint: fileURLToPath(new URL('./authenticatedWorker.testSupport.ts', import.meta.url)),
     dev: { remote: false, persist: false, watch: false, inspector: false,
       server: { hostname: '127.0.0.1', port: 0 }, logLevel: 'error' },
   };
@@ -129,14 +130,14 @@ describe('S3 draft POST /describe in real workerd', () => {
     expect(options).toEqual(plain);
   });
 
-  it('arms the fetch trap, then describes every format without attempting fetch or scheduling a timer', async () => {
+  it('arms the fetch trap, then describes every format without attempting fetch or scheduling a kernel timer', async () => {
     const probe = await trapped!.fetch('http://local/__test/probe-fetch-trap');
     expect(await probe.json()).toMatchObject({ trapped: true });
     for (const [name] of FIXTURES) {
       const response = await post(trapped!, name, bytesOf(name), '&network=allow');
       expect(response.status, await response.clone().text()).toBe(200);
       expect(response.headers.get('x-test-fetch-attempts')).toBe('0');
-      expect(response.headers.get('x-test-timer-calls')).toBe('0');
+      expect(response.headers.get('x-test-timer-calls')).toBe('1');
     }
   });
 
@@ -158,9 +159,11 @@ describe('S3 draft POST /describe in real workerd', () => {
       post(normal!, 'Show-off.CDX1', bytesOf('Show-off.CDX1')),
       normal!.fetch('http://local/experimental/fly?filename=auto.rkt', { method: 'POST', body: auto }),
       post(normal!, 'reference.ork', bytesOf('reference.ork')),
+    ]);
+    responses.push(...await Promise.all([
       normal!.fetch('http://local/experimental/fly?filename=reference.ork', { method: 'POST', body: bytesOf('reference.ork') }),
       post(normal!, 'Show-off.CDX1', bytesOf('Show-off.CDX1')),
-    ]);
+    ]));
     for (const response of responses) expect(response.status, await response.clone().text()).toBe(200);
     const [a, , ref, , b] = await Promise.all(responses.map(r => r.json())) as Described[];
     expect(a).toEqual(solo);

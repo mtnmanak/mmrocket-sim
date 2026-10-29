@@ -1,6 +1,6 @@
 import { strFromU8, unzipSync } from 'fflate';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { worker } from './index.js';
+import { authenticatedWorker as worker } from './auth.testSupport.js';
 import { bytesOf, orkOf } from './fixtures.testSupport.js';
 import { MAX_INFLATED_BYTES } from '../../app/src/services/shareLink.js';
 

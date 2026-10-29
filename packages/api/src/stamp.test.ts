@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { beforeEach, expect, it, vi } from 'vitest';
-import { worker } from './index.js';
+import { authenticatedWorker as worker } from './auth.testSupport.js';
 import { SimulateDesignError, simulateFile } from '../../app/src/headless/index.js';
 
 // Distinct non-date sentinels: on main the two catalogue dates are equal, so only these tell them apart.

@@ -55,6 +55,8 @@ export interface DescribeFileOptions {
   signal?: AbortSignal;
   /** A host's display rule for the design's name (simulateFile's `designName`). */
   designName?: (name: string) => string;
+  /** Let an API host sanitize entries before rebuilding the displayed import note. */
+  includeImportNoteGroup?: boolean;
 }
 
 export interface DescribedMount {
@@ -101,7 +103,7 @@ export interface DescribeFileResult {
   /** `#d=1.…`, exactly what the app's share link carries after its origin. */
   fragment: string;
   notes: {
-    import: { text: string; severity: NoticeSeverity };
+    import: { text: string; severity: NoticeSeverity; group?: ImportPlan['note']['group'] };
     analysis: string[];
     export: string[];
   };
@@ -366,7 +368,8 @@ export async function describeFile(
     mounts,
     fragment,
     notes: {
-      import: { text: plan.note.text, severity: plan.note.severity },
+      import: { text: plan.note.text, severity: plan.note.severity,
+        ...(opts.includeImportNoteGroup ? { group: plan.note.group } : {}) },
       analysis: notes,
       export: exportNotes(projection, opened, Object.keys(plan.unmatchedRefs).length, writerNotes),
     },

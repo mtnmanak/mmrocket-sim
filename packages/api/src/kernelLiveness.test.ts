@@ -1,25 +1,30 @@
 import { afterEach, expect, it, vi } from 'vitest';
-import { worker } from './index.js';
+import { authenticatedWorker as worker } from './auth.testSupport.js';
 import { autoBody, bytesOf } from './fixtures.testSupport.js';
 import { resetKernelForTests } from '../../app/src/services/simulateDesign.js';
 
 /** The watchdog the wrappers below install in place of the Worker's 10 s. */
 const DEAD_HOLDER_MS = 1;
-const seen = vi.hoisted(() => ({ flights: 0, describes: 0 }));
+const seen = vi.hoisted(() => ({ flights: 0, describes: 0,
+  gate: undefined as Promise<void> | undefined, ready: undefined as (() => void) | undefined }));
 
 // The Worker's own options, with the dead-holder watchdog shortened so a short
 // healthy flight outlasts it. Every other option is the one index.ts passes.
 vi.mock('../../app/src/headless/index.js', async importOriginal => {
   const real = await importOriginal<typeof import('../../app/src/headless/index.js')>();
   return { ...real,
-    simulateFile: (...[data, name, opts]: Parameters<typeof real.simulateFile>) => {
+    simulateFile: async (...[data, name, opts]: Parameters<typeof real.simulateFile>) => {
       expect(opts?.kernelDeadHolderMs).toBe(10_000);
       seen.flights++;
+      if (seen.flights + seen.describes === 3) seen.ready?.();
+      await seen.gate;
       return real.simulateFile(data, name, { ...opts, kernelDeadHolderMs: DEAD_HOLDER_MS });
     },
-    describeFile: (...[data, name, opts]: Parameters<typeof real.describeFile>) => {
+    describeFile: async (...[data, name, opts]: Parameters<typeof real.describeFile>) => {
       expect(opts?.kernelDeadHolderMs).toBe(10_000);
       seen.describes++;
+      if (seen.flights + seen.describes === 3) seen.ready?.();
+      await seen.gate;
       return real.describeFile(data, name, { ...opts, kernelDeadHolderMs: DEAD_HOLDER_MS });
     } };
 });
@@ -39,11 +44,20 @@ it('never poisons a request queued behind a real, healthy flight, even at a 1 ms
   }
   const timers = vi.spyOn(globalThis, 'setTimeout');
   Object.assign(seen, { flights: 0, describes: 0 });
-  const responses = await Promise.all([
+  // SHA-256 authentication completes on I/O turns: release all authenticated jobs together.
+  let release!: () => void;
+  seen.gate = new Promise<void>(resolve => { release = resolve; });
+  const ready = new Promise<void>(resolve => { seen.ready = resolve; });
+  const pending = Promise.all([
     post('/experimental/fly', 'auto.rkt', auto),
     post('/experimental/fly', 'reference.ork', reference),
     post('/describe', 'reference.ork', reference),
   ]);
+  await ready;
+  release();
+  const responses = await pending;
+  seen.gate = undefined;
+  seen.ready = undefined;
   const armed = timers.mock.calls.filter(([, delay]) => delay === DEAD_HOLDER_MS).length;
   timers.mockRestore();
   expect({ flights: seen.flights, describes: seen.describes }).toEqual({ flights: 2, describes: 1 });

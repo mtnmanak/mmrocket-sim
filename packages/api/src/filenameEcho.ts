@@ -27,10 +27,26 @@ const unsafe = (c: number) => c <= 0x1f || (c >= 0x7f && c <= 0x9f) || c === 0x2
  * split. Text within the bound with nothing to replace is returned unchanged.
  */
 export function displayEcho(text: string): string {
-  const points = Array.from(text, ch => unsafe(ch.codePointAt(0)!) ? '?' : ch);
+  const points: string[] = [];
+  for (const ch of text) {
+    points.push(unsafe(ch.codePointAt(0)!) ? '?' : ch);
+    if (points.length > FILENAME_ECHO_MAX) break;
+  }
   if (points.length <= FILENAME_ECHO_MAX) return points.join('');
+  const tail: string[] = [];
+  for (let at = text.length; at > 0 && tail.length < FILENAME_ECHO_TAIL;) {
+    let start = at - 1;
+    const last = text.charCodeAt(start);
+    if (last >= 0xdc00 && last <= 0xdfff && start > 0) {
+      const first = text.charCodeAt(start - 1);
+      if (first >= 0xd800 && first <= 0xdbff) start--;
+    }
+    const ch = text.slice(start, at);
+    tail.push(unsafe(ch.codePointAt(0)!) ? '?' : ch);
+    at = start;
+  }
   return points.slice(0, FILENAME_ECHO_MAX - FILENAME_ECHO_TAIL - 1).join('') + CUT
-    + points.slice(-FILENAME_ECHO_TAIL).join('');
+    + tail.reverse().join('');
 }
 
 /** The filename echo of an error message: {@link displayEcho}. */

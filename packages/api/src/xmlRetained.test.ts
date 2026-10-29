@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { gzipSync, strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { DOMParser } from '@xmldom/xmldom';
 import { SaxesParser } from 'saxes';
-import { worker } from './index.js';
+import { authenticatedWorker as worker } from './auth.testSupport.js';
 import { API_XML_LIMITS } from './xmlLimits.js';
 import { bytesOf, stampOf } from './fixtures.testSupport.js';
 

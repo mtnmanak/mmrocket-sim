@@ -1,5 +1,5 @@
 import { setTextDecoderFactoryForTests } from '../../app/src/services/xmlUtil.js';
-import { worker } from './index.js';
+import { authenticatedWorker as worker } from './auth.testSupport.js';
 
 // Test-only: the production worker in a runtime whose windows-1252 decoder takes the
 // label but reads every byte as its own code point (ISO-8859-1, 0x99 as U+0099).

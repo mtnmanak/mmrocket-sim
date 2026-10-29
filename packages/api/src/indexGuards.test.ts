@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { gzipSync, zipSync } from 'fflate';
-import { API_XML_LIMITS, worker } from './index.js';
+import { API_XML_LIMITS, authenticatedWorker as worker } from './auth.testSupport.js';
 import { keptShapeXml, xmlStats } from './storedFlight.testSupport.js';
 import { bytesOf, orkOf, secondaryBody, stampOf, timeStepBody } from './fixtures.testSupport.js';
 import { strFromU8, unzipSync } from 'fflate';
@@ -265,9 +265,19 @@ it('passes the ten-second watchdog through simulateFile and returns unwrapped 50
   await simulateFile(body, 'reference.ork', { reportSeries: 'summary' });
   vi.useFakeTimers();
   void withKernel(() => new Promise(() => {}));
+  let armed!: () => void;
+  const watchdogArmed = new Promise<void>(resolve => { armed = resolve; });
+  const schedule = globalThis.setTimeout;
+  const timers = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((...args: Parameters<typeof setTimeout>) => {
+    const timer = schedule(...args);
+    if (args[1] === 10_000) armed();
+    return timer;
+  }) as typeof setTimeout);
   let settled = false;
   const flight = worker.fetch(request(body), undefined, ctx);
   void flight.then(() => { settled = true; });
+  // Authentication hashes asynchronously: start the fake interval when the watchdog really arms.
+  try { await watchdogArmed; } finally { timers.mockRestore(); }
   await vi.advanceTimersByTimeAsync(9999);
   expect(settled).toBe(false);
   await vi.advanceTimersByTimeAsync(1);
