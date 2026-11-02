@@ -62,11 +62,67 @@ function bucket(initial = [], intercept = () => undefined) {
   return { objects, calls, runCommand };
 }
 const puts = (b) => b.calls.filter(([, args]) => args[1] === 'put-object').map(([, args]) => args[args.indexOf('--key') + 1]);
+
+it('prunes unneeded manifest history but retains explicit reader pins and the previous current', async () => {
+  const previous = manifest();
+  const copy = id => ({ ...previous.snapshots[0], id,
+    motors: { ...previous.snapshots[0].motors, path: `v1/${id}/motors.json` },
+    curves: { ...previous.snapshots[0].curves, path: `v1/${id}/motorCurves.json` } });
+  previous.snapshots.push(copy('2026-10-20'), copy('2026-10-19'));
+  for (let i = 2; i < 400; i++) previous.snapshots.push(copy(`2026-10-18.${i}`));
+  previous.retainedSnapshotIds = ['2026-10-19'];
+  const plan = planPublication({ ...inputs({ generated: '2026-10-23', force: 2 }), previousManifest: previous, previousManifestBytes: bytes(previous) });
+  const b = bucket([['manifest.json', bytes(previous)]]);
+  const { final } = await uploaded(plan, b);
+  expect(JSON.parse(final).snapshots.map(s => s.id)).toEqual(['2026-10-23', '2026-10-22', '2026-10-19']);
+  expect(JSON.parse(final).retainedSnapshotIds).toEqual(['2026-10-19']);
+  expect(final.length).toBeLessThan(256 * 1024);
+  expect(b.calls.every(([, args]) => args[1] !== 'delete-object')).toBe(true);
+});
+
+it('refuses missing reader pins instead of silently discarding them', () => {
+  const previous = manifest();
+  previous.retainedSnapshotIds = ['2020-01-01'];
+  expect(() => validatePreviousManifest(previous)).toThrow(/retained snapshot ids/);
+});
+
+it('refuses an oversized retained manifest without updating the pointer', async () => {
+  const previous = { ...manifest(), notice: 'x'.repeat(256 * 1024) };
+  const plan = planPublication({ ...inputs({ force: 2 }), previousManifest: previous, previousManifestBytes: bytes(previous) });
+  const b = bucket([['manifest.json', bytes(previous)]]);
+  await expect(uploadPublication(staged(plan), { env, now, runCommand: b.runCommand })).rejects.toThrow(/256 KiB/);
+  expect(puts(b)).not.toContain('manifest.json');
+  expect(b.objects.get('manifest.json')).toEqual(bytes(previous));
+});
 async function uploaded(plan = first(), b = bucket()) {
   const dir = staged(plan);
   await uploadPublication(dir, { env, now, runCommand: b.runCommand });
   return { dir, b, final: readFileSync(join(dir, 'uploaded-manifest.json')) };
 }
+
+it('plans beyond pruned same-day IDs and publishes the ID named in the summary', async () => {
+  const base = first();
+  const old = manifest();
+  old.current = `${base.snapshotId}.3`;
+  old.snapshots[0] = { ...old.snapshots[0], id: old.current,
+    motors: { ...old.snapshots[0].motors, path: `v1/${old.current}/motors.json` },
+    curves: { ...old.snapshots[0].curves, path: `v1/${old.current}/motorCurves.json` } };
+  const args = inputs({ force: 2 });
+  const plan = planPublication({ ...args, previousManifest: old, previousManifestBytes: bytes(old) });
+  const b = bucket([['manifest.json', bytes(old)], ...base.uploads.map(u => [u.key, u.bytes])]);
+  const { final } = await uploaded(plan, b);
+  expect(plan.snapshotId).toBe(`${base.snapshotId}.4`);
+  expect(JSON.parse(final).current).toBe(plan.snapshotId);
+  expect(publicationSummary(plan, args)).toContain(`NEW snapshot: ${plan.snapshotId};`);
+});
+
+it('explains how to recover an incomplete bundle before publication', () => {
+  const args = inputs();
+  const curves = JSON.parse(args.curvesBytes);
+  delete curves.complete;
+  expect(() => planPublication({ ...args, curvesBytes: bytes(curves) }))
+    .toThrow(/Run again WITHOUT --allow-partial before publishing/);
+});
 
 describe('planPublication and contentHash', () => {
   it.each(['constructor', 'toString', '__proto__'])('diffs own curve keys safely: %s', id => {

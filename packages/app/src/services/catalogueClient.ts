@@ -137,6 +137,9 @@ export function validateCatalogueManifest(manifest: unknown): ManifestSnapshot {
   }
   const current = byId.get(manifest['current']);
   if (!current) return bad('the current snapshot is not in its history');
+  const retained = manifest['retainedSnapshotIds'];
+  if (retained !== undefined && (!Array.isArray(retained)
+    || retained.some(id => !byId.has(id)))) return bad('invalid retained snapshot ids');
   return current;
 }
 

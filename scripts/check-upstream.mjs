@@ -99,7 +99,7 @@ import { childElements, elementBlocks } from '../packages/app/scripts/fetch-comp
 import { CORRECTIONS, UPSTREAM_WATCH } from '../packages/app/scripts/apply-preset-corrections.mjs';
 import { MOTOR_CORRECTIONS } from '../packages/app/scripts/motor-corrections.mjs';
 import { manufacturerAbbreviations } from '../packages/app/scripts/thrustcurve-api-shapes.mjs';
-import { ThrustcurveChallengeError, ThrustcurveUnavailableError, thrustcurveFetch } from '../packages/app/scripts/thrustcurve-client.mjs';
+import { RETRYABLE_STATUSES, ThrustcurveChallengeError, ThrustcurveUnavailableError, thrustcurveFetch } from '../packages/app/scripts/thrustcurve-client.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const RAW = 'https://raw.githubusercontent.com/openrocket/openrocket-database/master/orc';
@@ -120,7 +120,7 @@ const failedHosts = new Set();
  * ONE SERVICE'S STOP SKIPS ONLY WHAT NEEDS IT (audit S2-1, 2026-10-28). Each
  * check names the services it reads in `needs` (set beside DEFAULT_CHECKS),
  * and its printed heading in `section`. A stop is thrustcurve.org's challenge
- * or unavailable latch, its 403 or 429, or a 429 from any other host; the run
+ * or unavailable latch, its 403/429 or retryable outage status, or a 429 from any other host; the run
  * then skips only the later checks that need that service. thrustcurve.org's
  * own traffic needs no loop-wide stop: the client's latch sends nothing more.
  */
@@ -133,20 +133,20 @@ function stoppedService(err) {
   try { hostname = new URL(err.url).hostname; } catch { /* no URL: not a stop */ }
   const service = serviceOf(hostname);
   if (err.status === 429 && hostname) return service;
-  return err.status === 403 && service === 'thrustcurve.org' ? service : null;
+  return (err.status === 403 || RETRYABLE_STATUSES.includes(err.status)) && service === 'thrustcurve.org' ? service : null;
 }
 /** Services that stopped this run → the section they stopped in; and the closing summary's lines. */
 const stops = new Map();
 const unrun = [];
 const stopIn = (service, section) => { if (!stops.has(service)) stops.set(service, section); };
 
-async function request(url, read, signal) {
+async function request(url, read, signal, init = {}) {
   const host = new URL(url).host;
   if (failedHosts.delete(host)) await new Promise(resolve => setTimeout(resolve, 250));
   try {
     // thrustcurve.org goes through the shared paced client (its operator's rate limit, 27 Oct 2026).
     const send = new URL(url).hostname === 'www.thrustcurve.org' ? thrustcurveFetch : fetch;
-    const res = await send(url, { headers: UA, ...(signal ? { signal } : {}) });
+    const res = await send(url, { ...init, headers: UA, ...(signal ? { signal } : {}) });
     if (!res.ok) throw Object.assign(new Error(`HTTP ${res.status} for ${url}`), { status: res.status });
     return await read(res);
   } catch (err) {
@@ -156,7 +156,7 @@ async function request(url, read, signal) {
   }
 }
 const text = url => request(url, res => res.text());
-const json = url => request(url, res => res.json());
+const json = (url, init) => request(url, res => res.json(), undefined, init);
 
 async function pdfBytes(url) {
   return request(url, async res => {
@@ -402,15 +402,25 @@ export async function checkThrustCurve(getJson = json) {
   // and never a failure — it depends on a third-party endpoint being up, and a
   // release must not be blocked by someone else's outage.
   try {
-    const probe = await getJson(`${TC_API}/search.json?availability=all&maxResults=1`);
+    const probe = await getJson(`${TC_API}/search.json?availability=all&maxResults=1`, { advisory: true });
     const msg = cataloguePopulationNote(bundled, probe?.matches);
     if (msg) say(`  note ${msg}`);
   } catch (e) {
-    const service = stoppedService(e);
+    // An answered advisory status is only a probe note. Only an actual client
+    // latch (such as a challenge) can stop the required requests that follow.
+    // A plain 403 means the site refused us: stop, as before the lane (audit S2-1); never ask it again this run.
+    const service = e instanceof ThrustcurveChallengeError || e instanceof ThrustcurveUnavailableError || e?.status === 403
+      ? 'thrustcurve.org' : null;
     if (service) {
       // Noted, not thrown: the curve-bundle checks below read only local files.
       stopIn(service, checkThrustCurve.section);
-      unrun.push(`${checkThrustCurve.section} — partly run: ${service} stopped answering (${e.message})`);
+      const partial = `${checkThrustCurve.section} — partly run: ${service} stopped answering (${e.message})`;
+      say(`  note ${partial}`);
+      notes.push(partial);
+    } else {
+      const partial = `${checkThrustCurve.section} — partly run: catalogue population probe failed (${e.message})`;
+      say(`  note ${partial}`);
+      notes.push(partial);
     }
     say(`  note could not reach thrustcurve.org to compare catalogue size (${e.message}) — the age check above still stands.`);
   }
@@ -884,11 +894,12 @@ export async function main(checks = DEFAULT_CHECKS, advisories = checkAdvisories
       }
       try { await check(); }
       catch (err) {
-        console.error(`check could not run: ${err.message}`);
+        const service = stoppedService(err);
+        const outcome = 'could not run';
+        console.error(`check ${outcome}: ${err.message}`);
         console.error('(network or parse failure; NOT a verdict on this section\'s data)');
         status = 2;
-        unrun.push(`${section} — could not run`);
-        const service = stoppedService(err);
+        unrun.push(`${section} — ${outcome}`);
         if (service) stopIn(service, section);
       }
     }

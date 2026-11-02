@@ -9,6 +9,16 @@
  * For the exact id diff, plan reads --previous-motors/--previous-curves if supplied,
  * otherwise downloads and hash-checks the previous files from the public URL.
  * Commit provenance prefers --commit, then GITHUB_SHA, then local git rev-parse HEAD.
+ * Manifest retention: keep current, the previous current (rollback), and every
+ * id in the live manifest's retainedSnapshotIds (explicit released-reader pins).
+ * App readers select current; saved overlays hold their own paths and hashes,
+ * so they do not look up old ids in the manifest. The API uses its bundled
+ * files; Motor Dashboard's curated-copy reader likewise selects current.
+ * Immutable snapshot objects are NEVER deleted: old self-contained references
+ * remain usable. Before releasing a reader that looks up a historical id, add
+ * that id to retainedSnapshotIds; never remove a pin a released reader may use.
+ * Refuse a manifest above the readers' 256 KiB limit rather than dropping pins.
+ * Publication still requires the owner's approval.
  */
 import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, appendFileSync, writeFileSync } from 'node:fs';
@@ -106,6 +116,8 @@ export function validatePreviousManifest(manifest) {
     }
   }
   if (!ids.has(manifest.current)) throw new Error('Previous current snapshot is missing from history');
+  if (manifest.retainedSnapshotIds !== undefined && (!Array.isArray(manifest.retainedSnapshotIds)
+    || manifest.retainedSnapshotIds.some(id => !ids.has(id)))) throw new Error('Invalid retained snapshot ids');
 }
 
 /** Plan immutable files and ONE entry, never an authoritative future manifest. */
@@ -127,7 +139,9 @@ export function planPublication({ motorsBytes, curvesBytes, previousManifest, pr
     || Object.keys(curves.curves).length !== curves.motors
     || !Object.values(curves.curves).every(Array.isArray)
     || Object.values(curves.curves).reduce((n, files) => n + files.length, 0) !== curves.files) {
-    throw new Error('Invalid catalogue/curve dates, counts, or incomplete curve bundle');
+    throw new Error('Invalid catalogue/curve dates, counts, or incomplete curve bundle. '
+      + 'For a partial recovery baseline, confirm withdrawal first. Run again WITHOUT --allow-partial before publishing '
+      + 'to produce a complete bundle with fetch-motor-curves.mjs; then create a new publication plan.');
   }
   const ids = new Set(motors.motors.map((m) => m.motorId));
   if (Object.keys(curves.curves).some((id) => !ids.has(id))) throw new Error('Pair mismatch: curve motor id absent from catalogue rows');
@@ -153,7 +167,12 @@ export function planPublication({ motorsBytes, curvesBytes, previousManifest, pr
   assertNewer({ fetchedAt, motors }, previousManifest);
   const used = new Set(previousManifest?.snapshots.map((s) => s.id));
   let id = motors.generated;
-  for (let suffix = 2; used.has(id); suffix++) id = `${motors.generated}.${suffix}`;
+  // Earlier same-day IDs may have been pruned while their immutable objects remain.
+  let suffix = 1;
+  for (const prior of used) {
+    if (prior.slice(0, 10) === motors.generated) suffix = Math.max(suffix, Number(prior.split('.')[1] ?? 1) + 1);
+  }
+  if (suffix > 1) id = `${motors.generated}.${suffix}`;
   const entry = {
     id, commit, sourceRunId, fetchedAt, ...(sourceAttempt === undefined ? {} : { sourceAttempt: String(sourceAttempt) }),
     motors: { path: `v1/${id}/motors.json`, bytes: Buffer.byteLength(motorsBytes), sha256: motorsHash,
@@ -412,10 +431,12 @@ export async function uploadPublication(dir, {
     const publishedAt = new Date(now).toISOString();
     entry = { ...entry, publishedAt };
     // Preserve schema-1 extensions; only the pointer/publication fields change.
+    const retained = new Set([live?.current, ...(live?.retainedSnapshotIds ?? [])]);
     const manifest = { ...live, schema: 1, current: entry.id, publishedAt, commit: entry.commit, source: SOURCE,
-      snapshots: [entry, ...(live?.snapshots ?? [])] };
+      snapshots: [entry, ...(live?.snapshots ?? []).filter(snapshot => retained.has(snapshot.id))] };
     validatePreviousManifest(manifest);
     const manifestBytes = jsonBytes(manifest), finalFile = join(temp, 'final-manifest.json');
+    if (manifestBytes.length > 256 * 1024) throw new Error('Retained manifest exceeds the readers\' 256 KiB limit; no pins were dropped');
     writeFileSync(finalFile, manifestBytes);
     let failed;
     try {

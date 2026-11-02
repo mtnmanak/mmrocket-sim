@@ -27,10 +27,159 @@ function harness(answers, options = {}) {
     intervalMs: 5000,
     ...options,
   });
-  return { client, sent, slept, advance: (ms) => { clock += ms; } };
+  return { client, sent, slept, elapsed: () => clock - 1_000_000, advance: (ms) => { clock += ms; } };
 }
 
 const challenge = { status: 403, headers: { 'cf-mitigated': 'challenge' }, body: '<title>Just a moment...</title>' };
+
+it.each([429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530])('latches HTTP %s after bounded retries', async status => {
+  const { client, sent, slept } = harness(Array.from({ length: 4 }, () => ({ status, delay: 120_000 })));
+  expect((await client('https://www.thrustcurve.org/a')).status).toBe(status);
+  for (let batch = 1; batch < 24; batch++) {
+    await expect(client(`https://www.thrustcurve.org/b${batch}`)).rejects.toBeInstanceOf(ThrustcurveUnavailableError);
+  }
+  expect(sent).toHaveLength(4);
+  expect(slept.reduce((sum, ms) => sum + ms, 0) + sent.length * 120_000).toBeLessThan(45 * 60_000);
+});
+
+it('bounds slow failed attempts across batches that recover on retry', async () => {
+  const answers = Array.from({ length: 24 }, () => [
+    { status: 524, delay: 100_000 }, { status: 200, delay: 100_000 },
+  ]).flat();
+  const { client, sent, elapsed } = harness(answers);
+  for (let batch = 0; batch < 24; batch++) {
+    try { await client(`https://www.thrustcurve.org/b${batch}`); }
+    catch (error) { expect(error).toBeInstanceOf(ThrustcurveUnavailableError); }
+  }
+  expect(sent.length).toBeLessThan(12);
+  expect(elapsed()).toBeLessThan(20 * 60_000);
+});
+
+it.each(['headers', 'body'])('bounds alternating slow %s resets and successful batches', async phase => {
+  let attempts = 0;
+  const { client, advance, elapsed } = harness([], { fetchImpl: async () => {
+    const failed = attempts++ % 2 === 0;
+    advance(phase === 'body' ? 40_000 : 110_000);
+    if (failed && phase === 'headers') throw new Error('ECONNRESET');
+    return { status: 200, json: async () => {
+      if (phase === 'body') advance(120_000);
+      if (failed) throw new Error('response closed before body ended');
+      return {};
+    } };
+  } });
+  let stopped;
+  for (let batch = 0; batch < 24; batch++) {
+    try { await (await client(`https://www.thrustcurve.org/b${batch}`)).json(); }
+    catch (error) { if (error instanceof ThrustcurveUnavailableError) stopped = error; }
+  }
+  expect(stopped).toBeInstanceOf(ThrustcurveUnavailableError);
+  expect(attempts).toBeLessThan(24);
+  // The body shape includes 40 s of headers plus 120 s of body time per answer.
+  expect(elapsed()).toBe(phase === 'body' ? 1_125_000 : 1_265_000);
+  expect(elapsed()).toBeLessThan(45 * 60_000);
+});
+
+it.each(['headers deadline exceeded', 'ECONNRESET', 'response closed before body ended'])(
+  'keeps the original %s in the first and subsequent latch errors', async message => {
+    const cause = new Error(message);
+    const { client } = harness([], { fetchImpl: async () => { throw cause; } });
+    if (!message.includes('deadline')) await expect(client('https://www.thrustcurve.org/a')).rejects.toBe(cause);
+    for (const url of ['a', 'b']) {
+      const failure = client(`https://www.thrustcurve.org/${url}`);
+      await expect(failure).rejects.toMatchObject({ cause, name: 'ThrustcurveUnavailableError' });
+      await expect(failure).rejects.toThrow(message);
+    }
+  },
+);
+
+it.each(['headers', 'body'])('an advisory %s deadline leaves required requests usable', async phase => {
+  const cause = new Error(`${phase} deadline exceeded`);
+  const fetchImpl = vi.fn().mockImplementationOnce(async () => {
+    if (phase === 'headers') throw cause;
+    return { status: 200, json: async () => { throw cause; } };
+  }).mockResolvedValueOnce(new Response('{}'));
+  const { client } = harness([], { fetchImpl });
+  await expect((async () => (await client('https://www.thrustcurve.org/probe', { advisory: true })).json())()).rejects.toThrow(cause.message);
+  expect(await (await client('https://www.thrustcurve.org/metadata')).json()).toEqual({});
+  expect(fetchImpl).toHaveBeenCalledTimes(2);
+  expect(fetchImpl.mock.calls[0][1]).not.toHaveProperty('advisory');
+});
+
+it('an advisory outage shares pacing without retries or stopping required traffic', async () => {
+  const { client, sent } = harness([{ status: 503 }, { status: 200 }]);
+  expect((await client('https://www.thrustcurve.org/probe', { advisory: true })).status).toBe(503);
+  expect((await client('https://www.thrustcurve.org/metadata')).status).toBe(200);
+  expect(sent).toHaveLength(2);
+  // No Retry-After: the next request waits the first retry backoff (30 s), not just the pace.
+  expect(sent[1].at - sent[0].at).toBe(30_000);
+});
+
+it('a challenge on an advisory request still stops required traffic', async () => {
+  const { client, sent } = harness([challenge]);
+  await expect(client('https://www.thrustcurve.org/probe', { advisory: true })).rejects.toBeInstanceOf(ThrustcurveChallengeError);
+  await expect(client('https://www.thrustcurve.org/metadata')).rejects.toBeInstanceOf(ThrustcurveChallengeError);
+  expect(sent).toHaveLength(1);
+});
+
+it.each([
+  [429, '45', 45_000],
+  [503, 'Thu, 01 Jan 1970 00:00:45 GMT', 45_000],
+  [503, '999', MAX_RETRY_WAIT_MS],
+  [429, '1', DEFAULT_INTERVAL_MS],
+])('an advisory HTTP %s preserves Retry-After %s for queued required traffic', async (status, retryAfter, wait) => {
+  const { client, sent } = harness([
+    { status, headers: { 'retry-after': retryAfter } }, { status: 200 }, { status: 200 },
+  ], { wallNow: () => 0, retryBudgetMs: 1 });
+  const probe = client('https://www.thrustcurve.org/probe', { advisory: true });
+  const metadata = client('https://www.thrustcurve.org/metadata');
+  expect((await probe).status).toBe(status);
+  expect((await metadata).status).toBe(200);
+  expect((await client('https://www.thrustcurve.org/4b')).status).toBe(200);
+  expect(sent).toHaveLength(3);
+  expect(sent[1].at - sent[0].at).toBe(wait);
+  expect(sent[2].at - sent[1].at).toBe(DEFAULT_INTERVAL_MS);
+});
+
+it.each(['headers', 'body'])('recovers from one %s reset but stops on repeated transport failures', async phase => {
+  const reset = new Error('ECONNRESET');
+  const fetchImpl = vi.fn(async () => {
+    if (phase === 'headers') throw reset;
+    return { status: 200, json: async () => { throw reset; } };
+  });
+  const { client } = harness([], { fetchImpl });
+  const ask = async () => {
+    const res = await client('https://www.thrustcurve.org/a');
+    if (phase === 'body') await res.json();
+  };
+  await expect(ask()).rejects.toThrow('ECONNRESET');
+  await expect(ask()).rejects.toBeInstanceOf(ThrustcurveUnavailableError);
+  await expect(ask()).rejects.toBeInstanceOf(ThrustcurveUnavailableError);
+  expect(fetchImpl).toHaveBeenCalledTimes(2);
+});
+
+it('clears a transient transport failure after a successful body', async () => {
+  const fetchImpl = vi.fn().mockRejectedValueOnce(new Error('ECONNRESET'))
+    .mockResolvedValueOnce(new Response('{}')).mockRejectedValueOnce(new Error('ECONNRESET'))
+    .mockResolvedValueOnce(new Response('{}'));
+  const { client } = harness([], { fetchImpl });
+  for (let i = 0; i < 2; i++) {
+    await expect(client('https://www.thrustcurve.org/a')).rejects.toThrow('ECONNRESET');
+    expect(await (await client('https://www.thrustcurve.org/b')).json()).toEqual({});
+  }
+});
+
+it.each(['headers', 'body'])('latches a thrown %s deadline before any later request', async phase => {
+  const fetchImpl = vi.fn(async () => {
+    const error = new Error(`thrustcurve.org ${phase} deadline exceeded`);
+    if (phase === 'headers') throw error;
+    return { status: 200, ok: true, json: async () => { throw error; }, text: async () => { throw error; } };
+  });
+  const { client } = harness([], { fetchImpl });
+  if (phase === 'headers') await expect(client('https://www.thrustcurve.org/a')).rejects.toBeInstanceOf(ThrustcurveUnavailableError);
+  else await expect((await client('https://www.thrustcurve.org/a')).json()).rejects.toBeInstanceOf(ThrustcurveUnavailableError);
+  await expect(client('https://www.thrustcurve.org/b')).rejects.toBeInstanceOf(ThrustcurveUnavailableError);
+  expect(fetchImpl).toHaveBeenCalledOnce();
+});
 
 describe('thrustcurve-client pacing', () => {
   it('starts every request at least one interval after the one before, the first included', async () => {
@@ -185,8 +334,8 @@ describe('thrustcurve-client retries', () => {
   });
 
   it('does not retry other failures', async () => {
-    const { client, sent } = harness([{ status: 500 }]);
-    expect((await client('https://www.thrustcurve.org/a')).status).toBe(500);
+    const { client, sent } = harness([{ status: 400 }]);
+    expect((await client('https://www.thrustcurve.org/a')).status).toBe(400);
     expect(sent).toHaveLength(1);
   });
 });
