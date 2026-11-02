@@ -1,12 +1,26 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import type { ComponentNode } from '@online-openrocket/engine';
+import { OrkRocket, resetEngine, type ComponentNode } from '@online-openrocket/engine';
+import { engineTree } from '../tree/treeModel.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './launchConditions.js';
 import { checkFormatLoss, type FormatLossInput, type LossyFormat } from './formatLoss.js';
-import { exportRkt } from './rocksimFile.js';
+import { exportRkt, rktComponentInfo } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 
 describe('lossy fix regressions', () => {
+  it.each(['podset', 'innertube'] as const)('previews the real computed override counterpart for %s', type => {
+    const d = input({ type, id: 'partial', name: 'Partial', overrideCGX: 0.02,
+      ...(type === 'podset' ? { children: [{ type: 'bodytube', id: 'podTube', length: 0.1, outerRadius: 0.01 }] }
+        : { length: 0.1, outerRadius: 0.01 }) });
+    resetEngine();
+    const rocket = OrkRocket.buildTree(engineTree(d.tree));
+    d.compInfo = rktComponentInfo(d.tree, id => rocket.componentInfo(id));
+    const notes: string[] = [];
+    exportRkt({ name: 'Preview', tree: d.tree, compInfo: d.compInfo, notes });
+    const pins = (lines: string[]) => lines.filter(n => /saving a .*only override/.test(n));
+    expect(pins(checkFormatLoss('rkt', d).losses)).toEqual(pins(notes));
+    expect(pins(notes).length).toBe(type === 'podset' ? 0 : 1);
+  });
   it.each(['toString', 'constructor', '__proto__'])('does not let stage %s hide a real booster motor in the loss review', id => {
     const d = input();
     d.tree.components.push({ type: 'stage', id, nozzleExitDiameter: 0.01, children: [{ type: 'bodytube', id: 'boost' }] });

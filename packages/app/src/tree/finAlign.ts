@@ -5,6 +5,7 @@ import { updateNode } from './treeModel.js';
 import { num } from './nodeNum.js';
 import { isFinSet } from './mountAngle.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
+import { noteField } from '../services/noteField.js';
 
 /**
  * One-click fin-set alignment (issue 2026-08-05e): rotates axially-overlapping
@@ -145,7 +146,7 @@ export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
         if (bestClear > currentClear + 1e-6) {
           patches.set(me.id, bestRot);
           changes.push(
-            `“${me.name ?? me.type}” rotated to ${Math.round((bestRot * 180) / Math.PI)}° `
+            `“${noteField(me.name ?? me.type)}” rotated to ${Math.round((bestRot * 180) / Math.PI)}° `
             + `(was ${Math.round((current * 180) / Math.PI)}°) for the widest fin clearance.`,
           );
         }

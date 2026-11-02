@@ -327,6 +327,23 @@ it('requires inventory review and a boundary case or scope exemption for new pro
 // Booster boat-tail omission and launch delay notes are format-loss statements,
 // covered by auditN6 (missing/zero rear diameter; 1/2/3-stage delay overrides).
 // noteExplanations 26 -> 27 is static recovery/boat-tail help, not a threshold.
+// Inventory review (2026-11-02, N5 round 4): noteExplanations 27 -> 28.
+// "against" in the cord remedy is categorical, not a numerical threshold
+// (scope exemption). Bulk-typed cord caution and unchanged density are covered
+// by rocksimFile.importExport.test.ts; no flight comparison changed.
+// Inventory review (2026-11-02, N5 round 3): rocksimFile 272 -> 273.
+// Reviewed added density-kind and pin predicates (categorical, not measured
+// comparisons), plus positive mass/CG boundaries for save notes. Zero-mass,
+// cord, computed-zero and CG-only cases in rocksimFile.importExport.test.ts
+// cover those note gates; existing density and fin overlap thresholds stay put.
+// Inventory review (2026-11-02, N5 round 2): reviewed rocksimFile census is 272
+// (previous JSON: 271). New matches include two XML comment literals and the
+// measured-stage "instead" note; these carry format intent, not measured
+// comparisons (exempt). The new non-bulk explanation's "against" is also
+// categorical, not numerical (noteExplanations 26 -> 27). Both are covered by
+// rocksimFile.importExport.test.ts and noteExplanations.test.ts. Streamer
+// original/combined mass formatting reuses the existing recovery producer;
+// bulk/surface/invalid-density boundaries are in the importExport tests.
 // Inventory review (2026-11-01, M3): rasaeroFile.ts rose 261 -> 262 on
 // `:scope > IncludeBooster${i}`, an XML child selector in the excluded-booster
 // caution loop. Its `>` is not a numeric comparison or user-facing text, so

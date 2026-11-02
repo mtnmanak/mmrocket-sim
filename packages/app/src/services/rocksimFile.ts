@@ -47,6 +47,7 @@ import { overrideFor, sparsify } from './flightState.js';
 import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { refuseOversizedForeignXml } from './foreignPartPrecount.js';
+import { noteField } from './noteField.js';
 
 export const MAX_RKT_SIMULATION_RECORDS = 4096;
 
@@ -298,6 +299,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const doc = parseXml(xml, 'Not a valid RockSim file (XML parse error)');
   const design = doc.querySelector('RockSimDocument > DesignInformation > RocketDesign');
   if (!design) throw new Error('Not a RockSim design file (missing RocketDesign)');
+  const appWritten = xml.includes('<!-- MMRocket Sim: keep fin rotations -->');
 
   const notes: string[] = encodingNote ? [encodingNote] : [];
   if (doc.querySelectorAll('RockSimDocument > DesignInformation > RocketDesign').length > 1) {
@@ -358,23 +360,27 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       const calcMassG = num(el, 'CalcMass', 0);
       let totalG = calcMassG;
       let addedFabric = false;
-      if (node.type === 'parachute') {
-        const densityType = num(el, 'DensityType', NaN);
-        const density = num(el, 'Density', NaN);
-        if (!(density >= 0) || (densityType !== 0 && densityType !== 1)) totalG = NaN;
-        else if (densityType === 1) {
+      const densityType = num(el, 'DensityType', NaN);
+      const density = num(el, 'Density', NaN);
+      if (!(density >= 0) || (densityType !== 0 && densityType !== 1)) totalG = NaN;
+      else if (densityType === 1) {
+        let fabricArea: number;
+        if (node.type === 'streamer') {
+          const length = num(el, 'Len', NaN) / LEN;
+          const width = num(el, 'Width', NaN) / LEN;
+          fabricArea = length > 0 && width > 0 ? length * width : NaN;
+        } else {
           const diameter = num(el, 'Dia', NaN) / LEN;
           const hole = num(el, 'SpillHoleDia', 0) / LEN;
           const sides = num(el, 'SideCount', NaN);
-          // RockSim's 0 is circular; otherwise Dia spans a regular polygon's
-          // vertices. Its surface-density CalcMass counts fabric only once.
+          // RockSim's 0 is circular; otherwise Dia spans a regular polygon's vertices.
           const area = sides === 0 ? Math.PI * diameter ** 2 / 4
             : Number.isSafeInteger(sides) && sides >= 3 ? sides * diameter ** 2 * Math.sin(2 * Math.PI / sides) / 8 : NaN;
-          const fabricArea = area - Math.PI * hole ** 2 / 4;
-          totalG = diameter > 0 && hole >= 0 && fabricArea >= 0
-            ? calcMassG + (count - 1) * fabricArea * (density / 0.1) * MASS : NaN;
-          addedFabric = true;
+          fabricArea = diameter > 0 && hole >= 0 ? area - Math.PI * hole ** 2 / 4 : NaN;
         }
+        // Surface-density CalcMass counts device fabric only once.
+        totalG = fabricArea >= 0 ? calcMassG + (count - 1) * fabricArea * (density / 0.1) * MASS : NaN;
+        addedFabric = true;
       }
       // Set the total before cluster comparison so unlike masses cannot merge.
       if (calcMassG > 0 && Number.isFinite(totalG) && totalG > 0 && numOpt(node, 'overrideMass') === undefined) {
@@ -487,6 +493,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const densityType = num(el, 'DensityType', 0);
     const density = num(el, 'Density', NaN);
     if (densityType === 0 && density > 0) node.density = density;
+    if (densityType !== 0 && BULK_MATERIAL_TYPES.has(node.type)) {
+      cautionNote(notes, 'I03.nonbulk-material', `“${noteField(node.name ?? node.type)}”: the file's ${densityType === 1 ? 'surface' : densityType === 2 ? 'line' : 'unrecognized'} density cannot be converted reliably to this part's bulk density. `
+        + 'The app uses a catalogue bulk density when available, otherwise its default Cardboard density; any active mass override is kept. Check the part\'s mass and CG before flying.');
+    }
     const mat = text(el, ':scope > Material');
     if (mat) node['materialName'] = mat;
     const finish = FINISH_FROM_CODE[String(Math.round(num(el, 'FinishCode', NaN)))];
@@ -554,9 +564,20 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    * 1 = surface (÷ 0.1); 2 = line (× 1 for cords), treated as surface for fabric.
    */
   const readRecoveryMaterial = (el: XmlElement, node: ComponentNode, kind: 'surface' | 'line') => {
-    const densityType = Math.round(num(el, 'DensityType', 0));
+    const rawDensityType = num(el, 'DensityType', 0);
+    const densityType = Math.round(rawDensityType);
     const density = num(el, 'Density', NaN);
     if (!(Number.isFinite(density) && density >= 0)) return;
+    if (kind === 'line' && rawDensityType === 0) {
+      cautionNote(notes, 'I04.cord-density', `“${noteField(node.name ?? node.type)}”: the app's conversion of this cord's bulk-typed density uses thickness (or keeps the default material if thickness is unusable); desktop OpenRocket reads the density as kg/m without thickness. The cord mass can differ between the programs. Check cord material, mass, CG and stability before flying.`);
+    }
+    if (rawDensityType !== 0 && rawDensityType !== 1 && rawDensityType !== 2
+      && (kind === 'line' || densityType !== 0)) {
+      const interpretation = densityType === 0 ? 'bulk density with thickness'
+        : densityType === 2 && kind === 'line' ? 'line density' : 'surface density';
+      const desktop = kind === 'line' ? 'the bulk conversion without thickness for cords' : 'bulk density with thickness';
+      cautionNote(notes, 'I04.enum', `“${noteField(node.name ?? node.type)}”: the unrecognized recovery density type is treated as ${interpretation} here; desktop OpenRocket uses ${desktop} instead. Check material, mass and descent speed before flying.`);
+    }
     let si: number;
     if (densityType === 0) {
       // Bulk kg/m³ × thickness (mm → m) = kg/m².
@@ -598,8 +619,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     node.position = { method, offset: mode === 2 ? -xb : xb };
   };
 
-  const tubeThickness = (el: XmlElement): number =>
-    Math.max(0, (num(el, 'OD', 0) - num(el, 'ID', 0)) / 2 / LEN);
+  const tubeThickness = (el: XmlElement): number | undefined => {
+    const id = num(el, 'ID', NaN);
+    return Number.isFinite(id) && id >= 0 ? Math.max(0, (num(el, 'OD', 24) - id) / RAD) : undefined;
+  };
 
   /**
    * Flatten a <SubAssembly> (any depth): its attached parts join the chain
@@ -811,7 +834,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         if (inside && parent === null) chainInside.add(n);
         n['length'] = num(el, 'Len', 100) / LEN;
         n['outerRadius'] = num(el, 'OD', 24) / RAD;
-        n['thickness'] = tubeThickness(el);
+        const wall = tubeThickness(el);
+        if (wall !== undefined) n['thickness'] = wall;
         // Inner tube OR a min-diameter body tube — both are real mounts now
         // (kernel BodyTube implements MotorMount, same as the desktop).
         if (num(el, 'IsMotorMount', 0) === 1) {
@@ -872,7 +896,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         const readableId = Number.isFinite(parseDecimal(text(el, ':scope > ID')));
         if (type === 'centeringring' && readableId && id > 0) n['innerRadius'] = id / RAD;
         if ((type === 'engineblock' || type === 'tubecoupler') && od > 0) {
-          n['thickness'] = text(el, ':scope > ID') !== null ? tubeThickness(el) : 0.001;
+          n['thickness'] = tubeThickness(el) ?? 0.001;
         }
         return n;
       }
@@ -1052,7 +1076,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // which was harmless only while the bridge threw the value away. Now that the
         // wall really reaches the kernel, an absent <ID> would fly a solid rod.
         // <ID>0</ID> IS meaningful and stays: RockSim writes a solid tube that way.
-        if (text(el, ':scope > ID') !== null) n['thickness'] = tubeThickness(el);
+        const wall = tubeThickness(el);
+        if (wall !== undefined) n['thickness'] = wall;
         const tubeRot = num(el, 'RadialAngle', 0);
         if (tubeRot !== 0) n['rotation'] = tubeRot;
         return n;
@@ -1792,6 +1817,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           const clash = finSets.slice(0, i).find((other, j) =>
             Math.abs(rotOf(other) - rotOf(me)) < 1e-6 && spansOverlap(ranges[j]!, ranges[i]!));
           if (clash) {
+            if (appWritten) {
+              cautionNote(notes, 'I21.fin-rotated', `“${noteField(me.name ?? me.type)}” sits at the same angle as “${noteField(clash.name ?? clash.type)}” and overlaps it. The saved angles are kept; both sets count in flight and may double the fins at that angle. Check the sets and stability before flying.`);
+              continue;
+            }
             // The count that is DRAWN AND FLOWN (finCountOf, 1..8): this pass
             // runs before sanitizeTree clamps the stored one, and the raw count
             // turned a set beside a 12-tube TubeCount 15° where the 8 tubes
@@ -1799,7 +1828,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
             // made the same change for the one-click pass).
             const count = finCountOf(clash);
             me['rotation'] = rotOf(me) + Math.PI / count;
-            cautionNote(notes, 'I21.fin-rotated', `“${me.name ?? me.type}” sat at the same angle as “${clash.name ?? clash.type}” — rotated ${Math.round(180 / count)}° to interleave (fine-tune via the set's Rotation field).`);
+            cautionNote(notes, 'I21.fin-rotated', `“${noteField(me.name ?? me.type)}” sat at the same angle as “${noteField(clash.name ?? clash.type)}” — rotated ${Math.round(180 / count)}° to interleave (fine-tune via the set's Rotation field).`);
           }
         }
       }
@@ -1830,7 +1859,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const statedMass = recoveryStatedMass.get(node);
     const massNote = statedMass
       ? `Cd and packed size are kept; mass override set to ${statedMass.addedFabric ? '' : "RockSim's stated "}${noticeQuantity('mass', nnum(node, 'overrideMass', 0), units)} for all ${count} ${node.type === 'parachute' ? 'canopies' : 'streamers'}`
-        + (statedMass.addedFabric ? ` (RockSim's own figure of ${noticeQuantity('mass', statedMass.originalG / MASS, units)} counts the canopy fabric once). ` : '. ')
+        + (statedMass.addedFabric ? ` (RockSim's own figure of ${noticeQuantity('mass', statedMass.originalG / MASS, units)} counts the ${node.type === 'parachute' ? 'canopy' : 'streamer'} fabric once). ` : '. ')
       : `Cd, packed size and any active known mass are kept; otherwise material ${node.type === 'parachute' ? 'and line mass covers all canopies' : 'mass covers all streamers'}. `;
     if (node.type === 'parachute') {
       node['diameter'] = diameter * Math.sqrt(count);
@@ -3035,6 +3064,7 @@ export function exportRkt(input: RktExportInput): string {
       // Reopening derives the extension's zero mass from the cone's coupled
       // mass/CG flag. Keep a separate tube when that would change its mass.
       if ((massOv === 0) !== (numOpt(a, 'overrideMass') !== undefined || numOpt(a, 'overrideCGX') !== undefined)) continue;
+      if (massOv === 0 && numOpt(a, 'overrideMass') === undefined) continue;
       if (numOpt(b, 'overrideCGX') !== undefined || numOpt(b, 'overrideCD') !== undefined) continue;
       baseExtOf.set(a.id, axialLength(b));
       folded.add(b);
@@ -3348,6 +3378,16 @@ export function exportRkt(input: RktExportInput): string {
     const knownCG = pt ? xbMm
       : cgOv !== undefined ? cgOv * LEN
         : useKnown ? (opts?.massAt ?? info?.cgX ?? 0) * LEN : 0;
+    if (massOv !== undefined && massOv > 0 && cgOv === undefined && !pt
+      && node.type !== 'shockcord' && useKnown && (!info || knownCG > 0)) {
+      notes?.push(`“${noteField(node.name ?? dfltName)}”: saving a mass-only override also pins the current computed CG on reopening. `
+        + 'Later size edits will not move that balance point until you clear the CG override. Save as .ork to keep CG computed; check mass, CG and stability before flying.');
+    }
+    if (massOv === undefined && cgOv !== undefined && !unpinnedRecovery && !pt
+      && useKnown && (!info || knownMass > 0)) {
+      notes?.push(`“${noteField(node.name ?? dfltName)}”: saving a CG-only override also pins the current computed mass on reopening. `
+        + 'Later size or material edits will not change that mass until you clear the mass override. Save as .ork to keep mass computed; check mass, CG and stability before flying.');
+    }
     emit(`<KnownCG>${knownCG}</KnownCG>`);
     emit(`<UseKnownCG>${useKnown ? 1 : 0}</UseKnownCG>`);
     emit(`<FinishCode>${FINISH_TO_CODE(node['finish'])}</FinishCode>`);
@@ -3833,6 +3873,14 @@ export function exportRkt(input: RktExportInput): string {
   emit('<FileVersion>4</FileVersion>');
   emit('<DesignInformation>');
   emit('<RocketDesign>');
+  // XML comments carry no RockSim fields. Only mark designs with sibling sets
+  // at the same rotation; ordinary exports retain their existing text.
+  const repeatedFinAngles = (nodes: ComponentNode[]): boolean => {
+    const fins = nodes.filter(n => n.type.endsWith('finset'));
+    return fins.some((n, i) => fins.slice(0, i).some(p => Math.abs(nnum(n, 'rotation', 0) - nnum(p, 'rotation', 0)) < 1e-6))
+      || nodes.some(n => repeatedFinAngles(n.children ?? []));
+  };
+  if (repeatedFinAngles(stagesIn)) emit('<!-- MMRocket Sim: keep fin rotations -->');
   emit(`<Name>${esc(name)}</Name>`);
   emit(`<StageCount>${stagesIn.length}</StageCount>`);
   // Each stage's known mass, top-down like the parts: index 0, the sustainer,
@@ -3850,6 +3898,9 @@ export function exportRkt(input: RktExportInput): string {
       massG: boxMass * MASS,
       cgMm: typeof boxCg === 'number' && Number.isFinite(boxCg) && boxCg > 0 ? boxCg * LEN : 0,
     };
+    notes?.push(`Measured mass & CG figures are saved as RockSim's known stage mass${known[0]!.cgMm > 0 ? ' and balance point' : ''}. `
+      + 'RockSim and desktop OpenRocket fly these instead of the stage\'s parts. '
+      + 'The app still flies the parts until you apply the measured figures as ballast. Check mass, CG and stability in the receiving program before flying.');
   }
   if (known.some((k) => k !== undefined)) {
     // RockSim's own order, and BEFORE <Stage3Parts>: desktop's reader is SAX
