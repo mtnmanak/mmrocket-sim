@@ -29,7 +29,9 @@ describe('RockSim import and save fidelity', () => {
     const r = importRkt(xml(tube(fins('First&#10;set') + fins('Second&#x202e;set'))));
     const note = r.noteTiers?.find(n => n.kind === 'I21.fin-rotated')?.text;
     expect(note).toContain('“Firstset”');
-    expect(note).toContain('“Secondset”');
+    // Lane N2's note rules: the bidi control is shown as a visible marker, never applied.
+    expect(note).toContain('“Second[U+202E]set”');
+    expect(note).not.toMatch(/[\n‮]/u);
     expect(note).toContain('rotated 90°');
   });
 
