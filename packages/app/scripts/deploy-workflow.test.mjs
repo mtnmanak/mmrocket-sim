@@ -31,6 +31,7 @@ const workflow = (name) => readFileSync(new URL(`../../../.github/workflows/${na
 const DEPLOY = workflow('deploy.yml');
 const REFRESH = workflow('motors-refresh.yml');
 const CATALOGUE = workflow('catalogue-publish.yml');
+const SUITES = workflow('test-suites.yml');
 
 const indentOf = (l) => l.length - l.trimStart().length;
 const isContent = (l) => l.trim() !== '' && !l.trim().startsWith('#');
@@ -123,16 +124,28 @@ describe('deploy.yml — pull requests get the gate, only main deploys', () => {
   });
 
   it('leaves no git credential in any checkout of either workflow', () => {
-    const checkouts = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [REFRESH, 'refresh'], [REFRESH, 'publish'], [CATALOGUE, 'plan'], [CATALOGUE, 'catalogue']]
-      .flatMap(([lines, job]) => steps(lines, job).filter((s) => value(s, 'uses')?.startsWith('actions/checkout@'))
-        .map((s) => [job, value(child(s, 'with') ?? [''], 'persist-credentials')]));
-    expect(checkouts).toEqual([['build', 'false'], ['deploy', 'false'], ['refresh', 'false'], ['publish', 'false'], ['plan', 'false'], ['catalogue', 'false']]);
+    const assertCheckouts = (suites) => {
+      const checkouts = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [REFRESH, 'refresh'], [REFRESH, 'publish'], [CATALOGUE, 'plan'], [CATALOGUE, 'catalogue'], [suites, 'suite']]
+        .flatMap(([lines, job]) => steps(lines, job).filter((s) => value(s, 'uses')?.startsWith('actions/checkout@'))
+          .map((s) => [job, value(child(s, 'with') ?? [''], 'persist-credentials')]));
+      expect(checkouts).toEqual([['build', 'false'], ['deploy', 'false'], ['refresh', 'false'], ['publish', 'false'], ['plan', 'false'], ['catalogue', 'false'], ['suite', 'false']]);
+    };
+    assertCheckouts(SUITES);
+    expect(() => assertCheckouts(SUITES.map((l) => l.replace('persist-credentials: false', 'persist-credentials: true')))).toThrow();
   });
 
   it('runs every gate command of the deploy build on a motor refresh, in the same order', () => {
     // npm ci installs; everything after it that is `npm run …` or `npm test` is the gate.
+    const assertGates = (deploy, refresh) => {
+      const gate = runs(deploy, 'build').filter((r) => /^npm (run |test\b)/.test(r));
+      expect(gate).toEqual(['npm run typecheck', 'npm run lint -- --max-warnings 0', 'npm run build']);
+      expect(runs(refresh, 'refresh').filter((r) => /^npm (run |test\b)/.test(r)))
+        .toEqual(['npm run typecheck', 'npm run lint -- --max-warnings 0', 'npm test', 'npm run build']);
+    };
+    assertGates(DEPLOY, REFRESH);
+    expect(() => assertGates(DEPLOY.map((l) => l.replace('run: npm run build', 'run: npm test')), REFRESH)).toThrow();
+    expect(() => assertGates(DEPLOY, REFRESH.filter((l) => !l.includes('run: npm test')))).toThrow();
     const gate = runs(DEPLOY, 'build').filter((r) => /^npm (run |test\b)/.test(r));
-    expect(gate).toEqual(['npm run typecheck', 'npm run lint -- --max-warnings 0', 'npm test', 'npm run build']);
     const refresh = runs(REFRESH, 'refresh');
     expect(refresh.filter((r) => gate.includes(r))).toEqual(gate);
     // ...on the refreshed data: after the refresh step, not before it.
@@ -154,12 +167,124 @@ describe('deploy.yml — pull requests get the gate, only main deploys', () => {
 describe('both workflows — one pinned runner image', () => {
   // ubuntu-latest moves on GitHub's date, not on a commit here. The image moves
   // only by a commit that changes all jobs, including the catalogue publisher.
-  it('runs all six jobs on the same explicit image, never a -latest label', () => {
-    const images = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [REFRESH, 'refresh'], [REFRESH, 'publish'], [CATALOGUE, 'plan'], [CATALOGUE, 'catalogue']]
-      .map(([lines, job]) => value(path(lines, 'jobs', job), 'runs-on'));
-    expect(images).toHaveLength(6);
-    for (const image of images) expect(image).toMatch(/^ubuntu-\d\d\.\d\d$/);
-    expect(new Set(images).size).toBe(1);
+  it('runs all seven jobs on the same explicit image, never a -latest label', () => {
+    const assertImages = (suites) => {
+      const images = [[DEPLOY, 'build'], [DEPLOY, 'deploy'], [REFRESH, 'refresh'], [REFRESH, 'publish'], [CATALOGUE, 'plan'], [CATALOGUE, 'catalogue'], [suites, 'suite']]
+        .map(([lines, job]) => value(path(lines, 'jobs', job), 'runs-on'));
+      expect(images).toHaveLength(7);
+      for (const image of images) expect(image).toMatch(/^ubuntu-\d\d\.\d\d$/);
+      expect(new Set(images).size).toBe(1);
+    };
+    assertImages(SUITES);
+    for (const image of ['ubuntu-latest', 'ubuntu-26.04']) {
+      expect(() => assertImages(SUITES.map((l) => l.replace('ubuntu-24.04', image)))).toThrow();
+    }
+  });
+});
+
+/** Static include entries, using the same one-key-per-line format as steps. */
+function matrixEntries(lines) {
+  const entries = [];
+  for (const line of path(lines, 'jobs', 'suite', 'strategy', 'matrix', 'include') ?? []) {
+    if (!isContent(line)) continue;
+    if (line.trim().startsWith('- ')) entries.push([line.replace('- ', '  ')]);
+    else entries.at(-1)?.push(line);
+  }
+  const scalar = (entry, key) => value(entry, key)?.replace(/^(['"])(.*)\1$/, '$2');
+  return entries.map((entry) => ({ name: scalar(entry, 'name'), workspace: scalar(entry, 'workspace'), shard: scalar(entry, 'shard') }));
+}
+
+describe('test-suites.yml — the sharded suite', () => {
+  const rootTest = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')).scripts.test;
+  const replace = (lines, from, to) => lines.flatMap((l) => l.replace(from, to).split('\n'));
+
+  it('covers exactly the workspaces in the local serial test command', () => {
+    const assertWorkspaces = (lines, script) => {
+      const local = [...script.matchAll(/npm run test -w (\S+)/g)].map((m) => m[1]);
+      expect([...new Set(matrixEntries(lines).map((e) => e.workspace))].sort()).toEqual([...new Set(local)].sort());
+    };
+    assertWorkspaces(SUITES, rootTest);
+    expect(() => assertWorkspaces(SUITES, rootTest + ' && npm run test -w @online-openrocket/new')).toThrow();
+    expect(() => assertWorkspaces(replace(SUITES, '@online-openrocket/engine', '@online-openrocket/extra'), rootTest)).toThrow();
+  });
+
+  it('has complete, unique shard partitions for each workspace', () => {
+    const assertShards = (lines) => {
+      const entries = matrixEntries(lines);
+      expect(entries.length).toBeGreaterThan(0);
+      for (const ws of new Set(entries.map((e) => e.workspace))) {
+        const shards = entries.filter((e) => e.workspace === ws).map((e) => e.shard);
+        if (shards.length === 1 && shards[0] === '') continue;
+        const parsed = shards.map((s) => s?.match(/^--shard=([1-9]\d*)\/([1-9]\d*)$/));
+        for (const shard of parsed) expect(shard).not.toBeNull();
+        const n = Number(parsed[0][2]);
+        expect(new Set(parsed.map((m) => Number(m[2])))).toEqual(new Set([n]));
+        expect(shards.length).toBe(n);
+        expect(parsed.map((m) => Number(m[1])).sort((a, b) => a - b)).toEqual(Array.from({ length: n }, (_, i) => i + 1));
+      }
+    };
+    assertShards(SUITES);
+    const dropped = SUITES.filter((_, i) => {
+      const at = SUITES.findIndex((l) => l.includes('- name: app 3/4'));
+      return i < at || i > at + 2;
+    });
+    expect(() => assertShards(dropped)).toThrow();
+    const at = SUITES.findIndex((l) => l.includes('- name: app 3/4'));
+    expect(() => assertShards([...SUITES.slice(0, at), ...SUITES.slice(at, at + 3), ...SUITES.slice(at)])).toThrow();
+    for (const [from, to] of [['--shard=3/4', '--shard=2/4'], ['--shard=3/4', '--shard=3/5'], ['--shard=3/4', ''], ["shard: ''", "shard: '--shard=1/2'"]]) {
+      expect(() => assertShards(replace(SUITES, from, to))).toThrow();
+    }
+  });
+
+  it('installs, checks workspace links and builds the engine before the exact suite command', () => {
+    const commands = ['npm ci', 'node scripts/check-workspace-links.mjs', 'npm run build -w @online-openrocket/engine',
+      'npm run test -w ${{ matrix.workspace }} -- ${{ matrix.shard }}'];
+    const assertCommands = (lines) => expect(runs(lines, 'suite')).toEqual(commands);
+    assertCommands(SUITES);
+    for (const command of commands) {
+      expect(() => assertCommands(replace(SUITES, `run: ${command}`, `run: ${command} --wrong`))).toThrow();
+    }
+    const reversed = [...SUITES];
+    const ci = reversed.findIndex((l) => l.includes('run: npm ci'));
+    const build = reversed.findIndex((l) => l.includes('run: npm run build'));
+    [reversed[ci], reversed[build]] = [reversed[build], reversed[ci]];
+    expect(() => assertCommands(reversed)).toThrow();
+  });
+
+  it('is callable only, read-only and independent, and lets all shards finish', () => {
+    const assertBoundary = (lines) => {
+      expect(path(lines, 'on').filter(isContent).map((l) => l.trim())).toEqual(['workflow_call:']);
+      expect(value(path(lines, 'jobs', 'suite', 'strategy'), 'fail-fast')).toBe('false');
+      expect(lines.filter(isContent).join('\n')).not.toMatch(/\bsecrets\b|^\s*concurrency:/m);
+      for (const permissions of [path(lines, 'permissions'), path(lines, 'jobs', 'suite', 'permissions')]) {
+        expect(permissions.filter(isContent).map((l) => l.trim())).toEqual(['contents: read']);
+      }
+    };
+    assertBoundary(SUITES);
+    for (const [from, to] of [['workflow_call:', 'push:'], ['workflow_call:', 'workflow_call:\n  push:'],
+      ['workflow_call:', 'workflow_call:\n    inputs:\n      unused: {}'], ['fail-fast: false', 'fail-fast: true'],
+      ['contents: read', 'contents: write']]) {
+      expect(() => assertBoundary(replace(SUITES, from, to))).toThrow();
+    }
+    for (const line of ['secrets: inherit', 'concurrency: tests', '    concurrency: tests']) {
+      expect(() => assertBoundary([...SUITES, line])).toThrow();
+    }
+  });
+
+  it('makes deployment depend on the unconditional reusable test gate exactly once', () => {
+    const assertGate = (lines) => {
+      const test = path(lines, 'jobs', 'test');
+      expect(value(test, 'uses')).toBe('./.github/workflows/test-suites.yml');
+      expect(value(test, 'if')).toBeUndefined();
+      expect(value(path(lines, 'jobs', 'deploy'), 'needs')).toBe('[build, test]');
+      expect(runs(lines, 'build')).not.toContain('npm test');
+    };
+    assertGate(DEPLOY);
+    for (const [from, to] of [['uses: ./.github/workflows/test-suites.yml', 'uses: ./wrong.yml'],
+      ['  test:', '  test:\n    if: false'], ['needs: [build, test]', 'needs: build'],
+      ['needs: [build, test]', 'needs: test'], ['run: npm run build', 'run: npm test']]) {
+      expect(() => assertGate(replace(DEPLOY, from, to)), from).toThrow();
+    }
   });
 });
 

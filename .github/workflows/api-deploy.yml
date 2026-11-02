@@ -7,12 +7,14 @@
 # Custom-domain token sufficiency must be checked by the owner before deployment: installed
 # Wrangler source identifies the account domain-record endpoints but not their token permissions.
 #
-# THE SAME TWO-JOB SPLIT AS deploy.yml, for the same reason (read its header):
+# THE SAME BUILD AND TEST GATE AS deploy.yml, for the same reason (read its header):
 #   build   holds no secret. npm ci, builds the engine package, and bundles the Worker with the
 #           repository's pinned wrangler (`deploy --dry-run --outdir`): the exact bytes a plain
 #           `wrangler deploy` would upload, minified and ASCII (packages/api/src/bundle.test.ts
 #           guards the ASCII in the suite; a step below re-checks the artifact itself).
 #           Uploads index.js only.
+#   test    runs the full suite in parallel shards, with no secret and a read-only token.
+#           Build and test must both pass before deploy can upload.
 #   deploy  holds the token and runs none of the repository's dependencies. Environment
 #           api-production (deployment branches: main only), whose CLOUDFLARE_API_TOKEN is the
 #           Workers deploy token - an account token with Workers Scripts Write, Workers Tail
@@ -54,7 +56,7 @@ jobs:
     # "Run workflow" offers every branch; only main is ever built for upload.
     if: inputs.action == 'deploy' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04 # pinned with deploy.yml's jobs; move them together
-    timeout-minutes: 30 # same full-check budget as deploy.yml's build job
+    timeout-minutes: 15 # tests moved to the test job
     permissions:
       contents: read
     steps:
@@ -73,7 +75,6 @@ jobs:
       # the engine package, whose dist/ the Worker imports.
       - run: npm run typecheck
       - run: npm run lint -- --max-warnings 0
-      - run: npm test
 
       - name: Bundle the Worker (the bytes the deploy job uploads)
         working-directory: packages/api
@@ -100,8 +101,14 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  test:
+    if: inputs.action == 'deploy' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/test-suites.yml
+    permissions:
+      contents: read
+
   deploy:
-    needs: build
+    needs: [build, test]
     if: inputs.action == 'deploy' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15

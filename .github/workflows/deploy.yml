@@ -15,14 +15,15 @@
 #   CLOUDFLARE_API_TOKEN   API token with the "Cloudflare Pages: Edit" permission
 #   CLOUDFLARE_ACCOUNT_ID  the account id (also shown by `npx wrangler whoami`)
 #
-# TWO JOBS, AND WHY (audit 2026-09-22). This was one job, so `npm ci`, the tests and
+# BUILD AND TEST GATE, AND WHY (audit 2026-09-22). This was one job, so `npm ci`, the tests and
 # the build — ~550 third-party packages' code, install scripts included — ran in the
 # same job as CLOUDFLARE_API_TOKEN, an account-level "Pages: Edit" token, and any one
 # of them could have copied it out: to publish anything later, outside this
 # workflow, or to edit the account's other Pages projects. Now:
-#   build   holds no secret and a read-only token. It runs the whole gate, in the
-#           order it always had (version pairing -> npm ci -> typecheck -> lint ->
-#           test -> build -> copy version.json), and uploads the finished dist/.
+#   build   holds no secret and a read-only token. It runs version pairing -> npm ci ->
+#           typecheck -> lint -> build -> copy version.json, and uploads the finished dist/.
+#   test    runs the suite in parallel shards, also with no secret and a read-only token.
+#           Build and test must both pass before deploy can publish.
 #   deploy  holds the Cloudflare secrets and runs none of the repo's dependencies.
 #           It downloads that dist/ (the artifact is digest-checked), installs the
 #           one pinned wrangler in a step with no secret in it, and publishes.
@@ -42,7 +43,7 @@
 #
 # BRANCH RULES. Pushing to `main` IS the deploy, and nothing requires a pull
 # request or a passing check first. A pull request into main does get the
-# build job as a check (see `on:`), but no rule makes a merge wait for it.
+# build and test jobs as checks (see `on:`), but no rule makes a merge wait for them.
 # Since 2026-09-24 a repository ruleset
 # (23941726, "main: no force-push, no deletion", no bypass actors) refuses a
 # force-push to `main` and its deletion, so the deployed history cannot be
@@ -55,12 +56,12 @@ name: Deploy
 on:
   push:
     branches: [main]
-  # A pull request into main runs the build job, the whole gate, on the PR
+  # A pull request into main runs build and test, the whole gate, on the PR
   # merged into main, and deploys nothing: the deploy job's `if` refuses every
   # event but a push or a "Run workflow". Before this a Dependabot PR got no
   # run at all, so its gate was whatever someone ran by hand before merging,
   # and merging IS the deploy (audit 2026-09-30). A PR run reaches no secret:
-  # the build job uses none, and GitHub gives a Dependabot or fork PR's run a
+  # the build and test jobs use none, and GitHub gives a Dependabot or fork PR's run a
   # read-only token and no Actions secrets in any case. Nothing requires the
   # check to pass before a merge (see BRANCH RULES above).
   # The weekly motors-refresh PR does not start this run: GitHub starts no
@@ -70,7 +71,7 @@ on:
   pull_request:
     branches: [main]
   # "Run workflow" from the Actions tab. From main it deploys; from any other
-  # branch it runs the build job's gate only — the deploy job's `if` refuses
+  # branch it runs the build and test gate only — the deploy job's `if` refuses
   # every ref but main, because the command below hard-codes --branch=main and
   # would otherwise publish unmerged code to every tester.
   workflow_dispatch:
@@ -92,14 +93,12 @@ jobs:
   build:
     # Pinned rather than ubuntu-latest, which GitHub moves to Ubuntu 26 from 19 October 2026: the gate's OS
     # should change in a commit that does only that and runs the whole gate, not under an unrelated push.
-    # The deploy job below and both jobs in motors-refresh.yml are pinned with it; move all four together.
+    # The deploy job, test-suites.yml and the other workflows are pinned with it; move them together.
     runs-on: ubuntu-24.04
-    # Measured 2026-10-12: the whole build job took 11m (v0.182) and 14m45s (v0.183), with npm test
-    # alone at 12m21s; v0.184 was cancelled by the old 15-minute limit while building. Without a
-    # limit a hung step holds the concurrency group for GitHub's 6 h default, and every deploy
-    # queued behind it waits — a safety hotfix included. Keep roughly 2x headroom over the
-    # measured time, and re-measure when the suite grows.
-    timeout-minutes: 30
+    # Measured 2026-11-02 on run 41445445548: without tests this job took about 4.7 min.
+    # Tests now run in the test job. Keep over 2x headroom while bounding how long a hung
+    # step can hold the concurrency group and delay a deploy, including a safety hotfix.
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -167,12 +166,6 @@ jobs:
       # deliberate case at its site, with the reason after `--`.
       - run: npm run lint -- --max-warnings 0
 
-      # A push IS a release here, so the suite that guards the physics and the
-      # file formats runs BEFORE anything reaches the live beta. `npm test`
-      # builds the engine package first (its dist is a build output, not
-      # committed), which also makes this the fresh-clone smoke test.
-      - run: npm test
-
       # Also fails if the offline precache misses a built file (vite.config.ts,
       # precacheCoversBuild).
       - run: npm run build
@@ -188,8 +181,18 @@ jobs:
           # deployment itself, so this copy is not a rollback store.
           retention-days: 3
 
+  # A push IS a release here, so the suite that guards the physics and the
+  # file formats runs BEFORE anything reaches the live beta: deploy needs this
+  # job as well as build. Each shard builds the engine package first (its dist
+  # is a build output, not committed), which also makes it the fresh-clone
+  # smoke test. Shard list and timings: test-suites.yml.
+  test:
+    uses: ./.github/workflows/test-suites.yml
+    permissions:
+      contents: read
+
   deploy:
-    needs: build
+    needs: [build, test]
     # A push to main, or "Run workflow" from main — never a pull request. A
     # pull_request run's github.ref is refs/pull/<n>/merge, so the ref test
     # alone refuses it; the event test keeps it refused if the trigger is ever

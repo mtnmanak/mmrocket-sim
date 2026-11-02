@@ -4,10 +4,13 @@ import { expect, it } from 'vitest';
 /** Read the active block for each job, excluding comments and normalizing line endings. */
 function productionGuards(workflow: string): boolean {
   const source = workflow.replace(/\r\n/g, '\n').replace(/^\s*#[^\n]*/gm, '');
-  return ['build', 'deploy', 'delete'].every(job => {
+  return ['build', 'test', 'deploy', 'delete'].every(job => {
     const block = source.split(`\n  ${job}:`)[1]?.split(/\n {2}[a-z][\w-]*:/)[0] ?? '';
     const gate = job === 'delete' ? 'delete' : 'deploy';
     const condition = block.match(/^ {4}if: (.*)$/m)?.[1];
+    if (/^ {4}uses:/m.test(block)) {
+      return condition === `inputs.action == '${gate}' && github.ref == 'refs/heads/main'`;
+    }
     const checkouts = block.split(/- uses: actions\/checkout@/).slice(1);
     return condition === `inputs.action == '${gate}' && github.ref == 'refs/heads/main'`
       && (job === 'build' || /^ {4}environment: api-production$/m.test(block))
@@ -16,7 +19,7 @@ function productionGuards(workflow: string): boolean {
   });
 }
 
-it('pins main-only build/deploy/delete, the production environment and credential-free checkouts in the actual workflow', () => {
+it('pins main-only build/test/deploy/delete, the production environment and credential-free checkouts in the actual workflow', () => {
   const workflow = readFileSync(new URL('../../../.github/workflows/api-deploy.yml', import.meta.url), 'utf8');
   expect(productionGuards(workflow)).toBe(true);
   for (const token of [" && github.ref == 'refs/heads/main'", 'environment: api-production', 'persist-credentials: false']) {
@@ -31,15 +34,41 @@ it('pins main-only build/deploy/delete, the production environment and credentia
 
 it('requires checks of the checked-out SHA before uploading the Worker', () => {
   const workflow = readFileSync(new URL('../../../.github/workflows/api-deploy.yml', import.meta.url), 'utf8');
-  const build = workflow.slice(workflow.indexOf('\n  build:'), workflow.indexOf('\n  deploy:'));
-  const upload = build.indexOf('uses: actions/upload-artifact@');
-  for (const command of ['npm run typecheck', 'npm run lint -- --max-warnings 0', 'npm test']) {
-    const check = build.indexOf(`- run: ${command}\n`);
-    expect(check, command).toBeGreaterThan(0);
-    expect(check, command).toBeLessThan(upload);
+  const assertGate = (text: string) => {
+    const source = text.replace(/\r\n/g, '\n').replace(/^\s*#[^\n]*/gm, '');
+    const job = (name: string) => source.split(`\n  ${name}:`)[1]?.split(/\n {2}[a-z][\w-]*:/)[0] ?? '';
+    const build = job('build');
+    const upload = build.indexOf('uses: actions/upload-artifact@');
+    expect(upload).toBeGreaterThan(0);
+    for (const command of ['npm run typecheck', 'npm run lint -- --max-warnings 0']) {
+      const check = build.indexOf(`- run: ${command}\n`);
+      expect(check, command).toBeGreaterThan(0);
+      expect(check, command).toBeLessThan(upload);
+    }
+    expect(build).not.toMatch(/- run: npm test\s*$/m);
+    expect(build).not.toMatch(/continue-on-error|if:.*always\(/);
+    expect(job('test')).toMatch(/^ {4}uses: \.\/\.github\/workflows\/test-suites\.yml$/m);
+    expect(job('deploy')).toMatch(/^ {4}needs: \[build, test\]$/m);
+  };
+  assertGate(workflow);
+  for (const [from, to] of [
+    ['- run: npm run typecheck', '- run: echo skip typecheck'],
+    ['- run: npm run lint -- --max-warnings 0', '- run: echo skip lint'],
+    ['- run: npm ci', '- run: npm test'],
+    ['uses: ./.github/workflows/test-suites.yml', 'uses: ./wrong.yml'],
+    ['needs: [build, test]', 'needs: build'], ['needs: [build, test]', 'needs: test'],
+    ['- run: npm ci', '- run: npm ci\n        continue-on-error: true'],
+    ['- run: npm ci', "- run: npm ci\n        if: always()"],
+    ['uses: actions/upload-artifact@', 'uses: missing/upload@'],
+  ]) {
+    expect(workflow).toContain(from);
+    expect(() => assertGate(workflow.replace(from!, to!)), from).toThrow();
   }
-  expect(build).not.toMatch(/continue-on-error|if:.*always\(/);
-  expect(workflow.slice(workflow.indexOf('\n  deploy:'))).toMatch(/needs: build/);
+  for (const command of ['npm run typecheck', 'npm run lint -- --max-warnings 0']) {
+    const late = workflow.replace(`      - run: ${command}`, '      # moved check')
+      .replace('\n  test:', `\n      - run: ${command}\n\n  test:`);
+    expect(() => assertGate(late), `late ${command}`).toThrow();
+  }
 });
 
 it('pins the production CPU budget and its README disclosure', () => {

@@ -1,0 +1,63 @@
+# The serial suite nearly exhausted Deploy's 30-minute build budget on run 41445445548
+# (2026-11-02): npm test took 23.90 min of 28.7 min, with engine at 102.9 s,
+# app at 1010.2 s and API at 314.2 s. Parallel shards leave room for suite growth.
+# This job holds no secret and only a read-only token, like the caller's build job.
+# Vitest --shard=i/n partitions test FILES, including both app projects (app and jsxml).
+# Keep each workspace's shard list complete; deploy-workflow.test.mjs guards coverage.
+# npm test locally still runs everything serially. Re-measure and rebalance when a
+# shard approaches its 15-minute limit; file counts alone do not predict runtime.
+
+name: Test suites
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  suite:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: engine
+            workspace: '@online-openrocket/engine'
+            shard: ''
+          - name: app 1/4
+            workspace: '@online-openrocket/app'
+            shard: '--shard=1/4'
+          - name: app 2/4
+            workspace: '@online-openrocket/app'
+            shard: '--shard=2/4'
+          - name: app 3/4
+            workspace: '@online-openrocket/app'
+            shard: '--shard=3/4'
+          - name: app 4/4
+            workspace: '@online-openrocket/app'
+            shard: '--shard=4/4'
+          - name: api 1/2
+            workspace: '@online-openrocket/api'
+            shard: '--shard=1/2'
+          - name: api 2/2
+            workspace: '@online-openrocket/api'
+            shard: '--shard=2/2'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: node scripts/check-workspace-links.mjs
+      - run: npm run build -w @online-openrocket/engine
+      - run: npm run test -w ${{ matrix.workspace }} -- ${{ matrix.shard }}
