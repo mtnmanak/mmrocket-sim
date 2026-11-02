@@ -5,6 +5,10 @@ import { safeName } from './fileName.js';
 import { orkMotorSet, type OrkMotorSetInput } from './orkExportMotors.js';
 import { autoDelaySaveNote, exportOrk, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
 import { flushSession, heldSession, peekSession, sessionPayload, type SessionState } from './session.js';
+import { noteFlags } from './importNotes.js';
+
+/** The restore-time negative-delay clamp's note code (ejectionDelay.ts). */
+const DELAY_CLAMP = 'I11.negative-delay';
 
 /**
  * THE WAY OUT OF A CRASH (audit 2026-09-22).
@@ -64,12 +68,16 @@ function motorSet(
 
 /** The stored session as an .ork document. Throws whatever the writer throws. */
 export function autosaveToOrk(s: SessionState): { xml: string; notes: string[] } {
-  if ((s.treeRestoreNotes?.length ?? 0) > 0) throw new Error('The recovery .ork would omit repaired autosave data; keep the raw autosave.');
+  // A negative delay clamped on restore (I11) loses nothing: the .ork carries the
+  // clamped 0 s and the caution travels with the file. Any other repair keeps the
+  // raw autosave (integration review, 1 Nov 2026: M4's clamp × M2's recovery notes).
+  const clamps = noteFlags(s.treeRestoreNotes ?? []).filter(f => f.kind === DELAY_CLAMP).map(f => f.text);
+  if ((s.treeRestoreNotes ?? []).some(t => !clamps.includes(t))) throw new Error('The recovery .ork would omit repaired autosave data; keep the raw autosave.');
   // A damaged root must still fall back to the original recovery bytes.
   if (!Array.isArray(s.tree?.components)) throw new Error('Unreadable autosave tree');
   // The crash path never mounts App; it must normalize and migrate independently.
   const restored = designStateFromSession(s, { legacyMaxMotorLengthM: null });
-  if (!restored.refused && restored.restoreNoteTiers.some(note => note.tier === 'caution' || note.tier === 'danger')) {
+  if (!restored.refused && restored.restoreNoteTiers.some(note => (note.tier === 'caution' || note.tier === 'danger') && note.kind !== DELAY_CLAMP)) {
     throw new Error('The recovery .ork would replace repaired autosave data; keep the raw autosave.');
   }
   // Refusal protects rendering, not recovery: export the stored logical tree
@@ -88,9 +96,9 @@ export function autosaveToOrk(s: SessionState): { xml: string; notes: string[] }
     ...(c.stageMassOverrides ? { stageMassOverrides: c.stageMassOverrides } : {}),
   }));
   // The writer replaces the active row's stored motors with the live set.
-  const notes = [...new Set([...Object.values(motors), ...(configs ?? [])
+  const notes = [...new Set([...clamps, ...[...Object.values(motors), ...(configs ?? [])
     .filter(c => c.id !== s.activeConfigId).flatMap(c => Object.values(c.motors))]
-    .map(m => autoDelaySaveNote(m, '.ork', 'recovery')).filter((n): n is string => n !== null))];
+    .map(m => autoDelaySaveNote(m, '.ork', 'recovery')).filter((n): n is string => n !== null)])];
   let omitted = false;
   const xml = exportOrk({
     notes,

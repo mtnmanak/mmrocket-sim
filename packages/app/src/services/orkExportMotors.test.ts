@@ -143,7 +143,7 @@ describe('toOrkMotor — identity, type and pad mass', () => {
       motors: exportMotorsMap({ tree, assigned: Object.entries(records), unmatchedRefs: {}, activeConfigId: 'copy', exLibrary: noLibrary }),
       configs: exportConfigs(configs, tree, noLibrary), activeConfigId: 'copy' });
     const recovery = autosaveToOrk({ tree, mountMotors: records, savedConfigs: configs, activeConfigId: 'copy',
-      launch: DEFAULT_CONDITIONS, savedAt: 0, configLayers: 1, motorLengthLimitsMigrated: true });
+      launch: DEFAULT_CONDITIONS, savedAt: 0, configLayers: 1, motorLengthLimitsMigrated: true }).xml;
     for (const document of [xml, await decodeShareFragment(await encodeShareFragment(xml)), recovery]) {
       expect(document).not.toContain('<digest>original-motor-digest</digest>');
       const opened = importOrk(document);

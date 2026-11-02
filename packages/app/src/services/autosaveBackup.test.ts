@@ -60,6 +60,29 @@ describe('autosavedDesignFile', () => {
       expect(out.notes[0]).toContain('After reopening this backup in the app, select Auto, launch, then save');
     }
   });
+  // Integration review, 1 Nov 2026: M4's restore-time delay clamp registered as a
+  // repair, so this recovery fell back to raw JSON. The clamped 0 s is what the
+  // .ork carries; only other repairs keep the raw autosave.
+  it('an older autosave holding a negative delay still recovers as .ork, with the clamp caution', () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const motor = c6(); motor.spec.ejectionDelay = -2;
+    localStorage.setItem(KEY, JSON.stringify({ tree, mountMotors: { [mount]: motor }, launch: DEFAULT_CONDITIONS,
+      configLayers: 1, savedAt: 1 }));
+    const file = autosavedDesignFile()!;
+    expect(file.ork).toBe(true);
+    expect(file.extension).toBe('.ork');
+    const opened = importOrk(file.data);
+    expect(Object.values(opened.motors).map(m => m.delay)).toEqual([0]);
+    expect(file.notes.join('\n')).toContain('the saved ejection delay -2 s is negative');
+  });
+  it('any other restore repair still keeps the raw autosave', () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const s: SessionState = { tree, mountMotors: { [mount]: c6() }, launch: DEFAULT_CONDITIONS, configLayers: 1, savedAt: 1,
+      treeRestoreNotes: ['Unreadable imported simulation records were removed.'] };
+    expect(() => autosaveToOrk(s)).toThrow(/omit repaired autosave data/);
+  });
   it('M2 returns deduplicated Auto-delay and writer notes with the recovery file', () => {
     const tree = defaultTree();
     const mount = motorMounts(tree)[0]!.id!;
