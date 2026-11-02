@@ -318,8 +318,9 @@ export function inlineXmlCdata(xml: string): string {
       if (!xml.startsWith(OPEN, open)) { scan = open + 1; continue; }
       const close = xml.indexOf(CLOSE, open + OPEN.length);
       if (close < 0) break;
+      // Trailing brackets must not join a following literal > into forbidden ]]> text.
       rebuilt += xml.slice(at, open) + xml.slice(open + OPEN.length, close)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/]/g, '&#93;');
       at = close + CLOSE.length;
       scan = at;
     }

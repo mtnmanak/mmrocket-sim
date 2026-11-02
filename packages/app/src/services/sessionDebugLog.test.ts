@@ -11,6 +11,12 @@ vi.mock('../version.js', () => ({ get APP_VERSION() { return context.version; } 
 afterEach(() => { context.version = 'test-version'; vi.restoreAllMocks(); });
 
 describe('C-H3 session diagnostics', () => {
+  it('recognizes curly-quoted RASP mass refusals without logging private values', () => {
+    const log = createSessionDebugLog();
+    log.record('import-failed', new Error('Propellant and total mass must be numbers in “Private header” — read “private prop” and “private total”.'));
+    expect(log.text()).toContain('Motor import refused: nonnumeric mass (file detail omitted)');
+    expect(log.text()).not.toMatch(/Private header|private prop|private total/);
+  });
   it.each([INITIAL_UNITS, IMPERIAL_UNITS].flatMap(units =>
     ([[null, 'invalid propellant mass'], ['private value', 'invalid propellant mass'],
       ['100.00001', 'propellant exceeds loaded mass']] as const).map(([prop, category]) => ({ units, prop, category }))))('R12 retains category $category for propWt=$prop with $units', ({ units, prop, category }) => {

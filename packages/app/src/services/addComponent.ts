@@ -52,8 +52,8 @@ export function addNewComponent(
   const prev = siblings.length ? siblings[siblings.length - 1]! : null;
   let node = inheritDefaults(makeNode(type), parent, prev);
   if (type.endsWith('finset') && parent !== 'stage') {
-    const existing = (parent?.children ?? []).find((c) => c.type.endsWith('finset'));
-    if (existing) node['rotation'] = interleaveRotation(existing);
+    const [existing, ...others] = siblings.filter((c) => c.type.endsWith('finset'));
+    if (existing) node['rotation'] = interleaveRotation(existing, node, others);
   }
   let railButtonRule: NewPairRule | undefined;
   if (type === 'railbutton' && parent && parent !== 'stage') {

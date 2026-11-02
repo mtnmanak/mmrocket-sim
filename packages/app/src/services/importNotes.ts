@@ -44,8 +44,9 @@ export function zeroDensityStandIn(units: UnitSelection = INITIAL_UNITS, parenth
   return noticeQuantity('density', KERNEL_DEFAULT_MATERIALS.bulk.density, units, { parenthesized });
 }
 
-export function zeroBulkDensityNote(notes: string[], part: string, units: UnitSelection): void {
-  cautionNote(notes, 'I21.zero-bulk-density', `“${noteField(part)}”: zero bulk density cannot be flown by the app's engine; it uses ${zeroDensityStandIn(units)} instead, adding mass. Saving replaces the zero density. Check the part mass before flying.`);
+export function zeroBulkDensityNote(notes: string[], part: string, units: UnitSelection, density?: number): void {
+  const replacement = density === undefined ? zeroDensityStandIn(units) : noticeQuantity('density', density, units);
+  cautionNote(notes, 'I21.zero-bulk-density', `“${noteField(part)}”: zero bulk density cannot be flown by the app's engine; it uses ${replacement} instead, adding mass. Saving replaces the zero density. Check the part mass before flying.`);
 }
 
 /** Push a flagged line: the text into `notes`, the entry into its record. */

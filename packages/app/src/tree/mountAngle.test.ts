@@ -317,8 +317,8 @@ describe('rail interference', () => {
       },
     ]);
     expect(w).toHaveLength(1);
-    expect(w[0]).toContain('"Booster"');
-    expect(w[0]).not.toContain('"parallelstage"');
+    expect(w[0]).toContain('“Booster”');
+    expect(w[0]).not.toContain('“parallelstage”');
   });
 
   /**
@@ -340,7 +340,7 @@ describe('rail interference', () => {
         { type: 'fairing', id: 'sh', name: 'GoPro', angleOffset: D(180) },
       ]);
       for (const w of [...onFin, ...onShroud]) {
-        expect(w.startsWith(`"${name}" at `)).toBe(true);
+        expect(w.startsWith(`“${name}” at `)).toBe(true);
         // What the Design strip and the launch report show: the sentence, unchanged.
         expect(formatWarningText(w)).toBe(w);
       }
@@ -574,8 +574,8 @@ describe('a shroud in a fin\'s wake', () => {
     const w = wakeShadowWarnings(camTree());
     expect(w).toHaveLength(1);
     // Names both parts, and states the geometry rather than a verdict.
-    expect(w[0]).toContain('"Camera shroud" at 0°');
-    expect(w[0]).toContain('a fin of "Fins"');
+    expect(w[0]).toContain('“Camera shroud” at 0°');
+    expect(w[0]).toContain('a fin of “Fins”');
     expect(w[0]).toContain('220 mm (8.661 in) ahead');
     expect(w[0]).toContain('11 times its own height');
     expect(w[0]).toContain('0° off that fin\'s line');
@@ -658,7 +658,7 @@ describe('a shroud in a fin\'s wake', () => {
       },
     }));
     expect(bump).toHaveLength(1);
-    expect(bump[0]).toContain('"Cable tunnel"');
+    expect(bump[0]).toContain('“Cable tunnel”');
     // A lug is a slender streamwise tube, not a bluff bump — deliberately out.
     expect(wakeShadowWarnings(camTree({
       shroud: { type: 'launchlug', name: 'Lug', outerRadius: 0.0022, thickness: 0.0003 },
@@ -674,8 +674,8 @@ describe('a shroud in a fin\'s wake', () => {
   it('names an unnamed shroud rather than its type', () => {
     const w = wakeShadowWarnings(camTree({ shroud: { name: undefined } }));
     expect(w).toHaveLength(1);
-    expect(w[0]).toContain('"Camera shroud"');
-    expect(w[0]).not.toContain('"fairing"');
+    expect(w[0]).toContain('“Camera shroud”');
+    expect(w[0]).not.toContain('“fairing”');
   });
 
   it('says it once for a 6-fin set with two instances inside the window', () => {
@@ -748,7 +748,7 @@ describe('a shroud in a fin\'s wake', () => {
     } as unknown as RocketTree;
     const w = wakeShadowWarnings(twoStage);
     expect(w).toHaveLength(1);
-    expect(w[0]).toContain('"Booster fins"');
+    expect(w[0]).toContain('“Booster fins”');
     expect(w[0]).toContain('200 mm (7.874 in) ahead');
   });
 

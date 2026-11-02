@@ -776,8 +776,7 @@ describe('RockSim export → import round trip', () => {
     }
   }, 60000);
 
-  // This app's reader used to skip that 0; it now pins each re-opened pod's
-  // override where it already sat, so its own round trip still moves nothing.
+  // RockSim's coupled override flag pins the current computed CG on reopen.
   it('re-opens a pod set weighed with no CG override as it was', async () => {
     const { OrkRocket, resetEngine } = await import('@online-openrocket/engine');
     const { engineTree } = await import('../tree/treeModel.js');
@@ -803,7 +802,7 @@ describe('RockSim export → import round trip', () => {
         const back = importRkt(exportRkt({
           name: 'POD', tree: { components }, compInfo: rktComponentInfo({ components }, (id) => rocket.componentInfo(id)),
         })).tree.components;
-        // The pod tube's middle, where the kernel had each pod's share.
+        // Each share stays pinned at the pod tube's computed middle.
         expect(flatten(back).filter((c) => c.type === type).map((p) => p['overrideCGX']))
           .toEqual(Array(count).fill(expect.closeTo(0.075, 12)));
         const now = build(back).staticInfo();
@@ -1078,14 +1077,12 @@ describe('RockSim export → import round trip of the two override flags', () =>
     return { xml, tree: d.tree, tube: flatten(back.tree.components).find((c) => c.type === 'bodytube')! };
   };
 
-  it('carries a mass override across, with a CG equal to the computed one', () => {
-    // Export deliberately keeps RockSim's coupled flag, so the measured mass
-    // survives in RockSim and desktop OpenRocket. The price is that the
-    // computed CG comes back as an explicit override — numerically the value
-    // the geometry produces anyway, so nothing about the rocket changes.
+  it('carries a mass override across, with the current computed CG pinned', () => {
+    // RockSim's coupled flag and computed CG stay in the XML for other readers.
     const { xml, tube } = rt({ overrideMass: 0.123 });
     expect(xml).toMatch(/<UseKnownCG>1<\/UseKnownCG>/);
     expect(xml).not.toMatch(/<UseKnownMass>/);
+    expect(xml).toContain('<KnownCG>150</KnownCG>');
     expect(tube['overrideMass']).toBeCloseTo(0.123, 9);
     expect(tube['overrideCGX']).toBeCloseTo(0.15, 9);
   });
@@ -1093,6 +1090,8 @@ describe('RockSim export → import round trip of the two override flags', () =>
   it('carries a CG override across, with the computed mass alongside', () => {
     const { xml, tube } = rt({ overrideCGX: 0.2 });
     expect(xml).toMatch(/<UseKnownCG>1<\/UseKnownCG>/);
+    expect(xml).toContain('<KnownMass>50</KnownMass>');
+    expect(xml).not.toContain('<UseKnownMass>0</UseKnownMass>');
     expect(tube['overrideCGX']).toBeCloseTo(0.2, 9);
     expect(tube['overrideMass']).toBeCloseTo(0.05, 9);
   });
@@ -1101,6 +1100,7 @@ describe('RockSim export → import round trip of the two override flags', () =>
     const { xml, tree, tube } = rt({ overrideCGX });
     expect(xml).toContain(`<KnownCG>${overrideCGX * 1000}</KnownCG>`);
     expect(tube['overrideCGX']).toBeUndefined();
+    expect(xml).toContain('<KnownMass>50</KnownMass>');
     expect(tube['overrideMass']).toBeCloseTo(0.05, 9);
     expect(rktSaveLosses(tree)).toContain('CG overrides at or ahead of the part’s front reopen here on the computed CG');
   });
@@ -1247,7 +1247,13 @@ describe('.rkt and an override for all subcomponents', () => {
       });
       const now = build(importRkt(xml).tree.components).staticInfo();
       const lost = Math.abs(now.massEmpty - was.massEmpty) > 1e-9 || Math.abs(now.cgEmpty - was.cgEmpty) > 1e-9;
-      const said = notes.filter((n) => n.includes('Fin can'));
+      const namedNotes = notes.filter((n) => n.includes('Fin can'));
+      const pinNotes = namedNotes.filter(n => n.includes('mass-only override also pins'));
+      const massPinNotes = namedNotes.filter(n => n.includes('CG-only override also pins'));
+      const part = flatten(components).find(n => n.name === 'Fin can')!;
+      expect(pinNotes.length > 0).toBe(part['overrideMass'] !== undefined && part['overrideCGX'] === undefined);
+      expect(massPinNotes.length > 0).toBe(part['overrideCGX'] !== undefined && part['overrideMass'] === undefined);
+      const said = namedNotes.filter(n => !pinNotes.includes(n) && !massPinNotes.includes(n));
       expect(lost, `${label}: the re-opened rocket ${lost ? 'differs' : 'is the same'}`).toBe(says !== null);
       expect(said, label).toEqual(says ? [expect.stringMatching(says)] : []);
     }
@@ -1755,6 +1761,16 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
     expect([m['M1350W']!.ignitionEvent, m['M1350W']!.ignitionDelay]).toEqual(['launch', 12]);
     // The same instant, in RockSim's words: the booster's burnout + 3 s + 1.5 s.
     expect([m['K250W']!.ignitionEvent, m['K250W']!.ignitionDelay]).toEqual(['burnout', 4.5]);
+  });
+
+  it('canonicalizes legacy charge ignition before summing the shared delay', () => {
+    const notes: string[] = [];
+    const back = reread(exportRkt({ name: 'Alias', tree: twoStage(), notes, motors: {
+      m1: motor('M1350W', { delay: 3 }),
+      m0: motor('K250W', { ignitionEvent: 'EJECTION_CHARGE', ignitionDelay: 1.5 }),
+    } }));
+    expect(back['K250W']!.ignitionDelay).toBe(4.5);
+    expect(notes).toEqual([]);
   });
 
   it('round-trips launch on the pad stage and burnout above it unchanged', () => {

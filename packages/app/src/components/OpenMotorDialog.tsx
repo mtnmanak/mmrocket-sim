@@ -1,3 +1,4 @@
+import { Note, type NoteTier } from './Note.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { useId, useRef, useState } from 'react';
 import { Modal } from './Modal.js';
@@ -19,6 +20,8 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [tier, setTier] = useState<NoteTier>('information');
+  const [noticeTier, setNoticeTier] = useState<NoteTier>('information');
   const fileInputs = useRef(new Map<string, HTMLInputElement>());
   const pending = useRef(false);
   const choose = (key: string, choice: OpenMotorChoice) => setChoices(prev => ({ ...prev, [key]: choice }));
@@ -29,7 +32,7 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
     setBusy(true);
     setError(null);
     try { await action(); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); setTier('caution'); }
     finally { pending.current = false; setBusy(false); }
   };
   // @atestani TRF #162, Eric 2026-10-06: a library replacement changes every
@@ -44,6 +47,8 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
     const result = await importMotorFiles(files, prefs.units);
     setError(result.error);
     setNotice(result.notice);
+    setTier(result.tier);
+    setNoticeTier(result.noticeTier);
     if (!result.write) return;
     const motors = result.write.motors;
     setLibrary(motors);
@@ -108,10 +113,10 @@ export function OpenMotorDialog({ identities, onApply, onLater }: {
         );
       })}
       </div>
-      <p role="status" className={notice ? undefined : 'sr-only'}>{notice}</p>
+      <Note as="p" tier={noticeTier} role="status" className={notice ? undefined : 'sr-only'}>{notice}</Note>
       {/* Always mounted, like the status line above (audit 2026-09-22): an
           alert inserted with its text already in place is announced unreliably. */}
-      <div role="alert">{error && <p>{error}</p>}</div>
+      <div role="alert">{error && <Note as="p" tier={tier}>{error}</Note>}</div>
       <div className="modal-actions">
         <button type="button" className="file-btn" disabled={busy} onClick={() => { void run(() => onApply(choices)); }}>Apply</button>
         <button type="button" className="file-btn" disabled={busy} onClick={later}>Decide later</button>

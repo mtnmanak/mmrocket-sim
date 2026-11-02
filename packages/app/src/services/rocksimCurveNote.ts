@@ -28,11 +28,11 @@ export async function rocksimCurveNote(
   if (!candidates.length) return undefined;
   const impulse = spec.times.reduce((sum, t, i) => i === 0 ? sum
     : sum + (t - spec.times[i - 1]!) * (spec.thrusts[i]! + spec.thrusts[i - 1]!) / 2, 0);
-  const describe = (f: TcSimFile): string => `${f.source ?? 'unknown source'} ${f.format ?? 'file'} `
+  const describe = (f: TcSimFile): string => `${noteField(f.source ?? 'unknown source')} ${noteField(f.format ?? 'file')} `
     + `(${fileImpulseNs({ samples: flownCurve(f.samples!).samples }).toFixed(1)} N·s, ${flownCurve(f.samples!).samples.at(-1)!.time.toFixed(2)} s to curve end): `
     + `https://www.thrustcurve.org/simfiles/${encodeURIComponent(f.simfileId!)}/`;
   return `Motor “${noteField(ref.designation)}”: this RockSim record stores ${stored.toFixed(2)} s from ignition to burnout; `
-    + `the ${motor.manufacturerAbbrev} ${motor.designation} curve loaded at import ends at ${duration.toFixed(2)} s `
+    + `the ${noteField(motor.manufacturerAbbrev)} ${noteField(motor.designation)} curve loaded at import ends at ${duration.toFixed(2)} s `
     + `(${impulse.toFixed(1)} N·s). A different published curve may explain part of a flight-result difference. `
     + `Published alternatives with similar duration: ${candidates.map(describe).join('; ')}. `
     + 'Duration alone does not identify the curve or motor revision. Check which motor you own; to use its file, '

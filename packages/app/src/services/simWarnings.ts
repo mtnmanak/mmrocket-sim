@@ -1,3 +1,4 @@
+import { noteField, noteText } from './noteField.js';
 import { PREFERRED_OPENING_SPEED_MS, MAX_CAUTION_OPENING_SPEED_MS } from './recoveryLimits.js';
 import type { EngineWarning } from '@online-openrocket/engine';
 import { lookupTable } from './xmlUtil.js';
@@ -135,7 +136,13 @@ export function formatWarning(w: EngineWarning, units: UnitSelection = INITIAL_U
   const actual = w.key === 'HighSpeedDeployment' && w.quantity?.kind === 'velocity'
     && w.quantity.value > 20 && typedDetail !== null ? w.quantity.value : undefined;
   const label = warningLabel(w.key, units);
-  const detail = stripBrackets(w.message ?? '');
+  let message = w.message ?? '';
+  for (const source of Array.isArray(w.sources) ? w.sources : []) {
+    if (typeof source?.name === 'string' && source.name) {
+      message = message.replaceAll(`"${source.name}"`, () => `“${noteField(source.name)}”`);
+    }
+  }
+  const detail = noteText(stripBrackets(message));
   if (label === undefined) {
     // Unknown key (new kernel warning, or "Other"): the stripped message IS
     // the label; show the raw text rather than hiding the warning.
@@ -184,7 +191,7 @@ function quantityDetail(w: EngineWarning, units: UnitSelection, against?: number
     ? `(${fmtSi('angle', units.angle, q.value, 3)}${units.angle === '°' ? '' : ' '}${units.angle})`
     : `(${against === undefined ? noticeQuantity(kind, q.value, units, { digits: 3, parenthesized: true })
       : noticeComparison(kind, q.value, against, units, { digits: 3, parenthesized: true })[0]})`;
-  const sources = w.sources.map(s => s === null ? 'Removed component' : `"${s.name}"`);
+  const sources = w.sources.map(s => s === null ? 'Removed component' : `“${noteField(s.name)}”`);
   return sources.length ? `${value}: ${sources.join(', ')}` : value;
 }
 
@@ -210,8 +217,8 @@ export function formatWarningText(text: string, units: UnitSelection = INITIAL_U
   const m = /^\[Warning\.([^\]]+)\]/.exec(text);
   const key = m?.[1];
   const label = key !== undefined ? warningLabel(key, units) : undefined;
-  const rest = stripBrackets(text);
-  if (label === undefined) return rest || text;
+  const rest = noteText(stripBrackets(text));
+  if (label === undefined) return rest || noteText(text);
   return rest ? `${label} — ${rest}` : label;
 }
 

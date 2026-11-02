@@ -40,6 +40,25 @@ function report(channel: string, message = 'Modal-time failure') {
   }
 }
 
+it('keeps typing focus and the same controls when errors repeat or change', () => {
+  act(() => root.render(<label>Design name<input /></label>));
+  const input = host.querySelector('input')!;
+  input.focus();
+  stop = installFatalErrorBar();
+  report('error', 'Repeated failure');
+  const bar = document.querySelector('.fatal-error-bar')!;
+  const dismiss = bar.querySelector('[aria-label="Dismiss error"]')!;
+  expect(document.activeElement).toBe(dismiss);
+  input.focus();
+  for (const message of ['Repeated failure', 'Repeated failure', 'Different failure']) {
+    report('error', message);
+    expect(document.activeElement).toBe(input);
+    expect(document.querySelector('.fatal-error-bar')).toBe(bar);
+    expect(bar.querySelector('[aria-label="Dismiss error"]')).toBe(dismiss);
+    expect(bar.textContent).toContain(message);
+  }
+});
+
 function tab(from: HTMLElement, shiftKey = false) {
   from.focus();
   const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true });

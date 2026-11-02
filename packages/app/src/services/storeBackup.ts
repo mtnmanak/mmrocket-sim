@@ -4,37 +4,33 @@
  * or is not a list, as empty. Writing over it lost whatever it held, and
  * refusing to write left the user nothing in the app that could recover. So a
  * write first copies the value to this side key, verbatim, and then starts a
- * new list. The app never reads the copy back; it is kept for recovery by hand.
+ * new list. Copies are kept for recovery by hand, never restored as live rows.
  */
 export const unreadableBackupKey = (key: string): string => `${key}.unreadable-backup`;
+const BACKUP_SLOTS = 3;
+const backupKeys = (key: string) => Array.from({ length: BACKUP_SLOTS }, (_, i) => unreadableBackupKey(key) + (i ? `.${i + 1}` : ''));
 
-/** Whether the side key is free or already holds this copy; never writes. */
-export function canBackUpUnreadableStore(key: string, raw: string): boolean {
-  try {
-    const held = localStorage.getItem(unreadableBackupKey(key));
-    return held === null || held === raw;
-  } catch {
-    return false;
+function backupSlot(key: string, raw: string): { key: string; same: boolean } | undefined {
+  let free: string | undefined;
+  for (const side of backupKeys(key)) {
+    const held = localStorage.getItem(side);
+    if (held === raw) return { key: side, same: true };
+    if (held === null) free ??= side;
   }
+  return free === undefined ? undefined : { key: free, same: false };
 }
 
-/**
- * Copy `raw`, the unreadable value stored under `key`, to its side key. True
- * when the side key then holds exactly these bytes, so a write may replace
- * the store. One copy per store, never overwritten: a different copy already
- * there is the earlier unreadable value, the one more likely to hold the
- * user's data, so this returns false and the caller refuses the write as
- * before. False too when storage refuses the copy.
- */
+export function canBackUpUnreadableStore(key: string, raw: string): boolean {
+  try { return backupSlot(key, raw) !== undefined; }
+  catch { return false; }
+}
+
+/** Three verbatim recovery copies per store; never overwrite an older copy. */
 export function backUpUnreadableStore(key: string, raw: string): boolean {
-  const side = unreadableBackupKey(key);
   try {
-    const held = localStorage.getItem(side);
-    if (held === raw) return true;
-    if (held !== null) return false;
-    localStorage.setItem(side, raw);
+    const slot = backupSlot(key, raw);
+    if (!slot) return false;
+    if (!slot.same) localStorage.setItem(slot.key, raw);
     return true;
-  } catch {
-    return false;
-  }
+  } catch { return false; }
 }

@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { cautionNote } from './importNotes.js';
 import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { MotorDbEntry } from './motorDb.js';
@@ -239,12 +240,12 @@ export function loadExMotors(notes?: string[], units: UnitSelection = INITIAL_UN
       // The browser reports these once on opening; routine library lookups
       // only refuse them, without repeating notices (audit 2026-10-11, S1c-5).
       if (notes) {
-        const name = record(value) && typeof value['designation'] === 'string' ? value['designation'].slice(0, 160) : 'unnamed motor';
+        const name = record(value) && typeof value['designation'] === 'string' ? noteField(value['designation'], 160) : 'unnamed motor';
         const reason = !record(value) ? null
-          : !finite(value['totalWeightG']) ? `loaded mass "${String(value['totalWeightG'])}" is not a finite number`
-            : !finite(value['propWeightG']) ? `propellant mass "${String(value['propWeightG'])}" is not a finite number`
+          : !finite(value['totalWeightG']) ? `loaded mass “${noteField(String(value['totalWeightG']))}” is not a finite number`
+            : !finite(value['propWeightG']) ? `propellant mass “${noteField(String(value['propWeightG']))}” is not a finite number`
               : massProblem(value['propWeightG'], value['totalWeightG'], units);
-        cautionNote(notes, 'I15.stored-ex-refused', `Stored EX motor ${name} was not loaded: ${reason ?? 'invalid dimensions, curve or motor fields'}. Re-import its original .eng/.rse file.`);
+        cautionNote(notes, 'I15.stored-ex-refused', `Stored EX motor ${noteField(name)} was not loaded: ${reason ?? 'invalid dimensions, curve or motor fields'}. Re-import its original .eng/.rse file.`);
       }
     }
     return valid;
@@ -259,9 +260,16 @@ export interface ExLibraryWrite {
   stored: boolean;
   /** Not written because the stored library is not a list the app can read and could not be copied aside; it was left unchanged. */
   unreadable?: true;
-  /** The stored library was not a list the app can read: it was copied to its side key (storeBackup.ts) and a new one started. */
+  /** Unreadable stored data was copied aside, even if the subsequent write failed. */
   backedUp?: true;
+  partlyBackedUp?: true;
 }
+
+export const exLibraryBackupNote = (write: ExLibraryWrite): string => !write.stored
+  ? 'Unreadable motor data was set aside in a recovery copy in this browser. No new library was saved.'
+  : write.partlyBackedUp
+  ? 'Refused motor entries were set aside in a recovery copy in this browser. The rest of the library was kept.'
+  : 'The stored motor library could not be read. The app kept a copy of it in this browser and started a new library.';
 
 // A re-import keeps its id; mounted nozzle consumers must still refresh
 // even without a parent render (audit 2026-10-11, S3c-2).
@@ -289,7 +297,7 @@ function changedLibrary(): void {
  * null, and nothing may be written over it, when that copy cannot be made.
  * Blocked storage reads as empty, so the write fails as it always did.
  */
-function refusedStoredEntries(ids: ReadonlySet<string>): { kept: unknown[]; backedUp: boolean } | null {
+function refusedStoredEntries(ids: ReadonlySet<string>): { kept: unknown[]; backedUp: boolean; partlyBackedUp?: true } | null {
   let raw: string | null;
   try { raw = localStorage.getItem(KEY); } catch { return { kept: [], backedUp: false }; }
   let list: unknown;
@@ -297,8 +305,9 @@ function refusedStoredEntries(ids: ReadonlySet<string>): { kept: unknown[]; back
   if (!Array.isArray(list)) {
     return raw !== null && backUpUnreadableStore(KEY, raw) ? { kept: [], backedUp: true } : null;
   }
-  if (list.some(v => !validExMotor(v)) && raw !== null && backUpUnreadableStore(KEY, raw)) {
-    return { kept: [], backedUp: false };
+  const invalid = list.filter(v => !validExMotor(v));
+  if (invalid.length > 0 && backUpUnreadableStore(KEY, JSON.stringify(invalid))) {
+    return { kept: [], backedUp: true, partlyBackedUp: true };
   }
   return { kept: list.filter(v => !validExMotor(v) && !(record(v) && typeof v['motorId'] === 'string' && ids.has(v['motorId']))),
     backedUp: false };
@@ -310,10 +319,13 @@ function refusedStoredEntries(ids: ReadonlySet<string>): { kept: unknown[]; back
  * localStorage is one ~5 MB pool per origin, and an EX library can be most of
  * it: a tester's 891-motor rasp.eng is 753 KB of JSON. On a quota refusal the
  * downloaded-curve cache is emptied — a convenience that refills itself, where
- * this list is the user's own work — and the write tried once more. If that
+ * this list is the user's own work —
+ * and the write is tried once more. If that
  * fails too the list lives in memory for the session and `stored` is false, so
  * the caller can say so instead of promising it survives a reload.
  */
+let exhaustedStorage: Storage | undefined;
+let exhaustedCacheSize: number | undefined;
 function persist(motors: ExMotor[], removed: readonly string[] = []): ExLibraryWrite {
   const stored = refusedStoredEntries(new Set([...motors.map(m => m.motorId), ...removed]));
   if (stored === null) {
@@ -321,21 +333,30 @@ function persist(motors: ExMotor[], removed: readonly string[] = []): ExLibraryW
     changedLibrary();
     return { motors, stored: false, unreadable: true };
   }
-  const { kept, backedUp } = stored;
+  const { kept, backedUp, partlyBackedUp } = stored;
   const json = JSON.stringify([...kept, ...motors]);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       localStorage.setItem(KEY, json);
+      exhaustedCacheSize = undefined;
       unstored = null;
       changedLibrary();
-      return { motors, stored: true, ...(backedUp ? { backedUp: true as const } : {}) };
+      return { motors, stored: true, ...(backedUp ? { backedUp: true as const } : {}), ...(partlyBackedUp ? { partlyBackedUp: true as const } : {}) };
     } catch {
-      if (attempt === 0) clearCurveCache();
+      try {
+        const storage = localStorage;
+        if (attempt === 0 && (exhaustedStorage !== storage || exhaustedCacheSize !== storage.length)) {
+          clearCurveCache();
+          exhaustedStorage = storage;
+          exhaustedCacheSize = storage.length;
+        } else break;
+      } catch { break; }
     }
   }
   unstored = motors;
   changedLibrary();
-  return { motors, stored: false };
+  return { motors, stored: false, ...(backedUp ? { backedUp: true as const } : {}),
+    ...(partlyBackedUp ? { partlyBackedUp: true as const } : {}) };
 }
 
 /** Identity is every named motor/flight field; storage id, import date and source format are metadata. */
@@ -369,7 +390,7 @@ export function restoreExMotors(added: readonly ExMotor[], notes: string[]): Map
     while (usedIds.has(id)) id = boundedExId(motor.motorId, `~${suffix++}`);
     nextSuffix.set(motor.motorId, suffix);
     if (designations.has(motor.designation)) {
-      notes.push(`Embedded EX motor ${motor.designation}: a different library motor has the same name; both were kept.`);
+      notes.push(`Embedded EX motor ${noteField(motor.designation)}: a different library motor has the same name; both were kept.`);
     }
     const restored = { ...motor, motorId: id };
     library.push(restored);
@@ -384,14 +405,14 @@ export function restoreExMotors(added: readonly ExMotor[], notes: string[]): Map
     cautionNote(notes, 'I15.ex-session-only', 'Embedded EX motors are available for this session but were not saved in browser storage. Keep the .ork file and reopen it after reloading.');
   }
   if (write?.backedUp) {
-    cautionNote(notes, 'I15.ex-library-backed-up', 'The stored motor library could not be read. The app kept a copy of it in this browser and started a new library with these motors.');
+    cautionNote(notes, 'I15.ex-library-backed-up', exLibraryBackupNote(write));
   }
   return ids;
 }
 
 /** Why addExMotors refuses a motor; importMotorFiles names each refused motor with it. */
 export const refusedExMotorNote = (designation: string) =>
-  `Motor ${designation}: invalid dimensions, curve or motor fields; it was not stored.`;
+  `Motor ${noteField(designation)}: invalid dimensions, curve or motor fields; it was not stored.`;
 
 /** An import's write, and what it did to motors that share a maker and name. */
 export interface ExImport extends ExLibraryWrite {
@@ -442,8 +463,8 @@ export function addExMotors(added: ExMotor[]): ExImport {
   return { ...persist([...kept, ...batch.values()]), replaced, duplicates };
 }
 
-export function deleteExMotor(motorId: string): ExMotor[] {
-  return persist(loadExMotors().filter((m) => m.motorId !== motorId), [motorId]).motors;
+export function deleteExMotor(motorId: string): ExLibraryWrite {
+  return persist(loadExMotors().filter((m) => m.motorId !== motorId), [motorId]);
 }
 
 export function getExMotor(motorId: string): ExMotor | undefined {
@@ -598,7 +619,7 @@ export function parseEng(text: string, notes?: string[], units: UnitSelection = 
     const name = h[0]!;
     const [, diaMm, lenMm, delays, propKg, totKg, ...mfr] = h;
     if (!(parseDecimal(diaMm) > 0 && parseDecimal(lenMm) > 0)) {
-      skipped.push(`${name}: diameter/length missing or not a positive number`);
+      skipped.push(`${noteField(name)}: diameter/length missing or not a positive number`);
       return;
     }
     // In time order first, as desktop's RASPMotorLoader sorts before it
@@ -612,12 +633,12 @@ export function parseEng(text: string, notes?: string[], units: UnitSelection = 
     while (last > 0 && pts[last]!.thrust === 0 && pts[last - 1]!.thrust === 0) last--;
     pts.length = last + 1;
     if (pts[0]!.time > 0) pts.unshift({ time: 0, thrust: 0 });
-    if (pts.length > MAX_EX_MOTOR_SAMPLES) { skipped.push(`${name}: ${EX_SAMPLE_LIMIT_NOTE}`); return; }
+    if (pts.length > MAX_EX_MOTOR_SAMPLES) { skipped.push(`${noteField(name)}: ${EX_SAMPLE_LIMIT_NOTE}`); return; }
     const problem = massProblem(parseDecimal(propKg) * 1000, parseDecimal(totKg) * 1000, units);
-    if (problem) { skipped.push(`${name}: ${problem}`); return; }
-    if (pts.length < 2) { skipped.push(`${name}: no thrust data`); return; }
-    if (!pts.some(p => p.thrust > 0)) { skipped.push(`${name}: no positive thrust; this motor cannot launch a rocket`); return; }
-    if (!hasDistinctThrustPoints(pts)) { skipped.push(`${name}: fewer than two distinct thrust points`); return; }
+    if (problem) { skipped.push(`${noteField(name)}: ${problem}`); return; }
+    if (pts.length < 2) { skipped.push(`${noteField(name)}: no thrust data`); return; }
+    if (!pts.some(p => p.thrust > 0)) { skipped.push(`${noteField(name)}: no positive thrust; this motor cannot launch a rocket`); return; }
+    if (!hasDistinctThrustPoints(pts)) { skipped.push(`${noteField(name)}: fewer than two distinct thrust points`); return; }
     motors.push({
       motorId: boundedExId(`ex:${slug(`${mfr.join(' ') || 'ex'}-${name}`)}`),
       designation: name,
@@ -662,17 +683,17 @@ export function parseEng(text: string, notes?: string[], units: UnitSelection = 
       // parseRse refuses its equivalent ("initial mass missing or zero").
       if (!Number.isFinite(parseDecimal(tok[4])) || !Number.isFinite(parseDecimal(tok[5]))) {
         // Both are there: a header has seven or more tokens (isHeader).
-        refused = `Propellant and total mass must be numbers in "${line.slice(0, 60)}" — `
-          + `read "${tok[4]!}" and "${tok[5]!}".`;
+        refused = `Propellant and total mass must be numbers in “${noteField(line, 60)}” — `
+          + `read “${noteField(tok[4]!)}” and “${noteField(tok[5]!)}”.`;
       }
       continue;
     }
-    if (!header) throw new Error(`Not a RASP header line: "${line.slice(0, 60)}"`);
+    if (!header) throw new Error(`Not a RASP header line: “${noteField(line, 60)}”`);
     if (refused) continue; // a skipped motor's data lines are read past to the next header
-    if (samples.length >= MAX_EX_MOTOR_SAMPLES) { refused = `${header[0]!}: ${EX_SAMPLE_LIMIT_NOTE}`; continue; }
+    if (samples.length >= MAX_EX_MOTOR_SAMPLES) { refused = `${noteField(header[0]!)}: ${EX_SAMPLE_LIMIT_NOTE}`; continue; }
     const [t, f] = tok.map(parseDecimal);
     if (tok.length !== 2 || !Number.isFinite(t) || !Number.isFinite(f)) {
-      throw new Error(`Bad data line: "${line.slice(0, 60)}"`);
+      throw new Error(`Bad data line: “${noteField(line, 60)}”`);
     }
     // Name the motor and point at import, not an unnamed kernel refusal
     // after a successful import (audit 2026-10-11, S1c-4).
@@ -733,8 +754,8 @@ function rseSampleMassesKg(
     const raw = raws[bad]!;
     const said = raws.every((r) => r === null) ? 'no point has an m'
       : `point ${bad + 1} of ${masses.length} has `
-        + (raw === null ? 'no m' : raw.trim() === '' ? 'a blank m' : `m="${raw.slice(0, 20)}"`);
-    notes?.push(`${name}: its per-point masses could not be used (${said}), so burn-off is spread in proportion `
+        + (raw === null ? 'no m' : raw.trim() === '' ? 'a blank m' : `m=“${noteField(raw, 20)}”`);
+    notes?.push(`${noteField(name)}: its per-point masses could not be used (${said}), so burn-off is spread in proportion `
       + 'to impulse instead.');
     return undefined;
   }
@@ -751,11 +772,11 @@ function rseSampleMassesKg(
       });
       if (converted.every(m => sampleMassInRangeKg(m, initG, propG))) return converted;
     }
-    notes?.push(`${name}: its per-point masses fall outside ${noticeQuantity('mass', low / 1000, units)}–${noticeQuantity('mass', high / 1000, units)}, contradicting its `
+    notes?.push(`${noteField(name)}: its per-point masses fall outside ${noticeQuantity('mass', low / 1000, units)}–${noticeQuantity('mass', high / 1000, units)}, contradicting its `
       + 'loaded/propellant masses, so burn-off is spread in proportion to impulse instead.');
     return undefined;
   }
-  notes?.push(`${name}: its per-point masses start at ${noticeQuantity('mass', masses[0]! / 1000, units)}, which is neither its loaded mass `
+  notes?.push(`${noteField(name)}: its per-point masses start at ${noticeQuantity('mass', masses[0]! / 1000, units)}, which is neither its loaded mass `
     + `(${noticeQuantity('mass', initG / 1000, units, { parenthesized: true })}) nor its propellant (${noticeQuantity('mass', propG / 1000, units, { parenthesized: true })}), so burn-off is spread in proportion to impulse instead.`);
   return undefined;
 }
@@ -802,19 +823,19 @@ export function parseRse(text: string, notes?: string[], units: UnitSelection = 
     // OpenRocket throws "Initial mass missing" on this; a file without it would
     // otherwise import as a 0 g motor and fly.
     if (!(numAttr('initWt') > 0)) {
-      skipped.push(`Motor ${name}: initial mass (initWt) missing or zero`);
+      skipped.push(`Motor ${noteField(name)}: initial mass (initWt) missing or zero`);
       continue;
     }
     // …and "Propellant mass missing" on this one: a motor with no propellant, or
     // more than it weighs loaded, cannot burn down to a real mass.
     const propellant = el.getAttribute('propWt');
     if (!Number.isFinite(parseDecimal(propellant))) {
-      skipped.push(`Motor ${name}: propellant mass (propWt) ${propellant === null ? 'missing' : `"${propellant}" is not a finite number`}`);
+      skipped.push(`Motor ${noteField(name)}: propellant mass (propWt) ${propellant === null ? 'missing' : `“${noteField(propellant)}” is not a finite number`}`);
       continue;
     }
     const massWrong = massProblem(numAttr('propWt'), numAttr('initWt'), units);
     if (massWrong) {
-      skipped.push(`Motor ${name}: ${massWrong}`);
+      skipped.push(`Motor ${noteField(name)}: ${massWrong}`);
       continue;
     }
     const totalWeightG = numAttr('initWt');
@@ -824,28 +845,28 @@ export function parseRse(text: string, notes?: string[], units: UnitSelection = 
     // and 0 fits any bore), and a 0 mm long one put its CG at its top face.
     const dimension = (['dia', 'len'] as const).find((a) => !(numAttr(a, NaN) > 0));
     if (dimension) {
-      skipped.push(`Motor ${name}: ${dimension === 'dia' ? 'diameter' : 'length'} (${dimension}) missing or not a positive number`);
+      skipped.push(`Motor ${noteField(name)}: ${dimension === 'dia' ? 'diameter' : 'length'} (${dimension}) missing or not a positive number`);
       continue;
     }
     const mfr = attr('mfg') || 'EX';
     if (el.querySelectorAll(':scope > data').length > 1) {
-      skipped.push(`Motor ${name}: multiple data elements`);
+      skipped.push(`Motor ${noteField(name)}: multiple data elements`);
       continue;
     }
     const data = Array.from(el.querySelectorAll(':scope > data > eng-data'));
-    if (data.length > MAX_EX_MOTOR_SAMPLES) { skipped.push(`Motor ${name}: ${EX_SAMPLE_LIMIT_NOTE}`); continue; }
+    if (data.length > MAX_EX_MOTOR_SAMPLES) { skipped.push(`Motor ${noteField(name)}: ${EX_SAMPLE_LIMIT_NOTE}`); continue; }
     // Every point's time and thrust, or the motor is skipped with the point
     // named. Desktop refuses the file ("Illegal motor data point encountered");
     // a point read as 0 — `Number(null)` — put a zero-thrust dip in the curve,
     // and one dropped joined its neighbours with a straight line, unsaid.
     const unread = (d: XmlElement, a: 't' | 'f'): string | null => {
       const raw = d.getAttribute(a);
-      return Number.isFinite(parseDecimal(raw)) ? null : raw === null ? `no ${a}` : `${a}="${raw.slice(0, 20)}"`;
+      return Number.isFinite(parseDecimal(raw)) ? null : raw === null ? `no ${a}` : `${a}=“${noteField(raw, 20)}”`;
     };
     const bad = data.findIndex((d) => unread(d, 't') !== null || unread(d, 'f') !== null);
     if (bad >= 0) {
       const why = [unread(data[bad]!, 't'), unread(data[bad]!, 'f')].filter((w) => w !== null).join(', ');
-      skipped.push(`Motor ${name}: data point ${bad + 1} of ${data.length} cannot be read (${why})`);
+      skipped.push(`Motor ${noteField(name)}: data point ${bad + 1} of ${data.length} cannot be read (${why})`);
       continue;
     }
     const samples = data.map((d) => ({
@@ -853,22 +874,22 @@ export function parseRse(text: string, notes?: string[], units: UnitSelection = 
       thrust: parseDecimal(d.getAttribute('f')),
     }));
     if (samples.some(s => s.thrust > MAX_MOTOR_THRUST_N)) {
-      skipped.push(`Motor ${name}: a data point exceeds the maximum thrust of 10,000,000 N`);
+      skipped.push(`Motor ${noteField(name)}: a data point exceeds the maximum thrust of 10,000,000 N`);
       continue;
     }
     // Match the RASP refusal before storing an unflyable curve (audit 2026-10-11, S1c-4).
     const negative = samples.findIndex(s => s.time < 0 || s.thrust < 0);
     if (negative >= 0) {
       const point = samples[negative]!;
-      skipped.push(`Motor ${name}: data point ${negative + 1} has negative time or thrust (${point.time}, ${point.thrust})`);
+      skipped.push(`Motor ${noteField(name)}: data point ${negative + 1} has negative time or thrust (${point.time}, ${point.thrust})`);
       continue;
     }
     if (samples.length < 2) {
-      skipped.push(`Motor ${name}: no thrust data`);
+      skipped.push(`Motor ${noteField(name)}: no thrust data`);
       continue;
     }
     if (!hasDistinctThrustPoints(samples)) {
-      skipped.push(`Motor ${name}: fewer than two distinct thrust points or no positive thrust; this motor cannot launch a rocket`);
+      skipped.push(`Motor ${noteField(name)}: fewer than two distinct thrust points or no positive thrust; this motor cannot launch a rocket`);
       continue;
     }
     // getAttribute returns null for an ABSENT attribute, and Number(null) is 0
@@ -889,7 +910,7 @@ export function parseRse(text: string, notes?: string[], units: UnitSelection = 
     // promise an out-of-band exit "is ignored with a note", and without one an
     // inches-denominated file lost its exit with nothing to say why.
     if (exit && 'rejected' in exit) {
-      notes?.push(`${name}: its nozzle exit, exitDia ${exit.rejected}, was not used.`);
+      notes?.push(`${noteField(name)}: its nozzle exit, exitDia ${exit.rejected}, was not used.`);
     }
     motors.push({
       motorId: boundedExId(`ex:${slug(`${mfr}-${name}`)}`),

@@ -7,7 +7,7 @@ import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
 import {
   KIND_FOR_TYPE, MAX_PRESET_CSV_BYTES, PRESET_CSV_SIZE_CAUTION, csvToPresets, loadBundledPresets, loadCustomPresets, loadPresets, materialTypeFor, presetPatch,
   presetsToCsv, exactCustomPreset, mergeCustomPresetImport, saveCustomPresets, customPresetId,
-  editCustomPresets, CUSTOM_PRESETS_BACKED_UP, CUSTOM_PRESETS_UNREADABLE, type Preset,
+  editCustomPresets, CUSTOM_PRESETS_BACKED_UP, CUSTOM_PRESETS_BACKUP_FAILED, CUSTOM_PRESETS_UNREADABLE, type Preset,
 } from '../services/presets.js';
 import { usePrefs } from '../prefs/PrefsContext.js';
 import { fmtSig, siToUi } from '../prefs/units.js';
@@ -264,10 +264,10 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
       const missing = written ? good.filter((p) => !stored.has(JSON.stringify(p))).length : good.length;
       sessionDebugLog.record(missing > 0 ? 'import-failed' : 'import-complete',
         missing > 0 ? new Error('Preset storage refused the import.') : undefined);
-      setNoteTier(dropped > 0 || missing > 0 ? 'caution' : 'information');
+      setNoteTier(dropped > 0 || missing > 0 || next.backedUp ? 'caution' : 'information');
       const imported = missing > 0
         ? `Could not store ${missing} of ${good.length} preset(s) — this browser's storage`
-          + ` is full or blocked, so the new values were not saved.${droppedNote}`
+          + ` is full or blocked, so the new values were not saved.${droppedNote}${next.backedUp ? ` ${CUSTOM_PRESETS_BACKUP_FAILED}` : ''}`
         : `Imported ${good.length} preset(s) — stored in this browser.${droppedNote}${next.backedUp ? ` ${CUSTOM_PRESETS_BACKED_UP}` : ''}`;
       // The reload had no catch (audit 2026-09-22): a failure was an unhandled
       // rejection that left `all` null under the note above — and a note hides
@@ -320,16 +320,16 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
       return;
     }
     if (!saveCustomPresets(keep.list)) {
-      setNote('Could not delete My part — this browser’s storage is full or blocked. Try again.');
+      setNote(`${keep.backedUp ? `${CUSTOM_PRESETS_BACKUP_FAILED} ` : ''}Could not delete My part — this browser’s storage is full or blocked. Try again.`);
       setDeleting(null);
       return;
     }
     focusAfterDelete.current = true;
-    const remaining = all?.filter((p) => bundledRows.has(p) || !exactCustomPreset(p, deleting)) ?? null;
+    const remaining = all?.filter((p) => bundledRows.has(p)).concat(loadCustomPresets()) ?? null;
     setAll(remaining);
     if (mfr && !remaining?.some((p) => p.kind === kind && p.manufacturer === mfr && (!myPartsOnly || !bundledRows.has(p)))) setMfr('');
-    setNoteTier('information');
-    setNote(`Deleted ${deleting.manufacturer} ${deleting.partNo} from My parts. Parts already in a design keep their values.${keep.backedUp ? ` ${CUSTOM_PRESETS_BACKED_UP}` : ''}`);
+    setNoteTier(keep.backedUp ? 'caution' : 'information');
+    setNote(`Deleted ${noteField(deleting.manufacturer)} ${noteField(deleting.partNo)} from My parts. Parts already in a design keep their values.${keep.backedUp ? ` ${CUSTOM_PRESETS_BACKED_UP}` : ''}`);
     setDeleting(null);
   };
 
@@ -472,3 +472,4 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
     </div>
   );
 }
+import { noteField } from '../services/noteField.js';

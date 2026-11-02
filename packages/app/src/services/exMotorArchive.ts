@@ -1,3 +1,4 @@
+import { noteField, noteText } from './noteField.js';
 import { cautionNote } from './importNotes.js';
 import { validExMotor as validArchivedExMotor, validExMotorFields, validFlightSnapshot, boundedExId, exMotorIdentity, exToMotorSpec, flightIdentity, loadExMotors, type ExMotor, type ExFlightSnapshot } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
@@ -39,10 +40,13 @@ export function archiveExMotors(mounted: readonly OrkExportMotor[], notes: strin
   for (const ref of exRefs) {
     if (seenRefs.has(ref)) continue;
     seenRefs.add(ref);
-    const name = ref.designation.slice(0, 160);
+    const name = noteField(ref.designation, 160);
     const current = library.get(ref.exMotorId ?? '');
     const spec = ref.exMotorSpec as RepairedMotorSpec | undefined;
     const captured = spec?.exDefinition ?? ref.exDefinition;
+    if (!ref.manufacturer && !captured && !current) {
+      cautionNote(notes, 'export-loss', `EX motor ${name}: no maker is available in its loaded data or library definition. The saved file cannot identify a maker for desktop OR. If the original .eng/.rse names a maker, re-import it to include that maker; a source naming only EX has no maker to restore.`);
+    }
     let motor: ExMotor | undefined;
     if (spec && validFlightSnapshot(spec)) {
       const original = validArchivedExMotor(captured) ? captured
@@ -71,13 +75,13 @@ export function archiveExMotors(mounted: readonly OrkExportMotor[], notes: strin
       }
     } else if (validArchivedExMotor(captured) && !ref.exMotorMissing) {
       motor = captured;
-      notes.push(`EX motor ${name}: the loaded curve is invalid; saved its captured source definition.`);
+      cautionNote(notes, 'export-loss', `EX motor ${name}: the loaded curve is invalid; saved its captured source definition.`);
     } else if (!spec && !ref.exMotorMissing) {
       motor = validArchivedExMotor(captured) ? captured : current;
     }
     if (!validArchivedExMotor(motor)) {
       ids.set(ref, null);
-      notes.push(`EX motor ${name}: no valid loaded snapshot remains; saved the design without this motor.`);
+      cautionNote(notes, 'export-loss', `EX motor ${name}: no valid loaded snapshot remains; saved the design without this motor.`);
       continue;
     }
     const identity = exMotorIdentity(motor);
@@ -104,7 +108,7 @@ export function archiveExMotors(mounted: readonly OrkExportMotor[], notes: strin
     const size = new TextEncoder().encode(escapeXml(JSON.stringify(definition))).length + 1;
     if (definitions.size >= MAX_EMBEDDED_EX_MOTORS || bytes + size > MAX_EX_ARCHIVE_BYTES) {
       ids.set(ref, null);
-      notes.push(`EX motor ${ref.designation.slice(0, 160)}: the disk archive budget was exceeded; saved the design without this motor.`);
+      cautionNote(notes, 'export-loss', `EX motor ${noteField(ref.designation, 160)}: the disk archive budget was exceeded; saved the design without this motor.`);
       continue;
     }
     bytes += size;
@@ -130,14 +134,14 @@ export function readArchivedExMotors(rocket: XmlElement, notes: string[]): Map<s
     if (!value.every(validExMotorFields)) throw new Error(`invalid definition, non-finite value, or over ${MAX_EX_MOTOR_SAMPLES} samples per motor`);
     if (new Set(value.map(m => m.motorId)).size !== value.length) throw new Error('duplicate library ids');
     const usable = value.filter(m => {
-      const name = m.designation.slice(0, 160);
+      const name = noteField(m.designation, 160);
       if (validArchivedExMotor(m)) return true;
       cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motor ${name} was not loaded: fewer than two distinct thrust points, no positive thrust, or a captured CG outside the motor. Re-import its original .eng/.rse file.`);
       return false;
     });
     return new Map(usable.map(m => [m.motorId, m]));
   } catch (error) {
-    const reason = (error instanceof Error ? error.message : String(error)).replace(/[\p{Bidi_Control}\p{Cc}\u2028\u2029]/gu, '');
+    const reason = noteText(error instanceof Error ? error.message : String(error));
     cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motors were refused: ${reason}. Re-import the original .eng/.rse; these motors were not loaded.`);
     return new Map();
   }

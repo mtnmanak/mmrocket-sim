@@ -77,6 +77,12 @@ describe('APP_DEFAULT_AERO', () => {
 });
 
 describe('simulateDesign flies the design', () => {
+  it('protects a persisted loadout refusal before reporting a headless flight error', async () => {
+    const input = state(defaultTree(), {}, { activeConfigId: 'refused', savedConfigs: [{
+      id: 'refused', name: null, isDefault: true, motors: {}, motorLoadoutRefusal: 'Refused “motor”\n\u200b\u202e',
+    }] });
+    await expect(simulateDesign(input)).rejects.toThrow('Refused “motor”[U+200B][U+202E]');
+  });
   it('defaults to microtask yields with the watchdog on during an auto-delay flight', async () => {
     const input = await f67Auto();
     const timer = vi.spyOn(globalThis, 'setTimeout');

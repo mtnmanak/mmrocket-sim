@@ -22,8 +22,11 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  'src/services/integrationFix.test.ts',
+  'src/services/fileNoteSafety.test.ts',
   'src/services/ejectionDelay.test.ts',
   'src/services/rocksimRecoveryCount.test.ts',
+  'src/services/rocksimFile.importExport.test.ts',
   'src/tree/shroudConvert.test.ts',
   'src/services/finOutline.closure.test.ts',
   'src/services/motorClosureCompatibility.test.ts',
@@ -32,6 +35,7 @@ export const XML_JS_SUITES = [
   'src/services/orkFile.closure.test.ts',
   'src/services/exMotors.laneAudit.test.ts',
   'src/services/orkFile.audit.test.ts',
+  'src/services/orkFile.laneN3.test.ts',
   'src/services/rasaeroFile.laneAudit.test.ts',
   'src/services/rocksimFile.audit.test.ts',
   'src/services/comparisonProducers.test.ts',
@@ -110,6 +114,10 @@ export const XML_JS_SUITES = [
   'src/services/warningImport.test.ts',
   'src/services/warningUnits.kernel.test.ts',
   'src/services/warningUnits.test.ts',
+  // N7: malformed stored warnings and recovery receipts through either parser.
+  'src/services/laneN7Round2.test.ts',
+  'src/services/laneN7Round3.test.ts',
+  'src/services/laneN7Round4.test.ts',
   'src/services/noticeUnits.test.ts',
   'src/services/orkAero.test.ts',
   'src/services/orkFilledTube.test.ts',
@@ -119,12 +127,14 @@ export const XML_JS_SUITES = [
   'src/services/orkPackedSize.test.ts',
   'src/services/orkRadial.test.ts',
   'src/services/rasaeroFile.test.ts',
+  'src/services/rasaeroFile.auditN6.test.ts',
   // M3: stage figures, finishes, lugs and excluded-booster cautions use both parsers.
   'src/services/rasaeroFile.M3.test.ts',
   'src/services/rasaeroFile.audit.test.ts',
   'src/services/rasaeroStatedFigures.test.ts',
   'src/services/recoveryMass.test.ts',
   'src/services/rocksimFile.test.ts',
+  'src/services/rocksimFile.auditN6.test.ts',
   // Mount fidelity and early part bounds (audit 2026-10-11, S1b-6/S1b-3).
   'src/services/rocksimFile.fidelity.test.ts',
   'src/services/rocksimFile.bounds.test.ts',

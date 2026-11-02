@@ -1221,12 +1221,13 @@ describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
         ],
       },
       motors: {
-        b0: { designation: 'J350W', manufacturer: 'AeroTech' },
+        b0: { designation: 'J350W', manufacturer: 'AeroTech', ignitionEvent: 'BURNOUT', ignitionDelay: 1.25 },
         b1: { designation: 'K550W', manufacturer: 'AeroTech' },
       },
       engineExport: true,
     };
     const xml = exportCdx1(twoStage);
+    expect(xml).toContain('<SustainerIgnitionDelay>1.25</SustainerIgnitionDelay>');
     expect(xml).toContain('<Booster1Engine>K550W  (AT)</Booster1Engine>\n<Booster1LaunchWt>');
     expect(xml).toContain('<IncludeBooster1>True</IncludeBooster1>');
     expect(xml).toContain('<IncludeBooster2>False</IncludeBooster2>');
@@ -2515,7 +2516,7 @@ describe('RASAero export — booster fins are located on the whole booster body'
       expect(message).not.toMatch(/undefined/);
     }
     // A named booster is still quoted.
-    expect(() => exportCdx1(booster([]))).toThrow(/^Stage "Booster" has no body tube/);
+    expect(() => exportCdx1(booster([]))).toThrow(/^Stage “Booster” has no body tube/);
   });
 });
 

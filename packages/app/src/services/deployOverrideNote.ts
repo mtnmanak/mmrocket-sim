@@ -1,5 +1,6 @@
+import { noteField } from './noteField.js';
 import { DEPLOY_EVENTS, FIELDS } from '../tree/schema.js';
-import { foldDeployEvent } from '../tree/deployEvent.js';
+import { foldDeployEvent, flownDeployEvent } from '../tree/deployEvent.js';
 import type { IgnitionTuple, SeparationTuple } from '../model/design.js';
 import { INITIAL_UNITS, noticeQuantity } from '../prefs/units.js';
 
@@ -40,11 +41,11 @@ export interface DeployOverride {
  * Same deployment, as far as a flight can tell: altitude only counts for the
  * altitude event. The event's case is folded the way the kernel folds it
  * (RECOV-CASE) — "Altitude" and "altitude" fly the same — while a value the
- * kernel does not name stays distinct, as the file wrote it.
+ * kernel does not name flies the ejection fallback.
  */
 export function sameDeployment(a: DeploySetting, b: DeploySetting): boolean {
-  const event = foldDeployEvent(a.deployEvent);
-  if (event !== foldDeployEvent(b.deployEvent)) return false;
+  const event = flownDeployEvent(a.deployEvent);
+  if (event !== flownDeployEvent(b.deployEvent)) return false;
   if (Math.abs(a.deployDelay - b.deployDelay) > 1e-9) return false;
   return event !== 'altitude' || Math.abs(a.deployAltitude - b.deployAltitude) <= 1e-6;
 }
@@ -53,8 +54,10 @@ const LABEL = new Map(DEPLOY_EVENTS);
 
 /** N032: quote the altitude box's units/digits; callers without preferences keep the legacy readout. */
 export function describeDeployment(d: DeploySetting, altitudeUnit?: string, parenthesized = false): string {
-  const event = foldDeployEvent(d.deployEvent);
-  let s = LABEL.get(event) ?? event;
+  const event = flownDeployEvent(d.deployEvent);
+  const written = foldDeployEvent(d.deployEvent);
+  let s = LABEL.get(event)!;
+  if (written !== event) s += ` (file value “${noteField(d.deployEvent)}” is kept; the app uses the motor ejection charge)`;
   if (event === 'altitude') {
     s += `, ${noticeQuantity('altitude', d.deployAltitude, altitudeUnit ?? INITIAL_UNITS.altitude, { digits: 3, parenthesized })}`;
   }
@@ -75,9 +78,9 @@ export function deployOverrideNote(overrides: readonly DeployOverride[], configN
     const g = groups.get(key);
     if (g) g.n++; else groups.set(key, { o, n: 1 });
   }
-  const where = configName ? `Flight configuration “${configName}”` : 'The flight configuration this file opens with';
+  const where = configName ? `Flight configuration “${noteField(configName)}”` : 'The flight configuration this file opens with';
   const lines = [...groups.values()].map(({ o, n }) =>
-    `${o.name}${n > 1 ? ` (×${n})` : ''} flies at ${describeDeployment(o.flown, altitudeUnit)}, `
+    `${noteField(o.name)}${n > 1 ? ` (×${n})` : ''} flies at ${describeDeployment(o.flown, altitudeUnit)}, `
     + `not at its own setting (${describeDeployment(o.own, altitudeUnit, true)})`);
   // Both settings are shown, and edited, in the Recovery section of Motors &
   // Configuration since CFG-3 (ruling D2a); Design shows them read-only.
@@ -104,9 +107,9 @@ export function flightParameterOverrideNote(
     };
     return `${labels[tuple.event]}${tuple.delay ? ` + ${tuple.delay} s` : ''}`;
   };
-  const where = configName ? `Flight configuration “${configName}”` : 'The flight configuration this file opens with';
+  const where = configName ? `Flight configuration “${noteField(configName)}”` : 'The flight configuration this file opens with';
   const component = kind === 'separation' ? 'stage' : 'mount';
   const panel = kind === 'separation' ? 'Stages section on Motors & Configuration' : 'motor card on Motors & Configuration';
-  return `${where} overrides ${kind} for ${name}: it uses ${describe(flown)}, not the ${component}'s own setting (${describe(own, true)}). `
+  return `${where} overrides ${kind} for ${noteField(name)}: it uses ${describe(flown)}, not the ${component}'s own setting (${describe(own, true)}). `
     + `The ${panel} shows both; Reset to own setting there returns this configuration to the ${component}'s own setting.`;
 }

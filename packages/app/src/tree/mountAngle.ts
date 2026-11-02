@@ -1,8 +1,9 @@
+import { noteField } from '../services/noteField.js';
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { num, numOpt } from './nodeNum.js';
 import { kernelNum, KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
-import { absoluteStations } from './position.js';
+import { absoluteStations, axialLength, positionOf, startFromPosition } from './position.js';
 import { assemblyInstanceCount, finCountOf } from './counts.js';
 // mountRadiusOf, not a fourth copy of "how wide is the tube under this part".
 // It is the expression all three views and engineTree already use, fallbacks
@@ -15,8 +16,6 @@ import { assemblyInstanceCount, finCountOf } from './counts.js';
 import { mountRadiusOf, nameOr } from './treeModel.js';
 import { lookupTable } from '../services/xmlUtil.js';
 import { enclosesArea } from './polygon.js';
-import { axialLength } from './position.js';
-import { positionOf, startFromPosition } from './position.js';
 import { finOnMount, flatMount, profileMount } from './finRoot.js';
 import { tubeFinRadius, tubeFinWall } from './tubefins.js';
 import { noseEnds } from './tailCone.js';
@@ -389,7 +388,7 @@ export function railInterferenceFindings(tree: RocketTree, _units: UnitSelection
         const g = angleGap(b.angle, f.angle);
         if (g <= IN_LINE_TOLERANCE) {
           if (!budget.report(b.name, f.owner)) return;
-          addFinding({ text: `"${b.name}" at ${deg(b.angle)} is in line with a fin of "${f.owner}" (${deg(g)} apart) — the rail runs down that line, so the fin fouls it. Move one of them.`,
+          addFinding({ text: `“${noteField(b.name)}” at ${deg(b.angle)} is in line with a fin of “${noteField(f.owner)}” (${deg(g)} apart) — the rail runs down that line, so the fin fouls it. Move one of them.`,
             parts: [{ id: b.id, name: b.name }, { id: f.id, name: f.owner }] });
         }
       }
@@ -398,7 +397,7 @@ export function railInterferenceFindings(tree: RocketTree, _units: UnitSelection
         const g = angleGap(b.angle, o.angle);
         if (g <= IN_LINE_TOLERANCE) {
           if (!budget.report(b.name, o.name)) return;
-          addFinding({ text: `"${b.name}" at ${deg(b.angle)} is in line with "${o.name}" (${deg(g)} apart) — both sit on the rail's line.`,
+          addFinding({ text: `“${noteField(b.name)}” at ${deg(b.angle)} is in line with “${noteField(o.name)}” (${deg(g)} apart) — both sit on the rail's line.`,
             parts: [{ id: b.id, name: b.name }, { id: o.id, name: o.name }] });
         }
       }
@@ -613,7 +612,7 @@ export function wakeShadowWarnings(tree: RocketTree, units: UnitSelection = INIT
         // every warning string, so a part someone called "[cam]" would lose its
         // name if the sentence opened with it bare.
         const text = (
-          `"${s.name}" at ${deg(s.angle)} sits ${gapText} ahead of a fin of "${f.owner}" — `
+          `“${noteField(s.name)}” at ${deg(s.angle)} sits ${gapText} ahead of a fin of “${noteField(f.owner)}” — `
           + `${heights} times its own height upstream, ${deg(nearest)} off that fin's line. `
           + 'The wake it sheds is not modelled: that fin is flown at full free-stream dynamic '
           + 'pressure, so the CP shown is computed as if the shroud were not there. On its own '

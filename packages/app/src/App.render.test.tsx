@@ -2607,7 +2607,7 @@ describe('rail fit on the Design view', () => {
     const block = host.querySelector('.rail-fit-findings');
     expect(block, 'the rail-fit block').not.toBeNull();
     expect(block!.textContent).toMatch(/^Rail fit on the pad/);
-    expect(block!.textContent).toContain('"Fwd button"');
+    expect(block!.textContent).toContain('“Fwd button”');
     expect(block!.textContent).toContain('fouls it');
     // Said once: not repeated in the generic notes beside it.
     const others = [...host.querySelectorAll('.file-note')].filter((n) => n !== block && !block!.contains(n));

@@ -123,6 +123,7 @@ export function loadRuns(): SimRun[] {
           : e.type === 'BURNOUT' && typeof (e.motorMountId ?? e.sourceId) === 'string')))) delete r.recoveryEvents;
       for (const k of ARRAY_FIELDS) {
         if (!(k in r)) continue;
+        if (k === 'simWarnings') { r.simWarnings = restoredWarnings(r.simWarnings); continue; }
         const entries = r[k];
         if (!Array.isArray(entries)) delete r[k];
         // An unreadable deployment device or branch name is blanked below, not
@@ -135,7 +136,6 @@ export function loadRuns(): SimRun[] {
       if (r.windLevels !== undefined && !validWindLevels(r.windLevels)) delete r.windLevels;
       if (r.windProfileSource !== undefined
         && (!r.windLevels?.length || !validWindProfileSource(r.windProfileSource))) delete r.windProfileSource;
-      if (r.simWarnings !== undefined) r.simWarnings = restoredWarnings(r.simWarnings);
       for (const b of r.branches ?? []) {
         if (typeof b.name !== 'string') b.name = '';
         if (typeof b.stageId !== 'string') delete b.stageId;

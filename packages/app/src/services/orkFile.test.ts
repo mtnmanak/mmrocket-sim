@@ -1506,17 +1506,15 @@ describe('.ork multi-configuration import (Stage A)', () => {
     expect(notes[0]).not.toContain('Opened');
   });
 
-  it('keeps the legacy first-motor read and note for undeclared configids', () => {
-    // Hand-rolled shape: no rocket-level declarations, several stray
-    // <motor configid>s — the old behavior, preserved.
+  it('retains every undeclared configuration and opens the first', () => {
+    // Hand-rolled shape: motor references create missing configurations.
     const undeclared = MULTI.replace(/<motorconfiguration[\s\S]*?<\/motorconfiguration>/g, '');
     const result = importOrk(undeclared);
-    expect(result.configs).toEqual([]);
-    expect(result.chosenConfigId).toBeNull();
+    expect(result.configs.map(c => c.id)).toEqual(['cfg-a', 'cfg-b']);
+    expect(result.chosenConfigId).toBe('cfg-a');
     expect(firstMountMotor(result)?.designation).toBe('C6'); // first in document order
-    const note = result.notes.find((n) => n.includes('flight configurations'))!;
-    expect(note).toContain('kept “cfg-a”');
-    expect(note).toContain('1 was not imported');
+    expect(result.notes.filter(n => n.includes('undeclared'))).toHaveLength(1);
+    expect(Object.values(result.configs[1]!.motors)[0]?.designation).toBe('D12');
   });
 });
 
@@ -3734,7 +3732,7 @@ describe('.ork export — a part with no position', () => {
 it('S1a-8 warns about an inactive stage in a single configuration', () => {
   const single = MULTI.replace(/<motorconfiguration configid="cfg-a"[\s\S]*?<\/motorconfiguration>/, '');
   const result = importOrk(single);
-  expect(result.configs).toHaveLength(1);
+  expect(result.configs).toHaveLength(2); // cfg-a's motor references retain its undeclared configuration.
   expect(result.notes.filter((n) => n.includes('deactivates'))).toHaveLength(1);
   expect(result.notes.join(' ')).toContain('all stages fly');
   expect(importOrk(single.replace('active="false"', 'active="true"')).notes.join(' ')).not.toContain('deactivates');

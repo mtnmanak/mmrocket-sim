@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { isAssembly } from '../tree/assembly.js';
 import { num } from '../tree/nodeNum.js';
@@ -115,7 +116,7 @@ export function currentPlacementStamp(tree: RocketTree): string {
 
 export function legacyPositionNote(parts: LegacyPositionCandidate[]): string | undefined {
   if (!parts.length) return undefined;
-  const names = parts.map(part => `“${part.name}” in “${part.assembly}”`).join(', ');
+  const names = parts.map(part => `“${noteField(part.name)}” in “${noteField(part.assembly)}”`).join(', ');
   return `Possible pre-v0.138 position error: ${parts.length} part${parts.length === 1 ? '' : 's'} may need checking: ${names}. `
     + 'This is a check because an app version before v0.138 placed parts inside a pod or strap-on differently. '
     + 'Open the part, compare Position (in parent) / Relative to / Offset with the design you intended, '

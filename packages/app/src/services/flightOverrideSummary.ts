@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import type { ComponentNode } from '@online-openrocket/engine';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, MountMotor, SeparationTuple } from '../model/design.js';
 import { motorMounts, stages } from '../tree/treeModel.js';
@@ -136,12 +137,12 @@ export function describeFlightOverrides(
   };
   visit(tree.components);
   if (!first) return null;
-  const subject = configLabel ? `Flight configuration “${configLabel}”` : 'The detached working settings';
+  const subject = configLabel ? `Flight configuration “${noteField(configLabel)}”` : 'The detached working settings';
   const count = (g: Group) => g.names.length === 1 ? g.kind : `${g.names.length} ${g.kind}s`;
   const name = (g: Group) => {
     const meaningful = g.names.some(n => n.trim().toLowerCase() !== g.kind);
-    if (g.names.length === 1) return meaningful ? `${g.kind} “${g.names[0]!}”` : g.kind;
-    return `${count(g)}${g.names.length === 2 && new Set(g.names).size === 2 && meaningful ? ` (${g.names.join(' and ')})` : ''}`;
+    if (g.names.length === 1) return meaningful ? `${g.kind} “${noteField(g.names[0]!)}”` : g.kind;
+    return `${count(g)}${g.names.length === 2 && new Set(g.names).size === 2 && meaningful ? ` (${noteField(g.names.join(' and '))})` : ''}`;
   };
   const sentences = (short: boolean) => (['recovery', 'separation', 'ignition'] as const).flatMap(family => {
     const members = [...groups.values()].filter(g => g.family === family);

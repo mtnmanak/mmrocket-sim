@@ -254,7 +254,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     (_all, start: string, end: string) => start + JSON.stringify(warnings) + end);
   it('refuses a whole oversized warning array with the I28 caution naming the limit', () => {
     const r = importOrk(withRawWarnings(Array.from({ length: MAX_STORED_WARNINGS + 1 }, () => text)));
-    expect(r.storedSimulations![0]!.data.simWarnings).toBeUndefined();
+    expect(r.storedSimulations![0]!.data.simWarnings).toContainEqual(expect.objectContaining({ key: 'StoredWarningsUnavailable' }));
     expect(r.notes.join('\n')).toContain(`more than ${MAX_STORED_WARNINGS.toLocaleString('en-US')} warnings`);
     expect(r.noteTiers?.some(note => note.kind === 'I28.stored-warnings')).toBe(true);
     expect(importOrk(withRawWarnings(Array.from({ length: MAX_STORED_WARNINGS }, () => text)))
@@ -267,7 +267,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
     for (const evidence of [nested, Array.from({ length: MAX_WARNING_EVIDENCE_VALUES }, () => 0)]) {
       const warnings = [{ ...text, evidence }];
       const r = importOrk(withRawWarnings(warnings));
-      expect(r.storedSimulations![0]!.data.simWarnings).toBeUndefined();
+      expect(r.storedSimulations![0]!.data.simWarnings).toContainEqual(expect.objectContaining({ key: 'StoredWarningsUnavailable' }));
       expect(r.notes.join('\n')).toContain('warning details nested too deeply or too large');
       expect(mergeStoredWarnings(warnings, warnings)).toEqual([
         text, expect.objectContaining({ key: 'StoredWarningsUnavailable' }),
@@ -436,7 +436,7 @@ describe('S1d-1 bounded stored warning evidence', () => {
   it('accepts key-only warnings through file import and re-export', () => {
     const imported = importOrk(withRawWarnings([{ key: 'SIM_ABORT' }]));
     expect(imported.storedSimulations![0]!.data.simWarnings).toEqual([{ key: 'SIM_ABORT' }]);
-    expect(imported.notes.join('\n')).not.toContain('Stored simulation warnings');
+    expect(imported.notes.join('\n')).not.toMatch(/(?:Stored|Saved) simulation warnings/);
     expect(importOrk(write(imported.storedSimulations![0]!.data.simWarnings))
       .storedSimulations![0]!.data.simWarnings).toEqual([{ key: 'SIM_ABORT' }]);
   });

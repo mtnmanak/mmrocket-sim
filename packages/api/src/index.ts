@@ -8,9 +8,9 @@ import {
 import { displayEcho, filenameEcho } from './filenameEcho.js';
 import { noteEcho, noteStrings, warningEcho } from './fileStrings.js';
 import { stampedJson } from './stamp.js';
-import { BodyReservation, BodyTimeout, BodyTooLarge, readBody, ServerBusy } from './body.js';
+import { declaredBodySize, MAX_API_BODY_BYTES, BodyReservation, BodyTimeout, BodyTooLarge, readBody, ServerBusy } from './body.js';
 import { checkKey, type Env } from './auth.js';
-import { kernelJob, KernelBusy } from './admission.js';
+import { kernelBusy, kernelJob, KernelBusy } from './admission.js';
 import { API_XML_LIMITS } from './xmlLimits.js';
 
 export { API_XML_LIMITS };
@@ -19,9 +19,29 @@ setXmlParser(createJsXmlParser(API_XML_LIMITS));
 const MAX_API_INFLATED_BYTES = 16 * 1024 * 1024;
 const MIN_API_TIME_STEP_S = 0.05;
 const APP_URL = 'https://mmrsim.mountainmanrockets.com';
+let kernelUnavailableLogged = false;
 
 function error(code: string, message: string, status: number, headers?: HeadersInit): Response {
   return stampedJson({ error: { code, message } }, { status, headers });
+}
+
+function bodySizeError(received: number, declared: boolean, filename: string): Response {
+  return error('FILE_TOO_LARGE', `${filenameEcho(filename)}: the API body limit is 8 MiB; ${declared ? 'declared' : 'received'} ${received.toLocaleString('en-US')} bytes. Use ${APP_URL} for larger files.`, 413);
+}
+
+function uploadBusyError(): Response {
+  return error('SERVER_BUSY', 'The API is busy with other uploads. Retry in a few seconds.', 503, { 'Retry-After': '5' });
+}
+
+async function rateLimit(limiter: NonNullable<Env['RATE_LIMITER']>, key: string): Promise<Response | undefined> {
+  try {
+    if (!(await limiter.limit({ key })).success) {
+      return error('RATE_LIMITED', 'This API key has made too many requests. Retry in a minute.', 429, { 'Retry-After': '60' });
+    }
+  } catch {
+    return error('INTERNAL_ERROR', 'The API request limit could not be checked. Retry in a few seconds.', 503, { 'Retry-After': '5' });
+  }
+  return undefined;
 }
 
 export interface WorkerContext { waitUntil(promise: Promise<unknown>): void }
@@ -111,6 +131,7 @@ export const worker = {
       }
       if (url.pathname !== '/describe' && url.pathname !== '/experimental/fly') return error('NOT_FOUND', 'Unknown endpoint.', 404);
       if (request.method !== 'POST') return error('METHOD_NOT_ALLOWED', 'Use POST with a raw design file.', 405, { Allow: 'POST' });
+      describing = url.pathname === '/describe';
       const key = await checkKey(request, env?.API_KEYS);
       if ('code' in key) {
         if (key.code === 'NOT_CONFIGURED') return error(key.code, 'The API is not configured yet.', 503);
@@ -119,15 +140,27 @@ export const worker = {
           { 'WWW-Authenticate': 'Bearer realm="mmrsim-api"' });
       }
       if (!env?.RATE_LIMITER) return error('NOT_CONFIGURED', 'The API is not configured yet.', 503);
-      if (!(await env.RATE_LIMITER.limit({ key: key.name })).success) {
-        return error('RATE_LIMITED', 'This API key has made too many requests. Retry in a minute.', 429, { 'Retry-After': '60' });
+      filename = url.searchParams.get('filename')?.trim() ?? '';
+      // Cheap refusals have their own bounded allowance, never an unlimited bypass.
+      const declared = declaredBodySize(request);
+      const refusal = !filename ? error('FILENAME_REQUIRED', 'Supply the design filename in ?filename=.', 400)
+        : !request.body || declared === 0 ? error('EMPTY_FILE', 'Supply a raw design file as the request body.', 400)
+          : declared !== undefined && declared > MAX_API_BODY_BYTES ? bodySizeError(declared, true, filename)
+            : kernelBusy() ? error('KERNEL_BUSY', 'The API is busy with other designs. Retry in a few seconds.', 503, { 'Retry-After': '5' }) : undefined;
+      if (refusal) return (await rateLimit(env.RATE_LIMITER, 'refused:' + key.name)) ?? refusal;
+      // Reserve the first 64 KiB atomically before awaiting the work limiter.
+      try { reservation.setKey(key.name); reservation.prepare(); }
+      catch (e) {
+        if (!(e instanceof ServerBusy)) throw e;
+        return (await rateLimit(env.RATE_LIMITER, 'refused:' + key.name)) ?? uploadBusyError();
       }
-      if (url.pathname === '/describe') {
-        describing = true;
-        filename = url.searchParams.get('filename')?.trim() ?? '';
-        if (!filename) return error('FILENAME_REQUIRED', 'Supply the design filename in ?filename=.', 400);
-        const data = await readBody(request, reservation, started + 30_000);
-        if (!data.byteLength) return error('EMPTY_FILE', 'Supply a raw design file as the request body.', 400);
+      const limited = await rateLimit(env.RATE_LIMITER, key.name);
+      if (limited) return limited;
+      const readingStarted = performance.now();
+      const data = await readBody(request, reservation, started + 30_000);
+      if (!data.byteLength) return error('EMPTY_FILE', 'Supply a raw design file as the request body.', 400);
+      const readMs = performance.now() - readingStarted;
+      if (describing) {
         // No caller options: every other query parameter is ignored. The build and its
         // handle reads take the kernel lock inside describeFile; the import before it and
         // the fragment compression after it run outside, so the watchdog's microtask-only
@@ -139,11 +172,6 @@ export const worker = {
         ctx.waitUntil(description.catch(() => undefined));
         return stampedJson(described(await description));
       }
-      filename = url.searchParams.get('filename')?.trim() ?? '';
-      if (!filename) return error('FILENAME_REQUIRED', 'Supply the design filename in ?filename=.', 400);
-      const data = await readBody(request, reservation, started + 30_000);
-      if (!data.byteLength) return error('EMPTY_FILE', 'Supply a raw design file as the request body.', 400);
-      const readMs = performance.now() - started;
       // No caller-supplied options; the bundled snapshot is the only external motor source.
       // simulateFile takes withKernel internally. An outer lock here would deadlock.
       // A microtask-only flight has no macrotask cancellation point inside withKernel.
@@ -173,11 +201,11 @@ export const worker = {
       } });
     } catch (e) {
       // Display only: the full trimmed name already chose the importer.
-      const shown = filenameEcho(filename);
       if (e instanceof BodyTimeout) return error('BODY_TIMEOUT', e.message, 408);
       if (e instanceof BodyTooLarge) {
-        return error('FILE_TOO_LARGE', `${shown}: the API body limit is 8 MiB; received ${e.received.toLocaleString('en-US')} bytes. Use ${APP_URL} for larger files.`, 413);
+        return bodySizeError(e.received, e.declared, filename);
       }
+      const shown = filenameEcho(filename);
       if (e instanceof InflatedFileTooLargeError) {
         return error('FILE_TOO_LARGE', `${shown}: the API inflated XML limit is 16 MiB. Use ${APP_URL} for larger files.`, 413);
       }
@@ -191,10 +219,14 @@ export const worker = {
         return error('KERNEL_BUSY', 'The API is busy with other designs. Retry in a few seconds.', 503, { 'Retry-After': '5' });
       }
       if (e instanceof ServerBusy) {
-        return error('SERVER_BUSY', 'The API is busy with other uploads. Retry in a few seconds.', 503, { 'Retry-After': '5' });
+        return uploadBusyError();
       }
       if (e instanceof KernelUnavailableError) {
-        return error('KERNEL_UNAVAILABLE', e.message, 503, { 'Retry-After': '5' });
+        if (!kernelUnavailableLogged) {
+          kernelUnavailableLogged = true;
+          console.error('API kernel unavailable: isolate replacement required.');
+        }
+        return error('KERNEL_UNAVAILABLE', 'A previous flight on this server instance was stopped part-way. Please retry later; this instance cannot recover until it is replaced.', 503);
       }
       if (e instanceof SimulateDesignError) {
         const codes = { file: 'FILE_TOO_LARGE', parse: 'INVALID_FILE', build: 'DESIGN_BUILD_FAILED',

@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import type { NoteTier } from '../components/Note.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { Notice, NoticeSeverity } from '../components/NoticeBar.js';
@@ -121,7 +122,7 @@ export function curveNotes(assigned: NoticeInput['assigned']): { id: string; tex
     if (repairs.length) {
       out.push({
         id: `curve-repair:${mountId}`,
-        text: `${mm.spec.designation}: its published thrust curve needed repair `
+        text: `${noteField(mm.spec.designation)}: its published thrust curve needed repair `
           + `before it could be flown (${repairs.join('; ')}). This is a fault in the `
           + 'motor file, not in your design.',
       });

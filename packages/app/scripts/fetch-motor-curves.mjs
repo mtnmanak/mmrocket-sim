@@ -7,6 +7,14 @@
  *        node packages/app/scripts/fetch-motor-curves.mjs --add-digests
  *        (run AFTER fetch-motor-db.mjs — this file is keyed by that one's ids)
  *
+ * WITHDRAWN CURVES: first confirm the missing files really were withdrawn.
+ * Then run with --allow-partial to replace the old bundle without those files
+ * (exit 0, but no complete flag: this partial bundle cannot be published).
+ * Run again WITHOUT --allow-partial. The new baseline no longer expects the
+ * withdrawn curves; a successful full fetch restores complete: true. Review
+ * the removed files before approving publication. A network outage is not a
+ * withdrawal; retry later rather than accepting missing curves.
+ *
  * WHY THIS EXISTS (2026-09-05). From the repo's first day the app shipped three
  * thrust curves written BY HAND as MVP placeholders — an A8-3, B6-4 and C6-5 —
  * and they were the only motors that flew offline. Their masses were the real
@@ -60,7 +68,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { digestMotorFile, motorHeaderMasses } from './motor-digest.mjs';
 import { sampleListProblem } from './motor-samples.mjs';
-import { thrustcurveFetch } from './thrustcurve-client.mjs';
+import { RETRYABLE_STATUSES, ThrustcurveChallengeError, ThrustcurveUnavailableError, thrustcurveFetch } from './thrustcurve-client.mjs';
 
 const API = 'https://www.thrustcurve.org/api/v1';
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -151,12 +159,15 @@ export function addDigests(bundle, results) {
 /**
  * Every usable file for every motor, batch by batch. A batch that fails is
  * recorded in `failed`, one line per motor, and the run goes on — the caller
- * decides what a failure costs. HTTP 429 stops the run, recording the remaining
+ * decides what a failure costs. Final retryable statuses stop the run, recording the remaining
  * motors as failed too. `fetchImpl` and `sleep` are injectable so the
  * test can stand in for the network and the courtesy pause.
  */
 /** Did `previous` (a bundle, or null) hold at least one curve for this motor? */
 const hadCurves = (previous, id) => Object.hasOwn(previous.curves, id) && previous.curves[id].length > 0;
+
+const stopsDownloads = (result) => RETRYABLE_STATUSES.includes(result?.status)
+  || result instanceof ThrustcurveChallengeError || result instanceof ThrustcurveUnavailableError;
 
 export function downloadResults(body) {
   if (!body || typeof body !== 'object' || !Array.isArray(body.results)
@@ -189,13 +200,16 @@ export async function downloadRawFiles(ids, {
       if (!res.ok) throw new Error(`thrustcurve.org download failed: HTTP ${res.status}`);
       // A file for a motor this batch did not ask for is not this batch's answer.
       const asked = new Set(batch);
-      const results = downloadResults(await res.json()).filter((f) => asked.has(f.motorId) && f.simfileId && f.data);
+      const listed = downloadResults(await res.json());
+      const results = listed.filter((f) => asked.has(f.motorId) && f.simfileId && f.data);
       const owed = previous ? batch.filter((id) => hadCurves(previous, id)) : [];
       if (owed.length && !results.length) throw new Error('download.json returned no usable raw file for a batch whose motors had curves');
-      const missing = owed.filter((id) => !results.some((f) => f.motorId === id));
+      if (listed.length && !results.length) throw new Error('download.json returned no usable raw file for the requested motors');
+      const missing = batch.filter((id) => !results.some((f) => f.motorId === id)
+        && (owed.includes(id) || listed.some((f) => f.motorId === id || !asked.has(f.motorId))));
       if (missing.length) {
         throw new Error(`download.json returned no usable raw file for ${missing.length} motor${missing.length === 1 ? '' : 's'} `
-          + `that had curves: ${missing.join(', ')}`);
+          + `${missing.every((id) => owed.includes(id)) ? 'that had curves' : 'requested'}: ${missing.join(', ')}`);
       }
       for (const f of results) {
         if (f.simfileId && f.data) raw[f.simfileId] = { motorId: f.motorId, format: f.format, source: f.source, data: f.data };
@@ -209,12 +223,10 @@ export async function downloadRawFiles(ids, {
 }
 
 /**
- * `previous` is the bundle on disk before this run, or null. A 200 batch with
- * no usable file for any motor it asked for counts as failed when one of those
- * motors had curves in `previous` (an empty answer, not a withdrawn motor). A
- * batch that drops only SOME such motors fails those motors, one line each
- * (audit S2-2): a short answer must not be stamped complete. Files for motors
- * the batch did not ask for are neither counted nor kept.
+ * Own listed but unusable files answer "no usable curve" with a warning.
+ * Missing answers for previously curved motors still fail. A mislabelled batch
+ * retries unanswered motors once individually before classifying the failure.
+ * Foreign files are never counted or kept.
  */
 export async function fetchCurves(motors, {
   fetchImpl = thrustcurveFetch,
@@ -228,7 +240,7 @@ export async function fetchCurves(motors, {
   for (let i = 0; i < motors.length; i += BATCH) {
     const batch = motors.slice(i, i + BATCH);
     let body;
-    let rateLimited = false;
+    let stopRequests = false;
     try {
       const res = await fetchImpl(`${API}/download.json`, {
         method: 'POST',
@@ -238,14 +250,15 @@ export async function fetchCurves(motors, {
         headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
         body: JSON.stringify({ motorIds: batch.map((m) => m.motorId), data: 'both' }),
       });
-      rateLimited = res.status === 429;
+      stopRequests = stopsDownloads(res);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       body = await res.json();
       downloadResults(body);
     } catch (err) {
-      const skipped = rateLimited ? motors.slice(i) : batch;
+      stopRequests ||= stopsDownloads(err);
+      const skipped = stopRequests ? motors.slice(i) : batch;
       failed.push(...skipped.map((m) => `${m.manufacturerAbbrev} ${m.designation}: ${err.message}`));
-      if (rateLimited) break;
+      if (stopRequests) break;
       continue;
     } finally {
       await sleep(PAUSE_MS);
@@ -253,22 +266,59 @@ export async function fetchCurves(motors, {
     // Only files for the motors this batch asked for count, or are kept (audit S2-2).
     const asked = new Set(batch.map((m) => m.motorId));
     const usable = body.results.filter((f) => asked.has(f.motorId)).map((f) => [f, compactFile(f)]).filter(([, c]) => c);
-    if (previous && batch.some((m) => hadCurves(previous, m.motorId)) && !usable.length) {
-      failed.push(...batch.map((m) => `${m.manufacturerAbbrev} ${m.designation}: download.json returned no usable file `
-        + 'for a batch whose motors had curves'));
-      continue;
+    const answered = new Set(body.results.filter(f => asked.has(f.motorId)).map(f => f.motorId));
+    for (const m of batch) {
+      if (answered.has(m.motorId) && !usable.some(([f]) => f.motorId === m.motorId)) {
+        log(`  WARNING ${m.manufacturerAbbrev} ${m.designation}: no usable curve; own files have invalid or insufficient samples\n`);
+      }
     }
-    // A motor that had curves and came back with none is a short answer, not a withdrawal (owner question Q2).
-    const answered = new Set(usable.map(([f]) => f.motorId));
-    const dropped = previous ? batch.filter((m) => hadCurves(previous, m.motorId) && !answered.has(m.motorId)) : [];
-    failed.push(...dropped.map((m) => `${m.manufacturerAbbrev} ${m.designation}: download.json returned no usable file `
-      + 'for a motor that had curves'));
+    const foreign = body.results.some(f => !asked.has(f.motorId));
+    const unanswered = batch.filter(m => !answered.has(m.motorId));
+    for (const m of unanswered) {
+      if (foreign) {
+        // A mislabelled batch does not establish absence. Ask each missing ID
+        // once on its own, with the same courtesy pause and validation.
+        try {
+          const res = await fetchImpl(`${API}/download.json`, {
+            method: 'POST', headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
+            body: JSON.stringify({ motorIds: [m.motorId], data: 'both' }),
+          });
+          stopRequests = stopsDownloads(res);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const listed = downloadResults(await res.json());
+          if (!listed.length) {
+            // An empty answer is not a withdrawal of curves the last bundle had (ci-3 / owner Q2): fail, as a clean batch does.
+            if (previous && hadCurves(previous, m.motorId)) throw new Error('individual retry returned no files for a motor that had curves');
+            log(`  WARNING ${m.manufacturerAbbrev} ${m.designation}: no published curve; individual retry returned no files\n`);
+            continue;
+          }
+          const own = listed.filter(f => f.motorId === m.motorId);
+          if (!own.length) throw new Error('download.json returned no usable file for the requested motor after individual retry');
+          const compact = own.map(f => [f, compactFile(f)]).filter(([, c]) => c);
+          usable.push(...compact);
+          if (!compact.length) log(`  WARNING ${m.manufacturerAbbrev} ${m.designation}: no usable curve; own files have invalid or insufficient samples\n`);
+        } catch (err) {
+          stopRequests ||= stopsDownloads(err);
+          failed.push(`${m.manufacturerAbbrev} ${m.designation}: ${err.message}`);
+          if (stopRequests) {
+            const remaining = [...unanswered.slice(unanswered.indexOf(m) + 1), ...motors.slice(i + BATCH)];
+            failed.push(...remaining.map(m => `${m.manufacturerAbbrev} ${m.designation}: ${err.message}`));
+            break;
+          }
+        } finally {
+          await sleep(PAUSE_MS);
+        }
+      } else if (previous && hadCurves(previous, m.motorId)) {
+        failed.push(`${m.manufacturerAbbrev} ${m.designation}: download.json returned no usable file for a motor that had curves`);
+      }
+    }
     for (const [f, compact] of usable) {
       (curves[f.motorId] ??= []).push(compact);
       files++;
       points += f.samples.length;
     }
     log(`  ${Math.min(i + BATCH, motors.length)} / ${motors.length}\r`);
+    if (stopRequests) break;
   }
   log('\n');
   return { curves, files, points, failed };
@@ -318,10 +368,12 @@ export async function main({
     if (failed.length > 10) console.log(`     ...and ${failed.length - 10} more`);
     if (!allowPartial) {
       console.error(`Nothing was written; ${outPath} is as it was. Re-run, or pass --allow-partial `
-        + 'to write a bundle without them.');
+        + 'only after confirming withdrawal, to write a bundle without them. '
+        + 'Run again WITHOUT --allow-partial before publishing to produce a complete bundle.');
       return 1;
     }
-    console.warn(`--allow-partial: writing a bundle WITHOUT those ${failed.length} motors.`);
+    console.warn(`--allow-partial: writing a bundle WITHOUT those ${failed.length} motors. `
+      + 'Run again WITHOUT --allow-partial before publishing to produce a complete bundle; confirm withdrawal first.');
   }
 
   const doc = curvesDocument(got, db.generated, new Date().toISOString().slice(0, 10));
@@ -333,7 +385,7 @@ export async function main({
   console.log(`  ${doc.motors} of ${motors.length} motors have at least one usable curve; ${files} files; ${points} sample points`);
   console.log(`  ${(json.length / 1024).toFixed(0)} KB on disk (${(json.length / doc.motors).toFixed(0)} bytes per motor)`);
   if (noCurve.length) {
-    console.log(`  ${noCurve.length} motors have NO simulator file on thrustcurve.org and will still need one imported to fly:`);
+    console.log(`  ${noCurve.length} motors have no usable simulator file and will still need one imported to fly:`);
     for (const m of noCurve.slice(0, 15)) console.log(`     ${m.manufacturerAbbrev} ${m.designation} (${m.availability})`);
     if (noCurve.length > 15) console.log(`     ...and ${noCurve.length - 15} more`);
   }

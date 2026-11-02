@@ -49,6 +49,23 @@ const state = () => ({
   } as LaunchConditions,
 });
 
+it.each([[[]], ['bad'], [null], [{ m: 1 }], [{ m: null }]])('refuses unreadable saved motor-load notes: %j', motorLoadNotes => {
+  discardSession();
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs: [
+    { id: 'a', name: 'A', isDefault: true, motors: {}, motorLoadNotes },
+  ] }));
+  expect(loadSession()!.savedConfigs).toEqual([]);
+});
+
+it('retains valid saved motor-load explanations exactly', () => {
+  discardSession();
+  const motorLoadNotes = { m: 'Motor “C6” could not load: offline.' };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs: [
+    { id: 'a', name: 'A', isDefault: true, motors: {}, motorLoadNotes },
+  ] }));
+  expect(loadSession()!.savedConfigs![0]!.motorLoadNotes).toEqual(motorLoadNotes);
+});
+
 describe('closure lane persisted records', () => {
   beforeEach(() => discardSession());
   it.each([7, {}, { toString: 0 }] as unknown[])('repairs unreadable rocket and part names on restore: %j', name => {
@@ -568,7 +585,7 @@ describe('storage hardening: session tree', () => {
     localStorage.setItem('online-openrocket.session.v1', raw);
     const restored = restore();
     expect(restored.state.tree).toEqual({ ...expected, ignitionDefaults: {} });
-    expect(restored.restoreNotes.join(' ')).toContain('Fin set "Airfoil fins": its outline was not used');
+    expect(restored.restoreNotes.join(' ')).toContain('Fin set “Airfoil fins”: its outline was not used');
     expect(restored.restoreNotes.join(' ')).toContain('The set keeps a default outline; redraw it in the fin editor.');
     expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
   });
@@ -1028,6 +1045,32 @@ describe('flushSession closes the debounce window on the way out', () => {
 });
 
 describe('the design outranks a re-downloadable cache at quota (critic-3)', () => {
+  it('keeps raw recovery copies and remembers an exhausted quota sweep', () => {
+    const side = 'online-openrocket.user-materials.v1.unreadable-backup';
+    const raw = '{broken' + 'x'.repeat(10000);
+    const map = new Map([[side, raw]]);
+    vi.stubGlobal('localStorage', {
+      get length() { return map.size; }, key: (i: number) => [...map.keys()][i] ?? null,
+      getItem: (key: string) => map.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (key === 'online-openrocket.session.v1' && map.has(side)) throw new DOMException('quota', 'QuotaExceededError');
+        map.set(key, value);
+      },
+      removeItem: (key: string) => map.delete(key),
+    });
+    const key = vi.spyOn(localStorage, 'key');
+    saveNow();
+    expect(map.has('online-openrocket.session.v1')).toBe(false);
+    expect(map.get(side)).toBe(raw);
+    expect(sessionSaveFailing()).toBe(true);
+    const calls = key.mock.calls.length;
+    saveNow();
+    expect(key.mock.calls.length).toBe(calls);
+    map.set('tc:new', '[]');
+    saveNow();
+    expect(key.mock.calls.length).toBeGreaterThan(calls);
+    expect(map.has('tc:new')).toBe(false);
+  });
   const KEY = 'online-openrocket.session.v1';
   const CACHE = 'tc:samples:v4:';
 

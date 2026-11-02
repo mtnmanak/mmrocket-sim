@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { boundedNozzleDiameter } from '../tree/nozzles.js';
 import { lookupTable } from './xmlUtil.js';
 import { captureStageMass, completeStageMass } from './stageMassOverrides.js';
@@ -219,7 +220,7 @@ export function scaleConfigStageMass(
       for (const mount of previewMounts(finalTree, 1, { assignedMotorDiameters })) {
         if (mount.motorMm === null || mount.motorStillFits) continue;
         diagnostics.needsAttention = true;
-        diagnostics.notes.push(`Configuration ${savedConfigLabel(c)}: ${mount.name}: the ${motorDimensionText(mount.motorMm, units)} motor no longer fits the ${motorDimensionText(mount.finalBoreMm, units)} bore. Choose another motor on Motors & Configuration before flying.`);
+        diagnostics.notes.push(`Configuration ${noteField(savedConfigLabel(c))}: ${noteField(mount.name)}: the ${motorDimensionText(mount.motorMm, units)} motor no longer fits the ${motorDimensionText(mount.finalBoreMm, units)} bore. Choose another motor on Motors & Configuration before flying.`);
       }
     }
   }
@@ -230,7 +231,7 @@ export function scaleConfigStageMass(
         name: findNode(tree, id)?.name, ...values })) }, factor, { units });
     if (diagnostics && c.id !== activeId) {
       const notes = snapshots.componentNotes ?? [];
-      diagnostics.notes.push(...notes.map(note => `Configuration ${savedConfigLabel(c)}: ${note}`));
+      diagnostics.notes.push(...notes.map(note => `Configuration ${noteField(savedConfigLabel(c))}: ${note}`));
       diagnostics.needsAttention ||= snapshots.needsAttention || notes.some(note => note.includes('re-weigh'));
     }
     return { ...c, stageMassOverrides: Object.fromEntries(snapshots.tree.components.map(s =>

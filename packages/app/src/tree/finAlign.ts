@@ -1,3 +1,4 @@
+import { noteField } from '../services/noteField.js';
 import { finCountOf } from './counts.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, drawnSpan, positionOf, startFromPosition } from './position.js';
@@ -145,7 +146,7 @@ export function autoAlignFinSets(tree: RocketTree): FinAlignResult {
         if (bestClear > currentClear + 1e-6) {
           patches.set(me.id, bestRot);
           changes.push(
-            `“${me.name ?? me.type}” rotated to ${Math.round((bestRot * 180) / Math.PI)}° `
+            `“${noteField(me.name ?? me.type)}” rotated to ${Math.round((bestRot * 180) / Math.PI)}° `
             + `(was ${Math.round((current * 180) / Math.PI)}°) for the widest fin clearance.`,
           );
         }

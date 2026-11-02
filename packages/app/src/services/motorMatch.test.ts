@@ -29,6 +29,25 @@ const dbEntry = (over: Partial<MotorDbEntry> = {}): MotorDbEntry => ({
   ...over,
 });
 
+it.each(['K700', 'K700-P', 'K700-10', 'K700P', 'K700-P-14', 'K700-14P'])('discloses both AMW K700 propellants while keeping the existing %s pick', async designation => {
+  const rows = getCatalogue().filter(m => m.manufacturerAbbrev === 'AMW' && m.commonName === 'K700');
+  expect(rows.length).toBeGreaterThan(1);
+  const picked = findDbMotor(designation, undefined, undefined, 'AMW')!;
+  const result = await matchImportedMotor(ref({ designation, manufacturer: 'AMW', diameter: 0 }), {
+    fetchSpec: async m => ({ designation: m.designation, diameter: m.diameter / 1000, length: m.length / 1000,
+      cgX: m.length / 2000, ejectionDelay: 5, times: [0, 1], thrusts: [0, 1], masses: [1, 0.5] }),
+  });
+  expect(result.motor?.meta.motorId).toBe(picked.motorId);
+  expect(result.openNote).toContain('bare AMW K700');
+  expect(result.openNote).toContain('Black Bear');
+  expect(result.openNote).toContain('Blue Baboon');
+});
+
+it('puts the mount count after the real closing quote when a file name contains one', async () => {
+  const result = await matchImportedMotor(ref({ designation: 'F32” (3 mounts)X' }), { findDb: () => null });
+  expect(withMountCount(result.note, 2)).toContain('Motor “F32[U+201D] (3 mounts)X” (2 mounts)');
+});
+
 const spec = (designation: string, ejectionDelay: number): MotorSpec => ({
   designation, diameter: 0.018, length: 0.07,
   times: [0, 1], thrusts: [0, 0], masses: [0.02, 0.01], cgX: 0.035, ejectionDelay,

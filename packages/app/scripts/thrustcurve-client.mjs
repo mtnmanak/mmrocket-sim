@@ -33,7 +33,7 @@
  * over 24 download batches does not knock 24 more times. Getting through is the
  * operator's decision, not a script's.
  *
- * 429 and 503 are retried, honouring Retry-After (capped), up to `retries`
+ * RETRYABLE_STATUSES are retried, honouring Retry-After (capped), up to `retries`
  * times; whatever comes back after that is returned for the caller to judge, as
  * fetch would — and the client then sends NOTHING more: every later call
  * throws ThrustcurveUnavailableError without a request. Without that, a caller
@@ -41,9 +41,15 @@
  * spend ~3.5 minutes of retries on every remaining request: 24 batches of
  * 503s is ~86 minutes, past the refresh job's timeout, against a host that is
  * already failing (review of 27 Oct). The same stop applies once the run's
- * retry waits add up to `retryBudgetMs` (default 10 minutes), so a host that
- * fails every request but the last retry cannot run the job out of time
- * either (closure check of 27 Oct). Every other answer is returned as it is.
+ * failed attempts plus retry waits add up to `retryBudgetMs` (default 10
+ * minutes), bounding slow flapping outages too (closure check of 27 Oct).
+ * Transport failures, including headers/body
+ * deadlines, also latch the stop. A single other transport error is allowed
+ * to recover; a repeat without a successful body read latches the stop.
+ * An `advisory` request shares pacing but returns outages without retries or
+ * charging/latching the required-check budget. Its Retry-After still delays
+ * subsequent traffic. Challenges still stop the run.
+ * Every other answer is returned as it is.
  *
  * Only Node builtin imports: fetch-motor-db.mjs and fetch-motor-curves.mjs run
  * before `npm ci` in motors-refresh.yml, and deploy-workflow.test.mjs (R8)
@@ -184,10 +190,12 @@ export async function httpsFetch(url, init = {}, request = https.request) {
 export const USER_AGENT = 'mmrocket-sim-upstream-check';
 export const DEFAULT_INTERVAL_MS = 5000;
 export const MIN_INTERVAL_MS = 1000;
-/** The longest single wait a 429/503 can ask for before this client gives up waiting on it. */
+/** The longest single wait a retryable answer can ask for before this client gives up waiting on it. */
 export const MAX_RETRY_WAIT_MS = 120_000;
-/** The most a whole run spends waiting to retry before the client stops sending. */
+/** Run-wide failed-attempt and retry-wait budget, checked before each retry. */
 export const RETRY_BUDGET_MS = 600_000;
+/** Slow or failing origins: callers must stop batch loops after the final answer. */
+export const RETRYABLE_STATUSES = Object.freeze([429, 500, 502, 503, 504, 520, 521, 522, 523, 524, 525, 526, 530]);
 
 /** Names the URL a latched error was asked for, when it is not the one that tripped the latch. */
 const notSent = (requested, first) => (String(requested) === first ? '' : `Not sent: ${requested}. `);
@@ -203,11 +211,11 @@ export class ThrustcurveChallengeError extends Error {
   }
 }
 
-/** A request already used up its retries on a 429/503; this run sends nothing more. */
+/** An outage exhausted retries or failed in transport; this run sends nothing more. */
 export class ThrustcurveUnavailableError extends Error {
-  constructor(url, status, requested = url) {
-    super(`${notSent(requested, url)}thrustcurve.org: HTTP ${status} for ${url} after its retries; nothing more is `
-      + 'sent this run');
+  constructor(url, status, requested = url, cause) {
+    super(`${notSent(requested, url)}thrustcurve.org: ${status == null ? `transport failure for ${url}` : `HTTP ${status} for ${url} after its retries`}; nothing more is `
+      + `sent this run${cause ? ` (${cause.message})` : ''}`, { cause });
     this.name = 'ThrustcurveUnavailableError';
     this.status = status;
     this.url = url;
@@ -262,16 +270,28 @@ export function createThrustcurveFetch({
   log = (s) => process.stderr.write(s),
 } = {}) {
   let last = null;
-  let retryWaited = 0;
+  let retryNotBefore = 0;
+  let retrySpent = 0;
   let challenged = null;
   let unavailable = null;
+  let transportFailures = 0;
+  function transportFailure(error, url, started, advisory) {
+    if (advisory) return error;
+    retrySpent += Math.max(0, now() - started);
+    transportFailures++;
+    if (transportFailures >= 2 || retrySpent >= retryBudgetMs || /deadline exceeded/i.test(error.message)) {
+      unavailable = { url: String(url), status: null, cause: error };
+      return new ThrustcurveUnavailableError(unavailable.url, null, url, error);
+    }
+    return error;
+  }
   // One request at a time through this client, whoever calls it: the pace is a
   // property of the client, not of each caller's loop.
   let queue = Promise.resolve();
 
   async function paced(url, init) {
     const interval = intervalMs ?? intervalFromEnv();
-    const due = (last ?? now()) + interval;
+    const due = Math.max((last ?? now()) + interval, retryNotBefore);
     // Re-checked after each sleep: a timer can fire a millisecond early.
     for (let wait = due - now(); wait > 0; wait = due - now()) await sleep(Math.ceil(wait));
     try {
@@ -283,28 +303,68 @@ export function createThrustcurveFetch({
 
   async function send(url, init = {}) {
     if (challenged) throw new ThrustcurveChallengeError(challenged.url, challenged.status, url);
-    if (unavailable) throw new ThrustcurveUnavailableError(unavailable.url, unavailable.status, url);
-    const headers = new Headers(init.headers);
+    if (unavailable) throw new ThrustcurveUnavailableError(unavailable.url, unavailable.status, url, unavailable.cause);
+    // An optional population probe shares the pace, but cannot stop required checks.
+    // A Cloudflare challenge still stops every request, including advisory ones.
+    const { advisory = false, ...options } = init;
+    const headers = new Headers(options.headers);
     if (!headers.has('user-agent')) headers.set('user-agent', USER_AGENT);
-    const request = { ...init, headers };
+    const request = { ...options, headers };
     for (let attempt = 0; ; attempt++) {
-      const res = await paced(url, request);
+      const started = now();
+      let res;
+      try { res = await paced(url, request); }
+      catch (error) {
+        throw transportFailure(error, url, started, advisory);
+      }
       if (res.headers?.get?.('cf-mitigated') === 'challenge') {
         challenged = { url: String(url), status: res.status };
         await res.body?.cancel?.().catch?.(() => {});
         throw new ThrustcurveChallengeError(challenged.url, challenged.status);
       }
-      if (res.status !== 429 && res.status !== 503) return res;
+      if (!RETRYABLE_STATUSES.includes(res.status)) {
+        // Body reads happen after send returns; a slow broken body must stop
+        // later batches just as a headers deadline does. Preserve the response.
+        for (const method of ['json', 'text']) {
+          if (typeof res[method] !== 'function') continue;
+          const read = res[method].bind(res);
+          res[method] = async (...args) => {
+            try {
+              const value = await read(...args);
+              transportFailures = 0;
+              return value;
+            }
+            catch (error) {
+              // Invalid JSON is a data failure, not evidence of an outage.
+              if (!(error instanceof SyntaxError)) {
+                throw transportFailure(error, url, started, advisory);
+              }
+              transportFailures = 0;
+              throw error;
+            }
+          };
+        }
+        return res;
+      }
+      if (advisory) {
+        // No retry here, but the next request still waits as long as a retry would (the first backoff when the
+        // answer names no Retry-After): a host that just answered 429/5xx is not asked again after the 5 s pace.
+        const ms = retryAfterMs(res.headers?.get?.('retry-after'), wallNow()) ?? 30_000;
+        retryNotBefore = Math.max(retryNotBefore, now() + ms);
+        return res;
+      }
+      retrySpent += Math.max(0, now() - started);
       const ms = retryAfterMs(res.headers?.get?.('retry-after'), wallNow())
         ?? Math.min(30_000 * 2 ** attempt, MAX_RETRY_WAIT_MS);
-      if (attempt >= retries || retryWaited + ms > retryBudgetMs) {
+      if (attempt >= retries || retrySpent + ms > retryBudgetMs) {
         unavailable = { url: String(url), status: res.status };
         return res;
       }
-      retryWaited += ms;
+      const waiting = now();
       log(`  thrustcurve.org HTTP ${res.status}; waiting ${Math.round(ms / 1000)} s before retry ${attempt + 1} of ${retries}\n`);
       await res.body?.cancel?.().catch?.(() => {});
       await sleep(ms);
+      retrySpent += Math.max(ms, now() - waiting);
     }
   }
 

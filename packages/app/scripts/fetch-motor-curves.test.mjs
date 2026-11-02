@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { headerMasses as appHeaderMasses, isSampleList } from '../src/services/thrustcurve.ts';
 import { BATCH, addDigests, addDigestsMain, compactFile, curvesDocument, downloadRawFiles, fetchCurves, headerMasses, main, rawDigests } from './fetch-motor-curves.mjs';
+import { ThrustcurveChallengeError, ThrustcurveUnavailableError } from './thrustcurve-client.mjs';
 
 /**
  * fetch-motor-curves.mjs against a stand-in for thrustcurve.org — never the
@@ -16,7 +17,146 @@ import { BATCH, addDigests, addDigestsMain, compactFile, curvesDocument, downloa
 // Every case injects its download; a reach for the real network fails loudly.
 vi.stubGlobal('fetch', async () => { throw new Error('global fetch called'); });
 
+it.each([
+  ['503', { ok: false, status: 503 }],
+  ['challenge', new ThrustcurveChallengeError('https://www.thrustcurve.org/api/v1/download.json', 403)],
+  ['unavailable', new ThrustcurveUnavailableError('https://www.thrustcurve.org/api/v1/download.json', 503)],
+])('stops a mislabelled batch on an individual retry %s, preserving the reason', async (_kind, outcome) => {
+  const reason = outcome instanceof Error ? outcome.message : `HTTP ${outcome.status}`;
+  const motors = Array.from({ length: BATCH + 3 }, (_, i) => ({
+    motorId: `motor-${i}`, manufacturerAbbrev: 'Test', designation: `motor-${i}`,
+  }));
+  const good = { motorId: motors[0].motorId, simfileId: 'good', samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }] };
+  const calls = [];
+  const sleep = vi.fn(async () => {});
+  const got = await fetchCurves(motors, {
+    fetchImpl: async (_url, opts) => {
+      const ids = JSON.parse(opts.body).motorIds;
+      calls.push(ids);
+      if (calls.length === 1) return { ok: true, status: 200, json: async () => ({ results: [good, { ...good, motorId: 'foreign' }] }) };
+      if (outcome instanceof Error) throw outcome;
+      return outcome;
+    }, sleep, log: () => {},
+  });
+  expect(calls).toEqual([motors.slice(0, BATCH).map(m => m.motorId), [motors[1].motorId]]);
+  expect(got.failed).toEqual(motors.slice(1).map(m => `Test ${m.designation}: ${reason}`));
+  expect(Object.keys(got.curves)).toEqual([motors[0].motorId]);
+  expect(got.files).toBe(1);
+  expect(curvesDocument(got, 'x', 'y').complete).toBeUndefined();
+  expect(sleep.mock.calls).toEqual([[250], [250]]);
+});
+
 const b64 = (text) => Buffer.from(text, 'utf8').toString('base64');
+
+it.each(['mislabelled', 'unusable'])('classifies a %s first-pull motor beside a good batch-mate', async kind => {
+  const got = await fetchCurves(['new', 'good'].map(motorId => ({ motorId, manufacturerAbbrev: 'Test', designation: motorId })), {
+    fetchImpl: async () => ({ ok: true, json: async () => ({ results: [
+      { motorId: kind === 'mislabelled' ? 'other' : 'new', simfileId: 'bad', samples: [{ time: 0, thrust: 0 }] },
+      { motorId: 'good', simfileId: 'good', samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }] },
+    ] }) }), sleep: async () => {}, log: () => {},
+  });
+  expect(got.failed).toHaveLength(kind === 'mislabelled' ? 1 : 0);
+  if (kind === 'mislabelled') expect(got.failed[0]).toContain('Test new:');
+  expect(got.curves.good).toHaveLength(1);
+  expect(curvesDocument(got, 'x', 'y').complete).toBe(kind === 'mislabelled' ? undefined : true);
+});
+
+it('does not publish absence from an unrelated first-pull answer', async () => {
+  for (const result of [
+    { motorId: 'other', simfileId: 'file', samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }] },
+  ]) {
+    const got = await fetchCurves([{ motorId: 'new', manufacturerAbbrev: 'Test', designation: 'C6' }], {
+      fetchImpl: async () => ({ ok: true, json: async () => ({ results: [result] }) }),
+      sleep: async () => {}, log: () => {},
+    });
+    expect(got.failed).toHaveLength(1);
+    expect(curvesDocument(got, 'x', 'y').complete).toBeUndefined();
+  }
+});
+
+it('warns once and completes when own listed files are all unusable, even with previous curves', async () => {
+  const log = vi.fn();
+  const got = await fetchCurves([{ motorId: 'new', manufacturerAbbrev: 'Test', designation: 'C6' }], {
+    fetchImpl: async () => ({ ok: true, json: async () => ({ results: [
+      { motorId: 'new', samples: [{ time: 0, thrust: 0 }] }, { motorId: 'new', samples: [] },
+    ] }) }), sleep: async () => {}, log, previous: { curves: { new: [{}] } },
+  });
+  expect(got.failed).toEqual([]);
+  expect(got.curves).toEqual({});
+  expect(curvesDocument(got, 'x', 'y').complete).toBe(true);
+  expect(log.mock.calls.flat().filter(s => s.includes('WARNING'))).toEqual([
+    expect.stringMatching(/Test C6:.*no usable curve.*samples/),
+  ]);
+});
+
+it.each([false, true])('retries only unanswered motors of a mixed mislabelled batch once (still unanswered: %s)', async fails => {
+  const calls = [];
+  const good = motorId => ({ motorId, simfileId: motorId, samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }] });
+  const got = await fetchCurves(['good', 'bad', 'missing'].map(motorId => ({ motorId, manufacturerAbbrev: 'Test', designation: motorId })), {
+    fetchImpl: async (_url, opts) => {
+      const ids = JSON.parse(opts.body).motorIds;
+      calls.push(ids);
+      return { ok: true, json: async () => ({ results: ids.length > 1
+        ? [good('good'), { motorId: 'bad', samples: [] }, good('foreign')]
+        : fails ? [good('foreign')] : [good(ids[0])] }) };
+    }, sleep: async () => {}, log: () => {},
+  });
+  expect(calls).toEqual([['good', 'bad', 'missing'], ['missing']]);
+  expect(got.failed).toHaveLength(fails ? 1 : 0);
+  expect(Object.keys(got.curves)).toEqual(fails ? ['good'] : ['good', 'missing']);
+});
+
+// A motor the last bundle had curves for must not lose them to one empty answer (ci-3 / owner Q2), retried or not.
+it('fails, not warns, when a previously curved motor comes back empty on its individual retry', async () => {
+  const got = await fetchCurves(['good', 'missing'].map(motorId => ({ motorId, manufacturerAbbrev: 'Test', designation: motorId })), {
+    fetchImpl: async (_url, opts) => {
+      const ids = JSON.parse(opts.body).motorIds;
+      return { ok: true, json: async () => ({ results: ids.length > 1
+        ? ['good', 'foreign'].map(motorId => ({ motorId, samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }] }))
+        : [] }) };
+    }, sleep: async () => {}, log: () => {}, previous: { curves: { missing: [{}] } },
+  });
+  expect(got.failed).toEqual([expect.stringMatching(/Test missing:.*had curves/)]);
+  expect(curvesDocument(got, 'x', 'y').complete).toBeUndefined();
+});
+
+it.each([null, { curves: {} }])('warns and completes on a clean empty individual retry for a motor with no previous curves (previous: %j)', async previous => {
+  const calls = [];
+  const log = vi.fn();
+  const got = await fetchCurves(['good', 'missing'].map(motorId => ({ motorId, manufacturerAbbrev: 'Test', designation: motorId })), {
+    fetchImpl: async (_url, opts) => {
+      const ids = JSON.parse(opts.body).motorIds;
+      calls.push(ids);
+      return { ok: true, json: async () => ({ results: ids.length > 1
+        ? ['good', 'foreign'].map(motorId => ({ motorId, samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }] }))
+        : [] }) };
+    }, sleep: async () => {}, log, previous,
+  });
+  expect(calls).toEqual([['good', 'missing'], ['missing']]);
+  expect(got.failed).toEqual([]);
+  expect(Object.keys(got.curves)).toEqual(['good']);
+  expect(curvesDocument(got, 'x', 'y').complete).toBe(true);
+  expect(log.mock.calls.flat().filter(s => s.includes('WARNING'))).toEqual([
+    expect.stringMatching(/Test missing:.*no published curve/),
+  ]);
+});
+
+it('does not cache unrelated raw files as an empty first-pull answer', async () => {
+  await expect(downloadRawFiles(['new'], {
+    fetchImpl: async () => ({ ok: true, json: async () => ({ results: [
+      { motorId: 'other', simfileId: 'file', format: 'RASP', data: 'cmF3' },
+    ] }) }), sleep: async () => {}, log: () => {},
+  })).rejects.toThrow(/no usable raw file/);
+});
+
+it.each(['mislabelled', 'unusable'])('rejects a %s raw first-pull motor beside a good batch-mate', async kind => {
+  await expect(downloadRawFiles(['new', 'good'], {
+    fetchImpl: async () => ({ ok: true, json: async () => ({ results: [
+      { motorId: kind === 'mislabelled' ? 'other' : 'new', simfileId: 'bad', data: '' },
+      { motorId: 'good', simfileId: 'good', data: 'cmF3' },
+    ] }) }), sleep: async () => {}, log: () => {},
+  })).rejects.toThrow(/no usable raw file/);
+});
 
 it.each([null, {}, { results: [null] }, { results: [{ motorId: 42 }] }, 429])('raw census refuses %j and pauses before rejecting without another batch', async body => {
   const events = [];
@@ -78,7 +218,7 @@ describe('raw census: a 200 batch with no usable raw file for motors that had cu
   });
 
   it('S2-2: keeps no raw file for a motor the batch did not ask for', async () => {
-    const got = await census(['a', 'c'], (ids) => [...ids.filter((id) => id === 'a').map(raw), raw('b'), raw('elsewhere')]).operation;
+    const got = await census(['a'], (ids) => [...ids.map(raw), raw('b'), raw('elsewhere')]).operation;
     expect(Object.keys(got)).toEqual(['f-a']);
     // An answer holding only un-asked motors is still the empty batch it was.
     await expect(census(['a'], () => [raw('b')]).operation).rejects.toThrow(/no usable raw file for a batch whose motors had curves/);
@@ -209,7 +349,7 @@ function world(n, { failBatch = -1 } = {}) {
   let batch = -1;
   const fetchImpl = async (_url, opts) => {
     batch++;
-    if (batch === failBatch) return { ok: false, status: 503, json: async () => ({}) };
+    if (batch === failBatch) return { ok: false, status: 400, json: async () => ({}) };
     const { motorIds } = JSON.parse(opts.body);
     return {
       ok: true, status: 200,
@@ -260,14 +400,22 @@ describe('main', () => {
     expect(events).toEqual(['request', 250, 'request', 250, 'request', 250]);
   });
 
-  it('stops on HTTP 429 and records all remaining motors as failed', async () => {
+  it.each([429, 500, 502, 503, 504, 520, 522, 523, 524])('stops on HTTP %s and records all remaining motors as failed', async status => {
     let requests = 0;
     const { motors } = world(101);
     const got = await fetchCurves(motors, {
-      fetchImpl: async () => { requests++; return { ok: false, status: 429 }; },
+      fetchImpl: async () => { requests++; return { ok: false, status }; },
       sleep: noSleep, log: quiet,
     });
     expect(requests).toBe(1);
+    expect(got.failed).toHaveLength(motors.length);
+  });
+
+  it.each([ThrustcurveChallengeError, ThrustcurveUnavailableError])('stops the batch loop on %s', async ErrorType => {
+    const { motors } = world(101);
+    const fetchImpl = vi.fn(async () => { throw new ErrorType('https://www.thrustcurve.org/api/v1/download.json', 503); });
+    const got = await fetchCurves(motors, { fetchImpl, sleep: noSleep, log: quiet });
+    expect(fetchImpl).toHaveBeenCalledOnce();
     expect(got.failed).toHaveLength(motors.length);
   });
 
@@ -346,10 +494,10 @@ describe('ci-3: a 200 batch with no usable file for motors that had curves', () 
       expect(got.failed[0]).toMatch(/no usable file/);
       expect(curvesDocument(got, 'x', 'y').complete).toBeUndefined();
     }
-    // Usable files only for motors the batch did not ask for still count as none.
+    // Own unusable files answer no usable curve, with a warning rather than failure.
     const unusable = await fetchCurves(motors.slice(0, 2), { fetchImpl: answer((ids) => ids.map((id) => ({ ...sample(id), samples: [] }))),
       sleep: noSleep, log: quiet, previous });
-    expect(unusable.failed).toHaveLength(2);
+    expect(unusable.failed).toHaveLength(0);
   });
 
   it('passes a batch of motors that never had curves, and any batch with no previous bundle', async () => {
@@ -377,10 +525,10 @@ describe('ci-3: a 200 batch with no usable file for motors that had curves', () 
     expect(got.failed).toEqual(motors.slice(15).map((m) => `${m.manufacturerAbbrev} ${m.designation}: download.json returned `
       + 'no usable file for a motor that had curves'));
     expect(curvesDocument(got, 'x', 'y').complete).toBeUndefined();
-    // A file that is not usable is no file: the motor still fails.
+    // Own unusable files are answered; only absent answers still fail.
     const unusable = await fetchCurves(motors.slice(0, 2), {
       fetchImpl: answer((ids) => [sample(ids[0]), { ...sample(ids[1]), samples: [] }]), sleep: noSleep, log: quiet, previous });
-    expect(unusable.failed).toEqual([`Test F1: download.json returned no usable file for a motor that had curves`]);
+    expect(unusable.failed).toEqual([]);
   });
 
   it('S2-2: attaches and counts no file for a motor the batch did not ask for', async () => {
@@ -394,17 +542,27 @@ describe('ci-3: a 200 batch with no usable file for motors that had curves', () 
   });
 
   it('S2-2: main exits 1 and writes nothing on a partial batch, unless --allow-partial', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const w = prepared(BATCH, bundleOf(['m0', 'm1']));
     try {
       const before = readFileSync(w.outPath, 'utf8');
       const fetchImpl = answer((ids) => ids.filter((id) => id !== 'm1').map(sample));
       expect(await main({ dbPath: w.dbPath, outPath: w.outPath, fetchImpl, sleep: noSleep, log: quiet, allowPartial: false })).toBe(1);
+      expect(error.mock.calls.flat().join('\n')).toContain('Run again WITHOUT --allow-partial before publishing');
       expect(readFileSync(w.outPath, 'utf8')).toBe(before);
       expect(await main({ dbPath: w.dbPath, outPath: w.outPath, fetchImpl, sleep: noSleep, log: quiet, allowPartial: true })).toBe(0);
+      expect(warn.mock.calls.flat().join('\n')).toContain('Run again WITHOUT --allow-partial before publishing');
       const doc = JSON.parse(readFileSync(w.outPath, 'utf8'));
       expect(doc.complete).toBeUndefined();
       expect(Object.hasOwn(doc.curves, 'm1')).toBe(false);
+      // B-S2-1: step two accepts the confirmed withdrawal against the new baseline.
+      expect(await main({ dbPath: w.dbPath, outPath: w.outPath, fetchImpl, sleep: noSleep, log: quiet, allowPartial: false })).toBe(0);
+      expect(JSON.parse(readFileSync(w.outPath, 'utf8')).complete).toBe(true);
+      expect(readFileSync(new URL('./fetch-motor-curves.mjs', import.meta.url), 'utf8')).toContain('Run again WITHOUT --allow-partial');
     } finally {
+      error.mockRestore();
+      warn.mockRestore();
       rmSync(w.dir, { recursive: true, force: true });
     }
   });

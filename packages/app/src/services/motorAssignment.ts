@@ -1,3 +1,4 @@
+import { noteField, noteText } from './noteField.js';
 import { highestTier, withoutLines } from './importNotes.js';
 import { overrideFor } from './flightState.js';
 import type { MotorSpec, RocketTree } from '@online-openrocket/engine';
@@ -42,7 +43,7 @@ export function planMotorAssignment(input: MotorAssignmentInput) {
   const repairNotice = repairedConfig ? {
     id: `motor-loadout-repaired:${repairedConfig.id}`,
     severity: 'warn' as const,
-    text: `Your motor assignment replaces the ambiguous imported loadout for “${savedConfigLabel(repairedConfig)}”. `
+    text: `Your motor assignment replaces the ambiguous imported loadout for “${noteField(savedConfigLabel(repairedConfig))}”. `
       + 'Check all motor assignments before launching.',
   } : undefined;
   let padMassNote: string | undefined;
@@ -52,13 +53,13 @@ export function planMotorAssignment(input: MotorAssignmentInput) {
   let padMassTier: NoteTier | undefined;
   const adoptedKg = adoptsRefPadMass(droppedRef, spec.designation);
   if (adoptedKg !== undefined) {
-    padMassNote = `The file's weighed pad mass (${massText(adoptedKg)}) was weighed with ${droppedRef!.designation},`
-      + ` which is loaded now — it sits under ${baseLabel(label)} on this mount, and the line there says what`
+    padMassNote = `The file's weighed pad mass (${massText(adoptedKg)}) was weighed with ${noteField(droppedRef!.designation)},`
+      + ` which is loaded now — it sits under ${noteField(baseLabel(label))} on this mount, and the line there says what`
       + ' it carries.';
     padMassTier = 'information';
   } else if (droppedRef && typeof droppedRef.padMassKg === 'number' && droppedRef.padMassKg > 0) {
-    padMassNote = `The weighed pad mass in the file was weighed with ${droppedRef.designation}, which is not the`
-      + ` motor now loaded — re-weigh with ${label} in.`;
+    padMassNote = `The weighed pad mass in the file was weighed with ${noteField(droppedRef.designation)}, which is not the`
+      + ` motor now loaded — re-weigh with ${noteField(label)} in.`;
     padMassTier = 'caution';
   }
   const reconciliation = reconcileIncludedMotor(tree, targetMountId, attachedOf(spec), statedWeightText);
@@ -86,11 +87,12 @@ export function assignMotorRecords(
 /** Retire only this configuration's obsolete refusal, preserving the rest of the import note. */
 export function retireLoadoutNote(prev: HeldNote | null, repairedConfig: SavedConfig): HeldNote | null {
   if (!prev) return prev;
-  const text = prev.text.split('\n').filter(line => line !== repairedConfig.motorLoadoutRefusal).join('\n');
+  const refusal = repairedConfig.motorLoadoutRefusal && noteText(repairedConfig.motorLoadoutRefusal);
+  const text = prev.text.split('\n').filter(line => line !== refusal).join('\n');
   if (!text) return null;
   // The group loses the same line; every other line keeps its tier.
-  const group = prev.group && repairedConfig.motorLoadoutRefusal
-    ? withoutLines(prev.group, new Set([repairedConfig.motorLoadoutRefusal])) : prev.group;
+  const group = prev.group && refusal
+    ? withoutLines(prev.group, new Set([refusal])) : prev.group;
   return { ...prev, text, ...(group ? { group } : {}),
     ...(group && prev.severity === 'warn' && highestTier(group.lines) === 'information'
       && !group.lines.some(l => l.text.startsWith('Warning: this file uses format ')) ? { severity: 'info' } : {}) };

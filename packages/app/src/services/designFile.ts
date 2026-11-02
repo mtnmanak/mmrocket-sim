@@ -7,11 +7,15 @@ import { importOrk } from './orkFile.js';
 import type { Preset } from './presets.js';
 import { importCdx1Flown } from './rasaeroFile.js';
 import { importRkt } from './rocksimFile.js';
+import { decodeXml } from './xmlUtil.js';
+import { gunzipCapped, unzipMember } from './zipMember.js';
+import { cautionNote, noteFlags } from './importNotes.js';
+import { noteField } from './noteField.js';
 
 /**
  * THE FILE DOOR — what App's Open… does to a design file before any motor is
- * matched: refuse one too large to be a design, read it with the importer its
- * extension names, name a generically-named design after its file, and word a
+ * matched: refuse one too large to be a design, identify its content and read
+ * it, name a generically-named design after its file, and word a
  * refusal. Moved out of App.tsx unchanged (2026-10-01) so the headless open
  * (services/simulateFile.ts) refuses, parses, names and words exactly what the
  * app does. The sentences moved verbatim.
@@ -90,15 +94,30 @@ export interface DesignFileOptions {
   flownSpec?: (row: MotorDbEntry, ejectionDelay: number) => Promise<MotorSpec>;
 }
 
-/** Which importer a file goes to: by its extension; anything that is not .rkt or .CDX1 is read as a .ork. */
+/** Filename hint when content does not identify a supported design format. */
 export function designFormatOf(fileName: string): DesignFormat {
   if (/\.rkt$/i.test(fileName)) return 'rkt';
   if (/\.cdx1$/i.test(fileName)) return 'cdx1';
   return 'ork';
 }
 
+/** Read only the root name, stepping over prolog comments and declarations. */
+export function contentFormat(xml: string): DesignFormat | null {
+  let at = 0;
+  for (;;) {
+    while (at < xml.length && /\s/.test(xml[at]!)) at++;
+    const endToken = xml.startsWith('<?', at) ? '?>' : xml.startsWith('<!--', at) ? '-->' : null;
+    if (!endToken) break;
+    const end = xml.indexOf(endToken, at + 2);
+    if (end < 0) return null;
+    at = end + endToken.length;
+  }
+  const root = /^<([\w:.-]+)(?=[\s/>])/.exec(xml.slice(at))?.[1];
+  return root === 'openrocket' ? 'ork' : root === 'RockSimDocument' ? 'rkt' : root === 'RASAeroDocument' ? 'cdx1' : null;
+}
+
 /**
- * A design file, parsed by the importer its name calls for — no name
+ * A design file, parsed by the importer its content calls for — no name
  * fallback (`openDesignFile` adds it). The parts catalogue rides along so a
  * part the file names by manufacturer + part number (.rkt <PartMfg>/<PartNo>,
  * .ork <preset>) is linked to its row and takes the catalogue's values for
@@ -119,7 +138,30 @@ export function designFormatOf(fileName: string): DesignFormat {
 export async function parseDesignFile(
   data: ArrayBuffer, fileName: string, opts: DesignFileOptions,
 ): Promise<ImportedDesign> {
-  switch (designFormatOf(fileName)) {
+  const namedFormat = designFormatOf(fileName);
+  const kind = namedFormat === 'cdx1' ? '.CDX1' : `.${namedFormat}`;
+  let bytes: Uint8Array = new Uint8Array(data);
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+    bytes = unzipMember(bytes, [`.${namedFormat}`, '.ork', '.rkt', '.cdx1'], kind, opts.maxInflatedBytes);
+  } else if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+    bytes = gunzipCapped(bytes, kind, opts.maxInflatedBytes);
+  }
+  if ((bytes[0] === 0x50 && bytes[1] === 0x4b) || (bytes[0] === 0x1f && bytes[1] === 0x8b)) {
+    throw new Error(`Not a readable ${kind} file — nested archives are not supported.`);
+  }
+  const format = contentFormat(decodeXml(bytes.subarray(0, 16 * 1024)).xml) ?? namedFormat;
+  const imported = await readDesignFile(bytes, format, opts);
+  if (format !== namedFormat) {
+    const notes: string[] = [];
+    cautionNote(notes, 'I22.file-format', `“${noteField(fileName, 200)}”: its content is ${format === 'ork' ? 'OpenRocket' : format === 'rkt' ? 'RockSim' : 'RASAero'} despite its extension; it was opened with the matching reader.`);
+    imported.notes.push(...notes);
+    imported.noteTiers = [...(imported.noteTiers ?? []), ...noteFlags(notes)];
+  }
+  return imported;
+}
+
+async function readDesignFile(data: Uint8Array, format: DesignFormat, opts: DesignFileOptions): Promise<ImportedDesign> {
+  switch (format) {
     case 'rkt':
       return { ...importRkt(data, { units: opts.units, maxInflatedBytes: opts.maxInflatedBytes, presets: opts.presets, catalogue: opts.catalogue,
         ...(opts.horizontalDistanceUnit !== undefined ? { horizontalDistanceUnit: opts.horizontalDistanceUnit } : {}),

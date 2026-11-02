@@ -6,6 +6,31 @@ import { EX_IMPORT_BYTES_NOTE, MAX_EX_IMPORT_BYTES } from './exMotorLimits.js';
 
 afterEach(() => { vi.unstubAllGlobals(); localStorage.clear(); });
 
+it('decodes cap-sized Latin-1 RASP without a per-byte array, preserving C1 bytes', async () => {
+  const motor = '\nKept 18 70 P 0.01 0.02 Cr\u00e9ateur\u0080\n0 0\n0.5 20\n1 0';
+  const text = ';' + 'x'.repeat(MAX_EX_IMPORT_BYTES - motor.length - 1) + motor;
+  const bytes = Uint8Array.from(text, ch => ch.charCodeAt(0));
+  const from = Array.from;
+  const spy = vi.spyOn(Array, 'from').mockImplementation((...args: Parameters<typeof Array.from>) => {
+    if (args[0] instanceof Uint8Array && args[0].length > 0x8000) throw Error('per-byte array');
+    return from(...args);
+  });
+  try {
+    const out = await importMotorFiles([new File([bytes], 'latin.eng')]);
+    expect(out.error).toBeNull();
+    expect(out.parsed[0]?.realManufacturer).toBe('Cr\u00e9ateur\u0080');
+    expect(out.notice).toContain('Latin-1');
+  } finally { spy.mockRestore(); }
+});
+
+it('preserves app error delimiters while escaping the file text inside them', async () => {
+  const out = await importMotorFiles([new File(['T1 18 70 0 bad 0.02 Maker\n0 0\n1 1'], 'Eric\'s.eng')]);
+  expect(out.error).toContain("Eric's.eng:");
+  expect(out.error).toContain('“T1 18 70 0 bad 0.02 Maker”');
+  expect(out.error).not.toContain('[U+201C]');
+  expect(out.error).not.toContain('[U+201D]');
+});
+
 it.each(['QuotaExceededError', 'SecurityError'])('C-H3 records %s motor storage refusal separately from session import', async name => {
   vi.resetModules();
   const { importMotorFiles: read } = await import('./importMotorFiles.js');
@@ -229,12 +254,16 @@ it('says the stored library was copied aside when it replaced an unreadable one'
   expect(out.write?.stored).toBe(true);
   expect(out.notice).toContain('The stored motor library could not be read. The app kept a copy of it in this browser and started a new library.');
   expect(localStorage.getItem('online-openrocket.ex-motors.v1.unreadable-backup')).toBe('{broken');
+  expect(out.tier).toBe('caution');
+  expect(out.noticeTier).toBe('caution');
 });
 
 it('says the stored library was unreadable, not full, when it refuses to write over it', async () => {
   vi.resetModules();
   const { importMotorFiles: read } = await import('./importMotorFiles.js');
   localStorage.setItem('online-openrocket.ex-motors.v1.unreadable-backup', 'older');
+  localStorage.setItem('online-openrocket.ex-motors.v1.unreadable-backup' + '.2', 'second');
+  localStorage.setItem('online-openrocket.ex-motors.v1.unreadable-backup' + '.3', 'third');
   localStorage.setItem('online-openrocket.ex-motors.v1', '{broken');
   const out = await read([new File(['Kept 18 70 P 0.01 0.02 KeptMaker\n0 0\n0.5 20\n1 0'], 'kept.eng')]);
   expect(out.write?.stored).toBe(false);

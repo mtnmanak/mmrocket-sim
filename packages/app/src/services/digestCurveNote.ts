@@ -9,7 +9,7 @@ import {
 const DESKTOP_DIGEST = /^[0-9a-f]{32}$/;
 
 /** A data file as the open's sentences name it: source, format, impulse as flown, thrustcurve.org page. */
-const describe = (f: TcSimFile): string => `${f.source ?? 'unknown source'} ${f.format ?? 'file'}, `
+const describe = (f: TcSimFile): string => `${noteField(f.source ?? 'unknown source')} ${noteField(f.format ?? 'file')}, `
   + `${fileImpulseNs({ samples: flownCurve(f.samples!).samples }).toFixed(1)} N·s`
   + (f.simfileId ? `, https://www.thrustcurve.org/simfiles/${encodeURIComponent(f.simfileId)}/` : '');
 
@@ -39,11 +39,11 @@ export async function digestCurveNote(
   const usual = pickSampleFile(all, motor);
   if (!named && usual && DESKTOP_DIGEST.test(ref.digest)) {
     return `Motor “${noteField(ref.designation)}”: the thrust curve this design was saved with in desktop OR is not among `
-      + `the app’s bundled curves for the ${motor.manufacturerAbbrev} ${motor.designation}, so it flies the app’s pick `
+      + `the app’s bundled curves for the ${noteField(motor.manufacturerAbbrev)} ${noteField(motor.designation)}, so it flies the app’s pick `
       + `(${describe(usual)}).`;
   }
   if (!named || !usual || named === usual || fliesTheSame(named, usual)) return undefined;
   return `Motor “${noteField(ref.designation)}”: flown with the thrust curve this design was saved with in desktop OR `
-    + `(${describe(named)}), not the curve the app picks for the ${motor.manufacturerAbbrev} ${motor.designation} `
+    + `(${describe(named)}), not the curve the app picks for the ${noteField(motor.manufacturerAbbrev)} ${noteField(motor.designation)} `
     + `(${describe(usual)}). Picking the motor again in “Browse motor database” flies the app’s pick.`;
 }

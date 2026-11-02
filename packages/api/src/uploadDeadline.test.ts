@@ -30,9 +30,16 @@ it('uses an absolute request deadline and never waits for a hanging cancel', asy
   const stream = new ReadableStream<Uint8Array>({ cancel() { cancelled = true; return new Promise(() => {}); } });
   const input = new Request('http://local', { method: 'POST', body: stream, duplex: 'half' } as RequestInit);
   try {
-    await expect(body.readBody(input, reservation, performance.now() - 1)).rejects.toMatchObject({ name: 'Error' });
+    await expect(body.readBody(input, reservation, performance.now() - 1)).rejects.toBeInstanceOf(body.BodyTimeout);
     expect(cancelled).toBe(true);
   } finally { reservation.release(); }
+});
+
+it('identifies each body refusal by its own error name and class', () => {
+  for (const error of [new body.BodyTimeout(), new body.BodyTooLarge(1), new body.ServerBusy()]) {
+    expect(error).toBeInstanceOf(Error);
+    expect(error.name).toBe(error.constructor.name);
+  }
 });
 it('clears the upload timer after success and reader failure', async () => {
   const clear = vi.spyOn(globalThis, 'clearTimeout');
@@ -110,4 +117,23 @@ it('uses one timeout race for a many-chunk upload', async () => {
     // A race per chunk retains timeout reactions until the whole upload settles.
     expect(race).toHaveBeenCalledTimes(1);
   } finally { reservation.release(); }
+});
+
+it('returns per-key capacity after timeout and success while other keys can upload', async () => {
+  const slow = new body.BodyReservation();
+  const other = new body.BodyReservation();
+  const read = (data: BodyInit, reservation: body.BodyReservation, key: string, deadline = performance.now() + 30_000) =>
+    body.readBody(new Request('http://local', { method: 'POST', body: data, duplex: 'half' } as RequestInit), reservation, deadline, key);
+  try {
+    const timed = read(new ReadableStream<Uint8Array>(), slow, 'slow', performance.now() + 30);
+    const timeout = expect(timed).rejects.toBeInstanceOf(body.BodyTimeout);
+    expect((await read('other caller', other, 'other')).byteLength).toBe(12);
+    other.release();
+    await timeout;
+    slow.release();
+    for (let i = 0; i < 2; i++) {
+      expect((await read('retry', other, 'slow')).byteLength).toBe(5);
+      other.release();
+    }
+  } finally { slow.release(); other.release(); }
 });

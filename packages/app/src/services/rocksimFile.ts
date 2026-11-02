@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { cautionNote, flagNote, noteFlags, tierLines, zeroBulkDensityNote } from './importNotes.js';
 import { KERNEL_DEFAULT_FIN_POINTS, KERNEL_DEFAULT_MATERIALS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
@@ -31,7 +32,7 @@ import {
   type OrkMotorRef,
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
-import { DISPLAY_NAME } from '../tree/schema.js';
+import { DISPLAY_NAME, interleaveRotation } from '../tree/schema.js';
 import { findDbMotor, type MotorDbEntry } from './motorDb.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { indexRocksimMotors, rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
@@ -207,7 +208,7 @@ export function rktPackedChuteSize(parent: ComponentNode | null | undefined, dia
 
 // ============================ IMPORT ============================
 
-export function importRkt(data: ArrayBuffer | string, opts?: {
+export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   units?: UnitSelection;
   presets?: readonly Preset[];
   /** Every-delay must use the same rows as the later match (2026-10-01); App defaults to live rows. */
@@ -231,7 +232,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   if (typeof data === 'string') {
     xml = data;
   } else {
-    const bytes = new Uint8Array(data);
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
     // A zipped .rkt: take the .rkt MEMBER, bounded, the way the .ork importer
     // does. `Object.values(unzipSync(bytes))[0]!` took whatever sorted first in
     // the central directory and inflated every entry to get there — so a .rkt
@@ -298,8 +299,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const doc = parseXml(xml, 'Not a valid RockSim file (XML parse error)');
   const design = doc.querySelector('RockSimDocument > DesignInformation > RocketDesign');
   if (!design) throw new Error('Not a RockSim design file (missing RocketDesign)');
+  const appWritten = xml.includes('<!-- MMRocket Sim: keep fin rotations -->');
 
   const notes: string[] = encodingNote ? [encodingNote] : [];
+  const zeroDensityParts: ComponentNode[] = [];
   if (doc.querySelectorAll('RockSimDocument > DesignInformation > RocketDesign').length > 1) {
     cautionNote(notes, 'I22.multiple-designs', 'This file contains multiple RockSim designs. The app opened one design; check the parts and flight settings before flying.');
   }
@@ -344,7 +347,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const raw = element.textContent?.trim() ?? '';
     const v = parseDecimal(raw);
     if (Number.isFinite(v)) return v;
-    if (!unreadable.has(tag)) unreadable.set(tag, raw.slice(0, 40) || '(blank)');
+    if (!unreadable.has(tag)) unreadable.set(tag, noteField(raw, 40) || '(blank)');
     return fb;
   };
   /** Parts whose <PartMfg>/<PartNo> may name a catalogue row - resolved after the tree is built. */
@@ -358,23 +361,27 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       const calcMassG = num(el, 'CalcMass', 0);
       let totalG = calcMassG;
       let addedFabric = false;
-      if (node.type === 'parachute') {
-        const densityType = num(el, 'DensityType', NaN);
-        const density = num(el, 'Density', NaN);
-        if (!(density >= 0) || (densityType !== 0 && densityType !== 1)) totalG = NaN;
-        else if (densityType === 1) {
+      const densityType = num(el, 'DensityType', NaN);
+      const density = num(el, 'Density', NaN);
+      if (!(density >= 0) || (densityType !== 0 && densityType !== 1)) totalG = NaN;
+      else if (densityType === 1) {
+        let fabricArea: number;
+        if (node.type === 'streamer') {
+          const length = num(el, 'Len', NaN) / LEN;
+          const width = num(el, 'Width', NaN) / LEN;
+          fabricArea = length > 0 && width > 0 ? length * width : NaN;
+        } else {
           const diameter = num(el, 'Dia', NaN) / LEN;
           const hole = num(el, 'SpillHoleDia', 0) / LEN;
           const sides = num(el, 'SideCount', NaN);
-          // RockSim's 0 is circular; otherwise Dia spans a regular polygon's
-          // vertices. Its surface-density CalcMass counts fabric only once.
+          // RockSim's 0 is circular; otherwise Dia spans a regular polygon's vertices.
           const area = sides === 0 ? Math.PI * diameter ** 2 / 4
             : Number.isSafeInteger(sides) && sides >= 3 ? sides * diameter ** 2 * Math.sin(2 * Math.PI / sides) / 8 : NaN;
-          const fabricArea = area - Math.PI * hole ** 2 / 4;
-          totalG = diameter > 0 && hole >= 0 && fabricArea >= 0
-            ? calcMassG + (count - 1) * fabricArea * (density / 0.1) * MASS : NaN;
-          addedFabric = true;
+          fabricArea = diameter > 0 && hole >= 0 ? area - Math.PI * hole ** 2 / 4 : NaN;
         }
+        // Surface-density CalcMass counts device fabric only once.
+        totalG = fabricArea >= 0 ? calcMassG + (count - 1) * fabricArea * (density / 0.1) * MASS : NaN;
+        addedFabric = true;
       }
       // Set the total before cluster comparison so unlike masses cannot merge.
       if (calcMassG > 0 && Number.isFinite(totalG) && totalG > 0 && numOpt(node, 'overrideMass') === undefined) {
@@ -382,7 +389,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         recoveryStatedMass.set(node, { originalG: calcMassG, addedFabric });
       }
     } else if (count !== 1) cautionNote(notes, 'I03.recovery-count',
-      `${node.name ?? node.type}: ${tag} ${count} is not a positive whole count; read as 1. Check recovery before flying.`);
+      `${noteField(node.name ?? node.type)}: ${tag} ${count} is not a positive whole count; read as 1. Check recovery before flying.`);
   };
   /** Nodes that kept a measured mass or CG desktop OpenRocket would discard. */
   const keptWithoutCGFlag = new Set<ComponentNode>();
@@ -487,6 +494,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const densityType = num(el, 'DensityType', 0);
     const density = num(el, 'Density', NaN);
     if (densityType === 0 && density > 0) node.density = density;
+    if (densityType !== 0 && BULK_MATERIAL_TYPES.has(node.type)) {
+      cautionNote(notes, 'I03.nonbulk-material', `“${noteField(node.name ?? node.type)}”: the file's ${densityType === 1 ? 'surface' : densityType === 2 ? 'line' : 'unrecognized'} density cannot be converted reliably to this part's bulk density. `
+        + 'The app uses a catalogue bulk density when available, otherwise its default Cardboard density; any active mass override is kept. Check the part\'s mass and CG before flying.');
+    }
     const mat = text(el, ':scope > Material');
     if (mat) node['materialName'] = mat;
     const finish = FINISH_FROM_CODE[String(Math.round(num(el, 'FinishCode', NaN)))];
@@ -534,7 +545,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const useCG = kcg > 0 && flagCG;
     if (useMass) node['overrideMass'] = km / MASS;
     if (densityType === 0 && density === 0 && !useMass && BULK_MATERIAL_TYPES.has(node.type)) {
-      zeroBulkDensityNote(notes, node.name ?? node.type, units);
+      zeroDensityParts.push(node);
     }
     if (useCG) node['overrideCGX'] = kcg / LEN;
     // Desktop applies neither unless UseKnownCG is 1, so anything kept with
@@ -554,9 +565,20 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
    * 1 = surface (÷ 0.1); 2 = line (× 1 for cords), treated as surface for fabric.
    */
   const readRecoveryMaterial = (el: XmlElement, node: ComponentNode, kind: 'surface' | 'line') => {
-    const densityType = Math.round(num(el, 'DensityType', 0));
+    const rawDensityType = num(el, 'DensityType', 0);
+    const densityType = Math.round(rawDensityType);
     const density = num(el, 'Density', NaN);
     if (!(Number.isFinite(density) && density >= 0)) return;
+    if (kind === 'line' && rawDensityType === 0) {
+      cautionNote(notes, 'I04.cord-density', `“${noteField(node.name ?? node.type)}”: the app's conversion of this cord's bulk-typed density uses thickness (or keeps the default material if thickness is unusable); desktop OpenRocket reads the density as kg/m without thickness. The cord mass can differ between the programs. Check cord material, mass, CG and stability before flying.`);
+    }
+    if (rawDensityType !== 0 && rawDensityType !== 1 && rawDensityType !== 2
+      && (kind === 'line' || densityType !== 0)) {
+      const interpretation = densityType === 0 ? 'bulk density with thickness'
+        : densityType === 2 && kind === 'line' ? 'line density' : 'surface density';
+      const desktop = kind === 'line' ? 'the bulk conversion without thickness for cords' : 'bulk density with thickness';
+      cautionNote(notes, 'I04.enum', `“${noteField(node.name ?? node.type)}”: the unrecognized recovery density type is treated as ${interpretation} here; desktop OpenRocket uses ${desktop} instead. Check material, mass and descent speed before flying.`);
+    }
     let si: number;
     if (densityType === 0) {
       // Bulk kg/m³ × thickness (mm → m) = kg/m².
@@ -598,8 +620,10 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     node.position = { method, offset: mode === 2 ? -xb : xb };
   };
 
-  const tubeThickness = (el: XmlElement): number =>
-    Math.max(0, (num(el, 'OD', 0) - num(el, 'ID', 0)) / 2 / LEN);
+  const tubeThickness = (el: XmlElement): number | undefined => {
+    const id = num(el, 'ID', NaN);
+    return Number.isFinite(id) && id >= 0 ? Math.max(0, (num(el, 'OD', 24) - id) / RAD) : undefined;
+  };
 
   /**
    * Flatten a <SubAssembly> (any depth): its attached parts join the chain
@@ -618,7 +642,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       tooDeep = true;
       return;
     }
-    notes.push(`Sub-assembly “${text(el, ':scope > Name') ?? 'unnamed'}” flattened into its parent.`);
+    notes.push(`Sub-assembly “${noteField(text(el, ':scope > Name') ?? 'unnamed')}” flattened into its parent.`);
     const wrap = el.querySelector(':scope > AttachedParts');
     for (const sub of Array.from(wrap?.children ?? [])) {
       if (sub.tagName === 'SubAssembly') {
@@ -687,7 +711,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   /** The stage being read, for a part left out of the stage itself. */
   let stageBeingRead = '';
   // A part with no name is "an unnamed transition", not a transition called “unnamed”.
-  const named = (word: string, n: string | null | undefined): string => (n ? `the ${word} “${n}”` : `an unnamed ${word}`);
+  const named = (word: string, n: string | null | undefined): string => (n ? `the ${word} “${noteField(n)}”` : `an unnamed ${word}`);
   /** Whether `parent` (null: the stage itself) can carry what `el` becomes; records the part left out if not. */
   const attachable = (el: XmlElement, parent: ComponentNode | null): boolean => {
     const kind = PART_KIND[el.tagName];
@@ -811,7 +835,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         if (inside && parent === null) chainInside.add(n);
         n['length'] = num(el, 'Len', 100) / LEN;
         n['outerRadius'] = num(el, 'OD', 24) / RAD;
-        n['thickness'] = tubeThickness(el);
+        const wall = tubeThickness(el);
+        if (wall !== undefined) n['thickness'] = wall;
         // Inner tube OR a min-diameter body tube — both are real mounts now
         // (kernel BodyTube implements MotorMount, same as the desktop).
         if (num(el, 'IsMotorMount', 0) === 1) {
@@ -872,7 +897,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         const readableId = Number.isFinite(parseDecimal(text(el, ':scope > ID')));
         if (type === 'centeringring' && readableId && id > 0) n['innerRadius'] = id / RAD;
         if ((type === 'engineblock' || type === 'tubecoupler') && od > 0) {
-          n['thickness'] = text(el, ':scope > ID') !== null ? tubeThickness(el) : 0.001;
+          n['thickness'] = tubeThickness(el) ?? 0.001;
         }
         return n;
       }
@@ -893,7 +918,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         const n = mk(type);
         n['finCount'] = Math.round(num(el, 'FinCount', 3));
         n['thickness'] = num(el, 'Thickness', 3) / LEN;
-        const cs = CROSS_SECTIONS[String(Math.round(num(el, 'TipShapeCode', 0)))];
+        const tipShapeCode = Math.round(num(el, 'TipShapeCode', 0));
+        const cs = CROSS_SECTIONS[String(tipShapeCode)];
+        if (!cs) cautionNote(notes, 'I04.fin-section', `Unknown RockSim fin section code ${tipShapeCode} — imported as Square, as in desktop OR; this changes fin drag and mass, so check the fin cross-section.`);
         if (cs && cs !== 'square') n['crossSection'] = cs;
         if (type === 'trapezoidfinset') {
           n['rootChord'] = num(el, 'RootChord', 50) / LEN;
@@ -951,7 +978,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           // did not (only a synthesised zero-tip-chord case was caught). Now they do.
           const parsed = parsePointList(text(el, ':scope > PointList') ?? '');
           if (parsed.unreadable > 0) {
-            const note = `Fin set "${n.name ?? 'freeform'}": ${unreadableFinPoints(parsed.unreadable)}`;
+            const note = `Fin set “${noteField(n.name ?? 'freeform')}”: ${unreadableFinPoints(parsed.unreadable)}`;
             if (!notes.includes(note)) cautionNote(notes, 'I05.fin-points', note);
           }
           const outlineProblem = parsed.problem ?? finOutlineProblem(parsed.pts, units);
@@ -966,7 +993,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
             // see nor edit. The same outline, stated, flies the same numbers
             // and makes this note's "keeps a default outline" true on screen.
             n['points'] = KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]);
-            const note = `Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} The set keeps a default outline; redraw it in the fin editor.`;
+            const note = `Fin set “${noteField(n.name ?? 'freeform')}”: its outline was not used — ${outlineProblem} The set keeps a default outline; redraw it in the fin editor.`;
             if (!notes.includes(note)) cautionNote(notes, 'I05.fin-outline', note);
           }
         }
@@ -1050,7 +1077,8 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // which was harmless only while the bridge threw the value away. Now that the
         // wall really reaches the kernel, an absent <ID> would fly a solid rod.
         // <ID>0</ID> IS meaningful and stays: RockSim writes a solid tube that way.
-        if (text(el, ':scope > ID') !== null) n['thickness'] = tubeThickness(el);
+        const wall = tubeThickness(el);
+        if (wall !== undefined) n['thickness'] = wall;
         const tubeRot = num(el, 'RadialAngle', 0);
         if (tubeRot !== 0) n['rotation'] = tubeRot;
         return n;
@@ -1213,7 +1241,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           }
         });
         n.children = chain;
-        notes.push(`External pod “${n.name ?? 'Pod'}” imported as ${detachable ? 'a strap-on booster (parallel stage)' : 'a pod set'}.`);
+        notes.push(`External pod “${noteField(n.name ?? 'Pod')}” imported as ${detachable ? 'a strap-on booster (parallel stage)' : 'a pod set'}.`);
         return n;
       }
       default:
@@ -1326,9 +1354,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       }
       chain.splice(i--, 1);
       (host.children ??= []).push(n);
-      notes.push(`The file marks the tube “${n.name ?? 'unnamed'}” as inside the rocket but lists it among the `
+      notes.push(`The file marks the tube “${noteField(n.name ?? 'unnamed')}” as inside the rocket but lists it among the `
         + `stage’s outer parts, which cannot hold it; the app put it inside the body tube in front of it, `
-        + `“${host.name ?? 'unnamed'}”, at the position the file gives it. Desktop OR adds it to the outside of the `
+        + `“${noteField(host.name ?? 'unnamed')}”, at the position the file gives it. Desktop OR adds it to the outside of the `
         + 'rocket as another body tube.');
     }
   };
@@ -1643,7 +1671,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       }
       for (const g of groups.values()) {
         if (g.length < 2 || !g.some((t) => radialByNode.has(t))) continue;
-        const where = parentNode.name ?? parentNode.type;
+        const where = noteField(parentNode.name ?? parentNode.type);
         // "Motor tubes" only when they are: LEM-M2B.ork's two nose-cone tubes,
         // written out and read back, were called that with no mount among them.
         const kind = g.some((t) => t['motorMount'] === true) ? 'motor tubes' : 'tubes';
@@ -1790,14 +1818,22 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           const clash = finSets.slice(0, i).find((other, j) =>
             Math.abs(rotOf(other) - rotOf(me)) < 1e-6 && spansOverlap(ranges[j]!, ranges[i]!));
           if (clash) {
+            if (appWritten) {
+              cautionNote(notes, 'I21.fin-rotated', `“${noteField(me.name ?? me.type)}” sits at the same angle as “${noteField(clash.name ?? clash.type)}” and overlaps it. The saved angles are kept; both sets count in flight and may double the fins at that angle. Check the sets and stability before flying.`);
+              continue;
+            }
             // The count that is DRAWN AND FLOWN (finCountOf, 1..8): this pass
             // runs before sanitizeTree clamps the stored one, and the raw count
             // turned a set beside a 12-tube TubeCount 15° where the 8 tubes
             // that fly need 22.5° (seam review of audit 2026-09-22; finAlign.ts
             // made the same change for the one-click pass).
             const count = finCountOf(clash);
-            me['rotation'] = rotOf(me) + Math.PI / count;
-            cautionNote(notes, 'I21.fin-rotated', `“${me.name ?? me.type}” sat at the same angle as “${clash.name ?? clash.type}” — rotated ${Math.round(180 / count)}° to interleave (fine-tune via the set's Rotation field).`);
+            const others = i > 65 ? [] : finSets.slice(0, i).filter((_other, j) => spansOverlap(ranges[j]!, ranges[i]!));
+            const rotation = others.length > 1 ? interleaveRotation(others[0]!, me, others.slice(1))
+              : rotOf(me) + Math.PI / count;
+            const turned = ((rotation - rotOf(me)) * 180 / Math.PI + 360) % 360;
+            me['rotation'] = rotation;
+            cautionNote(notes, 'I21.fin-rotated', `“${noteField(me.name ?? me.type)}” sat at the same angle as “${noteField(clash.name ?? clash.type)}” — rotated ${Math.round(turned)}° to interleave (fine-tune via the set's Rotation field).`);
           }
         }
       }
@@ -1816,6 +1852,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const defaultDeployments = deploymentsFor();
   for (const node of recoveryNodes) Object.assign(node, deploymentFor(node));
   applyPresetLinks(pendingLinks, opts?.presets, notes);
+  for (const node of zeroDensityParts) zeroBulkDensityNote(notes, node.name ?? node.type, units, node.density);
   for (const node of recoveryNodes) {
     const count = recoveryCounts.get(node);
     if (count === undefined) continue;
@@ -1828,7 +1865,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const statedMass = recoveryStatedMass.get(node);
     const massNote = statedMass
       ? `Cd and packed size are kept; mass override set to ${statedMass.addedFabric ? '' : "RockSim's stated "}${noticeQuantity('mass', nnum(node, 'overrideMass', 0), units)} for all ${count} ${node.type === 'parachute' ? 'canopies' : 'streamers'}`
-        + (statedMass.addedFabric ? ` (RockSim's own figure of ${noticeQuantity('mass', statedMass.originalG / MASS, units)} counts the canopy fabric once). ` : '. ')
+        + (statedMass.addedFabric ? ` (RockSim's own figure of ${noticeQuantity('mass', statedMass.originalG / MASS, units)} counts the ${node.type === 'parachute' ? 'canopy' : 'streamer'} fabric once). ` : '. ')
       : `Cd, packed size and any active known mass are kept; otherwise material ${node.type === 'parachute' ? 'and line mass covers all canopies' : 'mass covers all streamers'}. `;
     if (node.type === 'parachute') {
       node['diameter'] = diameter * Math.sqrt(count);
@@ -1838,13 +1875,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       if (numOpt(node, 'spillHoleDiameter') !== undefined) {
         node['spillHoleDiameter'] = nnum(node, 'spillHoleDiameter', 0) * Math.sqrt(count);
       }
-      cautionNote(notes, 'I03.recovery-count', `${node.name ?? 'Parachute'}: the file's ${count} × ${noticeQuantity('length', diameter, units)} canopies `
+      cautionNote(notes, 'I03.recovery-count', `${noteField(node.name ?? 'Parachute')}: the file's ${count} × ${noticeQuantity('length', diameter, units)} canopies `
         + `are read as one equivalent ${noticeQuantity('length', diameter * Math.sqrt(count), units)} canopy of equal total area. `
         + massNote
         + 'Separate-canopy inflation and interaction are not simulated.');
     } else {
       node['stripWidth'] = width * count;
-      cautionNote(notes, 'I03.recovery-count', `${node.name ?? 'Streamer'}: the file's ${count} streamers are read as one equivalent strip `
+      cautionNote(notes, 'I03.recovery-count', `${noteField(node.name ?? 'Streamer')}: the file's ${count} streamers are read as one equivalent strip `
         + `${noticeQuantity('length', length, units)} × ${noticeQuantity('length', width * count, units)} of equal total area. `
         + massNote
         + 'Interaction between separate streamers is not simulated.');
@@ -1926,7 +1963,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   for (const stage of components) { insertBaseExtensions(stage.children); insertInPods(stage.children); }
 
   if (ignored.size) {
-    cautionNote(notes, 'I03.ignored-components', `Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
+    cautionNote(notes, 'I03.ignored-components', `Ignored unsupported RockSim components: ${[...ignored].map(n => noteField(n)).join(', ')}.`);
   }
   // Tier 2 import loss notes: a hostless IsInsideTube becomes a body tube
   // after its attachments were filtered; desktop does not share that loss.
@@ -1980,11 +2017,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const n = holedBulkheads.length;
     const one = holedBulkheads[0]!;
     notes.push((n === 1
-      ? `Bulkhead “${one.name}” has a ${noticeQuantity('length', one.idMm / LEN, units)} hole through it. RockSim weighs the part with that hole, and a `
+      ? `Bulkhead “${noteField(one.name)}” has a ${noticeQuantity('length', one.idMm / LEN, units)} hole through it. RockSim weighs the part with that hole, and a `
         + 'bulkhead here is a solid disc, so it was imported as a centering ring with that bore; desktop OpenRocket '
         + 'imports it solid. The ⌾ Estimate of Max motor length still stops at it unless the hole is wide enough '
         + 'for the motor.'
-      : `${n} bulkheads have a hole through them (${holedBulkheads.map((b) => `“${b.name}” ${noticeQuantity('length', b.idMm / LEN, units, { parenthesized: true })}`).join(', ')}). `
+      : `${n} bulkheads have a hole through them (${holedBulkheads.map((b) => `“${noteField(b.name)}” ${noticeQuantity('length', b.idMm / LEN, units, { parenthesized: true })}`).join(', ')}). `
         + 'RockSim weighs each part with its hole, and a bulkhead here is a solid disc, so they were imported as '
         + 'centering rings with those bores; desktop OpenRocket imports them solid. The ⌾ Estimate of Max motor '
         + 'length still stops at each unless its hole is wide enough for the motor.'));
@@ -2136,7 +2173,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   let engineSims = 0;
   for (const g of simGroups) {
     const missing = g.sets.map(e => missingMotorCounts.get(e)).find(n => n !== undefined);
-    const source = `Simulation ${g.number ?? '(outside simulations)'}${g.name?.trim() ? ` (\u201c${g.name.trim()}\u201d)` : ''}`;
+    const source = `Simulation ${g.number ?? '(outside simulations)'}${g.name?.trim() ? ` (\u201c${noteField(g.name.trim())}\u201d)` : ''}`;
     // Check after the cluster repair moves, including body-tube and lone mounts
     // it cannot repair (audit 2026-10-11, S1b-2). Loose sets bypass groupLoadouts:
     // merged copies can share a motor only when its code, maker and delays agree.
@@ -2205,7 +2242,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     if (same) {
       // Numbered: the unnumbered loose sets are the first group, so only a
       // simulation after them can fold into one already seen.
-      const label = `Simulation ${g.number!}${g.name?.trim() ? ` (“${g.name.trim()}”)` : ''}`;
+      const label = `Simulation ${g.number!}${g.name?.trim() ? ` (“${noteField(g.name.trim())}”)` : ''}`;
       foldedSources.get(same)!.push(label);
       if (g.number !== null) {
         // Prefixed with the simulation, keeping each line's own tier.
@@ -2264,7 +2301,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const chosen = flyable ?? available[0] ?? configs[0];
   const simLabel = (c: OrkFlightConfig): string => {
     const s = cfgSim.get(c)!;
-    const quoted = s.name ? ` (“${s.name}”)` : '';
+    const quoted = s.name ? ` (“${noteField(s.name)}”)` : '';
     return s.number === null ? `The motors listed outside the file's simulations${quoted}` : `Simulation ${s.number}${quoted}`;
   };
   const bottomName = components[bottomIdx]?.name ?? 'the bottom stage';
@@ -2346,7 +2383,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     }
     for (const { ref, mounts } of sentinelNotes.values()) {
       const kind = sentinelRefs.get(ref);
-      const motor = `Motor ${ref.designation}${mounts > 1 ? ` (${mounts} mounts)` : ''}`;
+      const motor = `Motor ${noteField(ref.designation)}${mounts > 1 ? ` (${mounts} mounts)` : ''}`;
       const asks = `${motor}: the file asks for RockSim's “every delay” run (EjectionDelay −1), `;
       if (kind === 'plugged') {
         out.push(`${motor}: plugged (no ejection charge — RockSim's EjectionDelay −2) — `
@@ -2452,7 +2489,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       }
       // Row 44 A: the same offline check a .ork open runs on its simulations.
       longitudeCheck = checkFileLongitude(site, simEls.filter((s) => s !== siteSim).map(siteOf).filter(usableSite));
-      if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck, chosen ? simLabel(chosen) : 'Simulation 1', opts?.horizontalDistanceUnit ?? units.distance));
+      if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck,
+        chosen ? cfgSim.get(chosen)?.name || `Simulation ${cfgSim.get(chosen)?.number ?? 1}` : 'Simulation 1',
+        opts?.horizontalDistanceUnit ?? units.distance));
     } else {
       const latRaw = text(siteSim, ':scope > LaunchLatitude');
       const lonRaw = text(siteSim, ':scope > LaunchLongitude');
@@ -2460,7 +2499,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // What the file carried, as it carried it: a number as a number, an
         // unreadable one quoted, a missing one named.
         const said = (raw: string | null, v: number, what: string): string => raw === null ? `no ${what}`
-          : Number.isFinite(v) ? `${what} ${String(v)}°` : `${what} “${raw.trim().slice(0, 40)}”`;
+          : Number.isFinite(v) ? `${what} ${String(v)}°` : `${what} “${noteField(raw.trim(), 40)}”`;
         // One sentence for the whole of it: the open adds no "none was taken"
         // line of its own after this one (retainedLaunchNote).
         cautionNote(notes, 'I24.site-retained', `${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
@@ -2473,7 +2512,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
               + 'range and the latitude is not 90° (or π/2), and reads'
             : 'the app takes a site only when its latitude and longitude are both non-zero and in range, and reads')
           + ' no other launch condition from a '
-          + '.rkt, so the Launch panel keeps the settings you had.');
+          + '.rkt, so the Launch panel keeps your site and other surface settings.');
         launchSiteRefused = true;
       }
     }
@@ -2485,7 +2524,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   if (unreadable.size > 0) {
     cautionNote(notes, 'I04.unreadable-numbers', `Could not read ${unreadable.size} number${unreadable.size === 1 ? '' : 's'} in this file, `
       + 'so the import used its own default instead — check these before trusting any result: '
-      + `${[...unreadable].map(([tag, raw]) => `<${tag}> “${raw}”`).join(', ')}. `
+      + `${[...unreadable].map(([tag, raw]) => `<${tag}> “${noteField(raw)}”`).join(', ')}. `
       + 'A number here must be a plain decimal with a period (2.5, not 2,5).');
   }
 
@@ -2644,7 +2683,7 @@ const readDeploymentEvents = (
     }
     seen.set(serial, t);
     if (t.deployEvent === 'apogee' && Math.round(num(ev, 'Type', 0)) === 5) {
-      notes.push(`${node.name ?? node.type} ${t.says}.`);
+      notes.push(`${noteField(node.name ?? node.type)} ${t.says}.`);
     }
   }
   if (pro.size) cautionNote(notes, 'I11.pro-conditions', 'RockSim Pro conditions for ' + [...pro].join(', ') + ' are not supported; '
@@ -2898,7 +2937,7 @@ function subtreeOverrideNotes(stages: readonly ComponentNode[]): string[] {
       const cg = n['overrideSubcomponentsCG'] === true && numOpt(n, 'overrideCGX') !== undefined;
       if ((mass || cg) && (n.children ?? []).length > 0) {
         const both = mass && cg;
-        out.push(`“${n.name ?? n.type}”: its ${both ? 'mass and CG overrides cover' : `${mass ? 'mass' : 'CG'} override covers`}`
+        out.push(`“${noteField(n.name ?? n.type)}”: its ${both ? 'mass and CG overrides cover' : `${mass ? 'mass' : 'CG'} override covers`}`
           + ' the parts inside it, which a .rkt cannot say. RockSim, desktop OpenRocket and this app '
           + (mass ? `add those parts' own mass on top${cg ? ', at their own CG' : ''}` : 'leave those parts at their own CG')
           + ` when the file is opened. Save a .ork file to keep ${both ? 'them' : 'it'}.`);
@@ -2958,7 +2997,7 @@ export function exportRkt(input: RktExportInput): string {
         : event === 'apogee' ? 4 : event === 'altitude' ? 5 : null;
       if (type === null || delay < 0 || (event !== 'ejection' && delay !== 0)
         || (event === 'altitude' && altitude <= 0)) {
-        throw new Error(`Recovery device “${node.name ?? node.type}”: .rkt cannot faithfully save `
+        throw new Error(`Recovery device “${noteField(node.name ?? node.type)}”: .rkt cannot faithfully save `
           // In the user's unit, as the import's recovery line quotes it: this
           // printed the stored metres with a hard-coded "m".
           + `${event} deployment${event === 'altitude' ? ` at ${deployAltitudeText(altitude, distanceUnit)}` : ''}`
@@ -2984,7 +3023,7 @@ export function exportRkt(input: RktExportInput): string {
     const collectRadialParts = (nodes: readonly ComponentNode[]) => {
       for (const n of nodes) {
         if (['parachute', 'streamer', 'shockcord', 'masscomponent'].includes(n.type)
-          && nnum(n, 'radialPosition', 0) !== 0) radialParts.push(`“${n.name ?? n.type}”`);
+          && nnum(n, 'radialPosition', 0) !== 0) radialParts.push(`“${noteField(n.name ?? n.type)}”`);
         collectRadialParts(n.children ?? []);
       }
     };
@@ -3033,6 +3072,7 @@ export function exportRkt(input: RktExportInput): string {
       // Reopening derives the extension's zero mass from the cone's coupled
       // mass/CG flag. Keep a separate tube when that would change its mass.
       if ((massOv === 0) !== (numOpt(a, 'overrideMass') !== undefined || numOpt(a, 'overrideCGX') !== undefined)) continue;
+      if (massOv === 0 && numOpt(a, 'overrideMass') === undefined) continue;
       if (numOpt(b, 'overrideCGX') !== undefined || numOpt(b, 'overrideCD') !== undefined) continue;
       baseExtOf.set(a.id, axialLength(b));
       folded.add(b);
@@ -3346,6 +3386,16 @@ export function exportRkt(input: RktExportInput): string {
     const knownCG = pt ? xbMm
       : cgOv !== undefined ? cgOv * LEN
         : useKnown ? (opts?.massAt ?? info?.cgX ?? 0) * LEN : 0;
+    if (massOv !== undefined && massOv > 0 && cgOv === undefined && !pt
+      && node.type !== 'shockcord' && useKnown && (!info || knownCG > 0)) {
+      notes?.push(`“${noteField(node.name ?? dfltName)}”: saving a mass-only override also pins the current computed CG on reopening. `
+        + 'Later size edits will not move that balance point until you clear the CG override. Save as .ork to keep CG computed; check mass, CG and stability before flying.');
+    }
+    if (massOv === undefined && cgOv !== undefined && !unpinnedRecovery && !pt
+      && useKnown && (!info || knownMass > 0)) {
+      notes?.push(`“${noteField(node.name ?? dfltName)}”: saving a CG-only override also pins the current computed mass on reopening. `
+        + 'Later size or material edits will not change that mass until you clear the mass override. Save as .ork to keep mass computed; check mass, CG and stability before flying.');
+    }
     emit(`<KnownCG>${knownCG}</KnownCG>`);
     emit(`<UseKnownCG>${useKnown ? 1 : 0}</UseKnownCG>`);
     emit(`<FinishCode>${FINISH_TO_CODE(node['finish'])}</FinishCode>`);
@@ -3445,7 +3495,7 @@ export function exportRkt(input: RktExportInput): string {
           return nnum(node, `${key}Length`, 0) > 0
             && (nnum(node, `${key}Thickness`, 0) !== wall || node[`${key}Capped`] === true);
         })) {
-          notes?.push(`Transition "${node.name ?? 'Transition'}": .rkt uses the body wall thickness for both shoulders`
+          notes?.push(`Transition “${noteField(node.name ?? 'Transition')}”: .rkt uses the body wall thickness for both shoulders`
             + ' (solid shoulders on a filled part) and cannot keep their end caps. Use .ork to preserve them.');
         }
         common(node, parent, 'Transition');
@@ -3561,7 +3611,7 @@ export function exportRkt(input: RktExportInput): string {
           : node.type === 'centeringring' ? nnum(node, 'innerRadius', Math.min(ctx.mountOuterRadius ?? 0, od))
           : nnum(node, 'innerRadius', Math.max(0, od - kernelNum(node, 'thickness')));
         if (node.type === 'centeringring' && usage === 0 && numOpt(node, 'innerRadius') === 0) {
-          notes?.push(`“${node.name ?? 'Centering ring'}”: a solid centering ring is saved with inside diameter 0, `
+          notes?.push(`“${noteField(node.name ?? 'Centering ring')}”: a solid centering ring is saved with inside diameter 0, `
             + 'which RockSim files use for an automatic hole; it reopens with a hole sized to the motor tube. '
             + 'Save as .ork to keep it solid.');
         }
@@ -3594,7 +3644,7 @@ export function exportRkt(input: RktExportInput): string {
             // coupler's); the station is the lifted one above.
             emitPart(kid, node);
           }
-          notes?.push(`“${node.name ?? 'Tube coupler'}”: its ${kids.length === 1 ? 'part goes' : `${kids.length} parts go`}`
+          notes?.push(`“${noteField(node.name ?? 'Tube coupler')}”: its ${kids.length === 1 ? 'part goes' : `${kids.length} parts go`}`
             + ' into the tube around it, each where it flies — RockSim keeps no parts inside a coupler.');
         }
         break;
@@ -3831,6 +3881,14 @@ export function exportRkt(input: RktExportInput): string {
   emit('<FileVersion>4</FileVersion>');
   emit('<DesignInformation>');
   emit('<RocketDesign>');
+  // XML comments carry no RockSim fields. Only mark designs with sibling sets
+  // at the same rotation; ordinary exports retain their existing text.
+  const repeatedFinAngles = (nodes: ComponentNode[]): boolean => {
+    const fins = nodes.filter(n => n.type.endsWith('finset'));
+    return fins.some((n, i) => fins.slice(0, i).some(p => Math.abs(nnum(n, 'rotation', 0) - nnum(p, 'rotation', 0)) < 1e-6))
+      || nodes.some(n => repeatedFinAngles(n.children ?? []));
+  };
+  if (repeatedFinAngles(stagesIn)) emit('<!-- MMRocket Sim: keep fin rotations -->');
   emit(`<Name>${esc(name)}</Name>`);
   emit(`<StageCount>${stagesIn.length}</StageCount>`);
   // Each stage's known mass, top-down like the parts: index 0, the sustainer,
@@ -3848,6 +3906,9 @@ export function exportRkt(input: RktExportInput): string {
       massG: boxMass * MASS,
       cgMm: typeof boxCg === 'number' && Number.isFinite(boxCg) && boxCg > 0 ? boxCg * LEN : 0,
     };
+    notes?.push(`Measured mass & CG figures are saved as RockSim's known stage mass${known[0]!.cgMm > 0 ? ' and balance point' : ''}. `
+      + 'RockSim and desktop OpenRocket fly these instead of the stage\'s parts. '
+      + 'The app still flies the parts until you apply the measured figures as ballast. Check mass, CG and stability in the receiving program before flying.');
   }
   if (known.some((k) => k !== undefined)) {
     // RockSim's own order, and BEFORE <Stage3Parts>: desktop's reader is SAX
@@ -3870,14 +3931,14 @@ export function exportRkt(input: RktExportInput): string {
     // changes: stageKnown above still owns exactly what goes into the XML.
     if (numOpt(s, 'overrideMass') === undefined && numOpt(s, 'overrideCGX') === undefined) return;
     if (!(nnum(s, 'overrideMass', 0) > 0)) {
-      notes?.push(`“${s.name ?? `Stage ${i + 1}`}”: Stage mass/CG overrides are not preserved as editable stage settings.`
+      notes?.push(`“${noteField(s.name ?? `Stage ${i + 1}`)}”: Stage mass/CG overrides are not preserved as editable stage settings.`
         + ' Any computed stage weight reopens here as Measured mass & CG (multi-stage weights as a note only),'
         + ' so the reopened design flies its parts until you apply it. Save a .ork file to keep the overrides.');
       return;
     }
     const mass = numOpt(s, 'overrideMass') !== undefined;
     const both = mass && numOpt(s, 'overrideCGX') !== undefined;
-    notes?.push(`“${s.name ?? `Stage ${i + 1}`}”: its ${both ? 'mass and CG overrides go' : `${mass ? 'mass' : 'CG'} override goes`}`
+    notes?.push(`“${noteField(s.name ?? `Stage ${i + 1}`)}”: its ${both ? 'mass and CG overrides go' : `${mass ? 'mass' : 'CG'} override goes`}`
       + " out as RockSim's known mass for the stage, which RockSim and desktop OpenRocket fly in place of its parts. "
       + (stagesIn.length === 1
         ? 'This app opens that into Measured mass & CG on the Design tab instead of pinning the stage, so the design '
@@ -3993,7 +4054,7 @@ export function exportRkt(input: RktExportInput): string {
     for (const i of [0, 1, 2]) {
       for (const [id, m] of stageMotors[i]!) {
         const delay = m.ignitionDelay ?? 0;
-        const raw = m.ignitionEvent ?? 'automatic';
+        const raw = knownIgnitionEvent(m.ignitionEvent) ?? 'automatic';
         const event = raw !== 'automatic' ? raw
           : i === bottomSlot || strapOn(id) ? 'launch' : 'ejectioncharge';
         const shared = event === 'ejectioncharge' && i !== lowestSlot ? sharedDelayBelow(i) : null;
@@ -4012,7 +4073,7 @@ export function exportRkt(input: RktExportInput): string {
           ? ' — which never comes on the stage that leaves the pad, so it does not light here either'
           : plugged > 0 ? `, whose motor${plugged === 1 ? ' is' : 's are all'} plugged — with no charge to fire, it does not light here either`
             : event === 'ejectioncharge' ? ', whose motors do not share one ejection delay' : '';
-        lostIgnition.add(`“${m.designation}” ${what}${why}. RockSim times the stage that leaves the pad from `
+        lostIgnition.add(`“${noteField(m.designation)}” ${what}${why}. RockSim times the stage that leaves the pad from `
           + `launch and every other stage from the burnout of the one below, so the .rkt lights it ${delay} s ${after}.`);
       }
     }

@@ -90,7 +90,7 @@ describe('S1 in real workerd', () => {
     const response = await trapped!.fetch('http://local/__test/dead-kernel',
       { method: 'POST', body: bytesOf('reference.ork') });
     expect(response.status).toBe(503);
-    expect(response.headers.get('retry-after')).toBe('5');
+    expect(response.headers.get('retry-after')).toBeNull();
     expect(await response.json()).toEqual({ ...STAMP, error: { code: 'KERNEL_UNAVAILABLE',
       message: expect.stringMatching(/previous flight.*stopped part-way.*retry/i) } });
   }, 60_000);
@@ -220,7 +220,7 @@ describe('S1 in real workerd', () => {
       expect(result.motorFailures).toEqual(expectedFailures(node));
       // A literal kernel warning from this fixture; independent of the formatter implementation.
       if (name === 'TubeFins2.rkt') expect(result.warnings.map(w => w.message)).toContain(
-        'Airframe diameter steps abruptly — drag predictions suffer — : "Nose cone", "Forward Fuselage Tube"');
+        'Airframe diameter steps abruptly — drag predictions suffer — : “Nose cone”, “Forward Fuselage Tube”');
       expect(result.warnings.every(w => !w.message.includes(': :'))).toBe(true);
       expect(result.notes).toEqual({ api: [], import: node.importNote, padMass: node.padMassNote, flight: commentsOf(node.run) });
       expect(result.timing.basis).toContain('not CPU time');
@@ -424,7 +424,7 @@ describe('version stamp on every route in real workerd', () => {
   /** reference.ork with a part comment past the share link's 4 MiB XML limit, inside every API cap. */
   const pastLinkLimit = () => zipSync({ 'rocket.ork': strToU8(strFromU8(unzipSync(bytesOf('reference.ork'))['rocket.ork']!)
     .replace('<name>Nose Cone</name>', `<name>Nose Cone</name><comment>${'x'.repeat(4 * 1024 * 1024 + 1)}</comment>`)) });
-  const cases: [string, Send, number, string | null, Record<string, string>?][] = [
+  const cases: [string, Send, number, string | null, Record<string, string | null>?][] = [
     ['GET /health', () => normal!.fetch('http://local/health'), 200, null],
     ...FIXTURES.map(name => [`fly ${name}`, () => normal!.fetch(`http://local/experimental/fly?filename=${encodeURIComponent(name)}`,
       post(bytesOf(name))), 200, null] as [string, Send, number, null]),
@@ -452,9 +452,9 @@ describe('version stamp on every route in real workerd', () => {
     ['describe a refused build', () => trapped!.fetch('http://local/__test/describe-build-failure', post(bytesOf('reference.ork'))),
       422, 'DESIGN_BUILD_FAILED'],
     ['fly on a poisoned kernel', () => trapped!.fetch('http://local/__test/dead-kernel', post(bytesOf('reference.ork'))),
-      503, 'KERNEL_UNAVAILABLE', { 'retry-after': '5' }],
+      503, 'KERNEL_UNAVAILABLE', { 'retry-after': null }],
     ['describe on a poisoned kernel', () => trapped!.fetch('http://local/__test/dead-kernel?route=describe', post(bytesOf('reference.ork'))),
-      503, 'KERNEL_UNAVAILABLE', { 'retry-after': '5' }],
+      503, 'KERNEL_UNAVAILABLE', { 'retry-after': null }],
     ['fly an unexpected failure', () => trapped!.fetch('http://local/__test/body-error'), 500, 'INTERNAL_ERROR'],
     ['describe an unexpected failure', () => trapped!.fetch('http://local/__test/body-error?route=describe'), 500, 'INTERNAL_ERROR'],
   ];

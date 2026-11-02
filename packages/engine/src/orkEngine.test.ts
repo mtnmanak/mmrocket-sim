@@ -1914,10 +1914,20 @@ it.each([
   { row: 'S3-1 NaN length', patch: { length: NaN }, reason: /its length must be a finite number above 0 m/ },
   { row: 'S3-1 Infinity diameter', patch: { diameter: Infinity }, reason: /its diameter must be a finite number above 0 m/ },
   { row: 'S3-1 0 length', patch: { length: 0, cgX: 0 }, reason: /its length must be a finite number above 0 m/ },
+  { row: 'B-S3-2 zero diameter', patch: { diameter: 0 }, reason: /its diameter must be a finite number above 0 m/ },
+  { row: 'B-S3-2 negative diameter', patch: { diameter: -0.018 }, reason: /its diameter must be a finite number above 0 m/ },
 ])('$row names the motor before refusing an unflyable curve', ({ patch, reason }) => {
   const rocket = OrkRocket.build(REFERENCE_ROCKET);
   expect(() => rocket.setMotor({ ...C6_MOTOR, ...patch })).toThrow(/Motor C6:/);
   expect(() => rocket.setMotor({ ...C6_MOTOR, ...patch })).toThrow(reason);
+});
+
+it.each([0, -0.018])('B-S3-2 named mounts refuse diameter %s m before the kernel', diameter => {
+  const rocket = OrkRocket.buildTree({ components: [{ type: 'stage', children: [
+    { type: 'bodytube', id: 'mount', length: 0.3, outerRadius: 0.01, thickness: 0.001, motorMount: true },
+  ] }] } as RocketTree);
+  expect(() => rocket.setMotorById('mount', { ...C6_MOTOR, diameter }))
+    .toThrow(/Motor C6: its diameter must be a finite number above 0 m/);
 });
 
 it.each([

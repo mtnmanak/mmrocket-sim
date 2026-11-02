@@ -116,6 +116,33 @@ class NoPath { moveTo() {} lineTo() {} closePath() {} rect() {} arc() {} addPath
 const here = dirname(fileURLToPath(import.meta.url));
 const SESSION_KEY = 'online-openrocket.session.v1';
 
+it('F-D-1 shows differing nozzle notes through Save, share and recovery', async () => {
+  const tree = defaultTree();
+  const stage = tree.components[0]!;
+  stage.nozzleExitDiameter = 0.01;
+  const configs: SavedConfig[] = [
+    { id: 'A', name: 'Active', isDefault: true, motors: {}, nozzles: { [stage.id!]: 0.01 } },
+    { id: 'B', name: 'Other', isDefault: false, motors: {}, nozzles: { [stage.id!]: 0.02 } },
+  ];
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+    savedConfigs: configs, activeConfigId: 'A', configLayers: 1, appVersion: APP_VERSION, savedAt: Date.now() }));
+  const host = await mountApp();
+  await saveAs(host, 'Save .ork');
+  await waitFor(() => vi.mocked(saveFile).mock.calls.length === 1, 'nozzle Save');
+  expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain('Nozzle exit diameters differ');
+  expect(vi.mocked(exportOrk).mock.calls.at(-1)![0].configs?.[1]?.nozzles).toEqual(configs[1]!.nozzles);
+  const writeText = vi.fn(async (_url: string) => {});
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+  try {
+    await saveAs(host, 'Copy share link');
+    await waitFor(() => writeText.mock.calls.length === 1, 'nozzle share');
+    expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain('Nozzle exit diameters differ');
+    expect(vi.mocked(exportOrk).mock.calls.at(-1)![0].configs?.[1]?.nozzles).toEqual(configs[1]!.nozzles);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(autosavedDesignFile()!.notes.join('\n')).toContain('Nozzle exit diameters differ');
+  } finally { delete (navigator as { clipboard?: unknown }).clipboard; }
+}, 30_000);
+
 it('M3 saves real cumulative weights and CGs through the staged CDX1 Save action', async () => {
   const tree = defaultTree();
   tree.components = asStageNodes(tree);
@@ -896,7 +923,7 @@ describe('lane H regressions', () => {
       if (replacement === 'Open') {
         notesBefore = await importNotes();
         expect(notesBefore).toContain(`Loaded “${RKT_NAME}”.`);
-        expect(notesBefore).toContain('the Launch panel keeps the settings you had');
+        expect(notesBefore).toContain('the Launch panel keeps your site and other surface settings');
       }
       const result: SaveOutcome = outcome === 'cancelled' ? { kind: 'cancelled' }
         : outcome === 'saved' ? { kind: 'saved', name: 'Obsolete.ork' }
@@ -1399,7 +1426,7 @@ describe('flight configuration editing in App', () => {
     expect(after.tree).toEqual(before.tree);
     expect(after.launch).toEqual(before.launch);
     expect(after.unmatchedRefs).toEqual(before.unmatchedRefs);
-    expect(host.textContent).toContain(`Flight configuration "${name}" deleted.`);
+    expect(host.textContent).toContain(`Flight configuration “${name}” deleted.`);
     await openTab(host, 'Design');
     expect(await guarded(host)).toBe(true);
     await saveAs(host, 'Save .ork');
@@ -1947,7 +1974,8 @@ describe('lane C2 save and share fidelity', () => {
   it('a Launch refusal preserves the import warning in its own dismissible notice', async () => {
     const tree = defaultTree();
     const mount = motorMounts(tree)[0]!.id!;
-    const refusal = 'Launch refused: check the ambiguous imported loadout.';
+    const refusal = 'Launch refused: check “motor”\n\u200b\u202e ambiguous imported loadout.';
+    const displayedRefusal = 'Launch refused: check “motor”[U+200B][U+202E] ambiguous imported loadout.';
     // A saved refused configuration can still carry a motor; exercise the real enabled Launch.
     const xml = exportOrk({ name: 'Refused with import warning', tree, launch: DEFAULT_CONDITIONS,
       configs: [{ id: 'refused', name: null, isDefault: true, motorLoadoutRefusal: refusal, motors: {
@@ -1960,6 +1988,7 @@ describe('lane C2 save and share fidelity', () => {
     await waitFor(() => shownName(host) === 'Refused with import warning', 'refused import');
     const launch = host.querySelector<HTMLButtonElement>('.vitals-launch')!;
     await waitFor(() => !launch.disabled, 'loaded motor');
+    expect(launch.title).toBe(displayedRefusal);
     const importText = [...host.querySelectorAll('.notice-item')]
       .find(item => item.textContent?.includes('unknown-model'))!.textContent!;
     await act(async () => { host.querySelector<HTMLButtonElement>('.notice-toggle')!.click(); });
@@ -1970,7 +1999,7 @@ describe('lane C2 save and share fidelity', () => {
     }
     expect.soft([...host.querySelectorAll('.notice-item')].some(item => item.textContent === importText)).toBe(true);
     const refusalItem = [...host.querySelectorAll('.notice-item')].find(item =>
-      item.textContent?.includes(refusal) && !item.textContent.includes('unknown-model'))!;
+      item.textContent?.includes(displayedRefusal) && !item.textContent.includes('unknown-model'))!;
     expect(refusalItem).toBeDefined();
     expect(localStorage.getItem(RUNS_KEY) ?? '[]').toBe('[]');
     await act(async () => { refusalItem.querySelector<HTMLButtonElement>('.notice-dismiss')!.click(); });
@@ -2624,9 +2653,9 @@ describe('an open and ✕ New leave a design that reads saved', () => {
  * THE AUTOSAVE KEEPS A FILE'S UNRESOLVED MOTOR REFERENCES (audit 2026-09-22,
  * row 299). A file naming a motor the catalogue lacks keeps the reference so
  * Save .ork writes it back instead of an empty mount. With no flight
- * configuration to hold it — here a .ork declaring none, which the reader
- * takes as a hand-rolled file — the working set is its only copy, and a reload
- * used to lose it. App writes it with the autosave and reads it back at
+ * configuration to hold it — here a .ork with no declaration or motor ID —
+ * the working set is its only copy, and a reload used to lose it. Also cover
+ * a motor ID that infers a configuration. App writes it with the autosave and reads it back at
  * restore (services/configSync.ts restoreUnmatchedRefs, tested there);
  * savedMarkSites.test.ts held both hand-offs as regexes. The autosave effect's
  * dependency list, which it also matched, is the lint gate's: removing
@@ -2634,13 +2663,20 @@ describe('an open and ✕ New leave a design that reads saved', () => {
  * deploy runs lint with --max-warnings 0.
  */
 describe('a reload keeps the motor a file names but the catalogue lacks', () => {
-  it('survives a reload, and Save .ork writes it back', async () => {
+  it.each([
+    [false, false], [false, true], [true, false], [true, true],
+  ])('survives a reload, and Save .ork writes it back (inferred ID %s, unknown dimensions %s)', async (inferred, unknownDimensions) => {
     const tree = defaultTree();
     const mount = motorMounts(tree)[0]!;
-    const xml = exportOrk({
+    let xml = exportOrk({
       name: 'Unresolved', tree: { ...tree, name: 'Unresolved' },
       motors: { [mount.id!]: { designation: 'ZQ9999X', manufacturer: 'AeroTech', diameter: 0.018, length: 0.07, delay: 5 } },
     }).replace(/<motorconfiguration\b[\s\S]*?<\/motorconfiguration>/g, '');
+    // A motor ID now infers a configuration even without a declaration.
+    // Remove it as well to exercise the original session-only path.
+    if (!inferred) xml = xml.replace(/(<motor) configid="[^"]*"/g, '$1');
+    if (unknownDimensions) xml = xml.replace(/(<motor\b[^>]*>)[\s\S]*?<\/motor>/g,
+      block => block.replace(/<(diameter|length)>[^<]*<\/\1>/g, ''));
     vi.mocked(exportOrk).mockClear();
     let host = await mountApp();
     await waitFor(starterStored, 'the starter motor to be autosaved');
@@ -2648,8 +2684,8 @@ describe('a reload keeps the motor a file names but the catalogue lacks', () => 
     await waitFor(() => shownName(host) === 'Unresolved', 'the file to open');
     await settle(600);
     await unmountAll();
-    // No configuration anywhere to fall back on: only the session holds it.
-    expect(storedSession()?.savedConfigs ?? []).toEqual([]);
+    if (!inferred) expect(storedSession()?.savedConfigs ?? []).toEqual([]);
+    else expect(storedSession()?.savedConfigs).toHaveLength(1);
 
     host = await mountApp();
     await settle(50);
@@ -2657,6 +2693,18 @@ describe('a reload keeps the motor a file names but the catalogue lacks', () => 
     await settle(0);
     const written = vi.mocked(exportOrk).mock.calls.at(-1)![0].motors!;
     expect(Object.values(written).map((m) => m.designation)).toEqual(['ZQ9999X']);
+    expect(Object.values(written)[0]).toMatchObject({
+      manufacturer: 'AeroTech', delay: 5,
+      diameter: unknownDimensions ? 0 : 0.018, length: unknownDimensions ? 0 : 0.07,
+    });
+    const saved = await (vi.mocked(saveFile).mock.calls.at(-1)![0] as Blob).text();
+    expect(saved).toContain('<designation>ZQ9999X</designation>');
+    const savedMotor = saved.match(/<motor\b[^>]*>[\s\S]*?<\/motor>/)![0];
+    if (unknownDimensions) expect(savedMotor).not.toMatch(/<(diameter|length)>/);
+    else {
+      expect(savedMotor).toContain('<diameter>0.018</diameter>');
+      expect(savedMotor).toContain('<length>0.07</length>');
+    }
   }, 30000);
 });
 
@@ -3477,6 +3525,40 @@ async function chooseConfiguration(host: HTMLElement, id: string) {
  * configuration panel still work.
  */
 describe('a hand-edited autosave', () => {
+  it.each([
+    ['Save .ork', true, false], ['Copy share link', true, false], ['Copy share link', true, true],
+    ['Save .ork', false, false], ['Copy share link', false, false], ['Copy share link', false, true],
+  ] as const)('N7 EX receipt %s missing maker %s clipboard fallback %s', async (door, missing, fallback) => {
+    const ex = parseEng('Legacy 18 70 5 0.01 0.024 EX\n0 0\n0.5 12\n1 0')[0]!;
+    const tree = defaultTree(), mount = motorMounts(tree)[0]!.id!;
+    const loaded = mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5,
+      { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
+    if (missing) delete (loaded.spec as { exDefinition?: unknown }).exDefinition;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: loaded },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+    localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify(missing ? [{ ...ex, motorId: 'ex:other', realManufacturer: 'Wrong maker' }] : [ex]));
+    const host = await mountApp();
+    const previous = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: fallback ? vi.fn().mockRejectedValue(new Error('blocked')) : vi.fn().mockResolvedValue(undefined) } });
+    const previousPrompt = Object.getOwnPropertyDescriptor(window, 'prompt');
+    Object.defineProperty(window, 'prompt', { configurable: true, value: vi.fn().mockReturnValue(null) });
+    try {
+      await saveAs(host, door);
+      await settle();
+      const notice = [...host.querySelectorAll('.notice-item')].find(n => n.textContent?.includes(missing ? 'no maker is available' : 'Used EX motors are embedded'));
+      expect(notice).toBeTruthy();
+      expect(notice!.classList.contains('message-caution')).toBe(missing);
+      expect(notice!.textContent).not.toContain('original maker');
+      const xml = vi.mocked(exportOrk).mock.results.at(-1)!.value as string;
+      expect(xml).not.toContain('Wrong maker');
+    } finally {
+      if (previousPrompt) Object.defineProperty(window, 'prompt', previousPrompt);
+      else Reflect.deleteProperty(window, 'prompt');
+      if (previous) Object.defineProperty(navigator, 'clipboard', previous);
+      else Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
   it('saves an EX motor whose stored definition names a non-text maker', async () => {
     const ex: ExMotor = { motorId: 'ex:stored', designation: 'C6', realManufacturer: 'Stored Test',
       diameter: 18, length: 70, totalWeightG: 24, propWeightG: 10, delays: '5',
@@ -3525,6 +3607,13 @@ describe('a hand-edited autosave', () => {
     const host = await mountApp();
     expect(host.textContent).toMatch(/Restored your previous session \(“[^”]+”\)\./);
     expect(host.textContent).not.toContain('[object Object]');
+  });
+
+  it('keeps hostile restored names inside the session note', async () => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: { ...defaultTree(), name: 'Eric\'s 👨‍🚀\n\u200b”' },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: 'unknown' }));
+    const host = await mountApp();
+    expect(host.textContent).toContain('Restored your previous session (“Eric\'s 👨‍🚀[U+200B][U+201D]”).');
   });
 
   it('names the save time of a stored session', async () => {

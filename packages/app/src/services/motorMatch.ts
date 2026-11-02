@@ -1,4 +1,4 @@
-import { noteField } from './noteField.js';
+import { noteField, noteText } from './noteField.js';
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
@@ -326,7 +326,7 @@ async function matchImportedMotorOnce(
         note: `Motor: EX ${motorLabel(db, ref.delay)} (loaded from the embedded motor library).`,
       };
     } catch (error) {
-      return { note: `EX motor ${noteField(ref.designation)} could not be loaded: ${error instanceof Error ? error.message : String(error)}` };
+      return { note: `EX motor ${noteField(ref.designation)} could not be loaded: ${noteText(error instanceof Error ? error.message : String(error))}` };
     }
   }
 
@@ -353,7 +353,7 @@ async function matchImportedMotorOnce(
         note, infoNote: note,
       };
     } catch (error) {
-      return { note: `EX motor ${noteField(ref.designation)} could not be loaded: ${error instanceof Error ? error.message : String(error)}` };
+      return { note: `EX motor ${noteField(ref.designation)} could not be loaded: ${noteText(error instanceof Error ? error.message : String(error))}` };
     }
   }
   const exCandidatesNote = exMatches.length > 1
@@ -414,7 +414,7 @@ async function matchImportedMotorOnce(
         ...(namesOtherMaker(ref, dbMatch) ? { otherMaker: {
           ref, candidates: [dbMatch, ...(how?.motor.motorId === dbMatch.motorId ? how.rivals : [])],
         } } : {}),
-        note: `Motor: ${dbMatch.manufacturerAbbrev} ${motor.label} (loaded from the motor database).`,
+        note: `Motor: ${noteField(dbMatch.manufacturerAbbrev)} ${noteField(motor.label)} (loaded from the motor database).`,
         ...(openNote ? { openNote } : {}),
       };
     } catch (err) {
@@ -447,7 +447,7 @@ async function matchImportedMotorOnce(
     }
     return {
       note: `Motor “${noteField(ref.designation)}” is in the motor database, but its thrust curve could not be loaded: ${
-        failure instanceof Error ? failure.message : String(failure)}${exCandidatesNote}`,
+        noteText(failure instanceof Error ? failure.message : String(failure))}${exCandidatesNote}`,
     };
   }
   return { note: `Motor “${noteField(ref.designation)}” ${isE31Conflict(ref.designation)
@@ -474,11 +474,11 @@ export function namesOtherMaker(ref: OrkMotorRef, db: MotorDbEntry): boolean {
  */
 export function describeRow(m: MotorDbEntry, all: readonly MotorDbEntry[] = [m], units: UnitSelection = INITIAL_UNITS): string {
   const facts = [noticeQuantity('motorDimensions', m.diameter / 1000, units, { parenthesized: true }), `${Math.round(m.totImpulseNs * 10) / 10} Ns`,
-    ...(m.propInfo ? [m.propInfo] : []), ...(isAvailable(m) ? [] : ['out of production'])];
+    ...(m.propInfo ? [noteField(m.propInfo)] : []), ...(isAvailable(m) ? [] : ['out of production'])];
   const shown = displayDesignation(m.designation, m.manufacturerAbbrev);
   const twin = all.some((o) => o !== m && o.manufacturerAbbrev === m.manufacturerAbbrev
     && displayDesignation(o.designation, o.manufacturerAbbrev) === shown);
-  return `${m.manufacturerAbbrev} ${twin ? m.designation : shown} (${facts.join(', ')})`;
+  return `${noteField(m.manufacturerAbbrev)} ${noteField(twin ? m.designation : shown)} (${facts.join(', ')})`;
 }
 
 /**

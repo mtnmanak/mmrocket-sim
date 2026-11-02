@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { finCountOf, lineInstanceCount } from '../tree/counts.js';
 import { finRootChord, finTabSpan } from '../tree/finTab.js';
@@ -62,10 +63,10 @@ export function tubeWrapGeometry(tree: RocketTree, tube: ComponentNode): TubeWra
     const start = axialStart(child, rootLength, tubeStart, length) - tubeStart;
     const root = { start, end: start + rootLength };
     const cant = isFin && Math.abs(num(child, 'cant', 0)) > 1e-9;
-    if (cant) notes.push(`${child.name ?? 'Fin set'} has cant: lines show the reference angles; slot outlines are omitted. Check the fitted fin before cutting.`);
+    if (cant) notes.push(`${noteField(child.name ?? 'Fin set')} has cant: lines show the reference angles; slot outlines are omitted. Check the fitted fin before cutting.`);
     const tab = isFin && !cant && tube['filled'] !== true ? finTabSpan(child, rootLength, radius) : null;
     const thickness = isFin ? kernelNum(child, 'thickness') : 0;
-    if (tab && !(thickness > 0)) notes.push(`${child.name ?? 'Fin set'} has no positive thickness: slot outlines are omitted.`);
+    if (tab && !(thickness > 0)) notes.push(`${noteField(child.name ?? 'Fin set')} has no positive thickness: slot outlines are omitted.`);
     const slot = tab && thickness > 0
       ? { start: start + tab.x0, end: start + tab.x1, width: thickness } : null;
     const count = isFin ? finCountOf(child) : lineInstanceCount(child);

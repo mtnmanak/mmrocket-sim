@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { ownEntry } from './ownEntry.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
@@ -66,9 +67,9 @@ export function restoredPadMassNote(
       severity: 'info',
       // D7 I16: the weighing now rides a different flown carrier — Caution.
       tier: 'caution',
-      text: `The weighed pad mass (${text.mass(ranked.kg)}) now sits under ${to ? text.motorName(to.label) : 'another motor'}`
-        + ` on ${mountName(findNode(tree, ranked.to), 'its mount')}, not under`
-        + ` ${from ? text.motorName(from.label) : 'the motor'} on ${mountName(findNode(tree, ranked.from), 'its mount')}:`
+      text: `The weighed pad mass (${text.mass(ranked.kg)}) now sits under ${to ? noteField(text.motorName(to.label)) : 'another motor'}`
+        + ` on ${noteField(mountName(findNode(tree, ranked.to), 'its mount'))}, not under`
+        + ` ${from ? noteField(text.motorName(from.label)) : 'the motor'} on ${noteField(mountName(findNode(tree, ranked.from), 'its mount'))}:`
         + ' the weighed hardware now rides with the core\'s motor ahead of a pod\'s or a strap-on\'s, where it used'
         + ' to ride with whichever was picked first. The value itself is unchanged.',
     };
@@ -143,7 +144,7 @@ export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMass
         severity: 'warn',
         tier: 'caution',
         text: `The weighed pad mass you entered before this version (${text.mass(kg)}) could not be placed: the`
-          + ` motor the file names on ${where} (${fileRef?.designation ?? 'unknown'}) is not loaded, so the app`
+          + ` motor the file names on ${noteField(where)} (${noteField(fileRef?.designation ?? 'unknown')}) is not loaded, so the app`
           + ' cannot tell which motors it was weighed with. Load that motor, or re-weigh with the motors you'
           + ' have in and type it under the top motor on Motors & Configuration.',
       },
@@ -158,10 +159,10 @@ export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMass
         tier: 'caution',
         text: h.reason === 'negative'
           ? `The weighed pad mass entered before this version (${text.mass(kg)}) was not kept: it is lighter`
-            + ` than the dry rocket plus the catalogue ${name}, so it was weighed with a different motor.`
+            + ` than the dry rocket plus the catalogue ${noteField(name)}, so it was weighed with a different motor.`
             + ' Re-weigh with this motor in and type it under it on Motors & Configuration.'
           : `The weighed pad mass entered before this version (${text.mass(kg)}) was not kept: against the`
-            + ` catalogue ${name} it would carry more hardware than the airframe itself. Re-weigh with this`
+            + ` catalogue ${noteField(name)} it would carry more hardware than the airframe itself. Re-weigh with this`
             + ' motor in and type it under it on Motors & Configuration.',
       },
     };
@@ -176,10 +177,10 @@ export function reconcileLegacyPadMass(input: LegacyPadMassInput): LegacyPadMass
         // Pure re-keying is Information; a weighing that carries nothing yet is Caution (D7 I16).
         ...(h.state === 'none' ? { tier: 'caution' as const } : {}),
         text: `The weighed pad mass you entered in the Measured mass & CG box (${text.mass(kg)}) now belongs`
-          + ` to the motor it was weighed with: it sits under ${name} on Motors & Configuration, and the line there`
+          + ` to the motor it was weighed with: it sits under ${noteField(name)} on Motors & Configuration, and the line there`
           + ' says what it carries. If that is not the motor you weighed with, clear it and re-weigh.'
           + (h.state === 'none'
-            ? ` ${name} carries no mass curve, so nothing is carried until a motor with one is loaded.`
+            ? ` ${noteField(name)} carries no mass curve, so nothing is carried until a motor with one is loaded.`
             : ''),
       },
     };

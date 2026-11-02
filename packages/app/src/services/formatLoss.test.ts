@@ -1,12 +1,26 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
-import type { ComponentNode } from '@online-openrocket/engine';
+import { OrkRocket, resetEngine, type ComponentNode } from '@online-openrocket/engine';
+import { engineTree } from '../tree/treeModel.js';
 import { DEFAULT_CONDITIONS, type LaunchConditions } from './launchConditions.js';
 import { checkFormatLoss, type FormatLossInput, type LossyFormat } from './formatLoss.js';
-import { exportRkt } from './rocksimFile.js';
+import { exportRkt, rktComponentInfo } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 
 describe('lossy fix regressions', () => {
+  it.each(['podset', 'innertube'] as const)('previews the real computed override counterpart for %s', type => {
+    const d = input({ type, id: 'partial', name: 'Partial', overrideCGX: 0.02,
+      ...(type === 'podset' ? { children: [{ type: 'bodytube', id: 'podTube', length: 0.1, outerRadius: 0.01 }] }
+        : { length: 0.1, outerRadius: 0.01 }) });
+    resetEngine();
+    const rocket = OrkRocket.buildTree(engineTree(d.tree));
+    d.compInfo = rktComponentInfo(d.tree, id => rocket.componentInfo(id));
+    const notes: string[] = [];
+    exportRkt({ name: 'Preview', tree: d.tree, compInfo: d.compInfo, notes });
+    const pins = (lines: string[]) => lines.filter(n => /saving a .*only override/.test(n));
+    expect(pins(checkFormatLoss('rkt', d).losses)).toEqual(pins(notes));
+    expect(pins(notes).length).toBe(type === 'podset' ? 0 : 1);
+  });
   it.each(['toString', 'constructor', '__proto__'])('does not let stage %s hide a real booster motor in the loss review', id => {
     const d = input();
     d.tree.components.push({ type: 'stage', id, nozzleExitDiameter: 0.01, children: [{ type: 'bodytube', id: 'boost' }] });
@@ -52,7 +66,7 @@ describe('lossy fix regressions', () => {
     expect(report.losses.join(' ')).not.toMatch(/Booster nozzle.*not kept/);
     expect(report.losses.join(' ')).not.toContain('Motor “undefined”');
   });
-  it.each([undefined, 'automatic'] as const)('V1 warns about %s upper ignition and plugged lower motors', event => {
+  it.each([undefined, 'automatic', 'AUTOMATIC'] as const)('V1 warns about %s upper ignition and plugged lower motors', event => {
     const d = staged(); d.motors.b!.ignitionEvent = event;
     expect(checkFormatLoss('cdx1', d).losses.join('\n')).toContain('Motor “G80” lights on the burnout of the stage below in the .CDX1, not on its ejection charge');
     d.motors.lowerTube!.delay = Infinity;
@@ -62,6 +76,12 @@ describe('lossy fix regressions', () => {
     d.motors.b!.ignitionEvent = event; delete d.motors.lowerTube;
     expect(line('cdx1', d, 'reopens at launch because there is no exported lower engine')).toBe(true);
     expect(line('cdx1', d, 'not on its ejection charge')).toBe(false);
+  });
+  it('canonicalizes legacy burnout for the ignition loss preview', () => {
+    const d = staged();
+    d.motors.b!.ignitionEvent = 'BURNOUT';
+    d.motors.b!.ignitionDelay = 1.25;
+    expect(line('cdx1', d, 'ignition trigger/timing')).toBe(false);
   });
   it('V2 names omitted shoulder fins and the conical shoulder conversion', () => {
     const d = input();

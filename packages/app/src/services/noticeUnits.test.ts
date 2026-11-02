@@ -9,7 +9,7 @@ import { deployAltitudeText } from '../components/recoveryContext.js';
 import { gustNote } from '../components/weatherText.js';
 import { explanationFor } from './noteExplanations.js';
 import { railNeededLine } from './railNeeded.js';
-import { sanitizeTree, treeProblems } from '../tree/sanitize.js';
+import { sanitizeTree, treeProblems, explainBuildFailure } from '../tree/sanitize.js';
 import { railInterferenceWarnings, wakeShadowWarnings } from '../tree/mountAngle.js';
 import { ringFitFor } from '../components/ringFit.js';
 import { importOrk, exportOrk } from './orkFile.js';
@@ -19,7 +19,6 @@ import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { exitDiameterFromRse, parseMotorFile } from './exMotors.js';
 import { printOffer } from './printPack.js';
 import { materialProblem } from './userMaterials.js';
-import { explainBuildFailure } from '../tree/sanitize.js';
 import { describeComponentFlightTuple } from './flightOverrideText.js';
 import { fileLongitudeNote } from './longitudeCheck.js';
 
@@ -225,7 +224,7 @@ describe('fixed-unit notices: the 680 kg/m³ stand-in density', () => {
     const ring = importRkt(rkt('<Ring><Name>Weightless ring</Name><Density>0</Density><DensityType>0</DensityType></Ring>'), { units });
     expect(ring.noteTiers?.find(note => note.kind === 'I21.zero-bulk-density')?.text).toContain(`“Weightless ring”: ${caution}`);
     expect(explanationFor('I21.zero-bulk-density', units).meaning)
-      .toBe(`The engine replaces zero bulk density with ${density}, adding mass. Saving replaces the zero density.`);
+      .toBe('Zero bulk density was replaced with the density stated in the note, adding mass. Saving replaces the zero density.');
   });
 });
 
@@ -285,8 +284,8 @@ describe('fixed-unit notices: .ork invalid-number defaults', () => {
       '“Chute”: invalid <packedradius> value; using the default (0.492 in [12.5 mm]).'],
     ['motorDimensions: motor diameter', ork(tube('', '<motormount><motor configid="A"><designation>F10</designation><diameter>x</diameter>'
       + '<length>0.07</length><delay>5</delay></motor></motormount>'), { rocket: config }),
-      '“motor”: invalid <diameter> value; using the default (18 mm [0.709 in]).',
-      '“motor”: invalid <diameter> value; using the default (0.709 in [18 mm]).'],
+      '“motor”: invalid <diameter> value; using the default (0 mm [0 in]).',
+      '“motor”: invalid <diameter> value; using the default (0 in [0 mm]).'],
     ['altitude: deployment', ork(tube('<parachute><name>Chute</name><deployevent>altitude</deployevent><deployaltitude>x</deployaltitude></parachute>')),
       '“Chute”: invalid <deployaltitude> value; using the default (200 m [656.2 ft]).',
       '“Chute”: invalid <deployaltitude> value; using the default (656.2 ft [200 m]).'],

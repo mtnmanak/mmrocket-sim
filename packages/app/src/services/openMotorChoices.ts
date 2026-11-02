@@ -147,7 +147,7 @@ export async function applyOpenMotorChoices(
   };
   for (const group of groups) {
     const choice = ownEntry(choices, group.key);
-    if (!choice) throw new Error(`Choose a motor for ${group.ref.manufacturer} ${group.ref.designation}.`);
+    if (!choice) throw new Error(`Choose a motor for ${noteField(group.ref.manufacturer ?? '')} ${noteField(group.ref.designation)}.`);
     for (const { configId, mountId, ref } of group.locations) {
       const config = savedConfigs.find(c => c.id === configId);
       if (config) {
@@ -189,3 +189,4 @@ export function commitOpenMotorChoices(next: OpenMotorState, sinks: {
   sinks.setSavedConfigs(next.savedConfigs);
   sinks.setUnmatchedRefs(next.unmatchedRefs);
 }
+import { noteField } from './noteField.js';

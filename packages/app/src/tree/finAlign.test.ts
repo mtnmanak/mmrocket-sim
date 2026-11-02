@@ -37,6 +37,13 @@ it.each(['rounded', 'airfoil'].flatMap(crossSection => [
 });
 
 describe('autoAlignFinSets (issue 2026-08-05e: one-click interleave)', () => {
+  it('keeps file-supplied fin names on one safe line in alignment messages', () => {
+    const res = autoAlignFinSets(tree([tubes(), straight({ name: 'Fin\n\u202eset' })]));
+    expect(res.changes).toHaveLength(1);
+    // Lane N2's note rules: the line break is dropped and the bidi control shown as a visible marker.
+    expect(res.changes[0]).toContain('“Fin[U+202E]set” rotated');
+    expect(res.changes[0]).not.toMatch(/[\n‮]/u);
+  });
   it('E3 leaves the whole design alone when alignment exceeds its work budget', () => {
     const input = tree(Array.from({ length: 60 }, (_, i) => straight({ id: `f${i}`, finCount: 8 })));
     const result = autoAlignFinSets(input);

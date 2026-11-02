@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
+// N7 round 4 census review: presets 20 -> 21 and userMaterials 11 -> 12
+// add only recovery-copy message declarations. No numeric boundary changed.
 import { createElement, act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { readFileSync } from 'node:fs';
-import { URL as NodeURL } from 'node:url';
+import { readFileSync, readdirSync } from 'node:fs';
+import { URL as NodeURL, fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import type { ComponentNode, FlightResult, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { INITIAL_UNITS, IMPERIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
@@ -36,13 +38,13 @@ import { formatWarning } from './simWarnings.js';
 import { planImport } from './importApply.js';
 import { designNotices } from './notices.js';
 import { setXmlParser } from './xmlParse.js';
-import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import reviewedCensus from './comparisonCensus.testSupport.json';
 import { readUserMaterials, USER_MATERIALS_KEY } from './userMaterials.js';
 import { unreadableBackupKey } from './storeBackup.js';
+
+// N7 round 2: MotorBrowser 16 -> 17 is a storage-result notice tier, not a physical comparison.
 
 /** A conservative coverage census, not a text golden: a new comparison-bearing
  * producer must be assigned a boundary fixture or an explicit scope exemption.
@@ -311,6 +313,55 @@ it('requires inventory review and a boundary case or scope exemption for new pro
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
   }).toEqual(reviewedCensus);
 }, 30_000);
+// Inventory review (2026-11-02, integration of lanes N1-N9): counts where several lanes touched one file are the
+// merged totals of additions each lane reviewed in its own note below — noteExplanations.ts 34 (N2, N3, N5, N6 help
+// entries: static text, no thresholds) and orkFile.ts 529 (N2, N3, N4, N7). No comparison was added at integration.
+// Inventory review (2026-11-02, N1 round 2): API index.ts 12 -> 14. The new
+// limiter-outage text ("limit") describes access, not a numerical quantity;
+// the other hit is the RATE_LIMITER type-index string: scope exemptions.
+// The declared/received size message moved to bodySizeError; laneGuards.test.ts
+// covers declared oversize before busy admission, and body.test.ts covers a
+// streamed cap crossing. No new unit-bearing physical comparison was added.
+// Inventory review (2026-11-02, N6 round 3): rasaeroFile 266 -> 267:
+// the new `:scope > Altitude2` selector quotes the file value in a notice;
+// its `>` selects a child, not a numeric boundary. auditN6 covers 0/nonzero
+// values and sanitization. No numeric comparison or flight behavior changed.
+// Inventory review (2026-11-02, N6 round 2): rasaeroFile 262 -> 266:
+// case-insensitive surface/nose key searches contain no numeric comparisons;
+// unknown-section fallback and paired-apogee wording replace prior notices.
+// Booster boat-tail omission and launch delay notes are format-loss statements,
+// covered by auditN6 (missing/zero rear diameter; 1/2/3-stage delay overrides).
+// noteExplanations 26 -> 27 is static recovery/boat-tail help, not a threshold.
+// Inventory review (2026-11-02, N5 round 4): noteExplanations 27 -> 28.
+// "against" in the cord remedy is categorical, not a numerical threshold
+// (scope exemption). Bulk-typed cord caution and unchanged density are covered
+// by rocksimFile.importExport.test.ts; no flight comparison changed.
+// Inventory review (2026-11-02, N5 round 3): rocksimFile 272 -> 273.
+// Reviewed added density-kind and pin predicates (categorical, not measured
+// comparisons), plus positive mass/CG boundaries for save notes. Zero-mass,
+// cord, computed-zero and CG-only cases in rocksimFile.importExport.test.ts
+// cover those note gates; existing density and fin overlap thresholds stay put.
+// Inventory review (2026-11-02, N5 round 2): reviewed rocksimFile census is 272
+// (previous JSON: 271). New matches include two XML comment literals and the
+// measured-stage "instead" note; these carry format intent, not measured
+// comparisons (exempt). The new non-bulk explanation's "against" is also
+// categorical, not numerical (noteExplanations 26 -> 27). Both are covered by
+// rocksimFile.importExport.test.ts and noteExplanations.test.ts. Streamer
+// original/combined mass formatting reuses the existing recovery producer;
+// bulk/surface/invalid-density boundaries are in the importExport tests.
+// Inventory review (N4 round 2): orkFile 527 -> 528 is the tilted-rod/winds
+// aloft save caution. orkFile.layers.test.ts covers zero altitude, vertical
+// rod, manual aim and absent profile boundaries; no flight input is changed.
+// N3 round 3: orkFile 529 -> 528 replaces two position selectors with an
+// ordered child walk and adds a deployment selector for disclosure. These are
+// XML routing, not numeric thresholds; laneN3 tests cover both setter orders.
+// N3 round 2 inventory review: designFile's four hits are the existing byte
+// refusal (covered by size boundary tests) and root-name regex, not new flight
+// comparisons. importNotes adds the actual-density quantity (synthetic 1234
+// catalogue tests). noteExplanations adds advice/format descriptions, not numeric
+// thresholds. orkFile's net +2 covers XML selectors/serialization and fallback
+// messages; laneN3 tests cover omitted motor dimensions, capped inferred IDs,
+// material defaults and axial positions. No flight tolerance changed.
 // Inventory review (2026-11-01, M3): rasaeroFile.ts rose 261 -> 262 on
 // `:scope > IncludeBooster${i}`, an XML child selector in the excluded-booster
 // caution loop. Its `>` is not a numeric comparison or user-facing text, so
@@ -336,6 +387,8 @@ it('requires inventory review and a boundary case or scope exemption for new pro
 // Inventory review (2026-10-29, API go-live gate): the API index.ts count rose
 // 11 -> 12 on the error code string "RATE_LIMITED" (the word "limit"), a code,
 // not a comparison a user reads; the new refusals compare no quantity. Exempt.
+// N7 inventory review: the added userMaterials collision note counts rows and
+// caps names at six; it compares no physical quantity. Covered in userMaterials.test.ts.
 // Inventory review (2026-10-28, cloud lane 20 integration): unreadableNote's
 // backup preflight compares stored bytes, not quantities, so it is exempt from
 // the numeric boundary matrix. Exercise its empty/matching/occupied side-key
@@ -345,6 +398,8 @@ it.each(['{broken', '{}'])('unreadable materials notice follows backup availabil
   const side = unreadableBackupKey(USER_MATERIALS_KEY);
   localStorage.setItem(USER_MATERIALS_KEY, raw);
   try {
+    localStorage.setItem(side + '.2', 'second');
+    localStorage.setItem(side + '.3', 'third');
     for (const held of [null, raw, 'older']) {
       if (held === null) localStorage.removeItem(side);
       else localStorage.setItem(side, held);

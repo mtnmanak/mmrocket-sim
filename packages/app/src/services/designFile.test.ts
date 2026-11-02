@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import * as xmlUtil from './xmlUtil.js';
 import { INITIAL_UNITS } from '../prefs/units.js';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -12,6 +13,16 @@ import { exportCdx1 } from './rasaeroFile.js';
 import { exportOrk } from './orkFile.js';
 import { resolveFlightState } from './flightState.js';
 import { gzipSync, zipSync } from 'fflate';
+
+it('sniffs a bounded view then decodes the inflated bytes once without copying', async () => {
+  const raw = new TextEncoder().encode('<openrocket version="1.10"><rocket><name>Test</name><subcomponents><stage><subcomponents><bodytube/></subcomponents></stage></subcomponents></rocket><!--' + ' '.repeat(40000) + '--></openrocket>');
+  const spy = vi.spyOn(xmlUtil, 'decodeXml');
+  try {
+    await parseDesignFile(raw.buffer, 'test.ork', { presets: [] });
+    expect(spy.mock.calls.map(([bytes]) => bytes.length)).toEqual([16 * 1024, raw.length]);
+    expect(spy.mock.calls.every(([bytes]) => bytes.buffer === raw.buffer)).toBe(true);
+  } finally { spy.mockRestore(); }
+});
 
 /**
  * THE FILE DOOR (2026-10-01): the size refusal, the format dispatch, the name
@@ -317,8 +328,15 @@ it.each(['ork', 'rkt'])('uses a units-only preference for %s longitude evidence'
       .toBeGreaterThan(0);
     expect((await parseDesignFile(fixture('rocksimTestRocket1.rkt'), 'rocksimTestRocket1.rkt', { presets: [] })).tree.name)
       .toBe('FooBar Test');
-    // The wrong reader for the bytes refuses them: the dispatch is by name.
-    await expect(parseDesignFile(fixture('reference.ork'), 'reference.rkt', { presets: [] })).rejects.toThrow();
+    // Content takes precedence when a design was renamed with the wrong extension.
+    const renamed = await parseDesignFile(fixture('reference.ork'), 'reference.rkt', { presets: [] });
+    expect(renamed.sourceFormat).toBe('ork');
+    expect(renamed.notes.join(' ')).toContain('content');
+  });
+  it('sniffs RASAero content through the shared file door too', async () => {
+    const r = await parseDesignFile(fixture('Complex.Two-Stage.CDX1'), 'renamed.ork', { presets: [] });
+    expect(r.sourceFormat).toBe('cdx1');
+    expect(r.notes.join('\n')).toContain('content is RASAero');
   });
 });
 

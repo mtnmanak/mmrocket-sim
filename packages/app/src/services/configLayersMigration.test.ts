@@ -10,6 +10,7 @@ const syncActiveConfig = (configs: SavedConfig[], id: string, live: { tree: Sess
   withActiveConfigTreeSynced(withActiveConfigSynced(configs, id, live.motors, live.unmatchedRefs), id, live.tree);
 import { resolveFlightState } from './flightState.js';
 import { migrateConfigLayers } from './configLayersMigration.js';
+import { sanitizeSessionFlightLayers } from './sessionFlightLayers.js';
 
 const deployment = { deployEvent: 'apogee', deployAltitude: 91.44, deployDelay: 0 };
 const separation = { separationEvent: 'never', separationDelay: 1, separationAltitude: 400 };
@@ -30,6 +31,27 @@ const mark = (s: SessionState) => designFingerprint({ ...s, mountMotors: s.mount
   measured: s.measured ?? { massKg: null, cgM: null } });
 
 describe('configuration-layer migration (FC-1)', () => {
+  it('drops the whole unknown separation tuple in layered and detached stored settings', () => {
+    const input = session();
+    input.configLayers = 1;
+    const stored = { ...separation, separationEvent: 'unknown', separationDelay: 3 };
+    input.savedConfigs![1]!.separations = { stage: stored };
+    input.detachedOverrides = { separations: { stage: stored } };
+    const state = sanitizeSessionFlightLayers(input);
+    expect(state.savedConfigs![1]!.separations).toEqual({});
+    expect(state.detachedOverrides!.separations).toEqual({});
+    expect(resolveFlightState(state.tree, state.savedConfigs!, 'B', {}, {}).tree.components[0]).toMatchObject(separation);
+    expect(sanitizeSessionFlightLayers(state)).toBe(state);
+  });
+  it('keeps the inherited stage event for unknown legacy stored separation events', () => {
+    const input = session();
+    input.savedConfigs![1]!.separations!.stage!.separationEvent = 'unknown';
+    input.savedConfigs![1]!.separations!.stage!.separationDelay = 3;
+    const { state } = migrateConfigLayers(input);
+    expect(state.savedConfigs[1]!.separations).toEqual({});
+    expect(resolveFlightState(state.tree, state.savedConfigs, 'B', {}, {}).tree.components[0]!.separationEvent).toBe('never');
+    expect(resolveFlightState(state.tree, state.savedConfigs, 'B', {}, {}).tree.components[0]!.separationDelay).toBe(1);
+  });
   it('canonicalizes persisted ignition and separation events in every layered owner', () => {
     const input = session();
     input.configLayers = 1;

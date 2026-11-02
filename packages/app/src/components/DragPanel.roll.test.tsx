@@ -29,6 +29,37 @@ let host: HTMLDivElement; let root: Root;
 beforeEach(() => { localStorage.clear(); strokes.length = 0; host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
 afterEach(() => { act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); });
 
+it.each([false, true])('waits for the current handle before a new roll-plane query (already open: %s)', alreadyOpen => {
+  vi.useFakeTimers();
+  try {
+    const cp: AeroDiagnostics['cp'] = [0.4, 0, 0, 2];
+    const result = { cp, worstCP: cp, cpByTheta: Array.from({ length: 360 }, () => cp), stallMargin: 0.1 };
+    const sweep = { machs: [0.3, 1], cp: [0.4, 0.4], cna: [2, 2], hasNozzle: false,
+      powerOff: { total: [0.4, 0.4] }, powerOn: { total: [0.4, 0.4] }, components: [] };
+    const info = { length: 1, cg: 0.3, mass: 0.5, refDiameter: 0.1, cp: 0.4, cna: 2, cpWorst: 0.4, cnaWorst: 2 };
+    let disposed = false;
+    const old = { aeroDiagnostics: () => { if (disposed) throw new Error('stale engine handle'); return result; },
+      dragSweep: () => sweep, staticInfo: () => info } as unknown as OrkRocket;
+    const diagnostic = vi.fn(() => result);
+    const next = { aeroDiagnostics: diagnostic, dragSweep: () => sweep, staticInfo: () => info } as unknown as OrkRocket;
+    const render = (rocket: OrkRocket) => act(() => root.render(<PrefsProvider><DragPanel rocket={rocket} open /></PrefsProvider>));
+    render(old);
+    const button = host.querySelector<HTMLButtonElement>('.roll-plane-panel button')!;
+    if (alreadyOpen) act(() => { button.click(); });
+    disposed = true;
+    render(next);
+    const control = alreadyOpen ? host.querySelector<HTMLSelectElement>('.roll-plane-panel select')! : button;
+    expect(control.disabled).toBe(true);
+    expect(host.textContent).not.toContain('stale engine handle');
+    act(() => { vi.advanceTimersByTime(300); });
+    expect(control.disabled).toBe(false);
+    if (!alreadyOpen) act(() => { button.click(); });
+    else act(() => { (control as HTMLSelectElement).value = '1'; control.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(diagnostic).toHaveBeenCalled();
+    expect(host.textContent).not.toContain('stale engine handle');
+  } finally { vi.useRealTimers(); }
+});
+
 it('N022 queries only on request, shares AoA, names conditions, gaps and worst plane in preferred units', async () => {
   const planes: AeroDiagnostics['cp'][] = Array.from({ length: 360 }, (_v, i) => [i === 0 ? 0 : i === 90 ? 0.4 : 0.8, 0, 0, i === 0 ? 0 : 2]);
   const diagnostic = vi.fn(() => ({ cp: planes[0], worstCP: planes[90], cpByTheta: planes, stallMargin: 0.1 }));

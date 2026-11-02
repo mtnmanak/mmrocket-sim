@@ -15,9 +15,9 @@ if (!name || !/^[a-z0-9-]{1,32}$/.test(name) || existing.some(entry => !/^[a-z0-
   if (args.includes('--hash')) {
     const chunks = [];
     for await (const chunk of process.stdin) chunks.push(chunk);
-    key = Buffer.concat(chunks).toString('utf8').replace(/\r?\n$/, '');
-    if (!key || /\s/.test(key)) {
-      console.error('Supply one non-empty key on stdin.');
+    key = Buffer.concat(chunks).toString('utf8').replace(/^\uFEFF/, '').replace(/\r?\n$/, '');
+    if (!key || /[^\x21-\x7e]/.test(key)) {
+      console.error('Supply one non-empty key on stdin. Use printable ASCII without spaces.');
       process.exitCode = 1;
     }
   } else {

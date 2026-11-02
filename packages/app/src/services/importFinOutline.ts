@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import type { ComponentNode } from '@online-openrocket/engine';
 import type { UnitSelection } from '../prefs/units.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
@@ -9,7 +10,7 @@ export function repairImportedFinOutline(node: ComponentNode, notes: string[], u
   const problem = finOutlineProblem(node['points'] as [number, number][], units);
   if (problem) {
     node['points'] = KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]);
-    cautionNote(notes, 'I05.fin-outline', `Fin set "${node.name ?? 'freeform'}": its outline was not used — ${problem} The set keeps a default outline; redraw it in the fin editor.`);
+    cautionNote(notes, 'I05.fin-outline', `Fin set “${noteField(node.name ?? 'freeform')}”: its outline was not used — ${problem} The set keeps a default outline; redraw it in the fin editor.`);
   }
   return problem;
 }

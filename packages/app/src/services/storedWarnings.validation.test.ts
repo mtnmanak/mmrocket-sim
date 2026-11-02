@@ -7,8 +7,11 @@ it('S7a-4 drops malformed warning keys and messages while retaining valid eviden
   const good = { key: 'LargeAOA', message: 'kept' };
   const warnings = [null, [], {}, { key: 1 }, { key: 'LargeAOA', message: {} }, good,
     { key: 'Other' }] as unknown as EngineWarning[];
-  expect(storedWarnings(warnings)).toEqual([good, { key: 'Other' }]);
+  expect(storedWarnings(warnings)).toEqual([good, { key: 'Other' }, expect.objectContaining({ key: 'StoredWarningsUnavailable' })]);
   expect(storedWarnings([good])?.[0]).toBe(good);
+  const recovered = restoredWarnings(warnings)!;
+  expect(recovered.at(-1)?.message).toContain('does not mean the flight had none');
+  expect(restoredWarnings(recovered)).toBe(recovered);
 });
 
 it('bounds restored evidence while preserving stop and HIGH signals', () => {
@@ -24,6 +27,12 @@ it('bounds restored evidence while preserving stop and HIGH signals', () => {
 
 it('S7a-4 formats a malformed message safely even before hydration', () => {
   expect(() => formatWarning({ key: 'LargeAOA', message: {} } as EngineWarning)).not.toThrow();
+});
+
+it.each([null, {}, 'warnings'])('marks a malformed saved warning list: %j', value => {
+  expect(restoredWarnings(value as unknown as EngineWarning[])).toEqual([
+    expect.objectContaining({ key: 'StoredWarningsUnavailable' }),
+  ]);
 });
 
 it.each(['SIM_ABORT', 'INCOMPLETE_FLIGHT'])('bounds critical fallback output and keeps a late %s stop signal', key => {

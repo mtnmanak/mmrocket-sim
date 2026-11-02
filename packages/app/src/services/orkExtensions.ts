@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import type { RocketTree } from '@online-openrocket/engine';
 import { parseXml, type XmlElement } from './xmlParse.js';
 import { cautionNote } from './importNotes.js';
@@ -149,7 +150,7 @@ export function preserveSimulationExtensions(
       const languageEntry = entries.find(e => e.getAttribute('key') === 'language');
       const language = languageEntry?.getAttribute('type') === 'string'
         ? languageEntry.textContent?.trim() || 'JavaScript' : 'JavaScript';
-      kinds.add(`${language.slice(0, 100)} script`);
+      kinds.add(`${noteField(language, 100)} script`);
       const enabledEntry = entries.find(e => e.getAttribute('key') === 'enabled');
       if (enabledEntry?.getAttribute('type') === 'boolean'
         && enabledEntry.textContent?.trim().toLowerCase() === 'true') enabled++;

@@ -143,7 +143,7 @@ it.each(['replacement', 'dismissal'])('keeps one download pending through bar %s
     window.dispatchEvent(event);
     const current = bar()!;
     const download = current.querySelector<HTMLButtonElement>('[data-debug-log]')!;
-    expect(current).not.toBe(original);
+    expect(current === original).toBe(transition === 'replacement');
     download.click();
     await Promise.resolve();
     expect(downloads).toBe(1);
@@ -176,7 +176,7 @@ it.each(['replacement', 'dismissal'])('shows a pending download failure on the c
     const download = current.querySelector<HTMLButtonElement>('[data-debug-log]')!;
     fail(new Error('Download blocked'));
     await vi.waitFor(() => expect(current.querySelector('[role="status"]')?.textContent).toContain('Download blocked'));
-    expect(original.querySelector('[role="status"]')?.textContent).toBe('');
+    if (transition === 'dismissal') expect(original.querySelector('[role="status"]')?.textContent).toBe('');
     expect(current.textContent).toContain('Latest failure');
     await vi.waitFor(() => expect(download.disabled).toBe(false));
     download.click();

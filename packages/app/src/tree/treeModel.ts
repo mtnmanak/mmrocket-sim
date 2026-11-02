@@ -1,3 +1,4 @@
+import { noteField } from '../services/noteField.js';
 import type { UnitSelection } from '../prefs/units.js';
 // The engine is imported as a VALUE here, not only as types: the two
 // body-CD-referenced protuberance classes need the kernel to tell them what
@@ -179,10 +180,10 @@ function repairTreeShape(tree: RocketTree, notes?: string[]): RocketTree {
       if (node.children !== undefined) {
         const children = node.children;
         if (!Array.isArray(children)) {
-          note(`Component "${node.name ?? node.type}": its unreadable children were removed.`);
+          note(`Component “${noteField(node.name ?? node.type)}”: its unreadable children were removed.`);
           node = { ...node, children: [] };
         } else if (depth >= 128 && children.length) {
-          note(`Component "${node.name ?? node.type}": children nested beyond 128 levels were removed.`);
+          note(`Component “${noteField(node.name ?? node.type)}”: children nested beyond 128 levels were removed.`);
           node = { ...node, children: [] };
         } else {
           const repaired = repair(children, depth + 1);
@@ -195,14 +196,14 @@ function repairTreeShape(tree: RocketTree, notes?: string[]): RocketTree {
             && p.length === 2 && p.every((v: unknown) => typeof v === 'number' && Number.isFinite(v))))) {
         // FreeformFinSet's kernel default, in metres; show the outline that flies.
         node = { ...node, points: [[0, 0], [0.025, 0.05], [0.075, 0.05], [0.05, 0]] };
-        note(`Fin set "${node.name ?? 'freeform'}": its outline was not used — the points were unreadable. The set keeps a default outline; redraw it in the fin editor.`);
+        note(`Fin set “${noteField(node.name ?? 'freeform')}”: its outline was not used — the points were unreadable. The set keeps a default outline; redraw it in the fin editor.`);
       } else if (node.type === 'freeformfinset' && Array.isArray(points) && points.length) {
         const [x0, y0] = points[0] as [number, number];
         // FreeformFinSet.setPoints translates before positioning. Repair at the
         // load boundary so every drawing and cut shares that frame (audit 2026-10-11, S4a-2).
         if (x0 * x0 + y0 * y0 > 1e-12) {
           node = { ...node, points: (points as [number, number][]).map(([x, y]) => [x - x0, y - y0]) };
-          note(`Fin set "${node.name ?? 'freeform'}": its points were moved to the origin to match desktop OR.`, 'I05.origin', false);
+          note(`Fin set “${noteField(node.name ?? 'freeform')}”: its points were moved to the origin to match desktop OR.`, 'I05.origin', false);
         }
       }
       if (node !== value) changed = true;

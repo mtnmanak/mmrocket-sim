@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { probeFlight, testMotor, testResolution } from './autoDelay.testSupport.js';
 import { addRun, loadRuns } from './simStore.js';
-import { motorDataKeyOf, type SimRun } from './simReport.js';
+import { motorDataKeyOf, type SimRun, buildSimRun } from './simReport.js';
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { FlightResult, IgnitionEvent, MotorSpec, OrkRocket } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
@@ -12,7 +12,6 @@ import {
 } from './flightRunner.js';
 import { findDbMotor } from './motorDb.js';
 import { mountMotorFromDb } from './motorMatch.js';
-import { buildSimRun } from './simReport.js';
 import { fetchMotorSpec } from './thrustcurve.js';
 
 /**
@@ -89,6 +88,13 @@ it.each(['constructor', 'toString', '__proto__'])('names a refused Auto mount %s
   await expect(flyLaunch(handle, { ...staged(false), assigned: [[id, testMotor()]],
     primaryMountId: id, refusedMountIds: [id], mountNames: {},
   })).rejects.toThrow(`Auto delay did not settle for ${id}:`);
+});
+
+it('escapes a refused Auto mount name before showing the flight error', async () => {
+  const { handle } = recordingHandle();
+  await expect(flyLaunch(handle, { ...staged(false), assigned: [['a', testMotor()]],
+    primaryMountId: 'a', refusedMountIds: ['a'], mountNames: { a: 'Bad\n\u200b”' },
+  })).rejects.toThrow('Auto delay did not settle for Bad[U+200B][U+201D]:');
 });
 
 describe('Hybrid handle protocol', () => {

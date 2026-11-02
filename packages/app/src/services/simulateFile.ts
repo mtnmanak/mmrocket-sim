@@ -1,7 +1,6 @@
-import { noticeEqual } from '../prefs/units.js';
+import { noticeEqual, INITIAL_UNITS } from '../prefs/units.js';
 import { InflatedFileTooLargeError } from './zipMember.js';
 import type { NoticeSeverity } from '../components/NoticeBar.js';
-import { INITIAL_UNITS } from '../prefs/units.js';
 import { designFileOpenFailure, designFileTooLarge, openDesignFile } from './designFile.js';
 import { planImport, resolveImportMotors, type ImportedDesign, type ImportPlan } from './importApply.js';
 import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, type LaunchConditions } from './launchConditions.js';
@@ -179,7 +178,7 @@ export async function planHeadlessImport(
   // What goes on screen, decided as App decides it: the file's conditions
   // merged onto the panel's, the configuration to open, the import note.
   return planImport(imported, resolved, {
-    launch: opts.launch ?? DEFAULT_CONDITIONS, text: statedWeightTextFor(opts.units ?? INITIAL_UNITS), units: opts.units,
+    launch: opts.launch ?? DEFAULT_CONDITIONS, text: statedWeightTextFor(opts.units ?? INITIAL_UNITS), units: opts.units, headless: true,
   });
 }
 

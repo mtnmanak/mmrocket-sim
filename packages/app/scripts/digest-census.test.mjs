@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { downloadRawFiles } from './fetch-motor-curves.mjs';
 
 /**
@@ -34,6 +35,7 @@ function stand(pick) {
   return { download, calls };
 }
 const cacheFiles = (dir) => readdirSync(dir).filter((name) => /^raw-.*\.json$/.test(name));
+const cachePath = (dir, value) => join(dir, `raw-${value.generated}-${createHash('sha256').update(JSON.stringify(value)).digest('hex')}.json`);
 
 it('imports without creating its output folder or downloading', () => {
   if (!hadDefaultOut) expect(existsSync(DEFAULT_OUT)).toBe(false);
@@ -49,14 +51,14 @@ it('writes no cache after an empty batch, so a later call downloads again', asyn
   const good = stand((ids) => ids.map(raw));
   await cachedRawFiles(bundle, dir, { download: good.download, log: () => {} });
   expect(good.calls).toHaveLength(1);
-  expect(cacheFiles(dir)).toEqual(['raw-2026-09-21.json']);
+  expect(cacheFiles(dir)).toEqual([cachePath(dir, bundle).split(/[\\/]/).at(-1)]);
 });
 
 it('writes a good batch once, and a later call reads the cache without downloading', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'digest-census-')); dirs.push(dir);
   const good = stand((ids) => ids.map(raw));
   const rawPath = await cachedRawFiles(bundle, dir, { download: good.download, log: () => {} });
-  expect(rawPath).toBe(join(dir, `raw-${bundle.generated}.json`));
+  expect(rawPath).toBe(cachePath(dir, bundle));
   expect(Object.keys(JSON.parse(readFileSync(rawPath, 'utf8')))).toEqual(['f-a', 'f-b']);
   expect(good.calls).toHaveLength(1);
   expect(good.calls[0].ids).toEqual(['a', 'b']);
@@ -72,7 +74,7 @@ it.each([
   ['a map of something else', JSON.stringify({ 'f-a': 'cmF3', 'f-b': null })],
 ])('downloads again once, and replaces the cache, when an existing one is %s', async (_what, held) => {
   const dir = mkdtempSync(join(tmpdir(), 'digest-census-')); dirs.push(dir);
-  const rawPath = join(dir, `raw-${bundle.generated}.json`);
+  const rawPath = cachePath(dir, bundle);
   writeFileSync(rawPath, held);
   const lines = [];
   const good = stand((ids) => ids.map(raw));
@@ -90,11 +92,22 @@ it.each([
 it('reads a complete cache without downloading, even when a curveless motor has no raw file', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'digest-census-')); dirs.push(dir);
   const withCurveless = { ...bundle, curves: { ...bundle.curves, c: [] } };
-  const rawPath = join(dir, `raw-${bundle.generated}.json`);
+  const rawPath = cachePath(dir, withCurveless);
   const held = JSON.stringify(Object.fromEntries(['a', 'b'].map((id) => [`f-${id}`, raw(id)])));
   writeFileSync(rawPath, held);
   const again = stand(() => { throw new Error('downloaded again'); });
   expect(await cachedRawFiles(withCurveless, dir, { download: again.download, log: () => {} })).toBe(rawPath);
   expect(again.calls).toHaveLength(0);
   expect(readFileSync(rawPath, 'utf8')).toBe(held);
+});
+
+it('downloads fresh raw files for changed content on the same date', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'digest-census-')); dirs.push(dir);
+  const good = stand(ids => ids.map(raw));
+  const first = await cachedRawFiles(bundle, dir, { download: good.download, log: () => {} });
+  const changed = structuredClone(bundle);
+  changed.curves.a[0].samples.push([1, 9]);
+  const second = await cachedRawFiles(changed, dir, { download: good.download, log: () => {} });
+  expect(second).not.toBe(first);
+  expect(good.calls).toHaveLength(2);
 });

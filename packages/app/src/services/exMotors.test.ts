@@ -329,11 +329,11 @@ describe('.rse files with missing mass data', () => {
     });
     it('names a negative m', () => {
       expect(fallsBack('<eng-data t="0" f="0" m="50"/><eng-data t="0.5" f="60" m="25"/><eng-data t="1" f="0" m="-2"/>'))
-        .toContain('point 3 of 3 has m="-2"');
+        .toContain('point 3 of 3 has m=“-2”');
     });
     it('names an m that is not a number', () => {
       expect(fallsBack('<eng-data t="0" f="0" m="50"/><eng-data t="0.5" f="60" m="abc"/><eng-data t="1" f="0" m="0"/>'))
-        .toContain('point 2 of 3 has m="abc"');
+        .toContain('point 2 of 3 has m=“abc”');
     });
     it('says nothing when the model is on, whatever the points carry', () => {
       const notes: string[] = [];
@@ -427,8 +427,8 @@ describe('.rse numbers are read as desktop reads them', () => {
 
   it('reads no hex, blank or missing time or thrust', () => {
     for (const [pts, why] of [
-      ['<eng-data t="0x1" f="60"/>', 't="0x1"'], ['<eng-data t="" f="60"/>', 't=""'],
-      ['<eng-data f="60"/>', 'no t'], ['<eng-data t="0.5" f="abc"/>', 'f="abc"'],
+      ['<eng-data t="0x1" f="60"/>', 't=“0x1”'], ['<eng-data t="" f="60"/>', 't=“”'],
+      ['<eng-data f="60"/>', 'no t'], ['<eng-data t="0.5" f="abc"/>', 'f=“abc”'],
     ] as const) {
       const { names, notes } = read(engine('dia="29" len="120"', `<eng-data t="0" f="0"/>${pts}<eng-data t="1" f="0"/>`));
       expect(names, pts).toEqual(['GOOD']);
@@ -873,7 +873,7 @@ describe('lane C EX import regressions', () => {
 it.each([undefined, 'junk', 'Infinity'])('names an unreadable RSE propellant token (%s)', token => {
   const attr = token === undefined ? '' : ` propWt="${token}"`;
   expect(() => parseRse(`<engine-database><engine code="H100" initWt="20" dia="29" len="100"${attr}/></engine-database>`))
-    .toThrow(token === undefined ? 'Motor H100: propellant mass (propWt) missing' : `Motor H100: propellant mass (propWt) "${token}" is not a finite number`);
+    .toThrow(token === undefined ? 'Motor H100: propellant mass (propWt) missing' : `Motor H100: propellant mass (propWt) “${token}” is not a finite number`);
 });
 
 it('names corrupt stored mass tokens without inventing a physical quantity', () => {
@@ -885,8 +885,8 @@ it('names corrupt stored mass tokens without inventing a physical quantity', () 
   try {
     const notes: string[] = [];
     expect(loadExMotors(notes)).toEqual([]);
-    expect(notes[0]).toContain('loaded mass "bad" is not a finite number');
-    expect(notes[1]).toContain('propellant mass "null" is not a finite number');
+    expect(notes[0]).toContain('loaded mass “bad” is not a finite number');
+    expect(notes[1]).toContain('propellant mass “null” is not a finite number');
     expect(notes[2]).toContain('invalid dimensions, curve or motor fields');
   } finally { localStorage.clear(); }
 });
@@ -908,6 +908,8 @@ describe('library writes keep stored entries the loader refuses', () => {
 
   it('keeps refused entries on add, delete and restore when a different backup exists', async () => {
     localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(`${KEY}.unreadable-backup` + '.2', 'second');
+    localStorage.setItem(`${KEY}.unreadable-backup` + '.3', 'third');
     localStorage.setItem(KEY, JSON.stringify([...refused, good()]));
     const ex = await fresh();
     expect(ex.addExMotors([other()]).stored).toBe(true);
@@ -949,12 +951,14 @@ describe('library writes keep stored entries the loader refuses', () => {
     const ex = await fresh();
     const notes: string[] = [];
     ex.restoreExMotors([good()], notes);
-    expect(notes).toEqual(['The stored motor library could not be read. The app kept a copy of it in this browser and started a new library with these motors.']);
+    expect(notes).toEqual(['The stored motor library could not be read. The app kept a copy of it in this browser and started a new library.']);
     expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe('{broken');
   });
 
   it('never writes over an unreadable library it cannot copy aside; the motor flies this session', async () => {
     localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(`${KEY}.unreadable-backup` + '.2', 'second');
+    localStorage.setItem(`${KEY}.unreadable-backup` + '.3', 'third');
     localStorage.setItem(KEY, '{broken');
     const ex = await fresh();
     const write = ex.addExMotors([good()]);

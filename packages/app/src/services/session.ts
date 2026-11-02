@@ -87,6 +87,7 @@ export interface SessionState {
    * is one, and dropped on load unless it is a table of delays.
    */
   flownAutoDelays?: Record<string, Record<string, number>>;
+  flownAutoDelayHardwareKey?: string;
   /** Prevents old filter preferences from returning after a mount is cleared. */
   motorLengthLimitsMigrated?: boolean;
   /** Legacy per-STAGE max motor length keyed by stage node id (SI m); null/absent = no limit. */
@@ -456,7 +457,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
     if (!raw) return null;
     // Older autosaves may carry warning source IDs from a different open.
     let s = JSON.parse(raw, (key, value) =>
-      key === 'simWarnings' && Array.isArray(value) ? restoredWarnings(value) : value) as SessionState;
+      key === 'simWarnings' ? restoredWarnings(value) : value) as SessionState;
     if (!s || typeof s !== 'object' || Array.isArray(s)) {
       // Unusable payload: drop it rather than re-parsing the same wreck on
       // every load, and so a corrupted autosave cannot follow the user around.
@@ -517,6 +518,8 @@ function readSession(restoreRoot: boolean): SessionState | null {
         isTable(c) && typeof c.id === 'string' && isTable(c.motors)
         && (c.name == null || typeof c.name === 'string')
         && (c.motorLoadoutRefusal === undefined || typeof c.motorLoadoutRefusal === 'string')
+        && (c.motorLoadNotes === undefined || (isTable(c.motorLoadNotes)
+          && Object.values(c.motorLoadNotes).every(note => typeof note === 'string')))
         && ['unmatchedRefs', 'deployments', 'separations', 'ignitions', 'nozzles', 'stageActiveness', 'stageMassOverrides']
           .every(key => c[key] === undefined || isTable(c[key])),
       ) : [];
@@ -843,7 +846,10 @@ const DISPOSABLE_KEY_PREFIXES = ['tc:', 'online-openrocket.no-curve.v1'] as cons
  * Free re-downloadable cache. Returns how many keys went, so the caller can
  * tell "there was room to make" from "there was nothing left to give".
  */
+let exhaustedCacheSize: number | undefined;
+let exhaustedStorage: Storage | undefined;
 function evictDisposableCache(): number {
+  if (exhaustedStorage === localStorage && exhaustedCacheSize === localStorage.length) return 0;
   let removed = 0;
   try {
     const doomed: string[] = [];
@@ -859,6 +865,8 @@ function evictDisposableCache(): number {
     // quota case. Whatever went before it refused still counts: a partial sweep
     // can have made room, and one retry is cheap.
   }
+  exhaustedStorage = localStorage;
+  exhaustedCacheSize = localStorage.length;
   return removed;
 }
 
@@ -870,7 +878,7 @@ function writeNow(): void {
     const { stamp: _stale, over: _staleOver, ...state } = pending;
     const content = JSON.stringify(
       { appVersion: APP_VERSION, ...state, nozzleModeVersion: 1, emptyConfigVersion: 1, timeStepMigrationVersion: 1 }, (key, v) =>
-      key === 'simWarnings' && Array.isArray(v) ? restoredWarnings(v)
+      key === 'simWarnings' ? restoredWarnings(v)
         : typeof v === 'number' && v === Infinity ? 'Infinity' : v);
     // The stamp covers everything but the timestamp (and a takeover's `over`),
     // so re-writing the same design is the same stamp. Spliced rather than
@@ -899,16 +907,16 @@ function writeNow(): void {
        * saying so — nothing anywhere could free the space, and the next reload
        * restored the last design that fit.
        *
-       * Deliberately ONE retry, and only when the sweep actually freed
-       * something: with nothing left to give up, `evictDisposableCache()`
-       * returns 0 on every subsequent debounce (~2.5/s while editing) and the
-       * original error is re-thrown immediately, so a genuinely full origin
-       * costs one enumeration, not a retry loop.
+       * Deliberately ONE retry, only after cache eviction freed something.
+       * With nothing left to reclaim, re-throw
+       * the original error rather than retry on every editing debounce.
        */
-      if (evictDisposableCache() === 0) throw quota;
+      const evicted = evictDisposableCache();
+      if (evicted === 0) throw quota;
       localStorage.setItem(KEY, payload);
     }
     seenStamp = stamp;
+    exhaustedCacheSize = undefined;
     lastWritten = pending;
     setConflicted(false);
     setSaveFailing(false);
@@ -983,6 +991,7 @@ export function takeOverSession(): void {
  */
 export function watchOtherTabs(): () => void {
   const onStorage = (e: StorageEvent) => {
+    exhaustedCacheSize = undefined;
     if (e.key !== KEY) return;
     const over = overOf(e.newValue);
     if (over === null || over !== seenStamp) return;

@@ -1252,9 +1252,9 @@ it('reformats saved warning quantities when the current units change', () => {
     return <button onClick={() => setPrefs({ ...prefs, units: { ...prefs.units, velocity: 'ft/s' } })}>Switch warning units</button>;
   }
   render(<><SwitchUnits /><SimRunDetails run={restored} /></>);
-  expect(host.textContent).toContain('(30.48 m/s [100 ft/s]): "Main"');
+  expect(host.textContent).toContain('(30.48 m/s [100 ft/s]): “Main”');
   act(() => Array.from(host.querySelectorAll('button')).find(b => b.textContent === 'Switch warning units')!.click());
-  expect(host.textContent).toContain('(100 ft/s [30.5 m/s]): "Main"');
+  expect(host.textContent).toContain('(100 ft/s [30.5 m/s]): “Main”');
   expect(host.textContent).not.toContain('(30.48 m/s [100 ft/s]): "Main"');
 });
 
