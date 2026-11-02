@@ -3,7 +3,9 @@ import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { authenticatedWorker as worker } from './auth.testSupport.js';
 import * as headless from '../../app/src/headless/index.js';
 import { vi } from 'vitest';
-import { noteStrings, warningEcho } from './fileStrings.js';
+import { noteEcho, noteStrings, warningEcho } from './fileStrings.js';
+import { noteField } from '../../app/src/services/noteField.js';
+import { displayEcho } from './filenameEcho.js';
 import { bytesOf } from './fixtures.testSupport.js';
 
 /** Hostile file text is bounded at the API display boundary. */
@@ -12,6 +14,33 @@ const post = (route: string, filename: string, body: Uint8Array) => worker.fetch
   new Request(`http://local${route}?filename=${encodeURIComponent(filename)}`, { method: 'POST', body: new Uint8Array(body).buffer }), undefined, ctx);
 const LONG = 'L'.repeat(5000) + '\u202e';
 const points = (text: string) => Array.from(text).length;
+
+it('preserves punctuation and script joiners across API display projections', () => {
+  const ordinary = 'Eric\'s 2.6" Goblin’s «Nose» 👨‍🚀 می‌روم';
+  expect(displayEcho(ordinary)).toBe(ordinary);
+  expect(noteEcho(ordinary)).toBe(ordinary);
+  expect(displayEcho('C\u200d6”\u202e')).toBe('C\u200d6”?');
+  expect(noteEcho('C\u200d6')).toBe('C[U+200D]6');
+  expect(noteEcho('x\u202eafter', 3)).toBe('x…');
+  expect(noteEcho('x[U+202E]after', 6)).toBe('x…');
+  expect(displayEcho('x'.repeat(195) + '\u202eend')).not.toMatch(/\[U\+202?$/);
+});
+
+it.each([1000, 4000])('never cuts a visible marker at the %s note boundary', max => {
+  for (let offset = 1; offset <= 8; offset++) {
+    const prefix = 'x'.repeat(max - offset);
+    expect(noteEcho(prefix + '[U+202E]end', max)).not.toMatch(/\[(?:U(?:\+[0-9A-F]*)?)?…$/);
+    expect(noteEcho(prefix + '\u202eend', max)).not.toMatch(/\[(?:U(?:\+[0-9A-F]*)?)?…$/);
+  }
+});
+
+it('uses the same visible format markers as the app without changing note delimiters', () => {
+  const raw = 'C\u200b6\u2060\ufeff';
+  expect(noteEcho(raw)).toBe('C[U+200B]6[U+2060][U+FEFF]');
+  const note = `Motor “${noteField(raw + '”forged')}” was refused.`;
+  expect(noteEcho(note)).toBe('Motor “C[U+200B]6[U+2060][U+FEFF][U+201D]forged” was refused.');
+  expect(noteEcho('🚀'.repeat(4001))).not.toMatch(/[\ud800-\udfff]/u);
+});
 function clean(value: unknown): void {
   if (typeof value === 'string') {
     expect(points(value)).toBeLessThanOrEqual(4000);
@@ -31,6 +60,12 @@ const reference = () => strFromU8(unzipSync(bytesOf('reference.ork'))['rocket.or
 const ork = (xml: string) => zipSync({ 'rocket.ork': strToU8(xml) });
 
 describe('file-derived names and notes are safe at the API edge', () => {
+  it('keeps quote and invisible-character markers on a real imported motor note', async () => {
+    const xml = reference().replace('<designation>C6</designation>', '<designation>UNKNOWN&#x200b;&#x201d;X</designation>');
+    const out = await (await post('/describe', 'quotes.ork', ork(xml))).json() as { notes: { import: { text: string } } };
+    expect(out.notes.import.text).toContain('Motor “UNKNOWN[U+200B][U+201D]X”');
+    expect(out.notes.import.text).not.toContain('\u200b');
+  });
   it('/describe mounts[].name and mounts[].stageName', async () => {
     const xml = reference().replace('<name>Inner Tube</name>', `<name>${LONG}</name>`).replace(/(<stage>\s*<name>)Sustainer/, `$1${LONG}`);
     const out = await (await post('/describe', 'parts.ork', ork(xml))).json() as { mounts: { name: string; stageName: string }[] };
@@ -113,7 +148,7 @@ it.each(['/describe', '/experimental/fly'])('sanitises %s error messages and nes
 
 it('strips short unsafe note characters and replaces short unsafe name characters', async () => {
   const short = 'left\u202eright\u0000';
-  expect(noteStrings({ text: short })).toEqual({ text: 'leftright' });
+  expect(noteStrings({ text: short })).toEqual({ text: 'left[U+202E]right' });
   expect(noteStrings({ part: short })).toEqual({ part: 'left?right?' });
   const normal = await headless.describeFile(bytesOf('reference.ork'), 'reference.ork');
   normal.notes.import.text = short;
@@ -126,9 +161,9 @@ it('strips short unsafe note characters and replaces short unsafe name character
     const out = await (await post('/describe', 'safe.ork', bytesOf('reference.ork'))).json() as typeof normal;
     expect(out.mounts[0]!.name).toBe('left?right?');
     expect(out.mounts[0]!.stageName).toBe('left?right?');
-    expect(out.notes.import.text).toBe('leftright');
-    expect(out.notes.analysis).toContain('leftright');
-    expect(out.notes.export).toContain('leftright');
+    expect(out.notes.import.text).toBe('left[U+202E]right');
+    expect(out.notes.analysis).toContain('left[U+202E]right');
+    expect(out.notes.export).toContain('left[U+202E]right');
     clean(out);
   } finally { spy.mockRestore(); }
 });
@@ -193,7 +228,7 @@ it('applies warning limits to kernel, rail and wake flight comments and warnings
     expect(result.warnings[1]!.message).toBe('T'.repeat(987) + '\u2026');
     for (const entry of [...result.notes.flight, ...result.warnings.map(w => ({ text: w.message }))]) {
       expect(points(entry.text)).toBeLessThanOrEqual(1000);
-      for (const match of entry.text.matchAll(/"([^"]*)"/g)) expect(points(match[1]!)).toBeLessThanOrEqual(200);
+      for (const match of entry.text.matchAll(/"([^"]*)"|“([^”]*)”/g)) expect(points(match[1] ?? match[2]!)).toBeLessThanOrEqual(200);
     }
   } finally { spy.mockRestore(); }
 });

@@ -1,3 +1,4 @@
+import { noteField, noteText } from './services/noteField.js';
 import { ConfigStabilityRange } from './components/ConfigStabilityRange.js';
 import { DesignPrintReport } from './components/DesignPrintReport.js';
 import { designPrintHtml } from './services/designPrintReport.js';
@@ -802,7 +803,7 @@ export function App() {
     const when = typeof savedAt === 'number' && savedAt > 0 && Number.isFinite(new Date(savedAt).getTime())
       ? `, saved ${new Date(savedAt).toLocaleString()}` : '';
     // The sanitised tree's name: the stored one can be any JSON (Gemini review, 28 Oct).
-    return `Restored your previous session (“${initialTree.name ?? 'unnamed'}”${when}).`;
+    return `Restored your previous session (“${noteField(initialTree.name ?? 'unnamed')}”${when}).`;
   });
   const [sessionNoteFading, setSessionNoteFading] = useState(false);
   useEffect(() => {
@@ -1855,7 +1856,7 @@ export function App() {
       [OVERRIDE_INCLUDES_MOTOR]: undefined,
       [STATED_STAGE_FIGURES]: undefined,
     } as Partial<ComponentNode>));
-    setFileNote(`“${blocker.name ?? 'Stage'}” is now pinned to your measured `
+    setFileNote(`“${noteField(blocker.name ?? 'Stage')}” is now pinned to your measured `
       + noticeQuantity('mass', measured.massKg, prefs.units)
       + ` and CG ${noticeQuantity('length', measured.cgM, prefs.units)}. `
       + 'Clear it under Overrides to go back to the computed geometry.');
@@ -2018,7 +2019,7 @@ export function App() {
 
   const onLaunch = () => {
     const refusal = savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal;
-    if (refusal) { setSimError(refusal); return; }
+    if (refusal) { setSimError(noteText(refusal)); return; }
     if (!built || !primaryMountId || simulating || nozzlePending || flightHoldsHandle.current) return;
     flightHoldsHandle.current = true;
     sessionDebugLog.record('launch-start');
@@ -2484,7 +2485,7 @@ export function App() {
       const recentFinished = (note: string | null) => {
         if (generation === documentGeneration.current && saveId === recentNoteSave.current) setRecentNote(note);
         // Keep this save's destination warning and export losses with its Recent note.
-        else if (generation !== documentGeneration.current && note) showEarlierSaveNote({ text: `${said ? said.text : `Saved “${out.name}”.`}\n${note}`, tier: 'caution' });
+        else if (generation !== documentGeneration.current && note) showEarlierSaveNote({ text: `${said ? said.text : `Saved “${noteField(out.name)}”.`}\n${note}`, tier: 'caution' });
       };
       if (saveId >= (recentSaveByName.current.get(out.name) ?? 0)) {
         recentSaveByName.current.set(out.name, saveId);
@@ -2579,7 +2580,7 @@ export function App() {
       }
       return out;
     } catch (e) {
-      documentNote(generation, `Save .ork failed — nothing was written: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
+      documentNote(generation, `Save .ork failed — nothing was written: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
       return { kind: 'failed' };
     }
   };
@@ -2601,7 +2602,7 @@ export function App() {
     distanceUnit: prefs.units.altitude,
   });
   const lossyExportFailed = (format: LossyFormat, e: unknown, generation = documentGeneration.current) =>
-    documentNote(generation, `${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
+    documentNote(generation, `${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
   // Use the latest render at the idle edge, without restarting the timer for
   // unrelated UI renders. No kernel calls are made by this preview. The ref is
   // written after render, in a layout effect, so before the timer's effect.
@@ -2701,7 +2702,7 @@ export function App() {
       const { rocketToObj } = await import('./services/objExport.js');
       await download(rocketToObj(tree, tree.name ?? 'Rocket'), 'obj', '', [], undefined, generation);
     } catch (e) {
-      documentNote(generation, `OBJ export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
+      documentNote(generation, `OBJ export failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
     }
   };
 
@@ -2711,7 +2712,7 @@ export function App() {
       const { rocketToGlb } = await import('./services/gltfExport.js');
       await download(new Uint8Array(await rocketToGlb(tree, tree.name ?? 'Rocket')), 'glb', '', [], undefined, generation);
     } catch (e) {
-      documentNote(generation, `glTF export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
+      documentNote(generation, `glTF export failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
     }
   };
 
@@ -2725,7 +2726,7 @@ export function App() {
       const { pieces } = buildPieces(tree);
       await download(piecesToStl(pieces, tree.name ?? 'Rocket'), 'stl', '', [], undefined, generation);
     } catch (e) {
-      documentNote(generation, `STL export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
+      documentNote(generation, `STL export failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'danger');
     }
   };
 
@@ -3037,7 +3038,7 @@ export function App() {
     // missing id; remove the file-owned fallback association as well.
     setImportedDocument(prev => prev ? { ...prev,
       storedSimulations: prev.storedSimulations.filter(s => s.configId !== config.id) } : prev);
-    setFileNote(`Flight configuration "${savedConfigLabel(config)}" deleted.`);
+    setFileNote(`Flight configuration “${noteField(savedConfigLabel(config))}” deleted.`);
   };
 
   /** The "None" row / full unload: no motors, no active configuration. */
@@ -3217,7 +3218,7 @@ export function App() {
         : '';
       try {
         await navigator.clipboard.writeText(url);
-        documentNote(generation, [`Share link copied — opening it loads “${tree.name ?? 'My Rocket'}” with its motors and launch conditions.${sizeNote}`,
+        documentNote(generation, [`Share link copied — opening it loads “${noteField(tree.name ?? 'My Rocket')}” with its motors and launch conditions.${sizeNote}`,
           ...saveNotes].join('\n'), saveNotes.length ? 'warn' : 'info', undefined, omittedMotor ? 'caution' : 'information');
       } catch {
         // Clipboard refused (permissions, iframe embed, non-secure context):
@@ -3229,7 +3230,7 @@ export function App() {
     } catch (e) {
       // 'error' — nothing was copied and nothing is on screen to say so
       // otherwise, matching what onSaveRkt/onSaveCdx1 already do.
-      documentNote(generation, `Share link failed: ${e instanceof Error ? e.message : String(e)}`, 'error');
+      documentNote(generation, `Share link failed: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error');
     }
   };
 
@@ -3402,13 +3403,13 @@ export function App() {
     });
     const loadout = [
       ...assigned.map(([id, mm]) => `${mountName(mounts.find(m => m.id === id)!)}: ${mm.label} ×${mountMotorCount(tree, id)} (${!built ? 'build unavailable' : refusedMountIds.includes(id) ? 'omitted from build' : 'installed in build'})`),
-      ...unresolved.map(({ mount, identity }) => `${mountName(mount)}: ${identity} ×${mountMotorCount(tree, mount.id!)} (unresolved; omitted from build)`),
+      ...unresolved.map(({ mount, identity }) => `${mountName(mount)}: ${noteField(identity)} ×${mountMotorCount(tree, mount.id!)} (unresolved; omitted from build)`),
     ];
     return designPrintHtml({
       tree, info: built?.info ?? null, units: prefs.units, radiusMode: prefs.radiusMode,
       stabilityUnit: prefs.stabilityUnit, withMotors: installedMounts(assigned, refusedMountIds).length > 0, appVersion: APP_VERSION,
       motorFailures: [...motorFailures, ...unresolved.map(({ mount, identity }) => ({ mountId: mount.id!,
-        text: `Unresolved imported motor ${identity}: no motor curve is loaded.` }))],
+        text: `Unresolved imported motor ${noteField(identity)}: no motor curve is loaded.` }))],
       currentLoadout: `${liveActiveLayer ? savedConfigLabel(liveActiveLayer) : flightWorking ? 'Working settings (not saved)' : 'None'}; `
         + (loadout.length ? loadout.join('; ') : 'no motor assigned'),
       infoFor: built ? id => { try { return built.rocket.componentInfo(id); } catch { return null; } } : undefined,
@@ -4182,7 +4183,7 @@ export function App() {
             data-tour="launch"
             onClick={onLaunch}
             disabled={!built || !primaryMountId || simulating || nozzlePending}
-            title={savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal ?? (nozzlePending ? 'Updating the nozzle for this motor before launch'
+            title={noteText(savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal ?? '') || (nozzlePending ? 'Updating the nozzle for this motor before launch'
               : !primaryMountId ? 'Assign a motor first (Motors & Configuration workspace)' : 'Simulate the flight')}
           >
             {simulating ? 'Simulating…' : <><Icon name="rocket" size={15} /> Launch</>}
@@ -4942,7 +4943,7 @@ export function App() {
                     return typeof fileRef?.padMassKg === 'number' && fileRef.padMassKg > 0
                       ? (
                         <p className="print-note print-note-warn">
-                          {`The file's weighed pad mass belongs to the motor on ${where} (${named}), which could not`
+                          {`The file's weighed pad mass belongs to the motor on ${noteField(where)} (${noteField(named)}), which could not`
                             + ' be loaded. It is kept so the file saves unchanged, and nothing is carried. Load that'
                             + ' motor to use it, or load a motor there and re-weigh with these motors in.'}
                         </p>
@@ -4951,7 +4952,7 @@ export function App() {
                         // No pad mass in the file either: say why there is no field
                         // rather than claiming a value the file never had.
                         <p className="comp-stats" style={{ margin: '3px 0 0' }}>
-                          {`The motor the file names on ${where} (${named}) could not be loaded, so there is no`
+                          {`The motor the file names on ${noteField(where)} (${noteField(named)}) could not be loaded, so there is no`
                             + ' weighed pad mass field here — a weighing belongs with every motor in. Load that'
                             + ' motor, or another one there, and the field appears under it.'}
                         </p>
@@ -5116,7 +5117,7 @@ export function App() {
                   ...(!inspectedSummary && shownResult ? { result: shownResult } : {}),
                 });
               } catch (e) {
-                setFileNote(`Flight-data bundle could not be prepared: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'information');
+                setFileNote(`Flight-data bundle could not be prepared: ${noteText(e instanceof Error ? e.message : String(e))}`, 'error', undefined, 'information');
               }
             }}>Export flight-data bundle</button>
             <p className="download-caption">Selected run, current design and your measurements in one ZIP for sharing with the app owner.</p>

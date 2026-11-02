@@ -1073,6 +1073,8 @@ You can **import experimental motors** from RASP `.eng` or RockSim `.rse` files 
 
 ## Launch Conditions
 
+Opening an `.ork` with no simulation launch conditions keeps the previous Launch panel's site, temperature, pressure, rod and surface wind settings. The import note lists the retained fields: those values will fly the new design. A `.rkt` reads only its launch site, and a `.CDX1` keeps previous values for fields it does not carry. Opening any file without a wind profile removes the previous winds aloft; the note says when this happens. Check Launch conditions before flying. The time step, geodetic model and launch-guide allowance follow their own reset rules described below.
+
 **Surface-wind Caution.** Above **20 mph (8.9408 m/s)**, **Wind avg** shows a separate Caution on Motors & Configuration and the phone Fly screen, and the launch report records it. It compares the surface average, including an applied forecast or your edits, separately from the wind-to-rail-exit-speed check. Wind can carry the rocket outside the recovery area. Check wind at the pad, including gusts: a forecast average and **Wind gusts σ** cannot establish the actual maximum wind.
 
 The limit comes from the [NAR Model Rocket Safety Code, clause 9 — Launch Site](https://www.nar.org/ModelRocketSafetyCode), for model rockets, and the [NAR High Power Rocket Safety Code, clause 9 — Flight Safety](https://www.nar.org/content.aspx?page_id=22&club_id=114127&module_id=669238), for high-power rockets. Both limit launch wind to 20 mph. The [Tripoli Unified Safety Code, clause 9-3 — LCO Responsibilities](https://www.tripoli.org/safetycode) applies the same limit to **sustained surface winds** for launches under that code. Exactly 20 mph does not trigger this advice. The app does not block Launch or certify compliance with a safety code.
@@ -1428,6 +1430,8 @@ Three things it deliberately does not touch:
 <a id="files-and-formats"></a>
 
 ## Files, Units, and Offline Use
+
+File-supplied names in notes are kept on one line. Curly double quotes and invisible format characters in those names appear as markers such as `[U+201D]` or `[U+200B]`, so they cannot imitate the note's layout. Apostrophes, straight inch marks and other ordinary punctuation stay readable. Joiners in emoji and names in scripts such as Persian stay readable too; a run of joiners between two ASCII characters is marked because it could disguise a motor designation. The original name and motor matching stay unchanged. Subdivision flags keep their emoji tags only in a complete flag sequence; stray or unfinished tags appear as markers. Saved EX motor notes reopen as separate lines, up to 64 entries and 65,536 characters; a final line counts any notes not shown. A motor that could not load keeps its original import explanation when you apply its flight configuration, including a missing curve or a failed download. Older saved sessions may have no recorded reason; the note says when that reason is unknown. A bare AMW `K700`, including `K700P` and `K700-P-14` and `K700-14P`, keeps the app's Black Bear selection, with a note naming Blue Baboon as the alternative; check the motor you own before flying.
 
 ### Print a design and flight report
 

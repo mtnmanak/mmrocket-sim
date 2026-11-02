@@ -168,7 +168,7 @@ describe('a freeform fin outline is capped', () => {
     // REFUSED, not truncated (audit 2026-09-22): the first 5,000 of these
     // points are a different fin, and they used to fly with no note.
     expect(finOf(out)).toEqual(REFUSED_OUTLINE);
-    expect(out.notes).toContain(`Fin set "f": its outline was not used — ${TOO_MANY_FIN_POINTS} `
+    expect(out.notes).toContain(`Fin set “f”: its outline was not used — ${TOO_MANY_FIN_POINTS} `
       + 'The set keeps a default outline; redraw it in the fin editor.');
   });
 
@@ -201,7 +201,7 @@ describe('a freeform fin outline is capped', () => {
     });
     const out = importRkt(rktFin(pts.join('|')));
     expect(finOf(out)).toEqual(REFUSED_OUTLINE);
-    const note = out.notes.find((m) => m.startsWith('Fin set "f"')) ?? '';
+    const note = out.notes.find((m) => m.startsWith('Fin set “f”')) ?? '';
     expect(note).toContain(TOO_MANY_FIN_POINTS);
     expect(note).not.toMatch(/aft of the first/);
   });
@@ -217,7 +217,7 @@ describe('a freeform fin outline is capped', () => {
     // pair is left out like any other unreadable one — and said so.
     const out = importRkt(rktFin('0,0|0x10,30|50,30|60,0'));
     expect(finOf(out)).toEqual([[0, 0], [0.05, 0.03], [0.06, 0]]);
-    expect(out.notes).toContain(`Fin set "f": ${unreadableFinPoints(1)}`);
+    expect(out.notes).toContain(`Fin set “f”: ${unreadableFinPoints(1)}`);
   });
 
   it('drops a malformed pair rather than inserting an origin vertex, and says so', () => {
@@ -228,7 +228,7 @@ describe('a freeform fin outline is capped', () => {
     // this now — the same fin, and the user told a vertex is missing.
     const out = importRkt(rktFin('0,0|10,30|,,|50,30|7|60,0'));
     expect(finOf(out)).toEqual([[0, 0], [0.01, 0.03], [0.05, 0.03], [0.06, 0]]);
-    expect(out.notes).toContain(`Fin set "f": ${unreadableFinPoints(2)}`);
+    expect(out.notes).toContain(`Fin set “f”: ${unreadableFinPoints(2)}`);
   });
 
   it('says nothing about an ordinary list, blank pairs and duplicate origins included', () => {

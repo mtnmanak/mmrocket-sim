@@ -161,6 +161,8 @@ export interface SavedConfig {
   motors: Record<string, MountMotor>;
   /** Designations that couldn't be matched at import — reported when applied. */
   unmatched?: string[];
+  /** Import-time loading failures by mount, repeated when this configuration is applied. */
+  motorLoadNotes?: Record<string, string>;
   /**
    * The unmatched motor REFERENCES themselves, keyed by mount node id.
    *

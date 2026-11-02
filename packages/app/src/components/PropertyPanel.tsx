@@ -1316,7 +1316,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         <button className="file-btn" style={{ flex: '1 1 160px' }} onClick={() => setSaveMyPart(true)}>☆ Save as My part…</button>
         </div>
       )}
-      {saveMyPart && <SaveMyPartDialog node={node} onSaved={(name, note) => setSavedPartNote(`Saved ${name} in this browser.${note ? ` ${note}` : ''}`)} onClose={() => {
+      {saveMyPart && <SaveMyPartDialog node={node} onSaved={(name, note) => setSavedPartNote(`Saved ${noteField(name)} in this browser.${note ? ` ${note}` : ''}`)} onClose={() => {
         setSaveMyPart(false);
         setPickerCloses((n) => n + 1);
       }} />}
@@ -2287,3 +2287,4 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
     </div>
   );
 }
+import { noteField } from '../services/noteField.js';

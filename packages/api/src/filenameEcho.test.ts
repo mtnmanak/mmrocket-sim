@@ -54,8 +54,10 @@ describe('a caller filename echoed in an error is bounded and made safe for disp
     const message = await refused(await post(route, name, new Uint8Array(8 * 1024 * 1024 + 1)), 413, 'FILE_TOO_LARGE');
     expect(message).toMatch(/the API body limit is 8 MiB/);
     const echo = expectBounded(message);
-    // The astral character on the code-unit cut survives whole.
     expect(echo).toContain(ROCKET);
+    // Data echoes retain the live API contract: controls become question marks.
+    expect(echo).toContain('?');
+    expect(echo).not.toContain('[U+202E]');
   });
 
   it.each(ROUTES)('%s: XML inflating past 16 MiB', async route => {
@@ -198,12 +200,12 @@ describe('the design name the API returns is bounded as a filename echo is (owne
 });
 
 describe('filenameEcho for a direct caller', () => {
-  it('shows every Unicode bidi control as ?, the marks ALM, LRM and RLM included', () => {
+  it('replaces every Unicode bidi control, the marks ALM, LRM and RLM included', () => {
     const bidiControls = '؜‎‏‪‫‬‭‮⁦⁧⁨⁩';
     expect(Array.from(bidiControls).every(ch => /\p{Bidi_Control}/u.test(ch))).toBe(true);
     const all = Array.from({ length: 0x10000 }, (_, c) => String.fromCharCode(c)).filter(ch => /\p{Bidi_Control}/u.test(ch)).join('');
     expect(all).toBe(bidiControls);
-    expect(filenameEcho(`a${bidiControls}b.ork`)).toBe(`a${'?'.repeat(12)}b.ork`);
+    expect(filenameEcho(`a${bidiControls}b.ork`)).toBe(`a${'?'.repeat(Array.from(bidiControls).length)}b.ork`);
   });
 
   it('shows a lone surrogate as ?, keeping a paired one, inside and past the bound', () => {

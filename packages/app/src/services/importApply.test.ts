@@ -17,6 +17,7 @@ import {
 } from './importApply.js';
 import { createSequencer } from './latestWins.js';
 import { updateNode } from '../tree/treeModel.js';
+import { retireLoadoutNote } from './motorAssignment.js';
 
 /**
  * What an Open, a configuration switch and ✕ New put on screen (audit
@@ -33,13 +34,26 @@ const TEXT = {
 };
 
 it('explains exactly the launch fields an open retained, excluding resets', () => {
-  expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, undefined)).toBe('From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had.');
+  expect(retainedLaunchNote('rkt', DEFAULT_CONDITIONS, undefined)).toBe('From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had for the surface conditions. Check Launch conditions before flying.');
   const note = retainedLaunchNote('cdx1', { ...DEFAULT_CONDITIONS, longitudeDeg: 30 },
     { launchRodLengthM: 3, launchRodAngleDeg: 0, launchRodAimDeg: 0, launchAltitudeM: 0, temperatureC: 20, pressureHPa: null, windAverage: 0 });
   expect(note).toContain('Latitude'); expect(note).toContain('Longitude'); expect(note).toContain('Wind gusts σ');
   expect(note).not.toContain('Time step'); expect(note).not.toContain('Rod length');
   expect(retainedLaunchNote('cdx1', DEFAULT_CONDITIONS, DEFAULT_CONDITIONS)).toBeNull();
-  expect(retainedLaunchNote('ork', DEFAULT_CONDITIONS, undefined)).toBeNull();
+  expect(retainedLaunchNote('ork', DEFAULT_CONDITIONS, undefined)).toContain('no simulation launch conditions');
+});
+
+it.each(['ork', 'rkt', 'cdx1'] as const)('%s reports retained fields and removed winds aloft without changing the merge', format => {
+  const prev: LaunchConditions = { ...DEFAULT_CONDITIONS, temperatureC: 30, pressureHPa: 900, launchAltitudeM: 1000,
+    launchRodLengthM: 4, windAverage: 7, windLevels: [{ altitude: 0, speed: 7, direction: 0, standardDeviation: 0 }] };
+  const note = retainedLaunchNote(format, prev, undefined);
+  expect(note).toContain('winds aloft');
+  expect(note).toContain('removed');
+  expect(note).toContain('Check');
+  const merged = importedLaunch(prev, undefined);
+  for (const key of ['temperatureC', 'pressureHPa', 'launchAltitudeM', 'launchRodLengthM', 'windAverage'] as const) expect(merged[key]).toBe(prev[key]);
+  expect(merged.windLevels).toBeUndefined();
+  expect(retainedLaunchNote('ork', prev, DEFAULT_CONDITIONS) ?? '').not.toContain('no simulation');
 });
 
 const motor = (designation: string, motorId = `db-${designation}`): MountMotor => ({
@@ -101,6 +115,56 @@ it('keeps excluded-booster producer codes through import, session JSON and a con
 });
 
 const LAUNCH: LaunchConditions = { ...DEFAULT_CONDITIONS, windAverage: 4 };
+
+it.each(['ork', undefined] as const)('adds a retained-settings note to a simulation-free ORK import plan (%s)', sourceFormat => {
+  const imported: ImportedDesign = { name: 'No simulation', tree: podTree(), motors: {}, notes: [], sourceFormat };
+  const plan = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });
+  expect(plan.note.text).toContain('no simulation launch conditions');
+  expect(plan.note.text).toContain('Those settings will be used for the next flight');
+  expect(plan.note.group.lines.some(line => line.kind === 'I24.launch-retained')).toBe(true);
+  expect(plan.snapshot.launch.windAverage).toBe(LAUNCH.windAverage);
+});
+
+it('omits the panel-retention note on a headless import', () => {
+  const imported: ImportedDesign = { name: 'No simulation', tree: podTree(), motors: {}, notes: [], sourceFormat: 'ork' };
+  const plan = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT, headless: true });
+  expect(plan.note.group.lines.some(line => line.kind === 'I24.launch-retained')).toBe(false);
+  expect(plan.snapshot.launch.windAverage).toBe(LAUNCH.windAverage);
+});
+
+it('protects a file loadout refusal at open and retires its displayed form', () => {
+  const raw = 'Refused “motor”\n\u200b\u202e';
+  const imported: ImportedDesign = { name: 'Refused', tree: podTree(), motors: {}, notes: [], sourceFormat: 'ork',
+    configs: [config('A', {}, { motorLoadoutRefusal: raw })], chosenConfigId: 'A' };
+  const plan = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });
+  expect(plan.note.group.lines.find(line => line.kind === 'I12.loadout-refused')?.text).toBe('Refused “motor”[U+200B][U+202E]');
+  const retired = retireLoadoutNote(plan.note, plan.snapshot.savedConfigs[0]!);
+  expect(retired?.text).not.toContain('Refused “motor”');
+  expect(retired?.group?.lines.some(line => line.kind === 'I12.loadout-refused')).toBe(false);
+});
+
+it.each(['no published thrust curve', 'offline fetching the curve'])('keeps the motor load reason on configuration apply: %s', async reason => {
+  const bad = ref('Z1\n\u2028\u202e\u200b”');
+  const imported: ImportedDesign = { name: 'Reasons', tree: podTree(), motors: { mmt: ref('C6') }, notes: [],
+    configs: [config('A', { mmt: ref('C6') }), config('B', { mmt: bad })], chosenConfigId: 'A' };
+  const resolved = await resolveImportMotors(imported, async r => r === bad
+    ? { note: `Motor “C6” ${reason}\n\u200b\u202e` } : { motor: motor(r.designation), note: '' });
+  const opened = planImport(imported, resolved, { launch: LAUNCH, text: TEXT });
+  const target = JSON.parse(JSON.stringify(opened.snapshot.savedConfigs[1]!)) as SavedConfig;
+  expect(target.motorLoadNotes).toEqual({ mmt: `Motor “C6” ${reason}\n\u200b\u202e` });
+  target.stageMassNotes = ['Stage “Core”\n\u200b\u202e'];
+  const switched = planConfigSwitch({ savedConfigs: [target], activeConfigId: null, tree: opened.snapshot.tree,
+    mountMotors: {}, unmatchedRefs: {} }, target, TEXT);
+  expect(switched.note.text).toContain(reason);
+  expect(switched.note.text).not.toContain("couldn't be matched");
+  expect(switched.note.group?.lines).toHaveLength(2);
+  for (const line of switched.note.group!.lines) expect(line.text).not.toMatch(/[\n\u2028\u202e\u200b]/u);
+  expect(switched.note.group?.lines.at(-1)?.text).toBe('At file import: Stage “Core”[U+200B][U+202E]');
+  const refused = { ...target, stageMassNotes: [], motorLoadoutRefusal: 'Refused “C6”\n\u200b\u202e' };
+  const replay = planConfigSwitch({ savedConfigs: [refused], activeConfigId: null, tree: opened.snapshot.tree,
+    mountMotors: {}, unmatchedRefs: {} }, refused, TEXT);
+  expect(replay.note.text).toBe('Refused “C6”[U+200B][U+202E]');
+});
 
 it.each([INITIAL_UNITS, { ...IMPERIAL_UNITS, length: 'ft' }])('R12 uses selected units for an absolute position resolved beyond bounds (%j)', units => {
   const imported: ImportedDesign = { name: 'Absolute', motors: {}, notes: [], tree: { components: [{ type: 'stage', children: [
@@ -214,6 +278,7 @@ describe('planImport — one plan, applied and marked', () => {
     const resolved = await resolveImportMotors(imported, r => matchImportedMotor(r, { exMotors: [ex] }));
     const plan = planImport(imported, resolved, { launch: LAUNCH, text: TEXT });
     expect(plan.note.text.split('\n')).toEqual(['Loaded “EX open”.',
+      retainedLaunchNote('ork', LAUNCH, undefined),
       'Motor “F67” (2 mounts): loaded as your imported EX motor Enerjet F67 — the motor database has no Enerjet F67.']);
     expect(plan.note.severity).toBe('info');
     expect(plan.snapshot.mountMotors.mmt!.openNote).toBeUndefined();
@@ -226,6 +291,7 @@ describe('planImport — one plan, applied and marked', () => {
     const plan = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });
     expect(plan.note.text.split('\n')).toEqual([
       'Loaded “Damaged”.', 'Reader note', 'A component that could not be read was removed.',
+      retainedLaunchNote('ork', LAUNCH, undefined),
     ]);
     expect(plan.snapshot.tree.components[0]!.children).toHaveLength(1);
     expect(imported.notes).toEqual(['Reader note']);
@@ -285,7 +351,7 @@ describe('planImport — one plan, applied and marked', () => {
       configs: {},
     }, { launch: LAUNCH, text: TEXT });
     expect(plan.snapshot.mountMotors['mmt']!.spec.designation).toBe('2245K1075-P');
-    expect(plan.note.text.split('\n')).toEqual(['Loaded “x”.', said]);
+    expect(plan.note.text.split('\n')).toEqual(['Loaded “x”.', said, retainedLaunchNote('ork', LAUNCH, undefined)]);
     expect(plan.note.severity).toBe('warn');
     // The success line itself still never goes in.
     expect(plan.note.text).not.toContain('loaded from the motor database');
@@ -325,7 +391,8 @@ describe('planImport — one plan, applied and marked', () => {
         configs: { B: { m1: motor('H100'), m2: motor('H100') } },
       }, { launch: LAUNCH, text: TEXT });
       expect(plan.note.text.split('\n')).toEqual(['Loaded “x”.',
-        'Motor “F32” (2 mounts): the file names Quest, but it loaded as AeroTech F32T (24 mm, 64.4 Ns, Blue Thunder).']);
+        'Motor “F32” (2 mounts): the file names Quest, but it loaded as AeroTech F32T (24 mm, 64.4 Ns, Blue Thunder).',
+        retainedLaunchNote('ork', LAUNCH, undefined)]);
       expect(plan.note.severity).toBe('warn');
     });
 
@@ -336,7 +403,7 @@ describe('planImport — one plan, applied and marked', () => {
         working: { m1: { motor: motor('H100'), note: '' }, m2: { motor: motor('H100'), note: '' } },
         configs: { A: { m1: unconfirmed(), m2: unconfirmed() } },
       }, { launch: LAUNCH, text: TEXT });
-      expect(plan.note.text).toBe('Loaded “x”.');
+      expect(plan.note.text.split('\n')).toEqual(['Loaded “x”.', retainedLaunchNote('ork', LAUNCH, undefined)]);
       const [A, B] = plan.snapshot.savedConfigs;
       const state = {
         savedConfigs: plan.snapshot.savedConfigs, activeConfigId: 'B', mountMotors: plan.snapshot.mountMotors,
@@ -513,7 +580,8 @@ describe('planConfigSwitch — one switch, applied and noted', () => {
     }, C, TEXT);
     expect(plan.unmatchedRefs).toEqual({ m1: ref('Z1') });
     expect(plan.note.severity).toBe('warn');
-    expect(plan.note.text).toContain('Motor “Z1” couldn\'t be matched');
+    expect(plan.note.text).toContain('Motor “Z1” could not be loaded');
+    expect(plan.note.text).toContain('the original reason was not saved');
   });
 });
 

@@ -1,4 +1,5 @@
 import type { FlightResult } from '@online-openrocket/engine';
+import { noteField } from './noteField.js';
 import type { MountMotor } from '../model/design.js';
 import { motorIdentity } from './hardwareMass.js';
 
@@ -110,7 +111,7 @@ export function canReplayDelays(
 }
 
 function refuse(mounts: readonly DelayMount[], reason: string): never {
-  throw new Error(`Auto delay did not settle for ${mounts.map((m) => m.mountName).join(', ')}: ${reason}. Choose a fixed delay and Launch again.`);
+  throw new Error(`Auto delay did not settle for ${mounts.map((m) => noteField(m.mountName)).join(', ')}: ${reason}. Choose a fixed delay and Launch again.`);
 }
 
 /** Highest completed altitude peak in the carrier's trace, including inherited ascent. */

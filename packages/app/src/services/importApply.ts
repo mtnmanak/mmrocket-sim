@@ -1,4 +1,4 @@
-import { noteField } from './noteField.js';
+import { noteField, noteText } from './noteField.js';
 import { lookupTable } from './xmlUtil.js';
 import { noticeEqual, type UnitSelection } from '../prefs/units.js';
 import { applyStageMass, pruneStageMass } from './stageMassOverrides.js';
@@ -134,22 +134,28 @@ export function retainedLaunchNote(
   /** The importer has already said which site the file stated and why it was not taken (ImportedDesign.launchSiteRefused). */
   siteRefusedNoted = false,
 ): string | null {
-  if (format !== 'rkt' && format !== 'cdx1') return null;
+  if (format !== 'rkt' && format !== 'cdx1' && format !== 'ork') return null;
+  const profileReset = prev.windLevels?.length && !fromFile?.windLevels?.length
+    ? ' The previous winds aloft were removed; the flight uses the surface wind at every height.' : '';
   const reset = new Set(['timeStepS', 'geodeticMethod', 'launchGuideAllowance']);
   const kept = (Object.keys(launchFieldLabels) as (keyof LaunchConditions)[])
     .filter(k => !reset.has(k) && k in prev && !(fromFile && k in fromFile));
-  if (!kept.length) return null;
+  let message = '';
   // A .rkt's own launch conditions are read for the site only (board row 80):
   // the importer takes it, or names in its own note the site it would not take.
   if (format === 'rkt') {
     if (!fromFile || !('latitudeDeg' in fromFile)) {
-      if (siteRefusedNoted) return null;
-      return 'From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had.';
+      if (!siteRefusedNoted && kept.length) message = 'From a .rkt the app reads only the launch site, and none was taken from this one — the Launch panel keeps the settings you had for the surface conditions.';
+    } else if (kept.length) {
+      const took = 'launchAltitudeM' in fromFile ? 'latitude, longitude and site altitude' : 'latitude and longitude';
+      message = `From a .rkt the app reads only the launch site (${took}) — the Launch panel keeps the settings you had for the other surface conditions.`;
     }
-    const took = 'launchAltitudeM' in fromFile ? 'latitude, longitude and site altitude' : 'latitude and longitude';
-    return `From a .rkt the app reads only the launch site (${took}) — the Launch panel keeps the settings you had for the rest.`;
+  } else if (format === 'ork') {
+    if (!fromFile && kept.length) message = `This .ork carries no simulation launch conditions — the Launch panel keeps the settings you had for ${kept.map(k => launchFieldLabels[k]).join(', ')}. Those settings will be used for the next flight.`;
+  } else if (kept.length) {
+    message = `This .CDX1 carries no ${kept.map(k => launchFieldLabels[k]).join(', ')} — the Launch panel keeps the settings you had for those fields.`;
   }
-  return `This .CDX1 carries no ${kept.map(k => launchFieldLabels[k]).join(', ')} — the Launch panel keeps the settings you had for those fields.`;
+  return (message || profileReset) ? `${message}${profileReset} Check Launch conditions before flying.`.trim() : null;
 }
 
 /** Every motor an opened design names, resolved. */
@@ -302,7 +308,7 @@ function flyablePick(imported: ImportedDesign, resolved: ResolvedImportMotors): 
       : missing === 'curve' ? `${d} is in the motor database but has no thrust curve`
         : `${d} could not be loaded`;
   });
-  const skipNote = `${noteField(ownEntry(sources, chosen.id) ?? 'The first simulation')} was not opened: `
+  const skipNote = `${noteText(ownEntry(sources, chosen.id) ?? 'The first simulation')} was not opened: `
     + `${[...new Set(why)].join('; ')}, so it could not leave the pad.`;
   return { cfg, matches, skipNote };
 }
@@ -389,7 +395,7 @@ export interface ImportPlan {
 export function planImport(
   imported: ImportedDesign,
   resolved: ResolvedImportMotors,
-  ctx: { launch: LaunchConditions; text: StatedWeightText; units?: UnitSelection },
+  ctx: { launch: LaunchConditions; text: StatedWeightText; units?: UnitSelection; headless?: boolean },
 ): ImportPlan {
   const massText = ctx.text.mass;
   // The configuration to show: the reader's, unless it cannot leave the pad
@@ -407,8 +413,10 @@ export function planImport(
   // lead: the configuration the reader chose cannot leave the pad, so
   // another was opened — a source choice not followed (D7 I12).
   carryFlags(notes, imported.noteTiers ?? []);
+  if (imported.newerFormat) carryFlags(notes, readerNotes.filter(n => n.startsWith('Warning: this file uses format '))
+    .map(text => ({ kind: 'note', tier: 'caution', text })));
   if (pick) carryFlags(notes, [{ kind: 'I12.reader-pick-skipped', tier: 'caution', text: pick.skipNote }]);
-  const keptLaunch = retainedLaunchNote(imported.sourceFormat, ctx.launch, imported.launch, imported.launchSiteRefused === true);
+  const keptLaunch = ctx.headless ? null : retainedLaunchNote(imported.sourceFormat ?? 'ork', ctx.launch, imported.launch, imported.launchSiteRefused === true);
   // Load EVERY mount's motor (staged/multi-mount files included).
   //
   // Only motor PROBLEMS go in the note. The successful "Motor: C6-5 (matched
@@ -458,6 +466,7 @@ export function planImport(
   for (const cfg of imported.configs ?? []) {
     const cfgMotors: Record<string, MountMotor> = lookupTable({});
     const unmatched: string[] = [];
+    const motorLoadNotes: Record<string, string> = lookupTable({});
     const cfgUnmatchedRefs: Record<string, OrkMotorRef> = lookupTable({});
     for (const [nodeId, ref] of Object.entries(cfg.motors)) {
       // The applied config's motors were matched (and reported) above —
@@ -467,7 +476,13 @@ export function planImport(
         : cfg.id === imported.chosenConfigId ? ownEntry(resolved.working, nodeId)?.motor
           : ownEntry(ownEntry(resolved.configs, cfg.id), nodeId);
       if (mm) cfgMotors[nodeId] = mm;
-      else { unmatched.push(ref.designation); cfgUnmatchedRefs[nodeId] = ref; }
+      else {
+        unmatched.push(ref.designation); cfgUnmatchedRefs[nodeId] = ref;
+        const result = cfg.id === chosenId ? ownEntry(openMatches, nodeId)
+          : cfg.id === imported.chosenConfigId ? ownEntry(resolved.working, nodeId)
+            : ownEntry(ownEntry(resolved.configResults, cfg.id), nodeId);
+        if (result?.note) motorLoadNotes[nodeId] = result.note;
+      }
     }
     // The configuration's weighed pad mass (<measuredpadmass configid>)
     // attached to its PRIMARY mount — the topmost-stage mount among ALL of
@@ -526,6 +541,7 @@ export function planImport(
       ...(cfg.stageMassNoteKinds?.length ? { stageMassNoteKinds: cfg.stageMassNoteKinds } : {}),
       ...(cfg.stageActiveness ? { stageActiveness: cfg.stageActiveness } : {}),
       ...(unmatched.length > 0 ? { unmatched } : {}),
+      ...(Object.keys(motorLoadNotes).length > 0 ? { motorLoadNotes } : {}),
       ...(Object.keys(cfgUnmatchedRefs).length > 0 ? { unmatchedRefs: cfgUnmatchedRefs } : {}),
       ...(cfg.deployments && Object.keys(cfg.deployments).length > 0
         ? { deployments: cfg.deployments } : {}),
@@ -566,8 +582,8 @@ export function planImport(
   // override still warns. A re-pick is trouble too: the file's own first
   // choice names a motor this app cannot load.
   for (const config of nextConfigs) {
-    if (config.motorLoadoutRefusal && !notes.includes(config.motorLoadoutRefusal)) {
-      cautionNote(notes, 'I12.loadout-refused', config.motorLoadoutRefusal);
+    if (config.motorLoadoutRefusal && !notes.includes(noteText(config.motorLoadoutRefusal))) {
+      cautionNote(notes, 'I12.loadout-refused', noteText(config.motorLoadoutRefusal));
     }
   }
   const motorTrouble = pick !== null || notes.length > 1 + readerNotes.length
@@ -813,7 +829,7 @@ export function planConfigSwitch(
     // snapshot or resolved its motor (audit 2026-10-11, S1c-3). Preserve the
     // reader's code; older sessions only carried the I17 override notes.
     const all = [...lines,
-      ...(cfg.stageMassNotes ?? []).map((n, i): ImportNote => ({ kind: cfg.stageMassNoteKinds?.[i] ?? 'I17.override-not-applied', tier: 'caution', text: `At file import: ${n}` })),
+      ...(cfg.stageMassNotes ?? []).map((n, i): ImportNote => ({ kind: cfg.stageMassNoteKinds?.[i] ?? 'I17.override-not-applied', tier: 'caution', text: `At file import: ${noteText(n)}` })),
       ...tierLines(spent.notes, noteFlags(spent.notes))];
     const group: NoteGroup = { lines: all };
     return { text: groupText(group), group,
@@ -830,12 +846,18 @@ export function planConfigSwitch(
     .filter(([id]) => mountIds.has(id)).map(([, m]) => m.openNote)).map(t => caution('I12.motor-unconfirmed', t));
   let note: ConfigSwitchPlan['note'];
   if (cfg.motorLoadoutRefusal) {
-    note = withSpent([caution('I12.loadout-refused', cfg.motorLoadoutRefusal)], 'warn');
+    note = withSpent([caution('I12.loadout-refused', noteText(cfg.motorLoadoutRefusal))], 'warn');
   } else if (cfg.unmatched?.length) {
     // Quiet at import time (only the applied config reports) — the debt
     // comes due when the user actually loads this preset.
-    note = withSpent([...cfg.unmatched.map((d) => caution('I12.motor-not-loaded',
-      `Motor “${d}” couldn't be matched when the file was opened — pick one via Browse motor database.`)),
+    const failures = cfg.unmatchedRefs && Object.keys(cfg.unmatchedRefs).length
+      ? Object.entries(cfg.unmatchedRefs).map(([id, ref]) => {
+        const reason = ownEntry(cfg.motorLoadNotes, id);
+        return typeof reason === 'string' ? `At file import: ${noteText(reason)}`
+          : `Motor “${noteField(ref.designation)}” could not be loaded when the file was opened — the original reason was not saved. Pick one via Browse motor database.`;
+      })
+      : cfg.unmatched.map(d => `Motor “${noteField(d)}” could not be loaded when the file was opened — the original reason was not saved. Pick one via Browse motor database.`);
+    note = withSpent([...failures.map(t => caution('I12.motor-not-loaded', t)),
     ...unconfirmed], 'warn');
   } else {
     // "… and weighed pad mass" only when this configuration's primary record

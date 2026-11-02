@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { noticeChange, noticeEqual } from '../prefs/units.js';
 import { cautionNote } from './importNotes.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
@@ -484,7 +485,7 @@ export function restateBackedOutMotor(
   }
 
   const name = stage.name ?? 'Stage';
-  const who = `“${motor.designation}”`;
+  const who = `“${noteField(motor.designation)}”`;
   const next: ComponentNode = { ...unrecorded };
   // Rejection by the loaded fallback must not spend the launch inputs: a
   // later EX motor can recover them (audit 2026-10-11, S1c-1).
@@ -528,7 +529,7 @@ export function restateBackedOutMotor(
   return {
     tree: replaceStage(tree, index, next),
     severity,
-    note: `“${name}”: its overrides come from the RASAero file’s stated launch weight and CG with ${who} backed out. `
+    note: `“${noteField(name)}”: its overrides come from the RASAero file’s stated launch weight and CG with ${who} backed out. `
       + `The ${loaded}, so it has been backed out again, as opening the file again would do`
       + `${parts.length > 0 ? ` — ${parts.join(', and ')}` : ''}.`
       + (cleared.length > 0
@@ -580,7 +581,7 @@ export function reconcileIncludedMotor(
   }
   delete cleared[STATED_STAGE_FIGURES];
   const name = stage.name ?? 'Stage';
-  const who = `“${named}”`;
+  const who = `“${noteField(named)}”`;
 
   const stated = cleared['overrideMass'];
 
@@ -623,9 +624,9 @@ export function reconcileIncludedMotor(
       // side there. Nor "was not in the motor database": the 20146N5800-P was
       // (second review), and the matcher cannot tell a motor the catalogue lacks
       // from one it misread — the wording motorMatch uses for the same reason.
-      note: `“${name}”: ${what} that still holds ${who}, and the motor loaded on that stage now is `
-        + `“${motor.designation}”. ${who} matched no motor in the motor database when the file was imported, so `
-        + `that figure still carries its weight, and flying it under “${motor.designation}” would carry two motors’ `
+      note: `“${noteField(name)}”: ${what} that still holds ${who}, and the motor loaded on that stage now is `
+        + `“${noteField(motor.designation)}”. ${who} matched no motor in the motor database when the file was imported, so `
+        + `that figure still carries its weight, and flying it under “${noteField(motor.designation)}” would carry two motors’ `
         + 'weight. The stage’s mass and CG overrides have been cleared and it is back on its computed '
         + 'geometry. Type what the stage weighs without a motor under Overrides. A RASAero file states a launch weight '
         + `per simulation, and this one belongs to the simulation that named ${who}.`,
@@ -648,7 +649,7 @@ export function reconcileIncludedMotor(
     return {
       tree: replaceStage(tree, index, bare),
       severity: 'warn',
-      note: `“${name}”: the CG the RASAero file stated for that stage was a LAUNCH CG with ${who} `
+      note: `“${noteField(name)}”: the CG the RASAero file stated for that stage was a LAUNCH CG with ${who} `
         + 'still inside it, and the file gave no stage weight to back that motor out of. That motor is '
         + 'loaded now, so the CG override has been cleared and the stage is back on its computed CG '
         + 'rather than one that counts the motor twice. Type your own under Overrides if you have '
@@ -677,7 +678,7 @@ export function reconcileIncludedMotor(
     return {
       tree: replaceStage(tree, index, bare),
       severity: 'warn',
-      note: `“${name}”: the ${statedText} the RASAero file stated for that stage was a launch `
+      note: `“${noteField(name)}”: the ${statedText} the RASAero file stated for that stage was a launch `
         + `weight with its motor still inside it, but ${who} `
         + (sameDisplay ? `weighs ${noticeEqual(stated, motor.launchMassKg) ? 'as much as' : 'slightly more than'} that on its own`
           : `weighs ${motorText} on its own — as much as the whole stage or more`)
@@ -747,7 +748,7 @@ export function reconcileIncludedMotor(
   return {
     tree: replaceStage(tree, index, next),
     severity,
-    note: `“${name}”: the ${text.mass(stated)} the RASAero file stated for that stage was a launch weight `
+    note: `“${noteField(name)}”: the ${text.mass(stated)} the RASAero file stated for that stage was a launch weight `
       + `with ${who} still inside it. That motor is loaded now, so its ${text.mass(motor.launchMassKg)} has `
       + `been taken back out — ${parts.join(', and ')}. Without that the motor would have been counted `
       + `twice and the rocket would fly ${text.mass(motor.launchMassKg)} heavy. Clear the overrides under `

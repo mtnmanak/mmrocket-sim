@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import type { ComponentNode, FlightResult, FlightSeries, RocketTree } from '@online-openrocket/engine';
 import { boosterBranches } from '@online-openrocket/engine';
 import { normalizeFlightAdvisories, type FlightAdvisories } from '../prefs/flightAdvisories.js';
@@ -52,7 +53,7 @@ export function zeroDelayRecoveryAdvice(
       if (!root && ['stage', 'parallelstage', 'podset'].includes(node.type)) continue;
       if (['parachute', 'streamer'].includes(node.type) && flownDeployEvent(node['deployEvent']) === 'ejection') {
         const extra = typeof node['deployDelay'] === 'number' && Number.isFinite(node['deployDelay']) && node['deployDelay'] > 0 ? ` after another ${node['deployDelay']} s` : '';
-        devices.push(`${node.name ?? 'Recovery device'}${extra}`);
+        devices.push(`${noteField(node.name ?? 'Recovery device')}${extra}`);
       }
       walk(node.children ?? []);
     }
@@ -111,7 +112,7 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
   ...boosterBranches(result).map(b => ({ name: b.name, series: b.series, events: b.events,
     apogee: peak(b.series.altitude), mach: peak(b.series.mach) }))];
   for (const flight of flights) {
-    const context = `${configuration} — ${flight.name}`;
+    const context = `${noteField(configuration)} — ${noteField(flight.name)}`;
     if (limits.maxAirspeedMs !== undefined) {
       const peak = peakAirspeed(flight.series);
       if (peak.value !== null && peak.value > limits.maxAirspeedMs && !noticeEqual(peak.value, limits.maxAirspeedMs)) {
@@ -173,7 +174,7 @@ export function flightLimitAdvice(result: FlightResult, rawLimits: FlightAdvisor
           }
         }
       }
-      check(`${matches[0]!.name ?? 'Recovery device'} deployment`, altitude);
+      check(`${noteField(matches[0]!.name ?? 'Recovery device')} deployment`, altitude);
     }
   }
   return notes;

@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { csvCell, unescapeCsvText } from './csvUtil.js';
 import { parseDecimal } from './xmlUtil.js';
@@ -18,7 +19,7 @@ export function materialProblem(value: unknown, units: UnitSelection = INITIAL_U
   if (m.kind !== 'bulk' && m.kind !== 'surface' && m.kind !== 'line') return 'Kind must be bulk, surface or line';
   if (typeof m.name !== 'string' || !m.name.trim() || m.name.trim().length > 80) return 'Material name must contain 1–80 characters';
   if (materialNameKey(m.name) === 'custom') return 'Custom is reserved for unnamed materials. Choose another name.';
-  if (builtInMaterial(m.kind, m.name)) return `${m.name.trim()} is in the built-in list — pick it from the list`;
+  if (builtInMaterial(m.kind, m.name)) return `${noteField(m.name.trim())} is in the built-in list — pick it from the list`;
   const density = numOpt(m, 'density');
   if (density === undefined || !usableMaterialDensity(density)) {
     return 'Density must be a finite number greater than zero';

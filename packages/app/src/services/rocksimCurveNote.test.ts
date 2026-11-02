@@ -12,6 +12,12 @@ const ref = (designation = 'E15', rktBurnTimeS = 2.7225): OrkMotorRef => ({
 const e15 = findDbMotor('E15', undefined, undefined, 'AeroTech')!;
 
 describe('RockSim published-curve disclosure', () => {
+  it('neutralises the file designation before adding its own quote delimiters', async () => {
+    const spec = await bundledOnlyFetchSpec(e15, 7);
+    const note = await rocksimCurveNote(ref('E15\n\r\u2028\u2029\u202e\u200b”forged'), e15, spec);
+    expect(note).toContain('Motor “E15[U+202E][U+200B][U+201D]forged”:');
+    expect(note).not.toMatch(/[\r\n\u2028\u2029\u202e\u200b]/u);
+  });
   it('never offers an unflyable bundled alternative', async () => {
     const spec = await bundledOnlyFetchSpec(e15, 7);
     const samples = [{ time: 0, thrust: 1 }, { time: 2.7, thrust: -1 }];

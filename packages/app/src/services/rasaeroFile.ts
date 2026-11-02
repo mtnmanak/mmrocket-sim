@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
 import { cautionNote, noteFlags } from './importNotes.js';
 import { cleanDesignProvenance } from './designProvenance.js';
@@ -446,7 +447,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     // parseDecimal, the parser xmlNum itself uses: with `Number(raw)` here a
     // "0x10" would pass this test and still fall back below, silently.
     if (!Number.isFinite(parseDecimal(raw)) && !unreadable.has(tag)) {
-      unreadable.set(tag, raw.slice(0, 40) || '(blank)');
+      unreadable.set(tag, noteField(raw, 40) || '(blank)');
     }
     return xmlNum(el, tag, fb);
   };
@@ -456,7 +457,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // regular paint (`RASAeroCommonConstants.java:361-363`); say the same thing
   // rather than silently flying a finish the file never asked for.
   if (surfaceStr !== null && SURFACE_TO_FINISH[surfaceStr] === undefined) {
-    cautionNote(notes, 'I04.surface-finish', `Unknown RASAero surface finish “${surfaceStr}” — imported as regular paint (60 µm).`);
+    cautionNote(notes, 'I04.surface-finish', `Unknown RASAero surface finish “${noteField(surfaceStr)}” — imported as regular paint (60 µm).`);
   }
 
   const readFin = (parentEl: XmlElement, parentNode: ComponentNode) => {
@@ -567,7 +568,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     }
     const made = (tube.children ?? []).filter((c) => (c.type as string) === 'protuberance');
     if (made.length > 0) {
-      notes.push(`Imported ${made.length} RASAero protuberance${made.length === 1 ? '' : 's'} on ${name} `
+      notes.push(`Imported ${made.length} RASAero protuberance${made.length === 1 ? '' : 's'} on ${noteField(name)} `
         + `(${made.map((c) => noticeQuantity('area', (c['width'] as number) * (c['height'] as number), units, { parenthesized: true })).join(', ')}) `
         + '— drag only, entered as equal-area squares; edit the shape in its properties.');
     }
@@ -642,7 +643,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         const shapeName = text(el, ':scope > Shape') ?? 'Tangent Ogive';
         const mapped = NOSE_SHAPES[shapeName] ?? { shape: 'ogive' };
         // Unknown geometry changes CP and drag; name the fallback (audit 2026-10-11, S1c-6).
-        if (!NOSE_SHAPES[shapeName]) cautionNote(notes, 'I21.nose-shape', `Unknown nose shape “${shapeName}” — imported as tangent ogive; check the nose shape.`);
+        if (!NOSE_SHAPES[shapeName]) cautionNote(notes, 'I21.nose-shape', `Unknown nose shape “${noteField(shapeName)}” — imported as tangent ogive; check the nose shape.`);
         const nose: ComponentNode = {
           type: 'nosecone', id: freshId(), name: 'Nose cone',
           length: num(el, 'Length', 12) / IN,
@@ -865,7 +866,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         const boosterLocIn = num(el, 'Location', NaN);
         if (Number.isFinite(boosterLocIn) && Math.abs(boosterLocIn - stationIn) > 0.01) {
           const [actual, built] = noticeComparison('length', boosterLocIn / IN, stationIn / IN, units);
-          cautionNote(notes, 'I21.booster-location', `${stageName}: the file says it starts at ${actual.startsWith('just ') ? 'a slightly different station' : actual}, but the parts above `
+          cautionNote(notes, 'I21.booster-location', `${noteField(stageName)}: the file says it starts at ${actual.startsWith('just ') ? 'a slightly different station' : actual}, but the parts above `
             + `it add up to ${built}. Built from the parts — a stale <Location> is the `
             + 'usual cause, but check this one against RASAero.');
         }
@@ -915,7 +916,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       // which sets CD literally: real RASAero mains use 0 for an unset Cd.
       // Flying those as zero drag would remove the main's recovery drag.
       if (cd === 0) {
-        cautionNote(notes, 'I04.recovery-cd', `The RASAero file gives ${chute.name ?? 'Parachute'} a drag coefficient of 0, which RASAero uses for an unset value; the app uses its automatic Cd of 0.8; enter the canopy's Cd if you know it.`,
+        cautionNote(notes, 'I04.recovery-cd', `The RASAero file gives ${noteField(chute.name ?? 'Parachute')} a drag coefficient of 0, which RASAero uses for an unset value; the app uses its automatic Cd of 0.8; enter the canopy's Cd if you know it.`,
           { part: chute.name });
       }
       if (eventType === 'Altitude') {
@@ -1476,7 +1477,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
           const ref = chosen?.motors[aftTube(st)?.id ?? ''];
           const stated = [hasWt ? lbTxt(wt[i]) : null, hasCg ? `CG ${inTxt(cg[i])}` : null]
             .filter((s): s is string => s !== null).join(' / ');
-          skipped.push(`${stageName(i)}: “${ref?.designation ?? '?'}” isn’t in the motor database with a `
+          skipped.push(`${stageName(i)}: “${noteField(ref?.designation ?? '?')}” isn’t in the motor database with a `
             + `loaded weight, so it can’t be taken back out of the stated ${stated}.`);
           continue;
         }
@@ -1505,7 +1506,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
           ? (chosen?.motors[aftTube(st)?.id ?? '']?.designation ?? null)
           : null;
         if (slot === 'absent' && hasWt) {
-          motorless.push(`${stageName(i)}: “${unbacked ?? '?'}” isn’t in the motor database, so `
+          motorless.push(`${stageName(i)}: “${noteField(unbacked ?? '?')}” isn’t in the motor database, so `
             + `no motor is loaded on it and the stated ${lbTxt(wt[i])} is used as it stands — `
             + 'it still includes that motor’s weight.');
         }
@@ -1542,10 +1543,10 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
               // this closes (+79 % on the pad). Nothing else in the app writes
               // this key, and no stage with a catalogued motor ever carries it.
               if (unbacked !== null) st[OVERRIDE_INCLUDES_MOTOR] = unbacked;
-              massDetail[i] = `${lbTxt(wt[i])}${m ? ` − ${m.label} ${lbTxt(m.massKg)}` : ''}`
+              massDetail[i] = `${lbTxt(wt[i])}${m ? ` − ${noteField(m.label)} ${lbTxt(m.massKg)}` : ''}`
                 + `${above > 0 ? ` − ${lbTxt(above)} above` : ''} = ${lbTxt(dry)}`;
             } else {
-              skipped.push(`${stageName(i)}: backing ${m ? `${m.label} (${lbTxt(m.massKg, true)}) ` : ''}`
+              skipped.push(`${stageName(i)}: backing ${m ? `${noteField(m.label)} (${lbTxt(m.massKg, true)}) ` : ''}`
                 + `out of its ${lbTxt(wt[i])} leaves ${lbTxt(dry)}, which is not a mass.`);
             }
           }
@@ -1629,7 +1630,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     c.stageMassNotes = overrideNotes(result);
     for (const [i, stage] of stages.entries()) {
       if (i === 0 || (text(sim, `:scope > IncludeBooster${i}`) ?? 'false').toLowerCase() === 'true') continue;
-      const note = `${stage.name ?? `Stage ${i + 1}`} is excluded in RASAero simulation ${simNumbers.get(c.id)!}. `
+      const note = `${noteField(stage.name ?? `Stage ${i + 1}`)} is excluded in RASAero simulation ${simNumbers.get(c.id)!}. `
         + 'In the app it flies along unpowered, adding drag and mass, so the flight differs from RASAero. '
         + 'To match RASAero, delete that stage in the Design tab.';
       excludedStageNotes.add(note);
@@ -1650,7 +1651,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   if (chosenSimNr !== undefined && storedSim && storedApogeeFt > 0) {
     // Every motor that flew it — a stored apogee is the whole stack's, so naming
     // only the sustainer told a reader one K627LR reached 100,727 ft.
-    const engineOf = (tag: string) => (text(storedSim, `:scope > ${tag}`) ?? '').replace(/\s+/g, ' ').trim();
+    const engineOf = (tag: string) => noteField((text(storedSim, `:scope > ${tag}`) ?? '').replace(/\s+/g, ' ').trim());
     const included = (n: number) => (text(storedSim, `:scope > IncludeBooster${n}`) ?? '').toLowerCase() === 'true';
     // A booster by the name it has on screen, RASAero's own beside it where they
     // differ (batch 6): the import names RASAero's Booster 1 "Booster".
@@ -1693,7 +1694,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   if (unreadable.size > 0) {
     cautionNote(notes, 'I04.unreadable-numbers', `Could not read ${unreadable.size} number${unreadable.size === 1 ? '' : 's'} in this file, `
       + 'so the import used its own default instead — check these dimensions before trusting any '
-      + `result: ${[...unreadable].map(([tag, raw]) => `<${tag}> “${raw}”`).join(', ')}. `
+      + `result: ${[...unreadable].map(([tag, raw]) => `<${tag}> “${noteField(raw)}”`).join(', ')}. `
       + 'A comma decimal separator (“2,5” for 2.5) is the usual cause: RASAero II writes numbers in '
       + 'the format of the machine it ran on. Re-saving the file on a machine set to a period '
       + 'decimal separator fixes it.');
@@ -1741,7 +1742,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       + 'file’s altitudes instead of sea level.');
   }
   if (unattached.size) {
-    cautionNote(notes, 'I12.unattached-motors', `Motors in the RASAero file with no stage tube to mount them on: ${[...unattached].join(', ')} — add a body tube and pick them from the database.`);
+    cautionNote(notes, 'I12.unattached-motors', `Motors in the RASAero file with no stage tube to mount them on: ${[...unattached].map(n => noteField(n)).join(', ')} — add a body tube and pick them from the database.`);
   }
   // What the measured weight/CG actually did, per stage, in the file's own
   // units — and separately what it could not do. A number that changes has to
@@ -1749,7 +1750,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // block replaces.
   const appliedParts = stages.flatMap((st, i) => {
     const bits = [massDetail[i], cgDetail[i]].filter((s): s is string => s !== undefined);
-    return bits.length > 0 ? [`${st.name ?? `Stage ${i + 1}`} ${bits.join(', ')}`] : [];
+    return bits.length > 0 ? [`${noteField(st.name ?? `Stage ${i + 1}`)} ${bits.join(', ')}`] : [];
   });
   if (appliedParts.length > 0) {
     const simTxt = chosenSimNr !== undefined ? `simulation ${chosenSimNr}` : 'the RASAero simulation';
@@ -1779,7 +1780,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       const st = stages[i];
       const m = st?.id !== undefined ? openingNozzles[st.id] : undefined;
       if (!src || !st || !(m != null && m > 0)) continue;
-      (src === 'sim' ? fromSim : fromDesign).push(`${st.name ?? `Stage ${i + 1}`} ${inTxt(m)}`);
+      (src === 'sim' ? fromSim : fromDesign).push(`${noteField(st.name ?? `Stage ${i + 1}`)} ${inTxt(m)}`);
     }
     if (fromSim.length > 0 || fromDesign.length > 0) {
       const simTxt = chosenSimNr !== undefined ? `simulation ${chosenSimNr}` : 'the RASAero simulation';
@@ -1809,7 +1810,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     // D7 I03: Caution only when something left out could carry a part or a
     // flight input. <CP> is RASAero's own computed centre of pressure — an
     // output it stores, not an input — so a file ignoring only that is quiet.
-    const text = `Ignored RASAero elements: ${[...ignored].join(', ')}.`;
+    const text = `Ignored RASAero elements: ${[...ignored].map(n => noteField(n)).join(', ')}.`;
     if ([...ignored].every(tag => RASAERO_OUTPUT_TAGS.has(tag))) notes.push(text);
     else cautionNote(notes, 'I03.ignored-elements', text);
   }
@@ -2026,7 +2027,7 @@ function cdx1PodPart(host: ComponentNode, pod: ComponentNode, ends: TransitionEn
     }
     return { kind: 'boatTail', boatTail: bt };
   }
-  return { kind: 'refused', error: `RASAero cannot represent pod set “${pod.name ?? 'Pod set'}” as a fin can or boat tail. `
+  return { kind: 'refused', error: `RASAero cannot represent pod set “${noteField(pod.name ?? 'Pod set')}” as a fin can or boat tail. `
     + 'Export as .ork or .rkt to keep its geometry.' };
 }
 
@@ -2183,7 +2184,7 @@ export function cdx1SurfaceFinish(tree: RocketTree): { surface: string; note: st
   const different = parts.filter(n => finishOf(n) !== reopened);
   return { surface, note: different.length
     ? `Surface finish is global: ${surface} (the finish covering the largest exterior wetted area, mapped to RASAero’s nearest choice). `
-      + `These parts reopen with a different finish, changing skin friction and flight: ${different.map(n => n.name ?? n.type).join(', ')}.`
+      + `These parts reopen with a different finish, changing skin friction and flight: ${noteField(different.map(n => n.name ?? n.type).join(', '))}.`
     : null };
 }
 
@@ -2192,7 +2193,7 @@ export function cdx1RecoveryDelayNote(tree: RocketTree): string | null {
     ['apogee', 'altitude'].includes(cdx1Event(c)) && nnum(c, 'deployDelay', 0) !== 0);
   return delayed.length === 0 ? null
     : `RASAero cannot store deployment delays: ${delayed.map((c) =>
-      `${c.name ?? 'Parachute'} (${nnum(c, 'deployDelay', 0)} s)`).join(', ')}. `
+      `${noteField(c.name ?? 'Parachute')} (${nnum(c, 'deployDelay', 0)} s)`).join(', ')}. `
       + 'These parachutes open at the deployment event with no delay, earlier than in the app.';
 }
 
@@ -2202,7 +2203,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   for (const chute of cdx1Chutes(tree)) {
     const override = chute.id ? overrideFor(overrides.deployments, chute.id) : undefined;
     if (override && sparsify(deploymentTuple(chute), override)) {
-      notes?.push(`“${chute.name ?? 'Parachute'}”: the parachute's own setting is not kept; the file carries the configuration's.`);
+      notes?.push(`“${noteField(chute.name ?? 'Parachute')}”: the parachute's own setting is not kept; the file carries the configuration's.`);
     }
   }
   motors = exportIgnitions(tree, motors, overrides);
@@ -2242,7 +2243,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     seek(st.children ?? []);
     if (motorCount > 1) {
       // An unnamed stage by the number Motors & Configuration shows for it.
-      throw new Error(`RASAero supports one engine per stage — “${st.name ?? `Stage ${stIdx + 1}`}” has ${motorCount} motors. `
+      throw new Error(`RASAero supports one engine per stage — “${noteField(st.name ?? `Stage ${stIdx + 1}`)}” has ${motorCount} motors. `
         + 'Export as .ork or .rkt to keep every motor and its thrust.');
     }
     // Only a burnout-triggered motor has a delay this format can express; a
@@ -2256,7 +2257,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   });
   const stageEngines = stageSlots.map((s) => s.engine);
   for (const [i, stage] of stagesIn.entries()) if (i > 0 && !stageEngines[i]) {
-    notes?.push(`${stage.name ?? `Stage ${i + 1}`}: no booster engine is exported, so RASAero excludes this stage. `
+    notes?.push(`${noteField(stage.name ?? `Stage ${i + 1}`)}: no booster engine is exported, so RASAero excludes this stage. `
       + 'Its weight and CG cells are ignored when reopened; its mass and balance use the computed construction figures. Save .ork to preserve them.');
   }
   /**
@@ -2346,12 +2347,12 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
       // Never drop fins silently — an aero program with no fins is a
       // radically different rocket.
       throw new Error(fin.type === 'freeformfinset'
-        ? `RASAero fins are trapezoids — the freeform outline of “${fin.name ?? 'Fins'}” isn't a simple 3/4-point trapezoid. Simplify it or export as .ork/.rkt.`
-        : `RASAero has no ${fin.type === 'ellipticalfinset' ? 'elliptical' : 'tube'} fins — “${fin.name ?? 'Fins'}” can't be exported. Use trapezoid fins or export as .ork/.rkt.`);
+        ? `RASAero fins are trapezoids — the freeform outline of “${noteField(fin.name ?? 'Fins')}” isn't a simple 3/4-point trapezoid. Simplify it or export as .ork/.rkt.`
+        : `RASAero has no ${fin.type === 'ellipticalfinset' ? 'elliptical' : 'tube'} fins — “${noteField(fin.name ?? 'Fins')}” can't be exported. Use trapezoid fins or export as .ork/.rkt.`);
     }
     const count = Math.round(nnum(fin, 'finCount', 3));
     if (count < FIN_MIN || count > FIN_MAX) {
-      throw new Error(`RASAero needs 3–8 fins per set (found ${count}). Adjust "${fin.name ?? 'Fins'}".`);
+      throw new Error(`RASAero needs 3–8 fins per set (found ${count}). Adjust “${noteField(fin.name ?? 'Fins')}”.`);
     }
     const pos = positionOf(fin);
     // Convert any position method to a bottom-referenced offset (of the fin's
@@ -2447,7 +2448,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   // booster, where nose cones are not written at all, it would vanish instead.
   const refuseTailCone = (node: ComponentNode): void => {
     if (isTailCone(node)) {
-      throw new Error(`RASAero has no tail cone — “${node.name ?? 'Nose cone'}” is flipped to point aft. `
+      throw new Error(`RASAero has no tail cone — “${noteField(node.name ?? 'Nose cone')}” is flipped to point aft. `
         + 'Export as .ork or .rkt, or make it a transition.');
     }
   };
@@ -2466,8 +2467,8 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     for (const n of nodes) {
       if (pod && isTailCone(n)) {
         const strapOn = (pod.type as string) === 'parallelstage';
-        throw new Error(`RASAero has no tail cone — “${n.name ?? 'Nose cone'}” in ${strapOn ? 'strap-on' : 'pod set'} `
-          + `“${pod.name ?? (strapOn ? 'Strap-on' : 'Pod set')}” is flipped to point aft. Export as .ork or .rkt.`);
+        throw new Error(`RASAero has no tail cone — “${noteField(n.name ?? 'Nose cone')}” in ${strapOn ? 'strap-on' : 'pod set'} `
+          + `“${noteField(pod.name ?? (strapOn ? 'Strap-on' : 'Pod set'))}” is flipped to point aft. Export as .ork or .rkt.`);
       }
       refusePodTailCones(n.children ?? [], isAssembly(n.type as string) ? n : pod);
     }
@@ -2482,7 +2483,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
       throw new Error('RASAero has no parallel staging — export as .ork or .rkt to keep strap-ons.');
     }
     if ((node.type as string) === 'podset' && (!parent || !podHosts.has(parent))) {
-      throw new Error(`RASAero cannot represent pod set “${node.name ?? 'Pod set'}” in this location. `
+      throw new Error(`RASAero cannot represent pod set “${noteField(node.name ?? 'Pod set')}” in this location. `
         + 'Export as .ork or .rkt to keep its geometry.');
     }
     for (const child of node.children ?? []) refuseUnwrittenAssemblies(child, node);
@@ -2664,7 +2665,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     // for it beside the number (batch 6: it said "stage 1", counting from the
     // sustainer as 0, for the stage the screen calls Stage 2). Quoting
     // `st.name` refused such a stage as stage "undefined" (audit 2026-09-30).
-    const stageSaid = st.name ? `"${st.name}"` : `${i + 1}`;
+    const stageSaid = st.name ? `“${noteField(st.name)}”` : `${i + 1}`;
     const rasaeroSaid = st.name ? '' : ` (RASAero’s Booster ${i})`;
     // Which parts are the shoulder, boat tail and fin carrier is
     // cdx1BoosterParts' call — shared with checkFormatLoss.
@@ -2696,7 +2697,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     const finParent = finParents[0];
     if (finParent && finParent.type !== 'bodytube') {
       const where = finParent === boattail ? 'boat tail' : finParent === shoulder ? 'shoulder' : finParent.type;
-      throw new Error(`RASAero puts a booster's fins on its body tube — the fins on “${finParent.name ?? where}” `
+      throw new Error(`RASAero puts a booster's fins on its body tube — the fins on “${noteField(finParent.name ?? where)}” `
         + `(stage ${stageSaid}'s ${where}${st.name ? '' : ` — RASAero’s Booster ${i}`}) can't be exported there. Move them to the body tube, or export as .ork/.rkt.`);
     }
     // RASAero's booster body is every tube of the stage end to end, and its
@@ -2793,7 +2794,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     const ventFactor = vent && hole > 0 ? 1 - (Math.min(hole, vent.maxHole) / vent.diameter) ** 2 : 1;
     const cdText = fmt(c ? kernelRecoveryCd(c) * ventFactor : 0);
     if (c && evType !== 'None' && cdText === '0') {
-      notes?.push(`${c.name ?? 'Parachute'}: RASAero writes this drag coefficient as an explicit Cd of 0 after vent adjustment and rounding; it reopens in the app as automatic Cd 0.8, adding parachute drag. Save .ork to keep the intended Cd.`);
+      notes?.push(`${noteField(c.name ?? 'Parachute')}: RASAero writes this drag coefficient as an explicit Cd of 0 after vent adjustment and rounding; it reopens in the app as automatic Cd 0.8, adding parachute drag. Save .ork to keep the intended Cd.`);
     }
     return {
       altitude: fmt(c && evType === 'Altitude' ? nnum(c, 'deployAltitude', KERNEL_DEPLOY_ALTITUDE_M) * FT : 0),

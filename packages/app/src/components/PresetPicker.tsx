@@ -329,7 +329,7 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
     setAll(remaining);
     if (mfr && !remaining?.some((p) => p.kind === kind && p.manufacturer === mfr && (!myPartsOnly || !bundledRows.has(p)))) setMfr('');
     setNoteTier('information');
-    setNote(`Deleted ${deleting.manufacturer} ${deleting.partNo} from My parts. Parts already in a design keep their values.${keep.backedUp ? ` ${CUSTOM_PRESETS_BACKED_UP}` : ''}`);
+    setNote(`Deleted ${noteField(deleting.manufacturer)} ${noteField(deleting.partNo)} from My parts. Parts already in a design keep their values.${keep.backedUp ? ` ${CUSTOM_PRESETS_BACKED_UP}` : ''}`);
     setDeleting(null);
   };
 
@@ -472,3 +472,4 @@ export function PresetPicker({ type, node, parentRadius, onApply, onClose }: {
     </div>
   );
 }
+import { noteField } from '../services/noteField.js';

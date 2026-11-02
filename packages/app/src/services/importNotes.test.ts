@@ -357,7 +357,7 @@ describe('the open itself (importApply.ts: motor-match, pad mass, retained condi
     { type: 'bodytube', id: 'm1', name: 'MMT', length: 0.2, outerRadius: 0.015, thickness: 0.001, motorMount: true },
   ] } as ComponentNode] };
   const design = (over: Partial<ImportedDesign> = {}): ImportedDesign => ({
-    name: 'x', tree, notes: [], motors: { m1: { designation: 'Z9', manufacturer: 'AeroTech', diameter: 0.029, length: 0.2, delay: 5 } },
+    name: 'x', tree, notes: [], launch: DEFAULT_CONDITIONS, motors: { m1: { designation: 'Z9', manufacturer: 'AeroTech', diameter: 0.029, length: 0.2, delay: 5 } },
     ...over,
   });
 
@@ -373,7 +373,7 @@ describe('the open itself (importApply.ts: motor-match, pad mass, retained condi
   });
 
   it('Caution for conditions kept from the previous design (.rkt); Information for a step the file states', () => {
-    const kept = planImport(design({ motors: {}, sourceFormat: 'rkt' }), { working: {}, configs: {} },
+    const kept = planImport(design({ motors: {}, sourceFormat: 'rkt', launch: undefined }), { working: {}, configs: {} },
       { launch: { ...DEFAULT_CONDITIONS, timeStepS: 0.05 }, text });
     expect(tierOf(kept.note.group.lines, /^From a \.rkt the app reads only the launch site/)).toBe('caution');
     const stated = planImport(design({ motors: {}, launch: { timeStepS: 0.02 } }), { working: {}, configs: {} },

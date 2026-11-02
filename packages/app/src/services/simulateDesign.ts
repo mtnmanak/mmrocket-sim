@@ -1,3 +1,4 @@
+import { noteText } from './noteField.js';
 import { recordFlightOverrides, type RecordedFlightOverride } from './flightOverrideSummary.js';
 import { activeFlightOverrides } from './flightState.js';
 import type { FlightResult, OrkRocket, RocketTree } from '@online-openrocket/engine';
@@ -126,7 +127,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   const launchForReport = structuredClone(launch);
   const units = { ...(input.units ?? INITIAL_UNITS) };
   const refusal = savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal;
-  if (refusal) throw new Error(refusal);
+  if (refusal) throw new Error(noteText(refusal));
   const { mounts, stageList, assigned, effectiveSupersonic, primaryMountId } = derived;
   const { aeroMode, effectiveKbf } = aero;
   const flightOverrides = input.flightOverrides === undefined ? undefined : structuredClone(input.flightOverrides);
@@ -478,7 +479,7 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
     input = { ...input, launch: { ...input.launch, timeStepS: opts.minTimeStepS } };
   }
   const refusal = input.savedConfigs.find(c => c.id === input.activeConfigId)?.motorLoadoutRefusal;
-  if (refusal) throw new SimulateDesignError('flight', refusal);
+  if (refusal) throw new SimulateDesignError('flight', noteText(refusal));
   const aero = opts.aero ?? APP_DEFAULT_AERO;
   const handles = opts.handles ?? KERNEL_HANDLES;
   // audit 2026-10-11, FC-4: every build and re-flight shares this projection.

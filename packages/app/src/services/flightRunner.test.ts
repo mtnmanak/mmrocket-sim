@@ -91,6 +91,13 @@ it.each(['constructor', 'toString', '__proto__'])('names a refused Auto mount %s
   })).rejects.toThrow(`Auto delay did not settle for ${id}:`);
 });
 
+it('escapes a refused Auto mount name before showing the flight error', async () => {
+  const { handle } = recordingHandle();
+  await expect(flyLaunch(handle, { ...staged(false), assigned: [['a', testMotor()]],
+    primaryMountId: 'a', refusedMountIds: ['a'], mountNames: { a: 'Bad\n\u200b”' },
+  })).rejects.toThrow('Auto delay did not settle for Bad[U+200B][U+201D]:');
+});
+
 describe('Hybrid handle protocol', () => {
   it('keeps Kbf on, disables inherited Supersonic, and never runs the Auto upgrade', async () => {
     const { handle, calls } = recordingHandle({ maxMachNumber: 2 });

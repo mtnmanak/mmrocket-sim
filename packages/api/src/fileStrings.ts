@@ -1,4 +1,5 @@
 import { displayEcho } from './filenameEcho.js';
+import { noteField, noteText } from '../../app/src/services/noteField.js';
 
 /** Per-entry bound: the structured aggregate is rebuilt without a combined cut. */
 export const NOTE_ECHO_MAX = 4000;
@@ -6,18 +7,19 @@ export const NOTE_ECHO_MAX = 4000;
 export const WARNING_ECHO_MAX = 1000;
 /** Strip file line controls; only structured note boundaries add newlines. */
 export function noteEcho(text: string, max = NOTE_ECHO_MAX): string {
-  const points: string[] = [];
-  for (let ch of text) {
-    const c = ch.codePointAt(0)!;
-    if (c === 9) ch = ' ';
-    else if (c < 32 || (c >= 0x7f && c <= 0x9f) || c === 0x2028 || c === 0x2029
-      || c === 0x061c || c === 0x200e || c === 0x200f
-      || (c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069)
-      || (c >= 0xd800 && c <= 0xdfff)) continue;
-    if (points.length === max) return points.slice(0, -1).join('') + '\u2026';
-    points.push(ch);
+  const points = Array.from(text);
+  const cut = points.length > max ? points.slice(0, max - 1).join('').replace(/\[(?:U(?:\+(?:[0-9A-F]*))?)?$/, '') + '\u2026' : text;
+  const safe = noteText(cut);
+  if (Array.from(safe).length <= max) return safe;
+  let shown = '';
+  let size = 0;
+  for (const token of safe.match(/\[U\+[0-9A-F]+\]|[^]/gu) ?? []) {
+    const length = token.startsWith('[U+') ? token.length : 1;
+    if (size + length >= max) break;
+    shown += token;
+    size += length;
   }
-  return points.join('');
+  return shown + '\u2026';
 }
 /** Notes have nested groups and line arrays; no importer-specific shape can skip the boundary. */
 export function noteStrings<T>(value: T): T {
@@ -60,5 +62,5 @@ const NAME_SPAN = /"([^"]*)("|$)|\u201c([^\u201d]*)(\u201d|$)/g;
 export function warningEcho(text: string): string {
   return noteEcho(text.replace(NAME_SPAN, (_span: string, straight: string | undefined, straightEnd: string | undefined,
     curly: string | undefined, curlyEnd: string | undefined) => straight !== undefined
-    ? `"${displayEcho(straight)}${straightEnd ?? ''}` : `\u201c${displayEcho(curly ?? '')}${curlyEnd ?? ''}`), WARNING_ECHO_MAX);
+    ? `"${noteEcho(noteField(straight), 200)}${straightEnd ?? ''}` : `\u201c${noteEcho(noteField(curly ?? ''), 200)}${curlyEnd ?? ''}`), WARNING_ECHO_MAX);
 }

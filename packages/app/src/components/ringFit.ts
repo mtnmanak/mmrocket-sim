@@ -1,3 +1,4 @@
+import { noteField } from '../services/noteField.js';
 import { INITIAL_UNITS, noticeComparison, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { numOpt } from '../tree/nodeNum.js';
@@ -106,8 +107,8 @@ export function ringFitFor(tree: RocketTree, node: ComponentNode, written: { out
     const direction = dimension === 'outside' && actualRadius > expectedRadius ? 'exceeds'
       : `is ${actualRadius < expectedRadius ? 'smaller' : 'larger'} than`;
     const [actual, limit] = noticeComparison('length', actualRadius * 2, expectedRadius * 2, units, { parenthesized: true });
-    if (actual.startsWith('just ')) return `${node.name || DISPLAY_NAME[node.type]}'s catalogue ${dimension} diameter is just ${actualRadius < expectedRadius ? 'under' : 'over'} ${comparison} (${limit}).`;
-    return `${node.name || DISPLAY_NAME[node.type]}'s catalogue ${dimension} diameter (${noticeComparison('length', actualRadius * 2, expectedRadius * 2, units, { parenthesized: true })[0]}) ${direction} ${comparison} (${noticeComparison('length', actualRadius * 2, expectedRadius * 2, units, { parenthesized: true })[1]}).`;
+    if (actual.startsWith('just ')) return `${noteField(node.name || DISPLAY_NAME[node.type])}'s catalogue ${dimension} diameter is just ${actualRadius < expectedRadius ? 'under' : 'over'} ${comparison} (${limit}).`;
+    return `${noteField(node.name || DISPLAY_NAME[node.type])}'s catalogue ${dimension} diameter (${noticeComparison('length', actualRadius * 2, expectedRadius * 2, units, { parenthesized: true })[0]}) ${direction} ${comparison} (${noticeComparison('length', actualRadius * 2, expectedRadius * 2, units, { parenthesized: true })[1]}).`;
   });
   if (result.notes.length > 0) result.notes.push('The flight and print/cut exports use the catalogue dimensions just applied. Undo the pick (Ctrl+Z), or pick a part sized for this tube.');
   return result;

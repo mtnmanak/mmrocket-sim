@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { OrkRocket, type ComponentNode, type RocketTree } from '@online-openrocket/engine';
 import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { NoteTier } from '../components/Note.js';
@@ -122,7 +123,7 @@ export function preflightAudit(
       const ancestor = suppressingAncestor(tree, node.id, 'overrideSubcomponentsMass', 'overrideMass');
       if (ancestor) {
         add(node, { kind: 'covered-mass', tier: 'information', target: 'mass-note',
-          reason: `A mass override is also set on ${namedPart(ancestor).name}. View the existing mass note in Overrides for this part.` });
+          reason: `A mass override is also set on ${noteField(namedPart(ancestor).name)}. View the existing mass note in Overrides for this part.` });
       } else if (comparableMass(tree, node)) {
         const computed = masses[node.id];
         if (computed == null || !Number.isFinite(computed) || computed <= 0) {
@@ -162,7 +163,7 @@ export function preflightAudit(
       const bound = value < min ? min : max;
       if ((value < min || value > max) && !noticeEqual(value, bound)) add(node, {
         kind: 'material-density', tier: 'caution', density: { field: field.field, unit: field.unit, value, min, max },
-        reason: `${field.field === 'filletDensity' ? 'Fillet material' : material.name}: density ${density(value, bound).startsWith('just ') ? 'is just outside' : `${density(value)} is outside`} `
+        reason: `${noteField(field.field === 'filletDensity' ? 'Fillet material' : material.name)}: density ${density(value, bound).startsWith('just ') ? 'is just outside' : `${density(value)} is outside`} `
           + `the screening range ${density(min)}–${density(max)} for its material family. `
           + 'Check the material and units. A wrong density changes computed weight and can change the stability margin.',
       });

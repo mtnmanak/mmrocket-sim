@@ -179,7 +179,7 @@ export async function planHeadlessImport(
   // What goes on screen, decided as App decides it: the file's conditions
   // merged onto the panel's, the configuration to open, the import note.
   return planImport(imported, resolved, {
-    launch: opts.launch ?? DEFAULT_CONDITIONS, text: statedWeightTextFor(opts.units ?? INITIAL_UNITS), units: opts.units,
+    launch: opts.launch ?? DEFAULT_CONDITIONS, text: statedWeightTextFor(opts.units ?? INITIAL_UNITS), units: opts.units, headless: true,
   });
 }
 

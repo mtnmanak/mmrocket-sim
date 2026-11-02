@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { boundedWarningEvidence, restoredWarnings, storedWarnings, validStoredWarnings, storedWarningLimitNote, wideStoredWarning } from './storedWarnings.js';
 import { readDesignProvenance, writeDesignProvenance } from './designProvenance.js';
 import { importedEjectionDelay } from './ejectionDelay.js';
@@ -272,8 +273,8 @@ export interface OrkSeparationOverride {
  * nameless configuration; so do we.
  */
 function configLabel(c: { name: string | null; motors: Record<string, { designation: string }> }): string {
-  if (c.name) return c.name;
-  const designations = Object.values(c.motors).map((m) => m.designation).filter(Boolean);
+  if (c.name) return noteField(c.name);
+  const designations = Object.values(c.motors).map((m) => noteField(m.designation)).filter(Boolean);
   return designations.length ? `[${designations.join(', ')}]` : 'No motors';
 }
 
@@ -609,7 +610,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       if (c.name !== null) previous.name = c.name;
       if (c.isDefault) previous.isDefault = true;
       if (c.motorLoadoutRefusal) previous.motorLoadoutRefusal = c.motorLoadoutRefusal;
-      cautionNote(notes, 'I08.duplicate-config', `Duplicate flight configuration “${c.id}” was merged; later fields replace earlier fields.`);
+      cautionNote(notes, 'I08.duplicate-config', `Duplicate flight configuration “${noteField(c.id)}” was merged; later fields replace earlier fields.`);
     } else configById.set(c.id, c);
   }
   const configs = [...configById.values()];
@@ -651,7 +652,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     target.padMassKg = v; // last one wins for a duplicated configid
     if (id === null) {
       target.padMassLegacy = true;
-      notes.push(`This file's weighed pad mass (${noticeQuantity('mass', v, units, { parenthesized: true })}) was saved by an earlier version beside the airframe figures. It now belongs to the motor it was weighed with, in configuration “${target.name ?? target.id}”, and is checked against that motor the first time the design is built — the notice will say whether it was kept.`);
+      notes.push(`This file's weighed pad mass (${noticeQuantity('mass', v, units, { parenthesized: true })}) was saved by an earlier version beside the airframe figures. It now belongs to the motor it was weighed with, in configuration “${noteField(target.name ?? target.id)}”, and is checked against that motor the first time the design is built — the notice will say whether it was kept.`);
     }
   }
 
@@ -782,7 +783,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       const knownEvent = knownIgnitionEvent(rawEvent);
       if (rawEvent !== null && knownEvent === null && !unknownIgnitions.has(`${designation}|${rawEvent}`)) {
         unknownIgnitions.add(`${designation}|${rawEvent}`);
-        cautionNote(notes, 'I11.ignition-event', `Motor ${designation}: the file's ignition event “${rawEvent}” is not one OpenRocket`
+        cautionNote(notes, 'I11.ignition-event', `Motor ${noteField(designation)}: the file's ignition event “${noteField(rawEvent)}” is not one OpenRocket`
           + ' knows, so it lights on Automatic. Desktop OpenRocket ignores it too, with a warning.');
       }
       return { event: rawEvent === null ? base.event : knownEvent ?? 'automatic',
@@ -824,8 +825,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       const delayKey = `${designation}|${String(delayText)}`; // "|null" for no <delay>, apart from a blank one
       if (delayText !== 'none' && Number.isNaN(delayValue) && !unreadDelays.has(delayKey)) {
         unreadDelays.add(delayKey);
-        cautionNote(notes, 'I11.delay-plugged', `Motor ${designation}: ${delayText === null ? 'the file gives no ejection delay'
-          : `the file's ejection delay “${delayText}” is not a number`}, so it is read as plugged (no`
+        cautionNote(notes, 'I11.delay-plugged', `Motor ${noteField(designation)}: ${delayText === null ? 'the file gives no ejection delay'
+          : `the file's ejection delay “${noteField(delayText)}” is not a number`}, so it is read as plugged (no`
           + ' ejection charge), as desktop OpenRocket reads it. If the motor has a delay, set it on Motors & Configuration.');
       }
       return {
@@ -881,7 +882,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       // 2026-09-22). Rewritten in place, so the note keeps its position.
       const seen = pluggedNotes.get(ref.designation);
       const mounts = (seen?.mounts ?? 0) + 1;
-      const line = `Motor ${ref.designation}${mounts > 1 ? ` (${mounts} mounts)` : ''}: plugged (no ejection`
+      const line = `Motor ${noteField(ref.designation)}${mounts > 1 ? ` (${mounts} mounts)` : ''}: plugged (no ejection`
         + ' charge) — make sure recovery deploys on apogee/altitude, not the ejection charge.';
       if (seen) {
         seen.mounts = mounts;
@@ -1092,7 +1093,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
             else unreadable++;
           }
         }
-        if (unreadable > 0) cautionNote(notes, 'I05.fin-points', `Fin set "${n.name ?? 'freeform'}": ${unreadableFinPoints(unreadable)}`);
+        if (unreadable > 0) cautionNote(notes, 'I05.fin-points', `Fin set “${noteField(n.name ?? 'freeform')}”: ${unreadableFinPoints(unreadable)}`);
         // The same test the fin editor applies before it commits an outline:
         // at least three points, none repeated, no edge crossing another. A
         // crossing outline reaches the kernel's FreeformFinSet, which refuses it,
@@ -1108,7 +1109,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
           n['points'] = pts;
         } else {
           n['points'] = KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]);
-          if (ptEls.length > 0) cautionNote(notes, 'I05.fin-outline', `Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} `
+          if (ptEls.length > 0) cautionNote(notes, 'I05.fin-outline', `Fin set “${noteField(n.name ?? 'freeform')}”: its outline was not used — ${outlineProblem} `
             + 'The set keeps a default outline; redraw it in the fin editor.');
         }
         return n;
@@ -1153,7 +1154,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         // mount and SAY SO — the same answer rasaeroFile.ts:321 gives an
         // unknown <Surface>.
         if (cluster && cluster !== 'single' && !Object.hasOwn(CLUSTER_POINTS, cluster)) {
-          cautionNote(notes, 'I06.cluster', `Motor mount "${n['name'] ?? 'inner tube'}": cluster pattern “${cluster}” is not one this app knows, so the mount was imported as a single tube.`);
+          cautionNote(notes, 'I06.cluster', `Motor mount “${noteField(n['name'] ?? 'inner tube')}”: cluster pattern “${noteField(cluster)}” is not one this app knows, so the mount was imported as a single tube.`);
         } else if (cluster && cluster !== 'single') {
           n['cluster'] = cluster;
           n['clusterScale'] = num(el, 'clusterscale', 1, notes);
@@ -1504,7 +1505,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     throw new Error('No supported components found in this design.');
   }
   if (ignored.size) {
-    cautionNote(notes, 'I03.ignored-components', `Ignored unsupported components: ${[...ignored].join(', ')}.`);
+    cautionNote(notes, 'I03.ignored-components', `Ignored unsupported components: ${[...ignored].map(n => noteField(n)).join(', ')}.`);
   }
   if (tooDeep) cautionNote(notes, 'I03.too-deep', TOO_DEEP_NESTING);
   const noteConfig = configs.find(cf => cf.id === chosenConfigId);
@@ -1548,7 +1549,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   // a number nobody typed; without this note the only clue that anything was
   // reconstructed is that the rocket happens to look right.
   const nameList = (names: string[]): string => {
-    const uniq = [...new Set(names)];
+    const uniq = [...new Set(names)].map(n => noteField(n));
     return uniq.length > 4
       ? `${uniq.slice(0, 4).join(', ')} and ${uniq.length - 4} more`
       : uniq.join(', ');
@@ -1640,7 +1641,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   if (instanced.length > 0) {
     cautionNote(notes, 'I06.instances',
       `${instanced.length} component${instanced.length === 1 ? '' : 's'} in this design `
-        + `(${[...new Set(instanced.map((nd) => nd.name ?? nd.type))].join(', ')}) `
+        + `(${noteField([...new Set(instanced.map((nd) => nd.name ?? nd.type))].join(', '))}) `
         + 'repeat as multiple instances. The file keeps every instance, but the '
         + 'drawing and the simulation currently show one.',
     );
@@ -1712,7 +1713,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         .map((m) => m.getAttribute('configid'))
         .find((id) => id !== null);
       cautionNote(notes, 'I08.configs-dropped',
-        `File has ${strayIds.size} flight configurations — kept “${keptId ?? 'the first'}”; the other ${strayIds.size - 1} ${strayIds.size - 1 === 1 ? 'was' : 'were'} not imported.`);
+        `File has ${strayIds.size} flight configurations — kept “${noteField(keptId ?? 'the first')}”; the other ${strayIds.size - 1} ${strayIds.size - 1 === 1 ? 'was' : 'were'} not imported.`);
     }
   }
 
@@ -1781,7 +1782,19 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   // Definitions stay document-local. Only an accepted, current open persists them.
   const exIds = readArchivedExMotors(rocketEl, notes);
   const savedExNotes = rocketEl.querySelector(`:scope > ${EX_MOTOR_NOTES_TAG}`)?.textContent;
-  if (savedExNotes) notes.push(savedExNotes.slice(0, 65536));
+  if (savedExNotes) {
+    const lines = savedExNotes.split('\n');
+    let size = 0;
+    let shown = 0;
+    for (const line of lines) {
+      const safe = noteField(line);
+      if (shown >= 64 || size + safe.length > 65536) break;
+      notes.push(safe);
+      size += safe.length;
+      shown++;
+    }
+    if (shown < lines.length) notes.push(`…${lines.length - shown} more notes not shown`);
+  }
   const remapped = new Set<OrkMotorRef>();
   for (const refs of [motors, ...configs.map(c => c.motors)]) {
     for (const ref of Object.values(refs)) {
@@ -2313,7 +2326,7 @@ function readLaunchConditions(
     launch.geodeticMethod = ourOwnFile ? 'spherical' : 'flat';
     const opensOn = ourOwnFile ? 'Spherical Earth' : 'Flat Earth, as desktop OpenRocket opens it';
     if (gmText !== null) {
-      cautionNote(notes, 'I24.geodetic-unknown', `This design's simulation names the geodetic model “${gmText}”, which neither this app `
+      cautionNote(notes, 'I24.geodetic-unknown', `This design's simulation names the geodetic model “${noteField(gmText)}”, which neither this app `
         + `nor desktop OpenRocket knows. It opens on ${opensOn}; Geodetic calculations, in the Launch `
         + 'panel, changes it.');
     } else if (!ourOwnFile) {
@@ -2380,7 +2393,7 @@ export interface OrkExportMotor {
  */
 export function autoDelaySaveNote(m: OrkExportMotor, format: '.ork' | '.rkt', action: 'save' | 'share' | 'recovery' = 'save'): string | null {
   if (!m.autoDelay || !m.autoDelayFrom) return null;
-  const has = `“${m.designation}” is on Auto (optimal) delay, which a ${format} has no setting for`;
+  const has = `“${noteField(m.designation)}” is on Auto (optimal) delay, which a ${format} has no setting for`;
   const advice = action === 'share' ? 'Launch, then copy the share link again'
     : action === 'recovery' ? 'After reopening this backup in the app, select Auto, launch, then save'
       : 'Launch, then save';
@@ -2612,7 +2625,7 @@ function readStoredSimulations(simEls: XmlElement[], notes: string[]): OrkStored
     // "Warnings unavailable" must not read as "no warnings" (D7 §5, I28): the
     // note names the run, and says what its empty report does NOT mean.
     const simName = text(sim, ':scope > name');
-    const unreadable = `Stored simulation warnings${simName ? ` for “${simName}”` : ''} could not be read, so its report `
+    const unreadable = `Stored simulation warnings${simName ? ` for “${noteField(simName)}”` : ''} could not be read, so its report `
       + 'shows none — that does not mean the flight had none.';
     if (warnings?.getAttribute('version') === '1') {
       try {
@@ -4362,7 +4375,7 @@ function noteInvalidNumber(notes: string[], note: string): void {
 /** Match num's diagnostics for values dropped outside it (audit 2026-10-11, S1a-3/S1a-4). */
 function invalidNumberNote(el: XmlElement, tag: string, notes: string[], action = 'the value was not used'): void {
   const label = text(el, ':scope > name') ?? el.tagName;
-  const note = `“${label}”: invalid <${tag}> value; ${action}.`;
+  const note = `“${noteField(label)}”: invalid <${tag}> value; ${action}.`;
   noteInvalidNumber(notes, note);
 }
 
@@ -4390,7 +4403,7 @@ function num(el: XmlElement, tag: string, fallback: number, notes: string[], sho
   const v = parseDecimal(t);
   if (Number.isFinite(v)) return v;
   const label = text(el, ':scope > name') ?? el.tagName;
-  const note = `“${label}”: invalid <${tag}> value; ${fallbackAction(fallback, shown)}.`;
+  const note = `“${noteField(label)}”: invalid <${tag}> value; ${fallbackAction(fallback, shown)}.`;
   noteInvalidNumber(notes, note);
   return fallback;
 }
@@ -4549,7 +4562,7 @@ function readRadialPlacement(el: XmlElement, node: ComponentNode, notes: string[
   if (pos !== 0) node['radialPosition'] = pos;
   if (dir !== 0) node['radialDirection'] = (dir * Math.PI) / 180;
   if (pos !== 0 && ['tubecoupler', 'centeringring', 'bulkhead', 'engineblock'].includes(node.type)) {
-    cautionNote(notes, 'I21.radial-offset', `“${node.name ?? node.type}”: its radial offset is kept when saving .ork, but the app and desktop OpenRocket both fly this part on the centerline, so the offset does not affect the simulated inertia.`);
+    cautionNote(notes, 'I21.radial-offset', `“${noteField(node.name ?? node.type)}”: its radial offset is kept when saving .ork, but the app and desktop OpenRocket both fly this part on the centerline, so the offset does not affect the simulated inertia.`);
   }
 }
 

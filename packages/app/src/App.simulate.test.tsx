@@ -608,9 +608,17 @@ async function fileCase(bytes: Uint8Array, name: string, aero: AeroState,
   // Spec risk 10 limits this to files whose motors all resolve from the
   // shipped bundle; on every case here a motor either does (both sides load
   // it) or is in no catalogue at all (F7's sustainer: neither side can load
-  // it), so App's note and the headless note are the same words. A file whose
+  // it), so the notes agree except for the browser's retained-panel receipt. A file whose
   // motor App downloads and the bundle lacks would not belong in this list.
-  expect(out.importNote).toStrictEqual(originalImportNote);
+  expect(originalImportNote?.group).toBeDefined();
+  const retained = originalImportNote!.group!.lines.filter(line => line.kind === 'I24.launch-retained');
+  const expectedNote = { ...originalImportNote!,
+    text: originalImportNote!.text.split('\n').filter(line => !retained.some(note => note.text === line)).join('\n'),
+    group: { ...originalImportNote!.group!,
+      lines: originalImportNote!.group!.lines.filter(line => line.kind !== 'I24.launch-retained') },
+  };
+  for (const note of retained) expect(out.importNote.text).not.toContain(note.text);
+  expect(out.importNote).toStrictEqual(expectedNote);
   expectSameLaunch(app, out, aero);
   // The bytes door: its own parse, its own presets, its own unit words.
   const viaBytes = await simulateFile(bytes, name, { aero,
@@ -627,7 +635,8 @@ async function fileCase(bytes: Uint8Array, name: string, aero: AeroState,
   const apps = positions(app.args.tree);
   expect(renumbered(viaBytes.build.info, mine)).toStrictEqual(renumbered(app.args.built.info, apps));
   expect(renumbered(viaBytes.build.hardware, mine)).toStrictEqual(renumbered(app.args.built.hardware, apps));
-  expect(viaBytes.importNote).toStrictEqual(originalImportNote);
+  for (const note of retained) expect(viaBytes.importNote.text).not.toContain(note.text);
+  expect(viaBytes.importNote).toStrictEqual(expectedNote);
   expect(viaBytes.padMassNote).toStrictEqual(app.padMassNote);
   return { app, out };
 }

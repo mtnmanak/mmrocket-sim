@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { noticeEqual } from '../prefs/units.js';
 import { PREFERRED_OPENING_SPEED_MS, MAX_CAUTION_OPENING_SPEED_MS } from './recoveryLimits.js';
 import type { RecordedFlightOverride } from './flightOverrideSummary.js';
@@ -1846,7 +1847,7 @@ function abortWarnings(result: FlightResult): EngineWarning[] {
     }
     const when = Number.isFinite(abort.time) ? ` at T+${abort.time.toFixed(2)} s` : '';
     const why = ABORT_CAUSES[abort.cause ?? ''] ?? null;
-    const whose = b.name ? `The ${b.name} stage's flight` : 'The flight';
+    const whose = b.name ? `The ${noteField(b.name)} stage's flight` : 'The flight';
     out.push({
       key: 'SIM_ABORT',
       priority: 'HIGH',
@@ -1874,7 +1875,7 @@ export const KERNEL_MAX_FLIGHT_TIME_S = 1200;
  */
 export function incompleteFlightWarning(stage: string | undefined, end: number | undefined, booster: boolean): EngineWarning {
   return { key: 'INCOMPLETE_FLIGHT', priority: 'HIGH',
-    message: `${stage ? `The ${stage} stage's flight` : 'The flight'} ended${Number.isFinite(end) ? ` at T+${end!.toFixed(2)} s` : ''} before ground contact was recorded. ${booster ? 'That stage\'s flight is incomplete; its landing rate is unavailable.' : 'The flight is incomplete; landing rate and landing drift are unavailable.'}`,
+    message: `${stage ? `The ${noteField(stage)} stage's flight` : 'The flight'} ended${Number.isFinite(end) ? ` at T+${end!.toFixed(2)} s` : ''} before ground contact was recorded. ${booster ? 'That stage\'s flight is incomplete; its landing rate is unavailable.' : 'The flight is incomplete; landing rate and landing drift are unavailable.'}`,
   };
 }
 
@@ -2369,7 +2370,7 @@ export function buildSimRun(input: {
     const flown = input.delayResolution?.mounts.find(m => m.mountId === id)?.flownDelay;
     const delay = flown === 'plugged' ? Infinity : typeof flown === 'number' ? flown : mm.spec.ejectionDelay;
     const note = zeroDelayRecoveryAdvice(input.advisoryTree, id, delay, mm.meta.autoDelay && flown === undefined);
-    if (note) say(`${flightConfig ?? 'Working settings'} — ${mm.label}: Configuration caution: ${note}`, 'caution');
+    if (note) say(`${noteField(flightConfig ?? 'Working settings')} — ${noteField(mm.label)}: Configuration caution: ${note}`, 'caution');
   }
   // Format the kernel's static warnings into the app's voice here too: this
   // blob becomes the launch report AND the Comments column of the saved-runs
@@ -2435,7 +2436,7 @@ export function buildSimRun(input: {
   const nameDevices = (names: readonly string[]): string => {
     const counts = new Map<string, number>();
     for (const n of names) counts.set(n, (counts.get(n) ?? 0) + 1);
-    return listAnd([...counts].map(([n, c]) => (c > 1 ? `${n} (×${c})` : n)));
+    return listAnd([...counts].map(([n, c]) => (c > 1 ? `${noteField(n)} (×${c})` : noteField(n))));
   };
   const flushDevices = (): void => {
     for (const l of deviceLines.values()) say(l.render(nameDevices(l.names), l.names.length > 1), l.level);
@@ -2531,18 +2532,18 @@ export function buildSimRun(input: {
     const landTxt = b.landingRate !== null ? speed(b.landingRate) : 'unknown speed';
     if (b.deployments.length === 0 && b.highPower === true) {
       say(b.recoveryFitted
-        ? `${b.name}'s recovery device never opened — a booster this size must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}. Check its deployment event.`
-        : `${b.name} has NO recovery device — a booster this size must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}.`, 'warning');
+        ? `${noteField(b.name)}'s recovery device never opened — a booster this size must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}. Check its deployment event.`
+        : `${noteField(b.name)} has NO recovery device — a booster this size must recover actively; it ${b.tumbles ? 'tumbles' : 'falls'} in at ${landTxt}.`, 'warning');
     } else if (b.safeLandingRate === false) {
-      say(`${b.name} lands ${landingText(b.landingRate!)}`, 'warning');
+      say(`${noteField(b.name)} lands ${landingText(b.landingRate!)}`, 'warning');
     }
     for (const d of b.deployments) {
-      sayDrogueDescent(d, `${b.name}: `);
+      sayDrogueDescent(d, `${noteField(b.name)}: `);
       if (d.openingOk === false || d.openingOk === 'caution') {
         // Same three tiers as the sustainer's own devices, above.
         const v = Math.abs(d.velocityAtDeployment!);
         const hard = d.openingOk === false;
-        sayDevice(d.device, (who, many) => `${b.name}: ${who} ${many ? 'open' : 'opens'} ${openingText(v, hard)}`
+        sayDevice(d.device, (who, many) => `${noteField(b.name)}: ${who} ${many ? 'open' : 'opens'} ${openingText(v, hard)}`
           + ` ${openingPolicy(deploymentRole(d)).expectation} These speed limits do not rate your recovery hardware.`,
         hard ? 'warning' : 'caution');
       }

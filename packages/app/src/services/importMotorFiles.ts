@@ -1,3 +1,4 @@
+import { noteField, noteText } from './noteField.js';
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import type { NoteTier } from '../components/Note.js';
 import { addExMotors, parseMotorFile, refusedExMotorNote, validExMotor, type ExMotor } from './exMotors.js';
@@ -66,7 +67,7 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
       fileNotes.push({ file: f.name, notes, motors: motors.length });
     } catch (e) {
       sessionDebugLog.record('import-failed', e);
-      failed.push(`${f.name}: ${e instanceof Error ? e.message : String(e)}`);
+      failed.push(`${noteField(f.name)}: ${noteText(e instanceof Error ? e.message : String(e))}`);
     }
   }
   // Screened BEFORE the write: addExMotors refuses the whole batch on its
@@ -79,12 +80,12 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
   for (const { motor, file, from } of read) {
     const name = motor.designation;
     if (validExMotor(motor)) { parsed.push(motor); kept.add(from); }
-    else refused.push(`${file}: ${refusedExMotorNote(name)}`);
+    else refused.push(`${noteField(file)}: ${refusedExMotorNote(name)}`);
   }
   // A file whose every motor was refused says nothing in the "Imported …"
   // notice: its notes would read as describing motors that were stored.
   fileNotes.forEach(({ file, notes, motors }, i) => {
-    if (motors === 0 || kept.has(i)) for (const note of notes) said.push(`${file}: ${note}`);
+    if (motors === 0 || kept.has(i)) for (const note of notes) said.push(`${noteField(file)}: ${note}`);
   });
   if (refused.length) sessionDebugLog.record('import-failed', new Error('A motor failed the library checks.'));
   // ONE library write for the whole selection, not one per file: a folder of
@@ -98,7 +99,7 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
   if (unsaved) sessionDebugLog.record('import-storage-failed', write.unreadable
     ? 'The stored motor library could not be read; imported motors are available only for this session.'
     : 'Motor storage is full or blocked; imported motors are available only for this session.');
-  const some = (names: string[]) => `${names.slice(0, 6).join(', ')}${names.length > 6 ? ', …' : ''}`;
+  const some = (names: string[]) => `${noteField(names.slice(0, 6).join(', '))}${names.length > 6 ? ', …' : ''}`;
   if (write?.duplicates.length) {
     said.push(`${some(write.duplicates)}: listed more than once with different data — each copy is kept `
       + 'as its own entry under the same name.');
@@ -110,7 +111,7 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
   const problems: string[] = [];
   if (write) {
     const list = `${imported.length} EX motor${imported.length === 1 ? '' : 's'} `
-      + `(${imported.slice(0, 6).join(', ')}${imported.length > 6 ? ', …' : ''})`;
+      + `(${noteField(imported.slice(0, 6).join(', '))}${imported.length > 6 ? ', …' : ''})`;
     // Say "survive reloads" only when they do (audit 2026-09-22). A full
     // browser storage used to be swallowed here, and the motors then could
     // not even fly: every reader went back to storage and found nothing.

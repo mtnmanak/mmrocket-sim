@@ -1,3 +1,4 @@
+import { noteField, noteText } from './noteField.js';
 import { cautionNote } from './importNotes.js';
 import { validExMotor as validArchivedExMotor, validExMotorFields, validFlightSnapshot, boundedExId, exMotorIdentity, exToMotorSpec, flightIdentity, loadExMotors, type ExMotor, type ExFlightSnapshot } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
@@ -39,7 +40,7 @@ export function archiveExMotors(mounted: readonly OrkExportMotor[], notes: strin
   for (const ref of exRefs) {
     if (seenRefs.has(ref)) continue;
     seenRefs.add(ref);
-    const name = ref.designation.slice(0, 160);
+    const name = noteField(ref.designation, 160);
     const current = library.get(ref.exMotorId ?? '');
     const spec = ref.exMotorSpec as RepairedMotorSpec | undefined;
     const captured = spec?.exDefinition ?? ref.exDefinition;
@@ -104,7 +105,7 @@ export function archiveExMotors(mounted: readonly OrkExportMotor[], notes: strin
     const size = new TextEncoder().encode(escapeXml(JSON.stringify(definition))).length + 1;
     if (definitions.size >= MAX_EMBEDDED_EX_MOTORS || bytes + size > MAX_EX_ARCHIVE_BYTES) {
       ids.set(ref, null);
-      notes.push(`EX motor ${ref.designation.slice(0, 160)}: the disk archive budget was exceeded; saved the design without this motor.`);
+      notes.push(`EX motor ${noteField(ref.designation, 160)}: the disk archive budget was exceeded; saved the design without this motor.`);
       continue;
     }
     bytes += size;
@@ -130,14 +131,14 @@ export function readArchivedExMotors(rocket: XmlElement, notes: string[]): Map<s
     if (!value.every(validExMotorFields)) throw new Error(`invalid definition, non-finite value, or over ${MAX_EX_MOTOR_SAMPLES} samples per motor`);
     if (new Set(value.map(m => m.motorId)).size !== value.length) throw new Error('duplicate library ids');
     const usable = value.filter(m => {
-      const name = m.designation.slice(0, 160);
+      const name = noteField(m.designation, 160);
       if (validArchivedExMotor(m)) return true;
       cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motor ${name} was not loaded: fewer than two distinct thrust points, no positive thrust, or a captured CG outside the motor. Re-import its original .eng/.rse file.`);
       return false;
     });
     return new Map(usable.map(m => [m.motorId, m]));
   } catch (error) {
-    const reason = (error instanceof Error ? error.message : String(error)).replace(/[\p{Bidi_Control}\p{Cc}\u2028\u2029]/gu, '');
+    const reason = noteText(error instanceof Error ? error.message : String(error));
     cautionNote(notes, 'I15.embedded-ex-refused', `Embedded EX motors were refused: ${reason}. Re-import the original .eng/.rse; these motors were not loaded.`);
     return new Map();
   }

@@ -1,3 +1,4 @@
+import { noteText } from './noteField.js';
 import type { UnitSelection } from '../prefs/units.js';
 import { carryFlags, cautionNote, flagNote, noteFlags, type ImportNote } from './importNotes.js';
 import { migrateConfigLayers } from './configLayersMigration.js';
@@ -103,7 +104,7 @@ export function designStateFromSession(
       motorLengthLimitsMigrated: true,
     }, opts);
     fallback.session = null;
-    cautionNote(fallback.restoreNotes, 'G04.root-replaced', `The autosaved design was not restored: ${error.message} The starter design was opened; the old design's motors, configurations, and measurements were not applied.`);
+    cautionNote(fallback.restoreNotes, 'G04.root-replaced', `The autosaved design was not restored: ${noteText(error.message)} The starter design was opened; the old design's motors, configurations, and measurements were not applied.`);
     fallback.refused = true;
     fallback.restoreNoteTiers = noteFlags(fallback.restoreNotes);
     return fallback;

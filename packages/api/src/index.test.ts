@@ -220,7 +220,7 @@ describe('S1 in real workerd', () => {
       expect(result.motorFailures).toEqual(expectedFailures(node));
       // A literal kernel warning from this fixture; independent of the formatter implementation.
       if (name === 'TubeFins2.rkt') expect(result.warnings.map(w => w.message)).toContain(
-        'Airframe diameter steps abruptly — drag predictions suffer — : "Nose cone", "Forward Fuselage Tube"');
+        'Airframe diameter steps abruptly — drag predictions suffer — : “Nose cone”, “Forward Fuselage Tube”');
       expect(result.warnings.every(w => !w.message.includes(': :'))).toBe(true);
       expect(result.notes).toEqual({ api: [], import: node.importNote, padMass: node.padMassNote, flight: commentsOf(node.run) });
       expect(result.timing.basis).toContain('not CPU time');

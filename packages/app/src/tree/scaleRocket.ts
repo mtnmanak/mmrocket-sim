@@ -1,3 +1,4 @@
+import { noteField } from '../services/noteField.js';
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import type { ComponentNode, ComponentPosition, RocketTree } from '@online-openrocket/engine';
 import {
@@ -640,7 +641,7 @@ export function scaledFinProblems(tree: RocketTree, factor: number, units: UnitS
         };
         const before = problem(scaleNode(n, 1)['points'] as FinOutlinePoint[]);
         const why = before ? null : problem(scaleNode(n, factor)['points'] as FinOutlinePoint[]);
-        if (why) problems.push(`Fin set “${n.name ?? 'Freeform fins'}”: ${why} Choose a smaller factor or edit the outline.`);
+        if (why) problems.push(`Fin set “${noteField(n.name ?? 'Freeform fins')}”: ${why} Choose a smaller factor or edit the outline.`);
       }
       visit(n.children ?? []);
     }
@@ -795,7 +796,7 @@ export function scaleRocket(
     const scaled = scaleNode(n, k, limitNotes, units);
     if (n[STATED_STAGE_FIGURES] !== undefined) {
       delete scaled[STATED_STAGE_FIGURES];
-      if (!marked) limitNotes.push(`${n.name ?? 'Stage'}: original stated launch figures were discarded. They describe the unscaled rocket; weigh the scaled stage before flying.`);
+      if (!marked) limitNotes.push(`${noteField(n.name ?? 'Stage')}: original stated launch figures were discarded. They describe the unscaled rocket; weigh the scaled stage before flying.`);
     }
     for (const key of defaultEnds.get(n) ?? []) {
       Object.assign(scaled, limitPatch(n, { [key]: round(0.025 * k) }, limitNotes, units));
@@ -867,13 +868,13 @@ export function scaleRocket(
     // in the note about the same mount in the same sitting — which reads to a
     // 76 mm casing owner as though their size was not the one targeted.
     const cls = `${classLabel(m.nearestMm)} mm`;
-    const head = `${m.name}: ${motorDimension(m.boreMm)} bore becomes ${motorDimension(m.scaledBoreMm)}`;
+    const head = `${noteField(m.name)}: ${motorDimension(m.boreMm)} bore becomes ${motorDimension(m.scaledBoreMm)}`;
     // Switched on the SAME discriminant the dialog renders from — see
     // `MountPreview.verdict`.
     if (m.verdict === 'solid') {
       mountNotes.push(m.noBoreReason === 'wall'
-        ? `${m.name}: its wall reaches or passes its radius, so it has no bore. Reduce its wall thickness to fit a motor.`
-        : `${m.name}: solid (filled), so it has no bore and no motor fits it, scaled or not.`
+        ? `${noteField(m.name)}: its wall reaches or passes its radius, so it has no bore. Reduce its wall thickness to fit a motor.`
+        : `${noteField(m.name)}: solid (filled), so it has no bore and no motor fits it, scaled or not.`
           + ' Untick Solid (filled) on it to make it a tube.');
     } else if (m.verdict === 'resized') {
       const target = m.targetBoreMm!;
@@ -909,7 +910,7 @@ export function scaleRocket(
       // Only a SNAP is undone by clearing the checkbox. A size the user chose
       // is undone by choosing another, so do not send them to the tick box.
       const snapLostIt = m.verdict === 'snapped' && m.motorFitsUnsnapped;
-      mountNotes.push(`${m.name}: the ${motorDimension(m.motorMm)} motor loaded in it no longer `
+      mountNotes.push(`${noteField(m.name)}: the ${motorDimension(m.motorMm)} motor loaded in it no longer `
         + `fits the ${motorDimension(m.finalBoreMm)} bore.`
         + (snapLostIt
           ? ' Snapping to the standard size is what lost it — untick “Snap to standard motor'
@@ -949,8 +950,8 @@ export function scaleRocket(
       + ' in fixed sizes. Its length scaled.');
   }
   for (const s of statedLaunch) {
-    componentNotes.push(`“${s.name}” lost the ${s.hadMass ? 'mass and CG' : 'CG'} the RASAero file stated for`
-      + ` it. That was a LAUNCH ${s.hadMass ? 'weight' : 'CG'} with “${s.motor}” still inside it —`
+    componentNotes.push(`“${noteField(s.name)}” lost the ${s.hadMass ? 'mass and CG' : 'CG'} the RASAero file stated for`
+      + ` it. That was a LAUNCH ${s.hadMass ? 'weight' : 'CG'} with “${noteField(s.motor)}” still inside it —`
       + ' that motor matched no motor in the motor database when the file was imported, so nothing'
       + ' could take it out — and scaling it'
       + ' would have scaled that motor along with the airframe, which describes no rocket. The'
