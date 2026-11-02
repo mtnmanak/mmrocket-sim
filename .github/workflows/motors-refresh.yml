@@ -108,7 +108,7 @@ jobs:
     # A fork inherits the cron. Without this it would run weekly in someone else's
     # account and open PRs there against a catalogue they never asked for.
     if: github.repository == 'mtnmanak/mmrocket-sim'
-    # Pinned with deploy.yml's two jobs (see the note on its build job); move all four together.
+    # Pinned with deploy.yml, test-suites.yml and the other workflows; move all runner images together.
     runs-on: ubuntu-24.04
     # Measured shape of the work: ~27 GETs for the catalogue plus 24 POST batches
     # for the curves (fetch-motor-curves.mjs BATCH=50, 1,155 motors). Since
@@ -212,12 +212,12 @@ jobs:
       - run: npm ci
 
       # THE WHOLE DEPLOY GATE, not a hand-picked subset of it — because merging
-      # this PR runs exactly these commands on main (deploy.yml's build job) and
+      # this PR runs these checks on main (deploy.yml's build and test jobs) and
       # a red main blocks the deploy of everything else too. deploy.yml's
       # pull_request run does not start for this PR: GitHub starts no workflow
       # for a push or a PR made with a run's GITHUB_TOKEN, which is how the
-      # publish job below makes both. So the gate runs here, in deploy.yml's
-      # order, and packages/app/scripts/deploy-workflow.test.mjs holds the two
+      # publish job below makes both. So the gate runs here serially, and
+      # packages/app/scripts/deploy-workflow.test.mjs holds the two
       # lists together. It was `npm test` alone (audit 2026-09-30), but a
       # refresh is something tsc checks: services/motorDb.ts imports
       # motors.json as a typed module, and the userGuide.ts recompiled above is
@@ -248,10 +248,10 @@ jobs:
       # Cost: `npm test` builds the engine package (tsc; the TeaVM kernel is the
       # committed artifact, so still no Java) and runs the whole suite — about
       # 4,000 tests in September 2026, 17.8 minutes of this job's 45 on
-      # 26 October 2026. The other three steps are the ones deploy.yml's build
-      # job runs beside it (its limit is 30 minutes). Cheap against a merged PR that turns main
-      # red, which is the shape deploy.yml's own typecheck comment exists to
-      # avoid.
+      # 26 October 2026. Deploy now runs typecheck, lint and build in its
+      # 15-minute build job, and the suites in the sharded test job via
+      # test-suites.yml. This refresh still runs npm test serially. The full
+      # gate prevents a refreshed-data PR from turning main red.
       - name: Deploy gate on the refreshed data — tests
         run: npm test
 

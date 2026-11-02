@@ -10,6 +10,7 @@ import { RELEASES_NAVIGATION, releaseNotesPlugin } from './scripts/release-notes
 import { CHANGELOG, PRE_VERSIONING_NOTE } from './src/changelog';
 import { XML_JS_SETUP, XML_JS_SUITES } from './scripts/xml-js-suites.mjs';
 import { assertWorkspaceLinks } from '../../scripts/check-workspace-links.mjs';
+import { ProjectShardSequencer } from './scripts/project-shard-sequencer.mjs';
 
 assertWorkspaceLinks();
 
@@ -210,6 +211,7 @@ export default defineConfig({
   // settings keep the suite what it was under vitest 2 (AUDIT row 528,
   // vitest 2 -> 5):
   test: {
+    sequence: { sequencer: ProjectShardSequencer },
     // Vitest 4 cut its default exclude to node_modules and .git. This is
     // vitest 2's own list, so exactly the same files are collected — dist/
     // included, and the `*.config.*` rule that

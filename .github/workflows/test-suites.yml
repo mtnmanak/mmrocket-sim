@@ -2,7 +2,9 @@
 # (2026-11-02): npm test took 23.90 min of 28.7 min, with engine at 102.9 s,
 # app at 1010.2 s and API at 314.2 s. Parallel shards leave room for suite growth.
 # This job holds no secret and only a read-only token, like the caller's build job.
-# Vitest --shard=i/n partitions test FILES, including both app projects (app and jsxml).
+# Vitest --shard=i/n partitions SPECIFICATIONS (a project + a file).
+# The app config's ProjectShardSequencer keys them by project and path so the split
+# is the same on every runner, including both app projects (app and jsxml).
 # Keep each workspace's shard list complete; deploy-workflow.test.mjs guards coverage.
 # npm test locally still runs everything serially. Re-measure and rebalance when a
 # shard approaches its 15-minute limit; file counts alone do not predict runtime.

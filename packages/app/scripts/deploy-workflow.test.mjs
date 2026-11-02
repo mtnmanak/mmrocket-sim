@@ -198,6 +198,40 @@ describe('test-suites.yml — the sharded suite', () => {
   const rootTest = JSON.parse(readFileSync(new URL('../../../package.json', import.meta.url), 'utf8')).scripts.test;
   const replace = (lines, from, to) => lines.flatMap((l) => l.replace(from, to).split('\n'));
 
+  it('keeps the app project-aware sequencer wired and single-project suites explicit', () => {
+    const config = readFileSync(new URL('../vite.config.ts', import.meta.url), 'utf8');
+    // Code only: a commented-out setting must not satisfy the guard (Codex
+    // review, round 2). Only comments that START a line are stripped: the
+    // config's glob strings ('**/node_modules/**') hold `/*` and `*/` too.
+    const code = (text) => text.replace(/^\s*\/\*[\s\S]*?\*\//gm, '').replace(/^\s*\/\/[^\n]*/gm, '');
+    const assertSequencer = (text) => {
+      expect(code(text)).toMatch(/^\s*import \{ ProjectShardSequencer \} from '\.\/scripts\/project-shard-sequencer\.mjs';$/m);
+      expect(code(text)).toMatch(/^\s*sequence: \{ sequencer: ProjectShardSequencer \},$/m);
+    };
+    assertSequencer(config);
+    const line = '    sequence: { sequencer: ProjectShardSequencer },';
+    expect(config.includes(line)).toBe(true);
+    for (const to of ['    sequence: { sequencer: OtherSequencer },', `    // ${line.trim()}`, `    /* ${line.trim()} */`, '']) {
+      expect(() => assertSequencer(config.replace(line, to))).toThrow();
+    }
+    expect(() => assertSequencer(config.replace("import { ProjectShardSequencer }", "// import { ProjectShardSequencer }"))).toThrow();
+    for (const file of ['../../engine/vitest.config.ts', '../../api/vitest.config.ts']) {
+      const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+      const assertSingleProject = (text) => expect(text).not.toMatch(/\bprojects\s*:/);
+      assertSingleProject(source);
+      expect(() => assertSingleProject(source + '\nprojects: []')).toThrow();
+    }
+  });
+
+  it('pins every suite action to a release commit', () => {
+    const source = readFileSync(new URL('../../../.github/workflows/test-suites.yml', import.meta.url), 'utf8');
+    const count = steps(SUITES, 'suite').filter((s) => value(s, 'uses')).length;
+    assertPinnedActions(source, count);
+    const unpinned = source.replace(/actions\/checkout@[a-f0-9]{40}/, 'actions/checkout@main');
+    expect(unpinned).not.toBe(source);
+    expect(() => assertPinnedActions(unpinned, count)).toThrow();
+  });
+
   it('covers exactly the workspaces in the local serial test command', () => {
     const assertWorkspaces = (lines, script) => {
       const local = [...script.matchAll(/npm run test -w (\S+)/g)].map((m) => m[1]);
@@ -292,12 +326,16 @@ describe('test-suites.yml — the sharded suite', () => {
       const test = path(lines, 'jobs', 'test');
       expect(value(test, 'uses')).toBe('./.github/workflows/test-suites.yml');
       expect(value(test, 'if')).toBeUndefined();
+      expect(child(test, 'secrets')).toBeNull();
+      expect(child(test, 'permissions')?.filter(isContent).map((l) => l.trim())).toEqual(['contents: read']);
       expect(value(path(lines, 'jobs', 'deploy'), 'needs')).toBe('[build, test]');
       expect(runs(lines, 'build')).not.toContain('npm test');
     };
     assertGate(DEPLOY);
     for (const [from, to] of [['uses: ./.github/workflows/test-suites.yml', 'uses: ./wrong.yml'],
       ['  test:', '  test:\n    if: false'], ['needs: [build, test]', 'needs: build'],
+      ['  test:', '  test:\n    secrets: inherit'],
+      ['contents: read', 'contents: write'],
       ['needs: [build, test]', 'needs: test'], ['run: npm run build', 'run: npm test']]) {
       expect(() => assertGate(replace(DEPLOY, from, to)), from).toThrow();
     }

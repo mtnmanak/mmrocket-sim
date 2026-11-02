@@ -8,7 +8,7 @@ function productionGuards(workflow: string): boolean {
     const block = source.split(`\n  ${job}:`)[1]?.split(/\n {2}[a-z][\w-]*:/)[0] ?? '';
     const gate = job === 'delete' ? 'delete' : 'deploy';
     const condition = block.match(/^ {4}if: (.*)$/m)?.[1];
-    if (/^ {4}uses:/m.test(block)) {
+    if (job === 'test' && /^ {4}uses:/m.test(block)) {
       return condition === `inputs.action == '${gate}' && github.ref == 'refs/heads/main'`;
     }
     const checkouts = block.split(/- uses: actions\/checkout@/).slice(1);
@@ -22,6 +22,10 @@ function productionGuards(workflow: string): boolean {
 it('pins main-only build/test/deploy/delete, the production environment and credential-free checkouts in the actual workflow', () => {
   const workflow = readFileSync(new URL('../../../.github/workflows/api-deploy.yml', import.meta.url), 'utf8');
   expect(productionGuards(workflow)).toBe(true);
+  const reusableDeploy = workflow.replace(/\n {2}deploy:[\s\S]*?(?=\n {2}delete:)/,
+    "\n  deploy:\n    if: inputs.action == 'deploy' && github.ref == 'refs/heads/main'\n    uses: ./.github/workflows/test-suites.yml\n");
+  expect(reusableDeploy).not.toBe(workflow);
+  expect(productionGuards(reusableDeploy)).toBe(false);
   for (const token of [" && github.ref == 'refs/heads/main'", 'environment: api-production', 'persist-credentials: false']) {
     // Prove every occurrence is guarded without modifying the workflow file.
     let start = workflow.indexOf(token);
@@ -46,8 +50,11 @@ it('requires checks of the checked-out SHA before uploading the Worker', () => {
       expect(check, command).toBeLessThan(upload);
     }
     expect(build).not.toMatch(/- run: npm test\s*$/m);
-    expect(build).not.toMatch(/continue-on-error|if:.*always\(/);
+    expect(build).not.toMatch(/continue-on-error|^ {8}if:|if:.*always\(/m);
     expect(job('test')).toMatch(/^ {4}uses: \.\/\.github\/workflows\/test-suites\.yml$/m);
+    const test = job('test');
+    expect(test).not.toMatch(/^ {4}secrets:/m);
+    expect(test.match(/^ {4}permissions:\n((?: {6}[^\n]*\n)*)/m)?.[1]?.trim()).toBe('contents: read');
     expect(job('deploy')).toMatch(/^ {4}needs: \[build, test\]$/m);
   };
   assertGate(workflow);
@@ -59,6 +66,10 @@ it('requires checks of the checked-out SHA before uploading the Worker', () => {
     ['needs: [build, test]', 'needs: build'], ['needs: [build, test]', 'needs: test'],
     ['- run: npm ci', '- run: npm ci\n        continue-on-error: true'],
     ['- run: npm ci', "- run: npm ci\n        if: always()"],
+    ['- run: npm run typecheck', '- run: npm run typecheck\n        if: false'],
+    ['    uses: ./.github/workflows/test-suites.yml', '    uses: ./.github/workflows/test-suites.yml\n    secrets: inherit'],
+    ['uses: ./.github/workflows/test-suites.yml\n    permissions:\n      contents: read',
+      'uses: ./.github/workflows/test-suites.yml\n    permissions:\n      contents: write'],
     ['uses: actions/upload-artifact@', 'uses: missing/upload@'],
   ]) {
     expect(workflow).toContain(from);
