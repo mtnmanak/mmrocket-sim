@@ -690,7 +690,8 @@ export function applyImportPlan(plan: ImportPlan, sinks: ImportSinks): void {
       const id = old && ids.get(old);
       if (!id) return motor;
       const spec = motor.spec as RepairedMotorSpec;
-      return { ...motor, meta: { ...motor.meta, exMotorId: id, motorId: id },
+      return { ...motor, meta: { ...motor.meta, exMotorId: id, motorId: id,
+        ...(motor.meta.orkMotorId === old ? { orkMotorId: id } : {}) },
         spec: { ...spec, ...(spec.exDefinition ? { exDefinition: { ...spec.exDefinition, motorId: id } } : {}) } };
     };
     const set = (motors: Record<string, MountMotor>, refs: Record<string, OrkMotorRef> = {}) => {

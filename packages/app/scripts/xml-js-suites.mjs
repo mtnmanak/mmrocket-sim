@@ -85,6 +85,9 @@ export const XML_JS_SUITES = [
   // The 2,000-part refusal (board row 84) in all three importers.
   'src/services/designPartLimit.test.ts',
   'src/services/motorMatch.policy.test.ts',
+  // C-F6-4 / E-E2-1: retained motor identity survives a save/reopen under both parsers.
+  'src/services/orkExportMotors.test.ts',
+  'src/services/openMotorChoices.test.tsx',
   'src/services/nozzleStage.test.ts',
   'src/services/nozzleWiring.test.ts',
   'src/services/deployOverrideNote.test.ts',

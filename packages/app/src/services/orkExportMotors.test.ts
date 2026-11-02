@@ -1,15 +1,23 @@
+// @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest';
 import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import { addChild, defaultTree, motorMounts } from '../tree/treeModel.js';
 import { orkMotorSet, toOrkMotor, type ExLibrary } from './orkExportMotors.js';
-import { exportOrk, type OrkMotorRef } from './orkFile.js';
+import { exportOrk, importOrk, type OrkMotorRef } from './orkFile.js';
+import { fileMotorIdentity, matchImportedMotor } from './motorMatch.js';
+import { autosaveToOrk } from './autosaveBackup.js';
+import { exportConfigs, exportMotorsMap } from './exportAssembly.js';
+import { decodeShareFragment, encodeShareFragment } from './shareLink.js';
+import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { exportRkt } from './rocksimFile.js';
 import { exportCdx1 } from './rasaeroFile.js';
 import { restoreMotorLabels } from './motorLabels.js';
-import { MOTOR_DB } from './motorDb.js';
+import { displayDesignation, manufacturerMatches, matchDbMotor, MOTOR_DB } from './motorDb.js';
+import { bundledOnlyFetchSpec, bundledSimFiles, pickDigestFile } from './thrustcurve.js';
 import type { MotorMeta } from './simReport.js';
 import { typedPadMass } from './padMassReconcile.js';
+import { parseEng } from './exMotors.js';
 
 /**
  * THE .ork EXPORT MAPPING FOR MOTORS, ON ITS OWN (audit 2026-09-30, item 23).
@@ -105,9 +113,340 @@ describe('toOrkMotor — an EX motor’s manufacturer', () => {
 });
 
 describe('toOrkMotor — identity, type and pad mass', () => {
-  it('writes the file’s own manufacturer, type and digest over the catalogue’s', () => {
-    expect(toOrkMotor(motor({ meta: { orkManufacturer: 'Estes Industries', orkType: 'reload', orkDigest: 'abc' } }),
-      undefined, noLibrary)).toMatchObject({ manufacturer: 'Estes Industries', type: 'reload', digest: 'abc' });
+  it('writes the file’s own manufacturer and digest, but corrects a conflicting catalogue type', () => {
+    expect(toOrkMotor(motor({ meta: fileMotorIdentity(ref({ designation: 'C6', manufacturer: 'Estes Industries', motorType: 'reload', digest: 'abc' })) }),
+      undefined, noLibrary)).toMatchObject({ manufacturer: 'Estes Industries', type: 'single', digest: 'abc' });
+  });
+
+  it.each(['maker', 'designation'] as const)('drops the old identity after a %s substitution on open', async changed => {
+    const db = MOTOR_DB.find(m => m.type === 'SU')!;
+    const source = ref({ designation: db.designation,
+      manufacturer: changed === 'maker' ? 'File maker A' : db.manufacturerAbbrev,
+      digest: 'original-motor-digest', motorType: 'reload' });
+    const loaded = await matchImportedMotor(source, { findDb: () => db, exMotors: [],
+      fetchSpec: async (_row, delay) => ({ ...motor({ spec: { designation: db.designation, ejectionDelay: delay } }).spec,
+        times: [0, 1], thrusts: [0, 1], masses: [0.1, 0.05], cgX: 0.035 }) });
+    expect(loaded.motor!.spec.designation).toBe(db.designation);
+    if (changed === 'designation') {
+      // A spelling change during matching is the same motor. A replacement
+      // changes the catalogue identity, even when source metadata survives.
+      const replacement = MOTOR_DB.find(row => row.type === 'SU' && row.manufacturerAbbrev === db.manufacturerAbbrev
+        && row.designation !== db.designation)!;
+      loaded.motor = { ...loaded.motor!, meta: { ...loaded.motor!.meta, motorId: replacement.motorId },
+        spec: { ...loaded.motor!.spec, designation: replacement.designation } };
+    }
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const records = { [mount]: loaded.motor! };
+    const configs = [{ id: 'copy', name: 'Copied configuration', isDefault: true, motors: structuredClone(records) }];
+    const xml = exportOrk({ name: 'Substituted motor', tree,
+      motors: exportMotorsMap({ tree, assigned: Object.entries(records), unmatchedRefs: {}, activeConfigId: 'copy', exLibrary: noLibrary }),
+      configs: exportConfigs(configs, tree, noLibrary), activeConfigId: 'copy' });
+    const recovery = autosaveToOrk({ tree, mountMotors: records, savedConfigs: configs, activeConfigId: 'copy',
+      launch: DEFAULT_CONDITIONS, savedAt: 0, configLayers: 1, motorLengthLimitsMigrated: true });
+    for (const document of [xml, await decodeShareFragment(await encodeShareFragment(xml)), recovery]) {
+      expect(document).not.toContain('<digest>original-motor-digest</digest>');
+      const opened = importOrk(document);
+      for (const saved of [...Object.values(opened.motors), ...opened.configs.flatMap(c => Object.values(c.motors))]) {
+        expect(saved).toMatchObject({ designation: loaded.motor!.spec.designation, manufacturer: db.manufacturerAbbrev, motorType: 'single' });
+        expect(saved.digest).toBeUndefined();
+      }
+    }
+  });
+
+  it('the makerless G80 equivalent cannot export the file motor identity', async () => {
+    const target = matchDbMotor('G80')!.curveEquivalent!;
+    expect(target).toBeDefined();
+    const result = await matchImportedMotor(ref({ designation: 'G80', manufacturer: '', diameter: 0, length: 0,
+      digest: 'old-g80-digest', motorType: 'hybrid' }), {
+      exMotors: [], fetchSpec: async (row, delay) => ({ ...motor({ spec: { designation: row.designation, ejectionDelay: delay } }).spec,
+        times: [0, 1], thrusts: [0, 1], masses: [0.1, 0.05], cgX: 0.035 }),
+    });
+    expect(result.motor!.meta.motorId).toBe(target.motorId);
+    const saved = toOrkMotor(result.motor!, undefined, noLibrary);
+    expect(saved).toMatchObject({ designation: target.designation, manufacturer: target.manufacturerAbbrev,
+      type: new Map([['SU', 'single'], ['reload', 'reload'], ['hybrid', 'hybrid']]).get(target.type) });
+    expect(saved.digest).toBeUndefined();
+  });
+
+  it('keeps an unchanged motor digest through a save and reopen, including a changed delay', () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const mm = motor({ spec: { ejectionDelay: 7 }, meta: fileMotorIdentity(ref({
+      designation: 'C6', manufacturer: 'Estes Industries', motorType: 'single', digest: 'exact-file-digest',
+    })) });
+    const xml = exportOrk({ name: 'Unchanged motor', tree, motors: { [mount]: toOrkMotor(mm, undefined, noLibrary) } });
+    expect(Object.values(importOrk(xml).motors)[0]).toMatchObject({
+      designation: 'C6', manufacturer: 'Estes Industries', motorType: 'single', digest: 'exact-file-digest', delay: 7,
+    });
+  });
+
+  it.each([['loose', undefined], ['common-name', undefined], ['Micro Maxx', undefined], ['loose', 'unknown'],
+    ['Micro Maxx', 'Unknown'], ['Micro Maxx', 'CUSTOM'], ['Micro Maxx', ' custom ']] as const)(
+    'keeps an unchanged %s spelling variant and curve (sentinel maker: %s)', async (kind, sentinelMaker) => {
+    const fileSpelling = (row: (typeof MOTOR_DB)[number]) => kind === 'loose' ? row.designation.replace(/^HP-/, '')
+      : kind === 'Micro Maxx' ? row.designation.toLowerCase().replaceAll('_', ' ') : row.commonName;
+    const db = MOTOR_DB.find(row => {
+      const spelling = fileSpelling(row);
+      return spelling !== row.designation && (kind === 'loose' ? row.designation.startsWith('HP-')
+        : kind !== 'Micro Maxx' || /micro/i.test(row.designation))
+        && matchDbMotor(spelling, row.diameter, undefined, sentinelMaker ?? row.manufacturerAbbrev)?.motor.motorId === row.motorId;
+    })!;
+    expect(db).toBeDefined();
+    const spelling = fileSpelling(db);
+    const files = await bundledSimFiles(db.motorId);
+    const digest = files.flatMap(file => file.digests ?? [])[0]!;
+    expect(digest).toBeTruthy();
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const sourceXml = exportOrk({ name: 'Original spelling variant', tree, motors: { [mount]: {
+      designation: spelling, manufacturer: db.manufacturerAbbrev, diameter: db.diameter / 1000,
+      length: db.length / 1000, digest, type: db.type === 'SU' ? 'single' : db.type, delay: 6,
+    } } });
+    const source = Object.values(importOrk(sentinelMaker === undefined ? sourceXml
+      : sourceXml.replace(/<manufacturer>[^<]*<\/manufacturer>/, `<manufacturer>${sentinelMaker}</manufacturer>`)).motors)[0]!;
+    const loaded = (await matchImportedMotor(source, { fetchSpec: bundledOnlyFetchSpec, exMotors: [] })).motor!;
+    expect(loaded.meta.motorId).toBe(db.motorId);
+    expect(loaded.spec.designation).not.toBe(spelling);
+    if (sentinelMaker !== undefined) expect(loaded.meta).not.toHaveProperty('orkManufacturer');
+    const xml = exportOrk({ name: 'Unchanged spelling variant', tree, motors: { [mount]: toOrkMotor(loaded, undefined, noLibrary) } });
+    const saved = Object.values(importOrk(xml).motors)[0]!;
+    expect(saved).toMatchObject({ digest, motorType: db.type === 'SU' ? 'single' : db.type });
+    const reopened = (await matchImportedMotor(saved, { fetchSpec: bundledOnlyFetchSpec, exMotors: [] })).motor!;
+    expect(reopened.meta.motorId).toBe(db.motorId);
+    expect(reopened.spec.times).toEqual(loaded.spec.times);
+    expect(reopened.spec.thrusts).toEqual(loaded.spec.thrusts);
+    expect(reopened.spec.masses).toEqual(loaded.spec.masses);
+  });
+
+  it.for(['', 'Unknown', 'custom', 'named'])('checks digest ownership and type for a reference (%j)', async (manufacturer, ctx) => {
+    // Find two makers' same-designation motors and their actual bundled digests.
+    let pair;
+    for (const row of MOTOR_DB) {
+      if (!['SU', 'reload', 'hybrid'].includes(row.type)) continue;
+      const match = matchDbMotor(row.designation, row.diameter, undefined, manufacturer === 'named' ? row.manufacturerAbbrev : manufacturer);
+      if (match?.motor.motorId !== row.motorId || match.curveEquivalent) continue;
+      const files = await bundledSimFiles(row.motorId);
+      const ownDigest = files.flatMap(file => file.digests ?? []).find(digest => pickDigestFile(files, digest, row));
+      if (!ownDigest) continue;
+      for (const other of MOTOR_DB.filter(m => m.designation === row.designation
+        && !manufacturerMatches(m.manufacturerAbbrev, row.manufacturerAbbrev))) {
+        const foreignDigest = (await bundledSimFiles(other.motorId)).flatMap(file => file.digests ?? [])
+          .find(digest => !pickDigestFile(files, digest, row));
+        if (foreignDigest) { pair = { row, ownDigest, foreignDigest }; break; }
+      }
+      if (pair) break;
+    }
+    if (!pair) { ctx.skip('No matched same-designation pair of different makers has distinct bundled digests'); return; }
+    const { row, ownDigest, foreignDigest } = pair!;
+    const expectedType = row.type === 'SU' ? 'single' : row.type;
+    const conflictingType = expectedType === 'reload' ? 'single' : 'reload';
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    for (const digest of [foreignDigest, ownDigest]) {
+      const source = ref({ manufacturer: manufacturer === 'named' ? row.manufacturerAbbrev : manufacturer,
+        designation: row.designation, diameter: row.diameter / 1000,
+        length: row.length / 1000, digest, motorType: conflictingType });
+      const loaded = (await matchImportedMotor(source, { fetchSpec: bundledOnlyFetchSpec, exMotors: [] })).motor!;
+      expect(loaded.meta.motorId).toBe(row.motorId);
+      if (digest === foreignDigest) expect(loaded.meta.orkType).toBeUndefined();
+      const xml = exportOrk({ name: 'Digest ownership', tree, motors: { [mount]: toOrkMotor(loaded, undefined, noLibrary) } });
+      const saved = Object.values(importOrk(xml).motors)[0]!;
+      expect(saved.digest).toBe(digest === ownDigest ? ownDigest : undefined);
+      expect(saved.motorType).toBe(expectedType);
+      const reopened = (await matchImportedMotor(saved, { fetchSpec: bundledOnlyFetchSpec, exMotors: [] })).motor!;
+      expect(reopened.meta.motorId).toBe(loaded.meta.motorId);
+      expect(reopened.spec.times).toEqual(loaded.spec.times);
+      expect(reopened.spec.thrusts).toEqual(loaded.spec.thrusts);
+      expect(reopened.spec.masses).toEqual(loaded.spec.masses);
+    }
+  });
+
+  it('corrects a makerless matched type with a foreign digest or no digest', async ctx => {
+    let pair;
+    for (const other of MOTOR_DB) {
+      const designation = other.commonName;
+      const match = matchDbMotor(designation, undefined, undefined, '');
+      const row = match?.motor;
+      if (!row || match.curveEquivalent || !['SU', 'reload', 'hybrid'].includes(row.type)
+        || !['SU', 'reload', 'hybrid'].includes(other.type) || other.type === row.type
+        || manufacturerMatches(row.manufacturerAbbrev, other.manufacturerAbbrev)) continue;
+      const own = await bundledSimFiles(row.motorId);
+      if (!own.length) continue;
+      const foreignDigest = (await bundledSimFiles(other.motorId)).flatMap(f => f.digests ?? [])
+        .find(digest => !pickDigestFile(own, digest, row));
+      if (foreignDigest) { pair = { row, other, designation, foreignDigest }; break; }
+    }
+    if (!pair) { ctx.skip('No makerless matched row has a different-maker/type sibling with a foreign bundled digest'); return; }
+    const { row, other, designation, foreignDigest } = pair;
+    const expectedType = row.type === 'SU' ? 'single' : row.type;
+    const fileType = other.type === 'SU' ? 'single' : other.type;
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    for (const digest of [foreignDigest, undefined]) {
+      const loaded = (await matchImportedMotor(ref({ manufacturer: '', designation, diameter: 0, motorType: fileType, digest }),
+        { fetchSpec: bundledOnlyFetchSpec, exMotors: [] })).motor!;
+      expect(loaded.meta.motorId).toBe(row.motorId);
+      const saved = Object.values(importOrk(exportOrk({ name: 'Makerless type', tree,
+        motors: { [mount]: toOrkMotor(loaded, undefined, noLibrary) } })).motors)[0]!;
+      expect(saved.motorType).toBe(expectedType);
+      expect(saved.digest).toBeUndefined();
+    }
+  });
+
+  it('keeps an unowned digest and an equivalent sibling digest', async () => {
+    let pair;
+    for (const row of MOTOR_DB.filter(m => /^HP-/i.test(m.designation))) {
+      const sibling = MOTOR_DB.find(m => m.motorId !== row.motorId
+        && manufacturerMatches(m.manufacturerAbbrev, row.manufacturerAbbrev)
+        && displayDesignation(m.designation, m.manufacturerAbbrev) === displayDesignation(row.designation, row.manufacturerAbbrev));
+      if (!sibling) continue;
+      const own = await bundledSimFiles(row.motorId);
+      const digest = (await bundledSimFiles(sibling.motorId)).flatMap(f => f.digests ?? [])
+        .find(d => !pickDigestFile(own, d, row));
+      if (digest && matchDbMotor(row.designation, row.diameter, undefined, row.manufacturerAbbrev)?.motor.motorId === row.motorId) {
+        pair = { row, digest }; break;
+      }
+    }
+    expect(pair).toBeDefined();
+    const { row, digest } = pair!;
+    const allDigests = new Set((await Promise.all(MOTOR_DB.map(m => bundledSimFiles(m.motorId))))
+      .flatMap(files => files.flatMap(f => f.digests ?? [])));
+    const unowned = '0'.repeat(32);
+    expect(allDigests.has(unowned)).toBe(false);
+    for (const manufacturer of ['', row.manufacturerAbbrev]) {
+      for (const value of [digest, unowned]) {
+        const loaded = (await matchImportedMotor(ref({ manufacturer, designation: row.designation,
+          diameter: row.diameter / 1000, digest: value, motorType: row.type === 'SU' ? 'single' : row.type }),
+        { fetchSpec: bundledOnlyFetchSpec, exMotors: [] })).motor!;
+        expect(loaded.meta.motorId).toBe(row.motorId);
+        expect(toOrkMotor(loaded, undefined, noLibrary).digest).toBe(value);
+      }
+    }
+  });
+
+  it('drops a digest owned by a different designation of the same maker', async () => {
+    let pair;
+    for (const row of MOTOR_DB.filter(m => m.type === 'SU')) {
+      if (matchDbMotor(row.designation, row.diameter, undefined, row.manufacturerAbbrev)?.motor.motorId !== row.motorId) continue;
+      const own = await bundledSimFiles(row.motorId);
+      if (!own.length) continue;
+      for (const other of MOTOR_DB.filter(m => m.manufacturerAbbrev === row.manufacturerAbbrev && m.designation !== row.designation)) {
+        const digest = (await bundledSimFiles(other.motorId)).flatMap(f => f.digests ?? [])
+          .find(d => !pickDigestFile(own, d, row));
+        if (digest) { pair = { row, digest }; break; }
+      }
+      if (pair) break;
+    }
+    expect(pair).toBeDefined();
+    const { row, digest } = pair!;
+    const loaded = (await matchImportedMotor(ref({ manufacturer: row.manufacturerAbbrev, designation: row.designation,
+      diameter: row.diameter / 1000, motorType: 'single', digest }), { fetchSpec: bundledOnlyFetchSpec, exMotors: [] })).motor!;
+    expect(loaded.meta.motorId).toBe(row.motorId);
+    expect(loaded.meta.orkType).toBeUndefined();
+    const saved = toOrkMotor(loaded, undefined, noLibrary);
+    expect(saved.digest).toBeUndefined();
+    expect(saved.type).toBe('single');
+  });
+
+  it('keeps the ID-based digest fallback when the loaded motor has no bundled files', async () => {
+    const row = { ...MOTOR_DB[0]!, motorId: 'no-bundled-files' };
+    expect(await bundledSimFiles(row.motorId)).toEqual([]);
+    const source = ref({ manufacturer: '', designation: row.designation, digest: 'unverifiable-file-digest' });
+    const loaded = (await matchImportedMotor(source, { findDb: () => row, exMotors: [],
+      fetchSpec: async () => ({ ...motor().spec, times: [0, 1], thrusts: [0, 1], masses: [0.1, 0.05], cgX: 0.035 }) })).motor!;
+    expect(toOrkMotor(loaded, undefined, noLibrary).digest).toBe(source.digest);
+  });
+
+  it('keeps a legacy session identity when its original maker still matches', () => {
+    expect(toOrkMotor(motor({ meta: { orkManufacturer: 'Estes Industries', orkType: 'reload', orkDigest: 'legacy-digest' } }),
+      undefined, noLibrary)).toMatchObject({ manufacturer: 'Estes Industries', type: 'single', digest: 'legacy-digest' });
+  });
+
+  it.each(['unknown', 'custom', 'Unknown', 'CUSTOM', ' custom '])('the XML writer omits sentinel maker %j without losing the reference digest', manufacturer => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const xml = exportOrk({ name: 'Sentinel maker', tree, motors: { [mount]: {
+      ...ref({ manufacturer }), type: 'single', digest: 'unchanged-digest',
+    } } });
+    expect(xml).not.toContain('<manufacturer>');
+    expect(Object.values(importOrk(xml).motors)[0]).toMatchObject({ manufacturer: 'unknown', digest: 'unchanged-digest' });
+  });
+
+  it('does not trust legacy session identity after its original maker was removed or changed', () => {
+    expect(toOrkMotor(motor({ meta: { orkManufacturer: 'Old maker', orkType: 'reload', orkDigest: 'old-digest' } }),
+      undefined, noLibrary)).toMatchObject({ manufacturer: 'Estes', type: 'single' });
+    expect(toOrkMotor(motor({ meta: { orkDigest: 'old-digest' } }), undefined, noLibrary)).not.toHaveProperty('digest');
+  });
+
+  it('an EX replacement uses its own type rather than the old file type', () => {
+    const mm = exMotor(fileMotorIdentity(ref({ designation: 'X99', manufacturer: 'Loki', motorType: 'single', digest: 'old-digest' })));
+    expect(toOrkMotor(mm, undefined, library)).toMatchObject({ manufacturer: 'Acme', type: 'reload' });
+    expect(toOrkMotor(mm, undefined, library)).not.toHaveProperty('digest');
+  });
+
+  it('keeps the file type for its single matching imported EX motor without a digest', async () => {
+    const ex = parseEng('I300T 38 200 6 0.1 0.2 Cesaroni\n0 0\n0.5 300\n1 0\n')[0]!;
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const source = ref({ designation: 'I300T', manufacturer: 'Cesaroni', diameter: 0.038,
+      length: 0.2, motorType: 'reload', digest: 'desktop-file-digest' });
+    const loaded = (await matchImportedMotor(source, { catalogue: [], exMotors: [ex] })).motor!;
+    expect(loaded.meta).toMatchObject({ manufacturer: 'EX', type: 'SU', orkType: 'reload' });
+    const saved = toOrkMotor(loaded, undefined, () => [ex]);
+    const xml = exportOrk({ name: 'Unchanged imported EX motor', tree, motors: { [mount]: saved } });
+    expect(Object.values(importOrk(xml).motors)[0]).toMatchObject({
+      designation: 'I300T', manufacturer: 'Cesaroni', motorType: 'reload',
+    });
+    expect(saved).not.toHaveProperty('digest');
+    expect(xml).not.toContain('<digest>');
+
+    const reopened = (await matchImportedMotor(Object.values(importOrk(xml).motors)[0]!,
+      { catalogue: [], exMotors: [] })).motor!;
+    expect(reopened).toBeDefined();
+    const secondXml = exportOrk({ name: 'Second EX save', tree,
+      motors: { [mount]: toOrkMotor(reopened, undefined, noLibrary) } });
+    expect(Object.values(importOrk(secondXml).motors)[0]!.motorType).toBe('reload');
+    expect(secondXml).not.toContain('<digest>');
+
+    // A same-maker replacement retains stale source fields but owns another ID.
+    const replacement = { ...loaded, spec: { ...loaded.spec, designation: 'I400T' },
+      meta: { ...loaded.meta, motorId: 'ex:cesaroni-i400t' } };
+    expect(toOrkMotor(replacement, undefined, () => [ex])).toMatchObject({ type: 'single' });
+    const otherMaker = { ...loaded, spec: { ...loaded.spec, exDefinition: { ...ex, realManufacturer: 'Loki' } } };
+    expect(toOrkMotor(otherMaker, undefined, () => [ex])).toMatchObject({ manufacturer: 'Loki', type: 'single' });
+  });
+
+  it('keeps a legacy EX type when its recorded real maker still matches', () => {
+    const mm = exMotor({ type: 'SU', exMotorId: 'ex:loki-x99', orkManufacturer: 'Loki Research', orkType: 'reload', orkDigest: 'legacy-digest' });
+    expect(toOrkMotor(mm, undefined, library)).toMatchObject({ manufacturer: 'Loki', type: 'reload' });
+    expect(toOrkMotor(mm, undefined, library)).not.toHaveProperty('digest');
+    expect(toOrkMotor({ ...mm, meta: { ...mm.meta, orkMotorId: '' } }, undefined, library).type).toBe('single');
+  });
+
+  it('keeps an embedded EX type without a named maker, but rejects another embedded motor', async () => {
+    const ex = parseEng('X99 38 200 6 0.1 0.2 EX\n0 0\n0.5 300\n1 0\n')[0]!;
+    const source = ref({ designation: 'X99', manufacturer: 'unknown', diameter: 0.038,
+      motorType: 'reload', exMotorId: ex.motorId, exDefinition: ex });
+    const loaded = (await matchImportedMotor(source)).motor!;
+    expect(toOrkMotor(loaded, undefined, noLibrary).type).toBe('reload');
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const xml = exportOrk({ name: 'Makerless embedded EX', tree,
+      motors: { [mount]: toOrkMotor(loaded, undefined, noLibrary) } });
+    const reopened = (await matchImportedMotor(Object.values(importOrk(xml).motors)[0]!)).motor!;
+    expect(toOrkMotor(reopened, undefined, noLibrary).type).toBe('reload');
+    const wrong = (await matchImportedMotor({ ...source, designation: 'Different motor' })).motor!;
+    expect(toOrkMotor(wrong, undefined, noLibrary).type).toBe('single');
+  });
+
+  it('checks the maker even when a stale record still carries the original maker', () => {
+    const mm = motor({ meta: { ...fileMotorIdentity(ref({ designation: 'C6', manufacturer: 'Another maker',
+      motorType: 'reload', digest: 'old-digest' })), type: undefined } });
+    const saved = toOrkMotor(mm, undefined, noLibrary);
+    expect(saved.manufacturer).toBe('Estes');
+    expect(saved).not.toHaveProperty('digest');
+    expect(saved).not.toHaveProperty('type');
   });
 
   it('maps the catalogue’s type to desktop’s names, and leaves out a type it does not know', () => {

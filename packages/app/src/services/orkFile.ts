@@ -41,6 +41,7 @@ import {
   isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import { namedMotorManufacturer } from './motorManufacturer.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
 import { sparsify } from './flightState.js';
 import { flownIgnition, flownSeparation } from './flightOverrideSummary.js';
@@ -3054,7 +3055,7 @@ export function exportOrk({
       // manufacturer (the old 'custom' fallback, and our own 'unknown'
       // sentinel) fails every description-tier match and loses the motor.
       if (m.type) emit(depth + 2, `<type>${escapeXml(m.type)}</type>`);
-      if (m.manufacturer && m.manufacturer !== 'unknown' && m.manufacturer !== 'custom') {
+      if (namedMotorManufacturer(m.manufacturer) && m.manufacturer) {
         emit(depth + 2, `<manufacturer>${escapeXml(m.manufacturer)}</manufacturer>`);
       }
       if (m.digest) emit(depth + 2, `<digest>${escapeXml(m.digest)}</digest>`);

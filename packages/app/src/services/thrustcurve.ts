@@ -684,6 +684,17 @@ export async function bundledSimFiles(motorId: string): Promise<TcSimFile[]> {
   }
 }
 
+/** Positive ownership only: an absent digest or unreadable bundle proves nothing. */
+export async function bundledDigestOwners(digest: string): Promise<string[]> {
+  try {
+    const curves = await loadBundledCurves();
+    return Object.entries(curves).filter(([, files]) => files.some(file => file.digests?.includes(digest)))
+      .map(([motorId]) => motorId);
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Does the bundle carry a curve for this motor? true or false once it has
  * loaded; null when it could not be loaded at all, which says nothing about

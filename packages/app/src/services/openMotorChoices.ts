@@ -6,7 +6,7 @@ import { savedConfigLabel } from '../model/design.js';
 import type { ImportedDesign, ResolvedImportMotors } from './importApply.js';
 import { getCatalogue, type MotorDbEntry } from './motorDb.js';
 import type { OrkMotorRef } from './orkFile.js';
-import { fetchSpecByDigest, fileMotorIdentity, mountMotorFromDb, namesOtherMaker, type MotorMatchDeps } from './motorMatch.js';
+import { fetchSpecByDigest, fileMotorIdentity, matchingExMotors, mountMotorFromDb, namesOtherMaker, type MotorMatchDeps } from './motorMatch.js';
 import { exToDbEntry, exToMotorSpec, type ExMotor } from './exMotors.js';
 import { defaultDelay, delayOptions } from './thrustcurve.js';
 import { findNode, kernelStageIdByNode, motorMounts, mountName } from '../tree/treeModel.js';
@@ -130,7 +130,11 @@ export async function applyOpenMotorChoices(
         spec = await loadSpec(db, delay, ref.digest);
       }
     }
-    const identity = fileMotorIdentity(ref);
+    // Catalogue replacements bind retained fields to the old row. A matching
+    // EX choice is the file's motor, just as for a single EX match on open.
+    const sameEx = choice.kind === 'ex' && matchingExMotors(ref, [choice.motor]).length === 1;
+    const identity = { ...fileMotorIdentity(ref),
+      orkMotorId: choice.kind === 'ex' ? sameEx ? db.motorId : '' : old?.meta.motorId ?? '' };
     if (choice.kind === 'catalogue' && namesOtherMaker(ref, db)) delete identity.orkManufacturer;
     const motor = mountMotorFromDb(db, spec, delay,
       old?.ignition ?? { event: knownIgnitionEvent(ref.ignitionEvent) ?? 'automatic', delay: ref.ignitionDelay ?? 0 },

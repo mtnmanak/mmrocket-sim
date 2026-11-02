@@ -101,7 +101,7 @@ describe('closure lane persisted records', () => {
   });
   it.each([
     ['availableDelays', '3,5'], ['availableDelays', 5], ['availableDelays', [3, '5']],
-    ['availableDelays', [null]], ['orkType', 5], ['orkManufacturer', {}], ['orkDigest', true],
+    ['availableDelays', [null]], ['orkType', 5], ['orkManufacturer', {}], ['orkMotorId', 5], ['orkDigest', true],
   ])('removes unreadable motor metadata %s=%j in both sets', (key, value) => {
     const motor = { label: 'Test', spec: { designation: 'Test', ejectionDelay: 5 }, meta: { [key as string]: value } };
     localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), mountMotors: { m: motor },

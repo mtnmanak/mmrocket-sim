@@ -2706,7 +2706,7 @@ describe('what a Save .ork hands the writer for each motor', () => {
     };
     const fixed: MountMotor = {
       ...c6, label: 'C6-3', spec: { ...c6.spec, ejectionDelay: 3 },
-      meta: { ...c6.meta, orkManufacturer: 'Estes Industries', orkType: 'single', orkDigest: 'abc123' },
+      meta: { ...c6.meta, orkManufacturer: 'Estes Industries', orkMotorId: c6.meta.motorId, orkType: 'single', orkDigest: 'abc123' },
       padMassKg: 0.25, padMassWeighedWith: 'weighed',
     };
     const working = { [core]: auto, 'pod-mmt': ex };
