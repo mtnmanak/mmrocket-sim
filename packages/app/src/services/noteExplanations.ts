@@ -1,6 +1,5 @@
 import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { formatWarning, WARNING_LABEL } from './simWarnings.js';
-import { zeroDensityStandIn } from './importNotes.js';
 
 export interface NoteExplanation { meaning: string; remedy: string }
 
@@ -41,16 +40,22 @@ const flightRemedies: Record<string, string> = {
   RAIL_CHECK_INCOMPLETE: 'Check every rail button and fin for clearance against the rail before flying. The app stopped checking this design partway, so a part that fouls the rail may not be named.',
 };
 
-/** Same stand-in figure as the I21.zero-bulk-density caution itself. */
-function zeroDensityMeaning(units: UnitSelection): string {
-  return `The engine replaces zero bulk density with ${zeroDensityStandIn(units)}, adding mass. Saving replaces the zero density.`;
+function zeroDensityMeaning(): string {
+  return 'Zero bulk density was replaced with the density stated in the note, adding mass. Saving replaces the zero density.';
 }
 
 const importGroups: { codes: string; meaning: string; remedy: string }[] = [
+  { codes: 'I22.file-format', meaning: 'The content identifies a different design format from the filename extension.', remedy: 'Check that the expected design opened. The note names the reader used.' },
+  { codes: 'I08.undeclared-config', meaning: 'Motor blocks named undeclared configurations; they were retained up to the configuration limit.', remedy: 'Check the retained configurations and motors before flying. Excess undeclared configurations are ignored as the note states.' },
+  { codes: 'I11.motor-dimensions', meaning: 'A motor reference lacks dimensions, so those dimensions do not constrain its match.', remedy: 'Check the matched motor against the actual motor before flying.' },
+  { codes: 'I21.recovery-preset', meaning: 'A linked recovery catalogue value could differ from the value the app flies.', remedy: 'Check recovery drag and mass against the actual device. Descent speed can differ from desktop OR.' },
+  { codes: 'I21.separation-event', meaning: 'An unknown separation event was ignored and the inherited stage event was kept.', remedy: 'Check the stage separation event and delay before flying.' },
+  { codes: 'I21.axial-position', meaning: 'An invalid or missing axial method kept the previous valid position, or the component default.', remedy: 'Check the named part placement against the original design and built rocket.' },
+  { codes: 'I21.material-type', meaning: 'A structural material had the wrong material type, so the app ignored it and uses its fallback or catalogue material.', remedy: 'Check the material and mass against the real part before flying.' },
   { codes: 'I03.recovery-count', meaning: 'RockSim recovery counts were combined into one equivalent device, or an invalid count needed a fallback.', remedy: 'Compare the count, dimensions and recovery mass with the real rocket. Separate-device inflation and interaction are not simulated; check the descent speed before relying on a flight.' },
   { codes: 'I03.nonbulk-material', meaning: 'A RockSim part states surface, line or unrecognized density where the app needs bulk density; a catalogue or default bulk density is used.', remedy: 'Check the named part\'s material, mass and CG against the real part. Any active mass override is kept; correct the material or override before relying on a flight.' },
   { codes: 'I11.negative-delay', meaning: 'A negative motor ejection delay was replaced with zero seconds, so the charge fires at burnout.', remedy: 'Check the named motor delay and recovery event before flying. Recovery triggered at burnout can open while the rocket is still moving fast.' },
-  { codes: 'I21.zero-bulk-density', meaning: zeroDensityMeaning(INITIAL_UNITS), remedy: 'Check the named part and its mass before flying. Keep the original file if you need the zero-density material.' },
+  { codes: 'I21.zero-bulk-density', meaning: zeroDensityMeaning(), remedy: 'Check the named part and its mass before flying. Keep the original file if you need the zero-density material.' },
   { codes: 'I02.not-run', meaning: 'The app preserves direct simulation extensions in .ork files but does not run them. Flight results can differ from desktop OpenRocket when extensions affect the flight.', remedy: 'Keep the original file. Use desktop OpenRocket to run the simulation with its extensions; enabled scripts run there only if trusted on that computer. Check which extensions affect the flight before relying on the app\u2019s results.' },
   { codes: 'I02.not-standalone', meaning: 'A simulation extension was not preserved because its XML depends on namespace declarations elsewhere in the original document.', remedy: 'Keep the original .ork file: saving from the app loses this extension. If you need to edit the design here and keep the extension, make its XML include the namespace declarations it needs before importing again.' },
   { codes: 'I02.nested-dropped', meaning: 'Simulation extensions inside other elements are not preserved when you save; their enclosing elements are omitted.', remedy: 'Keep the original .ork file if you need those payloads. Only direct children of a simulation are kept as extensions. Do not move nested XML into direct simulation children unless it is intended to run as an extension in desktop OpenRocket.' },
@@ -97,7 +102,6 @@ export function explanationFor(code: string, units: UnitSelection = INITIAL_UNIT
     meaning: formatWarning({ key: code, message: '' }, units).label,
     remedy: `Review the speed at opening, deployment timing and recovery hardware. The kernel flag uses ${noticeQuantity('velocity', 20, units, { digits: units.velocity === 'ft/s' ? 1 : undefined, otherDigits: units.velocity === 'm/s' ? 1 : undefined, defined: { value: 20, symbol: 'm/s' } })}; the report has separate opening-speed guidance. A fast opening can tear the chute or zipper the tube.`,
   };
-  if (known && code === 'I21.zero-bulk-density') return { ...known, meaning: zeroDensityMeaning(units) };
   return known ?? {
     meaning: 'No explanation is available for this code in this version of the app.',
     remedy: 'Read the original note and keep its code and details with your bug report. Do not assume an unknown code means the result is safe.',

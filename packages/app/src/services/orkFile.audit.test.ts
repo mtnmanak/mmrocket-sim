@@ -58,7 +58,7 @@ describe('audit import/export regressions', () => {
       </subcomponents></bodytube>`));
     const nodes = all(r.tree.components);
     expect(nodes.find(n => n.name === 'Tube')!.density).toBeUndefined();
-    expect(nodes.find(n => n.name === 'Chute')!.position).toEqual({ method: 'top', offset: 0 });
+    expect(nodes.find(n => n.name === 'Chute')!.position).toBeUndefined(); // Invalid setter keeps the component default.
     expect(r.notes.join('\n')).toMatch(/Tube.*invalid.*density/);
     expect(r.notes.join('\n')).toMatch(/Chute.*invalid.*axialoffset/);
     expect(r.notes.join('\n')).toMatch(/Chute.*invalid.*material.*density/);

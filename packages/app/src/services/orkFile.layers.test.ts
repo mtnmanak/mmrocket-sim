@@ -97,12 +97,13 @@ describe('FC-2 configuration layers', () => {
     expect(Object.values(again.configs[0]!.deployments)).toEqual([{ deployEvent: 'ejection', deployAltitude: 91.44, deployDelay: 0 }]);
   });
 
-  it('layers partial ignition blocks over mount defaults, including unloaded mounts, and writes only overrides', () => {
+  // Both creator names the app has written (before and after the 2026-08 rename) keep the app's own reading.
+  it.each(['MMRocket Sim', 'Online OpenRocket'])('layers partial ignition blocks over mount defaults, including unloaded mounts, and writes only overrides (creator %s)', (creator) => {
     const r = importOrk(wrap(`<bodytube><name>Mount</name><motormount><ignitionevent>burnout</ignitionevent><ignitiondelay>4</ignitiondelay>
       <motor configid="one"><designation>X</designation><delay>none</delay></motor>
       <ignitionconfiguration configid="one"><ignitiondelay>1</ignitiondelay></ignitionconfiguration>
       <ignitionconfiguration configid="empty"><ignitionevent>never</ignitionevent></ignitionconfiguration>
-      </motormount></bodytube>`, '<motorconfiguration configid="one" default="true"/><motorconfiguration configid="empty"/><motorconfiguration configid="inherit"/>'));
+      </motormount></bodytube>`, '<motorconfiguration configid="one" default="true"/><motorconfiguration configid="empty"/><motorconfiguration configid="inherit"/>').replace('<openrocket ', `<openrocket creator="${creator}" `));
     const id = Object.keys(r.motors)[0]!;
     expect(r.tree.ignitionDefaults?.[id]).toEqual({ event: 'burnout', delay: 4 });
     expect(r.configs[0]!.ignitions?.[id]).toEqual({ event: 'burnout', delay: 1 });

@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { zipSync } from 'fflate';
+import { unzipSync, zipSync } from 'fflate';
 import presetsJson from '../data/presets.json';
 import { INITIAL_UNITS, IMPERIAL_UNITS } from '../prefs/units.js';
 import { defaultTree, motorMounts } from '../tree/treeModel.js';
@@ -210,10 +210,12 @@ describe('simulateFile flies a design file offline, on the shipped data', () => 
     const view = big.subarray(4, 4 + b.length);
     expect(view.byteOffset).toBe(4);
     const viaView = await simulateFile(view, 'reference.ork');
-    // The importer was handed exactly the viewed bytes: the file, from its zip signature on.
-    const handed = vi.mocked(importOrk).mock.calls[0]![0] as ArrayBuffer;
-    expect(handed.byteLength).toBe(b.length);
-    expect(new Uint8Array(handed)).toStrictEqual(b);
+    // The shared file door inflates before dispatch; the importer gets precisely
+    // the member XML, with neither the zip wrapper nor the buffer's filler.
+    const expected = Object.values(unzipSync(b))[0]!;
+    const handed = vi.mocked(importOrk).mock.calls[0]![0] as Uint8Array;
+    expect(handed.byteLength).toBe(expected.length);
+    expect(new Uint8Array(handed)).toStrictEqual(expected);
     const whole = await simulateFile(b, 'reference.ork');
     expect(idFree(viaView.run)).toStrictEqual(idFree(whole.run));
     expect(viaView.result.summary).toStrictEqual(whole.result.summary);

@@ -1,6 +1,6 @@
 import { noteField } from './noteField.js';
 import { DEPLOY_EVENTS, FIELDS } from '../tree/schema.js';
-import { foldDeployEvent } from '../tree/deployEvent.js';
+import { foldDeployEvent, flownDeployEvent } from '../tree/deployEvent.js';
 import type { IgnitionTuple, SeparationTuple } from '../model/design.js';
 import { INITIAL_UNITS, noticeQuantity } from '../prefs/units.js';
 
@@ -41,11 +41,11 @@ export interface DeployOverride {
  * Same deployment, as far as a flight can tell: altitude only counts for the
  * altitude event. The event's case is folded the way the kernel folds it
  * (RECOV-CASE) — "Altitude" and "altitude" fly the same — while a value the
- * kernel does not name stays distinct, as the file wrote it.
+ * kernel does not name flies the ejection fallback.
  */
 export function sameDeployment(a: DeploySetting, b: DeploySetting): boolean {
-  const event = foldDeployEvent(a.deployEvent);
-  if (event !== foldDeployEvent(b.deployEvent)) return false;
+  const event = flownDeployEvent(a.deployEvent);
+  if (event !== flownDeployEvent(b.deployEvent)) return false;
   if (Math.abs(a.deployDelay - b.deployDelay) > 1e-9) return false;
   return event !== 'altitude' || Math.abs(a.deployAltitude - b.deployAltitude) <= 1e-6;
 }
@@ -54,8 +54,10 @@ const LABEL = new Map(DEPLOY_EVENTS);
 
 /** N032: quote the altitude box's units/digits; callers without preferences keep the legacy readout. */
 export function describeDeployment(d: DeploySetting, altitudeUnit?: string, parenthesized = false): string {
-  const event = foldDeployEvent(d.deployEvent);
-  let s = LABEL.get(event) ?? event;
+  const event = flownDeployEvent(d.deployEvent);
+  const written = foldDeployEvent(d.deployEvent);
+  let s = LABEL.get(event)!;
+  if (written !== event) s += ` (file value “${noteField(d.deployEvent)}” is kept; the app uses the motor ejection charge)`;
   if (event === 'altitude') {
     s += `, ${noticeQuantity('altitude', d.deployAltitude, altitudeUnit ?? INITIAL_UNITS.altitude, { digits: 3, parenthesized })}`;
   }

@@ -243,9 +243,8 @@ describe('.ork — enum strings', () => {
     const boosterId = r.tree.components[1]!.id!;
     const b = r.configs!.find((c) => c.id === 'b')!;
     expect(b.separations[boosterId]).toBeUndefined(); // Repaired value equals the default: inherit.
-    expect(r.notes).toContain('“Booster”: separation event “sometime”, in a flight configuration other than'
-      + ' the one opened, is not one the simulation knows — that configuration now uses this stage’s ejection'
-      + ' charge, desktop OpenRocket’s default.');
+    expect(r.notes).toContain('“Booster”: unknown separation event “sometime” was ignored;'
+      + " the stage's event was kept (ejection). Check separation before flying.");
   });
 
   it('an unknown separation in the OPENED configuration is dropped from the stage, one note', () => {
@@ -256,8 +255,8 @@ describe('.ork — enum strings', () => {
     expect(r.tree.components[1]).not.toHaveProperty('separationEvent');
     // Both configurations inherit the bare tag — still ONE note, the tree pass's.
     expect(r.notes.filter((n) => /sometime/.test(n))).toEqual([
-      '“Booster”: separation event “sometime” is not one the simulation knows — it now uses this stage’s'
-        + ' ejection charge, desktop OpenRocket’s default.',
+      '“Booster”: unknown separation event “sometime” was ignored;'
+        + " the stage's event was kept (ejection). Check separation before flying.",
     ]);
     for (const c of r.configs!) expect(c.separations[r.tree.components[1]!.id!]).toBeUndefined();
     expect(build(r.tree)).toBeNull();
@@ -296,7 +295,9 @@ describe('.ork — enum strings', () => {
     const r = importOrk(ork('<parachute><name>Chute</name><diameter>0.3</diameter>'
       + '<deployevent>lowerstageseparation</deployevent></parachute>'));
     expect(ofType(r.tree, 'parachute')['deployEvent']).toBe('lowerstageseparation');
-    expect(r.notes.some((n) => /deploy/.test(n))).toBe(false);
+    expect(r.notes.filter((n) => /deployment event lowerstageseparation/.test(n))).toEqual([
+      '“Chute”: deployment event lowerstageseparation is not supported; the app uses the motor ejection charge instead of lower-stage separation. Recovery can open at a different time from desktop OR. Check deployment before flying.',
+    ]);
     const tree = normalizeTree(r.tree);
     expect(ofType(tree, 'parachute')['deployEvent']).toBe('lowerstageseparation');
     expect(exportOrk({ name: r.name, tree })).toContain('<deployevent>lowerstageseparation</deployevent>');

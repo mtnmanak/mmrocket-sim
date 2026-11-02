@@ -25,7 +25,7 @@ import { shapeIsClippable, shapeParamDefault } from '../tree/shapeProfile.js';
 import { finOutlineProblem } from '../tree/finOutline.js';
 import { applyFieldLimit, fieldLimit } from '../tree/schema.js';
 import {
-  configSeparationNote, refuseTooManyParts, sanitizeTree, separationEventOf, MAX_DESIGN_PARTS, TOO_MANY_PARTS_ERROR_NAME,
+  refuseTooManyParts, sanitizeTree, separationEventOf, MAX_DESIGN_PARTS, TOO_MANY_PARTS_ERROR_NAME,
 } from '../tree/sanitize.js';
 import { CLUSTER_POINTS } from '../tree/cluster.js';
 import { isConformal, shroudEnds } from '../tree/shroud.js';
@@ -35,7 +35,7 @@ import { foldDeployEvent } from '../tree/deployEvent.js';
 import { axialLength, positionOf } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
-import { applyPresetLinks, ORK_PRESET_KEYS, type PendingPresetLink, type Preset } from './presets.js';
+import { applyPresetLinks, linkedPreset, ORK_PRESET_KEYS, type PendingPresetLink, type Preset } from './presets.js';
 import { ORK_PRESET_IMPORT_STATE, presetImportState, presetOverrideFields } from './orkPresetState.js';
 import { includedMotorFigures, OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES } from './statedLaunchWeight.js';
 import {
@@ -362,7 +362,7 @@ export interface LayeredOrkImportResult extends OrkImportResult {
   configs: LayeredOrkFlightConfig[];
 }
 
-export function importOrk(data: ArrayBuffer | string, opts?: {
+export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
   units?: UnitSelection;
   configId?: string; presets?: readonly Preset[];
   /** N032: the caller's Altitude selection, for newly composed height notes. */
@@ -384,7 +384,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   if (typeof data === 'string') {
     xml = data;
   } else {
-    let bytes: Uint8Array = new Uint8Array(data);
+    let bytes: Uint8Array = data instanceof Uint8Array ? data : new Uint8Array(data);
     if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
       // Same entry choice as before (an entry named *.ork, else the first) but
       // BOUNDED: the bare `unzipSync(bytes)` this replaced inflated every
@@ -486,6 +486,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   const outsideTreeEnums = new Map<string, string>();
   /** Parts whose <preset> names a catalogue row - resolved after the tree is built. */
   const pendingLinks: PendingPresetLink[] = [];
+  const zeroDensityParts: ComponentNode[] = [];
   const motors: Record<string, OrkMotorRef> = {};
 
   const name = text(rocketEl, ':scope > name') ?? 'Imported rocket';
@@ -614,6 +615,26 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     } else configById.set(c.id, c);
   }
   const configs = [...configById.values()];
+  // The app's own files, including those written before the 2026-08 rename (same test as `appFile` below).
+  const ownFile = doc.documentElement?.getAttribute('creator') === ORK_CREATOR
+    || doc.documentElement?.getAttribute('creator') === 'Online OpenRocket';
+  // Desktop creates configurations when a motor references an undeclared id.
+  let excessConfigs = false;
+  let inferredConfigs = 0;
+  for (const el of Array.from(rocketEl.getElementsByTagName('motor'))) {
+    const id = el.getAttribute('configid');
+    if (!id || el.tagName !== 'motor' || el.parentElement?.tagName !== 'motormount' || configById.has(id)) continue;
+    if (configs.length >= MAX_ORK_CONFIGURATIONS) { excessConfigs = true; continue; }
+    const c: LayeredOrkFlightConfig = { id, name: null, isDefault: false, motors: {}, deployments: {}, separations: {} };
+    configById.set(id, c);
+    configs.push(c);
+    inferredConfigs++;
+  }
+  if (inferredConfigs || excessConfigs) cautionNote(notes, 'I08.undeclared-config',
+    (inferredConfigs ? `${inferredConfigs} undeclared flight configuration${inferredConfigs === 1 ? ' was inferred; its motors and flight settings were' : 's were inferred; their motors and flight settings were'} retained.` : '')
+    + (excessConfigs ? `${inferredConfigs ? ' ' : ''}The excess undeclared motor configurations were ignored. Check the retained motors and configurations before flying.` : ''));
+  const defaultId = configEls.filter(c => c.getAttribute('default') === 'true' && configById.has(c.getAttribute('configid') ?? '')).at(-1)?.getAttribute('configid');
+  for (const c of configs) c.isDefault = c.id === defaultId;
   const requested = opts?.configId;
   const chosenConfigId =
     (requested != null && configs.some((c) => c.id === requested) ? requested : null)
@@ -656,10 +677,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     }
   }
 
-  // The chosen configuration's child of `el` by tag name (per-config motor
-  // or override block). With no declared configs, the first such child —
-  // hand-rolled files may key <motor configid>s without declarations, and
-  // first-in-document-order is the long-standing read for them.
+  // The chosen configuration's child of `el` by tag name. Attribute-less
+  // legacy blocks use their first child when no configuration id exists.
   const configScoped = (el: XmlElement, tag: string): XmlElement | null =>
     chosenConfigId === null
       ? el.querySelector(`:scope > ${tag}`)
@@ -672,7 +691,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
    * and saving cannot rewrite config B's recovery settings (see
    * OrkFlightConfig.deployments).
    */
+  const noteLowerStageDeployment = (node: ComponentNode, event: string): void => {
+    if (!ownFile && event === 'lowerstageseparation') {
+      outsideTreeEnums.set(`${String(node.id)}\u0000deployment\u0000${event}`,
+        `“${noteField(String(node.name ?? 'Recovery device'))}”: deployment event lowerstageseparation is not supported; the app uses the motor ejection charge instead of lower-stage separation. Recovery can open at a different time from desktop OR. Check deployment before flying.`);
+    }
+  };
   const captureDeployments = (el: XmlElement, node: ComponentNode): void => {
+    noteLowerStageDeployment(node, String(node['deployEvent'] ?? 'ejection'));
     for (const c of configs) {
       const block = Array.from(el.children).find(
         (x) => x.tagName === 'deploymentconfiguration' && x.getAttribute('configid') === c.id);
@@ -688,6 +714,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       }
       const own: DeploymentTuple = { deployEvent: String(node['deployEvent'] ?? 'ejection'),
         deployAltitude: nodeNum(node, 'deployAltitude', 200), deployDelay: nodeNum(node, 'deployDelay', 0) };
+      noteLowerStageDeployment(node, o.deployEvent);
       if (node.id && sparsify(own, o)) c.deployments[node.id] = o;
     }
   };
@@ -737,16 +764,13 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       for (const src of block ? [el, block] : [el]) {
         const event = text(src, ':scope > separationevent');
         if (event) {
-          // The kernel's spelling, or desktop's default for a value it does not
-          // name. OrkEngine.separationEventOf THROWS on one, and a configuration
-          // is applied outside the tree, so a file carrying one opened and flew —
-          // then failed the whole build the day that configuration was picked
-          // (audit 2026-09-22). The opened configuration's value is also on the
-          // stage node, where the sanitize pass reports it; this reports the rest.
+          // Unknown events leave the inherited stage event in place, as desktop
+          // does. Never pass an unknown enum outside the sanitized tree.
           const known = separationEventOf(event);
-          o.separationEvent = known ?? 'ejection';
-          if (known === null && node['separationEvent'] !== event) {
-            outsideTreeEnums.set(`${String(node.id)}\u0000separation\u0000${event}`, configSeparationNote(node, event));
+          if (known !== null) o.separationEvent = known;
+          if (known === null && src !== el) {
+            outsideTreeEnums.set(`${String(node.id)}\u0000separation\u0000${event}`,
+              `“${noteField(String(node.name ?? 'Stage'))}”: unknown separation event “${noteField(event)}” was ignored; the stage's event was kept (${noteField(o.separationEvent)}). Check separation before flying.`);
           }
         }
         if (text(src, ':scope > separationdelay') !== null) {
@@ -766,6 +790,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   const unknownIgnitions = new Set<string>();
   /** `designation|text` pairs whose missing or unreadable delay is already named (resolveRef). */
   const unreadDelays = new Set<string>();
+  const unreadDimensions = new Set<string>();
   /** Each plugged motor's note: where it sits in `notes`, and how many mounts carry it. */
   const pluggedNotes = new Map<string, { at: number; mounts: number }>();
   const readMotor = (el: XmlElement, node: ComponentNode) => {
@@ -799,8 +824,17 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       return { event: rawEvent === null ? base.event : knownEvent ?? 'automatic',
         delay: text(src, ':scope > ignitiondelay') === null ? base.delay : num(src, 'ignitiondelay', 0, notes) };
     };
-    const ownIgnition = readIgnition(mountEl, { event: 'automatic', delay: 0 },
+    let ownIgnition = readIgnition(mountEl, { event: 'automatic', delay: 0 },
       text(configScoped(mountEl, 'motor') ?? mountEl, ':scope > designation') ?? String(node['name'] ?? 'mount'));
+    const motorIgnitions = new Map<string, IgnitionTuple>();
+    // getMotorConfig returns the mount default when this mount has no motor for the id.
+    for (const block of Array.from(mountEl.children)) {
+      const id = block.getAttribute('configid');
+      if (block.tagName === 'motor' && id) motorIgnitions.set(id, { ...ownIgnition });
+      if (block.tagName !== 'ignitionconfiguration') continue;
+      if (!id || motorIgnitions.has(id) || ownFile) continue;
+      ownIgnition = readIgnition(block, ownIgnition, String(node['name'] ?? 'mount'));
+    }
     if (node.id) ignitionDefaults[node.id] = ownIgnition;
     // ONE configuration's motor+ignition off this mount. Plugged motors (no
     // ejection charge): the desktop writes the literal string "none"
@@ -814,6 +848,12 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       const digest = digestsTrusted ? text(motorEl, ':scope > digest') : null;
       const motorType = text(motorEl, ':scope > type');
       const designation = text(motorEl, ':scope > designation') ?? 'unknown';
+      const missingDimensions = ['diameter', 'length'].filter(tag => text(motorEl, `:scope > ${tag}`) === null);
+      const dimensionsKey = JSON.stringify([designation, missingDimensions]);
+      if (!ownFile && missingDimensions.length && !unreadDimensions.has(dimensionsKey)) {
+        unreadDimensions.add(dimensionsKey);
+        cautionNote(notes, 'I11.motor-dimensions', `Motor ${noteField(designation)}: the file gives no ${missingDimensions.join(' or ')}; missing dimensions do not restrict the motor match. Check the matched motor before flying.`);
+      }
       // One of the five events the kernel knows, or AUTOMATIC. Desktop
       // OpenRocket's reader ignores any other value with a warning ("Unknown
       // ignition event type … ignoring"), which leaves a mount's default on
@@ -844,8 +884,8 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         ...(exIdElement ? { exMotorId: exIdElement.textContent?.trim() ?? '' } : {}),
         matchContext: { source: 'ork' },
         manufacturer: text(motorEl, ':scope > manufacturer') ?? 'unknown',
-        diameter: num(motorEl, 'diameter', 0.018, notes, MOTOR_DIMENSIONS),
-        length: num(motorEl, 'length', 0.07, notes, MOTOR_DIMENSIONS),
+        diameter: num(motorEl, 'diameter', 0, notes, MOTOR_DIMENSIONS),
+        length: num(motorEl, 'length', 0, notes, MOTOR_DIMENSIONS),
         // A decimal that overflows (1e999) is Infinity: plugged, as desktop's
         // parseDouble makes it.
         delay: importedEjectionDelay(Number.isNaN(delayValue) ? Infinity : delayValue, notes, designation, delayText ?? ''),
@@ -866,9 +906,13 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         const byId = (tag: string) => Array.from(mountEl.children).find(
           (c) => c.tagName === tag && c.getAttribute('configid') === cfg.id);
         const cfgMotorEl = byId('motor');
-        const block = byId('mmrignitionconfiguration') ?? byId('ignitionconfiguration');
-        const ignition = appIgnitions.get(cfg.id) ?? (block ? readIgnition(block, ownIgnition,
-          text(cfgMotorEl ?? mountEl, ':scope > designation') ?? String(node['name'] ?? 'mount')) : ownIgnition);
+        // N4: the app's own per-config ignition (attribute, or the legacy <mmrignitionconfiguration> child) first;
+        // N3: a native block counts only with a motor in this configuration, or in the app's own files (desktop's
+        // getMotorConfig reading), over the ignition captured when that motor was read.
+        const block = byId('mmrignitionconfiguration') ?? (cfgMotorEl || ownFile ? byId('ignitionconfiguration') : undefined);
+        const base = motorIgnitions.get(cfg.id) ?? ownIgnition;
+        const ignition = appIgnitions.get(cfg.id) ?? (block ? readIgnition(block, base,
+          text(cfgMotorEl ?? mountEl, ':scope > designation') ?? String(node['name'] ?? 'mount')) : base);
         // An unloaded mount can still own ignition parameters (audit 2026-10-11, FC-2).
         if (sparsify(ownIgnition, ignition)) (cfg.ignitions ??= {})[node.id] = ignition;
         if (!cfgMotorEl) continue; // no motor for this config here — empty
@@ -911,7 +955,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     const tag = el.tagName;
     const base = (type: ComponentType, withPosition: boolean): ComponentNode => {
       const node: ComponentNode = { type, id: freshId() };
-      if (text(el, `:scope > ${BASE_DRAG_DECLARATION_TAG}`) === 'true') {
+      if (text(el, `:scope > ${BASE_DRAG_DECLARATION_TAG}`)?.toLowerCase() === 'true') {
         node[BASE_DRAG_DECLARATION] = true;
       }
       const nm = text(el, ':scope > name');
@@ -939,8 +983,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
           if (digest) node[ORK_PRESET_KEYS.digest] = digest;
         }
       }
-      const density = matDensity(el, notes, units);
+      const density = matDensity(el, notes);
       if (density !== undefined) node.density = density;
+      if (zeroBulkMaterial(el)) zeroDensityParts.push(node);
       const matName = matName_(el, 'bulk');
       if (matName) node['materialName'] = matName;
       const fin = text(el, ':scope > finish');
@@ -961,14 +1006,14 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         // still writes the BASE radius and the base's shoulder as <aftradius>
         // and <aftshoulder*> (NoseConeSaver), so they are read as for any nose
         // cone; the kernel and every reader turn the cone round (tailCone.ts).
-        const flipped = text(el, ':scope > isflipped') === 'true';
+        const flipped = text(el, ':scope > isflipped')?.toLowerCase() === 'true';
         if (flipped) n['flipped'] = true;
         // A nose cone's <aftradius> is its BASE radius, and OpenRocket 15.03
         // could write it as a bare `auto` (Wildman Mach 2 this one.ork) — taken
         // from the part behind it, or, on a tail cone, from the part ahead.
         n['aftRadius'] = autoDim(el, 'aftradius', 0.012, flipped ? autoRadii.fore : autoRadii.aft);
         // Desktop writes <thickness>filled</thickness> for solid components.
-        if (text(el, ':scope > thickness') === 'filled') {
+        if (text(el, ':scope > thickness')?.toLowerCase() === 'filled') {
           n['filled'] = true;
         } else {
           n['thickness'] = num(el, 'thickness', 0.002, notes, LENGTH);
@@ -980,7 +1025,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
           const value = num(el, `aftshoulder${field.toLowerCase()}`, NaN, notes);
           if (Number.isFinite(value)) n[`shoulder${field}`] = value;
         }
-        if (text(el, ':scope > aftshouldercapped') === 'true') n['shoulderCapped'] = true;
+        if (text(el, ':scope > aftshouldercapped')?.toLowerCase() === 'true') n['shoulderCapped'] = true;
         return n;
       }
       case 'transition': {
@@ -997,7 +1042,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         if (el.querySelector(':scope > aftradius')) {
           n['aftRadius'] = autoDim(el, 'aftradius', 0.009, autoRadii.aft);
         }
-        if (text(el, ':scope > thickness') === 'filled') {
+        if (text(el, ':scope > thickness')?.toLowerCase() === 'filled') {
           n['filled'] = true;
         } else {
           n['thickness'] = num(el, 'thickness', 0.002, notes, LENGTH);
@@ -1007,7 +1052,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         // <shapeclipped>: clipped vs full profile (ellipsoid/power/haack).
         // Forwarded to the kernel bridge as 'clipped'; absent keeps the
         // kernel default (clipped, matching the desktop).
-        const clip = text(el, ':scope > shapeclipped');
+        const clip = text(el, ':scope > shapeclipped')?.toLowerCase() ?? null;
         if (clip === 'true' || clip === 'false') n['clipped'] = clip === 'true';
         for (const [side, key] of [['fore', 'foreShoulder'], ['aft', 'aftShoulder']] as const) {
           for (const field of ['Radius', 'Length', 'Thickness'] as const) {
@@ -1023,7 +1068,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
           // builder's own file on the next save. Same key shape
           // solidMesh.ts's shoulderOf() already reads (`foreShoulderCapped` /
           // `aftShoulderCapped`), so the 3D view honours it the moment it lands.
-          if (text(el, `:scope > ${side}shouldercapped`) === 'true') n[`${key}Capped`] = true;
+          if (text(el, `:scope > ${side}shouldercapped`)?.toLowerCase() === 'true') n[`${key}Capped`] = true;
         }
         return n;
       }
@@ -1037,7 +1082,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         // A SOLID tube is <thickness>filled</thickness>, as a nose cone or
         // transition is (format audit row 27). num() read that word as NaN and
         // kept the 0.5 mm fallback: a dowel flew, and saved, as a thin shell.
-        if (text(el, ':scope > thickness') === 'filled') {
+        if (text(el, ':scope > thickness')?.toLowerCase() === 'filled') {
           n['filled'] = true;
         } else {
           n['thickness'] = num(el, 'thickness', 0.002, notes, LENGTH);
@@ -1046,7 +1091,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         const mml = num(el, 'maxmotorlength', -1, notes, 'unused');
         if (mml >= 0) n['maxMotorLength'] = mml;
         // Extension tag: sub-minimum flag (motor case is the airframe).
-        if (text(el, ':scope > caseairframe') === 'true') n['caseAirframe'] = true;
+        if (text(el, ':scope > caseairframe')?.toLowerCase() === 'true') n['caseAirframe'] = true;
         return n;
       }
       case 'trapezoidfinset': {
@@ -1192,7 +1237,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         readRingRadii(el, n, notes);
         readInstances(el, n, notes);
         // Extension tag: a bulkhead with a hole, which stops a motor (motorRoom.ts).
-        if (text(el, ':scope > holedbulkhead') === 'true') n['holedBulkhead'] = true;
+        if (text(el, ':scope > holedbulkhead')?.toLowerCase() === 'true') n['holedBulkhead'] = true;
         return n;
       }
       case 'bulkhead': {
@@ -1709,22 +1754,6 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
       notes.push(openedNote);
       configLabelNotes.push({ text: openedNote, configId: chosen.id, label: configLabel(chosen) });
     }
-  } else if (configs.length === 0) {
-    // Hand-rolled files may key <motor configid>s without declaring the
-    // configs. Those kept the legacy first-motor read, so keep the legacy
-    // honesty note: the rest were silently dropped.
-    const strayIds = new Set<string>();
-    for (const m of Array.from(rocketEl.getElementsByTagName('motor'))) {
-      const id = m.getAttribute('configid');
-      if (id) strayIds.add(id);
-    }
-    if (strayIds.size > 1) {
-      const keptId = Array.from(rocketEl.querySelectorAll('motormount > motor'))
-        .map((m) => m.getAttribute('configid'))
-        .find((id) => id !== null);
-      cautionNote(notes, 'I08.configs-dropped',
-        `File has ${strayIds.size} flight configurations — kept “${noteField(keptId ?? 'the first')}”; the other ${strayIds.size - 1} ${strayIds.size - 1 === 1 ? 'was' : 'were'} not imported.`);
-    }
   }
 
   // In a file this app wrote, the links come back and the catalogue fills
@@ -1739,6 +1768,15 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   applyPresetLinks(pendingLinks, opts?.presets, notes, {
     ownFile: doc.documentElement?.getAttribute('creator') === ORK_CREATOR,
   });
+  for (const node of zeroDensityParts) zeroBulkDensityNote(notes, String(node.name ?? node.type), units, node.density);
+  for (const { node } of pendingLinks) {
+    if (doc.documentElement?.getAttribute('creator') === ORK_CREATOR) continue;
+    if (node.type !== 'parachute' && node.type !== 'streamer') continue;
+    const row = linkedPreset(node, opts?.presets ?? []);
+    const usable = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0;
+    if (!row || !((node['cd'] === undefined && usable(row['cd'])) || (node['overrideMass'] === undefined && usable(row.mass)))) continue;
+    cautionNote(notes, 'I21.recovery-preset', `“${noteField(String(node.name ?? node.type))}”: desktop OR can use a linked recovery preset's drag coefficient and mass. The app uses ${node['cd'] === undefined ? 'its automatic drag coefficient' : `drag coefficient ${String(node['cd'])}`} and ${node['overrideMass'] === undefined ? 'mass computed from its material and dimensions' : 'the stated mass'}. Descent speed can differ; check the recovery settings before flying.`);
+  }
   const launch = readLaunchConditions(doc, notes, chosenConfigId, opts?.distanceUnit, units);
   const { simEls, simEl } = simulationForConfig(doc, chosenConfigId);
   const siteOf = (sim: XmlElement) => {
@@ -3089,8 +3127,8 @@ export function exportOrk({
       }
       if (m.digest) emit(depth + 2, `<digest>${escapeXml(m.digest)}</digest>`);
       emit(depth + 2, `<designation>${escapeXml(m.designation)}</designation>`);
-      emit(depth + 2, `<diameter>${m.diameter}</diameter>`);
-      emit(depth + 2, `<length>${m.length}</length>`);
+      if (m.diameter > 0) emit(depth + 2, `<diameter>${m.diameter}</diameter>`);
+      if (m.length > 0) emit(depth + 2, `<length>${m.length}</length>`);
       // Plugged (no ejection charge) → the desktop's literal "none".
       emit(depth + 2, `<delay>${Number.isFinite(m.delay) ? m.delay : 'none'}</delay>`);
       emit(depth + 1, '</motor>');
@@ -4000,14 +4038,14 @@ function readOverrides(el: XmlElement, node: ComponentNode, notes: string[]): vo
   if (!Number.isNaN(ocd)) node['overrideCD'] = ocd;
   // "Override for all subcomponents": per-quantity flags (24.x format);
   // legacy files carry a single <overridesubcomponents> covering all.
-  const legacyAll = text(el, ':scope > overridesubcomponents') === 'true';
-  if (legacyAll || text(el, ':scope > overridesubcomponentsmass') === 'true') {
+  const legacyAll = text(el, ':scope > overridesubcomponents')?.toLowerCase() === 'true';
+  if (legacyAll || text(el, ':scope > overridesubcomponentsmass')?.toLowerCase() === 'true') {
     node['overrideSubcomponentsMass'] = true;
   }
-  if (legacyAll || text(el, ':scope > overridesubcomponentscg') === 'true') {
+  if (legacyAll || text(el, ':scope > overridesubcomponentscg')?.toLowerCase() === 'true') {
     node['overrideSubcomponentsCG'] = true;
   }
-  if (legacyAll || text(el, ':scope > overridesubcomponentscd') === 'true') {
+  if (legacyAll || text(el, ':scope > overridesubcomponentscd')?.toLowerCase() === 'true') {
     node['overrideSubcomponentsCD'] = true;
   }
 }
@@ -4231,7 +4269,7 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
    * base faces FORWARD and the point aft (NoseCone.setFlipped).
    */
   const flippedNose = (el: XmlElement): boolean =>
-    el.tagName === 'nosecone' && text(el, ':scope > isflipped') === 'true';
+    el.tagName === 'nosecone' && text(el, ':scope > isflipped')?.toLowerCase() === 'true';
 
   /** `getFrontAutoRadius()` — the face this component shows to the one BEHIND it. */
   const front = (el: XmlElement, seen: Set<XmlElement>): number => walk(el, seen, frontMemo, prevOf,
@@ -4291,7 +4329,7 @@ function makeAutoRadii(rocketEl: XmlElement): AutoRadii {
     // BodyTube.getInnerRadius is 0, which MassObject.getAutoRadius takes
     // as no answer and keeps the device's own radius — what autoDim does
     // with a 0. The word `filled` read as no wall gave the full radius.
-    if (text(tube, ':scope > thickness') === 'filled') return 0;
+    if (text(tube, ':scope > thickness')?.toLowerCase() === 'filled') return 0;
     const r = dimension(tube, 'outerRadius', resolved(stated(tube, 'radius'), () => {
       if (!tube.querySelector(':scope > radius')) return 0.012;
       const b = bodyTube(tube);
@@ -4430,23 +4468,32 @@ function num(el: XmlElement, tag: string, fallback: number, notes: string[], sho
   return fallback;
 }
 
-function matDensity(el: XmlElement, notes: string[], units: UnitSelection): number | undefined {
+function zeroBulkMaterial(el: XmlElement): boolean {
   const m = el.querySelector(':scope > material');
-  if (!m || m.getAttribute('type') !== 'bulk') return undefined;
+  return !!m && (m.getAttribute('type') ?? 'bulk') === 'bulk' && parseDecimal(m.getAttribute('density')) === 0
+    && !Number.isFinite(parseDecimal(text(el, ':scope > overridemass')))
+    && !['podset', 'parallelstage', 'boosterset', 'parachute', 'streamer', 'shockcord',
+      'masscomponent', 'fairing', 'protuberance'].includes(el.tagName);
+}
+
+function matDensity(el: XmlElement, notes: string[]): number | undefined {
+  if (['parachute', 'streamer', 'shockcord'].includes(el.tagName)) return undefined;
+  const m = el.querySelector(':scope > material');
+  if (!m) return undefined;
+  if ((m.getAttribute('type') ?? 'bulk') !== 'bulk') {
+    cautionNote(notes, 'I21.material-type', `“${noteField(text(el, ':scope > name') ?? el.tagName)}”: material type “${noteField(m.getAttribute('type') ?? '')}” is not bulk and was ignored. Check the selected material and part mass before flying.`);
+    return undefined;
+  }
   const d = parseDecimal(m.getAttribute('density'));
   if (m.hasAttribute('density') && !(Number.isFinite(d) && d >= 0)) invalidNumberNote(el, 'material density', notes);
-  if (d === 0 && !Number.isFinite(parseDecimal(text(el, ':scope > overridemass')))
-    && !['podset', 'parallelstage', 'boosterset', 'parachute', 'streamer', 'shockcord',
-    'masscomponent', 'fairing', 'protuberance'].includes(el.tagName)) {
-    zeroBulkDensityNote(notes, text(el, ':scope > name') ?? el.tagName, units);
-  }
   return Number.isFinite(d) && d > 0 ? d : undefined;
 }
 
 /** Material NAME if it's a real name (not the "custom" placeholder). */
 function matName_(el: XmlElement, type: string, selector = ':scope > material'): string | undefined {
+  if (type === 'bulk' && ['parachute', 'streamer', 'shockcord'].includes(el.tagName)) return undefined;
   const m = el.querySelector(selector);
-  if (!m || m.getAttribute('type') !== type) return undefined;
+  if (!m || (m.getAttribute('type') ?? type) !== type) return undefined;
   const name = m.textContent?.trim();
   return name && name.toLowerCase() !== 'custom' ? name : undefined;
 }
@@ -4455,7 +4502,7 @@ function matName_(el: XmlElement, type: string, selector = ':scope > material'):
 function readSoftMaterial(el: XmlElement, node: ComponentNode, kind: 'surface' | 'line',
     densityKey: string, nameKey: string, notes: string[], selector = ':scope > material'): void {
   const m = el.querySelector(selector);
-  if (!m || m.getAttribute('type') !== kind) return;
+  if (!m || (m.getAttribute('type') ?? kind) !== kind) return;
   const d = parseDecimal(m.getAttribute('density'));
   if (Number.isFinite(d) && d >= 0) node[densityKey] = d;
   else if (m.hasAttribute('density')) invalidNumberNote(el, `${m.tagName} density`, notes);
@@ -4655,7 +4702,12 @@ function readSeparation(el: XmlElement, node: ComponentNode, configEl: XmlElemen
   let delay = 0;
   let altitude = 200;
   for (const src of configEl ? [el, configEl] : [el]) {
-    event = text(src, ':scope > separationevent') || event;
+    const raw = text(src, ':scope > separationevent');
+    if (raw) {
+      const known = separationEventOf(raw);
+      if (known !== null) event = known;
+      else cautionNote(notes, 'I21.separation-event', `“${noteField(String(node.name ?? 'Stage'))}”: unknown separation event “${noteField(raw)}” was ignored; the stage's event was kept (${noteField(event)}). Check separation before flying.`);
+    }
     if (text(src, ':scope > separationdelay') !== null) delay = num(src, 'separationdelay', 0, notes);
     if (text(src, ':scope > separationaltitude') !== null) altitude = num(src, 'separationaltitude', 200, notes, ['altitude', units]);
   }
@@ -4668,14 +4720,23 @@ function readSeparation(el: XmlElement, node: ComponentNode, configEl: XmlElemen
 const AXIAL_METHODS: readonly string[] = ['top', 'middle', 'bottom', 'absolute'];
 
 function readPosition(el: XmlElement, notes: string[]): ComponentPosition | undefined {
-  // Modern files write <axialoffset method="...">; OpenRocket ≤ 15.03 wrote
-  // only <position type="..."> — fall back to it or old files lose every
-  // fin/lug/inner-tube offset.
-  const off = el.querySelector(':scope > axialoffset') ?? el.querySelector(':scope > position');
-  if (!off) return undefined;
-  const method = (off.getAttribute('method') ?? off.getAttribute('type') ?? 'top') as ComponentPosition['method'];
-  const offset = parseDecimal(off.textContent);
-  if (!Number.isFinite(offset)) invalidNumberNote(el, off.tagName, notes, 'using the default (0)');
-  if (!['top', 'middle', 'bottom', 'absolute'].includes(method)) return undefined;
-  return { method, offset: Number.isFinite(offset) ? offset : 0 };
+  // Desktop applies both modern and legacy setters in document order.
+  let position: ComponentPosition | undefined;
+  let invalidMethodNoted = false;
+  for (const off of Array.from(el.children)) {
+    if (off.tagName !== 'axialoffset' && off.tagName !== 'position') continue;
+    const method = [off.getAttribute('method'), off.getAttribute('type')].map(m => m?.trim()).find(m => m !== undefined && AXIAL_METHODS.includes(m));
+    if (!method) {
+      if (!invalidMethodNoted) cautionNote(notes, 'I21.axial-position', `“${noteField(text(el, ':scope > name') ?? el.tagName)}”: invalid or missing axial position method; the previous or default position was kept, as in desktop OR. Check part placement before flying.`);
+      invalidMethodNoted = true;
+      continue;
+    }
+    const offset = parseDecimal(off.textContent);
+    if (!Number.isFinite(offset)) {
+      invalidNumberNote(el, off.tagName, notes, 'keeping the previous or default position');
+      continue;
+    }
+    position = { method: method as ComponentPosition['method'], offset };
+  }
+  return position;
 }

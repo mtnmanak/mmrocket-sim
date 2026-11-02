@@ -313,6 +313,9 @@ it('requires inventory review and a boundary case or scope exemption for new pro
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
   }).toEqual(reviewedCensus);
 }, 30_000);
+// Inventory review (2026-11-02, integration of lanes N1-N9): counts where several lanes touched one file are the
+// merged totals of additions each lane reviewed in its own note below — noteExplanations.ts 34 (N2, N3, N5, N6 help
+// entries: static text, no thresholds) and orkFile.ts 529 (N2, N3, N4, N7). No comparison was added at integration.
 // Inventory review (2026-11-02, N1 round 2): API index.ts 12 -> 14. The new
 // limiter-outage text ("limit") describes access, not a numerical quantity;
 // the other hit is the RATE_LIMITER type-index string: scope exemptions.
@@ -349,6 +352,16 @@ it('requires inventory review and a boundary case or scope exemption for new pro
 // Inventory review (N4 round 2): orkFile 527 -> 528 is the tilted-rod/winds
 // aloft save caution. orkFile.layers.test.ts covers zero altitude, vertical
 // rod, manual aim and absent profile boundaries; no flight input is changed.
+// N3 round 3: orkFile 529 -> 528 replaces two position selectors with an
+// ordered child walk and adds a deployment selector for disclosure. These are
+// XML routing, not numeric thresholds; laneN3 tests cover both setter orders.
+// N3 round 2 inventory review: designFile's four hits are the existing byte
+// refusal (covered by size boundary tests) and root-name regex, not new flight
+// comparisons. importNotes adds the actual-density quantity (synthetic 1234
+// catalogue tests). noteExplanations adds advice/format descriptions, not numeric
+// thresholds. orkFile's net +2 covers XML selectors/serialization and fallback
+// messages; laneN3 tests cover omitted motor dimensions, capped inferred IDs,
+// material defaults and axial positions. No flight tolerance changed.
 // Inventory review (2026-11-01, M3): rasaeroFile.ts rose 261 -> 262 on
 // `:scope > IncludeBooster${i}`, an XML child selector in the excluded-booster
 // caution loop. Its `>` is not a numeric comparison or user-facing text, so
