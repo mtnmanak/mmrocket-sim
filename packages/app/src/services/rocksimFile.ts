@@ -893,7 +893,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         const n = mk(type);
         n['finCount'] = Math.round(num(el, 'FinCount', 3));
         n['thickness'] = num(el, 'Thickness', 3) / LEN;
-        const cs = CROSS_SECTIONS[String(Math.round(num(el, 'TipShapeCode', 0)))];
+        const tipShapeCode = Math.round(num(el, 'TipShapeCode', 0));
+        const cs = CROSS_SECTIONS[String(tipShapeCode)];
+        if (!cs) cautionNote(notes, 'I04.fin-section', `Unknown RockSim fin section code ${tipShapeCode} — imported as Square, as in desktop OR; this changes fin drag and mass, so check the fin cross-section.`);
         if (cs && cs !== 'square') n['crossSection'] = cs;
         if (type === 'trapezoidfinset') {
           n['rootChord'] = num(el, 'RootChord', 50) / LEN;

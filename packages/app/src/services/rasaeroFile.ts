@@ -45,6 +45,7 @@ import { overrideFor, resolveFlightState, sparsify } from './flightState.js';
 import { repairImportedFinOutline } from './importFinOutline.js';
 import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import { noteField } from './noteField.js';
 import type { Cdx1StageFigures } from './cdx1StageFigures.js';
 
 /**
@@ -83,7 +84,7 @@ const NOSE_SHAPES: Record<string, { shape: string; param?: number }> = lookupTab
 });
 
 const CROSS_SECTIONS: Record<string, string> = lookupTable({
-  'Square': 'square', 'Rounded': 'rounded', 'Subsonic NACA': 'airfoil',
+  'square': 'square', 'rounded': 'rounded', 'subsonic naca': 'airfoil',
 });
 
 /**
@@ -451,12 +452,13 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     return xmlNum(el, tag, fb);
   };
   const surfaceStr = text(design, ':scope > Surface');
-  const finish = SURFACE_TO_FINISH[surfaceStr ?? ''] ?? DEFAULT_SURFACE_FINISH;
+  const surfaceKey = Object.keys(SURFACE_TO_FINISH).find(key => key.toLowerCase() === surfaceStr?.toLowerCase());
+  const finish = (surfaceKey ? SURFACE_TO_FINISH[surfaceKey] : undefined) ?? DEFAULT_SURFACE_FINISH;
   // Desktop warns on a surface string it does not know and falls back to
   // regular paint (`RASAeroCommonConstants.java:361-363`); say the same thing
   // rather than silently flying a finish the file never asked for.
-  if (surfaceStr !== null && SURFACE_TO_FINISH[surfaceStr] === undefined) {
-    cautionNote(notes, 'I04.surface-finish', `Unknown RASAero surface finish “${surfaceStr}” — imported as regular paint (60 µm).`);
+  if (surfaceStr !== null && surfaceKey === undefined) {
+    cautionNote(notes, 'I04.surface-finish', `Unknown RASAero surface finish “${noteField(surfaceStr)}” — imported as regular paint (60 µm).`);
   }
 
   const readFin = (parentEl: XmlElement, parentNode: ComponentNode) => {
@@ -518,8 +520,9 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         if (te > 0) fin['airfoilTeDiamond'] = te;
       }
     } else {
-      const cs = CROSS_SECTIONS[sectionName];
-      if (cs && cs !== 'square') fin['crossSection'] = cs;
+      const cs = CROSS_SECTIONS[sectionName.toLowerCase()];
+      fin['crossSection'] = cs ?? (sectionName ? 'airfoil' : 'square');
+      if (!cs && sectionName) cautionNote(notes, 'I04.fin-section', `Unknown RASAero fin section “${noteField(sectionName)}” — imported as Airfoil (pointed); this changes fin drag and mass, so check the fin cross-section.`);
     }
     (parentNode.children ??= []).push(fin);
   };
@@ -632,6 +635,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
    * (see the Transition/BoatTail branch).
    */
   let lastTube: ComponentNode | undefined; // last STAGE-LEVEL bodytube appended
+  let lastTubeAftIn = 0;
   let stationAftRadius: number | undefined;
   let stationIn = 0;
   const hasBoosterEl = Array.from(design.children).some((e) => e.tagName === 'Booster');
@@ -640,9 +644,10 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     switch (el.tagName) {
       case 'NoseCone': {
         const shapeName = text(el, ':scope > Shape') ?? 'Tangent Ogive';
-        const mapped = NOSE_SHAPES[shapeName] ?? { shape: 'ogive' };
+        const shapeKey = Object.keys(NOSE_SHAPES).find(key => key.toLowerCase() === shapeName.toLowerCase());
+        const mapped = (shapeKey ? NOSE_SHAPES[shapeKey] : undefined) ?? { shape: 'ogive' };
         // Unknown geometry changes CP and drag; name the fallback (audit 2026-10-11, S1c-6).
-        if (!NOSE_SHAPES[shapeName]) cautionNote(notes, 'I21.nose-shape', `Unknown nose shape “${shapeName}” — imported as tangent ogive; check the nose shape.`);
+        if (shapeKey === undefined) cautionNote(notes, 'I21.nose-shape', `Unknown nose shape “${noteField(shapeName)}” — imported as tangent ogive; check the nose shape.`);
         const nose: ComponentNode = {
           type: 'nosecone', id: freshId(), name: 'Nose cone',
           length: num(el, 'Length', 12) / IN,
@@ -667,6 +672,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         sustainer.children!.push(tube);
         lastTube = tube;
         stationIn += num(el, 'Length', 12);
+        lastTubeAftIn = stationIn;
         stationAftRadius = tube['outerRadius'] as number;
         break;
       }
@@ -720,14 +726,13 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         // 1.4412 cal inline AND pod-ised), but schematicLayout.ts computes the
         // drawing's totalLen from the TOP-LEVEL chain only, so a pod that
         // overhangs its host tube draws off the right edge and mis-scales the
-        // whole schematic. Under this narrower rule no pod this importer builds
-        // ever overhangs: the fin-can pod is bottom-flush, and a recessed boat
-        // tail is always followed by a booster stage longer than it.
+        // whole schematic. A recessed tail must still start after any inline
+        // transition, even when its pod attaches to an earlier body tube.
         if (el.tagName === 'BoatTail' && hasBoosterEl && lastTube) {
           (lastTube.children ??= []).push({
             type: 'podset', id: freshId(), name: 'Boat tail pod',
             instanceCount: 1, radiusOffset: 0, radiusMethod: 'free', angleOffset: 0,
-            position: { method: 'top', offset: lastTube['length'] as number },
+            position: { method: 'top', offset: (lastTube['length'] as number) + (stationIn - lastTubeAftIn) / IN },
             children: [trans],
           } as unknown as ComponentNode);
           notes.push('The boat tail slides inside the booster below it, so it is imported as a pod on '
@@ -755,22 +760,24 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         // aft = the can's own OD). A pod contributes no axial length, which is
         // the whole point.
         const canTube = mkTube(el, 'Fin can tube');
-        if (!lastTube) {
-          // No body tube ahead of it to slide over. Desktop THROWS here
+        if (!lastTube || sustainer.children!.at(-1) !== lastTube) {
+          // No body tube immediately ahead of it to slide over. Desktop THROWS here
           // (FinCanHandler.java:39-44); we keep the old flat behaviour rather
           // than refuse the file. No .CDX1 in the 54-design corpus does this.
-          cautionNote(notes, 'I21.fin-can-flat', 'This file’s fin can has no body tube in front of it to slide over, so it is '
+          cautionNote(notes, 'I21.fin-can-flat', 'This file’s fin can has no body tube immediately in front of it to slide over, so it is '
             + 'imported as a plain body tube — it adds its own length to the rocket.');
           sustainer.children!.push(canTube);
           lastTube = canTube;
           stationIn += num(el, 'Length', 12);
+          lastTubeAftIn = stationIn;
           stationAftRadius = canTube['outerRadius'] as number;
           break;
         }
         const shLen = num(el, 'ShoulderLength', 0) / IN;
-        const insideR = num(el, 'InsideDiameter', 0) / IN / 2;
+        const insideDia = num(el, 'InsideDiameter', 0);
+        const insideR = insideDia > 0 ? insideDia / IN / 2 : lastTube['outerRadius'] as number;
         const podKids: ComponentNode[] = [];
-        if (shLen > 0 && insideR > 0) {
+        if (shLen > 0) {
           podKids.push({
             type: 'transition', id: freshId(), name: 'Fin can shoulder',
             length: shLen, foreRadius: insideR, aftRadius: canTube['outerRadius'] as number,
@@ -809,7 +816,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
           children: podKids,
         } as unknown as ComponentNode);
         notes.push('The RASAero fin can slides over the tube in front of it, so it is imported as a pod '
-          + 'on “Body tube”, flush with that tube’s aft end — it adds no length. It shows in the tree '
+          + `on “Body tube”${bottomOffM === 0 ? ', flush with that tube’s aft end' : ''} — it adds no length. It shows in the tree `
           + 'as “Fin can”.');
         // The can's OD is the airframe radius at this station now — a following
         // boat tail narrows from IT, not from the tube it covers.
@@ -823,11 +830,11 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         const stage: ComponentNode = { type: 'stage', id: freshId(), name: stageName, children: [] };
         const shoulderLen = num(el, 'ShoulderLength', 0);
         const insideDia = num(el, 'InsideDiameter', 0);
-        if (shoulderLen > 0 && insideDia > 0) {
+        if (shoulderLen > 0) {
           stage.children!.push({
             type: 'transition', id: freshId(), name: `${stageName} shoulder`,
             length: shoulderLen / IN,
-            foreRadius: insideDia / IN / 2,
+            foreRadius: insideDia > 0 ? insideDia / IN / 2 : stationAftRadius ?? num(el, 'Diameter', 4) / IN / 2,
             aftRadius: num(el, 'Diameter', 4) / IN / 2,
             thickness: 0.002, shape: 'conical',
           } as ComponentNode);
@@ -836,6 +843,9 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         stage.children!.push(boosterTube);
         const btLen = num(el, 'BoattailLength', 0);
         const btRear = num(el, 'BoattailRearDiameter', 0);
+        if (btLen > 0 && btRear <= 0) {
+          cautionNote(notes, 'I21.booster-boattail', `${stageName} boat tail is omitted because its rear diameter is missing or zero. Its length still advances the next station; the missing geometry changes drag and mass. Check the boat tail before flying.`);
+        }
         if (btLen > 0 && btRear > 0) {
           stage.children!.push({
             type: 'transition', id: freshId(), name: `${stageName} boat tail`,
@@ -898,19 +908,36 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   const recovery = doc.querySelector('RASAeroDocument > Recovery');
   if (recovery) {
     const firstTube = sustainer.children!.find((c) => c.type === 'bodytube');
+    const firstEnabled = (text(recovery, ':scope > Event1') ?? 'false').toLowerCase() === 'true'
+      && (text(recovery, ':scope > EventType1') ?? 'None') !== 'None';
     for (const slot of [1, 2] as const) {
       if ((text(recovery, `:scope > Event${slot}`) ?? 'false').toLowerCase() !== 'true') continue;
       const eventType = text(recovery, `:scope > EventType${slot}`) ?? 'None';
       if (eventType === 'None') continue;
+      if (slot === 2 && !firstEnabled) {
+        cautionNote(notes, 'I04.recovery-disabled', 'RASAero recovery slot 2 is ignored because slot 1 is disabled or has no event, as in desktop OR. No recovery device is added for slot 2; check recovery before flying.');
+        continue;
+      }
+      const deviceType = text(recovery, `:scope > DeviceType${slot}`) ?? 'Parachute';
+      if (deviceType !== 'Parachute' && deviceType !== 'None') {
+        cautionNote(notes, 'I04.recovery-device', `Unknown RASAero recovery device type “${noteField(deviceType)}” in slot ${slot} — ignored; no recovery device is added for this slot.`);
+        continue;
+      }
+      if (slot === 2 && eventType === 'Apogee' && text(recovery, ':scope > EventType1') === 'Apogee') {
+        cautionNote(notes, 'I04.recovery-event', `Both RASAero recovery slots say Apogee; the app keeps both at apogee to preserve saved designs. RASAero itself and desktop OR use an Altitude event for slot 2 at the file’s Altitude2 value “${noteField(text(recovery, ':scope > Altitude2') ?? '(missing)')}” ft. Deployment can differ from apogee; at 0 ft it may not open before landing. Check recovery before flying in those tools.`);
+      }
       const cd = num(recovery, `CD${slot}`, NaN);
       const chute: ComponentNode = {
         type: 'parachute', id: freshId(),
         name: slot === 1 ? 'Drogue' : 'Main',
-        diameter: num(recovery, `Size${slot}`, 36) / IN,
+        diameter: deviceType === 'None' ? 0 : num(recovery, `Size${slot}`, 36) / IN,
         cd: Number.isFinite(cd) && cd !== 0 ? cd : undefined,
         deployEvent: eventType === 'Apogee' ? 'apogee' : 'altitude',
         position: { method: 'top', offset: 0.02 },
       } as ComponentNode;
+      if (deviceType === 'None') {
+        cautionNote(notes, 'I04.recovery-none', `RASAero recovery slot ${slot} has DeviceType None: imported as a zero-diameter parachute, as in desktop OR. It supplies no canopy drag; check recovery before flying.`);
+      }
       // Deliberately depart from desktop OR 24.12 RecoveryHandler.java:185,
       // which sets CD literally: real RASAero mains use 0 for an unset Cd.
       // Flying those as zero drag would remove the main's recovery drag.
@@ -2249,6 +2276,11 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     // launch-stage motor, or any other ignition event, writes RASAero's own 0.
     const ignitionDelay = found?.ignitionEvent === 'burnout' ? (found.ignitionDelay ?? 0) : 0;
     const abbrev = found ? rasaeroManufacturerAbbrev(found.manufacturer) : null;
+    if (found && abbrev && stIdx === stagesIn.length - 1
+      && (found.ignitionEvent === undefined || found.ignitionEvent === 'automatic') && (found.ignitionDelay ?? 0) !== 0) {
+      notes?.push(`Motor “${noteField(found.designation)}”: .CDX1 cannot keep the launch-stage ignition delay of ${found.ignitionDelay ?? 0} s. `
+        + 'On reopen it ignites at launch with no delay, which can change the flight. Save .ork to keep this timing.');
+    }
     return {
       engine: found && abbrev ? `${found.designation}  (${abbrev})` : null,
       ignitionDelay,
@@ -2782,6 +2814,9 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   // Recovery: cdx1RecoverySlots, shared with checkFormatLoss — the first two
   // parachutes anywhere in the design, in deploy order.
   const recovery = cdx1RecoverySlots(tree);
+  if (recovery.length === 2 && recovery.every(slot => slot.eventType === 'Apogee')) {
+    notes?.push('RASAero cannot express two apogee recovery devices. The app reopens both at apogee, but Altitude2 is written as “0” ft, so RASAero itself and desktop OR use an Altitude event at 0 ft for slot 2; that device may not open before landing. Save .ork to keep both deployments across tools.');
+  }
   // Recovery children are grouped BY FIELD (Altitude1, Altitude2, DeviceType1,
   // …) — the order RASAero itself writes. Our old per-slot interleaving
   // matched neither RASAero's files nor the desktop exporter.
