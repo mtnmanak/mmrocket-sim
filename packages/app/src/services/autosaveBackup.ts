@@ -3,7 +3,7 @@ import type { MountMotor } from '../model/design.js';
 import { loadExMotorIdentities } from './exMotors.js';
 import { safeName } from './fileName.js';
 import { orkMotorSet, type OrkMotorSetInput } from './orkExportMotors.js';
-import { exportOrk, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
+import { autoDelaySaveNote, exportOrk, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
 import { flushSession, heldSession, peekSession, sessionPayload, type SessionState } from './session.js';
 
 /**
@@ -36,6 +36,7 @@ export interface AutosaveFile {
   description: string;
   /** False when the .ork could not be built and this is the raw autosave. */
   ork: boolean;
+  notes: string[];
 }
 
 /**
@@ -62,7 +63,7 @@ function motorSet(
 }
 
 /** The stored session as an .ork document. Throws whatever the writer throws. */
-export function autosaveToOrk(s: SessionState): string {
+export function autosaveToOrk(s: SessionState): { xml: string; notes: string[] } {
   if ((s.treeRestoreNotes?.length ?? 0) > 0) throw new Error('The recovery .ork would omit repaired autosave data; keep the raw autosave.');
   // A damaged root must still fall back to the original recovery bytes.
   if (!Array.isArray(s.tree?.components)) throw new Error('Unreadable autosave tree');
@@ -75,8 +76,24 @@ export function autosaveToOrk(s: SessionState): string {
   // without expanding instances or substituting the starter design.
   if (!restored.refused) s = { ...restored.session!, ...restored.state };
   const active = s.savedConfigs?.find((c) => c.id === s.activeConfigId);
+  const motors = motorSet(s, s.activeConfigId ?? '', s.mountMotors, s.unmatchedRefs ?? active?.unmatchedRefs, 'records');
+  const configs = s.savedConfigs?.map((c) => ({
+    id: c.id, name: c.name, isDefault: c.isDefault,
+    ...(c.stageActiveness ? { stageActiveness: c.stageActiveness } : {}),
+    ...(c.motorLoadoutRefusal ? { motorLoadoutRefusal: c.motorLoadoutRefusal } : {}),
+    motors: motorSet(s, c.id, c.motors, c.unmatchedRefs, 'refs'),
+    ...(c.ignitions ? { ignitions: c.ignitions } : {}),
+    ...(c.deployments ? { deployments: c.deployments } : {}),
+    ...(c.separations ? { separations: c.separations } : {}),
+    ...(c.stageMassOverrides ? { stageMassOverrides: c.stageMassOverrides } : {}),
+  }));
+  // The writer replaces the active row's stored motors with the live set.
+  const notes = [...new Set([...Object.values(motors), ...(configs ?? [])
+    .filter(c => c.id !== s.activeConfigId).flatMap(c => Object.values(c.motors))]
+    .map(m => autoDelaySaveNote(m, '.ork', 'recovery')).filter((n): n is string => n !== null))];
   let omitted = false;
   const xml = exportOrk({
+    notes,
     onOmittedMotor: () => { omitted = true; },
     name: s.tree.name ?? 'My Rocket',
     tree: s.tree,
@@ -86,24 +103,15 @@ export function autosaveToOrk(s: SessionState): string {
     // 2026-09-22): a design with no configurations keeps them nowhere else,
     // and its recovery file lost the motor. A matched record still wins its
     // mount (orkMotorSet).
-    motors: motorSet(s, s.activeConfigId ?? '', s.mountMotors, s.unmatchedRefs ?? active?.unmatchedRefs, 'records'),
+    motors,
     launch: s.launch,
-    configs: s.savedConfigs?.map((c) => ({
-      id: c.id, name: c.name, isDefault: c.isDefault,
-      ...(c.stageActiveness ? { stageActiveness: c.stageActiveness } : {}),
-      ...(c.motorLoadoutRefusal ? { motorLoadoutRefusal: c.motorLoadoutRefusal } : {}),
-      motors: motorSet(s, c.id, c.motors, c.unmatchedRefs, 'refs'),
-      ...(c.ignitions ? { ignitions: c.ignitions } : {}),
-      ...(c.deployments ? { deployments: c.deployments } : {}),
-      ...(c.separations ? { separations: c.separations } : {}),
-      ...(c.stageMassOverrides ? { stageMassOverrides: c.stageMassOverrides } : {}),
-    })),
+    configs,
     activeConfigId: s.activeConfigId ?? null,
     workingOverrides: s.detachedOverrides,
     ...(s.measured ? { measured: s.measured } : {}),
   });
   if (omitted) throw new Error('The recovery .ork would omit a motor; keep the complete raw autosave.');
-  return xml;
+  return { xml, notes };
 }
 
 /**
@@ -129,9 +137,11 @@ export function autosavedDesignFile(): AutosaveFile | null {
     // tab's write this tab's own, which "Start fresh" would then delete.
     const s: SessionState | null = held ? { ...held, savedAt: Date.now() } : peekSession();
     if (s) {
+      const { xml, notes } = autosaveToOrk(s);
       return {
         name: `${safeName(s.tree.name ?? 'rocket')}-autosave.ork`,
-        data: autosaveToOrk(s),
+        data: xml,
+        notes,
         mime: 'application/octet-stream',
         extension: '.ork',
         description: 'OpenRocket design',
@@ -149,5 +159,6 @@ export function autosavedDesignFile(): AutosaveFile | null {
     extension: '.json',
     description: 'MMRocket Sim autosave',
     ork: false,
+    notes: [],
   };
 }

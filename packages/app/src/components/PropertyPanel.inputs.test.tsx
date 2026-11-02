@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { ComponentInfo, ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { PropertyPanel } from './PropertyPanel.js';
 import { PrefsProvider, usePrefs } from '../prefs/PrefsContext.js';
+import { exportOrk, importOrk } from '../services/orkFile.js';
 
 /**
  * The property panel's numeric inputs, driven through the real panel — the
@@ -243,6 +244,26 @@ describe('PropertyPanel — clearing a field', () => {
     show(treeOf(tube('A', { children: [chute] })), chute);
     typeInto(inputNamed('Drag coefficient (blank = auto)'), '');
     expect(patches).toEqual([{ cd: undefined }]);
+  });
+
+  it.each([
+    ['parachute', 'cd', 'Drag coefficient (blank = auto)'],
+    ['parachute', 'overrideMass', 'Mass override'],
+    ['railbutton', 'overrideMass', 'Mass override'],
+    ['railbutton', 'overrideCD', 'Drag coefficient (Cd) override'],
+  ] as const)('clearing %s %s cannot restore a desktop catalogue value on save', (type, key, label) => {
+    const opened = importOrk(`<openrocket version="1.10" creator="OpenRocket 24.12"><rocket><name>Linked</name>
+      <subcomponents><stage><subcomponents><bodytube><length>0.3</length><radius>0.02</radius>
+      <subcomponents><${type}><preset type="${type.toUpperCase()}" manufacturer="Maker" partno="Part" digest="desktop-digest"/>
+      <cd>1.5</cd><overridemass>0.02</overridemass><overridecd>0.7</overridecd></${type}>
+      </subcomponents></bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`);
+    const part = opened.tree.components[0]!.children![0]!.children![0]!;
+    show(opened.tree, part);
+    typeInto(inputNamed(label), '');
+    expect(patches.at(-1)).toHaveProperty(key, undefined);
+    Object.assign(part, patches.at(-1));
+    const xml = exportOrk({ name: opened.name, tree: opened.tree });
+    expect(xml).toContain('manufacturer="Maker" partno="Part" digest=""');
   });
 });
 

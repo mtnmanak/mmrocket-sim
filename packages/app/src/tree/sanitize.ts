@@ -2,6 +2,7 @@ import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type Unit
 import { cautionNote, noteFlags } from '../services/importNotes.js';
 import { sanitizeDesignProvenance } from '../services/designProvenance.js';
 import { sanitizeDocumentMaterials } from '../services/documentMaterials.js';
+import { ORK_PRESET_IMPORT_STATE, presetImportState } from '../services/orkPresetState.js';
 import { KERNEL_DEFAULT_FIN_POINTS } from './kernelDefaults.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { finOutlineProblem, kernelFinPoints, MAX_FIN_POINT_M, type FinOutlinePoint } from './finOutline.js';
@@ -160,6 +161,9 @@ const ENUM_LABEL: Record<string, string> = {
 function sanitizeOwn(n: ComponentNode, found: Finding[], units: UnitSelection = INITIAL_UNITS): ComponentNode {
   let next: ComponentNode | null = null;
   const edit = (): ComponentNode => (next ??= { ...n });
+  if (n[ORK_PRESET_IMPORT_STATE] !== undefined && !presetImportState(n)) {
+    delete edit()[ORK_PRESET_IMPORT_STATE];
+  }
   if (n.type === 'freeformfinset' && Array.isArray(n['points'])) {
     const points = n['points'] as FinOutlinePoint[];
     const readable = points.every(p => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1]));

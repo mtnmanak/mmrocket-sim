@@ -43,6 +43,9 @@ export const XML_JS_SUITES = [
   'src/tree/motorRoom.tester.test.ts',
   'src/tree/solidContext.tester.test.ts',
   'src/components/PropertyPanel.filled.test.tsx',
+  // M2: desktop-linked fields are cleared through the imported property panel.
+  'src/components/PropertyPanel.inputs.test.tsx',
+  'src/services/orkPresetExport.test.ts',
   // S7b-3: a zero-Cd .ork canopy must reach sizing unchanged through either XML parser.
   'src/services/recoverySizing.import.test.ts',
   // M3: desktop document materials and share-link restores use both parsers.

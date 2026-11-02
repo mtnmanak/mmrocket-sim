@@ -116,7 +116,7 @@ describe('pre-v0.138 station comparison', () => {
     expect(notesFor(restored.restoreNotes)[0]).toContain('2 parts');
     expect(JSON.stringify(restored.state.tree.components)).toBe(before);
     const xml = oldXml(stored);
-    for (const input of [xml, await decodeShareFragment(await encodeShareFragment(xml)), autosaveToOrk(session(stored, '0.159'))]) {
+    for (const input of [xml, await decodeShareFragment(await encodeShareFragment(xml)), autosaveToOrk(session(stored, '0.159')).xml]) {
       const opened = importOrk(input);
       expect(notesFor(opened.notes)).toHaveLength(1);
       const fin = [...absoluteStations(normalizeTree(opened.tree)).values()].find(s => s.node.name === 'Airfoil fin')!;

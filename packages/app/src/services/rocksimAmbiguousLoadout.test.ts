@@ -135,7 +135,7 @@ describe('ambiguous RockSim motor loadouts', () => {
     const xml = exportOrk({ name: 'Refusal', tree: state.tree,
       configs: synced.map(c => ({ ...c, name: null, motors: {} })), activeConfigId: state.activeConfigId });
     const reopened = importOrk(xml);
-    expect(importOrk(autosaveToOrk(session)).configs[0]!.motorLoadoutRefusal).toMatch(/Launch refused/);
+    expect(importOrk(autosaveToOrk(session).xml).configs[0]!.motorLoadoutRefusal).toMatch(/Launch refused/);
     const replan = planImport(reopened, await resolveImportMotors(reopened), { launch: DEFAULT_CONDITIONS, text });
     await expect(simulateDesign(replan.snapshot)).rejects.toThrow(/Launch refused/);
     const id = motorMounts(state.tree)[0]!.id!;

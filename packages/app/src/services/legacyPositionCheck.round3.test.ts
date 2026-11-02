@@ -62,7 +62,7 @@ describe.each(['podset', 'parallelstage'] as const)('REVIEW-2 %s', type => {
   it.each(['file', 'share', 'autosave', 'recovery'])('new design with relative descendants stays quiet through %s', async route => {
     const tree = built(type, true);
     expect(legacyPositionCandidates(tree).some(p => p.name === 'Deliberate relative weight')).toBe(true);
-    const xml = route === 'recovery' ? autosaveToOrk({ tree, launch: DEFAULT_CONDITIONS, savedAt: 1 }) : xmlFor(tree);
+    const xml = route === 'recovery' ? autosaveToOrk({ tree, launch: DEFAULT_CONDITIONS, savedAt: 1 }).xml : xmlFor(tree);
     const result = route === 'autosave' ? autosaveRestore(tree)
       : importOrk(route === 'share' ? await decodeShareFragment(await encodeShareFragment(xml)) : xml);
     expect(warnings('restoreNotes' in result ? result.restoreNotes : result.notes)).toEqual([]);
@@ -78,7 +78,7 @@ describe.each(['podset', 'parallelstage'] as const)('REVIEW-2 %s', type => {
     const restored = autosaveRestore(opened.tree);
     expect(warnings(restored.restoreNotes)).toEqual([]);
     const xml = xmlFor(restored.state.tree);
-    for (const input of [xml, await decodeShareFragment(await encodeShareFragment(xml)), autosaveToOrk(loadSession()!)]) {
+    for (const input of [xml, await decodeShareFragment(await encodeShareFragment(xml)), autosaveToOrk(loadSession()!).xml]) {
       const reopened = importOrk(input);
       expect(warnings(reopened.notes)).toEqual([]);
       expect(warnings(autosaveRestore(reopened.tree).restoreNotes)).toEqual([]);
@@ -92,7 +92,7 @@ describe.each(['podset', 'parallelstage'] as const)('REVIEW-2 %s', type => {
     expect(warnings(restored.restoreNotes)).toHaveLength(1);
     const xml = xmlFor(restored.state.tree).replace('creator="MMRocket Sim"', 'creator="MMRocket Sim" mmrsim-version="99.999"');
     expect(xml).not.toContain('mmrsim-placement="current"');
-    for (const input of [xml, await decodeShareFragment(await encodeShareFragment(xml)), autosaveToOrk(loadSession()!)]) {
+    for (const input of [xml, await decodeShareFragment(await encodeShareFragment(xml)), autosaveToOrk(loadSession()!).xml]) {
       expect(warnings(importOrk(input).notes)).toHaveLength(1);
     }
   });

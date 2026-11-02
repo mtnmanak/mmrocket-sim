@@ -108,7 +108,7 @@ export class AppBoundary extends Component<
     const where = saveOutcomeNote(out)!.text;
     this.setState({
       note: file.ork
-        ? `${where} Open it with Open… once the app is running again.`
+        ? [`${where} Open it with Open… once the app is running again.`, ...file.notes].join('\n')
         : `${where} The design could not be written as an .ork, so this is the autosave exactly as`
           + ' the browser holds it — keep it, and attach it to a bug report.',
     });
@@ -155,7 +155,7 @@ export class AppBoundary extends Component<
         <button className="file-btn" onClick={() => { void this.download(); }}>
           ⬇ Download the autosaved design
         </button>
-        <p role="status" className={this.state.note ? undefined : 'sr-only'}>{this.state.note}</p>
+        <p role="status" className={this.state.note ? undefined : 'sr-only'} style={{ whiteSpace: 'pre-line' }}>{this.state.note}</p>
         <DebugLogDownload />
         {this.state.confirming ? (
           <>

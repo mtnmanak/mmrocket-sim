@@ -42,6 +42,48 @@ afterEach(() => {
 });
 
 describe('autosavedDesignFile', () => {
+  it.each([false, true])('M2 notes describe live active motors instead of stale Auto motors (live Auto: %s)', liveAuto => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const stale = { ...c6(), meta: { ...c6().meta, autoDelay: true } };
+    const live = { ...c6(), spec: { ...c6().spec, ejectionDelay: 3 },
+      meta: { ...c6().meta, ...(liveAuto ? { autoDelay: true } : {}) } };
+    const out = autosaveToOrk({ tree, mountMotors: { [mount]: live }, launch: DEFAULT_CONDITIONS,
+      activeConfigId: 'A', configLayers: 1, savedAt: 1,
+      savedConfigs: [{ id: 'A', name: 'Active', isDefault: true, motors: { [mount]: stale } }],
+    });
+    expect(out.xml).toContain('<delay>3</delay>');
+    expect(out.notes.join('\n')).not.toContain('provisional 5 s');
+    expect(out.notes).toHaveLength(liveAuto ? 1 : 0);
+    if (liveAuto) {
+      expect(out.notes[0]).toContain('provisional 3 s');
+      expect(out.notes[0]).toContain('After reopening this backup in the app, select Auto, launch, then save');
+    }
+  });
+  it('M2 returns deduplicated Auto-delay and writer notes with the recovery file', () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const motor = { ...c6(), meta: { ...c6().meta, autoDelay: true } };
+    const session: SessionState = { tree, mountMotors: { [mount]: motor }, launch: DEFAULT_CONDITIONS,
+      activeConfigId: 'A', configLayers: 1, savedAt: 1,
+      savedConfigs: [
+        { id: 'A', name: 'Active', isDefault: true, motors: { [mount]: motor } },
+        { id: 'B', name: 'Stored', isDefault: false, motors: { [mount]: motor } },
+      ], flownAutoDelays: { A: { [mount]: 7 } },
+    };
+    const real = orkFile.exportOrk;
+    const writer = vi.spyOn(orkFile, 'exportOrk');
+    writer.mockImplementation(input => { input.notes?.push('Writer caution'); return real(input); });
+    try {
+      const out = autosaveToOrk(session);
+      expect(out.notes).toHaveLength(3);
+      expect(out.notes.join('\n')).toContain('saved at 7 s, the rounded optimum');
+      expect(out.notes.join('\n')).toContain('provisional 5 s');
+      expect(out.notes).toContain('Writer caution');
+      localStorage.setItem(KEY, JSON.stringify(session));
+      expect(autosavedDesignFile()!.notes).toEqual(out.notes);
+    } finally { writer.mockRestore(); }
+  });
   it('S1d-b2 keeps the complete raw autosave when the EX archive would omit a motor', () => {
     const mounts = Array.from({ length: 5 }, (_, i) => ({ type: 'innertube' as const, id: `m${i}`, motorMount: true }));
     const configs = Array.from({ length: 205 }, (_, c) => ({ id: `c${c}`, name: `Config ${c}`, isDefault: c === 0,
@@ -71,7 +113,7 @@ describe('autosavedDesignFile', () => {
     const session = { tree: { name: 'Original over-limit', components: [{ type: 'stage', children: [body] }] },
       launch: DEFAULT_CONDITIONS, savedAt: 0 } satisfies SessionState;
     localStorage.setItem(KEY, JSON.stringify(session));
-    const xml = autosaveToOrk(session);
+    const { xml } = autosaveToOrk(session);
     expect(xml).toContain('Original over-limit');
     expect(xml).toContain('Deep original');
     expect(xml.match(/<instancecount>32<\/instancecount>/g)).toHaveLength(4);

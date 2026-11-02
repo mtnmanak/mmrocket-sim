@@ -86,7 +86,7 @@ describe('FC-4 layer boundaries', () => {
     expect(restored.state.configLayers).toBe(1);
     expect(restored.restoreNotes.join(' ')).toContain('Reopening the original file');
     expect(restored.state.savedConfigs[0]!.deployments).toEqual({});
-    const reopened = importOrk(autosaveToOrk(legacy));
+    const reopened = importOrk(autosaveToOrk(legacy).xml);
     expect(reopened.configs.find(c => c.id === 'a')!.deployments).toEqual({});
     const other = reopened.configs.find(c => c.id === 'b')!;
     expect(Object.values(other.deployments ?? {})).toEqual([own]);
@@ -97,7 +97,7 @@ describe('FC-4 layer boundaries', () => {
     const { state, mount, a } = fixture();
     expect(snapshotFlightOverrides(state.tree, state.savedConfigs, 'a', {}, {}).ignitions).toEqual(a.ignitions);
     const deleted = deleteConfig([{ ...a, deployments: undefined, separations: undefined }], 'a', 'a', {});
-    const reopened = importOrk(autosaveToOrk({ ...state, ...deleted, configLayers: 1, savedAt: 1 }));
+    const reopened = importOrk(autosaveToOrk({ ...state, ...deleted, configLayers: 1, savedAt: 1 }).xml);
     expect(Object.values(reopened.configs[0]!.ignitions!)).toEqual([a.ignitions![mount]]);
   });
   it('headless resolves deployment and ignition before kernel construction and returns editable defaults', async () => {

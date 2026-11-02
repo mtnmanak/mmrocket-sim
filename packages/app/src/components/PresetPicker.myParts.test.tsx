@@ -232,7 +232,7 @@ describe('M2.3 My parts picker', () => {
     act(() => rows()[0]!.click());
     expect(apply).toHaveBeenCalledWith({ name: 'Factory B1', length: 0.2, outerRadius: 0.015, filled: false,
       presetManufacturer: 'Factory', presetPartNo: 'B1', orkPresetManufacturer: undefined,
-      orkPresetPartNo: undefined, orkPresetDigest: undefined });
+      orkPresetPartNo: undefined, orkPresetDigest: undefined, orkPresetImportState: undefined });
     expect(close).toHaveBeenCalledTimes(1);
   });
 });
