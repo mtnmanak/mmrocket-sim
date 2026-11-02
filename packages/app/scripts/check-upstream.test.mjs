@@ -3,13 +3,14 @@ import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   checkMotorCorrections, checkOpenMeteoShape, checkThrustCurve, checkOpenMeteoTerms, main, motorCorrectionVerdicts, OPEN_METEO_HOURLY_UNITS,
-  openMeteoHourlyProblems,
+  openMeteoHourlyProblems, DEFAULT_CHECKS,
 } from '../../../scripts/check-upstream.mjs';
 import {
   auditFix, checkAdvisories, npmAdvisories, runtimeNodes, wranglerAdvisories, wranglerPins,
 } from '../../../scripts/upstream-advisories.mjs';
 import { MOTOR_CORRECTIONS } from './motor-corrections.mjs';
-import { ThrustcurveChallengeError, ThrustcurveUnavailableError } from './thrustcurve-client.mjs';
+import { createThrustcurveFetch, ThrustcurveChallengeError, ThrustcurveUnavailableError } from './thrustcurve-client.mjs';
+import * as thrustcurveClient from './thrustcurve-client.mjs';
 
 const { unexpectedFetch } = vi.hoisted(() => {
   const unexpectedFetch = vi.fn(() => { throw new Error('unexpected network request'); });
@@ -387,6 +388,9 @@ describe('a stop on one service skips only the checks that need it', () => {
     ['a challenge', () => new ThrustcurveChallengeError('https://www.thrustcurve.org/api/v1/search.json', 403)],
     ['the unavailable latch on a 503', () => new ThrustcurveUnavailableError('https://www.thrustcurve.org/api/v1/search.json', 503)],
     ['a thrustcurve.org 403', () => Object.assign(new Error('HTTP 403'), { status: 403, url: 'https://www.thrustcurve.org/api/v1/search.json' })],
+    ['a returned final thrustcurve.org 503', () => Object.assign(new Error('HTTP 503'), { status: 503, url: 'https://www.thrustcurve.org/api/v1/search.json' })],
+    ...[500, 520, 521, 522, 523, 525, 526, 530].map(status => [`a returned thrustcurve.org ${status}`,
+      () => Object.assign(new Error(`HTTP ${status}`), { status, url: 'https://www.thrustcurve.org/api/v1/search.json' })]),
   ])('%s in section 4 skips 4b without calling it, runs 5, 5b, 6 and 6b, names 4b, and exits 2', async (_what, error) => {
     const c = sections();
     c.tc.mockImplementation(async () => { throw error(); });
@@ -409,6 +413,125 @@ describe('a stop on one service skips only the checks that need it', () => {
     expect(summary(out)).toContain('1. openrocket-database rows this app corrects — skipped: GitHub stopped answering in 3. openrocket-database HEAD');
     expect(summary(out)).toContain('3. openrocket-database HEAD — could not run');
     expect(summary(out)).not.toContain('built-in materials —');
+  });
+
+  it('keeps a single reset on the population probe non-blocking and runs metadata and 4b', async () => {
+    const c = sections();
+    const fetchImpl = vi.fn().mockRejectedValueOnce(new Error('ECONNRESET'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ manufacturers: [{ abbrev: 'A', name: 'A' }] })));
+    const client = createThrustcurveFetch({ fetchImpl, intervalMs: 0 });
+    const section4 = Object.assign(() => checkThrustCurve(async (url, init) => (await client(url, init)).json()),
+      { section: c.tc.section, needs: [] });
+    const { status, out } = await run([section4, c.tcRows]);
+    // Local catalogue-age verdicts still apply; the probe must not cause exit 2.
+    expect(status).not.toBe(2);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(c.tcRows).toHaveBeenCalledOnce();
+    expect(out).toContain('could not reach thrustcurve.org to compare catalogue size');
+    expect(out).not.toContain('Some checks could not run');
+  });
+
+  it.each(['headers', 'body'])('default sequence keeps a %s probe stall advisory but latches required deadlines', async phase => {
+    // Run the default ordering, dependencies and real sections 4/4b; unrelated
+    // services are stand-ins so this integration test stays entirely offline.
+    const checks = DEFAULT_CHECKS.map(check => [checkThrustCurve, checkMotorCorrections].includes(check)
+      ? check : stand(check.section, check.needs));
+    const execute = async failedPath => {
+      const asked = [];
+      const client = createThrustcurveFetch({ intervalMs: 0, fetchImpl: async url => {
+        asked.push(url);
+        const path = url.includes('maxResults=1') ? 'probe' : url.includes('metadata.json') ? 'metadata' : '4b';
+        if (path === failedPath) {
+          const cause = new Error(`thrustcurve.org ${phase} deadline exceeded`);
+          if (phase === 'headers') throw cause;
+          return { status: 200, ok: true, json: async () => { throw cause; } };
+        }
+        const correction = MOTOR_CORRECTIONS.find(c => url.includes(encodeURIComponent(c.designation)));
+        const body = path === 'metadata' ? { manufacturers: [{ abbrev: 'A', name: 'A' }] }
+          : path === '4b' ? { results: [{ ...correction, ...Object.fromEntries(
+            Object.entries(correction.fields).map(([key, value]) => [key, value.bad]),
+          ) }] } : { matches: 1 };
+        return new Response(JSON.stringify(body));
+      } });
+      vi.spyOn(thrustcurveClient, 'thrustcurveFetch').mockImplementation(client);
+      return { ...await run(checks), asked };
+    };
+    const baseline = await execute(null);
+    const probe = await execute('probe');
+    expect(probe.status).toBe(baseline.status);
+    expect(probe.status).not.toBe(2);
+    expect(probe.out).toContain('partly run: catalogue population probe failed');
+    expect(probe.out).toContain(`${phase} deadline exceeded`);
+    expect(probe.out).toContain('metadata.json: 1 manufacturers live');
+    expect(probe.asked.length).toBe(2 + MOTOR_CORRECTIONS.length);
+    expect(probe.out).not.toContain('Some checks could not run');
+    for (const required of ['metadata', '4b']) {
+      const result = await execute(required);
+      expect(result.status).toBe(2);
+      expect(result.asked).toHaveLength(required === 'metadata' ? 2 : 3);
+      if (required === 'metadata') expect(summary(result.out)).toContain('4b. thrustcurve.org rows this app corrects — skipped');
+    }
+    for (const check of checks.filter(check => ![checkThrustCurve, checkMotorCorrections].includes(check))) {
+      expect(check).toHaveBeenCalledTimes(4);
+    }
+  });
+
+  it.each([503, 429])('default sequence treats a probe-only HTTP %s as a note and runs metadata and 4b', async probeStatus => {
+    const checks = DEFAULT_CHECKS.map(check => [checkThrustCurve, checkMotorCorrections].includes(check)
+      ? check : stand(check.section, check.needs));
+    const execute = async (status, failMetadata = false) => {
+      let clock = 0;
+      const asked = [];
+      const client = createThrustcurveFetch({ intervalMs: 0, retries: 0,
+        now: () => clock, sleep: async ms => { clock += ms; }, log: () => {},
+        fetchImpl: async url => {
+          asked.push({ url, at: clock });
+          if (url.includes('maxResults=1')) return new Response(JSON.stringify({ matches: 1 }), {
+            status: status ?? 200, headers: { 'retry-after': '45' },
+          });
+          if (url.includes('metadata.json')) return new Response(JSON.stringify({ manufacturers: [{ abbrev: 'A', name: 'A' }] }),
+            { status: failMetadata ? 503 : 200 });
+          const correction = MOTOR_CORRECTIONS.find(c => url.includes(encodeURIComponent(c.designation)));
+          return new Response(JSON.stringify({ results: [{ ...correction, ...Object.fromEntries(
+            Object.entries(correction.fields).map(([key, value]) => [key, value.bad]),
+          ) }] }));
+        },
+      });
+      vi.spyOn(thrustcurveClient, 'thrustcurveFetch').mockImplementation(client);
+      return { ...await run(checks), asked };
+    };
+    const baseline = await execute(null);
+    const probe = await execute(probeStatus);
+    expect(probe.status).toBe(baseline.status);
+    expect(probe.status).not.toBe(2);
+    expect(probe.out).toContain('partly run: catalogue population probe failed');
+    expect(probe.out).toContain(`HTTP ${probeStatus}`);
+    expect(probe.out).toContain('metadata.json: 1 manufacturers live');
+    expect(probe.asked).toHaveLength(2 + MOTOR_CORRECTIONS.length);
+    expect(probe.asked[1].at - probe.asked[0].at).toBe(45_000);
+    expect(probe.out).not.toContain('Some checks could not run');
+    const requiredFailure = await execute(probeStatus, true);
+    expect(requiredFailure.status).toBe(2);
+    expect(requiredFailure.asked).toHaveLength(2);
+    expect(summary(requiredFailure.out)).toContain('4b. thrustcurve.org rows this app corrects — skipped');
+    for (const check of checks.filter(check => ![checkThrustCurve, checkMotorCorrections].includes(check))) {
+      expect(check).toHaveBeenCalledTimes(3);
+    }
+  });
+
+  it('default sequence stops on a plain probe HTTP 403 (audit S2-1): nothing more is asked and 4b is skipped', async () => {
+    const checks = DEFAULT_CHECKS.map(check => [checkThrustCurve, checkMotorCorrections].includes(check)
+      ? check : stand(check.section, check.needs));
+    let clock = 0;
+    const asked = [];
+    const client = createThrustcurveFetch({ intervalMs: 0, retries: 0,
+      now: () => clock, sleep: async ms => { clock += ms; }, log: () => {},
+      fetchImpl: async url => { asked.push(url); return new Response('{}', { status: url.includes('maxResults=1') ? 403 : 200 }); },
+    });
+    vi.spyOn(thrustcurveClient, 'thrustcurveFetch').mockImplementation(client);
+    const result = await run(checks);
+    expect(asked).toHaveLength(1);
+    expect(summary(result.out)).toContain('4b. thrustcurve.org rows this app corrects — skipped');
   });
 
   it('checkThrustCurve notes a challenge on its probe, runs its local checks, asks nothing more, and 4b is skipped', async () => {

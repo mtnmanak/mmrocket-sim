@@ -7,6 +7,14 @@
  *        node packages/app/scripts/fetch-motor-curves.mjs --add-digests
  *        (run AFTER fetch-motor-db.mjs — this file is keyed by that one's ids)
  *
+ * WITHDRAWN CURVES: first confirm the missing files really were withdrawn.
+ * Then run with --allow-partial to replace the old bundle without those files
+ * (exit 0, but no complete flag: this partial bundle cannot be published).
+ * Run again WITHOUT --allow-partial. The new baseline no longer expects the
+ * withdrawn curves; a successful full fetch restores complete: true. Review
+ * the removed files before approving publication. A network outage is not a
+ * withdrawal; retry later rather than accepting missing curves.
+ *
  * WHY THIS EXISTS (2026-09-05). From the repo's first day the app shipped three
  * thrust curves written BY HAND as MVP placeholders — an A8-3, B6-4 and C6-5 —
  * and they were the only motors that flew offline. Their masses were the real
@@ -60,7 +68,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { digestMotorFile, motorHeaderMasses } from './motor-digest.mjs';
 import { sampleListProblem } from './motor-samples.mjs';
-import { thrustcurveFetch } from './thrustcurve-client.mjs';
+import { RETRYABLE_STATUSES, ThrustcurveChallengeError, ThrustcurveUnavailableError, thrustcurveFetch } from './thrustcurve-client.mjs';
 
 const API = 'https://www.thrustcurve.org/api/v1';
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -151,7 +159,7 @@ export function addDigests(bundle, results) {
 /**
  * Every usable file for every motor, batch by batch. A batch that fails is
  * recorded in `failed`, one line per motor, and the run goes on — the caller
- * decides what a failure costs. HTTP 429 stops the run, recording the remaining
+ * decides what a failure costs. Final retryable statuses stop the run, recording the remaining
  * motors as failed too. `fetchImpl` and `sleep` are injectable so the
  * test can stand in for the network and the courtesy pause.
  */
@@ -238,11 +246,12 @@ export async function fetchCurves(motors, {
         headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
         body: JSON.stringify({ motorIds: batch.map((m) => m.motorId), data: 'both' }),
       });
-      rateLimited = res.status === 429;
+      rateLimited = RETRYABLE_STATUSES.includes(res.status);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       body = await res.json();
       downloadResults(body);
     } catch (err) {
+      rateLimited ||= err instanceof ThrustcurveChallengeError || err instanceof ThrustcurveUnavailableError;
       const skipped = rateLimited ? motors.slice(i) : batch;
       failed.push(...skipped.map((m) => `${m.manufacturerAbbrev} ${m.designation}: ${err.message}`));
       if (rateLimited) break;
@@ -318,10 +327,12 @@ export async function main({
     if (failed.length > 10) console.log(`     ...and ${failed.length - 10} more`);
     if (!allowPartial) {
       console.error(`Nothing was written; ${outPath} is as it was. Re-run, or pass --allow-partial `
-        + 'to write a bundle without them.');
+        + 'only after confirming withdrawal, to write a bundle without them. '
+        + 'Run again WITHOUT --allow-partial before publishing to produce a complete bundle.');
       return 1;
     }
-    console.warn(`--allow-partial: writing a bundle WITHOUT those ${failed.length} motors.`);
+    console.warn(`--allow-partial: writing a bundle WITHOUT those ${failed.length} motors. `
+      + 'Run again WITHOUT --allow-partial before publishing to produce a complete bundle; confirm withdrawal first.');
   }
 
   const doc = curvesDocument(got, db.generated, new Date().toISOString().slice(0, 10));

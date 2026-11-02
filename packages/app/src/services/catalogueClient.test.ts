@@ -50,6 +50,9 @@ const malformations: [string, (m: Manifest) => void][] = [
   ['a current not in snapshots', m => { m['current'] = daysAfter(ID, 1); }],
   ['empty snapshots', m => { m['snapshots'] = []; }],
   ['a repeated id', m => { m['snapshots'][0].id = ID; }],
+  ['non-array retained pins', m => { m['retainedSnapshotIds'] = ID; }],
+  ['missing retained pin', m => { m['retainedSnapshotIds'] = [daysAfter(ID, 1)]; }],
+  ['non-string retained pin', m => { m['retainedSnapshotIds'] = [null]; }],
   ...(['current', 'older'] as const).flatMap(which => {
     const at = (m: Manifest) => m['snapshots'][which === 'current' ? 1 : 0];
     const id = () => (which === 'current' ? ID : OLD_ID);
@@ -79,6 +82,7 @@ const malformations: [string, (m: Manifest) => void][] = [
 describe('the manifest check', () => {
   it('accepts a valid manifest and returns its current snapshot', async () => {
     const m = await valid();
+    Object.assign(m, { retainedSnapshotIds: [OLD_ID, ID] });
     const current = validateCatalogueManifest(m);
     expect(current.id).toBe(ID);
     expect(current.motors.sha256).toBe(pub.entry.motors.sha256);

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { headerMasses as appHeaderMasses, isSampleList } from '../src/services/thrustcurve.ts';
 import { BATCH, addDigests, addDigestsMain, compactFile, curvesDocument, downloadRawFiles, fetchCurves, headerMasses, main, rawDigests } from './fetch-motor-curves.mjs';
+import { ThrustcurveChallengeError, ThrustcurveUnavailableError } from './thrustcurve-client.mjs';
 
 /**
  * fetch-motor-curves.mjs against a stand-in for thrustcurve.org — never the
@@ -209,7 +210,7 @@ function world(n, { failBatch = -1 } = {}) {
   let batch = -1;
   const fetchImpl = async (_url, opts) => {
     batch++;
-    if (batch === failBatch) return { ok: false, status: 503, json: async () => ({}) };
+    if (batch === failBatch) return { ok: false, status: 400, json: async () => ({}) };
     const { motorIds } = JSON.parse(opts.body);
     return {
       ok: true, status: 200,
@@ -260,14 +261,22 @@ describe('main', () => {
     expect(events).toEqual(['request', 250, 'request', 250, 'request', 250]);
   });
 
-  it('stops on HTTP 429 and records all remaining motors as failed', async () => {
+  it.each([429, 500, 502, 503, 504, 520, 522, 523, 524])('stops on HTTP %s and records all remaining motors as failed', async status => {
     let requests = 0;
     const { motors } = world(101);
     const got = await fetchCurves(motors, {
-      fetchImpl: async () => { requests++; return { ok: false, status: 429 }; },
+      fetchImpl: async () => { requests++; return { ok: false, status }; },
       sleep: noSleep, log: quiet,
     });
     expect(requests).toBe(1);
+    expect(got.failed).toHaveLength(motors.length);
+  });
+
+  it.each([ThrustcurveChallengeError, ThrustcurveUnavailableError])('stops the batch loop on %s', async ErrorType => {
+    const { motors } = world(101);
+    const fetchImpl = vi.fn(async () => { throw new ErrorType('https://www.thrustcurve.org/api/v1/download.json', 503); });
+    const got = await fetchCurves(motors, { fetchImpl, sleep: noSleep, log: quiet });
+    expect(fetchImpl).toHaveBeenCalledOnce();
     expect(got.failed).toHaveLength(motors.length);
   });
 
@@ -394,17 +403,27 @@ describe('ci-3: a 200 batch with no usable file for motors that had curves', () 
   });
 
   it('S2-2: main exits 1 and writes nothing on a partial batch, unless --allow-partial', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const w = prepared(BATCH, bundleOf(['m0', 'm1']));
     try {
       const before = readFileSync(w.outPath, 'utf8');
       const fetchImpl = answer((ids) => ids.filter((id) => id !== 'm1').map(sample));
       expect(await main({ dbPath: w.dbPath, outPath: w.outPath, fetchImpl, sleep: noSleep, log: quiet, allowPartial: false })).toBe(1);
+      expect(error.mock.calls.flat().join('\n')).toContain('Run again WITHOUT --allow-partial before publishing');
       expect(readFileSync(w.outPath, 'utf8')).toBe(before);
       expect(await main({ dbPath: w.dbPath, outPath: w.outPath, fetchImpl, sleep: noSleep, log: quiet, allowPartial: true })).toBe(0);
+      expect(warn.mock.calls.flat().join('\n')).toContain('Run again WITHOUT --allow-partial before publishing');
       const doc = JSON.parse(readFileSync(w.outPath, 'utf8'));
       expect(doc.complete).toBeUndefined();
       expect(Object.hasOwn(doc.curves, 'm1')).toBe(false);
+      // B-S2-1: step two accepts the confirmed withdrawal against the new baseline.
+      expect(await main({ dbPath: w.dbPath, outPath: w.outPath, fetchImpl, sleep: noSleep, log: quiet, allowPartial: false })).toBe(0);
+      expect(JSON.parse(readFileSync(w.outPath, 'utf8')).complete).toBe(true);
+      expect(readFileSync(new URL('./fetch-motor-curves.mjs', import.meta.url), 'utf8')).toContain('Run again WITHOUT --allow-partial');
     } finally {
+      error.mockRestore();
+      warn.mockRestore();
       rmSync(w.dir, { recursive: true, force: true });
     }
   });

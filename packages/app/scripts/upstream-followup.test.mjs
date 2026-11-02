@@ -62,6 +62,8 @@ it.each(['page', 'catalogue population'])('stops thrustcurve.org checks, and onl
     expect(await main([check, later, unrelated], () => {})).toBe(2);
     expect(later).not.toHaveBeenCalled();
     expect(unrelated).toHaveBeenCalledOnce();
+    // A 403 is a refusal even on the advisory probe: nothing more is asked of thrustcurve.org (pre-lane behaviour,
+    // restored by the orchestrator; a 429/5xx on the probe is only a note — check-upstream.test.mjs).
     expect(fetcher).toHaveBeenCalledOnce();
   } finally { vi.unstubAllGlobals(); }
 });
@@ -148,7 +150,7 @@ it('continues independent checks after a page cannot be parsed, preserving exit 
   expect(later).toHaveBeenCalledOnce();
 });
 
-it.each(['page', 'catalogue population'])('stops requests to the host that sent an HTTP 429 from %s, and only to it', async source => {
+it.each(['page', 'catalogue metadata'])('stops requests to the host that sent a required HTTP 429 from %s, and only to it', async source => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
   vi.spyOn(console, 'error').mockImplementation(() => {});
   const service = source === 'page' ? 'Open-Meteo' : 'thrustcurve.org';
@@ -160,7 +162,8 @@ it.each(['page', 'catalogue population'])('stops requests to the host that sent 
     expect(await main([source === 'page' ? () => checkOpenMeteoTerms() : () => checkThrustCurve(), later, unrelated], () => {})).toBe(2);
     expect(later).not.toHaveBeenCalled();
     expect(unrelated).toHaveBeenCalledOnce();
-    expect(fetcher).toHaveBeenCalledOnce();
+    expect(fetcher).toHaveBeenCalledTimes(source === 'page' ? 1 : 2);
+    if (source !== 'page') expect(fetcher.mock.lastCall[0]).toContain('/metadata.json');
   } finally { vi.unstubAllGlobals(); }
 });
 

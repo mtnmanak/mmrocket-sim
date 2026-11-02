@@ -70,7 +70,8 @@ function cacheProblem(rawPath, bundle) {
 }
 
 /**
- * The raw files, once per bundle generation, cached as DIR/raw-<generated>.json.
+ * The raw files, once per bundle content, cached as DIR/raw-<generated>-<sha256>.json.
+ * Same-day refreshes can change files without changing the generation date.
  * The cache is written only after a complete download: every motor asked for
  * has curves in `bundle`, so a batch with no usable raw file fails rather than
  * leave a short cache that would read as withdrawn files on every later run.
@@ -78,7 +79,8 @@ function cacheProblem(rawPath, bundle) {
  * that cannot be read, is downloaded again (and replaced only on success).
  */
 export async function cachedRawFiles(bundle, out, { download = downloadRawFiles, log = (s) => process.stdout.write(s) } = {}) {
-  const rawPath = join(out, `raw-${bundle.generated}.json`);
+  const key = createHash('sha256').update(JSON.stringify(bundle)).digest('hex');
+  const rawPath = join(out, `raw-${bundle.generated}-${key}.json`);
   const problem = existsSync(rawPath) ? cacheProblem(rawPath, bundle) : 'absent';
   if (problem) {
     if (problem !== 'absent') log(`  cached raw files at ${rawPath} are ${problem}; downloading again\n`);
