@@ -1,5 +1,6 @@
-import { boundedWarningEvidence, restoredWarnings, storedWarnings, validStoredWarnings, storedWarningLimitNote, wideStoredWarning } from './storedWarnings.js';
+import { boundedWarningEvidence, restoredWarnings, storedWarnings, validStoredWarnings, storedWarningLimitNote } from './storedWarnings.js';
 import { readDesignProvenance, writeDesignProvenance } from './designProvenance.js';
+import { noteField } from './noteField.js';
 import { importedEjectionDelay } from './ejectionDelay.js';
 import { cleanDocumentMaterials, readDocumentMaterials } from './documentMaterials.js';
 import { extensionXmlBySimulation, hasSimulationExtensions, preserveSimulationExtensions, preservedSimulationExtensions } from './orkExtensions.js';
@@ -45,7 +46,7 @@ import { namedMotorManufacturer } from './motorManufacturer.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
 import { sparsify } from './flightState.js';
 import { flownIgnition, flownSeparation } from './flightOverrideSummary.js';
-import { cautionNote, flagNote, noteFlags, zeroBulkDensityNote, zeroDensityStandIn, type ImportNote } from './importNotes.js';
+import { appendNotes, cautionNote, flagNote, noteFlags, zeroBulkDensityNote, zeroDensityStandIn, type ImportNote } from './importNotes.js';
 import type { NoteTier } from '../components/Note.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { isCalmWind, profileSurface, relativeWindDirection, validWindLevels, validWindProfileSource } from './windProfile.js';
@@ -2612,26 +2613,26 @@ function readStoredSimulations(simEls: XmlElement[], notes: string[]): OrkStored
     // "Warnings unavailable" must not read as "no warnings" (D7 §5, I28): the
     // note names the run, and says what its empty report does NOT mean.
     const simName = text(sim, ':scope > name');
-    const unreadable = `Stored simulation warnings${simName ? ` for “${simName}”` : ''} could not be read, so its report `
-      + 'shows none — that does not mean the flight had none.';
+    const unreadable = `Saved simulation warnings${simName ? ` for “${noteField(simName)}”` : ''} could not all be read.`;
+    const missingEvidence = 'This does not mean the flight had no warnings.';
     if (warnings?.getAttribute('version') === '1') {
       try {
         const parsed: unknown = JSON.parse(warnings.textContent ?? '');
-        // Reject a damaged array as a whole: filtering could report a clean
-        // flight after silently losing its only warning. Optional new fields
-        // are preserved; the display validates them before replacing text.
+        // Keep readable evidence with an unavailable marker for damaged entries.
+        // Optional new fields survive; the display validates them before use.
         if (validStoredWarnings(parsed)) {
           data.simWarnings = storedWarnings(parsed);
         } else {
           // A too-wide warning never reaches matching. Keep a bounded, explicit
           // unavailable record, including readable stop/HIGH evidence.
-          const tooWide = Array.isArray(parsed) && wideStoredWarning(parsed);
-          if (tooWide) data.simWarnings = restoredWarnings(parsed);
+          data.simWarnings = restoredWarnings(parsed as EngineWarning[]);
           cautionNote(notes, 'I28.stored-warnings', Array.isArray(parsed) && !boundedWarningEvidence(parsed)
-            ? `${tooWide ? unreadable.replace('shows none', 'keeps only bounded warning evidence') : unreadable} ${storedWarningLimitNote}` : unreadable);
+            ? `${unreadable} Only stop and high-priority warnings were kept, without oversized details. ${storedWarningLimitNote} ${missingEvidence}`
+            : `${unreadable} ${Array.isArray(parsed) ? 'The readable warnings were kept.' : 'No warnings could be read.'} ${missingEvidence}`);
         }
       } catch {
-        cautionNote(notes, 'I28.stored-warnings', unreadable);
+        data.simWarnings = storedWarnings([null] as unknown as EngineWarning[]);
+        cautionNote(notes, 'I28.stored-warnings', `${unreadable} No warnings could be read. ${missingEvidence}`);
       }
     }
     const kbf = tag.getAttribute('kbf');
@@ -2697,8 +2698,8 @@ export function exportOrk({
     }
     if (differs) lostNozzleConfigs++;
   }
-  if (lostNozzleConfigs) {
-    notes?.push(`Nozzle exit diameters differ on ${lostNozzleStages.size} stage${lostNozzleStages.size === 1 ? '' : 's'}`
+  if (lostNozzleConfigs && notes) {
+    cautionNote(notes, 'export-loss', `Nozzle exit diameters differ on ${lostNozzleStages.size} stage${lostNozzleStages.size === 1 ? '' : 's'}`
       + ` in ${lostNozzleConfigs} saved configuration${lostNozzleConfigs === 1 ? '' : 's'}; .ork keeps each stage's current value for every configuration.`);
   }
   // With no stored configurations, mint one even without motors: its simulation
@@ -3624,7 +3625,7 @@ export function exportOrk({
     }));
   }
   if (exNotes.length) {
-    notes?.push(...exNotes);
+    if (notes) appendNotes(notes, exNotes);
     emit(2, `<${EX_MOTOR_NOTES_TAG}>${escapeXml(exNotes.join('\n'))}</${EX_MOTOR_NOTES_TAG}>`);
   }
   if (exArchive.json) {
@@ -3764,7 +3765,7 @@ export function exportOrk({
     throw new Error(`This design would save ${simulationWrites.length.toLocaleString('en-US')} simulations, past the ${MAX_ORK_SIMULATIONS.toLocaleString('en-US')} the app will open. Reduce the simulations before saving or sharing.`);
   }
   const droppedExtensions = preservedExtensions.filter(g => !mappedExtensions.has(g)).reduce((n, g) => n + g.xml.length, 0);
-  if (droppedExtensions) notes?.push(`${droppedExtensions} simulation extension${droppedExtensions === 1 ? '' : 's'} `
+  if (droppedExtensions && notes) cautionNote(notes, 'export-loss', `${droppedExtensions} simulation extension${droppedExtensions === 1 ? '' : 's'} `
     + 'not saved: the corresponding simulation is no longer present or cannot be mapped to a simulation in this .ork file.');
   if (mappedExtensions.size) notes?.push('Simulation extensions are preserved but were not run by the app. '
     + 'Saved flight results for simulations with extensions are marked outdated; run them again in desktop OpenRocket.');

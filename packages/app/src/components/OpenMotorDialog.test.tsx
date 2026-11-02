@@ -19,6 +19,24 @@ const apply = vi.fn().mockResolvedValue(undefined);
 const later = vi.fn();
 const button = (text: string) => [...host.querySelectorAll('button')].find(b => b.textContent === text)!;
 const render = () => act(() => root.render(<OpenMotorDialog identities={identities} onApply={apply} onLater={later} />));
+it('gives an Apply failure its own Caution tier after an information import', async () => {
+  render();
+  await importText(0, enerjetEng);
+  apply.mockRejectedValueOnce(new Error('Apply failed'));
+  await act(async () => button('Apply').click());
+  expect(host.querySelector('[role="alert"] .message-caution')?.textContent).toContain('Apply failed');
+});
+it('shows partial recovery at Caution and keeps readable library entries', async () => {
+  const good = parseEng(enerjetEng)[0]!;
+  localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([good, { ...good, motorId: 'ex:bad', totalWeightG: 'bad' }]));
+  render();
+  await importText(0, enerjetEng);
+  const status = host.querySelector('[role="status"]')!;
+  expect(status.classList.contains('message-caution')).toBe(true);
+  expect(status.textContent).toContain('Refused motor entries were set aside');
+  expect(status.textContent).toContain('rest of the library was kept');
+  expect(status.textContent).not.toContain('started a new library');
+});
 it('establishes a silent outcome region before a motor answer', async () => {
   render();
   const status = host.querySelector('[role="status"]');
@@ -170,7 +188,7 @@ describe('open motor dialog', () => {
     apply.mockRejectedValueOnce(new Error('Curve unavailable'));
     render();
     await act(async () => button('Apply').click());
-    expect(host.querySelector('[role=alert]')!.textContent).toBe('Curve unavailable');
+    expect(host.querySelector('[role=alert]')!.textContent).toBe('⚠ Caution: Curve unavailable');
     expect(button('Apply').disabled).toBe(false);
     expect(host.querySelectorAll('input[type=radio]:checked')).toHaveLength(2);
     expect(later).not.toHaveBeenCalled();

@@ -57,8 +57,8 @@ function exIdentity(mm: MountMotor, exLibrary: ExLibrary): Pick<OrkExportMotor, 
   // (motorId = slug(manufacturer+designation)), and the designation find
   // wrote whichever vendor imported first into the file.
   const entry = (mm.spec as RepairedMotorSpec | undefined)?.exDefinition ?? (
-    (mm.meta.exMotorId ? lib.find((m) => m.motorId === mm.meta.exMotorId) : undefined)
-    ?? lib.find((m) => m.designation === mm.spec?.designation)
+    mm.meta.exMotorId ? lib.find((m) => m.motorId === mm.meta.exMotorId)
+      : lib.find((m) => m.designation === mm.spec?.designation)
   );
   const raw = entry?.realManufacturer;
   // An .rse with no mfg attribute carries the 'EX' sentinel — a display

@@ -461,7 +461,7 @@ describe('storage hardening: run array entries', () => {
     expect(r.deployments).toEqual([deployment]);
     expect(r.branches).toEqual([{ ...branch, deployments: [deployment] }, { name: 'Old', deployments: [] }]);
     expect(r.boosterMotors).toEqual(['C6']);
-    expect(r.simWarnings).toEqual([warning]);
+    expect(r.simWarnings).toEqual([warning, expect.objectContaining({ key: 'StoredWarningsUnavailable' })]);
     // A profile is a single measurement: removing a bad level changes its meaning.
     expect(r).not.toHaveProperty('windLevels');
     expect(deploymentVerdict(r)).toBe(false);
@@ -779,7 +779,7 @@ describe('a corrupt history costs ONE row, not the store (net-storage-6)', () =>
     const r = loadRuns()[0]!;
     expect(r.deployments).toBeUndefined();
     expect(r.boosterMotors).toBeUndefined();
-    expect(r.simWarnings).toBeUndefined();
+    expect(r.simWarnings).toEqual([expect.objectContaining({ key: 'StoredWarningsUnavailable' })]);
     expect(r.branches).toBeUndefined();
     expect(() => runsToCsv(loadRuns())).not.toThrow();
   });

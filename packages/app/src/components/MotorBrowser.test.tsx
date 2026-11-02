@@ -486,6 +486,66 @@ describe('MotorBrowser — importing EX motors (audit 2026-09-22)', () => {
     expect(rowFor(h, 'AT (EX)', 'K550W')).toBeTruthy();
   });
 
+  it('warns when a deletion sets refused entries aside', async () => {
+    h = openBrowser({ mountDiameterMm: 54 });
+    await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);
+    click(rowFor(h, 'AT (EX)', 'K550W')!);
+    const key = 'online-openrocket.ex-motors.v1';
+    const rows = JSON.parse(localStorage.getItem(key)!);
+    localStorage.setItem(key, JSON.stringify([...rows, { motorId: 'ex:bad' }]));
+    click(h.host.querySelector<HTMLButtonElement>('[aria-label="Remove this imported motor"]')!);
+    expect(h.host.querySelector('.motor-import-notes.message-caution')?.textContent).toContain('Refused motor entries were set aside');
+    expect(h.host.querySelector('.motor-import-notes.message-caution')?.textContent).toContain('Imported 1 EX motor');
+    expect(localStorage.getItem(key)).toBe('[]');
+  });
+
+  it('keeps the open-time EX caution after an ordinary successful deletion', () => {
+    const motor = parseEng(ENG_K550)[0]!;
+    const key = 'online-openrocket.ex-motors.v1';
+    localStorage.setItem(key, JSON.stringify([motor, { motorId: 'ex:bad' }]));
+    h = openBrowser({ mountDiameterMm: 54 });
+    const initial = h.host.querySelector('.motor-import-notes.message-caution')!.textContent;
+    expect(initial).toBeTruthy();
+    localStorage.setItem(key, JSON.stringify([motor]));
+    click(rowFor(h, 'AT (EX)', 'K550W')!);
+    click(h.host.querySelector<HTMLButtonElement>('[aria-label="Remove this imported motor"]')!);
+    expect(h.host.querySelector('.motor-import-notes.message-caution')?.textContent).toBe(initial);
+  });
+
+  it.each([false, true])('keeps the replacement import message and tier on delete (error %s)', async failed => {
+    localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify([{ motorId: 'ex:bad' }]));
+    h = openBrowser({ mountDiameterMm: 54 });
+    await importFiles(h, [{ name: 'k550.eng', text: ENG_K550 }]);
+    if (failed) await importFiles(h, [{ name: 'bad.eng', text: 'not a motor' }]);
+    const before = h.host.querySelector('.motor-import-notes')!;
+    const text = before.textContent, classes = before.className;
+    click(rowFor(h, 'AT (EX)', 'K550W')!);
+    click(h.host.querySelector<HTMLButtonElement>('[aria-label="Remove this imported motor"]')!);
+    expect(h.host.querySelector('.motor-import-notes')!.textContent).toBe(text);
+    expect(h.host.querySelector('.motor-import-notes')!.className).toBe(classes);
+  });
+
+  it('reports a copy without claiming a new library after deletion hits quota', () => {
+    const motor = parseEng(ENG_K550)[0]!;
+    const key = 'online-openrocket.ex-motors.v1';
+    localStorage.setItem(key, JSON.stringify([motor]));
+    h = openBrowser({ mountDiameterMm: 54 });
+    click(rowFor(h, 'AT (EX)', 'K550W')!);
+    localStorage.setItem(key, 'broken JSON');
+    const real = localStorage.setItem.bind(localStorage);
+    const { spy, unspy } = spyOnSetItem();
+    spy.mockImplementation(function (k: string, v: string) {
+      if (k === key) throw new DOMException('full', 'QuotaExceededError');
+      real(k, v);
+    });
+    try {
+      click(h.host.querySelector<HTMLButtonElement>('[aria-label="Remove this imported motor"]')!);
+      const notice = h.host.querySelector('.motor-import-notes.message-caution')?.textContent;
+      expect(notice).toContain('No new library was saved');
+      expect(notice).not.toContain('started a new library');
+    } finally { vi.restoreAllMocks(); unspy(); }
+  });
+
   it('on a full storage says the motors are NOT saved — and they still load this session', async () => {
     h = openBrowser({ mountDiameterMm: 54 });
     const real = Storage.prototype.setItem;

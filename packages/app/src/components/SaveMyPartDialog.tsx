@@ -3,7 +3,7 @@ import type { ComponentNode } from '@online-openrocket/engine';
 import { Modal } from './Modal.js';
 import { Note } from './Note.js';
 import {
-  CUSTOM_PRESETS_BACKED_UP, CUSTOM_PRESETS_UNREADABLE, componentToPreset, customPartKey, customPresetLinkError, editCustomPresets, loadBundledPresets, loadCustomPresets, sameCustomPreset, saveCustomPresets,
+  CUSTOM_PRESETS_BACKED_UP, CUSTOM_PRESETS_BACKUP_FAILED, CUSTOM_PRESETS_UNREADABLE, componentToPreset, customPartKey, customPresetLinkError, editCustomPresets, loadBundledPresets, loadCustomPresets, sameCustomPreset, saveCustomPresets,
 } from '../services/presets.js';
 import { mfrKey, partKey } from '../../scripts/manufacturers.mjs';
 
@@ -56,7 +56,7 @@ export function SaveMyPartDialog({ node, onClose, onSaved }: { node: ComponentNo
         return;
       }
       if (!saveCustomPresets(next.list)) {
-        setError('Could not save My part — this browser’s storage is full or blocked. Export your parts or free storage, then try again.');
+        setError(`${next.backedUp ? `${CUSTOM_PRESETS_BACKUP_FAILED} ` : ''}Could not save My part — this browser’s storage is full or blocked. Export your parts or free storage, then try again.`);
         return;
       }
       onSaved?.(`${row.manufacturer} ${row.partNo}`, next.backedUp ? CUSTOM_PRESETS_BACKED_UP : undefined);

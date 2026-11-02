@@ -158,6 +158,7 @@ describe('opaque desktop simulation extensions', () => {
     expect(output).not.toContain(script);
     expect(output).toContain(air);
     expect(notes.join(' ')).toMatch(/1 simulation extension.*not saved.*simulation.*no longer/i);
+    expect(noteFlags(notes)).toContainEqual(expect.objectContaining({ kind: 'export-loss', tier: 'caution' }));
   });
 
   it('states an unmappable simulation loss, including saves without launch conditions', () => {

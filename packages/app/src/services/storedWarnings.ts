@@ -95,7 +95,9 @@ export function restoredWarnings(warnings: EngineWarning[] | undefined, cache?: 
  * so identical/older imports remain no-ops. Malformed data keeps its fallback.
  */
 export function storedWarnings(warnings: EngineWarning[] | undefined, cache?: StoredWarningCache): EngineWarning[] | undefined {
-  if (!Array.isArray(warnings)) return warnings;
+  if (warnings === undefined) return undefined;
+  if (!Array.isArray(warnings)) return [{ key: 'StoredWarningsUnavailable',
+    message: 'Some saved simulation warnings could not be read; this does not mean the flight had none.' }];
   let changed = false;
   // Stored evidence can be malformed; string operations in the report must
   // only receive readable warnings (audit 2026-10-11, S7a-4).
@@ -119,5 +121,9 @@ export function storedWarnings(warnings: EngineWarning[] | undefined, cache?: St
     cache?.normalized.set(result, result);
     return result;
   });
+  if (valid.length !== warnings.length && !valid.some(w => w.key === 'StoredWarningsUnavailable')) {
+    normalized.push({ key: 'StoredWarningsUnavailable',
+      message: 'Some saved simulation warnings could not be read; this does not mean the flight had none.' });
+  }
   return changed ? normalized : warnings;
 }

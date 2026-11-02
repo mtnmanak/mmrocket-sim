@@ -908,6 +908,8 @@ describe('library writes keep stored entries the loader refuses', () => {
 
   it('keeps refused entries on add, delete and restore when a different backup exists', async () => {
     localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(`${KEY}.unreadable-backup` + '.2', 'second');
+    localStorage.setItem(`${KEY}.unreadable-backup` + '.3', 'third');
     localStorage.setItem(KEY, JSON.stringify([...refused, good()]));
     const ex = await fresh();
     expect(ex.addExMotors([other()]).stored).toBe(true);
@@ -949,12 +951,14 @@ describe('library writes keep stored entries the loader refuses', () => {
     const ex = await fresh();
     const notes: string[] = [];
     ex.restoreExMotors([good()], notes);
-    expect(notes).toEqual(['The stored motor library could not be read. The app kept a copy of it in this browser and started a new library with these motors.']);
+    expect(notes).toEqual(['The stored motor library could not be read. The app kept a copy of it in this browser and started a new library.']);
     expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe('{broken');
   });
 
   it('never writes over an unreadable library it cannot copy aside; the motor flies this session', async () => {
     localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(`${KEY}.unreadable-backup` + '.2', 'second');
+    localStorage.setItem(`${KEY}.unreadable-backup` + '.3', 'third');
     localStorage.setItem(KEY, '{broken');
     const ex = await fresh();
     const write = ex.addExMotors([good()]);

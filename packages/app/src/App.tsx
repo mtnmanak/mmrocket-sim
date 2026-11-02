@@ -2554,7 +2554,7 @@ export function App() {
         configs, activeConfigId, measured,
         flightData: flightDataForExport(),
         notes: losses,
-      }), 'ork', '', losses, omittedMotor ? 'caution' : 'information', generation, saveId);
+      }), 'ork', '', losses, omittedMotor ? 'caution' : highestTier(noteFlags(losses)), generation, saveId);
       // Only a real write counts. 'cancelled' means the user backed out of the
       // picker, and treating that as saved is how work gets discarded silently.
       if (generation === documentGeneration.current
@@ -3218,13 +3218,13 @@ export function App() {
       try {
         await navigator.clipboard.writeText(url);
         documentNote(generation, [`Share link copied — opening it loads “${tree.name ?? 'My Rocket'}” with its motors and launch conditions.${sizeNote}`,
-          ...saveNotes].join('\n'), saveNotes.length ? 'warn' : 'info', undefined, omittedMotor ? 'caution' : 'information');
+          ...saveNotes].join('\n'), saveNotes.length ? 'warn' : 'info', undefined, omittedMotor ? 'caution' : highestTier(noteFlags(saveNotes)));
       } catch {
         // Clipboard refused (permissions, iframe embed, non-secure context):
         // hand the link over for a manual Ctrl+C — prompt() pre-selects it.
         window.prompt('Copy this share link (Ctrl+C):', url);
         const fallbackNotes = [sizeNote.trim(), ...saveNotes].filter(Boolean).join('\n');
-        if (fallbackNotes) documentNote(generation, fallbackNotes, 'warn', undefined, omittedMotor ? 'caution' : 'information');
+        if (fallbackNotes) documentNote(generation, fallbackNotes, 'warn', undefined, omittedMotor ? 'caution' : highestTier(noteFlags(saveNotes)));
       }
     } catch (e) {
       // 'error' — nothing was copied and nothing is on screen to say so
