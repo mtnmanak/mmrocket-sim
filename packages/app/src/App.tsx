@@ -125,6 +125,7 @@ import { designFileBase, designFileLabel, designFileTitle, documentTitle, type D
 import { onCompletedSave, saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1 } from './services/rasaeroFile.js';
+import { cdx1StageFigures } from './services/cdx1StageFigures.js';
 import { checkFormatLossOf, checkFormatLossSafely, formatExtension, type CheckedFormatLossReport, type FormatLossInput, type FormatLossReport, type LossyFormat } from './services/formatLoss.js';
 import { gateLossySave, lossySaveStatus, replacementLossNote, type LossySaveMark } from './services/lossySave.js';
 import {
@@ -2656,12 +2657,16 @@ export function App() {
       const flights = lossyFlights;
       setLossDialog(null);
       try {
+        if (format === 'cdx1' && stageList.length > 1 && !built) throw new Error('The app could not calculate the stage weights and CGs. Fix the design before saving .CDX1.');
         const xml = format === 'rkt'
           ? exportRkt({ name: tree.name ?? 'My Rocket', tree, overrides: activeOverrides, motors: data.motors, measured,
             compInfo: built ? rktComponentInfo(tree, id => built.rocket.componentInfo(id)) : {},
             ...(data.distanceUnit !== undefined ? { distanceUnit: data.distanceUnit } : {}) })
           : exportCdx1({ name: tree.name ?? 'My Rocket', tree, overrides: activeOverrides, motors: data.motors, launch,
             launchMassKg: built?.info.mass, launchCgM: built?.info.cg,
+            ...(built ? { launchStages: cdx1StageFigures(flightTree,
+              Object.fromEntries(assigned.filter(([id]) => !refusedMountIds.includes(id))
+                .map(([id, mm]) => [id, flownSpec(id, mm.spec, built.hardware)])), built.info) } : {}),
             ...(fileMachAlt ? { machAlt: fileMachAlt } : {}) });
         const out = await download(xml, format === 'rkt' ? 'rkt' : 'CDX1', '', report.losses, undefined, generation, saveId);
         if (generation === documentGeneration.current

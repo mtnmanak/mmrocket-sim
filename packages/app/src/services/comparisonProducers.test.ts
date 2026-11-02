@@ -311,6 +311,11 @@ it('requires inventory review and a boundary case or scope exemption for new pro
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
   }).toEqual(reviewedCensus);
 }, 30_000);
+// Inventory review (2026-11-01, M3): rasaeroFile.ts rose 261 -> 262 on
+// `:scope > IncludeBooster${i}`, an XML child selector in the excluded-booster
+// caution loop. Its `>` is not a numeric comparison or user-facing text, so
+// it is exempt from the numeric boundary matrix. rasaeroFile.M3.test.ts
+// covers included/excluded configurations and an excluded middle booster.
 // Inventory review (2026-10-29, API go-live gate): the API index.ts count rose
 // 11 -> 12 on the error code string "RATE_LIMITED" (the word "limit"), a code,
 // not a comparison a user reads; the new refusals compare no quantity. Exempt.

@@ -240,7 +240,7 @@ const cases: [LossyFormat, string, ComponentNode, ComponentNode][] = [
   ['cdx1', 'Nose and transition shoulders', { type: 'nosecone', shoulderLength: 0.01 }, { type: 'nosecone' }],
   ['cdx1', 'Motor mounts', { type: 'bodytube', motorMount: true }, { type: 'bodytube' }],
   ['cdx1', 'Individual mass', { type: 'bodytube', overrideMass: 0 }, { type: 'bodytube' }],
-  ['cdx1', 'Surface finish', { type: 'bodytube', finish: 'polished' }, { type: 'bodytube' }],
+  ['cdx1', 'Surface finish', { type: 'trapezoidfinset', finish: 'polished' }, { type: 'trapezoidfinset' }],
   ['rkt', 'Stage mass includes-motor', { type: 'parallelstage', overrideIncludesMotor: 'M1297' }, { type: 'parallelstage' }],
   ['cdx1', 'Nose shape parameter', { type: 'nosecone', shape: 'ogive', shapeParameter: 0.5 }, { type: 'nosecone' }],
   ['cdx1', 'Freeform fins', { type: 'freeformfinset', points: [[0, 0], [0.02, 0.03], [0.04, 0.03], [0.05, 0]] }, { type: 'trapezoidfinset' }],

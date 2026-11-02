@@ -19,6 +19,7 @@ import { exToDbEntry, exToMotorSpec, parseEng, type ExMotor } from './services/e
 import { exportOrk, importOrk, MAX_ORK_CONFIGURATIONS } from './services/orkFile.js';
 import { parseXml } from './services/xmlParse.js';
 import { importRkt } from './services/rocksimFile.js';
+import { importCdx1 } from './services/rasaeroFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
 import { designFingerprint } from './services/dirtyState.js';
@@ -34,6 +35,7 @@ import { decodeShareFragment, encodeShareFragment } from './services/shareLink.j
 import { downloadImage, svgToImage } from './services/schematicExport.js';
 import { openPrintDocument } from './services/printDocument.js';
 import * as recentDesigns from './services/recentDesigns.js';
+import * as designBuild from './services/buildDesign.js';
 import { sessionDebugLog } from './services/sessionDebugLog.js';
 
 vi.mock('./services/recentDesigns.js', () => ({
@@ -41,7 +43,7 @@ vi.mock('./services/recentDesigns.js', () => ({
   listRecentDesigns: vi.fn(async (): Promise<recentDesigns.RecentDesign[]> => []),
   recentDesignFile: vi.fn(), clearRecentDesigns: vi.fn(async () => {}),
 }));
-import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
+import { addChild, asStageNodes, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
 
 /**
@@ -113,6 +115,50 @@ class NoPath { moveTo() {} lineTo() {} closePath() {} rect() {} arc() {} addPath
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SESSION_KEY = 'online-openrocket.session.v1';
+
+it('M3 saves real cumulative weights and CGs through the staged CDX1 Save action', async () => {
+  const tree = defaultTree();
+  tree.components = asStageNodes(tree);
+  Object.assign(tree.components[0]!, { overrideMass: 1, overrideSubcomponentsMass: true,
+    overrideCGX: 0.2, overrideSubcomponentsCG: true });
+  tree.components.push({ type: 'stage', id: 'booster', name: 'Booster', overrideMass: 0.5,
+    overrideSubcomponentsMass: true, overrideCGX: 0.2, overrideSubcomponentsCG: true,
+    children: [{ type: 'bodytube', id: 'booster-tube', length: 0.4, outerRadius: 0.02 }] });
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+    appVersion: APP_VERSION, savedAt: Date.now(), configLayers: 1 }));
+  const host = await mountApp();
+  await saveAs(host, 'Save .CDX1');
+  await waitFor(() => vi.mocked(saveFile).mock.calls.length === 1, 'the staged .CDX1 save');
+  const xml = await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).text();
+  // Explicitly included stages apply the cumulative cells. The actual
+  // motorless save excludes its booster, whose cells desktop ignores.
+  expect(xml).toContain('<IncludeBooster1>False</IncludeBooster1>');
+  expect(importCdx1(xml).tree.components[1]!.overrideMass).toBeUndefined();
+  const imported = importCdx1(xml.replace('<IncludeBooster1>False</IncludeBooster1>', '<IncludeBooster1>True</IncludeBooster1>'));
+  expect(imported.tree.components).toHaveLength(2);
+  // Four-decimal pounds/inches allow at most 0.1 g / 0.1 mm here.
+  for (const [i, mass, cg] of [[0, 1, 0.2], [1, 0.5, 0.2]] as const) {
+    const stage = imported.tree.components[i]!;
+    expect(Math.abs((stage.overrideMass as number) - mass)).toBeLessThan(0.0001);
+    expect(Math.abs((stage.overrideCGX as number) - cg)).toBeLessThan(0.0001);
+  }
+}, 30_000);
+
+it.each([1, 2])('M3 allows a failed-build CDX1 save only with one stage (%i stages)', async count => {
+  const tree = defaultTree();
+  tree.components = asStageNodes(tree);
+  if (count === 2) tree.components.push({ type: 'stage', id: 'booster', children: [
+    { type: 'bodytube', length: 0.4, outerRadius: 0.02 },
+  ] });
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+    appVersion: APP_VERSION, savedAt: Date.now(), configLayers: 1 }));
+  vi.spyOn(designBuild, 'buildDesign').mockReturnValue({ error: 'Test build unavailable' });
+  const host = await mountApp();
+  await saveAs(host, 'Save .CDX1');
+  await waitFor(() => count === 1 ? vi.mocked(saveFile).mock.calls.length === 1
+    : host.textContent!.includes('could not calculate the stage weights'), 'failed-build save outcome');
+  expect(vi.mocked(saveFile).mock.calls).toHaveLength(count === 1 ? 1 : 0);
+}, 30_000);
 const RUNS_KEY = 'online-openrocket.sim-runs.v1';
 
 let mounted: { root: Root; host: HTMLElement }[] = [];

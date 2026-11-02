@@ -191,6 +191,8 @@ export interface OrkFlightConfig {
   stageMassOverrides?: Record<string, StageMassOverride>;
   /** Import-time refusals and unresolved-motor cautions for these stage figures. */
   stageMassNotes?: string[];
+  /** Producer codes parallel to stageMassNotes. */
+  stageMassNoteKinds?: string[];
   id: string;
   /** File stage activeness keyed by editor node id; preserved, not simulated. */
   stageActiveness?: Record<string, boolean>;
