@@ -4,6 +4,7 @@ import { parseDecimal } from './xmlUtil.js';
 import { numOpt } from '../tree/nodeNum.js';
 import { MAX_BULK_DENSITY } from '../tree/schema.js';
 import { backUpUnreadableStore, canBackUpUnreadableStore } from './storeBackup.js';
+import { noteField } from './noteField.js';
 import { builtInMaterial, materialNameKey, MATERIAL_UNITS, usableMaterialDensity, type MaterialKind } from './designMaterials.js';
 
 export interface UserMaterial { kind: MaterialKind; name: string; density: number }
@@ -39,7 +40,9 @@ const unreadableNote = (raw: string | null): string => raw !== null && canBackUp
 /** Why a My materials write was refused: the store could not be read, and could not be copied aside. */
 export const USER_MATERIALS_UNREADABLE = 'My materials could not be read from browser storage, so the app left them unchanged.';
 /** Said after a write that copied an unreadable store aside (storeBackup.ts) and started a new list. */
+export const USER_MATERIALS_PARTLY_BACKED_UP = 'Invalid My materials entries were set aside in a recovery copy in this browser. The rest of the list was kept.';
 export const USER_MATERIALS_BACKED_UP = 'My materials could not be read. The app kept a copy of them in this browser and started a new list.';
+export const USER_MATERIALS_BACKUP_FAILED = 'The app kept a recovery copy of the unreadable My materials entries in this browser. Nothing new was saved; the stored list was left unchanged. Storage may be full or blocked. Export CSV to keep a copy before trying again.';
 
 /** The stored entries the library shows: valid ones, the last of each key winning, at most the newest 500. */
 function screenUserMaterials(data: readonly unknown[]): { materials: UserMaterial[]; refused: number; overflow: number } {
@@ -65,7 +68,12 @@ export function readUserMaterials(): { materials: UserMaterial[]; note: string }
     const data: unknown = JSON.parse(raw);
     if (!Array.isArray(data)) return { materials: [], note: `My materials could not be read: expected a list. ${unreadableNote(raw)}` };
     const { materials, refused, overflow } = screenUserMaterials(data);
-    const note = [refused ? `${refused} invalid My materials entries were ignored.` : '',
+    const collisions = data.filter((entry): entry is UserMaterial => !!entry && typeof entry === 'object'
+      && typeof entry.name === 'string' && ['bulk', 'surface', 'line'].includes(entry.kind)
+      && !!builtInMaterial(entry.kind, entry.name));
+    const collisionNote = collisions.length
+      ? `${collisions.length} stored My materials entries (${collisions.slice(0, 6).map(m => noteField(m.name)).join(', ')}${collisions.length > 6 ? ', …' : ''}) match the built-in list; their stored density was not used. Pick the built-in material from the list instead. Their stored entries are kept for recovery.` : '';
+    const note = [refused > collisions.length ? `${refused - collisions.length} ${collisions.length ? 'other ' : ''}invalid My materials entries were ignored.` : '', collisionNote,
       overflow ? `My materials has a limit of 500 entries; ${overflow} older entries were ignored.` : ''].filter(Boolean).join(' ');
     return { materials, note };
   } catch {
@@ -89,7 +97,7 @@ export const loadUserMaterials = (): UserMaterial[] => readUserMaterials().mater
  * write starts a new list ('backed-up'); 'unreadable' only when that copy
  * cannot be made, and then nothing is written.
  */
-export function writeUserMaterials(materials: readonly UserMaterial[]): 'saved' | 'backed-up' | 'unreadable' | 'failed' {
+export function writeUserMaterials(materials: readonly UserMaterial[]): 'saved' | 'backed-up' | 'partly-backed-up' | 'unreadable' | 'failed' | 'backup-write-failed' {
   if (materials.length > USER_MATERIALS_LIMIT || materials.some(m => materialProblem(m))) return 'failed';
   let raw: string | null;
   try { raw = localStorage.getItem(USER_MATERIALS_KEY); } catch { return 'failed'; }
@@ -102,7 +110,8 @@ export function writeUserMaterials(materials: readonly UserMaterial[]): 'saved' 
   }
   if (!Array.isArray(data)) return 'unreadable';
   const screened = screenUserMaterials(data);
-  const copiedInvalid = screened.refused > 0 && raw !== null && backUpUnreadableStore(USER_MATERIALS_KEY, raw);
+  const invalid = data.filter(entry => materialProblem(entry));
+  const copiedInvalid = invalid.length > 0 && backUpUnreadableStore(USER_MATERIALS_KEY, JSON.stringify(invalid));
   const shown = new Set(screened.materials.map(userMaterialKey));
   const storedAs = new Map<string, unknown>();
   const kept = data.filter(entry => {
@@ -120,15 +129,15 @@ export function writeUserMaterials(materials: readonly UserMaterial[]): 'saved' 
   }
   try {
     localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([...kept, ...byKey.values()]));
-  } catch { return 'failed'; }
+  } catch { return backedUp || copiedInvalid ? 'backup-write-failed' : 'failed'; }
   if (typeof window !== 'undefined') window.dispatchEvent(new Event(USER_MATERIALS_CHANGED));
-  return backedUp ? 'backed-up' : 'saved';
+  return backedUp ? 'backed-up' : copiedInvalid ? 'partly-backed-up' : 'saved';
 }
 
 /** No UI changes its saved state unless storage accepted the whole library. */
 export const saveUserMaterials = (materials: readonly UserMaterial[]): boolean => {
   const written = writeUserMaterials(materials);
-  return written === 'saved' || written === 'backed-up';
+  return written === 'saved' || written === 'backed-up' || written === 'partly-backed-up';
 };
 
 export function userMaterialsToCsv(materials: readonly UserMaterial[]): string {

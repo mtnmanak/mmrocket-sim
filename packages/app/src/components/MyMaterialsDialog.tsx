@@ -3,11 +3,12 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { CSV_APOSTROPHE_HELP } from '../services/csvUtil.js';
 import { flushSync } from 'react-dom';
 import { Modal } from './Modal.js';
+import { Note, type NoteTier } from './Note.js';
 import { readDecimal } from '../prefs/units.js';
 import { useUserMaterials } from './useUserMaterials.js';
 import { MATERIAL_UNITS, type MaterialKind } from '../services/designMaterials.js';
 import {
-  importUserMaterialsCsv, loadUserMaterials, materialProblem, USER_MATERIALS_BACKED_UP, USER_MATERIALS_UNREADABLE, userMaterialKey, userMaterialsToCsv, writeUserMaterials,
+  importUserMaterialsCsv, loadUserMaterials, materialProblem, USER_MATERIALS_BACKED_UP, USER_MATERIALS_BACKUP_FAILED, USER_MATERIALS_PARTLY_BACKED_UP, USER_MATERIALS_UNREADABLE, userMaterialKey, userMaterialsToCsv, writeUserMaterials,
   type UserMaterial,
 } from '../services/userMaterials.js';
 import { downloadBlob } from '../services/saveFile.js';
@@ -17,7 +18,9 @@ export const MATERIAL_STORAGE_FAILURE = 'My materials could not be saved in this
 export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
   const { materials, note } = useUserMaterials();
   const { prefs } = usePrefs();
-  const [message, setMessage] = useState('');
+  const [message, setMessageText] = useState('');
+  const setMessage = (text: string, tier: NoteTier = 'caution') => { setMessageText(text); setMessageTier(tier); };
+  const [messageTier, setMessageTier] = useState<NoteTier>('information');
   const [densityError, setDensityError] = useState('');
   const densityField = useRef<HTMLInputElement>(null);
   const [editing, setEditing] = useState<{ key: string; draft: UserMaterial; density: string } | null>(null);
@@ -44,8 +47,9 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
   const uid = useId();
   const persist = (next: UserMaterial[], success: string): boolean => {
     const written = writeUserMaterials(next);
-    if (written === 'unreadable' || written === 'failed') { setMessage(written === 'unreadable' ? USER_MATERIALS_UNREADABLE : MATERIAL_STORAGE_FAILURE); return false; }
-    setMessage(written === 'backed-up' ? `${success} ${USER_MATERIALS_BACKED_UP}` : success);
+    if (written === 'unreadable' || written === 'failed' || written === 'backup-write-failed') { setMessage(written === 'unreadable' ? USER_MATERIALS_UNREADABLE : written === 'backup-write-failed' ? USER_MATERIALS_BACKUP_FAILED : MATERIAL_STORAGE_FAILURE); return false; }
+    setMessage(written === 'backed-up' ? `${success} ${USER_MATERIALS_BACKED_UP}`
+      : written === 'partly-backed-up' ? `${success} ${USER_MATERIALS_PARTLY_BACKED_UP}` : success, written === 'saved' ? 'information' : 'caution');
     return true;
   };
   return <Modal label="My materials" onClose={close} className="prefs-dialog panel">
@@ -85,8 +89,8 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
       <p className="comp-stats">{CSV_APOSTROPHE_HELP}</p>
       <div role="status">
         {reading && <p>Reading CSV…</p>}
-        {note && <p>{note}</p>}
-        {message && <p>{message}</p>}
+        {note && <Note as="p" tier="caution">{note}</Note>}
+        {message && <Note as="p" tier={messageTier}>{message}</Note>}
       </div>
       {materials.length === 0 && <p>No saved materials. Save a named material from a part, or Import CSV.</p>}
       {(['bulk', 'surface', 'line'] as MaterialKind[]).map(kind => <section key={kind} aria-label={`${kind} materials`}>
@@ -147,7 +151,7 @@ export function MyMaterialsDialog({ onClose }: { onClose: () => void }) {
       {deleting && <Modal label={`Delete ${deleting.kind} material ${deleting.name}?`} onClose={() => setDeleting(null)}>
         <h2>Delete {deleting.kind} material {deleting.name}?</h2>
         <p>This removes it from My materials in this browser. Parts already using it keep their material. Import a saved CSV to restore the library entry.</p>
-        <div role="status">{message && <p>{message}</p>}</div>
+        <div role="status">{message && <Note as="p" tier={messageTier}>{message}</Note>}</div>
         <button className="file-btn" type="button" onClick={() => setDeleting(null)}>Cancel</button>{' '}
         <button type="button" className="file-btn modal-danger" onClick={() => {
           if (persist(materials.filter(m => userMaterialKey(m) !== userMaterialKey(deleting)), 'Material deleted.')) {

@@ -58,7 +58,8 @@ it.each(['empty', 'same', 'different', 'blocked'])('F9 materials removes invalid
   const raw = JSON.stringify([badMaterial, material]);
   const side = unreadableBackupKey(USER_MATERIALS_KEY);
   localStorage.setItem(USER_MATERIALS_KEY, raw);
-  if (backup === 'same' || backup === 'different') localStorage.setItem(side, backup === 'same' ? raw : 'older');
+  if (backup === 'same' || backup === 'different') localStorage.setItem(side, backup === 'same' ? JSON.stringify([badMaterial]) : 'older');
+  if (backup === 'different') { localStorage.setItem(side + '.2', 'second'); localStorage.setItem(side + '.3', 'third'); }
   const own = localStorage.setItem;
   if (backup === 'blocked') Object.defineProperty(localStorage, 'setItem', { configurable: true, value: (key: string, value: string) => {
     if (key === side) throw Error('blocked');
@@ -69,13 +70,15 @@ it.each(['empty', 'same', 'different', 'blocked'])('F9 materials removes invalid
     expect(saveUserMaterials(loadUserMaterials())).toBe(true);
     const canCopy = backup === 'empty' || backup === 'same';
     expect(JSON.parse(localStorage.getItem(USER_MATERIALS_KEY)!)).toEqual(canCopy ? [material] : [badMaterial, material]);
-    expect(localStorage.getItem(side)).toBe(canCopy ? raw : backup === 'different' ? 'older' : null);
+    expect(localStorage.getItem(side)).toBe(canCopy ? JSON.stringify([badMaterial]) : backup === 'different' ? 'older' : null);
     expect(readUserMaterials().note).toBe(canCopy ? '' : '1 invalid My materials entries were ignored.');
   } finally { Object.defineProperty(localStorage, 'setItem', { configurable: true, value: own }); }
 });
 it.each(['{broken', '{}'])('F9 materials read note does not promise a refused backup: %s', raw => {
   localStorage.setItem(USER_MATERIALS_KEY, raw);
   localStorage.setItem(unreadableBackupKey(USER_MATERIALS_KEY), 'older');
+  localStorage.setItem(unreadableBackupKey(USER_MATERIALS_KEY) + '.2', 'second');
+  localStorage.setItem(unreadableBackupKey(USER_MATERIALS_KEY) + '.3', 'third');
   expect(readUserMaterials().note).not.toContain('keeps a copy');
   expect(readUserMaterials().note).toContain('unchanged');
   expect(writeUserMaterials([material])).toBe('unreadable');
@@ -90,7 +93,8 @@ it.each(['empty', 'same', 'different', 'blocked'])('F9 EX removes refused entrie
   const raw = JSON.stringify([bad, motor]);
   const side = unreadableBackupKey(exKey);
   localStorage.setItem(exKey, raw);
-  if (backup === 'same' || backup === 'different') localStorage.setItem(side, backup === 'same' ? raw : 'older');
+  if (backup === 'same' || backup === 'different') localStorage.setItem(side, backup === 'same' ? JSON.stringify([bad]) : 'older');
+  if (backup === 'different') { localStorage.setItem(side + '.2', 'second'); localStorage.setItem(side + '.3', 'third'); }
   const notes: string[] = [];
   ex.loadExMotors(notes);
   expect(notes).toHaveLength(1);
@@ -104,7 +108,7 @@ it.each(['empty', 'same', 'different', 'blocked'])('F9 EX removes refused entrie
     expect(ex.addExMotors([second]).stored).toBe(true);
     const canCopy = backup === 'empty' || backup === 'same';
     expect(JSON.parse(localStorage.getItem(exKey)!)).toEqual([...(canCopy ? [] : [bad]), motor, second]);
-    expect(localStorage.getItem(side)).toBe(canCopy ? raw : backup === 'different' ? 'older' : null);
+    expect(localStorage.getItem(side)).toBe(canCopy ? JSON.stringify([bad]) : backup === 'different' ? 'older' : null);
     const after: string[] = [];
     ex.loadExMotors(after);
     expect(after).toHaveLength(canCopy ? 0 : 1);
@@ -115,6 +119,8 @@ it('backup preflight is read-only and accepts only an empty or matching side key
   expect(localStorage.getItem(unreadableBackupKey('k'))).toBeNull();
   localStorage.setItem(unreadableBackupKey('k'), 'raw');
   expect(canBackUpUnreadableStore('k', 'raw')).toBe(true);
+  localStorage.setItem(unreadableBackupKey('k') + '.2', 'second');
+  localStorage.setItem(unreadableBackupKey('k') + '.3', 'third');
   expect(canBackUpUnreadableStore('k', 'different')).toBe(false);
   expect(localStorage.getItem(unreadableBackupKey('k'))).toBe('raw');
 });

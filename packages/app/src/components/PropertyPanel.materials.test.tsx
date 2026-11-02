@@ -21,7 +21,36 @@ import type { FlightTree } from '../model/design.js';
 let host: HTMLDivElement, root: Root;
 let patches: Partial<ComponentNode>[];
 const tube = (id: string, extra: Partial<ComponentNode> = {}): ComponentNode => ({ id, type: 'bodytube', name: id, length: 0.2, outerRadius: 0.025, thickness: 0.001, density: 680, ...extra });
+it('warns when saving a named material sets an unreadable library aside', () => {
+  localStorage.setItem(USER_MATERIALS_KEY, '{broken');
+  show(tube('t', { materialName: 'My mix', density: 900 }));
+  click(button('Save to My materials: Material'));
+  expect([...host.querySelectorAll('[role="status"] .message-caution')].some(note => note.textContent?.includes('kept a copy'))).toBe(true);
+  expect(loadUserMaterials()).toEqual([{ kind: 'bulk', name: 'My mix', density: 900 }]);
+});
 const treeOf = (...children: ComponentNode[]): RocketTree => ({ name: 'Materials', components: [{ type: 'stage', id: 's', children }] });
+it('R4 shows the recovery copy when saving a material fails', () => {
+  localStorage.setItem(USER_MATERIALS_KEY, 'broken JSON');
+  show(tube('t', { materialName: 'My mix', density: 900 }));
+  const real = localStorage.setItem;
+  onTestFinished(() => { Object.defineProperty(localStorage, 'setItem', { configurable: true, value: real }); });
+  vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+    if (key === USER_MATERIALS_KEY) throw new Error('full');
+    real.call(localStorage, key, value);
+  });
+  click(button('Save to My materials: Material'));
+  expect([...host.querySelectorAll('.message-caution')].some(n => n.textContent?.includes('Nothing new was saved') && n.textContent.includes('recovery copy'))).toBe(true);
+});
+it('clears an information tier when later material validation fails', () => {
+  show(tube('t', { materialName: 'My mix', density: 900 }));
+  click(button('Save to My materials: Material'));
+  expect(host.textContent).toContain('Saved in My materials.');
+  show(tube('t', { density: 900 }));
+  const field = host.querySelector<HTMLInputElement>('input[placeholder="Optional"]')!;
+  type(field, 'Balsa');
+  act(() => { field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+  expect([...host.querySelectorAll('.message-caution')].some(n => n.textContent?.includes('built-in list'))).toBe(true);
+});
 const show = (node: ComponentNode, tree = treeOf(node)) => act(() => root.render(<PrefsProvider>
   <PropertyPanel tree={tree} node={node} onPatch={p => patches.push(p)} />
 </PrefsProvider>));

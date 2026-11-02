@@ -1,4 +1,6 @@
 // @vitest-environment happy-dom
+// N7 round 4 census review: presets 20 -> 21 and userMaterials 11 -> 12
+// add only recovery-copy message declarations. No numeric boundary changed.
 import { createElement, act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { readFileSync } from 'node:fs';
@@ -43,6 +45,8 @@ import { join, relative } from 'node:path';
 import reviewedCensus from './comparisonCensus.testSupport.json';
 import { readUserMaterials, USER_MATERIALS_KEY } from './userMaterials.js';
 import { unreadableBackupKey } from './storeBackup.js';
+
+// N7 round 2: MotorBrowser 16 -> 17 is a storage-result notice tier, not a physical comparison.
 
 /** A conservative coverage census, not a text golden: a new comparison-bearing
  * producer must be assigned a boundary fixture or an explicit scope exemption.
@@ -369,6 +373,8 @@ it('requires inventory review and a boundary case or scope exemption for new pro
 // Inventory review (2026-10-29, API go-live gate): the API index.ts count rose
 // 11 -> 12 on the error code string "RATE_LIMITED" (the word "limit"), a code,
 // not a comparison a user reads; the new refusals compare no quantity. Exempt.
+// N7 inventory review: the added userMaterials collision note counts rows and
+// caps names at six; it compares no physical quantity. Covered in userMaterials.test.ts.
 // Inventory review (2026-10-28, cloud lane 20 integration): unreadableNote's
 // backup preflight compares stored bytes, not quantities, so it is exempt from
 // the numeric boundary matrix. Exercise its empty/matching/occupied side-key
@@ -378,6 +384,8 @@ it.each(['{broken', '{}'])('unreadable materials notice follows backup availabil
   const side = unreadableBackupKey(USER_MATERIALS_KEY);
   localStorage.setItem(USER_MATERIALS_KEY, raw);
   try {
+    localStorage.setItem(side + '.2', 'second');
+    localStorage.setItem(side + '.3', 'third');
     for (const held of [null, raw, 'older']) {
       if (held === null) localStorage.removeItem(side);
       else localStorage.setItem(side, held);

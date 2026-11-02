@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, onTestFinished, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { PresetPicker } from './PresetPicker.js';
 import { PrefsProvider } from '../prefs/PrefsContext.js';
 import {
@@ -41,6 +41,28 @@ beforeEach(() => {
 afterEach(() => { act(() => root.unmount()); host.remove(); });
 
 describe('M2.3 My parts picker', () => {
+  it.each(['import', 'delete'])('R4 reports a recovery copy after the %s write fails', async action => {
+    const key = 'online-openrocket.custom-presets.v1';
+    saveCustomPresets([CUSTOM]); await render();
+    localStorage.setItem(key, 'broken JSON');
+    const real = localStorage.setItem;
+    onTestFinished(() => { Object.defineProperty(localStorage, 'setItem', { configurable: true, value: real }); });
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation((k, value) => {
+      if (k === key) throw new Error('full');
+      real.call(localStorage, k, value);
+    });
+    try {
+      if (action === 'import') await importCsv(presetsToCsv([{ ...CUSTOM, partNo: 'New' }]));
+      else {
+        act(() => deleting().click());
+        const modal = host.querySelector('[aria-label="Delete My part"]')!;
+        act(() => [...modal.querySelectorAll('button')].find(b => b.textContent === 'Delete')!.click());
+      }
+      expect(host.querySelector('.message-caution')?.textContent).toContain('Nothing new was saved');
+      expect(host.querySelector('.message-caution')?.textContent).toContain('recovery copy');
+      expect(localStorage.getItem(`${key}.unreadable-backup`)).toBe('broken JSON');
+    } finally { spy.mockRestore(); }
+  });
   it('marks only custom rows and never offers deletion for bundled rows, even an identical imported copy', async () => {
     saveCustomPresets([CUSTOM, { ...(await loadBundledPresets())[0]! }]); await render();
     expect(rows()).toHaveLength(3);
@@ -276,17 +298,22 @@ describe('S7-3 My parts writes keep rows they cannot read', () => {
     expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe(raw);
     expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual([NEW_ROW]);
     expect(host.textContent).toContain('Stored My parts could not be read. The app kept a copy of them in this browser and started a new list.');
+    expect(host.querySelector('.message-caution')?.textContent).toContain('kept a copy');
   });
   it('copies an unreadable store aside on a delete too', async () => {
-    saveCustomPresets([CUSTOM]); await render();
+    saveCustomPresets([CUSTOM, NEW_ROW]); await render();
     localStorage.setItem(KEY, '{not json');
     confirmDelete();
     expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe('{not json');
     expect(localStorage.getItem(KEY)).toBe('[]');
+    expect(rows().map(row => row.cells[1]!.textContent)).toEqual(['B1']);
+    expect(host.querySelector('.message-caution')?.textContent).toContain('kept a copy');
   });
   it('refuses, as before, when an earlier different copy holds the side key', async () => {
     saveCustomPresets([CUSTOM]); await render();
     localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(`${KEY}.unreadable-backup` + '.2', 'second');
+    localStorage.setItem(`${KEY}.unreadable-backup` + '.3', 'third');
     localStorage.setItem(KEY, '{not json');
     confirmDelete();
     expect(localStorage.getItem(KEY)).toBe('{not json');

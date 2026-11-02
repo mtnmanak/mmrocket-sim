@@ -18,7 +18,7 @@ import {
   sortMotors, type MotorDbEntry, type MotorSortKey,
 } from '../services/motorDb.js';
 import {
-  deleteExMotor, exToDbEntry, loadExMotors,
+  deleteExMotor, exLibraryBackupNote, exToDbEntry, loadExMotors,
 } from '../services/exMotors.js';
 import {
   bundledFiles, defaultDelay, delayOptions, fetchMotorSpec, headerMasses, knownNoPublishedCurve, pickSampleFile,
@@ -944,7 +944,19 @@ export function MotorBrowser({ mountDiameterMm, maxMotorLengthM, onSelect, onClo
                     <button className="fin-row-del" title="Remove this imported motor"
                       aria-label="Remove this imported motor"
                       onClick={() => {
-                        setExMotors(deleteExMotor(picked.motorId));
+                        const write = deleteExMotor(picked.motorId);
+                        setExMotors(write.motors);
+                        if (write.backedUp) {
+                          setNotice(previous => [previous, exLibraryBackupNote(write)].filter(Boolean).join(' '));
+                          setNoticeTier('caution');
+                          setImportTier('caution');
+                        }
+                        if (!write.stored) {
+                          setError(write.unreadable
+                            ? 'The motor library could not be read or copied aside. Browser storage was left unchanged.'
+                            : 'This deletion was not saved in browser storage and will be lost after a reload.');
+                          setImportTier('caution');
+                        }
                         setPicked(null);
                       }}>🗑</button>
                   </>

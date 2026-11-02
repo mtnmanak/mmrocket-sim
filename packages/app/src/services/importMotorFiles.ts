@@ -1,6 +1,6 @@
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
 import type { NoteTier } from '../components/Note.js';
-import { addExMotors, parseMotorFile, refusedExMotorNote, validExMotor, type ExMotor } from './exMotors.js';
+import { exLibraryBackupNote, addExMotors, parseMotorFile, refusedExMotorNote, validExMotor, type ExMotor } from './exMotors.js';
 import { EX_IMPORT_BYTES_NOTE, EX_MOTOR_COUNT_NOTE, MAX_EX_IMPORT_BYTES, MAX_EX_IMPORT_FILES, MAX_EX_IMPORT_MOTORS, MAX_EX_SELECTION_BYTES } from './exMotorLimits.js';
 import { sessionDebugLog } from './sessionDebugLog.js';
 import { decodeXml } from './xmlUtil.js';
@@ -55,7 +55,11 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
         try {
           decoded = { xml: new TextDecoder('utf-8', { fatal: true }).decode(bytes) };
         } catch {
-          decoded = { xml: Array.from(bytes, b => String.fromCharCode(b)).join(''),
+          // TextDecoder maps Latin-1's C1 bytes to Windows-1252 in browsers.
+          // Bounded byte views preserve the desktop RASP encoding exactly.
+          let text = '';
+          for (let i = 0; i < bytes.length; i += 0x8000) text += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+          decoded = { xml: text,
             note: 'Read this RASP file as ISO-8859-1 (Latin-1), the desktop OR RASP encoding, because it is not UTF-8. Check the motor and maker names.' };
         }
       }
@@ -119,13 +123,14 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
         + 'and did NOT save them — they fly in this session and are gone after a reload.');
       if (said.length) notice = said.join(' · ');
     } else if (unsaved) {
+      if (write.backedUp) problems.push(exLibraryBackupNote(write));
       problems.push(`Imported ${list}, but this browser's storage is full or blocked, so they are NOT saved — `
         + 'they fly in this session and are gone after a reload. Free some room (the saved-runs '
         + 'table, or imported motors you no longer need) and import them again to keep them.');
       if (said.length) notice = said.join(' · ');
     } else {
       notice = `Imported ${list} — they live in this browser under manufacturer EX and survive reloads.`
-        + (write.backedUp ? ' The stored motor library could not be read. The app kept a copy of it in this browser and started a new library.' : '')
+        + (write.backedUp ? ` ${exLibraryBackupNote(write)}` : '')
         + (said.length ? ` ${said.join(' · ')}` : '');
     }
   }
@@ -137,10 +142,10 @@ export async function importMotorFiles(files: File[], units: UnitSelection = INI
     ? `${refused.slice(0, 6).join(' · ')} · ${refused.length - 6} more motors were refused for the same reason.`
     : refused.join(' · '));
   if (!write && skippedFiles) notice = said.join(' ');
-  const tier: NoteTier = parsed.length > 0 && (repaired || unsaved || failed.length > 0 || refused.length > 0) ? 'caution' : 'information';
+  const tier: NoteTier = parsed.length > 0 && (repaired || write?.backedUp || unsaved || failed.length > 0 || refused.length > 0) ? 'caution' : 'information';
   // The part of that tier the NOTICE carries on its own (a repair it names):
   // what is left once something else replaces this import's error (review of
   // NOTES-1, finding 8 — a later failed catalogue Load kept the import's amber).
-  const noticeTier: NoteTier = notice !== null && parsed.length > 0 && repaired ? 'caution' : 'information';
+  const noticeTier: NoteTier = notice !== null && parsed.length > 0 && (repaired || (write?.stored && write.backedUp)) ? 'caution' : 'information';
   return { parsed, write, tier, noticeTier, error: problems.length ? problems.join(' ') : null, notice };
 }

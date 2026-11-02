@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, onTestFinished, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
 import { SaveMyPartDialog } from './SaveMyPartDialog.js';
 import { PropertyPanel } from './PropertyPanel.js';
@@ -211,6 +211,20 @@ describe('M2.2 save dialog', () => {
 /** Audit S7-3: Save rebuilds the list from the raw store, never from the filtering reader. */
 describe('S7-3 save keeps rows it cannot read', () => {
   const KEY = 'online-openrocket.custom-presets.v1';
+  it('R4 reports a recovery copy when the final save fails', async () => {
+    localStorage.setItem(KEY, 'broken JSON');
+    const real = localStorage.setItem;
+    onTestFinished(() => { Object.defineProperty(localStorage, 'setItem', { configurable: true, value: real }); });
+    vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === KEY) throw new Error('full');
+      real.call(localStorage, key, value);
+    });
+    input('Part number', 'P1'); await save();
+    expect(host.querySelector('.message-caution')?.textContent).toContain('Nothing new was saved');
+    expect(host.querySelector('.message-caution')?.textContent).toContain('recovery copy');
+    expect(localStorage.getItem(`${KEY}.unreadable-backup`)).toBe('broken JSON');
+    expect(close).not.toHaveBeenCalled();
+  });
   const unreadable = { kind: 'BodyTube', manufacturer: 'Newer build', partNo: 7, description: 'x' };
   it('keeps unreadable rows verbatim and replaces the matching row', async () => {
     const existing = { kind: 'BodyTube', manufacturer: 'My parts', partNo: 'P1', description: 'Old', length: 0.1 };
@@ -233,6 +247,8 @@ describe('S7-3 save keeps rows it cannot read', () => {
   });
   it('refuses, as before, when an earlier different copy holds the side key', async () => {
     localStorage.setItem(`${KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(`${KEY}.unreadable-backup` + '.2', 'second');
+    localStorage.setItem(`${KEY}.unreadable-backup` + '.3', 'third');
     localStorage.setItem(KEY, '{not json');
     input('Part number', 'P1'); await save();
     expect(localStorage.getItem(KEY)).toBe('{not json');

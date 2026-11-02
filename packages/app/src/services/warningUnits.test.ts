@@ -99,11 +99,17 @@ describe('saved warning units', () => {
       `<simwarnings version="1">${payload}</simwarnings>`);
     const imported = importOrk(xml);
     expect(imported.storedSimulations?.[0]?.data.maxAltitude).toBe(123);
-    expect(imported.storedSimulations?.[0]?.data.simWarnings).toBeUndefined();
-    const said = imported.notes.filter(n => n.startsWith('Stored simulation warnings'));
+    expect(imported.storedSimulations?.[0]?.data.simWarnings).toEqual([{
+      key: 'StoredWarningsUnavailable',
+      message: 'Some saved simulation warnings could not be read; this does not mean the flight had none.',
+    }]);
+    const said = imported.notes.filter(n => n.startsWith('Saved simulation warnings'));
     expect(said).toHaveLength(1);
     // D7 §5, I28: names the run, and keeps "unavailable" apart from "none".
-    expect(said[0]).toMatch(/^Stored simulation warnings for “[^”]+” could not be read, so its report shows none — that does not mean the flight had none\.$/);
+    expect(said[0]).toMatch(/^Saved simulation warnings for “[^”]+” could not all be read\./);
+    expect(said[0]).toContain(payload.startsWith('[')
+      ? 'The readable warnings were kept.' : 'No warnings could be read.');
+    expect(said[0]).toContain('This does not mean the flight had no warnings.');
   });
 
   it('ignores future extension versions rather than misinterpreting them', () => {

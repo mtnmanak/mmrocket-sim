@@ -89,9 +89,9 @@ describe('toOrkMotor — an EX motor’s manufacturer', () => {
     expect(toOrkMotor(exMotor({ exMotorId: 'ex:loki-x99' }), undefined, library).manufacturer).toBe('Loki');
   });
 
-  it('is found by designation when no entry is pinned, or the pinned one is gone', () => {
+  it('is found by designation only when no entry is pinned', () => {
     expect(toOrkMotor(exMotor(), undefined, library).manufacturer).toBe('Acme');
-    expect(toOrkMotor(exMotor({ exMotorId: 'ex:deleted' }), undefined, library).manufacturer).toBe('Acme');
+    expect(toOrkMotor(exMotor({ exMotorId: 'ex:deleted' }), undefined, library).manufacturer).toBeUndefined();
   });
 
   it('is left out when the library names only the EX badge, or has no such motor', () => {

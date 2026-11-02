@@ -1,7 +1,8 @@
 import { ringFitFor } from './ringFit.js';
 import { GlossaryHelp } from './GlossaryHelp.js';
 import { componentTerm, fieldTerm } from '../tree/glossaryTerms.js';
-import { Note } from './Note.js';
+import { Note, type NoteTier } from './Note.js';
+import { noteField } from '../services/noteField.js';
 import { PaperTemplateButton } from './PaperTemplateButton.js';
 import { PAPER_TEMPLATE_TYPES } from '../services/paperTemplates.js';
 import { MotorLengthField } from './MotorLengthField.js';
@@ -80,7 +81,7 @@ import { WRAP_FINS } from '../services/tubeWrapGuide.js';
 import { safeName } from '../services/fileName.js';
 import { downloadBlob } from '../services/saveFile.js';
 import { builtInMaterial, designMaterials, materialNameKey, type MaterialKind } from '../services/designMaterials.js';
-import { materialProblem, USER_MATERIALS_BACKED_UP, USER_MATERIALS_LIMIT, USER_MATERIALS_UNREADABLE, userMaterialKey, writeUserMaterials } from '../services/userMaterials.js';
+import { materialProblem, USER_MATERIALS_BACKED_UP, USER_MATERIALS_BACKUP_FAILED, USER_MATERIALS_PARTLY_BACKED_UP, USER_MATERIALS_LIMIT, USER_MATERIALS_UNREADABLE, userMaterialKey, writeUserMaterials } from '../services/userMaterials.js';
 import { useUserMaterials } from './useUserMaterials.js';
 import { MATERIAL_STORAGE_FAILURE, MyMaterialsDialog } from './MyMaterialsDialog.js';
 
@@ -294,7 +295,9 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
   const restoringNameFocus = useRef(false);
   const { prefs } = usePrefs();
   const { materials } = useUserMaterials();
-  const [message, setMessage] = useState('');
+  const [message, setMessageText] = useState('');
+  const setMessage = (text: string, tier: NoteTier = 'caution') => { setMessageText(text); setMessageTier(tier); };
+  const [messageTier, setMessageTier] = useState<NoteTier>('caution');
   const [draft, setDraft] = useState('');
   const [managing, setManaging] = useState(false);
   const [picked, setPicked] = useState<string | null>(null);
@@ -405,14 +408,15 @@ function MaterialSelect({ label, list, nameKey, densityKey, densityUnit, node, t
           const next = materials.filter(m => userMaterialKey(m) !== userMaterialKey(entry));
           const written = writeUserMaterials([...next, entry]);
           setMessage(written === 'saved' ? 'Saved in My materials.'
+            : written === 'partly-backed-up' ? `Saved in My materials. ${USER_MATERIALS_PARTLY_BACKED_UP}`
             : written === 'backed-up' ? `Saved in My materials. ${USER_MATERIALS_BACKED_UP}`
-              : written === 'unreadable' ? USER_MATERIALS_UNREADABLE : MATERIAL_STORAGE_FAILURE);
-          if (written === 'saved' || written === 'backed-up') selectRef.current?.focus();
+              : written === 'unreadable' ? USER_MATERIALS_UNREADABLE : written === 'backup-write-failed' ? USER_MATERIALS_BACKUP_FAILED : MATERIAL_STORAGE_FAILURE, written === 'saved' ? 'information' : 'caution');
+          if (written === 'saved' || written === 'backed-up' || written === 'partly-backed-up') selectRef.current?.focus();
         }}>
         {saved ? saved.density === foreignDensity ? 'Saved in My materials' : 'Update in My materials' : '☆ Save to My materials'}
       </button>}
       <button type="button" className="finish-all-btn" aria-label={`My materials for ${label}`} onClick={() => setManaging(true)}>My materials…</button>
-      <div role="status" className={message ? undefined : 'sr-only'}>{message && <p id={`${id}-message`}>{message}</p>}</div>
+      <div role="status" className={message ? undefined : 'sr-only'}>{message && <Note as="p" tier={messageTier} id={`${id}-message`}>{message}</Note>}</div>
       {managing && <MyMaterialsDialog onClose={() => setManaging(false)} />}
       {catalogue && (() => {
         const { diff, row, onUse } = catalogue;
@@ -716,6 +720,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
   const [showPresets, setShowPresets] = useState(false);
   const [saveMyPart, setSaveMyPart] = useState(false);
   const [savedPartNote, setSavedPartNote] = useState<string | null>(null);
+  const [savedPartTier, setSavedPartTier] = useState<NoteTier>('information');
   // Why an export button did nothing, and for WHICH component. Cleared on the
   // next attempt, and shown only while that component is the one selected, so
   // it never outlives the outline it is complaining about: a self-crossing-fin
@@ -1316,7 +1321,10 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
         <button className="file-btn" style={{ flex: '1 1 160px' }} onClick={() => setSaveMyPart(true)}>☆ Save as My part…</button>
         </div>
       )}
-      {saveMyPart && <SaveMyPartDialog node={node} onSaved={(name, note) => setSavedPartNote(`Saved ${name} in this browser.${note ? ` ${note}` : ''}`)} onClose={() => {
+      {saveMyPart && <SaveMyPartDialog node={node} onSaved={(name, note) => {
+        setSavedPartTier(note ? 'caution' : 'information');
+        setSavedPartNote(`Saved ${noteField(name)} in this browser.${note ? ` ${note}` : ''}`);
+      }} onClose={() => {
         setSaveMyPart(false);
         setPickerCloses((n) => n + 1);
       }} />}
@@ -1366,7 +1374,7 @@ export function PropertyPanel({ tree, node, info, rocketInfo, flight, onPatch, o
           </div>
         </>
       )}
-      <div role="status">{savedPartNote && <p className="hint">{savedPartNote}</p>}</div>
+      <div role="status">{savedPartNote && <Note as="p" tier={savedPartTier} className="hint">{savedPartNote}</Note>}</div>
         <Note as="p" tier={presetNote ? 'caution' : 'information'} className={presetNote ? 'print-note print-note-warn' : 'sr-only'} role="status">
           {presetNote}
         </Note>

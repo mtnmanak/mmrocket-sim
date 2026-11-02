@@ -26,6 +26,29 @@ const type = (el: HTMLInputElement, value: string) => act(() => {
   el.dispatchEvent(new Event('input', { bubbles: true }));
 });
 const mount = () => act(() => root.render(<PrefsProvider><MyMaterialsDialog onClose={() => root.render(null)} /></PrefsProvider>));
+it.each(['import', 'delete'])('R4 shows the recovery copy at Caution after %s fails', async action => {
+  saveUserMaterials([{ kind: 'bulk', name: 'Mix', density: 900 }]); mount();
+  localStorage.setItem(USER_MATERIALS_KEY, 'broken JSON');
+  const real = localStorage.setItem;
+  onTestFinished(() => { Object.defineProperty(localStorage, 'setItem', { configurable: true, value: real }); });
+  vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+    if (key === USER_MATERIALS_KEY) throw new Error('full');
+    real.call(localStorage, key, value);
+  });
+  if (action === 'import') await upload('kind,name,density,unit\nbulk,My foam,42,kg/m3\n');
+  else { click(button('Delete bulk material Mix')); click(button('Delete material')); }
+  const region = action === 'delete' ? host.querySelector('[aria-label="Delete bulk material Mix?"]')! : host;
+  expect(region.querySelector('.message-caution')?.textContent).toContain('Nothing new was saved');
+  expect(region.querySelector('.message-caution')?.textContent).toContain('recovery copy');
+  expect(localStorage.getItem(USER_MATERIALS_KEY)).toBe('broken JSON');
+});
+it('sets the tier for each later message after a successful import', async () => {
+  mount();
+  await upload('kind,name,density,unit\nbulk,My foam,42,kg/m3\n');
+  vi.mocked(downloadBlob).mockImplementationOnce(() => { throw new Error('blocked'); });
+  await act(async () => button('Export CSV of My materials').click());
+  expect([...host.querySelectorAll('.message-caution')].some(n => n.textContent?.includes('could not be downloaded'))).toBe(true);
+});
 const upload = async (csv: string) => {
   const field = host.querySelector<HTMLInputElement>('input[type="file"]')!;
   Object.defineProperty(field, 'files', { value: [new File([csv], 'materials.csv')], configurable: true });
@@ -265,9 +288,12 @@ it.each(['{broken', '{"rows":[]}'])('copies an unreadable stored library %s asid
   expect(localStorage.getItem(`${USER_MATERIALS_KEY}.unreadable-backup`)).toBe(raw);
   expect(loadUserMaterials()).toEqual([{ kind: 'bulk', name: 'Mix', density: 1000 }]);
   expect(host.querySelector('[role="status"]')!.textContent).toContain('My materials could not be read. The app kept a copy of them in this browser and started a new list.');
+  expect(host.querySelector('[role="status"] .message-caution')?.textContent).toContain('kept a copy');
 });
 it('refuses an import when an earlier different copy holds the side key', async () => {
   localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup`, 'older');
+  localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup` + '.2', 'second');
+  localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup` + '.3', 'third');
   localStorage.setItem(USER_MATERIALS_KEY, '{broken'); mount();
   await upload('kind,name,density,unit\nbulk,Mix,1000,kg/m3\n');
   expect(localStorage.getItem(USER_MATERIALS_KEY)).toBe('{broken');
@@ -279,10 +305,16 @@ it.each([false, true])('deletes a material and preserves unreadable entries in t
   const side = USER_MATERIALS_KEY + '.unreadable-backup';
   localStorage.setItem(USER_MATERIALS_KEY, raw);
   if (occupied) localStorage.setItem(side, 'older');
+  if (occupied) localStorage.setItem(side + '.2', 'second');
+  if (occupied) localStorage.setItem(side + '.3', 'third');
   mount();
   click(button('Delete bulk material Mix'));
   click(button('Delete material'));
   expect(host.textContent).toContain('Material deleted.');
   expect(JSON.parse(localStorage.getItem(USER_MATERIALS_KEY)!)).toEqual(occupied ? [unreadable] : []);
-  expect(localStorage.getItem(side)).toBe(occupied ? 'older' : raw);
+  expect(localStorage.getItem(side)).toBe(occupied ? 'older' : JSON.stringify([unreadable]));
+  if (!occupied) {
+    expect(host.querySelector('[role="status"] .message-caution')?.textContent).toContain('rest of the list was kept');
+    expect(host.querySelector('[role="status"]')?.textContent).not.toContain('started a new list');
+  }
 });

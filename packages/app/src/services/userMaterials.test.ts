@@ -9,6 +9,13 @@ import {
 } from './userMaterials.js';
 
 const valid: UserMaterial = { kind: 'bulk', name: 'My laminate', density: 1234 };
+it('names stored built-in collisions and explains that their density was not applied', () => {
+  const collision = { kind: 'bulk', name: 'bAlSa', density: 999 };
+  localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([collision, valid]));
+  expect(readUserMaterials().materials).toEqual([valid]);
+  expect(readUserMaterials().note).toMatch(/bAlSa.*built-in.*density.*not used/);
+  expect(localStorage.getItem(USER_MATERIALS_KEY)).toBe(JSON.stringify([collision, valid]));
+});
 afterEach(() => { localStorage.clear(); vi.restoreAllMocks(); });
 it.each([
   null, [], 3, 'bad', {}, { ...valid, kind: 'solid' }, { ...valid, name: 1 },
@@ -21,7 +28,10 @@ it.each([
 ])('drops an invalid stored entry %j and keeps the valid one', bad => {
   localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([valid, bad]));
   expect(loadUserMaterials()).toEqual([valid]);
-  expect(readUserMaterials().note).toMatch(/1 invalid/);
+  const collision = bad !== null && typeof bad === 'object' && 'name' in bad
+    && ['bAlSa', 'MYLAR', 'Thread (heavy-duty)'].includes(String(bad.name));
+  expect(readUserMaterials().note).toMatch(collision ? /1 stored.*match the built-in/ : /1 invalid/);
+  expect(readUserMaterials().note).not.toMatch(collision ? /1 invalid/ : /match the built-in/);
 });
 it('refuses nonfinite input and built-in names on save as well as load', () => {
   for (const density of [NaN, Infinity, -Infinity]) expect(materialProblem({ ...valid, density })).toMatch(/finite/);
@@ -172,6 +182,8 @@ describe('writes keep stored entries the reader cannot show', () => {
   it('keeps unreadable entries on save, replacement and delete when a different backup exists', () => {
     const other: UserMaterial = { kind: 'surface', name: 'Cloth', density: 0.1 };
     localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup` + '.2', 'second');
+    localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup` + '.3', 'third');
     localStorage.setItem(USER_MATERIALS_KEY, JSON.stringify([...invalid, valid, other]));
     expect(saveUserMaterials([...loadUserMaterials(), { kind: 'line', name: 'Cord', density: 0.002 }])).toBe(true);
     expect(stored().slice(0, 4)).toEqual(invalid);
@@ -215,6 +227,8 @@ describe('writes keep stored entries the reader cannot show', () => {
 
   it('refuses, as before, when an earlier different copy holds the side key', () => {
     localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup`, 'older');
+    localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup` + '.2', 'second');
+    localStorage.setItem(`${USER_MATERIALS_KEY}.unreadable-backup` + '.3', 'third');
     localStorage.setItem(USER_MATERIALS_KEY, '{broken');
     expect(writeUserMaterials([valid])).toBe('unreadable');
     expect(saveUserMaterials([valid])).toBe(false);

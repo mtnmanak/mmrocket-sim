@@ -111,6 +111,10 @@ export const XML_JS_SUITES = [
   'src/services/warningImport.test.ts',
   'src/services/warningUnits.kernel.test.ts',
   'src/services/warningUnits.test.ts',
+  // N7: malformed stored warnings and recovery receipts through either parser.
+  'src/services/laneN7Round2.test.ts',
+  'src/services/laneN7Round3.test.ts',
+  'src/services/laneN7Round4.test.ts',
   'src/services/noticeUnits.test.ts',
   'src/services/orkAero.test.ts',
   'src/services/orkFilledTube.test.ts',

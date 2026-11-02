@@ -3477,6 +3477,40 @@ async function chooseConfiguration(host: HTMLElement, id: string) {
  * configuration panel still work.
  */
 describe('a hand-edited autosave', () => {
+  it.each([
+    ['Save .ork', true, false], ['Copy share link', true, false], ['Copy share link', true, true],
+    ['Save .ork', false, false], ['Copy share link', false, false], ['Copy share link', false, true],
+  ] as const)('N7 EX receipt %s missing maker %s clipboard fallback %s', async (door, missing, fallback) => {
+    const ex = parseEng('Legacy 18 70 5 0.01 0.024 EX\n0 0\n0.5 12\n1 0')[0]!;
+    const tree = defaultTree(), mount = motorMounts(tree)[0]!.id!;
+    const loaded = mountMotorFromDb(exToDbEntry(ex), exToMotorSpec(ex, 5), 5,
+      { event: 'automatic', delay: 0 }, { exMotorId: ex.motorId });
+    if (missing) delete (loaded.spec as { exDefinition?: unknown }).exDefinition;
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: { [mount]: loaded },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: Date.now() }));
+    localStorage.setItem('online-openrocket.ex-motors.v1', JSON.stringify(missing ? [{ ...ex, motorId: 'ex:other', realManufacturer: 'Wrong maker' }] : [ex]));
+    const host = await mountApp();
+    const previous = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: fallback ? vi.fn().mockRejectedValue(new Error('blocked')) : vi.fn().mockResolvedValue(undefined) } });
+    const previousPrompt = Object.getOwnPropertyDescriptor(window, 'prompt');
+    Object.defineProperty(window, 'prompt', { configurable: true, value: vi.fn().mockReturnValue(null) });
+    try {
+      await saveAs(host, door);
+      await settle();
+      const notice = [...host.querySelectorAll('.notice-item')].find(n => n.textContent?.includes(missing ? 'no maker is available' : 'Used EX motors are embedded'));
+      expect(notice).toBeTruthy();
+      expect(notice!.classList.contains('message-caution')).toBe(missing);
+      expect(notice!.textContent).not.toContain('original maker');
+      const xml = vi.mocked(exportOrk).mock.results.at(-1)!.value as string;
+      expect(xml).not.toContain('Wrong maker');
+    } finally {
+      if (previousPrompt) Object.defineProperty(window, 'prompt', previousPrompt);
+      else Reflect.deleteProperty(window, 'prompt');
+      if (previous) Object.defineProperty(navigator, 'clipboard', previous);
+      else Reflect.deleteProperty(navigator, 'clipboard');
+    }
+  });
+
   it('saves an EX motor whose stored definition names a non-text maker', async () => {
     const ex: ExMotor = { motorId: 'ex:stored', designation: 'C6', realManufacturer: 'Stored Test',
       diameter: 18, length: 70, totalWeightG: 24, propWeightG: 10, delays: '5',

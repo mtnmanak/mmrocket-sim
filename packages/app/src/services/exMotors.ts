@@ -259,9 +259,16 @@ export interface ExLibraryWrite {
   stored: boolean;
   /** Not written because the stored library is not a list the app can read and could not be copied aside; it was left unchanged. */
   unreadable?: true;
-  /** The stored library was not a list the app can read: it was copied to its side key (storeBackup.ts) and a new one started. */
+  /** Unreadable stored data was copied aside, even if the subsequent write failed. */
   backedUp?: true;
+  partlyBackedUp?: true;
 }
+
+export const exLibraryBackupNote = (write: ExLibraryWrite): string => !write.stored
+  ? 'Unreadable motor data was set aside in a recovery copy in this browser. No new library was saved.'
+  : write.partlyBackedUp
+  ? 'Refused motor entries were set aside in a recovery copy in this browser. The rest of the library was kept.'
+  : 'The stored motor library could not be read. The app kept a copy of it in this browser and started a new library.';
 
 // A re-import keeps its id; mounted nozzle consumers must still refresh
 // even without a parent render (audit 2026-10-11, S3c-2).
@@ -289,7 +296,7 @@ function changedLibrary(): void {
  * null, and nothing may be written over it, when that copy cannot be made.
  * Blocked storage reads as empty, so the write fails as it always did.
  */
-function refusedStoredEntries(ids: ReadonlySet<string>): { kept: unknown[]; backedUp: boolean } | null {
+function refusedStoredEntries(ids: ReadonlySet<string>): { kept: unknown[]; backedUp: boolean; partlyBackedUp?: true } | null {
   let raw: string | null;
   try { raw = localStorage.getItem(KEY); } catch { return { kept: [], backedUp: false }; }
   let list: unknown;
@@ -297,8 +304,9 @@ function refusedStoredEntries(ids: ReadonlySet<string>): { kept: unknown[]; back
   if (!Array.isArray(list)) {
     return raw !== null && backUpUnreadableStore(KEY, raw) ? { kept: [], backedUp: true } : null;
   }
-  if (list.some(v => !validExMotor(v)) && raw !== null && backUpUnreadableStore(KEY, raw)) {
-    return { kept: [], backedUp: false };
+  const invalid = list.filter(v => !validExMotor(v));
+  if (invalid.length > 0 && backUpUnreadableStore(KEY, JSON.stringify(invalid))) {
+    return { kept: [], backedUp: true, partlyBackedUp: true };
   }
   return { kept: list.filter(v => !validExMotor(v) && !(record(v) && typeof v['motorId'] === 'string' && ids.has(v['motorId']))),
     backedUp: false };
@@ -310,10 +318,13 @@ function refusedStoredEntries(ids: ReadonlySet<string>): { kept: unknown[]; back
  * localStorage is one ~5 MB pool per origin, and an EX library can be most of
  * it: a tester's 891-motor rasp.eng is 753 KB of JSON. On a quota refusal the
  * downloaded-curve cache is emptied — a convenience that refills itself, where
- * this list is the user's own work — and the write tried once more. If that
+ * this list is the user's own work —
+ * and the write is tried once more. If that
  * fails too the list lives in memory for the session and `stored` is false, so
  * the caller can say so instead of promising it survives a reload.
  */
+let exhaustedStorage: Storage | undefined;
+let exhaustedCacheSize: number | undefined;
 function persist(motors: ExMotor[], removed: readonly string[] = []): ExLibraryWrite {
   const stored = refusedStoredEntries(new Set([...motors.map(m => m.motorId), ...removed]));
   if (stored === null) {
@@ -321,21 +332,30 @@ function persist(motors: ExMotor[], removed: readonly string[] = []): ExLibraryW
     changedLibrary();
     return { motors, stored: false, unreadable: true };
   }
-  const { kept, backedUp } = stored;
+  const { kept, backedUp, partlyBackedUp } = stored;
   const json = JSON.stringify([...kept, ...motors]);
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       localStorage.setItem(KEY, json);
+      exhaustedCacheSize = undefined;
       unstored = null;
       changedLibrary();
-      return { motors, stored: true, ...(backedUp ? { backedUp: true as const } : {}) };
+      return { motors, stored: true, ...(backedUp ? { backedUp: true as const } : {}), ...(partlyBackedUp ? { partlyBackedUp: true as const } : {}) };
     } catch {
-      if (attempt === 0) clearCurveCache();
+      try {
+        const storage = localStorage;
+        if (attempt === 0 && (exhaustedStorage !== storage || exhaustedCacheSize !== storage.length)) {
+          clearCurveCache();
+          exhaustedStorage = storage;
+          exhaustedCacheSize = storage.length;
+        } else break;
+      } catch { break; }
     }
   }
   unstored = motors;
   changedLibrary();
-  return { motors, stored: false };
+  return { motors, stored: false, ...(backedUp ? { backedUp: true as const } : {}),
+    ...(partlyBackedUp ? { partlyBackedUp: true as const } : {}) };
 }
 
 /** Identity is every named motor/flight field; storage id, import date and source format are metadata. */
@@ -384,7 +404,7 @@ export function restoreExMotors(added: readonly ExMotor[], notes: string[]): Map
     cautionNote(notes, 'I15.ex-session-only', 'Embedded EX motors are available for this session but were not saved in browser storage. Keep the .ork file and reopen it after reloading.');
   }
   if (write?.backedUp) {
-    cautionNote(notes, 'I15.ex-library-backed-up', 'The stored motor library could not be read. The app kept a copy of it in this browser and started a new library with these motors.');
+    cautionNote(notes, 'I15.ex-library-backed-up', exLibraryBackupNote(write));
   }
   return ids;
 }
@@ -442,8 +462,8 @@ export function addExMotors(added: ExMotor[]): ExImport {
   return { ...persist([...kept, ...batch.values()]), replaced, duplicates };
 }
 
-export function deleteExMotor(motorId: string): ExMotor[] {
-  return persist(loadExMotors().filter((m) => m.motorId !== motorId), [motorId]).motors;
+export function deleteExMotor(motorId: string): ExLibraryWrite {
+  return persist(loadExMotors().filter((m) => m.motorId !== motorId), [motorId]);
 }
 
 export function getExMotor(motorId: string): ExMotor | undefined {

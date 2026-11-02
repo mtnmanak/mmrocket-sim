@@ -162,6 +162,7 @@ export function saveCustomPresets(presets: unknown[]): boolean {
 export const CUSTOM_PRESETS_UNREADABLE = 'Stored My parts could not be read, so the app left them unchanged.';
 /** Said after a write that copied an unreadable store aside (storeBackup.ts) and started a new list. */
 export const CUSTOM_PRESETS_BACKED_UP = 'Stored My parts could not be read. The app kept a copy of them in this browser and started a new list.';
+export const CUSTOM_PRESETS_BACKUP_FAILED = 'The app kept a recovery copy of unreadable My parts in this browser. Nothing new was saved; the stored list was left unchanged.';
 
 /**
  * THE LIST A MY PARTS WRITE STARTS FROM (audit S7-3). `loadCustomPresets`

@@ -1028,6 +1028,32 @@ describe('flushSession closes the debounce window on the way out', () => {
 });
 
 describe('the design outranks a re-downloadable cache at quota (critic-3)', () => {
+  it('keeps raw recovery copies and remembers an exhausted quota sweep', () => {
+    const side = 'online-openrocket.user-materials.v1.unreadable-backup';
+    const raw = '{broken' + 'x'.repeat(10000);
+    const map = new Map([[side, raw]]);
+    vi.stubGlobal('localStorage', {
+      get length() { return map.size; }, key: (i: number) => [...map.keys()][i] ?? null,
+      getItem: (key: string) => map.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        if (key === 'online-openrocket.session.v1' && map.has(side)) throw new DOMException('quota', 'QuotaExceededError');
+        map.set(key, value);
+      },
+      removeItem: (key: string) => map.delete(key),
+    });
+    const key = vi.spyOn(localStorage, 'key');
+    saveNow();
+    expect(map.has('online-openrocket.session.v1')).toBe(false);
+    expect(map.get(side)).toBe(raw);
+    expect(sessionSaveFailing()).toBe(true);
+    const calls = key.mock.calls.length;
+    saveNow();
+    expect(key.mock.calls.length).toBe(calls);
+    map.set('tc:new', '[]');
+    saveNow();
+    expect(key.mock.calls.length).toBeGreaterThan(calls);
+    expect(map.has('tc:new')).toBe(false);
+  });
   const KEY = 'online-openrocket.session.v1';
   const CACHE = 'tc:samples:v4:';
 
