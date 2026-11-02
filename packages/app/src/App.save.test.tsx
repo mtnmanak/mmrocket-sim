@@ -896,7 +896,7 @@ describe('lane H regressions', () => {
       if (replacement === 'Open') {
         notesBefore = await importNotes();
         expect(notesBefore).toContain(`Loaded “${RKT_NAME}”.`);
-        expect(notesBefore).toContain('the Launch panel keeps the settings you had');
+        expect(notesBefore).toContain('the Launch panel keeps your site and other surface settings');
       }
       const result: SaveOutcome = outcome === 'cancelled' ? { kind: 'cancelled' }
         : outcome === 'saved' ? { kind: 'saved', name: 'Obsolete.ork' }
@@ -1399,7 +1399,7 @@ describe('flight configuration editing in App', () => {
     expect(after.tree).toEqual(before.tree);
     expect(after.launch).toEqual(before.launch);
     expect(after.unmatchedRefs).toEqual(before.unmatchedRefs);
-    expect(host.textContent).toContain(`Flight configuration "${name}" deleted.`);
+    expect(host.textContent).toContain(`Flight configuration “${name}” deleted.`);
     await openTab(host, 'Design');
     expect(await guarded(host)).toBe(true);
     await saveAs(host, 'Save .ork');
@@ -1947,7 +1947,8 @@ describe('lane C2 save and share fidelity', () => {
   it('a Launch refusal preserves the import warning in its own dismissible notice', async () => {
     const tree = defaultTree();
     const mount = motorMounts(tree)[0]!.id!;
-    const refusal = 'Launch refused: check the ambiguous imported loadout.';
+    const refusal = 'Launch refused: check “motor”\n\u200b\u202e ambiguous imported loadout.';
+    const displayedRefusal = 'Launch refused: check “motor”[U+200B][U+202E] ambiguous imported loadout.';
     // A saved refused configuration can still carry a motor; exercise the real enabled Launch.
     const xml = exportOrk({ name: 'Refused with import warning', tree, launch: DEFAULT_CONDITIONS,
       configs: [{ id: 'refused', name: null, isDefault: true, motorLoadoutRefusal: refusal, motors: {
@@ -1960,6 +1961,7 @@ describe('lane C2 save and share fidelity', () => {
     await waitFor(() => shownName(host) === 'Refused with import warning', 'refused import');
     const launch = host.querySelector<HTMLButtonElement>('.vitals-launch')!;
     await waitFor(() => !launch.disabled, 'loaded motor');
+    expect(launch.title).toBe(displayedRefusal);
     const importText = [...host.querySelectorAll('.notice-item')]
       .find(item => item.textContent?.includes('unknown-model'))!.textContent!;
     await act(async () => { host.querySelector<HTMLButtonElement>('.notice-toggle')!.click(); });
@@ -1970,7 +1972,7 @@ describe('lane C2 save and share fidelity', () => {
     }
     expect.soft([...host.querySelectorAll('.notice-item')].some(item => item.textContent === importText)).toBe(true);
     const refusalItem = [...host.querySelectorAll('.notice-item')].find(item =>
-      item.textContent?.includes(refusal) && !item.textContent.includes('unknown-model'))!;
+      item.textContent?.includes(displayedRefusal) && !item.textContent.includes('unknown-model'))!;
     expect(refusalItem).toBeDefined();
     expect(localStorage.getItem(RUNS_KEY) ?? '[]').toBe('[]');
     await act(async () => { refusalItem.querySelector<HTMLButtonElement>('.notice-dismiss')!.click(); });
@@ -3559,6 +3561,13 @@ describe('a hand-edited autosave', () => {
     const host = await mountApp();
     expect(host.textContent).toMatch(/Restored your previous session \(“[^”]+”\)\./);
     expect(host.textContent).not.toContain('[object Object]');
+  });
+
+  it('keeps hostile restored names inside the session note', async () => {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ tree: { ...defaultTree(), name: 'Eric\'s 👨‍🚀\n\u200b”' },
+      launch: DEFAULT_CONDITIONS, appVersion: APP_VERSION, savedAt: 'unknown' }));
+    const host = await mountApp();
+    expect(host.textContent).toContain('Restored your previous session (“Eric\'s 👨‍🚀[U+200B][U+201D]”).');
   });
 
   it('names the save time of a stored session', async () => {

@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { ownEntry } from './ownEntry.js';
 import type {
   FlightResult, MotorSpec, OrkRocket, SimulationOptions,
@@ -95,7 +96,7 @@ export function writeMountMotor(
 ): void {
   const event = knownIgnitionEvent(ignition.event);
   if (event === null) {
-    throw new Error(`${spec.designation}: its ignition event “${ignition.event}” is not one the`
+    throw new Error(`${noteField(spec.designation)}: its ignition event “${noteField(ignition.event)}” is not one the`
       + ' simulator knows, so the motor was left off the rocket rather than flown on a guess.'
       + ' Pick it again on Motors & Configuration.');
   }
@@ -217,7 +218,7 @@ export async function flyLaunch(rocket: FlightHandle, input: LaunchInput): Promi
   const absent = input.assigned.filter(([id]) => !installed.some(([kept]) => kept === id));
   const unresolved = absent.filter(([, mm]) => mm.meta.autoDelay);
   if (unresolved.length) {
-    throw new Error(`Auto delay did not settle for ${unresolved.map(([id]) => ownEntry(input.mountNames, id) ?? id).join(', ')}: the motor was refused at build time. Choose a fixed delay and Launch again.`);
+    throw new Error(`Auto delay did not settle for ${unresolved.map(([id]) => noteField(ownEntry(input.mountNames, id) ?? id)).join(', ')}: the motor was refused at build time. Choose a fixed delay and Launch again.`);
   }
   const installedInput = { ...input, assigned: installed };
   const primary = installedInput.assigned.find(([id]) => id === input.primaryMountId)?.[1];

@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { getCatalogue, matchDbMotor, manufacturerMatches, type MotorDbEntry } from './motorDb.js';
 import { asStageNodes, stageDefaultName } from '../tree/treeModel.js';
@@ -66,7 +67,7 @@ function lostLaunchFields(format: LossyFormat, launch: LaunchConditions): string
 const planar = (n: ComponentNode) => ['trapezoidfinset', 'freeformfinset', 'ellipticalfinset'].includes(n.type);
 const has = (n: ComponentNode, ...keys: string[]) => keys.some(k => n[k] !== undefined && n[k] !== null);
 const nonzero = (n: ComponentNode, ...keys: string[]) => keys.some(k => num(n, k, 0) !== 0);
-const named = (n: ComponentNode) => `“${n.name ?? n.type}”`;
+const named = (n: ComponentNode) => `“${noteField(n.name ?? n.type)}”`;
 function losesTrailingEdge(n: ComponentNode): boolean {
   const te = num(n, 'airfoilTeDiamond', 0);
   if (te === 0 || n['airfoilSection'] === 'hexagonal') return false;
@@ -175,14 +176,14 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
   add(launchFields.length > 0, `Launch settings (${launchFields.join(', ')}) are not saved; another reader opens with its own defaults.`);
   const active = input.configs.find(c => c.id === input.activeConfigId);
   const otherConfigs = input.configs.filter(c => c.id !== input.activeConfigId);
-  add(otherConfigs.length > 0, `Flight configurations: only ${active ? `“${savedConfigLabel(active)}”` : 'the current working setup'} is written. Other configurations' motors, deployment, ignition, separation, stage on/off and stage mass settings are not kept.`);
+  add(otherConfigs.length > 0, `Flight configurations: only ${active ? `“${noteField(savedConfigLabel(active))}”` : 'the current working setup'} is written. Other configurations' motors, deployment, ignition, separation, stage on/off and stage mass settings are not kept.`);
   // audit 2026-10-11, S1d-1: all-true desktop OR maps lose no disabled stages.
   add(input.configs.some(c => c.motorLoadoutRefusal || Object.values(c.stageActiveness ?? {}).includes(false)),
     'Which stages each flight configuration switches off, and the record of configuration motors that could not be loaded, are not kept.');
   add(Object.keys(input.flightData).length > 0, 'Flight summaries, their warnings and simulation provenance are not kept.');
   const motors = Object.values(input.motors);
   for (const m of motors) {
-    add(Boolean(m.exMotorId || m.exMotorSpec || m.exDefinition), `EX motor “${m.designation}”: its curve, definition and available delays are not embedded; only a motor reference can travel.`);
+    add(Boolean(m.exMotorId || m.exMotorSpec || m.exDefinition), `EX motor “${noteField(m.designation)}”: its curve, definition and available delays are not embedded; only a motor reference can travel.`);
   }
   add(motors.some(m => m.padMassKg != null), 'Weighed pad mass is not kept as an editable measurement tied to its motor loadout.');
   add(motors.some(motorIdentityLost),
@@ -268,7 +269,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     const written = cdx1WrittenParts(input.tree);
     for (const shoulder of written.canShoulders) {
       add((shoulder.children ?? []).some(n => n.type.endsWith('finset')), `fins on ${named(shoulder)}: not in the file.`);
-      add(String(shoulder['shape'] ?? 'conical') !== 'conical', `${named(shoulder)}'s ${String(shoulder['shape'])} shape is written as conical.`);
+      add(String(shoulder['shape'] ?? 'conical') !== 'conical', `${named(shoulder)}'s ${noteField(String(shoulder['shape']))} shape is written as conical.`);
     }
     // A booster's nose cone is named by the booster geometry line below.
     const boosterNose = (n: ComponentNode) => n.type === 'nosecone' && stages.slice(1).some(s => s.children?.includes(n));
@@ -347,10 +348,10 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
       && (m.ignitionEvent === undefined || m.ignitionEvent === 'automatic') && (m.ignitionDelay ?? 0) !== 0
       && nodesOf({ components: stages.slice(-1) }).some(n => overrideFor(input.motors, n.id ?? '') === m);
     for (const m of motors) {
-      add(!rasaeroManufacturerAbbrev(m.manufacturer), `Motor “${m.designation}” is omitted: its manufacturer has no supported RASAero engine abbreviation.`);
-      add(m.delay !== undefined || Boolean(m.autoDelay), `Motor “${m.designation}”: selected ejection delay (including plugged/Auto) is not kept; the reader chooses its own delay.`);
+      add(!rasaeroManufacturerAbbrev(m.manufacturer), `Motor “${noteField(m.designation)}” is omitted: its manufacturer has no supported RASAero engine abbreviation.`);
+      add(m.delay !== undefined || Boolean(m.autoDelay), `Motor “${noteField(m.designation)}”: selected ejection delay (including plugged/Auto) is not kept; the reader chooses its own delay.`);
       add(!launchDelayNoted(m) && ((m.ignitionEvent !== undefined && !['automatic', 'burnout'].includes(m.ignitionEvent)) || (m.ignitionEvent !== 'burnout' && (m.ignitionDelay ?? 0) !== 0)),
-        `Motor “${m.designation}”: ignition trigger/timing is not kept; only burnout-relative delays can be written for the upper two stages.`);
+        `Motor “${noteField(m.designation)}”: ignition trigger/timing is not kept; only burnout-relative delays can be written for the upper two stages.`);
     }
     const stageMotors = stages.map(s => nodesOf({ components: [s] }).flatMap(n => {
       const motor = overrideFor(input.motors, n.id ?? '');
@@ -362,10 +363,10 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
       if (!rasaeroManufacturerAbbrev(m.manufacturer) || (m.ignitionEvent !== undefined && m.ignitionEvent !== 'automatic')) continue;
       const below = stageMotors[i + 1] ?? [];
       if (!stageMotors.slice(i + 1).some(ms => ms.some(lower => rasaeroManufacturerAbbrev(lower.manufacturer)))) {
-        losses.push(`Motor “${m.designation}” reopens at launch because there is no exported lower engine; its automatic ejection-charge trigger in the app is not kept.`);
+        losses.push(`Motor “${noteField(m.designation)}” reopens at launch because there is no exported lower engine; its automatic ejection-charge trigger in the app is not kept.`);
         continue;
       }
-      add(true, `Motor “${m.designation}” lights on the burnout of the stage below in the .CDX1, not on its ejection charge.`
+      add(true, `Motor “${noteField(m.designation)}” lights on the burnout of the stage below in the .CDX1, not on its ejection charge.`
         + (below.length > 0 && below.every(lower => lower.delay === Infinity)
           ? ' The lower motor is plugged, so it would not light in the app at all.' : ''));
     }

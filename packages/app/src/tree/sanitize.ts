@@ -1,3 +1,4 @@
+import { noteField, noteText } from '../services/noteField.js';
 import { INITIAL_UNITS, noticeEqual, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import { cautionNote, noteFlags } from '../services/importNotes.js';
 import { sanitizeDesignProvenance } from '../services/designProvenance.js';
@@ -65,7 +66,7 @@ const own = <T>(table: Record<string, T>, key: string): T | undefined =>
 
 /** The part a note or a build error names: its own name, else its type's. */
 function partName(n: ComponentNode): string {
-  return `“${typeof n.name === 'string' ? n.name : own<string>(DISPLAY_NAME, n.type) ?? n.type}”`;
+  return `“${noteField(typeof n.name === 'string' ? n.name : own<string>(DISPLAY_NAME, n.type) ?? n.type)}”`;
 }
 
 /**
@@ -132,7 +133,7 @@ function limitFinding(
 
 function enumFinding(node: ComponentNode, label: string, raw: string, limit: EnumLimit): Finding {
   return {
-    problem: `${partName(node)}: ${label} “${raw}” is not one the simulation knows`,
+    problem: `${partName(node)}: ${label} “${noteField(raw)}” is not one the simulation knows`,
     repair: `it now uses ${limit.fallback}`,
   };
 }
@@ -467,7 +468,7 @@ export function separationEventOrDefault(raw: string): string {
  */
 export function configSeparationNote(stage: ComponentNode, raw: string): string {
   const { fallback } = ENUM_LIMITS['stage']!['separationEvent']!;
-  return `${partName(stage)}: separation event “${raw}”, in a flight configuration other than the one `
+  return `${partName(stage)}: separation event “${noteField(raw)}”, in a flight configuration other than the one `
     + `opened, is not one the simulation knows — that configuration now uses ${fallback}.`;
 }
 
@@ -581,5 +582,5 @@ export function explainBuildFailure(
   const more = problems.length - shown.length;
   return `This design could not be built. The likely cause${problems.length === 1 ? '' : 's'}: `
     + `${shown.join('; ')}${more > 0 ? `; and ${more} more` : ''}. `
-    + `(The simulation reported: ${kernelMessage})`;
+    + `(The simulation reported: ${noteText(kernelMessage)})`;
 }

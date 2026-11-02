@@ -1,3 +1,4 @@
+import { noteField } from '../services/noteField.js';
 import { finCountOf } from './counts.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 import { axialLength, drawnSpan, positionOf, startFromPosition } from './position.js';
@@ -5,7 +6,6 @@ import { updateNode } from './treeModel.js';
 import { num } from './nodeNum.js';
 import { isFinSet } from './mountAngle.js';
 import { resolveTransitionRadii } from './transitionRadii.js';
-import { noteField } from '../services/noteField.js';
 
 /**
  * One-click fin-set alignment (issue 2026-08-05e): rotates axially-overlapping

@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { DEPLOY_EVENTS, FIELDS } from '../tree/schema.js';
 import { foldDeployEvent } from '../tree/deployEvent.js';
 import type { IgnitionTuple, SeparationTuple } from '../model/design.js';
@@ -75,9 +76,9 @@ export function deployOverrideNote(overrides: readonly DeployOverride[], configN
     const g = groups.get(key);
     if (g) g.n++; else groups.set(key, { o, n: 1 });
   }
-  const where = configName ? `Flight configuration “${configName}”` : 'The flight configuration this file opens with';
+  const where = configName ? `Flight configuration “${noteField(configName)}”` : 'The flight configuration this file opens with';
   const lines = [...groups.values()].map(({ o, n }) =>
-    `${o.name}${n > 1 ? ` (×${n})` : ''} flies at ${describeDeployment(o.flown, altitudeUnit)}, `
+    `${noteField(o.name)}${n > 1 ? ` (×${n})` : ''} flies at ${describeDeployment(o.flown, altitudeUnit)}, `
     + `not at its own setting (${describeDeployment(o.own, altitudeUnit, true)})`);
   // Both settings are shown, and edited, in the Recovery section of Motors &
   // Configuration since CFG-3 (ruling D2a); Design shows them read-only.
@@ -104,9 +105,9 @@ export function flightParameterOverrideNote(
     };
     return `${labels[tuple.event]}${tuple.delay ? ` + ${tuple.delay} s` : ''}`;
   };
-  const where = configName ? `Flight configuration “${configName}”` : 'The flight configuration this file opens with';
+  const where = configName ? `Flight configuration “${noteField(configName)}”` : 'The flight configuration this file opens with';
   const component = kind === 'separation' ? 'stage' : 'mount';
   const panel = kind === 'separation' ? 'Stages section on Motors & Configuration' : 'motor card on Motors & Configuration';
-  return `${where} overrides ${kind} for ${name}: it uses ${describe(flown)}, not the ${component}'s own setting (${describe(own, true)}). `
+  return `${where} overrides ${kind} for ${noteField(name)}: it uses ${describe(flown)}, not the ${component}'s own setting (${describe(own, true)}). `
     + `The ${panel} shows both; Reset to own setting there returns this configuration to the ${component}'s own setting.`;
 }

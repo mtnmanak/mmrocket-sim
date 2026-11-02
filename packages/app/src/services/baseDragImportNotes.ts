@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import type { ComponentNode, RocketTree } from '@online-openrocket/engine';
 // One finite-number reader for design fields (audit 2026-10-11, S5-3).
 import { numOpt } from '../tree/nodeNum.js';
@@ -82,7 +83,7 @@ export function retainBaseDragDeclaration(tree: RocketTree, description: string)
 /** Live design advisory; importers retain provenance but do not also display it. */
 export function baseDragImportNotes(tree: RocketTree): string[] {
   return baseDragCandidates(tree).map(({ node: n, evidence }) =>
-    `Possible base-drag model: “${n.name ?? n.type}” is an aft ${n.type}
+    `Possible base-drag model: “${noteField(n.name ?? n.type)}” is an aft ${n.type}
 with ${evidence}. If this is a virtual part rather than part of the real rocket, its aerodynamic contribution
 can move the center of pressure (CP) aft and so can overstate the stability margin:
 the app shows more stability margin than the rocket really has.

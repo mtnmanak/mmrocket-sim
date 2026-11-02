@@ -1,5 +1,6 @@
 import { distanceM, ELEVATION_AGREE_M } from './openMeteo.js';
 import { siToUi, uiToSi } from '../prefs/units.js';
+import { noteField } from './noteField.js';
 
 export interface CoordinateSite { latitudeDeg: number; longitudeDeg: number }
 export interface FileLongitudeCheck {
@@ -48,7 +49,7 @@ export function fileLongitudeNote(check: FileLongitudeCheck, simulationName: str
     const counterpart = Math.round(siToUi('distance', other, uiToSi('distance', unit, primary)));
     return `${primary.toLocaleString('en-US')} ${unit} (${counterpart.toLocaleString('en-US')} ${other})`;
   };
-  return `This file states two sites that look like one site with the longitude’s sign flipped: the opened simulation “${simulationName}”`
+  return `This file states two sites that look like one site with the longitude’s sign flipped: the opened simulation “${noteField(simulationName)}”`
     + ` is at ${opened.latitudeDeg}, ${opened.longitudeDeg} (${side(opened.longitudeDeg)}); ${siblingCount} of its other simulations`
     + ` ${siblingCount === 1 ? 'is' : 'are'} at ${sibling.latitudeDeg}, ${sibling.longitudeDeg} (${side(sibling.longitudeDeg)}),`
     + ` ${distance(distanceKm)} away. With the sign flipped it is ${distance(flippedDistanceKm)} from them. The file’s value was kept.`;

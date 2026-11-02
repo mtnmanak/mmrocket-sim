@@ -911,6 +911,10 @@ export function matchDbMotor(
   if (whole && /^k700[- _]*bb$/i.test(want) && whole.motor.motorId === MOTOR_MATCH_POLICY.blueBaboonK700) {
     whole.reason = 'RockSim used K700BB for both Blue Baboon and Black Bear. The file does not establish Black Bear; the app kept Blue Baboon. Check the motor.';
   }
+  if (whole && /^k700(?:[- _]*p)?(?:[- _]+\d+(?:\.\d+)?p?)?$/.test(want)
+      && whole.motor.motorId === MOTOR_MATCH_POLICY.blackBearK700) {
+    whole.reason = 'A bare AMW K700 can mean Black Bear or Blue Baboon. The file does not establish the propellant; the app kept Black Bear. Check the motor.';
+  }
   if (whole) return whole;
   // RockSim's own form for a Cesaroni reload puts the total impulse first,
   // “217-H135-WH-12A”, and nothing above reads past it (second review of audit

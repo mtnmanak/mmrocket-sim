@@ -375,8 +375,8 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
   const assumptions = separating.map((s) => {
     const trigger = s['separationEvent'];
     return trigger === 'altitudeascending' || trigger === 'altitudedescending'
-      ? `${s.name ?? 'Booster'} separation at ${noticeQuantity('altitude', num(s, 'separationAltitude', 200), input.distanceUnit ?? 'm')} above the pad (${trigger === 'altitudeascending' ? 'ascending' : 'descending'})`
-      : `${s.name ?? 'Booster'} separation on its configured trigger and delay`;
+      ? `${noteField(s.name ?? 'Booster')} separation at ${noticeQuantity('altitude', num(s, 'separationAltitude', 200), input.distanceUnit ?? 'm')} above the pad (${trigger === 'altitudeascending' ? 'ascending' : 'descending'})`
+      : `${noteField(s.name ?? 'Booster')} separation on its configured trigger and delay`;
   });
   const estimate = !flightEvents && separating.length > 0;
   const note = separating.length === 0 ? undefined : flightEvents
@@ -437,7 +437,7 @@ export function recoveryMassByStage(input: RecoveryMassInput): RecoveryByStage {
       && !lit.some(([, mm]) => trigger !== 'ejection' || Number.isFinite(mm.spec.ejectionDelay));
     if (impossible) {
       return { state: 'unavailable', reason:
-        `the ${stage.name ?? 'booster'} ${trigger} separation cannot fire with these motors; the attached stack needs a recovery weight` };
+        `the ${noteField(stage.name ?? 'booster')} ${trigger} separation cannot fire with these motors; the attached stack needs a recovery weight` };
     }
   }
 
@@ -638,3 +638,4 @@ export function recoveryMassTitle(r: RecoveryMass): string {
     }
   }
 }
+import { noteField } from './noteField.js';

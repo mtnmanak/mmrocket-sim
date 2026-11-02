@@ -68,7 +68,7 @@ it.each([INITIAL_UNITS, IMPERIAL_UNITS])('R13 typed deployment warnings retain t
     expect.soft(warning.label).toContain(threshold);
     expect(explanationFor('HighSpeedDeployment', units).meaning).toContain(threshold);
     expect(explanationFor('HighSpeedDeployment', units).remedy).toContain(threshold);
-    expect(warning.detail).toContain('"Main"');
+    expect(warning.detail).toContain('“Main”');
     if (value === 20.00001) expect(warning.detail).toContain('slightly above this threshold');
   }
 });

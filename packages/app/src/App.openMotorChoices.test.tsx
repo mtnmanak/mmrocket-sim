@@ -52,7 +52,7 @@ beforeEach(async () => {
 });
 afterEach(async () => { act(() => { flush(); }); await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
 
-async function open(name = 'Ask motor', extra = '') {
+async function open(name = 'Ask motor', extra = '', simulations = '') {
   const motor = (id: string) => `<motor configid="${id}"><manufacturer>Enerjet</manufacturer><designation>F67</designation><diameter>0.0286</diameter><length>0.127</length><delay>9</delay></motor>`;
   const xml = `<openrocket version="1.10" creator="OpenRocket 24.12"><rocket><name>${escapeXml(name)}</name>${extra}
     <motorconfiguration configid="a" default="true"><name>First</name></motorconfiguration>
@@ -60,7 +60,7 @@ async function open(name = 'Ask motor', extra = '') {
     <subcomponents><stage><name>Sustainer</name><subcomponents><bodytube><name>Motor tube</name>
     <length>0.5</length><radius>0.016</radius><thickness>0.001</thickness>
     <motormount><ignitionevent>automatic</ignitionevent>${motor('a')}${motor('b')}</motormount>
-    </bodytube></subcomponents></stage></subcomponents></rocket></openrocket>`;
+    </bodytube></subcomponents></stage></subcomponents></rocket>${simulations}</openrocket>`;
   const picker = host.querySelector<HTMLInputElement>('input[aria-label="Open a design file"]')!;
   Object.defineProperty(picker, 'files', { configurable: true, value: [new File([xml], 'Ask.ork')] });
   await act(async () => picker.dispatchEvent(new Event('change', { bubbles: true })));
@@ -277,11 +277,20 @@ it('expands a clean newer-format import after a prior import warning was collaps
   expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain('Warning: this file uses format 1.11');
 }, 20000);
 it('retires warning severity after the last other-maker caution is answered', async () => {
-  await open();
+  // The file carries launch conditions, so no retained-launch caution (C-F6-2) keeps the severity up.
+  await open('Ask motor', '', '<simulations><simulation status="notsimulated"><name>A</name><conditions><configid>a</configid></conditions></simulation></simulations>');
   await act(async () => button('Apply').click());
   await waitFor(() => !host.querySelector('[aria-label="Choose motors for this file"]'));
   const notice = host.querySelector('[aria-label="Notices"]')!;
   expect(notice.textContent).toContain('Loaded');
   expect(notice.textContent).not.toContain('Warning:');
   expect(host.querySelector('.notice-announce[role="alert"]')?.textContent ?? '').not.toContain('Loaded');
+}, 20000);
+it('keeps the retained-launch caution after the last other-maker caution is answered', async () => {
+  await open();
+  await act(async () => button('Apply').click());
+  await waitFor(() => !host.querySelector('[aria-label="Choose motors for this file"]'));
+  const notice = host.querySelector('[aria-label="Notices"]')!;
+  expect(notice.textContent).not.toContain('I12.motor-unconfirmed');
+  expect(notice.textContent).toContain('I24.launch-retained');
 }, 20000);

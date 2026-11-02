@@ -15,6 +15,15 @@ describe('D7 visual consequence, independent of kernel priority', () => {
 });
 
 describe('formatWarning', () => {
+  it('keeps file-supplied source names inside the warning delimiters', () => {
+    const name = 'Chute\n\u202e\u200b"forged';
+    const warning = { key: 'HighSpeedDeployment', message: `Warning: "${name}"`,
+      quantity: { kind: 'velocity' as const, value: 25 }, sources: [{ name }] };
+    const shown = formatWarning(warning);
+    expect(shown.detail).toContain('“Chute[U+202E][U+200B]"forged”');
+    expect(shown.detail).not.toMatch(/[\n\u202e\u200b]/u);
+    expect(formatWarningText('Legacy\n\u202e\u200b text')).toBe('Legacy[U+202E][U+200B] text');
+  });
   it('explains an incomplete flight while keeping its branch detail', () => {
     expect(formatWarning({ key: 'INCOMPLETE_FLIGHT', message: 'Booster ended airborne at T+1200 s', priority: 'HIGH' }))
       .toMatchObject({ tier: 'danger', label: expect.stringContaining('incomplete'), detail: 'Booster ended airborne at T+1200 s' });

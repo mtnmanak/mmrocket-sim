@@ -2515,7 +2515,7 @@ describe('RASAero export — booster fins are located on the whole booster body'
       expect(message).not.toMatch(/undefined/);
     }
     // A named booster is still quoted.
-    expect(() => exportCdx1(booster([]))).toThrow(/^Stage "Booster" has no body tube/);
+    expect(() => exportCdx1(booster([]))).toThrow(/^Stage “Booster” has no body tube/);
   });
 });
 

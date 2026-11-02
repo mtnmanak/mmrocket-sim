@@ -186,8 +186,8 @@ describe('flyBuiltDesign hands flyLaunch what onLaunch handed it', () => {
   it('refuses an ambiguous active configuration before calling the flight runner', async () => {
     const input = recorded({});
     input.savedConfigs = input.savedConfigs.map(c => c.id === input.activeConfigId
-      ? { ...c, motorLoadoutRefusal: 'Launch refused: repair the missing motor mounts.' } : c);
-    await expect(flyBuiltDesign(input)).rejects.toThrow('Launch refused');
+      ? { ...c, motorLoadoutRefusal: 'Launch refused: repair “motor”\n\u200b\u202e.' } : c);
+    await expect(flyBuiltDesign(input)).rejects.toThrow('Launch refused: repair “motor”[U+200B][U+202E].');
     expect(flyLaunch).not.toHaveBeenCalled();
     // Another configuration remains flyable; refusal belongs to its owner.
     input.activeConfigId = 'c2';

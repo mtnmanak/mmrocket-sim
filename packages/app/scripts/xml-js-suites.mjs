@@ -22,6 +22,7 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  'src/services/fileNoteSafety.test.ts',
   'src/services/ejectionDelay.test.ts',
   'src/services/rocksimRecoveryCount.test.ts',
   'src/services/rocksimFile.importExport.test.ts',

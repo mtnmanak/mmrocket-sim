@@ -23,6 +23,14 @@ it('decodes cap-sized Latin-1 RASP without a per-byte array, preserving C1 bytes
   } finally { spy.mockRestore(); }
 });
 
+it('preserves app error delimiters while escaping the file text inside them', async () => {
+  const out = await importMotorFiles([new File(['T1 18 70 0 bad 0.02 Maker\n0 0\n1 1'], 'Eric\'s.eng')]);
+  expect(out.error).toContain("Eric's.eng:");
+  expect(out.error).toContain('“T1 18 70 0 bad 0.02 Maker”');
+  expect(out.error).not.toContain('[U+201C]');
+  expect(out.error).not.toContain('[U+201D]');
+});
+
 it.each(['QuotaExceededError', 'SecurityError'])('C-H3 records %s motor storage refusal separately from session import', async name => {
   vi.resetModules();
   const { importMotorFiles: read } = await import('./importMotorFiles.js');

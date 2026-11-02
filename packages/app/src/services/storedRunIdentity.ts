@@ -3,6 +3,7 @@ import type { SimRun } from './simReport.js';
 import type { OrkExportFlightData } from './orkFile.js';
 import { APP_HYBRID_BAND } from './aeroProvenance.js';
 import type { EngineWarning } from '@online-openrocket/engine';
+import { noteField } from './noteField.js';
 
 export const MAX_WARNING_MERGE_WORK = 4_194_304;
 const warningMergeExhausted = new Error('Warning merge work exhausted');
@@ -70,7 +71,7 @@ incoming: EngineWarning[] | undefined, work: WarningMergeBudget): EngineWarning[
 }
 
 export function warningMergeNotes(work: WarningMergeBudget): string[] {
-  return [...work.skippedCopies].map(([id, count]) => `Stored flight “${id}”: ${count} later ${count === 1 ? 'copy of this flight carried warnings that were' : 'copies of this flight carried warnings that were'} not merged because the warning merge work limit was reached.`);
+  return [...work.skippedCopies].map(([id, count]) => `Stored flight “${noteField(id)}”: ${count} later ${count === 1 ? 'copy of this flight carried warnings that were' : 'copies of this flight carried warnings that were'} not merged because the warning merge work limit was reached.`);
 }
 
 /** Object insertion order is not evidence; array order and primitive types are. */

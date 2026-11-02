@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { cautionNote, flagNote, noteFlags, tierLines, zeroBulkDensityNote } from './importNotes.js';
 import { KERNEL_DEFAULT_FIN_POINTS, KERNEL_DEFAULT_MATERIALS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
@@ -47,7 +48,6 @@ import { overrideFor, sparsify } from './flightState.js';
 import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
 import { refuseOversizedForeignXml } from './foreignPartPrecount.js';
-import { noteField } from './noteField.js';
 
 export const MAX_RKT_SIMULATION_RECORDS = 4096;
 
@@ -346,7 +346,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const raw = element.textContent?.trim() ?? '';
     const v = parseDecimal(raw);
     if (Number.isFinite(v)) return v;
-    if (!unreadable.has(tag)) unreadable.set(tag, raw.slice(0, 40) || '(blank)');
+    if (!unreadable.has(tag)) unreadable.set(tag, noteField(raw, 40) || '(blank)');
     return fb;
   };
   /** Parts whose <PartMfg>/<PartNo> may name a catalogue row - resolved after the tree is built. */
@@ -388,7 +388,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         recoveryStatedMass.set(node, { originalG: calcMassG, addedFabric });
       }
     } else if (count !== 1) cautionNote(notes, 'I03.recovery-count',
-      `${node.name ?? node.type}: ${tag} ${count} is not a positive whole count; read as 1. Check recovery before flying.`);
+      `${noteField(node.name ?? node.type)}: ${tag} ${count} is not a positive whole count; read as 1. Check recovery before flying.`);
   };
   /** Nodes that kept a measured mass or CG desktop OpenRocket would discard. */
   const keptWithoutCGFlag = new Set<ComponentNode>();
@@ -641,7 +641,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       tooDeep = true;
       return;
     }
-    notes.push(`Sub-assembly “${text(el, ':scope > Name') ?? 'unnamed'}” flattened into its parent.`);
+    notes.push(`Sub-assembly “${noteField(text(el, ':scope > Name') ?? 'unnamed')}” flattened into its parent.`);
     const wrap = el.querySelector(':scope > AttachedParts');
     for (const sub of Array.from(wrap?.children ?? [])) {
       if (sub.tagName === 'SubAssembly') {
@@ -710,7 +710,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   /** The stage being read, for a part left out of the stage itself. */
   let stageBeingRead = '';
   // A part with no name is "an unnamed transition", not a transition called “unnamed”.
-  const named = (word: string, n: string | null | undefined): string => (n ? `the ${word} “${n}”` : `an unnamed ${word}`);
+  const named = (word: string, n: string | null | undefined): string => (n ? `the ${word} “${noteField(n)}”` : `an unnamed ${word}`);
   /** Whether `parent` (null: the stage itself) can carry what `el` becomes; records the part left out if not. */
   const attachable = (el: XmlElement, parent: ComponentNode | null): boolean => {
     const kind = PART_KIND[el.tagName];
@@ -977,7 +977,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           // did not (only a synthesised zero-tip-chord case was caught). Now they do.
           const parsed = parsePointList(text(el, ':scope > PointList') ?? '');
           if (parsed.unreadable > 0) {
-            const note = `Fin set "${n.name ?? 'freeform'}": ${unreadableFinPoints(parsed.unreadable)}`;
+            const note = `Fin set “${noteField(n.name ?? 'freeform')}”: ${unreadableFinPoints(parsed.unreadable)}`;
             if (!notes.includes(note)) cautionNote(notes, 'I05.fin-points', note);
           }
           const outlineProblem = parsed.problem ?? finOutlineProblem(parsed.pts, units);
@@ -992,7 +992,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
             // see nor edit. The same outline, stated, flies the same numbers
             // and makes this note's "keeps a default outline" true on screen.
             n['points'] = KERNEL_DEFAULT_FIN_POINTS.map(([x, y]) => [x, y]);
-            const note = `Fin set "${n.name ?? 'freeform'}": its outline was not used — ${outlineProblem} The set keeps a default outline; redraw it in the fin editor.`;
+            const note = `Fin set “${noteField(n.name ?? 'freeform')}”: its outline was not used — ${outlineProblem} The set keeps a default outline; redraw it in the fin editor.`;
             if (!notes.includes(note)) cautionNote(notes, 'I05.fin-outline', note);
           }
         }
@@ -1240,7 +1240,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
           }
         });
         n.children = chain;
-        notes.push(`External pod “${n.name ?? 'Pod'}” imported as ${detachable ? 'a strap-on booster (parallel stage)' : 'a pod set'}.`);
+        notes.push(`External pod “${noteField(n.name ?? 'Pod')}” imported as ${detachable ? 'a strap-on booster (parallel stage)' : 'a pod set'}.`);
         return n;
       }
       default:
@@ -1353,9 +1353,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       }
       chain.splice(i--, 1);
       (host.children ??= []).push(n);
-      notes.push(`The file marks the tube “${n.name ?? 'unnamed'}” as inside the rocket but lists it among the `
+      notes.push(`The file marks the tube “${noteField(n.name ?? 'unnamed')}” as inside the rocket but lists it among the `
         + `stage’s outer parts, which cannot hold it; the app put it inside the body tube in front of it, `
-        + `“${host.name ?? 'unnamed'}”, at the position the file gives it. Desktop OR adds it to the outside of the `
+        + `“${noteField(host.name ?? 'unnamed')}”, at the position the file gives it. Desktop OR adds it to the outside of the `
         + 'rocket as another body tube.');
     }
   };
@@ -1670,7 +1670,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       }
       for (const g of groups.values()) {
         if (g.length < 2 || !g.some((t) => radialByNode.has(t))) continue;
-        const where = parentNode.name ?? parentNode.type;
+        const where = noteField(parentNode.name ?? parentNode.type);
         // "Motor tubes" only when they are: LEM-M2B.ork's two nose-cone tubes,
         // written out and read back, were called that with no mount among them.
         const kind = g.some((t) => t['motorMount'] === true) ? 'motor tubes' : 'tubes';
@@ -1869,13 +1869,13 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       if (numOpt(node, 'spillHoleDiameter') !== undefined) {
         node['spillHoleDiameter'] = nnum(node, 'spillHoleDiameter', 0) * Math.sqrt(count);
       }
-      cautionNote(notes, 'I03.recovery-count', `${node.name ?? 'Parachute'}: the file's ${count} × ${noticeQuantity('length', diameter, units)} canopies `
+      cautionNote(notes, 'I03.recovery-count', `${noteField(node.name ?? 'Parachute')}: the file's ${count} × ${noticeQuantity('length', diameter, units)} canopies `
         + `are read as one equivalent ${noticeQuantity('length', diameter * Math.sqrt(count), units)} canopy of equal total area. `
         + massNote
         + 'Separate-canopy inflation and interaction are not simulated.');
     } else {
       node['stripWidth'] = width * count;
-      cautionNote(notes, 'I03.recovery-count', `${node.name ?? 'Streamer'}: the file's ${count} streamers are read as one equivalent strip `
+      cautionNote(notes, 'I03.recovery-count', `${noteField(node.name ?? 'Streamer')}: the file's ${count} streamers are read as one equivalent strip `
         + `${noticeQuantity('length', length, units)} × ${noticeQuantity('length', width * count, units)} of equal total area. `
         + massNote
         + 'Interaction between separate streamers is not simulated.');
@@ -1957,7 +1957,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   for (const stage of components) { insertBaseExtensions(stage.children); insertInPods(stage.children); }
 
   if (ignored.size) {
-    cautionNote(notes, 'I03.ignored-components', `Ignored unsupported RockSim components: ${[...ignored].join(', ')}.`);
+    cautionNote(notes, 'I03.ignored-components', `Ignored unsupported RockSim components: ${[...ignored].map(n => noteField(n)).join(', ')}.`);
   }
   // Tier 2 import loss notes: a hostless IsInsideTube becomes a body tube
   // after its attachments were filtered; desktop does not share that loss.
@@ -2011,11 +2011,11 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const n = holedBulkheads.length;
     const one = holedBulkheads[0]!;
     notes.push((n === 1
-      ? `Bulkhead “${one.name}” has a ${noticeQuantity('length', one.idMm / LEN, units)} hole through it. RockSim weighs the part with that hole, and a `
+      ? `Bulkhead “${noteField(one.name)}” has a ${noticeQuantity('length', one.idMm / LEN, units)} hole through it. RockSim weighs the part with that hole, and a `
         + 'bulkhead here is a solid disc, so it was imported as a centering ring with that bore; desktop OpenRocket '
         + 'imports it solid. The ⌾ Estimate of Max motor length still stops at it unless the hole is wide enough '
         + 'for the motor.'
-      : `${n} bulkheads have a hole through them (${holedBulkheads.map((b) => `“${b.name}” ${noticeQuantity('length', b.idMm / LEN, units, { parenthesized: true })}`).join(', ')}). `
+      : `${n} bulkheads have a hole through them (${holedBulkheads.map((b) => `“${noteField(b.name)}” ${noticeQuantity('length', b.idMm / LEN, units, { parenthesized: true })}`).join(', ')}). `
         + 'RockSim weighs each part with its hole, and a bulkhead here is a solid disc, so they were imported as '
         + 'centering rings with those bores; desktop OpenRocket imports them solid. The ⌾ Estimate of Max motor '
         + 'length still stops at each unless its hole is wide enough for the motor.'));
@@ -2167,7 +2167,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   let engineSims = 0;
   for (const g of simGroups) {
     const missing = g.sets.map(e => missingMotorCounts.get(e)).find(n => n !== undefined);
-    const source = `Simulation ${g.number ?? '(outside simulations)'}${g.name?.trim() ? ` (\u201c${g.name.trim()}\u201d)` : ''}`;
+    const source = `Simulation ${g.number ?? '(outside simulations)'}${g.name?.trim() ? ` (\u201c${noteField(g.name.trim())}\u201d)` : ''}`;
     // Check after the cluster repair moves, including body-tube and lone mounts
     // it cannot repair (audit 2026-10-11, S1b-2). Loose sets bypass groupLoadouts:
     // merged copies can share a motor only when its code, maker and delays agree.
@@ -2236,7 +2236,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     if (same) {
       // Numbered: the unnumbered loose sets are the first group, so only a
       // simulation after them can fold into one already seen.
-      const label = `Simulation ${g.number!}${g.name?.trim() ? ` (“${g.name.trim()}”)` : ''}`;
+      const label = `Simulation ${g.number!}${g.name?.trim() ? ` (“${noteField(g.name.trim())}”)` : ''}`;
       foldedSources.get(same)!.push(label);
       if (g.number !== null) {
         // Prefixed with the simulation, keeping each line's own tier.
@@ -2295,7 +2295,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const chosen = flyable ?? available[0] ?? configs[0];
   const simLabel = (c: OrkFlightConfig): string => {
     const s = cfgSim.get(c)!;
-    const quoted = s.name ? ` (“${s.name}”)` : '';
+    const quoted = s.name ? ` (“${noteField(s.name)}”)` : '';
     return s.number === null ? `The motors listed outside the file's simulations${quoted}` : `Simulation ${s.number}${quoted}`;
   };
   const bottomName = components[bottomIdx]?.name ?? 'the bottom stage';
@@ -2377,7 +2377,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     }
     for (const { ref, mounts } of sentinelNotes.values()) {
       const kind = sentinelRefs.get(ref);
-      const motor = `Motor ${ref.designation}${mounts > 1 ? ` (${mounts} mounts)` : ''}`;
+      const motor = `Motor ${noteField(ref.designation)}${mounts > 1 ? ` (${mounts} mounts)` : ''}`;
       const asks = `${motor}: the file asks for RockSim's “every delay” run (EjectionDelay −1), `;
       if (kind === 'plugged') {
         out.push(`${motor}: plugged (no ejection charge — RockSim's EjectionDelay −2) — `
@@ -2483,7 +2483,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       }
       // Row 44 A: the same offline check a .ork open runs on its simulations.
       longitudeCheck = checkFileLongitude(site, simEls.filter((s) => s !== siteSim).map(siteOf).filter(usableSite));
-      if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck, chosen ? simLabel(chosen) : 'Simulation 1', opts?.horizontalDistanceUnit ?? units.distance));
+      if (longitudeCheck) notes.push(fileLongitudeNote(longitudeCheck,
+        chosen ? cfgSim.get(chosen)?.name || `Simulation ${cfgSim.get(chosen)?.number ?? 1}` : 'Simulation 1',
+        opts?.horizontalDistanceUnit ?? units.distance));
     } else {
       const latRaw = text(siteSim, ':scope > LaunchLatitude');
       const lonRaw = text(siteSim, ':scope > LaunchLongitude');
@@ -2491,7 +2493,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
         // What the file carried, as it carried it: a number as a number, an
         // unreadable one quoted, a missing one named.
         const said = (raw: string | null, v: number, what: string): string => raw === null ? `no ${what}`
-          : Number.isFinite(v) ? `${what} ${String(v)}°` : `${what} “${raw.trim().slice(0, 40)}”`;
+          : Number.isFinite(v) ? `${what} ${String(v)}°` : `${what} “${noteField(raw.trim(), 40)}”`;
         // One sentence for the whole of it: the open adds no "none was taken"
         // line of its own after this one (retainedLaunchNote).
         cautionNote(notes, 'I24.site-retained', `${chosen ? simLabel(chosen) : 'The file’s first simulation'} states its launch site as `
@@ -2504,7 +2506,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
               + 'range and the latitude is not 90° (or π/2), and reads'
             : 'the app takes a site only when its latitude and longitude are both non-zero and in range, and reads')
           + ' no other launch condition from a '
-          + '.rkt, so the Launch panel keeps the settings you had.');
+          + '.rkt, so the Launch panel keeps your site and other surface settings.');
         launchSiteRefused = true;
       }
     }
@@ -2516,7 +2518,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   if (unreadable.size > 0) {
     cautionNote(notes, 'I04.unreadable-numbers', `Could not read ${unreadable.size} number${unreadable.size === 1 ? '' : 's'} in this file, `
       + 'so the import used its own default instead — check these before trusting any result: '
-      + `${[...unreadable].map(([tag, raw]) => `<${tag}> “${raw}”`).join(', ')}. `
+      + `${[...unreadable].map(([tag, raw]) => `<${tag}> “${noteField(raw)}”`).join(', ')}. `
       + 'A number here must be a plain decimal with a period (2.5, not 2,5).');
   }
 
@@ -2675,7 +2677,7 @@ const readDeploymentEvents = (
     }
     seen.set(serial, t);
     if (t.deployEvent === 'apogee' && Math.round(num(ev, 'Type', 0)) === 5) {
-      notes.push(`${node.name ?? node.type} ${t.says}.`);
+      notes.push(`${noteField(node.name ?? node.type)} ${t.says}.`);
     }
   }
   if (pro.size) cautionNote(notes, 'I11.pro-conditions', 'RockSim Pro conditions for ' + [...pro].join(', ') + ' are not supported; '
@@ -2929,7 +2931,7 @@ function subtreeOverrideNotes(stages: readonly ComponentNode[]): string[] {
       const cg = n['overrideSubcomponentsCG'] === true && numOpt(n, 'overrideCGX') !== undefined;
       if ((mass || cg) && (n.children ?? []).length > 0) {
         const both = mass && cg;
-        out.push(`“${n.name ?? n.type}”: its ${both ? 'mass and CG overrides cover' : `${mass ? 'mass' : 'CG'} override covers`}`
+        out.push(`“${noteField(n.name ?? n.type)}”: its ${both ? 'mass and CG overrides cover' : `${mass ? 'mass' : 'CG'} override covers`}`
           + ' the parts inside it, which a .rkt cannot say. RockSim, desktop OpenRocket and this app '
           + (mass ? `add those parts' own mass on top${cg ? ', at their own CG' : ''}` : 'leave those parts at their own CG')
           + ` when the file is opened. Save a .ork file to keep ${both ? 'them' : 'it'}.`);
@@ -2989,7 +2991,7 @@ export function exportRkt(input: RktExportInput): string {
         : event === 'apogee' ? 4 : event === 'altitude' ? 5 : null;
       if (type === null || delay < 0 || (event !== 'ejection' && delay !== 0)
         || (event === 'altitude' && altitude <= 0)) {
-        throw new Error(`Recovery device “${node.name ?? node.type}”: .rkt cannot faithfully save `
+        throw new Error(`Recovery device “${noteField(node.name ?? node.type)}”: .rkt cannot faithfully save `
           // In the user's unit, as the import's recovery line quotes it: this
           // printed the stored metres with a hard-coded "m".
           + `${event} deployment${event === 'altitude' ? ` at ${deployAltitudeText(altitude, distanceUnit)}` : ''}`
@@ -3015,7 +3017,7 @@ export function exportRkt(input: RktExportInput): string {
     const collectRadialParts = (nodes: readonly ComponentNode[]) => {
       for (const n of nodes) {
         if (['parachute', 'streamer', 'shockcord', 'masscomponent'].includes(n.type)
-          && nnum(n, 'radialPosition', 0) !== 0) radialParts.push(`“${n.name ?? n.type}”`);
+          && nnum(n, 'radialPosition', 0) !== 0) radialParts.push(`“${noteField(n.name ?? n.type)}”`);
         collectRadialParts(n.children ?? []);
       }
     };
@@ -3487,7 +3489,7 @@ export function exportRkt(input: RktExportInput): string {
           return nnum(node, `${key}Length`, 0) > 0
             && (nnum(node, `${key}Thickness`, 0) !== wall || node[`${key}Capped`] === true);
         })) {
-          notes?.push(`Transition "${node.name ?? 'Transition'}": .rkt uses the body wall thickness for both shoulders`
+          notes?.push(`Transition “${noteField(node.name ?? 'Transition')}”: .rkt uses the body wall thickness for both shoulders`
             + ' (solid shoulders on a filled part) and cannot keep their end caps. Use .ork to preserve them.');
         }
         common(node, parent, 'Transition');
@@ -3603,7 +3605,7 @@ export function exportRkt(input: RktExportInput): string {
           : node.type === 'centeringring' ? nnum(node, 'innerRadius', Math.min(ctx.mountOuterRadius ?? 0, od))
           : nnum(node, 'innerRadius', Math.max(0, od - kernelNum(node, 'thickness')));
         if (node.type === 'centeringring' && usage === 0 && numOpt(node, 'innerRadius') === 0) {
-          notes?.push(`“${node.name ?? 'Centering ring'}”: a solid centering ring is saved with inside diameter 0, `
+          notes?.push(`“${noteField(node.name ?? 'Centering ring')}”: a solid centering ring is saved with inside diameter 0, `
             + 'which RockSim files use for an automatic hole; it reopens with a hole sized to the motor tube. '
             + 'Save as .ork to keep it solid.');
         }
@@ -3636,7 +3638,7 @@ export function exportRkt(input: RktExportInput): string {
             // coupler's); the station is the lifted one above.
             emitPart(kid, node);
           }
-          notes?.push(`“${node.name ?? 'Tube coupler'}”: its ${kids.length === 1 ? 'part goes' : `${kids.length} parts go`}`
+          notes?.push(`“${noteField(node.name ?? 'Tube coupler')}”: its ${kids.length === 1 ? 'part goes' : `${kids.length} parts go`}`
             + ' into the tube around it, each where it flies — RockSim keeps no parts inside a coupler.');
         }
         break;
@@ -3923,14 +3925,14 @@ export function exportRkt(input: RktExportInput): string {
     // changes: stageKnown above still owns exactly what goes into the XML.
     if (numOpt(s, 'overrideMass') === undefined && numOpt(s, 'overrideCGX') === undefined) return;
     if (!(nnum(s, 'overrideMass', 0) > 0)) {
-      notes?.push(`“${s.name ?? `Stage ${i + 1}`}”: Stage mass/CG overrides are not preserved as editable stage settings.`
+      notes?.push(`“${noteField(s.name ?? `Stage ${i + 1}`)}”: Stage mass/CG overrides are not preserved as editable stage settings.`
         + ' Any computed stage weight reopens here as Measured mass & CG (multi-stage weights as a note only),'
         + ' so the reopened design flies its parts until you apply it. Save a .ork file to keep the overrides.');
       return;
     }
     const mass = numOpt(s, 'overrideMass') !== undefined;
     const both = mass && numOpt(s, 'overrideCGX') !== undefined;
-    notes?.push(`“${s.name ?? `Stage ${i + 1}`}”: its ${both ? 'mass and CG overrides go' : `${mass ? 'mass' : 'CG'} override goes`}`
+    notes?.push(`“${noteField(s.name ?? `Stage ${i + 1}`)}”: its ${both ? 'mass and CG overrides go' : `${mass ? 'mass' : 'CG'} override goes`}`
       + " out as RockSim's known mass for the stage, which RockSim and desktop OpenRocket fly in place of its parts. "
       + (stagesIn.length === 1
         ? 'This app opens that into Measured mass & CG on the Design tab instead of pinning the stage, so the design '
@@ -4065,7 +4067,7 @@ export function exportRkt(input: RktExportInput): string {
           ? ' — which never comes on the stage that leaves the pad, so it does not light here either'
           : plugged > 0 ? `, whose motor${plugged === 1 ? ' is' : 's are all'} plugged — with no charge to fire, it does not light here either`
             : event === 'ejectioncharge' ? ', whose motors do not share one ejection delay' : '';
-        lostIgnition.add(`“${m.designation}” ${what}${why}. RockSim times the stage that leaves the pad from `
+        lostIgnition.add(`“${noteField(m.designation)}” ${what}${why}. RockSim times the stage that leaves the pad from `
           + `launch and every other stage from the burnout of the one below, so the .rkt lights it ${delay} s ${after}.`);
       }
     }

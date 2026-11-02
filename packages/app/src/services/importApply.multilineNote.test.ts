@@ -72,6 +72,7 @@ it('cleans the named maker in EX info notes before they are split', async () => 
   const resolved = await resolveImportMotors(imported, r => matchImportedMotor(r, { catalogue: [], exMotors: [ex] }));
   const plan = planImport(imported, resolved, { launch: DEFAULT_CONDITIONS, text: statedWeightTextFor(INITIAL_UNITS) });
   expect(plan.note.text).toContain('motor database has no OTHERFAKE TAB F67');
-  expect(plan.note.group!.lines).toHaveLength(1);
-  expect(plan.note.group!.lines[0]!.text).not.toMatch(/[\r\n\t]/);
+  expect(plan.note.group!.lines).toHaveLength(2);
+  expect(plan.note.group!.lines.filter(l => l.kind === 'I24.launch-retained')).toHaveLength(1);
+  for (const line of plan.note.group!.lines) expect(line.text).not.toMatch(/[\r\n\t]/);
 });

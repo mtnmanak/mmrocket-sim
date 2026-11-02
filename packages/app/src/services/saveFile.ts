@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 /**
  * The one place the app hands a file to the user.
  *
@@ -254,7 +255,7 @@ export function saveOutcomeNote(
   if (out.kind === 'cancelled') return null;
   const lossLines = losses.length ? `\n${losses.join('\n')}` : '';
   if (out.kind === 'saved') {
-    return { text: `Saved “${out.name}”.${lossLines}`, severity: losses.length ? 'warn' : 'info' };
+    return { text: `Saved “${noteField(out.name)}”.${lossLines}`, severity: losses.length ? 'warn' : 'info' };
   }
   return {
     text: (out.fellBack
@@ -262,11 +263,11 @@ export function saveOutcomeNote(
       // file, a revoked permission. Reporting a plain success there would
       // send the user looking in the folder they picked.
       ? `Couldn't write to the folder you chose (${out.fellBack}) — `
-        + `“${out.name}” went to your browser's download folder instead.`
+        + `“${noteField(out.name)}” went to your browser's download folder instead.`
       // With the setting on, Firefox asked where, so "the download folder"
       // may not be where it went.
-      : hint ? `Saved “${out.name}” as a download — to your download folder, unless Firefox asked you where. ${hint}`
-      : `Saved “${out.name}” to your browser's download folder.`) + lossLines,
+      : hint ? `Saved “${noteField(out.name)}” as a download — to your download folder, unless Firefox asked you where. ${hint}`
+      : `Saved “${noteField(out.name)}” to your browser's download folder.`) + lossLines,
     severity: out.fellBack || losses.length ? 'warn' : 'info',
   };
 }

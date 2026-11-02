@@ -303,7 +303,7 @@ describe('.ork freeform fin points are read as the file wrote them', () => {
     const set = flatten(r.tree.components).find((c) => c.type === 'freeformfinset')!;
     return { points: set['points'] as [number, number][] | undefined, notes: r.notes };
   };
-  const refusal = (why: string) => `Fin set "Fins": its outline was not used — ${why} `
+  const refusal = (why: string) => `Fin set “Fins”: its outline was not used — ${why} `
     + 'The set keeps a default outline; redraw it in the fin editor.';
 
   it('reads an ordinary outline', () => {
@@ -329,7 +329,7 @@ describe('.ork freeform fin points are read as the file wrote them', () => {
     expect(r.notes).toContain(refusal(TOO_MANY_FIN_POINTS));
   });
 
-  const skipped = (n: number) => `Fin set "Fins": ${unreadableFinPoints(n)}`;
+  const skipped = (n: number) => `Fin set “Fins”: ${unreadableFinPoints(n)}`;
 
   it('leaves out a blank coordinate, and says so, instead of reading it as zero', () => {
     // `Number('')` is 0: this outline imported with its second vertex on
@@ -358,7 +358,7 @@ describe('.ork freeform fin points are read as the file wrote them', () => {
       + '<point x="0.06" y="0.0"/>');
     expect(r.points).toEqual(KERNEL_DEFAULT_FIN_POINTS);
     expect(r.notes).toContain(skipped(2));
-    expect(r.notes.some((m) => m.startsWith('Fin set "Fins": its outline was not used'))).toBe(true);
+    expect(r.notes.some((m) => m.startsWith('Fin set “Fins”: its outline was not used'))).toBe(true);
   });
 });
 

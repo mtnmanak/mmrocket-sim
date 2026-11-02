@@ -517,6 +517,8 @@ function readSession(restoreRoot: boolean): SessionState | null {
         isTable(c) && typeof c.id === 'string' && isTable(c.motors)
         && (c.name == null || typeof c.name === 'string')
         && (c.motorLoadoutRefusal === undefined || typeof c.motorLoadoutRefusal === 'string')
+        && (c.motorLoadNotes === undefined || (isTable(c.motorLoadNotes)
+          && Object.values(c.motorLoadNotes).every(note => typeof note === 'string')))
         && ['unmatchedRefs', 'deployments', 'separations', 'ignitions', 'nozzles', 'stageActiveness', 'stageMassOverrides']
           .every(key => c[key] === undefined || isTable(c[key])),
       ) : [];

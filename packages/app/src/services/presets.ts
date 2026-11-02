@@ -1,3 +1,4 @@
+import { noteField } from './noteField.js';
 import { cautionNote } from './importNotes.js';
 import { backUpUnreadableStore } from './storeBackup.js';
 import type { ComponentNode, ComponentType } from '@online-openrocket/engine';
@@ -136,8 +137,8 @@ export function loadCustomPresets(notes?: string[]): Preset[] {
       const screened = screenCustomPreset(p);
       if (!screened) return [];
       const { preset, materialRemoved, massRemoved } = screened;
-      if (materialRemoved) repairedRows.push(`${preset.kind}: ${preset.manufacturer} ${preset.partNo}`);
-      if (massRemoved) massRows.push(`${preset.kind}: ${preset.manufacturer} ${preset.partNo}`);
+      if (materialRemoved) repairedRows.push(`${preset.kind}: ${noteField(preset.manufacturer)} ${noteField(preset.partNo)}`);
+      if (massRemoved) massRows.push(`${preset.kind}: ${noteField(preset.manufacturer)} ${noteField(preset.partNo)}`);
       return [preset];
     }) : [];
     if (repairedRows.length) notes?.push(`${repairedRows.length} stored preset(s) had unreadable material removed; first: ${repairedRows[0]!}. Their dimensions were kept. Check the part's material after applying it.`);
@@ -216,7 +217,7 @@ export const sameCustomPreset = (a: Preset, b: Preset): boolean =>
 
 /** Refuse new distinct identities that the existing design-link resolver conflates. */
 const customPresetLinkMessage = (conflict: Preset): string =>
-  `That part number cannot be told apart from My part ${conflict.manufacturer} ${conflict.partNo} when a design links to it; add a distinguishing Latin letter or digit.`;
+  `That part number cannot be told apart from My part ${noteField(conflict.manufacturer)} ${noteField(conflict.partNo)} when a design links to it; add a distinguishing Latin letter or digit.`;
 
 export function customPresetLinkError(row: Preset, remaining: Preset[]): string | undefined {
   const conflict = remaining.find((p) => !sameCustomPreset(p, row)
@@ -376,7 +377,7 @@ export function presetPatch(
 ): Partial<ComponentNode> {
   if (type === 'centeringring' && n(p, 'insideDiameter') !== undefined && n(p, 'outsideDiameter') !== undefined
     && n(p, 'insideDiameter')! >= n(p, 'outsideDiameter')!) {
-    options?.notes?.push(`${p.manufacturer} ${p.partNo}: the catalogue's inside diameter is not smaller than its outside diameter. Both diameters were left unchanged; the catalogue part was not applied. Check the ring's fit before flying or cutting it.`);
+    options?.notes?.push(`${noteField(p.manufacturer)} ${noteField(p.partNo)}: the catalogue's inside diameter is not smaller than its outside diameter. Both diameters were left unchanged; the catalogue part was not applied. Check the ring's fit before flying or cutting it.`);
     return {};
   }
   const patch: Partial<ComponentNode> = { name: `${p.manufacturer} ${p.partNo}` };
@@ -638,7 +639,7 @@ export function presetPatch(
       if (Number.isFinite(outer) && Number.isFinite(inner) && (inner as number) >= (outer as number)) {
         delete fields['outerRadius'];
         delete fields['innerRadius'];
-        options?.notes?.push(`${p.manufacturer} ${p.partNo}: the saved inside diameter is not smaller than its outside diameter. Both diameters were left unchanged; check the ring's fit before flying or cutting it.`);
+        options?.notes?.push(`${noteField(p.manufacturer)} ${noteField(p.partNo)}: the saved inside diameter is not smaller than its outside diameter. Both diameters were left unchanged; check the ring's fit before flying or cutting it.`);
       }
     }
     const surface = materialTypeFor(p.kind) === 'SURFACE';
@@ -1486,7 +1487,7 @@ export function applyPresetLinks(
       }
     }
     linked += 1;
-    if (conflicts.length) conflictLines.push(`${node.name ?? node.type}: ${[...new Set(conflicts)].join(', ')}`);
+    if (conflicts.length) conflictLines.push(`${noteField(node.name ?? node.type)}: ${[...new Set(conflicts)].join(', ')}`);
     const took = filled.size ? ` — took ${[...filled].join(', ')} from the catalogue` : '';
     // Said out loud, because a silently missing Cd is how the 0.8 default gets
     // blamed on the catalogue instead of on the pairing rule.
@@ -1497,7 +1498,7 @@ export function applyPresetLinks(
     // A stated half-pair keeps the catalogue's whole pair out of the flight;
     // a canopy that states both halves is missing nothing.
     if (filled.size || (declined && !PAIR.every((k) => node[k] !== undefined))) changedFlight = true;
-    lines.push(`${node.name ?? node.type} → ${p.manufacturer} ${p.partNo}${took}${declined}`);
+    lines.push(`${noteField(node.name ?? node.type)} → ${noteField(p.manufacturer)} ${noteField(p.partNo)}${took}${declined}`);
   }
   // One line per part matched in a foreign file; none from a file this app wrote.
   if (lines.length > 0) {

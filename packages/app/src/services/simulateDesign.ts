@@ -1,11 +1,11 @@
+import { noteText } from './noteField.js';
 import { recordFlightOverrides, type RecordedFlightOverride } from './flightOverrideSummary.js';
-import { activeFlightOverrides } from './flightState.js';
+import { activeFlightOverrides, resolveFlightState } from './flightState.js';
 import type { FlightResult, OrkRocket, RocketTree } from '@online-openrocket/engine';
 import { savedConfigLabel, type MountMotor, type SavedConfig } from '../model/design.js';
 import { effectiveAero } from '../prefs/aeroChoice.js';
 import { DEFAULT_PREFS } from '../prefs/preferences.js';
 import { INITIAL_UNITS, type UnitSelection } from '../prefs/units.js';
-import { resolveFlightState } from './flightState.js';
 import { withActiveConfigSynced } from './configSync.js';
 import type { OrkMotorRef } from './orkFile.js';
 import { isOnLaunchStage, motorisedStagesWithNozzle, mountMotorCount, stageRecoveryById, stagesWithRecoveryDevice } from '../tree/treeModel.js';
@@ -126,7 +126,7 @@ export async function flyBuiltDesign<R extends BuildHandle>(
   const launchForReport = structuredClone(launch);
   const units = { ...(input.units ?? INITIAL_UNITS) };
   const refusal = savedConfigs.find(c => c.id === activeConfigId)?.motorLoadoutRefusal;
-  if (refusal) throw new Error(refusal);
+  if (refusal) throw new Error(noteText(refusal));
   const { mounts, stageList, assigned, effectiveSupersonic, primaryMountId } = derived;
   const { aeroMode, effectiveKbf } = aero;
   const flightOverrides = input.flightOverrides === undefined ? undefined : structuredClone(input.flightOverrides);
@@ -478,7 +478,7 @@ async function simulateDesignNow(input: DesignState, opts: SimulateDesignOptions
     input = { ...input, launch: { ...input.launch, timeStepS: opts.minTimeStepS } };
   }
   const refusal = input.savedConfigs.find(c => c.id === input.activeConfigId)?.motorLoadoutRefusal;
-  if (refusal) throw new SimulateDesignError('flight', refusal);
+  if (refusal) throw new SimulateDesignError('flight', noteText(refusal));
   const aero = opts.aero ?? APP_DEFAULT_AERO;
   const handles = opts.handles ?? KERNEL_HANDLES;
   // audit 2026-10-11, FC-4: every build and re-flight shares this projection.

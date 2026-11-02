@@ -1,3 +1,4 @@
+import { noteField, noteText } from './noteField.js';
 import { Gunzip, Inflate, strFromU8 } from 'fflate';
 
 /**
@@ -230,11 +231,11 @@ export function unzipMember(bytes: Uint8Array, extension: string, kind: string, 
   const mb = (n: number) => Math.round(n / (1024 * 1024));
   if (chosen.originalSize > maxBytes) {
     throw new InflatedFileTooLargeError(maxBytes,
-      `“${chosen.name}” in this archive expands to ${mb(chosen.originalSize)} MB, past the `
+      `“${noteField(chosen.name)}” in this archive expands to ${mb(chosen.originalSize)} MB, past the `
       + `${mb(maxBytes)} MB this app will open — that is not a rocket design.`);
   }
   const damaged = (why: string) =>
-    new Error(`Not a readable ${kind} archive — “${chosen.name}” ${why}.`);
+    new Error(`Not a readable ${kind} archive — “${noteField(chosen.name)}” ${why}.`);
   const verified = (out: Uint8Array): Uint8Array => {
     if (out.length !== chosen.originalSize) throw damaged('does not match its declared size');
     if (crc32(out) !== chosen.crc) throw damaged('does not match its own checksum');
@@ -253,7 +254,7 @@ export function unzipMember(bytes: Uint8Array, extension: string, kind: string, 
   // ANY cap — not a size refusal: memory is bounded by the declaration, and
   // only an honestly declared member over the cap is "too large".
   const overflow = new Error(
-    `“${chosen.name}” in this archive inflates past the ${chosen.originalSize.toLocaleString('en-US')} `
+    `“${noteField(chosen.name)}” in this archive inflates past the ${chosen.originalSize.toLocaleString('en-US')} `
     + 'bytes its directory declares — the archive is damaged or crafted, not a rocket design.');
   if (chosen.compression === 0) {
     if (chosen.size > chosen.originalSize) throw overflow;
@@ -279,7 +280,7 @@ export function unzipMember(bytes: Uint8Array, extension: string, kind: string, 
     if (err === overflow) throw err;
     // fflate's own errors ("invalid block type", "unexpected EOF") are real
     // but terse; say which archive member they are about.
-    throw damaged(`is damaged (${err instanceof Error ? err.message : String(err)})`);
+    throw damaged(`is damaged (${noteText(err instanceof Error ? err.message : String(err))})`);
   }
   return verified(out.subarray(0, total));
 }

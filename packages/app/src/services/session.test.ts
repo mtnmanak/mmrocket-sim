@@ -49,6 +49,23 @@ const state = () => ({
   } as LaunchConditions,
 });
 
+it.each([[[]], ['bad'], [null], [{ m: 1 }], [{ m: null }]])('refuses unreadable saved motor-load notes: %j', motorLoadNotes => {
+  discardSession();
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs: [
+    { id: 'a', name: 'A', isDefault: true, motors: {}, motorLoadNotes },
+  ] }));
+  expect(loadSession()!.savedConfigs).toEqual([]);
+});
+
+it('retains valid saved motor-load explanations exactly', () => {
+  discardSession();
+  const motorLoadNotes = { m: 'Motor “C6” could not load: offline.' };
+  localStorage.setItem('online-openrocket.session.v1', JSON.stringify({ ...state(), savedConfigs: [
+    { id: 'a', name: 'A', isDefault: true, motors: {}, motorLoadNotes },
+  ] }));
+  expect(loadSession()!.savedConfigs![0]!.motorLoadNotes).toEqual(motorLoadNotes);
+});
+
 describe('closure lane persisted records', () => {
   beforeEach(() => discardSession());
   it.each([7, {}, { toString: 0 }] as unknown[])('repairs unreadable rocket and part names on restore: %j', name => {
@@ -568,7 +585,7 @@ describe('storage hardening: session tree', () => {
     localStorage.setItem('online-openrocket.session.v1', raw);
     const restored = restore();
     expect(restored.state.tree).toEqual({ ...expected, ignitionDefaults: {} });
-    expect(restored.restoreNotes.join(' ')).toContain('Fin set "Airfoil fins": its outline was not used');
+    expect(restored.restoreNotes.join(' ')).toContain('Fin set “Airfoil fins”: its outline was not used');
     expect(restored.restoreNotes.join(' ')).toContain('The set keeps a default outline; redraw it in the fin editor.');
     expect(localStorage.getItem('online-openrocket.session.v1')).toBe(raw);
   });

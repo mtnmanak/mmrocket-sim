@@ -1,4 +1,5 @@
 import type { DesignFileRef } from './designFileName.js';
+import { noteField } from './noteField.js';
 import { formatExtension, type CheckedFormatLossReport, type FormatLossReport } from './formatLoss.js';
 
 /** Synchronous on purpose: a clean gate must preserve the picker’s click activation. */
@@ -25,7 +26,7 @@ export function lossySaveStatus(saved: LossySaveMark | null, current: string, fl
 }
 export function replacementLossNote(file: DesignFileRef | null, report: CheckedFormatLossReport | null): string | null {
   if (!file || file.format === 'ork' || !report?.losses.length || report.format !== file.format) return null;
-  const named = `You ${file.via === 'opened' ? 'opened' : 'saved'} “${file.name}”`;
+  const named = `You ${file.via === 'opened' ? 'opened' : 'saved'} “${noteField(file.name)}”`;
   // A check that did not finish has no list, only its one sentence saying so.
   if (report.incomplete) return `${named}. ${report.losses[0]!}`;
   return `${named}, but it does not keep: `
