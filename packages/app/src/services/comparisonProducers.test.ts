@@ -311,6 +311,12 @@ it('requires inventory review and a boundary case or scope exemption for new pro
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
   }).toEqual(reviewedCensus);
 }, 30_000);
+// Inventory review (2026-11-02, N1 round 2): API index.ts 12 -> 14. The new
+// limiter-outage text ("limit") describes access, not a numerical quantity;
+// the other hit is the RATE_LIMITER type-index string: scope exemptions.
+// The declared/received size message moved to bodySizeError; laneGuards.test.ts
+// covers declared oversize before busy admission, and body.test.ts covers a
+// streamed cap crossing. No new unit-bearing physical comparison was added.
 // Inventory review (2026-11-01, M3): rasaeroFile.ts rose 261 -> 262 on
 // `:scope > IncludeBooster${i}`, an XML child selector in the excluded-booster
 // caution loop. Its `>` is not a numeric comparison or user-facing text, so

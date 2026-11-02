@@ -1,29 +1,40 @@
 /** The whole-file cap on a request body. */
 export const MAX_API_BODY_BYTES = 8 * 1024 * 1024;
 /**
- * Reader buffer capacity across this isolate, including both buffers during
- * growth. Three full bodies fit when none is growing. The isolate's 128 MB
+ * Reader buffer capacity across this isolate. Growth resizes in place,
+ * so three full bodies fit. The isolate's 128 MB
  * also holds the kernel, the bundle, incoming chunks and each parse.
  */
 export const MAX_IN_FLIGHT_BODY_BYTES = 3 * MAX_API_BODY_BYTES;
+export const MAX_KEY_BODY_BYTES = MAX_IN_FLIGHT_BODY_BYTES / 2;
 /** The first allocation for a body: small, so a short upload holds little. */
 const FIRST_STEP_BYTES = 64 * 1024;
+// The installed workerd supports ES2024 buffers; the app typechecks against ES2022.
+interface ResizableBuffer extends ArrayBuffer { resize(byteLength: number): void }
+const ResizableArrayBuffer = ArrayBuffer as unknown as new (byteLength: number, options: { maxByteLength: number }) => ResizableBuffer;
 
 export class BodyTooLarge extends Error {
   readonly received: number;
-  constructor(received: number) { super('Design body exceeds the whole-file cap.'); this.received = received; }
+  readonly declared: boolean;
+  constructor(received: number, declared = false) {
+    super('Design body exceeds the whole-file cap.');
+    this.name = 'BodyTooLarge';
+    this.received = received;
+    this.declared = declared;
+  }
 }
 
 export class BodyTimeout extends Error {
-  constructor() { super('The upload did not finish within 30 seconds.'); }
+  constructor() { super('The upload did not finish within 30 seconds.'); this.name = 'BodyTimeout'; }
 }
 
 /** The isolate's body budget is spent: retry after other uploads finish. */
 export class ServerBusy extends Error {
-  constructor() { super('Body bytes in flight exceed the isolate budget.'); }
+  constructor() { super('Body bytes in flight exceed the upload budget.'); this.name = 'ServerBusy'; }
 }
 
 let reserved = 0;
+const reservedByKey = new Map<string, number>();
 /** Body bytes reserved across this isolate's requests now (tests). */
 export const reservedBodyBytes = () => reserved;
 
@@ -35,9 +46,24 @@ export const reservedBodyBytes = () => reserved;
  */
 export class BodyReservation {
   #held = 0;
+  #key?: string;
+  #preparedBytes = 0;
+  /** Claim the first capacity before awaiting the work limiter. */
+  prepare(): void { this.reserve(FIRST_STEP_BYTES); this.#preparedBytes = FIRST_STEP_BYTES; }
+  takePreparedBytes(): number {
+    const bytes = this.#preparedBytes;
+    this.#preparedBytes = 0;
+    return bytes;
+  }
+  setKey(key: string): void {
+    if (this.#held) throw new Error('Cannot change the owner of held body bytes.');
+    this.#key = key;
+  }
   /** Hold `bytes` more, or throw ServerBusy and hold nothing more. */
   reserve(bytes: number): void {
-    if (reserved + bytes > MAX_IN_FLIGHT_BODY_BYTES) throw new ServerBusy();
+    const keyBytes = this.#key === undefined ? 0 : reservedByKey.get(this.#key) ?? 0;
+    if (reserved + bytes > MAX_IN_FLIGHT_BODY_BYTES || (this.#key !== undefined && keyBytes + bytes > MAX_KEY_BODY_BYTES)) throw new ServerBusy();
+    if (this.#key !== undefined) reservedByKey.set(this.#key, keyBytes + bytes);
     reserved += bytes;
     this.#held += bytes;
   }
@@ -45,26 +71,40 @@ export class BodyReservation {
   return(bytes: number): void {
     reserved -= bytes;
     this.#held -= bytes;
+    if (this.#key !== undefined) {
+      const remaining = reservedByKey.get(this.#key)! - bytes;
+      if (remaining) reservedByKey.set(this.#key, remaining);
+      else reservedByKey.delete(this.#key);
+    }
   }
   release(): void {
-    reserved -= this.#held;
-    this.#held = 0;
+    this.return(this.#held);
+    this.#preparedBytes = 0;
   }
 }
 
+export function declaredBodySize(request: Request): number | undefined {
+  const length = request.headers.get('content-length');
+  return length !== null && /^\d+$/.test(length) ? Number(length) : undefined;
+}
 /**
- * Fixed buffers double up to the cap. Growth temporarily holds old + new
- * capacity (at most 12 MiB), both reserved before allocation. No chunks are
- * retained. A bounded view trims the logical length without a hand-off copy;
- * a full buffer is passed directly, avoiding the importer's view-input copy.
+ * Resizable buffers grow in place, in 64 KiB steps, to the bytes received. Only added capacity is
+ * reserved before growth (at most 8 MiB per body). No chunks are
+ * retained. A short buffer is shrunk in place to exact length;
+ * a full buffer is passed directly. Neither handoff needs an importer view copy.
  * Content-Length is only an early refusal hint, never an allocation size.
  */
-export async function readBody(request: Request, reservation: BodyReservation, deadlineAt = performance.now() + 30_000): Promise<ArrayBuffer | Uint8Array> {
-  const length = request.headers.get('content-length');
-  const declared = length !== null && /^\d+$/.test(length) ? Number(length) : undefined;
-  if (declared !== undefined && declared > MAX_API_BODY_BYTES) throw new BodyTooLarge(declared);
+export async function readBody(request: Request, reservation: BodyReservation, deadlineAt = performance.now() + 30_000, key?: string): Promise<ArrayBuffer> {
+  if (key !== undefined) reservation.setKey(key);
+  return readBodyBytes(request, reservation, deadlineAt);
+}
+
+async function readBodyBytes(request: Request, reservation: BodyReservation, deadlineAt: number): Promise<ArrayBuffer> {
+  const declared = declaredBodySize(request);
+  if (declared !== undefined && declared > MAX_API_BODY_BYTES) throw new BodyTooLarge(declared, true);
   if (!request.body) return new ArrayBuffer(0);
-  let buffer = new ArrayBuffer(0);
+  const buffer = new ResizableArrayBuffer(0, { maxByteLength: MAX_API_BODY_BYTES });
+  let preparedBytes = reservation.takePreparedBytes();
   const reader = request.body.getReader();
   let size = 0;
   let cancelled = false;
@@ -97,18 +137,19 @@ export async function readBody(request: Request, reservation: BodyReservation, d
         throw new BodyTooLarge(size + value.byteLength);
       }
       if (size + value.byteLength > buffer.byteLength) {
-        let grown = Math.max(buffer.byteLength, FIRST_STEP_BYTES);
-        while (grown < size + value.byteLength) grown = Math.min(MAX_API_BODY_BYTES, grown * 2);
+        // Grow to what is needed, in 64 KiB steps. resize() is in place, so doubling would save no copy and would only
+        // hold unused capacity against the per-key cap (two 6 MiB uploads from one key would not fit 12 MiB).
+        const grown = Math.min(MAX_API_BODY_BYTES,
+          Math.ceil((size + value.byteLength) / FIRST_STEP_BYTES) * FIRST_STEP_BYTES);
         try {
-          reservation.reserve(grown);
+          const added = grown - buffer.byteLength;
+          if (added > preparedBytes) reservation.reserve(added - preparedBytes);
+          preparedBytes = 0;
         } catch (e) {
           cancel();
           throw e;
         }
-        const next = new ArrayBuffer(grown);
-        new Uint8Array(next).set(new Uint8Array(buffer, 0, size));
-        reservation.return(buffer.byteLength);
-        buffer = next;
+        buffer.resize(grown);
       }
       new Uint8Array(buffer, size, value.byteLength).set(value);
       size += value.byteLength;
@@ -121,5 +162,10 @@ export async function readBody(request: Request, reservation: BodyReservation, d
     // Internal workerd streams cannot unlock an outstanding cancelled read.
     if (!cancelled) reader.releaseLock();
   }
-  return size === buffer.byteLength ? buffer : new Uint8Array(buffer, 0, size);
+  if (preparedBytes) reservation.return(preparedBytes);
+  if (size === buffer.byteLength) return buffer;
+  const capacity = buffer.byteLength;
+  buffer.resize(size);
+  reservation.return(capacity - size);
+  return buffer;
 }

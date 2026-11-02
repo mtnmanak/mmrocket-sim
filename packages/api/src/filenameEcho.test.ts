@@ -85,7 +85,7 @@ describe('a caller filename echoed in an error is bounded and made safe for disp
     const at = (points: number) => ROCKET.repeat(10) + 'n'.repeat(points - 10 - 4) + '.ork';
     const declared = { 'Content-Length': String(8 * 1024 * 1024 + 1) };
     const kept = await refused(await post(route, at(200), 'x', declared), 413, 'FILE_TOO_LARGE');
-    expect(kept).toBe(`${at(200)}: the API body limit is 8 MiB; received 8,388,609 bytes. Use ${APP_URL} for larger files.`);
+    expect(kept).toBe(`${at(200)}: the API body limit is 8 MiB; declared 8,388,609 bytes. Use ${APP_URL} for larger files.`);
     const cut = echoOf(await refused(await post(route, at(201), 'x', declared), 413, 'FILE_TOO_LARGE'));
     expect(Array.from(cut)).toHaveLength(200);
     expect(cut).toBe(Array.from(at(201)).slice(0, 183).join('') + '\u2026' + 'n'.repeat(12) + '.ork');

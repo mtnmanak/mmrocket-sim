@@ -51,6 +51,26 @@ it.each(['', 'two keys', 'two\nlines'])('refuses unusable stdin %s without outpu
   expect(result.stderr).toContain('Supply one non-empty key on stdin.');
 });
 
+it.each(['caf\u00e9', '\u0100', 'key\u0000', 'key\u007f', 'key\u001b'])('refuses non-printable or non-ASCII stdin without echoing it', input => {
+  const result = runFixed(['test', '--hash'], { input });
+  expect(result.status).toBe(1);
+  expect(result.stdout).toBe('');
+  expect(result.stderr).not.toContain(input);
+});
+
+it('strips one PowerShell UTF-8 BOM before hashing', () => {
+  const result = runFixed(['test', '--hash'], { input: '\ufeff' + TEST_KEY + '\r\n' });
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout).toBe(TEST_KEYS + '\n');
+  expect(result.stderr).toBe('');
+  for (const input of ['\ufeff\ufeff' + TEST_KEY, TEST_KEY + '\ufeff']) {
+    const refused = runFixed(['test', '--hash'], { input });
+    expect(refused.status).toBe(1);
+    expect(refused.stdout).toBe('');
+    expect(refused.stderr).not.toContain(input);
+  }
+});
+
 it('prints all existing keys and the new hash on one pasteable secret line', () => {
   const existing = 'older:' + 'a'.repeat(64);
   const other = TEST_KEYS.replace('test:', 'other:');

@@ -182,7 +182,7 @@ describe('S3 draft POST /describe in real workerd', () => {
   it('returns 503 with retry guidance when a dead holder poisons the kernel', async () => {
     const response = await trapped!.fetch('http://local/__test/dead-kernel?route=describe', { method: 'POST', body: bytesOf('reference.ork') });
     expect(response.status).toBe(503);
-    expect(response.headers.get('retry-after')).toBe('5');
+    expect(response.headers.get('retry-after')).toBeNull();
     expect(await response.json()).toEqual({ ...STAMP, error: { code: 'KERNEL_UNAVAILABLE', message: expect.stringMatching(/retry/i) } });
   }, 60_000);
 
