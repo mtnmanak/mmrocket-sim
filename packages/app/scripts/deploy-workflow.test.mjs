@@ -271,6 +271,22 @@ describe('test-suites.yml — the sharded suite', () => {
     }
   });
 
+  it('can neither skip a shard nor let a failing one through to deploy', () => {
+    // A step or job `if` can run zero tests; `continue-on-error` lets deploy
+    // proceed after a red shard. Neither has a place in this workflow (Codex
+    // review of a80752a3, 2 Nov 2026).
+    const assertBlocking = (lines) => expect(lines.filter(isContent).join('\n')).not.toMatch(/^\s*(?:- )?(?:if|continue-on-error):/m);
+    assertBlocking(SUITES);
+    const suite = 'run: npm run test -w ${{ matrix.workspace }} -- ${{ matrix.shard }}';
+    expect(SUITES.some((l) => l.includes(suite))).toBe(true);
+    for (const to of [`${suite}\n        if: false`, `${suite}\n        continue-on-error: true`]) {
+      expect(() => assertBlocking(replace(SUITES, suite, to))).toThrow();
+    }
+    for (const to of ['timeout-minutes: 15\n    continue-on-error: true', 'timeout-minutes: 15\n    if: false']) {
+      expect(() => assertBlocking(replace(SUITES, 'timeout-minutes: 15', to))).toThrow();
+    }
+  });
+
   it('makes deployment depend on the unconditional reusable test gate exactly once', () => {
     const assertGate = (lines) => {
       const test = path(lines, 'jobs', 'test');

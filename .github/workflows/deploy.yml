@@ -137,12 +137,14 @@ jobs:
 
       - run: npm ci
 
-      # Typecheck BEFORE the tests, and this order is the whole point of the step.
-      # `tsc -b` already ran inside `npm run build` further down, so a type error
-      # could never reach production — but it reached it LATE, after ~2 minutes of
-      # npm ci plus the full engine+app suite, and by then main is red with a
-      # version.json already bumped for a release that never shipped (the shape of
-      # commit 3efcf38, "fix: the v0.098 deploy-gate failure"). Worse, `npm test`
+      # Typecheck early, and that is the whole point of the step. `tsc -b` already
+      # ran inside `npm run build` further down, so a type error could never reach
+      # production — but it reached it LATE, after ~2 minutes of npm ci plus the
+      # full engine+app suite, and by then main is red with a version.json already
+      # bumped for a release that never shipped (the shape of commit 3efcf38, "fix:
+      # the v0.098 deploy-gate failure"). Since the suites moved to the parallel
+      # `test` job (2026-11-02), this job reports a type error within minutes,
+      # while the shards are still running; deploy waits for both. Worse, `npm test`
       # is what a developer runs locally before pushing, and vitest transpiles
       # without checking types — so a green local test run was never evidence of a
       # green build. `npm run typecheck` is that missing local signal, and putting
