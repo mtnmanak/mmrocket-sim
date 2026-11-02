@@ -43,7 +43,7 @@ it.each(['deleted', 'changed', 'invalid'])('saves the loaded snapshot when its l
   const notes: string[] = [];
   const xml = write(notes);
   expect(notes.join(' ')).toMatch(/C6.*(missing|changed|invalid|deleted)/);
-  const recovery = autosaveToOrk({ tree, mountMotors: { [mount]: loaded }, launch: DEFAULT_CONDITIONS, savedAt: 1 });
+  const { xml: recovery } = autosaveToOrk({ tree, mountMotors: { [mount]: loaded }, launch: DEFAULT_CONDITIONS, savedAt: 1 });
   await expect(encodeShareFragment(xml)).resolves.toBeTruthy();
   localStorage.clear();
   for (const saved of [xml, recovery]) {

@@ -17,6 +17,7 @@ import { autosavedDesignFile } from './services/autosaveBackup.js';
 import { loadCatalogueMotor, mountMotorFromDb } from './services/motorMatch.js';
 import { exToDbEntry, exToMotorSpec, parseEng, type ExMotor } from './services/exMotors.js';
 import { exportOrk, importOrk, MAX_ORK_CONFIGURATIONS } from './services/orkFile.js';
+import { parseXml } from './services/xmlParse.js';
 import { importRkt } from './services/rocksimFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
@@ -2825,6 +2826,76 @@ describe('a file’s pad mass on a tied mount whose motor cannot load', () => {
  * working set read under '' would pass them all, and save this one at its
  * provisional delay.
  */
+describe('M2 export notices', () => {
+  it.each((['clipboard', 'prompt', 'autosave'] as const).flatMap(route =>
+    [true, false].map(liveAuto => ({ route, liveAuto }))))('shows written delays for $route (live Auto: $liveAuto)', async ({ route, liveAuto }) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const db = MOTOR_DB.find(m => m.diameter === 18 && m.delays?.split(',').some(d => /^\d+$/.test(d)))!;
+    const motor = (await loadCatalogueMotor(db.manufacturerAbbrev, db.designation, 0))!;
+    const auto = { ...motor, meta: { ...motor.meta, autoDelay: true } };
+    const live = liveAuto ? auto : { ...motor, spec: { ...motor.spec, ejectionDelay: 3 } };
+    const stale = { ...auto, spec: { ...auto.spec, ejectionDelay: 11 } };
+    const session: SessionState = { tree, mountMotors: { [mount]: live }, launch: DEFAULT_CONDITIONS,
+      appVersion: APP_VERSION, savedAt: Date.now(), activeConfigId: 'A', configLayers: 1,
+      savedConfigs: [
+        { id: 'A', name: 'Active', isDefault: true, motors: { [mount]: stale } },
+        { id: 'B', name: 'Other', isDefault: false, motors: { [mount]: { ...auto, spec: { ...auto.spec, ejectionDelay: 3 } } } },
+      ],
+    };
+    if (route === 'autosave') {
+      // A refused restore offers Download autosave without replacing its logical tree.
+      let body = tree.components[0]!.children!.find(n => n.type === 'bodytube')!;
+      for (let i = 0; i < 4; i++) body = { type: 'podset', instanceCount: 32, children: [body] };
+      session.tree = { components: [{ type: 'stage', children: [body] }] };
+    } else {
+      vi.spyOn(orkFlightData, 'flownAutoDelays').mockReturnValue({ A: { [mount]: 7 } });
+    }
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    const host = await mountApp();
+    const writeText = vi.fn(async () => { if (route === 'prompt') throw new Error('clipboard denied'); });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const oldPrompt = Object.getOwnPropertyDescriptor(window, 'prompt');
+    const prompt = vi.fn(() => null);
+    Object.defineProperty(window, 'prompt', { configurable: true, value: prompt });
+    try {
+      if (route === 'autosave') {
+        await act(async () => { button(host, 'Download the autosaved design (.ork)').click(); });
+      } else {
+        await saveAs(host, 'Copy share link');
+        await waitFor(() => writeText.mock.calls.length === 1, 'share copy');
+      }
+      const xml = vi.mocked(exportOrk).mock.results.at(-1)!.value as string;
+      // Recovery must preserve a tree that the app refuses to expand on import.
+      const written = parseXml(xml.replace(/^\uFEFF?\s*<\?xml[^?]*\?>/, ''), 'Invalid export');
+      const delay = written.querySelector('motormount > motor[configid="A"] > delay');
+      expect(delay).not.toBeNull();
+      expect(Number(delay!.textContent))
+        .toBe(liveAuto ? (route === 'autosave' ? auto.spec.ejectionDelay : 7) : 3);
+      const notes = host.querySelector('[aria-label="Notices"]')!.textContent!;
+      expect(notes).toContain('Auto (optimal) delay');
+      expect(notes).toContain('provisional 3 s');
+      expect(notes).toContain('reopens fixed');
+      expect(notes).toContain('Caution');
+      expect(notes.match(/provisional 3 s/g)).toHaveLength(1);
+      expect(notes).not.toContain('provisional 11 s');
+      if (route !== 'autosave' && liveAuto) {
+        expect(notes).toContain('saved at 7 s, the rounded optimum');
+        expect(notes.match(/saved at 7 s/g)).toHaveLength(1);
+      }
+      if (!liveAuto) expect(notes).not.toContain('saved at 7 s');
+      expect(notes).toContain(route === 'autosave'
+        ? 'After reopening this backup in the app, select Auto, launch, then save'
+        : 'Launch, then copy the share link again');
+      if (route === 'prompt') expect(prompt).toHaveBeenCalled();
+    } finally {
+      if (oldPrompt) Object.defineProperty(window, 'prompt', oldPrompt);
+      else delete (window as unknown as { prompt?: unknown }).prompt;
+      delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+    }
+  }, 30000);
+});
+
 describe('an Auto mount flown in the active flight configuration', () => {
   it('is saved at the delay it flew there', async () => {
     const tree = defaultTree();

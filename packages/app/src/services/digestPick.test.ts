@@ -157,7 +157,7 @@ describe('opening a desktop design', () => {
     // Save .ork (the autosave's recovery file is the same writer): the digest
     // goes back out unchanged, and the saved file flies the same curve.
     const session = { ...named.plan.snapshot, unmatchedRefs: named.plan.unmatchedRefs } as unknown as SessionState;
-    const saved = autosaveToOrk(session);
+    const { xml: saved } = autosaveToOrk(session);
     expect(saved).toContain(`<digest>${MFR_DIGEST}</digest>`);
     const reopened = await simulateFile(new TextEncoder().encode(saved), 'saved.ork');
     expect(flownImpulse(reopened)).toBeCloseTo(await fileNs(MFR_FILE), 1);
