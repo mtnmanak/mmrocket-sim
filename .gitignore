@@ -70,3 +70,6 @@ __pycache__/
 
 # Local agent tool copies (Codex); never committed
 .agents/
+
+# Vitest JSON/HTML reporter output (never committed: the repo is public)
+.vitest/
