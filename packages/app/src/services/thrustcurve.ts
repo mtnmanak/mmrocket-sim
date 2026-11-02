@@ -1,5 +1,6 @@
 import { INITIAL_UNITS, fmtSig, noticeEqual, noticeNumber, noticeComparison, type UnitSelection } from '../prefs/units.js';
 import { parseDecimal } from './xmlUtil.js';
+import { noteField } from './noteField.js';
 import type { MotorSpec } from '@online-openrocket/engine';
 import { deadline } from './net.js';
 import { digestMotorFile, motorHeaderMasses } from './motorDigest.js';
@@ -646,8 +647,9 @@ function noCurveEntries(): Map<string, string> {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not a map');
     const entries = Object.entries(parsed);
-    if (entries.length > MAX_NO_CURVES || entries.some(([id, date]) => !id || id.length > 200
-      || !validCatalogueDate(date))) {
+    if (entries.length > MAX_NO_CURVES || entries.some(([id, source]) => !id || id.length > 200
+      || !(validCatalogueDate(source) || (typeof source === 'string'
+        && /^\d{4}-\d{2}-\d{2}:[0-9a-f]{64}$/.test(source) && validCatalogueDate(source.slice(0, 10)))))) {
       throw new Error('invalid entries');
     }
     return new Map(entries as [string, string][]);
@@ -657,12 +659,11 @@ function noCurveEntries(): Map<string, string> {
   }
 }
 
-function rememberNoCurve(motorId: string): void {
+function rememberNoCurve(motorId: string, source: string): void {
   try {
-    const date = catalogueDate();
-    const entries = new Map([...noCurveEntries()].filter(([, learned]) => learned === date));
+    const entries = new Map([...noCurveEntries()].filter(([, learned]) => learned === source));
     entries.delete(motorId);
-    entries.set(motorId, date);
+    entries.set(motorId, source);
     while (entries.size > MAX_NO_CURVES) entries.delete(entries.keys().next().value!);
     localStorage.setItem(NO_CURVE_KEY, JSON.stringify(Object.fromEntries(entries)));
   } catch { /* best-effort cache, never discard a user's EX files */ }
@@ -776,10 +777,13 @@ function simFiles(files: readonly BundledSimFile[]): TcSimFile[] {
  * a refusal of the file: nothing was read.
  */
 const snapshotCurves = new Map<string, Promise<Map<string, BundledSimFile[]>>>();
-/** The eligible subset of each curves file read so far, by its sha. */
+/** The parsed files read so far, before bundle-dependent eligibility, by sha. */
 const readSnapshotCurves = new Map<string, Map<string, BundledSimFile[]>>();
 /** Curves files refused for their size, sha or shape, by sha: not asked for again this session. */
 const refusedSnapshotCurves = new Set<string>();
+/** Transient host failures back off per file, without making an integrity refusal. */
+const failedSnapshotCurves = new Map<string, { at: number; error: Error }>();
+const SNAPSHOT_RETRY_MS = 10 * 60_000;
 
 const plainObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 
@@ -812,6 +816,8 @@ function loadSnapshotCurves(snapshot: CatalogueSnapshotRef): Promise<Map<string,
   if (refusedSnapshotCurves.has(sha)) {
     return Promise.reject(new CatalogueError('integrity', 'The catalogue\'s curves file was refused earlier.'));
   }
+  const failure = failedSnapshotCurves.get(sha);
+  if (failure && Date.now() - failure.at < SNAPSHOT_RETRY_MS) return Promise.reject(failure.error);
   // Not a CatalogueError, so not remembered as a refusal of this file.
   if (!canCheckCatalogueFiles()) return Promise.reject(new Error(NO_HASH_MESSAGE));
   let pending = snapshotCurves.get(sha);
@@ -823,28 +829,31 @@ function loadSnapshotCurves(snapshot: CatalogueSnapshotRef): Promise<Map<string,
         || !plainObject(doc['curves'])) {
         throw new CatalogueError('shape', 'The catalogue\'s curves file is not the one its snapshot names, so it was not used.');
       }
-      // A bundle that would not load cannot say which shipped motors lack a
-      // curve, so none are taken this time, and the answer is not kept.
-      const bundle = await loadBundledCurves().catch(() => null);
       const curves = doc['curves'];
-      const subset = new Map<string, BundledSimFile[]>();
+      const parsed = new Map<string, BundledSimFile[]>();
       for (const id of Object.keys(curves)) {
-        if (shippedMotorIds.has(id) && (!bundle || Object.hasOwn(bundle, id))) continue;
         const listed = curves[id];
         const files = Array.isArray(listed) ? listed.map(snapshotSimFile).filter((f): f is BundledSimFile => f !== null) : [];
-        if (files.length) subset.set(id, files);
+        if (files.length) parsed.set(id, files);
       }
-      if (bundle) readSnapshotCurves.set(sha, subset);
-      else snapshotCurves.delete(sha);
-      return subset;
+      readSnapshotCurves.set(sha, parsed);
+      failedSnapshotCurves.delete(sha);
+      return parsed;
     })();
     snapshotCurves.set(sha, pending);
     pending.catch((err: unknown) => {
       snapshotCurves.delete(sha);
       if (err instanceof CatalogueError || (err instanceof NetError && err.kind === 'too-large')) refusedSnapshotCurves.add(sha);
+      else failedSnapshotCurves.set(sha, { at: Date.now(), error: err instanceof Error ? err : new Error(String(err)) });
     });
   }
-  return pending;
+  return pending.then(async parsed => {
+    // Eligibility changes when a failed bundle load recovers. Keep the file,
+    // not a subset that permanently excludes shipped curveless motors.
+    const bundle = await loadBundledCurves().catch(() => null);
+    return new Map([...parsed].filter(([id]) => !shippedMotorIds.has(id)
+      || (bundle !== null && !Object.hasOwn(bundle, id))));
+  });
 }
 
 /** Waits for `p`, or rejects as an AbortError the moment `signal` aborts: one caller's Stop must not cancel a file others share. */
@@ -1085,11 +1094,14 @@ export function samplesToMotorSpec(
  * and nothing that flies — the samples and masses are what v7 always stored,
  * chosen by the same pickSampleFile — so no entry was written under an old
  * picking rule, which is what this rule exists for. An entry without them
- * (v0.196 and earlier) reads as "origin and digests unknown": with no digest
- * asked for it flies as it always did, and with one, the snapshot or the
- * download is asked first and the entry stands in when neither can be
+ * (v0.196 and earlier) reads as "origin and digests unknown": the snapshot or
+ * download can refresh it, and the entry stands in when neither can be
  * reached (curveFiles). A bump would only throw away every cached curve —
  * for a motor with no bundled curve, the one copy it has offline.
+ *
+ * `source` (2026-11-02) binds the usual cached curve to the curves sha even
+ * when no file has a digest. A newer snapshot can therefore correct that
+ * curve on its next use, while the old entry remains an offline fallback.
  *
  * And since that day a loaded bundle that can fly the motor comes BEFORE the
  * entry (audit S5-3): an entry still outranks the snapshot and the network,
@@ -1116,6 +1128,7 @@ interface CachedCurve {
   digests?: string[];
   motorDigests?: string[];
   motorDigestsSource?: string;
+  source?: string;
 }
 
 const digestList = (v: unknown): string[] | undefined =>
@@ -1255,7 +1268,7 @@ function writeCurveCache(cacheKey: string, file: TcSimFile, origin: CachedCurveO
   const digests = fileDigests(file);
   const all = flyable(files).map(fileDigests);
   const entry = JSON.stringify({
-    samples: file.samples, masses: headerMasses(file), massParser: MASS_PARSER_VERSION, t: Date.now(), origin,
+    samples: file.samples, masses: headerMasses(file), massParser: MASS_PARSER_VERSION, t: Date.now(), origin, source,
     ...(digests.length ? { digests } : {}),
     ...(all.length && all.every((d) => d.length) ? { motorDigests: [...new Set(all.flat())], motorDigestsSource: source } : {}),
   });
@@ -1299,10 +1312,12 @@ function readCurveCache(cacheKey: string): CachedCurve | null {
     const digests = digestList(tags['digests']);
     const motorDigests = digestList(tags['motorDigests']);
     const motorDigestsSource = typeof tags['motorDigestsSource'] === 'string' ? tags['motorDigestsSource'] : undefined;
+    const source = typeof tags['source'] === 'string' ? tags['source'] : undefined;
     return {
       samples: parsed.samples, masses: isHeaderMasses(parsed.masses) ? parsed.masses : null,
       ...(origin ? { origin } : {}), ...(digests ? { digests } : {}), ...(motorDigests ? { motorDigests } : {}),
       ...(motorDigestsSource ? { motorDigestsSource } : {}),
+      ...(source ? { source } : {}),
     };
   } catch {
     return null; // storage unavailable (private mode etc.) — just fetch
@@ -1395,7 +1410,9 @@ function unreadableCurvesFile(designation: string, err: unknown): Error {
  *    that would not load (a tab left open across an update) is not "no
  *    files": the cache and then the download stand in.
  * 2. This browser's cache, the motor's USUAL pick from an earlier read. With
- *    no digest it answers. With one, it answers when its file carries that
+ *    no digest it answers when it belongs to the active snapshot (or none is active).
+ *    An older or untagged entry stands in offline or when the refresh fails.
+ *    With a digest, it answers when its file carries that
  *    digest, or when the motor's files carry none that do (the usual pick is
  *    then what any read would fly); otherwise the snapshot or the download is
  *    asked for the named file first (113-16e: a warm cache flew the usual
@@ -1459,13 +1476,18 @@ export async function curveFiles(
       ...(entry.origin ? { cachedFrom: entry.origin } : {}), ...(fallback ? { cacheFallback: fallback } : {}) });
   };
   if (cached) {
-    if (!digest) return fromCache(cached, 'unknown');
-    if (cached.digests?.includes(digest)) return fromCache(cached, 'flown');
+    // A failed chunk says nothing about which curves ship. Keep shipped
+    // motors local rather than issuing a download for every batch candidate.
+    if (digest && cached.digests?.includes(digest)) return fromCache(cached, 'flown');
+    if (!digest && bundleFailed && shippedMotorIds.has(motorId)) return fromCache(cached, 'unknown', 'failed');
+    const snapshot = activeSnapshot();
+    const current = !snapshot || (cached.source ?? cached.motorDigestsSource) === snapshot.curves.sha256;
+    if (!digest && current) return fromCache(cached, 'unknown');
     // Not desktop's form (32 lowercase hex, its MD5; digestCurveNote holds
     // the same test): no published file has it, so nothing to ask for.
-    const source = activeSnapshot()?.curves.sha256 ?? catalogueDate();
-    if (!DESKTOP_DIGEST.test(digest)
-      || (cached.motorDigestsSource === source && cached.motorDigests && !cached.motorDigests.includes(digest))) return fromCache(cached, 'absent');
+    const source = snapshot?.curves.sha256 ?? catalogueDate();
+    if (digest && (!DESKTOP_DIGEST.test(digest)
+      || (cached.motorDigestsSource === source && cached.motorDigests && !cached.motorDigests.includes(digest)))) return fromCache(cached, 'absent');
     // The snapshot's curves file may take 120 s to give up (catalogueClient.ts).
     if (isOffline()) return fromCache(cached, 'unknown', 'offline');
   }
@@ -1527,9 +1549,11 @@ async function curveFilesFromNetwork(motor: TcMotor, ctx: {
   if (!bundleFailed && bundleEmpty && await knownNoPublishedCurve(motor.motorId)) {
     throw new NoPublishedCurveError(motor.designation);
   }
-  if (noCurveEntries().get(motor.motorId) === catalogueDate()) throw new NoPublishedCurveError(motor.designation);
+  const requestSnapshot = activeSnapshot();
+  const source = requestSnapshot?.curves.sha256 ?? catalogueDate();
+  const absenceSource = requestSnapshot ? `${requestSnapshot.generated}:${source}` : source;
+  if (noCurveEntries().get(motor.motorId) === absenceSource) throw new NoPublishedCurveError(motor.designation);
   const limit = deadline(signal, FETCH_TIMEOUT_MS);
-  const source = activeSnapshot()?.curves.sha256 ?? catalogueDate();
   let body: { results?: unknown } | null | undefined;
   try {
     assertThrustcurveAvailable();
@@ -1594,6 +1618,9 @@ async function curveFilesFromNetwork(motor: TcMotor, ctx: {
   const results = Array.isArray(listed)
     ? listed.filter((f): f is TcSimFile => typeof f === 'object' && f !== null && 'motorId' in f && f.motorId === motor.motorId)
     : [];
+  if (Array.isArray(listed) && listed.length > 0 && results.length === 0) {
+    throw new Error(`thrustcurve.org returned no files belonging to ${noteField(motor.designation)}. Try again, or import its .rse/.eng file.`);
+  }
   const read = chosen('download', results);
   if (!read) {
     // Report the actual problem; numeric curves can exceed the thrust
@@ -1605,10 +1632,11 @@ async function curveFilesFromNetwork(motor: TcMotor, ctx: {
         + 'Pick another motor, or import its .rse/.eng file.');
     }
     // thrustcurve.org answered, and lists nothing to fly: the one failure
-    // that means no curve exists. An answer with no `results` list at all is
-    // a broken answer, not that one.
-    if (Array.isArray(listed)) rememberNoCurve(motor.motorId);
-    throw Array.isArray(listed)
+    // that is remembered to limit traffic, including requested files with
+    // fewer than two samples. Unrelated files were rejected above.
+    const empty = Array.isArray(listed) && (listed.length === 0 || results.length > 0);
+    if (empty) rememberNoCurve(motor.motorId, absenceSource);
+    throw empty
       ? new NoPublishedCurveError(motor.designation)
       : new Error(`No sample data available for ${motor.designation}`);
   }

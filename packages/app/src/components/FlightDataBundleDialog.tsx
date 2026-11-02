@@ -1,11 +1,12 @@
 import { useMemo, useRef, useState } from 'react';
-import { strFromU8, zipSync } from 'fflate';
+import { strFromU8, strToU8, zipSync } from 'fflate';
 import { Modal } from './Modal.js';
 import { Note } from './Note.js';
 import { WeatherCredit } from './WeatherCredit.js';
 import { formatRunLabel, describeRunChanges } from '../services/simReport.js';
 import { flightDataBundleContents, flightDataBundleFiles, flightDataBundleLongitudeComparison, flightDataBundleWeatherCredit, type FlightDataBundleInput } from '../services/flightDataBundle.js';
-import { readDecimal } from '../prefs/units.js';
+import { readDecimal, uiToSi } from '../prefs/units.js';
+import { usePrefs } from '../prefs/PrefsContext.js';
 import { saveFile } from '../services/saveFile.js';
 
 export type FlightDataBundleSource = Omit<FlightDataBundleInput, 'includeCoordinates' | 'measurements' | 'attachment'>;
@@ -22,6 +23,8 @@ const invalid = (v: string) => {
 };
 
 export function FlightDataBundleDialog({ source, onClose }: { source: FlightDataBundleSource; onClose: () => void }) {
+  const { prefs } = usePrefs();
+  const units = prefs.units;
   const [includeCoordinates, setIncludeCoordinates] = useState(false);
   const [altimeterType, setAltimeterType] = useState('');
   const [notes, setNotes] = useState('');
@@ -39,22 +42,37 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
   const firstInvalid = useRef<HTMLInputElement | null>(null);
   const weatherCredit = flightDataBundleWeatherCredit(source);
   const longitudeComparison = flightDataBundleLongitudeComparison(source);
-  const preview = useMemo(() => {
+  const basePreview = useMemo(() => {
     try {
       return { ...flightDataBundleContents({ ...source, includeCoordinates, measurements: {
-        altimeterType, apogeeM: numeric(apogee), maxVelocityMs: numeric(velocity), liftoffMassKg: numeric(mass), notes,
+        altimeterType: '', apogeeM: null, maxVelocityMs: null, liftoffMassKg: null, notes: '',
       }, ...(attachment ? { attachment } : {}) }), error: '' };
     } catch (e) { return { files: null, filename: '', notices: [], error: e instanceof Error ? e.message : String(e) }; }
-  }, [source, includeCoordinates, altimeterType, apogee, velocity, mass, notes, attachment]);
+  }, [source, includeCoordinates, attachment]);
+  const previewText = useMemo(() => Object.fromEntries(Object.entries(basePreview.files ?? {})
+    .filter(([path]) => !path.startsWith('attachment/'))
+    .map(([path, bytes]) => [path, strFromU8(bytes)])), [basePreview]);
+  const inSi = (quantity: 'altitude' | 'velocity' | 'mass', value: string) => {
+    const n = numeric(value);
+    return n === null ? null : uiToSi(quantity, units[quantity], n);
+  };
+  const files: Record<string, Uint8Array> | null = basePreview.files && { ...basePreview.files,
+    'measurements.json': strToU8(JSON.stringify({ altimeterType, apogeeM: inSi('altitude', apogee),
+      maxVelocityMs: inSi('velocity', velocity), liftoffMassKg: inSi('mass', mass), notes }, null, 2) + '\n'),
+  };
+  const preview = { ...basePreview, files };
   const fields = [
-    { label: 'Measured apogee above launch (m)', value: apogee, set: setApogee },
-    { label: 'Measured max velocity (m/s)', value: velocity, set: setVelocity },
-    { label: 'As-flown liftoff mass, motor in (kg)', value: mass, set: setMass },
+    { label: `Measured apogee above launch (${units.altitude})`, value: apogee, set: setApogee,
+      invalid: invalid(apogee) || !Number.isFinite(inSi('altitude', apogee) ?? 0) },
+    { label: `Measured max velocity (${units.velocity})`, value: velocity, set: setVelocity,
+      invalid: invalid(velocity) || !Number.isFinite(inSi('velocity', velocity) ?? 0) },
+    { label: `As-flown liftoff mass, motor in (${units.mass})`, value: mass, set: setMass,
+      invalid: invalid(mass) || !Number.isFinite(inSi('mass', mass) ?? 0) },
   ];
   const download = async () => {
     if (saving.current || reading) return;
     setError(''); setStatus('');
-    if (fields.some(f => invalid(f.value))) {
+    if (fields.some(f => f.invalid)) {
       setError(NUMBER_ERROR);
       firstInvalid.current?.focus();
       return;
@@ -96,10 +114,10 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
           <p>Leave unknown values blank. These values do not change the design or simulation.</p>
           <label>Altimeter type / model<input value={altimeterType} onChange={e => setAltimeterType(e.target.value)} /></label>
           {fields.map((f, i) => <label key={f.label}>{f.label}<input type="text" inputMode="decimal" value={f.value}
-            ref={el => { if (invalid(f.value) && !fields.slice(0, i).some(p => invalid(p.value))) firstInvalid.current = el; }}
-            aria-invalid={invalid(f.value)} aria-describedby={invalid(f.value) ? 'bundle-number-error' : undefined}
+            ref={el => { if (f.invalid && !fields.slice(0, i).some(p => p.invalid)) firstInvalid.current = el; }}
+            aria-invalid={f.invalid} aria-describedby={f.invalid ? 'bundle-number-error' : undefined}
             onChange={e => f.set(e.target.value)} /></label>)}
-          {fields.some(f => invalid(f.value)) && <p id="bundle-number-error">{NUMBER_ERROR}</p>}
+          {fields.some(f => f.invalid) && <p id="bundle-number-error">{NUMBER_ERROR}</p>}
           <label>Notes<textarea className="resize-none" rows={5} value={notes} onChange={e => setNotes(e.target.value)} /></label>
           <label>Data-log file (optional, up to 25 MiB)<input ref={fileInput} type="file" disabled={reading} onChange={e => { void (async () => {
             const input = e.currentTarget;
@@ -134,7 +152,8 @@ export function FlightDataBundleDialog({ source, onClose }: { source: FlightData
         {preview.files ? flightDataBundleFiles(!!source.result, attachment?.name).map(f => <details key={f.path}>
           <summary>{f.path} ({preview.files![f.path]!.byteLength} bytes)</summary>
           <p>{f.description}</p>
-          {!f.path.startsWith('attachment/') && <pre tabIndex={0}>{strFromU8(preview.files![f.path]!)}</pre>}
+          {!f.path.startsWith('attachment/') && <pre tabIndex={0}>{f.path === 'measurements.json'
+            ? strFromU8(preview.files![f.path]!) : previewText[f.path]}</pre>}
         </details>) : <Note tier="information" as="p">Preview unavailable: {preview.error}</Note>}
         {/* Always mounted (audit 2026-09-22): an alert inserted with its text already in place is announced unreliably. */}
         <div className="bundle-alert" role="alert">{error && <Note tier="information" as="p">{error}</Note>}</div>

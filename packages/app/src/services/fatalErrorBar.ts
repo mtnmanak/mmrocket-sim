@@ -36,8 +36,12 @@ export function installFatalErrorBar(options: FatalErrorBarOptions = {}): (() =>
     const message = shortMessage(reason);
     // Safari and Chromium's two benign observer-loop messages (W3-DIAG).
     if (/^ResizeObserver loop (?:limit exceeded|completed with undelivered notifications\.?)$/.test(message)) return;
-    if (!bar) returnFocus = document.activeElement as HTMLElement | null;
-    bar?.remove();
+    if (bar) {
+      const text = bar.querySelector('[role="alert"]')!;
+      text.lastChild!.textContent = message;
+      return;
+    }
+    returnFocus = document.activeElement as HTMLElement | null;
     const current = document.createElement('section');
     current.className = 'fatal-error-bar message-tier message-danger';
     current.setAttribute('aria-label', 'Unexpected error');

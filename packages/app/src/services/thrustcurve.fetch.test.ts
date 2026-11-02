@@ -47,6 +47,25 @@ const GOOD_SAMPLES: TcSample[] = [
 
 const CACHE_KEY = `tc:samples:v7:${QUEST_C6.motorId}`;
 
+it('does not cache another motor\'s files as no published curve and retries the download', async () => {
+  const tc = await freshModule();
+  const fetcher = stubDownload([{ motorId: 'some-other-motor', samples: GOOD_SAMPLES }]);
+  await expect(tc.fetchMotorSpec(QUEST_C6, 3)).rejects.not.toBeInstanceOf(tc.NoPublishedCurveError);
+  expect(localStorage.getItem('online-openrocket.no-curve.v1') ?? '').not.toContain(QUEST_C6.motorId);
+  fetcher.mockResolvedValue(okResponse({ results: [{ motorId: QUEST_C6.motorId, samples: GOOD_SAMPLES }] }));
+  await expect(tc.fetchMotorSpec(QUEST_C6, 3)).resolves.toBeDefined();
+  expect(fetcher).toHaveBeenCalledTimes(2);
+});
+
+it('remembers a requested file with fewer than two samples to avoid repeat traffic', async () => {
+  const tc = await freshModule();
+  const fetcher = stubDownload([{ samples: [GOOD_SAMPLES[0]!] }]);
+  await expect(tc.fetchMotorSpec(QUEST_C6, 3)).rejects.toBeInstanceOf(tc.NoPublishedCurveError);
+  fetcher.mockResolvedValue(okResponse({ results: [{ motorId: QUEST_C6.motorId, samples: GOOD_SAMPLES }] }));
+  await expect(tc.fetchMotorSpec(QUEST_C6, 3)).rejects.toBeInstanceOf(tc.NoPublishedCurveError);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
 /**
  * A fresh copy of the module for every test. thrustcurve.ts remembers, per
  * page load, that it has already swept the retired cache generations; without
@@ -149,7 +168,7 @@ describe('download motor identity', () => {
   it.each([undefined, 'another-motor'])('refuses a file for motorId %s without flying or caching it', async motorId => {
     const tc = await freshModule();
     vi.stubGlobal('fetch', vi.fn(async () => okResponse({ results: [{ motorId, samples: GOOD_SAMPLES }] })));
-    await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toBeInstanceOf(tc.NoPublishedCurveError);
+    await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(/no files belonging to C6/);
     expect(localStorage.getItem(CACHE_KEY)).toBeNull();
     expect(tc.lastCurveFiles(QUEST_C6.motorId)).toBeUndefined();
   });
@@ -227,7 +246,7 @@ describe('a damaged curve from thrustcurve.org never reaches the kernel as NaN',
     // null (reading 'samples')" out of pickSampleFile, naming no motor.
     const tc = await freshModule();
     vi.stubGlobal('fetch', vi.fn(async () => okResponse({ results: [null, 7, 'x'] })));
-    await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(/No sample data available for C6/);
+    await expect(tc.fetchMotorSpec(QUEST_C6, 5)).rejects.toThrow(/no files belonging to C6/);
     // …and a sound file beside the junk is still found on a fresh attempt.
     localStorage.removeItem('online-openrocket.no-curve.v1');
     const fetcher = vi.fn(async () => okResponse({ results: [null, { motorId: QUEST_C6.motorId, format: 'RASP', samples: GOOD_SAMPLES }] }));

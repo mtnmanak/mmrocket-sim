@@ -78,6 +78,146 @@ const unreadable = (err: Error): boolean => !(err instanceof tc.NoPublishedCurve
   && /^The curated catalogue's curves file, the only source of a curve for .+, could not be read\./.test(err.message);
 
 describe('an added motor', () => {
+  it('rechecks snapshot eligibility after the bundle recovers without downloading again', async () => {
+    const shipped = await vi.importActual<typeof import('../data/motorCurves.json')>('../data/motorCurves.json');
+    vi.resetModules();
+    vi.doMock('../data/motorCurves.json', () => { throw new Error('chunk failed'); });
+    tc = await import('./thrustcurve.js');
+    db = await import('./motorDb.js');
+    const other = { ...addedMotor, motorId: 'snapshot-other' };
+    await install({ [addedMotor.motorId]: [file(40)], [other.motorId]: [file(50)],
+      [curveless.motorId]: [file(60)] }, { added: [addedMotor, other] });
+    for (const motor of [addedMotor, other]) await thrusts(motor);
+    expect(catalogueRequests).toHaveLength(1);
+    vi.doMock('../data/motorCurves.json', () => shipped);
+    await tc.requireCurveBundle();
+    expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
+    expect(Math.max(...await thrusts(curveless))).toBeCloseTo(60, 9);
+    expect(catalogueRequests).toHaveLength(1);
+    expect(tcRequests).toEqual([]);
+  });
+
+  it.each([false, true])('memoizes snapshot parsing with a failed bundle (host fails: %s)', async hostFails => {
+    vi.resetModules();
+    vi.doMock('../data/motorCurves.json', () => { throw new Error('chunk failed'); });
+    tc = await import('./thrustcurve.js');
+    db = await import('./motorDb.js');
+    const other = { ...addedMotor, motorId: 'snapshot-other' };
+    await install({ [addedMotor.motorId]: [file(40)], [other.motorId]: [file(50)] }, {
+      added: [addedMotor, other], ...(hostFails ? { curvesAnswer: () => new Response('down', { status: 503 }) } : {}),
+    });
+    for (const motor of [addedMotor, other]) {
+      if (hostFails) await miss(tc.fetchMotorSpec(motor, 5));
+      else expect(Math.max(...await thrusts(motor))).toBeCloseTo(motor === other ? 50 : 40, 9);
+    }
+    expect(catalogueRequests).toHaveLength(1);
+  });
+
+  it('backs off a failed snapshot host for ten minutes, then retries; a new sha retries immediately', async () => {
+    await install({ [curveless.motorId]: [file(40)] });
+    await thrusts(curveless);
+    const now = Date.now();
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(now);
+    await install({ [curveless.motorId]: [file(60)] }, { revision: 3, curvesAnswer: () => new Response('down', { status: 503 }) });
+    catalogueRequests.length = 0;
+    for (let i = 0; i < 3; i++) expect(Math.max(...await thrusts(curveless))).toBeCloseTo(40, 9);
+    expect(catalogueRequests).toHaveLength(1);
+    expect(tc.lastCurveFiles(curveless.motorId)?.cacheFallback).toBe('failed');
+    clock.mockReturnValue(now + 10 * 60_000);
+    await thrusts(curveless);
+    expect(catalogueRequests).toHaveLength(2);
+    await install({ [curveless.motorId]: [file(70)] }, { revision: 4 });
+    expect(Math.max(...await thrusts(curveless))).toBeCloseTo(70, 9);
+    expect(catalogueRequests).toHaveLength(3);
+  });
+
+  it.each([[false, false], [true, false], [false, true]])('checks a shipped cache digest before failed-bundle fallback (matches: %s, current: %s)', async (matches, current) => {
+    const digest = 'b'.repeat(32);
+    localStorage.setItem(`tc:samples:v7:${bundled.motorId}`, JSON.stringify({
+      samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 40 }, { time: 2, thrust: 0 }],
+      digests: [matches ? digest : 'a'.repeat(32)], source: 'old', origin: 'download',
+    }));
+    vi.resetModules();
+    vi.doMock('../data/motorCurves.json', () => { throw new Error('chunk failed'); });
+    tc = await import('./thrustcurve.js');
+    db = await import('./motorDb.js');
+    const { overlay } = await install({}, { tcAnswer: () => new Response('down', { status: 503 }) });
+    if (current) {
+      const key = `tc:samples:v7:${bundled.motorId}`;
+      localStorage.setItem(key, JSON.stringify({ ...JSON.parse(localStorage.getItem(key)!),
+        source: overlay.snapshot!.curves.sha256, motorDigestsSource: overlay.snapshot!.curves.sha256, motorDigests: ['a'.repeat(32)] }));
+    }
+    await thrusts(bundled, { digest });
+    expect(tc.lastCurveFiles(bundled.motorId)?.digest?.named).toBe(matches ? 'flown' : current ? 'absent' : 'unknown');
+    expect(tcRequests).toHaveLength(matches || current ? 0 : 1);
+    expect(catalogueRequests).toEqual([]);
+  });
+
+  it.each([false, true])('keeps the no-request shortcut for a non-desktop digest (bundle fails: %s)', async bundleFails => {
+    await install({ [addedMotor.motorId]: [file(40)] }, { added: [addedMotor] });
+    await thrusts(addedMotor);
+    if (bundleFails) {
+      vi.resetModules();
+      vi.doMock('../data/motorCurves.json', () => { throw new Error('chunk failed'); });
+      tc = await import('./thrustcurve.js');
+      db = await import('./motorDb.js');
+    }
+    await install({ [addedMotor.motorId]: [file(60)] }, { added: [addedMotor], revision: 3 });
+    catalogueRequests.length = 0;
+    expect(Math.max(...await thrusts(addedMotor, { digest: 'non-desktop-digest' }))).toBeCloseTo(40, 9);
+    expect(tc.lastCurveFiles(addedMotor.motorId)).toMatchObject({ origin: 'cache', digest: { named: 'absent' } });
+    expect(catalogueRequests).toEqual([]);
+    expect(tcRequests).toEqual([]);
+  });
+
+  it('uses shipped motors cached curves without network when the bundle chunk fails under a snapshot', async () => {
+    await install({});
+    const motors = db.MOTOR_DB.slice(0, 3);
+    for (const motor of motors) localStorage.setItem(`tc:samples:v7:${motor.motorId}`, JSON.stringify({
+      samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 40 }, { time: 2, thrust: 0 }],
+      source: 'old', origin: 'download',
+    }));
+    vi.resetModules();
+    vi.doMock('../data/motorCurves.json', () => { throw new Error('chunk failed'); });
+    tc = await import('./thrustcurve.js');
+    db = await import('./motorDb.js');
+    await install({});
+    for (const motor of motors) {
+      expect(Math.max(...await thrusts(motor))).toBeCloseTo(40, 9);
+      expect(tc.lastCurveFiles(motor.motorId)?.origin).toBe('cache');
+    }
+    expect(tcRequests).toEqual([]);
+    expect(catalogueRequests).toEqual([]);
+  });
+  it('retries a remembered empty download when the curves snapshot changes on the same day', async () => {
+    await install({}, { added: [addedMotor] });
+    expect(await miss(tc.fetchMotorSpec(addedMotor, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
+    await miss(tc.fetchMotorSpec(addedMotor, 5));
+    expect(tcRequests).toHaveLength(1);
+    await install({ [bundled.motorId]: [file(12)] }, { added: [addedMotor], revision: 3,
+      tcAnswer: () => new Response(JSON.stringify({ results: [{ motorId: addedMotor.motorId,
+        samples: [{ time: 0, thrust: 0 }, { time: 0.1, thrust: 80 }, { time: 1, thrust: 0 }] }] })) });
+    expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(80, 9);
+    expect(tcRequests).toHaveLength(2);
+  });
+  it.each(['snapshot', 'download', 'legacy'] as const)('refreshes a digest-less %s cache when the active snapshot changes', async origin => {
+    await install({ [addedMotor.motorId]: [file(40)] }, { added: [addedMotor] });
+    await thrusts(addedMotor);
+    const key = `tc:samples:v7:${addedMotor.motorId}`;
+    const entry = JSON.parse(localStorage.getItem(key)!);
+    if (origin === 'legacy') {
+      delete entry.origin; delete entry.source; delete entry.motorDigestsSource;
+    } else entry.origin = origin;
+    localStorage.setItem(key, JSON.stringify(entry));
+    catalogueRequests.length = 0;
+    await install({ [addedMotor.motorId]: [file(60)] }, { added: [addedMotor], revision: 3 });
+    expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(60, 9);
+    expect(tc.lastCurveFiles(addedMotor.motorId)?.origin).toBe('snapshot');
+    expect(catalogueRequests).toHaveLength(1);
+    await thrusts(addedMotor);
+    expect(tc.lastCurveFiles(addedMotor.motorId)?.origin).toBe('cache');
+    expect(catalogueRequests).toHaveLength(1);
+  });
   it('flies the snapshot file\'s curve, with no thrustcurve.org request, and the file is read once', async () => {
     await install({ [addedMotor.motorId]: [file(40)] }, { added: [addedMotor] });
     expect(Math.max(...await thrusts(addedMotor))).toBeCloseTo(40, 9);
@@ -122,6 +262,23 @@ describe('an added motor', () => {
 });
 
 describe('a shipped motor with no bundled curve (D.7)', () => {
+  it('refreshes its cached curve after a correction in another snapshot', async () => {
+    await install({ [curveless.motorId]: [file(40)] });
+    await thrusts(curveless);
+    await install({ [curveless.motorId]: [file(60)] }, { revision: 3 });
+    expect(Math.max(...await thrusts(curveless))).toBeCloseTo(60, 9);
+    expect(tc.lastCurveFiles(curveless.motorId)?.origin).toBe('snapshot');
+  });
+
+  it.each(['offline', 'failed'] as const)('keeps an older digest-less curve as a recorded %s fallback', async kind => {
+    await install({ [curveless.motorId]: [file(40)] });
+    await thrusts(curveless);
+    await install({ [curveless.motorId]: [file(60)] }, { revision: 3,
+      curvesAnswer: () => new Response('down', { status: 503 }) });
+    if (kind === 'offline') vi.spyOn(navigator, 'onLine', 'get').mockReturnValue(false);
+    expect(Math.max(...await thrusts(curveless))).toBeCloseTo(40, 9);
+    expect(tc.lastCurveFiles(curveless.motorId)).toMatchObject({ origin: 'cache', cacheFallback: kind });
+  });
   it('flies the file\'s curve when the file has one — adding a curve where none ships replaces nothing', async () => {
     await install({ [curveless.motorId]: [file(55)] });
     expect(Math.max(...await thrusts(curveless))).toBeCloseTo(55, 9);
@@ -148,7 +305,7 @@ describe('a shipped motor with no bundled curve (D.7)', () => {
 
   // E (audit S5-1): a file that could not be read says nothing about the
   // motor. Until the fix this was NoPublishedCurveError, "publishes none".
-  it('is "could not be read", not "no published curve", with no thrustcurve.org request when the file cannot be fetched, and the next use asks the catalogue again', async () => {
+  it('is "could not be read", not "no published curve", when fetching fails, and retries after the cooldown', async () => {
     let up = false;
     await install({ [curveless.motorId]: [file(55)] }, { curvesAnswer: () => up ? fetchedCurves() : Promise.reject(new TypeError('Failed to fetch')) });
     let fetchedCurves!: () => Response;
@@ -156,10 +313,13 @@ describe('a shipped motor with no bundled curve (D.7)', () => {
     expect(await tc.knownNoPublishedCurve(curveless.motorId)).toBe(false);
     expect(tcRequests).toEqual([]);
     expect(catalogueRequests).toHaveLength(1);
-    // A network failure is not remembered: the next pick asks again.
+    // Transient failure backs off without becoming proof of absence.
     const pub = await publication(`${daysAfter(db.MOTOR_DB_DATE, 2)}.2`, db.MOTOR_DB, { [curveless.motorId]: [file(55)] });
     fetchedCurves = () => new Response(pub.curvesBytes as Uint8Array<ArrayBuffer>);
     up = true;
+    expect(unreadable(await miss(tc.fetchMotorSpec(curveless, 5)))).toBe(true);
+    expect(catalogueRequests).toHaveLength(1);
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10 * 60_000);
     expect(Math.max(...await thrusts(curveless))).toBeCloseTo(55, 9);
     expect(catalogueRequests).toHaveLength(2);
   });
@@ -301,7 +461,9 @@ describe('D.7: the no-curve date does not churn under a snapshot', () => {
       expect(await miss(tc.fetchMotorSpec(curveless, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
     }
     expect(tcRequests).toHaveLength(1);
-    expect(JSON.parse(localStorage.getItem(NO_CURVE_KEY)!)).toEqual({ [addedMotor.motorId]: overlay.snapshot!.generated });
+    expect(JSON.parse(localStorage.getItem(NO_CURVE_KEY)!)).toEqual({
+      [addedMotor.motorId]: `${overlay.snapshot!.generated}:${overlay.snapshot!.curves.sha256}`,
+    });
   });
 
   it('a NEWER snapshot allows one more try (positive control)', async () => {

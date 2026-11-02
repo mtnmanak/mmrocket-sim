@@ -11,6 +11,10 @@ import { saveFile } from '../services/saveFile.js';
 import { runExportContext } from '../services/runExportContext.js';
 import { LOCALE_DECIMAL_COMMA } from '../prefs/units.js';
 import { loadRuns } from '../services/simStore.js';
+import * as bundleService from '../services/flightDataBundle.js';
+import { PrefsProvider } from '../prefs/PrefsContext.js';
+import { DEFAULT_PREFS } from '../prefs/preferences.js';
+import { IMPERIAL_UNITS } from '../prefs/units.js';
 vi.mock('../services/saveFile.js', () => ({ saveFile: vi.fn(async () => ({ kind: 'cancelled' })) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let host: HTMLDivElement;
@@ -26,6 +30,55 @@ const click = (text: string) => act(async () => { Array.from(host.querySelectorA
 const fill = (input: HTMLInputElement, value: string) => act(() => {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
+});
+
+it('updates measurement previews without rebuilding the design and flight files on each keystroke', async () => {
+  const build = vi.spyOn(bundleService, 'flightDataBundleContents');
+  try {
+    act(() => root.render(<FlightDataBundleDialog source={source()} onClose={() => {}} />));
+    const initial = build.mock.calls.length;
+    const inputs = host.querySelectorAll<HTMLInputElement>('input[type=text], input:not([type])');
+    for (const value of ['A', 'Al', 'Altimeter']) fill(inputs[0]!, value);
+    fill(inputs[1]!, '12');
+    expect(build).toHaveBeenCalledTimes(initial);
+    await click('Download ZIP');
+    const files = unzipSync(new Uint8Array(await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).arrayBuffer()));
+    expect(JSON.parse(strFromU8(files['measurements.json']!))).toMatchObject({ altimeterType: 'Altimeter', apogeeM: 12 });
+    expect(strFromU8(files['measurements.json']!)).toBe(host.querySelectorAll('details pre')[5]!.textContent);
+  } finally { build.mockRestore(); }
+});
+
+it('labels measured values in preferred units and converts them to SI in the preview and ZIP', async () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ ...DEFAULT_PREFS, units: IMPERIAL_UNITS }));
+  try {
+    act(() => root.render(<PrefsProvider><FlightDataBundleDialog source={source()} onClose={() => {}} /></PrefsProvider>));
+    for (const [label, value] of [['Measured apogee above launch (ft)', '100'], ['Measured max velocity (ft/s)', '10'],
+      ['As-flown liftoff mass, motor in (oz)', '16']] as const) {
+      const found = [...host.querySelectorAll('label')].find(l => l.textContent === label);
+      expect(found).toBeDefined();
+      const field = found!.control as HTMLInputElement;
+      fill(field, value);
+    }
+    await click('Download ZIP');
+    const files = unzipSync(new Uint8Array(await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).arrayBuffer()));
+    const measurements = JSON.parse(strFromU8(files['measurements.json']!));
+    expect(measurements.apogeeM).toBeCloseTo(30.48, 9);
+    expect(measurements.maxVelocityMs).toBeCloseTo(3.048, 9);
+    expect(measurements.liftoffMassKg).toBeCloseTo(0.45359237, 9);
+  } finally { localStorage.removeItem('online-openrocket.prefs.v1'); }
+});
+
+it('refuses measurements whose conversion overflows SI rather than exporting null', async () => {
+  localStorage.setItem('online-openrocket.prefs.v1', JSON.stringify({ ...DEFAULT_PREFS,
+    units: { ...DEFAULT_PREFS.units, altitude: 'km' } }));
+  try {
+    act(() => root.render(<PrefsProvider><FlightDataBundleDialog source={source()} onClose={() => {}} /></PrefsProvider>));
+    const field = [...host.querySelectorAll('label')].find(l => l.textContent === 'Measured apogee above launch (km)')!.control as HTMLInputElement;
+    fill(field, '1' + '0'.repeat(306));
+    await click('Download ZIP');
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    expect(saveFile).not.toHaveBeenCalled();
+  } finally { localStorage.removeItem('online-openrocket.prefs.v1'); }
 });
 it('updates an established status region while reading an attachment', async () => {
   act(() => root.render(<FlightDataBundleDialog source={source()} onClose={() => {}} />));

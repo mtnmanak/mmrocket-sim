@@ -184,9 +184,10 @@ function LineChart({ x, lines, title, xLabel, yLabel, height = 190, lockLegend =
 }
 
 /** N022 is a separate query: it never writes a motor, flight setting or CP. */
-function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelLimit }: {
+function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelLimit, pending }: {
   rocket: OrkRocket; info: StaticInfo; aoaDeg: number; cpView: 'pct' | 'unit'; lenUnit: string;
   machTop: number; modelLimit: string | null;
+  pending: boolean;
 }) {
   const { prefs } = usePrefs();
   const [open, setOpen] = useState(false);
@@ -220,7 +221,8 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
   return <section className="chart-panel roll-plane-panel">
     <div className="chart-panel-head">
       <h3>CP and stability vs roll-plane angle{modelLimit && <span className="chart-model-limit"> — {modelLimit}</span>}</h3>
-      <button className="file-btn" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <button className="file-btn" aria-expanded={open} onClick={() => setOpen(!open)} disabled={pending}
+        title={pending ? 'Waiting for design edits to settle.' : undefined}>
         {open ? 'Hide roll-plane charts' : 'Show CP vs roll-plane angle'}
       </button>
     </div>
@@ -232,7 +234,8 @@ function RollPlaneChart({ rocket, info, aoaDeg, cpView, lenUnit, machTop, modelL
     </div>
     {open && <>
       <label className="motor-inline-label">Roll-plane Mach
-        <select value={mach} onChange={(e) => setChoice(Number(e.target.value))} style={{ marginLeft: 4 }}>
+        <select value={mach} onChange={(e) => setChoice(Number(e.target.value))} style={{ marginLeft: 4 }} disabled={pending}
+          title={pending ? 'Waiting for design edits to settle.' : undefined}>
           {[0.3, 0.5, 0.8, 1, 1.2, 1.5, 2, 3, 4, 5, 10, 25].filter((m) => m <= machTop).map((m) => <option key={m} value={m}>{m}</option>)}
         </select>
       </label>
@@ -646,12 +649,12 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
    * and nothing else about the sweep changed waits for the edits to stop
    * (DRAG_SWEEP_IDLE_MS) and is swept once; the charts keep the last design's
    * curves until then. Anything else that re-runs the sweep anyway — opening
-   * the panel, the range, the conditions — takes the current rocket at once,
+   * the panel, the range, the conditions, the CP angle — takes the current rocket at once,
    * so a model switch that also clamps the range still sweeps exactly once
    * (the 2026-09-22 audit's case). The numbers are the kernel's, unchanged:
    * only WHEN the sweep runs moved.
    */
-  const sweepInputs = `${open ? 1 : 0}|${machTop}|${machAlt ? JSON.stringify(machAlt) : ''}`;
+  const sweepInputs = `${open ? 1 : 0}|${machTop}|${machAlt ? JSON.stringify(machAlt) : ''}|${cpAoa}`;
   const [settled, setSettled] = useState({ rocket, inputs: sweepInputs });
   const pending = open && settled.rocket !== rocket && settled.inputs === sweepInputs;
   const sweepRocket = pending ? settled.rocket : rocket;
@@ -980,7 +983,7 @@ export function DragPanel({ rocket, supersonicModel, hybridModel, effectiveKbf, 
           )}
 
           {info && info.length > 0 && <RollPlaneChart rocket={sweepRocket} info={info} aoaDeg={cpAoa}
-            cpView={cpView} lenUnit={lenUnit} machTop={machTop} modelLimit={cpLimit} />}
+            cpView={cpView} lenUnit={lenUnit} machTop={machTop} modelLimit={cpLimit} pending={pending} />}
 
           <div className="chart-panel">
             <div className="chart-panel-head">

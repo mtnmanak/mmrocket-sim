@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 import { downloadRawFiles } from './fetch-motor-curves.mjs';
 
 /**
@@ -22,6 +23,7 @@ const dirs = [];
 afterEach(() => dirs.splice(0).forEach((dir) => rmSync(dir, { recursive: true, force: true })));
 
 const bundle = { generated: '2026-09-21', curves: { a: [{ samples: [[0, 0]] }], b: [{ samples: [[0, 0]] }] } };
+const cacheName = (b) => `raw-${b.generated}-${createHash('sha256').update(JSON.stringify(b)).digest('hex')}.json`;
 const raw = (motorId) => ({ motorId, simfileId: `f-${motorId}`, format: 'RASP', data: 'cmF3' });
 /** A download through the real downloadRawFiles, answering `pick(motorIds)`. */
 function stand(pick) {
@@ -34,6 +36,19 @@ function stand(pick) {
   return { download, calls };
 }
 const cacheFiles = (dir) => readdirSync(dir).filter((name) => /^raw-.*\.json$/.test(name));
+
+it('downloads fresh raw files when bundle contents change on the same generation date', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'digest-census-')); dirs.push(dir);
+  const first = stand(ids => ids.map(raw));
+  const oldPath = await cachedRawFiles(bundle, dir, { download: first.download, log: () => {} });
+  const changed = { ...bundle, curves: { ...bundle.curves, a: [{ samples: [[0, 1]] }] } };
+  const fresh = stand(ids => ids.map(id => ({ ...raw(id), data: 'bmV3' })));
+  const newPath = await cachedRawFiles(changed, dir, { download: fresh.download, log: () => {} });
+  expect(fresh.calls).toHaveLength(1);
+  expect(newPath).not.toBe(oldPath);
+  expect(JSON.parse(readFileSync(newPath, 'utf8'))['f-a'].data).toBe('bmV3');
+  expect(JSON.parse(readFileSync(oldPath, 'utf8'))['f-a'].data).toBe('cmF3');
+});
 
 it('imports without creating its output folder or downloading', () => {
   if (!hadDefaultOut) expect(existsSync(DEFAULT_OUT)).toBe(false);
@@ -49,14 +64,14 @@ it('writes no cache after an empty batch, so a later call downloads again', asyn
   const good = stand((ids) => ids.map(raw));
   await cachedRawFiles(bundle, dir, { download: good.download, log: () => {} });
   expect(good.calls).toHaveLength(1);
-  expect(cacheFiles(dir)).toEqual(['raw-2026-09-21.json']);
+  expect(cacheFiles(dir)).toEqual([cacheName(bundle)]);
 });
 
 it('writes a good batch once, and a later call reads the cache without downloading', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'digest-census-')); dirs.push(dir);
   const good = stand((ids) => ids.map(raw));
   const rawPath = await cachedRawFiles(bundle, dir, { download: good.download, log: () => {} });
-  expect(rawPath).toBe(join(dir, `raw-${bundle.generated}.json`));
+  expect(rawPath).toBe(join(dir, cacheName(bundle)));
   expect(Object.keys(JSON.parse(readFileSync(rawPath, 'utf8')))).toEqual(['f-a', 'f-b']);
   expect(good.calls).toHaveLength(1);
   expect(good.calls[0].ids).toEqual(['a', 'b']);
@@ -72,7 +87,7 @@ it.each([
   ['a map of something else', JSON.stringify({ 'f-a': 'cmF3', 'f-b': null })],
 ])('downloads again once, and replaces the cache, when an existing one is %s', async (_what, held) => {
   const dir = mkdtempSync(join(tmpdir(), 'digest-census-')); dirs.push(dir);
-  const rawPath = join(dir, `raw-${bundle.generated}.json`);
+  const rawPath = join(dir, cacheName(bundle));
   writeFileSync(rawPath, held);
   const lines = [];
   const good = stand((ids) => ids.map(raw));
@@ -90,7 +105,7 @@ it.each([
 it('reads a complete cache without downloading, even when a curveless motor has no raw file', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'digest-census-')); dirs.push(dir);
   const withCurveless = { ...bundle, curves: { ...bundle.curves, c: [] } };
-  const rawPath = join(dir, `raw-${bundle.generated}.json`);
+  const rawPath = join(dir, cacheName(withCurveless));
   const held = JSON.stringify(Object.fromEntries(['a', 'b'].map((id) => [`f-${id}`, raw(id)])));
   writeFileSync(rawPath, held);
   const again = stand(() => { throw new Error('downloaded again'); });
