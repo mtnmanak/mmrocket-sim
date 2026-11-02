@@ -146,11 +146,14 @@ export async function parseDesignFile(
   } else if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
     bytes = gunzipCapped(bytes, kind, opts.maxInflatedBytes);
   }
+  if ((bytes[0] === 0x50 && bytes[1] === 0x4b) || (bytes[0] === 0x1f && bytes[1] === 0x8b)) {
+    throw new Error(`Not a readable ${kind} file — nested archives are not supported.`);
+  }
   const format = contentFormat(decodeXml(bytes.subarray(0, 16 * 1024)).xml) ?? namedFormat;
   const imported = await readDesignFile(bytes, format, opts);
   if (format !== namedFormat) {
     const notes: string[] = [];
-    cautionNote(notes, 'I22.file-format', `“${noteField(fileName)}”: its content is ${format === 'ork' ? 'OpenRocket' : format === 'rkt' ? 'RockSim' : 'RASAero'} despite its extension; it was opened with the matching reader.`);
+    cautionNote(notes, 'I22.file-format', `“${noteField(fileName, 200)}”: its content is ${format === 'ork' ? 'OpenRocket' : format === 'rkt' ? 'RockSim' : 'RASAero'} despite its extension; it was opened with the matching reader.`);
     imported.notes.push(...notes);
     imported.noteTiers = [...(imported.noteTiers ?? []), ...noteFlags(notes)];
   }

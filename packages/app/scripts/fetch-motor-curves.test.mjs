@@ -17,6 +17,35 @@ import { ThrustcurveChallengeError, ThrustcurveUnavailableError } from './thrust
 // Every case injects its download; a reach for the real network fails loudly.
 vi.stubGlobal('fetch', async () => { throw new Error('global fetch called'); });
 
+it.each([
+  ['503', { ok: false, status: 503 }],
+  ['challenge', new ThrustcurveChallengeError('https://www.thrustcurve.org/api/v1/download.json', 403)],
+  ['unavailable', new ThrustcurveUnavailableError('https://www.thrustcurve.org/api/v1/download.json', 503)],
+])('stops a mislabelled batch on an individual retry %s, preserving the reason', async (_kind, outcome) => {
+  const reason = outcome instanceof Error ? outcome.message : `HTTP ${outcome.status}`;
+  const motors = Array.from({ length: BATCH + 3 }, (_, i) => ({
+    motorId: `motor-${i}`, manufacturerAbbrev: 'Test', designation: `motor-${i}`,
+  }));
+  const good = { motorId: motors[0].motorId, simfileId: 'good', samples: [{ time: 0, thrust: 0 }, { time: 1, thrust: 10 }] };
+  const calls = [];
+  const sleep = vi.fn(async () => {});
+  const got = await fetchCurves(motors, {
+    fetchImpl: async (_url, opts) => {
+      const ids = JSON.parse(opts.body).motorIds;
+      calls.push(ids);
+      if (calls.length === 1) return { ok: true, status: 200, json: async () => ({ results: [good, { ...good, motorId: 'foreign' }] }) };
+      if (outcome instanceof Error) throw outcome;
+      return outcome;
+    }, sleep, log: () => {},
+  });
+  expect(calls).toEqual([motors.slice(0, BATCH).map(m => m.motorId), [motors[1].motorId]]);
+  expect(got.failed).toEqual(motors.slice(1).map(m => `Test ${m.designation}: ${reason}`));
+  expect(Object.keys(got.curves)).toEqual([motors[0].motorId]);
+  expect(got.files).toBe(1);
+  expect(curvesDocument(got, 'x', 'y').complete).toBeUndefined();
+  expect(sleep.mock.calls).toEqual([[250], [250]]);
+});
+
 const b64 = (text) => Buffer.from(text, 'utf8').toString('base64');
 
 it.each(['mislabelled', 'unusable'])('classifies a %s first-pull motor beside a good batch-mate', async kind => {

@@ -2569,11 +2569,12 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
    * `locM` must NOT move for either — a pod occupies no axial length, which is
    * the whole point of this item.
    */
-  const podXml = (host: ComponentNode, hostLen: number) => {
+  const podXml = (host: ComponentNode, hostLen: number, hostLocM: number, kind: 'finCan' | 'boatTail') => {
     for (const pod of (host.children ?? []).filter((c) => (c.type as string) === 'podset')) {
       // Which RASAero part, if any, is cdx1PodPart's call — shared with checkFormatLoss.
       const part = cdx1PodPart(host, pod, transitionEnds);
       if (part.kind === 'refused') throw new Error(part.error);
+      if (part.kind !== kind) continue;
       const pos = positionOf(pod);
       if (part.kind === 'finCan') {
         const { can: canTube, shoulder } = part;
@@ -2600,7 +2601,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
         emit('<RailGuideDiameter>0</RailGuideDiameter>');
         emit('<RailGuideHeight>0</RailGuideHeight>');
         emit('<LaunchShoeArea>0</LaunchShoeArea>');
-        emit(`<Location>${fmt((locM + hostLen) * IN)}</Location>`);
+        emit(`<Location>${fmt((hostLocM + hostLen) * IN)}</Location>`);
         emit(`<ShoulderLength>${fmt((shoulder ? axialLength(shoulder) : 0) * IN)}</ShoulderLength>`);
         emit(`<Offset>${fmt((bottomOff - canLen) * IN)}</Offset>`);
         emit('<Color>Black</Color>');
@@ -2624,7 +2625,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
       emit(`<Length>${fmt(axialLength(bt) * IN)}</Length>`);
       emit(`<Diameter>${fmt(foreR(bt, 0.012) * 2 * IN)}</Diameter>`);
       emit(`<RearDiameter>${fmt(aftR(bt, 0.009) * 2 * IN)}</RearDiameter>`);
-      emit(`<Location>${fmt((locM + topOff) * IN)}</Location>`);
+      emit(`<Location>${fmt((hostLocM + topOff) * IN)}</Location>`);
       emit('<Color>Black</Color>');
       finXml(bt); // RASAero boat tails carry fins too
       emit('</BoatTail>');
@@ -2652,7 +2653,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     finXml(node);
     protuberanceXml(node);
     emit('</BodyTube>');
-    podXml(node, len);
+    podXml(node, len, locM, 'finCan');
     locM += len;
   };
 
@@ -2679,11 +2680,19 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
 
   // Sustainer chain (flat): cdx1ExternalChain's call — shared with
   // checkFormatLoss through cdx1WrittenParts.
+  let pendingTail: { host: ComponentNode; station: number } | undefined;
+  const flushTail = () => {
+    if (pendingTail) podXml(pendingTail.host, axialLength(pendingTail.host), pendingTail.station, 'boatTail');
+    pendingTail = undefined;
+  };
   for (const node of cdx1ExternalChain(stagesIn[0])) {
+    if (node.type !== 'transition') flushTail();
+    if (node.type === 'bodytube') pendingTail = { host: node, station: locM };
     if (node.type === 'nosecone') noseXml(node);
     else if (node.type === 'bodytube') tubeXml(node);
     else transitionXml(node);
   }
+  flushTail();
 
   // Boosters (each lower stage). A leading widening transition is the
   // shoulder into the stage above; a trailing narrowing one is the boat

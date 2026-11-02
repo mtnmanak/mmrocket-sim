@@ -166,6 +166,9 @@ export function addDigests(bundle, results) {
 /** Did `previous` (a bundle, or null) hold at least one curve for this motor? */
 const hadCurves = (previous, id) => Object.hasOwn(previous.curves, id) && previous.curves[id].length > 0;
 
+const stopsDownloads = (result) => RETRYABLE_STATUSES.includes(result?.status)
+  || result instanceof ThrustcurveChallengeError || result instanceof ThrustcurveUnavailableError;
+
 export function downloadResults(body) {
   if (!body || typeof body !== 'object' || !Array.isArray(body.results)
     || !body.results.every(f => f && typeof f === 'object' && !Array.isArray(f)
@@ -237,7 +240,7 @@ export async function fetchCurves(motors, {
   for (let i = 0; i < motors.length; i += BATCH) {
     const batch = motors.slice(i, i + BATCH);
     let body;
-    let rateLimited = false;
+    let stopRequests = false;
     try {
       const res = await fetchImpl(`${API}/download.json`, {
         method: 'POST',
@@ -247,15 +250,15 @@ export async function fetchCurves(motors, {
         headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
         body: JSON.stringify({ motorIds: batch.map((m) => m.motorId), data: 'both' }),
       });
-      rateLimited = RETRYABLE_STATUSES.includes(res.status);
+      stopRequests = stopsDownloads(res);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       body = await res.json();
       downloadResults(body);
     } catch (err) {
-      rateLimited ||= err instanceof ThrustcurveChallengeError || err instanceof ThrustcurveUnavailableError;
-      const skipped = rateLimited ? motors.slice(i) : batch;
+      stopRequests ||= stopsDownloads(err);
+      const skipped = stopRequests ? motors.slice(i) : batch;
       failed.push(...skipped.map((m) => `${m.manufacturerAbbrev} ${m.designation}: ${err.message}`));
-      if (rateLimited) break;
+      if (stopRequests) break;
       continue;
     } finally {
       await sleep(PAUSE_MS);
@@ -280,7 +283,7 @@ export async function fetchCurves(motors, {
             method: 'POST', headers: { 'content-type': 'application/json', 'user-agent': 'mmrocket-sim-upstream-check' },
             body: JSON.stringify({ motorIds: [m.motorId], data: 'both' }),
           });
-          rateLimited = res.status === 429;
+          stopRequests = stopsDownloads(res);
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const listed = downloadResults(await res.json());
           if (!listed.length) {
@@ -295,10 +298,11 @@ export async function fetchCurves(motors, {
           usable.push(...compact);
           if (!compact.length) log(`  WARNING ${m.manufacturerAbbrev} ${m.designation}: no usable curve; own files have invalid or insufficient samples\n`);
         } catch (err) {
+          stopRequests ||= stopsDownloads(err);
           failed.push(`${m.manufacturerAbbrev} ${m.designation}: ${err.message}`);
-          if (rateLimited) {
+          if (stopRequests) {
             const remaining = [...unanswered.slice(unanswered.indexOf(m) + 1), ...motors.slice(i + BATCH)];
-            failed.push(...remaining.map(m => `${m.manufacturerAbbrev} ${m.designation}: HTTP 429`));
+            failed.push(...remaining.map(m => `${m.manufacturerAbbrev} ${m.designation}: ${err.message}`));
             break;
           }
         } finally {
@@ -314,7 +318,7 @@ export async function fetchCurves(motors, {
       points += f.samples.length;
     }
     log(`  ${Math.min(i + BATCH, motors.length)} / ${motors.length}\r`);
-    if (rateLimited) break;
+    if (stopRequests) break;
   }
   log('\n');
   return { curves, files, points, failed };

@@ -906,10 +906,10 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
         const byId = (tag: string) => Array.from(mountEl.children).find(
           (c) => c.tagName === tag && c.getAttribute('configid') === cfg.id);
         const cfgMotorEl = byId('motor');
-        // N4: the app's own per-config ignition (attribute, or the legacy <mmrignitionconfiguration> child) first;
+        // N4: the app's own per-config ignition attribute first;
         // N3: a native block counts only with a motor in this configuration, or in the app's own files (desktop's
         // getMotorConfig reading), over the ignition captured when that motor was read.
-        const block = byId('mmrignitionconfiguration') ?? (cfgMotorEl || ownFile ? byId('ignitionconfiguration') : undefined);
+        const block = cfgMotorEl || ownFile ? byId('ignitionconfiguration') : undefined;
         const base = motorIgnitions.get(cfg.id) ?? ownIgnition;
         const ignition = appIgnitions.get(cfg.id) ?? (block ? readIgnition(block, base,
           text(cfgMotorEl ?? mountEl, ':scope > designation') ?? String(node['name'] ?? 'mount')) : base);
@@ -1766,11 +1766,11 @@ export function importOrk(data: ArrayBuffer | Uint8Array | string, opts?: {
       [key, typeof node[key] === 'number' && Number.isFinite(node[key])]));
   }
   applyPresetLinks(pendingLinks, opts?.presets, notes, {
-    ownFile: doc.documentElement?.getAttribute('creator') === ORK_CREATOR,
+    ownFile,
   });
   for (const node of zeroDensityParts) zeroBulkDensityNote(notes, String(node.name ?? node.type), units, node.density);
   for (const { node } of pendingLinks) {
-    if (doc.documentElement?.getAttribute('creator') === ORK_CREATOR) continue;
+    if (ownFile) continue;
     if (node.type !== 'parachute' && node.type !== 'streamer') continue;
     const row = linkedPreset(node, opts?.presets ?? []);
     const usable = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0;
@@ -3863,7 +3863,7 @@ export function exportOrk({
     const aimDeg = canonicalRodAimDeg(launch.launchRodAimDeg ?? NaN);
     const manualRod = Number.isFinite(aimDeg) && aimDeg !== 0;
     if (!manualRod && launch.launchRodAngleDeg !== 0 && launch.launchAltitudeM !== 0 && launch.windLevels?.length) {
-      notes?.push('With winds aloft at a site above or below sea level, desktop OR may aim the tilted rod at wind from the wrong height when rerunning this file. Check its rod direction before flying; the predicted flight and landing can change.');
+      if (notes) cautionNote(notes, 'export-loss', 'With winds aloft at a site above or below sea level, desktop OR may aim the tilted rod at wind from the wrong height when rerunning this file. Check its rod direction before flying; the predicted flight and landing can change.');
     }
     simulationWrites.forEach(({ config: c, group }, i) => {
       // App flights have passed the caller's design/motor/conditions checks.
