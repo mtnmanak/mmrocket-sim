@@ -72,6 +72,31 @@ const open = (rocket: OrkRocket) => {
   act(() => root.render(<PrefsProvider><DragPanel rocket={rocket} designName="T" /></PrefsProvider>));
   act(() => { (host.querySelector('button[aria-expanded]') as HTMLButtonElement).click(); });
 };
+
+it('uses the current handle when CP angle changes during the edit debounce', () => {
+  vi.useFakeTimers();
+  try {
+    let disposed = false;
+    const sweep = sweepOf(flat(0.6), flat(1));
+    const info = { length: 1.2, cp: 0.6, cna: 1 };
+    const old = rocketOf(sweep, info);
+    old.dragSweep = vi.fn(() => {
+      if (disposed) throw new Error('stale engine handle');
+      return sweep;
+    });
+    open(old);
+    disposed = true;
+    const next = rocketOf(sweep, info);
+    next.dragSweep = vi.fn(() => sweep);
+    act(() => root.render(<PrefsProvider><DragPanel rocket={next} designName="T" /></PrefsProvider>));
+    const angle = [...host.querySelectorAll('select')].find(s => [...s.options].some(o => o.textContent === '5°'))!;
+    act(() => { angle.value = '5'; angle.dispatchEvent(new Event('change', { bubbles: true })); });
+    expect(host.textContent).not.toContain('stale engine handle');
+    expect(next.dragSweep).toHaveBeenCalledWith(expect.objectContaining({ aoaDeg: 5 }));
+    act(() => { vi.advanceTimersByTime(300); });
+    expect(host.textContent).not.toContain('stale engine handle');
+  } finally { vi.useRealTimers(); }
+});
 /** The data the CP chart was last drawn with, or null when no CP chart was drawn. */
 const cpSeries = (): (number | null)[] | null => {
   const p = [...plots].reverse().find((x) => x.series.some((s) => s.label === 'CP'));

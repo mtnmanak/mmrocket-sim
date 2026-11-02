@@ -200,12 +200,12 @@ it.each([-1, 0, 1])('legacy retries survive a bundle refreshed cutover %i days',
   }
 });
 
-it('remembers an answer whose only file has one sample', async () => {
+it('remembers an answer whose only requested file has one sample', async () => {
   const fetcher = vi.fn(async () => response({ results: [{ motorId: motor.motorId, samples: [{ time: 0.1, thrust: 5 }] }] }));
   vi.stubGlobal('fetch', fetcher);
   expect(await miss(tc.fetchMotorSpec(motor, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
   expect(await miss(tc.fetchMotorSpec(motor, 5))).toBeInstanceOf(tc.NoPublishedCurveError);
-  expect(fetcher).toHaveBeenCalledOnce();
+  expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
 it.each([
@@ -589,7 +589,8 @@ it('documents no thrustcurve.org requests for known missing curves and the reloa
   expect(guide).toContain('the app makes no request when you pick one before the catalogue has been checked');
   expect(guide).toContain('the motor stays without one and thrustcurve.org is not asked');
   expect(guide).toContain('When it loads online, at most every six hours');
-  expect(guide).toContain('loading a motor or opening a design can download its curve');
+  expect(guide).toContain('Loading an uncached motor or opening a design can download its curve');
+  expect(guide).toContain('a shipped motor with a cached curve uses that cache without a network request');
   expect(guide.indexOf('The app ships every thrust curve')).toBeLessThan(guide.indexOf('Three filter rows'));
   expect(guide).toContain('the app stops asking for a while and says so');
   expect(guide).toContain('loaded, opened in a design or flown in **Batch simulate**');

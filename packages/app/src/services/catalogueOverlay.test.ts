@@ -63,6 +63,29 @@ const stalled = (): typeof fetch => (_input, init) => new Promise<Response>((_re
 
 beforeEach(() => { resetThrustcurveBackoffForTests(); localStorage.clear(); setCatalogueOverlay(null); });
 
+it('keeps the six-hour throttle and snapshot shortcut when overlay storage is full', async () => {
+  const fetchImpl = stubCatalogue([row()]);
+  const now = Date.now();
+  const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new DOMException('Full', 'QuotaExceededError'); });
+  try {
+    const first = await checkForCatalogueUpdates({ fetchImpl, now: () => now });
+    expect(first.stored).toBe(false);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const recent = await checkForCatalogueUpdates({ fetchImpl, now: () => now + 1 });
+    expect(recent.skipped).toBe('recent');
+    expect(recent.stored).toBe(false);
+    expect(recent.overlay).toBe(first.overlay);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    await checkForCatalogueUpdates({ fetchImpl, now: () => now + RECHECK_MIN_MS });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    await checkForCatalogueUpdates({ fetchImpl, force: true, now: () => now + RECHECK_MIN_MS + 1 });
+    expect(fetchImpl).toHaveBeenCalledTimes(4);
+    discardCatalogueOverlay();
+    await checkForCatalogueUpdates({ fetchImpl, now: () => now + RECHECK_MIN_MS + 2 });
+    expect(fetchImpl).toHaveBeenCalledTimes(6);
+  } finally { write.mockRestore(); }
+});
+
 it.each(['rejected', 'added', 'changed'])('describes poisoned stored %s scalars without throwing', kind => {
   const poison = { toString: 0, valueOf: 0 };
   const overlay = { baseGenerated: MOTOR_DB_DATE, fetchedAt: new Date().toISOString(), liveCount: 1,

@@ -39,6 +39,33 @@ beforeEach(async () => {
 afterEach(() => { vi.restoreAllMocks(); setCatalogueOverlay(null); localStorage.clear(); });
 
 describe('when it runs', () => {
+  it.each([false, true])('throttles across reloads when only the small check record fits (old overlay: %s)', async old => {
+    if (old) localStorage.setItem(OVERLAY_KEY, JSON.stringify({ baseGenerated: MOTOR_DB_DATE,
+      fetchedAt: new Date(T0 - RECHECK_MIN_MS).toISOString(), liveCount: 0,
+      added: [], changed: [], removed: [], rejected: [] }));
+    const write = localStorage.setItem.bind(localStorage);
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+      if (key === OVERLAY_KEY) throw new DOMException('quota', 'QuotaExceededError');
+      write(key, value);
+    });
+    try {
+      expect(await startCatalogueAutoCheck(env())).toBe('checked');
+      expect(loadStoredOverlay()?.snapshot).toBeUndefined();
+      now = T0 + RECHECK_MIN_MS - 1;
+      reload();
+      expect(getCatalogueOverlay()?.snapshot).toBeUndefined();
+      expect(await startCatalogueAutoCheck(env())).toBe('recent');
+      expect(fetchImpl.seen).toHaveLength(2);
+      now++;
+      reload();
+      expect(await startCatalogueAutoCheck(env())).toBe('checked');
+      expect(fetchImpl.seen).toHaveLength(4);
+      reload();
+      discardCatalogueOverlay();
+      expect(await startCatalogueAutoCheck(env())).toBe('checked');
+      expect(fetchImpl.seen).toHaveLength(6);
+    } finally { spy.mockRestore(); }
+  });
   it('runs online: one manifest request and one motors file, installed and stored', async () => {
     expect(await startCatalogueAutoCheck(env())).toBe('checked');
     expect(fetchImpl.seen.map(r => r.url)).toEqual([`${CATALOGUE_BASE}manifest.json`, `${CATALOGUE_BASE}${pub.entry.motors.path}`]);

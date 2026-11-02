@@ -2,8 +2,8 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { downloadRawFiles } from './fetch-motor-curves.mjs';
 import { createHash } from 'node:crypto';
+import { downloadRawFiles } from './fetch-motor-curves.mjs';
 
 /**
  * digest-census.mjs's raw-file cache against a stand-in for thrustcurve.org —
@@ -36,6 +36,19 @@ function stand(pick) {
 }
 const cacheFiles = (dir) => readdirSync(dir).filter((name) => /^raw-.*\.json$/.test(name));
 const cachePath = (dir, value) => join(dir, `raw-${value.generated}-${createHash('sha256').update(JSON.stringify(value)).digest('hex')}.json`);
+
+it('downloads fresh raw files when bundle contents change on the same generation date', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'digest-census-')); dirs.push(dir);
+  const first = stand(ids => ids.map(raw));
+  const oldPath = await cachedRawFiles(bundle, dir, { download: first.download, log: () => {} });
+  const changed = { ...bundle, curves: { ...bundle.curves, a: [{ samples: [[0, 1]] }] } };
+  const fresh = stand(ids => ids.map(id => ({ ...raw(id), data: 'bmV3' })));
+  const newPath = await cachedRawFiles(changed, dir, { download: fresh.download, log: () => {} });
+  expect(fresh.calls).toHaveLength(1);
+  expect(newPath).not.toBe(oldPath);
+  expect(JSON.parse(readFileSync(newPath, 'utf8'))['f-a'].data).toBe('bmV3');
+  expect(JSON.parse(readFileSync(oldPath, 'utf8'))['f-a'].data).toBe('cmF3');
+});
 
 it('imports without creating its output folder or downloading', () => {
   if (!hadDefaultOut) expect(existsSync(DEFAULT_OUT)).toBe(false);

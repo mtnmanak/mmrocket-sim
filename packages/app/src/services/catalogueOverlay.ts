@@ -1,6 +1,6 @@
 import { INITIAL_UNITS, noticeChange, noticeEqual, noticeNumber, noticeComparison, noticeQuantity, type UnitSelection } from '../prefs/units.js';
 import {
-  MOTOR_DB, MOTOR_DB_DATE, motorLabel, setCatalogueOverlay, type CatalogueChange, type CatalogueOverlay,
+  MOTOR_DB, MOTOR_DB_DATE, getCatalogueOverlay, motorLabel, setCatalogueOverlay, type CatalogueChange, type CatalogueOverlay,
   type MotorDbEntry,
 } from './motorDb.js';
 import { baseDesignation } from './motorMatch.js';
@@ -38,6 +38,18 @@ import { bundledSnapshot } from './bundledSnapshot.js';
  */
 
 export const OVERLAY_KEY = 'online-openrocket.motor-catalogue-overlay.v1';
+const CHECK_KEY = 'online-openrocket.motor-catalogue-check.v1';
+
+/** Small reload throttle, independent of whether the full overlay fits. */
+export function loadCatalogueCheck(): Pick<CatalogueOverlay, 'fetchedAt'> | null {
+  try {
+    const o: unknown = JSON.parse(localStorage.getItem(CHECK_KEY) ?? 'null');
+    if (!object(o) || o['baseGenerated'] !== MOTOR_DB_DATE || typeof o['fetchedAt'] !== 'string'
+      || !Number.isFinite(Date.parse(o['fetchedAt']))
+      || !(o['snapshotId'] === null || typeof o['snapshotId'] === 'string')) return null;
+    return { fetchedAt: o['fetchedAt'] };
+  } catch { return null; }
+}
 
 /**
  * How soon a repeat check is refused unless forced. A check is one small
@@ -267,12 +279,25 @@ export function loadStoredOverlay(): CatalogueOverlay | null {
   }
 }
 
+let unstoredOverlay: CatalogueOverlay | null = null;
+
+function overlayForCheck(): CatalogueOverlay | null {
+  const live = getCatalogueOverlay();
+  return live && live === unstoredOverlay ? live : loadStoredOverlay();
+}
+
 function storeOverlay(o: CatalogueOverlay): boolean {
   try {
+    localStorage.setItem(CHECK_KEY, JSON.stringify({ baseGenerated: o.baseGenerated,
+      fetchedAt: o.fetchedAt, snapshotId: o.snapshot?.id ?? null }));
+  } catch { /* Storage may refuse even the small throttle record. */ }
+  try {
     localStorage.setItem(OVERLAY_KEY, JSON.stringify(o));
+    unstoredOverlay = null;
     return true;
   } catch {
     // Quota, or no storage: the overlay still applies for this session.
+    unstoredOverlay = o;
     return false;
   }
 }
@@ -287,7 +312,9 @@ export function restoreCatalogueOverlay(): CatalogueOverlay | null {
 /** Discard: stops any check still running, so its result cannot land afterwards and undo this. */
 export function discardCatalogueOverlay(): void {
   supersedeRunningCheck();
+  unstoredOverlay = null;
   try { localStorage.removeItem(OVERLAY_KEY); } catch { /* nothing to remove */ }
+  try { localStorage.removeItem(CHECK_KEY); } catch { /* nothing to remove */ }
   setCatalogueOverlay(null);
 }
 
@@ -389,10 +416,10 @@ export async function checkForCatalogueUpdates(
   silent: string[];
 }> {
   const now = opts.now ?? Date.now;
-  const recent = loadStoredOverlay();
+  const recent = overlayForCheck();
   if (recent && !opts.force && checkedRecently(recent, now())) {
     setCatalogueOverlay(recent);
-    return { overlay: recent, skipped: 'recent', stored: true, silent: [] };
+    return { overlay: recent, skipped: 'recent', stored: recent !== unstoredOverlay, silent: [] };
   }
   const mine = supersedeRunningCheck();
   const ctrl = new AbortController();
@@ -410,7 +437,7 @@ export async function checkForCatalogueUpdates(
     } catch (err) { throw checkFailure(err, ctrl.signal); }
     current();
     // Read storage again: the overlay may have changed while the manifest was in flight.
-    const previous = loadStoredOverlay();
+    const previous = overlayForCheck();
     const snapshot: CatalogueSnapshotRef = {
       id: manifest.id, generated: manifest.motors.generated, motorsSha256: manifest.motors.sha256,
       curves: { path: manifest.curves.path, bytes: manifest.curves.bytes, sha256: manifest.curves.sha256 },

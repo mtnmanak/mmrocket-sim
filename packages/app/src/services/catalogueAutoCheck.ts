@@ -1,4 +1,4 @@
-import { checkedRecently, checkForCatalogueUpdates, loadStoredOverlay } from './catalogueOverlay.js';
+import { checkedRecently, checkForCatalogueUpdates, loadCatalogueCheck, loadStoredOverlay } from './catalogueOverlay.js';
 import { isCatalogueOverlayInitialized, subscribeCatalogue, type CatalogueOverlay } from './motorDb.js';
 
 /**
@@ -11,9 +11,9 @@ import { isCatalogueOverlayInitialized, subscribeCatalogue, type CatalogueOverla
  *
  * - the browser says it is offline;
  * - storage cannot be written (probed). The six-hour throttle lives in the
- *   stored overlay, so without storage every load would download the motors
+ *   small check record, so without storage every load would download the motors
  *   file again; the motor browser's button still works;
- * - the stored overlay was checked within six hours (RECHECK_MIN_MS), a
+ * - the stored overlay or check record is within six hours (RECHECK_MIN_MS), a
  *   check date in the future counting as expired (checkedRecently).
  *
  * A skip installs nothing: App's restore already installed the stored
@@ -101,7 +101,7 @@ export async function startCatalogueAutoCheck(env: CatalogueAutoCheckEnv = brows
     if (!env.online()) return 'offline';
     if (!storageWritable(env)) return 'no-storage';
     const before = loadStoredOverlay();
-    if (checkedRecently(before, env.now())) return 'recent';
+    if (checkedRecently(before, env.now()) || checkedRecently(loadCatalogueCheck(), env.now())) return 'recent';
     // Forced: the throttle was just checked, with the future-date rule.
     const { overlay } = await checkForCatalogueUpdates({ force: true, fetchImpl: env.fetchImpl, now: env.now });
     const fresh = newlyChanged(overlay, before);
