@@ -10,6 +10,8 @@ import { runExportContext } from './runExportContext.js';
 import type { WeatherSnapshot } from './weatherSnapshot.js';
 import { exportOrk, importOrk } from './orkFile.js';
 import type { WindProfileSource } from './windProfile.js';
+import { exportConfigs } from './exportAssembly.js';
+import { flightDataBundleContents } from './flightDataBundle.js';
 
 const run = { id: 'selected', when: 1000, rocket: 'Test', motor: 'C6', manufacturer: 'Estes',
   maxAltitude: 123, maxVelocity: 45, maxAcceleration: 20, maxMach: 0.2, timeToApogee: 4,
@@ -24,6 +26,17 @@ const input = () => ({ design: { name: 'Test', tree: defaultTree(),
 const filesOf = (x = input()) => unzipSync(buildFlightDataBundle(x).bytes);
 
 describe('flight-data bundle', () => {
+  it('reports nozzle differences passed through the shared Save assembler', () => {
+    const x = input();
+    const stage = x.design.tree.components[0]!;
+    stage.nozzleExitDiameter = 0.01;
+    const configs = exportConfigs([
+      { id: 'A', name: 'Active', isDefault: true, motors: {}, nozzles: { [stage.id!]: 0.01 } },
+      { id: 'B', name: 'Other', isDefault: false, motors: {}, nozzles: { [stage.id!]: 0.02 } },
+    ], x.design.tree, () => []);
+    expect(flightDataBundleContents({ ...x, design: { ...x.design, configs, activeConfigId: 'A' } }).notices)
+      .toContain("Nozzle exit diameters differ on 1 stage in 1 saved configuration; .ork keeps each stage's current value for every configuration.");
+  });
   it.each([
     { recorded: -149.765432, current: 10, expected: 'different' },
     { recorded: -149.765432, current: -149.765432, expected: 'same' },

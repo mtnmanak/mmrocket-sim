@@ -672,6 +672,18 @@ describe('flightDataForExport — the rules that are about OTHER configurations'
     }).sort()).toEqual(['c1', 'c2']);
   });
 
+  it('refuses an unverified inactive pad weighing even without configurationState', () => {
+    const motor = { ...MOTOR, meta: { ...MOTOR.meta, autoDelay: true } };
+    const motors: [string, MountMotor][] = [['m1', motor]];
+    const input = base({ runs: [{ ...RUN2, delayResolution: testResolution(motors, [7]) }],
+      savedConfigs: [CONFIG, { ...OTHER, motors: { m1: motor } }] });
+    expect(flownAutoDelays(input)).toHaveProperty('c2');
+    expect(flightDataForExport(input)).toHaveProperty('c2');
+    input.savedConfigs = [CONFIG, { ...OTHER, motors: { m1: { ...motor, padMassKg: 0.7 } } }];
+    expect(flownAutoDelays(input)).not.toHaveProperty('c2');
+    expect(flightDataForExport(input)).not.toHaveProperty('c2');
+  });
+
   it('charges the hardware term ONLY to the active configuration', () => {
     // A non-active configuration's run keeps matching only if it flew with no
     // hardware — refusal is the safe direction for numbers written into a file.

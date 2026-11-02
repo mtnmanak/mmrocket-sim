@@ -2247,7 +2247,7 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     }
     // Only a burnout-triggered motor has a delay this format can express; a
     // launch-stage motor, or any other ignition event, writes RASAero's own 0.
-    const ignitionDelay = found?.ignitionEvent === 'burnout' ? (found.ignitionDelay ?? 0) : 0;
+    const ignitionDelay = knownIgnitionEvent(found?.ignitionEvent) === 'burnout' ? (found?.ignitionDelay ?? 0) : 0;
     const abbrev = found ? rasaeroManufacturerAbbrev(found.manufacturer) : null;
     return {
       engine: found && abbrev ? `${found.designation}  (${abbrev})` : null,

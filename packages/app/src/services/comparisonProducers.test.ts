@@ -311,6 +311,9 @@ it('requires inventory review and a boundary case or scope exemption for new pro
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
   }).toEqual(reviewedCensus);
 }, 30_000);
+// Inventory review (N4 round 2): orkFile 527 -> 528 is the tilted-rod/winds
+// aloft save caution. orkFile.layers.test.ts covers zero altitude, vertical
+// rod, manual aim and absent profile boundaries; no flight input is changed.
 // Inventory review (2026-11-01, M3): rasaeroFile.ts rose 261 -> 262 on
 // `:scope > IncludeBooster${i}`, an XML child selector in the excluded-booster
 // caution loop. Its `>` is not a numeric comparison or user-facing text, so

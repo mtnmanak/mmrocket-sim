@@ -183,7 +183,7 @@ import {
 } from './services/designDerivation.js';
 import { stageMotors } from './services/nozzleFollow.js';
 import { stableJson, type DesignSnapshot } from './services/dirtyState.js';
-import { autosavedDesignFile } from './services/autosaveBackup.js';
+import { autoDelayHardwareKey, autosavedDesignFile } from './services/autosaveBackup.js';
 import { designStateFromSession, type RankedPadMass } from './services/sessionRestore.js';
 import { createSequencer } from './services/latestWins.js';
 import { designFileOpenFailure, designFileTooLarge, openDesignFile } from './services/designFile.js';
@@ -2339,11 +2339,13 @@ export function App() {
   const exportFlightTree = useMemo<FlightTree>(() => ({
     components: exportComponents, ignitionDefaults: exportIgnitionDefaults,
   }), [exportComponents, exportIgnitionDefaults]);
+  const exportHardwareCache = useRef<Parameters<typeof assembleFlightExportInput>[1]>(new Map());
   const flightExportInput = useMemo(() => assembleFlightExportInput({
     runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
     aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, tree: exportFlightTree, detachedOverrides, mountMotors, launch,
-  }), [runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
-    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, exportFlightTree, detachedOverrides, mountMotors, launch]);
+    measuredDryMassKg: measured.massKg,
+  }, exportHardwareCache.current), [runs, importedDocument, savedConfigs, activeConfigId, assigned, refusedMountIds, mounts, provenanceKey,
+    aeroMode, effectiveKbf, autoSupersonic, hardwareDeltaKg, exportFlightTree, detachedOverrides, mountMotors, launch, measured.massKg]);
   // Share one Auto-delay pass and the per-configuration cache across save,
   // loss previews and autosave. Name and notes edits keep the same inputs.
   const flownForAutosave = useMemo(() => flownAutoDelays(flightExportInput), [flightExportInput]);
@@ -2378,7 +2380,8 @@ export function App() {
       // .ork writes as a Save would (audit 2026-09-30, item 23). Written only
       // while there is one, so a design with no Auto flight stores what it
       // always did.
-      ...(Object.keys(flownForAutosave).length > 0 ? { flownAutoDelays: flownForAutosave } : {}),
+      ...(Object.keys(flownForAutosave).length > 0 ? { flownAutoDelays: flownForAutosave,
+        flownAutoDelayHardwareKey: autoDelayHardwareKey(designSnapshot) } : {}),
       // The build that PARSED this design, not the one writing the file — see
       // parsedByVersion. writeNow spreads `pending` AFTER its own
       // `appVersion: APP_VERSION`, so this value is the one that reaches

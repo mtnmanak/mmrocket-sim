@@ -774,6 +774,16 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
     // on a minimum-diameter rocket (kernel BodyTube implements MotorMount,
     // same as the desktop). The flag survives even with no motor loaded.
     node['motorMount'] = true;
+    const appIgnitions = new Map<string, IgnitionTuple>();
+    try {
+      const rows: unknown = JSON.parse(mountEl.getAttribute('mmrignitions') ?? '[]');
+      if (Array.isArray(rows)) for (const row of rows) {
+        if (!Array.isArray(row) || typeof row[0] !== 'string' || typeof row[1] !== 'string'
+            || typeof row[2] !== 'number' || !Number.isFinite(row[2])) continue;
+        const event = knownIgnitionEvent(row[1]);
+        if (event) appIgnitions.set(row[0], { event, delay: row[2] });
+      }
+    } catch { /* A malformed optional extension cannot supply an override. */ }
     // Motor overhang (m): aft protrusion past the mount — min-diameter practice.
     const overhang = num(mountEl, 'overhang', 0, notes);
     if (overhang !== 0) node['motorOverhang'] = overhang;
@@ -855,9 +865,9 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         const byId = (tag: string) => Array.from(mountEl.children).find(
           (c) => c.tagName === tag && c.getAttribute('configid') === cfg.id);
         const cfgMotorEl = byId('motor');
-        const block = byId('ignitionconfiguration');
-        const ignition = block ? readIgnition(block, ownIgnition,
-          text(cfgMotorEl ?? mountEl, ':scope > designation') ?? String(node['name'] ?? 'mount')) : ownIgnition;
+        const block = byId('mmrignitionconfiguration') ?? byId('ignitionconfiguration');
+        const ignition = appIgnitions.get(cfg.id) ?? (block ? readIgnition(block, ownIgnition,
+          text(cfgMotorEl ?? mountEl, ':scope > designation') ?? String(node['name'] ?? 'mount')) : ownIgnition);
         // An unloaded mount can still own ignition parameters (audit 2026-10-11, FC-2).
         if (sparsify(ownIgnition, ignition)) (cfg.ignitions ??= {})[node.id] = ignition;
         if (!cfgMotorEl) continue; // no motor for this config here — empty
@@ -3038,9 +3048,15 @@ export function exportOrk({
     const bare = (withMotor.find((c) => c.id === defaultId) ?? withMotor[0])?.motors[nodeId!];
     const own = nodeId && tree.ignitionDefaults && Object.hasOwn(tree.ignitionDefaults, nodeId)
       ? tree.ignitionDefaults[nodeId] : undefined;
-    const ev = own?.event ?? bare?.ignitionEvent ?? 'automatic';
+    const ev = knownIgnitionEvent(own?.event ?? bare?.ignitionEvent ?? null) ?? 'automatic';
     const evDelay = own?.delay ?? bare?.ignitionDelay ?? 0;
-    emit(depth, '<motormount>');
+    // Desktop ignores unknown attributes, unlike unknown child elements.
+    const appIgnitions = writeConfigs.flatMap(c => {
+      const ignition = nodeId && c.ignitions?.[nodeId];
+      return ignition && !Object.hasOwn(c.motors, nodeId!)
+        ? [[c.id, knownIgnitionEvent(ignition.event) ?? 'automatic', ignition.delay]] : [];
+    });
+    emit(depth, `<motormount${appIgnitions.length ? ` mmrignitions="${escapeXmlAttr(JSON.stringify(appIgnitions))}"` : ''}>`);
     emit(depth + 1, `<ignitionevent>${escapeXml(ev)}</ignitionevent>`);
     emit(depth + 1, `<ignitiondelay>${evDelay}</ignitiondelay>`);
     emit(depth + 1, `<overhang>${overhangM}</overhang>`);
@@ -3074,10 +3090,13 @@ export function exportOrk({
         { event: knownIgnitionEvent(ev) ?? 'automatic', delay: evDelay },
         { event: knownIgnitionEvent(m.ignitionEvent ?? null) ?? 'automatic', delay: m.ignitionDelay ?? 0 }) : undefined);
       if (!ignition) continue;
-      emit(depth + 1, `<ignitionconfiguration configid="${escapeXmlAttr(c.id)}">`);
-      emit(depth + 2, `<ignitionevent>${escapeXml(ignition.event)}</ignitionevent>`);
+      // Desktop applies a motorless configuration's block to the mount default.
+      if (!m) continue;
+      const tag = 'ignitionconfiguration';
+      emit(depth + 1, `<${tag} configid="${escapeXmlAttr(c.id)}">`);
+      emit(depth + 2, `<ignitionevent>${escapeXml(knownIgnitionEvent(ignition.event) ?? 'automatic')}</ignitionevent>`);
       emit(depth + 2, `<ignitiondelay>${ignition.delay}</ignitiondelay>`);
-      emit(depth + 1, '</ignitionconfiguration>');
+      emit(depth + 1, `</${tag}>`);
     }
     emit(depth, '</motormount>');
   };
@@ -3792,6 +3811,9 @@ export function exportOrk({
     // answers NaN for anything that is not a finite number, absent included.
     const aimDeg = canonicalRodAimDeg(launch.launchRodAimDeg ?? NaN);
     const manualRod = Number.isFinite(aimDeg) && aimDeg !== 0;
+    if (!manualRod && launch.launchRodAngleDeg !== 0 && launch.launchAltitudeM !== 0 && launch.windLevels?.length) {
+      notes?.push('With winds aloft at a site above or below sea level, desktop OR may aim the tilted rod at wind from the wrong height when rerunning this file. Check its rod direction before flying; the predicted flight and landing can change.');
+    }
     simulationWrites.forEach(({ config: c, group }, i) => {
       // App flights have passed the caller's design/motor/conditions checks.
       // Imported historical summaries retain OUTDATED in desktop's loader:

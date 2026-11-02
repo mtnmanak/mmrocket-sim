@@ -116,6 +116,33 @@ class NoPath { moveTo() {} lineTo() {} closePath() {} rect() {} arc() {} addPath
 const here = dirname(fileURLToPath(import.meta.url));
 const SESSION_KEY = 'online-openrocket.session.v1';
 
+it('F-D-1 shows differing nozzle notes through Save, share and recovery', async () => {
+  const tree = defaultTree();
+  const stage = tree.components[0]!;
+  stage.nozzleExitDiameter = 0.01;
+  const configs: SavedConfig[] = [
+    { id: 'A', name: 'Active', isDefault: true, motors: {}, nozzles: { [stage.id!]: 0.01 } },
+    { id: 'B', name: 'Other', isDefault: false, motors: {}, nozzles: { [stage.id!]: 0.02 } },
+  ];
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+    savedConfigs: configs, activeConfigId: 'A', configLayers: 1, appVersion: APP_VERSION, savedAt: Date.now() }));
+  const host = await mountApp();
+  await saveAs(host, 'Save .ork');
+  await waitFor(() => vi.mocked(saveFile).mock.calls.length === 1, 'nozzle Save');
+  expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain('Nozzle exit diameters differ');
+  expect(vi.mocked(exportOrk).mock.calls.at(-1)![0].configs?.[1]?.nozzles).toEqual(configs[1]!.nozzles);
+  const writeText = vi.fn(async (_url: string) => {});
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+  try {
+    await saveAs(host, 'Copy share link');
+    await waitFor(() => writeText.mock.calls.length === 1, 'nozzle share');
+    expect(host.querySelector('[aria-label="Notices"]')!.textContent).toContain('Nozzle exit diameters differ');
+    expect(vi.mocked(exportOrk).mock.calls.at(-1)![0].configs?.[1]?.nozzles).toEqual(configs[1]!.nozzles);
+    window.dispatchEvent(new Event('pagehide'));
+    expect(autosavedDesignFile()!.notes.join('\n')).toContain('Nozzle exit diameters differ');
+  } finally { delete (navigator as { clipboard?: unknown }).clipboard; }
+}, 30_000);
+
 it('M3 saves real cumulative weights and CGs through the staged CDX1 Save action', async () => {
   const tree = defaultTree();
   tree.components = asStageNodes(tree);

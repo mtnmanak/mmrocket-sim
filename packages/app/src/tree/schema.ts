@@ -1230,10 +1230,32 @@ export function finCountDefault(type: EditorComponentType): number {
  * The existing set's count falls back per TYPE (audit 2026-09-22). App used a
  * flat 3, so beside a tube-fin set with no `finCount` — six tubes to the
  * kernel — the new set turned 60° instead of 30° and landed ON a tube.
+ * With the added set and other siblings supplied, maximize clearance against
+ * all of them, including different fin counts, without rotating an old set.
  */
-export function interleaveRotation(existing: ComponentNode): number {
-  const count = Math.max(1, Math.round(num(existing, 'finCount', finCountDefault(existing.type))));
-  return num(existing, 'rotation', 0) + Math.PI / count;
+export function interleaveRotation(existing: ComponentNode, added?: ComponentNode, others: readonly ComponentNode[] = []): number {
+  const countOf = (n: ComponentNode) => Math.min(KERNEL_MAX_FINS,
+    Math.max(1, Math.round(num(n, 'finCount', finCountDefault(n.type)))));
+  // Bound work for hostile imports; ordinary designs retain full clearance.
+  if (!added || others.length >= 65) return num(existing, 'rotation', 0) + Math.PI / countOf(existing);
+  const pitch = 2 * Math.PI / countOf(added);
+  // Each old fin forbids one rotation within the new set's pitch. The middle
+  // of the widest circular gap maximizes clearance from every existing fin.
+  const angles = [existing, ...others].flatMap(n => Array.from({ length: countOf(n) }, (_, i) => {
+    const angle = num(n, 'rotation', 0) + 2 * Math.PI * i / countOf(n);
+    return ((angle % pitch) + pitch) % pitch;
+  })).sort((a, b) => a - b);
+  let widest = -1;
+  let rotation = 0;
+  for (let i = 0; i < angles.length; i++) {
+    const start = angles[i]!;
+    const gap = (angles[i + 1] ?? angles[0]! + pitch) - start;
+    if (gap > widest + 1e-12) {
+      widest = gap;
+      rotation = (start + gap / 2) % pitch;
+    }
+  }
+  return rotation;
 }
 
 /**
