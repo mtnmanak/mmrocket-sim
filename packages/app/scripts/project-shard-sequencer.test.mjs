@@ -34,6 +34,37 @@ it('partitions every project/file exactly once for 2..5 shards regardless of glo
   expect(ProjectShardSequencer.prototype.sort).toBe(BaseSequencer.prototype.sort);
 });
 
+it('splits exactly by sha1(project NUL root-relative path), so every runner agrees', async () => {
+  // An independent reference computed here: anything per-process in the key
+  // (a seed, a pid, a time) or a different path form changes the split and
+  // fails this, though the one-process order test above cannot see it.
+  const relative = (s) => s.moduleId.slice(root.length).replace(/\\/g, '/');
+  const key = (s) => createHash('sha1').update(`${s.project.name}\u0000${relative(s)}`).digest('hex');
+  const sorted = [...files].sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0)).map(identity);
+  const assertReference = async (Sequencer) => {
+    for (let count = 2; count <= 5; count++) {
+      let at = 0;
+      for (let index = 1; index <= count; index++) {
+        const size = Math.floor(files.length / count) + (index <= files.length % count ? 1 : 0);
+        const ctx = { config: { root, shard: { index, count } } };
+        expect((await new Sequencer(ctx).shard(files)).map(identity)).toEqual(sorted.slice(at, at + size));
+        at += size;
+      }
+    }
+  };
+  await assertReference(ProjectShardSequencer);
+  // Mutation: a per-process salt in the key (here the pid, folded into the
+  // project name the subclass hashes) changes the split.
+  class SaltedKey extends ProjectShardSequencer {
+    async shard(input) {
+      const byKey = new Map(input.map((s) => [`${s.project.name}${process.pid}\u0000${s.moduleId}`, s]));
+      const salted = input.map((s) => ({ ...s, project: { name: `${s.project.name}${process.pid}` } }));
+      return (await super.shard(salted)).map((s) => byKey.get(`${s.project.name}\u0000${s.moduleId}`));
+    }
+  }
+  await expect(assertReference(SaltedKey)).rejects.toThrow();
+});
+
 it('rejects the installed base sequencer at a split pair boundary', async () => {
   await expect(assertPartitions(BaseSequencer)).rejects.toThrow();
 });

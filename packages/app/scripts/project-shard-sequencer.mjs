@@ -16,7 +16,10 @@ export class ProjectShardSequencer extends BaseSequencer {
     const { root, shard: { index, count } } = this.ctx.config;
     const [start, end] = this.calculateShardRange(files.length, index, count);
     return Array.from(files, (spec) => {
-      const specPath = resolve(slash(root), slash(spec.moduleId)).slice(root.length);
+      // Slashed AFTER resolve, so a Windows run keys '/src/x.test.ts' exactly
+      // as Linux CI does (node:path turns '/' back into '\' there; vitest's
+      // own pathe does not). Gemini review, round 2.
+      const specPath = slash(resolve(root, spec.moduleId)).slice(slash(root).length);
       return { spec, hash: createHash('sha1').update(`${spec.project.name}\u0000${specPath}`).digest('hex') };
     }).sort((a, b) => a.hash < b.hash ? -1 : a.hash > b.hash ? 1 : 0)
       .slice(start, end).map(({ spec }) => spec);
