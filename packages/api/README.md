@@ -2,7 +2,7 @@
 
 A Cloudflare module Worker that opens and flies a raw `.ork`, `.rkt` or `.CDX1` through the app's existing headless path and OpenRocket 24.12 Java core compiled with TeaVM. GPL-3.0-or-later; see the repository LICENSE.
 
-Live at `https://api.mmrsim.mountainmanrockets.com` since 2026-10-29 (commit `9978d0ad`, API deploy run 40964828731, dispatched by the owner). `/describe` answers still say `api: "s3-draft"`: its contract becomes v1 once S5 defines how a motor is added to its link. `/experimental/fly` is for testing and is not a contract. The Worker changes only when the owner dispatches `api-deploy.yml`; a push to `main` deploys the app, not the API.
+Live at `https://api.mmrsim.mountainmanrockets.com` since 2026-10-29 (commit `9978d0ad`, API deploy run 40964828731, dispatched by the owner); redeployed 2026-11-02 from commit `795c1db0` (API deploy run 41532696663, Worker version `0be03fbb`). `/describe` answers still say `api: "s3-draft"`: its contract becomes v1 once S5 defines how a motor is added to its link. `/experimental/fly` is for testing and is not a contract. The Worker changes only when the owner dispatches `api-deploy.yml`; a push to `main` deploys the app, not the API.
 
 ## Access and limits (live since 2026-10-29)
 
