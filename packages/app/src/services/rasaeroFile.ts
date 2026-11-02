@@ -335,7 +335,7 @@ export interface Cdx1ImportResult extends LayeredOrkImportResult {
  * to the catalogue's mass, and the import note names it. Without `flownSpec`
  * this IS `importCdx1`.
  */
-export async function importCdx1Flown(data: ArrayBuffer | string, opts: Omit<NonNullable<Parameters<typeof importCdx1>[1]>, 'flownMotor'> & {
+export async function importCdx1Flown(data: ArrayBuffer | Uint8Array | string, opts: Omit<NonNullable<Parameters<typeof importCdx1>[1]>, 'flownMotor'> & {
   flownSpec?: (row: MotorDbEntry, ejectionDelay: number) => Promise<MotorSpec>;
 } = {}): Promise<Cdx1ImportResult> {
   const { flownSpec, ...rest } = opts;
@@ -359,7 +359,7 @@ export async function importCdx1Flown(data: ArrayBuffer | string, opts: Omit<Non
 /** Design-level elements RASAero writes as its own computed results, not as inputs (D7 I03). */
 const RASAERO_OUTPUT_TAGS: ReadonlySet<string> = new Set(['CP']);
 
-export function importCdx1(data: ArrayBuffer | string, opts?: {
+export function importCdx1(data: ArrayBuffer | Uint8Array | string, opts?: {
   /** Optional host cap; browser imports retain the shared 64 MiB default. */
   maxInflatedBytes?: number;
   units?: UnitSelection;
@@ -392,7 +392,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     ? unzipMember(bytes, '.cdx1', '.CDX1', opts?.maxInflatedBytes)
     : bytes[0] === 0x1f && bytes[1] === 0x8b ? gunzipCapped(bytes, '.CDX1', opts?.maxInflatedBytes) : bytes);
   const decoded: { xml: string; note?: string } =
-    typeof data === 'string' ? { xml: data } : decodeXml(inflated(new Uint8Array(data)));
+    typeof data === 'string' ? { xml: data } : decodeXml(inflated(data instanceof Uint8Array ? data : new Uint8Array(data)));
   preflightXml(decoded.xml, 'Not a valid RASAero file (XML parse error)');
   const xml = decoded.xml.replace(/^\uFEFF?/, '');
   refuseOversizedForeignXml(xml, 'cdx1');

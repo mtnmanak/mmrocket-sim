@@ -2624,9 +2624,9 @@ describe('an open and ✕ New leave a design that reads saved', () => {
  * THE AUTOSAVE KEEPS A FILE'S UNRESOLVED MOTOR REFERENCES (audit 2026-09-22,
  * row 299). A file naming a motor the catalogue lacks keeps the reference so
  * Save .ork writes it back instead of an empty mount. With no flight
- * configuration to hold it — here a .ork declaring none, which the reader
- * takes as a hand-rolled file — the working set is its only copy, and a reload
- * used to lose it. App writes it with the autosave and reads it back at
+ * configuration to hold it — here a .ork with no declaration or motor ID —
+ * the working set is its only copy, and a reload used to lose it. Also cover
+ * a motor ID that infers a configuration. App writes it with the autosave and reads it back at
  * restore (services/configSync.ts restoreUnmatchedRefs, tested there);
  * savedMarkSites.test.ts held both hand-offs as regexes. The autosave effect's
  * dependency list, which it also matched, is the lint gate's: removing
@@ -2634,13 +2634,20 @@ describe('an open and ✕ New leave a design that reads saved', () => {
  * deploy runs lint with --max-warnings 0.
  */
 describe('a reload keeps the motor a file names but the catalogue lacks', () => {
-  it('survives a reload, and Save .ork writes it back', async () => {
+  it.each([
+    [false, false], [false, true], [true, false], [true, true],
+  ])('survives a reload, and Save .ork writes it back (inferred ID %s, unknown dimensions %s)', async (inferred, unknownDimensions) => {
     const tree = defaultTree();
     const mount = motorMounts(tree)[0]!;
-    const xml = exportOrk({
+    let xml = exportOrk({
       name: 'Unresolved', tree: { ...tree, name: 'Unresolved' },
       motors: { [mount.id!]: { designation: 'ZQ9999X', manufacturer: 'AeroTech', diameter: 0.018, length: 0.07, delay: 5 } },
     }).replace(/<motorconfiguration\b[\s\S]*?<\/motorconfiguration>/g, '');
+    // A motor ID now infers a configuration even without a declaration.
+    // Remove it as well to exercise the original session-only path.
+    if (!inferred) xml = xml.replace(/(<motor) configid="[^"]*"/g, '$1');
+    if (unknownDimensions) xml = xml.replace(/(<motor\b[^>]*>)[\s\S]*?<\/motor>/g,
+      block => block.replace(/<(diameter|length)>[^<]*<\/\1>/g, ''));
     vi.mocked(exportOrk).mockClear();
     let host = await mountApp();
     await waitFor(starterStored, 'the starter motor to be autosaved');
@@ -2648,8 +2655,8 @@ describe('a reload keeps the motor a file names but the catalogue lacks', () => 
     await waitFor(() => shownName(host) === 'Unresolved', 'the file to open');
     await settle(600);
     await unmountAll();
-    // No configuration anywhere to fall back on: only the session holds it.
-    expect(storedSession()?.savedConfigs ?? []).toEqual([]);
+    if (!inferred) expect(storedSession()?.savedConfigs ?? []).toEqual([]);
+    else expect(storedSession()?.savedConfigs).toHaveLength(1);
 
     host = await mountApp();
     await settle(50);
@@ -2657,6 +2664,18 @@ describe('a reload keeps the motor a file names but the catalogue lacks', () => 
     await settle(0);
     const written = vi.mocked(exportOrk).mock.calls.at(-1)![0].motors!;
     expect(Object.values(written).map((m) => m.designation)).toEqual(['ZQ9999X']);
+    expect(Object.values(written)[0]).toMatchObject({
+      manufacturer: 'AeroTech', delay: 5,
+      diameter: unknownDimensions ? 0 : 0.018, length: unknownDimensions ? 0 : 0.07,
+    });
+    const saved = await (vi.mocked(saveFile).mock.calls.at(-1)![0] as Blob).text();
+    expect(saved).toContain('<designation>ZQ9999X</designation>');
+    const savedMotor = saved.match(/<motor\b[^>]*>[\s\S]*?<\/motor>/)![0];
+    if (unknownDimensions) expect(savedMotor).not.toMatch(/<(diameter|length)>/);
+    else {
+      expect(savedMotor).toContain('<diameter>0.018</diameter>');
+      expect(savedMotor).toContain('<length>0.07</length>');
+    }
   }, 30000);
 });
 

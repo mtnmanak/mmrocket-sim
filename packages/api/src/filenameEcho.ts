@@ -20,8 +20,8 @@ const unsafe = (c: number) => c <= 0x1f || (c >= 0x7f && c <= 0x9f) || c === 0x2
 /**
  * Caller- or file-controlled text as the API shows it: the caller's filename in
  * an error message, and the design's name (the filename fallback or the file's
- * own name, owner ruling 113-14a). Display only: the full filename still picks
- * the importer and names a generic design before this runs. Unsafe code
+ * own name, owner ruling 113-14a). Display only: the full filename still hints at
+ * the format and names a generic design before this runs. Unsafe code
  * points become `?`; text over the bound keeps its head and its last code
  * points around a U+2026 ellipsis. Cut by code point, so no surrogate pair is
  * split. Text within the bound with nothing to replace is returned unchanged.

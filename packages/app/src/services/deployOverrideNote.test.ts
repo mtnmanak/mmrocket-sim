@@ -55,8 +55,8 @@ describe('sameDeployment', () => {
     expect(sameDeployment({ ...ALT_300, deployEvent: 'Altitude' }, ALT_300)).toBe(true);
     expect(sameDeployment({ ...ALT_300, deployEvent: 'ALTITUDE' }, { ...ALT_300, deployAltitude: 100 })).toBe(false);
     expect(sameDeployment({ ...EJECTION, deployEvent: 'Ejection' }, EJECTION)).toBe(true);
-    // A value the kernel does not name is kept distinct, as the file wrote it.
-    expect(sameDeployment({ ...EJECTION, deployEvent: 'lowerstageseparation' }, EJECTION)).toBe(false);
+    // Unsupported spellings fly the same ejection fallback.
+    expect(sameDeployment({ ...EJECTION, deployEvent: 'lowerstageseparation' }, EJECTION)).toBe(true);
   });
 });
 
@@ -67,11 +67,19 @@ describe('describeDeployment', () => {
     expect(describeDeployment({ deployEvent: 'apogee', deployAltitude: 0, deployDelay: 1.5 })).toBe('Apogee + 1.5 s');
     expect(describeDeployment({ ...ALT_300, deployEvent: 'Altitude' })).toBe('Altitude (descending), 91.44 m (300 ft)');
     expect(describeDeployment({ ...EJECTION, deployEvent: 'APOGEE' })).toBe('Apogee');
-    expect(describeDeployment({ ...EJECTION, deployEvent: 'lowerstageseparation' })).toBe('lowerstageseparation');
+    expect(describeDeployment({ ...EJECTION, deployEvent: 'lowerstageseparation' }))
+      .toBe('Motor ejection charge (file value “lowerstageseparation” is kept; the app uses the motor ejection charge)');
   });
 });
 
 describe('deployOverrideNote', () => {
+  it('keeps file-supplied names and unknown events on one note line', () => {
+    const note = deployOverrideNote([{ name: 'Chute\nFORGED', kind: 'parachute', own: ALT_300,
+      flown: { ...EJECTION, deployEvent: 'foo\nFORGED' } }], 'Config\nFORGED')!;
+    expect(note).not.toContain('\n');
+    expect(note).toContain('Motor ejection charge');
+    expect(note).toContain('file value');
+  });
   it('says nothing when nothing is overridden', () => {
     expect(deployOverrideNote([], null)).toBeNull();
   });

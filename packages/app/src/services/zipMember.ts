@@ -223,9 +223,10 @@ function isUsableEntry(f: ZipEntry): boolean {
  * of them reaches the user through App.tsx's "Could not open that … file: "
  * prefix.
  */
-export function unzipMember(bytes: Uint8Array, extension: string, kind: string, maxBytes = MAX_ZIP_MEMBER_BYTES): Uint8Array {
+export function unzipMember(bytes: Uint8Array, extension: string | readonly string[], kind: string, maxBytes = MAX_ZIP_MEMBER_BYTES): Uint8Array {
   const usable = readCentralDirectory(bytes, kind).filter(isUsableEntry);
-  const chosen = usable.find((f) => f.name.toLowerCase().endsWith(extension)) ?? usable[0];
+  const extensions = typeof extension === 'string' ? [extension] : extension;
+  const chosen = extensions.map(ext => usable.find(f => f.name.toLowerCase().endsWith(ext))).find(Boolean) ?? usable[0];
   if (!chosen) throw new Error(`Empty ${kind} archive`);
   const mb = (n: number) => Math.round(n / (1024 * 1024));
   if (chosen.originalSize > maxBytes) {

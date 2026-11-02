@@ -287,7 +287,7 @@ describe('.ork numbers are decimal, as the desktop reads them', () => {
     ).replace('<name>Test</name>', '<name>Test</name><measuredmass>0x2</measuredmass>'));
     const nodes = flatten(tree.components);
     expect(nodes.find((c) => c.type === 'bodytube')!.density).toBeUndefined();
-    expect(nodes.find((c) => c.type === 'innertube')!.position).toEqual({ method: 'top', offset: 0 });
+    expect(nodes.find((c) => c.type === 'innertube')!.position).toBeUndefined(); // Hex is ignored, preserving the component default.
     expect(measured).toBeUndefined();
   });
 });

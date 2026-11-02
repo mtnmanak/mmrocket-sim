@@ -311,6 +311,16 @@ it('requires inventory review and a boundary case or scope exemption for new pro
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
   }).toEqual(reviewedCensus);
 }, 30_000);
+// N3 round 3: orkFile 529 -> 528 replaces two position selectors with an
+// ordered child walk and adds a deployment selector for disclosure. These are
+// XML routing, not numeric thresholds; laneN3 tests cover both setter orders.
+// N3 round 2 inventory review: designFile's four hits are the existing byte
+// refusal (covered by size boundary tests) and root-name regex, not new flight
+// comparisons. importNotes adds the actual-density quantity (synthetic 1234
+// catalogue tests). noteExplanations adds advice/format descriptions, not numeric
+// thresholds. orkFile's net +2 covers XML selectors/serialization and fallback
+// messages; laneN3 tests cover omitted motor dimensions, capped inferred IDs,
+// material defaults and axial positions. No flight tolerance changed.
 // Inventory review (2026-11-01, M3): rasaeroFile.ts rose 261 -> 262 on
 // `:scope > IncludeBooster${i}`, an XML child selector in the excluded-booster
 // caution loop. Its `>` is not a numeric comparison or user-facing text, so

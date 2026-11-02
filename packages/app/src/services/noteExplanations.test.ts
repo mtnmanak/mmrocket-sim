@@ -3,6 +3,16 @@ import { expect, it } from 'vitest';
 import { explanationFor, importNoteCode, NOTE_EXPLANATIONS, staticWarningCode } from './noteExplanations.js';
 import { WARNING_LABEL } from './simWarnings.js';
 
+it('explains that an invalid later axial setter keeps the previous valid position', () => {
+  expect(explanationFor('I21.axial-position').meaning).toContain('previous valid');
+});
+
+it('explains zero density using the actual value stated by the import note', () => {
+  const meaning = explanationFor('I21.zero-bulk-density').meaning;
+  expect(meaning).toContain('density stated in the note');
+  expect(meaning).not.toContain('680');
+});
+
 it('explains missing landing evidence for an incomplete flight', () => {
   const explanation = explanationFor('INCOMPLETE_FLIGHT');
   expect(explanation.meaning).toContain('incomplete');

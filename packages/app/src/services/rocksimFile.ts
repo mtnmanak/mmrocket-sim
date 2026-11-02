@@ -207,7 +207,7 @@ export function rktPackedChuteSize(parent: ComponentNode | null | undefined, dia
 
 // ============================ IMPORT ============================
 
-export function importRkt(data: ArrayBuffer | string, opts?: {
+export function importRkt(data: ArrayBuffer | Uint8Array | string, opts?: {
   units?: UnitSelection;
   presets?: readonly Preset[];
   /** Every-delay must use the same rows as the later match (2026-10-01); App defaults to live rows. */
@@ -231,7 +231,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   if (typeof data === 'string') {
     xml = data;
   } else {
-    const bytes = new Uint8Array(data);
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
     // A zipped .rkt: take the .rkt MEMBER, bounded, the way the .ork importer
     // does. `Object.values(unzipSync(bytes))[0]!` took whatever sorted first in
     // the central directory and inflated every entry to get there — so a .rkt
@@ -300,6 +300,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   if (!design) throw new Error('Not a RockSim design file (missing RocketDesign)');
 
   const notes: string[] = encodingNote ? [encodingNote] : [];
+  const zeroDensityParts: ComponentNode[] = [];
   if (doc.querySelectorAll('RockSimDocument > DesignInformation > RocketDesign').length > 1) {
     cautionNote(notes, 'I22.multiple-designs', 'This file contains multiple RockSim designs. The app opened one design; check the parts and flight settings before flying.');
   }
@@ -534,7 +535,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const useCG = kcg > 0 && flagCG;
     if (useMass) node['overrideMass'] = km / MASS;
     if (densityType === 0 && density === 0 && !useMass && BULK_MATERIAL_TYPES.has(node.type)) {
-      zeroBulkDensityNote(notes, node.name ?? node.type, units);
+      zeroDensityParts.push(node);
     }
     if (useCG) node['overrideCGX'] = kcg / LEN;
     // Desktop applies neither unless UseKnownCG is 1, so anything kept with
@@ -1816,6 +1817,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const defaultDeployments = deploymentsFor();
   for (const node of recoveryNodes) Object.assign(node, deploymentFor(node));
   applyPresetLinks(pendingLinks, opts?.presets, notes);
+  for (const node of zeroDensityParts) zeroBulkDensityNote(notes, node.name ?? node.type, units, node.density);
   for (const node of recoveryNodes) {
     const count = recoveryCounts.get(node);
     if (count === undefined) continue;
