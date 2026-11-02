@@ -15,6 +15,9 @@ import {
 import { asStageNodes, flownInstanceCount, freshId, mountMotorCount, mountsIn, protuberanceFrontalArea } from '../tree/treeModel.js';
 import { KERNEL_DEFAULT_FIN_POINTS, kernelNum, kernelRecoveryCd } from '../tree/kernelDefaults.js';
 import { flownTransitionEnds } from '../tree/transitionRadii.js';
+import { outerProfile } from '../tree/shapeProfile.js';
+import { signedArea } from '../tree/polygon.js';
+import { finCountOf, lineInstanceCount } from '../tree/counts.js';
 import { refuseTooManyParts, sanitizeTree } from '../tree/sanitize.js';
 import { refuseOversizedForeignXml } from './foreignPartPrecount.js';
 import { num as nnum, numOpt } from '../tree/nodeNum.js';
@@ -42,6 +45,7 @@ import { overrideFor, resolveFlightState, sparsify } from './flightState.js';
 import { repairImportedFinOutline } from './importFinOutline.js';
 import { deploymentTuple, exportIgnitions } from './foreignConfigLayers.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import type { Cdx1StageFigures } from './cdx1StageFigures.js';
 
 /**
  * RASAero II (.CDX1) design import/export — Phase 3 "file imports and
@@ -142,8 +146,9 @@ const SURFACE_TO_FINISH: Record<string, string> = lookupTable({
 const DEFAULT_SURFACE_FINISH = 'normal';
 
 /**
- * The reverse. Seven entries are desktop's exactly; TWO ARE A DELIBERATE
- * DIVERGENCE, and this is the reason.
+ * The reverse. Missing desktop cases use nearest neighbours below. Optimum
+ * uses Smooth Paint (5 µm), preserving RASAero's own 5 µm surface rather
+ * than desktop's Sheet Metal (2 µm); both import as optimum here.
  *
  * RASAero has eight surface strings and OpenRocket has nine finishes, so
  * desktop's export leaves POLISHED (2 µm) and ROUGH (500 µm) with no case at
@@ -161,7 +166,7 @@ const DEFAULT_SURFACE_FINISH = 'normal';
 const FINISH_TO_SURFACE: Record<string, string> = lookupTable({
   mirror: 'Smooth (Zero Roughness)',
   finishpolished: 'Polished',
-  optimum: 'Sheet Metal',
+  optimum: 'Smooth Paint',
   smooth: 'Camouflage Paint',
   normal: 'Rough Camouflage Paint',
   unfinished: 'Galvanized Metal',
@@ -516,7 +521,6 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       const cs = CROSS_SECTIONS[sectionName];
       if (cs && cs !== 'square') fin['crossSection'] = cs;
     }
-    if (finish && finish !== 'normal') fin['finish'] = finish;
     (parentNode.children ??= []).push(fin);
   };
 
@@ -578,15 +582,18 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       outerRadius: num(el, 'Diameter', 4) / IN / 2,
       thickness: 0.002, // RASAero has no wall data — the desktop fakes 2 mm too
     };
-    if (finish && finish !== 'normal') tube['finish'] = finish;
     readFin(el, tube);
     const lugD = num(el, 'LaunchLugDiameter', 0);
     const lugL = num(el, 'LaunchLugLength', 0);
     if (lugD > 0 && lugL > 0) {
+      const radius = lugD / IN / 2;
+      const parentRadius = tube['outerRadius'] as number;
       (tube.children ??= []).push({
         type: 'launchlug', id: freshId(), name: 'Launch lug',
-        length: lugL / IN, outerRadius: lugD / IN / 2, thickness: 0.0005,
-        position: { method: 'middle', offset: 0 },
+        length: lugL / IN, outerRadius: radius, thickness: Math.min(0.001, radius),
+        instanceCount: 2, instanceSeparation: (tube['length'] as number) - 0.0508 - lugL / IN,
+        position: { method: 'top', offset: 0.0254 },
+        angleOffset: -Math.acos((0.6616 * parentRadius - radius) / (parentRadius + radius)),
       } as ComponentNode);
     }
     readProtuberances(el, tube, name);
@@ -646,7 +653,6 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         const power = num(el, 'PowerLaw', NaN);
         const param = mapped.shape === 'power' && !Number.isNaN(power) ? power : mapped.param;
         if (param !== undefined) nose['shapeParameter'] = param;
-        if (finish && finish !== 'normal') nose['finish'] = finish;
         const blunt = num(el, 'BluntRadius', 0);
         if (blunt > 0) {
           cautionNote(notes, 'I21.blunt-radius', `Ignored RASAero nose <BluntRadius> ${noticeQuantity('length', blunt / IN, units)} — tip blunting is not modeled.`);
@@ -696,7 +702,6 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
           thickness: 0.002,
           shape: 'conical', // RASAero transitions are always conical
         };
-        if (finish && finish !== 'normal') trans['finish'] = finish;
         readFin(el, trans);
         // A <BoatTail> with a <Booster> below it is RECESSED into that booster:
         // the booster's shoulder starts where the boat tail starts, so the boat
@@ -1219,11 +1224,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   // Which configuration to open. The first engine-carrying simulation is the
   // natural choice, but a RASAero file's first <Simulation> is often a
   // sustainer-only study — `<IncludeBooster1>False</IncludeBooster1>`, or a
-  // booster engine string our parser cannot read — and the launch stage then has
-  // no motor at all. The rocket sits on the pad: the kernel aborts with "no
-  // motors ignited" and the user gets a chart of nothing, while a later
-  // simulation in the same file flies. Prefer the first configuration that puts
-  // a motor on the BOTTOM stage, which is the one that has to light first.
+  // booster engine string our parser cannot read. Prefer the first configuration
+  // that powers the BOTTOM stage, rather than carrying it along unpowered.
   const bottomStage = stages[stages.length - 1];
   // mountsIn's innertube/bodytube filter is vacuous on a tree this importer
   // built — the slot loop above sets `motorMount` on nothing but aftTube()'s
@@ -1237,21 +1239,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     const n = simNumbers.get(flyable.id)!;
     const firstN = simNumbers.get(configs[0].id)!;
     cautionNote(notes, 'I12.simulation-opened',
-      `Simulation ${firstN} in this file puts no motor on the launch stage, so it would not `
-      + `leave the pad. Simulation ${n} was opened instead — switch under Flight configurations.`);
-  } else if (!flyable && chosen) {
-    // NO simulation motors the bottom <Booster> at all — every Use flag is
-    // False. RASAero flies those sims WITHOUT the booster; our tree keeps
-    // every <Booster> part, so the launch keying above lights the lowest
-    // motorized stage and the unpowered booster rides along. Say so, or the
-    // extra stage reads as a bug when the numbers disagree with RASAero's.
-    const n = simNumbers.get(chosen.id)!;
-    const bottomName = bottomStage?.name ?? 'the bottom stage';
-    cautionNote(notes, 'I12.booster-unpowered',
-      `No simulation in this file puts a motor on ${bottomName} — RASAero flies them without `
-      + `it. Simulation ${n} was opened with its lowest motor igniting at launch, so ${bottomName} `
-      + 'flies along unpowered. To match RASAero, delete that stage in the Design tab; to fly it '
-      + 'powered, select its mount there and pick a motor.');
+      `Simulation ${firstN} in this file puts no motor on the launch stage, so that stage would fly along `
+      + `unpowered. Simulation ${n} was opened instead — switch under Flight configurations.`);
   }
   const motors: Record<string, OrkMotorRef> = { ...(chosen?.motors ?? {}) };
   const chosenConfigId = chosen?.id ?? null;
@@ -1457,8 +1446,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       // iteration, which is the ordering that actually matters.
       for (const i of [0, 1, 2] as const) {
         const st = overrideStages[i];
-        // Desktop gates both booster overrides on IncludeBooster1/2 — an
-        // excluded booster's cells describe a stack it is not part of.
+        // Desktop ignores an excluded booster's cells regardless of its engine
+        // string, including the fallback path with no motor configuration.
         if (!st || !include[i]) continue;
         // Cumulative weight/CG of everything above this stage. Stage 0 has
         // nothing above it; a booster needs the stage above to have stated a
@@ -1468,10 +1457,8 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
         // A 0 above is "not entered" too, and must disqualify the subtraction the
         // same way a 0 here does — this is a DELIBERATE divergence from desktop,
         // which guards booster1 on `sustainerLaunchWt == null` but not on
-        // `== 0`. We have to be stricter because OUR OWN exporter writes 0 into
-        // every stage above the last (see exportCdx1's stackWt: only the bottom
-        // stage's cumulative vehicle is the whole rocket, so only its cells can
-        // be filled). Reading that 0 back as a real weight subtracts nothing and
+        // `== 0`. Older app exports wrote 0 into every stage above the last.
+        // Reading that 0 back as a real weight subtracts nothing and
         // lands the ENTIRE stack mass on the booster alone, on top of the
         // sustainer's own fabricated mass — mass inflated, CG wrong, a stable
         // design flipped unstable, compounding on every import→export→import.
@@ -1633,10 +1620,22 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       + 'an .eng or .rse file — the app takes its weight back out of the stage mass and CG first, so it '
       + 'is never counted twice.'] : []),
   ];
+  const excludedStageNotes = new Set<string>();
+  const stageNoteCode = (text: string) => excludedStageNotes.has(text) ? 'I12.booster-excluded' : 'I17.override-not-applied';
   const derived = new Map(configs.map(c => {
-    const result = deriveOverrides(c, sims[simNumbers.get(c.id)! - 1]);
+    const sim = sims[simNumbers.get(c.id)! - 1]!;
+    const result = deriveOverrides(c, sim);
     c.stageMassOverrides = result.values;
     c.stageMassNotes = overrideNotes(result);
+    for (const [i, stage] of stages.entries()) {
+      if (i === 0 || (text(sim, `:scope > IncludeBooster${i}`) ?? 'false').toLowerCase() === 'true') continue;
+      const note = `${stage.name ?? `Stage ${i + 1}`} is excluded in RASAero simulation ${simNumbers.get(c.id)!}. `
+        + 'In the app it flies along unpowered, adding drag and mass, so the flight differs from RASAero. '
+        + 'To match RASAero, delete that stage in the Design tab.';
+      excludedStageNotes.add(note);
+      c.stageMassNotes.push(note);
+    }
+    c.stageMassNoteKinds = c.stageMassNotes.map(stageNoteCode);
     return [c.id, result] as const;
   }));
   const chosenSimNr = chosen ? simNumbers.get(chosen.id) : undefined;
@@ -1768,7 +1767,7 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
       + 'own, which is what the flight carries; the two can differ by tens of grams on some motors. When '
       + 'that motor loads, the app backs it out again with its curve’s own weight.');
   }
-  for (const t of overrideNotes(selected)) cautionNote(notes, 'I17.override-not-applied', t);
+  for (const t of chosen?.stageMassNotes ?? overrideNotes(selected)) cautionNote(notes, stageNoteCode(t), t);
   // The nozzle, once: which stages got one, from which of RASAero's two
   // places, and that other simulations may carry their own. A number that
   // changes drag has to say where it came from — and this one comes from a
@@ -1823,6 +1822,13 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
   refuseTooManyParts(stages);
   const tree: FlightTree = { ...sanitizeTree({ name, components: stages, ...(comment ? { provenance: { comment } } : {}) }, notes, units),
     ...(Object.keys(ignitionDefaults).length ? { ignitionDefaults } : {}) };
+  // Desktop SurfaceFinishHandler applies the global surface to every
+  // ExternalComponent, including generated shoulders, boat tails and lugs.
+  const applyFinish = (nodes: ComponentNode[]) => { for (const n of nodes) {
+    if (['nosecone', 'bodytube', 'transition', 'trapezoidfinset', 'freeformfinset', 'launchlug'].includes(n.type)) n['finish'] = finish;
+    applyFinish(n.children ?? []);
+  } };
+  applyFinish(tree.components);
   retainBaseDragDeclaration(tree, text(design, ':scope > Comments') ?? '');
   return {
     sourceFormat: 'cdx1',
@@ -1832,10 +1838,9 @@ export function importCdx1(data: ArrayBuffer | string, opts?: {
     name, tree,
     motors,
     ignored: [...ignored], notes,
-    // Every configuration's stage-mass lines are overrideNotes' (I17, Caution),
-    // swapped in by planImport when it opens another configuration.
+    // Keep each producer's code when planImport opens another configuration.
     noteTiers: [...noteFlags(notes), ...configs.flatMap(c => (c.stageMassNotes ?? [])
-      .map(text => ({ kind: 'I17.override-not-applied', tier: 'caution' as const, text })))],
+      .map(text => ({ kind: stageNoteCode(text), tier: 'caution' as const, text })))],
     ...(launch ? { launch } : {}),
     ...(machAlt ? { machAlt } : {}),
     configs, chosenConfigId,
@@ -1866,6 +1871,8 @@ export interface Cdx1ExportInput {
   /** Loaded launch mass (kg) and CG (m), for the mandatory simulation block. */
   launchMassKg?: number;
   launchCgM?: number;
+  /** Cumulative loaded figures for each stage, in nose coordinates. Required for a staged measured save. */
+  launchStages?: readonly Cdx1StageFigures[];
   /** Launch panel conditions (SI) for <LaunchSite>; RASAero defaults when absent. */
   launch?: Partial<LaunchConditions>;
   /**
@@ -2127,6 +2134,59 @@ export function cdx1WrittenParts(tree: RocketTree): Cdx1WrittenParts {
   return out;
 }
 
+/** One global finish, weighted by represented exterior wetted area (m²). */
+export function cdx1SurfaceFinish(tree: RocketTree): { surface: string; note: string | null } {
+  const written = cdx1WrittenParts(tree);
+  const parts = [...written.exterior, ...written.fins, ...written.lugs];
+  const finishOf = (n: ComponentNode): string => typeof n['finish'] === 'string' && Object.hasOwn(FINISH_TO_SURFACE, n['finish'])
+    ? n['finish'] : DEFAULT_SURFACE_FINISH;
+  const ends = flownTransitionEnds(tree);
+  const instances = new Map<ComponentNode, number>();
+  const walk = (nodes: ComponentNode[], count: number) => { for (const n of nodes) {
+    const copies = count * (isAssembly(n.type) ? flownInstanceCount(n) : 1);
+    instances.set(n, copies);
+    walk(n.children ?? [], copies);
+  } };
+  walk(tree.components, 1);
+  const area = (n: ComponentNode): number => {
+    if (written.fins.has(n)) {
+      const planform = n.type === 'freeformfinset'
+        ? Math.abs(signedArea(Array.isArray(n['points']) ? n['points'] as [number, number][] : KERNEL_DEFAULT_FIN_POINTS))
+        : (kernelNum(n, 'rootChord') + kernelNum(n, 'tipChord')) * kernelNum(n, 'height') / 2;
+      return 2 * planform * finCountOf(n);
+    }
+    const length = kernelNum(n, 'length');
+    if (n.type === 'bodytube' || n.type === 'launchlug') return 2 * Math.PI * kernelNum(n, 'outerRadius') * length
+      * (n.type === 'launchlug' ? lineInstanceCount(n) : 1);
+    const radii = n.type === 'nosecone' ? { fore: 0, aft: kernelNum(n, 'aftRadius') } : ends(n);
+    // Integrate the existing flown outer profile as conical frusta. This
+    // estimates lateral wetted area, excluding internal walls and end disks.
+    const profile = outerProfile(String(n['shape'] ?? (n.type === 'nosecone' ? 'ogive' : 'conical')),
+      numOpt(n, 'shapeParameter'), length, radii.fore ?? 0, radii.aft ?? 0, 128, undefined,
+      n.type === 'nosecone' ? false : n['clipped'] as boolean | undefined);
+    return profile.slice(1).reduce((sum, [x, r], i) => {
+      const [px, pr] = profile[i]!;
+      return sum + Math.PI * (r + pr) * Math.hypot(x - px, r - pr);
+    }, 0);
+  };
+  const totals = new Map<string, number>();
+  for (const n of parts) {
+    const finish = finishOf(n);
+    const wetted = area(n) * (instances.get(n) ?? 1);
+    totals.set(finish, (totals.get(finish) ?? 0) + (Number.isFinite(wetted) ? wetted : 0));
+  }
+  // Stable ties keep the first represented finish; an empty design uses normal.
+  const chosen = [...totals].reduce((best, entry) => entry[1] > best[1] ? entry : best,
+    [DEFAULT_SURFACE_FINISH, -1] as [string, number])[0];
+  const surface = FINISH_TO_SURFACE[chosen]!;
+  const reopened = SURFACE_TO_FINISH[surface]!;
+  const different = parts.filter(n => finishOf(n) !== reopened);
+  return { surface, note: different.length
+    ? `Surface finish is global: ${surface} (the finish covering the largest exterior wetted area, mapped to RASAero’s nearest choice). `
+      + `These parts reopen with a different finish, changing skin friction and flight: ${different.map(n => n.name ?? n.type).join(', ')}.`
+    : null };
+}
+
 export function cdx1RecoveryDelayNote(tree: RocketTree): string | null {
   const delayed = cdx1Chutes(tree).filter((c) =>
     ['apogee', 'altitude'].includes(cdx1Event(c)) && nnum(c, 'deployDelay', 0) !== 0);
@@ -2136,7 +2196,7 @@ export function cdx1RecoveryDelayNote(tree: RocketTree): string | null {
       + 'These parachutes open at the deployment event with no delay, earlier than in the app.';
 }
 
-export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM, launch, motors, engineExport, machAlt, notes, dryRun }: Cdx1ExportInput): string {
+export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM, launchStages, launch, motors, engineExport, machAlt, notes, dryRun }: Cdx1ExportInput): string {
   // CDX1 can carry only the effective recovery, not its separate own setting.
   // Disclose the lost layer even for one configuration (audit 2026-10-11, FC-3).
   for (const chute of cdx1Chutes(tree)) {
@@ -2195,6 +2255,10 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     };
   });
   const stageEngines = stageSlots.map((s) => s.engine);
+  for (const [i, stage] of stagesIn.entries()) if (i > 0 && !stageEngines[i]) {
+    notes?.push(`${stage.name ?? `Stage ${i + 1}`}: no booster engine is exported, so RASAero excludes this stage. `
+      + 'Its weight and CG cells are ignored when reopened; its mass and balance use the computed construction figures. Save .ork to preserve them.');
+  }
   /**
    * A stage's nozzle exit diameter in INCHES, which is the unit this format
    * uses for every length. The importer reads these back and divides by IN.
@@ -2679,20 +2743,8 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     locM += shoulderLen + bodyLen + btLen;
   }
 
-  // Global surface from the first finished external part.
-  const surface = (() => {
-    const walk = (nodes: ComponentNode[]): string | null => {
-      for (const n of nodes) {
-        if (typeof n['finish'] === 'string' && FINISH_TO_SURFACE[n['finish'] as string]) {
-          return FINISH_TO_SURFACE[n['finish'] as string]!;
-        }
-        const hit = walk(n.children ?? []);
-        if (hit) return hit;
-      }
-      return null;
-    };
-    return walk(stagesIn) ?? 'Rough Camouflage Paint';
-  })();
+  const { surface, note: surfaceNote } = cdx1SurfaceFinish(tree);
+  if (surfaceNote) notes?.push(surfaceNote);
   emit(`<Surface>${surface}</Surface>`);
   emit('<CD>0</CD>');
   emit('<ModifiedBarrowman>False</ModifiedBarrowman>');
@@ -2792,27 +2844,17 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
   // __fixtures__/Complex.Two-Stage.CDX1 carries sustainer 4.06 lb / CG
   // 35.96 in against booster1 5.64 lb / CG 43.06 in — heavier and further aft.
   //
-  // We are handed ONE pair, the whole rocket's loaded mass and CG, so exactly
-  // one stage's cells can be filled: the LAST stage's, the only one whose
-  // cumulative vehicle IS the whole rocket. Single-stage output is therefore
-  // unchanged (that stage is the sustainer — the 5.9966 lb file proven in
-  // RASAero II); a two-stage design fills Booster1's cells and leaves the
-  // sustainer's at 0. Writing the stack mass into SustainerLaunchWt instead
-  // claimed the sustainer alone weighs the whole rocket, which the desktop
-  // reads straight back as a sustainer heavier than the vehicle.
-  //
-  // 0 is RASAero's own "not entered", not an invention: its files use it for
-  // unused cells (__fixtures__/ARCAS-Long - 2.CDX1 has SustainerLaunchWt 0;
-  // Show-off.CDX1 keeps IncludeBooster1 True over a 0 Booster1LaunchWt, with
-  // RASAero's own computed results beside it), and the desktop importer skips
-  // the mass override when it reads 0. Filling every cell needs per-stage
-  // masses, which nothing here has: componentInfo() reports a stage's
-  // sectionMass but only a component's OWN CG (an AxialStage has no mass of
-  // its own, so its CG says nothing), and Cdx1ExportEngine carries no motor
-  // mass at all. That is a work item, not a one-line flip.
-  const lastStage = stagesIn.length - 1;
-  const stackWt = (i: number): string => fmt((i === lastStage ? (launchMassKg ?? 0) : 0) * LB);
-  const stackCg = (i: number): string => fmt((i === lastStage ? (launchCgM ?? 0) : 0) * IN);
+  // Each prefix is measured by the kernel with its loaded motors. Inner parts
+  // and individual overrides survive in these stage totals, not as editable parts.
+  // Zero still means unstated, for callers without measured figures and unused slots.
+  if (!dryRun && stagesIn.length > 1 && (launchMassKg !== undefined || launchCgM !== undefined)
+      && (!launchStages || launchStages.length !== stagesIn.length)) {
+    throw new Error('RASAero staged saves need the loaded weight and CG of every stage stack.');
+  }
+  const figure = (i: number): Cdx1StageFigures | undefined => i < stagesIn.length
+    ? (stagesIn.length === 1 ? { mass: launchMassKg ?? 0, cg: launchCgM ?? 0 } : launchStages?.[i]) : undefined;
+  const stackWt = (i: number): string => fmt((figure(i)?.mass ?? 0) * LB);
+  const stackCg = (i: number): string => fmt((figure(i)?.cg ?? 0) * IN);
   // Per-stage separation timer, read back off the stage node where importCdx1
   // bakes it (separationEvent 'burnout' + the file's Booster1SeparationDelay /
   // Booster2Delay). RASAero counts the delay from the booster's own burnout,

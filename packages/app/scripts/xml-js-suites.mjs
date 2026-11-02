@@ -111,6 +111,8 @@ export const XML_JS_SUITES = [
   'src/services/orkPackedSize.test.ts',
   'src/services/orkRadial.test.ts',
   'src/services/rasaeroFile.test.ts',
+  // M3: stage figures, finishes, lugs and excluded-booster cautions use both parsers.
+  'src/services/rasaeroFile.M3.test.ts',
   'src/services/rasaeroFile.audit.test.ts',
   'src/services/rasaeroStatedFigures.test.ts',
   'src/services/recoveryMass.test.ts',

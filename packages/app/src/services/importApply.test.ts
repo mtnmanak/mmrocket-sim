@@ -87,6 +87,19 @@ const resolvedAll = (imported: ImportedDesign): ResolvedImportMotors => ({
     .map((c) => [c.id, Object.fromEntries(Object.entries(c.motors).map(([id, r]) => [id, motor(r.designation)]))])),
 });
 
+it('keeps excluded-booster producer codes through import, session JSON and a configuration switch', () => {
+  const c = config('A', {}, { stageMassNotes: ['Excluded booster adds drag and mass.'],
+    stageMassNoteKinds: ['I12.booster-excluded'] });
+  const imported: ImportedDesign = { name: 'Stages', tree: podTree(), motors: {}, notes: [],
+    configs: [c], chosenConfigId: c.id };
+  const opened = planImport(imported, resolvedAll(imported), { launch: LAUNCH, text: TEXT });
+  const savedConfigs = JSON.parse(JSON.stringify(opened.snapshot.savedConfigs)) as SavedConfig[];
+  const target = savedConfigs[0]!;
+  const switched = planConfigSwitch({ savedConfigs, activeConfigId: null, tree: opened.snapshot.tree,
+    mountMotors: {}, unmatchedRefs: {} }, target, TEXT);
+  expect(switched.note.group.lines.find(n => n.text.includes('Excluded booster'))?.kind).toBe('I12.booster-excluded');
+});
+
 const LAUNCH: LaunchConditions = { ...DEFAULT_CONDITIONS, windAverage: 4 };
 
 it.each([INITIAL_UNITS, { ...IMPERIAL_UNITS, length: 'ft' }])('R12 uses selected units for an absolute position resolved beyond bounds (%j)', units => {

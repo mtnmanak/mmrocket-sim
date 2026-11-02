@@ -1258,6 +1258,7 @@ describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
         ...design.tree,
         components: [...design.tree.components, mkStage('b1', 'Booster', 3), mkStage('b2', 'Booster 2', 1.5)],
       },
+      launchStages: [{ mass: 1, cg: 0.4 }, { mass: 2, cg: 0.6 }, { mass: 2.72, cg: 0.762 }],
       motors: {
         ...design.motors,
         b1: { designation: 'K550W', manufacturer: 'AeroTech' },
@@ -1295,20 +1296,18 @@ describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
     const xml = exportCdx1({
       ...design,
       tree: { ...design.tree, components: [...design.tree.components, booster] },
+      launchStages: [{ mass: 1, cg: 0.4 }, { mass: 2.72, cg: 0.762 }],
       motors: { ...design.motors, b1: { designation: 'K550W', manufacturer: 'AeroTech' } },
       engineExport: true,
     });
     expect(xml).toContain('<Booster1SeparationDelay>0</Booster1SeparationDelay>');
   });
 
-  it('puts the loaded mass/CG in the LAST stage cell, not the sustainer (cells are cumulative)', () => {
+  it('writes the cumulative loaded mass and nose-referenced CG in both stage cells', () => {
     // RASAero's per-stage cells are the vehicle from the nose down to that
     // stage: a RASAero-written two-stage file carries sustainer 4.06 lb / CG
     // 35.96 in against booster1 5.64 lb / CG 43.06 in
-    // (__fixtures__/Complex.Two-Stage.CDX1). `design` supplies only the WHOLE
-    // rocket's 2.72 kg / 0.762 m, which is Booster1's cell here and not the
-    // sustainer's — the sustainer's own weight is unknown, and 0 is RASAero's
-    // "not entered".
+    // (__fixtures__/Complex.Two-Stage.CDX1). Each prefix has its own loaded figures.
     const booster = {
       type: 'stage' as const, id: 's1', name: 'Booster',
       children: [
@@ -1323,11 +1322,12 @@ describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
     const xml = exportCdx1({
       ...design,
       tree: { ...design.tree, components: [...design.tree.components, booster] },
+      launchStages: [{ mass: 1, cg: 0.4 }, { mass: 2.72, cg: 0.762 }],
       motors: { ...design.motors, b1: { designation: 'K550W', manufacturer: 'AeroTech' } },
       engineExport: true,
     });
-    expect(xml).toContain('<SustainerLaunchWt>0</SustainerLaunchWt>');
-    expect(xml).toContain('<SustainerCG>0</SustainerCG>');
+    expect(xml).toContain('<SustainerLaunchWt>2.2046</SustainerLaunchWt>');
+    expect(xml).toContain('<SustainerCG>15.748</SustainerCG>');
     expect(xml).not.toContain('<SustainerLaunchWt>5.9966</SustainerLaunchWt>');
     expect(xml).toContain('<Booster1LaunchWt>5.9966</Booster1LaunchWt>'); // 2.72 kg → lb
     expect(xml).toContain('<Booster1CG>29.9999</Booster1CG>'); // 0.762 m → in
@@ -1337,12 +1337,7 @@ describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
     expect(xml).toContain('<IncludeBooster1>True</IncludeBooster1>');
   });
 
-  it('a three-stage design fills BOOSTER 2, the only cell that means the whole stack', () => {
-    // The stack size where the old and the new cell choice differ most, and
-    // the one no test observed: the two-stage case asserts Booster2 is 0,
-    // which a resolver capped at Booster1 would also produce. Mutating
-    // `lastStage` to Math.min(stagesIn.length - 1, 1) passes the whole file
-    // without this.
+  it('a three-stage design fills all three cumulative cells', () => {
     const mkStage = (id: string, name: string) => ({
       type: 'stage' as const, id: `s_${id}`, name,
       children: [
@@ -1360,6 +1355,7 @@ describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
         ...design.tree,
         components: [...design.tree.components, mkStage('b1', 'Booster'), mkStage('b2', 'Booster 2')],
       },
+      launchStages: [{ mass: 1, cg: 0.4 }, { mass: 2, cg: 0.6 }, { mass: 2.72, cg: 0.762 }],
       motors: {
         ...design.motors,
         b1: { designation: 'K550W', manufacturer: 'AeroTech' },
@@ -1367,9 +1363,9 @@ describe('RASAero engine export (gated — see CDX1_ENGINE_EXPORT)', () => {
       },
       engineExport: true,
     });
-    expect(xml).toContain('<SustainerLaunchWt>0</SustainerLaunchWt>');
-    expect(xml).toContain('<Booster1LaunchWt>0</Booster1LaunchWt>');
-    expect(xml).toContain('<Booster1CG>0</Booster1CG>');
+    expect(xml).toContain('<SustainerLaunchWt>2.2046</SustainerLaunchWt>');
+    expect(xml).toContain('<Booster1LaunchWt>4.4092</Booster1LaunchWt>');
+    expect(xml).toContain('<Booster1CG>23.622</Booster1CG>');
     expect(xml).toContain('<Booster2LaunchWt>5.9966</Booster2LaunchWt>');
     expect(xml).toContain('<Booster2CG>29.9999</Booster2CG>');
     expect(xml).toContain('<IncludeBooster2>True</IncludeBooster2>');
@@ -1437,7 +1433,7 @@ describe('RASAero — which simulation gets opened', () => {
       expect(motors[0]!.ignitionEvent).toBe('launch');
     }
     // …and the import says what happened and what to do about it.
-    expect(r.notes.join(' ')).toMatch(/No simulation in this file puts a motor on Booster/);
+    expect(r.notes.join(' ')).toMatch(/Booster is excluded in RASAero simulation 1/);
     expect(r.notes.join(' ')).toMatch(/flies along unpowered/);
   });
 
@@ -1512,16 +1508,16 @@ describe('RASAero import — measured launch weight and CG', () => {
     expect(r.notes.join(' ')).not.toMatch(/not applied to the stages/);
   });
 
-  it('survives a round trip through our OWN exporter, which writes 0 above the last stage', async () => {
-    // exportCdx1 can fill only the bottom stage's cumulative cells — it is
-    // handed one loaded mass for the whole rocket — so it writes 0 into every
+  it('safely reads older app exports with 0 above the last stage', async () => {
+    // Older app versions filled only the bottom stage's cumulative cells —
+    // handed one loaded mass for the whole rocket, they wrote 0 into every
     // stage above, RASAero's own "not entered". Reading that 0 back as a real
     // stated weight subtracts nothing from the booster's cumulative cell and
     // drops the WHOLE stack's mass onto the booster alone, on top of the
     // sustainer's un-overridden fabricated mass: heavier every pass, CG wrong,
     // and a stable design flipped unstable. Desktop has the same hole; we
-    // cannot, because we are the tool writing the 0.
-    // Exactly the shape exportCdx1 emits for a two-stage design: the bottom
+    // keep accepting the older files safely.
+    // Exactly the shape older app versions emitted for a two-stage design: the bottom
     // stage's cumulative cells filled, the sustainer's zeroed. Built by
     // zeroing one cell of a real RASAero file so nothing else varies.
     const ours = fixture('Complex.Two-Stage.CDX1')
@@ -1989,7 +1985,7 @@ describe('RASAero surface finish is desktop’s map (audit rows 3/41)', () => {
     expect(paint['finish']).toBe('optimum');      // was smooth (20 µm) — the mover
   });
 
-  it('round-trips every finish through the exporter, desktop’s seven plus our two', () => {
+  it('round-trips every finish through the exporter with nearest RASAero choices', () => {
     // RASAero has eight strings for our nine finishes, so POLISHED and ROUGH
     // must share. Desktop leaves both to an `else` that returns the SMOOTHEST
     // string; we send each to its nearest neighbour instead, which is one step
@@ -1998,7 +1994,7 @@ describe('RASAero surface finish is desktop’s map (audit rows 3/41)', () => {
       // finish            → RASAero string             → what a re-import gives
       ['mirror', 'Smooth (Zero Roughness)', 'mirror'],
       ['finishpolished', 'Polished', 'finishpolished'],
-      ['optimum', 'Sheet Metal', 'optimum'],
+      ['optimum', 'Smooth Paint', 'optimum'], // Preserve the file's 5 µm paint.
       ['smooth', 'Camouflage Paint', 'smooth'],
       ['normal', 'Rough Camouflage Paint', 'normal'],
       ['unfinished', 'Galvanized Metal', 'unfinished'],
@@ -2191,7 +2187,7 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
   it('exports the nozzle exit diameters, in both places the format keeps them', () => {
     const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
     expect(r.tree.components[0]!['nozzleExitDiameter']).toBeGreaterThan(0);
-    const xml = exportCdx1({ name: r.name, tree: r.tree, launchMassKg: 10, launchCgM: 1 });
+    const xml = exportCdx1({ name: r.name, tree: r.tree });
     // Inches, 4 dp, like every other length this format carries.
     expect(xml).toContain('<SustainerNozzleDiameter>2.15</SustainerNozzleDiameter>');
     expect(xml).toContain('<SustainerNozzle>2.15</SustainerNozzle>');
@@ -2200,7 +2196,7 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
   it('round-trips the exit diameter back to the same metres', () => {
     const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
     const back = importCdx1(
-      exportCdx1({ name: r.name, tree: r.tree, launchMassKg: 10, launchCgM: 1 }),
+      exportCdx1({ name: r.name, tree: r.tree }),
     );
     expect(stageNozzle(back, 0)).toBeCloseTo(2.15 / IN, 9);
   });
@@ -2213,7 +2209,7 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
   it('zeroes a booster nozzle when that stage carries no engine', () => {
     const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
     const xml = exportCdx1({
-      name: r.name, tree: r.tree, launchMassKg: 10, launchCgM: 1, engineExport: false,
+      name: r.name, tree: r.tree, engineExport: false,
     });
     expect(xml).toContain('<IncludeBooster1>False</IncludeBooster1>');
     expect(xml).toContain('<Booster1NozzleDiameter>0</Booster1NozzleDiameter>');
@@ -2228,7 +2224,7 @@ describe('RASAero import — nozzle exit diameter, per simulation with the Desig
    */
   it('leaves the Booster part block NozzleExitDiameter at zero', () => {
     const r = importCdx1(fixture('MESOS_Last_Preflight_File.CDX1'));
-    const xml = exportCdx1({ name: r.name, tree: r.tree, launchMassKg: 10, launchCgM: 1 });
+    const xml = exportCdx1({ name: r.name, tree: r.tree });
     expect(xml).toContain('<NozzleExitDiameter>0</NozzleExitDiameter>');
   });
 });
