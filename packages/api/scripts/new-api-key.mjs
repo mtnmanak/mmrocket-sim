@@ -22,16 +22,19 @@ if (!name || !/^[a-z0-9-]{1,32}$/.test(name) || existing.some(entry => !/^[a-z0-
     }
   } else {
     key = randomBytes(32).toString('base64url');
-    console.log('Key (shown once): ' + key);
+    // The key and the steps go to stderr, so stdout is only the secret line and pipes straight into
+    // `npx wrangler secret put API_KEYS` (an interactive paste once created a secret named after the line).
+    console.error('Key (shown once): ' + key);
   }
   if (!process.exitCode) {
     const retained = existing.filter(entry => !entry.startsWith(name + ':'));
     if (retained.length !== existing.length) console.error('Replaced the existing ' + name + ' entry.');
     console.log([...retained, name + ':' + createHash('sha256').update(key).digest('hex')].join(','));
     if (!args.includes('--hash')) {
-      console.log('In packages/api: npx wrangler secret put API_KEYS');
-      console.log('Paste the single comma-separated name:hash line, including existing keys.');
-      console.log('Send the key by a one-time link, never plain email.');
+      console.error('stdout holds only the secret line. Pipe it, do not paste it, from packages/api:');
+      console.error('  node scripts/new-api-key.mjs ' + name + ' <existing name:hash entries> | npx wrangler secret put API_KEYS');
+      console.error('Pass every existing entry, or the new secret revokes those keys.');
+      console.error('Send the key by a one-time link with a passphrase sent another way, never plain email.');
     }
   }
 }

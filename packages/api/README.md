@@ -1,16 +1,26 @@
-# MMRocket Sim API: local S1, S3 describe draft
+# MMRocket Sim API
 
 A Cloudflare module Worker that opens and flies a raw `.ork`, `.rkt` or `.CDX1` through the app's existing headless path and OpenRocket 24.12 Java core compiled with TeaVM. GPL-3.0-or-later; see the repository LICENSE.
 
-Experimental Worker; the response format is not a public API contract.
+Live at `https://api.mmrsim.mountainmanrockets.com` since 2026-10-29 (commit `9978d0ad`, API deploy run 40964828731, dispatched by the owner). `/describe` answers still say `api: "s3-draft"`: its contract becomes v1 once S5 defines how a motor is added to its link. `/experimental/fly` is for testing and is not a contract. The Worker changes only when the owner dispatches `api-deploy.yml`; a push to `main` deploys the app, not the API.
 
-## Access and limits (go-live configuration; not deployed by this change)
+## Access and limits (live since 2026-10-29)
 
 The configured hostname is `https://api.mmrsim.mountainmanrockets.com`, a Workers Custom Domain. `workers.dev` and preview URLs are disabled. `GET /health` is public; every design request sends `Authorization: Bearer <key>` (scheme case-insensitive). Missing or unknown keys get 401 and a link to the app. Path and method checks run first, followed by key verification, rate limit, body reading, admission and work. No upload bytes are read before authentication and rate limiting pass.
 
 The `API_KEYS` Worker secret contains newline- or comma-separated `<name>:<sha256>` entries: names match `[a-z0-9-]{1,32}`, hashes are 64 lowercase hex digits. Blank/malformed lines are skipped; no valid entries, or a missing `RATE_LIMITER`, fails closed with 503 `NOT_CONFIGURED`. The app never receives a caller's key. Only the key's configured name is used internally for rate limiting.
 
-From `packages/api`, the owner runs `node scripts/new-api-key.mjs <name>`. Pass every existing `name:hash` entry as an extra argument, or pass comma- or newline-separated entries in one argument; surrounding entry whitespace is trimmed. It prints a 32-random-byte base64url key once, one comma-separated line containing all entries and instructions; it writes no files. Keep the key out of logs and send it by a one-time link, never plain email. Run `npx wrangler secret put API_KEYS` and paste that **single comma-separated line**, including existing keys: replacing the secret without them revokes them. To hash an existing key, pipe it on stdin to `node scripts/new-api-key.mjs <name> --hash`; existing entries can also be passed as extra arguments, and stdout contains only the combined comma-separated line. A same-name rotation prints `Replaced the existing <name> entry.` to stderr. For local dev, supply the same secret through an ignored `.dev.vars` file. Never commit keys or secret files.
+From `packages/api`, the owner runs `node scripts/new-api-key.mjs <name>`. Pass every existing `name:hash` entry as an extra argument, or pass comma- or newline-separated entries in one argument; surrounding entry whitespace is trimmed. It generates a 32-random-byte base64url key and writes no files. The key (shown once) and the next steps go to **stderr**; **stdout is only the one comma-separated secret line** holding every entry, so it can be piped. **Pipe the line into Wrangler; never paste it at the prompt.** On go-live night an interactive paste created a secret *named after* the line, and the Worker kept answering `NOT_CONFIGURED`. In PowerShell, from `packages/api`:
+
+```powershell
+$line = node scripts/new-api-key.mjs thrustcurve          # the key prints on screen once; $line holds name:hash
+$line | npx wrangler secret put API_KEYS
+# Adding a second key later keeps the first: pass the existing line.
+$line = node scripts/new-api-key.mjs owner $line
+$line | npx wrangler secret put API_KEYS
+```
+
+The secret replaces the whole list, so leaving an entry out revokes that key. `npx wrangler secret list` shows the secret names only: expect exactly `API_KEYS`. Keep the key out of logs, chat and files, and send it by a one-time link with a passphrase sent another way, never plain email. To hash an existing key, pipe it on stdin to `node scripts/new-api-key.mjs <name> --hash`; existing entries can also be passed as extra arguments, and stdout contains only the combined comma-separated line. A same-name rotation prints `Replaced the existing <name> entry.` to stderr. For local dev, supply the same secret through an ignored `.dev.vars` file. Never commit keys or secret files.
 
 - Per key name: 20 requests per 60 seconds through Cloudflare's rate-limit binding (a local window, not a global account-wide quota); refused requests get 429 and `Retry-After: 60`.
 - Both design routes share three admitted jobs per isolate: one kernel holder plus at most two waiters. Admission follows upload; a fourth gets 503 `KERNEL_BUSY`, `Retry-After: 5`. Slots cover the entire service promise, including import and describe's compression, so the bound is conservative around the kernel lock. Client disconnect does not return a slot or cancel a flight: `ctx.waitUntil` retains its work. Settlement returns the slot. A killed flight whose promise never settles retains its slot; the 10 s dead-holder watchdog rejects queued calls and poisons the kernel, and those rejected jobs release their slots. The unresolved holder remains counted until isolate replacement.
@@ -41,7 +51,7 @@ Both routes use the stamped error envelope described below. All error codes:
 | 503 | `KERNEL_UNAVAILABLE` | Poisoned kernel; `Retry-After: 5` |
 | 500 | `INTERNAL_ERROR` | Unexpected failure; no private error details |
 
-Installed Wrangler 4.149.0 accepts `[[ratelimits]]` with `name`, string `namespace_id`, and `simple = { limit = 20, period = 60 }`. Installed Miniflare supports this binding. `preview_urls = false` is supported by the installed schema. Custom-domain publishing calls account Worker domain changeset/records endpoints; the installed code does **not** state their API-token permission requirements. Whether the current Workers Scripts Write / Workers Tail Read / Account Settings Read plus zone Workers Routes Write token is sufficient is **unverified**. The owner must confirm before deployment; no DNS Edit requirement or permission sufficiency is inferred here. In non-interactive deployment Wrangler also enables replacement of conflicting origin/DNS records, so check the intended hostname first.
+Installed Wrangler 4.149.0 accepts `[[ratelimits]]` with `name`, string `namespace_id`, and `simple = { limit = 20, period = 60 }`. Installed Miniflare supports this binding. `preview_urls = false` is supported by the installed schema. Custom-domain publishing calls account Worker domain changeset/records endpoints; the installed code does **not** state their API-token permission requirements. Whether the current Workers Scripts Write / Workers Tail Read / Account Settings Read plus zone Workers Routes Write token is sufficient was unverified before go-live. Go-live (2026-10-29) confirmed it in practice: the custom-domain step succeeded with that token unchanged, and no DNS record existed for the hostname beforehand. In non-interactive deployment Wrangler also enables replacement of conflicting origin/DNS records, so check the intended hostname first.
 
 
 From the repository root, build the engine once (`npm run build -w @online-openrocket/engine`), then run:
@@ -73,7 +83,7 @@ API flights use a time step of at least 0.05 s, including auto-delay and Mach pr
 
 Results come from the same engine as the app, but the Worker's JavaScript runtime computes some floating-point Math differently. The initial deployed Worker comparison against Node covered 127 responses: 109 HTTP 200 flight results and 18 HTTP 422 refusals. Across those 109 flights, Worker-versus-Node differences reached 0.26% in flight time and 0.026% in apogee; most were in the 11th-13th significant digit. A browser is a third runtime, so app results may also differ slightly; those measurements do not quantify browser differences.
 
-- S1: local Worker/kernel/file-to-flight; S2 measures, S3 describes (first draft below, not deployed), S4 measures fragments, S5 comes later.
+- S1: local Worker/kernel/file-to-flight; S2 measures, S3 describes (draft below, live since 2026-10-29 and still `s3-draft`), S4 measures fragments (147 tester designs, 2026-10-28), S5 (a motor added to the describe link, with the delay hint) is next.
 - Thin app-owned headless exports; no moved or copied importer/flight implementation.
 - Engine access uses only `@online-openrocket/engine`'s public API.
 - Fixed `network: 'forbid'`; bundled motor snapshot, no thrustcurve.org calls or caller options.
@@ -83,7 +93,7 @@ Results come from the same engine as the app, but the Worker's JavaScript runtim
 - Stored `.ork` flight samples never reach the DOM (`omitOrkSamples`, API only). The gate validates every byte, then hands xmldom the text with the content of each `openrocket > simulations > simulation > flightdata > databranch` cut, the branch itself left self-closing with its attributes. Names match exactly as written, so prefixed or relocated lookalikes stay; a branch holding an `extension` or `parsererror` element (both still read document-wide) stays whole. No importer reads below `<flightdata>`: its attributes (the stored summary), the simulation wrappers, conditions, configuration ids, warnings and extensions all remain. The element and node budgets above count the elements the DOM gets; depth counts the source. The omitted content has its own budgets and messages: 1,000,000 elements (`Stored flight data element limit is 1,000,000.`) and 4,000,000 nodes. The gate validates a skipped element without building it in about 0.85 µs on Node 22 (4.2 M bare elements in 16 MiB), so each of its two passes stays near a second of CPU; a 16 MiB file of one-value datapoints is about 700,000. `.rkt` and `.CDX1` are unchanged: RockSim reads `SimulationResults` and `EngineSet` document-wide, and RASAero's simulations carry motors and masses. `node packages/api/scripts/import-memory.mjs` generates stored-flight designs from reference.ork and measures a baseline tree against this one.
 - Wrangler selects fflate's browser ESM build; no `nodejs_compat`.
 - API-only 8 MiB whole-file and 16 MiB inflated XML caps, including streamed bodies; errors are JSON without stacks.
-- No CORS. The go-live configuration above adds a custom domain and access guards.
+- No CORS. The live configuration above adds a custom domain and access guards.
 - Tests use Wrangler 4's `unstable_startWorker` and real local workerd; a test-only entry traps outbound fetch, counts attempts and request timer calls and checks its own fetch trap. Ordinary fixture checks use production catalogue state; only the separate missing-curve isolate installs a newer test overlay. Late fetch observation awaits waitUntil work plus 100 ms; unregistered work beyond that window remains unverified.
 
 For fully offline local commands, set `WRANGLER_HIDE_BANNER=true`, `WRANGLER_SEND_METRICS=false` and `CLOUDFLARE_CF_FETCH_ENABLED=false` to disable the update-banner check, telemetry and development `Request.cf` metadata refresh. The tests set these before loading Wrangler.
@@ -121,9 +131,9 @@ Kept-content DOM memory (audit S1-1; 2026-10-28, Node v22.22.0, local workerd 20
 
 The 16,000 budget keeps the heaviest kept shape at its boundary (rows, 60 MiB) under 64 MiB of Node old space; the text-heavy shape needs less than the element shapes at that boundary, so there is no text budget, and the node budget stays at the ×4 default. One rows figure on main (68 MiB at 15,990) is above its neighbours; the bisection reruns its boundary until three passes in a row, so one failed rerun raises it. These are proxies: neither runtime's cap includes ArrayBuffer storage, and they do not establish safety within a 128 MB isolate. The owner re-measures the local corpus's exact kept-element maximum against this budget.
 
-## S3 draft: `POST /describe` (first draft for owner review; not deployed)
+## S3 draft: `POST /describe` (live since 2026-10-29; still a draft contract)
 
-**Status.** A first draft of the contract and its implementation, for review before any integration or shipping decision. Nothing here is deployed, the shape may change, and `api: "s3-draft"` says so on every `/describe` success response. `/health` is unchanged; `/experimental/fly` gains the version stamp's `engine` and `catalogue` beside its `appVersion`.
+**Status.** Deployed with go-live on 2026-10-29 and ruled by the owner the same day (rulings below), but still a draft: the shape may change until S5 defines the motor addition, and `api: "s3-draft"` says so on every `/describe` success response. `/health` is unchanged; `/experimental/fly` gains the version stamp's `engine` and `catalogue` beside its `appVersion`.
 
 **Request.** `POST /describe?filename=<name>` with the raw `.ork`, `.rkt` or `.CDX1` bytes as the body: the same reader, caps and importer as `/experimental/fly` (the extension picks the importer, case-insensitively; anything else reads as `.ork`). There are no caller options: no launch, site, motor, curve, aero or delay fields, and any other query parameter is ignored and cannot enable the network. The bundled motor snapshot is the only motor source (`network: 'forbid'`); a motorless or unmatched-motor design is described like any other. Nothing is flown: no flight, no auto-delay solve and no auto-aero Mach probe.
 

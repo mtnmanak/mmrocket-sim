@@ -17,17 +17,18 @@ function runFixed(args: string[], options: { cwd?: string; input?: string } = {}
     await import(${JSON.stringify(script)});`;
   return spawnSync(process.execPath, ['--input-type=module', '-e', source], { ...options, encoding: 'utf8' });
 }
-it('generates only a fixed test key once, its matching secret line and setup steps without writing files', () => {
+it('generates only a fixed test key once; stdout is only its secret line, the key and steps go to stderr; writes no files', () => {
   const dir = mkdtempSync(join(tmpdir(), 'mmrsim-key-test-'));
   try {
     const result = runFixed(['test'], { cwd: dir });
     expect(result.status, result.stderr).toBe(0);
     const key = Buffer.alloc(32, 42).toString('base64url');
     expect(key).toMatch(/^[A-Za-z0-9_-]{43}$/);
-    expect(result.stdout.split(key)).toHaveLength(2);
-    expect(result.stdout).toContain('test:' + createHash('sha256').update(key).digest('hex'));
-    expect(result.stdout).toContain('npx wrangler secret put API_KEYS');
-    expect(result.stdout).toContain('one-time link');
+    // stdout is ONLY the secret line, so it pipes into `wrangler secret put`; the key and steps go to stderr.
+    expect(result.stdout).toBe('test:' + createHash('sha256').update(key).digest('hex') + '\n');
+    expect(result.stderr.split(key)).toHaveLength(2);
+    expect(result.stderr).toContain('| npx wrangler secret put API_KEYS');
+    expect(result.stderr).toContain('one-time link');
     expect(readdirSync(dir)).toEqual([]);
   } finally { rmSync(dir, { recursive: true }); }
 });
