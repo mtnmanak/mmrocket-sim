@@ -3,7 +3,7 @@ import type { FlightOverrides, FlightTree, SavedConfig } from '../model/design.j
 import type { NoticeSeverity } from '../components/NoticeBar.js';
 import { motorLengthLimit } from '../tree/motorLength.js';
 import { mountBore } from '../tree/scaleRocket.js';
-import { findNode, motorMounts, mountMotorCount, stageIndexOf, stages } from '../tree/treeModel.js';
+import { findNode, launchMountOf, motorMounts, mountMotorCount, stageIndexOf, stages } from '../tree/treeModel.js';
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
 import { CD_REFERENCE_MACH, designCdOf } from './designCd.js';
 import { currentSetKeyOf, designBuildInputOf, effectiveSupersonicOf, mountNamesOf } from './designDerivation.js';
@@ -13,6 +13,7 @@ import { resolveFlightState } from './flightState.js';
 import type { LaunchConditions } from './launchConditions.js';
 import { exportOrk } from './orkFile.js';
 import { encodeShareFragment } from './shareLink.js';
+import { withDelayHint, type DelayHint } from './motorLink.js';
 import { hasAerodynamicForce, shownCp, shownStability } from './simReport.js';
 import { APP_DEFAULT_AERO, SimulateDesignError, withKernel } from './simulateDesign.js';
 import { openHeadlessDesign, planHeadlessImport } from './simulateFile.js';
@@ -100,6 +101,8 @@ export interface DescribeFileResult {
   sourceFormat: DesignFormat;
   analysis: DescribeAnalysis;
   mounts: DescribedMount[];
+  /** The request-local mounts[].key a motor link fills, or null when there is no mount. */
+  launchMount: string | null;
   /** `#d=1.…`, exactly what the app's share link carries after its origin. */
   fragment: string;
   notes: {
@@ -251,7 +254,7 @@ function exportNotes(p: MotorFreeProjection, opened: OpenedDesign, workingUnmatc
   if (working || workingUnmatched || p.removed.configMotors || p.removed.unmatched) {
     out.push(`Motor selections were removed from the link: ${working + workingUnmatched} on the opened motor set`
       + ` and ${p.removed.configMotors + p.removed.unmatched} across ${configs} saved configuration${configs === 1 ? '' : 's'}`
-      + ' (unmatched references included). Each selected motor\'s ejection delay went with it; mount ignition settings are kept.');
+      + ' (unmatched references included). Selected motor delays were removed from the design payload; the launch motor\'s fixed delay, when set, is kept as a link hint. Mount ignition settings are kept.');
   }
   if (p.removed.refusals) out.push(`${p.removed.refusals} motor-loadout refusal${p.removed.refusals === 1 ? ' was' : 's were'} removed with the motors.`);
   return [...out, ...writerNotes];
@@ -346,10 +349,18 @@ export async function describeFile(
     };
   });
   if (mounts.length === 0) notes.push('This design has no motor mount, so no motor can be placed in it.');
+  const launchMountId = launchMountOf(tree, mountNodes.map(m => m.id!));
+  const launchMount = launchMountId === null ? null : mounts[mountNodes.findIndex(m => m.id === launchMountId)]!.key;
+  const motor = launchMountId === null ? undefined : opened.mountMotors[launchMountId];
+  // Import may have selected a different configuration: use that open's unresolved refs too.
+  const ref = launchMountId === null ? undefined : plan.unmatchedRefs[launchMountId];
+  const delay = launchMountId === null || motor?.meta.autoDelay || (!motor && ref?.autoDelay) ? undefined
+    : motor ? motor.spec.ejectionDelay : ref?.delay;
+  const hint: DelayHint | null = delay === Infinity ? 'plugged' : delay ?? null;
   // Outside the lock: compression awaits a stream.
   const projection = motorFreeProjection(opened);
   const writerNotes: string[] = [];
-  const fragment = await encodeShareFragment(motorFreeOrk(projection, writerNotes));
+  const fragment = withDelayHint(await encodeShareFragment(motorFreeOrk(projection, writerNotes)), hint);
   return {
     name: opened.tree.name ?? imported.name ?? 'Rocket',
     sourceFormat: imported.sourceFormat ?? 'ork',
@@ -366,6 +377,7 @@ export async function describeFile(
       },
     },
     mounts,
+    launchMount,
     fragment,
     notes: {
       import: { text: plan.note.text, severity: plan.note.severity,

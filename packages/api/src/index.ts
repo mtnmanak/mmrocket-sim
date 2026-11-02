@@ -109,6 +109,7 @@ function described(out: DescribeFileResult) {
     name: displayEcho(out.name),
     sourceFormat: out.sourceFormat,
     analysis: out.analysis,
+    launchMount: out.launchMount,
     mounts: out.mounts.map(mount => ({ ...mount, name: displayEcho(mount.name), stageName: displayEcho(mount.stageName) })),
     fragment: out.fragment,
     link: `${APP_URL}/${out.fragment}`,
