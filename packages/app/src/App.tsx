@@ -2599,11 +2599,12 @@ export function App() {
     tree, overrides: activeOverrides, launch, measured, configs: savedConfigs, activeConfigId,
     motors: exportMotorsMap(format === 'rkt' ? flownForAutosave : {}), flightData: flightDataNow,
     distanceUnit: prefs.units.altitude,
+    compInfo: format === 'rkt' && built ? rktComponentInfo(tree, id => built.rocket.componentInfo(id)) : {},
   });
   const lossyExportFailed = (format: LossyFormat, e: unknown, generation = documentGeneration.current) =>
     documentNote(generation, `${format === 'rkt' ? 'RockSim' : 'RASAero'} export failed: ${e instanceof Error ? e.message : String(e)}`, 'error', undefined, 'danger');
   // Use the latest render at the idle edge, without restarting the timer for
-  // unrelated UI renders. No kernel calls are made by this preview. The ref is
+  // unrelated UI renders. The preview reads the current built rocket. The ref is
   // written after render, in a layout effect, so before the timer's effect.
   const lossInputRef = useRef(lossInput);
   useLayoutEffect(() => { lossInputRef.current = lossInput; });
@@ -2619,7 +2620,7 @@ export function App() {
     }, 500);
     return () => window.clearTimeout(timer);
   }, [designFile, designSnapshot, unmatchedRefs, runs, importedDocument, simulating, reflying, flightExportInput,
-    prefs.units.altitude]);
+    prefs.units.altitude, built]);
   // The Open, ✕ New and share confirms say what the .rkt or .CDX1 on disk does
   // not keep. Computed now, from the design on screen, while one is open: the
   // header's debounced preview may not have run yet (just after an Open or an
@@ -2633,7 +2634,7 @@ export function App() {
   // Keyed on what lossInput reads (through designSnapshot and the two memoized
   // export values), not on lossInput itself, which is rebuilt every render.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on lossInput's inputs, not its per-render identity
-  }, [replacing, designFile, designSnapshot, unmatchedRefs, flownForAutosave, flightDataNow, prefs.units.altitude]);
+  }, [replacing, designFile, designSnapshot, unmatchedRefs, flownForAutosave, flightDataNow, prefs.units.altitude, built]);
   const replaceLoss = replacementLossNote(designFile, replaceReport);
 
   const saveLossy = (format: LossyFormat, accepted?: FormatLossReport) => {
@@ -2660,7 +2661,7 @@ export function App() {
         if (format === 'cdx1' && stageList.length > 1 && !built) throw new Error('The app could not calculate the stage weights and CGs. Fix the design before saving .CDX1.');
         const xml = format === 'rkt'
           ? exportRkt({ name: tree.name ?? 'My Rocket', tree, overrides: activeOverrides, motors: data.motors, measured,
-            compInfo: built ? rktComponentInfo(tree, id => built.rocket.componentInfo(id)) : {},
+            compInfo: data.compInfo ?? {},
             ...(data.distanceUnit !== undefined ? { distanceUnit: data.distanceUnit } : {}) })
           : exportCdx1({ name: tree.name ?? 'My Rocket', tree, overrides: activeOverrides, motors: data.motors, launch,
             launchMassKg: built?.info.mass, launchCgM: built?.info.cg,

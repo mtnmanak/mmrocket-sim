@@ -9,7 +9,7 @@ import { overrideFor, resolveFlightState } from './flightState.js';
 import { exportIgnitions } from './foreignConfigLayers.js';
 import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MeasuredFigures, OrkExportFlightData, OrkExportMotor } from './orkFile.js';
-import { exportRkt, rktPackedChuteSize, rktRecoveryCount } from './rocksimFile.js';
+import { exportRkt, rktPackedChuteSize, rktRecoveryCount, type RktPartInfo } from './rocksimFile.js';
 import { cdx1RecoveryDelayNote, cdx1RodAimNote, cdx1WrittenParts, exportCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 import { nozzleExportNotes } from './nozzleExport.js';
 import { windProfileSaveNotes } from './windProfile.js';
@@ -26,6 +26,8 @@ export interface FormatLossReport {
 }
 export interface FormatLossInput {
   tree: RocketTree;
+  /** The same computed component snapshot passed to the real RockSim save. */
+  compInfo?: Record<string, RktPartInfo>;
   /** Active/detached layered tuples, supplied with the component-default tree. */
   overrides?: FlightOverrides;
   motors: Record<string, OrkExportMotor>;
@@ -144,7 +146,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     // Geometry/motor refusals and the writer's existing notes stay owned by the
     // writer, which runs dry: every refusal and note, no XML.
     if (format === 'rkt') exportRkt({ name: input.tree.name ?? 'My Rocket', tree: input.tree,
-      motors: input.motors, overrides: input.overrides, measured: input.measured, compInfo: {}, notes: losses, dryRun: true,
+      motors: input.motors, overrides: input.overrides, measured: input.measured, compInfo: input.compInfo ?? {}, notes: losses, dryRun: true,
       ...(input.distanceUnit !== undefined ? { distanceUnit: input.distanceUnit } : {}) });
     else exportCdx1({ name: input.tree.name ?? 'My Rocket', tree: input.tree,
       motors: input.motors, overrides: input.overrides, launch: input.launch, notes: losses, dryRun: true });

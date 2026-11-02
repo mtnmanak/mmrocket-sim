@@ -149,7 +149,7 @@ describe('RockSim recovery counts', () => {
 
   it('uses a stated total for multiple streamers and preserves it on reopen', () => {
     const r = importRkt(xml('<Streamer><Name>Recovery</Name><Len>500</Len><Width>50</Width>'
-      + '<StreamerCount>2</StreamerCount><CalcMass>12.3</CalcMass></Streamer>'));
+      + '<StreamerCount>2</StreamerCount><DensityType>0</DensityType><Density>67</Density><Thickness>1</Thickness><CalcMass>12.3</CalcMass></Streamer>'));
     expect(device(r)['stripWidth']).toBeCloseTo(0.1, 12);
     expect(device(r)['overrideMass']).toBeCloseTo(0.0123, 12);
     expect(mass(r)).toBeCloseTo(0.0123, 12);
