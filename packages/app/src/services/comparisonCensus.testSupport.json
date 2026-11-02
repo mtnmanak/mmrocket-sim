@@ -117,7 +117,7 @@
     "services/recoveryMass.ts": 5,
     "services/recoverySizing.ts": 6,
     "services/rocksimCurveNote.ts": 1,
-    "services/rocksimFile.ts": 262,
+    "services/rocksimFile.ts": 271,
     "services/rocksimMotorEvidence.ts": 4,
     "services/runConfiguration.ts": 2,
     "services/runSummaryColumns.ts": 1,

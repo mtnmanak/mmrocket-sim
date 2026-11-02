@@ -9,7 +9,7 @@ import { overrideFor, resolveFlightState } from './flightState.js';
 import { exportIgnitions } from './foreignConfigLayers.js';
 import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MeasuredFigures, OrkExportFlightData, OrkExportMotor } from './orkFile.js';
-import { exportRkt, rktPackedChuteSize } from './rocksimFile.js';
+import { exportRkt, rktPackedChuteSize, rktRecoveryCount } from './rocksimFile.js';
 import { cdx1RecoveryDelayNote, cdx1RodAimNote, cdx1WrittenParts, exportCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 import { nozzleExportNotes } from './nozzleExport.js';
 import { windProfileSaveNotes } from './windProfile.js';
@@ -224,7 +224,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     const parentOf = new Map<ComponentNode, ComponentNode>();
     for (const p of nodes) for (const c of p.children ?? []) parentOf.set(c, p);
     const repacks = (n: ComponentNode): boolean => {
-      const packed = rktPackedChuteSize(parentOf.get(n), num(n, 'diameter', 0.3));
+      const packed = rktPackedChuteSize(parentOf.get(n), num(n, 'diameter', 0.3) / Math.sqrt(rktRecoveryCount(n)));
       return Math.abs(num(n, 'packedLength', 0.025) - packed) > 1e-6
         || Math.abs(num(n, 'packedRadius', 0.0125) - packed) > 1e-6;
     };

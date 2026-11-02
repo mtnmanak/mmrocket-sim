@@ -316,6 +316,23 @@ it('requires inventory review and a boundary case or scope exemption for new pro
 // caution loop. Its `>` is not a numeric comparison or user-facing text, so
 // it is exempt from the numeric boundary matrix. rasaeroFile.M3.test.ts
 // covers included/excluded configurations and an excluded middle booster.
+
+// Inventory review (2026-11-01, M4 round 4): rocksimFile 269 -> 271. One new
+// noticeQuantity names the original surface-density figure beside the corrected
+// all-canopy mass. UseKnownMass 0 is a format flag, not a measured comparison
+// (exempt); the compInfo known-CG/no-known-CG cases cover it. Both unit systems
+// and file-geometry cases are covered in rocksimRecoveryCount.test.ts;
+// no comparison threshold is introduced.
+// Inventory review (2026-11-01, M4 round 3): rocksimFile 268 -> 269. One new
+// noticeQuantity formats the stated total recovery mass. CalcMass validity,
+// count 1/2, known-mass priority and metric/imperial cases are covered in
+// rocksimRecoveryCount.test.ts. No comparison threshold is introduced.
+// Inventory review (2026-11-01, M4 round 2): rocksimFile 262 -> 268. The two new
+// EngineCode selector and StreamerCount XML literal compare no measured quantity
+// (exempt). The ChuteCount template replaces its old literal, with no net rise.
+// Four noticeQuantity calls name source/equivalent chute diameter and streamer
+// length/width; recovery-count boundary and unit checks live in
+// rocksimRecoveryCount.test.ts (count 1/2, invalid counts, metric/imperial).
 // Inventory review (2026-10-29, API go-live gate): the API index.ts count rose
 // 11 -> 12 on the error code string "RATE_LIMITED" (the word "limit"), a code,
 // not a comparison a user reads; the new refusals compare no quantity. Exempt.

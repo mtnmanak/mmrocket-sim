@@ -1,5 +1,6 @@
 import { boundedWarningEvidence, restoredWarnings, storedWarnings, validStoredWarnings, storedWarningLimitNote, wideStoredWarning } from './storedWarnings.js';
 import { readDesignProvenance, writeDesignProvenance } from './designProvenance.js';
+import { importedEjectionDelay } from './ejectionDelay.js';
 import { cleanDocumentMaterials, readDocumentMaterials } from './documentMaterials.js';
 import { extensionXmlBySimulation, hasSimulationExtensions, preserveSimulationExtensions, preservedSimulationExtensions } from './orkExtensions.js';
 import { tubeHoleMarks } from '../tree/tubeHoles.js';
@@ -835,7 +836,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         length: num(motorEl, 'length', 0.07, notes, MOTOR_DIMENSIONS),
         // A decimal that overflows (1e999) is Infinity: plugged, as desktop's
         // parseDouble makes it.
-        delay: Number.isNaN(delayValue) ? Infinity : delayValue,
+        delay: importedEjectionDelay(Number.isNaN(delayValue) ? Infinity : delayValue, notes, designation, delayText ?? ''),
         ...(digest ? { digest } : {}),
         ...(motorType ? { motorType } : {}),
         mountId: node.id,
