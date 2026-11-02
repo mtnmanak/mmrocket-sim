@@ -4,6 +4,7 @@ import {
   APP_VERSION, CURVES_GENERATED, KernelUnavailableError, MOTORS_GENERATED, SimulateDesignError, simulateFile,
 } from '../../app/src/headless/index.js';
 import { bytesOf, stampOf } from './fixtures.testSupport.js';
+import { BodyReservation } from './body.js';
 
 vi.mock('../../app/src/headless/index.js', async importOriginal => {
   const actual = await importOriginal<typeof import('../../app/src/headless/index.js')>();
@@ -24,32 +25,31 @@ it.each([undefined, '3', '1', '10'])('assembles received bytes with Content-Leng
   const response = await worker.fetch(request, undefined, { waitUntil: () => undefined });
   expect(response.status).toBe(500);
   const data = vi.mocked(simulateFile).mock.calls[0]![0];
-  expect(data).toBeInstanceOf(Uint8Array);
-  expect([...data as Uint8Array]).toEqual([1, 2, 3]);
+  expect(data).toBeInstanceOf(ArrayBuffer);
+  expect([...new Uint8Array(data as ArrayBuffer)]).toEqual([1, 2, 3]);
 });
 
-it('sizes the body buffer from received bytes, never a declared 8 MiB length, and takes no slice', async () => {
+it('sizes the body buffer from received bytes, never a declared 8 MiB length, and hands off an exact-length buffer', async () => {
   // The API's body cap: a declared length AT the cap is read, so it must not size anything.
-  const proto = ArrayBuffer.prototype;
-  const originalSlice = proto.slice;
   async function trace(length: string | undefined) {
     const steps: unknown[] = [];
-    const sliceSpy = vi.spyOn(proto, 'slice').mockImplementation(function (this: ArrayBuffer, ...args) {
-      if (new Error().stack?.includes('readBody')) steps.push(['slice', ...args]);
-      return originalSlice.apply(this, args);
+    const reserve = BodyReservation.prototype.reserve;
+    const spy = vi.spyOn(BodyReservation.prototype, 'reserve').mockImplementation(function (this: BodyReservation, bytes) {
+      steps.push(bytes);
+      return reserve.call(this, bytes);
     });
     const request = new Request(url, { method: 'POST', body: new Uint8Array(10) });
     if (length !== undefined) request.headers.set('Content-Length', length);
     vi.mocked(simulateFile).mockReset().mockRejectedValue(new Error('test flight refusal'));
     try {
       await worker.fetch(request, undefined, { waitUntil: () => undefined });
-    } finally { sliceSpy.mockRestore(); }
-    const data = vi.mocked(simulateFile).mock.calls[0]![0] as Uint8Array;
-    return { steps, received: data.byteLength, capacity: data.buffer.byteLength };
+    } finally { spy.mockRestore(); }
+    const data = vi.mocked(simulateFile).mock.calls[0]![0] as ArrayBuffer;
+    return { steps, received: data.byteLength, capacity: data.byteLength };
   }
   const declared = await trace(String(8 * 1024 * 1024));
-  // The view has exactly ten bytes, backed by the small first growth step.
-  expect(declared).toEqual({ steps: [], received: 10, capacity: 65_536 });
+  // Pins the initial backing allocation, before the exact-length shrink.
+  expect(declared).toEqual({ steps: [64 * 1024], received: 10, capacity: 10 });
   expect(await trace(undefined)).toEqual(declared);
 });
 
@@ -140,7 +140,7 @@ it.each([
   const health = await (await worker.fetch(new Request('http://local/health'), undefined, { waitUntil: () => undefined })).json();
   const response = await worker.fetch(new Request(url, { method: 'POST', body: 'x' }), undefined, { waitUntil: () => undefined });
   expect(response.status).toBe(status);
-  expect(response.headers.get('retry-after')).toBe(code === 'KERNEL_UNAVAILABLE' ? '5' : null);
+  expect(response.headers.get('retry-after')).toBeNull();
   const body = await response.json() as Record<string, unknown>;
   expect(Object.keys(body)).toEqual(['error', 'appVersion', 'engine', 'catalogue']);
   expect(body['error']).toEqual({ code, message: expect.any(String),

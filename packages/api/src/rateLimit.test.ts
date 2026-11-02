@@ -6,9 +6,9 @@ import { readFileSync } from 'node:fs';
 import { TEST_KEY, TEST_KEYS } from './auth.testSupport.js';
 
 type Reply = { status: number; code: string; retryAfter: string | null };
-type Batch = { start: number; end: number; unauthorised: Reply[]; accepted: Reply[]; limited: Reply };
+type Batch = { start: number; end: number; unauthorised: Reply[]; accepted: Reply[]; limited: Reply; refused: Reply[]; refusedLimited: Reply };
 
-it('the real local binding permits twenty authenticated requests and refuses the twenty-first', async () => {
+it('the real binding independently bounds work and pre-upload refusals at twenty per minute', async () => {
   process.env['WRANGLER_SEND_METRICS'] = 'false';
   const toml = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8');
   const compatibilityDate = toml.match(/^compatibility_date\s*=\s*"([^"]+)"/m)![1]!;
@@ -19,18 +19,21 @@ it('the real local binding permits twenty authenticated requests and refuses the
       export default { async fetch(_request, env, ctx) {
         const epoch = () => Math.floor(Date.now() / 60_000);
         const start = epoch();
-        const run = async authorization => {
+        const run = async (authorization, body = 'x') => {
           const response = await worker.fetch(new Request('http://local/describe?filename=empty.ork', {
-            method: 'POST', headers: authorization ? { Authorization: authorization } : {},
+            method: 'POST', body, headers: authorization ? { Authorization: authorization } : {},
           }), env, ctx);
           return { status: response.status, code: (await response.json()).error.code,
             retryAfter: response.headers.get('Retry-After') };
         };
         const unauthorised = [await run(), await run(${JSON.stringify(`Bearer ${TEST_KEY}-invalid`)})];
+        const refused = [];
+        for (let i = 0; i < 20; i++) refused.push(await run(${JSON.stringify(`Bearer ${TEST_KEY}`)}, null));
+        const refusedLimited = await run(${JSON.stringify(`Bearer ${TEST_KEY}`)}, null);
         const accepted = [];
         for (let i = 0; i < 20; i++) accepted.push(await run(${JSON.stringify(`Bearer ${TEST_KEY}`)}));
         const limited = await run(${JSON.stringify(`Bearer ${TEST_KEY}`)});
-        return Response.json({ start, end: epoch(), unauthorised, accepted, limited });
+        return Response.json({ start, end: epoch(), unauthorised, accepted, limited, refused, refusedLimited });
       } };
     ` },
     bundle: true, write: false, format: 'esm', platform: 'browser', conditions: ['browser'],
@@ -58,6 +61,8 @@ it('the real local binding permits twenty authenticated requests and refuses the
     { status: 401, code: 'API_KEY_REQUIRED', retryAfter: null },
     { status: 401, code: 'API_KEY_INVALID', retryAfter: null },
   ]);
-  expect(batch!.accepted).toEqual(Array.from({ length: 20 }, () => ({ status: 400, code: 'EMPTY_FILE', retryAfter: null })));
+  expect(batch!.refused).toEqual(Array.from({ length: 20 }, () => ({ status: 400, code: 'EMPTY_FILE', retryAfter: null })));
+  expect(batch!.refusedLimited).toEqual({ status: 429, code: 'RATE_LIMITED', retryAfter: '60' });
+  expect(batch!.accepted).toEqual(Array.from({ length: 20 }, () => ({ status: 400, code: 'INVALID_FILE', retryAfter: null })));
   expect(batch!.limited).toEqual({ status: 429, code: 'RATE_LIMITED', retryAfter: '60' });
 });

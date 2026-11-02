@@ -1,6 +1,34 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 
+/** Read the active block for each job, excluding comments and normalizing line endings. */
+function productionGuards(workflow: string): boolean {
+  const source = workflow.replace(/\r\n/g, '\n').replace(/^\s*#[^\n]*/gm, '');
+  return ['build', 'deploy', 'delete'].every(job => {
+    const block = source.split(`\n  ${job}:`)[1]?.split(/\n {2}[a-z][\w-]*:/)[0] ?? '';
+    const gate = job === 'delete' ? 'delete' : 'deploy';
+    const condition = block.match(/^ {4}if: (.*)$/m)?.[1];
+    const checkouts = block.split(/- uses: actions\/checkout@/).slice(1);
+    return condition === `inputs.action == '${gate}' && github.ref == 'refs/heads/main'`
+      && (job === 'build' || /^ {4}environment: api-production$/m.test(block))
+      && checkouts.length > 0 && checkouts.every(checkout =>
+        /^ {10}persist-credentials: false$/m.test(checkout.split(/\n {6}- /)[0]!));
+  });
+}
+
+it('pins main-only build/deploy/delete, the production environment and credential-free checkouts in the actual workflow', () => {
+  const workflow = readFileSync(new URL('../../../.github/workflows/api-deploy.yml', import.meta.url), 'utf8');
+  expect(productionGuards(workflow)).toBe(true);
+  for (const token of [" && github.ref == 'refs/heads/main'", 'environment: api-production', 'persist-credentials: false']) {
+    // Prove every occurrence is guarded without modifying the workflow file.
+    let start = workflow.indexOf(token);
+    while (start >= 0) {
+      expect(productionGuards(workflow.slice(0, start) + workflow.slice(start + token.length)), token).toBe(false);
+      start = workflow.indexOf(token, start + token.length);
+    }
+  }
+});
+
 it('requires checks of the checked-out SHA before uploading the Worker', () => {
   const workflow = readFileSync(new URL('../../../.github/workflows/api-deploy.yml', import.meta.url), 'utf8');
   const build = workflow.slice(workflow.indexOf('\n  build:'), workflow.indexOf('\n  deploy:'));

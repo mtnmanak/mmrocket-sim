@@ -283,7 +283,7 @@ it('passes the ten-second watchdog through simulateFile and returns unwrapped 50
   await vi.advanceTimersByTimeAsync(1);
   const response = await flight;
   expect(response.status).toBe(503);
-  expect(response.headers.get('retry-after')).toBe('5');
+  expect(response.headers.get('retry-after')).toBeNull();
   expect(await response.json()).toEqual({ ...STAMP, error: { code: 'KERNEL_UNAVAILABLE',
     message: expect.stringMatching(/previous flight.*stopped part-way.*retry/i) } });
   const later = await worker.fetch(request(body), undefined, ctx);

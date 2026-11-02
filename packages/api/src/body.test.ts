@@ -3,6 +3,8 @@ import { authenticatedWorker as worker } from './auth.testSupport.js';
 import { BodyReservation, readBody, MAX_API_BODY_BYTES, MAX_IN_FLIGHT_BODY_BYTES, reservedBodyBytes } from './body.js';
 import { bytesOf, stampOf } from './fixtures.testSupport.js';
 import * as headless from '../../app/src/headless/index.js';
+import { worker as rawWorker } from './index.js';
+import { TEST_KEY, TEST_KEYS, testEnv } from './auth.testSupport.js';
 
 /**
  * The body reader and the isolate-wide body budget (audit S1-2), in process:
@@ -18,6 +20,7 @@ afterEach(() => {
 });
 
 /** An upload the test feeds: `send` enqueues, `end` closes, `fail` aborts as a lost client would. */
+let nextUpload = 0;
 function upload(route = '/experimental/fly') {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
   const state = { cancelled: false, closed: false, settled: false };
@@ -27,18 +30,22 @@ function upload(route = '/experimental/fly') {
     start(c) { controller = c; },
     cancel() { state.cancelled = true; },
   });
-  const response = worker.fetch(new Request(`http://local${route}?filename=upload.ork`,
-    { method: 'POST', body, duplex: 'half' } as RequestInit & { duplex: 'half' }), undefined, ctx);
+  // Independent callers exercise the isolate-wide budget; same-key contention has its own regression.
+  const API_KEYS = TEST_KEYS.replace('test:', `upload-${nextUpload++}:`);
+  const response = rawWorker.fetch(new Request(`http://local${route}?filename=upload.ork`,
+    { method: 'POST', body, headers: { Authorization: `Bearer ${TEST_KEY}` }, duplex: 'half' } as RequestInit & { duplex: 'half' }), { ...testEnv, API_KEYS }, ctx);
   void response.then(() => { state.settled = true; });
   return {
     response, state,
     send: async (bytes: Uint8Array) => {
       const before = reservedBodyBytes();
       sent += bytes.byteLength;
-      const next = Math.min(MAX_API_BODY_BYTES, Math.max(64 * 1024, 2 ** Math.ceil(Math.log2(sent))));
+      // body.ts grows to the bytes received, rounded up to 64 KiB.
+      const next = Math.min(MAX_API_BODY_BYTES, Math.max(64 * 1024, Math.ceil(sent / (64 * 1024)) * 64 * 1024));
       controller.enqueue(bytes);
       await vi.waitFor(() => {
-        expect(state.settled || reservedBodyBytes() >= before + next - capacity).toBe(true);
+        // Preflight may already hold the first 64 KiB while authentication/limiting settles.
+        expect(state.settled || reservedBodyBytes() >= before + next - Math.max(capacity, 64 * 1024)).toBe(true);
       }, { timeout: 2000, interval: 5 });
       capacity = next;
     },
@@ -51,15 +58,61 @@ function upload(route = '/experimental/fly') {
 const pattern = (size: number) => Uint8Array.from({ length: size }, (_, i) => (i * 31 + 7) & 0xff);
 
 describe('the isolate-wide body budget', () => {
-  it('reserves old plus new capacity before growth and refuses when only the new buffer fits', async () => {
+  it('refuses growth beyond the key cap and returns its capacity after refusal', async () => {
+    const held = new BodyReservation();
+    const growing = new BodyReservation();
+    held.setKey('growth-key');
+    growing.setKey('growth-key');
+    held.reserve(8 * 1024 * 1024);
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({ start(c) {
+      c.enqueue(new Uint8Array(4 * 1024 * 1024));
+      c.enqueue(new Uint8Array(1));
+    }, cancel() { cancelled = true; } });
+    try {
+      await expect(readBody(new Request('http://local', { method: 'POST', body: stream,
+        duplex: 'half' } as RequestInit), growing)).rejects.toMatchObject({ name: 'ServerBusy' });
+      expect(cancelled).toBe(true);
+      expect(reservedBodyBytes()).toBe(12 * 1024 * 1024);
+    } finally { growing.release(); held.release(); }
+    const retry = new BodyReservation();
+    retry.setKey('growth-key');
+    try {
+      retry.reserve(12 * 1024 * 1024);
+      expect(reservedBodyBytes()).toBe(12 * 1024 * 1024);
+    } finally { retry.release(); }
+  });
+
+  it('holds only the bytes received (in 64 KiB steps), so two 6 MiB uploads from one key fit its cap', async () => {
+    const first = new BodyReservation();
+    const second = new BodyReservation();
+    first.setKey('pair-key');
+    second.setKey('pair-key');
+    const six = 6 * 1024 * 1024;
+    const body = () => new ReadableStream<Uint8Array>({ start(c) {
+      c.enqueue(new Uint8Array(4 * 1024 * 1024)); c.enqueue(new Uint8Array(six - 4 * 1024 * 1024)); c.close();
+    } });
+    const read = (r: BodyReservation) => readBody(new Request('http://local', { method: 'POST', body: body(),
+      duplex: 'half' } as RequestInit), r);
+    try {
+      expect((await read(first)).byteLength).toBe(six);
+      // Doubling growth would hold 8 MiB while the second grows past 4 MiB: 6 + 8 > 12 MiB, refused.
+      expect((await read(second)).byteLength).toBe(six);
+      expect(reservedBodyBytes()).toBe(2 * six);
+    } finally { first.release(); second.release(); }
+  });
+
+  it('grows in place when only the final capacity fits the isolate budget', async () => {
     const other = new BodyReservation();
     other.reserve(MAX_IN_FLIGHT_BODY_BYTES - 128 * 1024);
     const one = upload('/describe');
     try {
       await one.send(new Uint8Array(64 * 1024));
       await one.send(new Uint8Array(1));
-      expect((await one.response).status).toBe(503);
-      expect(one.state.cancelled).toBe(true);
+      expect(reservedBodyBytes()).toBe(MAX_IN_FLIGHT_BODY_BYTES);
+      one.end();
+      expect((await one.response).status).toBe(400);
+      expect(one.state.cancelled).toBe(false);
       expect(reservedBodyBytes()).toBe(MAX_IN_FLIGHT_BODY_BYTES - 128 * 1024);
     } finally { one.fail(); await one.response; other.release(); }
   });
@@ -86,7 +139,8 @@ describe('the isolate-wide body budget', () => {
       expect(refused.headers.get('retry-after')).toBe('5');
       expect(await refused.json()).toEqual({ error: { code: 'SERVER_BUSY',
         message: 'The API is busy with other uploads. Retry in a few seconds.' }, ...STAMP });
-      expect(busy.state.cancelled).toBe(true);
+      // Preflight refuses before acquiring a reader, so there is nothing to cancel.
+      expect(busy.state.cancelled).toBe(false);
       expect(reservedBodyBytes()).toBe(MAX_IN_FLIGHT_BODY_BYTES);
 
       // One client aborts, one goes past the cap, one finishes (eight MiB of zeros is no design).
@@ -110,7 +164,20 @@ describe('the isolate-wide body budget', () => {
 });
 
 describe('the body reader keeps exactly the bytes received', () => {
-  it('hands off the last fixed buffer without copying and reserves both buffers while growing', async () => {
+  it('shrinks the handoff in place when three different keys hold near-cap bodies', async () => {
+    const reservation = new BodyReservation();
+    const other = new BodyReservation();
+    // Two other ~6 MiB uploads hold 8 MiB backing buffers each.
+    other.reserve(MAX_IN_FLIGHT_BODY_BYTES - MAX_API_BODY_BYTES);
+    try {
+      const data = await readBody(new Request('http://local', { method: 'POST',
+        body: new Uint8Array(6 * 1024 * 1024) }), reservation);
+      expect(data.byteLength).toBe(6 * 1024 * 1024);
+      expect(reservedBodyBytes()).toBe(22 * 1024 * 1024);
+    } finally { reservation.release(); other.release(); }
+  });
+
+  it('reserves only added capacity and grows and shrinks the same buffer', async () => {
     const reservation = new BodyReservation();
     let peak = 0;
     const reserve = reservation.reserve.bind(reservation);
@@ -125,21 +192,24 @@ describe('the body reader keeps exactly the bytes received', () => {
       c.close();
     } });
     let lastBuffer: ArrayBufferLike | undefined;
+    let firstBuffer: ArrayBufferLike | undefined;
     const set = Uint8Array.prototype.set;
     vi.spyOn(Uint8Array.prototype, 'set').mockImplementation(function (this: Uint8Array, ...args) {
       lastBuffer = this.buffer;
+      firstBuffer ??= this.buffer;
       return set.apply(this, args);
     });
     try {
       const data = await readBody(new Request('http://local', { method: 'POST', body, duplex: 'half' } as RequestInit), reservation);
-      expect(data).toBeInstanceOf(Uint8Array);
-      const view = data as Uint8Array;
+      expect(data).toBeInstanceOf(ArrayBuffer);
+      const view = new Uint8Array(data);
       expect(view.buffer).toBe(lastBuffer);
-      expect(view.buffer.byteLength).toBe(131_072);
+      expect(view.buffer).toBe(firstBuffer);
+      expect(view.buffer.byteLength).toBe(bytes.byteLength);
       expect(view.byteLength).toBe(bytes.byteLength);
       expect(Buffer.from(view).equals(Buffer.from(bytes))).toBe(true);
-      expect(peak).toBe(196_608);
-      expect(reservedBodyBytes()).toBe(131_072);
+      expect(peak).toBe(131_072);
+      expect(reservedBodyBytes()).toBe(bytes.byteLength);
     } finally { reservation.release(); }
   });
 
@@ -173,7 +243,7 @@ describe('the body reader keeps exactly the bytes received', () => {
       expect(response.status).toBe(400);
       expect(seen).toHaveLength(1);
       expect(seen[0]!.byteLength).toBe(size);
-      expect(seen.held).toBe(Math.max(64 * 1024, 2 ** Math.ceil(Math.log2(size))));
+      expect(seen.held).toBe(size);
       expect(Buffer.from(seen[0]!).equals(Buffer.from(bytes))).toBe(true);
     } finally { one.fail(); await one.response; }
   }, 60_000);
