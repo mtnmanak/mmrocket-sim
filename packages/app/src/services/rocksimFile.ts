@@ -94,6 +94,12 @@ const motorDia = (n: ComponentNode, defaultOuterRadius: number): number => {
 };
 const MASS = 1000; // g → kg
 
+/** Retaining the source count also retains diameter-derived packing on reopen. */
+export const rktRecoveryCount = (node: ComponentNode): number => {
+  const count = nnum(node, 'rktRecoveryCount', 1);
+  return Number.isSafeInteger(count) && count > 1 ? count : 1;
+};
+
 /** Transient marker: BaseExtensionLen (m) parked on a cone until the chain pass runs. */
 const PENDING_BASE_EXT = '__rktBaseExt';
 
@@ -343,6 +349,41 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   };
   /** Parts whose <PartMfg>/<PartNo> may name a catalogue row - resolved after the tree is built. */
   const pendingLinks: PendingPresetLink[] = [];
+  const recoveryCounts = new Map<ComponentNode, number>();
+  const recoveryStatedMass = new Map<ComponentNode, { originalG: number; addedFabric: boolean }>();
+  const readRecoveryCount = (el: XmlElement, node: ComponentNode, tag: string) => {
+    const count = num(el, tag, 1);
+    if (Number.isSafeInteger(count) && count > 1) {
+      recoveryCounts.set(node, count);
+      const calcMassG = num(el, 'CalcMass', 0);
+      let totalG = calcMassG;
+      let addedFabric = false;
+      if (node.type === 'parachute') {
+        const densityType = num(el, 'DensityType', NaN);
+        const density = num(el, 'Density', NaN);
+        if (!(density >= 0) || (densityType !== 0 && densityType !== 1)) totalG = NaN;
+        else if (densityType === 1) {
+          const diameter = num(el, 'Dia', NaN) / LEN;
+          const hole = num(el, 'SpillHoleDia', 0) / LEN;
+          const sides = num(el, 'SideCount', NaN);
+          // RockSim's 0 is circular; otherwise Dia spans a regular polygon's
+          // vertices. Its surface-density CalcMass counts fabric only once.
+          const area = sides === 0 ? Math.PI * diameter ** 2 / 4
+            : Number.isSafeInteger(sides) && sides >= 3 ? sides * diameter ** 2 * Math.sin(2 * Math.PI / sides) / 8 : NaN;
+          const fabricArea = area - Math.PI * hole ** 2 / 4;
+          totalG = diameter > 0 && hole >= 0 && fabricArea >= 0
+            ? calcMassG + (count - 1) * fabricArea * (density / 0.1) * MASS : NaN;
+          addedFabric = true;
+        }
+      }
+      // Set the total before cluster comparison so unlike masses cannot merge.
+      if (calcMassG > 0 && Number.isFinite(totalG) && totalG > 0 && numOpt(node, 'overrideMass') === undefined) {
+        node['overrideMass'] = totalG / MASS;
+        recoveryStatedMass.set(node, { originalG: calcMassG, addedFabric });
+      }
+    } else if (count !== 1) cautionNote(notes, 'I03.recovery-count',
+      `${node.name ?? node.type}: ${tag} ${count} is not a positive whole count; read as 1. Check recovery before flying.`);
+  };
   /** Nodes that kept a measured mass or CG desktop OpenRocket would discard. */
   const keptWithoutCGFlag = new Set<ComponentNode>();
   /** Mass objects pinned onto the point the file states, rather than spread over <Len>. */
@@ -467,9 +508,9 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     // <Stage3Mass>, never inside a part. So a part states a known mass in one
     // of two dialects:
     //   1. a part-level <UseKnownMass> — what a writer that distinguishes the
-    //      two would write. Read strictly. (exportRkt writes it ONLY for an
-    //      explicit zero mass override, since a bare <KnownMass>0 is read as
-    //      unspecified below. For every override it still writes UseKnownCG=1
+    //      two would write. Read strictly. (exportRkt writes it for an explicit
+    //      zero mass override, or to keep a multi-device recovery part unpinned
+    //      when only its CG is known. For every override it writes UseKnownCG=1
     //      beside the mass, dialect 2, because RockSim and desktop couple the
     //      flags — "EXPORT IS DELIBERATELY UNCHANGED" in exportRkt.)
     //   2. no such element — RockSim's own dialect, where UseKnownCG=1 has to
@@ -1016,6 +1057,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       }
       case 'Parachute': {
         const n = mk('parachute');
+        readRecoveryCount(el, n, 'ChuteCount');
         n['diameter'] = num(el, 'Dia', 300) / LEN;
         // RockSim stores no packed size; desktop makes one up the moment <Dia>
         // is read (rktPackedChuteSize), and so does this — the kernel's own
@@ -1061,6 +1103,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
       }
       case 'Streamer': {
         const n = mk('streamer');
+        readRecoveryCount(el, n, 'StreamerCount');
         n['stripLength'] = num(el, 'Len', 500) / LEN;
         n['stripWidth'] = num(el, 'Width', 50) / LEN;
         // 0.75 is RockSim's "auto" default — keep our auto instead of pinning it.
@@ -1555,7 +1598,7 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     const loads = simSets.map((sets) => sets.filter((s) => (movedSets.get(s.el) ?? s.node) === node)
       .map((s) => setKey(s.el)).sort());
     const preset = pendingLinks.find((link) => link.node === node);
-    return [fields, radialByNode.get(node) ?? null, recovery, loads,
+    return [fields, radialByNode.get(node) ?? null, recovery, recoveryCounts.get(node) ?? 1, loads,
       preset ? [preset.manufacturer, preset.partNo] : null,
       (node.children ?? []).map(subtreeValue)];
   };
@@ -1773,6 +1816,40 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
   const defaultDeployments = deploymentsFor();
   for (const node of recoveryNodes) Object.assign(node, deploymentFor(node));
   applyPresetLinks(pendingLinks, opts?.presets, notes);
+  for (const node of recoveryNodes) {
+    const count = recoveryCounts.get(node);
+    if (count === undefined) continue;
+    // Bound the individual device before combining its geometry and materials.
+    Object.assign(node, sanitizeTree({ components: [node] }, notes, units).components[0]);
+    const diameter = nnum(node, 'diameter', 0.3);
+    const length = kernelNum(node, 'stripLength');
+    const width = kernelNum(node, 'stripWidth');
+    node['rktRecoveryCount'] = count;
+    const statedMass = recoveryStatedMass.get(node);
+    const massNote = statedMass
+      ? `Cd and packed size are kept; mass override set to ${statedMass.addedFabric ? '' : "RockSim's stated "}${noticeQuantity('mass', nnum(node, 'overrideMass', 0), units)} for all ${count} ${node.type === 'parachute' ? 'canopies' : 'streamers'}`
+        + (statedMass.addedFabric ? ` (RockSim's own figure of ${noticeQuantity('mass', statedMass.originalG / MASS, units)} counts the canopy fabric once). ` : '. ')
+      : `Cd, packed size and any active known mass are kept; otherwise material ${node.type === 'parachute' ? 'and line mass covers all canopies' : 'mass covers all streamers'}. `;
+    if (node.type === 'parachute') {
+      node['diameter'] = diameter * Math.sqrt(count);
+      // Combined area weighs all fabric. An effective line density weighs all
+      // N sets of lines without exceeding the per-canopy line-count limit.
+      node['lineDensity'] = (numOpt(node, 'lineDensity') ?? KERNEL_DEFAULT_MATERIALS.line.density) * count;
+      if (numOpt(node, 'spillHoleDiameter') !== undefined) {
+        node['spillHoleDiameter'] = nnum(node, 'spillHoleDiameter', 0) * Math.sqrt(count);
+      }
+      cautionNote(notes, 'I03.recovery-count', `${node.name ?? 'Parachute'}: the file's ${count} × ${noticeQuantity('length', diameter, units)} canopies `
+        + `are read as one equivalent ${noticeQuantity('length', diameter * Math.sqrt(count), units)} canopy of equal total area. `
+        + massNote
+        + 'Separate-canopy inflation and interaction are not simulated.');
+    } else {
+      node['stripWidth'] = width * count;
+      cautionNote(notes, 'I03.recovery-count', `${node.name ?? 'Streamer'}: the file's ${count} streamers are read as one equivalent strip `
+        + `${noticeQuantity('length', length, units)} × ${noticeQuantity('length', width * count, units)} of equal total area. `
+        + massNote
+        + 'Interaction between separate streamers is not simulated.');
+    }
+  }
   // ConstructionType also governs a radius the file omitted and the catalogue
   // supplied. Even a hollow catalogue row cannot undo the file's solid flag.
   for (const { node, key } of solidShouldersWithoutRadius) {
@@ -2075,7 +2152,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
     }
     const duplicate = [...setsPerMount].some(([mount, sets]) =>
       sets.length > (mountCopiesRead.get(mount) ?? 1) || new Set(sets.map(setKey)).size > 1);
-    const motorLoadoutRefusal = missing === undefined ? (duplicate
+    const unsupportedCount = g.sets.filter(es => text(es, ':scope > EngineCode'))
+      .map(es => num(es, 'EngineCount', 1)).find(count => count !== 1);
+    const motorLoadoutRefusal = unsupportedCount !== undefined
+      ? `Launch refused for ${source}: EngineCount ${unsupportedCount} cannot be assigned safely to one mount. `
+        + 'Assign each motor to a separate mount on Motors & Configuration. No motors from this configuration were loaded.'
+      : missing === undefined ? (duplicate
       ? `Launch refused for ${source}: the file assigns more than one motor to the same mount. `
         + 'Assign motors on Motors & Configuration to separate mounts. No motors from this configuration were loaded.'
       : undefined)
@@ -3173,6 +3255,8 @@ export function exportRkt(input: RktExportInput): string {
     // <KnownMass>NaN</KnownMass> and <KnownCG>NaN</KnownCG> with UseKnownCG 1.
     const massOv = numOpt(node, 'overrideMass');
     const cgOv = numOpt(node, 'overrideCGX');
+    const unpinnedRecovery = massOv === undefined && (node.type === 'parachute' || node.type === 'streamer')
+      && rktRecoveryCount(node) > 1;
     const override = massOv !== undefined || cgOv !== undefined;
     const info = node.id ? overrideFor(compInfo, node.id) : undefined;
     // BOTH values are always real whenever either override exists: the
@@ -3194,6 +3278,9 @@ export function exportRkt(input: RktExportInput): string {
         : override ? info?.mass ?? 0 : 0) * MASS) / share;
     emit(`<KnownMass>${knownMass}</KnownMass>`);
     if (massOv === 0) emit('<UseKnownMass>1</UseKnownMass>');
+    // Keep the app's mass editable beside a known CG; desktop still receives
+    // the current computed mass through its coupled UseKnownCG flag.
+    else if (unpinnedRecovery && cgOv !== undefined) emit('<UseKnownMass>0</UseKnownMass>');
     // Density is KIND-specific, mirroring the desktop's BasePartDTO. Soft goods
     // never carry node.density — orkFile stores them as surfaceDensity (chute /
     // streamer) or lineDensity (shock cord) — so emitting the bulk key made
@@ -3280,7 +3367,11 @@ export function exportRkt(input: RktExportInput): string {
     // sets — an overridden set exports UseKnownCG=1, where desktop's airfoil branch
     // never runs. Real RockSim files put these right here, after <Xb>.
     if (info) {
-      emit(`<CalcMass>${(info.mass * MASS) / share}</CalcMass>`);
+      // Our computed recovery total is not RockSim's source CalcMass. Omitting
+      // it for an unpinned multi-device part keeps that part editable on reopen.
+      if (!unpinnedRecovery) {
+        emit(`<CalcMass>${(info.mass * MASS) / share}</CalcMass>`);
+      }
       emit(`<CalcCG>${info.cgX * LEN}</CalcCG>`);
     }
   };
@@ -3634,7 +3725,8 @@ export function exportRkt(input: RktExportInput): string {
       case 'parachute': {
         emit('<Parachute>');
         common(node, parent, 'Parachute');
-        emit(`<Dia>${nnum(node, 'diameter', 0.3) * LEN}</Dia>`);
+        const count = rktRecoveryCount(node);
+        emit(`<Dia>${nnum(node, 'diameter', 0.3) / Math.sqrt(count) * LEN}</Dia>`);
         // The Cd it flies, as desktop's ParachuteDTO writes getCD(): a blank
         // one is the kernel's automatic 0.8 (kernelRecoveryCd). This wrote
         // RockSim's 0.75, which RockSim flies and this app's reader turns back
@@ -3651,15 +3743,15 @@ export function exportRkt(input: RktExportInput): string {
         // flies weightless lines and is preserved as an explicit zero.
         const shroud = flownMaterial(node, 'lineDensity', 'lineMaterialName', KERNEL_DEFAULT_MATERIALS.line);
         if (shroud.density >= 0) {
-          emit(`<ShroudLineMassPerMM>${shroud.density}</ShroudLineMassPerMM>`);
+          emit(`<ShroudLineMassPerMM>${shroud.density / count}</ShroudLineMassPerMM>`);
           // A stated density without a stated name keeps writing no name.
           if (typeof node['lineMaterialName'] === 'string' ? node['lineMaterialName'] !== ''
             : numOpt(node, 'lineDensity') === undefined) {
             emit(`<ShroudLineMaterial>${esc(shroud.name)}</ShroudLineMaterial>`);
           }
         }
-        emit('<ChuteCount>1</ChuteCount>');
-        emit(`<SpillHoleDia>${nnum(node, 'spillHoleDiameter', 0) * LEN}</SpillHoleDia>`);
+        emit(`<ChuteCount>${count}</ChuteCount>`);
+        emit(`<SpillHoleDia>${nnum(node, 'spillHoleDiameter', 0) / Math.sqrt(count) * LEN}</SpillHoleDia>`);
         emit('</Parachute>');
         break;
       }
@@ -3667,7 +3759,9 @@ export function exportRkt(input: RktExportInput): string {
         emit('<Streamer>');
         common(node, parent, 'Streamer');
         emit(`<Len>${nnum(node, 'stripLength', 0.5) * LEN}</Len>`);
-        emit(`<Width>${nnum(node, 'stripWidth', 0.05) * LEN}</Width>`);
+        const count = rktRecoveryCount(node);
+        emit(`<Width>${nnum(node, 'stripWidth', 0.05) / count * LEN}</Width>`);
+        if (count > 1) emit(`<StreamerCount>${count}</StreamerCount>`);
         // A blank Cd goes out as the automatic one the kernel computes for this
         // strip (kernelRecoveryCd), not RockSim's 0.75.
         emit(`<DragCoefficient>${kernelRecoveryCd(node)}</DragCoefficient>`);
