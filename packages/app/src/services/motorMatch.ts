@@ -3,13 +3,15 @@ import { INITIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/unit
 import type { MotorSpec } from '@online-openrocket/engine';
 import type { MountMotor } from '../model/design.js';
 import {
-  displayDesignation, motorLabel, findDbMotor, getCatalogue, isAvailable, isHighPower, manufacturerMatches, matchDbMotor,
+  displayDesignation, motorLabel, findDbMotor, getCatalogue, isAvailable, isHighPower, manufacturerMatches, matchDbMotor, MOTOR_DB,
   type DbMotorMatch, type MotorDbEntry,
 } from './motorDb.js';
 import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
 import type { MotorMeta } from './simReport.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
-import { knownNoPublishedCurve, defaultDelay, delayOptions, fetchMotorSpec, NoPublishedCurveError } from './thrustcurve.js';
+import { namedMotorManufacturer } from './motorManufacturer.js';
+import { bundledDigestOwners, knownNoPublishedCurve, defaultDelay, delayOptions, fetchMotorSpec, NoPublishedCurveError } from './thrustcurve.js';
+import { looseDesignation } from './designationText.js';
 import { rocksimCurveNote } from './rocksimCurveNote.js';
 import { digestCurveNote } from './digestCurveNote.js';
 import { E31_CONFLICT, G80_EQUIVALENT, isE31Conflict } from './motorMatchPolicy.js';
@@ -76,14 +78,14 @@ export function baseDesignation(designation: string): string {
 }
 
 /**
- * The file's own motor identity, carried on the meta so a later Save writes it
- * back verbatim and the desktop's matcher resolves it silently (digest tier).
+ * The file's own motor identity, carried on the meta so a later Save can write
+ * it back verbatim when it still matches the loaded motor (desktop digest tier).
  * 'unknown' is our reader's fallback and 'custom' our old writer's — both are
  * sentinels, not manufacturers, and must not be re-exported.
  */
 export function fileMotorIdentity(ref: OrkMotorRef): Partial<MotorMeta> {
   return {
-    ...(ref.manufacturer && ref.manufacturer !== 'unknown' && ref.manufacturer !== 'custom'
+    ...(namedMotorManufacturer(ref.manufacturer)
       ? { orkManufacturer: ref.manufacturer } : {}),
     ...(ref.motorType ? { orkType: ref.motorType } : {}),
     ...(ref.digest ? { orkDigest: ref.digest } : {}),
@@ -105,7 +107,7 @@ export function refToExportMotor(ref: OrkMotorRef): OrkExportMotor {
     ...(ref.exDefinition ? { exDefinition: ref.exDefinition } : {}),
     ...(ref.exMotorMissing ? { exMotorMissing: true as const } : {}),
     designation: ref.designation,
-    ...(ref.manufacturer && ref.manufacturer !== 'unknown' && ref.manufacturer !== 'custom'
+    ...(namedMotorManufacturer(ref.manufacturer)
       ? { manufacturer: ref.manufacturer } : {}),
     ...(ref.motorType ? { type: ref.motorType } : {}),
     ...(ref.digest ? { digest: ref.digest } : {}),
@@ -315,8 +317,12 @@ async function matchImportedMotorOnce(
     try {
       const db = exToDbEntry(ex);
       const spec = exToMotorSpec(ex, ref.delay);
+      const ownMotor = ref.exMotorId === ex.motorId && matchingExMotors({ ...ref,
+        manufacturer: namedMotorManufacturer(ref.manufacturer) ?? ex.realManufacturer }, [ex]).length === 1;
       return {
-        motor: mountMotorFromDb(db, spec, ref.delay, ignition, { exMotorId: ex.motorId }),
+        motor: mountMotorFromDb(db, spec, ref.delay, ignition, {
+          ...(ownMotor ? { ...fileIdentity, orkMotorId: db.motorId } : {}), exMotorId: ex.motorId,
+        }),
         note: `Motor: EX ${motorLabel(db, ref.delay)} (loaded from the embedded motor library).`,
       };
     } catch (error) {
@@ -325,6 +331,7 @@ async function matchImportedMotorOnce(
   }
 
   let { how, dbMatch } = resolveDbRow(ref, deps);
+  const sourceMotorId = dbMatch?.motorId;
   // @atestani, TRF #162, 2026-10-06: an imported curve for the named maker
   // beats another maker's catalogue guess, but never a same-maker match.
   const maker = namedMaker(ref);
@@ -341,7 +348,7 @@ async function matchImportedMotorOnce(
       const spec = exToMotorSpec(ex, delay);
       const note = `Motor “${noteField(ref.designation)}”: loaded as your imported EX motor ${noteField(ex.realManufacturer.trim())} ${noteField(db.designation)} — the motor database has no ${noteField(maker)} ${noteField(ref.designation)}.`;
       return {
-        motor: mountMotorFromDb(db, spec, delay, ignition, { ...fileIdentity, exMotorId: ex.motorId,
+        motor: mountMotorFromDb(db, spec, delay, ignition, { ...fileIdentity, orkMotorId: db.motorId, exMotorId: ex.motorId,
           ...(autoDelay ? { autoDelay: true } : {}) }),
         note, infoNote: note,
       };
@@ -375,6 +382,24 @@ async function matchImportedMotorOnce(
       // out instead (App: `orkManufacturer ?? manufacturer`).
       const identity: Partial<MotorMeta> = { ...fileIdentity };
       if (namesOtherMaker(ref, dbMatch)) delete identity.orkManufacturer;
+      else identity.orkMotorId = sourceMotorId;
+      // Reject only proven foreign ownership. Unknown digests and equivalent
+      // catalogue spellings must survive; Save/share/recovery are synchronous.
+      if (identity.orkDigest) {
+        const loadedRow = dbMatch;
+        const owners = await bundledDigestOwners(identity.orkDigest);
+        const equivalent = (id: string): boolean => {
+          if (id === loadedRow.motorId) return true;
+          const owner = getCatalogue().find(m => m.motorId === id) ?? MOTOR_DB.find(m => m.motorId === id);
+          const key = (m: MotorDbEntry) => looseDesignation(displayDesignation(m.designation, m.manufacturerAbbrev).trim().toLowerCase());
+          return !!owner && manufacturerMatches(owner.manufacturerAbbrev, loadedRow.manufacturerAbbrev)
+            && key(owner) === key(loadedRow);
+        };
+        if (owners.length && !owners.some(equivalent)) {
+          delete identity.orkDigest;
+          delete identity.orkType;
+        }
+      }
       // A reference flagged for auto delay (the RockSim reader's "every delay"
       // on a motor that lists no numeric delay) starts on "Auto (optimal)",
       // exactly as the motor browser starts a fresh pick of it: flown first at
@@ -431,8 +456,7 @@ async function matchImportedMotorOnce(
 
 /** A manufacturer a file actually names — not empty, and not our reader's or writer's sentinel. */
 function namedMaker(ref: OrkMotorRef): string | null {
-  const m = ref.manufacturer?.trim();
-  return m && !/^(unknown|custom)$/i.test(m) ? m : null;
+  return namedMotorManufacturer(ref.manufacturer);
 }
 
 /** Does the file name a maker, and one that is not this row's? */

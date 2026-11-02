@@ -222,7 +222,7 @@ describe('matchImportedMotor — catalogue matching', () => {
   });
 
   it('never re-exports the reader’s own sentinels as a manufacturer', async () => {
-    for (const m of ['unknown', 'custom']) {
+    for (const m of ['unknown', 'custom', 'Unknown', 'CUSTOM', ' custom ']) {
       const res = await matchImportedMotor(ref({ manufacturer: m }), {
         findDb: () => dbEntry(), fetchSpec: async () => spec('C6', 5),
       });
@@ -439,9 +439,8 @@ describe('refToExportMotor', () => {
     });
   });
 
-  it('drops the sentinel manufacturers rather than writing them into the file', () => {
-    expect(refToExportMotor(ref({ manufacturer: 'unknown' })).manufacturer).toBeUndefined();
-    expect(refToExportMotor(ref({ manufacturer: 'custom' })).manufacturer).toBeUndefined();
+  it.each(['unknown', 'custom', 'Unknown', 'CUSTOM', ' custom '])('drops the sentinel manufacturer %j rather than writing it into the file', manufacturer => {
+    expect(refToExportMotor(ref({ manufacturer })).manufacturer).toBeUndefined();
   });
 
   it('keeps a plugged delay as Infinity for the writer to render as "none"', () => {

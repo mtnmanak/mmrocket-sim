@@ -4,6 +4,7 @@ import { motorMounts, mountsTie, primaryMountOf } from '../tree/treeModel.js';
 import type { ExMotor } from './exMotors.js';
 import type { RepairedMotorSpec } from './thrustcurve.js';
 import { refToExportMotor } from './motorMatch.js';
+import { manufacturerMatches } from './motorDb.js';
 import type { OrkExportMotor, OrkMotorRef } from './orkFile.js';
 import { lookupTable } from './xmlUtil.js';
 
@@ -84,26 +85,46 @@ export function toOrkMotor(mm: MountMotor, flownS: number | undefined, exLibrary
   // manufacturer literally named EX and lose the motor), and never a
   // digest — the desktop's digest is over ITS data file, which we lack.
   const ex = mm.meta?.manufacturer === 'EX';
-  // <type> per the desktop Motor.Type names: the file's own value verbatim
-  // when the motor came from a .ork, else mapped from the thrustcurve
-  // catalog type; omitted (never guessed) when neither is known.
+  const exFields = ex ? exIdentity(mm, exLibrary) : undefined;
+  const designation = mm.spec?.designation ?? mm.label ?? 'Unknown EX motor';
+  // A substitution can retain the file's digest/type. Desktop prefers a digest
+  // even over a different maker/designation. Match the resolved row, not the
+  // file's spelling. Legacy records retain identity while their maker matches;
+  // import substitutions remove that maker, and explicit picks replace metadata.
+  const sameMaker = !!mm.meta?.orkManufacturer && !!mm.meta.manufacturer
+    && manufacturerMatches(mm.meta.orkManufacturer, mm.meta.manufacturer);
+  const sameMotor = !ex && (mm.meta?.orkMotorId !== undefined
+    ? mm.meta.orkMotorId === mm.meta.motorId && (!mm.meta.orkManufacturer || sameMaker)
+    : sameMaker);
+  // Open and the chooser bind an EX ID only when it matches the file's motor.
+  // Legacy EX records use their real maker, just as catalogue records do.
+  const sameExMaker = !!mm.meta?.orkManufacturer && !!exFields?.manufacturer
+    && manufacturerMatches(mm.meta.orkManufacturer, exFields.manufacturer);
+  const sameExMotor = ex && (mm.meta.orkMotorId !== undefined
+    ? mm.meta.orkMotorId === mm.meta.motorId && (!mm.meta.orkManufacturer || sameExMaker)
+    : sameExMaker);
+  // <type> uses desktop Motor.Type names. Retain a compatible file value
+  // when its identity matches; omit it when neither source knows the type.
   const auto = mm.meta?.autoDelay === true;
-  const type = mm.meta?.orkType
-    ?? (mm.meta?.type === 'SU' ? 'single'
-      : mm.meta?.type === 'reload' ? 'reload'
-      : mm.meta?.type === 'hybrid' ? 'hybrid'
-      : undefined);
+  const loadedType = mm.meta?.type === 'SU' ? 'single'
+    : mm.meta?.type === 'reload' ? 'reload'
+    : mm.meta?.type === 'hybrid' ? 'hybrid'
+    : undefined;
+  // EX's SU default cannot describe its source file's type. Catalogue types
+  // are authoritative, including when a legacy record carries a stale type.
+  const type = (sameExMotor || (sameMotor && (!loadedType || mm.meta?.orkType === loadedType)) ? mm.meta?.orkType : undefined)
+    ?? loadedType;
   return {
-    designation: mm.spec?.designation ?? mm.label ?? 'Unknown EX motor',
+    designation,
     ...(ex ? { exMotorSpec: mm.spec,
       ...(mm.meta.availableDelays ? { exDelays: mm.meta.availableDelays.map(d => Number.isFinite(d) ? String(d) : 'P').join(',') } : {}),
     } : {}),
-    // The file identity wins over the display abbreviation — but the
+    // The confirmed file identity wins over the display abbreviation — but the
     // thrustcurve abbrevs (AeroTech/Cesaroni/Estes…) are registered desktop
     // alternate names, so a database-picked motor still matches.
-    ...(ex ? exIdentity(mm, exLibrary) : { manufacturer: mm.meta?.orkManufacturer ?? mm.meta?.manufacturer }),
+    ...(ex ? exFields : { manufacturer: sameMotor ? mm.meta?.orkManufacturer ?? mm.meta?.manufacturer : mm.meta?.manufacturer }),
     ...(type ? { type } : {}),
-    ...(!ex && mm.meta?.orkDigest ? { digest: mm.meta.orkDigest } : {}),
+    ...(sameMotor && mm.meta?.orkDigest ? { digest: mm.meta.orkDigest } : {}),
     diameter: mm.spec?.diameter ?? 0,
     length: mm.spec?.length ?? 0,
     delay: (auto ? flownS : undefined) ?? mm.spec?.ejectionDelay ?? Infinity,

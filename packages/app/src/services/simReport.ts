@@ -79,11 +79,13 @@ export interface MotorMeta {
   exMotorId?: string;
   /**
    * Desktop-.ork motor identity, captured at import and written back verbatim
-   * on export so the desktop's matcher (digest tier first) resolves the motor
-   * silently. Never displayed — `manufacturer` above stays the thrustcurve
+   * on export only while it still belongs to the loaded motor.
+   * Never displayed — `manufacturer` above stays the thrustcurve
    * abbreviation the UI shows.
    */
   orkManufacturer?: string;
+  /** Catalogue or matched EX row owning the file identity, before a substitution or explicit replacement. */
+  orkMotorId?: string;
   /** Desktop <type> (single|reload|hybrid), verbatim from the file. */
   orkType?: string;
   /** Desktop motor <digest>, verbatim from the file. */

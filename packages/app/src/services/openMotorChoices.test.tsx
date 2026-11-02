@@ -11,6 +11,9 @@ import { designFingerprint, type DesignSnapshot } from './dirtyState.js';
 import { IMPERIAL_UNITS } from '../prefs/units.js';
 import { MOTOR_DB, MOTOR_DB_DATE, findDbMotor, setCatalogueOverlay } from './motorDb.js';
 import { matchImportedMotor, type fetchSpecByDigest } from './motorMatch.js';
+import { toOrkMotor } from './orkExportMotors.js';
+import { exportOrk, importOrk } from './orkFile.js';
+import { defaultTree, motorMounts } from '../tree/treeModel.js';
 import { parseEng } from './exMotors.js';
 import { planConfigSwitch, resolveImportMotors, type ImportedDesign } from './importApply.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
@@ -47,6 +50,54 @@ async function fixture() {
 }
 
 describe('ask at open choices', () => {
+  it.each(['offered', 'same-maker'] as const)('saves the chosen %s motor without the original digest or type', async kind => {
+    const { state, groups } = await fixture();
+    const row = groups[0]!.candidates.find(m => m.motorId !== state.mountMotors.m!.meta.motorId)!;
+    const tree = defaultTree();
+    const mountId = motorMounts(tree)[0]!.id!;
+    const source = { ...ref, motorType: 'hybrid', ...(kind === 'same-maker' ? { manufacturer: row.manufacturerAbbrev } : {}) };
+    const group = { ...groups[0]!, locations: [{ configId: null, mountId, ref: source }] };
+    const next = await applyOpenMotorChoices({ tree, mountMotors: { [mountId]: state.mountMotors.m! }, savedConfigs: [], unmatchedRefs: {} },
+      null, [group], { [group.key]: { kind: 'catalogue', motor: row } }, fetchSpec);
+    expect(next.mountMotors[mountId]!.meta.motorId).toBe(row.motorId);
+    const xml = exportOrk({ name: 'Chosen motor', tree,
+      motors: { [mountId]: toOrkMotor(next.mountMotors[mountId]!, undefined, () => []) } });
+    const saved = Object.values(importOrk(xml).motors)[0]!;
+    expect(saved).toMatchObject({ designation: row.designation, manufacturer: row.manufacturerAbbrev,
+      motorType: new Map([['SU', 'single'], ['reload', 'reload'], ['hybrid', 'hybrid']]).get(row.type) });
+    expect(saved.digest).toBeUndefined();
+  });
+
+  it.each(['catalogue', 'EX'] as const)('an EX chooser pick keeps the file type when replacing %s with its matching import', async kind => {
+    const ex = parseEng('I300T 38 200 6 0.1 0.2 Cesaroni\n0 0\n0.5 300\n1 0\n')[0]!;
+    const tree = defaultTree();
+    const mountId = motorMounts(tree)[0]!.id!;
+    const source = { ...ref, manufacturer: 'Cesaroni', designation: 'I300T', motorType: 'reload', diameter: 0.038 };
+    const old = (await matchImportedMotor(source, kind === 'EX' ? { catalogue: [], exMotors: [ex] }
+      : { findDb: () => MOTOR_DB[0]!, exMotors: [], fetchSpec })).motor!;
+    const group = { key: 'g', ref: source, candidates: [], carriedBy: [], locations: [{ configId: null, mountId, ref: source }] };
+    const next = await applyOpenMotorChoices({ tree, mountMotors: { [mountId]: old }, savedConfigs: [], unmatchedRefs: {} },
+      null, [group], { g: { kind: 'ex', motor: ex } }, fetchSpec);
+    const xml = exportOrk({ name: 'Matching EX choice', tree,
+      motors: { [mountId]: toOrkMotor(next.mountMotors[mountId]!, undefined, () => [ex]) } });
+    expect(Object.values(importOrk(xml).motors)[0]).toMatchObject({
+      designation: 'I300T', manufacturer: 'Cesaroni', motorType: 'reload',
+    });
+    expect(xml).not.toContain('<digest>');
+  });
+
+  it.each(['maker', 'designation', 'diameter'] as const)('an EX chooser replacement with a different %s uses its own type', async changed => {
+    const ex = parseEng('I300T 38 200 6 0.1 0.2 Cesaroni\n0 0\n0.5 300\n1 0\n')[0]!;
+    const source = { ...ref, manufacturer: changed === 'maker' ? 'Loki' : 'Cesaroni',
+      designation: changed === 'designation' ? 'I400T' : 'I300T',
+      diameter: changed === 'diameter' ? 0.054 : 0.038, motorType: 'reload' };
+    const group = { key: 'g', ref: source, candidates: [], carriedBy: [], locations: [{ configId: null, mountId: 'm', ref: source }] };
+    const next = await applyOpenMotorChoices({ tree: defaultTree(), mountMotors: {}, savedConfigs: [], unmatchedRefs: {} },
+      null, [group], { g: { kind: 'ex', motor: ex } }, fetchSpec);
+    expect(toOrkMotor(next.mountMotors.m!, undefined, () => [ex])).toMatchObject({ type: 'single' });
+    expect(toOrkMotor(next.mountMotors.m!, undefined, () => [ex])).not.toHaveProperty('digest');
+  });
+
   it.each(['before', 'during'] as const)('loads the live catalogue row when an overlay changes %s the curve wait', async when => {
     setCatalogueOverlay(null);
     const original = MOTOR_DB[0]!;
@@ -245,7 +296,7 @@ describe('ask at open choices', () => {
     expect(result.otherMaker).toBeUndefined();
   });
 
-  it('replaces every occurrence, keeps offered delay and ignition, defaults unavailable delay, and preserves file identity', async () => {
+  it('replaces every occurrence, keeps delay and ignition, and omits the old file identity on export', async () => {
     const { state, groups, snapshot } = await fixture();
     const original = groups[0]!.candidates.find(m => m.designation === 'F67W')!;
     const row = { ...original, delays: '4,6' };
@@ -265,6 +316,10 @@ describe('ask at open choices', () => {
       expect(motor.meta.orkManufacturer).toBeUndefined();
       expect(motor.meta.orkDigest).toBe('file-digest');
       expect(motor.meta.orkType).toBe('single');
+      const exported = toOrkMotor(motor, undefined, () => []);
+      expect(exported.designation).toBe(row.designation);
+      expect(exported.manufacturer).toBe(row.manufacturerAbbrev);
+      expect(exported.digest).toBeUndefined();
     }
     expect(next.savedConfigs[2]!.motors).toEqual(state.savedConfigs[2]!.motors);
     expect(state.mountMotors.m!.openNote).toBeDefined();

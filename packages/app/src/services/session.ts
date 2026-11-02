@@ -530,7 +530,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
       if (!isTable(mm)) return false;
       const spec = mm['spec'], meta = mm['meta'];
       return isTable(spec) && isTable(meta) && typeof spec['designation'] === 'string'
-        && ['motorId', 'exMotorId', 'manufacturer', 'orkType', 'orkManufacturer', 'orkDigest'].every(key => meta[key] === undefined || typeof meta[key] === 'string')
+        && ['motorId', 'exMotorId', 'manufacturer', 'orkType', 'orkManufacturer', 'orkMotorId', 'orkDigest'].every(key => meta[key] === undefined || typeof meta[key] === 'string')
         && (meta['availableDelays'] === undefined || (Array.isArray(meta['availableDelays'])
           && meta['availableDelays'].every(d => Number.isFinite(d) || d === Infinity || d === 'Infinity')))
         && typeof mm['label'] === 'string'

@@ -129,6 +129,35 @@ function sinks(): ImportSinks {
     setMachAlt: vi.fn(), setNote: vi.fn(), setShroudPrompt: vi.fn(), markSaved: vi.fn() };
 }
 
+it.each(['identity hit', 'collision'])('keeps the embedded file type after an EX library %s remaps its id', async kind => {
+  const { tree, mount, loaded } = await fixture();
+  const written = { ...toOrkMotor(loaded, undefined, loadExMotors), type: 'reload' };
+  const xml = exportOrk({ name: 'Remapped type', tree, configs: ['a', 'b'].map(id => ({
+    id, name: id, isDefault: id === 'a', motors: { [mount]: written },
+  })) });
+  localStorage.clear();
+  const existing = kind === 'identity hit' ? { ...motor(), motorId: 'ex:already-here' }
+    : { ...motor(), samples: motor().samples.map(s => ({ ...s, thrust: s.thrust * 2 })) };
+  addExMotors([existing]);
+  const imported = importOrk(xml);
+  const plan = planImport(imported, await resolveImportMotors(imported), {
+    launch: DEFAULT_CONDITIONS, text: { mass: String, length: String },
+  });
+  // A different captured identity must not be rebound to this motor by a remap.
+  Object.values(plan.snapshot.savedConfigs.find(c => c.id === 'b')!.motors)[0]!.meta.orkMotorId = 'ex:another-motor';
+  applyImportPlan(plan, sinks());
+  const remappedId = kind === 'identity hit' ? existing.motorId : `${motor().motorId}~2`;
+  for (const [id, set] of [['working', plan.snapshot.mountMotors],
+    ...plan.snapshot.savedConfigs.map(c => [c.id, c.motors] as const)] as const) {
+    const [savedMount, actual] = Object.entries(set)[0]!;
+    expect(actual.meta.motorId).toBe(remappedId);
+    const saved = importOrk(exportOrk({ name: 'Saved again', tree: plan.snapshot.tree,
+      motors: { [savedMount]: toOrkMotor(actual, undefined, loadExMotors) } }));
+    expect(Object.values(saved.motors)[0]!.motorType).toBe(id === 'b' ? 'single' : 'reload');
+    expect(actual.meta.orkMotorId).toBe(id === 'b' ? 'ex:another-motor' : remappedId);
+  }
+});
+
 it.each(['file', 'share'])('accepted %s open commits only at apply and remaps every mounted configuration before the saved mark', async kind => {
   const { write, loaded } = await fixture();
   loaded.padMassKg = 0.15;
