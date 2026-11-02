@@ -298,7 +298,14 @@ export function primaryMountOf(tree: RocketTree, mountIds: readonly string[]): s
     ?? null;
 }
 
-/** primaryMountOf's rank within a stage: the core 0, a pod set's mount 1, a strap-on's 2. */
+/** The motor-link mount: bottom-most stage with a mount, then core, pod, strap-on; ties keep given order. */
+export function launchMountOf(tree: RocketTree, mountIds: Iterable<string>): string | null {
+  const inTree = [...mountIds].filter((id) => stageIndexOf(tree, id) !== -1);
+  return inTree.sort((a, b) => stageIndexOf(tree, b) - stageIndexOf(tree, a) || mountRank(tree, a) - mountRank(tree, b))[0]
+    ?? null;
+}
+
+/** Mount rank within a stage: the core 0, a pod set's mount 1, a strap-on's 2. */
 function mountRank(tree: RocketTree, id: string): number {
   const up = ancestorsOf(tree, id);
   return up.some((a) => a.type === 'parallelstage') ? 2 : up.some((a) => a.type === 'podset') ? 1 : 0;

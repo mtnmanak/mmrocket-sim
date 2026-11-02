@@ -177,7 +177,8 @@ export async function encodeShareFragment(xml: string): Promise<string> {
  * (`shareLinkOpenFailure` tells the two apart).
  */
 export async function decodeShareFragment(hash: string): Promise<string> {
-  const m = /^#?d=([0-9]+)\.(.+)$/.exec(hash);
+  // Base64url never contains '&'; suffix parameters cannot damage the payload.
+  const m = /^#?d=([0-9]+)\.(.+)$/.exec(hash.split('&', 1)[0]!);
   if (!m) throw new Error('not a share link (missing the d=<version>.<data> payload)');
   if (m[1] !== VERSION) {
     throw new Error(`this link was made by a newer version of the app (format ${m[1]!})`);
