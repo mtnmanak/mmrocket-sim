@@ -127,7 +127,7 @@ describe('EX design archives', () => {
   it('share links and the crash-recovery .ork carry the same complete curves', async () => {
     const { tree, mount, xml } = saved();
     const motor = (await matchImportedMotor(Object.values(importOrk(xml).motors)[0]!)).motor!;
-    const recovery = autosaveToOrk({ tree, mountMotors: { [mount]: motor }, launch: DEFAULT_CONDITIONS, savedAt: 1 });
+    const { xml: recovery } = autosaveToOrk({ tree, mountMotors: { [mount]: motor }, launch: DEFAULT_CONDITIONS, savedAt: 1 });
     const linked = await decodeShareFragment(await encodeShareFragment(xml));
     for (const file of [recovery, linked]) {
       localStorage.clear();

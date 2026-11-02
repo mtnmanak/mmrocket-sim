@@ -125,6 +125,7 @@ import { designFileBase, designFileLabel, designFileTitle, documentTitle, type D
 import { onCompletedSave, saveFile, saveOutcomeNote, type SaveOutcome } from './services/saveFile.js';
 import { tableToXlsx, XLSX_MIME } from './services/xlsx.js';
 import { exportCdx1 } from './services/rasaeroFile.js';
+import { cdx1StageFigures } from './services/cdx1StageFigures.js';
 import { checkFormatLossOf, checkFormatLossSafely, formatExtension, type CheckedFormatLossReport, type FormatLossInput, type FormatLossReport, type LossyFormat } from './services/formatLoss.js';
 import { gateLossySave, lossySaveStatus, replacementLossNote, type LossySaveMark } from './services/lossySave.js';
 import {
@@ -2409,7 +2410,9 @@ export function App() {
     const out = await saveFile(file.data, { suggestedName: file.name, mime: file.mime,
       extensions: [file.extension], description: file.description });
     const note = saveOutcomeNote(out);
-    if (note) documentNote(generation, file.ork ? note.text : `${note.text} The design could not be written as an .ork; this file keeps the raw autosave as JSON.`, note.severity, true);
+    if (note) documentNote(generation, file.ork ? [note.text, ...file.notes].join('\n')
+      : `${note.text} The design could not be written as an .ork; this file keeps the raw autosave as JSON.`,
+      file.notes.length ? 'warn' : note.severity, true, file.notes.length ? 'caution' : undefined);
   };
 
   /**
@@ -2654,12 +2657,16 @@ export function App() {
       const flights = lossyFlights;
       setLossDialog(null);
       try {
+        if (format === 'cdx1' && stageList.length > 1 && !built) throw new Error('The app could not calculate the stage weights and CGs. Fix the design before saving .CDX1.');
         const xml = format === 'rkt'
           ? exportRkt({ name: tree.name ?? 'My Rocket', tree, overrides: activeOverrides, motors: data.motors, measured,
             compInfo: built ? rktComponentInfo(tree, id => built.rocket.componentInfo(id)) : {},
             ...(data.distanceUnit !== undefined ? { distanceUnit: data.distanceUnit } : {}) })
           : exportCdx1({ name: tree.name ?? 'My Rocket', tree, overrides: activeOverrides, motors: data.motors, launch,
             launchMassKg: built?.info.mass, launchCgM: built?.info.cg,
+            ...(built ? { launchStages: cdx1StageFigures(flightTree,
+              Object.fromEntries(assigned.filter(([id]) => !refusedMountIds.includes(id))
+                .map(([id, mm]) => [id, flownSpec(id, mm.spec, built.hardware)])), built.info) } : {}),
             ...(fileMachAlt ? { machAlt: fileMachAlt } : {}) });
         const out = await download(xml, format === 'rkt' ? 'rkt' : 'CDX1', '', report.losses, undefined, generation, saveId);
         if (generation === documentGeneration.current
@@ -3179,14 +3186,18 @@ export function App() {
     const generation = documentGeneration.current;
     try {
       const flown = flownAutoDelaysNow();
-      const saveNotes: string[] = [];
-      let omittedMotor = false;
+      const motors = exportMotorsMap(flown);
+      const { savedConfigs: synced } = planOrkSave(snapshotNow(), unmatchedRefs);
+      const configs = exportConfigs(synced, flown);
+      const saveNotes = [...new Set([...Object.values(motors), ...configs.flatMap(c => Object.values(c.motors))]
+        .map(m => autoDelaySaveNote(m, '.ork', 'share')).filter((n): n is string => n !== null))];
+      let omittedMotor = saveNotes.length > 0;
       const xml = exportOrk({ onOmittedMotor: () => { omittedMotor = true; }, workingOverrides: detachedOverrides,
-        name: tree.name ?? 'My Rocket', tree, motors: exportMotorsMap(flown), launch,
+        name: tree.name ?? 'My Rocket', tree, motors, launch,
         // Included so a share link reproduces exactly what saving the file
         // reproduces — the recipient sees the sender's weighed build, which is
         // the rocket the "Build allowance" in the tree belongs to.
-        configs: exportConfigs(savedConfigs, flown), activeConfigId, measured,
+        configs, activeConfigId, measured,
         // Same rule: a link must open to the same file a save would write.
         flightData: flightDataForExport(),
         notes: saveNotes,

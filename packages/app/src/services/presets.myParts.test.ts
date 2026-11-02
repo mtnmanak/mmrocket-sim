@@ -234,7 +234,7 @@ it('uses a prototype-free saved-field lookup for file-supplied component types',
   const row = { kind: 'BodyTube', manufacturer: 'Mine', partNo: 'X', description: '', savedComponent: true };
   expect(presetPatch('constructor' as ComponentType, row, undefined, undefined, { saved: true })).toEqual({
     name: 'Mine X', presetManufacturer: 'Mine', presetPartNo: 'X', orkPresetManufacturer: undefined,
-    orkPresetPartNo: undefined, orkPresetDigest: undefined,
+    orkPresetPartNo: undefined, orkPresetDigest: undefined, orkPresetImportState: undefined,
   });
 });
 

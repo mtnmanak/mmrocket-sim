@@ -1,5 +1,6 @@
 import { boundedWarningEvidence, restoredWarnings, storedWarnings, validStoredWarnings, storedWarningLimitNote, wideStoredWarning } from './storedWarnings.js';
 import { readDesignProvenance, writeDesignProvenance } from './designProvenance.js';
+import { importedEjectionDelay } from './ejectionDelay.js';
 import { cleanDocumentMaterials, readDocumentMaterials } from './documentMaterials.js';
 import { extensionXmlBySimulation, hasSimulationExtensions, preserveSimulationExtensions, preservedSimulationExtensions } from './orkExtensions.js';
 import { tubeHoleMarks } from '../tree/tubeHoles.js';
@@ -34,11 +35,13 @@ import { axialLength, positionOf } from '../tree/position.js';
 import { MAX_FIN_POINTS, MAX_NESTING, TOO_DEEP_NESTING, TOO_MANY_FIN_POINTS, decodeXml, escapeXml, escapeXmlAttr, lookupTable, parseDecimal, unreadableFinPoints, xmlText as text } from './xmlUtil.js';
 import { gunzipCapped, unzipMember } from './zipMember.js';
 import { applyPresetLinks, ORK_PRESET_KEYS, type PendingPresetLink, type Preset } from './presets.js';
+import { ORK_PRESET_IMPORT_STATE, presetImportState, presetOverrideFields } from './orkPresetState.js';
 import { includedMotorFigures, OVERRIDE_INCLUDES_MOTOR, STATED_STAGE_FIGURES } from './statedLaunchWeight.js';
 import {
   isaPressurePa, isaTemperatureK, PAD_PRESSURE_HPA_RANGE, PAD_TEMP_C_RANGE, padAir, SITE_ALTITUDE_M_RANGE,
 } from './atmosphere.js';
 import { knownIgnitionEvent } from './ignitionEvent.js';
+import { namedMotorManufacturer } from './motorManufacturer.js';
 import type { DeploymentTuple, FlightOverrides, FlightTree, IgnitionTuple, SeparationTuple } from '../model/design.js';
 import { sparsify } from './flightState.js';
 import { flownIgnition, flownSeparation } from './flightOverrideSummary.js';
@@ -190,6 +193,8 @@ export interface OrkFlightConfig {
   stageMassOverrides?: Record<string, StageMassOverride>;
   /** Import-time refusals and unresolved-motor cautions for these stage figures. */
   stageMassNotes?: string[];
+  /** Producer codes parallel to stageMassNotes. */
+  stageMassNoteKinds?: string[];
   id: string;
   /** File stage activeness keyed by editor node id; preserved, not simulated. */
   stageActiveness?: Record<string, boolean>;
@@ -832,7 +837,7 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
         length: num(motorEl, 'length', 0.07, notes, MOTOR_DIMENSIONS),
         // A decimal that overflows (1e999) is Infinity: plugged, as desktop's
         // parseDouble makes it.
-        delay: Number.isNaN(delayValue) ? Infinity : delayValue,
+        delay: importedEjectionDelay(Number.isNaN(delayValue) ? Infinity : delayValue, notes, designation, delayText ?? ''),
         ...(digest ? { digest } : {}),
         ...(motorType ? { motorType } : {}),
         mountId: node.id,
@@ -1715,6 +1720,11 @@ export function importOrk(data: ArrayBuffer | string, opts?: {
   // nothing: a blank there is the user's own choice, not a gap, so a save and
   // reopen never changes a design (applyPresetLinks, `ownFile`). Our creator
   // stamp, read as the time-step clamp reads it (readLaunchConditions).
+  for (const { node } of pendingLinks) {
+    const fields = presetOverrideFields(node.type);
+    if (fields.length) node[ORK_PRESET_IMPORT_STATE] = Object.fromEntries(fields.map(key =>
+      [key, typeof node[key] === 'number' && Number.isFinite(node[key])]));
+  }
   applyPresetLinks(pendingLinks, opts?.presets, notes, {
     ownFile: doc.documentElement?.getAttribute('creator') === ORK_CREATOR,
   });
@@ -2368,16 +2378,19 @@ export interface OrkExportMotor {
  * because the file reopens flying that delay, not Auto's. null when there is
  * nothing to say (not on Auto).
  */
-export function autoDelaySaveNote(m: OrkExportMotor, format: '.ork' | '.rkt'): string | null {
+export function autoDelaySaveNote(m: OrkExportMotor, format: '.ork' | '.rkt', action: 'save' | 'share' | 'recovery' = 'save'): string | null {
   if (!m.autoDelay || !m.autoDelayFrom) return null;
   const has = `“${m.designation}” is on Auto (optimal) delay, which a ${format} has no setting for`;
+  const advice = action === 'share' ? 'Launch, then copy the share link again'
+    : action === 'recovery' ? 'After reopening this backup in the app, select Auto, launch, then save'
+      : 'Launch, then save';
   return m.autoDelayFrom === 'flown'
     // "The rounded optimum it flies on Auto", not "its last flight's delay":
     // the flight it comes from is the newest that flew that optimum, and a
     // newer one at a typed delay is passed over (flownAutoDelays).
     ? `${has}: it is saved at ${m.delay} s, the rounded optimum it flies on Auto, and reopens fixed at that.`
     : `${has}, and no flight of the design as it stands says what Auto flies: it is saved at its provisional `
-      + `${m.delay} s, and reopens fixed at that. Launch, then save, to keep the delay Auto flies.`;
+      + `${m.delay} s, and reopens fixed at that. ${advice}, to keep the delay Auto flies.`;
 }
 
 /** One flight configuration to write (Stage B) — the stable id from import. */
@@ -2805,8 +2818,10 @@ export function exportOrk({
    * The part's catalogue link, as desktop's RocketComponentSaver writes it:
    * <preset type manufacturer partno digest/>, straight after <id> and so
    * before every explicit value — on load desktop applies its preset first and
-   * each element after it, so the file's own values stand. The link stands
-   * with them, whatever they are: desktop's loader switches its preset
+   * each element after it, so explicit values stand. Clearing a file-carried
+   * parachute Cd or parachute/rail-button override cannot undo a preset: the
+   * digest is then cleared so desktop cannot silently restore that value.
+   * Desktop's loader switches its preset
    * clearing off for the whole of a component's load (24.12
    * ComponentParameterHandler: setIgnorePresetClearing(true)), so it is only
    * desktop's EDITOR that lets go of a link when a value changes, never a
@@ -2825,8 +2840,8 @@ export function exportOrk({
    * (ComponentPreset.computeDigest) — its unit conversions, its derived
    * densities, its manufacturer spellings — which this app's catalogue does not
    * reproduce (merged sources, corrected densities, curated part numbers). So:
-   *  - a link that came FROM an .ork is written back exactly as desktop wrote
-   *    it (ORK_PRESET_KEYS), and desktop finds its row again;
+   *  - a link that came FROM an .ork keeps desktop's digest (ORK_PRESET_KEYS)
+   *    unless the user cleared a value the imported file carried;
    *  - a link made here carries `digest=""`, desktop's own "no digest" (a
    *    ComponentPreset's initial value): desktop opens the file, keeps every
    *    explicit value, and reports the one warning "No matching
@@ -2847,8 +2862,13 @@ export function exportOrk({
       ? [desktopMfr, desktopNo, str(ORK_PRESET_KEYS.digest) ?? '']
       : [str('presetManufacturer'), str('presetPartNo'), ''];
     if (!mfr || !partNo) return;
+    // Only retire an imported link when a file-carried value was cleared.
+    // An unchanged blank (or a legacy node without import state) keeps identity.
+    const imported = presetImportState(node);
+    const restoresUnset = imported && Object.entries(imported)
+      .some(([key, present]) => present && numOpt(node, key) === undefined);
     emit(depth, `<preset type="${type}" manufacturer="${escapeXmlAttr(mfr)}" partno="${escapeXmlAttr(partNo)}"`
-      + ` digest="${escapeXmlAttr(digest)}"/>`);
+      + ` digest="${escapeXmlAttr(restoresUnset ? '' : digest)}"/>`);
   };
 
   const header = (depth: number, node: ComponentNode, fallback: string) => {
@@ -3035,7 +3055,7 @@ export function exportOrk({
       // manufacturer (the old 'custom' fallback, and our own 'unknown'
       // sentinel) fails every description-tier match and loses the motor.
       if (m.type) emit(depth + 2, `<type>${escapeXml(m.type)}</type>`);
-      if (m.manufacturer && m.manufacturer !== 'unknown' && m.manufacturer !== 'custom') {
+      if (namedMotorManufacturer(m.manufacturer) && m.manufacturer) {
         emit(depth + 2, `<manufacturer>${escapeXml(m.manufacturer)}</manufacturer>`);
       }
       if (m.digest) emit(depth + 2, `<digest>${escapeXml(m.digest)}</digest>`);

@@ -65,6 +65,7 @@ export const ORK_PRESET_KEYS = {
   manufacturer: 'orkPresetManufacturer',
   partNo: 'orkPresetPartNo',
   digest: 'orkPresetDigest',
+  importState: 'orkPresetImportState',
 } as const;
 
 let bundled: Preset[] | null = null;
@@ -1015,6 +1016,7 @@ const CATALOGUE_FIELDS: Record<string, CatalogueField> = lookupTable<CatalogueFi
   orkPresetManufacturer: { words: 'desktop OpenRocket’s manufacturer', differs: NEVER },
   orkPresetPartNo: { words: 'desktop OpenRocket’s part number', differs: NEVER },
   orkPresetDigest: { words: 'desktop OpenRocket’s preset digest', differs: NEVER },
+  orkPresetImportState: { words: 'desktop OpenRocket’s imported preset settings', differs: NEVER },
   materialName: { words: 'material', differs: NEVER },
   surfaceMaterialName: { words: 'canopy material', differs: NEVER },
   lineMaterialName: { words: 'line material', differs: NEVER },

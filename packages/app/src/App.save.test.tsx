@@ -17,7 +17,9 @@ import { autosavedDesignFile } from './services/autosaveBackup.js';
 import { loadCatalogueMotor, mountMotorFromDb } from './services/motorMatch.js';
 import { exToDbEntry, exToMotorSpec, parseEng, type ExMotor } from './services/exMotors.js';
 import { exportOrk, importOrk, MAX_ORK_CONFIGURATIONS } from './services/orkFile.js';
+import { parseXml } from './services/xmlParse.js';
 import { importRkt } from './services/rocksimFile.js';
+import { importCdx1 } from './services/rasaeroFile.js';
 import { saveFile, type SaveOutcome } from './services/saveFile.js';
 import type { SessionState } from './services/session.js';
 import { designFingerprint } from './services/dirtyState.js';
@@ -33,6 +35,7 @@ import { decodeShareFragment, encodeShareFragment } from './services/shareLink.j
 import { downloadImage, svgToImage } from './services/schematicExport.js';
 import { openPrintDocument } from './services/printDocument.js';
 import * as recentDesigns from './services/recentDesigns.js';
+import * as designBuild from './services/buildDesign.js';
 import { sessionDebugLog } from './services/sessionDebugLog.js';
 
 vi.mock('./services/recentDesigns.js', () => ({
@@ -40,7 +43,7 @@ vi.mock('./services/recentDesigns.js', () => ({
   listRecentDesigns: vi.fn(async (): Promise<recentDesigns.RecentDesign[]> => []),
   recentDesignFile: vi.fn(), clearRecentDesigns: vi.fn(async () => {}),
 }));
-import { addChild, defaultTree, motorMounts } from './tree/treeModel.js';
+import { addChild, asStageNodes, defaultTree, motorMounts } from './tree/treeModel.js';
 import { APP_VERSION } from './version.js';
 
 /**
@@ -112,6 +115,50 @@ class NoPath { moveTo() {} lineTo() {} closePath() {} rect() {} arc() {} addPath
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SESSION_KEY = 'online-openrocket.session.v1';
+
+it('M3 saves real cumulative weights and CGs through the staged CDX1 Save action', async () => {
+  const tree = defaultTree();
+  tree.components = asStageNodes(tree);
+  Object.assign(tree.components[0]!, { overrideMass: 1, overrideSubcomponentsMass: true,
+    overrideCGX: 0.2, overrideSubcomponentsCG: true });
+  tree.components.push({ type: 'stage', id: 'booster', name: 'Booster', overrideMass: 0.5,
+    overrideSubcomponentsMass: true, overrideCGX: 0.2, overrideSubcomponentsCG: true,
+    children: [{ type: 'bodytube', id: 'booster-tube', length: 0.4, outerRadius: 0.02 }] });
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+    appVersion: APP_VERSION, savedAt: Date.now(), configLayers: 1 }));
+  const host = await mountApp();
+  await saveAs(host, 'Save .CDX1');
+  await waitFor(() => vi.mocked(saveFile).mock.calls.length === 1, 'the staged .CDX1 save');
+  const xml = await (vi.mocked(saveFile).mock.calls[0]![0] as Blob).text();
+  // Explicitly included stages apply the cumulative cells. The actual
+  // motorless save excludes its booster, whose cells desktop ignores.
+  expect(xml).toContain('<IncludeBooster1>False</IncludeBooster1>');
+  expect(importCdx1(xml).tree.components[1]!.overrideMass).toBeUndefined();
+  const imported = importCdx1(xml.replace('<IncludeBooster1>False</IncludeBooster1>', '<IncludeBooster1>True</IncludeBooster1>'));
+  expect(imported.tree.components).toHaveLength(2);
+  // Four-decimal pounds/inches allow at most 0.1 g / 0.1 mm here.
+  for (const [i, mass, cg] of [[0, 1, 0.2], [1, 0.5, 0.2]] as const) {
+    const stage = imported.tree.components[i]!;
+    expect(Math.abs((stage.overrideMass as number) - mass)).toBeLessThan(0.0001);
+    expect(Math.abs((stage.overrideCGX as number) - cg)).toBeLessThan(0.0001);
+  }
+}, 30_000);
+
+it.each([1, 2])('M3 allows a failed-build CDX1 save only with one stage (%i stages)', async count => {
+  const tree = defaultTree();
+  tree.components = asStageNodes(tree);
+  if (count === 2) tree.components.push({ type: 'stage', id: 'booster', children: [
+    { type: 'bodytube', length: 0.4, outerRadius: 0.02 },
+  ] });
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ tree, mountMotors: {}, launch: DEFAULT_CONDITIONS,
+    appVersion: APP_VERSION, savedAt: Date.now(), configLayers: 1 }));
+  vi.spyOn(designBuild, 'buildDesign').mockReturnValue({ error: 'Test build unavailable' });
+  const host = await mountApp();
+  await saveAs(host, 'Save .CDX1');
+  await waitFor(() => count === 1 ? vi.mocked(saveFile).mock.calls.length === 1
+    : host.textContent!.includes('could not calculate the stage weights'), 'failed-build save outcome');
+  expect(vi.mocked(saveFile).mock.calls).toHaveLength(count === 1 ? 1 : 0);
+}, 30_000);
 const RUNS_KEY = 'online-openrocket.sim-runs.v1';
 
 let mounted: { root: Root; host: HTMLElement }[] = [];
@@ -2659,7 +2706,7 @@ describe('what a Save .ork hands the writer for each motor', () => {
     };
     const fixed: MountMotor = {
       ...c6, label: 'C6-3', spec: { ...c6.spec, ejectionDelay: 3 },
-      meta: { ...c6.meta, orkManufacturer: 'Estes Industries', orkType: 'single', orkDigest: 'abc123' },
+      meta: { ...c6.meta, orkManufacturer: 'Estes Industries', orkMotorId: c6.meta.motorId, orkType: 'single', orkDigest: 'abc123' },
       padMassKg: 0.25, padMassWeighedWith: 'weighed',
     };
     const working = { [core]: auto, 'pod-mmt': ex };
@@ -2825,6 +2872,76 @@ describe('a file’s pad mass on a tied mount whose motor cannot load', () => {
  * working set read under '' would pass them all, and save this one at its
  * provisional delay.
  */
+describe('M2 export notices', () => {
+  it.each((['clipboard', 'prompt', 'autosave'] as const).flatMap(route =>
+    [true, false].map(liveAuto => ({ route, liveAuto }))))('shows written delays for $route (live Auto: $liveAuto)', async ({ route, liveAuto }) => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const db = MOTOR_DB.find(m => m.diameter === 18 && m.delays?.split(',').some(d => /^\d+$/.test(d)))!;
+    const motor = (await loadCatalogueMotor(db.manufacturerAbbrev, db.designation, 0))!;
+    const auto = { ...motor, meta: { ...motor.meta, autoDelay: true } };
+    const live = liveAuto ? auto : { ...motor, spec: { ...motor.spec, ejectionDelay: 3 } };
+    const stale = { ...auto, spec: { ...auto.spec, ejectionDelay: 11 } };
+    const session: SessionState = { tree, mountMotors: { [mount]: live }, launch: DEFAULT_CONDITIONS,
+      appVersion: APP_VERSION, savedAt: Date.now(), activeConfigId: 'A', configLayers: 1,
+      savedConfigs: [
+        { id: 'A', name: 'Active', isDefault: true, motors: { [mount]: stale } },
+        { id: 'B', name: 'Other', isDefault: false, motors: { [mount]: { ...auto, spec: { ...auto.spec, ejectionDelay: 3 } } } },
+      ],
+    };
+    if (route === 'autosave') {
+      // A refused restore offers Download autosave without replacing its logical tree.
+      let body = tree.components[0]!.children!.find(n => n.type === 'bodytube')!;
+      for (let i = 0; i < 4; i++) body = { type: 'podset', instanceCount: 32, children: [body] };
+      session.tree = { components: [{ type: 'stage', children: [body] }] };
+    } else {
+      vi.spyOn(orkFlightData, 'flownAutoDelays').mockReturnValue({ A: { [mount]: 7 } });
+    }
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    const host = await mountApp();
+    const writeText = vi.fn(async () => { if (route === 'prompt') throw new Error('clipboard denied'); });
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    const oldPrompt = Object.getOwnPropertyDescriptor(window, 'prompt');
+    const prompt = vi.fn(() => null);
+    Object.defineProperty(window, 'prompt', { configurable: true, value: prompt });
+    try {
+      if (route === 'autosave') {
+        await act(async () => { button(host, 'Download the autosaved design (.ork)').click(); });
+      } else {
+        await saveAs(host, 'Copy share link');
+        await waitFor(() => writeText.mock.calls.length === 1, 'share copy');
+      }
+      const xml = vi.mocked(exportOrk).mock.results.at(-1)!.value as string;
+      // Recovery must preserve a tree that the app refuses to expand on import.
+      const written = parseXml(xml.replace(/^\uFEFF?\s*<\?xml[^?]*\?>/, ''), 'Invalid export');
+      const delay = written.querySelector('motormount > motor[configid="A"] > delay');
+      expect(delay).not.toBeNull();
+      expect(Number(delay!.textContent))
+        .toBe(liveAuto ? (route === 'autosave' ? auto.spec.ejectionDelay : 7) : 3);
+      const notes = host.querySelector('[aria-label="Notices"]')!.textContent!;
+      expect(notes).toContain('Auto (optimal) delay');
+      expect(notes).toContain('provisional 3 s');
+      expect(notes).toContain('reopens fixed');
+      expect(notes).toContain('Caution');
+      expect(notes.match(/provisional 3 s/g)).toHaveLength(1);
+      expect(notes).not.toContain('provisional 11 s');
+      if (route !== 'autosave' && liveAuto) {
+        expect(notes).toContain('saved at 7 s, the rounded optimum');
+        expect(notes.match(/saved at 7 s/g)).toHaveLength(1);
+      }
+      if (!liveAuto) expect(notes).not.toContain('saved at 7 s');
+      expect(notes).toContain(route === 'autosave'
+        ? 'After reopening this backup in the app, select Auto, launch, then save'
+        : 'Launch, then copy the share link again');
+      if (route === 'prompt') expect(prompt).toHaveBeenCalled();
+    } finally {
+      if (oldPrompt) Object.defineProperty(window, 'prompt', oldPrompt);
+      else delete (window as unknown as { prompt?: unknown }).prompt;
+      delete (navigator as unknown as { clipboard?: unknown }).clipboard;
+    }
+  }, 30000);
+});
+
 describe('an Auto mount flown in the active flight configuration', () => {
   it('is saved at the delay it flew there', async () => {
     const tree = defaultTree();

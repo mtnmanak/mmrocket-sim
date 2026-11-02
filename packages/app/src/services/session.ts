@@ -1,4 +1,5 @@
 import { MAX_MACH_ALT_ROWS } from './machAltLimits.js';
+import { importedEjectionDelay } from './ejectionDelay.js';
 import { carryFlags, cautionNote, noteFlags } from './importNotes.js';
 import { restoredWarnings } from './storedWarnings.js';
 import { isAeroModel, validHybridBand } from './aeroProvenance.js';
@@ -530,7 +531,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
       if (!isTable(mm)) return false;
       const spec = mm['spec'], meta = mm['meta'];
       return isTable(spec) && isTable(meta) && typeof spec['designation'] === 'string'
-        && ['motorId', 'exMotorId', 'manufacturer', 'orkType', 'orkManufacturer', 'orkDigest'].every(key => meta[key] === undefined || typeof meta[key] === 'string')
+        && ['motorId', 'exMotorId', 'manufacturer', 'orkType', 'orkManufacturer', 'orkMotorId', 'orkDigest'].every(key => meta[key] === undefined || typeof meta[key] === 'string')
         && (meta['availableDelays'] === undefined || (Array.isArray(meta['availableDelays'])
           && meta['availableDelays'].every(d => Number.isFinite(d) || d === Infinity || d === 'Infinity')))
         && typeof mm['label'] === 'string'
@@ -576,6 +577,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
     const specs = [s.motor, ...[s.mountMotors ?? {}, ...(s.savedConfigs ?? []).map(c => c.motors)]
       .flatMap(set => Object.values(set).map(mm => mm.spec))] as (RepairedMotorSpec | undefined)[];
     for (const spec of specs) {
+      if (spec) spec.ejectionDelay = importedEjectionDelay(spec.ejectionDelay, s.treeRestoreNotes ??= [], spec.designation);
       if (spec?.exDefinition !== undefined && !validStoredExDefinition(spec.exDefinition)) {
         delete spec.exDefinition;
         definitionsRemoved = true;
@@ -669,6 +671,7 @@ function readSession(restoreRoot: boolean): SessionState | null {
       for (const ref of Object.values(refs ?? {})) {
         const d = ref.delay as unknown;
         if (d === 'Infinity' || d === null) ref.delay = Infinity;
+        ref.delay = importedEjectionDelay(ref.delay, s.treeRestoreNotes ??= [], ref.designation);
       }
     }
     // A launch that is not a table is replaced by a FRESH copy of the defaults

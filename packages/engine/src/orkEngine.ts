@@ -683,6 +683,9 @@ function assertNoPodSetNozzle(tree: RocketTree): void {
  * naming the motor and a design that silently blanks.
  */
 function assertFiniteCurve(motor: MotorSpec): void {
+  if (motor.ejectionDelay !== Infinity && (!Number.isFinite(motor.ejectionDelay) || motor.ejectionDelay < 0)) {
+    throw new Error(`Motor ${motor.designation}: its ejection delay must be 0 s or more, or Infinity for a plugged motor.`);
+  }
   // The bridge sizes the curve by `times`: extra masses were silently dropped
   // (a wrong mass curve flew), and fewer masses or a thrust count that differs
   // reached the user as a raw kernel error (audit S3-1).

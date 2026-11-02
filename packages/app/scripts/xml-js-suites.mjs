@@ -22,6 +22,8 @@
  * Paths are relative to packages/app.
  */
 export const XML_JS_SUITES = [
+  'src/services/ejectionDelay.test.ts',
+  'src/services/rocksimRecoveryCount.test.ts',
   'src/tree/shroudConvert.test.ts',
   'src/services/finOutline.closure.test.ts',
   'src/services/motorClosureCompatibility.test.ts',
@@ -43,6 +45,9 @@ export const XML_JS_SUITES = [
   'src/tree/motorRoom.tester.test.ts',
   'src/tree/solidContext.tester.test.ts',
   'src/components/PropertyPanel.filled.test.tsx',
+  // M2: desktop-linked fields are cleared through the imported property panel.
+  'src/components/PropertyPanel.inputs.test.tsx',
+  'src/services/orkPresetExport.test.ts',
   // S7b-3: a zero-Cd .ork canopy must reach sizing unchanged through either XML parser.
   'src/services/recoverySizing.import.test.ts',
   // M3: desktop document materials and share-link restores use both parsers.
@@ -80,6 +85,9 @@ export const XML_JS_SUITES = [
   // The 2,000-part refusal (board row 84) in all three importers.
   'src/services/designPartLimit.test.ts',
   'src/services/motorMatch.policy.test.ts',
+  // C-F6-4 / E-E2-1: retained motor identity survives a save/reopen under both parsers.
+  'src/services/orkExportMotors.test.ts',
+  'src/services/openMotorChoices.test.tsx',
   'src/services/nozzleStage.test.ts',
   'src/services/nozzleWiring.test.ts',
   'src/services/deployOverrideNote.test.ts',
@@ -111,6 +119,8 @@ export const XML_JS_SUITES = [
   'src/services/orkPackedSize.test.ts',
   'src/services/orkRadial.test.ts',
   'src/services/rasaeroFile.test.ts',
+  // M3: stage figures, finishes, lugs and excluded-booster cautions use both parsers.
+  'src/services/rasaeroFile.M3.test.ts',
   'src/services/rasaeroFile.audit.test.ts',
   'src/services/rasaeroStatedFigures.test.ts',
   'src/services/recoveryMass.test.ts',

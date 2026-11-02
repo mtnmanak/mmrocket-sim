@@ -8,6 +8,7 @@ import { DEFAULT_CONDITIONS } from './LaunchPanel.js';
 import { discardSession, saveSessionDebounced, watchOtherTabs } from '../services/session.js';
 import { saveFile } from '../services/saveFile.js';
 import { sessionDebugLog } from '../services/sessionDebugLog.js';
+import * as autosaveBackup from '../services/autosaveBackup.js';
 
 /**
  * THE ROOT BOUNDARY (audit 2026-09-22). A throw while rendering used to take
@@ -77,6 +78,17 @@ afterEach(() => {
 });
 
 describe('AppBoundary', () => {
+  it('M2 shows recovery export cautions after the download', async () => {
+    const file = autosaveBackup.autosavedDesignFile()!;
+    vi.spyOn(autosaveBackup, 'autosavedDesignFile').mockReturnValue({ ...file,
+      notes: ['Auto (optimal) delay reopens fixed at its provisional 0 s.', 'Writer caution'],
+    });
+    renderCrashed();
+    await act(async () => { button('Download the autosaved design').click(); });
+    expect(host.querySelector('[role="status"]')!.textContent).toContain('reopens fixed at its provisional 0 s');
+    expect(host.querySelector('[role="status"]')!.textContent).toContain('Writer caution');
+    expect((host.querySelector('[role="status"]') as HTMLElement).style.whiteSpace).toBe('pre-line');
+  });
   it('C-H3 records caught rendering errors and offers a debug log beside recovery actions', async () => {
     renderCrashed();
     expect(sessionDebugLog.text()).toContain('app-error: Error: Cannot read properties of undefined (property omitted)');

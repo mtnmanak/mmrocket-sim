@@ -9,7 +9,7 @@ import { overrideFor, resolveFlightState } from './flightState.js';
 import { exportIgnitions } from './foreignConfigLayers.js';
 import { DEFAULT_CONDITIONS, DEFAULT_TIME_STEP_S, flownRodAimDeg, type LaunchConditions } from './launchConditions.js';
 import type { MeasuredFigures, OrkExportFlightData, OrkExportMotor } from './orkFile.js';
-import { exportRkt, rktPackedChuteSize } from './rocksimFile.js';
+import { exportRkt, rktPackedChuteSize, rktRecoveryCount } from './rocksimFile.js';
 import { cdx1RecoveryDelayNote, cdx1RodAimNote, cdx1WrittenParts, exportCdx1, rasaeroManufacturerAbbrev } from './rasaeroFile.js';
 import { nozzleExportNotes } from './nozzleExport.js';
 import { windProfileSaveNotes } from './windProfile.js';
@@ -224,7 +224,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     const parentOf = new Map<ComponentNode, ComponentNode>();
     for (const p of nodes) for (const c of p.children ?? []) parentOf.set(c, p);
     const repacks = (n: ComponentNode): boolean => {
-      const packed = rktPackedChuteSize(parentOf.get(n), num(n, 'diameter', 0.3));
+      const packed = rktPackedChuteSize(parentOf.get(n), num(n, 'diameter', 0.3) / Math.sqrt(rktRecoveryCount(n)));
       return Math.abs(num(n, 'packedLength', 0.025) - packed) > 1e-6
         || Math.abs(num(n, 'packedRadius', 0.0125) - packed) > 1e-6;
     };
@@ -272,14 +272,14 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     const boosterNose = (n: ComponentNode) => n.type === 'nosecone' && stages.slice(1).some(s => s.children?.includes(n));
     parts(n => (['nosecone', 'bodytube', 'transition'].includes(n.type) && !written.exterior.has(n) && !boosterNose(n))
       || (n.type.endsWith('finset') && !written.fins.has(n)),
-    'Exterior parts outside the written body/fin-can chain lose their geometry and drag; their mass is kept only in the total');
+    'Exterior parts outside the written body/fin-can chain lose their geometry and drag; their mass is kept only in the cumulative stage weights and CGs of stages saved as included (a booster saved with no engine is excluded, and its mass is not kept)');
     const innerKinds: Record<string, string> = { innertube: 'inner tubes', tubecoupler: 'couplers', centeringring: 'centering rings',
       bulkhead: 'bulkheads', engineblock: 'engine blocks', shockcord: 'shock cords', masscomponent: 'mass objects', fairing: 'camera shrouds' };
     // Unknown restored types must not read Object.prototype (audit 2026-10-11, S1d-6).
     const kinds = [...new Set(nodes.map(n => Object.hasOwn(innerKinds, n.type) ? innerKinds[n.type] : undefined).filter(Boolean))];
-    add(kinds.length > 0, `Inner parts (${kinds.join(', ')}) are kept only in the total mass and CG; their geometry, placement and individual settings are not kept.`);
+    add(kinds.length > 0, `Inner parts (${kinds.join(', ')}) are kept only in the cumulative stage weights and CGs of stages saved as included (a booster saved with no engine is excluded, and its mass is not kept); their geometry, placement and individual settings are not kept.`);
     add(input.measured.massKg != null || input.measured.cgM != null, 'Measured mass & CG entries are not kept as editable measurements.');
-    parts(n => has(n, 'overrideMass', 'overrideCGX'), 'Individual mass and CG overrides, including stage distribution and included-motor settings, are kept only as part of the rocket’s total mass and CG');
+    parts(n => has(n, 'overrideMass', 'overrideCGX'), 'Individual mass and CG overrides are kept only in the cumulative stage weights and CGs of stages saved as included (a booster saved with no engine is excluded, and its mass is not kept); individual overrides and included-motor settings are not editable after reopening');
     // The names importCdx1 gives the parts it rebuilds (formatLoss.test.ts
     // reads them back through it), keyed by the part each one is written from.
     const recreatedNames = new Map<ComponentNode, string>();
@@ -391,10 +391,6 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
           : 'reopens on ejection with 0 s delay because this stage has no exported engine'}.`
           + (delay !== 0 && (event !== 'burnout' || !engine) ? ` The ${delay} s delay is not kept.` : ''));
     }
-    const finishes = nodes.filter(n => ['nosecone', 'bodytube', 'transition', 'tubefinset', 'launchlug'].includes(n.type) || planar(n))
-      .map(n => String(n['finish'] ?? 'normal'));
-    add(new Set(finishes).size > 1 || finishes.some(f => ['polished', 'rough'].includes(f)),
-      'Surface finish is one global nearest-choice finish; individual part finishes are not kept.');
   }
   // Editing dependencies and provenance are a single footnote, never a forest
   // of XML-field warnings. Show it only alongside a substantive loss.

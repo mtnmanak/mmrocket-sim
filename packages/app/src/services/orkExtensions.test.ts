@@ -87,7 +87,7 @@ describe('opaque desktop simulation extensions', () => {
     expect(exportOrk({ name: opened.name, tree: restored.state.tree,
       configs: restored.state.savedConfigs.map(c => ({ ...c, motors: {} })),
       launch: DEFAULT_CONDITIONS })).toContain(script);
-    expect(autosaveToOrk({ ...restored.state, savedAt: 1 })).toContain(script);
+    expect(autosaveToOrk({ ...restored.state, savedAt: 1 }).xml).toContain(script);
     expect(preservedSimulationExtensions(restored.state.tree).map(g => g.configId)).toEqual(['B', 'A']);
   });
 

@@ -523,6 +523,7 @@ export function planImport(
       ...(cfg.stageMassOverrides ? { stageMassOverrides: cfg.stageMassOverrides } : {}),
       // Keep the warning with the figures it describes (audit 2026-10-11, S1c-3).
       ...(cfg.stageMassNotes?.length ? { stageMassNotes: cfg.stageMassNotes } : {}),
+      ...(cfg.stageMassNoteKinds?.length ? { stageMassNoteKinds: cfg.stageMassNoteKinds } : {}),
       ...(cfg.stageActiveness ? { stageActiveness: cfg.stageActiveness } : {}),
       ...(unmatched.length > 0 ? { unmatched } : {}),
       ...(Object.keys(cfgUnmatchedRefs).length > 0 ? { unmatchedRefs: cfgUnmatchedRefs } : {}),
@@ -689,7 +690,8 @@ export function applyImportPlan(plan: ImportPlan, sinks: ImportSinks): void {
       const id = old && ids.get(old);
       if (!id) return motor;
       const spec = motor.spec as RepairedMotorSpec;
-      return { ...motor, meta: { ...motor.meta, exMotorId: id, motorId: id },
+      return { ...motor, meta: { ...motor.meta, exMotorId: id, motorId: id,
+        ...(motor.meta.orkMotorId === old ? { orkMotorId: id } : {}) },
         spec: { ...spec, ...(spec.exDefinition ? { exDefinition: { ...spec.exDefinition, motorId: id } } : {}) } };
     };
     const set = (motors: Record<string, MountMotor>, refs: Record<string, OrkMotorRef> = {}) => {
@@ -808,10 +810,10 @@ export function planConfigSwitch(
   // changed by tens of pounds belongs in the box the switch already writes.
   const withSpent = (lines: ImportNote[], sev: NoticeSeverity): ConfigSwitchPlan['note'] => {
     // These are the import's decisions, even if the user has since edited a
-    // snapshot or resolved its motor (audit 2026-10-11, S1c-3). A stage-mass
-    // line is only ever the RASAero reader's override note (I17): Caution.
+    // snapshot or resolved its motor (audit 2026-10-11, S1c-3). Preserve the
+    // reader's code; older sessions only carried the I17 override notes.
     const all = [...lines,
-      ...(cfg.stageMassNotes ?? []).map((n): ImportNote => ({ kind: 'I17.override-not-applied', tier: 'caution', text: `At file import: ${n}` })),
+      ...(cfg.stageMassNotes ?? []).map((n, i): ImportNote => ({ kind: cfg.stageMassNoteKinds?.[i] ?? 'I17.override-not-applied', tier: 'caution', text: `At file import: ${n}` })),
       ...tierLines(spent.notes, noteFlags(spent.notes))];
     const group: NoteGroup = { lines: all };
     return { text: groupText(group), group,

@@ -3236,7 +3236,7 @@ describe('.ork <preset> — the catalogue link round-trips', () => {
     expect(save(importOrk(ring).tree), 'the desktop link did not survive a save').toContain(desktop);
   });
 
-  it('a desktop link to a part this catalogue lacks still goes back to desktop', async () => {
+  it('an unchanged desktop link to a part this catalogue lacks keeps its identity', async () => {
     // SS Wild Bash 20260623v0.ork carries a Rail-Buttons.com RB1515S; the
     // app has no rail-button catalogue, so it cannot link it — but desktop can.
     const desktop = '<preset type="RAIL_BUTTON" manufacturer="Rail-Buttons.com" partno="RB1515S" digest="30ddc4df54063b9aacb3b58b916581c4"/>';
@@ -3250,14 +3250,14 @@ describe('.ork <preset> — the catalogue link round-trips', () => {
     const opened = importOrk(xml, { presets: await loadPresets() });
     const button = flatten(opened.tree.components).find((c) => c.type === 'railbutton')!;
     expect(button['presetPartNo']).toBeUndefined(); // not linked here
-    expect(save(opened.tree)).toContain(desktop);   // and not lost for desktop
+    expect(save(opened.tree)).toContain(desktop);
   });
 
   describe('a new pick or Detach retires desktop’s link with the old one', () => {
     const desktop = '<preset type="PARACHUTE" manufacturer="Fruity Chutes" partno="IFC-084-S" digest="0123456789abcdef0123456789abcdef"/>';
     /** A desktop-linked canopy, opened with the catalogue. */
     const open = async () => {
-      const xml = save(linked({ presetManufacturer: undefined, presetPartNo: undefined }))
+      const xml = save(linked({ presetManufacturer: undefined, presetPartNo: undefined, cd: 1.5, overrideMass: 0.3 }))
         .replace(/(<parachute>\s*<name>Main<\/name>\s*<id>[^<]*<\/id>)/, `$1${desktop}`);
       const presets = await loadPresets();
       const opened = importOrk(xml, { presets });
@@ -3329,8 +3329,9 @@ describe('.ork <preset> — the catalogue link round-trips', () => {
         cd: undefined, spillHoleDiameter: undefined,
         [ORK_PRESET_KEYS.manufacturer]: 'Fruity Chutes', [ORK_PRESET_KEYS.partNo]: 'IFC-084-S',
         [ORK_PRESET_KEYS.digest]: '0123456789abcdef0123456789abcdef',
+        [ORK_PRESET_KEYS.importState]: { cd: true, overrideMass: false },
       });
-      expect(save(tree)).toContain('digest="0123456789abcdef0123456789abcdef"');
+      expect(save(tree)).toContain('partno="IFC-084-S" digest=""');
       const back = chuteIn(reopen(tree, presets).tree);
       expect(back['cd']).toBeUndefined();
       expect(back['spillHoleDiameter']).toBeUndefined();
