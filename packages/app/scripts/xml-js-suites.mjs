@@ -119,12 +119,14 @@ export const XML_JS_SUITES = [
   'src/services/orkPackedSize.test.ts',
   'src/services/orkRadial.test.ts',
   'src/services/rasaeroFile.test.ts',
+  'src/services/rasaeroFile.auditN6.test.ts',
   // M3: stage figures, finishes, lugs and excluded-booster cautions use both parsers.
   'src/services/rasaeroFile.M3.test.ts',
   'src/services/rasaeroFile.audit.test.ts',
   'src/services/rasaeroStatedFigures.test.ts',
   'src/services/recoveryMass.test.ts',
   'src/services/rocksimFile.test.ts',
+  'src/services/rocksimFile.auditN6.test.ts',
   // Mount fidelity and early part bounds (audit 2026-10-11, S1b-6/S1b-3).
   'src/services/rocksimFile.fidelity.test.ts',
   'src/services/rocksimFile.bounds.test.ts',

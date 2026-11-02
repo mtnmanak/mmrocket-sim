@@ -311,6 +311,16 @@ it('requires inventory review and a boundary case or scope exemption for new pro
     api: comparisonCensus(fileURLToPath(new NodeURL('../../../api/src/', import.meta.url))),
   }).toEqual(reviewedCensus);
 }, 30_000);
+// Inventory review (2026-11-02, N6 round 3): rasaeroFile 266 -> 267:
+// the new `:scope > Altitude2` selector quotes the file value in a notice;
+// its `>` selects a child, not a numeric boundary. auditN6 covers 0/nonzero
+// values and sanitization. No numeric comparison or flight behavior changed.
+// Inventory review (2026-11-02, N6 round 2): rasaeroFile 262 -> 266:
+// case-insensitive surface/nose key searches contain no numeric comparisons;
+// unknown-section fallback and paired-apogee wording replace prior notices.
+// Booster boat-tail omission and launch delay notes are format-loss statements,
+// covered by auditN6 (missing/zero rear diameter; 1/2/3-stage delay overrides).
+// noteExplanations 26 -> 27 is static recovery/boat-tail help, not a threshold.
 // Inventory review (2026-11-01, M3): rasaeroFile.ts rose 261 -> 262 on
 // `:scope > IncludeBooster${i}`, an XML child selector in the excluded-booster
 // caution loop. Its `>` is not a numeric comparison or user-facing text, so
