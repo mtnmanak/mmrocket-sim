@@ -367,6 +367,12 @@ The link is saved with the design — in `.ork` and `.rkt` files and in share li
 
 ## Fins
 
+Adding a fin set with **+ Add** places its fins between all existing fin sets on that tube, choosing the widest angular clearance. Existing sets keep their rotations. Check physical clearance when mixing fin counts or tube fins.
+
+When a RockSim import rotates a third or later fin set that overlaps another at the same angle, its new angle clears every earlier overlapping set. The import note names the rotation; check the arrangement against the physical rocket.
+
+For unusually large designs with more than 65 earlier fin sets on one tube, automatic placement uses the simpler half-pitch rule to keep editing and importing responsive. Sets can overlap; check and adjust their Rotation fields against the physical rocket.
+
 Four fin families are supported:
 
 - **Trapezoidal** — the everyday fin, defined by root chord, tip chord, sweep, and height.
@@ -1546,6 +1552,9 @@ launch conditions, aerodynamics model and required kernel evidence still match. 
 qualifies, the save can preserve the first summary carrying a recognised app aerodynamics tag from the opened file for that remaining configuration,
 marked historical (`outdated`). This file association survives edits and session restore, independently
 of Saved simulations and Undo; results from other opened files are never used as this fallback. With neither, the configuration is saved as *not simulated*.
+
+For an inactive configuration with a weighed pad mass, the save checks that configuration's current hardware mass against its flight, including when a refused weighing adds no hardware. A mismatch leaves out its app flight summary and flown Auto delay; the motor saves at its provisional delay. Recovery backups also check the inputs kept with the cached delays. Older backups without that evidence use the provisional delay if any configuration has a pad weighing; unweighed older backups keep their flown delay. After reopening, select Auto, launch, and save to verify the flight and delay.
+
 Only one result per remaining configuration is written; confirming **Delete** on a configuration row leaves its result
 out of the file. A file records
 one delay per motor and has no setting for **auto (optimal)**, so each motor on auto is saved at
@@ -1565,6 +1574,12 @@ separate from the unknown landing descent rate. To keep every row in your run hi
 with **⬇ Run table (.csv)** or **⬇ Run table (.xlsx)**.
 
 When a part opened from a desktop OR `.ork` is linked to desktop's component catalogue, and you clear a parachute Cd or mass override, or a rail-button mass or Cd override, that the file itself set, the `.ork` save clears the part's desktop digest, so the cleared setting stays cleared when the file is opened in desktop OR. A value the file did not set, or a part restored from an autosave older than this rule, keeps its link: desktop OR can then still apply the catalogue's value there. The manufacturer and part number remain for the app's catalogue lookup; desktop OR may warn that it cannot match the preset.
+
+An unloaded mount's configuration-specific ignition is kept as an app attribute in `.ork`; desktop OR ignores it silently, keeping the mount's own ignition default. Loading a motor into that configuration in the app restores its override.
+
+Save, share links, flight-data bundles and recovery `.ork` files warn when saved configurations have different nozzle exits: `.ork` keeps each stage's current exit for every configuration. Reopening can therefore change another configuration's drag and pressure thrust; check its nozzle before flying.
+
+With winds aloft, a tilted rod aimed into the wind and a launch site above or below sea level, the save warns that desktop OR may aim the rod using wind from the wrong height when rerunning the file. Check its rod direction there: the predicted flight and landing can change. The saved launch settings are unchanged.
 
 **Where the file goes.** On **Chrome and Edge**, the design formats under *Save As / Export* — `.ork`, `.rkt`, `.CDX1` and the component tables — open a real **Save As dialog**: the name is prefilled and you can change it, and you choose the folder. For `.ork`, `.rkt` and `.CDX1`, the offered name is the file you opened or last saved in any of the three design formats, without its extension, or the rocket's name when there is none. Component tables and other exports still use the rocket's name. The rocket name and file name are separate: **Design → Rocket name** edits the rocket name stored inside the file. (The three 3D exports — `.obj`, `.glb`, `.stl` — load their exporter on the click and so lose the browser's permission to open a dialog; they download, and the app names the file.) On **Firefox and Safari**, which have no such dialog available to a web app, the file goes to the browser's download folder and the app tells you the filename it requested; the browser may have saved it under another name. **Firefox can still give you a Save As dialog:** turn on its *Settings → General → Downloads → Always ask you where to save files*, and every download — the app's saves included — asks for the name and folder, as on Chrome. With it off, Firefox's default, saves go straight to the download folder, and the note after each save there names the setting. The app's other downloads — the run table, the flight data, the drag table, fin templates and the rest — open the same Save As dialog on Chrome and Edge wherever the browser allows one, and otherwise go to the download folder. On Chrome and Edge, keeping the offered name in the same folder saves over that file after the dialog asks you to confirm. On Firefox and Safari, a download never replaces an existing file: the browser adds a number to the name.
 

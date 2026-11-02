@@ -4,11 +4,12 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { ComponentNode } from '@online-openrocket/engine';
-import { exportOrk, importOrk } from './orkFile.js';
+import { exportOrk, importOrk, type OrkExportMotor } from './orkFile.js';
 import { resolveFlightState } from './flightState.js';
 import { DEFAULT_CONDITIONS } from './launchConditions.js';
 import { planImport } from './importApply.js';
 import { engineTree } from '../tree/treeModel.js';
+import type { IgnitionTuple } from '../model/design.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const file = (name: string) => readFileSync(join(here, '__fixtures__', name));
@@ -21,6 +22,49 @@ const wrap = (parts: string, configs = '<motorconfiguration configid="one" defau
   `<openrocket version="1.10"><rocket><name>Layers</name>${configs}<subcomponents><stage><subcomponents>${parts}</subcomponents></stage></subcomponents></rocket></openrocket>`;
 
 describe('FC-2 configuration layers', () => {
+  it.each(['EJECTION_CHARGE', 'unknown'])('writes a desktop ignition default for legacy %s', event => {
+    const tree = { components: [{ type: 'bodytube' as const, id: 'mount', motorMount: true }] };
+    // Legacy autosaves can carry spellings outside today's canonical type.
+    const xml = exportOrk({ name: 'Legacy', tree: { ...tree,
+      ignitionDefaults: { mount: { event: event as IgnitionTuple['event'], delay: 2 } } } });
+    expect(xml).toContain(`<ignitionevent>${event === 'EJECTION_CHARGE' ? 'ejectioncharge' : 'automatic'}</ignitionevent>`);
+    expect(xml).not.toContain(`<ignitionevent>${event}</ignitionevent>`);
+  });
+
+  it.each(['EJECTION_CHARGE', 'unknown'])('normalizes legacy %s in motor fallbacks and configuration overrides', event => {
+    const motor: OrkExportMotor = { designation: 'Test', manufacturer: 'Test', diameter: 0.018,
+      length: 0.07, delay: 5, ignitionEvent: event, ignitionDelay: 0 };
+    const tree = { components: [{ type: 'bodytube' as const, id: 'mount', motorMount: true }] };
+    const expected = event === 'EJECTION_CHARGE' ? 'ejectioncharge' : 'automatic';
+    const fallback = exportOrk({ name: 'Legacy fallback', tree, motors: { mount: motor } });
+    expect(fallback).toContain(`<ignitionevent>${expected}</ignitionevent>`);
+    expect(fallback).not.toContain(`<ignitionevent>${event}</ignitionevent>`);
+    for (const loaded of [true, false]) {
+      const xml = exportOrk({ name: 'Legacy override', tree: { ...tree,
+        ignitionDefaults: { mount: { event: 'launch', delay: 0 } } }, configs: [{ id: 'A', name: 'A', isDefault: true,
+        motors: loaded ? { mount: motor } : {},
+        ignitions: { mount: { event: event as IgnitionTuple['event'], delay: 2 } } }] });
+      if (loaded) expect(xml).toContain(`<ignitionevent>${expected}</ignitionevent>`);
+      else expect(xml).toContain(`&quot;${expected}&quot;`);
+      expect(xml).not.toContain(`<ignitionevent>${event}</ignitionevent>`);
+    }
+  });
+
+  it('warns about desktop rod aiming with elevated winds aloft without changing written conditions', () => {
+    const launch = { ...DEFAULT_CONDITIONS, launchAltitudeM: 500, launchRodAngleDeg: 5,
+      windLevels: [{ altitude: 0, speed: 2, direction: 0 }, { altitude: 500, speed: 4, direction: 1 }] };
+    const notes: string[] = [];
+    const xml = exportOrk({ name: 'Wind', tree: { components: [] }, launch, notes });
+    expect(notes.join(' ')).toContain('desktop OR');
+    expect(notes.join(' ')).toContain('rod');
+    expect(xml).toContain('<launchintowind>true</launchintowind>');
+    expect(xml).toContain('<launchroddirection>90.0</launchroddirection>');
+    for (const changed of [{ launchAltitudeM: 0 }, { launchRodAngleDeg: 0 }, { launchRodAimDeg: 10 }, { windLevels: [] }]) {
+      const quiet: string[] = [];
+      exportOrk({ name: 'Wind', tree: { components: [] }, launch: { ...launch, ...changed }, notes: quiet });
+      expect(quiet.join(' ')).not.toContain('desktop OR');
+    }
+  });
   it('keeps the two LEM component defaults and resolves the selected ejection overrides through save/reopen', () => {
     let r = importOrk(file('config-layers/lem-recovery.xml').toString());
     for (let pass = 0; pass < 2; pass++) {
@@ -66,7 +110,9 @@ describe('FC-2 configuration layers', () => {
     expect(r.configs[1]!.ignitions?.[id]).toEqual({ event: 'never', delay: 4 });
     expect(r.configs[2]!.ignitions).toBeUndefined();
     const xml = save(r);
-    expect(xml.match(/<ignitionconfiguration /g)).toHaveLength(2);
+    expect(xml.match(/<ignitionconfiguration /g)).toHaveLength(1);
+    expect(xml).not.toContain('<mmrignitionconfiguration');
+    expect(xml).toContain('mmrignitions=');
     expect(xml).not.toContain('<ignitionconfiguration configid="inherit">');
     const again = importOrk(xml);
     expect(Object.values(again.tree.ignitionDefaults!)).toEqual([{ event: 'burnout', delay: 4 }]);

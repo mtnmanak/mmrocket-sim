@@ -6,6 +6,14 @@ import { orkMotorSet, type OrkMotorSetInput } from './orkExportMotors.js';
 import { autoDelaySaveNote, exportOrk, type OrkExportMotor, type OrkMotorRef } from './orkFile.js';
 import { flushSession, heldSession, peekSession, sessionPayload, type SessionState } from './session.js';
 import { noteFlags } from './importNotes.js';
+import { stableJson } from './dirtyState.js';
+import { shortHash } from './simReport.js';
+import { syncActiveConfig } from './configSync.js';
+
+/** Bind cached delay evidence to the inputs that can change weighed hardware. */
+export function autoDelayHardwareKey(s: Pick<SessionState, 'tree' | 'mountMotors' | 'savedConfigs' | 'measured' | 'activeConfigId' | 'launch' | 'detachedOverrides'>): string {
+  return shortHash(stableJson([s.tree, s.mountMotors, s.savedConfigs, s.measured, s.activeConfigId, s.launch, s.detachedOverrides]));
+}
 
 /** The restore-time negative-delay clamp's note code (ejectionDelay.ts). */
 const DELAY_CLAMP = 'I11.negative-delay';
@@ -68,6 +76,14 @@ function motorSet(
 
 /** The stored session as an .ork document. Throws whatever the writer throws. */
 export function autosaveToOrk(s: SessionState): { xml: string; notes: string[] } {
+  const stamped = s.flownAutoDelayHardwareKey === autoDelayHardwareKey(s);
+  const weighed = [s.mountMotors, ...s.savedConfigs?.map(c => c.motors) ?? [],
+    s.unmatchedRefs, ...s.savedConfigs?.map(c => c.unmatchedRefs) ?? []]
+    .some(records => Object.values(records ?? {}).some(m => (m.padMassKg ?? 0) > 0));
+  // Before stamps existed, unweighed tables already qualified their delays.
+  if (!stamped && (s.flownAutoDelayHardwareKey !== undefined || weighed)) {
+    s = { ...s, flownAutoDelays: undefined };
+  }
   // A negative delay clamped on restore (I11) loses nothing: the .ork carries the
   // clamped 0 s and the caution travels with the file. Any other repair keeps the
   // raw autosave (integration review, 1 Nov 2026: M4's clamp × M2's recovery notes).
@@ -85,7 +101,8 @@ export function autosaveToOrk(s: SessionState): { xml: string; notes: string[] }
   if (!restored.refused) s = { ...restored.session!, ...restored.state };
   const active = s.savedConfigs?.find((c) => c.id === s.activeConfigId);
   const motors = motorSet(s, s.activeConfigId ?? '', s.mountMotors, s.unmatchedRefs ?? active?.unmatchedRefs, 'records');
-  const configs = s.savedConfigs?.map((c) => ({
+  const configs = syncActiveConfig(s.savedConfigs ?? [], s.activeConfigId ?? null,
+    { tree: s.tree, motors: s.mountMotors ?? {}, unmatchedRefs: s.unmatchedRefs ?? active?.unmatchedRefs ?? {} }).map((c) => ({
     id: c.id, name: c.name, isDefault: c.isDefault,
     ...(c.stageActiveness ? { stageActiveness: c.stageActiveness } : {}),
     ...(c.motorLoadoutRefusal ? { motorLoadoutRefusal: c.motorLoadoutRefusal } : {}),
@@ -93,6 +110,7 @@ export function autosaveToOrk(s: SessionState): { xml: string; notes: string[] }
     ...(c.ignitions ? { ignitions: c.ignitions } : {}),
     ...(c.deployments ? { deployments: c.deployments } : {}),
     ...(c.separations ? { separations: c.separations } : {}),
+    ...(c.nozzles ? { nozzles: c.nozzles } : {}),
     ...(c.stageMassOverrides ? { stageMassOverrides: c.stageMassOverrides } : {}),
   }));
   // The writer replaces the active row's stored motors with the live set.

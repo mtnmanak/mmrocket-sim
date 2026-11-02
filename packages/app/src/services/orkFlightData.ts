@@ -214,6 +214,9 @@ export interface FlightDataForExportInput {
   configurationState?: (id: string | null) => {
     designKey: string; hasNozzle?: boolean; requiresPhysicsRevision?: boolean; physicsRevisions?: readonly string[];
     motors: [string, MountMotor][];
+    hardwareDeltaKg?: number;
+    /** Deferred until design, conditions, model and revision checks pass. */
+    getHardwareDeltaKg?: () => number;
   };
   /** Historical fallback belongs exclusively to this opened document. */
   importedDocument?: ImportedSummaryDocument;
@@ -314,11 +317,14 @@ function describedMotors(r: SimRun, input: FlightDataForExportInput, includeMode
   const cfgMotors: [string, MountMotor][] = effective ? effective.motors.filter(([id]) => mountIds.includes(id)) : active
     ? [...assigned]
     : Object.entries(cfg.motors).filter(([id]) => mountIds.includes(id));
-  // The hardware term is the ACTIVE configuration's: a non-active
-  // configuration's stored run keeps matching only if it flew with no
-  // hardware, and refusal is the safe direction for numbers written into a
-  // file — the same rule the model check above applies to UNKNOWN.
-  if (r.motorSetKey !== motorSetKeyOf(cfgMotors, active ? hardwareDeltaKg : 0)) return null;
+  // A weighing can legitimately contribute zero (including refused weights).
+  // Match the owner's current calculation, never the presence of the field.
+  const primary = input.primaryMountOf(cfgMotors.map(([id]) => id));
+  const padMassKg = cfgMotors.find(([id]) => id === primary)?.[1].padMassKg;
+  const ownerDelta = active ? hardwareDeltaKg : effective?.getHardwareDeltaKg?.() ?? effective?.hardwareDeltaKg;
+  if (!active && ownerDelta === undefined && typeof padMassKg === 'number' && padMassKg > 0) return null;
+  const delta = ownerDelta ?? 0;
+  if (!Number.isFinite(delta) || r.motorSetKey !== motorSetKeyOf(cfgMotors, delta)) return null;
   if (r.motorDataKey !== undefined && r.motorDataKey !== motorDataKeyOf(cfgMotors)) return null;
   if (!motorDataKeysMatch(r.motorDataKeys, Object.fromEntries(cfgMotors.map(m => [m[0], motorDataKeyOf([m])])))) return null;
   const resolution = r.delayResolution;

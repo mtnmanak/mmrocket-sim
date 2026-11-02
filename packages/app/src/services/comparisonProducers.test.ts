@@ -3,8 +3,8 @@
 // add only recovery-copy message declarations. No numeric boundary changed.
 import { createElement, act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { readFileSync } from 'node:fs';
-import { URL as NodeURL } from 'node:url';
+import { readFileSync, readdirSync } from 'node:fs';
+import { URL as NodeURL, fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
 import type { ComponentNode, FlightResult, RocketTree, StaticInfo } from '@online-openrocket/engine';
 import { INITIAL_UNITS, IMPERIAL_UNITS, noticeQuantity, type UnitSelection } from '../prefs/units.js';
@@ -38,9 +38,7 @@ import { formatWarning } from './simWarnings.js';
 import { planImport } from './importApply.js';
 import { designNotices } from './notices.js';
 import { setXmlParser } from './xmlParse.js';
-import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
-import { readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import reviewedCensus from './comparisonCensus.testSupport.json';
 import { readUserMaterials, USER_MATERIALS_KEY } from './userMaterials.js';
@@ -348,6 +346,9 @@ it('requires inventory review and a boundary case or scope exemption for new pro
 // rocksimFile.importExport.test.ts and noteExplanations.test.ts. Streamer
 // original/combined mass formatting reuses the existing recovery producer;
 // bulk/surface/invalid-density boundaries are in the importExport tests.
+// Inventory review (N4 round 2): orkFile 527 -> 528 is the tilted-rod/winds
+// aloft save caution. orkFile.layers.test.ts covers zero altitude, vertical
+// rod, manual aim and absent profile boundaries; no flight input is changed.
 // Inventory review (2026-11-01, M3): rasaeroFile.ts rose 261 -> 262 on
 // `:scope > IncludeBooster${i}`, an XML child selector in the excluded-booster
 // caution loop. Its `>` is not a numeric comparison or user-facing text, so

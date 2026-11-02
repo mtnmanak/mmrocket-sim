@@ -17,6 +17,7 @@ import { windProfileSaveNotes } from './windProfile.js';
 import { designProvenanceLossNotes } from './designProvenance.js';
 import { cleanDocumentMaterials } from './documentMaterials.js';
 import type { FlightTree } from '../model/design.js';
+import { knownIgnitionEvent } from './ignitionEvent.js';
 
 export type LossyFormat = 'rkt' | 'cdx1';
 export interface FormatLossReport {
@@ -345,12 +346,13 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     parts(n => n['motorMount'] === true || n['caseAirframe'] === true || nonzero(n, 'motorOverhang'),
       'Motor mounts lose their identity, location, overhang and case-as-airframe setting');
     const launchDelayNoted = (m: OrkExportMotor) => Boolean(rasaeroManufacturerAbbrev(m.manufacturer))
-      && (m.ignitionEvent === undefined || m.ignitionEvent === 'automatic') && (m.ignitionDelay ?? 0) !== 0
+      && (knownIgnitionEvent(m.ignitionEvent ?? null) ?? 'automatic') === 'automatic' && (m.ignitionDelay ?? 0) !== 0
       && nodesOf({ components: stages.slice(-1) }).some(n => overrideFor(input.motors, n.id ?? '') === m);
     for (const m of motors) {
       add(!rasaeroManufacturerAbbrev(m.manufacturer), `Motor “${noteField(m.designation)}” is omitted: its manufacturer has no supported RASAero engine abbreviation.`);
       add(m.delay !== undefined || Boolean(m.autoDelay), `Motor “${noteField(m.designation)}”: selected ejection delay (including plugged/Auto) is not kept; the reader chooses its own delay.`);
-      add(!launchDelayNoted(m) && ((m.ignitionEvent !== undefined && !['automatic', 'burnout'].includes(m.ignitionEvent)) || (m.ignitionEvent !== 'burnout' && (m.ignitionDelay ?? 0) !== 0)),
+      const ignition = knownIgnitionEvent(m.ignitionEvent ?? null) ?? 'automatic';
+      add(!launchDelayNoted(m) && (!['automatic', 'burnout'].includes(ignition) || (ignition !== 'burnout' && (m.ignitionDelay ?? 0) !== 0)),
         `Motor “${noteField(m.designation)}”: ignition trigger/timing is not kept; only burnout-relative delays can be written for the upper two stages.`);
     }
     const stageMotors = stages.map(s => nodesOf({ components: [s] }).flatMap(n => {
@@ -360,7 +362,7 @@ export function checkFormatLoss(format: LossyFormat, input: FormatLossInput): Fo
     // Automatic is launch only on the bottom active core stage (AxialStage).
     const launchStage = stages.length - 1;
     for (let i = 0; i < launchStage; i++) for (const m of stageMotors[i]!) {
-      if (!rasaeroManufacturerAbbrev(m.manufacturer) || (m.ignitionEvent !== undefined && m.ignitionEvent !== 'automatic')) continue;
+      if (!rasaeroManufacturerAbbrev(m.manufacturer) || (knownIgnitionEvent(m.ignitionEvent ?? null) ?? 'automatic') !== 'automatic') continue;
       const below = stageMotors[i + 1] ?? [];
       if (!stageMotors.slice(i + 1).some(ms => ms.some(lower => rasaeroManufacturerAbbrev(lower.manufacturer)))) {
         losses.push(`Motor “${noteField(m.designation)}” reopens at launch because there is no exported lower engine; its automatic ejection-charge trigger in the app is not kept.`);

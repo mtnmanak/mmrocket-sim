@@ -2274,10 +2274,10 @@ export function exportCdx1({ name, tree, overrides = {}, launchMassKg, launchCgM
     }
     // Only a burnout-triggered motor has a delay this format can express; a
     // launch-stage motor, or any other ignition event, writes RASAero's own 0.
-    const ignitionDelay = found?.ignitionEvent === 'burnout' ? (found.ignitionDelay ?? 0) : 0;
+    const ignitionDelay = knownIgnitionEvent(found?.ignitionEvent) === 'burnout' ? (found?.ignitionDelay ?? 0) : 0;
     const abbrev = found ? rasaeroManufacturerAbbrev(found.manufacturer) : null;
     if (found && abbrev && stIdx === stagesIn.length - 1
-      && (found.ignitionEvent === undefined || found.ignitionEvent === 'automatic') && (found.ignitionDelay ?? 0) !== 0) {
+      && (knownIgnitionEvent(found.ignitionEvent) ?? 'automatic') === 'automatic' && (found.ignitionDelay ?? 0) !== 0) {
       notes?.push(`Motor “${noteField(found.designation)}”: .CDX1 cannot keep the launch-stage ignition delay of ${found.ignitionDelay ?? 0} s. `
         + 'On reopen it ignites at launch with no delay, which can change the flight. Save .ork to keep this timing.');
     }

@@ -87,6 +87,7 @@ export interface SessionState {
    * is one, and dropped on load unless it is a table of delays.
    */
   flownAutoDelays?: Record<string, Record<string, number>>;
+  flownAutoDelayHardwareKey?: string;
   /** Prevents old filter preferences from returning after a mount is cleared. */
   motorLengthLimitsMigrated?: boolean;
   /** Legacy per-STAGE max motor length keyed by stage node id (SI m); null/absent = no limit. */

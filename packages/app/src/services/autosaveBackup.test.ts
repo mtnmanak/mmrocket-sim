@@ -4,7 +4,7 @@ import type { ComponentNode, MotorSpec, RocketTree } from '@online-openrocket/en
 import type { MountMotor } from '../model/design.js';
 import { addChild, defaultTree, motorMounts } from '../tree/treeModel.js';
 import { DEFAULT_CONDITIONS } from '../components/LaunchPanel.js';
-import { autosavedDesignFile, autosaveToOrk } from './autosaveBackup.js';
+import { autoDelayHardwareKey, autosavedDesignFile, autosaveToOrk } from './autosaveBackup.js';
 import { importOrk } from './orkFile.js';
 import * as orkFile from './orkFile.js';
 import { discardSession, saveSessionDebounced, type SessionState } from './session.js';
@@ -31,6 +31,10 @@ function storeDesign(tree: RocketTree, mountMotors: Record<string, MountMotor>) 
   saveSessionDebounced({ tree, mountMotors, launch: DEFAULT_CONDITIONS, measured: { massKg: 0.031, cgM: 0.2 } });
 }
 
+function stamped(s: Omit<SessionState, 'savedAt'>) {
+  return { ...s, flownAutoDelayHardwareKey: autoDelayHardwareKey(s) };
+}
+
 beforeEach(() => {
   localStorage.clear();
   vi.useFakeTimers();
@@ -42,6 +46,43 @@ afterEach(() => {
 });
 
 describe('autosavedDesignFile', () => {
+  it('only reuses weighed Auto evidence while its hardware inputs still match', () => {
+    const tree = defaultTree();
+    const mount = motorMounts(tree)[0]!.id!;
+    const motor = { ...c6(), padMassKg: 0.1, meta: { ...c6().meta, autoDelay: true } };
+    const s: SessionState = { tree, mountMotors: { [mount]: motor }, launch: DEFAULT_CONDITIONS,
+      configLayers: 1, savedAt: 1, flownAutoDelays: { '': { [mount]: 7 } } };
+    expect(autosaveToOrk(s).xml).toContain('<delay>5</delay>');
+    s.flownAutoDelayHardwareKey = autoDelayHardwareKey(s);
+    expect(autosaveToOrk(s).xml).toContain('<delay>7</delay>');
+    s.mountMotors![mount] = { ...motor, padMassKg: 0.2 };
+    expect(autosaveToOrk(s).xml).toContain('<delay>5</delay>');
+    // Legacy unweighed tables predate the stamp and remain usable.
+    delete s.flownAutoDelayHardwareKey;
+    s.mountMotors![mount] = { ...motor, padMassKg: undefined };
+    expect(autosaveToOrk(s).xml).toContain('<delay>7</delay>');
+    s.savedConfigs = [{ id: 'B', name: 'Weighed', isDefault: false, motors: { [mount]: motor } }];
+    expect(autosaveToOrk(s).xml).toContain('<delay>5</delay>');
+  });
+  it('carries configuration nozzles to the recovery writer note', () => {
+    const tree = defaultTree();
+    const stage = tree.components[0]!;
+    stage.nozzleExitDiameter = 0.01;
+    const savedConfigs = [
+      { id: 'A', name: 'Active', isDefault: true, motors: {}, nozzles: { [stage.id!]: 0.01 } },
+      { id: 'B', name: 'Other', isDefault: false, motors: {}, nozzles: { [stage.id!]: null } },
+    ];
+    const session: SessionState = { tree, mountMotors: {}, savedConfigs, activeConfigId: 'A',
+      launch: DEFAULT_CONDITIONS, configLayers: 1, savedAt: 1 };
+    const before = structuredClone(session);
+    expect(autosaveToOrk(session).notes.join('\n')).toContain('Nozzle exit diameters differ on 1 stage in 1 saved configuration');
+    expect(session).toEqual(before);
+    // The active row is an old snapshot; the tree is the current working value.
+    session.savedConfigs![0]!.nozzles = { [stage.id!]: null };
+    expect(autosaveToOrk(session).notes.join('\n')).toContain('Nozzle exit diameters differ on 1 stage in 1 saved configuration');
+    session.savedConfigs![1]!.nozzles = { [stage.id!]: 0.01 };
+    expect(autosaveToOrk(session).notes.join('\n')).not.toContain('Nozzle exit diameters differ');
+  });
   it.each([false, true])('M2 notes describe live active motors instead of stale Auto motors (live Auto: %s)', liveAuto => {
     const tree = defaultTree();
     const mount = motorMounts(tree)[0]!.id!;
@@ -94,6 +135,7 @@ describe('autosavedDesignFile', () => {
         { id: 'B', name: 'Stored', isDefault: false, motors: { [mount]: motor } },
       ], flownAutoDelays: { A: { [mount]: 7 } },
     };
+    session.flownAutoDelayHardwareKey = autoDelayHardwareKey(session);
     const real = orkFile.exportOrk;
     const writer = vi.spyOn(orkFile, 'exportOrk');
     writer.mockImplementation(input => { input.notes?.push('Writer caution'); return real(input); });
@@ -337,9 +379,9 @@ describe('autosavedDesignFile', () => {
     it('is written at the delay it flew, as a Save would write it', () => {
       const tree = { ...defaultTree(), name: 'Auto' };
       const mount = motorMounts(tree)[0]!.id!;
-      saveSessionDebounced({
+      saveSessionDebounced(stamped({
         configLayers: 1, detachedOverrides: {}, tree, mountMotors: { [mount]: auto() }, launch: DEFAULT_CONDITIONS, flownAutoDelays: { '': { [mount]: 7 } },
-      });
+      }));
       vi.runAllTimers();
       const back = importOrk(autosavedDesignFile()!.data);
       expect(back.motors[motorMounts(back.tree)[0]!.id!]?.delay).toBe(7);
@@ -348,14 +390,14 @@ describe('autosavedDesignFile', () => {
     it('in each stored configuration, at the delay that configuration flew', () => {
       const tree = { ...defaultTree(), name: 'Two configurations' };
       const mount = motorMounts(tree)[0]!.id!;
-      saveSessionDebounced({
+      saveSessionDebounced(stamped({
         configLayers: 1, detachedOverrides: {}, tree, mountMotors: { [mount]: auto() }, launch: DEFAULT_CONDITIONS, activeConfigId: 'A',
         savedConfigs: [
           { id: 'A', name: null, isDefault: true, motors: { [mount]: auto() } },
           { id: 'B', name: 'Windy', isDefault: false, motors: { [mount]: auto() } },
         ],
         flownAutoDelays: { A: { [mount]: 7 }, B: { [mount]: 8 } },
-      });
+      }));
       vi.runAllTimers();
       const back = importOrk(autosavedDesignFile()!.data);
       const backMount = motorMounts(back.tree)[0]!.id!;

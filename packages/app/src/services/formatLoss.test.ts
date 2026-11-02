@@ -66,7 +66,7 @@ describe('lossy fix regressions', () => {
     expect(report.losses.join(' ')).not.toMatch(/Booster nozzle.*not kept/);
     expect(report.losses.join(' ')).not.toContain('Motor “undefined”');
   });
-  it.each([undefined, 'automatic'] as const)('V1 warns about %s upper ignition and plugged lower motors', event => {
+  it.each([undefined, 'automatic', 'AUTOMATIC'] as const)('V1 warns about %s upper ignition and plugged lower motors', event => {
     const d = staged(); d.motors.b!.ignitionEvent = event;
     expect(checkFormatLoss('cdx1', d).losses.join('\n')).toContain('Motor “G80” lights on the burnout of the stage below in the .CDX1, not on its ejection charge');
     d.motors.lowerTube!.delay = Infinity;
@@ -76,6 +76,12 @@ describe('lossy fix regressions', () => {
     d.motors.b!.ignitionEvent = event; delete d.motors.lowerTube;
     expect(line('cdx1', d, 'reopens at launch because there is no exported lower engine')).toBe(true);
     expect(line('cdx1', d, 'not on its ejection charge')).toBe(false);
+  });
+  it('canonicalizes legacy burnout for the ignition loss preview', () => {
+    const d = staged();
+    d.motors.b!.ignitionEvent = 'BURNOUT';
+    d.motors.b!.ignitionDelay = 1.25;
+    expect(line('cdx1', d, 'ignition trigger/timing')).toBe(false);
   });
   it('V2 names omitted shoulder fins and the conical shoulder conversion', () => {
     const d = input();

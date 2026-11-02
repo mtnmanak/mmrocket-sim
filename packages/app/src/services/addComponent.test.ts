@@ -10,6 +10,8 @@ import { addNewComponent, type MeasureDesign } from './addComponent.js';
 import { buildDesign, KERNEL_HANDLES } from './buildDesign.js';
 import { importOrk } from './orkFile.js';
 import { RAIL_BUTTON_AFT_GAP, railButtonPlacement } from './railButtonPlacement.js';
+import { exportRkt, importRkt } from './rocksimFile.js';
+import { interleaveRotation } from '../tree/schema.js';
 
 /**
  * A NEW RAIL BUTTON IS AN AUTO-PLACED PAIR (Eric, 2026-09-30: "make new rail
@@ -25,9 +27,74 @@ import { RAIL_BUTTON_AFT_GAP, railButtonPlacement } from './railButtonPlacement.
 
 afterEach(() => resetEngine());
 
+it('bounds fin gap work for thousands of hostile sibling sets', () => {
+  const nodes: ComponentNode[] = Array.from({ length: 4000 }, (_, i) => ({ type: 'freeformfinset', finCount: 8, rotation: i / 4000 }));
+  const start = performance.now();
+  for (let i = 1; i < nodes.length; i++) interleaveRotation(nodes[0]!, nodes[i], nodes.slice(1, i));
+  expect(performance.now() - start).toBeLessThan(1000);
+  const first: ComponentNode = { type: 'freeformfinset', finCount: 3, rotation: 0 };
+  const siblings: ComponentNode[] = Array.from({ length: 65 }, () => ({ ...first, rotation: Math.PI / 3 }));
+  expect(interleaveRotation(first, first, siblings.slice(0, 64))).toBeCloseTo(Math.PI / 6, 10);
+  expect(interleaveRotation(first, first, siblings)).toBeCloseTo(Math.PI / 3, 10);
+});
+
 const flatten = (nodes: readonly ComponentNode[]): ComponentNode[] =>
   nodes.flatMap((n) => [n, ...flatten(n.children ?? [])]);
 const bodyOf = (t: RocketTree) => flatten(t.components).find((n) => n.type === 'bodytube')!;
+
+it.each(['trapezoidfinset', 'freeformfinset', 'ellipticalfinset', 'tubefinset'] as const)(
+  'interleaves a third %s against every existing fin set without moving them', type => {
+    let tree = defaultTree();
+    const body = bodyOf(tree);
+    body.children = [];
+    const first = addNewComponent(tree, body.id!, type, null);
+    const second = addNewComponent(first.tree, body.id!, type, null);
+    tree = second.tree;
+    const third = addNewComponent(tree, body.id!, type, null);
+    const pitch = 2 * Math.PI / (type === 'tubefinset' ? 6 : 3);
+    const rotation = third.node['rotation'] as number;
+    for (const old of [first.node, second.node]) {
+      let distance = Math.abs(rotation - Number(old['rotation'] ?? 0)) % pitch;
+      distance = Math.min(distance, pitch - distance);
+      expect(distance).toBeCloseTo(pitch / 4, 10);
+      expect(findNode(third.tree, old.id!)).toEqual(findNode(tree, old.id!));
+    }
+  },
+);
+
+it('interleaves a third fin set imported from RockSim against both earlier sets', () => {
+  const tree = defaultTree();
+  const body = bodyOf(tree);
+  body.children = Array.from({ length: 3 }, () => ({ type: 'trapezoidfinset', finCount: 3,
+    rootChord: 0.1, tipChord: 0.05, height: 0.05, thickness: 0.002, rotation: 0 }));
+  // A file RockSim wrote: drop the app's own keep-the-angles marker (N5, E-E3-2), which an app save adds.
+  const imported = importRkt(exportRkt({ name: 'Three sets', tree }).replace('<!-- MMRocket Sim: keep fin rotations -->', ''));
+  const sets = flatten(imported.tree.components).filter(n => n.type === 'trapezoidfinset');
+  expect(sets).toHaveLength(3);
+  for (const old of sets.slice(0, 2)) {
+    let distance = Math.abs(Number(sets[2]!.rotation) - Number(old.rotation ?? 0)) % (2 * Math.PI / 3);
+    distance = Math.min(distance, 2 * Math.PI / 3 - distance);
+    expect(distance).toBeCloseTo(Math.PI / 6, 10);
+  }
+});
+
+it('keeps mixed fin counts clear when adding a set beside rotated fins and tubes', () => {
+  const tree = defaultTree();
+  const body = bodyOf(tree);
+  body.children = [
+    { type: 'trapezoidfinset', finCount: 3, rotation: -2 * Math.PI },
+    { type: 'tubefinset', finCount: 6, rotation: Math.PI / 6 },
+  ];
+  const added = addNewComponent(tree, body.id!, 'trapezoidfinset', null);
+  for (const old of body.children) {
+    for (let i = 0; i < 3; i++) for (let j = 0; j < Number(old.finCount); j++) {
+      let gap = Math.abs(Number(added.node.rotation) + i * 2 * Math.PI / 3
+        - Number(old.rotation) - j * 2 * Math.PI / Number(old.finCount)) % (2 * Math.PI);
+      gap = Math.min(gap, 2 * Math.PI - gap);
+      expect(gap).toBeGreaterThanOrEqual(Math.PI / 12 - 1e-12);
+    }
+  }
+});
 
 /**
  * What App hands addNewComponent (App.tsx `onAdd`): the design page's own

@@ -130,7 +130,8 @@ describe('N6 RASAero import regressions', () => {
     expect(cs.map(c => c['deployEvent'])).toEqual(['apogee', 'apogee']);
     const r = importCdx1(design(tube, recovery(slot(1), second)));
     const note = r.noteTiers?.find(n => n.kind === 'I04.recovery-event')?.text;
-    expect(note).toContain(`Altitude2 value “${altitude.split('&')[0]}” ft`);
+    // Hostile text: the line break is dropped and the bidi control shown as a visible marker (lane N2's note rules).
+    expect(note).toContain(`Altitude2 value “${altitude.includes('&') ? '750[U+202E]' : altitude}” ft`);
     expect(note).not.toMatch(/[\n\u202e]/u);
     expect(explanationFor('I04.recovery-event').meaning).toContain('Altitude2');
     expect(explanationFor('I04.recovery-event').meaning).not.toContain('Altitude 0 ft');

@@ -32,7 +32,7 @@ import {
   type OrkMotorRef,
 } from './orkFile.js';
 import { applyPresetLinks, type PendingPresetLink, type Preset } from './presets.js';
-import { DISPLAY_NAME } from '../tree/schema.js';
+import { DISPLAY_NAME, interleaveRotation } from '../tree/schema.js';
 import { findDbMotor, type MotorDbEntry } from './motorDb.js';
 import type { MotorMatchContext } from './motorMatchPolicy.js';
 import { indexRocksimMotors, rocksimBurnTime, rocksimMotorEvidence } from './rocksimMotorEvidence.js';
@@ -1827,8 +1827,12 @@ export function importRkt(data: ArrayBuffer | string, opts?: {
             // that fly need 22.5° (seam review of audit 2026-09-22; finAlign.ts
             // made the same change for the one-click pass).
             const count = finCountOf(clash);
-            me['rotation'] = rotOf(me) + Math.PI / count;
-            cautionNote(notes, 'I21.fin-rotated', `“${noteField(me.name ?? me.type)}” sat at the same angle as “${noteField(clash.name ?? clash.type)}” — rotated ${Math.round(180 / count)}° to interleave (fine-tune via the set's Rotation field).`);
+            const others = i > 65 ? [] : finSets.slice(0, i).filter((_other, j) => spansOverlap(ranges[j]!, ranges[i]!));
+            const rotation = others.length > 1 ? interleaveRotation(others[0]!, me, others.slice(1))
+              : rotOf(me) + Math.PI / count;
+            const turned = ((rotation - rotOf(me)) * 180 / Math.PI + 360) % 360;
+            me['rotation'] = rotation;
+            cautionNote(notes, 'I21.fin-rotated', `“${noteField(me.name ?? me.type)}” sat at the same angle as “${noteField(clash.name ?? clash.type)}” — rotated ${Math.round(turned)}° to interleave (fine-tune via the set's Rotation field).`);
           }
         }
       }
@@ -4048,7 +4052,7 @@ export function exportRkt(input: RktExportInput): string {
     for (const i of [0, 1, 2]) {
       for (const [id, m] of stageMotors[i]!) {
         const delay = m.ignitionDelay ?? 0;
-        const raw = m.ignitionEvent ?? 'automatic';
+        const raw = knownIgnitionEvent(m.ignitionEvent) ?? 'automatic';
         const event = raw !== 'automatic' ? raw
           : i === bottomSlot || strapOn(id) ? 'launch' : 'ejectioncharge';
         const shared = event === 'ejectioncharge' && i !== lowestSlot ? sharedDelayBelow(i) : null;

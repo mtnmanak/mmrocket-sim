@@ -1763,6 +1763,16 @@ describe('.rkt ignition delays — read and written for every event RockSim can 
     expect([m['K250W']!.ignitionEvent, m['K250W']!.ignitionDelay]).toEqual(['burnout', 4.5]);
   });
 
+  it('canonicalizes legacy charge ignition before summing the shared delay', () => {
+    const notes: string[] = [];
+    const back = reread(exportRkt({ name: 'Alias', tree: twoStage(), notes, motors: {
+      m1: motor('M1350W', { delay: 3 }),
+      m0: motor('K250W', { ignitionEvent: 'EJECTION_CHARGE', ignitionDelay: 1.5 }),
+    } }));
+    expect(back['K250W']!.ignitionDelay).toBe(4.5);
+    expect(notes).toEqual([]);
+  });
+
   it('round-trips launch on the pad stage and burnout above it unchanged', () => {
     const notes: string[] = [];
     const m = reread(exportRkt({
