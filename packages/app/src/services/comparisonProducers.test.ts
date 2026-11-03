@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+// S5 round 3: describeFile 0 -> 1 is the share-size refusal, covered at the exact motor-suffix boundary in describeFile.test.ts.
 // N7 round 4 census review: presets 20 -> 21 and userMaterials 11 -> 12
 // add only recovery-copy message declarations. No numeric boundary changed.
 import { createElement, act } from 'react';

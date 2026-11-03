@@ -68,6 +68,7 @@
     "services/catalogueOverlay.ts": 17,
     "services/componentTable.ts": 3,
     "services/deployOverrideNote.ts": 2,
+    "services/describeFile.ts": 1,
     "services/designFile.ts": 4,
     "services/designFileName.ts": 1,
     "services/designPrintReport.ts": 21,

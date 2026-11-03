@@ -15,10 +15,11 @@ import { shownCp } from './simReport.js';
 import { APP_DEFAULT_AERO, resetKernelForTests, SimulateDesignError, withKernel } from './simulateDesign.js';
 import { openHeadlessDesign, planHeadlessImport, simulateFile } from './simulateFile.js';
 import { launchMountOf, motorMounts } from '../tree/treeModel.js';
-import { motorLinkParams } from './motorLink.js';
+import { DELAY_HINT_GRAMMAR, motorLinkParams } from './motorLink.js';
 import { MOTOR_DB } from './motorDb.js';
 import { bundleHasCurve, defaultDelay } from './thrustcurve.js';
 import * as fileServices from './simulateFile.js';
+import * as shareLinks from './shareLink.js';
 
 /**
  * THE S3 DRAFT DESCRIBE (describeFile.ts), on the committed fixtures only.
@@ -58,13 +59,18 @@ describe('describeFile: dry statics on the shipped data, no flight', () => {
     const out = await describeFile(bytes(file), file);
     expect(out.analysis.aeroModel).toBe('classic');
     expect(out.analysis.rogersKbf).toBe(true);
-    const plan = await planHeadlessImport(await openHeadlessDesign(bytes(file), file, { network: 'forbid' }), { network: 'forbid' });
+    const imported = await openHeadlessDesign(bytes(file), file, { network: 'forbid' });
+    const plan = await planHeadlessImport(imported, { network: 'forbid' });
     const source = plan.snapshot;
     const ids = motorMounts(source.tree).map(m => m.id!);
     const id = launchMountOf(source.tree, ids);
     expect(out.launchMount).toBe(id === null ? null : `m${ids.indexOf(id) + 1}`);
     const motor = id === null ? undefined : source.mountMotors[id];
-    const delay = id === null || motor?.meta.autoDelay ? undefined : motor ? motor.spec.ejectionDelay : plan.unmatchedRefs[id]?.delay;
+    let delay = id === null || motor?.meta.autoDelay ? undefined : motor ? motor.spec.ejectionDelay : plan.unmatchedRefs[id]?.delay;
+    if (imported.sourceFormat === 'cdx1' && id !== null) {
+      const stated = (imported.configs?.find(c => c.id === source.activeConfigId)?.motors ?? imported.motors)[id]?.matchContext?.explicitDelay;
+      delay = stated === 'plugged' ? Infinity : stated;
+    }
     expect(motorLinkParams(out.fragment).delayHint).toBe(delay === Infinity ? 'plugged' : delay ?? null);
   }, 60_000);
 
@@ -81,7 +87,7 @@ describe('describeFile: dry statics on the shipped data, no flight', () => {
     expect(Math.abs(a.stabilityCalibers! - (a.cpM! - a.dryCgM!) / a.referenceDiameterM)).toBeLessThan(1e-9);
     expect(JSON.parse(JSON.stringify(out))).toEqual(out);
     expect(out.fragment.startsWith('#d=1.')).toBe(true);
-    expect(out.fragment).toMatch(/^#d=1\.[A-Za-z0-9_-]+(?:&delay=(?:P|\d+(?:\.\d+)?))?$/);
+    expect(out.fragment).toMatch(new RegExp(`^#d=1\\.[A-Za-z0-9_-]+(?:&delay=${DELAY_HINT_GRAMMAR.source.slice(1, -1)})?$`));
   }, 60_000);
 
   it.each(FORMATS)('%s: the dry figures are the flight build\'s own, and Cd is the Design tab\'s loaded figure', async file => {
@@ -246,6 +252,16 @@ describe('describeFile: mounts', () => {
       ] },
     ] as ComponentNode[] };
     const out = await describeFile(ork(exportOrk({ name: 'Strap-ons', tree })), 'strapons.ork');
+    expect(out.launchMount).toBe('m1');
+    const withMotors = await describeFile(ork(exportOrk({ name: 'Strap-ons', tree, motors: {
+      core: { designation: 'Missing-core', manufacturer: 'Test', diameter: 0.018, length: 0.07, delay: 5 },
+      pm: { designation: 'Missing-strap', manufacturer: 'Test', diameter: 0.018, length: 0.07, delay: 7 },
+    } })), 'strapons.ork');
+    expect(motorLinkParams(withMotors.fragment).delayHint).toBe(5);
+    const emptyCore = await describeFile(ork(exportOrk({ name: 'Strap-ons', tree, motors: {
+      pm: { designation: 'Missing-strap', manufacturer: 'Test', diameter: 0.018, length: 0.07, delay: 7 },
+    } })), 'strapons.ork');
+    expect(emptyCore.notes.export.join(' ')).toContain('This link carries no delay hint.');
     // Instance counts and the cluster are this test's own inputs: 2 strap-ons × a 4-motor cluster.
     expect(out.mounts.map(m => [m.name, m.stageIndex, m.stageName, m.count]))
       .toEqual([['Core', 0, 'Core stage', 1], ['Strap-on mount', 0, 'Core stage', 8]]);
@@ -253,12 +269,46 @@ describe('describeFile: mounts', () => {
 });
 
 describe('describeFile: the motor-independent fragment', () => {
+  it.each([undefined, 5, 'plugged'] as const)('uses only the stated RASAero delay, not synthesized Infinity or zero: %s', async stated => {
+    const realOpen = fileServices.openHeadlessDesign;
+    vi.spyOn(fileServices, 'openHeadlessDesign').mockImplementation(async (...args) => {
+      const imported = await realOpen(...args);
+      imported.sourceFormat = 'cdx1';
+      for (const refs of [imported.motors, ...(imported.configs ?? []).map(c => c.motors)]) {
+        for (const ref of Object.values(refs)) ref.matchContext = { source: 'rasaero', explicitDelay: stated };
+      }
+      return imported;
+    });
+    expect(motorLinkParams((await describeFile(bytes('reference.ork'), 'reference.ork')).fragment).delayHint)
+      .toBe(stated === 'plugged' ? 'plugged' : stated ?? null);
+  }, 60_000);
+  it('omits unmatched RockSim every-delay instead of treating it as plugged', async () => {
+    const body = strToU8(strFromU8(bytes('rocksimTestRocket1.rkt'))
+      .replace(/<EngineCode>[^<]*<\/EngineCode>/g, '<EngineCode>Z99999-NOPE</EngineCode>')
+      .replace(/<EjectionDelay>[^<]*<\/EjectionDelay>/g, '<EjectionDelay>-1</EjectionDelay>'));
+    const plan = await planHeadlessImport(await openHeadlessDesign(body, 'every.rkt', { network: 'forbid' }), { network: 'forbid' });
+    expect(Object.values(plan.unmatchedRefs).some(r => r.rktEveryDelay && r.delay === Infinity)).toBe(true);
+    const out = await describeFile(body, 'every.rkt');
+    expect(out.fragment).not.toContain('&delay=');
+    expect(out.notes.export.join(' ')).toContain('This link carries no delay hint.');
+  }, 60_000);
+  it('reserves room for the motor suffix including the delay at the exact boundary', async () => {
+    // reference.ork has a five-second hint; the encoder seam isolates character accounting.
+    for (const extra of [0, 1]) {
+      const bare = '#d=1.' + 'A'.repeat(MAX_FRAGMENT_CHARS - 5 - '&delay=5'.length - '&motor='.length - 24 + extra);
+      const encoder = vi.spyOn(shareLinks, 'encodeShareFragment').mockResolvedValue(bare);
+      if (extra) await expect(describeFile(bytes('reference.ork'), 'reference.ork')).rejects.toMatchObject({ name: SHARE_TOO_LARGE_ERROR_NAME });
+      else expect((await describeFile(bytes('reference.ork'), 'reference.ork')).fragment.length + 31).toBe(MAX_FRAGMENT_CHARS);
+      encoder.mockRestore();
+    }
+  }, 60_000);
   it.each([
     ['fixed', 'C6', 5, false, 5],
     ['plugged', 'C6', Infinity, false, 'plugged'],
     ['unmatched', 'Z99999-NOPE', 5, false, 5],
     ['unmatched plugged', 'Z99999-NOPE', Infinity, false, 'plugged'],
     ['empty', null, undefined, false, null],
+    ['unrepresentable', 'Z99999-NOPE', 5.125, false, null],
   ] as const)('%s launch motor delay hint survives only outside the payload', async (_name, designation, delay, autoDelay, hint) => {
     const tree = importOrk(referenceXml()).tree;
     const id = motorMounts(tree)[0]!.id!;
@@ -273,6 +323,9 @@ describe('describeFile: the motor-independent fragment', () => {
     } else expect(motor).toBeUndefined();
     const out = await describeFile(ork(xml), 'delay.ork');
     expect(motorLinkParams(out.fragment).delayHint).toBe(hint);
+    if (designation !== null) expect(out.notes.export.join(' ')).toContain(hint === 'plugged'
+      ? 'This link carries a plugged delay hint (no ejection charge).'
+      : hint === null ? 'This link carries no delay hint.' : `This link carries a delay hint of ${hint} s.`);
     if (hint !== null) expect(out.fragment.endsWith(`&delay=${hint === 'plugged' ? 'P' : hint}`)).toBe(true);
     else expect(out.fragment).not.toContain('&delay=');
     const payload = out.fragment.split('&')[0]!;
@@ -298,7 +351,9 @@ describe('describeFile: the motor-independent fragment', () => {
         }
         return plan;
       });
-      expect((await describeFile(bytes('reference.ork'), 'reference.ork')).fragment).not.toContain('&delay=');
+      const out = await describeFile(bytes('reference.ork'), 'reference.ork');
+      expect(out.fragment).not.toContain('&delay=');
+      expect(out.notes.export.join(' ')).toContain('This link carries no delay hint.');
       spy.mockRestore();
     }
   }, 60_000);
@@ -318,7 +373,9 @@ describe('describeFile: the motor-independent fragment', () => {
     const id = launchMountOf(source.tree, motorMounts(source.tree).map(m => m.id!))!;
     expect(source.mountMotors[id]!.meta.autoDelay).toBe(true);
     expect(source.mountMotors[id]!.spec.ejectionDelay).toBeDefined();
-    expect((await describeFile(body!, 'auto.rkt')).fragment).not.toContain('&delay=');
+    const out = await describeFile(body!, 'auto.rkt');
+    expect(out.fragment).not.toContain('&delay=');
+    expect(out.notes.export.join(' ')).toContain('This link carries no delay hint.');
   }, 60_000);
 
   it('reports the committed CDX1 nozzle loss in the link and the shared .ork writer', async () => {

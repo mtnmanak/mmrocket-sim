@@ -100,7 +100,7 @@ describe('S3 draft POST /describe in real workerd', () => {
     expect(out.analysis.basis).toBe('dry; no installed motors');
     expect(out.link).toBe(APP_URL + '/' + out.fragment);
     expect(out.analysis).toMatchObject({ aeroModel: 'classic', rogersKbf: true });
-    expect(out.fragment).toMatch(/^#d=1\.[A-Za-z0-9_-]+(?:&delay=(?:P|\d+(?:\.\d+)?))?$/);
+    expect(out.fragment).toMatch(/^#d=1\.[A-Za-z0-9_-]+(?:&delay=(?:P|\d{1,3}(?:\.\d{1,2})?))?$/);
     expect(Object.keys(out.mounts[0]!).sort()).toEqual(['count', 'diameterM', 'key', 'maxMotorLengthM', 'name', 'stageIndex', 'stageName']);
     await sameAsNode(out, await describeFile(body, name, API_NAME));
   });
